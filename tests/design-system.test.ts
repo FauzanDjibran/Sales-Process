@@ -715,14 +715,13 @@ describe("a form is filled in in the order its rules require", () => {
 // ------------------------------------- an account's flags are not isian
 
 /**
- * Whether an account may receive a posting is decided by the backend.
+ * Whether an account may receive a posting is decided by the backend; whether
+ * it is a control account is the user's decision.
  *
- * Both flags used to be checkboxes, and both are structural: `is_postable` is
- * whether the account is a leaf (§10 rule 77), and `is_control_account` is
- * whether anything outside the General Ledger reconciles against it (rule 79).
- * A checkbox over either of those is an invitation to contradict the structure
- * — and the application would not error, it would simply stop being able to
- * prove its own figures.
+ * `is_postable` is whether the account is a leaf (§10 rule 77), so a checkbox
+ * over it would be an invitation to contradict the structure. Control Account
+ * is the opposite case: it is chosen on the account form (Claude-ERP.md P16),
+ * and the manual journal refuses whatever the user marked.
  */
 describe("an account's postability is not something a user types", () => {
   const account = ENTITIES.find((e) => e.key === "acc_account")!;
@@ -735,29 +734,22 @@ describe("an account's postability is not something a user types", () => {
     );
   });
 
-  test("Control Account is shown, and never written by a form", () => {
+  test("Control Account is an ordinary choice on the form", () => {
     const field = account.fields.find((f) => f.name === "is_control_account");
-    assert.ok(field, "the flag is still shown — a manual journal is refused by it");
-    assert.equal(field!.derived, true, "it is recomputed from the structure");
-    assert.equal(field!.locked, true, "so an update must drop whatever was submitted");
+    assert.ok(field, "the flag is on the form — the manual journal is refused by it");
+    assert.equal(field!.type, "bool");
+    assert.notEqual(field!.derived, true, "the user sets it; nothing recomputes it");
+    assert.notEqual(field!.locked, true, "and it may be changed after the account exists");
   });
 
-  test("the flag is recomputed in both directions", () => {
-    // Claiming used to be automatic and releasing was not, which left an
-    // account flagged by a mapping since repointed elsewhere closed to manual
-    // entry for good. With the checkbox gone there would be no way back.
-    const f = files.find((x) => x.rel === "src/lib/erp/records.ts");
-    assert.ok(f);
-    assert.match(
-      code(f!.text),
-      /export async function syncControlAccounts/,
-      "records.ts owns the recompute."
+  test("nothing recomputes the flag behind the user's back", () => {
+    const bad = files.filter((x) =>
+      /syncControlAccounts|markControlAccount/.test(code(x.text))
     );
-    const bad = files.filter((x) => /markControlAccount/.test(code(x.text)));
     assert.deepEqual(
       bad.map((x) => x.rel),
       [],
-      "`markControlAccount` only ever set the flag — use `syncControlAccounts`."
+      "Control Account is set on the account form only (P16)."
     );
   });
 });

@@ -25,10 +25,8 @@ import {
   nextCode,
   refLabel,
   requireEntity,
-  syncControlAccounts,
 } from "@/lib/erp/records";
 import {
-  systemDefaultAccountIds,
   systemDefaultsUsingAccount,
 } from "@/lib/erp/system-settings";
 
@@ -452,49 +450,6 @@ function buildData(entity: Entity, values: FormValues, applies: Set<string>) {
   return data;
 }
 
-/**
- * A book's counterpart account declares itself — and stops declaring itself.
- *
- * A Cash & Bank resource registered on an account makes that account the Cash
- * Bank Book's counterpart: its balance is reconciled against something outside
- * the General Ledger, and writing to it by hand would put the two out of
- * agreement — so the structure decides `is_control_account` rather than leaving
- * it to somebody remembering to tick a box.
- *
- * `previousAccountId` is what makes it work in both directions. Repointing a
- * Cash & Bank releases the account it used to name, provided nothing else
- * still claims it — `syncControlAccounts` re-asks rather than assuming.
- */
-async function syncControlAccountsFor(
-  entityKey: string,
-  values: FormValues,
-  actorId: number,
-  previousAccountId?: number | null
-): Promise<void> {
-  if (entityKey !== "m_cash_bank") return;
-
-  const touched = new Set<number>();
-  const accountId = refValue(values, "account_id");
-  if (accountId) touched.add(accountId);
-  if (previousAccountId) touched.add(previousAccountId);
-  if (!touched.size) return;
-
-  await syncControlAccounts(touched, await systemDefaultAccountIds(), actorId);
-}
-
-/** The account a Cash & Bank names today, before it is rewritten. */
-async function currentAccountId(
-  entityKey: string,
-  id: number
-): Promise<number | null> {
-  if (entityKey !== "m_cash_bank") return null;
-  const row = await delegate(entityKey).findUnique({
-    where: { id },
-    select: { account_id: true },
-  });
-  return row ? Number(row.account_id) : null;
-}
-
 export async function createRecord(
   slug: string,
   values: FormValues
@@ -565,8 +520,6 @@ export async function createRecord(
     return row;
   });
 
-  await syncControlAccountsFor(entity.key, values, actor.user.id);
-
   await prisma.auditLog.create({
     data: {
       entity_key: entity.key,
@@ -603,17 +556,10 @@ export async function updateRecord(
     if (field.locked) delete data[field.name];
   }
 
-  // Read before the write: repointing a Cash & Bank has to
-  // release the account it used to name, and once the row is updated there is
-  // nothing left that remembers which account that was.
-  const previousAccountId = await currentAccountId(entity.key, id);
-
   await delegate(entity.key).update({
     where: { id },
     data: { ...data, updated_by: actor.user.id },
   });
-
-  await syncControlAccountsFor(entity.key, values, actor.user.id, previousAccountId);
 
   await prisma.auditLog.create({
     data: {

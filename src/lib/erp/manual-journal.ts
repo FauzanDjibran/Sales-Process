@@ -18,8 +18,6 @@ import {
   holdPostingPeriod,
   todayDay,
 } from "./fiscal";
-import { controlAccountReasons } from "./records";
-import { systemDefaultsUsingAccount } from "./system-settings";
 
 /**
  * The manual journal — what a person may write into the books by hand.
@@ -34,7 +32,7 @@ import { systemDefaultsUsingAccount } from "./system-settings";
  *
  * **A manual journal may not create a discrepancy between the General Ledger
  * and a book.** The operational books — the Cash Bank Book, its rate layers,
- * and the six subject books — are independent historical stores written
+ * and the partner positions a document posts — are independent historical stores written
  * alongside the journal by the same posting (concept doc §2.5). They agree with
  * the General Ledger because one posting writes both. A hand-written journal
  * line touching an account one of those books reconciles against would move the
@@ -44,15 +42,13 @@ import { systemDefaultsUsingAccount } from "./system-settings";
  * So the rule is structural rather than advisory. An account is selectable when
  * it is **postable** and **not a control account**, and those two flags are the
  * whole test — `is_postable` says it is a place money lands rather than a
- * heading, `is_control_account` says a book outside the General Ledger already
- * reconciles against it. Everything that makes an account a book's counterpart
- * sets that flag when it claims the account, so the two questions the picker
- * asks are the two questions the Server Action asks.
+ * heading, `is_control_account` says a book outside the General Ledger
+ * reconciles against it. The user sets that flag on the account form
+ * (Claude-ERP.md P16), and the picker and the Server Action ask the same two
+ * questions.
  *
  * What remains reachable is exactly what should be: expense and asset accounts,
- * accruals, prepaid, accumulated depreciation, equity. A Biaya mapping target
- * is *not* a control account, because Biaya keeps no subject book — it
- * reconciles against the General Ledger and nothing else.
+ * accruals, prepaid, accumulated depreciation, equity.
  *
  * ## What it inherits unchanged
  *
@@ -213,12 +209,9 @@ export async function manualJournalOptions(): Promise<ManualJournalOptions> {
 /**
  * Why this account may not be written to by hand, or null when it may.
  *
- * The two flags are the test, and the refusal **names the book** rather than
- * stating the flag: "tidak dapat dipilih" tells a user nothing they can act on,
- * while "direkonsiliasi dengan Buku Hutang" says which document they should
- * have raised instead. The reasons come from the structure rather than from the
- * flag, so an account someone declared a control account by hand still refuses
- * — it simply refuses without naming a book, because there is none to name.
+ * The two flags are the test, and the refusal says what to do instead:
+ * "tidak dapat dipilih" tells a user nothing they can act on, while "catat
+ * lewat dokumennya" says a document should have been raised.
  */
 async function refuseAccount(
   account: {
@@ -237,14 +230,10 @@ async function refuseAccount(
     return "Account ini adalah header dan tidak menerima posting. Pilih salah satu sub-accountnya.";
   }
   if (account.is_control_account) {
-    const reasons = await controlAccountReasons(account.id);
-    const defaults = await systemDefaultsUsingAccount(account.id);
-    const named = [...reasons, ...defaults];
-    return named.length
-      ? `Account ${account.account_label} adalah control account yang direkonsiliasi dengan ${named.join(
-          ", "
-        )}. Catat lewat dokumen yang menulis buku tersebut, bukan Journal Manual.`
-      : `Account ${account.account_label} ditandai sebagai control account dan tidak dapat diisi lewat Journal Manual.`;
+    return (
+      `Account ${account.account_label} adalah control account dan tidak dapat ` +
+      "diisi lewat Journal Manual. Catat lewat dokumen yang memposting ke account ini."
+    );
   }
   return null;
 }

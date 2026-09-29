@@ -17,16 +17,6 @@ import {
   updateManualJournal,
 } from "../src/lib/erp/manual-journal";
 import { generalLedgerReport, trialBalanceReport } from "../src/lib/erp/ledger";
-import {
-  CASH_BANK_SUBCATEGORY,
-  controlAccountReasons,
-  syncControlAccounts,
-} from "../src/lib/erp/records";
-import {
-  systemDefaultAccountIds,
-  systemDefaults,
-  writeSystemDefaults,
-} from "../src/lib/erp/system-settings";
 import { knownAuditEvents } from "../src/lib/erp/audit-events";
 import {
   cleanupFiscalYear,
@@ -138,161 +128,10 @@ async function draft(lines: ReturnType<typeof line>[]) {
   return result;
 }
 
-/** Whether the account currently carries the flag the manual journal reads. */
-async function isControl(accountId: number): Promise<boolean> {
-  const row = await prisma.accAccount.findUniqueOrThrow({
-    where: { id: accountId },
-    select: { is_control_account: true },
-  });
-  return row.is_control_account;
-}
-
-/** A Cash & Bank resource on an account, which is what claims it for the book. */
-async function makeCashBank(accountId: number, label: string): Promise<number> {
-  const row = await prisma.mCashBank.create({
-    data: {
-      cash_bank_code: `test.${label}`,
-      cash_bank_label: label,
-      cash_bank_name: `Fixture ${label}`,
-      cash_bank_type: "Cash",
-      currency_id: baseCurrency,
-      account_id: accountId,
-      created_by: actor,
-    },
-    select: { id: true },
-  });
-  return row.id;
-}
-
 // ------------------------------------------------------- control accounts
 
 describe("a manual journal may not touch a control account", () => {
-  test("an account a Cash & Bank resource posts to is refused, by name", async () => {
-    const account = await makeAccount({
-      subcategoryLabel: CASH_BANK_SUBCATEGORY,
-    });
-    const resource = await prisma.mCashBank.create({
-      data: {
-        cash_bank_code: `test.ZZMJ1`,
-        cash_bank_label: "ZZMJ1",
-        cash_bank_name: "Fixture Kas Manual Journal",
-        cash_bank_type: "Cash",
-        currency_id: baseCurrency,
-        account_id: account,
-        created_by: actor,
-      },
-      select: { id: true },
-    });
-
-    const reasons = await controlAccountReasons(account);
-    assert.ok(
-      reasons.some((r) => r.includes("Kas & Bank")),
-      "the Cash Bank Book is what this account reconciles against"
-    );
-
-    // The flag the check reads is not set by this fixture — the structure is
-    // what makes it a control account, and the application sets the flag when
-    // a resource is registered through it. Setting it here is what the
-    // Server Action's own path would have done.
-    await prisma.accAccount.update({
-      where: { id: account },
-      data: { is_control_account: true },
-    });
-
-    const refused = await checkManualJournal(headerFor(), [
-      line(account, 100_000, 0),
-      line(expense, 0, 100_000),
-    ]);
-    assert.equal(refused.ok, false);
-    assert.match(
-      refused.ok ? "" : refused.errors["lines.0.account_id"],
-      /control account/i
-    );
-    assert.match(
-      refused.ok ? "" : refused.errors["lines.0.account_id"],
-      /Kas & Bank/,
-      "the refusal names the book, so the user knows which document to raise"
-    );
-
-    await prisma.mCashBank.delete({ where: { id: resource.id } });
-  });
-
-  test("the flag follows the structure in both directions", async () => {
-    // The property the recompute exists for, and the one that cannot be seen
-    // by looking at the screen: a Cash & Bank resource repointed at another
-    // account has to release the one it left behind. While claiming was
-    // automatic and releasing was not, the old account stayed closed to manual
-    // entry for good — and the only way back was a checkbox that no longer
-    // exists.
-    const first = await makeAccount({
-      subcategoryLabel: CASH_BANK_SUBCATEGORY,
-    });
-    const second = await makeAccount({
-      subcategoryLabel: CASH_BANK_SUBCATEGORY,
-    });
-    const resource = await makeCashBank(first, "ZZMJ2");
-
-    const defaults = await systemDefaultAccountIds();
-    await syncControlAccounts([first, second], defaults, actor);
-    assert.equal(await isControl(first), true, "the Cash Bank Book claims it");
-    assert.equal(await isControl(second), false, "nothing claims this one yet");
-
-    await prisma.mCashBank.update({
-      where: { id: resource },
-      data: { account_id: second },
-    });
-    await syncControlAccounts([first, second], defaults, actor);
-
-    assert.equal(
-      await isControl(first),
-      false,
-      "nothing reconciles against it any more, so it re-opens to manual entry"
-    );
-    assert.equal(await isControl(second), true, "the resource's new account is claimed");
-
-    // And the refusal follows the flag rather than lagging a step behind it.
-    const allowed = await checkManualJournal(headerFor(), [
-      line(first, 40_000, 0),
-      line(expense, 0, 40_000),
-    ]);
-    assert.equal(allowed.ok, true, "a released account is writable by hand again");
-
-    await prisma.mCashBank.delete({ where: { id: resource } });
-  });
-
-  test("a second claim holds an account even when the first lets go", async () => {
-    // Why the release re-asks the structure rather than assuming: two things
-    // can reconcile against one account, and the one that moves away must not
-    // release it for the one that is still there.
-    const shared = await makeAccount({
-      subcategoryLabel: CASH_BANK_SUBCATEGORY,
-    });
-    const elsewhere = await makeAccount({
-      subcategoryLabel: CASH_BANK_SUBCATEGORY,
-    });
-    const moving = await makeCashBank(shared, "ZZMJ3");
-    const staying = await makeCashBank(shared, "ZZMJ4");
-
-    const defaults = await systemDefaultAccountIds();
-    await syncControlAccounts([shared], defaults, actor);
-    assert.equal(await isControl(shared), true);
-
-    await prisma.mCashBank.update({
-      where: { id: moving },
-      data: { account_id: elsewhere },
-    });
-    await syncControlAccounts([shared, elsewhere], defaults, actor);
-
-    assert.equal(
-      await isControl(shared),
-      true,
-      "the second resource still reconciles against it"
-    );
-
-    await prisma.mCashBank.deleteMany({ where: { id: { in: [moving, staying] } } });
-  });
-
-  test("the flag alone is enough, with no structure behind it", async () => {
+  test("an account the user marked as a control account is refused", async () => {
     const declared = await makeAccount({
       subcategoryLabel: "5.3.1",
       controlAccount: true,
@@ -302,68 +141,11 @@ describe("a manual journal may not touch a control account", () => {
       line(expense, 0, 50_000),
     ]);
     assert.equal(refused.ok, false);
-    assert.match(
-      refused.ok ? "" : refused.errors["lines.0.account_id"],
-      /control account/i
-    );
-  });
-
-  test("an equity account closing posts into is refused, by its setting's name", async () => {
-    // The third structural source of a control account, and the one with no
-    // table behind it: a System Default names where a posting engine writes,
-    // and what an engine owns a person does not hand-write into. Laba/Rugi
-    // Tahun Sebelumnya is where a Fiscal Year's result lands at closing;
-    // Laba/Rugi Tahun Berjalan is where the Neraca places a figure it
-    // computes, and nothing posts to it at all — a hand-written line would sit
-    // beside the computed figure unexplained.
-    const accumulated = await makeAccount({
-      subcategoryLabel: "3.3.1",
-      normalBalance: "Kredit",
-    });
-    const current = await makeAccount({
-      subcategoryLabel: "3.4.1",
-      normalBalance: "Kredit",
-    });
-
-    const before = await systemDefaults();
-    await writeSystemDefaults(
-      {
-        accumulated_pl_account: String(accumulated),
-        current_pl_account: String(current),
-      },
-      actor
-    );
-    await syncControlAccounts([accumulated, current], await systemDefaultAccountIds(), actor);
-
-    assert.equal(await isControl(accumulated), true);
-    assert.equal(await isControl(current), true);
-
-    for (const [account, name] of [
-      [accumulated, "Tahun Sebelumnya"],
-      [current, "Tahun Berjalan"],
-    ] as const) {
-      const refused = await checkManualJournal(headerFor(), [
-        line(account, 0, 75_000),
-        line(expense, 75_000, 0),
-      ]);
-      assert.equal(refused.ok, false);
-      const message = refused.ok ? "" : refused.errors["lines.0.account_id"];
-      assert.match(message, /control account/i);
-      // Naming the setting rather than the flag is the whole point: a user
-      // told "tidak dapat dipilih" learns nothing they can act on.
-      assert.match(message, new RegExp(name));
-    }
-
-    // Put the settings back, and release the accounts before they are torn
-    // down — an account left flagged would outlive the row explaining it.
-    await writeSystemDefaults(
-      {
-        accumulated_pl_account: before.accumulated_pl_account,
-        current_pl_account: before.current_pl_account,
-      },
-      actor
-    );
-    await syncControlAccounts([accumulated, current], await systemDefaultAccountIds(), actor);
+    const message = refused.ok ? "" : refused.errors["lines.0.account_id"];
+    assert.match(message, /control account/i);
+    // The refusal says what to do instead: a user told only "tidak dapat
+    // dipilih" learns nothing they can act on.
+    assert.match(message, /dokumen/);
   });
 
   test("the picker offers exactly what the check accepts", async () => {

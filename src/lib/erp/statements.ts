@@ -307,7 +307,7 @@ export async function balanceSheetReport(
   const partnerIds = [...new Set(pairs.flat().flatMap((p) => (p.partnerId ? [p.partnerId] : [])))];
   const built = buildBalanceSheet(chart, pairs, await partnerNames(partnerIds), placed, trailing);
 
-  // A computed line's account is a control account nothing may post to, so a
+  // A computed line's account is one nothing posts to, so a
   // balance on it was written some other way. It is added in rather than
   // dropped — the Neraca would not balance otherwise — and named.
   const postedOnComputed = chart

@@ -598,21 +598,18 @@ export const ENTITIES: Entity[] = [
         help: "satu Account menampung satu Partner Category",
       },
       {
-        // Whether a book outside the General Ledger reconciles against this
-        // account: a Cash & Bank resource registered on it, a subject-book
-        // mapping pointing at it, a bridge or FX System Default naming it.
-        // The structure answers that question, so the flag is recomputed from
-        // it on every event that can change the answer and is never typed —
-        // `syncControlAccounts` in `records.ts`. Still shown, because a manual
-        // journal is refused by it and that refusal has to be readable before
-        // somebody starts writing one.
+        // Chosen by the user (Claude-ERP.md P16), as it was before SIBA made
+        // it derived from the structure. It marks an account whose balance a
+        // document's posting keeps in step with a book outside the General
+        // Ledger — Kas & Bank, Piutang, Hutang — and the manual journal
+        // refuses it, so the two cannot drift apart by a hand-typed line.
         name: "is_control_account",
         label: "Control Account",
         type: "bool",
-        derived: true,
-        locked: true,
         defaultValue: false,
-        caption: "Direkonsiliasi dengan book",
+        caption: "Control account",
+        captionDetail:
+          "Hanya diisi lewat posting dokumen. Journal Manual tidak dapat memakai account ini.",
       },
       {
         name: "is_active",

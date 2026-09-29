@@ -9,13 +9,11 @@ import {
   isSystemDefaultKey,
   refValueOf,
 } from "../src/lib/erp/system-defaults";
-import { syncControlAccounts } from "../src/lib/erp/records";
 import {
   checkSystemDefaultValue,
   defaultCurrencyId,
   missingClosingAccounts,
   missingNeracaAccounts,
-  systemDefaultAccountIds,
   systemDefaults,
   systemDefaultsUsingAccount,
   writeSystemDefaults,
@@ -78,13 +76,6 @@ before(async () => {
 
 after(async () => {
   await writeSystemDefaults({ default_currency: previous, ...previousEquity }, actor);
-  // Release every fixture account these settings claimed, before the accounts
-  // themselves go: an account left flagged would outlive the row explaining it.
-  await syncControlAccounts(
-    claimed,
-    await systemDefaultAccountIds(),
-    actor
-  );
   await cleanupFixtures();
   await prisma.refCurrency.deleteMany({
     where: { currency_label: { startsWith: FIXTURE_PREFIX } },
@@ -95,8 +86,6 @@ after(async () => {
 
 // -------------------------------------------------------------- the catalogue
 
-/** Every account this suite pointed a setting at, for the teardown to release. */
-const claimed = new Set<number>();
 
 describe("the System Default catalogue lives in code", () => {
   test("every declared key has a home in the empty value set", () => {
@@ -209,20 +198,13 @@ describe("a saved default is what the forms read", () => {
 /**
  * The two equity accounts closing a Fiscal Year and the Neraca need.
  *
- * They name a destination rather than prefilling a control: the accumulated one is where a year's result is posted, so it is checked when it
- * is stored and refused by name when it is missing. Both are closed to hand
- * entry by the ordinary mechanism — an account a posting engine owns is not one
- * a person types into — and the property that matters is that the claim is
- * released again when the setting is repointed.
- *
- * The sync is invoked here the way `saveSystemDefaults` invokes it: a test
- * process has no session, so it calls what the Server Action delegates to.
+ * They name a destination rather than prefilling a control: the accumulated
+ * one is where a year's result is posted, so it is checked when it is stored
+ * and refused by name when it is missing. Whether either is closed to hand
+ * entry is the account's own Control Account flag, which the user sets
+ * (Claude-ERP.md P16) — naming it in a setting changes nothing about it.
  */
 describe("the equity accounts closing posts into", () => {
-  const sync = async (touched: number[]) => {
-    for (const id of touched) claimed.add(id);
-    await syncControlAccounts(touched, await systemDefaultAccountIds(), actor);
-  };
   const isControl = async (id: number) =>
     (
       await prisma.accAccount.findUniqueOrThrow({
@@ -247,49 +229,24 @@ describe("the equity accounts closing posts into", () => {
     );
   });
 
-  test("setting one closes it to manual entry, and repointing re-opens it", async () => {
-    const first = await makeAccount({
+  test("naming an account in a setting leaves its Control Account flag alone", async () => {
+    const accumulated = await makeAccount({
       subcategoryLabel: "3.3.1",
       normalBalance: "Kredit",
     });
-    const current = await makeAccount({
-      subcategoryLabel: "3.4.1",
-      normalBalance: "Kredit",
-    });
     await writeSystemDefaults(
-      {
-        accumulated_pl_account: String(first),
-        current_pl_account: String(current),
-      },
+      { accumulated_pl_account: String(accumulated) },
       actor
     );
-    await sync([first, current]);
 
-    assert.equal(await isControl(first), true, "closing posts here");
     assert.equal(
-      await isControl(current),
-      true,
-      "and nothing posts here at all, which is a stronger reason still"
+      await isControl(accumulated),
+      false,
+      "the flag is the user's choice on the account form, not a consequence of a setting"
     );
-    assert.deepEqual(await systemDefaultsUsingAccount(first), [
+    assert.deepEqual(await systemDefaultsUsingAccount(accumulated), [
       "Account Laba/Rugi Tahun Sebelumnya",
     ]);
-
-    // The half that used to be missing everywhere: a setting moved on has to
-    // let go of what it left behind, or the old account stays shut for good.
-    const second = await makeAccount({
-      subcategoryLabel: "3.3.1",
-      normalBalance: "Kredit",
-    });
-    await writeSystemDefaults(
-      { accumulated_pl_account: String(second) },
-      actor
-    );
-    await sync([first, second]);
-
-    assert.equal(await isControl(first), false, "nothing names it any more");
-    assert.equal(await isControl(second), true, "the setting's new target is claimed");
-    assert.equal(await isControl(current), true, "the untouched setting still holds its own");
   });
 
   test("an unset accumulated account is reported by name, and the current one is not", async () => {
@@ -314,7 +271,6 @@ describe("the equity accounts closing posts into", () => {
       { accumulated_pl_account: String(account) },
       actor
     );
-    await sync([account]);
     assert.deepEqual(await missingClosingAccounts(), []);
 
     // Resolved against the master, never trusted as stored: an account that has
@@ -365,7 +321,6 @@ describe("the equity accounts closing posts into", () => {
       },
       actor
     );
-    await sync([current, accumulated]);
 
     assert.deepEqual(await missingNeracaAccounts(true), []);
 

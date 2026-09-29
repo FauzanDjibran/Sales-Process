@@ -4,15 +4,12 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { authorizeAction } from "@/lib/erp/auth";
 import { isAccessDenied } from "@/lib/erp/auth-errors";
-import { syncControlAccounts } from "@/lib/erp/records";
 import {
   isSystemDefaultKey,
-  systemDefaultDef,
   type SystemDefaultKey,
 } from "@/lib/erp/system-defaults";
 import {
   checkSystemDefaultValue,
-  systemDefaultAccountIds,
   writeSystemDefaults,
 } from "@/lib/erp/system-settings";
 
@@ -45,7 +42,6 @@ export async function saveSystemDefaults(
 
   const clean: Partial<Record<SystemDefaultKey, string | null>> = {};
   const errors: Record<string, string> = {};
-  const accountsNamed: { key: SystemDefaultKey; id: number }[] = [];
 
   for (const [key, raw] of Object.entries(values)) {
     // A key the catalogue does not declare is not a setting, so there is
@@ -71,32 +67,11 @@ export async function saveSystemDefaults(
       continue;
     }
     clean[key] = String(n);
-    accountsNamed.push({ key, id: n });
   }
 
   if (Object.keys(errors).length) return { ok: false, errors };
 
-  // The accounts the settings named a moment ago. A setting repointed at
-  // another account has to release the one it left behind, and once
-  // `writeSystemDefaults` has run there is nothing that remembers it.
-  const before = await systemDefaultAccountIds();
-
   const changed = await writeSystemDefaults(clean, actorId);
-
-  // The FX and equity settings do not prefill a control — they name where a
-  // posting lands. An account that decides a posting is written to by the
-  // posting engine alone, so it is a control account for as long as a setting
-  // names it and stops being one when none does. The same reasoning as a Cash
-  // & Bank resource's account: what a book or an engine owns, a person does
-  // not type into (CLAUDE.md §12).
-  if (changed.length) {
-    const after = await systemDefaultAccountIds();
-    const touched = new Set([...before, ...after]);
-    for (const named of accountsNamed) {
-      if (systemDefaultDef(named.key).ref === "acc_account") touched.add(named.id);
-    }
-    await syncControlAccounts(touched, after, actorId);
-  }
 
   for (const key of changed) {
     const row = await prisma.sysSetting.findUnique({
