@@ -2,6 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { Icon } from "@/components/icon";
+import {
+  CollectionCard,
+  RowActions,
+  newKey,
+  type CollectionTabProps,
+} from "@/components/master/collection-tab";
 import { Combobox } from "@/components/ui/combobox";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, FormRow } from "@/components/ui/form";
@@ -25,92 +31,6 @@ import {
  * is pressed, in the same transaction (Claude-ERP.md P39), which is what the
  * dialog's footer says.
  */
-
-export type CollectionTabProps<T> = {
-  editing: boolean;
-  items: T[];
-  error?: string;
-  onChange: (items: T[]) => void;
-};
-
-let keySeq = 0;
-const newKey = (prefix: string) => `${prefix}n${Date.now().toString(36)}${keySeq++}`;
-
-function CollectionCard({
-  icon,
-  title,
-  desc,
-  editing,
-  addLabel,
-  onAdd,
-  error,
-  children,
-}: {
-  icon: "pin" | "users";
-  title: string;
-  desc: string;
-  editing: boolean;
-  addLabel: string;
-  onAdd: () => void;
-  error?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="card">
-      <div className="card-h">
-        <span className="ci">
-          <Icon name={icon} size={15} />
-        </span>
-        <div className="ct">
-          <h3>{title}</h3>
-          <p>{desc}</p>
-        </div>
-        {editing && (
-          <button className="btn sm" onClick={onAdd}>
-            <Icon name="plus" size={14} /> {addLabel}
-          </button>
-        )}
-      </div>
-      {error && (
-        <div className="nbox bad slim cerr">
-          <Icon name="warn" size={15} className="ni" />
-          <div>
-            <b>Belum bisa disimpan</b>
-            <p>{error}</p>
-          </div>
-        </div>
-      )}
-      {children}
-    </div>
-  );
-}
-
-function RowActions({ onEdit, onRemove }: { onEdit: () => void; onRemove: () => void }) {
-  return (
-    <div className="ract">
-      <button
-        className="iact"
-        title="Ubah"
-        onClick={(e) => {
-          e.stopPropagation();
-          onEdit();
-        }}
-      >
-        <Icon name="pen" size={14} />
-      </button>
-      <button
-        className="iact del"
-        title="Hapus"
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemove();
-        }}
-      >
-        <Icon name="trash" size={14} />
-      </button>
-    </div>
-  );
-}
 
 // ================================================================= Alamat
 

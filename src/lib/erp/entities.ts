@@ -105,7 +105,9 @@ export type Field = {
   refFilter?:
     | "cashBankAccount"
     | "postableAccount"
-    | "parentAccount";
+    | "parentAccount"
+    /** Kategori Item of the Tipe the form currently holds (P47). */
+    | "itemCategoryByType";
   /**
    * Named predicate deciding whether the field applies at all. A field that
    * does not apply is hidden and stored as null — the Server Action evaluates
@@ -124,7 +126,12 @@ export type Field = {
      * tax on a sale means nothing for a supplier, whose tax is the other way
      * round and is designed when purchasing is.
      */
-    | "partnerIsCustomer";
+    | "partnerIsCustomer"
+    /**
+     * The Item is a Barang. Stock and expiry mean nothing for a Jasa, so the
+     * flags are not offered and are stored false.
+     */
+    | "itemIsGoods";
   /**
    * `segment` only. The ref fields whose chosen row supplies the code this
    * segment continues, in priority order — the first one filled wins. Chart of
@@ -473,6 +480,117 @@ export const ENTITIES: Entity[] = [
       { field: "partner_name", label: "Nama Partner", primary: true, filter: "text" },
       { field: "category_id", label: "Partner Category", isRef: true, width: "190px", filter: "ref" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+    ],
+  },
+
+  {
+    key: "m_item",
+    slug: "item",
+    module: "master",
+    name: "Item",
+    icon: "box",
+    desc: "Barang dan jasa yang dijual. Harga dan perlakuan pajak ditentukan pada transaksi.",
+    codeField: "item_code",
+    codePrefix: "item",
+    labelField: "item_label",
+    nameField: "item_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "item_type",
+        label: "Tipe Item",
+        type: "select",
+        required: true,
+        options: ["Barang", "Jasa"],
+        // A category belongs to one type, so a new type empties the choice.
+        resets: ["category_id"],
+        help: "menentukan kategori yang boleh dipilih",
+      },
+      {
+        name: "category_id",
+        label: "Kategori Item",
+        type: "ref",
+        ref: "sys_item_category",
+        refFilter: "itemCategoryByType",
+        required: true,
+      },
+      {
+        name: "base_uom_id",
+        label: "Satuan Dasar",
+        type: "ref",
+        ref: "ref_uom",
+        required: true,
+        help: "satuan hitung; konversi lain dihitung ke satuan ini",
+      },
+      {
+        name: "item_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "FG-001",
+        help: identHelp,
+      },
+      {
+        name: "item_name",
+        label: "Nama Item",
+        type: "text",
+        required: true,
+        span: 8,
+        placeholder: "Serum Wajah Vitamin C 30 ml",
+        help: "nama lengkap, tercetak di dokumen",
+      },
+      {
+        name: "can_sell",
+        label: "Penjualan",
+        type: "bool",
+        span: 3,
+        caption: "Dapat Dijual",
+        defaultValue: true,
+      },
+      {
+        name: "can_buy",
+        label: "Pembelian",
+        type: "bool",
+        span: 3,
+        caption: "Dapat Dibeli",
+      },
+      {
+        name: "track_stock",
+        label: "Stok",
+        type: "bool",
+        span: 3,
+        visibleWhen: "itemIsGoods",
+        caption: "Kelola Stok",
+      },
+      {
+        name: "has_expiry",
+        label: "Kadaluarsa",
+        type: "bool",
+        span: 3,
+        visibleWhen: "itemIsGoods",
+        caption: "Memiliki Kadaluarsa",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    tabs: [
+      {
+        key: "uoms",
+        label: "Konversi Satuan",
+        icon: "scale",
+        desc: "Satuan lain untuk item ini dan isinya dalam satuan dasar, mis. 1 BOX = 12 PCS.",
+        kind: "custom",
+      },
+    ],
+    columns: [
+      { field: "item_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
+      { field: "item_name", label: "Nama Item", primary: true, filter: "text" },
+      { field: "item_type", label: "Tipe", isTag: true, width: "96px", filter: "enum" },
+      { field: "category_id", label: "Kategori", isRef: true, width: "210px", filter: "ref" },
+      { field: "base_uom_id", label: "Satuan", isRef: true, refLabelOnly: true, width: "96px" },
+      { field: "status", label: "Status", isStatus: true, width: "110px", filter: "enum" },
     ],
   },
 
@@ -1116,6 +1234,9 @@ export function fieldApplies(
     const v = values.require_partner;
     return v === true || v === "true";
   }
+  if (field.visibleWhen === "itemIsGoods") {
+    return values.item_type === "Barang";
+  }
   if (field.visibleWhen === "partnerIsCustomer") {
     return refLabelOf?.("category_id", values.category_id) === CUSTOMER_CATEGORY;
   }
@@ -1158,6 +1279,8 @@ export const TAG_CLASS: Record<string, string> = {
   Cash: "t-vio",
   Debit: "t-info",
   Kredit: "t-acc",
+  Barang: "t-info",
+  Jasa: "t-vio",
 };
 
 /** The value a status model treats as "active". */

@@ -142,6 +142,14 @@ enum VatCollector {
   Government
 }
 
+/// What an Item is. Decides which Kategori it may take, whether it can be
+/// stock-managed, and — by rule on the transaction — which PPh a withholding
+/// customer applies (Barang → PPh 22, Jasa → PPh 23). `Aset` joins later.
+enum ItemType {
+  Barang
+  Jasa
+}
+
 // ---------------------------------------------------------------- auth & access
 //
 // RBAC: USER -> ROLE -> PERMISSION. A permission is one atomic capability; a
@@ -402,7 +410,94 @@ model RefUom {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
+  base_items  MItem[]    @relation("ItemBaseUom")
+  item_uoms   MItemUom[]
+
   @@map("ref_uom")
+}
+
+/// Kategori Item — system data, seeded, with no menu (P47). Each belongs to one
+/// Item Type, and an item may only take a category of its own type. The
+/// account mapping per category is its own menu, later.
+model SysItemCategory {
+  id             Int          @id @default(autoincrement())
+  category_code  String       @unique
+  category_label String       @unique
+  category_name  String
+  item_type      ItemType
+  status         ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  items MItem[]
+
+  @@index([item_type])
+  @@map("sys_item_category")
+}
+
+/// An Item — a barang or a jasa the company sells (and later buys). It holds no
+/// price (typed on the document, P43) and no tax treatment: Kena PPN and the
+/// Jenis PPh are decided on each transaction (P45, P48).
+model MItem {
+  id          Int          @id @default(autoincrement())
+  item_code   String       @unique
+  item_label  String
+  item_name   String
+  item_type   ItemType
+  category_id Int
+  /// The unit quantities are counted in; every conversion is to this unit.
+  base_uom_id Int
+
+  /// Offered on a Sales Order.
+  can_sell    Boolean @default(true)
+  /// Offered on purchasing documents, once they exist.
+  can_buy     Boolean @default(false)
+  /// Barang only. Stored now; stock itself is ignored until P5 is lifted.
+  track_stock Boolean @default(false)
+  /// Barang only. Batch / expiry tracking, meaningful once stock exists.
+  has_expiry  Boolean @default(false)
+
+  note   String?
+  status ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  category SysItemCategory @relation(fields: [category_id], references: [id])
+  base_uom RefUom          @relation("ItemBaseUom", fields: [base_uom_id], references: [id])
+  uoms     MItemUom[]
+
+  @@index([category_id])
+  @@index([base_uom_id])
+  @@map("m_item")
+}
+
+/// An alternate unit of an Item and how many base units it holds: a BOX of
+/// this serum is 12 PCS. Part of the Item — saved with it, one audit entry.
+model MItemUom {
+  id      Int     @id @default(autoincrement())
+  item_id Int
+  uom_id  Int
+  /// Base units in one of this unit. More than 0.
+  factor     Decimal @db.Decimal(18, 4)
+  sort_order Int     @default(0)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  item MItem  @relation(fields: [item_id], references: [id])
+  uom  RefUom @relation(fields: [uom_id], references: [id])
+
+  @@unique([item_id, uom_id])
+  @@index([uom_id])
+  @@map("m_item_uom")
 }
 
 /// Termin Pembayaran — how long a customer has to pay. `due_days` after the

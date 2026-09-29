@@ -19,6 +19,8 @@ type Client = typeof prisma | Prisma.TransactionClient;
 
 const DELEGATES = {
   m_partner: (db: Client) => db.mPartner,
+  m_item: (db: Client) => db.mItem,
+  sys_item_category: (db: Client) => db.sysItemCategory,
   m_cash_bank: (db: Client) => db.mCashBank,
   ref_currency: (db: Client) => db.refCurrency,
   ref_uom: (db: Client) => db.refUom,
@@ -47,6 +49,8 @@ export type RefOption = {
    * picker — `validateAccount` re-checks it.
    */
   subcategoryId?: number;
+  /** Kategori Item only: the Item Type it belongs to (P47). */
+  itemType?: string;
 };
 
 /** Pass a transaction client to run the write inside someone else's transaction. */
@@ -150,6 +154,25 @@ export async function optionsFor(
         active: r.status === "Active",
       }));
     }
+    case "ref_uom": {
+      const rows = await prisma.refUom.findMany({ orderBy: { uom_label: "asc" } });
+      return rows.map((r) => ({
+        id: r.id,
+        label: r.uom_label,
+        name: r.uom_name,
+        active: r.status === "Active",
+      }));
+    }
+    case "sys_item_category": {
+      const rows = await prisma.sysItemCategory.findMany({ orderBy: { id: "asc" } });
+      return rows.map((r) => ({
+        id: r.id,
+        label: r.category_label,
+        name: r.category_name,
+        active: r.status === "Active",
+        itemType: r.item_type,
+      }));
+    }
     case "ref_currency": {
       const rows = await prisma.refCurrency.findMany({ orderBy: { id: "asc" } });
       return rows.map((r) => ({
@@ -195,6 +218,8 @@ export async function optionsFor(
 const LABEL_COLUMN: Record<string, string> = {
   sys_partner_category: "category_label",
   ref_currency: "currency_label",
+  ref_uom: "uom_label",
+  sys_item_category: "category_label",
   acc_account_subcategory: "subcategory_label",
   acc_account: "account_label",
 };

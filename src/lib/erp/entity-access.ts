@@ -29,6 +29,13 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "PARTNER_ACTIVATE",
     deactivate: "PARTNER_DEACTIVATE",
   },
+  m_item: {
+    view: "ITEM_VIEW",
+    create: "ITEM_CREATE",
+    edit: "ITEM_EDIT",
+    activate: "ITEM_ACTIVATE",
+    deactivate: "ITEM_DEACTIVATE",
+  },
   m_cash_bank: {
     view: "CASH_BANK_VIEW",
     create: "CASH_BANK_CREATE",

@@ -68,12 +68,12 @@ Candidates, from the simulation:
 | Termin Pembayaran | `TERMS` | **Done 29/09/2026** (P43) |
 | Gudang | `WAREHOUSES` | **Done 29/09/2026** (P43): Label + Nama, delivery origin only while stock is ignored (P5) |
 | Price group | `PRICE_GROUPS` | **Not built** (P43): prices are typed on the document |
-| Barang (`m_item`) | `GOODS` | Units with conversion, tax code, NIE BPOM + expiry, price list per price group × mode, placeholder cost (P18) |
+| Item (`m_item`) | `GOODS` | **Done 29/09/2026** (P46–P48): Tipe Barang / Jasa, seeded Kategori Item, Satuan Dasar + Konversi Satuan, four flags. No price, no tax, no NIE, no HPP standar on the Item |
 | Jenis Perizinan | `PERMITS` | Not an item. Set aside for now (P43) |
 | Jenis PPh | `WHT_TYPES` | **Done 29/09/2026** (P44): user-managed, four common types seeded |
 | Kode Pajak | `TAX_CODES` | **No table** (P45): PPN yes / no is an enum on the Item and transactions |
 | Satuan | `GOODS.uoms` | **Done 29/09/2026** (P43): unit only; conversions per Item |
-| Kategori Barang | `GOODS.cat` | Decided with the Item |
+| Kategori Item | `GOODS.cat` | **Done 29/09/2026** (P47): seeded system data per Tipe, no menu; account mapping later (C25) |
 | Company Setting | `COMPANY` | Its own menu (P28) |
 
 ---

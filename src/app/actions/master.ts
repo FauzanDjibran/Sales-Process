@@ -34,9 +34,15 @@ import {
   checkPartnerCollections,
   checkPartnerTax,
   writePartnerCollections,
-  type PartnerCollections,
 } from "@/lib/erp/partner";
 import { normalizeTaxId } from "@/lib/erp/partner-shape";
+import {
+  checkItemBaseUom,
+  checkItemCategory,
+  checkItemCollections,
+  writeItemCollections,
+} from "@/lib/erp/item";
+import type { Prisma } from "@/generated/prisma/client";
 import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-rules";
 
 /**
@@ -237,6 +243,10 @@ async function applicableFields(
       if (boolValue(values, "require_partner")) applies.add(field.name);
       continue;
     }
+    if (field.visibleWhen === "itemIsGoods") {
+      if (values.item_type === "Barang") applies.add(field.name);
+      continue;
+    }
     if (field.visibleWhen === "partnerIsCustomer") {
       const categoryId = refValue(values, "category_id");
       const label = categoryId ? await refLabel("sys_partner_category", categoryId) : null;
@@ -315,6 +325,14 @@ async function validate(
       if (!account || !account.is_postable || account._count.children > 0 || !account.is_active) {
         errors.prepaid_account_id = "Pilih account aktif yang dapat diposting.";
       }
+    }
+  }
+  if (entity.key === "m_item") {
+    for (const [k, v] of Object.entries({
+      ...(await checkItemCategory(values, currentId)),
+      ...(await checkItemBaseUom(values, currentId)),
+    })) {
+      errors[k] ??= v;
     }
   }
   if (entity.key === "m_partner") {
@@ -484,21 +502,36 @@ async function validateAccount(
   return errors;
 }
 
+/** What a record's owned collections need to be saved: one writer, bound. */
+type CollectionWriter = (
+  tx: Prisma.TransactionClient,
+  recordId: number,
+  actorId: number
+) => Promise<void>;
+
 /**
  * The collections a record owns and saves with itself — a Partner's addresses
- * and contacts — checked, with their problems added to `errors`. Null for an
- * entity that owns none.
+ * and contacts, an Item's unit conversions — checked, with their problems
+ * added to `errors`. Returns the writer to run inside the save's transaction,
+ * or null for an entity that owns none.
  */
 async function ownCollections(
   entity: Entity,
   values: FormValues,
   id: number | null,
   errors: Record<string, string>
-): Promise<PartnerCollections | null> {
-  if (entity.key !== "m_partner") return null;
-  const checked = await checkPartnerCollections(values, id);
-  Object.assign(errors, checked.errors);
-  return checked.clean;
+): Promise<CollectionWriter | null> {
+  if (entity.key === "m_partner") {
+    const checked = await checkPartnerCollections(values, id);
+    Object.assign(errors, checked.errors);
+    return (tx, recordId, actorId) => writePartnerCollections(tx, recordId, checked.clean, actorId);
+  }
+  if (entity.key === "m_item") {
+    const checked = await checkItemCollections(values, id);
+    Object.assign(errors, checked.errors);
+    return (tx, recordId, actorId) => writeItemCollections(tx, recordId, checked.clean, actorId);
+  }
+  return null;
 }
 
 function buildData(entity: Entity, values: FormValues, applies: Set<string>) {
@@ -582,7 +615,7 @@ export async function createRecord(
     }
 
     if (collections) {
-      await writePartnerCollections(tx, row.id, collections, actor.user.id);
+      await collections(tx, row.id, actor.user.id);
     }
 
     return row;
@@ -632,7 +665,7 @@ export async function updateRecord(
       data: { ...data, updated_by: actor.user.id },
     });
     if (collections) {
-      await writePartnerCollections(tx, id, collections, actor.user.id);
+      await collections(tx, id, actor.user.id);
     }
   });
 

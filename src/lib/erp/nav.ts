@@ -68,6 +68,14 @@ export const MODULES: NavModule[] = [
             permission: "PARTNER_VIEW",
           },
           {
+            key: "m_item",
+            slug: "item",
+            name: "Item",
+            icon: "box",
+            desc: "Barang dan jasa yang dijual. Harga dan perlakuan pajak ditentukan pada transaksi.",
+            permission: "ITEM_VIEW",
+          },
+          {
             key: "m_cash_bank",
             slug: "cash-bank",
             name: "Cash & Bank",

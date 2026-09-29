@@ -55,6 +55,12 @@ export const PERMISSIONS = [
   { code: "CASH_BANK_ACTIVATE", name: "Aktifkan Cash & Bank", module: "master" },
   { code: "CASH_BANK_DEACTIVATE", name: "Nonaktifkan Cash & Bank", module: "master" },
 
+  { code: "ITEM_VIEW", name: "Lihat Item", module: "master" },
+  { code: "ITEM_CREATE", name: "Tambah Item", module: "master" },
+  { code: "ITEM_EDIT", name: "Ubah Item", module: "master" },
+  { code: "ITEM_ACTIVATE", name: "Aktifkan Item", module: "master" },
+  { code: "ITEM_DEACTIVATE", name: "Nonaktifkan Item", module: "master" },
+
   { code: "CURRENCY_VIEW", name: "Lihat Currency", module: "master" },
   { code: "CURRENCY_CREATE", name: "Tambah Currency", module: "master" },
   { code: "CURRENCY_EDIT", name: "Ubah Currency", module: "master" },

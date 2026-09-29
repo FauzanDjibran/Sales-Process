@@ -42,7 +42,9 @@ import type { SystemDefaultKey } from "@/lib/erp/system-defaults";
 import { formatDate, formatMoney, formatPct, formatRate, todayIso } from "@/lib/format";
 import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
 import { recordTitle } from "@/lib/erp/record-title";
-import { AddressesTab, ContactsTab, type CollectionTabProps } from "@/components/master/partner-tabs";
+import { AddressesTab, ContactsTab } from "@/components/master/partner-tabs";
+import { UomConversionsTab } from "@/components/master/item-tabs";
+import type { CollectionTabProps } from "@/components/master/collection-tab";
 
 /**
  * The components that draw a `custom` tab, by `<entity key>.<tab key>`. A
@@ -53,6 +55,7 @@ import { AddressesTab, ContactsTab, type CollectionTabProps } from "@/components
 const CUSTOM_TABS: Record<string, (props: CollectionTabProps<any>) => React.ReactNode> = {
   "m_partner.addresses": AddressesTab,
   "m_partner.contacts": ContactsTab,
+  "m_item.uoms": UomConversionsTab,
 };
 
 export type FormMode = "new" | "view" | "edit";
@@ -222,6 +225,13 @@ export function EntityForm({
           (o) => o.subcategoryId === subcategoryId && o.id !== row?.id
         );
       }
+      case "itemCategoryByType": {
+        // A category belongs to one Item Type; until the type is chosen the
+        // picker waits (`resets` on the type field). The server re-checks.
+        const type = values.item_type;
+        if (!type) return [];
+        return all.filter((o) => o.itemType === type);
+      }
       default:
         return all;
     }
@@ -352,6 +362,7 @@ export function EntityForm({
           editing={editing}
           items={collections[tab.key] ?? []}
           error={errors[`_${tab.key}`]}
+          context={{ values, refs }}
           onChange={(items) => {
             setCollections((c) => ({ ...c, [tab.key]: items }));
             setDirty(true);

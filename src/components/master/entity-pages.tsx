@@ -19,6 +19,7 @@ import {
 } from "@/lib/erp/records";
 import { cashBankBookSummary } from "@/lib/erp/cash-bank";
 import { partnerCollections } from "@/lib/erp/partner";
+import { itemCollections } from "@/lib/erp/item";
 import { fiscalYearPeriods } from "@/lib/erp/fiscal";
 import { defaultCurrencyId } from "@/lib/erp/system-settings";
 import {
@@ -38,16 +39,22 @@ import { EntityList } from "@/components/master/entity-list";
  * two URLs and two sets of breadcrumbs.
  */
 /**
- * What an entity's `custom` tabs start with. Only a Partner has any: its
- * addresses and contact persons, read in the shape the form edits them.
+ * What an entity's `custom` tabs start with: a Partner's addresses and contact
+ * persons, an Item's unit conversions — read in the shape the form edits them.
  */
 async function collectionsOf(
   entity: Entity,
   id: number | null
 ): Promise<Record<string, unknown[]> | undefined> {
-  if (entity.key !== "m_partner") return undefined;
-  if (id == null) return { addresses: [], contacts: [] };
-  return partnerCollections(id);
+  if (entity.key === "m_partner") {
+    if (id == null) return { addresses: [], contacts: [] };
+    return partnerCollections(id);
+  }
+  if (entity.key === "m_item") {
+    if (id == null) return { uoms: [] };
+    return itemCollections(id);
+  }
+  return undefined;
 }
 
 function resolve(moduleKey: string, slug: string): Entity {

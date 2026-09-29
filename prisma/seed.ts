@@ -10,7 +10,8 @@
  *      the account category / subcategory skeleton the
  *      chart of accounts hangs off. Application logic reads these by label, so
  *      they are code in the same sense the permission catalogue is. The
- *      Indonesian region reference (P40) is the same kind of row.
+ *      Indonesian region reference (P40) and Kategori Item (P47) are the same
+ *      kind of row.
  *   3. Starting rows the user asked for (P44): the common Jenis PPh. Created
  *      once, then the user's to edit — never overwritten.
  *
@@ -129,6 +130,25 @@ const PARTNER_CATEGORIES: [
 ][] = [
   ["Customer", "Pelanggan", "Pihak yang membeli barang atau jasa dari perusahaan.", "Active"],
   ["Supplier", "Pemasok", "Pihak yang menjual barang atau jasa kepada perusahaan.", "Inactive"],
+];
+
+/**
+ * Kategori Item (P47): system data with no menu. Each belongs to one Item
+ * Type, and an item may only take a category of its own type. Matched on the
+ * label, so a later release can add to the list without duplicating it.
+ */
+const ITEM_CATEGORIES: [label: string, name: string, type: "Barang" | "Jasa"][] = [
+  ["BHN-BAKU", "Bahan Baku", "Barang"],
+  ["BHN-KEMAS", "Bahan Kemas", "Barang"],
+  ["BRG-SETENGAH-JADI", "Barang Setengah Jadi", "Barang"],
+  ["BRG-JADI", "Barang Jadi", "Barang"],
+  ["BRG-DAGANG", "Barang Dagangan", "Barang"],
+  ["BRG-HABIS-PAKAI", "Barang Habis Pakai", "Barang"],
+  ["JASA-PEMELIHARAAN", "Jasa Pemeliharaan", "Jasa"],
+  ["JASA-KONSULTASI", "Jasa Konsultasi", "Jasa"],
+  ["JASA-PENGIRIMAN", "Jasa Pengiriman", "Jasa"],
+  ["JASA-MAKLON", "Jasa Maklon", "Jasa"],
+  ["JASA-LAIN", "Jasa Lain-lain", "Jasa"],
 ];
 
 /**
@@ -611,6 +631,23 @@ async function ensureReferenceData(
   }
 
   await ensureRegions();
+
+  for (const [i, [label, name, itemType]] of ITEM_CATEGORIES.entries()) {
+    const made = await create(
+      () => prisma.sysItemCategory.findUnique({ where: { category_label: label } }),
+      () =>
+        prisma.sysItemCategory.create({
+          data: {
+            category_code: code("icat", i + 1),
+            category_label: label,
+            category_name: name,
+            item_type: itemType,
+            ...audit,
+          },
+        })
+    );
+    tally("item categories", made);
+  }
 
   // The common withholding taxes a customer applies to what it pays (P44).
   // Matched on the system code, which never changes, so a user's edits to the

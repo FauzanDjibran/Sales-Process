@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20260929153749_reference_uom_term_warehouse_wht`
+- **As of migration:** `20260929160431_item_master`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **One company** (P9): no table carries a company. Budget, Cash Bank
@@ -18,6 +18,8 @@ migration updates this file in the same change (Claude-ERP.md §9).
 - Reference masters `ref_uom`, `ref_payment_term`, `ref_warehouse` and
   `ref_withholding_tax` (P43, P44). There is no tax-code table: whether a line
   carries PPN is an enum on the transaction (P45).
+- `m_item` with its unit conversions `m_item_uom` and the seeded, menu-less
+  `sys_item_category` (P46–P48). An Item holds no price and no tax treatment.
 - `created_by` / `updated_by` hold a user id with no foreign key, as in SIBA.
 - Money is `decimal(18, 2)`, rates `decimal(18, 6)`. Calendar dates are `date`,
   timestamps `timestamptz`.
@@ -90,6 +92,11 @@ Enum TaxIdType {
 Enum VatCollector {
   None
   Government
+}
+
+Enum ItemType {
+  Barang
+  Jasa
 }
 
 Enum CashBankEntryType {
@@ -260,6 +267,65 @@ Table ref_uom {
   updated_by int [null]
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
+}
+
+Table sys_item_category {
+  id int [pk, increment, not null]
+  category_code varchar [unique, not null]
+  category_label varchar [unique, not null]
+  category_name varchar [not null]
+  item_type ItemType [not null]
+  status ActiveStatus [not null, default: 'Active']
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    item_type
+  }
+}
+
+Table m_item {
+  id int [pk, increment, not null]
+  item_code varchar [unique, not null]
+  item_label varchar [not null]
+  item_name varchar [not null]
+  item_type ItemType [not null]
+  category_id int [not null]
+  base_uom_id int [not null]
+  can_sell boolean [not null, default: true]
+  can_buy boolean [not null, default: false]
+  track_stock boolean [not null, default: false]
+  has_expiry boolean [not null, default: false]
+  note varchar [null]
+  status ActiveStatus [not null, default: 'Active']
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    category_id
+    base_uom_id
+  }
+}
+
+Table m_item_uom {
+  id int [pk, increment, not null]
+  item_id int [not null]
+  uom_id int [not null]
+  factor decimal(18, 4) [not null]
+  sort_order int [not null, default: 0]
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (item_id, uom_id) [unique]
+    uom_id
+  }
 }
 
 Table ref_payment_term {
@@ -678,6 +744,10 @@ Ref: sys_user_role.role_id > sys_role.id
 Ref: sys_role_permission.role_id > sys_role.id
 Ref: sys_role_permission.permission_id > sys_permission.id
 Ref: sys_session.user_id > sys_user.id
+Ref: m_item.category_id > sys_item_category.id
+Ref: m_item.base_uom_id > ref_uom.id
+Ref: m_item_uom.item_id > m_item.id
+Ref: m_item_uom.uom_id > ref_uom.id
 Ref: ref_withholding_tax.prepaid_account_id > acc_account.id
 Ref: m_partner.category_id > sys_partner_category.id
 Ref: m_partner_address.partner_id > m_partner.id

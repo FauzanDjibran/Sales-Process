@@ -90,9 +90,9 @@ sales behaviour the simulation implements, and carry over through it.
 | Area | State |
 | --- | --- |
 | Project guideline (this file) | Written 29/09/2026; clash decisions recorded 29/09/2026 |
-| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 started: Partner (customer side), Satuan, Termin Pembayaran, Gudang and Jenis PPh done 29/09/2026 |
+| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 started: Partner (customer side), Satuan, Termin Pembayaran, Gudang, Jenis PPh and Item done 29/09/2026 |
 | Code | Phase 1 carried and adapted: one company, no Budget, Control Account set by the user, `PREFIX/YYYY/MM/NNNN` numbering, dashboard placeholder. `npm run build`, `npm run lint` and `npm test` pass on PostgreSQL 18; the Phase 1 walk-through (fiscal year, accounts, Partner, Cash & Bank with opening balance, manual journal, General Ledger, Trial Balance) checked in a browser and in Postgres |
-| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44); `DBML/erp.dbml.md` in step |
+| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48); `DBML/erp.dbml.md` in step |
 
 ---
 
@@ -385,9 +385,11 @@ built. Parent-decision numbers in brackets.
 2. **PPN arithmetic:** per document per tax code. Exclude: PPN =
    ⌊DPP × 11/100⌋; Include: PPN = ⌊gross × 11/111⌋, DPP = gross − PPN;
    DPP Nilai Lain = DPP × 11/12; allocated to lines by weight, the largest
-   line absorbs rounding. PPN or not is an enum on the line's item (P45), not a tax-code table.
+   line absorbs rounding. PPN or not is decided on the transaction line (P45, P48), not by a tax-code table or the Item.
 3. **Withholding is flagged per SO line** and inherited downstream; its type
-   decides the rate (PPh 22 1,5 % goods to a collector, PPh 23 2 % services).
+   decides the rate (PPh 22 1,5 % goods to a collector, PPh 23 2 % services),
+   taken from the Jenis PPh master (P44) and defaulted from the item's Tipe
+   (P48). The SO offers only items marked Dapat Dijual (P46).
    WAPU buyers collect PPN themselves (kode transaksi 02 for government) [S20].
 4. **Uang Muka Penjualan** is its own document, made from a confirmed SO in its
    own menu; one global amount typed in the SO's price mode; PPN follows.
@@ -495,7 +497,10 @@ Newest last. Later entries override earlier ones and say so.
 | P42 | 29/09/2026 | **The Partner's tax data has its own Pajak tab.** *Identitas Pajak* is Tipe Wajib Pajak (Badan / Orang Pribadi / Instansi Pemerintah), Jenis Identitas (NPWP / NIK), the 16-digit number (stored without separators), Nama sesuai NPWP / NIK, and Status PKP. Rules: only an Orang Pribadi may use a NIK; a PKP uses its NPWP. *Perlakuan Pajak Penjualan*, for Customers only, is: customer withholds PPh 23; customer collects PPh 22; Pemungut PPN = Bukan Pemungut / Instansi Pemerintah (kode 02, only for an Instansi Pemerintah). NITKU is deferred (C23). Credit limit, default Include / Exclude PPN, sales block and the Sales Order defaults are deferred (C24). |
 | P43 | 29/09/2026 | **Reference masters for sales: Satuan, Termin Pembayaran and Gudang**, registry entities under Master › Referensi with the usual list / detail / create / edit / deactivate and their own permissions. Satuan is a unit only (Label, Nama); conversions between units belong to the Item. Termin carries Jumlah Hari (a whole number, 0 = Tunai), from which a due date is counted. Gudang is Label and Nama only while stock is ignored. **Not built:** Price Group (prices are typed by the user on the document), Salesperson (typed by hand on the document), Jenis Perizinan (Perizinan set aside for now). Kategori Barang is decided with the Item. |
 | P44 | 29/09/2026 | **Jenis PPh is a user-managed master, seeded with the common types.** Label, Nama, Tarif (percent, `Decimal(9,4)`), Objek Pajak and the PPh Dibayar Dimuka account (postable, optional until a document books a withholding). The seed creates PPH22 1,5 %, PPH23 2 %, PPH23-15 15 % and PPH42-SEWA 10 % once, matched on the system code, so a user's edits are never overwritten; users add their own. An account a Jenis PPh uses cannot be deactivated. Amends P11 (the seeder writes system data only) for these starting rows. |
-| P45 | 29/09/2026 | **No Kode Pajak table.** Whether a line carries PPN is a yes / no, so it is an enum on the Item and on the transactions that need it, not a master. Supersedes the simulation's `TAX_CODES` (`PPN-STD` / `NON-PPN`) and §10.2 rule 2's "tax codes". |
+| P45 | 29/09/2026 | **No Kode Pajak table.** Whether a line carries PPN is a yes / no, so it is an enum on the transactions that need it, not a master. Supersedes the simulation's `TAX_CODES` (`PPN-STD` / `NON-PPN`) and §10.2 rule 2's "tax codes". *Amended by P48: it is decided on the transaction, not on the Item.* |
+| P46 | 29/09/2026 | **The Item master (`m_item`).** Header: Tipe Item, Kategori Item, Satuan Dasar, Label, Nama, and the flags Dapat Dijual, Dapat Dibeli, Kelola Stok and Memiliki Kadaluarsa; then one tab, **Konversi Satuan** — the item's other units and their factor to the base unit (`m_item_uom`, `Decimal(18,4)`, more than 0, each unit once, never the base unit), saved with the Item in one transaction and one audit entry. **Tipe Item** is an enum, `Barang` / `Jasa` (Aset may follow). Kelola Stok and Memiliki Kadaluarsa apply to Barang only and are stored flags while stock is ignored (P5). **Not on the Item:** price (P43), group, variants, customer-owned goods, purchasing setup, photo, NIE BPOM / izin edar, HPP standar (decided at Surat Jalan), Coretax kode barang / unit codes (with Faktur Pajak). Perizinan is not an Item. |
+| P47 | 29/09/2026 | **Kategori Item is system data without a menu** (`sys_item_category`): Label, Nama and Tipe Item, seeded — Barang: Bahan Baku, Bahan Kemas, Barang Setengah Jadi, Barang Jadi, Barang Dagangan, Barang Habis Pakai; Jasa: Jasa Pemeliharaan, Jasa Konsultasi, Jasa Pengiriman, Jasa Maklon, Jasa Lain-lain. An item takes only a category of its own type; changing the type clears the choice. The account mapping per category is its own menu, later. |
+| P48 | 29/09/2026 | **An Item carries no tax treatment.** Kena / Tidak Kena PPN and the Jenis PPh are decided on the transaction line. A line may start from a rule on the item's Tipe (Barang → PPh 22 for a collector customer, Jasa → PPh 23 for a withholding one), and the user can change it. Amends P45. |
 
 ---
 
@@ -619,9 +624,10 @@ to §12.
 | # | Open item | When |
 | --- | --- | --- |
 | C3 | **Pembayaran purposes and posting accounts** — how *tujuan* is modelled and how each posting finds its accounts (P24) | When the Pembayaran menu is built |
-| C6 | **Contents of each master** — `m_item` and each reference master (P26). `m_partner` decided in P39–P42 | When that master is built |
+| C6 | **Contents of each master** — each further reference master (P26). `m_partner` decided in P39–P42, `m_item` in P46–P48 | When that master is built |
 | C23 | **NITKU** — the 22-digit place-of-business identity a faktur names (NPWP + 6 digits, `000000` head office). Proposed: one per billing address, since DJP registers a NITKU at an address and a faktur carries both | When Faktur Pajak is built |
 | C24 | **Customer sales terms** — credit limit (Menunggu Persetujuan over it), default Include / Exclude PPN, sales block with a reason, and default Termin / Gudang on the customer (price group and salesperson are not masters, P43) | When the Sales Order is built |
+| C25 | **Account mapping per Kategori Item** — its own menu naming Penjualan, Retur, HPP and Persediaan accounts per category (P47) | When the first document that posts an item is built (Surat Jalan, Faktur) |
 | C14 | **Cash Bank Transfer and Debit / Credit Note** (P19) | Later |
 | C22 | **How `ar_ap_open_item_concept.md` applies** — open items and their ledger as the settlement unit for invoices, advances, receipts and DN/CN, beside the journal-and-GL positions of P25 | When the first document with an outstanding balance is built (advance, invoice, Pembayaran) |
 
