@@ -164,6 +164,17 @@ export const PERMISSIONS = [
   { code: "REPORT_TRIAL_BALANCE_VIEW", name: "Lihat Trial Balance", module: "accounting" },
   { code: "REPORT_PROFIT_LOSS_VIEW", name: "Lihat Laba Rugi", module: "accounting" },
   { code: "REPORT_BALANCE_SHEET_VIEW", name: "Lihat Neraca", module: "accounting" },
+  // Account Mapping (P61): where each kind of posting lands. Separate from
+  // System Default so configuring the application never edits the ledger's
+  // routing, and the other way round.
+  { code: "MENU_ACCOUNT_MAPPING_ACCESS", name: "Akses menu Account Mapping", module: "accounting" },
+  { code: "ACCOUNT_MAPPING_VIEW", name: "Lihat Account Mapping", module: "accounting" },
+  {
+    code: "ACCOUNT_MAPPING_EDIT",
+    name: "Ubah Account Mapping",
+    module: "accounting",
+    description: "Menentukan account tujuan posting, seperti selisih kurs dan laba/rugi ekuitas.",
+  },
 
   // ---------------------------------------------------------------- finance
   { code: "MENU_FINANCE_ACCESS", name: "Akses menu Finance", module: "finance" },
@@ -201,13 +212,13 @@ export const PERMISSIONS = [
     code: "SYSTEM_DEFAULT_VIEW",
     name: "Lihat System Default",
     module: "settings",
-    description: "Nilai bawaan yang dipakai seluruh aplikasi, seperti Currency default.",
+    description: "Konfigurasi seluruh aplikasi, seperti tarif PPN.",
   },
   {
     code: "SYSTEM_DEFAULT_EDIT",
     name: "Ubah System Default",
     module: "settings",
-    description: "Default hanya mengisi awal sebuah pilihan; pengguna tetap dapat menggantinya.",
+    description: "Termasuk tarif PPN yang disalin setiap dokumen kena pajak.",
   },
 
   { code: "USER_VIEW", name: "Lihat User", module: "settings" },

@@ -672,21 +672,6 @@ async function ensureReferenceData(
     tally("withholding taxes (Jenis PPh)", made);
   }
 
-  // The System Default that points the "PPh 22 collector" rule at the seeded
-  // PPH22 row (P52). Set once, when the key has never been set; after that it
-  // is the user's, including an explicit choice to leave it empty.
-  const pph22 = await prisma.refWithholdingTax.findUnique({ where: { wht_code: code("wht", 1) } });
-  if (pph22) {
-    const set = await create(
-      () => prisma.sysSetting.findUnique({ where: { setting_key: "pph22_withholding_tax" } }),
-      () =>
-        prisma.sysSetting.create({
-          data: { setting_key: "pph22_withholding_tax", setting_value: String(pph22.id) },
-        })
-    );
-    tally("system default: Jenis PPh untuk Pemungut PPh 22", set);
-  }
-
   // The PPN rate and the DPP Nilai Lain factor (P60, PMK 131/2024: 12 % on
   // 11/12). Set once, when a key has never been set; after that they are the
   // user's, changed when the law changes.

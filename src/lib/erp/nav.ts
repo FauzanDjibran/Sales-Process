@@ -306,6 +306,20 @@ export const MODULES: NavModule[] = [
           },
         ],
       },
+      {
+        key: "setting",
+        name: "Pengaturan",
+        entities: [
+          {
+            key: "account_mapping",
+            slug: "account-mapping",
+            name: "Account Mapping",
+            icon: "link",
+            desc: "Account tujuan tiap jenis posting: selisih kurs dan laba/rugi pada ekuitas, lalu piutang, uang muka dan pajak saat dokumennya dibangun.",
+            permission: "MENU_ACCOUNT_MAPPING_ACCESS",
+          },
+        ],
+      },
     ],
   },
   {
@@ -360,7 +374,7 @@ export const MODULES: NavModule[] = [
             slug: "system-default",
             name: "System Default",
             icon: "gear",
-            desc: "Nilai bawaan yang dipakai seluruh aplikasi. Default mengisi sebuah pilihan lebih dulu; pengguna tetap dapat menggantinya.",
+            desc: "Konfigurasi seluruh aplikasi: Base Currency dan tarif PPN. Account tujuan posting ada di Accounting › Account Mapping.",
             permission: "MENU_SYSTEM_DEFAULT_ACCESS",
           },
         ],

@@ -9,11 +9,13 @@ import {
   isSystemDefaultKey,
   refValueOf,
   numberSettingProblem,
+  settingPageOf,
   systemDefaultDef,
 } from "../src/lib/erp/system-defaults";
 import {
   checkSystemDefaultValue,
-  defaultCurrencyId,
+  baseCurrency,
+  baseCurrencyId,
   missingClosingAccounts,
   missingNeracaAccounts,
   ppnRates,
@@ -22,7 +24,6 @@ import {
   writeSystemDefaults,
 } from "../src/lib/erp/system-settings";
 import {
-  FIXTURE_PREFIX,
   cleanupFixtures,
   disconnect,
   makeAccount,
@@ -43,54 +44,27 @@ import {
  */
 
 let actor = 0;
-let activeCurrency = 0;
-let inactiveCurrency = 0;
-let previous: string | null = null;
 
-/** The equity settings this suite writes over, so they can be put back. */
-const EQUITY_KEYS = ["accumulated_pl_account", "current_pl_account"] as const;
-const previousEquity: Record<string, string | null> = {};
+/** The settings this suite writes over, so they can be put back. */
+const TOUCHED_KEYS = ["fx_account", "accumulated_pl_account", "current_pl_account"] as const;
+const previous: Record<string, string | null> = {};
 
 before(async () => {
   actor = await systemUserId();
   const stored = await systemDefaults();
-  previous = stored.default_currency;
-  for (const key of EQUITY_KEYS) previousEquity[key] = stored[key];
-
-  const base = await prisma.refCurrency.findFirstOrThrow({
-    where: { status: "Active" },
-    select: { id: true },
-  });
-  activeCurrency = base.id;
-
-  const label = `${FIXTURE_PREFIX}CUR${Date.now() % 100000}`;
-  const made = await prisma.refCurrency.create({
-    data: {
-      currency_code: `test.${label}`,
-      currency_label: label,
-      currency_name: `Fixture ${label}`,
-      status: "Inactive",
-      created_by: actor,
-    },
-    select: { id: true },
-  });
-  inactiveCurrency = made.id;
+  for (const key of TOUCHED_KEYS) previous[key] = stored[key];
 });
 
 after(async () => {
-  await writeSystemDefaults({ default_currency: previous, ...previousEquity }, actor);
+  await writeSystemDefaults(previous, actor);
   await cleanupFixtures();
-  await prisma.refCurrency.deleteMany({
-    where: { currency_label: { startsWith: FIXTURE_PREFIX } },
-  });
   await prisma.auditLog.deleteMany({ where: { entity_key: "sys_setting" } });
   await disconnect();
 });
 
 // -------------------------------------------------------------- the catalogue
 
-
-describe("the System Default catalogue lives in code", () => {
+describe("the settings catalogue lives in code", () => {
   test("every declared key has a home in the empty value set", () => {
     for (const def of SYSTEM_DEFAULTS) {
       assert.ok(
@@ -106,93 +80,76 @@ describe("the System Default catalogue lives in code", () => {
   });
 
   test("a key nobody declared is not a setting", () => {
-    assert.equal(isSystemDefaultKey("default_currency"), true);
-    assert.equal(isSystemDefaultKey("default_company"), false);
+    assert.equal(isSystemDefaultKey("fx_account"), true);
+    assert.equal(isSystemDefaultKey("default_currency"), false, "retired by P61");
+    assert.equal(isSystemDefaultKey("pph22_withholding_tax"), false, "retired by P61");
     assert.equal(isSystemDefaultKey(""), false);
   });
 
-  test("the page is behind its own menu and action permissions", () => {
+  test("configuration and account routing sit on separate pages (P61)", () => {
+    assert.deepEqual(
+      SYSTEM_DEFAULTS.filter((d) => settingPageOf(d.key) === "account").map((d) => d.key),
+      ["fx_account", "accumulated_pl_account", "current_pl_account"]
+    );
+    for (const d of SYSTEM_DEFAULTS) {
+      assert.equal(
+        settingPageOf(d.key) === "account",
+        d.type === "ref",
+        `${d.key}: every account setting is on Account Mapping, and nothing else is`
+      );
+    }
+  });
+
+  test("each page is behind its own menu and action permissions", () => {
     for (const code of [
       "MENU_SYSTEM_DEFAULT_ACCESS",
       "SYSTEM_DEFAULT_VIEW",
       "SYSTEM_DEFAULT_EDIT",
+      "MENU_ACCOUNT_MAPPING_ACCESS",
+      "ACCOUNT_MAPPING_VIEW",
+      "ACCOUNT_MAPPING_EDIT",
     ]) {
       assert.ok(PERMISSION_CODES.includes(code as never), `${code} is missing`);
     }
-
-    const leaf = MODULES.find((m) => m.key === "settings")
-      ?.groups?.flatMap((g) => g.entities)
-      .find((e) => e.slug === "system-default");
-    assert.ok(leaf, "System Default must be reachable from the Pengaturan menu");
-    assert.equal(leaf!.permission, "MENU_SYSTEM_DEFAULT_ACCESS");
+    const leaf = (module: string, slug: string) =>
+      MODULES.find((m) => m.key === module)
+        ?.groups?.flatMap((g) => g.entities)
+        .find((e) => e.slug === slug);
+    assert.equal(leaf("settings", "system-default")?.permission, "MENU_SYSTEM_DEFAULT_ACCESS");
+    assert.equal(leaf("accounting", "account-mapping")?.permission, "MENU_ACCOUNT_MAPPING_ACCESS");
   });
 
   test("a ref value reads back as a row id, and anything else as nothing", () => {
-    const values = (raw: string | null) => ({
-      ...EMPTY_SYSTEM_DEFAULTS,
-      default_currency: raw,
-    });
-    assert.equal(refValueOf(values("12"), "default_currency"), 12);
-    assert.equal(refValueOf(values(null), "default_currency"), null);
-    assert.equal(refValueOf(values(""), "default_currency"), null);
-    assert.equal(refValueOf(values("abc"), "default_currency"), null);
-    assert.equal(refValueOf(values("0"), "default_currency"), null);
+    const values = (raw: string | null) => ({ ...EMPTY_SYSTEM_DEFAULTS, fx_account: raw });
+    assert.equal(refValueOf(values("12"), "fx_account"), 12);
+    assert.equal(refValueOf(values(null), "fx_account"), null);
+    assert.equal(refValueOf(values(""), "fx_account"), null);
+    assert.equal(refValueOf(values("abc"), "fx_account"), null);
+    assert.equal(refValueOf(values("0"), "fx_account"), null);
   });
 });
 
 // ------------------------------------------------------------- reading it back
 
-describe("a saved default is what the forms read", () => {
-  test("a value written is a value read", async () => {
-    await writeSystemDefaults({ default_currency: String(activeCurrency) }, actor);
-    assert.equal((await systemDefaults()).default_currency, String(activeCurrency));
-    assert.equal(await defaultCurrencyId(), activeCurrency);
-  });
-
-  test("writing the same value again changes nothing", async () => {
-    const changed = await writeSystemDefaults(
-      { default_currency: String(activeCurrency) },
-      actor
-    );
-    assert.deepEqual(changed, [], "an unchanged save must not claim a change");
-  });
-
-  test("clearing it leaves the picker empty rather than guessing", async () => {
-    await writeSystemDefaults({ default_currency: null }, actor);
-    assert.equal((await systemDefaults()).default_currency, null);
-    assert.equal(await defaultCurrencyId(), null);
-  });
-
-  test("a deactivated currency is not prefilled", async () => {
-    // The picker hides inactive records, so prefilling one would put a value in
-    // the form that the form itself refuses to offer.
-    await writeSystemDefaults({ default_currency: String(inactiveCurrency) }, actor);
-    assert.equal(
-      (await systemDefaults()).default_currency,
-      String(inactiveCurrency),
-      "the stored setting is left alone"
-    );
-    assert.equal(
-      await defaultCurrencyId(),
-      null,
-      "but nothing is prefilled from it"
-    );
-  });
-
-  test("a default pointing at a currency that no longer exists prefills nothing", async () => {
-    await writeSystemDefaults({ default_currency: "999999" }, actor);
-    assert.equal(await defaultCurrencyId(), null);
+describe("a saved setting is what the application reads", () => {
+  test("a value written is a value read, and an unchanged save claims nothing", async () => {
+    await writeSystemDefaults({ fx_account: "12" }, actor);
+    assert.equal((await systemDefaults()).fx_account, "12");
+    assert.deepEqual(await writeSystemDefaults({ fx_account: "12" }, actor), []);
+    await writeSystemDefaults({ fx_account: null }, actor);
+    assert.equal((await systemDefaults()).fx_account, null);
   });
 
   test("a key outside the catalogue is never written", async () => {
-    await writeSystemDefaults(
-      { default_currency: null, default_company: "1" } as never,
-      actor
-    );
-    const row = await prisma.sysSetting.findUnique({
-      where: { setting_key: "default_company" },
-    });
+    await writeSystemDefaults({ fx_account: null, default_company: "1" } as never, actor);
+    const row = await prisma.sysSetting.findUnique({ where: { setting_key: "default_company" } });
     assert.equal(row, null, "sys_setting holds only keys the catalogue declares");
+  });
+
+  test("a new record's Currency starts on the base currency (P61)", async () => {
+    const base = await baseCurrency();
+    assert.equal(base?.label, "IDR");
+    assert.equal(await baseCurrencyId(), base?.active ? base.id : null);
   });
 });
 

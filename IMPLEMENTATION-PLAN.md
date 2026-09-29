@@ -100,6 +100,11 @@ document summing its lines; an inclusive price's difference absorbed in the DPP
 System Defaults, snapshotted by each Sales Order and advance bill and frozen at
 Konfirmasi / Terbitkan. PPH42-SEWA no longer seeded.
 
+**Settings split — 29/09/2026** (P61): System Default (Base Currency shown,
+Pajak card) and Account Mapping (Accounting › Pengaturan: selisih kurs and
+laba/rugi equity accounts, more as their documents are built). Currency
+Default and the PPh 22 Jenis PPh pointer retired.
+
 Built one step at a time, **in the order the user gives**. For each step:
 
 1. Re-read the simulation's step (screens, lifecycle, arithmetic, journal) and

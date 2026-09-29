@@ -207,9 +207,9 @@ Each withholding type is master data holding:
 ### 4.2 Which lines are withheld
 
 - The withholding type is set **per line of the transaction**.
-- A line may start from a rule, then the user can change it:
-  - goods sold to a PPh 22 collector → PPh 22;
-  - a service sold to a PPh 23 withholder → PPh 23.
+- The user picks the withholding type on each line. Nothing is pre-filled
+  for now. A rule may be added later (goods to a PPh 22 collector → PPh 22; a
+  service to a PPh 23 withholder → PPh 23).
 - The base is the line's **DPP**, never including PPN.
 - One document may carry several withholding types. Each is computed on the
   DPP of its own lines.

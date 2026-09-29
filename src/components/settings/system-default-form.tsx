@@ -11,31 +11,55 @@ import { saveSystemDefaults } from "@/app/actions/settings";
 import { formatNumber } from "@/lib/format";
 import type { RefOption } from "@/lib/erp/records";
 import {
-  SYSTEM_DEFAULT_GROUPS,
+  settingGroupsOn,
   systemDefaultsIn,
+  type SettingsPage,
   type SystemDefaultKey,
   type SystemDefaultValues,
 } from "@/lib/erp/system-defaults";
 
+const PAGE_TEXT: Record<SettingsPage, { module: string; title: string; icon: "gear" | "link"; note: string }> = {
+  default: {
+    module: "Pengaturan",
+    title: "System Default",
+    icon: "gear",
+    note:
+      "Base Currency ditetapkan sekali dan tidak dapat diubah: seluruh buku diukur dalam mata uang ini. " +
+      "Kartu Pajak berlaku untuk dokumen yang disimpan setelah perubahan; dokumen lama tetap memakai " +
+      "tarif yang disalinnya.",
+  },
+  account: {
+    module: "Accounting",
+    title: "Account Mapping",
+    icon: "link",
+    note:
+      "Account Mapping menentukan ke mana posting ditulis. Proses yang membutuhkan sebuah account " +
+      "ditolak dengan menyebut namanya selama account-nya belum diisi. Account PPh ada di setiap Jenis " +
+      "PPh, dan account barang pada pemetaan Kategori Item.",
+  },
+};
+
 /**
- * System Default — one page for every value the application assumes when the
- * user has not said otherwise.
- *
- * The page is built from the catalogue rather than written out setting by
- * setting, so a new default appears here as soon as it is declared. Each one
- * says plainly what it fills in, because a default that quietly decides
- * something is a rule wearing a default's clothes.
+ * The two settings pages (P61), built from one catalogue: **System Default**
+ * for application-wide configuration, **Account Mapping** for where each kind
+ * of posting lands. A setting appears on its page as soon as it is declared.
  */
 export function SystemDefaultForm({
+  page,
   values: initial,
   options,
   canEdit,
+  baseCurrency,
 }: {
+  page: SettingsPage;
   values: SystemDefaultValues;
   /** Options per setting key, already narrowed on the server. */
   options: Record<SystemDefaultKey, RefOption[]>;
   canEdit: boolean;
+  /** System Default only: the currency the books are measured in, shown. */
+  baseCurrency?: { label: string; name: string } | null;
 }) {
+  const text = PAGE_TEXT[page];
   const toast = useToast();
   const [values, setValues] = useState<SystemDefaultValues>(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -56,7 +80,7 @@ export function SystemDefaultForm({
 
   const onSave = async () => {
     setSaving(true);
-    const result = await saveSystemDefaults(values);
+    const result = await saveSystemDefaults(page, values);
     setSaving(false);
 
     if (!result.ok) {
@@ -72,7 +96,7 @@ export function SystemDefaultForm({
     toast(
       "Pengaturan disimpan",
       result.changed
-        ? `${result.changed} default diperbarui`
+        ? `${result.changed} pengaturan diperbarui`
         : "Tidak ada perubahan",
       "ok"
     );
@@ -88,16 +112,16 @@ export function SystemDefaultForm({
     <>
       <div className="ph">
         <div className="crumb">
-          <span>Pengaturan</span>
+          <span>{text.module}</span>
           <span>/</span>
-          <span className="cur">System Default</span>
+          <span className="cur">{text.title}</span>
         </div>
         <div className="ph-row">
           <h1>
             <span className="ph-ico">
-              <Icon name="gear" size={16} />
+              <Icon name={text.icon} size={16} />
             </span>
-            System Default
+            {text.title}
           </h1>
           <div className="ph-act">
             {canEdit && dirty && (
@@ -126,7 +150,7 @@ export function SystemDefaultForm({
         </div>
       )}
 
-      {SYSTEM_DEFAULT_GROUPS.map((group) => (
+      {settingGroupsOn(page).map((group) => (
         <div className="card" key={group.key} style={{ marginBottom: 14 }}>
           <div className="card-h">
             <span className="ci">
@@ -141,6 +165,18 @@ export function SystemDefaultForm({
           <FormBody>
             <FormSection>
               <FormRow>
+                {group.key === "application" && (
+                  <Field label="Base Currency" span={4} locked help="mata uang seluruh buku">
+                    {baseCurrency ? (
+                      <div className="ro">
+                        <span className="lab">{baseCurrency.label}</span>
+                        <span>{baseCurrency.name}</span>
+                      </div>
+                    ) : (
+                      <div className="ro nil">belum terdaftar di master Currency</div>
+                    )}
+                  </Field>
+                )}
                 {systemDefaultsIn(group.key).map((def) => {
                   const value = values[def.key];
                   const list = options[def.key] ?? [];
@@ -190,15 +226,7 @@ export function SystemDefaultForm({
         </div>
       ))}
 
-      <p className="foot-note">
-        Mengubah default tidak mengubah data yang sudah tersimpan — hanya isian
-        awal pada form berikutnya. Kartu yang menyebut Account adalah
-        pengecualian: ia tidak mengisi form, melainkan menentukan ke mana
-        posting ditulis, dan proses yang membutuhkannya ditolak dengan menyebut
-        nama selama account-nya belum diisi. Kartu Pajak berlaku untuk dokumen
-        yang disimpan setelah perubahan; dokumen lama tetap memakai tarif yang
-        disalinnya.
-      </p>
+      <p className="foot-note">{text.note}</p>
     </>
   );
 }

@@ -228,7 +228,7 @@ async function runChecks(
     ok: account.ok,
     detail: account.ok
       ? "Sudah diatur, postable, dan aktif."
-      : `${account.missing} belum diatur atau tidak dapat dipakai. Lengkapi di Settings › System Default.`,
+      : `${account.missing} belum diatur atau tidak dapat dipakai. Lengkapi di Accounting › Account Mapping.`,
   });
 
   // 6. No unfinished journal inside the year. Closing would strand it: the

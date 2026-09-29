@@ -5,7 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 import { formatAddress } from "./partner-shape";
 import { CUSTOMER_CATEGORY } from "./entities";
-import { PPN_SETTINGS_MISSING, defaultPph22WithholdingTaxId, ppnRates } from "./system-settings";
+import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
 import {
   computeSalesTotals,
   lineProblem,
@@ -113,8 +113,6 @@ export type SalesOrderOptions = {
   terms: SoRefOption[];
   warehouses: SoRefOption[];
   withholdingTaxes: SoWhtOption[];
-  /** Jenis PPh a line starts on for a PPh 22 collector (P52). */
-  pph22DefaultId: number | null;
   /** The PPN rate and factor a Draft is computed with now (P60); null when unset. */
   ppnRates: PpnRates | null;
 };
@@ -138,7 +136,7 @@ function customerProblems(c: {
 }
 
 export async function salesOrderOptions(): Promise<SalesOrderOptions> {
-  const [partners, items, terms, warehouses, taxes, pph22DefaultId, rates] = await Promise.all([
+  const [partners, items, terms, warehouses, taxes, rates] = await Promise.all([
     prisma.mPartner.findMany({
       where: { category: { category_label: CUSTOMER_CATEGORY } },
       orderBy: { partner_label: "asc" },
@@ -158,7 +156,6 @@ export async function salesOrderOptions(): Promise<SalesOrderOptions> {
     prisma.refPaymentTerm.findMany({ orderBy: { due_days: "asc" } }),
     prisma.refWarehouse.findMany({ orderBy: { warehouse_label: "asc" } }),
     prisma.refWithholdingTax.findMany({ orderBy: { wht_label: "asc" } }),
-    defaultPph22WithholdingTaxId(),
     ppnRates(),
   ]);
 
@@ -217,7 +214,6 @@ export async function salesOrderOptions(): Promise<SalesOrderOptions> {
       active: t.status === "Active",
       rate: t.rate.toNumber(),
     })),
-    pph22DefaultId,
     ppnRates: rates,
   };
 }

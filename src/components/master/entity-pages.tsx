@@ -21,7 +21,7 @@ import { cashBankBookSummary } from "@/lib/erp/cash-bank";
 import { partnerCollections } from "@/lib/erp/partner";
 import { itemCollections } from "@/lib/erp/item";
 import { fiscalYearPeriods } from "@/lib/erp/fiscal";
-import { defaultCurrencyId } from "@/lib/erp/system-settings";
+import { baseCurrencyId } from "@/lib/erp/system-settings";
 import {
   fiscalYearAbilities,
   availableActions as availableFiscalActions,
@@ -129,7 +129,7 @@ export async function EntityNewPage({
       row={null}
       refs={refs}
       can={abilitiesFor(entity.key, actor.permissions)}
-      defaults={{ default_currency: await defaultCurrencyId() }}
+      defaults={{ base_currency: await baseCurrencyId() }}
       collections={await collectionsOf(entity, null)}
     />
   );

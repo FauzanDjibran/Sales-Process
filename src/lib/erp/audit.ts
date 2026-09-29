@@ -83,7 +83,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   // reader recognises. The catalogue in code is what names these, and there is
   // only ever a handful, so the subject alone is the whole story.
   sys_setting: {
-    label: "System Default",
+    label: "System Default / Account Mapping",
     resolve: null,
   },
 };

@@ -1,58 +1,78 @@
 /**
- * The System Default catalogue — every value the application prefills or
- * assumes when the user has not said otherwise.
+ * The settings catalogue — every value the application assumes, and every
+ * account a posting is sent to, declared in code (Claude-ERP.md P61).
  *
  * Declared in code for the same reason the permission catalogue is: a setting
  * is a branch somewhere in the application, so one that could be created at
  * runtime would be a row nothing reads. `sys_setting` holds only what each key
  * is currently set to.
  *
- * A default is a starting point, never a rule. Everything here fills a control
- * in that the user can then change — it must not decide what is valid, which
- * stays with the Server Actions. The account-valued settings are the exception
- * that names a destination: the FX difference account and the two Laba/Rugi
- * equity accounts are where postings and the Neraca go, one each for the one
- * company (Claude-ERP.md P9, P23). The PPN settings are the other exception:
- * they are the tax law's figures, which every taxable document snapshots when
- * it is saved (P60), so they can never be empty.
+ * The catalogue is one store read by **two pages**, so two different kinds of
+ * decision never share a screen:
+ *
+ * - **System Default** (`page: "default"`) — application-wide configuration:
+ *   the base currency (shown, never set — it is a constant in `currency.ts`)
+ *   and the PPN rate and DPP Nilai Lain factor every taxable document
+ *   snapshots (P60). Later defaults (a transit warehouse) join here.
+ * - **Account Mapping** (`page: "account"`) — where a kind of posting lands:
+ *   the FX difference account and the two Laba/Rugi equity accounts, one each
+ *   for the one company (P9, P23). A mapping is added only when the document
+ *   that posts it is built. PPh accounts stay on each Jenis PPh (P44), and
+ *   item accounts on the Kategori Item mapping (C25).
  *
  * Client-safe on purpose — no `server-only`, no database import: the settings
- * form reads the same catalogue the Server Action writes against.
+ * forms read the same catalogue the Server Action writes against.
  */
 import type { IconName } from "@/components/icon";
 
 export type SystemDefaultKey =
-  | "default_currency"
   | "fx_account"
   | "accumulated_pl_account"
   | "current_pl_account"
-  | "pph22_withholding_tax"
   | "ppn_rate"
   | "ppn_dpp_other_numerator"
   | "ppn_dpp_other_denominator";
 
 /** Which master a `ref` setting points at — a registry entity key. */
-export type SystemDefaultRef = "ref_currency" | "acc_account" | "ref_withholding_tax";
+export type SystemDefaultRef = "acc_account";
 
-export type SystemDefaultGroupKey = "application" | "fx" | "equity_pl" | "sales" | "tax";
+/** The page a setting is edited on. */
+export type SettingsPage = "default" | "account";
+
+export type SystemDefaultGroupKey = "application" | "tax" | "fx" | "equity_pl";
 
 export type SystemDefaultGroup = {
   key: SystemDefaultGroupKey;
+  page: SettingsPage;
   name: string;
   desc: string;
   icon: IconName;
 };
 
-/** The cards the settings page is built from. */
+/** The cards the two pages are built from, in page order. */
 export const SYSTEM_DEFAULT_GROUPS = [
   {
     key: "application",
-    name: "Default Aplikasi",
-    desc: "Berlaku untuk seluruh pengguna.",
+    page: "default",
+    name: "Aplikasi",
+    desc:
+      "Berlaku untuk seluruh pengguna. Base Currency adalah mata uang tempat " +
+      "seluruh buku diukur; ditetapkan sekali dan tidak dapat diubah.",
     icon: "gear",
   },
   {
+    key: "tax",
+    page: "default",
+    name: "Pajak",
+    desc:
+      "Tarif PPN dan faktor DPP Nilai Lain yang berlaku. Ubah hanya saat " +
+      "ketentuan pajak berubah: setiap dokumen menyalin nilai yang berlaku " +
+      "saat disimpan, sehingga dokumen yang sudah ada tidak ikut berubah.",
+    icon: "scale",
+  },
+  {
     key: "fx",
+    page: "account",
     name: "Selisih Kurs",
     desc:
       "Account tempat selisih kurs dicatat: gap antara nilai kewajiban saat " +
@@ -62,6 +82,7 @@ export const SYSTEM_DEFAULT_GROUPS = [
   },
   {
     key: "equity_pl",
+    page: "account",
     name: "Laba/Rugi pada Ekuitas",
     desc:
       "Dua account ekuitas. Tahun Sebelumnya adalah tujuan posting saat " +
@@ -69,23 +90,6 @@ export const SYSTEM_DEFAULT_GROUPS = [
       "tahun yang belum ditutup; Tahun Berjalan adalah baris Neraca yang " +
       "nilainya dihitung, tidak pernah diposting.",
     icon: "calc",
-  },
-  {
-    key: "sales",
-    name: "Penjualan",
-    desc:
-      "Nilai awal pada dokumen penjualan. Semuanya tetap dapat diubah pada " +
-      "dokumennya.",
-    icon: "tags",
-  },
-  {
-    key: "tax",
-    name: "Pajak",
-    desc:
-      "Tarif PPN dan faktor DPP Nilai Lain yang berlaku. Ubah hanya saat " +
-      "ketentuan pajak berubah: setiap dokumen menyalin nilai yang berlaku " +
-      "saat disimpan, sehingga dokumen yang sudah ada tidak ikut berubah.",
-    icon: "scale",
   },
 ] as const satisfies readonly SystemDefaultGroup[];
 
@@ -115,14 +119,43 @@ export type SystemDefaultDef =
     });
 
 export const SYSTEM_DEFAULTS = [
+  // ------------------------------------------------------------------ tax
+  //
+  // PPN = round(Tarif PPN × round(DPP × pembilang / penyebut)) (P59, P60).
+  // The factor is two whole numbers rather than a decimal because 11/12 has
+  // no exact decimal form.
   {
-    key: "default_currency",
-    name: "Currency Default",
-    icon: "coin",
-    type: "ref",
-    ref: "ref_currency",
-    group: "application",
-    help: "mengisi pilihan Currency lebih dulu",
+    key: "ppn_rate",
+    name: "Tarif PPN (%)",
+    icon: "scale",
+    type: "number",
+    decimals: 2,
+    above: 0,
+    atMost: 100,
+    group: "tax",
+    help: "dikalikan pada DPP Nilai Lain",
+  },
+  {
+    key: "ppn_dpp_other_numerator",
+    name: "DPP Nilai Lain — Pembilang",
+    icon: "calc",
+    type: "number",
+    decimals: 0,
+    above: 0,
+    atMost: 1000,
+    group: "tax",
+    help: "DPP Nilai Lain = DPP × pembilang / penyebut",
+  },
+  {
+    key: "ppn_dpp_other_denominator",
+    name: "DPP Nilai Lain — Penyebut",
+    icon: "calc",
+    type: "number",
+    decimals: 0,
+    above: 0,
+    atMost: 1000,
+    group: "tax",
+    help: "tidak boleh lebih kecil dari pembilang",
   },
 
   // ------------------------------------------------------------------ fx
@@ -168,72 +201,15 @@ export const SYSTEM_DEFAULTS = [
     group: "equity_pl",
     help: "baris penyajian Neraca, tidak pernah diposting",
   },
-
-  // ---------------------------------------------------------------- sales
-  //
-  // Jenis PPh is user data (P44), so the rule "a PPh 22 collector withholds
-  // PPh 22" needs a fixed pointer to the row that means PPh 22. It pre-fills a
-  // Sales Order line for a customer marked as a PPh 22 collector; the line can
-  // change it or clear it.
-  {
-    key: "pph22_withholding_tax",
-    name: "Jenis PPh untuk Pemungut PPh 22",
-    icon: "calc",
-    type: "ref",
-    ref: "ref_withholding_tax",
-    group: "sales",
-    help: "mengisi Jenis PPh baris Sales Order untuk customer pemungut PPh 22",
-  },
-
-  // ------------------------------------------------------------------ tax
-  //
-  // PPN = round(Tarif PPN × round(DPP × pembilang / penyebut)) (P59, P60).
-  // The factor is two whole numbers rather than a decimal because 11/12 has
-  // no exact decimal form.
-  {
-    key: "ppn_rate",
-    name: "Tarif PPN (%)",
-    icon: "scale",
-    type: "number",
-    decimals: 2,
-    above: 0,
-    atMost: 100,
-    group: "tax",
-    help: "dikalikan pada DPP Nilai Lain",
-  },
-  {
-    key: "ppn_dpp_other_numerator",
-    name: "DPP Nilai Lain — Pembilang",
-    icon: "calc",
-    type: "number",
-    decimals: 0,
-    above: 0,
-    atMost: 1000,
-    group: "tax",
-    help: "DPP Nilai Lain = DPP × pembilang / penyebut",
-  },
-  {
-    key: "ppn_dpp_other_denominator",
-    name: "DPP Nilai Lain — Penyebut",
-    icon: "calc",
-    type: "number",
-    decimals: 0,
-    above: 0,
-    atMost: 1000,
-    group: "tax",
-    help: "tidak boleh lebih kecil dari pembilang",
-  },
 ] as const satisfies readonly SystemDefaultDef[];
 
 /** What each key is set to; a key that has never been set reads as null. */
 export type SystemDefaultValues = Record<SystemDefaultKey, string | null>;
 
 export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
-  default_currency: null,
   fx_account: null,
   accumulated_pl_account: null,
   current_pl_account: null,
-  pph22_withholding_tax: null,
   ppn_rate: null,
   ppn_dpp_other_numerator: null,
   ppn_dpp_other_denominator: null,
@@ -252,6 +228,17 @@ export function systemDefaultsIn(
   group: SystemDefaultGroupKey
 ): readonly SystemDefaultDef[] {
   return SYSTEM_DEFAULTS.filter((d) => d.group === group);
+}
+
+/** The cards of one page. */
+export function settingGroupsOn(page: SettingsPage): readonly SystemDefaultGroup[] {
+  return SYSTEM_DEFAULT_GROUPS.filter((g) => g.page === page);
+}
+
+/** The page a key is edited on — and so which permission writes it. */
+export function settingPageOf(key: SystemDefaultKey): SettingsPage {
+  const group = systemDefaultDef(key).group;
+  return SYSTEM_DEFAULT_GROUPS.find((g) => g.key === group)!.page;
 }
 
 /** A ref setting's value as a row id, or null when unset or unparseable. */

@@ -299,10 +299,10 @@ async function statementPage(
             <h4>Neraca tidak dapat ditampilkan</h4>
             <p>
               Laba rugi yang belum dipindahkan ke ekuitas dihitung, lalu diletakkan pada
-              account yang ditunjuk System Default. Belum diatur: {data.missing.join(", ")}.
+              account yang ditunjuk Account Mapping. Belum diatur: {data.missing.join(", ")}.
             </p>
-            <Link className="btn primary sm" href="/settings/system-default">
-              <Icon name="gear" size={13} /> Buka System Default
+            <Link className="btn primary sm" href="/accounting/account-mapping">
+              <Icon name="link" size={13} /> Buka Account Mapping
             </Link>
           </div>
         </ReportView>

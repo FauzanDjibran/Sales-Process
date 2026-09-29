@@ -9,7 +9,9 @@
  */
 import type { IconName } from "@/components/icon";
 import { isBaseCurrency } from "./currency";
-import type { SystemDefaultKey } from "./system-defaults";
+
+/** A value a create form's field can start on (P61). */
+export type FieldPreset = "base_currency";
 
 export type FieldType =
   | "text"
@@ -151,12 +153,13 @@ export type Field = {
   currencyFrom?: string;
   defaultValue?: string | boolean | number;
   /**
-   * The System Default this field starts on when creating. A default fills the
-   * control in and nothing more: it is not applied on edit, it never overrides
-   * a value, and the Server Action validates the result exactly as it would a
-   * value the user picked.
+   * What this field starts on when creating. A preset fills the control in
+   * and nothing more: it is not applied on edit, it never overrides a value,
+   * and the Server Action validates the result exactly as it would a value
+   * the user picked. `base_currency` is the currency the books are measured
+   * in (P61).
    */
-  systemDefault?: SystemDefaultKey;
+  preset?: FieldPreset;
   /** `bool` caption and sub-caption. */
   caption?: string;
   captionDetail?: string;
@@ -667,7 +670,7 @@ export const ENTITIES: Entity[] = [
         type: "ref",
         ref: "ref_currency",
         required: true,
-        systemDefault: "default_currency",
+        preset: "base_currency",
         help: "currency resource, bukan currency transaksi",
       },
       {

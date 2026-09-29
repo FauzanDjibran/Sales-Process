@@ -1,7 +1,7 @@
 import { JournalForm } from "@/components/accounting/journal-form";
 import { requirePermission } from "@/lib/erp/auth";
 import { manualJournalOptions } from "@/lib/erp/manual-journal";
-import { defaultCurrencyId } from "@/lib/erp/system-settings";
+import { baseCurrencyId } from "@/lib/erp/system-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +16,7 @@ export default async function Page() {
 
   const [options, currencyId] = await Promise.all([
     manualJournalOptions(),
-    defaultCurrencyId(),
+    baseCurrencyId(),
   ]);
 
   return (

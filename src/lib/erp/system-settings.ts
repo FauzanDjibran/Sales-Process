@@ -1,7 +1,8 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import { checkAccountIsLeaf } from "./records";
+import { BASE_CURRENCY_LABEL } from "./currency";
+import { checkAccountIsLeaf, type RefOption } from "./records";
 import type { PpnRates } from "./sales-tax";
 import {
   EMPTY_SYSTEM_DEFAULTS,
@@ -14,7 +15,8 @@ import {
 } from "./system-defaults";
 
 /**
- * Reading and writing the System Defaults.
+ * Reading and writing the settings catalogue (System Default and Account
+ * Mapping, P61).
  *
  * `sys_setting` is a key/value table whose keys are declared in code, so a row
  * with an unknown key is ignored rather than surfaced: it can only be left over
@@ -83,32 +85,22 @@ export async function systemDefaultsUsingAccount(
 }
 
 /**
- * The Currency a new record's Currency picker starts on.
- *
- * Resolved against the master rather than trusted as stored: a currency that
- * has since been deactivated or removed is no longer offered in the picker, so
- * prefilling it would put a value in the form that the form itself rejects.
+ * The base currency's row: the one currency every book is measured in
+ * (`currency.ts`). It is a constant, never a setting, so this only finds the
+ * row that carries its label. A new record's Currency picker starts on it
+ * (P61) — resolved against the master, so a deactivated row prefills nothing.
  */
-export async function defaultCurrencyId(): Promise<number | null> {
-  const id = refValueOf(await systemDefaults(), "default_currency");
-  if (!id) return null;
-
-  const currency = await prisma.refCurrency.findUnique({
-    where: { id },
-    select: { id: true, status: true },
-  });
-  return currency && currency.status === "Active" ? currency.id : null;
+export async function baseCurrency(): Promise<{ id: number; label: string; name: string; active: boolean } | null> {
+  const row = await prisma.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL } });
+  return row
+    ? { id: row.id, label: row.currency_label, name: row.currency_name, active: row.status === "Active" }
+    : null;
 }
 
-/**
- * The Jenis PPh a Sales Order line starts on for a PPh 22 collector, or null
- * when unset or no longer active — a default is never a value the form itself
- * would refuse.
- */
-export async function defaultPph22WithholdingTaxId(): Promise<number | null> {
-  const id = refValueOf(await systemDefaults(), "pph22_withholding_tax");
-  if (!id) return null;
-  return (await checkSystemDefaultValue("pph22_withholding_tax", id)) ? null : id;
+/** The base currency's id when it can be offered in a picker, else null. */
+export async function baseCurrencyId(): Promise<number | null> {
+  const c = await baseCurrency();
+  return c?.active ? c.id : null;
 }
 
 /**
@@ -150,16 +142,7 @@ export async function checkSystemDefaultValue(
   id: number
 ): Promise<string | null> {
   const def = systemDefaultDef(key);
-  if (def.type !== "ref") return null;
-  if (def.ref === "ref_withholding_tax") {
-    const tax = await prisma.refWithholdingTax.findUnique({
-      where: { id },
-      select: { status: true },
-    });
-    if (!tax) return "Jenis PPh tidak ditemukan.";
-    return tax.status === "Active" ? null : "Jenis PPh tersebut non-aktif.";
-  }
-  if (def.ref !== "acc_account") return null;
+  if (def.type !== "ref" || def.ref !== "acc_account") return null;
 
   const account = await prisma.accAccount.findUnique({
     where: { id },
@@ -276,4 +259,31 @@ export async function closingAccount(): Promise<ClosingAccount> {
   return id
     ? { ok: true, accountId: id }
     : { ok: false, missing: systemDefaultDef("accumulated_pl_account").name };
+}
+
+/**
+ * The picker options for each `ref` setting — exactly what the setting's rules
+ * admit: postable accounts that are active, plus whatever is already stored
+ * even if it has since been deactivated, so a page that opens on a stale value
+ * still shows what it is rather than an empty box.
+ */
+export async function settingOptions(
+  current: SystemDefaultValues
+): Promise<Record<SystemDefaultKey, RefOption[]>> {
+  const accounts = await prisma.accAccount.findMany({
+    where: { is_postable: true },
+    orderBy: { account_label: "asc" },
+  });
+  const out = {} as Record<SystemDefaultKey, RefOption[]>;
+  for (const def of SYSTEM_DEFAULTS) {
+    if (def.type !== "ref") {
+      out[def.key] = [];
+      continue;
+    }
+    const chosen = Number(current[def.key] ?? "");
+    out[def.key] = accounts
+      .filter((a) => a.is_active || a.id === chosen)
+      .map((a) => ({ id: a.id, label: a.account_label, name: a.account_name, active: a.is_active }));
+  }
+  return out;
 }

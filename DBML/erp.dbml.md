@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20260929230600_ppn_rate_snapshot`
+- **As of migration:** `20260929233202_retire_currency_and_pph22_defaults`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **One company** (P9): no table carries a company. Budget, Cash Bank

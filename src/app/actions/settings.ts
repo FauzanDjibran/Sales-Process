@@ -7,7 +7,9 @@ import { isAccessDenied } from "@/lib/erp/auth-errors";
 import {
   isSystemDefaultKey,
   numberSettingProblem,
+  settingPageOf,
   systemDefaultDef,
+  type SettingsPage,
   type SystemDefaultKey,
 } from "@/lib/erp/system-defaults";
 import {
@@ -16,7 +18,9 @@ import {
 } from "@/lib/erp/system-settings";
 
 /**
- * The System Defaults' one write path.
+ * The one write path for both settings pages (P61): System Default and
+ * Account Mapping. Each page is written under its own permission and writes
+ * only its own keys, so holding one never edits the other.
  *
  * A default only fills a control in — it decides nothing — so the checking here
  * is deliberately light: the permission, that the keys are ones the catalogue
@@ -28,12 +32,18 @@ export type SettingsResult =
   | { ok: true; changed: number }
   | { ok: false; errors: Record<string, string> };
 
+const EDIT_PERMISSION: Record<SettingsPage, string> = {
+  default: "SYSTEM_DEFAULT_EDIT",
+  account: "ACCOUNT_MAPPING_EDIT",
+};
+
 export async function saveSystemDefaults(
+  page: SettingsPage,
   values: Record<string, string | null>
 ): Promise<SettingsResult> {
   let actorId: number;
   try {
-    const actor = await authorizeAction("SYSTEM_DEFAULT_EDIT");
+    const actor = await authorizeAction(EDIT_PERMISSION[page] ?? "SYSTEM_DEFAULT_EDIT");
     actorId = actor.user.id;
   } catch (error) {
     if (isAccessDenied(error)) {
@@ -46,9 +56,9 @@ export async function saveSystemDefaults(
   const errors: Record<string, string> = {};
 
   for (const [key, raw] of Object.entries(values)) {
-    // A key the catalogue does not declare is not a setting, so there is
-    // nothing to write it for.
-    if (!isSystemDefaultKey(key)) continue;
+    // A key the catalogue does not declare is not a setting, and a key of the
+    // other page is not this permission's to write.
+    if (!isSystemDefaultKey(key) || settingPageOf(key) !== page) continue;
 
     const value = raw == null ? "" : String(raw).trim();
     // A figure the tax law sets (P60) is never empty and is checked against
@@ -104,6 +114,7 @@ export async function saveSystemDefaults(
 
   // Defaults are read wherever a form is built, so every form is now stale.
   revalidatePath("/settings/system-default");
+  revalidatePath("/accounting/account-mapping");
   revalidatePath("/master/cash-bank/new");
   revalidatePath("/dashboard");
 

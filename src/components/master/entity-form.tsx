@@ -38,7 +38,7 @@ import {
 } from "@/lib/erp/entities";
 import { moduleByKey } from "@/lib/erp/nav";
 import type { RefOption, Row } from "@/lib/erp/records";
-import type { SystemDefaultKey } from "@/lib/erp/system-defaults";
+import type { FieldPreset } from "@/lib/erp/entities";
 import { formatDate, formatMoney, formatPct, formatRate, todayIso } from "@/lib/format";
 import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
 import { recordTitle } from "@/lib/erp/record-title";
@@ -95,11 +95,11 @@ export function EntityForm({
    */
   editTone?: ActionTone;
   /**
-   * System Defaults, already resolved against their masters, used to fill a
+   * Presets, already resolved against their masters, used to fill a
    * create form in. Absent on view and edit: a default is a starting point for
    * a new record, never something that reaches an existing one.
    */
-  defaults?: Partial<Record<SystemDefaultKey, number | null>>;
+  defaults?: Partial<Record<FieldPreset, number | null>>;
   /**
    * Fields this particular record may not edit, where the registry cannot say
    * so because it depends on the row rather than on the entity — an account
@@ -566,11 +566,11 @@ export function EntityForm({
 function initialValues(
   entity: Entity,
   row: Row | null,
-  defaults?: Partial<Record<SystemDefaultKey, number | null>>
+  defaults?: Partial<Record<FieldPreset, number | null>>
 ): FormValues {
   const out: FormValues = {};
   for (const f of entity.fields) {
-    const preset = f.systemDefault ? defaults?.[f.systemDefault] : null;
+    const preset = f.preset ? defaults?.[f.preset] : null;
     if (row) {
       const v = row[f.name];
       if (f.type === "bool") out[f.name] = Boolean(v);

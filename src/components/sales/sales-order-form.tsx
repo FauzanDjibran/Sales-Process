@@ -24,7 +24,6 @@ import type {
   SalesOrderLineInput,
   SalesOrderOptions,
   SalesOrderView,
-  SoCustomerOption,
 } from "@/lib/erp/sales-order";
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso } from "@/lib/format";
@@ -164,10 +163,6 @@ export function SalesOrderForm({
     [options.withholdingTaxes]
   );
 
-  /** The Jenis PPh a line starts on for this customer (P52). */
-  const defaultWht = (c: SoCustomerOption | null) =>
-    c?.collectsPph22 && options.pph22DefaultId ? options.pph22DefaultId : null;
-
   const touch = (...names: string[]) => {
     setDirty(true);
     setErrors((e) => {
@@ -192,7 +187,6 @@ export function SalesOrderForm({
       term_id: c?.defaultTermId ?? h.term_id,
       price_mode: c?.defaultPriceMode ?? h.price_mode,
     }));
-    setLines((ls) => ls.map((l) => ({ ...l, withholding_tax_id: defaultWht(c) })));
     touch("customer_id", "address_id", "term_id", "price_mode");
   };
 
@@ -212,7 +206,8 @@ export function SalesOrderForm({
         price: "",
         discount_type: null,
         discount_value: "",
-        withholding_tax_id: defaultWht(customer),
+        // No Jenis PPh is pre-filled (P61): the user picks it per line.
+        withholding_tax_id: null,
         note: "",
       })),
     ]);
