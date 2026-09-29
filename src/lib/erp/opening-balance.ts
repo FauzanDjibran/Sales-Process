@@ -200,7 +200,7 @@ export async function writeOpeningBalance(
 
   const opening = await tx.accOpeningBalance.create({
     data: {
-      opening_no: await nextOpeningNo(tx),
+      opening_no: await nextOpeningNo(tx, input.postingDate),
       posting_date: input.postingDate,
       fiscal_year_id: input.fiscalYearId,
       source_fiscal_year_id: input.sourceFiscalYearId ?? null,
@@ -233,16 +233,16 @@ export async function writeOpeningBalance(
 }
 
 /**
- * `OPB-0001` — its own series.
+ * `OPB/2027/01/0001` — its own series, in the month the figures speak for.
  *
- * The highest number is looked up within the series for the same reason every
- * other series does it: ordering by the number column itself would go wrong at
- * `-10000`, and numbers are assigned as "highest + 1" at insert, so id order
- * and number order are the same.
+ * The highest number is looked up within the month's series for the same
+ * reason every other series does it: numbers are assigned as "highest + 1" at
+ * insert, so within a series id order and number order are the same.
  */
-async function nextOpeningNo(tx: Client): Promise<string> {
-  return nextDocumentNumber("OPB", async () => {
+async function nextOpeningNo(tx: Client, date: Date): Promise<string> {
+  return nextDocumentNumber("OPB", date, async (series) => {
     const row = await tx.accOpeningBalance.findFirst({
+      where: { opening_no: { startsWith: series } },
       orderBy: { id: "desc" },
       select: { opening_no: true },
     });

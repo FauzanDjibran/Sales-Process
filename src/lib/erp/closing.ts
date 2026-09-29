@@ -49,9 +49,9 @@ import { closingAccount } from "./system-settings";
  *
  * ## What is written
  *
- *   `CLS-0001`  dated 31/12 of the year being closed — the one journal in the
- *               application that is not dated the day it was posted
- *   `OPB-0001`  the next year's snapshot, taken *after* the closing journal,
+ *   a journal   dated 31/12 of the year being closed — the one journal in the
+ *               application that may be dated after the day it was posted
+ *   `OPB/…`     the next year's snapshot, taken *after* the closing journal,
  *               so it is a balance sheet by construction
  *   the closing row, and `AccFiscalYear.status`
  *
@@ -528,7 +528,7 @@ export async function executeClosing(
 
         const posted = await postJournal(tx, {
           description: `Penutupan ${year.name}`,
-          series: "CLS",
+          closingEntry: true,
           // The one back-dated journal in the application: a closing entry
           // belongs to the year it closes, and one dated after it would fall
           // inside the year it opens and be the first thing inherited.
@@ -591,7 +591,7 @@ export async function executeClosing(
 /**
  * The document type a closing journal names as its source.
  *
- * A `CLS-` journal is produced by a Fiscal Year being closed, so the year is
+ * A closing journal is produced by a Fiscal Year being closed, so the year is
  * what it points back at — through the weak `(doc_type_id, doc_id)` pair every
  * cross-module document reference uses, never a foreign key.
  */

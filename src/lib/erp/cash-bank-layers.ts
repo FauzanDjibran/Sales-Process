@@ -40,10 +40,11 @@ type Db = Prisma.TransactionClient | typeof prisma;
 
 const asDate = (d: string) => new Date(`${d}T00:00:00Z`);
 
-/** Next layer number, `CBLY-0001`. */
-async function nextLayerNo(db: Db): Promise<string> {
-  return nextDocumentNumber("CBLY", async () => {
+/** Next layer number, `CBLY/2026/09/0001`, in its acquisition month's series. */
+async function nextLayerNo(db: Db, date: string): Promise<string> {
+  return nextDocumentNumber("CBLY", date, async (series) => {
     const row = await db.cashBankLayer.findFirst({
+      where: { layer_no: { startsWith: series } },
       orderBy: { id: "desc" },
       select: { layer_no: true },
     });
@@ -104,7 +105,7 @@ export async function openLayer(db: Db, input: NewLayer) {
 
   return db.cashBankLayer.create({
     data: {
-      layer_no: await nextLayerNo(db),
+      layer_no: await nextLayerNo(db, input.date),
       cash_bank_id: input.cashBankId,
       acquisition_date: asDate(input.date),
       acquisition_seq: sameDay + 1,

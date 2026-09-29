@@ -189,10 +189,10 @@ describe("the dependency graph points one way", () => {
 
 describe("document numbers come from one place", () => {
   test("nothing builds its own document number", () => {
-    // Only the document form, `PREFIX-0001`. The `<prefix>.<4 digits>` system
+    // Only the document form, `PREFIX/YYYY/MM/0001`. The `<prefix>.<4 digits>` system
     // code that `nextCode()` produces for master records is a separate
     // convention on purpose (CLAUDE.md §9) and is left alone here.
-    const handRolled = /-\$\{String\([^}]*\)\.padStart\(\s*4\s*,\s*"0"\s*\)\}/;
+    const handRolled = /\/\$\{String\([^}]*\)\.padStart\(\s*4\s*,\s*"0"\s*\)\}/;
     const bad = files
       .filter((f) => f.rel !== "src/lib/erp/document-number.ts")
       .filter((f) => handRolled.test(code(f.text)))
@@ -200,9 +200,9 @@ describe("document numbers come from one place", () => {
     assert.deepEqual(
       bad,
       [],
-      "Use `nextDocumentNumber` from `lib/erp/document-number` — four modules " +
-        "previously carried their own copy of this, two of which loaded every row " +
-        "in the table to find a maximum."
+      "Use `nextDocumentNumber` from `lib/erp/document-number` — in SIBA four " +
+        "modules once carried their own copy of this, two of which loaded every " +
+        "row in the table to find a maximum."
     );
   });
 });

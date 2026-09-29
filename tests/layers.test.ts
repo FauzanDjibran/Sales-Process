@@ -128,7 +128,7 @@ describe("a layer is created by an acquisition, and never merged", () => {
     assert.equal(layers[0].rate, 15_000);
     assert.equal(layers[0].foreignRemaining, 20_000);
     assert.equal(layers[0].baseRemaining, 300_000_000);
-    assert.match(layers[0].layerNo, /^CBLY-\d{4}$/);
+    assert.match(layers[0].layerNo, /^CBLY\/\d{4}\/\d{2}\/\d{4}$/);
 
     // The book and the layer are written together, or the account would hold
     // currency of unknown value from the moment it was registered.

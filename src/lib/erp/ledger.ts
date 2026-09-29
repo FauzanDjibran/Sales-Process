@@ -704,9 +704,9 @@ export async function closingBalances(
 /**
  * Which `sys_doc_type.doc_table` a closing journal names as its source.
  *
- * A `CLS-` journal points at the Fiscal Year it closed through the weak
+ * A closing journal points at the Fiscal Year it closed through the weak
  * `(doc_type, doc_id)` pair every automatic journal carries. That pair is how a
- * closing journal is recognised here — never the `CLS-` prefix of its number,
+ * closing journal is recognised here — never anything in its number,
  * which is a naming convention rather than a stored fact.
  */
 const CLOSING_SOURCE_TABLE = "acc_fiscal_year";

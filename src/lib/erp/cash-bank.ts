@@ -82,10 +82,14 @@ export class InsufficientFunds extends Error {
   }
 }
 
-/** Next book entry number, `CBL-0001`. The format lives in `document-number.ts`. */
-async function nextEntryNo(db: Db): Promise<string> {
-  return nextDocumentNumber("CBL", async () => {
+/**
+ * Next book entry number, `CBL/2026/09/0001`, in the series of the entry's own
+ * month. The format lives in `document-number.ts`.
+ */
+async function nextEntryNo(db: Db, date: string): Promise<string> {
+  return nextDocumentNumber("CBL", date, async (series) => {
     const row = await db.cashBankLedger.findFirst({
+      where: { entry_no: { startsWith: series } },
       orderBy: { id: "desc" },
       select: { entry_no: true },
     });
@@ -133,7 +137,7 @@ export async function recordCashBankEntry(db: Db, entry: NewEntry) {
 
   const created = await db.cashBankLedger.create({
     data: {
-      entry_no: await nextEntryNo(db),
+      entry_no: await nextEntryNo(db, entry.date),
       cash_bank_id: entry.cashBankId,
       entry_date: asDate(entry.date),
       entry_type: entry.type,

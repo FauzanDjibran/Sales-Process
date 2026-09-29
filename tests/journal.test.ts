@@ -115,7 +115,7 @@ describe("a journal is refused unless its two sides agree", () => {
       prisma,
       journal([line(expense, 1_000_000, 0), line(cash, 0, 1_000_000)])
     );
-    assert.match(result.journalNo, /^JRN-\d{4}$/);
+    assert.match(result.journalNo, /^JV\/\d{4}\/\d{2}\/\d{4}$/);
 
     const written = await prisma.accJournal.findUniqueOrThrow({
       where: { id: result.id },
@@ -234,7 +234,7 @@ describe("a posting date is the day it was posted", () => {
       journal([line(expense, 10, 0), line(cash, 0, 10)])
     );
     assert.notEqual(a.journalNo, b.journalNo);
-    assert.match(b.journalNo, /^JRN-\d{4}$/);
+    assert.match(b.journalNo, /^JV\/\d{4}\/\d{2}\/\d{4}$/);
   });
 });
 

@@ -503,7 +503,10 @@ describe("every blocking condition refuses by name", () => {
 async function counts() {
   return {
     journals: await prisma.accJournal.count({
-      where: { journal_no: { startsWith: "CLS-" } },
+      where: {
+        source_doc_id: fiscalYear,
+        source_doc_type: { is: { doc_table: "acc_fiscal_year" } },
+      },
     }),
     openings: await prisma.accOpeningBalance.count({
       where: { fiscal_year_id: nextYear },
@@ -550,8 +553,8 @@ describe("closing writes the journal, the snapshot and the record", () => {
     assert.ok(result.openingNo);
     journalNo = result.journalNo!;
     openingNo = result.openingNo!;
-    assert.match(journalNo, /^CLS-\d{4}$/);
-    assert.match(openingNo, /^OPB-\d{4}$/);
+    assert.match(journalNo, new RegExp(`^JV/${FY}/12/\\d{4}$`), "numbered in December's series");
+    assert.match(openingNo, new RegExp(`^OPB/${NEXT_FY}/01/\\d{4}$`));
 
     assert.equal(result.yearClosed, true);
     const year = await prisma.accFiscalYear.findUniqueOrThrow({

@@ -458,7 +458,7 @@ describe("the Neraca across the close", () => {
 
   test("1981 now opens from the snapshot, and 1980's line has moved into equity", async () => {
     const report = await neraca([march1981()]);
-    assert.ok(report.openingFrom[0]?.openingNo.startsWith("OPB-"), "stood on the 1981 snapshot");
+    assert.ok(report.openingFrom[0]?.openingNo.startsWith("OPB/"), "stood on the 1981 snapshot");
     assert.equal(valueOf(report, a.accumulated), 250_000, "the close moved 1980's result here");
     assert.equal(lineOf(report, year1980), undefined, "and nothing is carried any more");
     assert.equal(valueOf(report, a.current), 170_000);

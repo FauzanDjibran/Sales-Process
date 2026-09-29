@@ -388,7 +388,11 @@ describe("post is the boundary, and it is the same engine", () => {
       new Date().toISOString().slice(0, 10),
       "a journal is dated the day it was posted, never back-dated"
     );
-    assert.match(row.journal_no, /^JUR-\d{4}/, "manual journals keep their own series");
+    assert.match(
+      row.journal_no,
+      /^JV\/\d{4}\/\d{2}\/\d{4}$/,
+      "every journal shares the JV series; is_manual says who typed it"
+    );
 
     const ledger = await generalLedgerReport(
       [expense],
@@ -489,7 +493,7 @@ describe("post is the boundary, and it is the same engine", () => {
     });
     made.push(automatic.id);
 
-    assert.match(automatic.journalNo, /^JRN-/);
+    assert.match(automatic.journalNo, /^JV\//);
     const refused = await updateManualJournal(
       automatic.id,
       headerFor(),

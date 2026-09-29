@@ -164,7 +164,7 @@ describe("an Opening Balance balances, or it is not written", () => {
       ])
     );
     openings.push(result.id);
-    assert.match(result.openingNo, /^OPB-\d{4}$/);
+    assert.match(result.openingNo, /^OPB\/1990\/01\/\d{4}$/);
 
     const detail = await getOpeningBalance(result.id);
     assert.ok(detail, "the snapshot reads back");
@@ -454,17 +454,17 @@ describe("a closing journal names its own date and series", () => {
     description: "Fixture",
   });
 
-  test("CLS is its own series, dated the day it is given", async () => {
+  test("a closing entry is dated the day it is given, in that month's series", async () => {
     const lastDay = new Date(Date.UTC(FIXTURE_YEAR, 11, 31));
     const result = await postJournal(prisma, {
       description: "Fixture closing journal",
-      series: "CLS",
+      closingEntry: true,
       postingDate: lastDay,
       lines: [line(cash, 1_000, 0), line(receivable, 0, 1_000)],
       actorId: actor,
     });
 
-    assert.match(result.journalNo, /^CLS-\d{4}$/);
+    assert.match(result.journalNo, new RegExp(`^JV/${FIXTURE_YEAR}/12/\\d{4}$`));
     const written = await prisma.accJournal.findUniqueOrThrow({
       where: { id: result.id },
       select: { posting_date: true, status: true },
@@ -473,11 +473,11 @@ describe("a closing journal names its own date and series", () => {
     assert.equal(written.status, "Posted");
   });
 
-  test("the balance rule is unchanged by the series", async () => {
+  test("the balance rule is unchanged for a closing entry", async () => {
     await assert.rejects(
       postJournal(prisma, {
         description: "Fixture closing journal",
-        series: "CLS",
+        closingEntry: true,
         postingDate: new Date(Date.UTC(FIXTURE_YEAR, 11, 31)),
         lines: [line(cash, 1_000, 0), line(receivable, 0, 999)],
         actorId: actor,
@@ -502,13 +502,14 @@ describe("a closing journal names its own date and series", () => {
     );
   });
 
-  test("an ordinary posting is still dated today, in the JRN series", async () => {
+  test("an ordinary posting is still dated today, in this month's JV series", async () => {
     const result = await postJournal(prisma, {
       description: "Fixture ordinary journal",
       lines: [line(cash, 1_000, 0), line(receivable, 0, 1_000)],
       actorId: actor,
     });
-    assert.match(result.journalNo, /^JRN-\d{4}$/);
+    const month = new Date().toISOString().slice(0, 7).replace("-", "/");
+    assert.match(result.journalNo, new RegExp(`^JV/${month}/\\d{4}$`));
 
     const written = await prisma.accJournal.findUniqueOrThrow({
       where: { id: result.id },

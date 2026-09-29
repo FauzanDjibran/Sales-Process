@@ -85,25 +85,18 @@ export type JournalLineInput = {
   description: string;
 };
 
-/**
- * Which series a posted journal's number comes from.
- *
- * `JRN` is every journal a business document produced. `CLS` is a fiscal
- * year's closing entry, which is the one journal in the application that is
- * dated anything but today — see `postingDate` below. A manual journal's
- * `JUR` is not here: it is numbered when its draft is created, not when it is
- * posted.
- */
-export type JournalSeries = "JRN" | "CLS";
-
 export type JournalInput = {
   description: string;
   sourceDocTypeId?: number | null;
   sourceDocId?: number | null;
   lines: JournalLineInput[];
   actorId: number;
-  /** Defaults to `JRN` — the series of every journal a document produces. */
-  series?: JournalSeries;
+  /**
+   * A fiscal year's closing entry, which is dated its year's last day by
+   * definition — whether a year may be closed early is the closing checklist's
+   * question, not the not-ahead rule's.
+   */
+  closingEntry?: boolean;
   /**
    * The day the journal belongs to in the books — the date of the document
    * that produced it, which may be earlier than today (a backdated posting).
@@ -258,15 +251,13 @@ export async function postJournal(
   const { resolved, debit, credit } = resolveJournalLines(input.lines);
   if (cents(debit) !== cents(credit)) throw new JournalImbalance(debit, credit);
 
-  const series = input.series ?? "JRN";
-  // A closing entry is dated its year's last day by definition, and whether a
-  // year may be closed early is the closing checklist's question, not this one.
-  if (input.postingDate && series !== "CLS") assertNotAhead(input.postingDate);
+  if (input.postingDate && !input.closingEntry) assertNotAhead(input.postingDate);
+  const postingDate = input.postingDate ?? postingDateToday();
 
   const journal = await tx.accJournal.create({
     data: {
-      journal_no: await nextJournalNo(tx, series),
-      posting_date: input.postingDate ?? postingDateToday(),
+      journal_no: await nextJournalNo(tx, postingDate),
+      posting_date: postingDate,
       source_doc_type_id: input.sourceDocTypeId ?? null,
       source_doc_id: input.sourceDocId ?? null,
       description: input.description,
@@ -308,7 +299,7 @@ export type DraftJournalInput = {
   actorId: number;
 };
 
-/** `JUR-0001` — its own series, so a manual journal is one on sight. */
+/** Numbered in the series of the month the draft is dated. */
 export async function createDraftJournal(
   input: DraftJournalInput
 ): Promise<{ id: number; journalNo: string }> {
@@ -317,7 +308,7 @@ export async function createDraftJournal(
   return prisma.$transaction(async (tx) => {
     const journal = await tx.accJournal.create({
       data: {
-        journal_no: await nextJournalNo(tx, "JUR"),
+        journal_no: await nextJournalNo(tx, input.date),
         posting_date: new Date(`${input.date}T00:00:00Z`),
         description: input.description,
         status: "Draft",
@@ -619,21 +610,18 @@ export async function journalNumbersByIds(
 }
 
 /**
- * `JRN-0001` for a journal a posting produced, `JUR-0001` for one a person
- * typed, `CLS-0001` for a fiscal year's closing entry — independent series in
- * one table, so which kind of journal a number names is readable without
- * opening it.
+ * `JV/2026/09/0001` — one series for every journal (Claude-ERP.md §13), per
+ * month of the journal's own date. Whether a journal was typed, produced by a
+ * document or written by a close is read off `is_manual` and its source
+ * document, not off its number.
  *
- * The highest number is looked up **within the series**: ordering by id alone
- * would hand a `JUR` number back when the newest row happened to be a `JRN`.
+ * The highest number is looked up **within the month's series**: ordering by
+ * id alone would hand back a number from another month.
  */
-async function nextJournalNo(
-  tx: Client,
-  prefix: JournalSeries | "JUR"
-): Promise<string> {
-  return nextDocumentNumber(prefix, async () => {
+async function nextJournalNo(tx: Client, date: Date | string): Promise<string> {
+  return nextDocumentNumber("JV", date, async (series) => {
     const row = await tx.accJournal.findFirst({
-      where: { journal_no: { startsWith: `${prefix}-` } },
+      where: { journal_no: { startsWith: series } },
       orderBy: { id: "desc" },
       select: { journal_no: true },
     });
