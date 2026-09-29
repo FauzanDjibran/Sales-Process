@@ -8,10 +8,6 @@
  * form stay generic.
  */
 import type { IconName } from "@/components/icon";
-import {
-  type ClassificationCatalogue,
-  budgetCategoryNeedsPartner,
-} from "./classification";
 import { isBaseCurrency } from "./currency";
 import type { SystemDefaultKey } from "./system-defaults";
 
@@ -46,23 +42,7 @@ export type FieldType =
    * Server Action writes `1.1.1.5` into the field named by `writesTo`. See
    * `lib/erp/account-code.ts` — Chart of Accounts is the entity that needs it.
    */
-  | "segment"
-  /**
-   * A **set** of references, written to a join table rather than to a column on
-   * this row — which Partner Categories a Budget Category admits.
-   *
-   * The registry could already write a child row (a Cash & Bank resource opens
-   * its book in the same transaction it is registered in); this is the same
-   * mechanism for a set of them. It exists because the alternative was a second
-   * menu: the pairing used to be its own entity, so creating a category and
-   * saying what it admits were two records, two forms and two saves — and a
-   * category saved between them is inert, which is a state the application now
-   * refuses outright.
-   *
-   * Never deletes. Unticking a reference **deactivates** its row and re-ticking
-   * reopens the same one, so a pairing keeps its history and its code.
-   */
-  | "multiref";
+  | "segment";
 
 export type Field = {
   name: string;
@@ -81,7 +61,7 @@ export type Field = {
   unique?: boolean;
   /**
    * Narrows `unique` to rows sharing this column's value — an account number is
-   * unique within a Company, not globally.
+   * unique among its siblings, not globally.
    */
   uniqueWithin?: string;
   /** Short human identifier — renders as a chip when read-only, mono when editing. */
@@ -111,22 +91,15 @@ export type Field = {
   /** `ref` target entity key. */
   ref?: string;
   /**
-   * For a `multiref`: the join entity whose rows carry the set. The Server
-   * Action reconciles it inside the same transaction that writes this record.
-   */
-  joinTable?: string;
-  /**
    * Named narrowing for a ref field. The server applies the structural half
    * (postable, subcategory, active) when it builds the options; the form
    * applies the half that depends on values the user is still choosing, such
-   * as the Company. Kept as a name so the config stays serialisable.
+   * as the chosen Kelompok. Kept as a name so the config stays serialisable.
    */
   refFilter?:
     | "cashBankAccount"
     | "postableAccount"
-    | "parentAccount"
-    /** Only the Partner Categories the chosen Budget Category admits. */
-    | "admittedPartnerCategory";
+    | "parentAccount";
   /**
    * Named predicate deciding whether the field applies at all. A field that
    * does not apply is hidden and stored as null — the Server Action evaluates
@@ -134,14 +107,6 @@ export type Field = {
    */
   visibleWhen?:
     | "accountRequiresPartner"
-    | "budgetCategoryRequiresPartner"
-    /**
-     * A Budget Category that keeps a book **and** moves both ways, so which
-     * direction raises its subject is a real choice. A single-direction
-     * category's book can only run that way — the CHECK constraint says as
-     * much — so asking would be offering one answer.
-     */
-    | "categoryChoosesRaises"
     /**
      * The chosen `currency_id` is not the base currency. A base-currency
      * resource needs no kurs — asking for one and answering "1" would be a
@@ -238,8 +203,6 @@ export type Entity = {
    * connects. Titles are composed from these ref fields' labels.
    */
   titleRefs?: string[];
-  /** Column used to filter by the topbar company context. */
-  scope?: string;
   /** How the list page renders. */
   view?: "table" | "tree";
   statusModel?: StatusModel;
@@ -306,82 +269,18 @@ export const YEAR_OPTIONS: string[] = Array.from({ length: 11 }, (_, i) =>
 
 export const ENTITIES: Entity[] = [
   {
-    key: "sys_company",
-    slug: "company",
-    module: "master",
-    name: "Company",
-    icon: "build",
-    desc: "Entity dan ownership context. Seluruh Budget, Finance, book, dan Journal berdiri di atas Company.",
-    codeField: "company_code",
-    codePrefix: "comp",
-    labelField: "company_label",
-    nameField: "company_name",
-    fields: [
-      {
-        name: "company_label",
-        label: "Label",
-        type: "text",
-        required: true,
-        unique: true,
-        ident: true,
-        placeholder: "Holding",
-        help: identHelp,
-      },
-      {
-        name: "company_name",
-        label: "Nama Company",
-        type: "text",
-        required: true,
-        placeholder: "Holding Company",
-        help: "nama lengkap",
-      },
-      {
-        name: "is_parent",
-        label: "Company Induk",
-        type: "bool",
-        defaultValue: false,
-        caption: "Company ini adalah induk",
-        captionDetail:
-          "Hanya boleh satu Company induk. Company lain otomatis dianggap anak dari induk tersebut.",
-      },
-      NOTE_FIELD,
-    ],
-    columns: [
-      { field: "company_label", label: "Label", isLabel: true, width: "128px", filter: "text" },
-      { field: "company_name", label: "Nama Company", primary: true, filter: "text" },
-      { field: "rel", label: "Posisi", computed: true, width: "168px" },
-      { field: "partner_count", label: "Partner", computed: true, numeric: true, width: "92px" },
-      { field: "cash_bank_count", label: "Cash & Bank", computed: true, numeric: true, width: "112px" },
-      { field: "account_count", label: "Account", computed: true, numeric: true, width: "96px" },
-    ],
-  },
-
-  {
     key: "m_partner",
     slug: "partner",
     module: "master",
     name: "Partner",
     icon: "users",
-    desc: "Business subject milik sebuah Company, menjadi subjek utama Hutang, Piutang, Titipan, dan Prive Ledger.",
+    desc: "Pelanggan dan pemasok — subjek posisi per Partner pada jurnal dan General Ledger.",
     codeField: "partner_code",
     codePrefix: "part",
     labelField: "partner_label",
     nameField: "partner_name",
-    scope: "company_id",
     statusModel: ACTIVE_STATUS,
     fields: [
-      // Company first, because it is what the record belongs to and cannot be
-      // changed afterwards. A form is read top to bottom, and the field that
-      // fixes a record's context belongs before the fields that describe it.
-      {
-        name: "company_id",
-        label: "Company",
-        type: "ref",
-        ref: "sys_company",
-        required: true,
-        locked: true,
-        help: "terikat pada satu Company, tidak dapat dipindah",
-      },
       {
         name: "partner_label",
         label: "Label",
@@ -389,7 +288,7 @@ export const ENTITIES: Entity[] = [
         required: true,
         unique: true,
         ident: true,
-        placeholder: "CAB-JKT",
+        placeholder: "CUST-001",
         help: identHelp,
       },
       {
@@ -397,7 +296,7 @@ export const ENTITIES: Entity[] = [
         label: "Nama Partner",
         type: "text",
         required: true,
-        placeholder: "Cabang Jakarta",
+        placeholder: "PT Pelanggan Utama",
         help: "nama lengkap",
       },
       {
@@ -406,7 +305,7 @@ export const ENTITIES: Entity[] = [
         type: "ref",
         ref: "sys_partner_category",
         required: true,
-        help: "menentukan Budget Category yang boleh memakainya",
+        help: "menentukan Account mana yang boleh memakainya",
       },
       STATUS_FIELD,
       NOTE_FIELD,
@@ -414,7 +313,6 @@ export const ENTITIES: Entity[] = [
     columns: [
       { field: "partner_label", label: "Label", isLabel: true, width: "140px", filter: "text" },
       { field: "partner_name", label: "Nama Partner", primary: true, filter: "text" },
-      { field: "company_id", label: "Company", isRef: true, width: "214px", filter: "ref" },
       { field: "category_id", label: "Partner Category", isRef: true, width: "190px", filter: "ref" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
@@ -431,21 +329,8 @@ export const ENTITIES: Entity[] = [
     codePrefix: "cbnk",
     labelField: "cash_bank_label",
     nameField: "cash_bank_name",
-    scope: "company_id",
     statusModel: ACTIVE_STATUS,
     fields: [
-      // Company first: it is what the resource belongs to, it cannot be
-      // changed afterwards, and the Account picker below is decided by it.
-      {
-        name: "company_id",
-        label: "Company",
-        type: "ref",
-        ref: "sys_company",
-        required: true,
-        locked: true,
-        resets: ["account_id"],
-        help: "pilihan Account mengikuti Company ini",
-      },
       {
         name: "cash_bank_label",
         label: "Label",
@@ -488,7 +373,7 @@ export const ENTITIES: Entity[] = [
         ref: "acc_account",
         required: true,
         refFilter: "cashBankAccount",
-        help: "account postable di kelompok Kas/Bank Company ini",
+        help: "account postable di kelompok Kas/Bank",
       },
       {
         name: "opening_balance",
@@ -524,7 +409,6 @@ export const ENTITIES: Entity[] = [
     columns: [
       { field: "cash_bank_label", label: "Label", isLabel: true, width: "118px", filter: "text" },
       { field: "cash_bank_name", label: "Nama Cash Bank", primary: true, filter: "text" },
-      { field: "company_id", label: "Company", isRef: true, width: "158px", filter: "ref" },
       { field: "cash_bank_type", label: "Tipe", isTag: true, width: "92px", filter: "enum" },
       { field: "currency_id", label: "Currency", isRef: true, width: "116px", filter: "ref" },
       { field: "account_id", label: "Account", isRef: true, width: "142px", filter: "ref" },
@@ -576,159 +460,7 @@ export const ENTITIES: Entity[] = [
     ],
   },
 
-  // ------------------------------------------------ pengaturan · klasifikasi
-  //
-  // The classification chain, as three editable entities. These are `sys_`
-  // tables the seeder still plants, but the model they describe is the part of
-  // the business still being discovered — so they are read from the database
-  // rather than compiled in, and reshaped here. See `classification.ts`.
-  //
-  // Under Pengaturan rather than Master because they configure how the
-  // application classifies, which is a different job from maintaining the
-  // records it classifies — a Partner or a Cash & Bank resource is data
-  // somebody enters daily, while these are set up once and revisited rarely.
-
-  {
-    key: "sys_budget_category",
-    slug: "budget-category",
-    module: "settings",
-    name: "Budget Category",
-    icon: "tags",
-    desc: "Klasifikasi yang diberikan saat Budget disetujui. Menentukan arah yang berlaku, apakah memakai Partner, dan Partner Category mana yang boleh dipilih.",
-    codeField: "category_code",
-    codePrefix: "bcat",
-    labelField: "category_label",
-    nameField: "category_name",
-    statusModel: ACTIVE_STATUS,
-    fields: [
-      {
-        name: "category_label",
-        label: "Label",
-        type: "text",
-        required: true,
-        unique: true,
-        ident: true,
-        span: 4,
-        placeholder: "Hutang",
-        help: identHelp,
-      },
-      {
-        name: "category_name",
-        label: "Nama Budget Category",
-        type: "text",
-        required: true,
-        span: 8,
-        placeholder: "Hutang kepada pihak lain",
-        help: "nama lengkap",
-      },
-      // One field rather than two checkboxes, because two checkboxes can both
-      // be off — a category that moves in no direction could classify no
-      // Budget at all, and the Server Action and a CHECK constraint both refuse
-      // it. A required select has no such state to reach: the bad combination
-      // stops being something a user can build and then be told about.
-      //
-      // Virtual: it is written as `allows_in` / `allows_out`, which is what
-      // every reader still asks for. See `derivedColumns` in
-      // `app/actions/master.ts`.
-      {
-        name: "direction_mode",
-        label: "Arah",
-        type: "select",
-        options: ["Out", "In", "Both"],
-        optionLabels: {
-          Out: "Pengeluaran saja",
-          In: "Penerimaan saja",
-          Both: "Keduanya",
-        },
-        required: true,
-        virtual: true,
-        span: 4,
-        help: "mengikuti logika neraca, bukan arah kas",
-      },
-      {
-        name: "require_partner",
-        label: "Memakai Partner",
-        type: "bool",
-        span: 4,
-        resets: ["raises", "book_closing_label", "allows_dncn", "partner_category_ids"],
-        help: "matikan bila kategori ini tidak punya subjek",
-      },
-      // Chosen here rather than on a menu of its own. A category that names a
-      // Partner is only usable once it admits at least one Partner Category —
-      // no Purpose is generated for it otherwise, and its subject book can
-      // never receive an entry — so the two belong in one save. `required`
-      // together with `visibleWhen` reads as "mandatory exactly when the
-      // category names a Partner".
-      {
-        name: "partner_category_ids",
-        label: "Partner Category",
-        type: "multiref",
-        ref: "sys_partner_category",
-        joinTable: "sys_budget_partner_category_mapping",
-        virtual: true,
-        required: true,
-        visibleWhen: "accountRequiresPartner",
-        span: 12,
-        help: "boleh dipilih saat Budget kategori ini disetujui",
-      },
-      // A category that names a Partner keeps a subject book, and these two are
-      // what that book needs. `raises` is the only fact nothing else predicts:
-      // money out raises a Piutang and lowers a Hutang, which is balance-sheet
-      // logic rather than cash direction. Without it the category has no book —
-      // deliberately, because a book running the wrong way is worse than none.
-      {
-        name: "raises",
-        label: "Posisi Naik Saat",
-        type: "select",
-        options: ["Out", "In"],
-        optionLabels: { Out: "Pengeluaran", In: "Penerimaan" },
-        // Required *because* of `visibleWhen`, not despite it: a field that
-        // does not apply is skipped by `validate`, so this reads as "mandatory
-        // exactly when the category names a Partner". Naming a Partner means
-        // keeping a book, and a book has to know which way it runs — leaving it
-        // optional produced a category that could be transacted while its
-        // subject book silently recorded nothing.
-        required: true,
-        visibleWhen: "categoryChoosesRaises",
-        span: 4,
-        help: "arah yang menambah posisi subjek",
-      },
-      {
-        name: "book_closing_label",
-        label: "Sebutan Saldo Akhir",
-        type: "text",
-        visibleWhen: "accountRequiresPartner",
-        span: 8,
-        placeholder: "Sisa hutang",
-        help: "opsional, dipakai pada laporan Buku Subjek",
-      },
-      // Whether a Debit / Credit Note may adjust this book. A note's counter
-      // account is one Profit & Loss account per side, which fixes a deposit, a
-      // payable or a receivable correctly and would book income or expense
-      // against owner drawings or an investment's own return — so it is the
-      // category's decision, stored here, never read off the account it maps to.
-      {
-        name: "allows_dncn",
-        label: "Boleh Debit / Credit Note",
-        type: "bool",
-        visibleWhen: "accountRequiresPartner",
-        span: 4,
-        help: "posisi dapat disesuaikan lewat nota",
-      },
-      STATUS_FIELD,
-      NOTE_FIELD,
-    ],
-    columns: [
-      { field: "category_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
-      { field: "category_name", label: "Nama Budget Category", primary: true, filter: "text" },
-      { field: "directions", label: "Arah", computed: true, width: "170px" },
-      { field: "partner_categories", label: "Partner Category", computed: true, width: "210px" },
-      { field: "book", label: "Buku Subjek", computed: true, width: "150px" },
-      { field: "purpose_count", label: "Purpose", computed: true, numeric: true, width: "92px" },
-      { field: "budget_count", label: "Budget", computed: true, numeric: true, width: "86px" },
-      { field: "status", label: "Status", isStatus: true, width: "104px", filter: "enum" },
-    ],
-  },
+  // ------------------------------------------------------ pengaturan
 
   {
     key: "sys_partner_category",
@@ -736,7 +468,7 @@ export const ENTITIES: Entity[] = [
     module: "settings",
     name: "Partner Category",
     icon: "users",
-    desc: "Jenis Partner — Cabang, Karyawan, Stakeholder. Menentukan Partner mana yang boleh dipilih untuk sebuah Budget Category.",
+    desc: "Jenis Partner — Customer dan Supplier. Account yang wajib Partner menyebut satu Partner Category.",
     codeField: "category_code",
     codePrefix: "pcat",
     labelField: "category_label",
@@ -751,7 +483,7 @@ export const ENTITIES: Entity[] = [
         unique: true,
         ident: true,
         span: 4,
-        placeholder: "Karyawan",
+        placeholder: "Customer",
         help: identHelp,
       },
       {
@@ -760,7 +492,7 @@ export const ENTITIES: Entity[] = [
         type: "text",
         required: true,
         span: 8,
-        placeholder: "Pegawai perusahaan",
+        placeholder: "Pelanggan",
         help: "nama lengkap",
       },
       STATUS_FIELD,
@@ -769,80 +501,8 @@ export const ENTITIES: Entity[] = [
     columns: [
       { field: "category_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
       { field: "category_name", label: "Nama Partner Category", primary: true, filter: "text" },
-      { field: "budget_categories", label: "Dipakai Budget Category", computed: true, width: "260px" },
       { field: "partner_count", label: "Partner", computed: true, numeric: true, width: "92px" },
       { field: "status", label: "Status", isStatus: true, width: "110px", filter: "enum" },
-    ],
-  },
-
-  {
-    key: "sys_purpose",
-    slug: "purpose",
-    module: "settings",
-    name: "Transaction Purpose",
-    single: "Purpose",
-    icon: "tags",
-    desc: "Arah × Budget Category × Partner Category, sebagaimana dipilih pada Cash Bank Transaction. Ditambahkan sendiri — Budget Category tanpa Purpose belum dapat ditransaksikan.",
-    codeField: "purpose_key",
-    codePrefix: "purp",
-    statusModel: ACTIVE_STATUS,
-    fields: [
-      // A Purpose *is* the triple direction × Budget Category × Partner
-      // Category, so all three are chosen once and locked. Editing one would
-      // not change this Purpose — it would silently make it a different one,
-      // against which documents have already been posted.
-      //
-      // There is no Sebutan: the label is composed from these three
-      // (`purposeLabel` in `purposes.ts`), so every Purpose reads the same way
-      // and none can drift from what it describes.
-      {
-        name: "direction",
-        label: "Arah",
-        type: "select",
-        options: ["Out", "In"],
-        optionLabels: { Out: "Pengeluaran", In: "Penerimaan" },
-        required: true,
-        locked: true,
-        span: 4,
-        help: "arah kas dokumen",
-      },
-      {
-        name: "budget_category_id",
-        label: "Budget Category",
-        type: "ref",
-        ref: "sys_budget_category",
-        required: true,
-        locked: true,
-        resets: ["partner_category_id"],
-        span: 4,
-        help: "menentukan Budget yang dapat direalisasikan",
-      },
-      {
-        name: "partner_category_id",
-        label: "Partner Category",
-        type: "ref",
-        ref: "sys_partner_category",
-        required: true,
-        locked: true,
-        // Shown only where the Budget Category names a subject, and offering
-        // only the Partner Categories that category admits — so the reader
-        // never has to guess which ones a Budget Category takes, and cannot
-        // pick one `validatePurpose` would then refuse.
-        visibleWhen: "budgetCategoryRequiresPartner",
-        refFilter: "admittedPartnerCategory",
-        span: 4,
-        help: "hanya yang diakui Budget Category itu",
-      },
-      STATUS_FIELD,
-      NOTE_FIELD,
-    ],
-    columns: [
-      { field: "label", label: "Sebutan", computed: true, primary: true },
-      { field: "direction", label: "Arah", computed: true, width: "128px" },
-      { field: "budget_category_id", label: "Budget Category", isRef: true, refLabelOnly: true, width: "160px", filter: "ref" },
-      { field: "partner_category_id", label: "Partner Category", isRef: true, refLabelOnly: true, width: "150px", filter: "ref" },
-      { field: "purpose_key", label: "Key", muted: true, width: "120px", filter: "text" },
-      { field: "status", label: "Status", isStatus: true, width: "104px", filter: "enum" },
     ],
   },
 
@@ -855,25 +515,14 @@ export const ENTITIES: Entity[] = [
     name: "Chart of Accounts",
     single: "Account",
     icon: "book",
-    desc: "Account accounting per Company. Account adalah subjek utama General Ledger.",
+    desc: "Bagan akun perusahaan. Account adalah subjek utama General Ledger.",
     codeField: "account_code",
     codePrefix: "coa",
     labelField: "account_label",
     nameField: "account_name",
-    scope: "company_id",
     view: "tree",
     statusModel: { field: "is_active", kind: "bool", options: ["true", "false"], toggle: true },
     fields: [
-      {
-        name: "company_id",
-        label: "Company",
-        type: "ref",
-        ref: "sys_company",
-        required: true,
-        locked: true,
-        resets: ["parent_account"],
-        help: "nomor sama pada Company lain adalah account lain",
-      },
       {
         name: "account_subcategory_id",
         label: "Kelompok Account",
@@ -977,76 +626,10 @@ export const ENTITIES: Entity[] = [
     columns: [
       { field: "account_label", label: "Account", isLabel: true, width: "116px", filter: "text" },
       { field: "account_name", label: "Nama Account", primary: true, filter: "text" },
-      { field: "company_id", label: "Company", isRef: true, width: "190px", filter: "ref" },
       { field: "account_subcategory_id", label: "Kelompok", isRef: true, width: "196px", filter: "ref" },
       { field: "normal_balance", label: "Normal", isTag: true, width: "96px", filter: "enum" },
       { field: "partner_category_id", label: "Partner Cat.", isRef: true, refLabelOnly: true, width: "116px", filter: "ref" },
       { field: "is_active", label: "Status", isBool: true, width: "100px", filter: "bool" },
-    ],
-  },
-
-  // ------------------------------------------------------- accounting · mapping
-
-  {
-    key: "acc_budget_category_account",
-    slug: "budget-category-account",
-    module: "accounting",
-    name: "Mapping Budget ke Account",
-    single: "Mapping",
-    icon: "link",
-    desc: "Menghubungkan Budget Category, Company, dan Account tujuan — jembatan antara klasifikasi planning dan account accounting.",
-    codeField: "bca_code",
-    codePrefix: "bcam",
-    titleRefs: ["budget_category_id", "partner_category_id", "account_id"],
-    scope: "company_id",
-    fields: [
-      {
-        name: "company_id",
-        label: "Company",
-        type: "ref",
-        ref: "sys_company",
-        required: true,
-        locked: true,
-        resets: ["account_id"],
-        help: "bagan akun berbeda per Company",
-      },
-      {
-        name: "budget_category_id",
-        label: "Budget Category",
-        type: "ref",
-        ref: "sys_budget_category",
-        required: true,
-        resets: ["partner_category_id", "account_id"],
-        help: "menentukan Partner Category yang boleh dipasangkan",
-      },
-      {
-        name: "partner_category_id",
-        label: "Partner Category",
-        type: "ref",
-        ref: "sys_partner_category",
-        required: true,
-        refFilter: "admittedPartnerCategory",
-        visibleWhen: "budgetCategoryRequiresPartner",
-        resets: ["account_id"],
-        help: "satu kombinasi menuju tepat satu Account",
-      },
-      {
-        name: "account_id",
-        label: "Account",
-        type: "ref",
-        ref: "acc_account",
-        required: true,
-        full: true,
-        refFilter: "postableAccount",
-        help: "hanya account postable milik Company ini",
-      },
-    ],
-    columns: [
-      { field: "company_id", label: "Company", isRef: true, refLabelOnly: true, width: "104px", filter: "ref" },
-      { field: "budget_category_id", label: "Budget Category", isRef: true, refLabelOnly: true, width: "150px", filter: "ref" },
-      { field: "partner_category_id", label: "Partner Category", isRef: true, refLabelOnly: true, width: "150px", filter: "ref" },
-      { field: "account_id", label: "Account Tujuan", isRef: true, primary: true, filter: "ref" },
-      { field: "normal_balance", label: "Normal", computed: true, width: "96px" },
     ],
   },
 
@@ -1125,13 +708,13 @@ export function createLabel(entity: Entity): string {
  *
  * Derived from `resets` rather than declared a second time. A field that
  * clears another when it changes *is* a field that other one depends on —
- * Company clears Parent Account because a parent belongs to a Company — so
+ * Kelompok Account clears Parent Account because a parent sits in one — so
  * stating the dependency twice would be a rule with two answers, and the two
  * would drift the first time one of them was edited alone.
  *
  * A `bool` never counts: it is always answered, one way or the other. A field
- * that does not apply is skipped, so a Partner Category the Budget Category
- * does not take never blocks the Account behind it.
+ * that does not apply is skipped, so a hidden field never blocks the ones
+ * behind it.
  */
 export function prerequisitesOf(
   entity: Entity,
@@ -1149,7 +732,7 @@ export function prerequisitesOf(
 }
 
 /**
- * What a picker says while it waits — `Pilih Company dan Kelompok Account
+ * What a picker says while it waits — `Pilih Kelompok Account
  * dulu…`, in the same `Pilih <what>…` shape every prompt in the application
  * uses (CLAUDE.md §8).
  */
@@ -1163,47 +746,23 @@ export function waitingClause(missing: Field[]): string | null {
   return `Pilih ${list} dulu…`;
 }
 
-/**
- * Whether a field applies, given the values currently entered.
- *
- * The classification catalogue is passed in rather than read here: this module
- * is client-safe and the rules now live in the database, so the page loads them
- * once and hands them down. An absent catalogue answers "does not apply",
- * which is the safe direction — the Server Action re-checks regardless.
- */
+/** Whether a field applies, given the values currently entered. */
 export function fieldApplies(
   field: Field,
   values: Record<string, unknown>,
-  categoryLabelOf?: (id: unknown) => string | undefined,
-  currencyLabelOf?: (id: unknown) => string | undefined,
-  classification?: ClassificationCatalogue
+  currencyLabelOf?: (id: unknown) => string | undefined
 ): boolean {
   if (!field.visibleWhen) return true;
   if (field.visibleWhen === "accountRequiresPartner") {
     const v = values.require_partner;
     return v === true || v === "true";
   }
-  if (field.visibleWhen === "categoryChoosesRaises") {
-    const v = values.require_partner;
-    return (v === true || v === "true") && values.direction_mode === "Both";
-  }
-  if (field.visibleWhen === "currencyIsForeign") {
-    const label = currencyLabelOf?.(values.currency_id);
-    // Nothing chosen yet is not foreign: the field appears once the answer is
-    // known, rather than flickering in on an empty picker.
-    return label ? !isBaseCurrency(label) : false;
-  }
-  // budgetCategoryRequiresPartner
-  const label = categoryLabelOf?.(values.budget_category_id);
-  return label && classification
-    ? budgetCategoryNeedsPartner(classification, label)
-    : false;
+  // currencyIsForeign
+  const label = currencyLabelOf?.(values.currency_id);
+  // Nothing chosen yet is not foreign: the field appears once the answer is
+  // known, rather than flickering in on an empty picker.
+  return label ? !isBaseCurrency(label) : false;
 }
-
-// The Budget Category rules themselves moved to `classification.ts` and are
-// loaded from the database — see `loadClassification` in `records.ts`. They
-// left this file because a registry of field definitions should not also be
-// where a business rule lives, and because they stopped being constants.
 
 export const STATUS_TEXT: Record<string, string> = {
   Active: "Aktif",
@@ -1212,9 +771,6 @@ export const STATUS_TEXT: Record<string, string> = {
   Draft: "Draft",
   Closed: "Closed",
   Posted: "Posted",
-  Pending: "Menunggu Funding",
-  Submitted: "Diajukan",
-  Rejected: "Ditolak",
   Cancelled: "Dibatalkan",
   true: "Aktif",
   false: "Non Aktif",
@@ -1226,10 +782,7 @@ export const STATUS_CLASS: Record<string, string> = {
   Posted: "s-ok",
   Inactive: "s-bad",
   Draft: "s-warn",
-  Pending: "s-info",
   Closed: "s-mute",
-  Submitted: "s-info",
-  Rejected: "s-bad",
   Cancelled: "s-mute",
   true: "s-ok",
   false: "s-bad",

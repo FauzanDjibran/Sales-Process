@@ -6,18 +6,7 @@ import { formatMoney } from "@/lib/format";
 import { compareCodes } from "./account-code";
 import { cashBankBalanceMap } from "./cash-bank";
 import { journalLineCountForAccount } from "./journal";
-import { subledgerForCategory } from "./subledger-catalogue";
-import { loadSubledgers } from "./subledger-data";
-import { loadClassification } from "./classification-data";
-import { purposeCountByCategory, purposeLabel } from "./purposes";
-import { budgetCountByCategory } from "./budget";
 import { type Entity, type Field, entityBySlug } from "./entities";
-import {
-  allowedPartnerCategories,
-  budgetCategoryNeedsPartner,
-  directionText,
-  directionsText,
-} from "./classification";
 
 /**
  * Generic record access for registry-driven entities.
@@ -29,18 +18,12 @@ import {
 type Client = typeof prisma | Prisma.TransactionClient;
 
 const DELEGATES = {
-  sys_company: (db: Client) => db.sysCompany,
   m_partner: (db: Client) => db.mPartner,
   m_cash_bank: (db: Client) => db.mCashBank,
   ref_currency: (db: Client) => db.refCurrency,
   sys_partner_category: (db: Client) => db.sysPartnerCategory,
-  sys_budget_category: (db: Client) => db.sysBudgetCategory,
-  sys_budget_partner_category_mapping: (db: Client) =>
-    db.sysBudgetPartnerCategoryMapping,
-  sys_purpose: (db: Client) => db.sysPurpose,
   acc_account: (db: Client) => db.accAccount,
   acc_account_subcategory: (db: Client) => db.accAccountSubcategory,
-  acc_budget_category_account: (db: Client) => db.accBudgetCategoryAccount,
   acc_fiscal_year: (db: Client) => db.accFiscalYear,
 } as const;
 
@@ -54,8 +37,6 @@ export type RefOption = {
   label: string;
   name: string;
   active: boolean;
-  /** Narrows options for dependent fields, e.g. accounts belong to a company. */
-  companyId?: number;
   /**
    * Accounts only. A Parent Account must sit in the same kelompok as the
    * account continuing its number, so the form needs this to narrow the
@@ -84,26 +65,9 @@ export function serialize<T extends Record<string, unknown>>(row: T): Row {
   return out as Row;
 }
 
-/**
- * A list, narrowed to one Company when the entity declares a scope.
- *
- * `Entity.scope` is what decides: an entity without one — Company itself,
- * Currency, the reference tables — is never filtered and ignores `companyId`.
- * A scoped entity with `null` returns nothing, which is what a user holding
- * neither Company permission may read.
- *
- * This narrows a view. The view permission above it is what decides whether
- * the page may be read at all.
- */
-export async function listRows(
-  entity: Entity,
-  companyId: number | null
-): Promise<Row[]> {
-  if (entity.scope && companyId == null) return [];
-  const rows = await delegate(entity.key).findMany({
-    where: entity.scope ? { [entity.scope]: companyId } : {},
-    orderBy: { id: "asc" },
-  });
+/** Every row of an entity, oldest first. */
+export async function listRows(entity: Entity): Promise<Row[]> {
+  const rows = await delegate(entity.key).findMany({ orderBy: { id: "asc" } });
   return rows.map(serialize);
 }
 
@@ -112,86 +76,14 @@ export async function getRow(entity: Entity, id: number): Promise<Row | null> {
   if (!row) return null;
   return {
     ...serialize(row),
-    ...virtualValues(entity, row as Record<string, unknown>),
-    ...(await multirefValues(entity, id)),
   };
-}
-
-/**
- * Values for fields the form offers but no column holds.
- *
- * A Budget Category's `Arah` is one answer stored as two booleans, so opening
- * an existing category has to read them back into the single field the form
- * asks with. The write side is `derivedColumns` in `app/actions/master.ts`;
- * this is its mirror, and the pair has to stay in step.
- */
-function virtualValues(
-  entity: Entity,
-  row: Record<string, unknown>
-): Record<string, unknown> {
-  if (entity.key !== "sys_budget_category") return {};
-  const inbound = row.allows_in === true;
-  const outbound = row.allows_out === true;
-  return {
-    direction_mode:
-      inbound && outbound ? "Both" : inbound ? "In" : outbound ? "Out" : "",
-  };
-}
-
-/**
- * The ids a `multiref` field currently holds, read from its join table.
- *
- * Only the **active** rows: a deactivated pairing is one somebody retired, and
- * the form shows it unticked. Re-ticking reopens that same row rather than
- * creating a second — see `reconcileMultiref` in `app/actions/master.ts` — so
- * nothing is lost by presenting it as simply unchecked.
- */
-async function multirefValues(
-  entity: Entity,
-  id: number
-): Promise<Record<string, number[]>> {
-  const out: Record<string, number[]> = {};
-  for (const field of entity.fields) {
-    if (field.type !== "multiref" || !field.joinTable) continue;
-    const rows = await delegate(field.joinTable).findMany({
-      where: { [ownerColumn(entity)]: id, status: "Active" },
-      select: { [targetColumn(field)]: true },
-      orderBy: { [targetColumn(field)]: "asc" },
-    });
-    out[field.name] = rows.map(
-      (r: Record<string, unknown>) => r[targetColumn(field)] as number
-    );
-  }
-  return out;
-}
-
-/**
- * Which column of the join table points back at the record being edited, and
- * which points at what it admits.
- *
- * Derived from the entity keys rather than configured: `sys_budget_category`
- * is `budget_category_id` and `sys_partner_category` is
- * `partner_category_id`, which is the convention every join table in this
- * schema already follows (§7). A second `multiref` that broke it would need a
- * config key; none does, so inventing one now would be configuration nothing
- * reads.
- */
-export function ownerColumn(entity: Entity): string {
-  return `${entity.key.replace(/^sys_|^m_|^acc_|^ref_|^fin_|^bud_/, "")}_id`;
-}
-
-export function targetColumn(field: Field): string {
-  return `${(field.ref ?? "").replace(/^sys_|^m_|^acc_|^ref_|^fin_|^bud_/, "")}_id`;
 }
 
 /**
  * Several rows of one entity by id, in one query.
  *
  * The audit log resolves a batch of `(entity_key, row_id)` pairs at a time and
- * would otherwise issue a query per entry. Deliberately unscoped by Company:
- * this names a record that has already been recorded as changed, and hiding the
- * name would leave an entry no one could interpret rather than protecting
- * anything.
+ * would otherwise issue a query per entry.
  */
 export async function rowsByIds(entity: Entity, ids: number[]): Promise<Row[]> {
   if (!ids.length) return [];
@@ -206,21 +98,21 @@ export async function rowsByIds(entity: Entity, ids: number[]): Promise<Row[]> {
  *
  * Keying by field rather than by target matters: two fields can point at the
  * same table and still need different option sets. Chart of Accounts is the
- * case that forces it — `parent_account` may pick any account in the Company,
+ * case that forces it — `parent_account` may pick any account in the chart,
  * while Cash & Bank may only pick a postable Kas/Bank account. Both target
  * `acc_account`.
  *
  * The structural half of each narrowing happens here, on the server, so the
  * options a form offers are already the options the Server Action will accept.
- * The half that depends on what the user is typing right now — the Company, the
- * Budget Category — is applied again in the form.
+ * The half that depends on what the user is typing right now — the Kelompok
+ * Account — is applied again in the form.
  */
 export async function refOptions(
   entity: Entity
 ): Promise<Record<string, RefOption[]>> {
   const result: Record<string, RefOption[]> = {};
   for (const field of entity.fields) {
-    if ((field.type !== "ref" && field.type !== "multiref") || !field.ref) continue;
+    if (field.type !== "ref" || !field.ref) continue;
     result[field.name] = await optionsFor(field.ref, field.refFilter);
   }
   return result;
@@ -245,26 +137,8 @@ export async function optionsFor(
   filter?: Field["refFilter"]
 ): Promise<RefOption[]> {
   switch (target) {
-    case "sys_company": {
-      const rows = await prisma.sysCompany.findMany({ orderBy: { id: "asc" } });
-      return rows.map((r) => ({
-        id: r.id,
-        label: r.company_label,
-        name: r.company_name,
-        active: true,
-      }));
-    }
     case "sys_partner_category": {
       const rows = await prisma.sysPartnerCategory.findMany({ orderBy: { id: "asc" } });
-      return rows.map((r) => ({
-        id: r.id,
-        label: r.category_label,
-        name: r.category_name,
-        active: r.status === "Active",
-      }));
-    }
-    case "sys_budget_category": {
-      const rows = await prisma.sysBudgetCategory.findMany({ orderBy: { id: "asc" } });
       return rows.map((r) => ({
         id: r.id,
         label: r.category_label,
@@ -295,17 +169,12 @@ export async function optionsFor(
     case "acc_account": {
       const rows = await prisma.accAccount.findMany({ where: accountWhere(filter) });
       return rows
-        .sort(
-          (a, b) =>
-            a.company_id - b.company_id ||
-            compareCodes(a.account_label, b.account_label)
-        )
+        .sort((a, b) => compareCodes(a.account_label, b.account_label))
         .map((r) => ({
           id: r.id,
           label: r.account_label,
           name: r.account_name,
           active: r.is_active,
-          companyId: r.company_id,
           subcategoryId: r.account_subcategory_id,
         }));
     }
@@ -320,9 +189,7 @@ export async function optionsFor(
  * inherited `segment` continues without loading a whole option list.
  */
 const LABEL_COLUMN: Record<string, string> = {
-  sys_company: "company_label",
   sys_partner_category: "category_label",
-  sys_budget_category: "category_label",
   ref_currency: "currency_label",
   acc_account_subcategory: "subcategory_label",
   acc_account: "account_label",
@@ -366,7 +233,6 @@ function accountWhere(filter?: Field["refFilter"]) {
       return {
         journal_lines: { none: {} },
         cash_banks: { none: {} },
-        mappings: { none: {} },
       };
     default:
       return {};
@@ -419,7 +285,7 @@ export async function checkAccountIsLeaf(
  * caller, which is the only layer that may read both this and `sys_setting`.
  */
 export async function accountUsage(accountId: number): Promise<string[]> {
-  const [lines, cashBanks, mappings] = await Promise.all([
+  const [lines, cashBanks] = await Promise.all([
     // Asked of the Journal rather than read from its table: `acc_journal_line`
     // is the Journal's, and the books are meant to stay liftable.
     journalLineCountForAccount(accountId),
@@ -427,7 +293,6 @@ export async function accountUsage(accountId: number): Promise<string[]> {
       where: { account_id: accountId },
       select: { cash_bank_label: true },
     }),
-    prisma.accBudgetCategoryAccount.count({ where: { account_id: accountId } }),
   ]);
 
   const used: string[] = [];
@@ -437,7 +302,6 @@ export async function accountUsage(accountId: number): Promise<string[]> {
       `Cash & Bank ${cashBanks.map((c) => c.cash_bank_label).join(", ")}`
     );
   }
-  if (mappings) used.push(`${mappings} mapping Budget Category`);
   return used;
 }
 
@@ -447,17 +311,13 @@ export async function accountUsage(accountId: number): Promise<string[]> {
  * Why an account is a **control account** — an account whose balance is
  * reconciled against a book that lives outside the General Ledger.
  *
- * Two structures make one, and both are the same fact seen from either side:
- *
- *  * a **Cash & Bank** resource posts to it, so it must agree with the Cash
- *    Bank Book and, for a foreign resource, with its rate layers;
- *  * a **Budget Category that keeps a subject book** maps to it, so it must
- *    agree with that book's positions.
+ * A **Cash & Bank** resource posting to it makes one: it must agree with the
+ * Cash Bank Book and, for a foreign resource, with its rate layers.
  *
  * Writing to such an account by any route other than the posting that also
  * writes the book would put the two out of agreement silently — nothing would
- * error, the General Ledger would simply stop matching the Buku Hutang. That
- * is what the manual journal is refused for.
+ * error, the General Ledger would simply stop matching the Buku Kas & Bank.
+ * That is what the manual journal is refused for.
  *
  * Returns one phrase per reason, in the reader's own words, or an empty list.
  * The **System Default** half is resolved by the caller, which is the only
@@ -467,16 +327,10 @@ export async function accountUsage(accountId: number): Promise<string[]> {
 export async function controlAccountReasons(
   accountId: number
 ): Promise<string[]> {
-  const [cashBanks, mappings] = await Promise.all([
-    prisma.mCashBank.findMany({
-      where: { account_id: accountId },
-      select: { cash_bank_label: true },
-    }),
-    prisma.accBudgetCategoryAccount.findMany({
-      where: { account_id: accountId },
-      select: { budget_category_id: true },
-    }),
-  ]);
+  const cashBanks = await prisma.mCashBank.findMany({
+    where: { account_id: accountId },
+    select: { cash_bank_label: true },
+  });
 
   const reasons: string[] = [];
   if (cashBanks.length) {
@@ -484,18 +338,6 @@ export async function controlAccountReasons(
       `Buku Kas & Bank ${cashBanks.map((c) => c.cash_bank_label).join(", ")}`
     );
   }
-
-  // Only a category that actually keeps a book makes its target a control
-  // account. Biaya and Asset map to an account too, and that account
-  // reconciles against nothing but the General Ledger itself — so an expense
-  // account stays open to manual entry, which is most of what one is for.
-  const catalogue = await loadSubledgers();
-  const books = new Set<string>();
-  for (const m of mappings) {
-    const book = subledgerForCategory(catalogue, m.budget_category_id);
-    if (book) books.add(book.name);
-  }
-  reasons.push(...[...books].sort());
 
   return reasons;
 }
@@ -507,21 +349,10 @@ export async function controlAccountReasons(
  * which has a whole chart to consider.
  */
 export async function structuralControlAccountIds(): Promise<Set<number>> {
-  const [cashBanks, mappings] = await Promise.all([
-    prisma.mCashBank.findMany({ select: { account_id: true } }),
-    prisma.accBudgetCategoryAccount.findMany({
-      select: { account_id: true, budget_category_id: true },
-    }),
-  ]);
-
-  const catalogue = await loadSubledgers();
-  const ids = new Set<number>(cashBanks.map((c) => c.account_id));
-  for (const m of mappings) {
-    if (subledgerForCategory(catalogue, m.budget_category_id)) {
-      ids.add(m.account_id);
-    }
-  }
-  return ids;
+  const cashBanks = await prisma.mCashBank.findMany({
+    select: { account_id: true },
+  });
+  return new Set<number>(cashBanks.map((c) => c.account_id));
 }
 
 /**
@@ -529,16 +360,10 @@ export async function structuralControlAccountIds(): Promise<Set<number>> {
  *
  * Being one is not a property somebody sets: it is the answer to "does
  * anything outside the General Ledger reconcile against this account?" — a
- * Cash & Bank resource registered on it, a subledger-bearing mapping pointing
- * at it, a bridge or FX System Default naming it. So the flag is *recomputed*
+ * Cash & Bank resource registered on it, or an FX System Default naming it. So the flag is *recomputed*
  * from the structure on every event that can change that answer, in both
  * directions, the same way a parent account's posting privilege follows the
  * shape of the tree rather than a checkbox.
- *
- * Claiming used to be automatic and releasing was not, which left an account
- * flagged by a mapping that had since been repointed elsewhere — closed to
- * manual entry for good, with a checkbox as the only way back. Recomputing is
- * what removes both the stale flag and the checkbox.
  *
  * The System Default half arrives as an argument. `sys_setting` belongs to a
  * layer above this one, and the caller is the only place allowed to read both
@@ -568,22 +393,17 @@ export async function syncControlAccounts(
  * enforces it: a Server Action is reachable directly, with any account id.
  */
 export async function checkCashBankAccount(
-  accountId: number,
-  companyId: number
+  accountId: number
 ): Promise<string | null> {
   const account = await prisma.accAccount.findUnique({
     where: { id: accountId },
     select: {
-      company_id: true,
       is_postable: true,
       is_active: true,
       account_subcategory: { select: { subcategory_label: true } },
     },
   });
   if (!account) return "Account tidak ditemukan.";
-  if (account.company_id !== companyId) {
-    return "Account harus milik Company yang sama dengan resource ini.";
-  }
   if (!account.is_postable) {
     return "Account header tidak dapat menerima posting. Pilih account postable.";
   }
@@ -600,13 +420,8 @@ export async function checkCashBankAccount(
 
 /**
  * Whether an account number is free, checked the way the database constrains
- * it: unique **within a Company**, never globally.
- *
- * Two Companies each keeping their own `1.1.4.1` is the point — a chart of
- * accounts belongs to one legal entity, and the two here are separate books
- * (CLAUDE.md §10). What must never happen is one Company holding the number
- * twice, which is what this refuses and what
- * `@@unique([company_id, account_label])` backs up underneath.
+ * it: unique across the one chart of accounts, which
+ * `@@unique([account_label])` backs up underneath.
  *
  * Returns the refusal to show, or null when the number is free. Lives here
  * rather than inside the Server Action so it is reachable from a test: an
@@ -614,21 +429,19 @@ export async function checkCashBankAccount(
  * to produce.
  */
 export async function checkAccountNumber(
-  companyId: number,
   accountLabel: string,
   currentId: number | null = null
 ): Promise<string | null> {
   if (!accountLabel) return null;
   const clash = await prisma.accAccount.findFirst({
     where: {
-      company_id: companyId,
       account_label: accountLabel,
       ...(currentId ? { id: { not: currentId } } : {}),
     },
     select: { account_name: true },
   });
   return clash
-    ? `Nomor ${accountLabel} sudah dipakai oleh ${clash.account_name} pada Company ini.`
+    ? `Nomor ${accountLabel} sudah dipakai oleh ${clash.account_name}.`
     : null;
 }
 
@@ -656,186 +469,6 @@ export async function accountDescendants(rootId: number): Promise<Set<number>> {
   return out;
 }
 
-/** Partner category ids a Budget Category accepts, resolved through labels. */
-export async function partnerCategoriesForBudgetCategory(
-  budgetCategoryId: number
-): Promise<{ needsPartner: boolean; allowedIds: number[] } | null> {
-  const category = await prisma.sysBudgetCategory.findUnique({
-    where: { id: budgetCategoryId },
-    select: { category_label: true },
-  });
-  if (!category) return null;
-  const catalogue = await loadClassification();
-  const labels = allowedPartnerCategories(catalogue, category.category_label);
-  const rows = await prisma.sysPartnerCategory.findMany({
-    where: { category_label: { in: labels }, status: "Active" },
-    select: { id: true },
-  });
-  return {
-    needsPartner: budgetCategoryNeedsPartner(catalogue, category.category_label),
-    allowedIds: rows.map((r) => r.id),
-  };
-}
-
-/**
- * Active Budget Categories that name a Partner but have no Partner Category
- * paired to them.
- *
- * Such a category is **inert**: no Purpose is generated for it, so no document
- * can ever be raised against it, and the subject book it keeps can never
- * receive an entry. It reads as configured and does nothing — which is exactly
- * the kind of state a user reaches by accident and then trusts.
- *
- * Asked from four directions, because a rule enforced one way is reachable the
- * other: saving the category, activating it, retiring its last pairing, and
- * deactivating the Partner Category that pairing points at.
- *
- * It lives here rather than in the Server Action so the suite can exercise the
- * real rule — an action resolves its caller from a session cookie, which a test
- * process does not have. The same reason `checkCashBankAccount` and
- * `accountUsage` sit beside it.
- */
-export async function strandedCategories(
-  options: {
-    ignorePairingId?: number;
-    ignorePartnerCategoryId?: number;
-    onlyCategoryId?: number;
-  } = {}
-): Promise<string[]> {
-  const categories = await prisma.sysBudgetCategory.findMany({
-    where: {
-      status: "Active",
-      require_partner: true,
-      ...(options.onlyCategoryId ? { id: options.onlyCategoryId } : {}),
-    },
-    select: {
-      category_label: true,
-      partner_categories: {
-        where: { status: "Active", partner_category: { status: "Active" } },
-        select: { id: true, partner_category_id: true },
-      },
-    },
-  });
-
-  return categories
-    .filter((c) => {
-      const surviving = c.partner_categories.filter(
-        (m) =>
-          m.id !== options.ignorePairingId &&
-          m.partner_category_id !== options.ignorePartnerCategoryId
-      );
-      return surviving.length === 0;
-    })
-    .map((c) => c.category_label);
-}
-
-/**
- * Brings a `multiref` field's join rows in line with the ids submitted.
- *
- * Runs **inside the caller's transaction**, so a record and the set it admits
- * are written together or not at all. That is the whole reason the pairing
- * stopped being a menu of its own: a Budget Category saved without its Partner
- * Categories is inert — no Purpose names it and its subject book can receive
- * nothing — and two saves means that state is reachable whenever the second one
- * fails. One transaction makes it unreachable.
- *
- * **Nothing is deleted.** An id that was there and is not now has its row set
- * Inactive; an id that comes back reopens the row that was already there rather
- * than creating a second. So a pairing keeps its code, its authorship and its
- * history across being retired and restored, and the unique index on the
- * combination is never contended.
- */
-export async function reconcileMultiref(
-  tx: Prisma.TransactionClient,
-  entity: Entity,
-  rowId: number,
-  wanted: Record<string, number[]>,
-  actorId: number
-): Promise<void> {
-  for (const field of entity.fields) {
-    if (field.type !== "multiref" || !field.joinTable) continue;
-
-    const owner = ownerColumn(entity);
-    const target = targetColumn(field);
-    const admitted = new Set(wanted[field.name] ?? []);
-
-    const existing: { id: number; status: string }[] = await delegate(
-      field.joinTable,
-      tx
-    ).findMany({
-      where: { [owner]: rowId },
-      select: { id: true, status: true, [target]: true },
-    });
-    const byTarget = new Map(
-      existing.map((r) => [(r as Record<string, unknown>)[target] as number, r])
-    );
-
-    for (const targetId of admitted) {
-      const row = byTarget.get(targetId);
-      if (!row) {
-        await delegate(field.joinTable, tx).create({
-          data: {
-            [codeFieldOf(field.joinTable)]: await nextJoinCode(tx, field.joinTable),
-            [owner]: rowId,
-            [target]: targetId,
-            created_by: actorId,
-          },
-        });
-      } else if (row.status !== "Active") {
-        await delegate(field.joinTable, tx).update({
-          where: { id: row.id },
-          data: { status: "Active", updated_by: actorId },
-        });
-      }
-    }
-
-    for (const [targetId, row] of byTarget) {
-      if (admitted.has(targetId) || row.status !== "Active") continue;
-      await delegate(field.joinTable, tx).update({
-        where: { id: row.id },
-        data: { status: "Inactive", updated_by: actorId },
-      });
-    }
-  }
-}
-
-const JOIN_CODE_FIELD: Record<string, string> = {
-  sys_budget_partner_category_mapping: "mapping_code",
-};
-const JOIN_CODE_PREFIX: Record<string, string> = {
-  sys_budget_partner_category_mapping: "bpcm",
-};
-
-function codeFieldOf(entityKey: string): string {
-  const field = JOIN_CODE_FIELD[entityKey];
-  if (!field) throw new Error(`No code field declared for join table ${entityKey}.`);
-  return field;
-}
-
-/**
- * The next `<prefix>.<4 digits>` for a join table (§9).
- *
- * Counted rather than read off the highest code because these rows are never
- * deleted, so the count only ever grows — and the loop below covers the one
- * case it would not, a database seeded in a different order.
- */
-async function nextJoinCode(
-  tx: Prisma.TransactionClient,
-  entityKey: string
-): Promise<string> {
-  const prefix = JOIN_CODE_PREFIX[entityKey];
-  let n = await delegate(entityKey, tx).count();
-  for (;;) {
-    n += 1;
-    const code = `${prefix}.${String(n).padStart(4, "0")}`;
-    const clash = await delegate(entityKey, tx).findFirst({
-      where: { [codeFieldOf(entityKey)]: code },
-      select: { id: true },
-    });
-    if (!clash) return code;
-  }
-}
-
 /**
  * Values for columns marked `computed` — counts and derived text that are not
  * columns on the row itself.
@@ -847,126 +480,16 @@ export async function computedValues(
   const out: Record<number, Record<string, string | number>> = {};
   for (const r of rows) out[r.id] = {};
 
-  if (entity.key === "sys_company") {
-    const [partners, cashBanks, accounts] = await Promise.all([
-      prisma.mPartner.groupBy({ by: ["company_id"], _count: { _all: true } }),
-      prisma.mCashBank.groupBy({ by: ["company_id"], _count: { _all: true } }),
-      prisma.accAccount.groupBy({ by: ["company_id"], _count: { _all: true } }),
-    ]);
-    const pick = (
-      groups: { company_id: number; _count: { _all: number } }[],
-      id: number
-    ) => groups.find((g) => g.company_id === id)?._count._all ?? 0;
-
-    const parent = rows.find((r) => r.is_parent === true);
-    for (const r of rows) {
-      out[r.id] = {
-        rel: r.is_parent
-          ? "Induk"
-          : parent
-            ? `Anak dari ${parent.company_label as string}`
-            : "Anak",
-        partner_count: pick(partners, r.id),
-        cash_bank_count: pick(cashBanks, r.id),
-        account_count: pick(accounts, r.id),
-      };
-    }
-  }
-
-  // The classification chain, stated on the row that owns it. A Budget
-  // Category's admitted Partner Categories are the whole point of the screen,
-  // so they are a column rather than something reached by opening the record.
-  if (entity.key === "sys_budget_category") {
-    const [mappings, budgets] = await Promise.all([
-      prisma.sysBudgetPartnerCategoryMapping.findMany({
-        where: { status: "Active", partner_category: { status: "Active" } },
-        include: { partner_category: { select: { category_label: true } } },
-        orderBy: { partner_category_id: "asc" },
-      }),
-      budgetCountByCategory(),
-    ]);
-    for (const r of rows) {
-      const admitted = mappings
-        .filter((m) => m.budget_category_id === r.id)
-        .map((m) => m.partner_category.category_label);
-      out[r.id] = {
-        directions: directionsText({
-          allowsIn: r.allows_in === true,
-          allowsOut: r.allows_out === true,
-        }),
-        // "Tanpa Partner" and "belum diatur" are different facts, and the
-        // difference is the whole reason `require_partner` is a flag: one is
-        // a finished category, the other is a setup gap.
-        partner_categories: !r.require_partner
-          ? "Tanpa Partner"
-          : admitted.length
-            ? admitted.join(" · ")
-            : "belum diatur",
-        budget_count: budgets.get(r.id) ?? 0,
-        // A category keeps a book when it names a Partner *and* says which way
-        // that book runs. Saying which of the two is missing is the point: the
-        // second is a setup gap somebody can close, the first is a decision.
-        book: !r.require_partner
-          ? "—"
-          : r.raises
-            ? `Buku ${r.category_label}`
-            : "arah belum diatur",
-      };
-    }
-  }
-
   if (entity.key === "sys_partner_category") {
-    const [mappings, partners] = await Promise.all([
-      prisma.sysBudgetPartnerCategoryMapping.findMany({
-        where: { status: "Active", budget_category: { status: "Active" } },
-        include: { budget_category: { select: { category_label: true } } },
-        orderBy: { budget_category_id: "asc" },
-      }),
-      prisma.mPartner.groupBy({ by: ["category_id"], _count: { _all: true } }),
-    ]);
+    const partners = await prisma.mPartner.groupBy({
+      by: ["category_id"],
+      _count: { _all: true },
+    });
     for (const r of rows) {
-      const used = mappings
-        .filter((m) => m.partner_category_id === r.id)
-        .map((m) => m.budget_category.category_label);
       out[r.id] = {
-        budget_categories: used.length ? used.join(" · ") : "—",
         partner_count:
           partners.find((g) => g.category_id === r.id)?._count._all ?? 0,
       };
-    }
-  }
-
-  // A Purpose's label is composed from the three fields it names — never
-  // stored, so it cannot drift from them — and its direction is shown as
-  // Penerimaan / Pengeluaran rather than as the stored enum (§8).
-  if (entity.key === "sys_purpose") {
-    const [categories, partnerCategories] = await Promise.all([
-      prisma.sysBudgetCategory.findMany({ select: { id: true, category_label: true } }),
-      prisma.sysPartnerCategory.findMany({ select: { id: true, category_label: true } }),
-    ]);
-    const categoryLabel = new Map(categories.map((c) => [c.id, c.category_label]));
-    const partnerLabel = new Map(partnerCategories.map((c) => [c.id, c.category_label]));
-    for (const r of rows) {
-      const direction = String(r.direction) as "In" | "Out";
-      out[r.id] = {
-        direction: directionText(direction),
-        label: purposeLabel(
-          direction,
-          categoryLabel.get(r.budget_category_id as number) ?? "?",
-          partnerLabel.get(r.partner_category_id as number) ?? null
-        ),
-      };
-    }
-  }
-
-  // How many Purposes a Budget Category holds. Nothing creates one, so a
-  // category showing none is a maintenance gap somebody has to close before it
-  // can be transacted — stated here rather than left to be discovered on a
-  // document that cannot be raised.
-  if (entity.key === "sys_budget_category") {
-    const counts = await purposeCountByCategory();
-    for (const r of rows) {
-      out[r.id] = { ...out[r.id], purpose_count: counts.get(r.id) ?? 0 };
     }
   }
 
@@ -1001,16 +524,6 @@ export async function computedValues(
     }
   }
 
-  if (entity.key === "acc_budget_category_account") {
-    const accounts = await prisma.accAccount.findMany({
-      select: { id: true, normal_balance: true },
-    });
-    const byId = new Map(accounts.map((a) => [a.id, a.normal_balance]));
-    for (const r of rows) {
-      out[r.id] = { normal_balance: byId.get(r.account_id as number) ?? "—" };
-    }
-  }
-
   if (entity.key === "acc_fiscal_year") {
     const groups = await prisma.accFiscalPeriod.groupBy({
       by: ["fiscal_year_id"],
@@ -1033,8 +546,6 @@ export type TreeAccount = {
   id: number;
   label: string;
   name: string;
-  companyId: number;
-  companyLabel: string;
   subcategoryId: number;
   parentId: number | null;
   normalBalance: string;
@@ -1044,8 +555,6 @@ export type TreeAccount = {
   partnerCategoryLabel: string | null;
   isControlAccount: boolean;
 };
-
-export type TreeCompany = { id: number; label: string; name: string };
 
 export type TreeSubcategory = { id: number; label: string; name: string };
 
@@ -1064,39 +573,24 @@ export type TreeCategory = {
  * Categories and kelompok are system structure with no menu of their own: they
  * are seeded, they are not accounts, and application logic reads them by label.
  * They are read here so the tree can group accounts under them.
- *
- * Accounts come back for the Company in context only. A chart of accounts
- * belongs to exactly one Company and each keeps its own numbering, so a tree
- * showing both at once reads as duplicated rows — the induk's `1.1.4.1` and
- * the anak's are different accounts that share a number.
  */
-export async function accountTree(companyId: number): Promise<{
-  company: TreeCompany;
+export async function accountTree(): Promise<{
   categories: TreeCategory[];
   accounts: TreeAccount[];
 }> {
-  const [categories, subcategories, types, accounts, companies, partnerCategories] =
+  const [categories, subcategories, types, accounts, partnerCategories] =
     await Promise.all([
       prisma.accAccountCategory.findMany({ orderBy: { id: "asc" } }),
       prisma.accAccountSubcategory.findMany({ orderBy: { id: "asc" } }),
       prisma.sysAccountType.findMany(),
-      prisma.accAccount.findMany({ where: { company_id: companyId } }),
-      prisma.sysCompany.findMany(),
+      prisma.accAccount.findMany(),
       prisma.sysPartnerCategory.findMany(),
     ]);
 
   const typeById = new Map(types.map((t) => [t.id, t]));
-  const companyLabel = new Map(companies.map((c) => [c.id, c.company_label]));
   const partnerLabel = new Map(partnerCategories.map((p) => [p.id, p.category_label]));
 
-  const company = companies.find((c) => c.id === companyId)!;
-
   return {
-    company: {
-      id: company.id,
-      label: company.company_label,
-      name: company.company_name,
-    },
     categories: categories
       .sort((a, b) => compareCodes(a.category_label, b.category_label))
       .map((c) => ({
@@ -1116,8 +610,6 @@ export async function accountTree(companyId: number): Promise<{
         id: a.id,
         label: a.account_label,
         name: a.account_name,
-        companyId: a.company_id,
-        companyLabel: companyLabel.get(a.company_id) ?? "",
         subcategoryId: a.account_subcategory_id,
         parentId: a.parent_account,
         normalBalance: a.normal_balance,
@@ -1130,29 +622,6 @@ export async function accountTree(companyId: number): Promise<{
         isControlAccount: a.is_control_account,
       })),
   };
-}
-
-export type CompanyStructure = {
-  /** Exactly one parent and exactly one child. */
-  ok: boolean;
-  total: number;
-  parents: number;
-  children: number;
-};
-
-/**
- * Asserts the foundational two-company invariant: one induk, one anak. Nothing
- * in the application can create or edit a Company, so a violation means the
- * seed or the database was changed out of band — which the dashboard surfaces
- * rather than silently building on.
- */
-export async function companyStructure(): Promise<CompanyStructure> {
-  const [total, parents] = await Promise.all([
-    prisma.sysCompany.count(),
-    prisma.sysCompany.count({ where: { is_parent: true } }),
-  ]);
-  const children = total - parents;
-  return { ok: total === 2 && parents === 1 && children === 1, total, parents, children };
 }
 
 /** Next system code, e.g. `part.0011`. */

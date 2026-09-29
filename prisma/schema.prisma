@@ -1,4 +1,8 @@
-// SIBA 3.0 — Prisma schema
+// ERP — Prisma schema
+//
+// Carried from SIBA 3.0 (Claude-ERP.md §13): one installation serves one
+// company, so no table carries a company (P9); Budget, its classification and
+// the subject books are not carried (P10, P25).
 //
 // Translated from `Initialization/SIBA 3.0 DBML.txt` (MySQL-flavoured DBML),
 // which is reference material rather than gospel: where the application needs a
@@ -18,10 +22,7 @@
 //
 // Additions the application requires but the DBML lacks:
 //   * SysUser                      — nothing in the DBML backs created_by/updated_by
-//   * SysCompany.is_parent         — marks the single induk of the fixed
-//                             two-company structure (one induk, one anak)
 //   * AccAccount.partner_category_id       — one account holds one partner category
-//   * AccBudgetCategoryAccount.partner_category_id — category x partner-category -> account
 //   * AuditLog                     — one trail spanning every table
 //   * SysRole / SysPermission / SysUserRole / SysRolePermission / SysSession
 //                                  — authentication and RBAC; the DBML has no
@@ -32,9 +33,8 @@
 //     superseded by partner_category_id.
 //
 // Not yet modelled (present in the DBML and/or the concept doc):
-//   general_ledger and intercompany_event — both deliberately. The General
-//   Ledger is derived from acc_journal_line rather than stored, and the
-//   Funding Request is the intercompany identifier (CLAUDE.md §12).
+//   general_ledger — deliberately. The General Ledger is derived from
+//   acc_journal_line rather than stored.
 
 generator client {
   provider = "prisma-client"
@@ -96,10 +96,10 @@ enum FiscalStatus {
   Closed
 }
 
-/// Whether one Company has closed one fiscal year.
+/// Whether a fiscal year has been closed.
 ///
 /// Deliberately not `FiscalStatus`: a closing has no Draft. A year is either
-/// still receiving this Company's postings or it never will again.
+/// still receiving postings or it never will again.
 enum FiscalClosingStatus {
   Open
   Closed
@@ -108,35 +108,6 @@ enum FiscalClosingStatus {
 enum FlowDirection {
   In
   Out
-}
-
-enum BudgetStatus {
-  Draft
-  Cancelled
-  Submitted
-  Rejected
-  Open
-  Closed
-}
-
-/// `Pending` is the funded route: an anak document waits here while its
-/// Funding Request is open. Like `Draft` it has moved nothing — the induk's
-/// confirmation is what posts it (concept doc §29).
-enum TransactionStatus {
-  Draft
-  Pending
-  Posted
-  Cancelled
-}
-
-/// A Funding Request stays open until the treasury provider confirms it, or
-/// until the requesting Company withdraws the document that raised it. There is
-/// no rejection: the provider always complies, so its action is a confirmation
-/// rather than a decision (concept doc §29).
-enum FundingStatus {
-  Open
-  Closed
-  Cancelled
 }
 
 enum AuditAction {
@@ -303,49 +274,14 @@ model SysSession {
 
 // ---------------------------------------------------------------- sys
 
-model SysCompany {
-  id            Int     @id @default(autoincrement())
-  company_code  String  @unique
-  company_label String
-  company_name  String
-  /// Marks the induk of the fixed two-company structure. There are exactly two
-  /// companies, permanently: one induk (is_parent = true) and one anak. This is
-  /// foundational, not configuration — see CLAUDE.md §12. Company therefore has
-  /// no write path in the application; identity changes go through the seed.
-  /// Not in the DBML — added for concept v3.
-  is_parent     Boolean @default(false)
-  note          String?
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  partners     MPartner[]
-  cash_banks   MCashBank[]
-  accounts     AccAccount[]
-  mappings     AccBudgetCategoryAccount[]
-  budgets      BudBudget[]
-  transactions FinCashBankTransaction[]
-  transfers    FinCashBankTransfer[]
-  dncn_notes   FinDncn[]
-
-  journals AccJournal[]
-
-  fiscal_closings  AccFiscalClosing[]
-  opening_balances AccOpeningBalance[]
-
-  @@map("sys_company")
-}
-
 model SysAccountType {
-  id         Int            @id @default(autoincrement())
-  type_code  String         @unique
-  type_label String         @unique
-  type_name  String
+  id             Int            @id @default(autoincrement())
+  type_code      String         @unique
+  type_label     String         @unique
+  type_name      String
   /// Neraca or Laba Rugi. Seeded, never edited, never offered on a form: which
   /// statement a type belongs to is not a judgement call.
-  section    AccountSection
+  section        AccountSection
   /// Which side the type's own total reads positive on — AKTIVA and BIAYA
   /// debit, PASIVA, EKUITAS and PENDAPATAN credit. The Neraca signs every row
   /// under a type by it, which is what prints Akumulasi Penyusutan (a Kredit
@@ -353,7 +289,7 @@ model SysAccountType {
   /// form; stored rather than read off the type's number for the reason
   /// `section` is.
   normal_balance NormalBalance
-  note       String?
+  note           String?
 
   created_by Int
   updated_by Int?
@@ -378,80 +314,11 @@ model SysDocType {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  transaction_lines FinCashBankTransactionLine[]
-  ledger_entries    CashBankLedger[]
-  cash_bank_layers  CashBankLayer[]
-  journals          AccJournal[]
-  subledger_entries SubLedger[]
+  ledger_entries   CashBankLedger[]
+  cash_bank_layers CashBankLayer[]
+  journals         AccJournal[]
 
   @@map("sys_doc_type")
-}
-
-/// The classification a Budget is approved into, and the rules that classification
-/// carries. `allows_in` / `allows_out` say which directions are meaningful for it —
-/// balance-sheet logic, not cash direction — and `require_partner` says whether it
-/// names a subject at all.
-///
-/// `require_partner = false` is a statement, not an absence: Asset and Biaya take no
-/// Partner by design, which is a different fact from a category whose admitted
-/// Partner Categories have simply not been configured yet. Without the flag an empty
-/// `partner_categories` cannot tell the two apart.
-model SysBudgetCategory {
-  id             Int    @id @default(autoincrement())
-  category_code  String @unique
-  category_label String
-  category_name  String
-
-  /// Direction follows balance-sheet logic. Two booleans rather than an enum
-  /// because the real answer is a set, and "Both" as a third enum value is a set
-  /// pretending to be a scalar.
-  allows_in       Boolean @default(false)
-  allows_out      Boolean @default(false)
-  /// False = this category names no Partner (Asset, Biaya). A mapping row is
-  /// then refused rather than merely unused.
-  require_partner Boolean @default(true)
-
-  /// Which cash direction *raises* this category's subject position — the one
-  /// fact a subject book needs that nothing else in the row predicts. Money out
-  /// raises a Piutang and lowers a Hutang, which is balance-sheet logic rather
-  /// than cash direction.
-  ///
-  /// Null where the category keeps no book. A category keeps one exactly when it
-  /// names a Partner (§10 rule 52), so `require_partner` decides whether a book
-  /// exists and this decides which way it runs.
-  raises FlowDirection?
-
-  /// Presentation for that book, both optional. The name, the subject line and
-  /// whether the closing figure is a position or a running total are all derived
-  /// from the row (see `subledger-catalogue.ts`); these two are the parts no
-  /// derivation gets right. A new category is a usable book without them, and a
-  /// better-worded one with them.
-  book_icon          String?
-  book_closing_label String?
-
-  /// Whether this category's subject book may be adjusted by a Debit / Credit
-  /// Note. Stored rather than inferred: a note's counter account is one Profit
-  /// & Loss account per side, which fixes a Titipan, a Hutang or a Piutang
-  /// correctly and would book income or expense against owner drawings or an
-  /// investment's own return. Only a category that keeps a book may carry it —
-  /// `sys_budget_category_dncn_needs_book` is the backstop.
-  allows_dncn Boolean @default(false)
-
-  note   String?
-  status ActiveStatus @default(Active)
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  budgets            BudBudget[]
-  mappings           AccBudgetCategoryAccount[]
-  partner_categories SysBudgetPartnerCategoryMapping[]
-  purposes           SysPurpose[]
-  dncn_notes         FinDncn[]
-
-  @@map("sys_budget_category")
 }
 
 model SysPartnerCategory {
@@ -467,89 +334,10 @@ model SysPartnerCategory {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  partners          MPartner[]
-  accounts          AccAccount[]
-  mappings          AccBudgetCategoryAccount[]
-  budget_categories SysBudgetPartnerCategoryMapping[]
-  purposes          SysPurpose[]
+  partners MPartner[]
+  accounts AccAccount[]
 
   @@map("sys_partner_category")
-}
-
-/// A Transaction Purpose: exactly one Budget Category x one Partner Category x
-/// one direction, which is what lets it resolve to a single account.
-///
-/// These were 22 constants in `src/lib/siba/rules.ts`. They are rows now because
-/// the Budget Categories they classify are rows: a category created through the
-/// GUI that no Purpose named could be planned and booked but never actually
-/// transacted, which is the one link that still needed a developer.
-///
-/// **Generated, not authored.** The 22 were exactly the cross product of the
-/// categories, their admitted Partner Categories and their directions — no more
-/// and no fewer — so `syncPurposes` derives the rows from that matrix and nothing
-/// creates one by hand. What a person edits is the `label`, because that is the
-/// only part no derivation gets right: "Penerimaan Pinjaman dari Cabang" for a
-/// Hutang receipt, where a template would say "Hutang".
-model SysPurpose {
-  id Int @id @default(autoincrement())
-
-  /// What a document stores in `fin_cash_bank_transaction.purpose`. Opaque and
-  /// immutable: the original 22 keep their historical mnemonics (`TTP_CAB_IN`)
-  /// and generated ones carry a system code, because a posted document must go
-  /// on resolving whatever the key looked like when it was written. Nothing
-  /// parses it.
-  purpose_key String @unique
-
-  budget_category_id  Int
-  /// Null where the Purpose takes no Partner — Asset and Biaya.
-  partner_category_id Int?
-  direction           FlowDirection
-
-  note   String?
-  status ActiveStatus @default(Active)
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  budget_category  SysBudgetCategory   @relation(fields: [budget_category_id], references: [id])
-  partner_category SysPartnerCategory? @relation(fields: [partner_category_id], references: [id])
-
-  /// One Purpose per combination — the statement that a Purpose *is* the triple.
-  @@unique([budget_category_id, partner_category_id, direction])
-  @@index([partner_category_id])
-  @@map("sys_purpose")
-}
-
-/// Which Partner Categories a Budget Category admits — the chain
-/// Budget Category -> Partner Category -> Partner, held as data rather than in code
-/// so it can be reshaped through the GUI while the model is still being discovered.
-///
-/// One row per admitted pair, each carrying its own status, because narrowing a
-/// category must not rewrite history: deactivating a pair stops it being offered on
-/// new records and leaves every Budget already classified by it intact. That is the
-/// whole reason this is a table of rows rather than a list held on the category.
-model SysBudgetPartnerCategoryMapping {
-  id                  Int    @id @default(autoincrement())
-  mapping_code        String @unique
-  budget_category_id  Int
-  partner_category_id Int
-
-  note   String?
-  status ActiveStatus @default(Active)
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  budget_category  SysBudgetCategory  @relation(fields: [budget_category_id], references: [id])
-  partner_category SysPartnerCategory @relation(fields: [partner_category_id], references: [id])
-
-  @@unique([budget_category_id, partner_category_id])
-  @@index([partner_category_id])
-  @@map("sys_budget_partner_category_mapping")
 }
 
 // ---------------------------------------------------------------- ref
@@ -567,15 +355,8 @@ model RefCurrency {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  cash_banks         MCashBank[]
-  budgets            BudBudget[]
-  transactions       FinCashBankTransaction[]
-  transfers          FinCashBankTransfer[]
-  journal_lines      AccJournalLine[]
-  subledger_entries  SubLedger[]
-  subledger_balances SubLedgerBalance[]
-  funding_requests   FinFundingRequest[]
-  dncn_notes         FinDncn[]
+  cash_banks    MCashBank[]
+  journal_lines AccJournalLine[]
 
   @@map("ref_currency")
 }
@@ -587,7 +368,6 @@ model MPartner {
   partner_code  String       @unique
   partner_label String
   partner_name  String
-  company_id    Int
   category_id   Int
   note          String?
   status        ActiveStatus @default(Active)
@@ -597,19 +377,12 @@ model MPartner {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  company  SysCompany         @relation(fields: [company_id], references: [id])
   category SysPartnerCategory @relation(fields: [category_id], references: [id])
 
-  budgets            BudBudget[]
-  transactions       FinCashBankTransaction[]
-  journal_lines      AccJournalLine[]
-  subledger_entries  SubLedger[]
-  subledger_balances SubLedgerBalance[]
-  dncn_notes         FinDncn[]
+  journal_lines AccJournalLine[]
 
   opening_balance_lines AccOpeningBalanceLine[]
 
-  @@index([company_id])
   @@index([category_id])
   @@map("m_partner")
 }
@@ -619,7 +392,6 @@ model MCashBank {
   cash_bank_code  String       @unique
   cash_bank_label String
   cash_bank_name  String
-  company_id      Int
   cash_bank_type  CashBankType
   currency_id     Int
   account_id      Int
@@ -631,19 +403,13 @@ model MCashBank {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  company  SysCompany  @relation(fields: [company_id], references: [id])
   currency RefCurrency @relation(fields: [currency_id], references: [id])
   account  AccAccount  @relation(fields: [account_id], references: [id])
 
-  transactions     FinCashBankTransaction[]
-  transfers_out    FinCashBankTransfer[]
-  transfers_in     FinCashBankTransferLine[]
-  ledger           CashBankLedger[]
-  layers           CashBankLayer[]
-  book_balance     CashBankBalance?
-  funding_requests FinFundingRequest[]
+  ledger       CashBankLedger[]
+  layers       CashBankLayer[]
+  book_balance CashBankBalance?
 
-  @@index([company_id])
   @@map("m_cash_bank")
 }
 
@@ -830,138 +596,16 @@ model CashBankLayer {
   @@map("cash_bank_layer")
 }
 
-// ----------------------------------------------------------------- subledger
-
-/// An entry in a subledger, which is what a `CashBankEntryType` is to the Cash
-/// Bank Book. Its own enum rather than a shared one: a module that is meant to
-/// be liftable does not take its types from another module's table.
-enum SubLedgerEntryType {
-  /// A subject's position before the application started keeping its book.
-  /// Nothing writes one yet — it arrives with Opening Balance.
-  Opening
-  /// A posted Cash Bank Transaction.
-  Transaction
-  /// A manual correction, recorded rather than edited into an existing entry.
-  Adjustment
-}
-
-/// The subject books — Titipan, Hutang, Piutang, Prive, Investasi and Hasil
-/// Investasi — in one append-only table, keyed by `book`.
-///
-/// The subject is a **Partner** (concept doc §11.3-§11.6, §12), and every
-/// entry is written straight from the business transaction at Post, alongside
-/// the Cash Bank Book and the Journal. It is never derived from a journal
-/// line: an operational book is an independent historical store, and only the
-/// General Ledger reads the journal (§13, §14).
-///
-/// One table with a `book` discriminator rather than six identical tables. The
-/// books differ only in which cash direction raises their subject's position,
-/// which is a catalogue entry in `lib/siba/subledger-catalogue.ts` — six tables
-/// would be six copies of one shape, and adding the seventh would be a
-/// migration instead of a line of config.
-///
-/// `book` is a catalogue key (`hutang`), not a foreign key to
-/// `sys_budget_category`. The book is meant to be liftable, and its own subject
-/// is the Partner; tying every row to a reference table it does not otherwise
-/// need would make it depend on the classification module to be read.
-model SubLedger {
-  id          Int                @id @default(autoincrement())
-  entry_no    String             @unique
-  /// Catalogue key from `lib/siba/subledger-catalogue.ts`.
-  book        String
-  partner_id  Int
-  currency_id Int
-  entry_date  DateTime           @db.Date
-  entry_type  SubLedgerEntryType
-  /// The direction the **money** moved, exactly as the document recorded it.
-  direction   FlowDirection
-
-  /// Always positive; `direction` and the book's own nature carry the sign.
-  amount        Decimal @db.Decimal(18, 2)
-  /// The same figure signed in the **book's** direction: positive where the
-  /// entry raises the subject's position, negative where it lowers it. Summing
-  /// this column reconstructs the balance, which is how the total is verified.
-  movement      Decimal @db.Decimal(18, 2)
-  /// The subject's position after this entry, in its own currency.
-  balance_after Decimal @db.Decimal(18, 2)
-
-  /// **This book's own settlement rate**, converting the subject's currency to
-  /// the base currency — not necessarily the rate the Cash Bank Book recorded
-  /// for the same document.
-  ///
-  /// An entry that *raises* a position originates its base value at the rate
-  /// the money moved at. An entry that *relieves* one releases base at the rate
-  /// the position was already carried at, which is usually a different number:
-  /// a debt taken on when a dollar cost 15.000 and settled with dollars costing
-  /// 16.000 releases at 15.000. The gap between the two books is the FX
-  /// difference, and it lives in the journal rather than in either book.
-  rate               Decimal @db.Decimal(18, 6)
-  /// `amount` in base currency.
-  base_amount        Decimal @db.Decimal(18, 2)
-  /// `movement` in base currency, signed the same way.
-  base_movement      Decimal @db.Decimal(18, 2)
-  /// `balance_after` in base currency.
-  base_balance_after Decimal @db.Decimal(18, 2)
-
-  /// What caused the movement, as the weak document pair every book uses.
-  source_doc_type_id Int?
-  source_doc_id      Int?
-
-  note String?
-
-  created_by Int
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-
-  partner         MPartner    @relation(fields: [partner_id], references: [id])
-  currency        RefCurrency @relation(fields: [currency_id], references: [id])
-  source_doc_type SysDocType? @relation(fields: [source_doc_type_id], references: [id])
-
-  @@index([book, partner_id, entry_date])
-  @@index([source_doc_type_id, source_doc_id])
-  @@map("sub_ledger")
-}
-
-/// One row per subject and currency, derived from `sub_ledger` and written in
-/// the same transaction as the entry that changed it. Never written on its own:
-/// `rebuildSubledgerBalance` recomputes it from the entries.
-///
-/// Currency is part of the key because amounts are never converted (§12): a
-/// Partner owing IDR and USD holds two positions, not one blended figure.
-model SubLedgerBalance {
-  id          Int    @id @default(autoincrement())
-  book        String
-  partner_id  Int
-  currency_id Int
-
-  balance         Decimal   @default(0) @db.Decimal(18, 2)
-  /// The same position in base currency. The subject's carrying rate is
-  /// `base_balance ÷ balance`, derived on read — it is what a later relief
-  /// releases at, and the reason an FX difference can arise at all.
-  base_balance    Decimal   @default(0) @db.Decimal(18, 2)
-  entry_count     Int       @default(0)
-  last_entry_id   Int?
-  last_entry_date DateTime? @db.Date
-
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  partner  MPartner    @relation(fields: [partner_id], references: [id])
-  currency RefCurrency @relation(fields: [currency_id], references: [id])
-
-  @@unique([book, partner_id, currency_id])
-  @@index([book])
-  @@map("sub_ledger_balance")
-}
-
 // ---------------------------------------------------------------- accounting
 
 model AccAccountCategory {
-  id              Int          @id @default(autoincrement())
+  id              Int              @id @default(autoincrement())
   account_type_id Int
-  category_code   String       @unique
+  category_code   String           @unique
   /// The category's place in the chart of accounts: its account type's code
   /// plus one segment, e.g. `1.1` under type `1`. Not in the DBML, which
   /// carried no numbering scheme — see lib/siba/account-code.ts.
-  category_label  String       @unique
+  category_label  String           @unique
   category_name   String
   /// The Laba Rugi step this category belongs to. Set exactly when the
   /// category's type is `ProfitLoss`, null on every Neraca category. Seeded
@@ -969,7 +613,7 @@ model AccAccountCategory {
   /// its step through subcategory -> category, so a new account needs no setup.
   pl_group        ProfitLossGroup?
   note            String?
-  status          ActiveStatus @default(Active)
+  status          ActiveStatus     @default(Active)
 
   created_by Int
   updated_by Int?
@@ -1012,16 +656,15 @@ model AccAccount {
   account_code           String        @unique
   /// The account number, continuing whatever the account hangs under: its
   /// subcategory's code (`1.1.1` -> `1.1.1.2`) or its parent account's
-  /// (`1.1.1.2` -> `1.1.1.2.1`). Unique within a company — see @@unique
+  /// (`1.1.1.2` -> `1.1.1.2.1`). Unique across the chart — see @@unique
   /// below. The DBML only constrained the generated account_code globally.
   account_label          String
   account_name           String
-  company_id             Int
   parent_account         Int?
   is_postable            Boolean       @default(true)
   normal_balance         NormalBalance
   require_partner        Boolean       @default(false)
-  /// Not in the DBML. Locks a subledger account to a single partner category so
+  /// Not in the DBML. Locks a partner-bearing account to a single partner category so
   /// subject histories never mix. Replaces the DBML's `partner_type`.
   partner_category_id    Int?
   is_control_account     Boolean       @default(false)
@@ -1034,46 +677,18 @@ model AccAccount {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   account_subcategory AccAccountSubcategory @relation(fields: [account_subcategory_id], references: [id])
-  company             SysCompany            @relation(fields: [company_id], references: [id])
   partner_category    SysPartnerCategory?   @relation(fields: [partner_category_id], references: [id])
   parent              AccAccount?           @relation("AccountTree", fields: [parent_account], references: [id])
   children            AccAccount[]          @relation("AccountTree")
 
   cash_banks    MCashBank[]
-  mappings      AccBudgetCategoryAccount[]
   journal_lines AccJournalLine[]
 
   opening_balance_lines AccOpeningBalanceLine[]
 
-  @@unique([company_id, account_label])
-  @@index([company_id])
+  @@unique([account_label])
   @@index([account_subcategory_id])
   @@map("acc_account")
-}
-
-model AccBudgetCategoryAccount {
-  id                  Int    @id @default(autoincrement())
-  bca_code            String @unique
-  budget_category_id  Int
-  company_id          Int
-  /// Not in the DBML. Without it a single budget category cannot resolve to a
-  /// different account per partner category.
-  partner_category_id Int?
-  account_id          Int
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  budget_category  SysBudgetCategory   @relation(fields: [budget_category_id], references: [id])
-  company          SysCompany          @relation(fields: [company_id], references: [id])
-  partner_category SysPartnerCategory? @relation(fields: [partner_category_id], references: [id])
-  account          AccAccount          @relation(fields: [account_id], references: [id])
-
-  @@unique([company_id, budget_category_id, partner_category_id])
-  @@index([company_id])
-  @@map("acc_budget_category_account")
 }
 
 model AccFiscalYear {
@@ -1126,24 +741,17 @@ model AccFiscalPeriod {
   @@map("acc_fiscal_period")
 }
 
-/// One Company's closing state for one fiscal year.
-///
-/// The fiscal calendar is global — one set of years and periods, shared by both
-/// Companies (see `AccFiscalYear`) — but closing is not: the induk can shut
-/// 2026 while the anak is still finishing it. That state needs somewhere to
-/// live, and this is it.
+/// The closing state of one fiscal year, and what its close produced.
 ///
 /// An explicit record rather than a status inferred from the existence of an
 /// Opening Balance document. Inferring a fact from a row in another table is
 /// the same habit `AccountSection` exists to stop: it works until somebody
 /// writes that row for a second reason, and then nothing fails.
 ///
-/// `AccFiscalYear.status` is a **rollup** over these: the year reads Closed once
-/// every Company has closed it.
+/// `AccFiscalYear.status` follows it: the year reads Closed once it is closed.
 model AccFiscalClosing {
   id             Int                 @id @default(autoincrement())
   fiscal_year_id Int
-  company_id     Int
   status         FiscalClosingStatus @default(Open)
 
   closed_at DateTime? @db.Timestamptz(6)
@@ -1165,14 +773,12 @@ model AccFiscalClosing {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   fiscal_year AccFiscalYear @relation(fields: [fiscal_year_id], references: [id])
-  company     SysCompany    @relation(fields: [company_id], references: [id])
 
-  @@unique([fiscal_year_id, company_id])
-  @@index([company_id])
+  @@unique([fiscal_year_id])
   @@map("acc_fiscal_closing")
 }
 
-/// One Company's balances at the start of one fiscal year — a snapshot, not a
+/// The balances at the start of one fiscal year — a snapshot, not a
 /// running store.
 ///
 /// It exists so that a report does not have to scan from the first historical
@@ -1200,8 +806,6 @@ model AccOpeningBalance {
   /// The year whose close produced it, or null for injected go-live balances.
   source_fiscal_year_id Int?
 
-  company_id Int
-
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
@@ -1209,15 +813,13 @@ model AccOpeningBalance {
 
   fiscal_year        AccFiscalYear  @relation("OpeningBalanceYear", fields: [fiscal_year_id], references: [id])
   source_fiscal_year AccFiscalYear? @relation("OpeningBalanceSource", fields: [source_fiscal_year_id], references: [id])
-  company            SysCompany     @relation(fields: [company_id], references: [id])
 
   lines AccOpeningBalanceLine[]
 
-  /// One snapshot per Company per year. A second would be a second answer to
-  /// "where did this Company stand on 1 January", and the document is
+  /// One snapshot per year. A second would be a second answer to "where did
+  /// the company stand on 1 January", and the document is
   /// immutable, so there is no legitimate way to reach two.
-  @@unique([fiscal_year_id, company_id])
-  @@index([company_id])
+  @@unique([fiscal_year_id])
   @@map("acc_opening_balance")
 }
 
@@ -1267,453 +869,6 @@ model AccOpeningBalanceLine {
   @@map("acc_opening_balance_line")
 }
 
-// ---------------------------------------------------------------- budget
-
-model BudBudget {
-  id              Int           @id @default(autoincrement())
-  budget_no       String        @unique
-  budget_date     DateTime      @db.Date
-  company_id      Int
-  currency_id     Int
-  budget_type     FlowDirection
-  /// Both stay null until an approver classifies the budget.
-  category_id     Int?
-  partner_id      Int?
-  description     String
-  budget_amount   Decimal       @db.Decimal(18, 2)
-  realized_amount Decimal       @default(0) @db.Decimal(18, 2)
-  status          BudgetStatus  @default(Draft)
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  company  SysCompany         @relation(fields: [company_id], references: [id])
-  currency RefCurrency        @relation(fields: [currency_id], references: [id])
-  category SysBudgetCategory? @relation(fields: [category_id], references: [id])
-  partner  MPartner?          @relation(fields: [partner_id], references: [id])
-
-  @@index([company_id])
-  @@index([status])
-  @@index([budget_date])
-  @@map("bud_budget")
-}
-
-// ---------------------------------------------------------------- finance
-
-model FinCashBankTransaction {
-  id                 Int           @id @default(autoincrement())
-  transaction_no     String        @unique
-  /// The day the document belongs to in the books, chosen on the draft — any
-  /// day up to today. Every book entry and the journal Post writes are dated
-  /// by it; `posting_date` is when Post actually ran. Nullable only for drafts
-  /// saved before drafts carried a date, which post as today.
-  document_date      DateTime?     @db.Date
-  posting_date       DateTime?     @db.Timestamptz(6)
-  transaction_type   FlowDirection
-  company_id         Int
-  /// Purpose key (e.g. `PRV_SH_OUT`), resolved in `src/lib/siba/rules.ts`. A
-  /// purpose carries behaviour a config table cannot express, so it stays
-  /// application logic — CLAUDE.md §12 rejects a `fin_purpose` table.
-  purpose            String
-  cash_bank_id       Int?
-  /// The currency the document is denominated in — a real input now, not a
-  /// figure read off the Cash & Bank. A foreign document may be paid from a
-  /// resource in its own currency or from a base-currency one, so the two are
-  /// no longer the same question.
-  currency_id        Int
-  /// The kurs this document was valued at: its own currency to the base one.
-  /// Read off the chosen layer where one is consumed, typed where the bank did
-  /// the converting, and `1` only when the money is already base currency.
-  exchange_rate      Decimal       @default(1) @db.Decimal(18, 6)
-  /// The rate layer this payment drew on. One transaction, one bank, one kurs
-  /// — so this is a header column rather than a join table, and the document is
-  /// capped at what this layer still holds.
-  ///
-  /// Null whenever no layer is involved: money coming in, a base-currency
-  /// resource, or a document still in Draft that has not chosen one.
-  cash_bank_layer_id Int?
-  partner_id         Int?
-
-  transaction_amount      Decimal @db.Decimal(18, 2)
-  /// What the document was worth in base currency. No longer the identity.
-  transaction_base_amount Decimal @db.Decimal(18, 2)
-
-  note   String?
-  status TransactionStatus @default(Draft)
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  company   SysCompany  @relation(fields: [company_id], references: [id])
-  currency  RefCurrency @relation(fields: [currency_id], references: [id])
-  cash_bank MCashBank?  @relation(fields: [cash_bank_id], references: [id])
-  partner   MPartner?   @relation(fields: [partner_id], references: [id])
-
-  lines            FinCashBankTransactionLine[]
-  funding_requests FinFundingRequest[]
-
-  @@index([company_id])
-  @@index([status])
-  @@map("fin_cash_bank_transaction")
-}
-
-model FinCashBankTransactionLine {
-  id             Int @id @default(autoincrement())
-  transaction_id Int
-  sequence_no    Int
-
-  /// Deliberately generic so a line can settle any document type. V1 only ever
-  /// uses doc type = Budget.
-  source_doc_type_id Int
-  source_doc_id      Int
-
-  /// Snapshot of what was settleable at the time, in the source currency.
-  outstanding_amount Decimal @db.Decimal(18, 2)
-
-  settlement_amount        Decimal  @db.Decimal(18, 2)
-  /// What the **obligation released**: this line's share of the base value the
-  /// subject book gave up, at the rate that position was carried at. Where
-  /// nothing was on the books to relieve, the movement is the origin of the
-  /// value and this equals `transaction_base_amount`.
-  settlement_base_amount   Decimal  @db.Decimal(18, 2)
-  settlement_exchange_rate Decimal? @db.Decimal(18, 6)
-
-  transaction_amount      Decimal @db.Decimal(18, 2)
-  /// What the **cash cost**: this line's share of the base value that actually
-  /// left the bank, at the layer's rate or the rate the bank converted at.
-  transaction_base_amount Decimal @db.Decimal(18, 2)
-  /// `settlement_base_amount − transaction_base_amount`. Positive is a gain,
-  /// negative a loss, zero writes no journal line.
-  ///
-  /// Stored per line even though a SIBA document settles one position at one
-  /// rate, so the two are arithmetically identical: the analytic is what
-  /// answers "what did currency movement cost us on this plan", and keeping it
-  /// per line costs nothing while a document has one Partner and survives a
-  /// document that one day has two.
-  fx_difference           Decimal @default(0) @db.Decimal(18, 2)
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  transaction     FinCashBankTransaction @relation(fields: [transaction_id], references: [id], onDelete: Cascade)
-  source_doc_type SysDocType             @relation(fields: [source_doc_type_id], references: [id])
-
-  @@unique([transaction_id, sequence_no])
-  @@index([source_doc_type_id, source_doc_id])
-  @@map("fin_cash_bank_transaction_line")
-}
-
-/// The intercompany bridge: what the anak needs, and which resource of the
-/// induk's answered it.
-///
-/// Raised by submitting an anak Cash Bank Transaction, which has no Cash & Bank
-/// of its own to draw on (concept doc §26.2, §27). The induk confirms — it never
-/// rejects and never funds partially, so request amount = document amount =
-/// funded amount (§28, §29) — and that confirmation is the actual boundary for
-/// **both** Companies: one atomic posting writes the induk's cash movement, both
-/// Companies' subject books, a journal each, and the Budgets' realization (§30).
-///
-/// The DBML declares `requesting_company_id` and `treasury_provider_company_id`
-/// here. Neither is stored. The requester is the document's own Company, the
-/// provider is the `is_parent` Company resolved at runtime, and CLAUDE.md §14
-/// forbids a `treasury_provider_company_id` column outright — with exactly two
-/// permanent Companies, storing either would be duplicating configuration the
-/// application already knows.
-model FinFundingRequest {
-  id                 Int    @id @default(autoincrement())
-  funding_request_no String @unique
-
-  request_date DateTime @db.Date
-
-  /// The realization that needs treasury. One request per document (§28).
-  transaction_id Int
-  currency_id    Int
-
-  /// The full amount of the document. There is no partial funding (§29).
-  request_amount Decimal @db.Decimal(18, 2)
-
-  /// Chosen by the provider at confirmation; null while the request is open.
-  provider_cash_bank_id Int?
-
-  status FundingStatus @default(Open)
-  note   String?
-
-  confirmed_at DateTime? @db.Timestamptz(6)
-  confirmed_by Int?
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  transaction        FinCashBankTransaction @relation(fields: [transaction_id], references: [id])
-  currency           RefCurrency            @relation(fields: [currency_id], references: [id])
-  provider_cash_bank MCashBank?             @relation(fields: [provider_cash_bank_id], references: [id])
-
-  @@index([status])
-  @@index([transaction_id])
-  @@map("fin_funding_request")
-}
-
-// ------------------------------------------------- cash bank transfer
-
-/// How a transfer's two accounts relate, which is the whole of what a transfer
-/// Purpose says. Deliberately **not** a `rules.ts` Purpose: those are one Budget
-/// Category x one Partner Category x one direction, and a transfer has none of
-/// the three. It moves the Company's own money between its own resources, so it
-/// realizes no Budget, names no Partner and keeps no subject book.
-///
-/// The catalogue is `src/lib/siba/transfer-catalogue.ts`; this enum is stored so
-/// a posted document still says what it was even if the catalogue is reworded.
-enum TransferPurpose {
-  /// Both resources hold the same currency. Base value is conserved and no
-  /// difference can arise.
-  Transfer
-  /// Foreign out, base in — selling foreign currency. The **only** purpose that
-  /// can produce an FX difference: what the layer released and what the bank
-  /// actually credited are two independently determined base values.
-  Pencairan
-  /// Base out, foreign in — buying foreign currency. Origination: there is
-  /// nothing on the books to disagree with, so no difference can arise.
-  PembelianValas
-}
-
-/// A movement of the Company's own money between its own Cash & Bank resources.
-///
-/// The header names the **source** and the lines name the destinations, so one
-/// document can split one withdrawal across several accounts. Its own module
-/// and its own tables rather than a third `transaction_type` on
-/// `fin_cash_bank_transaction`: a Cash Bank Transaction line settles a Budget,
-/// a transfer line names a Cash & Bank, and the two documents share neither a
-/// classification chain, a subject book, nor a realization.
-///
-/// Both Companies' charts are irrelevant here — the anak holds no Cash & Bank
-/// by design (concept doc §25, §32), so every transfer is the induk's, and
-/// `company_id` is derived from the source rather than picked.
-///
-/// **Base value is conserved** (CORE multi-currency §5.8, invariant 18) and
-/// **layers propagate one-for-one** (SIBA multi-currency §6): three destination
-/// lines out of one source layer create three destination layers, never one
-/// blended one.
-model FinCashBankTransfer {
-  id            Int       @id @default(autoincrement())
-  transfer_no   String    @unique
-  /// Null until the document is posted — a Draft has moved nothing and so has
-  /// no date, exactly as a Cash Bank Transaction has none.
-  document_date DateTime? @db.Date
-  posting_date  DateTime? @db.Timestamptz(6)
-
-  /// The source resource's Company. Both legs belong to it: a movement between
-  /// two Companies is the intercompany bridge, which is Funding Request's.
-  company_id Int
-  purpose    TransferPurpose
-
-  /// The source. Money always leaves this resource.
-  from_cash_bank_id Int
-
-  /// The document currency: the foreign currency of the pair, or the shared
-  /// currency where both sides hold the same one. Derived from the source for
-  /// Transfer and Pencairan; chosen for Pembelian Valas, which is the one case
-  /// where the source is rupiah and the currency being bought is the input.
-  currency_id Int
-
-  /// The source layer this document draws on, where the source holds foreign
-  /// currency. One document, one layer — the same narrowing a Cash Bank
-  /// Transaction takes, and for the same reason.
-  cash_bank_layer_id Int?
-
-  /// Total in the document currency, and what the source released in base.
-  transfer_amount      Decimal @db.Decimal(18, 2)
-  transfer_base_amount Decimal @db.Decimal(18, 2)
-
-  note   String?
-  status TransactionStatus @default(Draft)
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  company        SysCompany  @relation(fields: [company_id], references: [id])
-  currency       RefCurrency @relation(fields: [currency_id], references: [id])
-  from_cash_bank MCashBank   @relation(fields: [from_cash_bank_id], references: [id])
-
-  lines FinCashBankTransferLine[]
-
-  @@index([company_id])
-  @@index([status])
-  @@map("fin_cash_bank_transfer")
-}
-
-/// One destination of a transfer: where part of the money lands, and what it
-/// was worth on each side of the move.
-///
-/// Both faces are stored rather than derived. They are two independently
-/// determined facts — what the source gave up and what the destination received
-/// — and on a Pencairan they genuinely differ, which is the realized gain or
-/// loss. Re-deriving either at a later rate would destroy the only figure that
-/// says what the conversion actually cost (CLAUDE.md §12).
-model FinCashBankTransferLine {
-  id          Int @id @default(autoincrement())
-  transfer_id Int
-  sequence_no Int
-
-  /// Where the money lands. Never the source, and never twice in one document.
-  to_cash_bank_id Int
-
-  /// In the **document** currency: the foreign amount on a cross-currency
-  /// transfer, the shared amount otherwise.
-  amount        Decimal @db.Decimal(18, 2)
-  /// Document currency to base. Entered where the pair crosses — per line, so
-  /// proceeds split across two accounts may carry the two rates the bank
-  /// actually used. Read off the source layer or `1` otherwise.
-  exchange_rate Decimal @db.Decimal(18, 6)
-
-  /// What left the source, in the source resource's own currency, and the base
-  /// value it released.
-  out_amount      Decimal @db.Decimal(18, 2)
-  out_base_amount Decimal @db.Decimal(18, 2)
-
-  /// What arrived at the destination, in that resource's own currency, and the
-  /// base value it received.
-  in_amount      Decimal @db.Decimal(18, 2)
-  in_base_amount Decimal @db.Decimal(18, 2)
-
-  /// `in_base_amount − out_base_amount`. Non-zero only on a Pencairan, where
-  /// the sale rate and the layer's carrying rate are two different figures.
-  /// Positive is a gain on the credit side, negative a loss on the debit side,
-  /// and zero writes no journal line at all.
-  fx_difference Decimal @default(0) @db.Decimal(18, 2)
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  transfer     FinCashBankTransfer @relation(fields: [transfer_id], references: [id], onDelete: Cascade)
-  to_cash_bank MCashBank           @relation(fields: [to_cash_bank_id], references: [id])
-
-  @@unique([transfer_id, sequence_no])
-  @@index([to_cash_bank_id])
-  @@map("fin_cash_bank_transfer_line")
-}
-
-// ---------------------------------------------------------------- dn / cn
-
-/// Which side of the Partner's account a note touches, in **our** books.
-///
-/// That is the whole definition, and it is what lets one document serve every
-/// subject book: a Debit Note debits the Partner's account and so moves the
-/// position the way money leaving would; a Credit Note credits it and moves it
-/// the way money arriving would. Whether that raises or lowers the position is
-/// the book's own `raises`, exactly as for a cash posting.
-enum DncnType {
-  Debit
-  Credit
-}
-
-/// A Debit / Credit Note: the adjustment document for a Partner's position in
-/// a subject book. No cash moves, so it writes no Cash Bank Book entry and
-/// realizes no Budget — it writes one `Adjustment` entry in the subject book
-/// and one balanced journal, in one transaction, at Post.
-///
-/// It adjusts a **position** (book x Partner x currency), not a document: SIBA
-/// keeps no invoice for a note to reference, and what is being fixed is the
-/// value that stands. `reference` carries the counterparty's own document
-/// number where there is one.
-///
-/// The counter account is the Company's Debit Note or Credit Note System
-/// Default: a Debit Note always credits its account and a Credit Note always
-/// debits its own, whichever book the Partner line sits in.
-model FinDncn {
-  id        Int      @id @default(autoincrement())
-  /// `DN-0001` or `CN-0001` — two series in one table, so which kind of note a
-  /// number names is readable without opening it.
-  note_no   String   @unique
-  note_type DncnType
-
-  /// Null until posted: a Draft has adjusted nothing and so has no date.
-  document_date DateTime? @db.Date
-  posting_date  DateTime? @db.Timestamptz(6)
-
-  /// The Partner's Company, derived rather than picked — a Partner belongs to
-  /// one Company, and so does the book position it holds.
-  company_id         Int
-  /// The book. A subject book is a Budget Category (CLAUDE.md §12), and only
-  /// one carrying `allows_dncn` may be adjusted.
-  budget_category_id Int
-  partner_id         Int
-  /// The position's currency. A Partner owing in two currencies holds two
-  /// positions, and a note adjusts exactly one of them.
-  currency_id        Int
-
-  /// Currency to base, and only ever an **input**. Entered where a note
-  /// raises a foreign position — that is origination, and the rate is what
-  /// creates the base value; `1` for base currency. Null where a note lowers a
-  /// foreign position: that releases at the position's own carrying rate, which
-  /// is an output and is never stored on a document (CLAUDE.md §12). What it
-  /// released is `note_base_amount`.
-  exchange_rate Decimal? @db.Decimal(18, 6)
-
-  /// Sum of the lines, in the position's currency.
-  note_amount      Decimal @db.Decimal(18, 2)
-  /// What the adjustment was worth in base. Written at Post, never before.
-  note_base_amount Decimal @default(0) @db.Decimal(18, 2)
-
-  /// The counterparty's own document number, where there is one.
-  reference String?
-  note      String?
-  status    TransactionStatus @default(Draft)
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  company         SysCompany        @relation(fields: [company_id], references: [id])
-  budget_category SysBudgetCategory @relation(fields: [budget_category_id], references: [id])
-  partner         MPartner          @relation(fields: [partner_id], references: [id])
-  currency        RefCurrency       @relation(fields: [currency_id], references: [id])
-
-  lines FinDncnLine[]
-
-  @@index([company_id])
-  @@index([partner_id])
-  @@index([status])
-  @@map("fin_dncn")
-}
-
-/// One reason a note adjusts by, and how much. The journal writes one counter
-/// line per note line, so the General Ledger reads back to the reason.
-model FinDncnLine {
-  id          Int    @id @default(autoincrement())
-  note_id     Int
-  sequence_no Int
-  description String
-
-  /// In the position's currency.
-  amount      Decimal @db.Decimal(18, 2)
-  /// This line's share of the note's base value, written at Post. The shares
-  /// add back to `note_base_amount` exactly — the last line takes the residue.
-  base_amount Decimal @default(0) @db.Decimal(18, 2)
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  dncn FinDncn @relation(fields: [note_id], references: [id], onDelete: Cascade)
-
-  @@unique([note_id, sequence_no])
-  @@map("fin_dncn_line")
-}
-
 // ---------------------------------------------------------------- audit
 
 /// One trail for every table. Referenced loosely by entity key and row id
@@ -1756,7 +911,6 @@ model AccJournal {
   /// What produced this journal, for traceability back to the document.
   source_doc_type_id Int?
   source_doc_id      Int?
-  company_id         Int
   description        String
   status             JournalStatus @default(Posted)
   /// Typed by a person rather than produced by a document's posting. It is the
@@ -1769,11 +923,10 @@ model AccJournal {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  company         SysCompany       @relation(fields: [company_id], references: [id])
   source_doc_type SysDocType?      @relation(fields: [source_doc_type_id], references: [id])
   lines           AccJournalLine[]
 
-  @@index([company_id, posting_date])
+  @@index([posting_date])
   @@index([source_doc_type_id, source_doc_id])
   @@map("acc_journal")
 }
