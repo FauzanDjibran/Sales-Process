@@ -179,6 +179,20 @@ export async function checkPartnerCollections(
       ])
     : [[], []];
   const addressIds = new Set(ownAddresses.map((a) => a.id));
+
+  // An address a document names is part of that document's record (P53): it
+  // stays, however the Partner's list is edited. Asked through the address's
+  // own relation, so this module never reads another module's table.
+  const inUse = partnerId
+    ? new Set(
+        (
+          await prisma.mPartnerAddress.findMany({
+            where: { partner_id: partnerId, sales_orders: { some: {} } },
+            select: { id: true },
+          })
+        ).map((a) => a.id)
+      )
+    : new Set<number>();
   const contactIds = new Set(ownContacts.map((c) => c.id));
 
   // ---- addresses
@@ -219,6 +233,14 @@ export async function checkPartnerCollections(
         isBilling: a.isBilling === true,
         isShipping: a.isShipping === true,
       });
+    }
+    // A removed address that a Sales Order names is refused.
+    const kept = new Set(addresses.map((x) => Number(x.id)).filter(Boolean));
+    const removedInUse = [...inUse].filter((id) => !kept.has(id));
+    if (removedInUse.length) {
+      problems.push(
+        `${removedInUse.length} alamat yang dihapus sudah dipakai Sales Order dan tidak dapat dihapus.`
+      );
     }
     if (problems.length) errors[ADDRESSES_KEY] = problems.join(" ");
   }

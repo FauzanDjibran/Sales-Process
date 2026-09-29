@@ -150,6 +150,20 @@ enum PriceMode {
   Include
 }
 
+/// Where a Sales Order is in its life (P50). Selesai and Tutup Pesanan join
+/// when the Surat Jalan does.
+enum SalesOrderStatus {
+  Draft
+  Confirmed
+  Cancelled
+}
+
+/// How a line's discount was typed: a percentage of the line, or an amount.
+enum DiscountType {
+  Percent
+  Amount
+}
+
 /// What an Item is. Decides which Kategori it may take, whether it can be
 /// stock-managed, and — by rule on the transaction — which PPh a withholding
 /// customer applies (Barang → PPh 22, Jasa → PPh 23). `Aset` joins later.
@@ -421,6 +435,8 @@ model RefUom {
   base_items  MItem[]    @relation("ItemBaseUom")
   item_uoms   MItemUom[]
 
+  sales_order_lines SalOrderLine[]
+
   @@map("ref_uom")
 }
 
@@ -480,6 +496,8 @@ model MItem {
   base_uom RefUom          @relation("ItemBaseUom", fields: [base_uom_id], references: [id])
   uoms     MItemUom[]
 
+  sales_order_lines SalOrderLine[]
+
   @@index([category_id])
   @@index([base_uom_id])
   @@map("m_item")
@@ -524,7 +542,8 @@ model RefPaymentTerm {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  partners MPartner[]
+  partners     MPartner[]
+  sales_orders SalOrder[]
 
   @@map("ref_payment_term")
 }
@@ -543,6 +562,8 @@ model RefWarehouse {
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  sales_orders SalOrder[]
 
   @@map("ref_warehouse")
 }
@@ -572,6 +593,8 @@ model RefWithholdingTax {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   prepaid_account AccAccount? @relation(fields: [prepaid_account_id], references: [id])
+
+  sales_order_lines SalOrderLine[]
 
   @@index([prepaid_account_id])
   @@map("ref_withholding_tax")
@@ -625,6 +648,8 @@ model MPartner {
   addresses MPartnerAddress[]
   contacts  MPartnerContact[]
 
+  sales_orders SalOrder[]
+
   journal_lines AccJournalLine[]
 
   opening_balance_lines AccOpeningBalanceLine[]
@@ -663,6 +688,10 @@ model MPartnerAddress {
 
   partner MPartner          @relation(fields: [partner_id], references: [id])
   village SysRegionVillage  @relation(fields: [village_id], references: [id])
+
+  /// Documents that name this address. While any does, it cannot be removed
+  /// from the Partner (P53).
+  sales_orders SalOrder[]
 
   @@index([partner_id])
   @@index([village_id])
@@ -1297,4 +1326,109 @@ model AuditLog {
 
   @@index([entity_key, row_id])
   @@map("audit_log")
+}
+
+// ================================================================ sales
+//
+// Sales documents (Claude-ERP.md §3.2). Rupiah only for now (P13), so no
+// currency column: every amount here is IDR.
+
+/// A Sales Order — SO Barang (P49). Posts nothing: no journal, no book, no tax
+/// document. Its totals are stored as the tax module computed them at the last
+/// save, so a list can show them and a confirmed order keeps the figures it was
+/// confirmed with.
+model SalOrder {
+  id       Int              @id @default(autoincrement())
+  /// `SO/YYYY/MM/NNNN`, in the series of the order's own month.
+  order_no String           @unique
+  order_date DateTime       @db.Date
+  status   SalesOrderStatus @default(Draft)
+
+  customer_id  Int
+  /// One of the customer's addresses, by id (P53).
+  address_id   Int
+  term_id      Int
+  warehouse_id Int
+  /// Whether the order carries PPN at all, decided once for the order (P52).
+  is_taxable   Boolean   @default(true)
+  price_mode   PriceMode
+
+  po_no          String?
+  po_date        DateTime? @db.Date
+  requested_date DateTime  @db.Date
+  /// Free text (P43, P52).
+  salesperson    String?
+  note           String?
+
+  // ---- totals, from `lib/erp/sales-tax.ts`, whole rupiah.
+  gross_amount    Decimal @default(0) @db.Decimal(18, 2)
+  discount_amount Decimal @default(0) @db.Decimal(18, 2)
+  dpp_amount      Decimal @default(0) @db.Decimal(18, 2)
+  /// DPP Nilai Lain, DPP × 11/12.
+  dpp_other_amount Decimal @default(0) @db.Decimal(18, 2)
+  ppn_amount      Decimal @default(0) @db.Decimal(18, 2)
+  total_amount    Decimal @default(0) @db.Decimal(18, 2)
+
+  cancel_reason String?
+  /// The order this one was copied from with Salin, if any.
+  copied_from_id Int?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  customer    MPartner        @relation(fields: [customer_id], references: [id])
+  address     MPartnerAddress @relation(fields: [address_id], references: [id])
+  term        RefPaymentTerm  @relation(fields: [term_id], references: [id])
+  warehouse   RefWarehouse    @relation(fields: [warehouse_id], references: [id])
+  copied_from SalOrder?       @relation("SalesOrderCopy", fields: [copied_from_id], references: [id])
+  copies      SalOrder[]      @relation("SalesOrderCopy")
+  lines       SalOrderLine[]
+
+  @@index([customer_id])
+  @@index([status, order_date])
+  @@map("sal_order")
+}
+
+/// One line of a Sales Order: a Barang, in one of its units, at a typed price.
+model SalOrderLine {
+  id       Int @id @default(autoincrement())
+  order_id Int
+  line_no  Int
+
+  item_id    Int
+  uom_id     Int
+  /// Base units in one `uom_id`, copied from the item at save — 1 for the
+  /// base unit — so a later change to the item's conversions does not change
+  /// what this order asked for.
+  uom_factor Decimal @db.Decimal(18, 4)
+  qty        Decimal @db.Decimal(18, 4)
+  /// Per `uom_id`, typed in the order's price mode.
+  price      Decimal @db.Decimal(18, 2)
+
+  discount_type   DiscountType?
+  /// A percent (`Percent`) or an amount (`Amount`), as typed.
+  discount_value  Decimal?      @db.Decimal(18, 4)
+  discount_amount Decimal       @default(0) @db.Decimal(18, 2)
+  /// qty × price − discount, whole rupiah.
+  amount          Decimal       @db.Decimal(18, 2)
+  dpp_amount      Decimal       @db.Decimal(18, 2)
+  ppn_amount      Decimal       @db.Decimal(18, 2)
+
+  /// The PPh the customer is expected to withhold on this line, or null (P52).
+  withholding_tax_id Int?
+  /// The rate at save, so an estimate does not move when the master does.
+  withholding_rate   Decimal? @db.Decimal(9, 4)
+
+  note String?
+
+  order           SalOrder           @relation(fields: [order_id], references: [id])
+  item            MItem              @relation(fields: [item_id], references: [id])
+  uom             RefUom             @relation(fields: [uom_id], references: [id])
+  withholding_tax RefWithholdingTax? @relation(fields: [withholding_tax_id], references: [id])
+
+  @@unique([order_id, line_no])
+  @@index([item_id])
+  @@map("sal_order_line")
 }

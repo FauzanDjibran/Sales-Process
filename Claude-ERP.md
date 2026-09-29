@@ -90,9 +90,9 @@ sales behaviour the simulation implements, and carry over through it.
 | Area | State |
 | --- | --- |
 | Project guideline (this file) | Written 29/09/2026; clash decisions recorded 29/09/2026 |
-| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 done for sales 29/09/2026 (Partner customer side, Satuan, Termin, Gudang, Jenis PPh, Item, sales defaults); Phase 3 next: Sales Order (P49–P53) |
+| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 done for sales 29/09/2026 (Partner customer side, Satuan, Termin, Gudang, Jenis PPh, Item, sales defaults); Phase 3 started: Sales Order built 29/09/2026 (P49–P53) |
 | Code | Phase 1 carried and adapted: one company, no Budget, Control Account set by the user, `PREFIX/YYYY/MM/NNNN` numbering, dashboard placeholder. `npm run build`, `npm run lint` and `npm test` pass on PostgreSQL 18; the Phase 1 walk-through (fiscal year, accounts, Partner, Cash & Bank with opening balance, manual journal, General Ledger, Trial Balance) checked in a browser and in Postgres |
-| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48), the customer's sales defaults (P51); `DBML/erp.dbml.md` in step |
+| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48), the customer's sales defaults (P51), Sales Order `sal_order(_line)` (P49–P53); `DBML/erp.dbml.md` in step |
 
 ---
 
@@ -607,9 +607,13 @@ here. In addition:
   another month does not renumber it.
 - **Partners created before P39 have no address and no tax identity.** The
   columns are nullable for them; the next save through the form requires both.
-- **Removing a Partner address deletes it.** Nothing refers to one yet. P53
-  decides the fix: when the Sales Order is built, an address a document uses
-  cannot be removed.
+- **An address a Sales Order uses can still be edited in place.** Removing
+  it is refused (P53), but changing its street or kelurahan changes what the
+  order points at. Decide before the Faktur Pajak prints addresses whether a
+  used address becomes read-only.
+- **A Sales Order keeps the number it was first saved with**, like a manual
+  journal: re-dating a Draft into another month does not renumber it.
+- **Selesai and Tutup Pesanan are not built yet**; they need the Surat Jalan.
 - **No `seed-showcase.ts` entry for Partner yet.** The simulation's customers
   have not been turned into dev demo data.
 - **The closing suite no longer covers a loss.** SIBA proved the loss side on

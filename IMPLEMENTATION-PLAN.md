@@ -80,6 +80,12 @@ Candidates, from the simulation:
 
 ## Phase 3 — Sales process (as the user instructs)
 
+**Sales Order — done 29/09/2026** (P49–P53): SO Barang, Draft → Konfirmasi →
+Dikonfirmasi / Batalkan (with reason), Salin; header Kena PPN and mode harga;
+per-line unit, qty, price, % / nominal discount and Jenis PPh; figures from
+`lib/erp/sales-tax.ts`; posts nothing. Selesai / Tutup Pesanan follow with the
+Surat Jalan.
+
 Built one step at a time, **in the order the user gives**. For each step:
 
 1. Re-read the simulation's step (screens, lifecycle, arithmetic, journal) and

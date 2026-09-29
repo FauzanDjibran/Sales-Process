@@ -20,6 +20,7 @@
 export type PermissionModule =
   | "dashboard"
   | "master"
+  | "sales"
   | "accounting"
   | "finance"
   | "settings";
@@ -98,6 +99,14 @@ export const PERMISSIONS = [
   { code: "PARTNER_CATEGORY_DEACTIVATE", name: "Nonaktifkan Partner Category", module: "settings" },
 
   // ---------------------------------------------------------------- accounting
+  // -------------------------------------------------------------------- sales
+  { code: "MENU_SALES_ACCESS", name: "Akses menu Penjualan", module: "sales" },
+  { code: "SALES_ORDER_VIEW", name: "Lihat Sales Order", module: "sales", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "SALES_ORDER_CREATE", name: "Buat Sales Order", module: "sales", description: "Membuat Draft baru, termasuk lewat Salin." },
+  { code: "SALES_ORDER_EDIT", name: "Ubah Sales Order", module: "sales", description: "Hanya selama masih Draft." },
+  { code: "SALES_ORDER_CONFIRM", name: "Konfirmasi Sales Order", module: "sales", description: "Mengunci pesanan; setelah itu tidak dapat diubah." },
+  { code: "SALES_ORDER_CANCEL", name: "Batalkan Sales Order", module: "sales", description: "Draft maupun yang sudah dikonfirmasi, dengan alasan." },
+
   { code: "MENU_ACCOUNTING_ACCESS", name: "Akses menu Accounting", module: "accounting" },
 
   { code: "ACCOUNT_VIEW", name: "Lihat Account", module: "accounting" },
@@ -239,6 +248,7 @@ export function isPermissionCode(code: string): code is PermissionCode {
 export const MODULE_LABELS: Record<PermissionModule, string> = {
   dashboard: "Dashboard",
   master: "Master",
+  sales: "Penjualan",
   accounting: "Accounting",
   finance: "Finance",
   settings: "Pengaturan",
@@ -248,6 +258,7 @@ export const MODULE_LABELS: Record<PermissionModule, string> = {
 export const MODULE_ORDER: PermissionModule[] = [
   "dashboard",
   "master",
+  "sales",
   "accounting",
   "finance",
   "settings",

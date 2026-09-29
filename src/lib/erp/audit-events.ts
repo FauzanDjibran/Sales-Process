@@ -23,6 +23,7 @@ import type { IconName } from "@/components/icon";
 import { FISCAL_YEAR_TRANSITIONS } from "./fiscal-workflow";
 import type { ActionTone } from "./header-actions";
 import { JOURNAL_TRANSITIONS } from "./journal-workflow";
+import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
 
 /** How an entry is drawn: its words, its icon, and its weight. */
 export type AuditEventLabel = {
@@ -84,6 +85,14 @@ const JOURNAL_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(JOURNAL_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
+/** Sales Order: Draft → Dikonfirmasi, or Dibatalkan (P50). */
+const SALES_ORDER_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Sales Order dibuat", icon: "clip", tone: "neutral" },
+  confirm: fromTransition(SALES_ORDER_TRANSITIONS.confirm, "Dikonfirmasi"),
+  cancel: fromTransition(SALES_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
+};
+
 /**
  * Fiscal Year: Draft → Open → Closed.
  *
@@ -133,6 +142,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   acc_fiscal_year: FISCAL_EVENTS,
   acc_fiscal_closing: FISCAL_CLOSING_EVENTS,
   acc_journal: JOURNAL_EVENTS,
+  sal_order: SALES_ORDER_EVENTS,
   sys_user: USER_EVENTS,
   sys_role: ROLE_EVENTS,
 };

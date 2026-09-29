@@ -1239,3 +1239,18 @@ table.grid.coll tbody td.addr .an{display:block;margin-top:2px;font-size:11px;co
 .cerr{margin:12px 16px 0}
 /* Form rows inside a panel dialog: the body already pays the side padding. */
 .rp-body > .frow{padding-left:0;padding-right:0}
+
+/* ---------- discount mode toggle on a document line (P52) ----------
+   Two small segments before the value: % or Rp. The chosen one takes the
+   brand fill, like a pressed key. */
+.dtog{display:inline-flex;flex:0 0 auto;border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden;height:32px}
+.dtog button{border:0;background:#fff;padding:0 8px;font-size:11px;font-weight:700;color:var(--muted);cursor:pointer}
+.dtog button + button{border-left:1px solid var(--line)}
+.dtog button.on{background:var(--brand);color:#fff}
+.dcell{display:flex;gap:5px;align-items:center}
+.dcell .mwrap{flex:1 1 auto;min-width:0}
+/* A total row inside the impact box, and the estimate rows under it. */
+.impact .ir.tot{margin-top:3px;padding-top:7px;border-top:1px solid var(--line-2)}
+.impact .ir.tot span{color:var(--ink);font-weight:700}
+.impact .ir.tot b{font-size:13px;color:var(--brand)}
+.impact .ir.est span{color:var(--muted-2)}

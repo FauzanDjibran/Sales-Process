@@ -88,6 +88,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // unconstrained because it is a registry entity, which the registry reaches
   // generically by design.
   accFiscalClosing: ["src/lib/erp/fiscal.ts"],
+  salOrder: ["src/lib/erp/sales-order.ts"],
+  salOrderLine: ["src/lib/erp/sales-order.ts"],
 };
 
 /**

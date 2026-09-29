@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20260929162541_partner_sales_defaults`
+- **As of migration:** `20260929163522_sales_order`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **One company** (P9): no table carries a company. Budget, Cash Bank
@@ -20,6 +20,9 @@ migration updates this file in the same change (Claude-ERP.md §9).
   carries PPN is an enum on the transaction (P45).
 - `m_item` with its unit conversions `m_item_uom` and the seeded, menu-less
   `sys_item_category` (P46–P48). An Item holds no price and no tax treatment.
+- Sales: `sal_order` and `sal_order_line` (P49–P53) — SO Barang, rupiah only,
+  totals stored as `lib/erp/sales-tax.ts` computed them. A Sales Order posts
+  nothing.
 - `created_by` / `updated_by` hold a user id with no foreign key, as in SIBA.
 - Money is `decimal(18, 2)`, rates `decimal(18, 6)`. Calendar dates are `date`,
   timestamps `timestamptz`.
@@ -97,6 +100,17 @@ Enum VatCollector {
 Enum PriceMode {
   Exclude
   Include
+}
+
+Enum SalesOrderStatus {
+  Draft
+  Confirmed
+  Cancelled
+}
+
+Enum DiscountType {
+  Percent
+  Amount
 }
 
 Enum ItemType {
@@ -746,6 +760,66 @@ Table audit_log {
   }
 }
 
+Table sal_order {
+  id int [pk, increment, not null]
+  order_no varchar [unique, not null]
+  order_date date [not null]
+  status SalesOrderStatus [not null, default: 'Draft']
+  customer_id int [not null]
+  address_id int [not null]
+  term_id int [not null]
+  warehouse_id int [not null]
+  is_taxable boolean [not null, default: true]
+  price_mode PriceMode [not null]
+  po_no varchar [null]
+  po_date date [null]
+  requested_date date [not null]
+  salesperson varchar [null]
+  note varchar [null]
+  gross_amount decimal(18, 2) [not null, default: 0]
+  discount_amount decimal(18, 2) [not null, default: 0]
+  dpp_amount decimal(18, 2) [not null, default: 0]
+  dpp_other_amount decimal(18, 2) [not null, default: 0]
+  ppn_amount decimal(18, 2) [not null, default: 0]
+  total_amount decimal(18, 2) [not null, default: 0]
+  cancel_reason varchar [null]
+  copied_from_id int [null]
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    customer_id
+    (status, order_date)
+  }
+}
+
+Table sal_order_line {
+  id int [pk, increment, not null]
+  order_id int [not null]
+  line_no int [not null]
+  item_id int [not null]
+  uom_id int [not null]
+  uom_factor decimal(18, 4) [not null]
+  qty decimal(18, 4) [not null]
+  price decimal(18, 2) [not null]
+  discount_type DiscountType [null]
+  discount_value decimal(18, 4) [null]
+  discount_amount decimal(18, 2) [not null, default: 0]
+  amount decimal(18, 2) [not null]
+  dpp_amount decimal(18, 2) [not null]
+  ppn_amount decimal(18, 2) [not null]
+  withholding_tax_id int [null]
+  withholding_rate decimal(9, 4) [null]
+  note varchar [null]
+
+  indexes {
+    (order_id, line_no) [unique]
+    item_id
+  }
+}
+
 Ref: sys_user_role.user_id > sys_user.id
 Ref: sys_user_role.role_id > sys_role.id
 Ref: sys_role_permission.role_id > sys_role.id
@@ -786,4 +860,13 @@ Ref: acc_journal_line.journal_id > acc_journal.id
 Ref: acc_journal_line.account_id > acc_account.id
 Ref: acc_journal_line.partner_id > m_partner.id
 Ref: acc_journal_line.currency_id > ref_currency.id
+Ref: sal_order.customer_id > m_partner.id
+Ref: sal_order.address_id > m_partner_address.id
+Ref: sal_order.term_id > ref_payment_term.id
+Ref: sal_order.warehouse_id > ref_warehouse.id
+Ref: sal_order.copied_from_id > sal_order.id
+Ref: sal_order_line.order_id > sal_order.id
+Ref: sal_order_line.item_id > m_item.id
+Ref: sal_order_line.uom_id > ref_uom.id
+Ref: sal_order_line.withholding_tax_id > ref_withholding_tax.id
 ```

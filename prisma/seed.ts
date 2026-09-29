@@ -111,6 +111,9 @@ const DOC_TYPES: [label: string, table: string][] = [
   // the closing entry names the year it closed as its source, which is what
   // lets a reader get from a journal line back to the close that wrote it.
   ["Fiscal Year", "acc_fiscal_year"],
+  // A Surat Jalan, a Faktur and a Pembayaran will name the order they come
+  // from through the weak (doc_type_id, doc_id) pair (§3.1).
+  ["Sales Order", "sal_order"],
 ];
 
 /**

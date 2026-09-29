@@ -134,6 +134,29 @@ export const MODULES: NavModule[] = [
     ],
   },
   {
+    key: "sales",
+    name: "Penjualan",
+    icon: "tags",
+    desc: "Dokumen penjualan, dari pesanan sampai penagihan.",
+    permission: "MENU_SALES_ACCESS",
+    groups: [
+      {
+        key: "document",
+        name: "Dokumen",
+        entities: [
+          {
+            key: "sal_order",
+            slug: "order",
+            name: "Sales Order",
+            icon: "clip",
+            desc: "Pesanan barang dari customer. Tidak memposting apa pun; menjadi dasar pengiriman dan penagihan.",
+            permission: "SALES_ORDER_VIEW",
+          },
+        ],
+      },
+    ],
+  },
+  {
     key: "finance",
     name: "Finance",
     icon: "wallet2",
