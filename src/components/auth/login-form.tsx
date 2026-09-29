@@ -42,10 +42,10 @@ export function LoginForm({ next }: { next?: string }) {
   return (
     <div className="auth-card">
       <div className="auth-brand">
-        <div className="brand-mark">S3</div>
+        <div className="brand-mark">ER</div>
         <div>
           <div className="auth-title">ERP</div>
-          <div className="auth-ver">3.0</div>
+          <div className="auth-ver">0.1</div>
         </div>
       </div>
 

@@ -85,9 +85,9 @@ export function AppShell({
           <Icon name="menu" size={17} />
         </button>
         <div className="brand">
-          <div className="brand-mark">S3</div>
+          <div className="brand-mark">ER</div>
           <div className="brand-txt">ERP</div>
-          <span className="brand-ver">3.0</span>
+          <span className="brand-ver">0.1</span>
         </div>
 
         <div className="tb-spacer" />
