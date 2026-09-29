@@ -25,10 +25,9 @@ import { headerButtonClass } from "@/lib/erp/header-actions";
  * from the transition table, so this can never offer a move the Server Action
  * would refuse.
  *
- * **Closing leaves this header on purpose.** It is per Company, it needs a
- * validation checklist and a preview of the journal it is about to post, and
- * it is irreversible — none of which fits behind a yes/no on a record that
- * belongs to neither Company. The transition declares a `runAt`, so the step
+ * **Closing leaves this header on purpose.** It needs a validation checklist
+ * and a preview of the journal it is about to post, and it is irreversible —
+ * none of which fits behind a yes/no on the year's record. The transition declares a `runAt`, so the step
  * is offered here as a link to that workspace rather than as a confirm button.
  */
 export function FiscalYearActions({

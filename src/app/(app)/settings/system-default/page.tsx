@@ -2,7 +2,7 @@ import { SystemDefaultForm } from "@/components/settings/system-default-form";
 import { prisma } from "@/lib/prisma";
 import { actorCan } from "@/lib/erp/access";
 import { requirePermission } from "@/lib/erp/auth";
-import { structuralControlAccountIds, type RefOption } from "@/lib/erp/records";
+import type { RefOption } from "@/lib/erp/records";
 import {
   SYSTEM_DEFAULTS,
   type SystemDefaultDef,
@@ -14,8 +14,8 @@ import { systemDefaults } from "@/lib/erp/system-settings";
 export const dynamic = "force-dynamic";
 
 /**
- * System Default — the values the application prefills with, plus the account
- * each Company journals its side of a Funding Request against.
+ * System Default — the values the application prefills with, plus the
+ * accounts the FX difference and the year-end result are posted to.
  *
  * Reaching the menu and reading the values are separate permissions, the same
  * split every other module uses, and editing is a third.
@@ -28,17 +28,6 @@ export default async function SystemDefaultPage() {
   );
 
   const values = await systemDefaults();
-
-  const companies = await prisma.sysCompany.findMany({
-    select: { id: true, is_parent: true },
-  });
-  const companyId = (which: "induk" | "anak") =>
-    companies.find((c) => c.is_parent === (which === "induk"))?.id ?? 0;
-
-  // A note's counter account may not be one a book already reconciles
-  // against — `checkSystemDefaultValue` refuses it, so the picker does not offer
-  // it. Read once for the four settings that need it.
-  const bookAccounts = await structuralControlAccountIds();
 
   const options = {} as Record<SystemDefaultKey, RefOption[]>;
   for (const def of SYSTEM_DEFAULTS) {
@@ -54,8 +43,7 @@ export default async function SystemDefaultPage() {
   );
 
   /**
-   * Exactly what the setting's own rules admit — active records of the right
-   * Company, plus whatever is already stored even if it has since been
+   * Exactly what the setting's own rules admit — active records, plus whatever is already stored even if it has since been
    * deactivated, so a page that opens on a stale value still shows what it is
    * rather than an empty box.
    */
@@ -81,12 +69,11 @@ export default async function SystemDefaultPage() {
     }
 
     const rows = await prisma.accAccount.findMany({
-      where: { company_id: companyId(def.company!), is_postable: true },
+      where: { is_postable: true },
       orderBy: { account_label: "asc" },
     });
     return rows
       .filter((a) => keep(a.id, a.is_active))
-      .filter((a) => def.group !== "dncn" || a.id === chosen || !bookAccounts.has(a.id))
       .map((a) => ({
         id: a.id,
         label: a.account_label,

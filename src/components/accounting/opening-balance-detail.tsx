@@ -57,21 +57,16 @@ export function OpeningBalanceDetail({ opening }: { opening: Detail }) {
         <FormBody>
           <FormSection>
             <FormRow>
-              <Field label="Tanggal" span={3}>
+              <Field label="Tanggal" span={4}>
                 <div className="ro">{formatDate(opening.postingDate)}</div>
               </Field>
-              <Field label="Company" span={3}>
-                <div className="ro">
-                  <span className="lab">{opening.companyLabel}</span>
-                </div>
-              </Field>
-              <Field label="Tahun Buku" span={3}>
+              <Field label="Tahun Buku" span={4}>
                 <div className="ro">{opening.fiscalYearName}</div>
               </Field>
               {/* A snapshot a close produced names the year it came from; one
                   with nothing behind it was injected at go-live, and that is
                   the only thing that tells the two apart. */}
-              <Field label="Sumber" span={3}>
+              <Field label="Sumber" span={4}>
                 <div className="ro">
                   {opening.sourceFiscalYearLabel ? (
                     `Penutupan ${opening.sourceFiscalYearLabel}`

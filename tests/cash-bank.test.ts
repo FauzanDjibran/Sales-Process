@@ -14,7 +14,6 @@ import {
   cleanupFixtures,
   disconnect,
   makeAccount,
-  parentCompanyId,
   prisma,
   systemUserId,
 } from "./helpers";
@@ -30,20 +29,18 @@ import {
 
 const today = new Date().toISOString().slice(0, 10);
 
-let company = 0;
 let actor = 0;
 let currency = 0;
 const made: number[] = [];
 
 async function makeCashBank(openingBalance: number): Promise<number> {
-  const account = await makeAccount({ companyId: company, subcategoryLabel: CASH_BANK_SUBCATEGORY });
+  const account = await makeAccount({ subcategoryLabel: CASH_BANK_SUBCATEGORY });
   const key = `${FIXTURE_PREFIX}CB${made.length + 1}${Date.now() % 100000}`;
   const row = await prisma.mCashBank.create({
     data: {
       cash_bank_code: `test.${key}`,
       cash_bank_label: key,
       cash_bank_name: `Fixture ${key}`,
-      company_id: company,
       cash_bank_type: "Cash",
       currency_id: currency,
       account_id: account,
@@ -63,7 +60,6 @@ async function makeCashBank(openingBalance: number): Promise<number> {
 }
 
 before(async () => {
-  company = await parentCompanyId();
   actor = await systemUserId();
   const base = await prisma.refCurrency.findFirstOrThrow({ select: { id: true } });
   currency = base.id;
@@ -235,7 +231,7 @@ describe("the balance never disagrees with the ledger", () => {
 describe("the summary reports per currency and never combines them", () => {
   test("a resource's balance appears under its own currency", async () => {
     const id = await makeCashBank(3_000_000);
-    const summary = await cashBookSummary([company]);
+    const summary = await cashBookSummary();
 
     const mine = summary.rows.find((r) => r.cashBankId === id);
     assert.ok(mine, "an active resource must appear in the summary");
@@ -255,7 +251,7 @@ describe("the summary reports per currency and never combines them", () => {
   test("an inactive resource is left out of spendable capacity", async () => {
     const id = await makeCashBank(7_000_000);
     await prisma.mCashBank.update({ where: { id }, data: { status: "Inactive" } });
-    const summary = await cashBookSummary([company]);
+    const summary = await cashBookSummary();
     assert.equal(
       summary.rows.some((r) => r.cashBankId === id),
       false
@@ -263,17 +259,6 @@ describe("the summary reports per currency and never combines them", () => {
     await prisma.mCashBank.update({ where: { id }, data: { status: "Active" } });
   });
 
-  test("a resource outside the reader's Companies is not summarised", async () => {
-    const id = await makeCashBank(11_000_000);
-    const summary = await cashBookSummary([]);
-    assert.equal(
-      summary.rows.some((r) => r.cashBankId === id),
-      false,
-      "an empty scope summarises nothing, never everything — a cash balance " +
-        "belongs to a Company, and this reader may see none of them"
-    );
-    assert.equal(summary.resources, 0);
-  });
 });
 
 // -------------------------------------------------------- the base measure
@@ -455,7 +440,6 @@ describe("a resource can never hold less than nothing", () => {
 
   test("a resource cannot be opened with a negative balance", async () => {
     const account = await makeAccount({
-      companyId: company,
       subcategoryLabel: CASH_BANK_SUBCATEGORY,
     });
     const key = `${FIXTURE_PREFIX}CBNEG${Date.now() % 100000}`;
@@ -464,7 +448,6 @@ describe("a resource can never hold less than nothing", () => {
         cash_bank_code: `test.${key}`,
         cash_bank_label: key,
         cash_bank_name: `Fixture ${key}`,
-        company_id: company,
         cash_bank_type: "Cash",
         currency_id: currency,
         account_id: account,

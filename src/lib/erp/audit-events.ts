@@ -4,13 +4,12 @@
  * `audit_log.action` is the coarse verb — TAMBAH, UPDATE, HAPUS — and it cannot
  * answer the question a record's history is opened for. Submitting, approving,
  * rejecting, posting and confirming are all writes, so all five read as UPDATE:
- * a Budget's history would print "Diubah · Diubah · Diubah" and say nothing
- * about who approved it or when it closed. `audit_log.event` carries the
+ * a document's history would print "Diubah · Diubah · Diubah" and say nothing
+ * about who posted it or when. `audit_log.event` carries the
  * specific step, and this file is where a step becomes a sentence.
  *
  * **The label is not stored.** Each lifecycle event resolves through the
- * workflow table that already owns it — `BUDGET_TRANSITIONS`,
- * `TRANSACTION_TRANSITIONS`, `JOURNAL_TRANSITIONS`,
+ * workflow table that already owns it — `JOURNAL_TRANSITIONS`,
  * `FISCAL_YEAR_TRANSITIONS` — so the word a button
  * says and the word its history entry says are the same string, and adding a
  * transition is a row in one table rather than a row in one table plus a label
@@ -21,13 +20,9 @@
  * workflow table it reads is.
  */
 import type { IconName } from "@/components/icon";
-import { BUDGET_TRANSITIONS } from "./budget-workflow";
-import { DNCN_TRANSITIONS } from "./dncn-workflow";
 import { FISCAL_YEAR_TRANSITIONS } from "./fiscal-workflow";
 import type { ActionTone } from "./header-actions";
 import { JOURNAL_TRANSITIONS } from "./journal-workflow";
-import { TRANSACTION_TRANSITIONS } from "./transaction-workflow";
-import { TRANSFER_TRANSITIONS } from "./transfer-workflow";
 
 /** How an entry is drawn: its words, its icon, and its weight. */
 export type AuditEventLabel = {
@@ -36,8 +31,8 @@ export type AuditEventLabel = {
   icon: IconName;
   tone: ActionTone;
   /**
-   * True where the event was a consequence rather than a decision — a Budget
-   * closing because a posting reached its planned amount. The panel says so,
+   * True where the event was a consequence rather than a decision — a Fiscal
+   * Year reading Closed because its closing ran. The panel says so,
    * because attributing it to the person who posted would misread the trace.
    */
   systemDriven?: boolean;
@@ -74,67 +69,6 @@ function fromTransition(
   return { label, icon: source.icon, tone: source.tone };
 }
 
-/** Budget: Draft → Submitted → Open, and Closed by realization. */
-const BUDGET_EVENTS: Record<string, AuditEventLabel> = {
-  ...COMMON,
-  submit: fromTransition(BUDGET_TRANSITIONS.submit, "Diajukan"),
-  approve: fromTransition(BUDGET_TRANSITIONS.approve, "Disetujui"),
-  reject: fromTransition(BUDGET_TRANSITIONS.reject, "Ditolak"),
-  cancel: fromTransition(BUDGET_TRANSITIONS.cancel, "Dibatalkan"),
-  // Nobody closes a Budget by hand (CLAUDE.md §10 rule 36) — it closes because
-  // a posting reached its planned amount, so the actor on the row is whoever
-  // posted rather than whoever decided.
-  realize: {
-    label: "Realisasi tercatat",
-    icon: "coin",
-    tone: "neutral",
-    systemDriven: true,
-  },
-  close: {
-    label: "Ditutup oleh realisasi",
-    icon: "lock",
-    tone: "primary",
-    systemDriven: true,
-  },
-};
-
-/** Cash Bank Transaction: Draft → Pending → Posted, or Draft → Posted. */
-const TRANSACTION_EVENTS: Record<string, AuditEventLabel> = {
-  ...COMMON,
-  submit: fromTransition(TRANSACTION_TRANSITIONS.submit, "Diajukan ke induk"),
-  post: fromTransition(TRANSACTION_TRANSITIONS.post, "Diposting"),
-  cancel: fromTransition(TRANSACTION_TRANSITIONS.cancel, "Dibatalkan"),
-  // Posted by the induk confirming the Funding Request rather than by this
-  // document's own Post button. Same destination, different hand.
-  post_funded: {
-    label: "Diposting via funding induk",
-    icon: "check",
-    tone: "primary",
-  },
-};
-
-/** Cash Bank Transfer: Draft → Posted, or Draft → Cancelled. */
-const TRANSFER_EVENTS: Record<string, AuditEventLabel> = {
-  ...COMMON,
-  post: fromTransition(TRANSFER_TRANSITIONS.post, "Diposting"),
-  cancel: fromTransition(TRANSFER_TRANSITIONS.cancel, "Dibatalkan"),
-};
-
-/** Debit / Credit Note: Draft → Posted, or Draft → Cancelled. */
-const DNCN_EVENTS: Record<string, AuditEventLabel> = {
-  ...COMMON,
-  post: fromTransition(DNCN_TRANSITIONS.post, "Diposting"),
-  cancel: fromTransition(DNCN_TRANSITIONS.cancel, "Dibatalkan"),
-};
-
-/** Funding Request: Open → Closed, or withdrawn by the requester. */
-const FUNDING_EVENTS: Record<string, AuditEventLabel> = {
-  ...COMMON,
-  request: { label: "Permintaan dana dibuka", icon: "send", tone: "primary" },
-  confirm: { label: "Dikonfirmasi induk", icon: "check", tone: "primary" },
-  withdraw: { label: "Ditarik pemohon", icon: "block", tone: "danger" },
-};
-
 /**
  * Journal: written by a posting, or typed and then posted.
  *
@@ -153,24 +87,22 @@ const JOURNAL_EVENTS: Record<string, AuditEventLabel> = {
 /**
  * Fiscal Year: Draft → Open → Closed.
  *
- * The year's own `close` row is written **once**, when the last Company shuts
- * it — that is the moment the year itself becomes Closed, and it is a rollup
- * rather than anybody's decision. Each Company's own close is a row on
- * `acc_fiscal_closing` instead, because it is a different record saying a
- * different thing.
+ * The year's own `close` row is written by the closing process, in the same
+ * transaction as the `acc_fiscal_closing` row that records the decision — so
+ * the year's entry is a consequence, and the closing row's is the act.
  */
 const FISCAL_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   open: fromTransition(FISCAL_YEAR_TRANSITIONS.open, "Diaktifkan"),
   close: {
-    label: "Ditutup — seluruh Company selesai",
+    label: "Ditutup lewat penutupan tahun buku",
     icon: "lock",
     tone: "primary",
     systemDriven: true,
   },
 };
 
-/** One Company's closing state for one year. Written once, never reopened. */
+/** A year's closing state. Written once, never reopened. */
 const FISCAL_CLOSING_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   close: fromTransition(FISCAL_YEAR_TRANSITIONS.close, "Ditutup"),
@@ -198,11 +130,6 @@ const ROLE_EVENTS: Record<string, AuditEventLabel> = {
  * teaching this map about its internals.
  */
 const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
-  bud_budget: BUDGET_EVENTS,
-  fin_cash_bank_transaction: TRANSACTION_EVENTS,
-  fin_cash_bank_transfer: TRANSFER_EVENTS,
-  fin_dncn: DNCN_EVENTS,
-  fin_funding_request: FUNDING_EVENTS,
   acc_fiscal_year: FISCAL_EVENTS,
   acc_fiscal_closing: FISCAL_CLOSING_EVENTS,
   acc_journal: JOURNAL_EVENTS,

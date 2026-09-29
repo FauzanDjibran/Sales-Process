@@ -19,7 +19,6 @@ import {
   disconnect,
   makeAccount,
   makePartner,
-  parentCompanyId,
   prisma,
   systemUserId,
 } from "./helpers";
@@ -146,7 +145,6 @@ describe("the Neraca layout", () => {
 
 const YEAR_PREFIX = "test.nrc.";
 let actor = 0;
-let induk = 0;
 let year1980 = 0;
 let year1981 = 0;
 let year1982 = 0;
@@ -203,7 +201,6 @@ async function journal(
     data: {
       journal_no: `ZZN-${Date.now() % 100000}-${Math.floor(Math.random() * 100000)}`,
       posting_date: date,
-      company_id: induk,
       description: "Fixture",
       status: "Posted",
       created_by: actor,
@@ -239,7 +236,7 @@ const december1980 = () => column(year1980, "1980-01-01", "1980-12-31");
 const march1982 = () => column(year1982, "1982-01-01", "1982-03-31");
 
 const run = (columns: StatementColumn[]) =>
-  balanceSheetReport({ id: induk, isParent: true }, columns, []);
+  balanceSheetReport(columns, []);
 
 async function neraca(columns: StatementColumn[]) {
   const report = await run(columns);
@@ -283,7 +280,6 @@ async function wipeFixtureYears() {
 
 before(async () => {
   actor = await systemUserId();
-  induk = await parentCompanyId();
   baseCurrency = (await prisma.refCurrency.findFirstOrThrow({ orderBy: { id: "asc" }, select: { id: true } })).id;
 
   await wipeFixtureYears();
@@ -292,7 +288,7 @@ before(async () => {
   year1982 = await makeYear(1982);
 
   const mk = (subcategoryLabel: string, normalBalance: "Debit" | "Kredit" = "Debit") =>
-    makeAccount({ companyId: induk, subcategoryLabel, normalBalance });
+    makeAccount({ subcategoryLabel, normalBalance });
   a.cash = await mk(CASH_BANK_SUBCATEGORY);
   a.equipment = await mk("1.3.2");
   a.depreciation = await mk("1.3.9", "Kredit");
@@ -302,10 +298,10 @@ before(async () => {
   a.current = await mk("3.4.1", "Kredit");
   a.revenue = await mk("4.1.1", "Kredit");
   a.expense = await mk("5.3.1");
-  branch = await makePartner({ companyId: induk, categoryLabel: "Cabang" });
+  branch = await makePartner({ categoryLabel: "Customer" });
 
-  await setSetting("induk_accumulated_pl_account", String(a.accumulated));
-  await setSetting("induk_current_pl_account", String(a.current));
+  await setSetting("accumulated_pl_account", String(a.accumulated));
+  await setSetting("current_pl_account", String(a.current));
 
   // 1980: capital in, a loan, equipment bought and depreciated, one sale and
   // one expense naming a branch. Result: 400.000 − 100.000 − 50.000 = 250.000.
@@ -412,7 +408,7 @@ describe("the Neraca while earlier years are still open", () => {
   });
 
   test("Tahun Berjalan is exactly the Laba Rugi's year to date", async () => {
-    const pl = await profitLossReport(induk, [march1981()]);
+    const pl = await profitLossReport([march1981()]);
     const report = await neraca([march1981()]);
     assert.equal(valueOf(report, a.current), pl.result[0]);
   });
@@ -426,23 +422,23 @@ describe("the Neraca while earlier years are still open", () => {
   });
 
   test("no Tahun Berjalan account: the Neraca is not produced, and says which setting", async () => {
-    await setSetting("induk_current_pl_account", null);
+    await setSetting("current_pl_account", null);
     try {
       const refused = await run([march1981()]);
       assert.equal(refused.ok, false);
-      assert.deepEqual(!refused.ok && refused.missing, ["Account Laba/Rugi Tahun Berjalan — Induk"]);
+      assert.deepEqual(!refused.ok && refused.missing, ["Account Laba/Rugi Tahun Berjalan"]);
     } finally {
-      await setSetting("induk_current_pl_account", String(a.current));
+      await setSetting("current_pl_account", String(a.current));
     }
   });
 
   test("no Tahun Sebelumnya account while a year is carried: refused by name", async () => {
-    await setSetting("induk_accumulated_pl_account", null);
+    await setSetting("accumulated_pl_account", null);
     try {
       const refused = await run([march1981()]);
-      assert.deepEqual(!refused.ok && refused.missing, ["Account Laba/Rugi Tahun Sebelumnya — Induk"]);
+      assert.deepEqual(!refused.ok && refused.missing, ["Account Laba/Rugi Tahun Sebelumnya"]);
     } finally {
-      await setSetting("induk_accumulated_pl_account", String(a.accumulated));
+      await setSetting("accumulated_pl_account", String(a.accumulated));
     }
   });
 });
@@ -456,7 +452,7 @@ describe("the Neraca across the close", () => {
     before1980 = await neraca([december1980()]);
     before1981 = await neraca([march1981()]);
     before1982 = await neraca([march1982()]);
-    const result = await executeClosing(induk, year1980, actor);
+    const result = await executeClosing(year1980, actor);
     assert.equal(result.ok, true, JSON.stringify(result));
   });
 
@@ -479,11 +475,11 @@ describe("the Neraca across the close", () => {
   });
 
   test("Tahun Sebelumnya is still needed while a later year is carried", async () => {
-    await setSetting("induk_accumulated_pl_account", null);
+    await setSetting("accumulated_pl_account", null);
     try {
       assert.equal((await run([march1982()])).ok, false, "1981 is still carried");
     } finally {
-      await setSetting("induk_accumulated_pl_account", String(a.accumulated));
+      await setSetting("accumulated_pl_account", String(a.accumulated));
     }
   });
 

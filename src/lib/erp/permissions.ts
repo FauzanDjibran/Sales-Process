@@ -18,11 +18,9 @@
  */
 
 export type PermissionModule =
-  | "company"
   | "dashboard"
   | "master"
   | "accounting"
-  | "budget"
   | "finance"
   | "settings";
 
@@ -39,37 +37,11 @@ export type PermissionDef = {
  * a module means adding its rows here — nothing else in the catalogue changes.
  */
 export const PERMISSIONS = [
-  // ---------------------------------------------------------------- company
-  //
-  // Which Company's records a user may see at all. There are exactly two and
-  // there will never be a third (CLAUDE.md §12), so they are two ordinary
-  // catalogue entries rather than a table of per-record grants — the RBAC path
-  // stays the only one. They resolve against `is_parent` at runtime, never
-  // against a label, because a Company's identity is editable in the seed.
-  //
-  // A user may hold both, one, or neither. Neither means no Company-scoped
-  // record is readable: no Partner, no Cash & Bank, no Account, no mapping,
-  // no Budget, no Finance document.
-  {
-    code: "COMPANY_INDUK_ACCESS",
-    name: "Akses data Company Induk",
-    module: "company",
-    description: "Melihat Partner, Cash & Bank, Account, Budget, dan dokumen Finance milik Induk.",
-  },
-  {
-    code: "COMPANY_ANAK_ACCESS",
-    name: "Akses data Company Anak",
-    module: "company",
-    description: "Melihat Partner, Cash & Bank, Account, Budget, dan dokumen Finance milik Anak.",
-  },
-
   // ---------------------------------------------------------------- dashboard
   { code: "MENU_DASHBOARD_ACCESS", name: "Akses menu Dashboard", module: "dashboard" },
 
   // ---------------------------------------------------------------- master
   { code: "MENU_MASTER_ACCESS", name: "Akses menu Master", module: "master" },
-
-  { code: "COMPANY_VIEW", name: "Lihat Company", module: "master", description: "Company terkunci: tidak ada permission tambah atau ubah." },
 
   { code: "PARTNER_VIEW", name: "Lihat Partner", module: "master" },
   { code: "PARTNER_CREATE", name: "Tambah Partner", module: "master" },
@@ -89,30 +61,11 @@ export const PERMISSIONS = [
   { code: "CURRENCY_ACTIVATE", name: "Aktifkan Currency", module: "master" },
   { code: "CURRENCY_DEACTIVATE", name: "Nonaktifkan Currency", module: "master" },
 
-  // The classification chain. Separate from Partner and Budget on purpose:
-  // reshaping which Partner Categories a Budget Category admits changes what
-  // every future approval may classify, which is a different decision from
-  // maintaining the records classified by it.
-  { code: "BUDGET_CATEGORY_VIEW", name: "Lihat Budget Category", module: "settings" },
-  { code: "BUDGET_CATEGORY_CREATE", name: "Tambah Budget Category", module: "settings" },
-  { code: "BUDGET_CATEGORY_EDIT", name: "Ubah Budget Category", module: "settings" },
-  { code: "BUDGET_CATEGORY_ACTIVATE", name: "Aktifkan Budget Category", module: "settings" },
-  { code: "BUDGET_CATEGORY_DEACTIVATE", name: "Nonaktifkan Budget Category", module: "settings" },
-
   { code: "PARTNER_CATEGORY_VIEW", name: "Lihat Partner Category", module: "settings" },
   { code: "PARTNER_CATEGORY_CREATE", name: "Tambah Partner Category", module: "settings" },
   { code: "PARTNER_CATEGORY_EDIT", name: "Ubah Partner Category", module: "settings" },
   { code: "PARTNER_CATEGORY_ACTIVATE", name: "Aktifkan Partner Category", module: "settings" },
   { code: "PARTNER_CATEGORY_DEACTIVATE", name: "Nonaktifkan Partner Category", module: "settings" },
-
-  // A Purpose is entered, not generated: `sys_purpose` stands in for what a
-  // maintainer would type into the database, so adding one is an ordinary
-  // capability like any other master record's.
-  { code: "PURPOSE_VIEW", name: "Lihat Transaction Purpose", module: "settings" },
-  { code: "PURPOSE_CREATE", name: "Tambah Transaction Purpose", module: "settings" },
-  { code: "PURPOSE_EDIT", name: "Ubah sebutan Transaction Purpose", module: "settings" },
-  { code: "PURPOSE_ACTIVATE", name: "Aktifkan Transaction Purpose", module: "settings" },
-  { code: "PURPOSE_DEACTIVATE", name: "Nonaktifkan Transaction Purpose", module: "settings" },
 
   // ---------------------------------------------------------------- accounting
   { code: "MENU_ACCOUNTING_ACCESS", name: "Akses menu Accounting", module: "accounting" },
@@ -122,10 +75,6 @@ export const PERMISSIONS = [
   { code: "ACCOUNT_EDIT", name: "Ubah Account", module: "accounting" },
   { code: "ACCOUNT_ACTIVATE", name: "Aktifkan Account", module: "accounting" },
   { code: "ACCOUNT_DEACTIVATE", name: "Nonaktifkan Account", module: "accounting" },
-
-  { code: "MAPPING_VIEW", name: "Lihat Mapping Budget ke Account", module: "accounting" },
-  { code: "MAPPING_CREATE", name: "Tambah Mapping", module: "accounting" },
-  { code: "MAPPING_EDIT", name: "Ubah Mapping", module: "accounting" },
 
   // Fiscal Period carries no permissions of its own: it has no menu and no
   // form. Periods are generated when a Fiscal Year is opened and are read from
@@ -139,7 +88,7 @@ export const PERMISSIONS = [
     module: "accounting",
     description:
       "Memindahkan hasil tahun berjalan ke ekuitas dan membuat Opening Balance " +
-      "tahun berikutnya, untuk satu Company. Tidak dapat dibatalkan.",
+      "tahun berikutnya. Tidak dapat dibatalkan.",
   },
 
   // Viewing is the whole capability. An Opening Balance is written by a
@@ -151,7 +100,7 @@ export const PERMISSIONS = [
     name: "Lihat Opening Balance",
     module: "accounting",
     description:
-      "Saldo awal per Company per tahun buku. Hanya dibaca — dokumennya bersifat final.",
+      "Saldo awal per tahun buku. Hanya dibaca — dokumennya bersifat final.",
   },
 
   {
@@ -177,85 +126,8 @@ export const PERMISSIONS = [
   { code: "REPORT_PROFIT_LOSS_VIEW", name: "Lihat Laba Rugi", module: "accounting" },
   { code: "REPORT_BALANCE_SHEET_VIEW", name: "Lihat Neraca", module: "accounting" },
 
-  // ---------------------------------------------------------------- budget
-  { code: "MENU_BUDGET_ACCESS", name: "Akses menu Budget", module: "budget" },
-
-  { code: "BUDGET_VIEW", name: "Lihat Budget", module: "budget" },
-  { code: "BUDGET_CREATE", name: "Tambah Budget", module: "budget" },
-  { code: "BUDGET_EDIT", name: "Ubah Budget", module: "budget" },
-  { code: "BUDGET_SUBMIT", name: "Ajukan Budget", module: "budget" },
-  { code: "BUDGET_APPROVE", name: "Setujui Budget", module: "budget" },
-  { code: "BUDGET_REJECT", name: "Tolak Budget", module: "budget" },
-  { code: "BUDGET_CANCEL", name: "Batalkan Budget", module: "budget" },
-
   // ---------------------------------------------------------------- finance
   { code: "MENU_FINANCE_ACCESS", name: "Akses menu Finance", module: "finance" },
-
-  { code: "CASH_BANK_TRANSACTION_VIEW", name: "Lihat Cash Bank Transaction", module: "finance" },
-  { code: "CASH_BANK_TRANSACTION_CREATE", name: "Tambah Cash Bank Transaction", module: "finance" },
-  { code: "CASH_BANK_TRANSACTION_EDIT", name: "Ubah Cash Bank Transaction", module: "finance" },
-  { code: "CASH_BANK_TRANSACTION_POST", name: "Post Cash Bank Transaction", module: "finance" },
-  { code: "CASH_BANK_TRANSACTION_CANCEL", name: "Batalkan Cash Bank Transaction", module: "finance" },
-  {
-    code: "CASH_BANK_TRANSACTION_SUBMIT",
-    name: "Ajukan Dana Cash Bank Transaction",
-    module: "finance",
-    description:
-      "Mengajukan dokumen Company anak kepada induk sebagai Funding Request. " +
-      "Hanya berlaku bagi Company yang tidak memiliki Cash & Bank sendiri.",
-  },
-
-  // Cash Bank Transfer: the Company's own money moving between its own
-  // resources. Its own capabilities rather than the transaction's, because
-  // moving money internally and paying a third party are different authorities
-  // — a treasury clerk may do the first and not the second.
-  { code: "CASH_BANK_TRANSFER_VIEW", name: "Lihat Cash Bank Transfer", module: "finance" },
-  { code: "CASH_BANK_TRANSFER_CREATE", name: "Tambah Cash Bank Transfer", module: "finance" },
-  { code: "CASH_BANK_TRANSFER_EDIT", name: "Ubah Cash Bank Transfer", module: "finance" },
-  {
-    code: "CASH_BANK_TRANSFER_POST",
-    name: "Post Cash Bank Transfer",
-    module: "finance",
-    description:
-      "Memindahkan uangnya: saldo sumber turun, saldo setiap tujuan naik, dan " +
-      "Journal tercatat. Pencairan valuta asing mengakui selisih kurs di sini.",
-  },
-  { code: "CASH_BANK_TRANSFER_CANCEL", name: "Batalkan Cash Bank Transfer", module: "finance" },
-
-  // Debit / Credit Note: adjusting a Partner's standing position without cash.
-  // Its own capabilities, because writing a receivable down is an authority of
-  // its own — the one a cash clerk should not hold by default.
-  { code: "DNCN_VIEW", name: "Lihat Debit / Credit Note", module: "finance" },
-  { code: "DNCN_CREATE", name: "Tambah Debit / Credit Note", module: "finance" },
-  { code: "DNCN_EDIT", name: "Ubah Debit / Credit Note", module: "finance" },
-  {
-    code: "DNCN_POST",
-    name: "Post Debit / Credit Note",
-    module: "finance",
-    description:
-      "Menyesuaikan posisi Partner pada buku subjek dan mencatat Journal-nya. " +
-      "Tidak ada uang yang berpindah.",
-  },
-  { code: "DNCN_CANCEL", name: "Batalkan Debit / Credit Note", module: "finance" },
-
-  // Funding is the induk's side of the same business event, and a separate
-  // capability on purpose: raising a request is the anak's clerk, confirming it
-  // releases the induk's money. Nobody should hold one because they hold the
-  // other.
-  {
-    code: "FUNDING_REQUEST_VIEW",
-    name: "Lihat Funding Request",
-    module: "finance",
-    description: "Daftar dan rincian permintaan dana dari Company anak.",
-  },
-  {
-    code: "FUNDING_REQUEST_CONFIRM",
-    name: "Konfirmasi Funding Request",
-    module: "finance",
-    description:
-      "Mengonfirmasi permintaan dana Company anak dengan kas induk. Inilah batas " +
-      "aktual: kedua Company memperoleh journal pada saat konfirmasi.",
-  },
 
   // Report Views. `REPORT_` comes first for the same reason `MENU_` does: the
   // prefix says what kind of capability this is before it says which subject.
@@ -279,28 +151,6 @@ export const PERMISSIONS = [
     description:
       "Layer kurs tiap resource mata uang asing — berapa yang tersisa pada " +
       "masing-masing kurs perolehan.",
-  },
-
-  // **One permission for every subject book**, which is a reversal of the
-  // decision above it and deserves saying why.
-  //
-  // A book used to be a screen somebody wrote, so a book meant a permission.
-  // A book is now a Budget Category that names a Partner — created through
-  // Master > Klasifikasi, with no deploy — so a permission per book would mean
-  // a permission created at runtime, which is the one thing the catalogue
-  // forbids: a row no code reads, with a code nobody can rely on.
-  //
-  // What that costs is real and is recorded in §17: whoever may read Hutang may
-  // also read Prive, the owners' drawings. Nothing in the seeded roles relied on
-  // the distinction, and the alternative was worse — either a permission family
-  // materialised from data, or a developer in the loop every time a category
-  // appears, which is the cost this change exists to remove.
-  {
-    code: "REPORT_SUBLEDGER_VIEW",
-    name: "Lihat laporan Buku Subjek",
-    module: "finance",
-    description:
-      "Riwayat dan posisi setiap Partner pada seluruh buku subjek — Titipan, Hutang, Piutang, Prive, Investasi, dan kategori lain yang memakai Partner.",
   },
 
   // ---------------------------------------------------------------- settings
@@ -365,22 +215,18 @@ export function isPermissionCode(code: string): code is PermissionCode {
 }
 
 export const MODULE_LABELS: Record<PermissionModule, string> = {
-  company: "Akses Company",
   dashboard: "Dashboard",
   master: "Master",
   accounting: "Accounting",
-  budget: "Budget",
   finance: "Finance",
   settings: "Pengaturan",
 };
 
 /** Catalogue order, grouped by module — drives the role permission matrix. */
 export const MODULE_ORDER: PermissionModule[] = [
-  "company",
   "dashboard",
   "master",
   "accounting",
-  "budget",
   "finance",
   "settings",
 ];

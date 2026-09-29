@@ -19,7 +19,7 @@ type Pick = { yearId: number | null; periodId: number | null };
  * The filter for the `fiscal-period` parameter set, in the order it is filled
  * in:
  *
- *   Company · Tipe Laporan
+ *   Tipe Laporan
  *   Tahun Buku · Periode · ☐ Bandingkan
  *   Pembanding · Periode                      (only once Bandingkan is ticked)
  *
@@ -36,7 +36,6 @@ type Pick = { yearId: number | null; periodId: number | null };
  */
 export function FiscalPeriodParams({
   slug,
-  companyId,
   lead,
   years,
   main,
@@ -45,8 +44,7 @@ export function FiscalPeriodParams({
   showMode,
 }: {
   slug: string;
-  companyId: number;
-  /** The Company picker, first on the first row. */
+  /** What comes before Tipe Laporan on the first row, where a report has one. */
   lead?: React.ReactNode;
   years: FiscalYearChoice[];
   main: Pick;
@@ -72,7 +70,6 @@ export function FiscalPeriodParams({
       startTransition(() => {
         router.push(
           reportHref(slug, {
-            company: companyId,
             year: first.yearId,
             period: first.periodId,
             ...(showMode ? { mode: currentMode } : {}),

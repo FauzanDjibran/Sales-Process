@@ -1,6 +1,5 @@
 import { JournalForm } from "@/components/accounting/journal-form";
 import { requirePermission } from "@/lib/erp/auth";
-import { accessibleCompanies } from "@/lib/erp/company-access";
 import { manualJournalOptions } from "@/lib/erp/manual-journal";
 import { defaultCurrencyId } from "@/lib/erp/system-settings";
 
@@ -9,23 +8,14 @@ export const dynamic = "force-dynamic";
 /**
  * A new manual journal.
  *
- * The options are loaded for the Company the form will start on, so the first
- * line is fillable without a round trip; changing the Company re-asks for them,
- * because an account number means a different account in the other Company.
+ * The options are loaded with the page, so the first line is fillable without
+ * a round trip.
  */
 export default async function Page() {
-  const actor = await requirePermission(
-    "JOURNAL_CREATE",
-    "/accounting/journal/new"
-  );
-
-  const companies = await accessibleCompanies(actor.permissions);
-  const start = companies.length ? companies[0].id : null;
+  await requirePermission("JOURNAL_CREATE", "/accounting/journal/new");
 
   const [options, currencyId] = await Promise.all([
-    start
-      ? manualJournalOptions(start)
-      : Promise.resolve({ accounts: [], partners: [], currencies: [] }),
+    manualJournalOptions(),
     defaultCurrencyId(),
   ]);
 
@@ -33,7 +23,6 @@ export default async function Page() {
     <JournalForm
       mode="new"
       journal={null}
-      companies={companies}
       options={options}
       defaultCurrencyId={currencyId}
     />

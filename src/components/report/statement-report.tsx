@@ -41,11 +41,9 @@ const money = (n: number) => formatMoney(n, BASE_CURRENCY_LABEL);
 export function StatementReport({
   columns,
   rows,
-  companyId,
 }: {
   columns: StatementColumn[];
   rows: StatementRow[];
-  companyId: number;
 }) {
   // Every row with something indented beneath it can fold.
   const foldable = useMemo(() => {
@@ -154,7 +152,6 @@ export function StatementReport({
                         <Link
                           className="lab"
                           href={reportHref("general-ledger", {
-                            company: companyId,
                             accounts: r.accountId,
                             from: main.range.from,
                             to: main.range.to,
@@ -187,7 +184,7 @@ export function StatementReport({
                   ) : (
                     <>
                       {r.values.map((v, i) => {
-                        const drill = drillFor(r, columns[i], companyId);
+                        const drill = drillFor(r, columns[i]);
                         const figure = <Figure value={v} strong={r.kind === "subtotal"} />;
                         return (
                           <td key={i} className="num">
@@ -225,8 +222,7 @@ export function StatementReport({
  */
 function drillFor(
   r: StatementRow,
-  column: StatementColumn,
-  companyId: number
+  column: StatementColumn
 ): { href: string; title: string } | null {
   if (r.profitLoss) {
     const target =
@@ -235,7 +231,6 @@ function drillFor(
         : r.profitLoss;
     return {
       href: reportHref("profit-loss", {
-        company: companyId,
         year: target.yearId,
         period: target.periodId,
         mode: "ytd",
@@ -250,7 +245,6 @@ function drillFor(
   if (!accountId) return null;
   return {
     href: reportHref("general-ledger", {
-      company: companyId,
       accounts: accountId,
       from: column.range.from,
       to: column.range.to,

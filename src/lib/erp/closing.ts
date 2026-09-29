@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { formatDate } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import {
-  closedFiscalYearsFor,
+  closedFiscalYears,
   fiscalClosingState,
   lockFiscalPeriod,
   fiscalYearAfter,
@@ -22,14 +22,14 @@ import {
 } from "./journal";
 import { closingBalances, trialBalanceReport, type ClosingBalance } from "./ledger";
 import { writeOpeningBalance } from "./opening-balance";
-import { closingAccountFor } from "./system-settings";
+import { closingAccount } from "./system-settings";
 
 /**
  * Closing a fiscal year.
  *
- * One Company at a time, and one act: the year's profit and loss is moved into
- * equity, the position that remains is written as the next year's Opening
- * Balance, and the Company's closing row is stamped. Either all of that
+ * One act: the year's profit and loss is moved into equity, the position that
+ * remains is written as the next year's Opening Balance, and the year's
+ * closing row is stamped. Either all of that
  * happened or none of it did.
  *
  * ## Laba/Rugi Tahun Berjalan is computed, never posted
@@ -53,12 +53,12 @@ import { closingAccountFor } from "./system-settings";
  *               application that is not dated the day it was posted
  *   `OPB-0001`  the next year's snapshot, taken *after* the closing journal,
  *               so it is a balance sheet by construction
- *   the closing row, and `AccFiscalYear.status` when this is the last Company
+ *   the closing row, and `AccFiscalYear.status`
  *
  * ## Irreversible
  *
  * Nothing reopens a closed year. `checkPostingPeriod` refuses every posting
- * into it by that Company afterwards, on all four posting paths, and there is
+ * into it afterwards, on every posting path, and there is
  * no un-close: a posted journal is never reversed, so undoing a close would
  * mean reversing one.
  *
@@ -67,18 +67,12 @@ import { closingAccountFor } from "./system-settings";
  * This file names no other module's table. Balances come from `ledger.ts`,
  * which is the one thing allowed to derive from journal lines; journals are
  * written through `journal.ts`; snapshots through `opening-balance.ts`; and
- * the calendar records its own state through `fiscal.ts`. The only delegate it
- * reaches for itself is `sys_company`, which is master data and belongs to
- * nobody in particular.
+ * the calendar records its own state through `fiscal.ts`.
  */
 
 // ------------------------------------------------------------- the subject
 
 export type ClosingSubject = {
-  companyId: number;
-  companyLabel: string;
-  companyName: string;
-  isParent: boolean;
   fiscalYearId: number;
   yearLabel: string;
   yearName: string;
@@ -151,7 +145,7 @@ export type ClosingPlan = {
   ready: boolean;
   /** Null while something still blocks it — there is nothing to preview yet. */
   preview: ClosingPreview | null;
-  /** Set once this Company has closed this year. */
+  /** Set once this year has been closed. */
   closed: {
     at: string;
     closingJournalId: number | null;
@@ -166,8 +160,7 @@ const cents = (n: number) => Math.round(n * 100);
  * Every blocking condition, asked in order.
  *
  * Ordered so the earliest failure is the one a reader can act on first: there
- * is no point reporting an unbalanced Trial Balance for a year this Company
- * has already closed.
+ * is no point reporting an unbalanced Trial Balance for a year already closed.
  */
 async function runChecks(
   subject: ClosingSubject,
@@ -177,7 +170,7 @@ async function runChecks(
   const checks: ClosingCheck[] = [];
 
   // 1. The year must be Open. Draft means its periods do not exist yet and
-  //    nothing was ever grouped into it; Closed means every Company is done.
+  //    nothing was ever grouped into it; Closed means it is done.
   checks.push({
     key: "year_open",
     label: "Tahun buku berstatus Open",
@@ -188,31 +181,26 @@ async function runChecks(
         : `${year.name} berstatus ${year.status}, bukan Open.`,
   });
 
-  // 2. Only this Company's oldest unclosed year may be closed. Closing a newer
-  //    one would leave an older year with no successor to inherit into — the
-  //    snapshot this close writes is what the next year opens from. Per
-  //    Company, because the other Company still working in an older year must
-  //    not stop this one closing the next.
-  const older = await carriedYearsBefore(
-    subject.companyId,
-    year.startDate.toISOString().slice(0, 10)
-  );
+  // 2. Only the oldest unclosed year may be closed. Closing a newer one would
+  //    leave an older year with no successor to inherit into — the snapshot
+  //    this close writes is what the next year opens from.
+  const older = await carriedYearsBefore(year.startDate.toISOString().slice(0, 10));
   const oldest = older[0] ?? null;
   checks.push({
     key: "oldest_open",
-    label: `Tahun buku tertua yang belum ditutup ${subject.companyLabel}`,
+    label: "Tahun buku tertua yang belum ditutup",
     ok: oldest === null,
     detail: oldest
-      ? `${oldest.name} belum ditutup Company ini dan lebih lama. Tutup tahun buku itu lebih dahulu.`
-      : "Tidak ada tahun buku lebih lama yang belum ditutup Company ini.",
+      ? `${oldest.name} belum ditutup dan lebih lama. Tutup tahun buku itu lebih dahulu.`
+      : "Tidak ada tahun buku lebih lama yang belum ditutup.",
   });
 
-  // 3. This Company must not already have closed it. Closing is per Company
-  //    and irreversible, so a second one is refused rather than repeated.
-  const state = await fiscalClosingState(year.id, subject.companyId);
+  // 3. It must not already have been closed. Closing is irreversible, so a
+  //    second one is refused rather than repeated.
+  const state = await fiscalClosingState(year.id);
   checks.push({
     key: "not_yet_closed",
-    label: `Company ${subject.companyLabel} belum menutup tahun buku ini`,
+    label: "Tahun buku ini belum ditutup",
     ok: state.status !== "Closed",
     detail:
       state.status === "Closed"
@@ -233,7 +221,7 @@ async function runChecks(
   });
 
   // 5. Somewhere for the result to go, named rather than guessed.
-  const account = await closingAccountFor(subject.isParent);
+  const account = await closingAccount();
   checks.push({
     key: "accumulated_account",
     label: "Account Laba/Rugi Tahun Sebelumnya sudah diatur",
@@ -246,11 +234,7 @@ async function runChecks(
   // 6. No unfinished journal inside the year. Closing would strand it: the
   //    lock refuses a posting into a closed year, so a draft left here could
   //    afterwards only ever be cancelled.
-  const drafts = await draftJournalsDatedBetween(
-    subject.companyId,
-    year.startDate,
-    year.endDate
-  );
+  const drafts = await draftJournalsDatedBetween(year.startDate, year.endDate);
   checks.push({
     key: "no_draft_journal",
     label: "Tidak ada Journal Manual yang masih Draft",
@@ -268,8 +252,8 @@ async function runChecks(
   //    carry the fault forward into a snapshot nobody could reconcile.
   const range = { from: day(year.startDate), to: day(year.endDate) };
   const [trial, unbalanced] = await Promise.all([
-    trialBalanceReport(range, [subject.companyId]),
-    unbalancedJournals([subject.companyId]),
+    trialBalanceReport(range),
+    unbalancedJournals(),
   ]);
   const balanced = trial.balanced && unbalanced.length === 0;
   checks.push({
@@ -350,25 +334,14 @@ function planJournal(
  * would be a figure somebody might act on.
  */
 export async function closingPlan(
-  companyId: number,
   fiscalYearId: number
 ): Promise<ClosingPlan | null> {
-  const [company, year] = await Promise.all([
-    prisma.sysCompany.findUnique({
-      where: { id: companyId },
-      select: { id: true, company_label: true, company_name: true, is_parent: true },
-    }),
-    fiscalYearForClosing(fiscalYearId),
-  ]);
-  if (!company || !year) return null;
+  const year = await fiscalYearForClosing(fiscalYearId);
+  if (!year) return null;
 
   const next = await fiscalYearAfter(year);
 
   const subject: ClosingSubject = {
-    companyId: company.id,
-    companyLabel: company.company_label,
-    companyName: company.company_name,
-    isParent: company.is_parent,
     fiscalYearId: year.id,
     yearLabel: year.label,
     yearName: year.name,
@@ -378,7 +351,7 @@ export async function closingPlan(
   };
 
   const checks = await runChecks(subject, year, next);
-  const state = await fiscalClosingState(year.id, companyId);
+  const state = await fiscalClosingState(year.id);
   const closed =
     state.status === "Closed"
       ? {
@@ -391,11 +364,11 @@ export async function closingPlan(
   const ready = checks.every((c) => c.ok);
   if (!ready) return { subject, checks, ready, preview: null, closed };
 
-  const account = await closingAccountFor(company.is_parent);
+  const account = await closingAccount();
   // `ready` already proved this resolves; the narrowing is for the compiler.
   if (!account.ok) return { subject, checks, ready: false, preview: null, closed };
 
-  const pairs = await closingBalances(companyId, year.endDate);
+  const pairs = await closingBalances(year.endDate);
   const { lines, result } = planJournal(pairs, account.accountId);
 
   return {
@@ -448,34 +421,31 @@ export type ClosingResult =
       journalNo: string | null;
       /** Null where nothing at all was standing to snapshot. */
       openingNo: string | null;
-      /** True when this was the last Company, and the year itself is now Closed. */
+      /** The year itself is now Closed. */
       yearClosed: boolean;
     }
   | { ok: false; error: string };
 
 /**
- * Closes the year for one Company, in one transaction, or writes nothing.
+ * Closes the year, in one transaction, or writes nothing.
  *
  * The checks are run **again here**, not trusted from when the screen was
- * drawn: another Company may have closed the year since, a journal may have
- * been drafted, a setting may have been repointed. That is the same reasoning
- * `applyPosting` uses for re-reading its Budgets before it moves money.
+ * drawn: another session may have closed the year since, a journal may have
+ * been drafted, a setting may have been repointed.
  *
  * Two things are allowed to be absent, and both are genuine rather than
  * defensive. A year with no income and no expense produces **no closing
  * journal** — there is nothing to move, and `postJournal` rightly refuses an
- * empty one. A Company with nothing standing at all produces **no snapshot** —
+ * empty one. Books with nothing standing at all produce **no snapshot** —
  * an Opening Balance with no lines is not a balance sheet. The closing row is
- * written either way, because the Company has finished with the year either
- * way, and the two ids on it are nullable for exactly this.
+ * written either way, because the year is finished either way, and the two ids on it are nullable for exactly this.
  */
 export async function executeClosing(
-  companyId: number,
   fiscalYearId: number,
   actorId: number
 ): Promise<ClosingResult> {
-  const plan = await closingPlan(companyId, fiscalYearId);
-  if (!plan) return { ok: false, error: "Company atau tahun buku tidak ditemukan." };
+  const plan = await closingPlan(fiscalYearId);
+  if (!plan) return { ok: false, error: "Tahun buku tidak ditemukan." };
 
   const failed = plan.checks.find((c) => !c.ok);
   if (failed) return { ok: false, error: failed.detail };
@@ -489,7 +459,7 @@ export async function executeClosing(
     return { ok: false, error: "Tahun buku berikutnya tidak ditemukan." };
   }
 
-  const account = await closingAccountFor(plan.subject.isParent);
+  const account = await closingAccount();
   if (!account.ok) {
     return {
       ok: false,
@@ -510,11 +480,11 @@ export async function executeClosing(
 
   try {
     return await prisma.$transaction(async (tx) => {
-      // Held against every posting into this year by this Company for the
-      // rest of the transaction. A posting already past its own check waits
+      // Held against every posting into this year for the rest of the
+      // transaction. A posting already past its own check waits
       // here and then finds the year closed; one that committed first is in
       // the books this close is about to read.
-      await lockFiscalPeriod(tx, fiscalYearId, companyId);
+      await lockFiscalPeriod(tx, fiscalYearId);
 
       // Under the hold, the journal is rebuilt from the books as they now
       // stand and compared with the preview the reader approved. A backdated
@@ -522,7 +492,7 @@ export async function executeClosing(
       // loss behind in the snapshot. If they differ, nothing is written and
       // the reader is sent back to look at the new figures.
       const settled = planJournal(
-        await closingBalances(companyId, year.endDate, tx),
+        await closingBalances(year.endDate, tx),
         account.accountId
       );
       const shape = (ls: { accountId: number; partnerId: number | null; debit: number; credit: number }[]) =>
@@ -557,8 +527,7 @@ export async function executeClosing(
         }));
 
         const posted = await postJournal(tx, {
-          companyId,
-          description: `Penutupan ${year.name} — ${plan.subject.companyLabel}`,
+          description: `Penutupan ${year.name}`,
           series: "CLS",
           // The one back-dated journal in the application: a closing entry
           // belongs to the year it closes, and one dated after it would fall
@@ -577,13 +546,12 @@ export async function executeClosing(
       // journal that was just written. Every ProfitLoss pair is now exactly
       // zero and `closingBalances` drops a zero pair, so what comes back is a
       // balance sheet by construction rather than by a filter.
-      const remaining = await closingBalances(companyId, year.endDate, tx);
+      const remaining = await closingBalances(year.endDate, tx);
 
       let openingNo: string | null = null;
       let openingId: number | null = null;
       if (remaining.length) {
         const written = await writeOpeningBalance(tx, {
-          companyId,
           fiscalYearId: next.id,
           sourceFiscalYearId: fiscalYearId,
           // The day the figures speak for: the first day of the year opened.
@@ -602,7 +570,6 @@ export async function executeClosing(
 
       const { yearClosed } = await recordFiscalClosing(tx, {
         fiscalYearId,
-        companyId,
         closingJournalId: journalId,
         openingBalanceId: openingId,
         actorId,
@@ -639,18 +606,16 @@ async function closingDocTypeId(
 }
 
 /**
- * The years a Company could be asked to close, newest first.
+ * The years that could be asked to close, newest first.
  *
- * Every Open year plus any the Company has already closed, so the screen can
+ * Every Open year plus any already closed, so the screen can
  * report a finished close rather than losing the year from its own picker the
  * moment it succeeds.
  */
-export async function closableYears(
-  companyId: number
-): Promise<{ id: number; label: string; name: string; closed: boolean }[]> {
+export async function closableYears(): Promise<{ id: number; label: string; name: string; closed: boolean }[]> {
   const [open, closed] = await Promise.all([
     openFiscalYears(),
-    closedFiscalYearsFor(companyId),
+    closedFiscalYears(),
   ]);
 
   const byId = new Map<number, { id: number; label: string; name: string; closed: boolean }>();

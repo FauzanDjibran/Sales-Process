@@ -10,8 +10,8 @@ import { formatNumber } from "@/lib/format";
  * operating system — its spinner is the OS's, it left-aligns the figure, and it
  * cannot show a thousands separator. Before this existed the same amount read
  * three ways on three screens: `231411` with OS spinners on Cash & Bank's
- * opening balance, `3243222` right-aligned on Budget, and `3.243.222` grouped
- * on a Cash Bank Transaction line. An accountant checking a figure reads the
+ * opening balance, `3243222` right-aligned on another, and `3.243.222` grouped
+ * on a third. An accountant checking a figure reads the
  * grouping, so the grouping is not decoration.
  *
  * The value crossing in and out is a plain unformatted numeric string with a

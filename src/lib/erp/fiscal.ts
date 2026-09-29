@@ -17,10 +17,6 @@ import {
  * be able to get wrong. Opening a year generates its twelve months in one go,
  * and they are read from inside the year that owns them.
  *
- * Budget Month reads these periods (CLAUDE.md §10, rule 20), so a period whose
- * range did not line up with a real month would silently strand budgets between
- * two months or in none.
- *
  * The calendar is also what says whether a book may be written into at all.
  * `checkPostingPeriod` at the foot of this file is that question, and every
  * posting path in the application asks it before it writes anything.
@@ -106,12 +102,10 @@ export type FiscalPeriodRow = {
   startDate: string;
   endDate: string;
   status: string;
-  /** Budgets whose date falls inside this period. */
-  budgets: number;
 };
 
 /**
- * One year's periods, in calendar order, with the budgets each one holds.
+ * One year's periods, in calendar order.
  *
  * This is the only way to see a Fiscal Period: they are shown inside the year
  * that owns them and nowhere else.
@@ -121,49 +115,24 @@ export async function fiscalYearPeriods(fiscalYearId: number): Promise<FiscalPer
     where: { fiscal_year_id: fiscalYearId },
     orderBy: { sequence_no: "asc" },
   });
-  if (!periods.length) return [];
-
-  const budgets = await prisma.budBudget.findMany({
-    where: {
-      budget_date: {
-        gte: periods[0].start_date,
-        lte: periods[periods.length - 1].end_date,
-      },
-    },
-    select: { budget_date: true },
-  });
-
   const day = (d: Date) => d.toISOString().slice(0, 10);
 
-  return periods.map((p) => {
-    const from = day(p.start_date);
-    const to = day(p.end_date);
-    return {
-      id: p.id,
-      code: p.period_code,
-      sequence: p.sequence_no,
-      label: p.period_label,
-      name: p.period_name,
-      startDate: from,
-      endDate: to,
-      status: p.status,
-      budgets: budgets.filter((b) => {
-        const d = day(b.budget_date);
-        return d >= from && d <= to;
-      }).length,
-    };
-  });
+  return periods.map((p) => ({
+    id: p.id,
+    code: p.period_code,
+    sequence: p.sequence_no,
+    label: p.period_label,
+    name: p.period_name,
+    startDate: day(p.start_date),
+    endDate: day(p.end_date),
+    status: p.status,
+  }));
 }
 
 // ------------------------------------------------------------------- the lock
 
 /**
  * The years standing Open right now, oldest first.
- *
- * The calendar is global — one set of years shared by both Companies — so this
- * is not scoped to one. Which Company has finished with a year is a separate
- * record (`acc_fiscal_closing`), because "the anak has closed 2026 and the
- * induk has not" is a fact about a Company and not about the calendar.
  */
 export async function openFiscalYears(db: Db = prisma): Promise<OpenYearSummary[]> {
   const rows = await db.accFiscalYear.findMany({
@@ -178,7 +147,7 @@ export async function openFiscalYears(db: Db = prisma): Promise<OpenYearSummary[
  * Whether a year may be activated — never behind a close.
  *
  * There is no limit on how many years stand Open. What is refused is a year
- * older than one any Company has already closed, because that close froze the
+ * older than one already closed, because that close froze the
  * Opening Balance every later report stands on (`activationRefusal`).
  */
 export async function checkYearOpenable(
@@ -194,7 +163,6 @@ export async function checkYearOpenable(
   const later = await db.accFiscalClosing.findMany({
     where: { status: "Closed", fiscal_year: { start_date: { gt: year.start_date } } },
     select: {
-      company: { select: { company_label: true } },
       fiscal_year: { select: { year_label: true, year_name: true } },
     },
   });
@@ -203,27 +171,21 @@ export async function checkYearOpenable(
     later.map((c) => ({
       yearLabel: c.fiscal_year.year_label,
       yearName: c.fiscal_year.year_name,
-      companyLabel: c.company.company_label,
     }))
   );
   return refusal ? { ok: false, message: refusal } : { ok: true };
 }
 
 /**
- * The Open years one Company has not closed yet, oldest first.
- *
- * Closing is per Company, so "the oldest open year" is too: once the induk has
- * closed 2025 its next close is 2026, even while the anak keeps 2025 Open and
- * the calendar still reads it as Open.
+ * The Open years not closed yet, oldest first.
  */
-export async function unclosedYearsFor(
-  companyId: number,
+export async function unclosedYears(
   db: Db = prisma
 ): Promise<OpenYearSummary[]> {
   const rows = await db.accFiscalYear.findMany({
     where: {
       status: "Open",
-      closings: { none: { company_id: companyId, status: "Closed" } },
+      closings: { none: { status: "Closed" } },
     },
     orderBy: { start_date: "asc" },
     select: { id: true, year_label: true, year_name: true },
@@ -244,18 +206,16 @@ function asDay(value: Date | string): Date {
 }
 
 /**
- * May this Company write into the books on this date?
+ * May the books be written into on this date?
  *
  * Two questions, in order: the **year** containing the date must be Open, and
- * this Company must not already have closed it. The year carries the date
+ * it must not already have been closed. The year carries the date
  * range, so it is the year that is queried and not the period — a period's own
  * status says nothing the year's does not, and a date outside every year
  * belongs to no period either.
  *
  * `Draft` means *not yet*: a year whose twelve periods have not been generated
- * cannot group what is posted into it. `Closed` means *never again*, and it is
- * per Company (`acc_fiscal_closing`), because the induk can finish 2026 while
- * the anak is still working in it.
+ * cannot group what is posted into it. `Closed` means *never again*.
  *
  * A date inside **no** year is refused as well. That is the same rule read
  * plainly rather than a separate one — a posting that belongs to no fiscal year
@@ -267,7 +227,6 @@ function asDay(value: Date | string): Date {
  * returned rather than thrown: it is a refusal the user can act on, not a fault.
  */
 export async function checkPostingPeriod(
-  companyId: number,
   date: Date | string,
   db: Db = prisma
 ): Promise<PostingPeriodCheck> {
@@ -303,21 +262,15 @@ export async function checkPostingPeriod(
   }
 
   const closing = await db.accFiscalClosing.findUnique({
-    where: {
-      fiscal_year_id_company_id: { fiscal_year_id: year.id, company_id: companyId },
-    },
+    where: { fiscal_year_id: year.id },
     select: { status: true },
   });
   if (closing?.status === "Closed") {
-    const company = await db.sysCompany.findUnique({
-      where: { id: companyId },
-      select: { company_label: true },
-    });
     return {
       ok: false,
       message:
-        `Company ${company?.company_label ?? companyId} sudah menutup ` +
-        `${year.year_name}. Tidak ada transaksi baru yang dapat dibuat di dalamnya.`,
+        `${year.year_name} sudah ditutup. Tidak ada transaksi baru yang ` +
+        "dapat dibuat di dalamnya.",
     };
   }
 
@@ -338,7 +291,7 @@ export class PeriodShut extends Error {
 }
 
 /**
- * Holds one Company's fiscal year for the rest of the caller's transaction.
+ * Holds a fiscal year for the rest of the caller's transaction.
  *
  * A close and a posting into the year it closes must not interleave. With
  * backdating allowed, a posting can land in a year at any moment up to its
@@ -350,31 +303,26 @@ export class PeriodShut extends Error {
  * snapshot. Every posting path and the close take this first, so whichever
  * comes second waits and then reads what the first committed.
  *
- * An advisory lock, keyed on the pair and released when the transaction ends —
- * the same shape as `lockSubledgerPosition`. Parameterised; nothing is
- * interpolated into the SQL text.
+ * An advisory lock, keyed on the year and released when the transaction ends.
+ * Parameterised; nothing is interpolated into the SQL text.
  */
 export async function lockFiscalPeriod(
   tx: Prisma.TransactionClient,
-  fiscalYearId: number,
-  companyId: number
+  fiscalYearId: number
 ): Promise<void> {
-  const key = `acc_fiscal_closing:${fiscalYearId}:${companyId}`;
+  const key = `acc_fiscal_closing:${fiscalYearId}`;
   await tx.$queryRaw`SELECT 1 AS held FROM (SELECT pg_advisory_xact_lock(hashtext(${key}))) AS lock`;
 }
 
 /**
- * Locks the year `date` falls in for each Company, then asks the period
- * question again under the lock — inside the posting's own transaction.
+ * Locks the year `date` falls in, then asks the period question again under
+ * the lock — inside the posting's own transaction.
  *
  * `checkTransactionDate` before the transaction gives the refusal early and
- * cheaply; this is what makes it true at the moment of writing. Companies are
- * locked in id order, so a funded posting (two Companies) and a close (one)
- * can never wait on each other in a circle.
+ * cheaply; this is what makes it true at the moment of writing.
  */
 export async function holdPostingPeriod(
   tx: Prisma.TransactionClient,
-  companyIds: number[],
   date: string
 ): Promise<void> {
   const day = asDay(date);
@@ -382,11 +330,9 @@ export async function holdPostingPeriod(
     where: { start_date: { lte: day }, end_date: { gte: day } },
     select: { id: true },
   });
-  for (const companyId of [...new Set(companyIds)].sort((a, b) => a - b)) {
-    if (year) await lockFiscalPeriod(tx, year.id, companyId);
-    const period = await checkPostingPeriod(companyId, date, tx);
-    if (!period.ok) throw new PeriodShut(period.message);
-  }
+  if (year) await lockFiscalPeriod(tx, year.id);
+  const period = await checkPostingPeriod(date, tx);
+  if (!period.ok) throw new PeriodShut(period.message);
 }
 
 /** Today, as the `YYYY-MM-DD` UTC day every stored date is. */
@@ -404,9 +350,7 @@ export type TransactionDateCheck =
  * A document's date is the day it belongs to in the books, and it may be any
  * day **up to today** — backdating is allowed, dating ahead is not: a posting
  * dated tomorrow would claim something happened that has not yet. The rest is
- * the period lock, asked of **every** Company the posting writes into, which is
- * one for an ordinary document and both for a funded one: a date inside a year
- * one of them has closed cannot be written, whichever it is.
+ * the period lock: a date inside a closed year cannot be written.
  *
  * Asked when a draft is saved, so the refusal arrives while the date can still
  * be changed, and again at Post, because a year can close in between. The
@@ -414,7 +358,6 @@ export type TransactionDateCheck =
  */
 export async function checkTransactionDate(
   raw: string | Date | null | undefined,
-  companyIds: number[],
   db: Db = prisma
 ): Promise<TransactionDateCheck> {
   const text =
@@ -430,10 +373,8 @@ export async function checkTransactionDate(
       message: `Tanggal ${formatDate(text)} belum terjadi. Transaksi tidak boleh bertanggal di masa depan.`,
     };
   }
-  for (const companyId of [...new Set(companyIds)]) {
-    const period = await checkPostingPeriod(companyId, text, db);
-    if (!period.ok) return { ok: false, message: period.message };
-  }
+  const period = await checkPostingPeriod(text, db);
+  if (!period.ok) return { ok: false, message: period.message };
   return { ok: true, date: text };
 }
 
@@ -516,7 +457,7 @@ export async function fiscalYearAfter(
   };
 }
 
-/** One Company's closing state for one year, and who shut it. */
+/** A year's closing state, and who shut it. */
 export type FiscalClosingState = {
   status: "Open" | "Closed";
   closedAt: Date | null;
@@ -526,21 +467,18 @@ export type FiscalClosingState = {
 };
 
 /**
- * Has this Company finished with this year?
+ * Has this year been closed?
  *
- * A year with no row at all is Open for that Company: the row is written when
+ * A year with no row at all is Open: the row is written when
  * the year is closed, and its absence is the honest answer rather than a
  * missing fact. `checkPostingPeriod` reads the same table the same way.
  */
 export async function fiscalClosingState(
   fiscalYearId: number,
-  companyId: number,
   db: Db = prisma
 ): Promise<FiscalClosingState> {
   const row = await db.accFiscalClosing.findUnique({
-    where: {
-      fiscal_year_id_company_id: { fiscal_year_id: fiscalYearId, company_id: companyId },
-    },
+    where: { fiscal_year_id: fiscalYearId },
     select: {
       status: true,
       closed_at: true,
@@ -568,7 +506,7 @@ export async function fiscalClosingState(
 }
 
 /**
- * Shuts one Company's year, and rolls the year itself when it is the last.
+ * Shuts a year: the closing row and the year's own status, together.
  *
  * Written here rather than in `closing.ts` because `acc_fiscal_closing` and
  * `acc_fiscal_year` are this module's tables — the closing process decides
@@ -576,31 +514,22 @@ export async function fiscalClosingState(
  * records that it has been.
  *
  * Takes a transaction: the row, the year's rollup and the documents the close
- * produced are one act, and a Company recorded as closed without the journal
+ * produced are one act, and a year recorded as closed without the journal
  * that closed it would be a year nobody could reconcile.
- *
- * **`AccFiscalYear.status` is a rollup**, not a fact anybody sets: the year
- * reads Closed once *every* Company has closed it, written in the same
- * transaction as the last Company's close. Until then the year is still Open
- * and the other Company goes on posting into it, which is the whole reason
- * closing is per Company in the first place.
  */
 export async function recordFiscalClosing(
   tx: Prisma.TransactionClient,
   options: {
     fiscalYearId: number;
-    companyId: number;
     closingJournalId: number | null;
     openingBalanceId: number | null;
     actorId: number;
   }
 ): Promise<{ yearClosed: boolean }> {
-  const { fiscalYearId, companyId, actorId } = options;
+  const { fiscalYearId, actorId } = options;
 
   const row = await tx.accFiscalClosing.upsert({
-    where: {
-      fiscal_year_id_company_id: { fiscal_year_id: fiscalYearId, company_id: companyId },
-    },
+    where: { fiscal_year_id: fiscalYearId },
     update: {
       status: "Closed",
       closed_at: new Date(),
@@ -611,7 +540,6 @@ export async function recordFiscalClosing(
     },
     create: {
       fiscal_year_id: fiscalYearId,
-      company_id: companyId,
       status: "Closed",
       closed_at: new Date(),
       closed_by: actorId,
@@ -632,37 +560,25 @@ export async function recordFiscalClosing(
     },
   });
 
-  const companies = await tx.sysCompany.count();
-  const closed = await tx.accFiscalClosing.count({
-    where: { fiscal_year_id: fiscalYearId, status: "Closed" },
+  await tx.accFiscalYear.update({
+    where: { id: fiscalYearId },
+    data: { status: "Closed", updated_by: actorId },
   });
-  const yearClosed = closed >= companies;
+  await tx.auditLog.create({
+    data: {
+      entity_key: "acc_fiscal_year",
+      row_id: fiscalYearId,
+      action: "UPDATE",
+      event: "close",
+      by: actorId,
+    },
+  });
 
-  if (yearClosed) {
-    await tx.accFiscalYear.update({
-      where: { id: fiscalYearId },
-      data: { status: "Closed", updated_by: actorId },
-    });
-    await tx.auditLog.create({
-      data: {
-        entity_key: "acc_fiscal_year",
-        row_id: fiscalYearId,
-        action: "UPDATE",
-        event: "close",
-        by: actorId,
-      },
-    });
-  }
-
-  return { yearClosed };
+  return { yearClosed: true };
 }
 
 /**
- * How a closing row names itself in an audit panel: `ABHC · 2026`.
- *
- * A closing row's identity is the pair it is about, and neither half alone
- * says which record it is — the calendar is shared, so "2026" names a year
- * both Companies close separately.
+ * How a closing row names itself in an audit panel: the year it closed.
  */
 export async function fiscalClosingLabels(
   ids: number[]
@@ -672,23 +588,17 @@ export async function fiscalClosingLabels(
     where: { id: { in: ids } },
     select: {
       id: true,
-      company: { select: { company_label: true } },
       fiscal_year: { select: { year_label: true } },
     },
   });
-  return new Map(
-    rows.map((r) => [
-      r.id,
-      `${r.company.company_label} · ${r.fiscal_year.year_label}`,
-    ])
-  );
+  return new Map(rows.map((r) => [r.id, r.fiscal_year.year_label]));
 }
 
-/** A year a Company is carrying unclosed, with the range its result sums over. */
+/** A year still carried unclosed, with the range its result sums over. */
 export type CarriedYear = OpenYearSummary & { startDate: string; endDate: string };
 
 /**
- * Every year this Company has not closed that begins before `before`, oldest
+ * Every year not yet closed that begins before `before`, oldest
  * first — the years a Neraca dated after them carries as one line each.
  *
  * While a year is unclosed its result has not been moved into Laba/Rugi Tahun
@@ -698,7 +608,6 @@ export type CarriedYear = OpenYearSummary & { startDate: string; endDate: string
  * anything happened to be posted in it.
  */
 export async function carriedYearsBefore(
-  companyId: number,
   before: string,
   db: Db = prisma
 ): Promise<CarriedYear[]> {
@@ -706,7 +615,7 @@ export async function carriedYearsBefore(
     where: {
       status: "Open",
       start_date: { lt: new Date(`${before}T00:00:00Z`) },
-      closings: { none: { company_id: companyId, status: "Closed" } },
+      closings: { none: { status: "Closed" } },
     },
     orderBy: { start_date: "asc" },
     select: { id: true, year_label: true, year_name: true, start_date: true, end_date: true },
@@ -722,11 +631,11 @@ export async function carriedYearsBefore(
 }
 
 /**
- * Whether this Company carries any unclosed year behind a newer Open one —
- * which is when its current Neraca prints year lines at all.
+ * Whether any unclosed year sits behind a newer Open one — which is when the
+ * current Neraca prints year lines at all.
  */
-export async function isCarryingUnclosedYear(companyId: number, db: Db = prisma): Promise<boolean> {
-  return (await unclosedYearsFor(companyId, db)).length > 1;
+export async function isCarryingUnclosedYear(db: Db = prisma): Promise<boolean> {
+  return (await unclosedYears(db)).length > 1;
 }
 
 /** A fiscal year a statement may be run for, with its twelve periods. */
@@ -789,12 +698,10 @@ export async function reportableFiscalYears(): Promise<ReportableFiscalYear[]> {
   }));
 }
 
-/** The years one Company has already closed, for a screen that must still name them. */
-export async function closedFiscalYearsFor(
-  companyId: number
-): Promise<OpenYearSummary[]> {
+/** The years already closed, for a screen that must still name them. */
+export async function closedFiscalYears(): Promise<OpenYearSummary[]> {
   const rows = await prisma.accFiscalClosing.findMany({
-    where: { company_id: companyId, status: "Closed" },
+    where: { status: "Closed" },
     select: {
       fiscal_year: { select: { id: true, year_label: true, year_name: true } },
     },

@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { type Actor } from "@/lib/erp/access";
 import { authorizeAction } from "@/lib/erp/auth";
 import { isAccessDenied } from "@/lib/erp/auth-errors";
-import { accessibleCompanyIds } from "@/lib/erp/company-access";
 import {
   JOURNAL_TRANSITIONS,
   type JournalAction,
@@ -12,25 +11,20 @@ import {
 import {
   cancelManualJournal,
   createManualJournal,
-  manualJournalOptions,
   postManualJournal,
   updateManualJournal,
   type ManualJournalLineValues,
-  type ManualJournalOptions,
 } from "@/lib/erp/manual-journal";
 
 /**
  * The manual journal's write path — the only way a person puts a line in the
  * books by hand.
  *
- * Three things are enforced here and nowhere that matters less:
+ * Two things are enforced here and nowhere that matters less:
  *
  *  1. **The permission**, which is its own capability: seeing journals and
  *     writing one are different rights, and posting one is different again.
- *  2. **The Company**, which must be one this caller's permissions open. The
- *     rules module takes its scope as an argument and never reaches into the
- *     request, so this is where the actor's own access is asked about.
- *  3. **The rules**, in `lib/erp/manual-journal.ts` — which account may be
+ *  2. **The rules**, in `lib/erp/manual-journal.ts` — which account may be
  *     written to, which line needs a Partner, which line needs a kurs. They
  *     live there rather than here so the test suite can exercise them: an
  *     action resolves its caller from a session cookie and a test has none.
@@ -40,7 +34,6 @@ import {
  */
 
 export type JournalHeaderValues = {
-  company_id: string;
   /** `YYYY-MM-DD` — the day the journal belongs to in the books. */
   journal_date: string;
   description: string;
@@ -112,49 +105,6 @@ const asLines = (lines: JournalLineValues[]): ManualJournalLineValues[] =>
       description: l.description ?? "",
     }));
 
-/**
- * May this user write journals for that Company at all?
- *
- * The line rules say what a *journal* may be; this says whose books the caller
- * may touch, which is the same question the Company permissions answer
- * everywhere else.
- */
-async function refuseCompany(
-  actor: Actor,
-  companyId: number | null
-): Promise<{ ok: false; errors: Record<string, string> } | null> {
-  if (!companyId) return null;
-  const allowed = await accessibleCompanyIds(actor.permissions);
-  if (allowed.includes(companyId)) return null;
-  return {
-    ok: false,
-    errors: { company_id: "Anda tidak memiliki akses ke Company tersebut." },
-  };
-}
-
-/**
- * What a line may be built from, for the form.
- *
- * An action rather than a page prop because the set depends on the Company the
- * user is still choosing. It asks for the same permission the write does, and
- * returns exactly the accounts `checkManualJournal` will accept — so the picker
- * and the Server Action can never disagree about what is selectable.
- */
-export async function listJournalOptions(
-  companyId: number,
-  options: { editing?: boolean } = {}
-): Promise<
-  { ok: true; options: ManualJournalOptions } | { ok: false; errors: Record<string, string> }
-> {
-  const g = await authorize(options.editing ? "JOURNAL_EDIT" : "JOURNAL_CREATE");
-  if (!g.ok) return g.denial;
-
-  const refused = await refuseCompany(g.actor, companyId);
-  if (refused) return refused;
-
-  return { ok: true, options: await manualJournalOptions(companyId) };
-}
-
 export async function createJournal(
   header: JournalHeaderValues,
   lines: JournalLineValues[]
@@ -162,13 +112,8 @@ export async function createJournal(
   const g = await authorize("JOURNAL_CREATE");
   if (!g.ok) return g.denial;
 
-  const companyId = num(header.company_id);
-  const refused = await refuseCompany(g.actor, companyId);
-  if (refused) return refused;
-
   const result = await createManualJournal(
     {
-      company_id: companyId,
       journal_date: header.journal_date,
       description: header.description,
     },
@@ -187,20 +132,14 @@ export async function updateJournal(
   const g = await authorize("JOURNAL_EDIT");
   if (!g.ok) return g.denial;
 
-  const companyId = num(header.company_id);
-  const refused = await refuseCompany(g.actor, companyId);
-  if (refused) return refused;
-
   const result = await updateManualJournal(
     id,
     {
-      company_id: companyId,
       journal_date: header.journal_date,
       description: header.description,
     },
     asLines(lines),
-    g.actor.user.id,
-    await accessibleCompanyIds(g.actor.permissions)
+    g.actor.user.id
   );
   if (result.ok) revalidateJournal(id);
   return result;
@@ -226,14 +165,10 @@ export async function transitionJournal(
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
 
-  // The journal's own Company is checked by the rules module rather than here:
-  // reading `acc_journal` belongs to the Journal, and a journal outside this
-  // caller's scope reads as not found.
-  const scope = await accessibleCompanyIds(g.actor.permissions);
   const result =
     action === "post"
-      ? await postManualJournal(id, g.actor.user.id, scope)
-      : await cancelManualJournal(id, g.actor.user.id, scope);
+      ? await postManualJournal(id, g.actor.user.id)
+      : await cancelManualJournal(id, g.actor.user.id);
 
   if (!result.ok) return { ok: false, errors: result.errors };
 

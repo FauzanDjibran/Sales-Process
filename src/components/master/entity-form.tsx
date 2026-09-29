@@ -24,11 +24,6 @@ import {
   type FieldSpan,
 } from "@/components/ui/form";
 import { createRecord, updateRecord, toggleStatus, type FormValues } from "@/app/actions/master";
-import {
-  COMPANY_LOCK_BADGE,
-  COMPANY_LOCK_BODY,
-  isCompanyEntity,
-} from "@/lib/erp/company";
 import type { EntityAbilities } from "@/lib/erp/entity-access";
 import {
   STATUS_CLASS,
@@ -41,17 +36,12 @@ import {
   type Entity,
   type Field,
 } from "@/lib/erp/entities";
-import {
-  type ClassificationCatalogue,
-  allowedPartnerCategories,
-} from "@/lib/erp/classification";
 import { moduleByKey } from "@/lib/erp/nav";
 import type { RefOption, Row } from "@/lib/erp/records";
 import type { SystemDefaultKey } from "@/lib/erp/system-defaults";
 import { formatDate, formatMoney, formatRate, todayIso } from "@/lib/format";
 import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
 import { recordTitle } from "@/lib/erp/record-title";
-import { MultiSelect } from "@/components/ui/multi-select";
 
 export type FormMode = "new" | "view" | "edit";
 
@@ -66,20 +56,12 @@ export function EntityForm({
   defaults,
   lockedFields,
   lockNote,
-  classification = [],
 }: {
   entity: Entity;
   mode: FormMode;
   row: Row | null;
   /** Keyed by field name, not by target table — see `refOptions` in records.ts. */
   refs: Record<string, RefOption[]>;
-  /**
-   * The Budget Category rules, loaded by the page. They are database rows now,
-   * so a client component cannot read them itself — and the narrowing they do
-   * here is convenience only: `applicableFields` and `validate` in
-   * `app/actions/master.ts` re-check the same rules against the same tables.
-   */
-  classification?: ClassificationCatalogue;
   /** Presentation only — the Server Actions check the same permissions. */
   can: EntityAbilities;
   /**
@@ -116,9 +98,7 @@ export function EntityForm({
   const editing = mode === "new" || mode === "edit";
   const basePath = `/${entity.module}/${entity.slug}`;
   const moduleName = moduleByKey(entity.module)?.name ?? entity.module;
-  /** Company has no write path at all — see `lib/erp/company.ts`. */
-  const locked = isCompanyEntity(entity.slug);
-  const canEdit = can.edit && !locked;
+  const canEdit = can.edit;
   const statusModel = entity.statusModel;
 
   const [values, setValues] = useState<FormValues>(() =>
@@ -136,7 +116,7 @@ export function EntityForm({
   const canToggleStatus =
     Boolean(statusModel?.toggle) && (active ? can.deactivate : can.activate);
   const viewActions = masterHeaderActions({
-    toggle: canToggleStatus && !locked ? (active ? "deactivate" : "activate") : null,
+    toggle: canToggleStatus ? (active ? "deactivate" : "activate") : null,
     edit: canEdit,
     editTone,
   });
@@ -157,16 +137,12 @@ export function EntityForm({
     });
   };
 
-  /** The short label of the Budget Category currently chosen, if any. */
-  const budgetCategoryLabel = (id: unknown) =>
-    refs.budget_category_id?.find((o) => o.id === Number(id))?.label;
-
   /** The short label of the Currency currently chosen, if any. */
   const currencyLabel = (id: unknown) =>
     refs.currency_id?.find((o) => o.id === Number(id))?.label;
 
   const applies = (field: Field) =>
-    fieldApplies(field, values, budgetCategoryLabel, currencyLabel, classification);
+    fieldApplies(field, values, currencyLabel);
 
   /**
    * The code a `segment` field continues — the first of its `inheritsFrom`
@@ -213,29 +189,16 @@ export function EntityForm({
 
   const optionsFor = (field: Field): RefOption[] => {
     const all = refs[field.name] ?? [];
-    const companyId = Number(values.company_id ?? 0);
 
     switch (field.refFilter) {
-      case "cashBankAccount":
-      case "postableAccount":
-        return companyId ? all.filter((o) => o.companyId === companyId) : [];
       case "parentAccount": {
-        // A parent decides this account's number, so it has to sit in the same
-        // Company and the same kelompok. `validateAccount` re-checks both.
+        // A parent decides this account's number, so it has to sit in the
+        // same kelompok. `validateAccount` re-checks it.
         const subcategoryId = Number(values.account_subcategory_id ?? 0);
-        if (!companyId || !subcategoryId) return [];
+        if (!subcategoryId) return [];
         return all.filter(
-          (o) =>
-            o.companyId === companyId &&
-            o.subcategoryId === subcategoryId &&
-            o.id !== row?.id
+          (o) => o.subcategoryId === subcategoryId && o.id !== row?.id
         );
-      }
-      case "admittedPartnerCategory": {
-        const label = budgetCategoryLabel(values.budget_category_id);
-        if (!label) return [];
-        const allowed = allowedPartnerCategories(classification, label);
-        return all.filter((o) => allowed.includes(o.label));
       }
       default:
         return all;
@@ -252,7 +215,7 @@ export function EntityForm({
 
     if (!result.ok) {
       setErrors(result.errors);
-      // `_form` is a whole-form refusal (a locked entity), not a field error.
+      // `_form` is a whole-form refusal (a denied permission), not a field error.
       const refusal = result.errors._form;
       toast(
         refusal ? "Tidak diizinkan" : "Belum bisa disimpan",
@@ -376,10 +339,6 @@ export function EntityForm({
                   <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
                 </button>
               </>
-            ) : locked ? (
-              <span className="bdg s-mute" title={COMPANY_LOCK_BODY}>
-                <Icon name="lock" size={11} /> {COMPANY_LOCK_BADGE}
-              </span>
             ) : viewActions.some((a) => a.key === "edit") ? (
               <Link
                 className={headerButtonClass(editTone)}
@@ -464,11 +423,7 @@ export function EntityForm({
               </FormSection>
             )}
 
-            {/* Company is create- and edit-locked (CLAUDE.md §12). The badge in
-                the header says so; the reason belongs beside the fields it
-                explains rather than in a subtitle above the whole page. */}
-            {locked && <p className="fnote">{COMPANY_LOCK_BODY}</p>}
-            {!locked && lockNote && <p className="fnote">{lockNote}</p>}
+            {lockNote && <p className="fnote">{lockNote}</p>}
           </div>
         </div>
       </div>
@@ -627,20 +582,6 @@ function readOnlyBody({
       <div className="ro nil">tidak diisi</div>
     );
   }
-  if (field.type === "multiref") {
-    const selected = new Set(idsOf(raw as string | null | undefined));
-    const chosen = options.filter((o) => selected.has(o.id));
-    if (!chosen.length) return <div className="ro nil">tidak diisi</div>;
-    return (
-      <div className="ro">
-        {chosen.map((o) => (
-          <span className="bdg t-slate" key={o.id}>
-            {o.label}
-          </span>
-        ))}
-      </div>
-    );
-  }
   if (field.type === "bool") {
     return (
       <div className="ro">
@@ -715,19 +656,6 @@ function readOnlyBody({
   );
 }
 
-/**
- * A multiref's value, however it arrived — an array from the loader, a
- * comma-separated string from the form's own state.
- */
-function idsOf(value: unknown): number[] {
-  const raw = Array.isArray(value)
-    ? value
-    : typeof value === "string" && value !== ""
-      ? value.split(",")
-      : [];
-  return raw.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0);
-}
-
 function editableControl({
   field,
   value,
@@ -747,22 +675,6 @@ function editableControl({
   waitingFor?: string | null;
   onChange: (value: string | boolean | null) => void;
 }): React.ReactNode {
-  if (field.type === "multiref") {
-    // A set, not a value: the ids travel as a comma-separated string so the
-    // rest of the form keeps handling one scalar per field, and the Server
-    // Action parses it back with the same tolerance it gives an array.
-    return (
-      <MultiSelect
-        value={idsOf(value)}
-        options={options}
-        placeholder={`Tambah ${field.label}…`}
-        emptyPlaceholder={`Pilih ${field.label}…`}
-        removeTitle={`Keluarkan dari ${field.label}`}
-        invalid={Boolean(error)}
-        onChange={(ids) => onChange(ids.join(","))}
-      />
-    );
-  }
   if (field.type === "bool") {
     // A caption that stands on its own gets the one-line control, so a form
     // full of toggles does not read as a wall of explanation.

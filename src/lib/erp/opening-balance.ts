@@ -7,7 +7,7 @@ import { nextDocumentNumber } from "./document-number";
 /**
  * The Opening Balance store.
  *
- * An Opening Balance is a **snapshot**: where one Company's accounts stood at
+ * An Opening Balance is a **snapshot**: where the accounts stood at
  * the start of one fiscal year, written once and never touched again. It is
  * not a book — there is no running total to keep and no further entry to
  * append, because the thing it records happened at a single instant.
@@ -74,7 +74,6 @@ export type OpeningBalanceLineInput = {
 };
 
 export type OpeningBalanceInput = {
-  companyId: number;
   /** The year this snapshot opens. */
   fiscalYearId: number;
   /**
@@ -205,7 +204,6 @@ export async function writeOpeningBalance(
       posting_date: input.postingDate,
       fiscal_year_id: input.fiscalYearId,
       source_fiscal_year_id: input.sourceFiscalYearId ?? null,
-      company_id: input.companyId,
       created_by: input.actorId,
       lines: {
         create: resolved.map((line, i) => ({
@@ -271,8 +269,6 @@ export type OpeningBalanceRow = {
   id: number;
   openingNo: string;
   postingDate: string;
-  companyId: number;
-  companyLabel: string;
   /** The year this snapshot opens. */
   fiscalYearLabel: string;
   fiscalYearName: string;
@@ -295,21 +291,17 @@ const totalOf = (
 });
 
 /**
- * The snapshots of the Companies a reader may see, newest year first.
+ * Every snapshot, newest year first.
  *
  * Ordered by the day the figures speak for rather than by when the row was
  * written: a go-live snapshot injected today states a position from years ago,
  * and a register that sorted it to the top would be sorting by when somebody
  * ran a script.
  */
-export async function listOpeningBalances(
-  companyIds: number[]
-): Promise<OpeningBalanceRow[]> {
+export async function listOpeningBalances(): Promise<OpeningBalanceRow[]> {
   const rows = await prisma.accOpeningBalance.findMany({
-    where: { company_id: { in: companyIds } },
     orderBy: [{ posting_date: "desc" }, { id: "desc" }],
     include: {
-      company: { select: { company_label: true } },
       fiscal_year: { select: { year_label: true, year_name: true } },
       source_fiscal_year: { select: { year_label: true } },
       lines: { select: { debit_amount: true, kredit_amount: true } },
@@ -320,8 +312,6 @@ export async function listOpeningBalances(
     id: o.id,
     openingNo: o.opening_no,
     postingDate: o.posting_date.toISOString(),
-    companyId: o.company_id,
-    companyLabel: o.company.company_label,
     fiscalYearLabel: o.fiscal_year.year_label,
     fiscalYearName: o.fiscal_year.year_name,
     sourceFiscalYearLabel: o.source_fiscal_year?.year_label ?? null,
@@ -331,19 +321,13 @@ export async function listOpeningBalances(
 }
 
 /**
- * One snapshot and its lines.
- *
- * Scoped to the Companies the caller may see, so a snapshot outside that scope
- * reads as **not found** — the same answer one that does not exist gives.
- */
+/** One snapshot and its lines. */
 export async function getOpeningBalance(
-  id: number,
-  companyIds: number[]
+  id: number
 ): Promise<OpeningBalanceDetail | null> {
   const o = await prisma.accOpeningBalance.findFirst({
-    where: { id, company_id: { in: companyIds } },
+    where: { id },
     include: {
-      company: { select: { company_label: true } },
       fiscal_year: { select: { year_label: true, year_name: true } },
       source_fiscal_year: { select: { year_label: true } },
       lines: {
@@ -361,8 +345,6 @@ export async function getOpeningBalance(
     id: o.id,
     openingNo: o.opening_no,
     postingDate: o.posting_date.toISOString(),
-    companyId: o.company_id,
-    companyLabel: o.company.company_label,
     fiscalYearLabel: o.fiscal_year.year_label,
     fiscalYearName: o.fiscal_year.year_name,
     sourceFiscalYearLabel: o.source_fiscal_year?.year_label ?? null,
@@ -422,7 +404,7 @@ export type OpeningBasis = {
 };
 
 /**
- * The latest snapshot a Company holds on or before a date, if any.
+ * The latest snapshot on or before a date, if any.
  *
  * This is what a report stands on instead of summing every journal line ever
  * posted. A General Ledger for March 2028 does not need 2026 and 2027 line by
@@ -439,12 +421,11 @@ export type OpeningBasis = {
  * same figures it produced before this existed.
  */
 export async function openingBasisFor(
-  companyId: number,
   on: Date,
   db: Client = prisma
 ): Promise<OpeningBasis | null> {
   const snapshot = await db.accOpeningBalance.findFirst({
-    where: { company_id: companyId, posting_date: { lte: on } },
+    where: { posting_date: { lte: on } },
     // The *latest* one that is still not after the date asked about. An older
     // snapshot would be correct too — it just leaves more to scan.
     orderBy: [{ posting_date: "desc" }, { id: "desc" }],

@@ -29,17 +29,13 @@ import {
 } from "../src/lib/erp/system-settings";
 import { knownAuditEvents } from "../src/lib/erp/audit-events";
 import {
-  childCompanyId,
   cleanupFiscalYear,
   cleanupFixtures,
-  closeYearFor,
+  closeYear,
   openFiscalYear,
   disconnect,
   makeAccount,
-  makeMapping,
-  mappingAccountId,
   makePartner,
-  parentCompanyId,
   prisma,
   systemUserId,
 } from "./helpers";
@@ -60,11 +56,8 @@ import {
  * saving.
  */
 
-let company = 0;
-let otherCompany = 0;
 let actor = 0;
 let fiscalYear = 0;
-let scope: number[] = [];
 
 /** Freely writable: an expense account reconciles against nothing but the GL. */
 let expense = 0;
@@ -79,13 +72,10 @@ before(async () => {
   // and the seed opens none — a calendar is business data. Reused when the
   // database already has one; removed again only if this run made it.
   fiscalYear = await openFiscalYear();
-  company = await parentCompanyId();
-  otherCompany = await childCompanyId();
   actor = await systemUserId();
-  scope = [company, otherCompany];
 
-  expense = await makeAccount({ companyId: company, subcategoryLabel: "5.3.1" });
-  expenseB = await makeAccount({ companyId: company, subcategoryLabel: "5.3.1" });
+  expense = await makeAccount({ subcategoryLabel: "5.3.1" });
+  expenseB = await makeAccount({ subcategoryLabel: "5.3.1" });
 
   baseCurrency = (
     await prisma.refCurrency.findFirstOrThrow({
@@ -138,8 +128,8 @@ const line = (
   description: "",
 });
 
-const header = { company_id: 0, description: "Fixture journal manual" };
-const headerFor = () => ({ ...header, company_id: company });
+const header = { description: "Fixture journal manual" };
+const headerFor = () => ({ ...header });
 
 async function draft(lines: ReturnType<typeof line>[]) {
   const result = await createManualJournal(headerFor(), lines, actor);
@@ -164,7 +154,6 @@ async function makeCashBank(accountId: number, label: string): Promise<number> {
       cash_bank_code: `test.${label}`,
       cash_bank_label: label,
       cash_bank_name: `Fixture ${label}`,
-      company_id: company,
       cash_bank_type: "Cash",
       currency_id: baseCurrency,
       account_id: accountId,
@@ -180,7 +169,6 @@ async function makeCashBank(accountId: number, label: string): Promise<number> {
 describe("a manual journal may not touch a control account", () => {
   test("an account a Cash & Bank resource posts to is refused, by name", async () => {
     const account = await makeAccount({
-      companyId: company,
       subcategoryLabel: CASH_BANK_SUBCATEGORY,
     });
     const resource = await prisma.mCashBank.create({
@@ -188,7 +176,6 @@ describe("a manual journal may not touch a control account", () => {
         cash_bank_code: `test.ZZMJ1`,
         cash_bank_label: "ZZMJ1",
         cash_bank_name: "Fixture Kas Manual Journal",
-        company_id: company,
         cash_bank_type: "Cash",
         currency_id: baseCurrency,
         account_id: account,
@@ -230,50 +217,6 @@ describe("a manual journal may not touch a control account", () => {
     await prisma.mCashBank.delete({ where: { id: resource.id } });
   });
 
-  test("a subledger-bearing mapping makes its target a control account", async () => {
-    const hutang = await makeAccount({
-      companyId: company,
-      subcategoryLabel: "2.1.1",
-      normalBalance: "Kredit",
-    });
-    const mapping = await makeMapping({
-      companyId: company,
-      budgetCategoryLabel: "Hutang",
-      partnerCategoryLabel: "Cabang",
-      accountId: hutang,
-    });
-
-    // The account the mapping actually points at, which is not necessarily
-    // the one just made: a Company may already hold a mapping for this
-    // combination, and makeMapping reuses it rather than repointing it.
-    const target = await mappingAccountId(mapping);
-    const reasons = await controlAccountReasons(target);
-    assert.deepEqual(
-      reasons,
-      ["Buku Hutang"],
-      "Hutang keeps a subject book, so its mapping target reconciles against it"
-    );
-  });
-
-  test("a Biaya mapping target is NOT a control account", async () => {
-    // The distinction the whole feature turns on: Biaya keeps no subject book,
-    // so its account reconciles against the General Ledger alone. If this
-    // became a control account, a manual journal could reach almost nothing —
-    // depreciation and accruals are exactly this kind of entry.
-    const biaya = await makeAccount({
-      companyId: company,
-      subcategoryLabel: "5.3.1",
-    });
-    await makeMapping({
-      companyId: company,
-      budgetCategoryLabel: "Biaya",
-      partnerCategoryLabel: null,
-      accountId: biaya,
-    });
-
-    assert.deepEqual(await controlAccountReasons(biaya), []);
-  });
-
   test("the flag follows the structure in both directions", async () => {
     // The property the recompute exists for, and the one that cannot be seen
     // by looking at the screen: a Cash & Bank resource repointed at another
@@ -282,11 +225,9 @@ describe("a manual journal may not touch a control account", () => {
     // entry for good — and the only way back was a checkbox that no longer
     // exists.
     const first = await makeAccount({
-      companyId: company,
       subcategoryLabel: CASH_BANK_SUBCATEGORY,
     });
     const second = await makeAccount({
-      companyId: company,
       subcategoryLabel: CASH_BANK_SUBCATEGORY,
     });
     const resource = await makeCashBank(first, "ZZMJ2");
@@ -324,11 +265,9 @@ describe("a manual journal may not touch a control account", () => {
     // can reconcile against one account, and the one that moves away must not
     // release it for the one that is still there.
     const shared = await makeAccount({
-      companyId: company,
       subcategoryLabel: CASH_BANK_SUBCATEGORY,
     });
     const elsewhere = await makeAccount({
-      companyId: company,
       subcategoryLabel: CASH_BANK_SUBCATEGORY,
     });
     const moving = await makeCashBank(shared, "ZZMJ3");
@@ -355,7 +294,6 @@ describe("a manual journal may not touch a control account", () => {
 
   test("the flag alone is enough, with no structure behind it", async () => {
     const declared = await makeAccount({
-      companyId: company,
       subcategoryLabel: "5.3.1",
       controlAccount: true,
     });
@@ -379,12 +317,10 @@ describe("a manual journal may not touch a control account", () => {
     // computes, and nothing posts to it at all — a hand-written line would sit
     // beside the computed figure unexplained.
     const accumulated = await makeAccount({
-      companyId: company,
       subcategoryLabel: "3.3.1",
       normalBalance: "Kredit",
     });
     const current = await makeAccount({
-      companyId: company,
       subcategoryLabel: "3.4.1",
       normalBalance: "Kredit",
     });
@@ -392,8 +328,8 @@ describe("a manual journal may not touch a control account", () => {
     const before = await systemDefaults();
     await writeSystemDefaults(
       {
-        induk_accumulated_pl_account: String(accumulated),
-        induk_current_pl_account: String(current),
+        accumulated_pl_account: String(accumulated),
+        current_pl_account: String(current),
       },
       actor
     );
@@ -422,8 +358,8 @@ describe("a manual journal may not touch a control account", () => {
     // down — an account left flagged would outlive the row explaining it.
     await writeSystemDefaults(
       {
-        induk_accumulated_pl_account: before.induk_accumulated_pl_account,
-        induk_current_pl_account: before.induk_current_pl_account,
+        accumulated_pl_account: before.accumulated_pl_account,
+        current_pl_account: before.current_pl_account,
       },
       actor
     );
@@ -432,26 +368,22 @@ describe("a manual journal may not touch a control account", () => {
 
   test("the picker offers exactly what the check accepts", async () => {
     const controlled = await makeAccount({
-      companyId: company,
       subcategoryLabel: "5.3.1",
       controlAccount: true,
     });
     const inactive = await makeAccount({
-      companyId: company,
       subcategoryLabel: "5.3.1",
       active: false,
     });
     const parent = await makeAccount({
-      companyId: company,
       subcategoryLabel: "5.3.1",
     });
     await makeAccount({
-      companyId: company,
       subcategoryLabel: "5.3.1",
       parentId: parent,
     });
 
-    const { accounts } = await manualJournalOptions(company);
+    const { accounts } = await manualJournalOptions();
     const offered = new Set(accounts.map((a) => a.id));
 
     assert.ok(offered.has(expense), "an ordinary expense account is offered");
@@ -469,11 +401,9 @@ describe("a manual journal may not touch a control account", () => {
 describe("a line states enough to be accounting", () => {
   test("a header account is refused even when its flag says postable", async () => {
     const parent = await makeAccount({
-      companyId: company,
       subcategoryLabel: "5.3.1",
     });
     await makeAccount({
-      companyId: company,
       subcategoryLabel: "5.3.1",
       parentId: parent,
     });
@@ -495,27 +425,10 @@ describe("a line states enough to be accounting", () => {
     );
   });
 
-  test("an account of another Company is refused", async () => {
-    const foreignAccount = await makeAccount({
-      companyId: otherCompany,
-      subcategoryLabel: "5.3.1",
-    });
-    const refused = await checkManualJournal(headerFor(), [
-      line(foreignAccount, 10_000, 0),
-      line(expense, 0, 10_000),
-    ]);
-    assert.equal(refused.ok, false);
-    assert.match(
-      refused.ok ? "" : refused.errors["lines.0.account_id"],
-      /Company lain/
-    );
-  });
-
   test("an account that names a Partner Category demands a matching Partner", async () => {
     const withPartner = await makeAccount({
-      companyId: company,
       subcategoryLabel: "5.3.1",
-      partnerCategoryLabel: "Cabang",
+      partnerCategoryLabel: "Customer",
     });
 
     const missing = await checkManualJournal(headerFor(), [
@@ -526,8 +439,7 @@ describe("a line states enough to be accounting", () => {
     assert.ok(missing.ok || missing.errors["lines.0.partner_id"]);
 
     const wrongCategory = await makePartner({
-      companyId: company,
-      categoryLabel: "Karyawan",
+      categoryLabel: "Supplier",
     });
     const mismatched = await checkManualJournal(headerFor(), [
       line(withPartner, 10_000, 0, { partner_id: wrongCategory }),
@@ -540,8 +452,7 @@ describe("a line states enough to be accounting", () => {
     );
 
     const right = await makePartner({
-      companyId: company,
-      categoryLabel: "Cabang",
+      categoryLabel: "Customer",
     });
     const accepted = await checkManualJournal(headerFor(), [
       line(withPartner, 10_000, 0, { partner_id: right }),
@@ -612,7 +523,7 @@ describe("a draft is not accounting", () => {
       line(expenseB, 0, 60_000),
     ]);
 
-    const posted = await postManualJournal(created.id, actor, scope);
+    const posted = await postManualJournal(created.id, actor);
     assert.equal(posted.ok, false);
     assert.match(posted.ok ? "" : posted.errors._form, /tidak seimbang/i);
 
@@ -636,13 +547,13 @@ describe("a draft is not accounting", () => {
     ]);
 
     const range = { from: "2000-01-01", to: "2100-12-31" };
-    const ledger = await generalLedgerReport([expense], range, [company]);
+    const ledger = await generalLedgerReport([expense], range);
     const seen = ledger.accounts[0]?.entries.some(
       (e) => e.journalId === created.id
     );
     assert.equal(seen, false, "the General Ledger reads posted journals only");
 
-    const trial = await trialBalanceReport(range, [company]);
+    const trial = await trialBalanceReport(range);
     assert.equal(
       trial.unbalanced.some((j) => j.id === created.id),
       false,
@@ -660,26 +571,16 @@ describe("a draft is not accounting", () => {
       created.id,
       { ...headerFor(), description: "Diubah" },
       [line(expense, 25_000, 0), line(expenseB, 0, 25_000)],
-      actor,
-      scope
+      actor
     );
     assert.ok(updated.ok);
 
-    const read = await readDraftJournal(created.id, scope);
+    const read = await readDraftJournal(created.id);
     assert.equal(read?.description, "Diubah");
     assert.equal(read?.lines.length, 2);
     assert.equal(read?.lines[0].debit, 25_000);
   });
 
-  test("a draft of a Company the caller may not see reads as not found", async () => {
-    const created = await draft([
-      line(expense, 10_000, 0),
-      line(expenseB, 0, 10_000),
-    ]);
-    const refused = await postManualJournal(created.id, actor, [otherCompany]);
-    assert.equal(refused.ok, false);
-    assert.match(refused.ok ? "" : refused.errors._form, /tidak ditemukan/i);
-  });
 });
 
 // --------------------------------------------------------------- posting
@@ -691,7 +592,7 @@ describe("post is the boundary, and it is the same engine", () => {
       line(expenseB, 0, 400_000),
     ]);
 
-    const posted = await postManualJournal(created.id, actor, scope);
+    const posted = await postManualJournal(created.id, actor);
     assert.ok(posted.ok);
 
     const row = await prisma.accJournal.findUniqueOrThrow({
@@ -709,8 +610,7 @@ describe("post is the boundary, and it is the same engine", () => {
 
     const ledger = await generalLedgerReport(
       [expense],
-      { from: "2000-01-01", to: "2100-12-31" },
-      [company]
+      { from: "2000-01-01", to: "2100-12-31" }
     );
     assert.ok(
       ledger.accounts[0].entries.some((e) => e.journalId === created.id),
@@ -723,27 +623,25 @@ describe("post is the boundary, and it is the same engine", () => {
       line(expense, 70_000, 0),
       line(expenseB, 0, 70_000),
     ]);
-    assert.ok((await postManualJournal(created.id, actor, scope)).ok);
+    assert.ok((await postManualJournal(created.id, actor)).ok);
 
     const edited = await updateManualJournal(
       created.id,
       headerFor(),
       [line(expense, 1, 0), line(expenseB, 0, 1)],
-      actor,
-      scope
+      actor
     );
     assert.equal(edited.ok, false);
     assert.match(edited.ok ? "" : edited.errors._form, /Draft/);
 
-    assert.equal((await postManualJournal(created.id, actor, scope)).ok, false);
-    assert.equal((await cancelManualJournal(created.id, actor, scope)).ok, false);
+    assert.equal((await postManualJournal(created.id, actor)).ok, false);
+    assert.equal((await cancelManualJournal(created.id, actor)).ok, false);
   });
 
   test("an account that became a control account since refuses at post", async () => {
     // The plan can be complete and still be refused: the chart moved on. This
     // is the same reasoning `applyPosting` uses for re-reading its Budgets.
     const account = await makeAccount({
-      companyId: company,
       subcategoryLabel: "5.3.1",
     });
     const created = await draft([
@@ -756,7 +654,7 @@ describe("post is the boundary, and it is the same engine", () => {
       data: { is_control_account: true },
     });
 
-    const refused = await postManualJournal(created.id, actor, scope);
+    const refused = await postManualJournal(created.id, actor);
     assert.equal(refused.ok, false);
     assert.match(refused.ok ? "" : refused.errors._form, /control account/i);
 
@@ -772,7 +670,7 @@ describe("post is the boundary, and it is the same engine", () => {
       line(expense, 15_000, 0),
       line(expenseB, 0, 15_000),
     ]);
-    assert.ok((await cancelManualJournal(created.id, actor, scope)).ok);
+    assert.ok((await cancelManualJournal(created.id, actor)).ok);
 
     const row = await prisma.accJournal.findUniqueOrThrow({
       where: { id: created.id },
@@ -781,12 +679,11 @@ describe("post is the boundary, and it is the same engine", () => {
     assert.equal(row.status, "Cancelled");
     assert.ok(row.journal_no, "the number stays behind as a trace");
 
-    assert.equal((await postManualJournal(created.id, actor, scope)).ok, false);
+    assert.equal((await postManualJournal(created.id, actor)).ok, false);
   });
 
   test("an automatic journal is not reachable from the manual path", async () => {
     const automatic = await postJournal(prisma, {
-      companyId: company,
       description: "Fixture posting",
       lines: [
         {
@@ -815,8 +712,7 @@ describe("post is the boundary, and it is the same engine", () => {
       automatic.id,
       headerFor(),
       [line(expense, 1, 0), line(expenseB, 0, 1)],
-      actor,
-      scope
+      actor
     );
     assert.equal(refused.ok, false);
     assert.match(
@@ -881,11 +777,11 @@ describe("a manual journal is refused outside an open period", () => {
     // Journal is an independent book that imports only the shared kernel, so
     // the rule about *when* it may be written lives in the layer above it —
     // beside the control-account rule, which is there for the same reason.
-    const reopen = await closeYearFor(fiscalYear, company);
+    const reopen = await closeYear(fiscalYear);
     try {
-      const refused = await postManualJournal(created.id, actor, scope);
+      const refused = await postManualJournal(created.id, actor);
       assert.equal(refused.ok, false);
-      assert.match(refused.ok ? "" : refused.errors._form, /menutup/);
+      assert.match(refused.ok ? "" : refused.errors._form, /sudah ditutup/);
 
       assert.equal(
         (
@@ -902,7 +798,7 @@ describe("a manual journal is refused outside an open period", () => {
     }
 
     assert.ok(
-      (await postManualJournal(created.id, actor, scope)).ok,
+      (await postManualJournal(created.id, actor)).ok,
       "the same draft posts once the year is open again"
     );
   });

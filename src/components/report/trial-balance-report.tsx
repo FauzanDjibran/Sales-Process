@@ -37,13 +37,8 @@ const money = (n: number) => formatMoney(n, BASE_CURRENCY_LABEL);
 
 export function TrialBalanceReport({
   report,
-  companyId,
 }: {
   report: Report;
-  /** Carried into the General Ledger link: a chart of accounts belongs to one
-      Company, so a drill-through that dropped it would land on whichever
-      Company the reader happens to default to. */
-  companyId: number;
 }) {
   if (!report.rows.length) {
     return (
@@ -119,7 +114,6 @@ export function TrialBalanceReport({
             <tbody>
               {report.rows.map((r) => {
                 const gl = reportHref("general-ledger", {
-                  company: companyId,
                   accounts: r.id,
                   from: report.range.from,
                   to: report.range.to,

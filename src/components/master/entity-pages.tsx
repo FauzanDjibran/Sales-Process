@@ -1,14 +1,11 @@
 import { notFound } from "next/navigation";
 import { AccountTree } from "@/components/master/account-tree";
-import { companyScope } from "@/lib/erp/company-access";
 import { FiscalPeriods } from "@/components/accounting/fiscal-periods";
 import { FiscalYearActions } from "@/components/accounting/fiscal-year-actions";
 import { CashBankBookCard } from "@/components/master/cash-bank-book-card";
 import { EntityForm } from "@/components/master/entity-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
-import { EntityLocked } from "@/components/master/entity-locked";
 import { can as actorHas, requirePermission } from "@/lib/erp/auth";
-import { isCompanyEntity } from "@/lib/erp/company";
 import { abilitiesFor, entityPermissions } from "@/lib/erp/entity-access";
 import { entityBySlug, type Entity } from "@/lib/erp/entities";
 import {
@@ -20,7 +17,6 @@ import {
   listRows,
   refOptions,
 } from "@/lib/erp/records";
-import { loadClassification } from "@/lib/erp/classification-data";
 import { cashBankBookSummary } from "@/lib/erp/cash-bank";
 import { fiscalYearPeriods } from "@/lib/erp/fiscal";
 import { defaultCurrencyId } from "@/lib/erp/system-settings";
@@ -49,12 +45,9 @@ function resolve(moduleKey: string, slug: string): Entity {
 export async function EntityListPage({
   module: moduleKey,
   slug,
-  company,
 }: {
   module: string;
   slug: string;
-  /** The page's own `?company=` parameter, for entities that declare a scope. */
-  company?: string;
 }) {
   const entity = resolve(moduleKey, slug);
 
@@ -65,30 +58,19 @@ export async function EntityListPage({
   );
   const can = abilitiesFor(entity.key, actor.permissions);
 
-  // A Company-scoped entity shows one Company at a time, chosen from the
-  // Companies this user's permissions open. The registry's `scope` is what
-  // decides which entities those are; everything else ignores this entirely.
-  const scope = entity.scope
-    ? await companyScope(actor.permissions, company)
-    : null;
-  const companyId = scope ? scope.selected?.id ?? null : null;
-
   if (entity.view === "tree") {
-    const tree =
-      companyId == null ? null : await accountTree(companyId);
+    const tree = await accountTree();
     return (
       <AccountTree
         entity={entity}
-        companies={scope?.options ?? []}
-        company={tree?.company ?? null}
-        categories={tree?.categories ?? []}
-        accounts={tree?.accounts ?? []}
+        categories={tree.categories}
+        accounts={tree.accounts}
         can={can}
       />
     );
   }
 
-  const rows = await listRows(entity, companyId);
+  const rows = await listRows(entity);
   const computed = await computedValues(entity, rows);
   // Columns can reference entities the form never edits, so top those up.
   const refs = await columnRefOptions(entity, await refOptions(entity));
@@ -100,8 +82,6 @@ export async function EntityListPage({
       refs={refs}
       computed={computed}
       can={can}
-      companies={scope?.options ?? []}
-      companyId={companyId}
     />
   );
 }
@@ -115,30 +95,11 @@ export async function EntityNewPage({
 }) {
   const entity = resolve(moduleKey, slug);
 
-  // Company is create-locked — the route renders an explanation, never a form.
-  // Reading the explanation still needs permission to see the entity at all.
-  if (isCompanyEntity(entity.slug)) {
-    await requirePermission(
-      entityPermissions(entity.key).view,
-      `/${entity.module}/${entity.slug}/new`
-    );
-    return (
-      <EntityLocked
-        entity={entity}
-        mode="new"
-        backHref={`/${entity.module}/${entity.slug}`}
-      />
-    );
-  }
-
   const create = entityPermissions(entity.key).create;
   if (!create) notFound();
   const actor = await requirePermission(create, `/${entity.module}/${entity.slug}/new`);
 
-  const [refs, classification] = await Promise.all([
-    refOptions(entity),
-    loadClassification(),
-  ]);
+  const refs = await refOptions(entity);
 
   return (
     <EntityForm
@@ -146,7 +107,6 @@ export async function EntityNewPage({
       mode="new"
       row={null}
       refs={refs}
-      classification={classification}
       can={abilitiesFor(entity.key, actor.permissions)}
       defaults={{ default_currency: await defaultCurrencyId() }}
     />
@@ -190,9 +150,8 @@ export async function EntityDetailPage({
 
   // A header carries one primary and it is the rightmost button. Activating a
   // Fiscal Year is the chief thing that screen is for, so where it is offered
-  // Ubah steps down to neutral and sits to its left — the same arrangement
-  // Budget and Cash Bank Transaction already use for Ubah beside a lifecycle
-  // action. With nothing to activate, Ubah is the primary again.
+  // Ubah steps down to neutral and sits to its left — the arrangement every
+  // document uses for Ubah beside a lifecycle action. With nothing to activate, Ubah is the primary again.
   const editTone: ActionTone =
     entity.key === "acc_fiscal_year" &&
     availableFiscalActions(fiscalStatus, fiscalCan).length > 0
@@ -207,7 +166,6 @@ export async function EntityDetailPage({
       mode="view"
       row={row}
       refs={refs}
-      classification={await loadClassification()}
       can={abilitiesFor(entity.key, actor.permissions)}
       headerActions={headerActions}
       editTone={editTone}
@@ -274,28 +232,6 @@ export async function EntityEditPage({
 }) {
   const entity = resolve(moduleKey, slug);
 
-  // A locked entity explains itself rather than demanding an edit permission
-  // nobody can hold — but reading that explanation still requires being allowed
-  // to see the entity in the first place.
-  if (isCompanyEntity(entity.slug)) {
-    await requirePermission(
-      entityPermissions(entity.key).view,
-      `/${entity.module}/${entity.slug}/${id}/edit`
-    );
-    const row = await getRow(entity, Number(id));
-    if (!row) notFound();
-    const label = entity.labelField ? String(row[entity.labelField] ?? "") : "";
-    const name = entity.nameField ? String(row[entity.nameField] ?? "") : "";
-    return (
-      <EntityLocked
-        entity={entity}
-        mode="edit"
-        subject={label ? `${label} – ${name}` : name}
-        backHref={`/${entity.module}/${entity.slug}/${row.id}`}
-      />
-    );
-  }
-
   const edit = entityPermissions(entity.key).edit;
   if (!edit) notFound();
   const actor = await requirePermission(edit, `/${entity.module}/${entity.slug}/${id}/edit`);
@@ -312,7 +248,6 @@ export async function EntityEditPage({
         mode="edit"
         row={row}
         refs={refs}
-        classification={await loadClassification()}
         can={abilitiesFor(entity.key, actor.permissions)}
         {...(await accountParentLock(entity, row))}
       />

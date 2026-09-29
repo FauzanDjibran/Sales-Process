@@ -169,42 +169,42 @@ describe("workflow permissions", () => {
    * is never implied by another. Seeing a module grants nothing inside it, and
    * creating a document is not permission to post it.
    */
-  test("viewing a budget does not allow approving, rejecting or posting", async () => {
+  test("viewing journals does not allow creating, posting or cancelling one", async () => {
     const viewer = await makeUser({
-      permissions: ["MENU_BUDGET_ACCESS", "BUDGET_VIEW"],
+      permissions: ["MENU_ACCOUNTING_ACCESS", "JOURNAL_VIEW"],
     });
     const actor = await actorOf(viewer.id);
 
-    assert.ok(actorCan(actor, "BUDGET_VIEW"));
-    assert.equal(actorCan(actor, "BUDGET_CREATE"), false);
-    assert.equal(actorCan(actor, "BUDGET_EDIT"), false);
-    assert.equal(actorCan(actor, "BUDGET_APPROVE"), false);
-    assert.equal(actorCan(actor, "BUDGET_REJECT"), false);
+    assert.ok(actorCan(actor, "JOURNAL_VIEW"));
+    assert.equal(actorCan(actor, "JOURNAL_CREATE"), false);
+    assert.equal(actorCan(actor, "JOURNAL_EDIT"), false);
+    assert.equal(actorCan(actor, "JOURNAL_POST"), false);
+    assert.equal(actorCan(actor, "JOURNAL_CANCEL"), false);
   });
 
-  test("approving does not imply rejecting", async () => {
-    const approver = await makeUser({
-      permissions: ["MENU_BUDGET_ACCESS", "BUDGET_VIEW", "BUDGET_APPROVE"],
+  test("posting does not imply cancelling", async () => {
+    const poster = await makeUser({
+      permissions: ["MENU_ACCOUNTING_ACCESS", "JOURNAL_VIEW", "JOURNAL_POST"],
     });
-    const actor = await actorOf(approver.id);
+    const actor = await actorOf(poster.id);
 
-    assert.ok(actorCan(actor, "BUDGET_APPROVE"));
-    assert.equal(actorCan(actor, "BUDGET_REJECT"), false);
+    assert.ok(actorCan(actor, "JOURNAL_POST"));
+    assert.equal(actorCan(actor, "JOURNAL_CANCEL"), false);
   });
 
-  test("creating a cash bank transaction does not allow posting it", async () => {
+  test("creating a fiscal year does not allow opening or closing it", async () => {
     const clerk = await makeUser({
       permissions: [
-        "MENU_FINANCE_ACCESS",
-        "CASH_BANK_TRANSACTION_VIEW",
-        "CASH_BANK_TRANSACTION_CREATE",
+        "MENU_ACCOUNTING_ACCESS",
+        "FISCAL_YEAR_VIEW",
+        "FISCAL_YEAR_CREATE",
       ],
     });
     const actor = await actorOf(clerk.id);
 
-    assert.ok(actorCan(actor, "CASH_BANK_TRANSACTION_CREATE"));
-    assert.equal(actorCan(actor, "CASH_BANK_TRANSACTION_POST"), false);
-    assert.equal(actorCan(actor, "CASH_BANK_TRANSACTION_CANCEL"), false);
+    assert.ok(actorCan(actor, "FISCAL_YEAR_CREATE"));
+    assert.equal(actorCan(actor, "FISCAL_YEAR_OPEN"), false);
+    assert.equal(actorCan(actor, "FISCAL_YEAR_CLOSE"), false);
   });
 
   test("menu access alone grants nothing inside the module", async () => {
@@ -212,13 +212,13 @@ describe("workflow permissions", () => {
     const actor = await actorOf(wanderer.id);
 
     assert.ok(actorCan(actor, "MENU_FINANCE_ACCESS"));
-    assert.equal(actorCan(actor, "CASH_BANK_TRANSACTION_VIEW"), false);
+    assert.equal(actorCan(actor, "REPORT_CASH_BANK_LEDGER_VIEW"), false);
   });
 
   test("a deactivated role withdraws its permissions without touching assignments", async () => {
-    const user = await makeUser({ permissions: ["BUDGET_VIEW", "BUDGET_APPROVE"] });
+    const user = await makeUser({ permissions: ["JOURNAL_VIEW", "JOURNAL_POST"] });
     const before = await actorOf(user.id);
-    assert.ok(actorCanAll(before, ["BUDGET_VIEW", "BUDGET_APPROVE"]));
+    assert.ok(actorCanAll(before, ["JOURNAL_VIEW", "JOURNAL_POST"]));
 
     const { prisma } = await import("./helpers");
     const assignment = await prisma.sysUserRole.findFirstOrThrow({
@@ -230,7 +230,7 @@ describe("workflow permissions", () => {
     });
 
     const after = await actorOf(user.id);
-    assert.equal(actorCan(after, "BUDGET_VIEW"), false);
+    assert.equal(actorCan(after, "JOURNAL_VIEW"), false);
     assert.equal(
       await prisma.sysUserRole.count({ where: { user_id: user.id } }),
       1,

@@ -22,7 +22,7 @@ import { prisma } from "@/lib/prisma";
  */
 
 /** Tables with no plausible working deployment behind them. */
-const CORE_TABLES = ["sys_user", "sys_session", "sys_role", "sys_company"];
+const CORE_TABLES = ["sys_user", "sys_session", "sys_role", "sys_setting"];
 
 export type SchemaReport =
   | { ok: true; checked: number }

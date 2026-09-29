@@ -22,11 +22,9 @@ import {
 } from "../src/lib/erp/system-settings";
 import {
   FIXTURE_PREFIX,
-  childCompanyId,
   cleanupFixtures,
   disconnect,
   makeAccount,
-  parentCompanyId,
   prisma,
   systemUserId,
 } from "./helpers";
@@ -49,12 +47,7 @@ let inactiveCurrency = 0;
 let previous: string | null = null;
 
 /** The equity settings this suite writes over, so they can be put back. */
-const EQUITY_KEYS = [
-  "induk_accumulated_pl_account",
-  "anak_accumulated_pl_account",
-  "induk_current_pl_account",
-  "anak_current_pl_account",
-] as const;
+const EQUITY_KEYS = ["accumulated_pl_account", "current_pl_account"] as const;
 const previousEquity: Record<string, string | null> = {};
 
 before(async () => {
@@ -214,10 +207,9 @@ describe("a saved default is what the forms read", () => {
 // --------------------------------------------------- the equity P&L accounts
 
 /**
- * The two accounts per Company that closing a Fiscal Year needs.
+ * The two equity accounts closing a Fiscal Year and the Neraca need.
  *
- * They behave like the intercompany bridge rather than like a prefill: the
- * accumulated one is where a year's result is posted, so it is checked when it
+ * They name a destination rather than prefilling a control: the accumulated one is where a year's result is posted, so it is checked when it
  * is stored and refused by name when it is missing. Both are closed to hand
  * entry by the ordinary mechanism — an account a posting engine owns is not one
  * a person types into — and the property that matters is that the claim is
@@ -239,55 +231,35 @@ describe("the equity accounts closing posts into", () => {
       })
     ).is_control_account;
 
-  test("an account of the wrong Company is refused before it is stored", async () => {
-    const anakAccount = await makeAccount({
-      companyId: await childCompanyId(),
-      subcategoryLabel: "3.3.1",
-      normalBalance: "Kredit",
-    });
-    const refused = await checkSystemDefaultValue(
-      "induk_accumulated_pl_account",
-      anakAccount
-    );
-    assert.ok(refused, "the induk's setting may not name the anak's chart");
-    assert.match(refused!, /Company/);
-  });
-
   test("a header account is refused — a posting target is always a leaf", async () => {
-    const company = await parentCompanyId();
     const parent = await makeAccount({
-      companyId: company,
       subcategoryLabel: "3.3.1",
       normalBalance: "Kredit",
     });
     await makeAccount({
-      companyId: company,
       subcategoryLabel: "3.3.1",
       normalBalance: "Kredit",
       parentId: parent,
     });
     assert.ok(
-      await checkSystemDefaultValue("induk_accumulated_pl_account", parent),
+      await checkSystemDefaultValue("accumulated_pl_account", parent),
       "an account with a sub-account is a heading, not a destination"
     );
   });
 
   test("setting one closes it to manual entry, and repointing re-opens it", async () => {
-    const company = await parentCompanyId();
     const first = await makeAccount({
-      companyId: company,
       subcategoryLabel: "3.3.1",
       normalBalance: "Kredit",
     });
     const current = await makeAccount({
-      companyId: company,
       subcategoryLabel: "3.4.1",
       normalBalance: "Kredit",
     });
     await writeSystemDefaults(
       {
-        induk_accumulated_pl_account: String(first),
-        induk_current_pl_account: String(current),
+        accumulated_pl_account: String(first),
+        current_pl_account: String(current),
       },
       actor
     );
@@ -300,18 +272,17 @@ describe("the equity accounts closing posts into", () => {
       "and nothing posts here at all, which is a stronger reason still"
     );
     assert.deepEqual(await systemDefaultsUsingAccount(first), [
-      "Account Laba/Rugi Tahun Sebelumnya — Induk",
+      "Account Laba/Rugi Tahun Sebelumnya",
     ]);
 
     // The half that used to be missing everywhere: a setting moved on has to
     // let go of what it left behind, or the old account stays shut for good.
     const second = await makeAccount({
-      companyId: company,
       subcategoryLabel: "3.3.1",
       normalBalance: "Kredit",
     });
     await writeSystemDefaults(
-      { induk_accumulated_pl_account: String(second) },
+      { accumulated_pl_account: String(second) },
       actor
     );
     await sync([first, second]);
@@ -323,14 +294,11 @@ describe("the equity accounts closing posts into", () => {
 
   test("an unset accumulated account is reported by name, and the current one is not", async () => {
     await writeSystemDefaults(
-      { induk_accumulated_pl_account: null, anak_accumulated_pl_account: null },
+      { accumulated_pl_account: null },
       actor
     );
     const missing = await missingClosingAccounts();
-    assert.deepEqual(missing, [
-      "Account Laba/Rugi Tahun Sebelumnya — Induk",
-      "Account Laba/Rugi Tahun Sebelumnya — Anak",
-    ]);
+    assert.deepEqual(missing, ["Account Laba/Rugi Tahun Sebelumnya"]);
 
     // Nothing posts to the current-year account, so an unset one blocks no
     // process — it is a report missing a line, not a refusal waiting to happen.
@@ -338,21 +306,16 @@ describe("the equity accounts closing posts into", () => {
       !missing.some((m) => m.includes("Berjalan")),
       "the presentation line is not a blocking gap"
     );
-
-    const company = await parentCompanyId();
     const account = await makeAccount({
-      companyId: company,
       subcategoryLabel: "3.3.1",
       normalBalance: "Kredit",
     });
     await writeSystemDefaults(
-      { induk_accumulated_pl_account: String(account) },
+      { accumulated_pl_account: String(account) },
       actor
     );
     await sync([account]);
-    assert.deepEqual(await missingClosingAccounts(), [
-      "Account Laba/Rugi Tahun Sebelumnya — Anak",
-    ]);
+    assert.deepEqual(await missingClosingAccounts(), []);
 
     // Resolved against the master, never trusted as stored: an account that has
     // since been deactivated is somewhere the picker would no longer offer.
@@ -361,8 +324,7 @@ describe("the equity accounts closing posts into", () => {
       data: { is_active: false },
     });
     assert.deepEqual(await missingClosingAccounts(), [
-      "Account Laba/Rugi Tahun Sebelumnya — Induk",
-      "Account Laba/Rugi Tahun Sebelumnya — Anak",
+      "Account Laba/Rugi Tahun Sebelumnya",
     ]);
     await prisma.accAccount.update({
       where: { id: account },
@@ -372,61 +334,46 @@ describe("the equity accounts closing posts into", () => {
 
   test("the Neraca's accounts: Tahun Berjalan always, Tahun Sebelumnya only while a year is carried", async () => {
     await writeSystemDefaults(
-      {
-        induk_current_pl_account: null,
-        anak_current_pl_account: null,
-        induk_accumulated_pl_account: null,
-        anak_accumulated_pl_account: null,
-      },
+      { current_pl_account: null, accumulated_pl_account: null },
       actor
     );
 
-    // Every Neraca places Tahun Berjalan, so both Companies need it whatever
-    // the calendar holds.
-    assert.deepEqual(await missingNeracaAccounts({ induk: false, anak: false }), [
-      "Account Laba/Rugi Tahun Berjalan — Induk",
-      "Account Laba/Rugi Tahun Berjalan — Anak",
+    // Every Neraca places Tahun Berjalan, whatever the calendar holds.
+    assert.deepEqual(await missingNeracaAccounts(false), [
+      "Account Laba/Rugi Tahun Berjalan",
     ]);
 
     // Tahun Sebelumnya anchors the per-year lines, so it is asked for only
-    // from the Company still carrying an unclosed year: a setting blocks only
-    // where it is used.
-    assert.deepEqual(await missingNeracaAccounts({ induk: false, anak: true }), [
-      "Account Laba/Rugi Tahun Berjalan — Induk",
-      "Account Laba/Rugi Tahun Berjalan — Anak",
-      "Account Laba/Rugi Tahun Sebelumnya — Anak",
+    // while an unclosed year is carried: a setting blocks only where it is
+    // used.
+    assert.deepEqual(await missingNeracaAccounts(true), [
+      "Account Laba/Rugi Tahun Berjalan",
+      "Account Laba/Rugi Tahun Sebelumnya",
     ]);
-
-    const company = await parentCompanyId();
     const current = await makeAccount({
-      companyId: company,
       subcategoryLabel: "3.4.1",
       normalBalance: "Kredit",
     });
     const accumulated = await makeAccount({
-      companyId: company,
       subcategoryLabel: "3.3.1",
       normalBalance: "Kredit",
     });
     await writeSystemDefaults(
       {
-        induk_current_pl_account: String(current),
-        induk_accumulated_pl_account: String(accumulated),
+        current_pl_account: String(current),
+        accumulated_pl_account: String(accumulated),
       },
       actor
     );
     await sync([current, accumulated]);
 
-    assert.deepEqual(await missingNeracaAccounts({ induk: true, anak: false }), [
-      "Account Laba/Rugi Tahun Berjalan — Anak",
-    ]);
+    assert.deepEqual(await missingNeracaAccounts(true), []);
 
     // Resolved against the master: a deactivated account is not somewhere a
     // line can be placed any more than somewhere a posting can land.
     await prisma.accAccount.update({ where: { id: accumulated }, data: { is_active: false } });
-    assert.deepEqual(await missingNeracaAccounts({ induk: true, anak: false }), [
-      "Account Laba/Rugi Tahun Berjalan — Anak",
-      "Account Laba/Rugi Tahun Sebelumnya — Induk",
+    assert.deepEqual(await missingNeracaAccounts(true), [
+      "Account Laba/Rugi Tahun Sebelumnya",
     ]);
     await prisma.accAccount.update({ where: { id: accumulated }, data: { is_active: true } });
   });

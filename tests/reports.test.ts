@@ -13,11 +13,9 @@ import { PERMISSION_CODES } from "../src/lib/erp/permissions";
 import { MODULES, resolvePath, visibleModules } from "../src/lib/erp/nav";
 import {
   FIXTURE_PREFIX,
-  childCompanyId,
   cleanupFixtures,
   disconnect,
   makeAccount,
-  parentCompanyId,
   prisma,
   systemUserId,
 } from "./helpers";
@@ -35,9 +33,6 @@ import {
  * Fixtures are built here and removed again: the seed carries system data only.
  */
 
-let company = 0;
-/** The Companies the report reader may see. */
-let scope: number[] = [];
 let actor = 0;
 let currency = 0;
 let otherCurrency = 0;
@@ -49,11 +44,8 @@ async function makeCashBank(options: {
   openingDate?: string;
   currencyId?: number;
   status?: "Active" | "Inactive";
-  companyId?: number;
 }): Promise<number> {
-  const companyId = options.companyId ?? company;
   const account = await makeAccount({
-    companyId,
     subcategoryLabel: CASH_BANK_SUBCATEGORY,
   });
   const key = `${FIXTURE_PREFIX}R${cashBanks.length + 1}${Date.now() % 100000}`;
@@ -62,7 +54,6 @@ async function makeCashBank(options: {
       cash_bank_code: `test.${key}`,
       cash_bank_label: key,
       cash_bank_name: `Fixture ${key}`,
-      company_id: companyId,
       cash_bank_type: "Cash",
       currency_id: options.currencyId ?? currency,
       account_id: account,
@@ -110,10 +101,6 @@ const move = (
   });
 
 before(async () => {
-  company = await parentCompanyId();
-  // Every report takes the reader's Company scope, so the suite runs as a
-  // reader who may see the Company its fixtures belong to.
-  scope = [company];
   actor = await systemUserId();
 
   const currencies = await prisma.refCurrency.findMany({
@@ -236,12 +223,8 @@ describe("navigation still resolves every route shape", () => {
       "m_cash_bank"
     );
     assert.equal(
-      resolvePath("/budget/budget/month/5").entity?.key,
-      "bud_budget_month"
-    );
-    assert.equal(
-      resolvePath("/finance/cash-bank-transaction/7").entity?.key,
-      "fin_cash_bank_transaction"
+      resolvePath("/accounting/journal/7").entity?.key,
+      "acc_journal"
     );
   });
 
@@ -262,8 +245,7 @@ describe("the ledger report reconciles", () => {
 
     const report = await cashBankLedgerReport(
       cb,
-      { from: "2026-02-01", to: "2026-02-28" },
-      scope
+      { from: "2026-02-01", to: "2026-02-28" }
     );
     assert.ok(report);
     assert.equal(report.opening, 1_000_000);
@@ -284,8 +266,7 @@ describe("the ledger report reconciles", () => {
 
     const report = await cashBankLedgerReport(
       cb,
-      { from: "2026-03-01", to: "2026-03-31" },
-      scope
+      { from: "2026-03-01", to: "2026-03-31" }
     );
     assert.ok(report);
     assert.equal(report.opening, 1_500_000, "everything before March is carried in");
@@ -302,8 +283,7 @@ describe("the ledger report reconciles", () => {
 
     const report = await cashBankLedgerReport(
       cb,
-      { from: "2026-04-01", to: "2026-04-30" },
-      scope
+      { from: "2026-04-01", to: "2026-04-30" }
     );
     assert.ok(report);
     assert.equal(report.entries.length, 2, "the first and last day both count");
@@ -316,8 +296,7 @@ describe("the ledger report reconciles", () => {
 
     const report = await cashBankLedgerReport(
       cb,
-      { from: "2026-06-01", to: "2026-06-30" },
-      scope
+      { from: "2026-06-01", to: "2026-06-30" }
     );
     assert.ok(report);
     assert.equal(report.entries.length, 0);
@@ -338,8 +317,7 @@ describe("the ledger report reconciles", () => {
 
     const report = await cashBankLedgerReport(
       cb,
-      { from: "2026-07-01", to: "2026-07-31" },
-      scope
+      { from: "2026-07-01", to: "2026-07-31" }
     );
     assert.ok(report);
     assert.deepEqual(
@@ -358,8 +336,7 @@ describe("the ledger report reconciles", () => {
 
     const august = await cashBankLedgerReport(
       cb,
-      { from: "2026-08-01", to: "2026-08-31" },
-      scope
+      { from: "2026-08-01", to: "2026-08-31" }
     );
     assert.ok(august);
     assert.equal(august.opening, 105_000, "July's backdated entry is carried in");
@@ -367,66 +344,11 @@ describe("the ledger report reconciles", () => {
     assert.ok(august.reconciles);
   });
 
-  test("an entry names the document that caused it", async () => {
-    // Opened with enough to cover the payment below: a resource can no longer
-    // be driven negative.
-    const cb = await makeCashBank({ opening: 500_000, openingDate: "2026-01-01" });
-    const docType = await prisma.sysDocType.findFirstOrThrow({
-      where: { doc_table: "fin_cash_bank_transaction" },
-      select: { id: true },
-    });
-    const doc = await prisma.finCashBankTransaction.create({
-      data: {
-        transaction_no: `TST-REF${Date.now() % 100000}`,
-        transaction_type: "Out",
-        company_id: company,
-        purpose: "BYA_OUT",
-        cash_bank_id: cb,
-        currency_id: currency,
-        transaction_amount: 75_000,
-        transaction_base_amount: 75_000,
-        status: "Posted",
-        created_by: actor,
-      },
-      select: { id: true, transaction_no: true },
-    });
-    await recordCashBankEntry(prisma, {
-      cashBankId: cb,
-      date: "2026-05-12",
-      type: "Transaction",
-      direction: "Out",
-      amount: 75_000,
-      rate: 1,
-      sourceDocTypeId: docType.id,
-      sourceDocId: doc.id,
-      note: doc.transaction_no,
-      actorId: actor,
-    });
-
-    const report = await cashBankLedgerReport(
-      cb,
-      { from: "2026-05-01", to: "2026-05-31" },
-      scope
-    );
-    assert.ok(report);
-    const entry = report.entries[0];
-    assert.equal(entry.sourceDocTable, "fin_cash_bank_transaction");
-    assert.equal(entry.sourceDocId, doc.id);
-    assert.equal(
-      entry.sourceDocNo,
-      doc.transaction_no,
-      "a ledger row must be traceable back to the document that moved the money"
-    );
-
-    await prisma.finCashBankTransaction.delete({ where: { id: doc.id } });
-  });
-
   test("an opening entry carries no document reference", async () => {
     const cb = await makeCashBank({ opening: 400_000, openingDate: "2026-05-02" });
     const report = await cashBankLedgerReport(
       cb,
-      { from: "2026-05-01", to: "2026-05-31" },
-      scope
+      { from: "2026-05-01", to: "2026-05-31" }
     );
     assert.ok(report);
     assert.equal(report.entries[0].type, "Opening");
@@ -438,8 +360,7 @@ describe("the ledger report reconciles", () => {
     assert.equal(
       await cashBankLedgerReport(
         0,
-        { from: "2026-01-01", to: "2026-12-31" },
-        scope
+        { from: "2026-01-01", to: "2026-12-31" }
       ),
       null
     );
@@ -456,8 +377,7 @@ describe("the balance report summarises every resource", () => {
     await move(b, "2026-08-06", "In", 600_000);
 
     const report = await cashBankBalanceReport(
-      { from: "2026-08-01", to: "2026-08-31" },
-      scope
+      { from: "2026-08-01", to: "2026-08-31" }
     );
 
     const group = report.groups.find((g) => g.currencyId === currency);
@@ -492,8 +412,7 @@ describe("the balance report summarises every resource", () => {
     });
 
     const report = await cashBankBalanceReport(
-      { from: "2026-09-01", to: "2026-09-30" },
-      scope
+      { from: "2026-09-01", to: "2026-09-30" }
     );
 
     const groupOf = (id: number) =>
@@ -554,8 +473,7 @@ describe("the balance report summarises every resource", () => {
     await move(cb, "2026-10-04", "Out", 100_000);
 
     const report = await cashBankBalanceReport(
-      { from: "2026-10-01", to: "2026-10-31" },
-      scope
+      { from: "2026-10-01", to: "2026-10-31" }
     );
     const row = report.groups
       .flatMap((g) => g.rows)
@@ -574,7 +492,6 @@ describe("the balance report summarises every resource", () => {
 
     const report = await cashBankBalanceReport(
       { from: "2026-11-01", to: "2026-11-30" },
-      scope,
       cb
     );
     assert.equal(report.resources, 1);
@@ -583,35 +500,14 @@ describe("the balance report summarises every resource", () => {
     assert.equal(report.groups[0].rows[0].opening, 300_000);
   });
 
-  test("a resource outside the reader's Company scope is not reported", async () => {
-    // A report is read-only, not exempt: Company access is a permission
-    // (CLAUDE.md §12), and a report that ignored it would be the way around
-    // every other screen that enforces it. An out-of-scope resource reads as
-    // not found — the same answer one that does not exist gives.
-    const anak = await childCompanyId();
-    const theirs = await makeCashBank({
-      companyId: anak,
-      opening: 900_000,
-      openingDate: "2026-01-01",
-    });
-    const range = { from: "2026-01-01", to: "2026-12-31" };
-
-    assert.equal(await cashBankLedgerReport(theirs, range, scope), null);
-    assert.ok(await cashBankLedgerReport(theirs, range, [anak]));
-
-    const balance = await cashBankBalanceReport(range, scope);
-    const listed = balance.groups.flatMap((g) => g.rows.map((r) => r.cashBankId));
-    assert.ok(!listed.includes(theirs), "another Company's resource is not a row");
-  });
-
   test("the two reports agree with each other for the same subject and period", async () => {
     const cb = await makeCashBank({ opening: 5_000_000, openingDate: "2026-01-01" });
     await move(cb, "2026-12-03", "In", 1_000_000);
     await move(cb, "2026-12-09", "Out", 250_000);
     const range = { from: "2026-12-01", to: "2026-12-31" };
 
-    const ledger = await cashBankLedgerReport(cb, range, scope);
-    const balance = await cashBankBalanceReport(range, scope, cb);
+    const ledger = await cashBankLedgerReport(cb, range);
+    const balance = await cashBankBalanceReport(range, cb);
     const row = balance.groups[0].rows[0];
 
     assert.ok(ledger);

@@ -5,11 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { Pager, usePaging } from "@/components/ui/pager";
-import { CompanyFilter, NoCompanyAccess } from "@/components/master/company-filter";
 import { SearchField } from "@/components/ui/search-field";
 import { formatDate, formatMoney } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
-import type { Company } from "@/lib/erp/company-access";
 import type { JournalRow } from "@/lib/erp/journal";
 import {
   JOURNAL_STATUS_BADGE,
@@ -27,11 +25,6 @@ import {
  * engine. Drafts sort to the top, because they are the only rows anybody still
  * has something to do about.
  *
- * One Company at a time, named by the picker in the toolbar. Each Company
- * keeps its own books, so a register holding both reads as duplicated rows —
- * and with the Company stated once above the table, the column that repeated
- * that same label on every row earned nothing.
- *
  * Each row states both sides. They are always equal — `postJournal` refuses to
  * write a journal whose debits and credits differ — so a row where they are not
  * means something wrote the tables outside the application, and the row says so
@@ -39,15 +32,9 @@ import {
  */
 export function JournalList({
   journals,
-  companies,
-  companyId,
   can,
 }: {
   journals: JournalRow[];
-  /** The Companies this reader may choose between. */
-  companies: Company[];
-  /** The one being shown, or null when the reader may see none. */
-  companyId: number | null;
   can: JournalAbilities;
 }) {
   const router = useRouter();
@@ -97,17 +84,8 @@ export function JournalList({
         </p>
       </div>
 
-      {/* No Company open to this reader means nothing to filter or search, so
-          the card carries the refusal alone rather than an empty table that
-          would read as "belum ada journal". */}
-      {companyId == null ? (
-        <div className="card">
-          <NoCompanyAccess what="Journal" />
-        </div>
-      ) : (
       <div className="card">
         <div className="toolbar">
-          <CompanyFilter options={companies} selectedId={companyId} />
           <SearchField
             value={query}
             onChange={setQuery}
@@ -212,7 +190,7 @@ export function JournalList({
             <p>
               {q
                 ? "Tidak ada journal yang mengandung kata kunci tersebut."
-                : "Journal terbentuk otomatis saat dokumen Finance diposting, atau dibuat sendiri sebagai Journal Manual."}
+                : "Journal terbentuk otomatis saat dokumen diposting, atau dibuat sendiri sebagai Journal Manual."}
             </p>
             {q ? (
               <div className="cta">
@@ -232,7 +210,6 @@ export function JournalList({
           </div>
         )}
       </div>
-      )}
     </>
   );
 }

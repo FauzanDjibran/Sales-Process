@@ -10,7 +10,7 @@ import {
   type StatementMovement,
 } from "./ledger";
 import type { PeriodRange } from "./period";
-import { neracaAccountsFor } from "./system-settings";
+import { neracaAccounts } from "./system-settings";
 import {
   buildBalanceSheet,
   buildProfitLoss,
@@ -30,9 +30,6 @@ import {
  * the chart of accounts the rows are laid out on and the Partners a breakdown
  * names. The layout itself is `statement-layout.ts`, pure, so the rules that
  * decide which figure lands on which row are tested without a database.
- *
- * Every statement runs for one Company, like every Report View: a chart of
- * accounts belongs to one, and there is no joint report.
  */
 
 /** One column of a statement: a fiscal year, a period in it, and its range. */
@@ -72,21 +69,20 @@ export type ProfitLossReport = {
 };
 
 /**
- * The multi-step Laba Rugi for one Company, over one or two columns.
+ * The multi-step Laba Rugi, over one or two columns.
  *
  * Each column is its own range sum and leaves out **its own year's** closing
  * journal, so a comparison against a closed year reads that year's result
  * rather than the nil a close leaves behind.
  */
 export async function profitLossReport(
-  companyId: number,
   columns: StatementColumn[]
 ): Promise<ProfitLossReport> {
   const [accounts, movements] = await Promise.all([
-    profitLossChart(companyId),
+    profitLossChart(),
     Promise.all(
       columns.map((c) =>
-        statementMovements(companyId, c.range, {
+        statementMovements(c.range, {
           section: "ProfitLoss",
           excludeClosingOf: c.yearId,
         })
@@ -104,16 +100,15 @@ export async function profitLossReport(
 }
 
 /**
- * Every Laba Rugi account in one Company's chart, inactive ones included.
+ * Every Laba Rugi account in the chart, inactive ones included.
  *
  * Inactive stay in because a report covers history: an account retired in June
  * still carried January's figures. Rows that did not move are dropped by the
  * layout, so an old account costs nothing on a period it was silent in.
  */
-async function profitLossChart(companyId: number): Promise<StatementAccount[]> {
+async function profitLossChart(): Promise<StatementAccount[]> {
   const rows = await prisma.accAccount.findMany({
     where: {
-      company_id: companyId,
       account_subcategory: {
         account_category: { account_type: { section: "ProfitLoss" } },
       },
@@ -197,7 +192,7 @@ export function carriedYearLineName(yearLabel: string): string {
 }
 
 /**
- * The Neraca for one Company, at the end of each column's period.
+ * The Neraca, at the end of each column's period.
  *
  * Every balance-sheet account stands at its **cumulative** balance, opened
  * from the snapshot on or before the column's year start and carried forward
@@ -207,7 +202,7 @@ export function carriedYearLineName(yearLabel: string): string {
  *     to the column's last, leaving out the year's own closing journal, placed
  *     on the account System Default names. It is the same range sum as the Laba
  *     Rugi's s.d. Periode ini, by construction.
- *   - **one line per unclosed year** — every earlier year this Company has not
+ *   - **one line per unclosed year** — every earlier year not yet
  *     closed, each stating that year's whole result, printed directly beneath
  *     Laba/Rugi Tahun Sebelumnya. A year stays on its own line until its close
  *     moves the result into Tahun Sebelumnya, so a reader sees each year apart
@@ -223,7 +218,6 @@ export function carriedYearLineName(yearLabel: string): string {
  * anchor beneath it.
  */
 export async function balanceSheetReport(
-  company: { id: number; isParent: boolean },
   columns: StatementColumn[],
   years: ReportableFiscalYear[]
 ): Promise<BalanceSheetReport> {
@@ -235,11 +229,10 @@ export async function balanceSheetReport(
   // Its own range, with nothing left out: an unclosed year has no closing
   // journal to leave out.
   const carried = await Promise.all(
-    (await carriedYearsBefore(company.id, latestStart)).map(async (y) => ({
+    (await carriedYearsBefore(latestStart)).map(async (y) => ({
       ...y,
       result: result(
         await statementMovements(
-          company.id,
           { from: y.startDate, to: y.endDate },
           { section: "ProfitLoss" }
         )
@@ -251,17 +244,17 @@ export async function balanceSheetReport(
     columns.map(async (c) => {
       const yearStart = c.range.from;
       const [balances, current, prior] = await Promise.all([
-        statementBalances(company.id, {
+        statementBalances({
           section: "BalanceSheet",
           openingOn: yearStart,
           to: c.range.to,
           excludeClosingOf: c.yearId,
         }),
-        statementMovements(company.id, c.range, {
+        statementMovements(c.range, {
           section: "ProfitLoss",
           excludeClosingOf: c.yearId,
         }),
-        statementBalances(company.id, {
+        statementBalances({
           section: "ProfitLoss",
           openingOn: yearStart,
           to: dayBefore(yearStart),
@@ -281,7 +274,7 @@ export async function balanceSheetReport(
 
   const shown = carried.filter((y) => columns.some((c) => y.startDate < c.range.from));
   const hasResidue = figures.some((f) => Math.round(f.residue * 100) !== 0);
-  const accounts = await neracaAccountsFor(company.isParent, shown.length > 0 || hasResidue);
+  const accounts = await neracaAccounts(shown.length > 0 || hasResidue);
   if (!accounts.ok) return accounts;
 
   const placed = new Map<number, number[]>();
@@ -309,7 +302,7 @@ export async function balanceSheetReport(
     trailing.set(accounts.accumulatedId, lines);
   }
 
-  const chart = await balanceSheetChart(company.id);
+  const chart = await balanceSheetChart();
   const pairs = figures.map((f) => f.balances.pairs);
   const partnerIds = [...new Set(pairs.flat().flatMap((p) => (p.partnerId ? [p.partnerId] : [])))];
   const built = buildBalanceSheet(chart, pairs, await partnerNames(partnerIds), placed, trailing);
@@ -340,11 +333,10 @@ export async function balanceSheetReport(
   };
 }
 
-/** Every balance-sheet account in one Company's chart, with its type's side. */
-async function balanceSheetChart(companyId: number): Promise<StatementAccount[]> {
+/** Every balance-sheet account in the chart, with its type's side. */
+async function balanceSheetChart(): Promise<StatementAccount[]> {
   const rows = await prisma.accAccount.findMany({
     where: {
-      company_id: companyId,
       account_subcategory: {
         account_category: { account_type: { section: "BalanceSheet" } },
       },

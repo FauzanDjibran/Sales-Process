@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
@@ -14,13 +14,11 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import {
   createJournal,
-  listJournalOptions,
   updateJournal,
   type JournalLineValues,
 } from "@/app/actions/journal";
 import { formatMoney, todayIso } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
-import type { Company } from "@/lib/erp/company-access";
 import type { JournalDetail } from "@/lib/erp/journal";
 import {
   JOURNAL_STATUS_BADGE,
@@ -77,37 +75,25 @@ const blankLine = (currencyId: number | null): DraftLine => ({
 export function JournalForm({
   mode,
   journal,
-  companies,
-  options: initialOptions,
+  options,
   defaultCurrencyId,
 }: {
   mode: JournalFormMode;
   /** The draft being edited; null on a new journal. */
   journal: JournalDetail | null;
-  /** The Companies this reader may write for. */
-  companies: Company[];
-  /** Accounts, Partners and Currencies for the Company currently chosen. */
+  /** Accounts, Partners and Currencies a line may name. */
   options: ManualJournalOptions;
   defaultCurrencyId: number | null;
 }) {
   const router = useRouter();
   const toast = useToast();
 
-  // A new journal starts on the **first** Company this reader may write for,
-  // which is the one the page already loaded the accounts of. Starting on
-  // nothing would leave the Account pickers holding a chart the form does not
-  // claim to be on, and "Tambah Baris" disabled until the Company was picked
-  // again. The picker is still there; this is a starting point, not a lock.
-  const [companyId, setCompanyId] = useState<number | null>(
-    journal?.companyId ?? companies[0]?.id ?? null
-  );
   const [description, setDescription] = useState(journal?.description ?? "");
   // The day it belongs to in the books, starting on today (§10 rule 33). A
   // draft saved before drafts carried a date starts on today too.
   const [journalDate, setJournalDate] = useState(
     journal?.postingDate ? journal.postingDate.slice(0, 10) : todayIso()
   );
-  const [options, setOptions] = useState(initialOptions);
   const [lines, setLines] = useState<DraftLine[]>(() =>
     journal
       ? journal.lines.map((l) => ({
@@ -125,30 +111,6 @@ export function JournalForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  // The options belong to a Company's chart, so changing the Company changes
-  // which accounts exist at all. Lines that named an account from the previous
-  // chart are cleared rather than carried across — an account number means a
-  // different account in the other Company (CLAUDE.md §10 rule 8).
-  const loadedFor = useRef(companyId);
-  useEffect(() => {
-    // The options the page handed over already belong to the Company the form
-    // starts on, so the first render asks for nothing. Only a *change* of
-    // Company needs a new chart.
-    if (mode !== "new" || !companyId || loadedFor.current === companyId) return;
-    loadedFor.current = companyId;
-    let cancelled = false;
-    void listJournalOptions(companyId).then((result) => {
-      if (cancelled || !result.ok) return;
-      setOptions(result.options);
-      setLines((rows) =>
-        rows.map((r) => ({ ...r, account_id: null, partner_id: null }))
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [companyId, mode]);
 
   const accountById = useMemo(
     () => new Map(options.accounts.map((a) => [a.id, a])),
@@ -206,7 +168,6 @@ export function JournalForm({
     setSaving(true);
     setErrors({});
     const header = {
-      company_id: companyId ? String(companyId) : "",
       journal_date: journalDate,
       description,
     };
@@ -307,42 +268,8 @@ export function JournalForm({
           <FormSection>
             <FormRow>
               <Field
-                label="Company"
-                span={4}
-                required={mode === "new"}
-                locked={mode === "edit"}
-                help={mode === "new" ? "menentukan bagan akun" : undefined}
-                error={errors.company_id}
-              >
-                {mode === "new" && companies.length > 1 ? (
-                  <Select
-                    value={companyId ? String(companyId) : ""}
-                    invalid={Boolean(errors.company_id)}
-                    placeholder="Pilih Company…"
-                    options={companies.map((c) => ({
-                      value: String(c.id),
-                      label: `${c.label} - ${c.name}`,
-                    }))}
-                    onChange={(v) => {
-                      setCompanyId(v ? Number(v) : null);
-                      setDirty(true);
-                    }}
-                  />
-                ) : (
-                  <div className="ro">
-                    <span className="lab">
-                      {companies.find((c) => c.id === companyId)?.label ?? "—"}
-                    </span>
-                    <span>
-                      {companies.find((c) => c.id === companyId)?.name ?? ""}
-                    </span>
-                  </div>
-                )}
-              </Field>
-
-              <Field
                 label="Tanggal"
-                span={3}
+                span={4}
                 required
                 help="boleh mundur, tidak ke depan"
                 error={errors.journal_date}
@@ -359,7 +286,7 @@ export function JournalForm({
 
               <Field
                 label="Keterangan"
-                span={5}
+                span={8}
                 required
                 help="alasan journal ini dibuat"
                 error={errors.description}
@@ -393,12 +320,7 @@ export function JournalForm({
               dalam {BASE_CURRENCY_LABEL}.
             </p>
           </div>
-          <button
-            className="btn sm primary"
-            disabled={!companyId}
-            title={companyId ? undefined : "Pilih Company dulu…"}
-            onClick={addLine}
-          >
+          <button className="btn sm primary" onClick={addLine}>
             <Icon name="plus" size={14} /> Tambah Baris
           </button>
         </div>

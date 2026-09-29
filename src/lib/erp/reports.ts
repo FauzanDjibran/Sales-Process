@@ -19,8 +19,7 @@ import type { PermissionCode } from "./permissions";
 /**
  * Which parameters a report takes.
  *
- * Three sets exist: a Cash & Bank subject plus a date range, several accounts
- * plus a date range, and several Partners plus a date range. A fourth arrives
+ * The sets that exist are listed below. Another arrives
  * when a report needs different parameters — as an added member here, so the
  * route keeps resolving parameters in one place rather than each report parsing
  * the query string its own way.
@@ -28,7 +27,6 @@ import type { PermissionCode } from "./permissions";
 export type ReportParams =
   | "cash-bank-period"
   | "account-period"
-  | "subledger-period"
   /**
    * A Cash & Bank subject with **no** date range — for a report whose answer is
    * a standing position rather than a period's movement. Rate layers are that:
@@ -55,14 +53,6 @@ export type ReportDef = {
   params: ReportParams;
   /** Whether the report can run without a subject chosen. */
   subjectRequired: boolean;
-  /**
-   * Whether this report reads a subject book. Which book is a **parameter**
-   * (`?book=bcat.0002`), not a property of the report: there is one Buku Subjek
-   * report and the books come from the Budget Categories, so a new category
-   * appears in its toggle without a report, a permission or a menu entry being
-   * written for it.
-   */
-  subledger?: boolean;
 };
 
 const FIXED_REPORTS = [
@@ -147,7 +137,7 @@ const FIXED_REPORTS = [
     module: "accounting",
     name: "Laba Rugi",
     desc:
-      "Pendapatan, harga pokok dan beban satu Company per periode tahun buku — " +
+      "Pendapatan, harga pokok dan beban per periode tahun buku — " +
       "bertingkat sampai Laba Bersih, dengan pembanding opsional.",
     icon: "trend",
     permission: "REPORT_PROFIT_LOSS_VIEW",
@@ -162,7 +152,7 @@ const FIXED_REPORTS = [
     module: "accounting",
     name: "Neraca",
     desc:
-      "Aktiva, pasiva dan ekuitas satu Company pada akhir periode tahun buku, " +
+      "Aktiva, pasiva dan ekuitas pada akhir periode tahun buku, " +
       "dengan laba rugi yang belum ditutup di ekuitas dan pembanding opsional.",
     icon: "scale",
     permission: "REPORT_BALANCE_SHEET_VIEW",
@@ -171,30 +161,7 @@ const FIXED_REPORTS = [
   },
 ] as const satisfies readonly ReportDef[];
 
-/**
- * The subject books — **one** Report View for all of them.
- *
- * This was six near-identical entries generated from a six-entry catalogue, so
- * a seventh book meant a code change, a new permission and a deploy. A book is
- * now a Budget Category that names a Partner, and which book you are reading is
- * a parameter on this one report. Nothing here enumerates them.
- */
-const SUBLEDGER_REPORT: ReportDef = {
-  key: "subledger",
-  slug: "subledger",
-  module: "finance",
-  name: "Buku Subjek",
-  desc: "Riwayat dan posisi setiap Partner pada buku yang dipilih, dalam rentang tanggal yang dipilih.",
-  icon: "book",
-  permission: "REPORT_SUBLEDGER_VIEW",
-  params: "subledger-period",
-  // Neither the book nor the Partner is a precondition: the report opens on the
-  // first book with every subject in it, which is the useful default.
-  subjectRequired: false,
-  subledger: true,
-};
-
-export const REPORTS: readonly ReportDef[] = [...FIXED_REPORTS, SUBLEDGER_REPORT];
+export const REPORTS: readonly ReportDef[] = FIXED_REPORTS;
 
 export type ReportKey = (typeof FIXED_REPORTS)[number]["key"];
 

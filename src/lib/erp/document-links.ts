@@ -9,10 +9,6 @@
  * Client-safe: a map of strings and nothing else.
  */
 const ROUTES: Record<string, string> = {
-  fin_cash_bank_transaction: "/finance/cash-bank-transaction",
-  fin_funding_request: "/finance/funding-request",
-  fin_cash_bank_transfer: "/finance/cash-bank-transfer",
-  fin_dncn: "/finance/debit-credit-note",
   acc_fiscal_year: "/accounting/fiscal-year",
   acc_opening_balance: "/accounting/opening-balance",
 };

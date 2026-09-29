@@ -14,7 +14,7 @@ import type { PermissionCode } from "./permissions";
 
 export type EntityPermissions = {
   view: PermissionCode;
-  /** Absent where the operation does not exist — Company is create/edit-locked. */
+  /** Absent where the operation does not exist — a fiscal year has no toggle. */
   create?: PermissionCode;
   edit?: PermissionCode;
   activate?: PermissionCode;
@@ -22,7 +22,6 @@ export type EntityPermissions = {
 };
 
 const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
-  sys_company: { view: "COMPANY_VIEW" },
   m_partner: {
     view: "PARTNER_VIEW",
     create: "PARTNER_CREATE",
@@ -44,26 +43,12 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "CURRENCY_ACTIVATE",
     deactivate: "CURRENCY_DEACTIVATE",
   },
-  sys_budget_category: {
-    view: "BUDGET_CATEGORY_VIEW",
-    create: "BUDGET_CATEGORY_CREATE",
-    edit: "BUDGET_CATEGORY_EDIT",
-    activate: "BUDGET_CATEGORY_ACTIVATE",
-    deactivate: "BUDGET_CATEGORY_DEACTIVATE",
-  },
   sys_partner_category: {
     view: "PARTNER_CATEGORY_VIEW",
     create: "PARTNER_CATEGORY_CREATE",
     edit: "PARTNER_CATEGORY_EDIT",
     activate: "PARTNER_CATEGORY_ACTIVATE",
     deactivate: "PARTNER_CATEGORY_DEACTIVATE",
-  },
-  sys_purpose: {
-    view: "PURPOSE_VIEW",
-    create: "PURPOSE_CREATE",
-    edit: "PURPOSE_EDIT",
-    activate: "PURPOSE_ACTIVATE",
-    deactivate: "PURPOSE_DEACTIVATE",
   },
   acc_account: {
     view: "ACCOUNT_VIEW",
@@ -72,14 +57,8 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "ACCOUNT_ACTIVATE",
     deactivate: "ACCOUNT_DEACTIVATE",
   },
-  // Mapping and the fiscal calendar have no activate/deactivate: a mapping
-  // either exists or does not, and a fiscal record moves Draft -> Open ->
-  // Closed through an edit rather than a toggle.
-  acc_budget_category_account: {
-    view: "MAPPING_VIEW",
-    create: "MAPPING_CREATE",
-    edit: "MAPPING_EDIT",
-  },
+  // The fiscal calendar has no activate/deactivate: a fiscal record moves
+  // Draft -> Open -> Closed through its own lifecycle rather than a toggle.
   // Fiscal Period has no row because it has no screen: periods are generated
   // when a Fiscal Year is opened and read from inside it, so the year's
   // permissions are the only ones at stake.

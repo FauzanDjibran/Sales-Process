@@ -4,9 +4,6 @@ import { GeneralLedgerReport } from "@/components/report/general-ledger-report";
 import { TrialBalanceReport } from "@/components/report/trial-balance-report";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
 import { requirePermission } from "@/lib/erp/auth";
-import { CompanyFilter, NoCompanyAccess } from "@/components/master/company-filter";
-import { ReportCompany } from "@/components/report/report-run";
-import { companyScope } from "@/lib/erp/company-access";
 import {
   generalLedgerReport,
   ledgerAccountOptions,
@@ -57,7 +54,6 @@ export default async function Page({
 }: {
   params: Promise<{ report: string }>;
   searchParams: Promise<{
-    company?: string;
     accounts?: string;
     from?: string;
     to?: string;
@@ -72,42 +68,23 @@ export default async function Page({
   const report = reportBySlug(slug);
   if (!report || report.module !== "accounting") notFound();
 
-  const actor = await requirePermission(report.permission, reportHref(slug));
+  await requirePermission(report.permission, reportHref(slug));
 
   const query = await searchParams;
-  // A chart of accounts belongs to one Company, so a ledger does too: each
-  // numbers its own chart, and a picker offering both would list the induk's
-  // 1.1.1.1 beside the anak's as if they were duplicates (CLAUDE.md §12).
-  const scope = await companyScope(actor.permissions, query.company);
-  const company = scope.selected;
-
-  if (!company) {
-    return (
-      <ReportView
-        report={report}
-        filter={null}
-        runAt={new Date().toISOString()}
-      >
-        <NoCompanyAccess what={report.name} />
-      </ReportView>
-    );
-  }
 
   if (report.params === "fiscal-period") {
-    return statementPage(report, slug, company, scope.options, query);
+    return statementPage(report, slug, query);
   }
 
-  const companyIds = [company.id];
   const range = resolveRange(query.from, query.to);
   const accountIds = parseIds(query.accounts);
 
-  const options = await ledgerAccountOptions(company.id);
+  const options = await ledgerAccountOptions();
   const runAt = new Date().toISOString();
 
   const filterBar = (
     <>
       <SubjectParams
-        lead={<ReportCompany options={scope.options} selectedId={company.id} />}
         slug={slug}
         subjects={options}
         selectedIds={accountIds}
@@ -119,7 +96,6 @@ export default async function Page({
         addPlaceholder="Tambah account…"
         allPlaceholder="Semua account yang bergerak"
         missingHint="Pilih minimal satu account terlebih dahulu."
-        companyId={company.id}
       />
     </>
   );
@@ -128,7 +104,7 @@ export default async function Page({
 
   if (report.key === "general_ledger") {
     const data = accountIds.length
-      ? await generalLedgerReport(accountIds, range, companyIds)
+      ? await generalLedgerReport(accountIds, range)
       : null;
 
     return (
@@ -159,7 +135,7 @@ export default async function Page({
 
   // --------------------------------------------------------- trial balance
 
-  const data = await trialBalanceReport(range, companyIds);
+  const data = await trialBalanceReport(range);
 
   return (
     <ReportView
@@ -175,7 +151,7 @@ export default async function Page({
         </>
       }
     >
-      <TrialBalanceReport report={data} companyId={company.id} />
+      <TrialBalanceReport report={data} />
     </ReportView>
   );
 }
@@ -223,8 +199,7 @@ function isDate(value: string | undefined): value is string {
  *
  * Duplicates are dropped and anything unparseable is ignored rather than
  * refused: a hand-edited URL should still answer with the accounts it does
- * name. Whether the reader may see them is decided by the query, which is
- * limited to the Companies their permissions open.
+ * name.
  */
 function parseIds(raw?: string): number[] {
   if (!raw) return [];
@@ -249,8 +224,6 @@ function parseIds(raw?: string): number[] {
 async function statementPage(
   report: ReportDef,
   slug: string,
-  company: { id: number; isParent: boolean; label: string },
-  companyOptions: Parameters<typeof CompanyFilter>[0]["options"],
   query: {
     year?: string;
     period?: string;
@@ -259,14 +232,12 @@ async function statementPage(
     cmpPeriod?: string;
   }
 ) {
-  const companyId = company.id;
   const runAt = new Date().toISOString();
   const years = await reportableFiscalYears();
-  const companyFilter = <ReportCompany options={companyOptions} selectedId={companyId} />;
 
   if (!years.length) {
     return (
-      <ReportView report={report} filter={companyFilter} runAt={runAt}>
+      <ReportView report={report} filter={null} runAt={runAt}>
         <ReportNeedsSubject
           icon="cal"
           title="Belum ada tahun buku aktif"
@@ -288,19 +259,17 @@ async function statementPage(
   const compare = resolveColumn(years, toId(query.cmpYear), toId(query.cmpPeriod), mode);
   const columns = compare ? [main, compare] : [main];
 
-  // The earlier years this Company has not closed yet. The books are running
+  // The earlier years not closed yet. The books are running
   // as an extension of them, and the report says so rather than leaving a
   // reader to find out from a figure.
   const latestStart = columns.map((c) => c.range.from).sort().at(-1)!;
-  const carried = await carriedYearsBefore(companyId, latestStart);
+  const carried = await carriedYearsBefore(latestStart);
   const carrying = carried.length ? carried.map((y) => y.name).join(", ") : null;
 
   const filter = (
     <>
       <FiscalPeriodParams
-        lead={companyFilter}
         slug={slug}
-        companyId={companyId}
         years={years.map((y) => ({
           id: y.id,
           // The bar already says Tahun Buku beside the picker; the label alone reads.
@@ -318,7 +287,7 @@ async function statementPage(
   // ----------------------------------------------------------------- neraca
 
   if (neraca) {
-    const data = await balanceSheetReport(company, columns, years);
+    const data = await balanceSheetReport(columns, years);
 
     if (!data.ok) {
       return (
@@ -355,7 +324,6 @@ async function statementPage(
         title={
           <StatementTitle
             name={report.name}
-            companyLabel={company.label}
             mode="Posisi"
             columns={data.columns}
             runAt={runAt}
@@ -372,7 +340,7 @@ async function statementPage(
         }
       >
         {carrying && (
-          <Notice tone="warn" title={`${carrying} belum ditutup untuk Company ini.`}>
+          <Notice tone="warn" title={`${carrying} belum ditutup.`}>
             Laba rugi tiap tahun itu tampil pada barisnya sendiri di bawah Laba/Rugi
             Tahun Sebelumnya, dan berpindah ke sana saat tahunnya ditutup.
           </Notice>
@@ -401,7 +369,6 @@ async function statementPage(
           key={runKey(data.columns)}
           columns={data.columns}
           rows={data.rows}
-          companyId={companyId}
         />
       </ReportView>
     );
@@ -409,7 +376,7 @@ async function statementPage(
 
   // -------------------------------------------------------------- laba rugi
 
-  const data = await profitLossReport(companyId, columns);
+  const data = await profitLossReport(columns);
 
   return (
     <ReportView
@@ -419,7 +386,6 @@ async function statementPage(
       title={
         <StatementTitle
           name={report.name}
-          companyLabel={company.label}
           mode={STATEMENT_MODES.find((m) => m.value === mode)!.label}
           columns={data.columns}
           runAt={runAt}
@@ -434,7 +400,7 @@ async function statementPage(
       }
     >
       {carrying && (
-        <Notice tone="warn" title={`${carrying} belum ditutup untuk Company ini.`}>
+        <Notice tone="warn" title={`${carrying} belum ditutup.`}>
           Angka Laba Rugi tetap benar karena setiap kolom hanya menjumlah periodenya
           sendiri, tetapi hasil tahun itu belum dipindahkan ke Laba/Rugi Tahun
           Sebelumnya.
@@ -445,7 +411,6 @@ async function statementPage(
         key={runKey(data.columns)}
         columns={data.columns}
         rows={data.rows}
-        companyId={companyId}
       />
     </ReportView>
   );

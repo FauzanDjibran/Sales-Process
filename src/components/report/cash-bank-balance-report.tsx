@@ -19,9 +19,9 @@ import { reportHref } from "@/lib/erp/reports";
  * up under the columns they total. A strip repeating them above would be the
  * same numbers twice.
  *
- * Type and Company travel under the resource name rather than in columns of
- * their own. Two fixed columns to print one short word each is exactly what
- * pushed the money columns off the right-hand edge.
+ * The type travels under the resource name rather than in a column of its
+ * own. A fixed column to print one short word is exactly what pushes the
+ * money columns off the right-hand edge.
  *
  * Every row drills through to that resource's `Buku Kas & Bank` for the same
  * period — a summary figure should always be one click from the rows that
@@ -102,7 +102,7 @@ export function CashBankBalanceReport({ report }: { report: BalanceReport }) {
                           </span>
                         </Link>
                         <span className="rsub">
-                          {r.type} · {r.companyLabel}
+                          {r.type}
                         </span>
                       </td>
                       <td className="num">

@@ -303,8 +303,6 @@ export type CashBankBalanceRow = {
   cashBankId: number;
   label: string;
   name: string;
-  companyId: number;
-  companyLabel: string;
   currencyId: number;
   currencyLabel: string;
   type: string;
@@ -346,27 +344,17 @@ export type CashBookSummary = {
  * Balances are reported per currency and never summed across them: converting
  * would need an exchange rate, and there is no authoritative source for one
  * yet. A single fabricated total is worse than four honest ones.
- *
- * `companyIds` is the reader's scope, handed in by the page exactly as the
- * report readers take it (CLAUDE.md §12) — a resource belongs to a Company,
- * and a summary that read every resource in the database would state the
- * anak's cash to someone holding only induk access. An empty scope therefore
- * summarises nothing rather than everything.
  */
-export async function cashBookSummary(
-  companyIds: number[]
-): Promise<CashBookSummary> {
+export async function cashBookSummary(): Promise<CashBookSummary> {
   const resources = await prisma.mCashBank.findMany({
-    where: { status: "Active", company_id: { in: companyIds } },
-    orderBy: [{ company_id: "asc" }, { id: "asc" }],
+    where: { status: "Active" },
+    orderBy: { id: "asc" },
     select: {
       id: true,
       cash_bank_label: true,
       cash_bank_name: true,
       cash_bank_type: true,
-      company_id: true,
       status: true,
-      company: { select: { company_label: true } },
       currency: { select: { id: true, currency_label: true } },
       book_balance: {
         select: {
@@ -383,8 +371,6 @@ export async function cashBookSummary(
     cashBankId: r.id,
     label: r.cash_bank_label,
     name: r.cash_bank_name,
-    companyId: r.company_id,
-    companyLabel: r.company.company_label,
     currencyId: r.currency.id,
     currencyLabel: r.currency.currency_label,
     type: r.cash_bank_type,
@@ -476,7 +462,6 @@ export type LedgerReport = {
     name: string;
     type: string;
     active: boolean;
-    companyLabel: string;
     currencyLabel: string;
   };
   range: PeriodRange;
@@ -517,27 +502,19 @@ export type LedgerReport = {
  *
  * Entries dated exactly `from` or exactly `to` are inside the period; anything
  * earlier is folded into the opening balance rather than listed.
- *
- * `companyIds` is the reader's Company scope, taken as an argument rather than
- * resolved here (CLAUDE.md §12): a resource outside it reads as **not found**,
- * which is the same answer a resource that does not exist gives. A report must
- * not be a way around the Company permissions the rest of the application
- * enforces.
  */
 export async function cashBankLedgerReport(
   cashBankId: number,
-  range: PeriodRange,
-  companyIds: number[]
+  range: PeriodRange
 ): Promise<LedgerReport | null> {
   const resource = await prisma.mCashBank.findFirst({
-    where: { id: cashBankId, company_id: { in: companyIds } },
+    where: { id: cashBankId },
     select: {
       id: true,
       cash_bank_label: true,
       cash_bank_name: true,
       cash_bank_type: true,
       status: true,
-      company: { select: { company_label: true } },
       currency: { select: { currency_label: true } },
     },
   });
@@ -619,7 +596,6 @@ export async function cashBankLedgerReport(
       name: resource.cash_bank_name,
       type: resource.cash_bank_type,
       active: resource.status === "Active",
-      companyLabel: resource.company.company_label,
       currencyLabel: resource.currency.currency_label,
     },
     range,
@@ -640,23 +616,15 @@ export async function cashBankLedgerReport(
  * Document numbers for the entries that name one, so a row can say which
  * document moved the money rather than only that something did.
  *
- * Only Cash Bank Transactions reach the book today; an entry pointing at any
- * other document type keeps its reference and simply shows no number.
+ * Nothing but a resource's registration writes the book yet — SIBA's Cash Bank
+ * Transaction was not carried (Claude-ERP.md P10) — so there is nothing to
+ * look up. Pembayaran adds its own documents here when it is built.
  */
 async function sourceDocumentNumbers(
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   rows: { source_doc_id: number | null; source_doc_type: { doc_table: string } | null }[]
 ): Promise<Map<number, string>> {
-  const ids = rows
-    .filter((r) => r.source_doc_type?.doc_table === "fin_cash_bank_transaction")
-    .map((r) => r.source_doc_id)
-    .filter((id): id is number => id !== null);
-  if (!ids.length) return new Map();
-
-  const docs = await prisma.finCashBankTransaction.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, transaction_no: true },
-  });
-  return new Map(docs.map((d) => [d.id, d.transaction_no]));
+  return new Map();
 }
 
 export type BalanceReportRow = {
@@ -665,7 +633,6 @@ export type BalanceReportRow = {
   name: string;
   type: string;
   active: boolean;
-  companyLabel: string;
   opening: number;
   totalIn: number;
   totalOut: number;
@@ -722,28 +689,20 @@ export type BalanceReport = {
  * would produce a report that does not reconcile against the ledger it claims
  * to summarise. `cashBookSummary` still excludes them, because that answers a
  * different question — what is spendable now.
- *
- * Scoped to the Companies the reader may see, for the same reason the ledger
- * above is: a report is read-only, not exempt.
  */
 export async function cashBankBalanceReport(
   range: PeriodRange,
-  companyIds: number[],
   cashBankId?: number | null
 ): Promise<BalanceReport> {
   const resources = await prisma.mCashBank.findMany({
-    where: {
-      company_id: { in: companyIds },
-      ...(cashBankId ? { id: cashBankId } : {}),
-    },
-    orderBy: [{ company_id: "asc" }, { cash_bank_label: "asc" }],
+    where: cashBankId ? { id: cashBankId } : {},
+    orderBy: { cash_bank_label: "asc" },
     select: {
       id: true,
       cash_bank_label: true,
       cash_bank_name: true,
       cash_bank_type: true,
       status: true,
-      company: { select: { company_label: true } },
       currency: { select: { id: true, currency_label: true } },
     },
   });
@@ -837,7 +796,6 @@ export async function cashBankBalanceReport(
       name: r.cash_bank_name,
       type: r.cash_bank_type,
       active: r.status === "Active",
-      companyLabel: r.company.company_label,
       opening,
       totalIn,
       totalOut,

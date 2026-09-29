@@ -4,11 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { ENTITIES } from "./entities";
 import { rowsByIds } from "./records";
 import { recordTitle } from "./record-title";
-import { budgetsByIds } from "./budget";
-import { transactionNumbersByIds } from "./finance";
-import { transferNumbersByIds } from "./transfer";
-import { noteNumbersByIds } from "./dncn";
-import { fundingRequestNumbersByIds } from "./funding";
 import { fiscalClosingLabels } from "./fiscal";
 import { journalNumbersByIds } from "./journal";
 import { openingBalanceNumbersByIds } from "./opening-balance";
@@ -64,34 +59,11 @@ function registrySubject(key: string): Subject | null {
 /**
  * Subjects that are not registry entities — the documents and the settings.
  *
- * Budget, Finance, User and Role are all deliberately outside the registry
- * (§12), so each needs a line here. A subject with `resolve: null` is one whose
+ * The documents, User and Role are all deliberately outside the registry, so
+ * each needs a line here. A subject with `resolve: null` is one whose
  * rows have no individual identity worth printing.
  */
 const EXTRA_SUBJECTS: Record<string, Subject> = {
-  bud_budget: {
-    label: "Budget",
-    resolve: async (ids) => {
-      const rows = await budgetsByIds(ids);
-      return new Map(rows.map((b) => [b.id, b.budget_no]));
-    },
-  },
-  fin_cash_bank_transaction: {
-    label: "Cash Bank Transaction",
-    resolve: transactionNumbersByIds,
-  },
-  fin_cash_bank_transfer: {
-    label: "Cash Bank Transfer",
-    resolve: transferNumbersByIds,
-  },
-  fin_dncn: {
-    label: "Debit / Credit Note",
-    resolve: noteNumbersByIds,
-  },
-  fin_funding_request: {
-    label: "Funding Request",
-    resolve: fundingRequestNumbersByIds,
-  },
   acc_journal: { label: "Journal", resolve: journalNumbersByIds },
   acc_opening_balance: {
     label: "Opening Balance",
@@ -129,7 +101,7 @@ export type ActivityEntry = {
   at: Date;
   action: string;
   by: number;
-  /** "Partner", "Budget" — always present, even for an unknown key. */
+  /** "Partner", "Journal" — always present, even for an unknown key. */
   subject: string;
   /** "PRT.0011 – Cabang Medan", or null when the record cannot be named. */
   title: string | null;

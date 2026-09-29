@@ -55,7 +55,7 @@ export function CashBankLayerReport({ report }: { report: Report }) {
           <div className="cbh">
             <b>{b.label}</b>
             <span className="cbn">
-              {b.name} · {b.companyLabel} · {b.currencyLabel}
+              {b.name} · {b.currencyLabel}
               {b.active ? "" : " · non-aktif"}
             </span>
             {!b.reconciles && (

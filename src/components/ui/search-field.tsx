@@ -12,7 +12,7 @@ import { Icon } from "@/components/icon";
  * slightly differently on the screen a user happens to be on.
  *
  * `grow` is for a toolbar where search is the only control and should take the
- * width; the default width is what sits comfortably beside a Company picker.
+ * width; the default width is what sits comfortably beside a toolbar picker.
  */
 export function SearchField({
   value,

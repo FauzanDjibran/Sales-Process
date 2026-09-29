@@ -18,8 +18,8 @@
  * Every transition names the status it may start from, the status it produces,
  * and the one permission it needs. The row menu reads this table to decide what
  * to offer; the Server Action reads the same table to decide what to allow, so
- * a hidden menu item and a refused action can never disagree. This is the shape
- * `budget-workflow.ts` and `transaction-workflow.ts` established.
+ * a hidden menu item and a refused action can never disagree — the shape
+ * the other workflow tables follow.
  *
  * Client-safe on purpose — no `server-only`, no database import.
  */

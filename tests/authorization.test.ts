@@ -56,18 +56,18 @@ describe("the permission catalogue", () => {
     assert.equal(total, PERMISSIONS.length);
   });
 
-  test("create, edit, approve, reject and post are separate permissions", () => {
+  test("create, edit, post, cancel and open are separate permissions", () => {
     for (const code of [
-      "BUDGET_CREATE",
-      "BUDGET_EDIT",
-      "BUDGET_APPROVE",
-      "BUDGET_REJECT",
-      "CASH_BANK_TRANSACTION_POST",
+      "JOURNAL_CREATE",
+      "JOURNAL_EDIT",
+      "JOURNAL_POST",
+      "JOURNAL_CANCEL",
+      "FISCAL_YEAR_OPEN",
     ]) {
       assert.ok(PERMISSION_CODES.includes(code as never), `${code} must exist`);
     }
     // Menu access is separate from every action inside the module.
-    assert.ok(PERMISSION_CODES.includes("MENU_BUDGET_ACCESS" as never));
+    assert.ok(PERMISSION_CODES.includes("MENU_ACCOUNTING_ACCESS" as never));
   });
 
   test("the catalogue in code matches the catalogue in the database", async () => {
@@ -266,14 +266,7 @@ describe("per-operation permissions on master data", () => {
     assert.equal(can.activate, false);
   });
 
-  test("Company declares no create or edit permission — it is locked for everyone", () => {
-    const perms = entityPermissions("sys_company");
-    assert.equal(perms.create, undefined);
-    assert.equal(perms.edit, undefined);
-    assert.equal(perms.view, "COMPANY_VIEW");
-  });
-
   test("an entity with no declared permissions fails loudly rather than opening up", () => {
-    assert.throws(() => entityPermissions("bud_budget"));
+    assert.throws(() => entityPermissions("zz_not_an_entity"));
   });
 });

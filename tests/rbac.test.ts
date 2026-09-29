@@ -217,21 +217,21 @@ describe("RBAC: User -> Role -> Permission", () => {
     await assert.rejects(() => listUsers(actor), isAccessDenied);
   });
 
-  test("the same holds for approve, reject and post", async () => {
+  test("the same holds for create, edit, post and cancel", async () => {
     const user = await makeUser({});
     await grant(
       user.id,
-      await roleWith(["MENU_BUDGET_ACCESS", "BUDGET_VIEW", "MENU_FINANCE_ACCESS"])
+      await roleWith(["MENU_ACCOUNTING_ACCESS", "JOURNAL_VIEW", "MENU_FINANCE_ACCESS"])
     );
     const actor = await actorOf(user.id);
 
-    assert.ok(actorCan(actor, "BUDGET_VIEW"));
+    assert.ok(actorCan(actor, "JOURNAL_VIEW"));
     for (const code of [
-      "BUDGET_CREATE",
-      "BUDGET_EDIT",
-      "BUDGET_APPROVE",
-      "BUDGET_REJECT",
-      "CASH_BANK_TRANSACTION_POST",
+      "JOURNAL_CREATE",
+      "JOURNAL_EDIT",
+      "JOURNAL_POST",
+      "JOURNAL_CANCEL",
+      "FISCAL_YEAR_OPEN",
     ]) {
       assert.equal(actorCan(actor, code), false, `must not be implied: ${code}`);
     }

@@ -17,7 +17,7 @@
  * Only the last segment is ever typed: the rest is inherited from whatever the
  * new row hangs under, so a code cannot be written that contradicts its own
  * lineage. `1.1.1.10` and `1.1.2.10` are different codes and may both exist;
- * two `1.1.1.10` within one Company may not.
+ * two `1.1.1.10` may not.
  *
  * Client-safe: no database import, so the form and the Server Action read the
  * same rules.

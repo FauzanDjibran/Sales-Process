@@ -1,10 +1,6 @@
 import { notFound } from "next/navigation";
 import { JournalForm } from "@/components/accounting/journal-form";
 import { requirePermission } from "@/lib/erp/auth";
-import {
-  accessibleCompanies,
-  accessibleCompanyIds,
-} from "@/lib/erp/company-access";
 import { getJournal } from "@/lib/erp/journal";
 import { journalIsEditable, type JournalStatus } from "@/lib/erp/journal-workflow";
 import { manualJournalOptions } from "@/lib/erp/manual-journal";
@@ -24,30 +20,20 @@ export default async function Page({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const actor = await requirePermission(
-    "JOURNAL_EDIT",
-    `/accounting/journal/${id}/edit`
-  );
+  await requirePermission("JOURNAL_EDIT", `/accounting/journal/${id}/edit`);
 
-  const journal = await getJournal(
-    Number(id),
-    await accessibleCompanyIds(actor.permissions)
-  );
+  const journal = await getJournal(Number(id));
   if (!journal) notFound();
   if (!journal.isManual || !journalIsEditable(journal.status as JournalStatus)) {
     notFound();
   }
 
-  const [companies, options] = await Promise.all([
-    accessibleCompanies(actor.permissions),
-    manualJournalOptions(journal.companyId),
-  ]);
+  const options = await manualJournalOptions();
 
   return (
     <JournalForm
       mode="edit"
       journal={journal}
-      companies={companies}
       options={options}
       defaultCurrencyId={null}
     />

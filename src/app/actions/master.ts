@@ -19,7 +19,6 @@ import {
   CASH_BANK_SUBCATEGORY,
   accountDescendants,
   accountUsage,
-  checkAccountIsLeaf,
   checkAccountNumber,
   checkCashBankAccount,
   delegate,

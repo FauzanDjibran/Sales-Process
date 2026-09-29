@@ -1,6 +1,5 @@
 import { OpeningBalanceList } from "@/components/accounting/opening-balance-list";
 import { requirePermission } from "@/lib/erp/auth";
-import { companyScope } from "@/lib/erp/company-access";
 import { listOpeningBalances } from "@/lib/erp/opening-balance";
 
 export const dynamic = "force-dynamic";
@@ -11,31 +10,9 @@ export const dynamic = "force-dynamic";
  * Read-only: there is no `/new` and no `/[id]/edit` below this route, because
  * a snapshot is written by a fiscal year's close or injected by a developer
  * before the application has any history, and is immutable once it exists.
- *
- * One Company at a time, chosen from the Companies this reader's permissions
- * open — each keeps its own chart of accounts, so a register holding both
- * reads as duplicated rows (CLAUDE.md §12).
  */
-export default async function Page({
-  searchParams,
-}: {
-  searchParams: Promise<{ company?: string }>;
-}) {
-  const actor = await requirePermission(
-    "OPENING_BALANCE_VIEW",
-    "/accounting/opening-balance"
-  );
-  const { company } = await searchParams;
-  const scope = await companyScope(actor.permissions, company);
-  const openings = scope.selected
-    ? await listOpeningBalances([scope.selected.id])
-    : [];
-
-  return (
-    <OpeningBalanceList
-      openings={openings}
-      companies={scope.options}
-      companyId={scope.selected?.id ?? null}
-    />
-  );
+export default async function Page() {
+  await requirePermission("OPENING_BALANCE_VIEW", "/accounting/opening-balance");
+  const openings = await listOpeningBalances();
+  return <OpeningBalanceList openings={openings} />;
 }

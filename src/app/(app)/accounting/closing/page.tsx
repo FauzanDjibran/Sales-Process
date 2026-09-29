@@ -1,51 +1,41 @@
 import { ClosingWorkspace } from "@/components/accounting/closing-workspace";
 import { requirePermission } from "@/lib/erp/auth";
 import { closableYears, closingPlan } from "@/lib/erp/closing";
-import { companyScope } from "@/lib/erp/company-access";
 
 export const dynamic = "force-dynamic";
 
 /**
  * The Fiscal Year Closing workspace.
  *
- * Bespoke rather than registry, for the reason Budget and Finance are: this is
- * not a record with fields. It is a checklist, a preview of an entry, and one
- * irreversible act, against a pair — a Company and a year — that no single
- * table holds.
+ * Bespoke rather than registry: this is not a record with fields. It is a
+ * checklist, a preview of an entry, and one irreversible act against a year.
  *
- * Both halves of that pair live in the URL, so a run is linkable and the page
- * stays a Server Component querying directly. A year the reader has not chosen
- * yet means no plan at all, which is a different screen from a plan that is
- * blocked.
+ * The year lives in the URL, so a run is linkable and the page stays a Server
+ * Component querying directly. A year the reader has not chosen yet means no
+ * plan at all, which is a different screen from a plan that is blocked.
  */
 export default async function Page({
   searchParams,
 }: {
-  searchParams: Promise<{ company?: string; year?: string }>;
+  searchParams: Promise<{ year?: string }>;
 }) {
   const actor = await requirePermission("FISCAL_YEAR_CLOSE", "/accounting/closing");
-  const { company, year } = await searchParams;
-  const scope = await companyScope(actor.permissions, company);
+  const { year } = await searchParams;
 
-  const companyId = scope.selected?.id ?? null;
-  const years = companyId ? await closableYears(companyId) : [];
+  const years = await closableYears();
 
-  // A `?year=` naming something this Company cannot be asked to close is
-  // ignored rather than refused: the parameter is a navigation, and the screen
-  // falls back to asking which year rather than to an error.
+  // A `?year=` naming something that cannot be asked to close is ignored
+  // rather than refused: the parameter is a navigation, and the screen falls
+  // back to asking which year rather than to an error.
   const requested = Number(year);
-  const yearId =
-    years.some((y) => y.id === requested) ? requested : null;
+  const yearId = years.some((y) => y.id === requested) ? requested : null;
 
-  const plan =
-    companyId && yearId ? await closingPlan(companyId, yearId) : null;
+  const plan = yearId ? await closingPlan(yearId) : null;
 
   return (
     <ClosingWorkspace
       plan={plan}
       years={years}
-      companies={scope.options}
-      companyId={companyId}
       yearId={yearId}
       canClose={actor.permissions.has("FISCAL_YEAR_CLOSE")}
     />

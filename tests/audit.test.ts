@@ -2,18 +2,15 @@ import test, { before, describe, after } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { prisma, disconnect } from "./helpers";
+import { prisma, disconnect, systemUserId } from "./helpers";
 import {
   knownAuditSubjects,
   recentActivity,
   recordHistory,
 } from "../src/lib/erp/audit";
-import { BUDGET_TRANSITIONS } from "../src/lib/erp/budget-workflow";
 import { FISCAL_YEAR_TRANSITIONS } from "../src/lib/erp/fiscal-workflow";
-import { TRANSACTION_TRANSITIONS } from "../src/lib/erp/transaction-workflow";
+import { JOURNAL_TRANSITIONS } from "../src/lib/erp/journal-workflow";
 import { auditEventLabel, knownAuditEvents } from "../src/lib/erp/audit-events";
-import { withdrawFundingRequest } from "../src/lib/erp/funding";
-import { childCompanyId, systemUserId } from "./helpers";
 
 /**
  * The audit log says what changed, in words.
@@ -44,14 +41,10 @@ function sourceFiles(dir: string, out: string[] = []): string[] {
 const ENTITY = "zztest_audit";
 
 let actor = 0;
-let anak = 0;
 const rows: number[] = [];
-const transactions: number[] = [];
-const requests: number[] = [];
 
 before(async () => {
   actor = await systemUserId();
-  anak = await childCompanyId();
 });
 
 /**
@@ -64,23 +57,6 @@ before(async () => {
 after(async () => {
   if (rows.length) {
     await prisma.auditLog.deleteMany({ where: { id: { in: rows } } });
-  }
-  if (requests.length) {
-    await prisma.auditLog.deleteMany({
-      where: { entity_key: "fin_funding_request", row_id: { in: requests } },
-    });
-    await prisma.finFundingRequest.deleteMany({ where: { id: { in: requests } } });
-  }
-  if (transactions.length) {
-    await prisma.auditLog.deleteMany({
-      where: {
-        entity_key: "fin_cash_bank_transaction",
-        row_id: { in: transactions },
-      },
-    });
-    await prisma.finCashBankTransaction.deleteMany({
-      where: { id: { in: transactions } },
-    });
   }
   await disconnect();
 });
@@ -113,7 +89,7 @@ describe("every audited subject can be named", () => {
     const known = knownAuditSubjects();
     assert.ok(known.includes("m_partner"), "the registry should supply m_partner");
     assert.ok(known.includes("sys_user"), "User is outside the registry and needs a line");
-    assert.ok(known.includes("bud_budget"), "Budget is outside the registry and needs a line");
+    assert.ok(known.includes("acc_journal"), "Journal is outside the registry and needs a line");
   });
 });
 
@@ -127,14 +103,14 @@ describe("an entry reads as a record, not a table", () => {
     await disconnect();
   });
 
-  test("a Company change names the Company", async () => {
-    // Companies are system data and always present (CLAUDE.md §12), so this
+  test("a Partner Category change names the Partner Category", async () => {
+    // Partner Categories are seeded system data and always present, so this
     // needs no business fixture of its own.
-    const company = await prisma.sysCompany.findFirstOrThrow();
+    const category = await prisma.sysPartnerCategory.findFirstOrThrow();
     const row = await prisma.auditLog.create({
       data: {
-        entity_key: "sys_company",
-        row_id: company.id,
+        entity_key: "sys_partner_category",
+        row_id: category.id,
         action: "UPDATE",
         by: 0,
       },
@@ -146,12 +122,12 @@ describe("an entry reads as a record, not a table", () => {
     assert.equal(entries[0].id, row.id);
     assert.notEqual(
       entries[0].subject,
-      "sys_company",
+      "sys_partner_category",
       "the subject should be the entity's name, not its table"
     );
     assert.ok(
-      entries[0].title?.includes(company.company_name),
-      `expected the Company's name in the title, got ${entries[0].title}`
+      entries[0].title?.includes(category.category_name),
+      `expected the Partner Category's name in the title, got ${entries[0].title}`
     );
   });
 
@@ -188,8 +164,7 @@ async function writeEntry(
 
 describe("every lifecycle transition can be named in a history", () => {
   const TABLES: [string, string, Record<string, unknown>][] = [
-    ["bud_budget", "Budget", BUDGET_TRANSITIONS],
-    ["fin_cash_bank_transaction", "Cash Bank Transaction", TRANSACTION_TRANSITIONS],
+    ["acc_journal", "Journal", JOURNAL_TRANSITIONS],
     ["acc_fiscal_year", "Fiscal Year", FISCAL_YEAR_TRANSITIONS],
   ];
 
@@ -211,27 +186,29 @@ describe("every lifecycle transition can be named in a history", () => {
   test("a labelled event reads as something that already happened", () => {
     // The transition table's own label is an imperative, because it is written
     // on a button. A history entry reports the past, so the two must differ.
-    assert.equal(auditEventLabel("bud_budget", "UPDATE", "approve").label, "Disetujui");
-    assert.equal(auditEventLabel("bud_budget", "UPDATE", "reject").label, "Ditolak");
-    assert.equal(
-      auditEventLabel("fin_cash_bank_transaction", "UPDATE", "post").label,
-      "Diposting"
-    );
+    assert.equal(auditEventLabel("acc_journal", "UPDATE", "post").label, "Diposting");
+    assert.equal(auditEventLabel("acc_journal", "UPDATE", "cancel").label, "Dibatalkan");
+    assert.equal(auditEventLabel("acc_fiscal_year", "UPDATE", "open").label, "Diaktifkan");
   });
 
   test("a transition's tone carries into its history entry", () => {
-    // A rejection is drawn as danger on the button, so it is drawn as danger in
-    // the trace — one table decides both.
-    assert.equal(auditEventLabel("bud_budget", "UPDATE", "reject").tone, "danger");
-    assert.equal(auditEventLabel("bud_budget", "UPDATE", "approve").tone, "primary");
+    // One table decides both the button and the trace.
+    assert.equal(
+      auditEventLabel("acc_journal", "UPDATE", "cancel").tone,
+      JOURNAL_TRANSITIONS.cancel.tone
+    );
+    assert.equal(
+      auditEventLabel("acc_journal", "UPDATE", "post").tone,
+      JOURNAL_TRANSITIONS.post.tone
+    );
   });
 
   test("a consequence is marked as one, not attributed to a decision", () => {
-    // Nobody closes a Budget by hand — it closes because a posting reached its
-    // planned amount (CLAUDE.md §10 rule 36).
-    assert.equal(auditEventLabel("bud_budget", "UPDATE", "close").systemDriven, true);
+    // A Fiscal Year reads Closed because its closing ran; the decision is the
+    // closing row's own entry.
+    assert.equal(auditEventLabel("acc_fiscal_year", "UPDATE", "close").systemDriven, true);
     assert.notEqual(
-      auditEventLabel("bud_budget", "UPDATE", "approve").systemDriven,
+      auditEventLabel("acc_fiscal_closing", "UPDATE", "close").systemDriven,
       true
     );
   });
@@ -239,15 +216,15 @@ describe("every lifecycle transition can be named in a history", () => {
 
 describe("an unnameable row still says something true", () => {
   test("a row written before `event` existed reports the coarse verb", () => {
-    assert.equal(auditEventLabel("bud_budget", "UPDATE", null).label, "Diubah");
-    assert.equal(auditEventLabel("bud_budget", "TAMBAH", null).label, "Dibuat");
+    assert.equal(auditEventLabel("acc_journal", "UPDATE", null).label, "Diubah");
+    assert.equal(auditEventLabel("acc_journal", "TAMBAH", null).label, "Dibuat");
   });
 
   test("an event this build does not know falls back rather than inventing", () => {
     // A row written by a newer build, read by an older one. It must not claim
     // to know which transition it was.
     assert.equal(
-      auditEventLabel("bud_budget", "UPDATE", "teleport").label,
+      auditEventLabel("acc_journal", "UPDATE", "teleport").label,
       "Diubah"
     );
   });
@@ -344,67 +321,5 @@ describe("a record's history", () => {
 
     assert.equal((await recordHistory(ENTITY, mine)).total, 1);
     assert.equal((await recordHistory(ENTITY, theirs)).total, 2);
-  });
-});
-
-// ------------------------------------------------- the gap that had no record
-
-describe("withdrawing a funding request leaves a trace", () => {
-  test("the request records who took it back, and the document that it was cancelled", async () => {
-    const currency = await prisma.refCurrency.findFirstOrThrow({
-      orderBy: { id: "asc" },
-      select: { id: true },
-    });
-
-    // The anak's document waiting on the induk. Withdrawal needs only that it
-    // is Pending and that a request is open against it.
-    const doc = await prisma.finCashBankTransaction.create({
-      data: {
-        transaction_no: `ZZTEST-AUD${Date.now() % 1_000_000}`,
-        transaction_type: "Out",
-        company_id: anak,
-        purpose: "HUTANG_BAYAR",
-        cash_bank_id: null,
-        currency_id: currency.id,
-        transaction_amount: 1000,
-        transaction_base_amount: 1000,
-        status: "Pending",
-        created_by: actor,
-      },
-      select: { id: true },
-    });
-    transactions.push(doc.id);
-
-    const request = await prisma.finFundingRequest.create({
-      data: {
-        funding_request_no: `ZZTEST-FR${Date.now() % 1_000_000}`,
-        request_date: new Date("2026-06-01T00:00:00Z"),
-        transaction_id: doc.id,
-        currency_id: currency.id,
-        request_amount: 1000,
-        status: "Open",
-        created_by: actor,
-      },
-      select: { id: true },
-    });
-    requests.push(request.id);
-
-    const result = await withdrawFundingRequest(doc.id, actor);
-    assert.equal(result.ok, true);
-
-    const onRequest = await recordHistory("fin_funding_request", request.id);
-    assert.deepEqual(
-      onRequest.entries.map((e) => e.event),
-      ["withdraw"],
-      "Withdrawal used to write no audit row at all, so a request that was " +
-        "taken back left no trace of who took it back or when."
-    );
-
-    const onDocument = await recordHistory("fin_cash_bank_transaction", doc.id);
-    assert.deepEqual(
-      onDocument.entries.map((e) => e.event),
-      ["cancel"],
-      "The document is cancelled by the same act, and says so in its own history."
-    );
   });
 });

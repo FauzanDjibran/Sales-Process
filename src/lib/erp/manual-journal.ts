@@ -28,7 +28,7 @@ import { systemDefaultsUsingAccount } from "./system-settings";
  * posted. A manual journal has no document behind it: it is depreciation, an
  * accrual, a reclassification between two expense accounts, an equity entry —
  * the work that is real accounting but is not a cash movement anybody could
- * raise a Budget for.
+ * raise a document for.
  *
  * ## The one thing it must never do
  *
@@ -66,7 +66,6 @@ import { systemDefaultsUsingAccount } from "./system-settings";
 // --------------------------------------------------------------- the input
 
 export type ManualJournalHeader = {
-  company_id: number | null;
   /**
    * `YYYY-MM-DD` — the day the journal belongs to in the books. The form
    * always sends one (an empty one is refused); a caller in code that leaves
@@ -92,7 +91,6 @@ export type ManualJournalLineValues = {
 export type ManualJournalCheck =
   | {
       ok: true;
-      companyId: number;
       /** The checked date, canonical `YYYY-MM-DD`. */
       date: string;
       description: string;
@@ -138,7 +136,7 @@ export type ManualJournalOptions = {
 };
 
 /**
- * What a line may be built from, for one Company.
+ * What a line may be built from.
  *
  * The accounts are narrowed by the same two flags the check enforces, plus the
  * tree itself: `children: none` rather than `is_postable` alone, because the
@@ -149,13 +147,10 @@ export type ManualJournalOptions = {
  * runnable for an account that closed last quarter — a manual journal writes
  * something new, and nothing new belongs in a closed account.
  */
-export async function manualJournalOptions(
-  companyId: number
-): Promise<ManualJournalOptions> {
+export async function manualJournalOptions(): Promise<ManualJournalOptions> {
   const [accounts, partners, currencies] = await Promise.all([
     prisma.accAccount.findMany({
       where: {
-        company_id: companyId,
         is_active: true,
         is_postable: true,
         is_control_account: false,
@@ -171,7 +166,7 @@ export async function manualJournalOptions(
       },
     }),
     prisma.mPartner.findMany({
-      where: { company_id: companyId, status: "Active" },
+      where: { status: "Active" },
       orderBy: { partner_label: "asc" },
       select: {
         id: true,
@@ -232,14 +227,9 @@ async function refuseAccount(
     is_postable: boolean;
     is_active: boolean;
     is_control_account: boolean;
-    company_id: number;
     _count: { children: number };
-  },
-  companyId: number
-): Promise<string | null> {
-  if (account.company_id !== companyId) {
-    return "Account tersebut milik Company lain.";
   }
+): Promise<string | null> {
   if (!account.is_active) {
     return "Account tersebut non-aktif.";
   }
@@ -277,9 +267,6 @@ export async function checkManualJournal(
 ): Promise<ManualJournalCheck> {
   const errors: Record<string, string> = {};
 
-  const companyId = header.company_id;
-  if (!companyId) errors.company_id = "Company wajib dipilih.";
-
   const description = String(header.description ?? "").trim();
   if (!description) errors.description = "Keterangan wajib diisi.";
 
@@ -289,16 +276,15 @@ export async function checkManualJournal(
     errors._form = "Journal memerlukan minimal dua baris.";
   }
 
-  if (!companyId || Object.keys(errors).length) {
+  if (Object.keys(errors).length) {
     return { ok: false, errors };
   }
 
-  // The day it belongs to: any day up to today, inside a year this Company may
-  // still write into. Asked at save so the refusal arrives while the date can
+  // The day it belongs to: any day up to today, inside a year that may still
+  // be written into. Asked at save so the refusal arrives while the date can
   // still be changed, and again at Post, because a year can close in between.
   const dated = await checkTransactionDate(
-    header.journal_date === undefined ? todayDay() : header.journal_date,
-    [companyId]
+    header.journal_date === undefined ? todayDay() : header.journal_date
   );
   if (!dated.ok) return { ok: false, errors: { journal_date: dated.message } };
 
@@ -313,7 +299,6 @@ export async function checkManualJournal(
         id: true,
         account_label: true,
         account_name: true,
-        company_id: true,
         is_postable: true,
         is_active: true,
         is_control_account: true,
@@ -327,7 +312,6 @@ export async function checkManualJournal(
       select: {
         id: true,
         partner_label: true,
-        company_id: true,
         status: true,
         category_id: true,
       },
@@ -353,7 +337,7 @@ export async function checkManualJournal(
       continue;
     }
 
-    const refused = await refuseAccount(account, companyId);
+    const refused = await refuseAccount(account);
     if (refused) {
       errors[lineKey(i, "account_id")] = refused;
       continue;
@@ -368,9 +352,6 @@ export async function checkManualJournal(
       if (!partner) {
         errors[lineKey(i, "partner_id")] =
           "Account ini wajib menyebut Partner.";
-      } else if (partner.company_id !== companyId) {
-        errors[lineKey(i, "partner_id")] =
-          "Partner tersebut milik Company lain.";
       } else if (partner.status !== "Active") {
         errors[lineKey(i, "partner_id")] = "Partner tersebut non-aktif.";
       } else if (
@@ -440,7 +421,6 @@ export async function checkManualJournal(
 
   return {
     ok: true,
-    companyId,
     date: dated.date,
     description,
     lines: resolved,
@@ -464,7 +444,6 @@ export async function createManualJournal(
   if (!checked.ok) return { ok: false, errors: checked.errors };
 
   const created = await createDraftJournal({
-    companyId: checked.companyId,
     date: checked.date,
     description: checked.description,
     lines: checked.lines,
@@ -477,17 +456,15 @@ export async function updateManualJournal(
   id: number,
   header: ManualJournalHeader,
   lines: ManualJournalLineValues[],
-  actorId: number,
-  companyIds: number[]
+  actorId: number
 ): Promise<ManualJournalResult> {
-  const existing = await draftOrRefusal(id, companyIds);
+  const existing = await draftOrRefusal(id);
   if ("errors" in existing) return { ok: false, errors: existing.errors };
 
   const checked = await checkManualJournal(header, lines);
   if (!checked.ok) return { ok: false, errors: checked.errors };
 
   await updateDraftJournal(id, {
-    companyId: checked.companyId,
     date: checked.date,
     description: checked.description,
     lines: checked.lines,
@@ -500,17 +477,15 @@ export async function updateManualJournal(
  * Post: re-checked, then handed to the engine.
  *
  * The accounts are checked **again here**, not trusted from when the draft was
- * written: a mapping made in the meantime can have turned one of them into a
- * control account, and posting against a chart that has moved on would write
- * exactly the discrepancy this module exists to prevent. The same reasoning
- * `applyPosting` uses for re-reading its Budgets at Post.
+ * written: one of them may have become a control account in the meantime, and
+ * posting against a chart that has moved on would write exactly the
+ * discrepancy this module exists to prevent.
  */
 export async function postManualJournal(
   id: number,
-  actorId: number,
-  companyIds: number[]
+  actorId: number
 ): Promise<ManualJournalResult> {
-  const existing = await draftOrRefusal(id, companyIds);
+  const existing = await draftOrRefusal(id);
   if ("errors" in existing) return { ok: false, errors: existing.errors };
 
   // The accounts and the date are both re-asked. The date carries the fiscal
@@ -519,7 +494,6 @@ export async function postManualJournal(
   // draft saved before drafts carried a date posts as today, as it would have.
   const recheck = await checkManualJournal(
     {
-      company_id: existing.companyId,
       journal_date: existing.date ?? new Date().toISOString().slice(0, 10),
       description: existing.description,
     },
@@ -538,7 +512,7 @@ export async function postManualJournal(
   let posted: Awaited<ReturnType<typeof postDraftJournal>>;
   try {
     posted = await postDraftJournal(id, actorId, (tx, date) =>
-      holdPostingPeriod(tx, [existing.companyId], date)
+      holdPostingPeriod(tx, date)
     );
   } catch (error) {
     if (error instanceof PeriodShut) {
@@ -553,10 +527,9 @@ export async function postManualJournal(
 
 export async function cancelManualJournal(
   id: number,
-  actorId: number,
-  companyIds: number[]
+  actorId: number
 ): Promise<ManualJournalResult> {
-  const existing = await draftOrRefusal(id, companyIds);
+  const existing = await draftOrRefusal(id);
   if ("errors" in existing) return { ok: false, errors: existing.errors };
 
   const cancelled = await cancelDraftJournal(id, actorId);
@@ -571,25 +544,19 @@ export async function cancelManualJournal(
  * Every write path asks this first. `is_manual` is checked as well as the
  * status, even though only a manual journal is ever a draft: the day something
  * else stages a journal, this refuses rather than quietly editing it.
- *
- * A journal belonging to a Company the caller may not see reads as **not
- * found**, which is the same answer one that does not exist gives — the
- * convention every scoped reader in the application follows.
  */
 async function draftOrRefusal(
-  id: number,
-  companyIds: number[]
+  id: number
 ): Promise<
   | {
       journalNo: string;
-      companyId: number;
       date: string | null;
       description: string;
       lines: ManualJournalLineValues[];
     }
   | { errors: Record<string, string> }
 > {
-  const journal = await readDraftJournal(id, companyIds);
+  const journal = await readDraftJournal(id);
   if (!journal) return { errors: { _form: "Journal tidak ditemukan." } };
   if (!journal.isManual) {
     return {
@@ -612,7 +579,6 @@ async function draftOrRefusal(
 
   return {
     journalNo: journal.journalNo,
-    companyId: journal.companyId,
     date: journal.date,
     description: journal.description,
     lines: journal.lines.map(toLineValues),

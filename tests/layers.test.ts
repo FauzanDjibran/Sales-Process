@@ -16,7 +16,6 @@ import {
   cleanupFixtures,
   disconnect,
   makeAccount,
-  parentCompanyId,
   prisma,
   systemUserId,
 } from "./helpers";
@@ -33,7 +32,6 @@ import {
 
 const today = new Date().toISOString().slice(0, 10);
 
-let company = 0;
 let actor = 0;
 let baseCurrency = 0;
 let foreignCurrency = 0;
@@ -47,7 +45,6 @@ async function makeResource(options: {
   layered?: boolean;
 }): Promise<number> {
   const account = await makeAccount({
-    companyId: company,
     subcategoryLabel: CASH_BANK_SUBCATEGORY,
   });
   const key = `${FIXTURE_PREFIX}LY${made.length + 1}${Date.now() % 100000}`;
@@ -56,7 +53,6 @@ async function makeResource(options: {
       cash_bank_code: `test.${key}`,
       cash_bank_label: key,
       cash_bank_name: `Fixture ${key}`,
-      company_id: company,
       cash_bank_type: "Bank",
       currency_id: options.currencyId,
       account_id: account,
@@ -77,7 +73,6 @@ async function makeResource(options: {
 }
 
 before(async () => {
-  company = await parentCompanyId();
   actor = await systemUserId();
   baseCurrency = (
     await prisma.refCurrency.findFirstOrThrow({
@@ -355,7 +350,7 @@ describe("the layers of an account are what it holds", () => {
       cashBankId: id, date: today, rate: 15_500, foreign: 300, actorId: actor,
     });
 
-    const report = await layerReport([company], id);
+    const report = await layerReport(id);
     const block = report.blocks[0];
     assert.equal(block.foreignRemaining, 500);
     assert.equal(block.baseRemaining, 3_000_000 + 4_650_000);
@@ -375,7 +370,7 @@ describe("the layers of an account are what it holds", () => {
       layerId: spent.id, cashBankId: id, foreign: 100, actorId: actor,
     });
 
-    const block = (await layerReport([company], id)).blocks[0];
+    const block = (await layerReport(id)).blocks[0];
     assert.equal(block.layers.length, 2, "a spent layer is part of the history");
     assert.equal(
       block.layers.find((l) => l.id === spent.id)!.status,
@@ -386,24 +381,18 @@ describe("the layers of an account are what it holds", () => {
 
   test("a base-currency resource is not a block on this report", async () => {
     const id = await makeResource({ currencyId: baseCurrency, opening: 1_000_000 });
-    const report = await layerReport([company]);
+    const report = await layerReport();
     assert.ok(
       !report.blocks.some((b) => b.cashBankId === id),
       "rupiah is the measure, so it has nothing to choose between"
     );
   });
 
-  test("a resource outside the reader's Companies is not reported", async () => {
-    const id = await makeResource({ currencyId: foreignCurrency, opening: 500, rate: 15_000 });
-    const report = await layerReport([]);
-    assert.ok(!report.blocks.some((b) => b.cashBankId === id));
-  });
-
   test("layers and the book agree, and the report says when they do not", async () => {
     const id = await makeResource({
       currencyId: foreignCurrency, opening: 1_000, rate: 15_000,
     });
-    assert.ok((await layerReport([company], id)).blocks[0].reconciles);
+    assert.ok((await layerReport(id)).blocks[0].reconciles);
 
     // Move the book without touching the layers — which nothing in the
     // application does, and which is exactly why the check exists.
@@ -425,6 +414,6 @@ describe("the layers of an account are what it holds", () => {
       false,
       "a resource's balance IS the sum of its layers — a gap is a system fault"
     );
-    assert.equal((await layerReport([company], id)).blocks[0].reconciles, false);
+    assert.equal((await layerReport(id)).blocks[0].reconciles, false);
   });
 });

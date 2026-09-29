@@ -2,7 +2,7 @@
  * Empties every transaction store, leaving master and system data standing.
  *
  * A hand-run script, deliberately outside install, migrate, reset and CI — the
- * same standing as `sample-data.ts` and `backfill-subledger.ts` (CLAUDE.md §12).
+ * same standing SIBA gave it.
  * It is what clears a database that has been used for trying things out, so the
  * people who own it can start entering real documents against a chart of
  * accounts, a partner list and a fiscal calendar they have already set up.
@@ -13,16 +13,12 @@
  *
  * WHAT IT DELETES
  *   acc_journal_line, acc_journal                  the books' journals
- *   fin_cash_bank_transaction(_line)               Finance's documents
- *   fin_funding_request                            the intercompany bridge
- *   bud_budget                                     the plans
- *   sub_ledger, sub_ledger_balance                 the six subject books
  *   cash_bank_ledger, cash_bank_layer              the Cash Bank Book
  *   audit_log rows belonging to those documents
  *
  * WHAT IT KEEPS
  *   every sys_* table, ref_currency, m_partner, m_cash_bank, the whole chart of
- *   accounts and its mappings, acc_fiscal_year / acc_fiscal_period, and the
+ *   accounts, acc_fiscal_year / acc_fiscal_period, and the
  *   master records' own audit history.
  *
  * WHY cash_bank_balance IS RESET RATHER THAN DELETED
@@ -40,7 +36,7 @@
  *   is the one consequence that is not reversible from inside the application.
  *
  * Document numbering restarts on its own: `nextDocumentNumber` reads the
- * highest row still in the table, so the next Budget is BGT-0001 again. The
+ * highest row still in the table, so the series starts again at 0001. The
  * primary-key sequences are left alone — nothing in the application reads an
  * id as a number, and resetting them by hand buys only tidier integers.
  *
@@ -54,12 +50,7 @@ import "dotenv/config";
 import { prisma } from "@/lib/prisma";
 
 /** Audit rows follow the documents they describe; master history stays. */
-const DOCUMENT_ENTITY_KEYS = [
-  "bud_budget",
-  "fin_cash_bank_transaction",
-  "fin_funding_request",
-  "acc_journal",
-];
+const DOCUMENT_ENTITY_KEYS = ["acc_journal"];
 
 async function main() {
   const confirmed = process.argv.includes("--confirm");
@@ -67,12 +58,6 @@ async function main() {
   const counts = {
     acc_journal_line: await prisma.accJournalLine.count(),
     acc_journal: await prisma.accJournal.count(),
-    fin_cash_bank_transaction_line: await prisma.finCashBankTransactionLine.count(),
-    fin_funding_request: await prisma.finFundingRequest.count(),
-    fin_cash_bank_transaction: await prisma.finCashBankTransaction.count(),
-    bud_budget: await prisma.budBudget.count(),
-    sub_ledger: await prisma.subLedger.count(),
-    sub_ledger_balance: await prisma.subLedgerBalance.count(),
     cash_bank_ledger: await prisma.cashBankLedger.count(),
     cash_bank_layer: await prisma.cashBankLayer.count(),
     audit_log: await prisma.auditLog.count({
@@ -110,15 +95,6 @@ async function main() {
     // before the layer a payment drew on, everything before the books.
     await tx.accJournalLine.deleteMany();
     await tx.accJournal.deleteMany();
-
-    await tx.finCashBankTransactionLine.deleteMany();
-    await tx.finFundingRequest.deleteMany();
-    await tx.finCashBankTransaction.deleteMany();
-
-    await tx.budBudget.deleteMany();
-
-    await tx.subLedger.deleteMany();
-    await tx.subLedgerBalance.deleteMany();
 
     await tx.cashBankLedger.deleteMany();
     await tx.cashBankLayer.deleteMany();

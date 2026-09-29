@@ -11,8 +11,7 @@ import { useReportRun } from "./report-run";
 
 /**
  * The filter for every report whose subject is a **set**: several accounts for
- * the `account-period` reports, several Partners for the `subledger-period`
- * ones, plus an inclusive date range.
+ * the `account-period` reports, plus an inclusive date range.
  *
  * Several, because reading a ledger nearly always means reading a pair — the
  * cash account against whatever it moved against, or two Partners settling with
@@ -29,8 +28,7 @@ import { useReportRun } from "./report-run";
  * are compact and why the chosen subjects are chips on a second row rather than
  * a wider picker: the header's height is the report's lost viewport.
  *
- * Two rows, in the order they are filled in — the Company (and, on Buku
- * Subjek, the book) with the subjects, then the period — with *Tampilkan* in
+ * Two rows, in the order they are filled in — the subjects, then the period — with *Tampilkan* in
  * the header's action slot, top right, like Simpan on a form.
  */
 export function SubjectParams({
@@ -45,7 +43,6 @@ export function SubjectParams({
   addPlaceholder,
   allPlaceholder,
   missingHint,
-  companyId,
   extraParams,
   lead,
 }: {
@@ -64,16 +61,13 @@ export function SubjectParams({
   allPlaceholder: string;
   /** Why the button is disabled while nothing is chosen. */
   missingHint: string;
-  /** Carried through the URL so switching Company does not lose the run. */
-  companyId?: number | null;
   /**
    * Parameters this report needs carried through that are not the subject or
-   * the period — the subject book on Buku Subjek. Without them, pressing
-   * *Tampilkan* would rebuild the URL without the book and quietly send the
-   * reader back to the first one.
+   * the period. Without them, pressing *Tampilkan* would rebuild the URL
+   * without them and quietly drop them.
    */
   extraParams?: Record<string, string | number | null | undefined>;
-  /** What comes before the subject on the first row — the Company, the book. */
+  /** What comes before the subject on the first row, where a report has one. */
   lead?: React.ReactNode;
 }) {
   const router = useRouter();
@@ -92,7 +86,6 @@ export function SubjectParams({
       startTransition(() => {
         router.push(
           reportHref(slug, {
-            company: companyId ?? null,
             ...extraParams,
             [param]: selected.join(","),
             from: start,

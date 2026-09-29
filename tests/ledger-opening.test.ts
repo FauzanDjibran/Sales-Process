@@ -9,7 +9,6 @@ import {
   cleanupFixtures,
   disconnect,
   makeAccount,
-  parentCompanyId,
   prisma,
   systemUserId,
 } from "./helpers";
@@ -39,7 +38,6 @@ const FY = 1980;
 const YEAR_PREFIX = "test.eqv.";
 
 let actor = 0;
-let company = 0;
 let baseCurrency = 0;
 let year1980 = 0;
 let year1981 = 0;
@@ -88,7 +86,6 @@ async function postFixtureJournal(
       journal_no: `ZZE-${Date.now() % 100000}-${Math.floor(Math.random() * 10000)}`,
       posting_date: new Date(`${date}T00:00:00Z`),
       created_at: new Date(`${date}T00:00:00Z`),
-      company_id: company,
       description: "Fixture",
       status: "Posted",
       created_by: actor,
@@ -138,7 +135,6 @@ async function fullScanOpening(accountId: number, from: string): Promise<number>
       account_id: accountId,
       journal: {
         status: "Posted",
-        company_id: company,
         posting_date: { lt: new Date(`${from}T00:00:00Z`) },
       },
     },
@@ -209,7 +205,6 @@ async function wipeFixtureYears() {
 
 before(async () => {
   actor = await systemUserId();
-  company = await parentCompanyId();
   baseCurrency = (
     await prisma.refCurrency.findFirstOrThrow({
       orderBy: { id: "asc" },
@@ -226,32 +221,27 @@ before(async () => {
   await makeYear(FY + 2, "Draft");
 
   cash = await makeAccount({
-    companyId: company,
     subcategoryLabel: CASH_BANK_SUBCATEGORY,
     normalBalance: "Debit",
   });
   income = await makeAccount({
-    companyId: company,
     subcategoryLabel: "4.1.1",
     normalBalance: "Kredit",
   });
   expense = await makeAccount({
-    companyId: company,
     subcategoryLabel: "5.3.1",
     normalBalance: "Debit",
   });
   equity = await makeAccount({
-    companyId: company,
     subcategoryLabel: "3.3.1",
     normalBalance: "Kredit",
   });
   dormant = await makeAccount({
-    companyId: company,
     subcategoryLabel: "1.1.4",
     normalBalance: "Debit",
   });
 
-  await setSetting("induk_accumulated_pl_account", String(equity));
+  await setSetting("accumulated_pl_account", String(equity));
 
   // 1980: the history the snapshot will fold away.
   await postFixtureJournal(`${FY}-03-15`, [
@@ -270,7 +260,7 @@ before(async () => {
   ]);
 
   // Closing 1980 writes the snapshot dated 01/01/1981.
-  const closed = await executeClosing(company, year1980, actor);
+  const closed = await executeClosing(year1980, actor);
   assert.equal(closed.ok, true, JSON.stringify(closed));
 
   // 1981: movement after the snapshot, which the reports must still add.
@@ -304,7 +294,7 @@ const accounts = () => [cash, income, expense, equity, dormant];
 
 /** Every account's opening, from the report and from the reference. */
 async function comparedAt(from: string, to: string) {
-  const report = await generalLedgerReport(accounts(), { from, to }, [company]);
+  const report = await generalLedgerReport(accounts(), { from, to });
   const rows: { label: string; reported: number; scanned: number }[] = [];
   for (const account of report.accounts) {
     rows.push({
@@ -391,8 +381,7 @@ describe("a snapshot-based opening equals the full scan, to the cent", () => {
 describe("the Trial Balance opening comes from the same place", () => {
   test("every row's opening equals the full scan", async () => {
     const report = await trialBalanceReport(
-      { from: `${FY + 1}-01-01`, to: `${FY + 1}-12-31` },
-      [company]
+      { from: `${FY + 1}-01-01`, to: `${FY + 1}-12-31` }
     );
     assert.ok(report.openingFrom, "a snapshot covers this date");
 
@@ -413,8 +402,7 @@ describe("the Trial Balance opening comes from the same place", () => {
     // account with no line inside the period was still found. Now the rows
     // have to be seeded from the snapshot as well.
     const report = await trialBalanceReport(
-      { from: `${FY + 1}-01-01`, to: `${FY + 1}-12-31` },
-      [company]
+      { from: `${FY + 1}-01-01`, to: `${FY + 1}-12-31` }
     );
     const row = report.rows.find((r) => r.id === dormant);
     assert.ok(row, "an account with an opening and no movement must still appear");
@@ -426,8 +414,7 @@ describe("the Trial Balance opening comes from the same place", () => {
 
   test("opening plus movement is still the closing balance", async () => {
     const report = await trialBalanceReport(
-      { from: `${FY + 1}-01-01`, to: `${FY + 1}-12-31` },
-      [company]
+      { from: `${FY + 1}-01-01`, to: `${FY + 1}-12-31` }
     );
     for (const row of report.rows) {
       const movement =
@@ -444,8 +431,7 @@ describe("the Trial Balance opening comes from the same place", () => {
 
   test("the period's two sides still agree", async () => {
     const report = await trialBalanceReport(
-      { from: `${FY + 1}-01-01`, to: `${FY + 1}-12-31` },
-      [company]
+      { from: `${FY + 1}-01-01`, to: `${FY + 1}-12-31` }
     );
     assert.equal(report.balanced, true);
     assert.deepEqual(report.unbalanced, []);
@@ -453,8 +439,7 @@ describe("the Trial Balance opening comes from the same place", () => {
 
   test("no snapshot means no provenance, and the old arithmetic", async () => {
     const report = await trialBalanceReport(
-      { from: `${FY}-07-01`, to: `${FY}-12-31` },
-      [company]
+      { from: `${FY}-07-01`, to: `${FY}-12-31` }
     );
     assert.equal(report.openingFrom, null);
     const row = report.rows.find((r) => r.id === cash);
@@ -480,13 +465,12 @@ describe("the latest snapshot on or before the date is the one used", () => {
       data: { status: "Closed" },
     });
 
-    const closed = await executeClosing(company, year1981, actor);
+    const closed = await executeClosing(year1981, actor);
     assert.equal(closed.ok, true, JSON.stringify(closed));
 
     const report = await generalLedgerReport(
       accounts(),
-      { from: `${FY + 2}-01-01`, to: `${FY + 2}-12-31` },
-      [company]
+      { from: `${FY + 2}-01-01`, to: `${FY + 2}-12-31` }
     );
     assert.ok(report.openingFrom);
     assert.equal(
@@ -507,8 +491,7 @@ describe("the latest snapshot on or before the date is the one used", () => {
   test("and the earlier date still uses the earlier snapshot", async () => {
     const report = await generalLedgerReport(
       accounts(),
-      { from: `${FY + 1}-06-30`, to: `${FY + 1}-12-31` },
-      [company]
+      { from: `${FY + 1}-06-30`, to: `${FY + 1}-12-31` }
     );
     assert.equal(report.openingFrom?.date, `${FY + 1}-01-01`);
     for (const account of report.accounts) {
@@ -522,8 +505,7 @@ describe("the latest snapshot on or before the date is the one used", () => {
 
   test("two closes leave the books balanced across the boundary", async () => {
     const report = await trialBalanceReport(
-      { from: `${FY + 2}-01-01`, to: `${FY + 2}-12-31` },
-      [company]
+      { from: `${FY + 2}-01-01`, to: `${FY + 2}-12-31` }
     );
     const mine = report.rows.filter((r) => accounts().includes(r.id));
     const openingSum = mine.reduce(

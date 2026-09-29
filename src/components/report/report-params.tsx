@@ -25,8 +25,7 @@ import { useReportRun } from "./report-run";
  * machines is a data hazard (§12). Compact, because this sits in the sticky
  * page header and every pixel it takes is a pixel the report does not get.
  *
- * Two rows, in the order they are filled in — the Company and the resource,
- * then the period — with *Tampilkan* in the header's action slot, top right,
+ * Two rows, in the order they are filled in — the resource, then the period — with *Tampilkan* in the header's action slot, top right,
  * like Simpan on a form.
  */
 export function ReportParams({
@@ -38,7 +37,6 @@ export function ReportParams({
   subjectRequired,
   subjectLabel,
   allLabel,
-  companyId,
   lead,
   dateless = false,
 }: {
@@ -57,9 +55,7 @@ export function ReportParams({
   subjectLabel: string;
   /** Copy for "no subject chosen", where the report allows it. */
   allLabel?: string;
-  /** Carried through the URL so switching Company does not lose the run. */
-  companyId?: number | null;
-  /** The Company picker, first on the first row. */
+  /** What comes before the resource on the first row, where a report has one. */
   lead?: React.ReactNode;
 }) {
   const router = useRouter();
@@ -78,7 +74,6 @@ export function ReportParams({
       startTransition(() => {
         router.push(
           reportHref(slug, {
-            company: companyId ?? null,
             cashBank: subject,
             ...(dateless ? {} : { from: start, to: end }),
           })

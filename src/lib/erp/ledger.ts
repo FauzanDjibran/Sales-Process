@@ -79,7 +79,7 @@ export function signedMovement(
 }
 
 /**
- * Where a Company's accounts stood immediately before a date, and how that was
+ * Where the accounts stood immediately before a date, and how that was
  * worked out.
  *
  * Both ledger reports need the same figure and used to get it the same way: by
@@ -112,19 +112,17 @@ type OpeningBasis = {
 };
 
 async function openingBasis(
-  companyId: number,
   from: Date,
-  /** The accounts asked about, or null for "every account this Company has". */
+  /** The accounts asked about, or null for every account. */
   accountIds: number[] | null
 ): Promise<OpeningBasis> {
-  const snapshot = await openingBasisFor(companyId, from);
+  const snapshot = await openingBasisFor(from);
 
   const lines = await prisma.accJournalLine.findMany({
     where: {
       ...(accountIds ? { account_id: { in: accountIds } } : {}),
       journal: {
         ...POSTED,
-        company_id: companyId,
         // A snapshot holds everything **before** its own date, so only what
         // came after it is still outstanding. Without one, the whole history is.
         posting_date: snapshot
@@ -189,25 +187,6 @@ function signedNet(normalBalance: string, net: number): number {
   return normalBalance === "Kredit" ? -net : net;
 }
 
-/**
- * One basis per Company, since a snapshot belongs to one.
- *
- * Every Report View runs for a single Company, so this is one entry in
- * practice — but the readers take a scope array, and an account belongs to
- * exactly one Company's chart, so the honest thing is to ask each Company's
- * own snapshot rather than assume there is only ever one.
- */
-async function basesByCompany(
-  accountsByCompany: Map<number, number[] | null>,
-  from: Date
-): Promise<Map<number, OpeningBasis>> {
-  const out = new Map<number, OpeningBasis>();
-  for (const [companyId, ids] of accountsByCompany) {
-    out.set(companyId, await openingBasis(companyId, from, ids));
-  }
-  return out;
-}
-
 /** The snapshot a report stood on, for the report to say so. */
 export type OpeningProvenance = {
   openingNo: string;
@@ -215,16 +194,13 @@ export type OpeningProvenance = {
   date: string;
 };
 
-function provenanceOf(bases: Map<number, OpeningBasis>): OpeningProvenance | null {
-  for (const basis of bases.values()) {
-    if (basis.snapshot) {
-      return {
+function provenanceOf(basis: OpeningBasis): OpeningProvenance | null {
+  return basis.snapshot
+    ? {
         openingNo: basis.snapshot.openingNo,
         date: basis.snapshot.postingDate.toISOString().slice(0, 10),
-      };
-    }
-  }
-  return null;
+      }
+    : null;
 }
 
 export type LedgerEntry = {
@@ -254,7 +230,6 @@ export type LedgerAccount = {
   id: number;
   label: string;
   name: string;
-  companyLabel: string;
   normalBalance: string;
   opening: number;
   debit: number;
@@ -299,24 +274,21 @@ export type GeneralLedgerReport = {
  * than listed, and the range is inclusive at both ends — the same arithmetic
  * the Cash Bank reports use (§10 rule 41). Where a close has written one, that
  * figure starts from the Opening Balance snapshot instead of from the first
- * transaction in the Company's history; see `openingBasis`.
+ * transaction in history; see `openingBasis`.
  */
 export async function generalLedgerReport(
   accountIds: number[],
-  range: PeriodRange,
-  companyIds: number[]
+  range: PeriodRange
 ): Promise<GeneralLedgerReport> {
   if (!accountIds.length) return { range, accounts: [], openingFrom: null };
 
   const accounts = await prisma.accAccount.findMany({
-    where: { id: { in: accountIds }, company_id: { in: companyIds } },
+    where: { id: { in: accountIds } },
     select: {
       id: true,
       account_label: true,
       account_name: true,
       normal_balance: true,
-      company_id: true,
-      company: { select: { company_label: true } },
     },
   });
   if (!accounts.length) return { range, accounts: [], openingFrom: null };
@@ -325,15 +297,8 @@ export async function generalLedgerReport(
   const from = new Date(`${range.from}T00:00:00Z`);
   const to = new Date(`${range.to}T00:00:00Z`);
 
-  // Grouped by Company because a snapshot belongs to one, and an account
-  // belongs to exactly one Company's chart.
-  const byCompany = new Map<number, number[]>();
-  for (const a of accounts) {
-    byCompany.set(a.company_id, [...(byCompany.get(a.company_id) ?? []), a.id]);
-  }
-
-  const [bases, within] = await Promise.all([
-    basesByCompany(byCompany, from),
+  const [basis, within] = await Promise.all([
+    openingBasis(from, ids),
     prisma.accJournalLine.findMany({
       where: {
         account_id: { in: ids },
@@ -349,7 +314,6 @@ export async function generalLedgerReport(
   ]);
 
   const out: LedgerAccount[] = accounts.map((a) => {
-    const basis = bases.get(a.company_id)!;
     const opening = signedNet(a.normal_balance, basis.net.get(a.id) ?? 0);
 
     let running = opening;
@@ -394,7 +358,6 @@ export async function generalLedgerReport(
       id: a.id,
       label: a.account_label,
       name: a.account_name,
-      companyLabel: a.company.company_label,
       normalBalance: a.normal_balance,
       opening,
       debit,
@@ -406,7 +369,7 @@ export async function generalLedgerReport(
   });
 
   out.sort((a, b) => compareCodes(a.label, b.label));
-  return { range, accounts: out, openingFrom: provenanceOf(bases) };
+  return { range, accounts: out, openingFrom: provenanceOf(basis) };
 }
 
 export type TrialBalanceRow = {
@@ -456,24 +419,19 @@ export type TrialBalanceReport = {
  * opening no longer arrives as a by-product of scanning every historical entry.
  */
 export async function trialBalanceReport(
-  range: PeriodRange,
-  companyIds: number[]
+  range: PeriodRange
 ): Promise<TrialBalanceReport> {
   const from = new Date(`${range.from}T00:00:00Z`);
   const to = new Date(`${range.to}T00:00:00Z`);
 
-  // Every account of every Company in scope, because a Trial Balance's subject
-  // is "whatever has something to say" rather than a list somebody picked.
-  const scope = new Map<number, number[] | null>();
-  for (const id of companyIds) scope.set(id, null);
-
-  const [bases, lines] = await Promise.all([
-    basesByCompany(scope, from),
+  // Every account, because a Trial Balance's subject is "whatever has
+  // something to say" rather than a list somebody picked.
+  const [basis, lines] = await Promise.all([
+    openingBasis(from, null),
     prisma.accJournalLine.findMany({
       where: {
         journal: {
           ...POSTED,
-          company_id: { in: companyIds },
           posting_date: { gte: from, lte: to },
         },
       },
@@ -488,9 +446,7 @@ export async function trialBalanceReport(
   // The two sources name their accounts by id alone, so the labels come in one
   // query rather than riding along on every line.
   const accountIds = new Set<number>(lines.map((l) => l.account_id));
-  for (const basis of bases.values()) {
-    for (const id of basis.net.keys()) accountIds.add(id);
-  }
+  for (const id of basis.net.keys()) accountIds.add(id);
 
   const meta = await prisma.accAccount.findMany({
     where: { id: { in: [...accountIds] } },
@@ -499,14 +455,12 @@ export async function trialBalanceReport(
       account_label: true,
       account_name: true,
       normal_balance: true,
-      company_id: true,
     },
   });
 
   const rows = new Map<number, TrialBalanceRow>();
   for (const a of meta) {
-    const basis = bases.get(a.company_id);
-    const opening = signedNet(a.normal_balance, basis?.net.get(a.id) ?? 0);
+    const opening = signedNet(a.normal_balance, basis.net.get(a.id) ?? 0);
     rows.set(a.id, {
       id: a.id,
       label: a.account_label,
@@ -531,7 +485,7 @@ export async function trialBalanceReport(
 
   // An account that neither moved nor carries an opening has nothing to say —
   // it can only get here through a snapshot line that nets to zero, which
-  // `closingBalances` already drops, or through a Company outside the scope.
+  // `closingBalances` already drops.
   const list = [...rows.values()]
     .filter(
       (r) =>
@@ -551,21 +505,16 @@ export async function trialBalanceReport(
     totalDebit,
     totalCredit,
     balanced: Math.round(totalDebit * 100) === Math.round(totalCredit * 100),
-    unbalanced: await unbalancedJournals(companyIds),
-    openingFrom: provenanceOf(bases),
+    unbalanced: await unbalancedJournals(),
+    openingFrom: provenanceOf(basis),
   };
 }
 
 /**
  * Accounts a ledger report may be run for, in chart order.
- *
- * One Company's, because each numbers its own chart independently: the induk's
- * `1.1.1.1` and the anak's are different accounts sharing a number, and a
- * picker offering both would read as duplicates (CLAUDE.md §12).
  */
-export async function ledgerAccountOptions(companyId: number) {
+export async function ledgerAccountOptions() {
   const rows = await prisma.accAccount.findMany({
-    where: { company_id: companyId },
     select: {
       id: true,
       account_label: true,
@@ -583,85 +532,6 @@ export async function ledgerAccountOptions(companyId: number) {
       // last quarter's figures are exactly when one matters.
       active: true,
     }));
-}
-
-// -------------------------------------------------------- account positions
-
-/**
- * Where a handful of named accounts stand right now, in base currency.
- *
- * All of history, no period: this answers "what is the balance today", which
- * is a different question from the General Ledger's "what happened between
- * these dates". It exists for the intercompany bridge, whose two sides are a
- * standing position rather than a period's movement — and which is otherwise
- * readable only by someone who thinks to run the General Ledger for exactly
- * the right account (CLAUDE.md §17).
- *
- * Signed by normal balance like every other figure here. One figure rather
- * than a per-currency list: the bridge's two sides are meant to be compared
- * against each other, and two lists of currencies do not compare — one rupiah
- * figure each does.
- */
-export type AccountPosition = {
-  id: number;
-  label: string;
-  name: string;
-  companyId: number;
-  companyLabel: string;
-  normalBalance: string;
-  /** Base currency, signed in the account's normal direction. */
-  balance: number;
-};
-
-export async function accountPositions(
-  accountIds: number[]
-): Promise<AccountPosition[]> {
-  if (!accountIds.length) return [];
-
-  const [accounts, lines] = await Promise.all([
-    prisma.accAccount.findMany({
-      where: { id: { in: accountIds } },
-      select: {
-        id: true,
-        account_label: true,
-        account_name: true,
-        normal_balance: true,
-        company_id: true,
-        company: { select: { company_label: true } },
-      },
-    }),
-    prisma.accJournalLine.findMany({
-      where: { account_id: { in: accountIds }, journal: POSTED },
-      select: {
-        account_id: true,
-        debit_amount: true,
-        kredit_amount: true,
-      },
-    }),
-  ]);
-
-  return accounts.map((a) => ({
-    id: a.id,
-    label: a.account_label,
-    name: a.account_name,
-    companyId: a.company_id,
-    companyLabel: a.company.company_label,
-    normalBalance: a.normal_balance,
-    balance: roundBase(
-      lines
-        .filter((l) => l.account_id === a.id)
-        .reduce(
-          (t, l) =>
-            t +
-            signedMovement(
-              a.normal_balance,
-              l.debit_amount.toNumber(),
-              l.kredit_amount.toNumber()
-            ),
-          0
-        )
-    ),
-  }));
 }
 
 // -------------------------------------------------------- closing balances
@@ -704,7 +574,7 @@ export type ClosingBalance = {
 };
 
 /**
- * Where one Company's accounts stood at the end of a day, at `(account,
+ * Where the accounts stood at the end of a day, at `(account,
  * partner?)` grain.
  *
  * This is the grain `acc_journal_line` itself keeps, and taking it straight
@@ -728,7 +598,6 @@ export type ClosingBalance = {
  * a row that says nothing.
  */
 export async function closingBalances(
-  companyId: number,
   asOf: Date | string,
   /**
    * Read inside a transaction where the caller needs to see its own writes —
@@ -744,7 +613,7 @@ export async function closingBalances(
 
   const lines = await db.accJournalLine.findMany({
     where: {
-      journal: { ...POSTED, company_id: companyId, posting_date: { lte: to } },
+      journal: { ...POSTED, posting_date: { lte: to } },
     },
     select: {
       account_id: true,
@@ -852,7 +721,7 @@ export type StatementMovement = {
 };
 
 /**
- * What one Company's accounts on one statement did between two days.
+ * What the accounts on one statement did between two days.
  *
  * The Laba Rugi is a **range sum**, never a balance: it adds the posted lines
  * dated inside the range and reads nothing from before it. That is what keeps
@@ -874,7 +743,6 @@ export type StatementMovement = {
  * and Posted only, like every other reader here.
  */
 export async function statementMovements(
-  companyId: number,
   range: PeriodRange,
   options: { section: AccountSection; excludeClosingOf?: number | null }
 ): Promise<StatementMovement[]> {
@@ -888,7 +756,6 @@ export async function statementMovements(
       },
       journal: {
         ...POSTED,
-        company_id: companyId,
         posting_date: {
           gte: new Date(`${range.from}T00:00:00Z`),
           lte: new Date(`${range.to}T00:00:00Z`),
@@ -915,7 +782,7 @@ export async function statementMovements(
 }
 
 /**
- * Where one Company's accounts on one statement stood at the end of a day, at
+ * Where the accounts on one statement stood at the end of a day, at
  * `(account, partner?)` grain — the Neraca's figures, and the profit it has to
  * carry that no close has moved yet.
  *
@@ -933,7 +800,6 @@ export async function statementMovements(
  * `to` is the day before the year begins.
  */
 export async function statementBalances(
-  companyId: number,
   options: {
     section: AccountSection;
     /** `YYYY-MM-DD` — the latest snapshot on or before this day is stood on. */
@@ -944,7 +810,6 @@ export async function statementBalances(
   }
 ): Promise<{ pairs: StatementMovement[]; openingFrom: OpeningProvenance | null }> {
   const snapshot = await openingBasisFor(
-    companyId,
     new Date(`${options.openingOn}T00:00:00Z`)
   );
   const sectionFilter = {
@@ -960,7 +825,6 @@ export async function statementBalances(
         account: sectionFilter,
         journal: {
           ...POSTED,
-          company_id: companyId,
           posting_date: {
             ...(snapshot ? { gte: snapshot.postingDate } : {}),
             lte: new Date(`${options.to}T00:00:00Z`),
@@ -979,7 +843,7 @@ export async function statementBalances(
     }),
     snapshot
       ? prisma.accAccount.findMany({
-          where: { company_id: companyId, ...sectionFilter },
+          where: sectionFilter,
           select: { id: true },
         })
       : Promise.resolve([]),

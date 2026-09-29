@@ -17,7 +17,7 @@ import { roundBase } from "./fx";
  * ## Automatic and manual journals
  *
  * Almost every journal here is written *by* a business document being posted —
- * a Cash Bank Transaction, a confirmed Funding Request — and is `Posted` the
+ * a Pembayaran, a Faktur Penjualan — and is `Posted` the
  * moment it exists, because it records something that has already happened.
  *
  * A **manual** journal is typed by a person: a depreciation entry, an accrual,
@@ -97,7 +97,6 @@ export type JournalLineInput = {
 export type JournalSeries = "JRN" | "CLS";
 
 export type JournalInput = {
-  companyId: number;
   description: string;
   sourceDocTypeId?: number | null;
   sourceDocId?: number | null;
@@ -112,7 +111,7 @@ export type JournalInput = {
    *
    * Never later than today: a journal dated ahead would claim something
    * happened that has not yet. Omitted, it is today. Whether the day is inside
-   * a period this Company may still write into is the caller's question
+   * a period that may still be written into is the caller's question
    * (`checkTransactionDate`), asked before the posting transaction opens.
    * When the journal was actually *written* is `created_at`, which is kept.
    */
@@ -270,7 +269,6 @@ export async function postJournal(
       posting_date: input.postingDate ?? postingDateToday(),
       source_doc_type_id: input.sourceDocTypeId ?? null,
       source_doc_id: input.sourceDocId ?? null,
-      company_id: input.companyId,
       description: input.description,
       status: "Posted",
       created_by: input.actorId,
@@ -303,7 +301,6 @@ export async function postJournal(
  * was enforced at the wrong moment.
  */
 export type DraftJournalInput = {
-  companyId: number;
   /** `YYYY-MM-DD`, already checked by the caller (`checkTransactionDate`). */
   date: string;
   description: string;
@@ -322,7 +319,6 @@ export async function createDraftJournal(
       data: {
         journal_no: await nextJournalNo(tx, "JUR"),
         posting_date: new Date(`${input.date}T00:00:00Z`),
-        company_id: input.companyId,
         description: input.description,
         status: "Draft",
         is_manual: true,
@@ -349,7 +345,7 @@ export async function createDraftJournal(
  * has been posted from them and no book refers to them, so replacing them
  * wholesale is what "edit" means here. The no-delete rule protects master data
  * and posted records, and a draft journal line is neither — exactly the
- * reasoning `updateTransaction` already uses for a Draft document's lines.
+ * reasoning every Draft document's lines follow.
  */
 export async function updateDraftJournal(
   id: number,
@@ -362,7 +358,6 @@ export async function updateDraftJournal(
     await tx.accJournal.update({
       where: { id },
       data: {
-        company_id: input.companyId,
         posting_date: new Date(`${input.date}T00:00:00Z`),
         description: input.description,
         updated_by: input.actorId,
@@ -520,7 +515,6 @@ export type DraftJournalLine = {
 export type DraftJournal = {
   id: number;
   journalNo: string;
-  companyId: number;
   /** `YYYY-MM-DD`, or null for a draft saved before drafts carried a date. */
   date: string | null;
   description: string;
@@ -536,16 +530,12 @@ export type DraftJournal = {
  * "what is in this journal" for the module that may still change it. It lives
  * here because `acc_journal` is this module's table, and a boundary crossed in
  * one direction becomes a boundary crossed in both.
- *
- * Scoped to the Companies the caller may see, so a journal outside that scope
- * reads as **not found** — the same answer one that does not exist gives.
  */
 export async function readDraftJournal(
-  id: number,
-  companyIds: number[]
+  id: number
 ): Promise<DraftJournal | null> {
   const journal = await prisma.accJournal.findFirst({
-    where: { id, company_id: { in: companyIds } },
+    where: { id },
     include: {
       lines: {
         orderBy: { sequence_no: "asc" },
@@ -558,7 +548,6 @@ export async function readDraftJournal(
   return {
     id: journal.id,
     journalNo: journal.journal_no,
-    companyId: journal.company_id,
     date: journal.posting_date ? journal.posting_date.toISOString().slice(0, 10) : null,
     description: journal.description,
     status: journal.status,
@@ -682,8 +671,6 @@ export type JournalRow = {
   journalNo: string;
   /** Null while a manual journal is still a draft: nothing has been posted. */
   postingDate: string | null;
-  companyLabel: string;
-  companyId: number;
   description: string;
   status: string;
   /** Typed by a person rather than produced by a document being posted. */
@@ -704,13 +691,11 @@ const totalOf = (lines: { debit_amount: { toNumber(): number }; kredit_amount: {
   credit: lines.reduce((t, l) => t + l.kredit_amount.toNumber(), 0),
 });
 
-/** Journals of the Companies a reader may see, newest first. */
-export async function listJournals(companyIds: number[]): Promise<JournalRow[]> {
+/** Every journal, newest first. */
+export async function listJournals(): Promise<JournalRow[]> {
   const rows = await prisma.accJournal.findMany({
-    where: { company_id: { in: companyIds } },
     orderBy: [{ posting_date: { sort: "desc", nulls: "first" } }, { id: "desc" }],
     include: {
-      company: { select: { company_label: true } },
       source_doc_type: { select: { doc_label: true, doc_table: true } },
       lines: { select: { debit_amount: true, kredit_amount: true } },
     },
@@ -730,8 +715,6 @@ export async function listJournals(companyIds: number[]): Promise<JournalRow[]> 
     id: j.id,
     journalNo: j.journal_no,
     postingDate: j.posting_date ? j.posting_date.toISOString() : null,
-    companyLabel: j.company.company_label,
-    companyId: j.company_id,
     description: j.description,
     status: j.status,
     isManual: j.is_manual,
@@ -744,13 +727,11 @@ export async function listJournals(companyIds: number[]): Promise<JournalRow[]> 
 }
 
 export async function getJournal(
-  id: number,
-  companyIds: number[]
+  id: number
 ): Promise<JournalDetail | null> {
   const j = await prisma.accJournal.findFirst({
-    where: { id, company_id: { in: companyIds } },
+    where: { id },
     include: {
-      company: { select: { company_label: true } },
       source_doc_type: { select: { doc_label: true, doc_table: true } },
       lines: {
         orderBy: { sequence_no: "asc" },
@@ -768,8 +749,6 @@ export async function getJournal(
     id: j.id,
     journalNo: j.journal_no,
     postingDate: j.posting_date ? j.posting_date.toISOString() : null,
-    companyLabel: j.company.company_label,
-    companyId: j.company_id,
     description: j.description,
     status: j.status,
     isManual: j.is_manual,
@@ -814,11 +793,11 @@ export async function getJournal(
  * balance, and that is not a fault — reporting it here would put a system-fault
  * warning on the Trial Balance for every draft anybody had open.
  */
-export async function unbalancedJournals(
-  companyIds: number[]
-): Promise<{ id: number; journalNo: string; debit: number; credit: number }[]> {
+export async function unbalancedJournals(): Promise<
+  { id: number; journalNo: string; debit: number; credit: number }[]
+> {
   const rows = await prisma.accJournal.findMany({
-    where: { company_id: { in: companyIds }, status: "Posted" },
+    where: { status: "Posted" },
     select: {
       id: true,
       journal_no: true,
@@ -832,7 +811,7 @@ export async function unbalancedJournals(
 }
 
 /**
- * Draft journals a Company dated inside a date range.
+ * Draft journals dated inside a date range.
  *
  * Asked before a fiscal year is closed: a draft is somebody's unfinished
  * accounting, and closing the year it belongs to would leave it permanently
@@ -845,13 +824,11 @@ export async function unbalancedJournals(
  * was typed — the only thing that says which year it was meant for.
  */
 export async function draftJournalsDatedBetween(
-  companyId: number,
   from: Date,
   to: Date
 ): Promise<{ id: number; journalNo: string }[]> {
   const rows = await prisma.accJournal.findMany({
     where: {
-      company_id: companyId,
       status: "Draft",
       OR: [
         { posting_date: { gte: from, lte: to } },

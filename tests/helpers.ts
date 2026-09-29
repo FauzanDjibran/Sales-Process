@@ -127,7 +127,7 @@ export { prisma };
 
 // --------------------------------------------------------- business fixtures
 //
-// The seed carries system data only — no partners, no accounts, no budgets — so
+// The seed carries system data only — no partners, no accounts — so
 // a test that needs business data creates it. Fixtures are labelled with
 // `FIXTURE_PREFIX` and removed by `cleanupFixtures`, which is what keeps a run
 // from leaving anything behind in a database somebody is actually using.
@@ -144,45 +144,6 @@ export async function systemUserId(): Promise<number> {
     select: { id: true },
   });
   return row.id;
-}
-
-export async function parentCompanyId(): Promise<number> {
-  const row = await prisma.sysCompany.findFirstOrThrow({
-    where: { is_parent: true },
-    select: { id: true },
-  });
-  return row.id;
-}
-
-export async function childCompanyId(): Promise<number> {
-  const row = await prisma.sysCompany.findFirstOrThrow({
-    where: { is_parent: false },
-    select: { id: true },
-  });
-  return row.id;
-}
-
-export async function budgetCategoryId(label: string): Promise<number> {
-  const row = await prisma.sysBudgetCategory.findFirstOrThrow({
-    where: { category_label: label },
-    select: { id: true },
-  });
-  return row.id;
-}
-
-/**
- * The key a subject book is stored under: the owning Budget Category's code.
- *
- * Books stopped being a hardcoded catalogue of slugs ("hutang") and became the
- * Budget Categories themselves, so a test that asserts against a book has to ask
- * which key that category holds rather than spelling one.
- */
-export async function bookKey(categoryLabel: string): Promise<string> {
-  const row = await prisma.sysBudgetCategory.findFirstOrThrow({
-    where: { category_label: categoryLabel },
-    select: { category_code: true },
-  });
-  return row.category_code;
 }
 
 export async function partnerCategoryId(label: string): Promise<number> {
@@ -202,16 +163,16 @@ export async function subcategoryId(label: string): Promise<number> {
 }
 
 /**
- * The next unused number under `parentLabel` in this Company.
+ * The next unused number under `parentLabel`.
  *
  * A fixture cannot simply take segment 1: the database it runs against belongs
  * to whoever uses the application, and a real user's own `1.1.1.1` would
  * collide with it. Probing exact labels rather than a prefix is deliberate —
  * `1.1.1.1.1` starts with `1.1.1.` but is a grandchild, not a sibling.
  */
-async function freeSegment(companyId: number, parentLabel: string): Promise<string> {
+async function freeSegment(parentLabel: string): Promise<string> {
   const siblings = await prisma.accAccount.findMany({
-    where: { company_id: companyId, account_label: { startsWith: `${parentLabel}.` } },
+    where: { account_label: { startsWith: `${parentLabel}.` } },
     select: { account_label: true },
   });
   const taken = new Set(siblings.map((a) => a.account_label));
@@ -223,7 +184,6 @@ async function freeSegment(companyId: number, parentLabel: string): Promise<stri
 }
 
 export async function makeAccount(options: {
-  companyId: number;
   subcategoryLabel: string;
   postable?: boolean;
   active?: boolean;
@@ -250,9 +210,8 @@ export async function makeAccount(options: {
   const row = await prisma.accAccount.create({
     data: {
       account_code: `${FIXTURE_PREFIX}.${key}`,
-      account_label: await freeSegment(options.companyId, parentLabel),
+      account_label: await freeSegment(parentLabel),
       account_name: `Fixture ${key}`,
-      company_id: options.companyId,
       account_subcategory_id: await subcategoryId(options.subcategoryLabel),
       parent_account: options.parentId ?? null,
       is_postable: options.postable ?? true,
@@ -270,70 +229,7 @@ export async function makeAccount(options: {
   return row.id;
 }
 
-/**
- * A Company x Budget Category x Partner Category -> account mapping.
- *
- * Posting needs one: a document whose Purpose resolves to no account cannot be
- * journalled, and money must not move unaccounted for. Approval deliberately
- * tolerates a missing mapping (CLAUDE.md §10 rule 28); posting cannot.
- */
-export async function makeMapping(options: {
-  companyId: number;
-  budgetCategoryLabel: string;
-  partnerCategoryLabel?: string | null;
-  accountId: number;
-}): Promise<number> {
-  const key = nextFixture();
-  const budgetCategory = await budgetCategoryId(options.budgetCategoryLabel);
-  const partnerCategory = options.partnerCategoryLabel
-    ? await partnerCategoryId(options.partnerCategoryLabel)
-    : null;
-
-  const existing = await prisma.accBudgetCategoryAccount.findFirst({
-    where: {
-      company_id: options.companyId,
-      budget_category_id: budgetCategory,
-      partner_category_id: partnerCategory,
-    },
-    select: { id: true },
-  });
-  // Reused, never repointed: the row may be one the showcase seed or a user
-  // created, and cleanup deletes only rows carrying the fixture prefix. A
-  // caller that needs the account asks `mappingAccountId`.
-  if (existing) return existing.id;
-
-  const row = await prisma.accBudgetCategoryAccount.create({
-    data: {
-      bca_code: `${FIXTURE_PREFIX}.${key}`,
-      company_id: options.companyId,
-      budget_category_id: budgetCategory,
-      partner_category_id: partnerCategory,
-      account_id: options.accountId,
-      created_by: await systemUserId(),
-    },
-    select: { id: true },
-  });
-  return row.id;
-}
-
-/**
- * The account a mapping points at.
- *
- * `makeMapping` reuses an existing mapping for the combination rather than
- * repointing it — repointing would mutate a row cleanup cannot restore. A test
- * that cares which account the mapping resolves to therefore asks, instead of
- * assuming it is the one it just passed in.
- */
-export async function mappingAccountId(mappingId: number): Promise<number> {
-  const row = await prisma.accBudgetCategoryAccount.findUniqueOrThrow({
-    where: { id: mappingId },
-    select: { account_id: true },
-  });
-  return row.account_id;
-}
-
 export async function makePartner(options: {
-  companyId: number;
   categoryLabel: string;
   status?: "Active" | "Inactive";
 }): Promise<number> {
@@ -343,7 +239,6 @@ export async function makePartner(options: {
       partner_code: `test.${key}`,
       partner_label: key,
       partner_name: `Fixture ${key}`,
-      company_id: options.companyId,
       category_id: await partnerCategoryId(options.categoryLabel),
       status: options.status ?? "Active",
       created_by: await systemUserId(),
@@ -358,11 +253,7 @@ export async function makePartner(options: {
  * -referencing account tree never blocks a delete.
  */
 export async function cleanupFixtures(): Promise<void> {
-  // Mappings and journals point at accounts, so they go before the accounts do.
-  await prisma.accBudgetCategoryAccount.deleteMany({
-    where: { bca_code: { startsWith: FIXTURE_PREFIX } },
-  });
-
+  // Journals point at accounts, so they go before the accounts do.
   // The application never deletes a journal — it is append-only and immutable
   // (CLAUDE.md §12). A test tearing down its own fixtures is the same
   // exception already made for fixture accounts: these journals were written
@@ -425,25 +316,6 @@ export async function cleanupFixtures(): Promise<void> {
   });
   if (orphans.length) {
     const ids = orphans.map((o) => o.id);
-    await prisma.finCashBankTransactionLine.deleteMany({
-      where: { transaction: { cash_bank_id: { in: ids } } },
-    });
-    await prisma.finCashBankTransaction.deleteMany({
-      where: { cash_bank_id: { in: ids } },
-    });
-    // A transfer names a resource on both sides, so both references have to
-    // go before the resources do.
-    await prisma.finCashBankTransferLine.deleteMany({
-      where: {
-        OR: [
-          { to_cash_bank_id: { in: ids } },
-          { transfer: { from_cash_bank_id: { in: ids } } },
-        ],
-      },
-    });
-    await prisma.finCashBankTransfer.deleteMany({
-      where: { from_cash_bank_id: { in: ids } },
-    });
     await prisma.cashBankLayer.deleteMany({ where: { cash_bank_id: { in: ids } } });
     await prisma.cashBankLedger.deleteMany({ where: { cash_bank_id: { in: ids } } });
     await prisma.cashBankBalance.deleteMany({ where: { cash_bank_id: { in: ids } } });
@@ -460,28 +332,6 @@ export async function cleanupFixtures(): Promise<void> {
   for (const a of accounts) {
     await prisma.accAccount.delete({ where: { id: a.id } });
   }
-  // The subject books are append-only in the application, exactly like the
-  // journal above — and a test tearing down its own fixtures is the same
-  // exception: these entries were written by this run against Partners that
-  // are about to stop existing.
-  const fixturePartners = {
-    partner: { partner_label: { startsWith: FIXTURE_PREFIX } },
-  };
-  // A Debit / Credit Note names its Partner, so a note a suite left behind
-  // would block the Partner's removal below.
-  const notes = (
-    await prisma.finDncn.findMany({ where: fixturePartners, select: { id: true } })
-  ).map((n) => n.id);
-  if (notes.length) {
-    await prisma.finDncnLine.deleteMany({ where: { note_id: { in: notes } } });
-    await prisma.auditLog.deleteMany({
-      where: { entity_key: "fin_dncn", row_id: { in: notes } },
-    });
-    await prisma.finDncn.deleteMany({ where: { id: { in: notes } } });
-  }
-  await prisma.subLedgerBalance.deleteMany({ where: fixturePartners });
-  await prisma.subLedger.deleteMany({ where: fixturePartners });
-
   await prisma.mPartner.deleteMany({
     where: { partner_label: { startsWith: FIXTURE_PREFIX } },
   });
@@ -489,7 +339,7 @@ export async function cleanupFixtures(): Promise<void> {
 
 // ------------------------------------------------------------ fiscal calendar
 //
-// Posting is only allowed inside an Open fiscal year the Company has not closed
+// Posting is only allowed inside an Open fiscal year not yet closed
 // (`checkPostingPeriod`), so every suite that posts needs one covering today.
 // The seed creates no fiscal year — a calendar is business data a user opens
 // through the GUI — so CI has none at all, and a developer's database has
@@ -547,20 +397,18 @@ export async function openFiscalYear(date: Date = new Date()): Promise<number> {
 }
 
 /**
- * Closes one Company's year, and hands back the undo.
+ * Records a year as closed, and hands back the undo.
  *
- * The closing process itself does not exist yet — that is Phase 4 — so a test
- * that needs to prove the lock writes the row the lock reads. Which is also
- * what the lock is for: the state is a record, not an inference.
+ * A test that needs to prove the lock writes the row the lock reads, rather
+ * than running the whole close. Which is also what the lock is for: the state
+ * is a record, not an inference.
  */
-export async function closeYearFor(
-  fiscalYearId: number,
-  companyId: number
+export async function closeYear(
+  fiscalYearId: number
 ): Promise<() => Promise<void>> {
   const row = await prisma.accFiscalClosing.create({
     data: {
       fiscal_year_id: fiscalYearId,
-      company_id: companyId,
       status: "Closed",
       closed_at: new Date(),
       closed_by: await systemUserId(),

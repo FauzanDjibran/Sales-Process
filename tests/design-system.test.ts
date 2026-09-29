@@ -10,14 +10,10 @@ import {
   type ActionTone,
 } from "../src/lib/erp/header-actions";
 import {
-  BUDGET_TRANSITIONS,
-  availableActions,
-  type BudgetStatus,
-} from "../src/lib/erp/budget-workflow";
-import {
-  TRANSACTION_TRANSITIONS,
-  availableTransactionActions,
-} from "../src/lib/erp/transaction-workflow";
+  JOURNAL_TRANSITIONS,
+  availableJournalActions,
+  type JournalStatus,
+} from "../src/lib/erp/journal-workflow";
 import { ENTITIES } from "../src/lib/erp/entities";
 
 /**
@@ -443,8 +439,7 @@ describe("a header's buttons sit where the user last left them", () => {
 
   test("every lifecycle transition declares a tone", () => {
     for (const rel of [
-      "src/lib/erp/budget-workflow.ts",
-      "src/lib/erp/transaction-workflow.ts",
+      "src/lib/erp/journal-workflow.ts",
       "src/lib/erp/fiscal-workflow.ts",
     ]) {
       const text = code(files.find((f) => f.rel === rel)!.text);
@@ -460,13 +455,9 @@ describe("a header's buttons sit where the user last left them", () => {
   });
 
   test("a header that mixes tones orders them through `orderForHeader`", () => {
-    // These two render Ubah beside the lifecycle actions, so the order is a
-    // sort rather than the order the transition table happens to be read in.
-    for (const rel of [
-      "src/components/budget/budget-form.tsx",
-      "src/components/finance/transaction-form.tsx",
-      "src/components/finance/dncn-form.tsx",
-    ]) {
+    // This renders Ubah beside the lifecycle actions, so the order is a sort
+    // rather than the order the transition table happens to be read in.
+    for (const rel of ["src/components/accounting/journal-actions.tsx"]) {
       const text = code(files.find((f) => f.rel === rel)!.text);
       assert.ok(
         text.includes("orderForHeader("),
@@ -491,94 +482,30 @@ describe("the header order each status actually produces", () => {
   const ubah = { key: "edit", tone: "neutral" as ActionTone };
 
   /** Holding everything, so the order is the table's and not a permission's. */
-  const EVERY_TRANSACTION_ABILITY = {
-    create: true,
-    edit: true,
-    submit: true,
-    post: true,
-    cancel: true,
-  };
+  const EVERY_JOURNAL_ABILITY = { create: true, edit: true, post: true, cancel: true };
 
-  const budgetHeader = (status: BudgetStatus, editable: boolean) =>
+  const journalHeader = (status: JournalStatus, editable: boolean) =>
     orderForHeader(
       [
         ...(editable ? [ubah] : []),
-        ...availableActions(status, {
-          create: true,
-          edit: true,
-          submit: true,
-          approve: true,
-          reject: true,
-          cancel: true,
-        }).map((a) => ({ key: a, tone: BUDGET_TRANSITIONS[a].tone })),
+        ...availableJournalActions(status, EVERY_JOURNAL_ABILITY).map((a) => ({
+          key: a,
+          tone: JOURNAL_TRANSITIONS[a].tone,
+        })),
       ],
       (i) => i.tone
     ).map((i) => i.key);
 
-  test("a Draft budget reads Batalkan · Ubah · Ajukan", () => {
-    assert.deepEqual(budgetHeader("Draft", true), ["cancel", "edit", "submit"]);
+  test("a Draft manual journal reads Batalkan · Ubah · Post", () => {
+    assert.deepEqual(journalHeader("Draft", true), ["cancel", "edit", "post"]);
   });
 
-  test("a Rejected budget reads Batalkan · Ubah · Ajukan", () => {
-    assert.deepEqual(budgetHeader("Rejected", true), [
-      "cancel",
-      "edit",
-      "submit",
-    ]);
-  });
-
-  test("a Submitted budget reads Tolak · Batalkan · Setujui", () => {
-    assert.deepEqual(budgetHeader("Submitted", false), [
-      "reject",
-      "cancel",
-      "approve",
-    ]);
-  });
-
-  test("an Open budget offers nothing, and so shows nothing", () => {
-    assert.deepEqual(budgetHeader("Open", false), []);
-  });
-
-  test("a Draft document reads Batalkan · Ubah · Post", () => {
-    const order = orderForHeader(
-      [
-        ubah,
-        ...availableTransactionActions("Draft", EVERY_TRANSACTION_ABILITY).map(
-          (a) => ({ key: a, tone: TRANSACTION_TRANSITIONS[a].tone })
-        ),
-      ],
-      (i) => i.tone
-    ).map((i) => i.key);
-    assert.deepEqual(order, ["cancel", "edit", "post"]);
-  });
-
-  test("a Draft anak document reads Batalkan · Ubah · Ajukan Dana", () => {
-    const order = orderForHeader(
-      [
-        ubah,
-        ...availableTransactionActions("Draft", EVERY_TRANSACTION_ABILITY, {
-          funded: true,
-        }).map((a) => ({ key: a, tone: TRANSACTION_TRANSITIONS[a].tone })),
-      ],
-      (i) => i.tone
-    ).map((i) => i.key);
-    assert.deepEqual(order, ["cancel", "edit", "submit"]);
-  });
-
-  test("a Pending document offers only the withdrawal", () => {
-    // The induk never rejects (concept doc §29), so Post is not on this screen
-    // at all — it is reached by confirming the Funding Request.
-    assert.deepEqual(
-      availableTransactionActions("Pending", EVERY_TRANSACTION_ABILITY, {
-        funded: true,
-      }),
-      ["cancel"]
-    );
+  test("a Posted journal offers nothing, and so shows nothing", () => {
+    assert.deepEqual(journalHeader("Posted", false), []);
   });
 
   test("two buttons of one tone keep the order their table declares", () => {
-    // Tolak before Batalkan because `availableActions` reads them that way —
-    // a stable sort, so equal tones are never shuffled between renders.
+    // A stable sort, so equal tones are never shuffled between renders.
     assert.deepEqual(
       orderForHeader(
         [
@@ -641,7 +568,6 @@ describe("a form is laid out by one component", () => {
       // administrator cannot change their own roles.
       "src/components/settings/role-form.tsx",
       "src/components/settings/user-form.tsx",
-      "src/components/budget/report-picker.tsx",
     ]);
     const bad = files
       .filter((f) => !allowed.has(f.rel))
@@ -656,7 +582,7 @@ describe("a form is laid out by one component", () => {
   test("no form page carries a `.ph-sub`", () => {
     // A form's subtitle restated the card header 40px below it. Lists and the
     // dashboard keep theirs: there, the sentence says what the table is of.
-    const forms = files.filter((f) => /-form\.tsx$|profile-view\.tsx$|funding-detail\.tsx$|journal-detail\.tsx$|opening-balance-detail\.tsx$/.test(f.rel));
+    const forms = files.filter((f) => /-form\.tsx$|profile-view\.tsx$|journal-detail\.tsx$|opening-balance-detail\.tsx$/.test(f.rel));
     const bad = forms.filter((f) => /className="ph-sub"/.test(code(f.text)));
     assert.deepEqual(
       bad.map((f) => f.rel),
@@ -680,10 +606,6 @@ describe("a form is laid out by one component", () => {
     // Every document screen names itself the same way, so `.docno` is what the
     // heading of a record-bearing form contains.
     for (const rel of [
-      "src/components/budget/budget-form.tsx",
-      "src/components/finance/transaction-form.tsx",
-      "src/components/finance/dncn-form.tsx",
-      "src/components/finance/funding-detail.tsx",
       "src/components/accounting/journal-detail.tsx",
       "src/components/accounting/opening-balance-detail.tsx",
     ]) {
@@ -704,7 +626,7 @@ describe("a form is laid out by one component", () => {
  * A field that depends on another cannot be answered before it.
  *
  * The Chart of Accounts create form is what this came from: Parent Account sat
- * beside Company and Kelompok Account and could be opened before either was
+ * beside Kelompok Account and could be opened before it was
  * chosen, whereupon it reported "Tidak ada pilihan yang cocok" — which says the
  * options do not exist, when what has actually happened is that the question
  * deciding them has not been asked. Nothing is hidden, because a form whose
@@ -894,8 +816,7 @@ describe("a select displays the label it offered", () => {
  * A set is chosen through one component, not markup copied between screens.
  *
  * The add-and-remove-chips pattern existed once, in the report filter bar. When
- * a Budget Category needed the same thing for its Partner Categories, the
- * cheaper move was to copy it — which is exactly the drift this suite exists to
+ * a second screen needed the same thing, the cheaper move was to copy it — which is exactly the drift this suite exists to
  * catch, and how the search box ended up with seven implementations.
  */
 describe("several of something is one component", () => {
@@ -914,21 +835,6 @@ describe("several of something is one component", () => {
     );
   });
 
-  test("a multiref field is rendered by it", () => {
-    const form = readFileSync(
-      join(process.cwd(), "src/components/master/entity-form.tsx"),
-      "utf8"
-    );
-    // The editable branch, not the read-only one above it: a saved record
-    // shows its set as badges, which is correct and is not a control.
-    const editable = form.slice(form.indexOf("function editableControl("));
-    const branch = editable.slice(editable.indexOf(`if (field.type === "multiref")`));
-    const body = branch.slice(0, branch.indexOf(`if (field.type === "bool")`));
-    assert.ok(
-      body.includes("<MultiSelect"),
-      "a growing list wants a searchable picker, not a checkbox per option"
-    );
-  });
 });
 
 // ------------------------------------------- every menu entry has a destination

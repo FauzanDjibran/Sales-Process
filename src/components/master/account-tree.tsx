@@ -6,12 +6,10 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { ExpandAll } from "@/components/ui/expand-all";
 import { SearchField } from "@/components/ui/search-field";
-import { CompanyFilter, NoCompanyAccess } from "./company-filter";
 import type { EntityAbilities } from "@/lib/erp/entity-access";
 import { TAG_CLASS, createLabel, type Entity } from "@/lib/erp/entities";
 import { moduleByKey } from "@/lib/erp/nav";
-import type { Company } from "@/lib/erp/company-access";
-import type { TreeAccount, TreeCategory, TreeCompany } from "@/lib/erp/records";
+import type { TreeAccount, TreeCategory } from "@/lib/erp/records";
 
 /**
  * Chart of Accounts renders as a tree rather than a table — it is the one
@@ -20,28 +18,14 @@ import type { TreeAccount, TreeCategory, TreeCompany } from "@/lib/erp/records";
  *
  * Category and kelompok rows are seeded structure, not accounts: only numbered
  * rows can carry a Journal Line. Detail, create and edit stay generic.
- *
- * The tree shows the chart of the Company in context, chosen from the picker in its own toolbar.
- * Each Company numbers its own chart independently, so the induk's `1.1.4.1`
- * and the anak's are different accounts that happen to share a number —
- * listing both together reads as duplicated rows rather than as two books.
  */
 export function AccountTree({
   entity,
-  companies,
-  company,
   categories,
   accounts,
   can,
 }: {
   entity: Entity;
-  /** Companies this user may choose between. */
-  companies: Company[];
-  /**
-   * The Company these accounts belong to — the server has already filtered to
-   * it. Null when the user holds neither Company permission.
-   */
-  company: TreeCompany | null;
   categories: TreeCategory[];
   accounts: TreeAccount[];
   can: EntityAbilities;
@@ -166,7 +150,7 @@ export function AccountTree({
             {account.requirePartner && (
               <span
                 className="pcflag"
-                title={`Subledger per Partner berkategori ${
+                title={`Wajib Partner berkategori ${
                   account.partnerCategoryLabel ?? "?"
                 }`}
               >
@@ -308,16 +292,8 @@ export function AccountTree({
         <p className="ph-sub">{entity.desc}</p>
       </div>
 
-      {!company ? (
-        <div className="card">
-          <NoCompanyAccess what="Chart of Accounts" />
-        </div>
-      ) : (
       <div className="card">
         <div className="toolbar">
-          {company && (
-            <CompanyFilter options={companies} selectedId={company.id} />
-          )}
           <SearchField
             grow
             value={query}
@@ -340,10 +316,9 @@ export function AccountTree({
           <div className="ct">
             <h3>
               Struktur Bagan Akun
-              {company && <span className="lab">{company.label}</span>}
             </h3>
             <p>
-              Bagan akun per Company. Nomor melanjutkan induknya; kategori dan
+              Nomor melanjutkan induknya; kategori dan
               kelompok adalah struktur, bukan account.
             </p>
           </div>
@@ -359,8 +334,8 @@ export function AccountTree({
             </div>
             <h4>Tidak ada yang cocok</h4>
             <p>
-              Tidak ada account atau kelompok pada {company?.label ?? "Company ini"}{" "}
-              yang mengandung kata kunci tersebut.
+              Tidak ada account atau kelompok yang mengandung kata kunci
+              tersebut.
             </p>
             <div className="cta">
               <button className="btn" onClick={() => setQuery("")}>
@@ -370,7 +345,6 @@ export function AccountTree({
           </div>
         )}
       </div>
-      )}
     </>
   );
 }

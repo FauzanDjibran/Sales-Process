@@ -45,7 +45,7 @@ export const MODULES: NavModule[] = [
     key: "dashboard",
     name: "Dashboard",
     icon: "grid",
-    desc: "Komitmen yang berjalan, posisi kas, dan posisi terhadap pihak lain.",
+    desc: "Ringkasan aplikasi. Dasbor penjualan menyusul.",
     permission: "MENU_DASHBOARD_ACCESS",
   },
   {
@@ -60,19 +60,11 @@ export const MODULES: NavModule[] = [
         name: "Entitas",
         entities: [
           {
-            key: "sys_company",
-            slug: "company",
-            name: "Company",
-            icon: "build",
-            desc: "Entity dan ownership context. Seluruh Budget, Finance, book, dan Journal berdiri di atas Company.",
-            permission: "COMPANY_VIEW",
-          },
-          {
             key: "m_partner",
             slug: "partner",
             name: "Partner",
             icon: "users",
-            desc: "Business subject milik sebuah Company, menjadi subjek utama Hutang, Piutang, Titipan, dan Prive Ledger.",
+            desc: "Pelanggan dan pemasok — subjek posisi per Partner pada jurnal dan General Ledger.",
             permission: "PARTNER_VIEW",
           },
           {
@@ -102,80 +94,12 @@ export const MODULES: NavModule[] = [
     ],
   },
   {
-    key: "budget",
-    name: "Budget",
-    icon: "clip",
-    desc: "Perencanaan kebutuhan dana per periode.",
-    permission: "MENU_BUDGET_ACCESS",
-    groups: [
-      {
-        key: "plan",
-        name: "Perencanaan",
-        entities: [
-          {
-            key: "bud_budget_month",
-            slug: "budget",
-            name: "Budget",
-            single: "Budget Month",
-            icon: "clip",
-            desc: "Perencanaan kebutuhan dana. Pilih bulan untuk membuka daftar Budget di dalamnya.",
-            permission: "BUDGET_VIEW",
-          },
-        ],
-      },
-    ],
-  },
-  {
     key: "finance",
     name: "Finance",
     icon: "wallet2",
-    desc: "Eksekusi aktual atas Budget yang sudah disetujui.",
+    desc: "Buku Kas & Bank dan laporannya.",
     permission: "MENU_FINANCE_ACCESS",
     groups: [
-      {
-        key: "exec",
-        name: "Eksekusi",
-        entities: [
-          {
-            key: "fin_cash_bank_transaction",
-            slug: "cash-bank-transaction",
-            name: "Cash Bank Transaction",
-            icon: "wallet2",
-            desc: "Layer eksekusi. Satu dokumen kas/bank dapat merealisasikan beberapa Budget yang sudah disetujui.",
-            permission: "CASH_BANK_TRANSACTION_VIEW",
-          },
-          {
-            key: "fin_cash_bank_transfer",
-            slug: "cash-bank-transfer",
-            name: "Cash Bank Transfer",
-            icon: "link",
-            desc: "Pemindahan dana antar Cash & Bank milik Company sendiri: transfer mata uang sama, pencairan valuta asing, dan pembelian valas.",
-            permission: "CASH_BANK_TRANSFER_VIEW",
-          },
-          {
-            key: "fin_funding_request",
-            slug: "funding-request",
-            name: "Funding Request",
-            icon: "link",
-            desc: "Permintaan dana Company anak yang menunggu konfirmasi induk. Konfirmasi memposting dokumen dan menulis journal kedua Company sekaligus.",
-            permission: "FUNDING_REQUEST_VIEW",
-          },
-        ],
-      },
-      {
-        key: "adjustment",
-        name: "Penyesuaian",
-        entities: [
-          {
-            key: "fin_dncn",
-            slug: "debit-credit-note",
-            name: "Debit / Credit Note",
-            icon: "pen",
-            desc: "Penyesuaian nilai posisi Partner pada buku subjek tanpa perpindahan uang. Debit Note mendebit account Partner, Credit Note mengkreditnya.",
-            permission: "DNCN_VIEW",
-          },
-        ],
-      },
       {
         key: "report",
         name: "Laporan",
@@ -204,19 +128,6 @@ export const MODULES: NavModule[] = [
             desc: "Layer kurs setiap resource mata uang asing dan sisa pada masing-masing kurs.",
             permission: "REPORT_CASH_BANK_LAYER_VIEW",
           },
-          // One entry for every subject book, with the book as a toggle on the
-          // report itself. It was six entries generated from a six-entry
-          // catalogue; a book is now a Budget Category that names a Partner, so
-          // enumerating them here would put a deploy between a new category and
-          // its book — which is the thing this arrangement exists to remove.
-          {
-            key: "report_subledger",
-            slug: "report/subledger",
-            name: "Buku Subjek",
-            icon: "book",
-            desc: "Riwayat dan posisi setiap Partner pada Titipan, Hutang, Piutang, Prive, Investasi, dan kategori lain yang memakai Partner.",
-            permission: "REPORT_SUBLEDGER_VIEW",
-          },
         ],
       },
     ],
@@ -225,7 +136,7 @@ export const MODULES: NavModule[] = [
     key: "accounting",
     name: "Accounting",
     icon: "calc",
-    desc: "Bagan akun, mapping, journal, buku besar, dan kendali periode.",
+    desc: "Bagan akun, journal, buku besar, dan kendali periode.",
     permission: "MENU_ACCOUNTING_ACCESS",
     groups: [
       {
@@ -238,23 +149,8 @@ export const MODULES: NavModule[] = [
             name: "Chart of Accounts",
             single: "Account",
             icon: "book",
-            desc: "Account accounting per Company. Account adalah subjek utama General Ledger.",
+            desc: "Bagan akun perusahaan. Account adalah subjek utama General Ledger.",
             permission: "ACCOUNT_VIEW",
-          },
-        ],
-      },
-      {
-        key: "mapping",
-        name: "Mapping",
-        entities: [
-          {
-            key: "acc_budget_category_account",
-            slug: "budget-category-account",
-            name: "Mapping Budget ke Account",
-            single: "Mapping",
-            icon: "link",
-            desc: "Menghubungkan Budget Category, Company, dan Account tujuan — jembatan antara klasifikasi planning dan account accounting.",
-            permission: "MAPPING_VIEW",
           },
         ],
       },
@@ -298,7 +194,7 @@ export const MODULES: NavModule[] = [
             slug: "report/profit-loss",
             name: "Laba Rugi",
             icon: "trend",
-            desc: "Laba rugi bertingkat satu Company per periode tahun buku, dengan pembanding opsional.",
+            desc: "Laba rugi bertingkat per periode tahun buku, dengan pembanding opsional.",
             permission: "REPORT_PROFIT_LOSS_VIEW",
           },
           {
@@ -306,7 +202,7 @@ export const MODULES: NavModule[] = [
             slug: "report/balance-sheet",
             name: "Neraca",
             icon: "scale",
-            desc: "Aktiva, pasiva dan ekuitas satu Company pada akhir periode tahun buku, dengan pembanding opsional.",
+            desc: "Aktiva, pasiva dan ekuitas pada akhir periode tahun buku, dengan pembanding opsional.",
             permission: "REPORT_BALANCE_SHEET_VIEW",
           },
         ],
@@ -328,7 +224,7 @@ export const MODULES: NavModule[] = [
             slug: "closing",
             name: "Fiscal Year Closing",
             icon: "lock",
-            desc: "Menutup satu tahun buku untuk satu Company: memindahkan hasil tahun berjalan ke ekuitas dan membuat Opening Balance tahun berikutnya.",
+            desc: "Menutup satu tahun buku: memindahkan hasil tahun berjalan ke ekuitas dan membuat Opening Balance tahun berikutnya.",
             permission: "FISCAL_YEAR_CLOSE",
           },
           {
@@ -336,7 +232,7 @@ export const MODULES: NavModule[] = [
             slug: "opening-balance",
             name: "Opening Balance",
             icon: "file",
-            desc: "Posisi setiap account pada awal tahun buku, per Company. Dokumen final — ditulis oleh penutupan tahun buku, bukan diisi sendiri.",
+            desc: "Posisi setiap account pada awal tahun buku. Dokumen final — ditulis oleh penutupan tahun buku, bukan diisi sendiri.",
             permission: "OPENING_BALANCE_VIEW",
           },
         ],
@@ -377,28 +273,12 @@ export const MODULES: NavModule[] = [
         name: "Klasifikasi",
         entities: [
           {
-            key: "sys_budget_category",
-            slug: "budget-category",
-            name: "Budget Category",
-            icon: "tags",
-            desc: "Klasifikasi yang diberikan saat Budget disetujui: arah yang berlaku, apakah memakai Partner, dan Partner Category mana yang boleh dipilih.",
-            permission: "BUDGET_CATEGORY_VIEW",
-          },
-          {
             key: "sys_partner_category",
             slug: "partner-category",
             name: "Partner Category",
             icon: "users",
-            desc: "Jenis Partner. Menentukan Partner mana yang boleh dipilih untuk sebuah Budget Category.",
+            desc: "Jenis Partner — Customer dan Supplier. Account yang wajib Partner menyebut satu Partner Category.",
             permission: "PARTNER_CATEGORY_VIEW",
-          },
-          {
-            key: "sys_purpose",
-            slug: "purpose",
-            name: "Transaction Purpose",
-            icon: "tags",
-            desc: "Arah × Budget Category × Partner Category. Dibuat otomatis dari Klasifikasi, sehingga Budget Category baru langsung dapat ditransaksikan.",
-            permission: "PURPOSE_VIEW",
           },
         ],
       },
@@ -483,7 +363,7 @@ export function entityHref(moduleKey: string, slug: string): string {
  * The slug is matched against the **whole** tail after the module, not just its
  * first segment, because a Report View's slug spans two (`report/cash-bank-ledger`).
  * Deeper paths still resolve to the entity that owns them — `/master/partner/12`
- * and `/budget/budget/month/5` both land on their list entity — and the longest
+ * and `/accounting/journal/5` both land on their list entity — and the longest
  * matching slug wins, so an entity whose slug is a prefix of another's can never
  * swallow it.
  */

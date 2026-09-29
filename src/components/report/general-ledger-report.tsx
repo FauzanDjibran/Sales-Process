@@ -22,10 +22,9 @@ import type { GeneralLedgerReport as Report } from "@/lib/erp/ledger";
  * up to anything — that sum is the Trial Balance's job, and it does it per
  * currency and per side.
  *
- * The entry table carries no Company column and no separate Partner column: the
- * Company is fixed for the whole run and stated in the filter, and a partner
- * belongs with the line it describes. Both were columns whose width the
- * description then had to give up, which is what pushed the table into a
+ * The entry table carries no separate Partner column: a partner belongs with
+ * the line it describes. It was a column whose width the description then had
+ * to give up, which is what pushed the table into a
  * horizontal scroll.
  */
 export function GeneralLedgerReport({ report }: { report: Report }) {
@@ -41,8 +40,7 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
       return next;
     });
 
-  // A hand-edited URL can name accounts belonging to another Company, or none
-  // at all. Saying so beats a blank card, which reads as "no data".
+  // A hand-edited URL can name accounts that do not exist. Saying so beats a blank card, which reads as "no data".
   if (report.accounts.length === 0) {
     return (
       <div className="empty sm">
@@ -51,8 +49,8 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
         </div>
         <h4>Account tidak ditemukan</h4>
         <p>
-          Account yang diminta tidak ada pada bagan akun Company ini. Setiap
-          Company menomori bagan akunnya sendiri — pilih ulang account di atas.
+          Account yang diminta tidak ada pada bagan akun — pilih ulang account
+          di atas.
         </p>
       </div>
     );

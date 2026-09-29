@@ -43,7 +43,7 @@ export function CashBankLedgerReport({ report }: { report: LedgerReport }) {
         <div className="cbh">
           <b>{report.resource.label}</b>
           <span className="cbn">
-            {report.resource.name} · {report.resource.companyLabel} ·{" "}
+            {report.resource.name} ·{" "}
             {report.entries.length} mutasi
           </span>
           <ReportSummary

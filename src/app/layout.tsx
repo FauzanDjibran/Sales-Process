@@ -17,7 +17,7 @@ const jetbrainsMono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "ERP",
   description:
-    "Perencanaan kebutuhan dana, eksekusi kas/bank, dan kendali akuntansi multi-company.",
+    "ERP untuk proses penjualan, kas & bank, dan akuntansi.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

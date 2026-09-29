@@ -11,12 +11,10 @@ import {
 import { profitLossReport, type StatementColumn } from "../src/lib/erp/statements";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import {
-  childCompanyId,
   cleanupFixtures,
   disconnect,
   makeAccount,
   makePartner,
-  parentCompanyId,
   prisma,
   systemUserId,
 } from "./helpers";
@@ -184,8 +182,6 @@ const YEAR = 1980;
 const YEAR_CODE = "test.pl.1980";
 
 let actor = 0;
-let induk = 0;
-let anak = 0;
 let fiscalYear = 0;
 let baseCurrency = 0;
 let closingDocType = 0;
@@ -193,14 +189,11 @@ let closingDocType = 0;
 let cash = 0;
 let revenue = 0;
 let expense = 0;
-let anakRevenue = 0;
-let anakCash = 0;
 let branch = 0;
 
 const day = (m: number, d: number) => new Date(Date.UTC(YEAR, m - 1, d));
 
 async function journal(
-  companyId: number,
   date: Date,
   lines: { accountId: number; debit: number; credit: number; partnerId?: number | null }[],
   extra: { status?: "Posted" | "Draft"; closingOf?: number } = {}
@@ -210,7 +203,6 @@ async function journal(
     data: {
       journal_no: `ZZP-${Date.now() % 100000}-${Math.floor(Math.random() * 100000)}`,
       posting_date: status === "Posted" ? date : null,
-      company_id: companyId,
       description: "Fixture",
       status,
       is_manual: status === "Draft",
@@ -243,13 +235,11 @@ const column = (from: string, to: string, yearId = fiscalYear): StatementColumn 
   range: { from, to },
 });
 
-const net = async (from: string, to: string, companyId = induk, yearId = fiscalYear) =>
-  (await profitLossReport(companyId, [column(from, to, yearId)])).result[0];
+const net = async (from: string, to: string, yearId = fiscalYear) =>
+  (await profitLossReport([column(from, to, yearId)])).result[0];
 
 before(async () => {
   actor = await systemUserId();
-  induk = await parentCompanyId();
-  anak = await childCompanyId();
   baseCurrency = (await prisma.refCurrency.findFirstOrThrow({ orderBy: { id: "asc" }, select: { id: true } })).id;
   closingDocType = (
     await prisma.sysDocType.findFirstOrThrow({ where: { doc_table: "acc_fiscal_year" }, select: { id: true } })
@@ -271,26 +261,24 @@ before(async () => {
     })
   ).id;
 
-  cash = await makeAccount({ companyId: induk, subcategoryLabel: CASH_BANK_SUBCATEGORY });
-  revenue = await makeAccount({ companyId: induk, subcategoryLabel: "4.1.1", normalBalance: "Kredit" });
-  expense = await makeAccount({ companyId: induk, subcategoryLabel: "5.3.1" });
-  anakCash = await makeAccount({ companyId: anak, subcategoryLabel: CASH_BANK_SUBCATEGORY });
-  anakRevenue = await makeAccount({ companyId: anak, subcategoryLabel: "4.1.1", normalBalance: "Kredit" });
-  branch = await makePartner({ companyId: induk, categoryLabel: "Cabang" });
+  cash = await makeAccount({ subcategoryLabel: CASH_BANK_SUBCATEGORY });
+  revenue = await makeAccount({ subcategoryLabel: "4.1.1", normalBalance: "Kredit" });
+  expense = await makeAccount({ subcategoryLabel: "5.3.1" });
+  branch = await makePartner({ categoryLabel: "Customer" });
 
   const sale = (date: Date, amount: number) =>
-    journal(induk, date, [
+    journal(date, [
       { accountId: cash, debit: amount, credit: 0 },
       { accountId: revenue, debit: 0, credit: amount },
     ]);
   const spend = (date: Date, amount: number, partnerId: number | null = null) =>
-    journal(induk, date, [
+    journal(date, [
       { accountId: expense, debit: amount, credit: 0, partnerId },
       { accountId: cash, debit: 0, credit: amount },
     ]);
 
   // The previous year's last day: never part of 1980.
-  await journal(induk, new Date(Date.UTC(YEAR - 1, 11, 31)), [
+  await journal(new Date(Date.UTC(YEAR - 1, 11, 31)), [
     { accountId: cash, debit: 7_000, credit: 0 },
     { accountId: revenue, debit: 0, credit: 7_000 },
   ]);
@@ -303,7 +291,6 @@ before(async () => {
 
   // A draft is not accounting.
   await journal(
-    induk,
     day(3, 10),
     [
       { accountId: cash, debit: 999_000, credit: 0 },
@@ -312,18 +299,11 @@ before(async () => {
     { status: "Draft" }
   );
 
-  // The other Company's sale, the same month.
-  await journal(anak, day(3, 5), [
-    { accountId: anakCash, debit: 55_000, credit: 0 },
-    { accountId: anakRevenue, debit: 0, credit: 55_000 },
-  ]);
-
   // 1980's own closing journal, dated its last day, emptying the Laba Rugi
   // accounts into equity exactly as a close would. Profit to 31/12 is
   // 1.000.000 − 150.000 = 850.000.
-  const equity = await makeAccount({ companyId: induk, subcategoryLabel: "3.3.1", normalBalance: "Kredit" });
+  const equity = await makeAccount({ subcategoryLabel: "3.3.1", normalBalance: "Kredit" });
   await journal(
-    induk,
     day(12, 31),
     [
       { accountId: revenue, debit: 1_000_000, credit: 0 },
@@ -360,7 +340,7 @@ describe("the figures, from the real engine", () => {
     // Asked as if the range belonged to another year, the close is an ordinary
     // posted journal and the Laba Rugi accounts net to nil — which is exactly
     // the useless report excluding it prevents.
-    const moves = await statementMovements(induk, { from: "1980-01-01", to: "1980-12-31" }, {
+    const moves = await statementMovements({ from: "1980-01-01", to: "1980-12-31" }, {
       section: "ProfitLoss",
       excludeClosingOf: fiscalYear + 100_000,
     });
@@ -369,17 +349,12 @@ describe("the figures, from the real engine", () => {
   });
 
   test("a draft never reaches the statement", async () => {
-    const moves = await statementMovements(induk, { from: "1980-03-10", to: "1980-03-10" }, { section: "ProfitLoss" });
+    const moves = await statementMovements({ from: "1980-03-10", to: "1980-03-10" }, { section: "ProfitLoss" });
     assert.equal(moves.length, 0, "the draft on 10/03 is the only journal that day");
   });
 
-  test("one Company's statement never reads the other's journals", async () => {
-    assert.equal(await net("1980-03-01", "1980-03-31", anak), 55_000);
-    assert.equal(await net("1980-03-01", "1980-03-31"), 350_000, "and the induk's excludes it");
-  });
-
   test("a comparison column equals running that period on its own", async () => {
-    const both = await profitLossReport(induk, [
+    const both = await profitLossReport([
       column("1980-03-01", "1980-03-31"),
       column("1980-02-01", "1980-02-29"),
     ]);
@@ -388,7 +363,7 @@ describe("the figures, from the real engine", () => {
   });
 
   test("the Partner breakdown adds up to the account, with the rest as Tanpa Partner", async () => {
-    const report = await profitLossReport(induk, [column("1980-03-01", "1980-03-31")]);
+    const report = await profitLossReport([column("1980-03-01", "1980-03-31")]);
     const account = report.rows.find((r) => r.accountId === expense)!;
     assert.equal(account.values[0], 150_000);
     const lines = report.rows.filter((r) => r.partnerOf === account.key);

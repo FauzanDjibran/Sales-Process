@@ -151,15 +151,15 @@ describe("administrator capabilities", () => {
     const created = await createRole(actor, {
       role_label: `TEST_ROLE_APPROVER_${Date.now()}`,
       role_name: "Penyetuju",
-      note: "Hanya menyetujui Budget.",
+      note: "Hanya memposting Journal.",
     });
     assert.equal(created.ok, true);
     const id = created.ok ? created.id : 0;
 
     const result = await setRolePermissions(actor, id, [
-      "MENU_BUDGET_ACCESS",
-      "BUDGET_VIEW",
-      "BUDGET_APPROVE",
+      "MENU_ACCOUNTING_ACCESS",
+      "JOURNAL_VIEW",
+      "JOURNAL_POST",
     ]);
     assert.equal(result.ok, true);
 
@@ -169,7 +169,7 @@ describe("administrator capabilities", () => {
     });
     assert.deepEqual(
       codes.map((c) => c.permission.permission_code).sort(),
-      ["BUDGET_APPROVE", "BUDGET_VIEW", "MENU_BUDGET_ACCESS"]
+      ["JOURNAL_POST", "JOURNAL_VIEW", "MENU_ACCOUNTING_ACCESS"]
     );
   });
 
@@ -182,7 +182,7 @@ describe("administrator capabilities", () => {
     });
     const id = created.ok ? created.id : 0;
 
-    const result = await setRolePermissions(actor, id, ["BUDGET_VIEW", "NOT_A_PERMISSION"]);
+    const result = await setRolePermissions(actor, id, ["JOURNAL_VIEW", "NOT_A_PERMISSION"]);
     assert.equal(result.ok, false);
     assert.equal(
       await prisma.sysRolePermission.count({ where: { role_id: id } }),
@@ -252,7 +252,7 @@ describe("protections against privilege abuse", () => {
     const adminRole = await roleIdFor("ADMIN");
 
     const result = await setRolePermissions(await actorOf(admin.id), adminRole, [
-      "BUDGET_VIEW",
+      "JOURNAL_VIEW",
     ]);
     assert.equal(result.ok, false);
 

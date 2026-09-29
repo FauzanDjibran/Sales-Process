@@ -7,8 +7,8 @@ import { auditEventLabel } from "@/lib/erp/audit-events";
 /**
  * A record's own history, at the foot of its form.
  *
- * One component for every form that has one — registry entities, Budget, Cash
- * Bank Transaction, Funding Request, User and Role — because a repeated control
+ * One component for every form that has one — registry entities, documents,
+ * User and Role — because a repeated control
  * is a component (CLAUDE.md §12) and an audit trail that reads differently on
  * six screens is worse than none: a reader who learns to read a Budget's trace
  * should be able to read a Partner's without relearning it.
@@ -38,7 +38,7 @@ export function RecordHistory({
   entries,
   total,
 }: {
-  /** Which vocabulary the events are read in — `bud_budget`, `m_partner`. */
+  /** Which vocabulary the events are read in — `acc_journal`, `m_partner`. */
   entityKey: string;
   entries: HistoryRow[];
   /** Rows in the log, which exceeds `entries.length` once the cap bites. */

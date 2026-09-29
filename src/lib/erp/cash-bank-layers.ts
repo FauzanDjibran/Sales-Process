@@ -360,7 +360,6 @@ export type LayerResourceBlock = {
   cashBankId: number;
   label: string;
   name: string;
-  companyLabel: string;
   currencyLabel: string;
   active: boolean;
   layers: LayerRow[];
@@ -391,25 +390,18 @@ export type LayerReport = {
  * of how the account got where it is, and dropping it would leave a report that
  * cannot explain its own closing figure. They are simply never offered as a
  * choice.
- *
- * Scoped to the Companies the reader may see, like every other report here.
  */
 export async function layerReport(
-  companyIds: number[],
   cashBankId?: number | null
 ): Promise<LayerReport> {
   const resources = await prisma.mCashBank.findMany({
-    where: {
-      company_id: { in: companyIds },
-      ...(cashBankId ? { id: cashBankId } : {}),
-    },
-    orderBy: [{ company_id: "asc" }, { cash_bank_label: "asc" }],
+    where: cashBankId ? { id: cashBankId } : {},
+    orderBy: { cash_bank_label: "asc" },
     select: {
       id: true,
       cash_bank_label: true,
       cash_bank_name: true,
       status: true,
-      company: { select: { company_label: true } },
       currency: { select: { currency_label: true } },
       book_balance: { select: { balance: true, base_balance: true } },
       layers: {
@@ -461,7 +453,6 @@ export async function layerReport(
       cashBankId: r.id,
       label: r.cash_bank_label,
       name: r.cash_bank_name,
-      companyLabel: r.company.company_label,
       currencyLabel: r.currency.currency_label,
       active: r.status === "Active",
       layers,

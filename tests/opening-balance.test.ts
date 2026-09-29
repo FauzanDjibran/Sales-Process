@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import {
   OpeningBalanceImbalance,
   getOpeningBalance,
-  listOpeningBalances,
   writeOpeningBalance,
 } from "../src/lib/erp/opening-balance";
 import { JournalImbalance, postJournal } from "../src/lib/erp/journal";
@@ -12,12 +11,10 @@ import { closingBalances, generalLedgerReport } from "../src/lib/erp/ledger";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import {
   FIXTURE_PREFIX,
-  childCompanyId,
   cleanupFixtures,
   disconnect,
   makeAccount,
   makePartner,
-  parentCompanyId,
   prisma,
   systemUserId,
 } from "./helpers";
@@ -50,27 +47,24 @@ const FIXTURE_YEAR = 1990;
 const FIXTURE_YEAR_CODE = `fyr.${FIXTURE_PREFIX}${FIXTURE_YEAR}`;
 
 let actor = 0;
-let induk = 0;
-let anak = 0;
 let fiscalYear = 0;
 let madeFiscalYear = false;
 let currency = 0;
 
 /**
- * Two Companies' worth of fixtures: one account that names a Partner and one
- * that does not, with Partners of that same Company.
+ * Two sets of fixtures: each one account that names a Partner and one that
+ * does not.
  *
- * The anak's carry the written document, the induk's carry the journals
- * `closingBalances` reads. Keeping them apart means neither case can disturb
- * the other, and a snapshot can be refused for one Company while the other
- * still holds a good one.
+ * The `doc*` accounts carry the written document, the others carry the
+ * journals `closingBalances` reads. Keeping them apart means neither case can
+ * disturb the other.
  */
-let anakReceivable = 0;
-let anakCash = 0;
-let anakBranch = 0;
-let anakBranch2 = 0;
-let indukReceivable = 0;
-let indukCash = 0;
+let docReceivable = 0;
+let docCash = 0;
+let docBranch = 0;
+let docBranch2 = 0;
+let receivable = 0;
+let cash = 0;
 let branchA = 0;
 let branchB = 0;
 
@@ -78,8 +72,6 @@ const openings: number[] = [];
 
 before(async () => {
   actor = await systemUserId();
-  induk = await parentCompanyId();
-  anak = await childCompanyId();
   currency = (
     await prisma.refCurrency.findFirstOrThrow({
       orderBy: { id: "asc" },
@@ -111,29 +103,25 @@ before(async () => {
     madeFiscalYear = true;
   }
 
-  anakReceivable = await makeAccount({
-    companyId: anak,
+  docReceivable = await makeAccount({
     subcategoryLabel: "1.1.4",
-    partnerCategoryLabel: "Cabang",
+    partnerCategoryLabel: "Customer",
   });
-  anakCash = await makeAccount({
-    companyId: anak,
+  docCash = await makeAccount({
     subcategoryLabel: CASH_BANK_SUBCATEGORY,
   });
-  anakBranch = await makePartner({ companyId: anak, categoryLabel: "Cabang" });
-  anakBranch2 = await makePartner({ companyId: anak, categoryLabel: "Cabang" });
+  docBranch = await makePartner({ categoryLabel: "Customer" });
+  docBranch2 = await makePartner({ categoryLabel: "Customer" });
 
-  indukReceivable = await makeAccount({
-    companyId: induk,
+  receivable = await makeAccount({
     subcategoryLabel: "1.1.4",
-    partnerCategoryLabel: "Cabang",
+    partnerCategoryLabel: "Customer",
   });
-  indukCash = await makeAccount({
-    companyId: induk,
+  cash = await makeAccount({
     subcategoryLabel: CASH_BANK_SUBCATEGORY,
   });
-  branchA = await makePartner({ companyId: induk, categoryLabel: "Cabang" });
-  branchB = await makePartner({ companyId: induk, categoryLabel: "Cabang" });
+  branchA = await makePartner({ categoryLabel: "Customer" });
+  branchB = await makePartner({ categoryLabel: "Customer" });
 });
 
 after(async () => {
@@ -154,10 +142,8 @@ after(async () => {
 });
 
 const snapshot = (
-  companyId: number,
   lines: { accountId: number; partnerId?: number | null; debit: number; credit: number }[]
 ) => ({
-  companyId,
   fiscalYearId: fiscalYear,
   sourceFiscalYearId: null,
   postingDate: new Date(Date.UTC(FIXTURE_YEAR, 0, 1)),
@@ -171,16 +157,16 @@ describe("an Opening Balance balances, or it is not written", () => {
   test("a balanced snapshot is written, and reads back", async () => {
     const result = await writeOpeningBalance(
       prisma,
-      snapshot(anak, [
-        { accountId: anakReceivable, partnerId: anakBranch, debit: 300_000, credit: 0 },
-        { accountId: anakCash, debit: 700_000, credit: 0 },
-        { accountId: anakReceivable, partnerId: anakBranch2, debit: 0, credit: 1_000_000 },
+      snapshot([
+        { accountId: docReceivable, partnerId: docBranch, debit: 300_000, credit: 0 },
+        { accountId: docCash, debit: 700_000, credit: 0 },
+        { accountId: docReceivable, partnerId: docBranch2, debit: 0, credit: 1_000_000 },
       ])
     );
     openings.push(result.id);
     assert.match(result.openingNo, /^OPB-\d{4}$/);
 
-    const detail = await getOpeningBalance(result.id, [anak]);
+    const detail = await getOpeningBalance(result.id);
     assert.ok(detail, "the snapshot reads back");
     assert.equal(detail.lines.length, 3);
     assert.equal(detail.debit, 1_000_000);
@@ -194,20 +180,15 @@ describe("an Opening Balance balances, or it is not written", () => {
     );
   });
 
-  test("a snapshot of another Company reads as not found", async () => {
-    const [written] = openings;
-    assert.equal(await getOpeningBalance(written, [induk]), null);
-  });
-
   test("an unbalanced snapshot is refused and writes nothing", async () => {
     const before = await prisma.accOpeningBalance.count();
 
     await assert.rejects(
       writeOpeningBalance(
         prisma,
-        snapshot(induk, [
-          { accountId: indukCash, debit: 1_000_000, credit: 0 },
-          { accountId: indukReceivable, partnerId: branchA, debit: 0, credit: 999_999 },
+        snapshot([
+          { accountId: cash, debit: 1_000_000, credit: 0 },
+          { accountId: receivable, partnerId: branchA, debit: 0, credit: 999_999 },
         ])
       ),
       OpeningBalanceImbalance
@@ -222,15 +203,15 @@ describe("an Opening Balance balances, or it is not written", () => {
 
   test("a line carrying both sides, or neither, is refused", async () => {
     for (const line of [
-      { accountId: indukCash, debit: 500_000, credit: 500_000 },
-      { accountId: indukCash, debit: 0, credit: 0 },
+      { accountId: cash, debit: 500_000, credit: 500_000 },
+      { accountId: cash, debit: 0, credit: 0 },
     ]) {
       await assert.rejects(
         writeOpeningBalance(
           prisma,
-          snapshot(induk, [
+          snapshot([
             line,
-            { accountId: indukReceivable, partnerId: branchA, debit: 0, credit: 500_000 },
+            { accountId: receivable, partnerId: branchA, debit: 0, credit: 500_000 },
           ])
         ),
         /tepat satu sisi/
@@ -240,7 +221,7 @@ describe("an Opening Balance balances, or it is not written", () => {
 
   test("a snapshot with no lines is refused", async () => {
     await assert.rejects(
-      writeOpeningBalance(prisma, snapshot(induk, [])),
+      writeOpeningBalance(prisma, snapshot([])),
       /tanpa baris/
     );
   });
@@ -253,9 +234,9 @@ describe("one line per (account, partner?) pair", () => {
     await assert.rejects(
       writeOpeningBalance(
         prisma,
-        snapshot(induk, [
-          { accountId: indukReceivable, partnerId: branchA, debit: 400_000, credit: 0 },
-          { accountId: indukReceivable, partnerId: branchA, debit: 0, credit: 400_000 },
+        snapshot([
+          { accountId: receivable, partnerId: branchA, debit: 400_000, credit: 0 },
+          { accountId: receivable, partnerId: branchA, debit: 0, credit: 400_000 },
         ])
       ),
       /lebih dari satu kali/
@@ -268,9 +249,9 @@ describe("one line per (account, partner?) pair", () => {
     await assert.rejects(
       writeOpeningBalance(
         prisma,
-        snapshot(induk, [
-          { accountId: indukCash, debit: 400_000, credit: 0 },
-          { accountId: indukCash, debit: 0, credit: 400_000 },
+        snapshot([
+          { accountId: cash, debit: 400_000, credit: 0 },
+          { accountId: cash, debit: 0, credit: 400_000 },
         ])
       ),
       /tanpa partner/
@@ -287,7 +268,7 @@ describe("one line per (account, partner?) pair", () => {
         data: {
           opening_id: opening,
           sequence_no: 99,
-          account_id: anakCash,
+          account_id: docCash,
           partner_id: null,
           debit_amount: 1,
           kredit_amount: 0,
@@ -302,8 +283,8 @@ describe("one line per (account, partner?) pair", () => {
         data: {
           opening_id: opening,
           sequence_no: 98,
-          account_id: anakReceivable,
-          partner_id: anakBranch,
+          account_id: docReceivable,
+          partner_id: docBranch,
           debit_amount: 1,
           kredit_amount: 0,
           created_by: actor,
@@ -313,28 +294,20 @@ describe("one line per (account, partner?) pair", () => {
     );
   });
 
-  test("one snapshot per Company per fiscal year", async () => {
+  test("one snapshot per fiscal year", async () => {
     await assert.rejects(
       writeOpeningBalance(
         prisma,
-        snapshot(anak, [
-          { accountId: anakCash, debit: 1_000, credit: 0 },
-          { accountId: anakReceivable, partnerId: anakBranch, debit: 0, credit: 1_000 },
+        snapshot([
+          { accountId: docCash, debit: 1_000, credit: 0 },
+          { accountId: docReceivable, partnerId: docBranch, debit: 0, credit: 1_000 },
         ])
       ),
       /Unique constraint|unique/i,
-      "a second answer to where a Company stood on 1 January must be unreachable"
+      "a second answer to where the books stood on 1 January must be unreachable"
     );
   });
 
-  test("the register lists only the reader's Companies", async () => {
-    const rows = await listOpeningBalances([anak]);
-    assert.ok(rows.some((r) => r.id === openings[0]));
-    assert.ok(
-      rows.every((r) => r.companyId === anak),
-      "a register scoped to one Company must hold nothing from the other"
-    );
-  });
 });
 
 // ------------------------------------------- what a close will be handed
@@ -361,29 +334,28 @@ describe("closingBalances agrees with the General Ledger", () => {
 
     const post = (lines: ReturnType<typeof line>[]) =>
       postJournal(prisma, {
-        companyId: induk,
         description: "Fixture closing-balance journal",
         lines,
         actorId: actor,
       });
 
     await post([
-      line(indukReceivable, branchA, 300_000, 0),
-      line(indukCash, null, 0, 300_000),
+      line(receivable, branchA, 300_000, 0),
+      line(cash, null, 0, 300_000),
     ]);
     await post([
-      line(indukReceivable, branchB, 200_000, 0),
-      line(indukCash, null, 0, 200_000),
+      line(receivable, branchB, 200_000, 0),
+      line(cash, null, 0, 200_000),
     ]);
     await post([
-      line(indukCash, null, 100_000, 0),
-      line(indukReceivable, branchA, 0, 100_000),
+      line(cash, null, 100_000, 0),
+      line(receivable, branchA, 0, 100_000),
     ]);
   });
 
   test("the partner grain is what was actually posted", async () => {
-    const rows = (await closingBalances(induk, AS_OF)).filter(
-      (r) => r.accountId === indukReceivable
+    const rows = (await closingBalances(AS_OF)).filter(
+      (r) => r.accountId === receivable
     );
 
     assert.deepEqual(
@@ -397,11 +369,10 @@ describe("closingBalances agrees with the General Ledger", () => {
   });
 
   test("the pairs roll up to the General Ledger's closing balance", async () => {
-    const pairs = await closingBalances(induk, AS_OF);
+    const pairs = await closingBalances(AS_OF);
     const ledger = await generalLedgerReport(
-      [indukReceivable, indukCash],
-      WHOLE_TIME,
-      [induk]
+      [receivable, cash],
+      WHOLE_TIME
     );
 
     for (const account of ledger.accounts) {
@@ -417,8 +388,8 @@ describe("closingBalances agrees with the General Ledger", () => {
   });
 
   test("an account with no Partner keeps one null-partner row", async () => {
-    const rows = (await closingBalances(induk, AS_OF)).filter(
-      (r) => r.accountId === indukCash
+    const rows = (await closingBalances(AS_OF)).filter(
+      (r) => r.accountId === cash
     );
     assert.equal(rows.length, 1);
     assert.equal(rows[0].partnerId, null);
@@ -430,9 +401,9 @@ describe("closingBalances agrees with the General Ledger", () => {
   });
 
   test("a pair that settles to nothing is not a row", async () => {
-    const settled = await makePartner({ companyId: induk, categoryLabel: "Cabang" });
+    const settled = await makePartner({ categoryLabel: "Customer" });
     const line = (debit: number, credit: number, partnerId: number | null) => ({
-      accountId: partnerId ? indukReceivable : indukCash,
+      accountId: partnerId ? receivable : cash,
       partnerId,
       currencyId: currency,
       rate: 1,
@@ -442,19 +413,17 @@ describe("closingBalances agrees with the General Ledger", () => {
     });
 
     await postJournal(prisma, {
-      companyId: induk,
       description: "Fixture settled pair",
       lines: [line(50_000, 0, settled), line(0, 50_000, null)],
       actorId: actor,
     });
     await postJournal(prisma, {
-      companyId: induk,
       description: "Fixture settled pair",
       lines: [line(0, 50_000, settled), line(50_000, 0, null)],
       actorId: actor,
     });
 
-    const rows = await closingBalances(induk, AS_OF);
+    const rows = await closingBalances(AS_OF);
     assert.equal(
       rows.filter((r) => r.partnerId === settled).length,
       0,
@@ -466,8 +435,8 @@ describe("closingBalances agrees with the General Ledger", () => {
     // Every fixture journal is dated today, and the closing entry below is
     // dated the last day of 1990, so a balance struck in 1980 sees none of
     // them.
-    const rows = (await closingBalances(induk, "1980-01-01")).filter(
-      (r) => r.accountId === indukReceivable || r.accountId === indukCash
+    const rows = (await closingBalances("1980-01-01")).filter(
+      (r) => r.accountId === receivable || r.accountId === cash
     );
     assert.deepEqual(rows, []);
   });
@@ -488,11 +457,10 @@ describe("a closing journal names its own date and series", () => {
   test("CLS is its own series, dated the day it is given", async () => {
     const lastDay = new Date(Date.UTC(FIXTURE_YEAR, 11, 31));
     const result = await postJournal(prisma, {
-      companyId: induk,
       description: "Fixture closing journal",
       series: "CLS",
       postingDate: lastDay,
-      lines: [line(indukCash, 1_000, 0), line(indukReceivable, 0, 1_000)],
+      lines: [line(cash, 1_000, 0), line(receivable, 0, 1_000)],
       actorId: actor,
     });
 
@@ -508,11 +476,10 @@ describe("a closing journal names its own date and series", () => {
   test("the balance rule is unchanged by the series", async () => {
     await assert.rejects(
       postJournal(prisma, {
-        companyId: induk,
         description: "Fixture closing journal",
         series: "CLS",
         postingDate: new Date(Date.UTC(FIXTURE_YEAR, 11, 31)),
-        lines: [line(indukCash, 1_000, 0), line(indukReceivable, 0, 999)],
+        lines: [line(cash, 1_000, 0), line(receivable, 0, 999)],
         actorId: actor,
       }),
       JournalImbalance
@@ -526,10 +493,9 @@ describe("a closing journal names its own date and series", () => {
     const tomorrow = new Date(Date.now() + 86_400_000);
     await assert.rejects(
       postJournal(prisma, {
-        companyId: induk,
         description: "Fixture future journal",
         postingDate: new Date(`${tomorrow.toISOString().slice(0, 10)}T00:00:00Z`),
-        lines: [line(indukCash, 1_000, 0), line(indukReceivable, 0, 1_000)],
+        lines: [line(cash, 1_000, 0), line(receivable, 0, 1_000)],
         actorId: actor,
       }),
       /masa depan/
@@ -538,9 +504,8 @@ describe("a closing journal names its own date and series", () => {
 
   test("an ordinary posting is still dated today, in the JRN series", async () => {
     const result = await postJournal(prisma, {
-      companyId: induk,
       description: "Fixture ordinary journal",
-      lines: [line(indukCash, 1_000, 0), line(indukReceivable, 0, 1_000)],
+      lines: [line(cash, 1_000, 0), line(receivable, 0, 1_000)],
       actorId: actor,
     });
     assert.match(result.journalNo, /^JRN-\d{4}$/);

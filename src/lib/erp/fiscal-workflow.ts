@@ -9,17 +9,15 @@
  * process. None of those steps is a value anyone picks from a dropdown, which
  * is why `status` is not an editable field on the Fiscal Year form at all.
  *
- * Open is a one-way door: periods exist behind it and budgets are already
+ * Open is a one-way door: periods exist behind it and postings are already
  * grouped by them, so returning a year to Draft would strand data inside a year
  * that claims never to have started.
  *
- * **Closed is a rollup, not a status somebody sets.** Closing happens per
- * Company: the induk can shut 2026 while the anak is still finishing it, and
- * that state lives in `acc_fiscal_closing`. The year itself reads Closed only
- * once every Company has closed it. That is also why `close` is the one
- * transition here that is not run from the Fiscal Year's own header — it needs
- * a Company, a checklist and a preview of the entry it is about to write, so
- * it carries `runAt` and the header links there instead.
+ * **Closed is written by the closing process, not picked.** The close is
+ * recorded in `acc_fiscal_closing` together with the year's status. That is
+ * also why `close` is the one transition here that is not run from the Fiscal
+ * Year's own header — it needs a checklist and a preview of the entry it is
+ * about to write, so it carries `runAt` and the header links there instead.
  *
  * Client-safe on purpose — no `server-only`, no database import.
  */
@@ -49,7 +47,7 @@ export type FiscalYearTransition = {
    * Where the step is run, when it is not run inline from the record's header.
    *
    * A transition with no `runAt` is a button and a confirmation. One with a
-   * `runAt` needs more than a yes — closing needs a Company, a validation
+   * `runAt` needs more than a yes — closing needs a validation
    * checklist and a preview of the journal it is about to write — so the
    * header links to that screen rather than pretending the step is one click.
    */
@@ -69,9 +67,8 @@ export const FISCAL_YEAR_TRANSITIONS: Record<
     tone: "primary",
     title: "Aktifkan tahun buku?",
     body:
-      "12 Fiscal Period — Januari sampai Desember — dibuat sekarang dan " +
-      "Budget mulai dikelompokkan ke dalamnya. Tahun buku yang sudah aktif " +
-      "tidak dapat dikembalikan menjadi Draft.",
+      "12 Fiscal Period — Januari sampai Desember — dibuat sekarang. Tahun " +
+      "buku yang sudah aktif tidak dapat dikembalikan menjadi Draft.",
     confirmLabel: "Ya, Aktifkan",
     done: "Tahun buku diaktifkan",
   },
@@ -83,13 +80,12 @@ export const FISCAL_YEAR_TRANSITIONS: Record<
     icon: "lock",
     tone: "primary",
     runAt: "/accounting/closing",
-    title: "Tutup tahun buku untuk Company ini?",
+    title: "Tutup tahun buku ini?",
     body:
       "Hasil tahun berjalan dipindahkan ke Laba/Rugi Tahun Sebelumnya, dan " +
       "Opening Balance tahun berikutnya ditulis dari posisi akhir tahun ini. " +
       "Setelah ditutup, tidak ada transaksi baru yang dapat dibuat di dalam " +
-      "tahun buku ini oleh Company tersebut, dan penutupan tidak dapat " +
-      "dibatalkan.",
+      "tahun buku ini, dan penutupan tidak dapat dibatalkan.",
     confirmLabel: "Ya, Tutup Tahun Buku",
     done: "Tahun buku ditutup",
   },
@@ -98,19 +94,19 @@ export const FISCAL_YEAR_TRANSITIONS: Record<
 /**
  * Why the closing step leaves this screen.
  *
- * Closing is per Company and produces two documents, so it cannot honestly be
- * a yes/no on a record that belongs to neither Company. The header links to
- * the workspace, and this is the title on that link.
+ * Closing produces two documents and checks its preconditions first, so it
+ * cannot honestly be a yes/no on the year's record. The header links to the
+ * workspace, and this is the title on that link.
  */
 export const FISCAL_YEAR_CLOSING_NOTE =
-  "Penutupan dilakukan per Company, di layar Fiscal Year Closing: di sana " +
+  "Penutupan dilakukan di layar Fiscal Year Closing: di sana " +
   "validasinya diperiksa dan journal penutup ditampilkan sebelum dijalankan.";
 
 /** Just enough of a Fiscal Year to say which one is being talked about. */
 export type OpenYearSummary = { id: number; label: string; name: string };
 
-/** A close some Company has already run, as the activation rule needs it. */
-export type LaterClosing = { yearLabel: string; yearName: string; companyLabel: string };
+/** A close already run, as the activation rule needs it. */
+export type LaterClosing = { yearLabel: string; yearName: string };
 
 /**
  * Why a year may not be activated, or null when it may.
@@ -129,8 +125,8 @@ export type LaterClosing = { yearLabel: string; yearName: string; companyLabel: 
 export function activationRefusal(yearLabel: string, later: LaterClosing[]): string | null {
   if (!later.length) return null;
   const named = [...later]
-    .sort((a, b) => a.yearLabel.localeCompare(b.yearLabel) || a.companyLabel.localeCompare(b.companyLabel))
-    .map((c) => `${c.yearName} (${c.companyLabel})`)
+    .sort((a, b) => a.yearLabel.localeCompare(b.yearLabel))
+    .map((c) => c.yearName)
     .join(", ");
   return (
     `Tahun buku ${yearLabel} tidak dapat diaktifkan karena tahun buku setelahnya ` +
@@ -162,7 +158,7 @@ export function fiscalYearAbilities(
  *
  * A transition carrying `runAt` is deliberately not here: it is run on a
  * screen of its own, so offering it as a confirm button would be offering a
- * one-click version of a step that needs a Company and a preview first.
+ * one-click version of a step that needs a checklist and a preview first.
  */
 export function availableActions(
   status: FiscalYearStatus,

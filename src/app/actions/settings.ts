@@ -62,9 +62,9 @@ export async function saveSystemDefaults(
       errors[key] = "Pilihan tidak dikenali.";
       continue;
     }
-    // A Company-scoped setting is checked here as well as when it is read: the
-    // bridge settings decide which account a posting lands in, so storing one
-    // that points at another Company's chart would be storing a fault.
+    // An account-valued setting is checked here as well as when it is read:
+    // it decides which account a posting lands in, so storing one that could
+    // not take a posting would be storing a fault.
     const refused = await checkSystemDefaultValue(key, n);
     if (refused) {
       errors[key] = refused;
@@ -83,7 +83,7 @@ export async function saveSystemDefaults(
 
   const changed = await writeSystemDefaults(clean, actorId);
 
-  // The bridge and FX settings do not prefill a control — they name where a
+  // The FX and equity settings do not prefill a control — they name where a
   // posting lands. An account that decides a posting is written to by the
   // posting engine alone, so it is a control account for as long as a setting
   // names it and stops being one when none does. The same reasoning as a Cash
@@ -118,7 +118,6 @@ export async function saveSystemDefaults(
 
   // Defaults are read wherever a form is built, so every form is now stale.
   revalidatePath("/settings/system-default");
-  revalidatePath("/budget/budget/new");
   revalidatePath("/master/cash-bank/new");
   revalidatePath("/dashboard");
 

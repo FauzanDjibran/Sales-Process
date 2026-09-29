@@ -116,7 +116,7 @@ export function Select({
   invalid?: boolean;
   disabled?: boolean;
   /**
-   * What has to be answered before this field can be — `Pilih Budget Category
+   * What has to be answered before this field can be — `Pilih Kelompok Account
    * dulu…`. The `Combobox`'s prop of the same name, for the same reason:
    * disabled means never, this means not yet, and a control that simply
    * greyed out left the reader to work out which other field had done it.

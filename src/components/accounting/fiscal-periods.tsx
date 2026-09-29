@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { formatDate } from "@/lib/format";
 import type { FiscalPeriodRow } from "@/lib/erp/fiscal";
@@ -8,8 +7,7 @@ import type { FiscalPeriodRow } from "@/lib/erp/fiscal";
  *
  * Fiscal Period has no menu and no form: a calendar month is not something
  * anyone should be able to mistype, so the periods are generated when the year
- * is opened and only read here. Each row links to its Budget Month, which is
- * the one place a period is actually worked with.
+ * is opened and only read here.
  */
 const STATUS_CLASS: Record<string, string> = {
   Draft: "s-warn",
@@ -51,11 +49,7 @@ export function FiscalPeriods({
                 <th style={{ width: 104 }}>Period</th>
                 <th>Nama Period</th>
                 <th style={{ width: 196 }}>Rentang Tanggal</th>
-                <th className="num" style={{ width: 88 }}>
-                  Budget
-                </th>
                 <th style={{ width: 96 }}>Status</th>
-                <th style={{ width: 44 }} />
               </tr>
             </thead>
             <tbody>
@@ -69,23 +63,10 @@ export function FiscalPeriods({
                   <td className="mono mut" style={{ fontSize: "11.5px" }}>
                     {formatDate(p.startDate)} – {formatDate(p.endDate)}
                   </td>
-                  <td className="num">
-                    {p.budgets || <span className="dash">0</span>}
-                  </td>
                   <td>
                     <span className={`bdg ${STATUS_CLASS[p.status] ?? "s-mute"}`}>
                       {p.status}
                     </span>
-                  </td>
-                  <td style={{ textAlign: "right", paddingRight: 9 }}>
-                    <Link
-                      className="iact"
-                      href={`/budget/budget/month/${p.id}`}
-                      aria-label={`Buka Budget ${p.name}`}
-                      title="Buka Budget Month"
-                    >
-                      <Icon name="chev" size={15} />
-                    </Link>
                   </td>
                 </tr>
               ))}

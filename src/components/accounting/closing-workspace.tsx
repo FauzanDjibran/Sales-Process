@@ -4,13 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Icon } from "@/components/icon";
-import { CompanyFilter, NoCompanyAccess } from "@/components/master/company-filter";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { closeFiscalYear } from "@/app/actions/closing";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { Company } from "@/lib/erp/company-access";
 import type { ClosingPlan } from "@/lib/erp/closing";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import { FISCAL_YEAR_TRANSITIONS } from "@/lib/erp/fiscal-workflow";
@@ -29,7 +27,7 @@ import { headerButtonClass } from "@/lib/erp/header-actions";
  * Action runs the same checks again before it writes, so nothing here can offer
  * a close that would be refused, and nothing refused here is quietly allowed.
  *
- * Company and year are `?company=` and `?year=` rather than component state,
+ * The year is `?year=` rather than component state,
  * for the reason every Report View's parameters are: a run is a navigation, the
  * page stays a Server Component that queries directly, and a colleague can be
  * sent the exact screen.
@@ -37,16 +35,12 @@ import { headerButtonClass } from "@/lib/erp/header-actions";
 export function ClosingWorkspace({
   plan,
   years,
-  companies,
-  companyId,
   yearId,
   canClose,
 }: {
-  /** Null when no year is chosen, or the pair does not resolve. */
+  /** Null when no year is chosen, or the year does not resolve. */
   plan: ClosingPlan | null;
   years: { id: number; label: string; name: string; closed: boolean }[];
-  companies: Company[];
-  companyId: number | null;
   yearId: number | null;
   canClose: boolean;
 }) {
@@ -65,9 +59,9 @@ export function ClosingWorkspace({
   };
 
   const run = async () => {
-    if (!plan || !companyId || !yearId) return;
+    if (!plan || !yearId) return;
     setBusy(true);
-    const result = await closeFiscalYear(companyId, yearId);
+    const result = await closeFiscalYear(yearId);
     setBusy(false);
     setConfirm(false);
     if (!result.ok) {
@@ -113,59 +107,50 @@ export function ClosingWorkspace({
           </div>
         </div>
         <p className="ph-sub">
-          Penutupan dilakukan per Company. Hasil tahun berjalan dipindahkan ke
+          Hasil tahun berjalan dipindahkan ke
           Laba/Rugi Tahun Sebelumnya, dan posisi yang tersisa ditulis sebagai
           Opening Balance tahun berikutnya. Tidak dapat dibatalkan.
         </p>
       </div>
 
-      {companyId == null ? (
-        <div className="card">
-          <NoCompanyAccess what="Tahun buku" />
+      <div className="card">
+        <div className="toolbar">
+          <Select
+            variant="toolbar"
+            value={yearId ? String(yearId) : ""}
+            onChange={pickYear}
+            placeholder="Pilih tahun buku…"
+            ariaLabel="Tahun buku"
+            options={years.map((y) => ({
+              value: String(y.id),
+              label: y.name,
+              hint: y.closed ? "sudah ditutup" : undefined,
+            }))}
+          />
         </div>
-      ) : (
-        <>
-          <div className="card">
-            <div className="toolbar">
-              <CompanyFilter options={companies} selectedId={companyId} />
-              <Select
-                variant="toolbar"
-                value={yearId ? String(yearId) : ""}
-                onChange={pickYear}
-                placeholder="Pilih tahun buku…"
-                ariaLabel="Tahun buku"
-                options={years.map((y) => ({
-                  value: String(y.id),
-                  label: y.name,
-                  hint: y.closed ? "sudah ditutup" : undefined,
-                }))}
-              />
+
+        {!plan ? (
+          <div className="empty sm">
+            <div className="ic">
+              <Icon name="cal" size={20} />
             </div>
-
-            {!plan ? (
-              <div className="empty sm">
-                <div className="ic">
-                  <Icon name="cal" size={20} />
-                </div>
-                <h4>
-                  {years.length ? "Pilih tahun buku" : "Belum ada tahun buku Open"}
-                </h4>
-                <p>
-                  {years.length
-                    ? "Pilih tahun buku yang akan ditutup untuk Company ini."
-                    : "Penutupan hanya berlaku untuk tahun buku yang sudah aktif. Aktifkan tahun buku lebih dahulu di Accounting › Fiscal Year."}
-                </p>
-              </div>
-            ) : (
-              <ChecklistCard plan={plan} />
-            )}
+            <h4>
+              {years.length ? "Pilih tahun buku" : "Belum ada tahun buku Open"}
+            </h4>
+            <p>
+              {years.length
+                ? "Pilih tahun buku yang akan ditutup."
+                : "Penutupan hanya berlaku untuk tahun buku yang sudah aktif. Aktifkan tahun buku lebih dahulu di Accounting › Fiscal Year."}
+            </p>
           </div>
+        ) : (
+          <ChecklistCard plan={plan} />
+        )}
+      </div>
 
-          {plan?.closed && <ClosedCard plan={plan} />}
-          {plan?.preview && !plan.closed && (
-            <PreviewCard plan={plan} preview={plan.preview} />
-          )}
-        </>
+      {plan?.closed && <ClosedCard plan={plan} />}
+      {plan?.preview && !plan.closed && (
+        <PreviewCard plan={plan} preview={plan.preview} />
       )}
 
       {confirm && plan && (
@@ -174,7 +159,7 @@ export function ClosingWorkspace({
           icon={transition.icon}
           tone="brand"
           title={transition.title}
-          subject={`${plan.subject.companyLabel} · ${plan.subject.yearName}`}
+          subject={plan.subject.yearName}
           body={transition.body}
           confirmLabel={transition.confirmLabel}
           busy={busy}
@@ -205,7 +190,7 @@ function ChecklistCard({ plan }: { plan: ClosingPlan }) {
           <Icon name={failed ? "warn" : "check"} size={16} />
         </span>
         <span className="ct">
-          Syarat penutupan — {subject.companyLabel} · {subject.yearName}
+          Syarat penutupan — {subject.yearName}
         </span>
         <span className="bdg s-mute">
           {checks.length - failed}/{checks.length} terpenuhi
@@ -256,7 +241,7 @@ function ClosedCard({ plan }: { plan: ClosingPlan }) {
           <Icon name="lock" size={20} />
         </div>
         <h4>
-          {plan.subject.companyLabel} menutup {plan.subject.yearName} pada{" "}
+          {plan.subject.yearName} ditutup pada{" "}
           {formatDate(closed.at)}
         </h4>
         <p>
@@ -317,8 +302,8 @@ function PreviewCard({
           </div>
           <h4>Tidak ada hasil untuk dipindahkan</h4>
           <p>
-            {subject.yearName} tidak memiliki saldo Pendapatan maupun Biaya pada
-            Company ini, sehingga tidak ada journal penutup yang perlu ditulis.
+            {subject.yearName} tidak memiliki saldo Pendapatan maupun Biaya,
+            sehingga tidak ada journal penutup yang perlu ditulis.
             Opening Balance {subject.nextYearName ?? "tahun berikutnya"} tetap
             dibuat dari posisi neraca yang ada.
           </p>

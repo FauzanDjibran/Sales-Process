@@ -11,7 +11,7 @@ import {
   ensureFiscalPeriods,
   fiscalYearPeriods,
   fiscalYearShape,
-  unclosedYearsFor,
+  unclosedYears,
   parseYear,
 } from "../src/lib/erp/fiscal";
 import {
@@ -24,10 +24,8 @@ import {
 } from "../src/lib/erp/fiscal-workflow";
 import { formatDate, formatTimestamp, toDisplayDate, toIsoDate } from "../src/lib/format";
 import {
-  childCompanyId,
-  closeYearFor,
+  closeYear,
   disconnect,
-  parentCompanyId,
   prisma,
   systemUserId,
 } from "./helpers";
@@ -337,7 +335,7 @@ describe("a Fiscal Year is activated, not edited into Open", () => {
     assert.equal(
       FISCAL_YEAR_TRANSITIONS.close.runAt,
       "/accounting/closing",
-      "a step that needs a Company, a checklist and a preview is not a confirm button"
+      "a step that needs a checklist and a preview is not a confirm button"
     );
   });
 
@@ -356,7 +354,7 @@ describe("a Fiscal Year is activated, not edited into Open", () => {
 
   test("closing is never offered as a header button", () => {
     // It has its own screen. Offering it here as well would be a one-click
-    // version of a step that has to state its Company and show its journal.
+    // version of a step that has to show its checklist and its journal.
     const everything = fiscalYearAbilities([
       "FISCAL_YEAR_OPEN",
       "FISCAL_YEAR_CLOSE",
@@ -373,7 +371,7 @@ describe("a Fiscal Year is activated, not edited into Open", () => {
 // --------------------------------------------------- the calendar is the lock
 
 /**
- * A book is writable only inside an Open year its Company has not closed.
+ * A book is writable only inside an Open year that has not been closed.
  *
  * Every posting date in SIBA is today, so a closed past year is currently
  * unreachable by arithmetic alone. The guard exists anyway, deliberately: the
@@ -382,7 +380,7 @@ describe("a Fiscal Year is activated, not edited into Open", () => {
  */
 describe("the calendar decides what may be posted into it", () => {
   test("a date inside no fiscal year at all is refused, and says so", async () => {
-    const refusal = await checkPostingPeriod(await parentCompanyId(), "2075-06-15");
+    const refusal = await checkPostingPeriod("2075-06-15");
     assert.equal(refusal.ok, false);
     assert.match(
       (refusal as { message: string }).message,
@@ -395,7 +393,6 @@ describe("the calendar decides what may be posted into it", () => {
   test("a Draft year is not yet, and is refused by name", async () => {
     const id = await makeYear(LOCK_DRAFT_YEAR, "Draft");
     const refusal = await checkPostingPeriod(
-      await parentCompanyId(),
       `${LOCK_DRAFT_YEAR}-03-10`
     );
     assert.equal(refusal.ok, false);
@@ -411,7 +408,6 @@ describe("the calendar decides what may be posted into it", () => {
   test("a Closed year is never again", async () => {
     await makeYear(LOCK_CLOSED_YEAR, "Closed");
     const refusal = await checkPostingPeriod(
-      await parentCompanyId(),
       `${LOCK_CLOSED_YEAR}-07-01`
     );
     assert.equal(refusal.ok, false);
@@ -421,41 +417,30 @@ describe("the calendar decides what may be posted into it", () => {
     );
   });
 
-  test("an Open year nobody has closed admits both Companies", async () => {
+  test("an Open year nobody has closed admits a posting", async () => {
     const id = await makeYear(LOCK_OPEN_YEAR, "Open");
-    for (const companyId of [await parentCompanyId(), await childCompanyId()]) {
-      const allowed = await checkPostingPeriod(companyId, `${LOCK_OPEN_YEAR}-05-20`);
-      assert.equal(allowed.ok, true);
-      assert.equal((allowed as { fiscalYearId: number }).fiscalYearId, id);
-    }
+    const allowed = await checkPostingPeriod(`${LOCK_OPEN_YEAR}-05-20`);
+    assert.equal(allowed.ok, true);
+    assert.equal((allowed as { fiscalYearId: number }).fiscalYearId, id);
   });
 
-  test("one Company closing a year does not close it for the other", async () => {
+  test("a closing row shuts the year, even while its status still reads Open", async () => {
     const year = await prisma.accFiscalYear.findFirstOrThrow({
       where: { year_label: String(LOCK_OPEN_YEAR) },
       select: { id: true },
     });
-    const induk = await parentCompanyId();
-    const anak = await childCompanyId();
 
-    // The closing process itself is Phase 4. What the lock reads is this row,
-    // so this is what a test writes — which is the point of the state being a
-    // record rather than an inference from somewhere else.
-    const reopen = await closeYearFor(year.id, induk);
+    // What the lock reads is this row, so this is what a test writes — which
+    // is the point of the state being a record rather than an inference from
+    // somewhere else.
+    const reopen = await closeYear(year.id);
 
-    const refused = await checkPostingPeriod(induk, `${LOCK_OPEN_YEAR}-05-20`);
-    assert.equal(refused.ok, false, "the Company that closed the year may not post into it");
-    assert.match((refused as { message: string }).message, /menutup/);
-
-    const allowed = await checkPostingPeriod(anak, `${LOCK_OPEN_YEAR}-05-20`);
-    assert.equal(
-      allowed.ok,
-      true,
-      "the calendar is shared; closing it is not — the anak is still working in the year"
-    );
+    const refused = await checkPostingPeriod(`${LOCK_OPEN_YEAR}-05-20`);
+    assert.equal(refused.ok, false, "a closed year may not be posted into");
+    assert.match((refused as { message: string }).message, /sudah ditutup/);
 
     await reopen();
-    assert.equal((await checkPostingPeriod(induk, `${LOCK_OPEN_YEAR}-05-20`)).ok, true);
+    assert.equal((await checkPostingPeriod(`${LOCK_OPEN_YEAR}-05-20`)).ok, true);
   });
 
   test("an Open row is not a Closed one", async () => {
@@ -463,20 +448,18 @@ describe("the calendar decides what may be posted into it", () => {
       where: { year_label: String(LOCK_OPEN_YEAR) },
       select: { id: true },
     });
-    const induk = await parentCompanyId();
     const row = await prisma.accFiscalClosing.create({
       data: {
         fiscal_year_id: year.id,
-        company_id: induk,
         status: "Open",
         created_by: await systemUserId(),
       },
       select: { id: true },
     });
     assert.equal(
-      (await checkPostingPeriod(induk, `${LOCK_OPEN_YEAR}-05-20`)).ok,
+      (await checkPostingPeriod(`${LOCK_OPEN_YEAR}-05-20`)).ok,
       true,
-      "a row exists for every year a Company is working in; only Closed shuts it"
+      "only a Closed row shuts the year"
     );
     await prisma.accFiscalClosing.delete({ where: { id: row.id } });
   });
@@ -487,15 +470,14 @@ describe("any number of years stand Open, never one behind a close", () => {
     assert.equal(activationRefusal("2026", []), null);
 
     const refusal = activationRefusal("2025", [
-      { yearLabel: "2027", yearName: "Tahun Buku 2027", companyLabel: "SBTC" },
-      { yearLabel: "2026", yearName: "Tahun Buku 2026", companyLabel: "ABHC" },
+      { yearLabel: "2027", yearName: "Tahun Buku 2027" },
+      { yearLabel: "2026", yearName: "Tahun Buku 2026" },
     ]);
     assert.ok(refusal);
-    assert.match(refusal!, /Tahun Buku 2026 \(ABHC\), Tahun Buku 2027 \(SBTC\)/);
+    assert.match(refusal!, /Tahun Buku 2026, Tahun Buku 2027/);
   });
 
   test("a fourth year opens, but not one older than a closed year", async () => {
-    const induk = await parentCompanyId();
 
     // The years this file opened earlier are this file's to stand down.
     await prisma.accFiscalYear.updateMany({
@@ -515,7 +497,7 @@ describe("any number of years stand Open, never one behind a close", () => {
       "three Open years do not stop a fourth — there is no limit any more"
     );
 
-    const reopen = await closeYearFor(later[0], induk);
+    const reopen = await closeYear(later[0]);
     try {
       const refused = await checkYearOpenable(candidate);
       assert.equal(refused.ok, false, "a year behind a close would move a frozen snapshot");
@@ -531,8 +513,7 @@ describe("any number of years stand Open, never one behind a close", () => {
     });
   });
 
-  test("the oldest unclosed year is each Company's own", async () => {
-    const [induk, anak] = [await parentCompanyId(), await childCompanyId()];
+  test("a closed year is no longer among the unclosed ones", async () => {
     const ids = await prisma.accFiscalYear.findMany({
       where: { year_code: { in: [LOCK_FILLER_YEAR, LOCK_FILLER_YEAR + 1].map((y) => `test.fyr.${y}`) } },
       orderBy: { start_date: "asc" },
@@ -544,16 +525,14 @@ describe("any number of years stand Open, never one behind a close", () => {
       data: { status: "Open" },
     });
 
-    const reopen = await closeYearFor(older, induk);
-    try {
-      const mine = (c: number) =>
-        unclosedYearsFor(c).then((ys) => ys.map((y) => y.id).filter((id) => id === older || id === newer));
-      assert.deepEqual(await mine(induk), [newer], "the induk has closed the older year");
-      assert.deepEqual(
-        await mine(anak),
-        [older, newer],
-        "the anak still owes the older one, and that must not hold the induk back"
+    const mine = () =>
+      unclosedYears().then((ys) =>
+        ys.map((y) => y.id).filter((id) => id === older || id === newer)
       );
+    assert.deepEqual(await mine(), [older, newer], "both are owed a close");
+    const reopen = await closeYear(older);
+    try {
+      assert.deepEqual(await mine(), [newer], "the older year has been closed");
     } finally {
       await reopen();
       await prisma.accFiscalYear.updateMany({

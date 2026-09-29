@@ -5,13 +5,6 @@ import { ENTITIES } from "../src/lib/erp/entities";
 import { entityPermissions } from "../src/lib/erp/entity-access";
 import { PERMISSION_CODES } from "../src/lib/erp/permissions";
 import {
-  ANAK_PERMISSION,
-  INDUK_PERMISSION,
-  accessibleCompanies,
-  accessibleCompanyIds,
-  companyScope,
-} from "../src/lib/erp/company-access";
-import {
   SEGMENT_MAX,
   SEGMENT_MIN,
   codeDepth,
@@ -27,19 +20,14 @@ import {
   accountUsage,
   checkAccountIsLeaf,
   checkAccountNumber,
-  listRows,
   checkCashBankAccount,
-  partnerCategoriesForBudgetCategory,
 } from "../src/lib/erp/records";
 import {
   FIXTURE_PREFIX,
-  childCompanyId,
   subcategoryId,
   cleanupFixtures,
   disconnect,
   makeAccount,
-  makeMapping,
-  parentCompanyId,
   prisma,
   systemUserId,
 } from "./helpers";
@@ -49,7 +37,7 @@ import {
  *
  * The rules here are the ones a hand-crafted request would have to get past:
  * which account a Cash & Bank resource may post to, whether a parent account
- * would close a loop, and which Partner Categories a Budget Category admits.
+ * would close a loop, and whether an account number is free.
  * The form narrows its options to the same sets, but that is presentation.
  *
  * The chart of accounts is business data a real user builds, so this suite
@@ -62,42 +50,30 @@ after(async () => {
   await disconnect();
 });
 
-let parent = 0;
-let child = 0;
-
-/** A postable Kas account on the parent Company. */
+/** A postable Kas account. */
 let cash = 0;
 /** A header account with one postable Bank account beneath it. */
 let bankHeader = 0;
 let bankLeaf = 0;
 /** A postable account outside the Kas/Bank groups. */
 let receivable = 0;
-/** A postable Kas account belonging to the *other* Company. */
-let foreignCash = 0;
 /** A deactivated Kas account. */
 let inactiveCash = 0;
-/** Holds the number the uniqueness cases contest, on the parent Company. */
+/** Holds the number the uniqueness cases contest. */
 let contested = 0;
 
 before(async () => {
-  parent = await parentCompanyId();
-  child = await childCompanyId();
-
-  cash = await makeAccount({ companyId: parent, subcategoryLabel: CASH_BANK_SUBCATEGORY });
+  cash = await makeAccount({ subcategoryLabel: CASH_BANK_SUBCATEGORY });
   bankHeader = await makeAccount({
-    companyId: parent,
     subcategoryLabel: CASH_BANK_SUBCATEGORY,
     postable: false,
   });
   bankLeaf = await makeAccount({
-    companyId: parent,
     subcategoryLabel: CASH_BANK_SUBCATEGORY,
     parentId: bankHeader,
   });
-  receivable = await makeAccount({ companyId: parent, subcategoryLabel: "1.1.3" });
-  foreignCash = await makeAccount({ companyId: child, subcategoryLabel: CASH_BANK_SUBCATEGORY });
+  receivable = await makeAccount({ subcategoryLabel: "1.1.3" });
   inactiveCash = await makeAccount({
-    companyId: parent,
     subcategoryLabel: CASH_BANK_SUBCATEGORY,
     active: false,
   });
@@ -108,7 +84,6 @@ before(async () => {
         account_code: `${FIXTURE_PREFIX}.contested`,
         account_label: `${CASH_BANK_SUBCATEGORY}.987`,
         account_name: "Fixture Nomor Diperebutkan",
-        company_id: parent,
         account_subcategory_id: await subcategoryId(CASH_BANK_SUBCATEGORY),
         normal_balance: "Debit",
         created_by: await systemUserId(),
@@ -147,18 +122,13 @@ describe("every registry entity declares its permissions", () => {
 });
 
 describe("a Cash & Bank resource may only post to an eligible account", () => {
-  test("accepts a postable Kas or Bank account owned by the same Company", async () => {
-    assert.equal(await checkCashBankAccount(cash, parent), null);
-    assert.equal(await checkCashBankAccount(bankLeaf, parent), null);
-  });
-
-  test("refuses an account owned by the other Company", async () => {
-    const problem = await checkCashBankAccount(foreignCash, parent);
-    assert.match(String(problem), /Company yang sama/);
+  test("accepts a postable Kas or Bank account", async () => {
+    assert.equal(await checkCashBankAccount(cash), null);
+    assert.equal(await checkCashBankAccount(bankLeaf), null);
   });
 
   test("refuses a header account, which cannot receive a Journal Line", async () => {
-    const problem = await checkCashBankAccount(bankHeader, parent);
+    const problem = await checkCashBankAccount(bankHeader);
     assert.match(String(problem), /postable/);
   });
 
@@ -173,17 +143,17 @@ describe("a Cash & Bank resource may only post to an eligible account", () => {
     assert.equal(row.is_postable, true, "only the group rule may stop this one");
     assert.notEqual(row.account_subcategory.subcategory_label, CASH_BANK_SUBCATEGORY);
 
-    const problem = await checkCashBankAccount(receivable, parent);
+    const problem = await checkCashBankAccount(receivable);
     assert.match(String(problem), /Kas \/ Setara Kas/);
   });
 
   test("refuses a deactivated account", async () => {
-    const problem = await checkCashBankAccount(inactiveCash, parent);
+    const problem = await checkCashBankAccount(inactiveCash);
     assert.match(String(problem), /non-aktif/);
   });
 
   test("refuses an account that does not exist", async () => {
-    const problem = await checkCashBankAccount(999_999_999, parent);
+    const problem = await checkCashBankAccount(999_999_999);
     assert.match(String(problem), /tidak ditemukan/);
   });
 });
@@ -201,12 +171,10 @@ describe("an account that gains a sub-account stops receiving postings", () => {
 
   before(async () => {
     postableParent = await makeAccount({
-      companyId: parent,
       subcategoryLabel: CASH_BANK_SUBCATEGORY,
       postable: true,
     });
     await makeAccount({
-      companyId: parent,
       subcategoryLabel: CASH_BANK_SUBCATEGORY,
       parentId: postableParent,
     });
@@ -231,10 +199,10 @@ describe("an account that gains a sub-account stops receiving postings", () => {
   });
 
   test("a Cash & Bank resource may not post to it either", async () => {
-    // Every other condition passes: same Company, postable, active, and in
+    // Every other condition passes: postable, active, and in
     // kelompok 1.1.1. Only the sub-account underneath it refuses.
     assert.match(
-      String(await checkCashBankAccount(postableParent, parent)),
+      String(await checkCashBankAccount(postableParent)),
       /sub-account/
     );
   });
@@ -251,25 +219,6 @@ describe("an account already in use cannot be given a sub-account", () => {
     assert.deepEqual(await accountUsage(cash), []);
   });
 
-  test("a mapping counts as use, and is named", async () => {
-    const mappingId = await makeMapping({
-      companyId: parent,
-      budgetCategoryLabel: "Prive",
-      partnerCategoryLabel: "Stakeholder",
-      accountId: await makeAccount({
-        companyId: parent,
-        subcategoryLabel: "1.1.3",
-      }),
-    });
-    // Read the account back off the mapping rather than assuming the fixture's
-    // own: `makeMapping` reuses a combination that already exists, because the
-    // three-part key is unique per Company.
-    const mapping = await prisma.accBudgetCategoryAccount.findUniqueOrThrow({
-      where: { id: mappingId },
-      select: { account_id: true },
-    });
-    assert.match((await accountUsage(mapping.account_id)).join(" "), /mapping/i);
-  });
 });
 
 describe("an account cannot become its own ancestor", () => {
@@ -288,41 +237,6 @@ describe("an account cannot become its own ancestor", () => {
   });
 });
 
-describe("a mapping's Partner Category follows the Budget Category", () => {
-  test("Prive admits Stakeholder and nothing else", async () => {
-    const category = await prisma.sysBudgetCategory.findFirstOrThrow({
-      where: { category_label: "Prive" },
-      select: { id: true },
-    });
-    const rule = await partnerCategoriesForBudgetCategory(category.id);
-    assert.ok(rule);
-    assert.equal(rule.needsPartner, true);
-
-    const allowed = await prisma.sysPartnerCategory.findMany({
-      where: { id: { in: rule.allowedIds } },
-      select: { category_label: true },
-    });
-    assert.deepEqual(allowed.map((a) => a.category_label), ["Stakeholder"]);
-  });
-
-  test("Biaya takes no Partner Category at all", async () => {
-    const category = await prisma.sysBudgetCategory.findFirstOrThrow({
-      where: { category_label: "Biaya" },
-      select: { id: true },
-    });
-    const rule = await partnerCategoriesForBudgetCategory(category.id);
-    assert.ok(rule);
-    assert.equal(rule.needsPartner, false);
-    assert.deepEqual(rule.allowedIds, []);
-  });
-});
-
-/**
- * The chart of accounts is one numbering scheme, and its whole value is that a
- * code cannot disagree with where the row sits. These are the two halves of
- * that: what counts as a segment, and whether the seeded skeleton the user's
- * accounts hang off is actually well formed.
- */
 describe("an account code states its own lineage", () => {
   test("a segment is a whole number 1-999 and nothing else", () => {
     assert.equal(parseSegment("1"), SEGMENT_MIN);
@@ -467,11 +381,10 @@ describe("an account code states its own lineage", () => {
   });
 
   test("every account resolves to exactly one section through its own lineage", async () => {
-    const company = await parentCompanyId();
     // One account either side of the boundary, so the assertion is never
     // vacuous on a database that carries no chart of its own yet.
-    await makeAccount({ companyId: company, subcategoryLabel: CASH_BANK_SUBCATEGORY });
-    await makeAccount({ companyId: company, subcategoryLabel: "5.3.1" });
+    await makeAccount({ subcategoryLabel: CASH_BANK_SUBCATEGORY });
+    await makeAccount({ subcategoryLabel: "5.3.1" });
 
     const accounts = await prisma.accAccount.findMany({
       select: {
@@ -519,7 +432,6 @@ describe("an account code states its own lineage", () => {
 
   test("a fixture account's number continues whatever it hangs under", async () => {
     const kelompok = await makeAccount({
-      companyId: await parentCompanyId(),
       subcategoryLabel: CASH_BANK_SUBCATEGORY,
     });
     const parent = await prisma.accAccount.findUniqueOrThrow({
@@ -529,7 +441,6 @@ describe("an account code states its own lineage", () => {
     assert.equal(parentCode(parent.account_label), CASH_BANK_SUBCATEGORY);
 
     const childId = await makeAccount({
-      companyId: await parentCompanyId(),
       subcategoryLabel: CASH_BANK_SUBCATEGORY,
       parentId: kelompok,
     });
@@ -543,42 +454,29 @@ describe("an account code states its own lineage", () => {
 });
 
 /**
- * An account number is unique within a Company and not beyond it.
- *
- * Both halves matter. One Company holding 1.1.4.1 twice is a broken chart;
- * the induk and the anak each holding their own 1.1.4.1 is two books, which
- * is the whole point of a chart of accounts belonging to a legal entity.
+ * An account number is unique across the one chart of accounts.
  */
-describe("an account number cannot be reused within its Company", () => {
-  // A number chosen high enough that no chart a person builds will hold it,
-  // so the two halves below turn on the Company and nothing else.
+describe("an account number cannot be reused", () => {
+  // A number chosen high enough that no chart a person builds will hold it.
   const CONTESTED = `${CASH_BANK_SUBCATEGORY}.987`;
 
-  test("a number already taken in this Company is refused, and names the holder", async () => {
+  test("a number already taken is refused, and names the holder", async () => {
     const holder = await prisma.accAccount.findUniqueOrThrow({
       where: { id: contested },
       select: { account_name: true },
     });
 
-    const problem = await checkAccountNumber(parent, CONTESTED);
+    const problem = await checkAccountNumber(CONTESTED);
     assert.ok(problem, "the number is in use and must be refused");
     assert.match(String(problem), new RegExp(holder.account_name));
   });
 
-  test("the same number in the other Company is free", async () => {
-    assert.equal(
-      await checkAccountNumber(child, CONTESTED),
-      null,
-      "each Company numbers its own chart — this is not a duplicate"
-    );
-  });
-
   test("an unused number is free", async () => {
-    assert.equal(await checkAccountNumber(parent, "9.9.9.999"), null);
+    assert.equal(await checkAccountNumber("9.9.9.999"), null);
   });
 
   test("an account does not collide with itself when edited", async () => {
-    assert.equal(await checkAccountNumber(parent, CONTESTED, contested), null);
+    assert.equal(await checkAccountNumber(CONTESTED, contested), null);
   });
 
   test("the database refuses a duplicate even if nothing checked first", async () => {
@@ -588,100 +486,13 @@ describe("an account number cannot be reused within its Company", () => {
           account_code: `${FIXTURE_PREFIX}.collision`,
           account_label: CONTESTED,
           account_name: "Fixture collision",
-          company_id: parent,
           account_subcategory_id: await subcategoryId(CASH_BANK_SUBCATEGORY),
           normal_balance: "Debit",
           created_by: await systemUserId(),
         },
       }),
       /Unique constraint/,
-      "@@unique([company_id, account_label]) is the backstop under the check"
+      "@@unique([account_label]) is the backstop under the check"
     );
-  });
-});
-
-/**
- * Which Company's records a user may see is a permission, held through a role
- * like every other. A user may hold both, one, or neither — and neither means
- * no Company-scoped record is readable at all, which is a different thing from
- * an empty database.
- */
-describe("Company access is a permission, not a preference", () => {
-  test("both permissions open both Companies, induk first", async () => {
-    const companies = await accessibleCompanies(
-      new Set([INDUK_PERMISSION, ANAK_PERMISSION])
-    );
-    assert.equal(companies.length, 2);
-    assert.equal(companies[0].isParent, true, "induk is offered first");
-    assert.equal(companies[1].isParent, false);
-  });
-
-  test("one permission opens exactly that Company", async () => {
-    const indukOnly = await accessibleCompanies(new Set([INDUK_PERMISSION]));
-    assert.deepEqual(indukOnly.map((c) => c.isParent), [true]);
-
-    const anakOnly = await accessibleCompanies(new Set([ANAK_PERMISSION]));
-    assert.deepEqual(anakOnly.map((c) => c.isParent), [false]);
-  });
-
-  test("neither permission opens nothing", async () => {
-    assert.deepEqual(await accessibleCompanies(new Set()), []);
-    assert.deepEqual(await accessibleCompanyIds(new Set()), []);
-  });
-
-  test("the permissions key on is_parent, never on a Company label", async () => {
-    // A Company's label and name are editable through the seed; the structure
-    // is not. Keying on the label would break the moment somebody renames one.
-    const [induk] = await accessibleCompanies(new Set([INDUK_PERMISSION]));
-    const row = await prisma.sysCompany.findUniqueOrThrow({
-      where: { id: induk.id },
-      select: { is_parent: true },
-    });
-    assert.equal(row.is_parent, true);
-  });
-
-  test("a scope falls back to the first Company a user may see", async () => {
-    const scope = await companyScope(new Set([ANAK_PERMISSION]), undefined);
-    assert.equal(scope.selected?.isParent, false);
-    assert.equal(scope.options.length, 1);
-  });
-
-  test("asking for a Company the permissions do not open falls back", async () => {
-    const induk = (await accessibleCompanies(new Set([INDUK_PERMISSION])))[0];
-    // A user holding only anak access, following a link built for the induk.
-    const scope = await companyScope(new Set([ANAK_PERMISSION]), induk.id);
-    assert.equal(
-      scope.selected?.isParent,
-      false,
-      "the fallback must stay inside what the permissions allow"
-    );
-  });
-
-  test("a scope with no access selects nothing", async () => {
-    const scope = await companyScope(new Set(), undefined);
-    assert.equal(scope.selected, null);
-    assert.deepEqual(scope.options, []);
-  });
-
-  test("a scoped entity reads nothing without a Company", async () => {
-    const partner = ENTITIES.find((e) => e.key === "m_partner")!;
-    assert.equal(partner.scope, "company_id", "Partner is Company-scoped");
-    assert.deepEqual(await listRows(partner, null), []);
-  });
-
-  test("an unscoped entity is unaffected by Company access", async () => {
-    const currency = ENTITIES.find((e) => e.key === "ref_currency")!;
-    assert.equal(currency.scope, undefined, "Currency belongs to no Company");
-    const rows = await listRows(currency, null);
-    assert.ok(rows.length > 0, "a base currency is seeded and stays readable");
-  });
-
-  test("both permissions are in the catalogue, so a role can grant them", () => {
-    for (const code of [INDUK_PERMISSION, ANAK_PERMISSION]) {
-      assert.ok(
-        PERMISSION_CODES.includes(code),
-        `${code} must be a catalogue entry — nothing else can grant it`
-      );
-    }
   });
 });

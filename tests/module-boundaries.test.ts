@@ -6,14 +6,13 @@ import { join } from "node:path";
 /**
  * Module boundaries hold, checked mechanically.
  *
- * SIBA is one deployable unit, but each module is meant to behave as a
- * building block that could be replaced or lifted out — which is only true
+ * The application is one deployable unit, but each module is meant to behave
+ * as a building block that could be replaced or lifted out — which is only true
  * while modules talk to each other through named functions rather than
  * reaching into each other's tables. Nothing here breaks a build or a type
- * check when it erodes, which is exactly why it erodes: `finance.ts` read and
- * wrote `bud_budget` directly for as long as Finance had existed, and the
- * import graph looked clean the whole time because it bypassed `budget.ts`
- * altogether and went to the Prisma delegate.
+ * check when it erodes, which is exactly why it erodes: in SIBA, one module
+ * wrote another's table directly for as long as both existed, and the import
+ * graph looked clean the whole time because it went to the Prisma delegate.
  *
  * This is a source-text scan, like `design-system.test.ts`. It needs no
  * database and costs nothing to run.
@@ -51,7 +50,7 @@ const sibaModule = (name: string) =>
 function sibaImports(text: string): string[] {
   const out = new Set<string>();
   for (const m of code(text).matchAll(/from\s+"\.\/([a-z-]+)"/g)) out.add(m[1]);
-  for (const m of code(text).matchAll(/from\s+"@\/lib\/siba\/([a-z-]+)"/g)) {
+  for (const m of code(text).matchAll(/from\s+"@\/lib\/erp\/([a-z-]+)"/g)) {
     out.add(m[1]);
   }
   return [...out];
@@ -70,30 +69,8 @@ function sibaImports(text: string): string[] {
 const TABLE_OWNERS: Record<string, string[]> = {
   // A module is its data module *and* its Server Action — two layers of one
   // building block, not two modules.
-  budBudget: ["src/lib/erp/budget.ts", "src/app/actions/budget.ts"],
-  finCashBankTransaction: [
-    "src/lib/erp/finance.ts",
-    "src/app/actions/finance.ts",
-  ],
-  finCashBankTransactionLine: [
-    "src/lib/erp/finance.ts",
-    "src/app/actions/finance.ts",
-  ],
-  finCashBankTransfer: [
-    "src/lib/erp/transfer.ts",
-    "src/app/actions/transfer.ts",
-  ],
-  finCashBankTransferLine: [
-    "src/lib/erp/transfer.ts",
-    "src/app/actions/transfer.ts",
-  ],
-  finDncn: ["src/lib/erp/dncn.ts", "src/app/actions/dncn.ts"],
-  finDncnLine: ["src/lib/erp/dncn.ts", "src/app/actions/dncn.ts"],
-  finFundingRequest: ["src/lib/erp/funding.ts", "src/app/actions/funding.ts"],
   cashBankLedger: ["src/lib/erp/cash-bank.ts"],
   cashBankBalance: ["src/lib/erp/cash-bank.ts"],
-  subLedger: ["src/lib/erp/subledger.ts"],
-  subLedgerBalance: ["src/lib/erp/subledger.ts"],
   // The General Ledger is the one thing that may derive from journal lines
   // (CLAUDE.md §10 rule 22) — it reads them and never writes one.
   accJournal: ["src/lib/erp/journal.ts", "src/lib/erp/ledger.ts"],
@@ -104,7 +81,7 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // module's table either.
   accOpeningBalance: ["src/lib/erp/opening-balance.ts"],
   accOpeningBalanceLine: ["src/lib/erp/opening-balance.ts"],
-  // One Company's closing state for one year. The calendar owns it, and the
+  // A year's closing state. The calendar owns it, and the
   // closing process records itself through a function there rather than by
   // writing the row: closing.ts decides whether a year may be shut, and
   // fiscal.ts records that it has been. acc_fiscal_year itself is left
@@ -116,27 +93,11 @@ const TABLE_OWNERS: Record<string, string[]> = {
 /**
  * Boundaries still crossed today — baselined, not blessed.
  *
- * Each of these is a real crossing that predates this suite. They are listed
- * so the test can be introduced without a red build, and so that the debt is
- * written down precisely rather than discovered again later. Closing each one
- * is a design decision in its own right, which is why none of them was quietly
- * "fixed" while the suite was being written:
- *
- *  - `fiscal.ts` counts the Budgets falling inside each period it returns.
- *    Accounting reaching into Budget; wants a counting function on `budget.ts`.
- *  - `cash-bank.ts` resolves a ledger entry's source document to a document
- *    number for the ledger report. The hard one: the Book is meant to be a
- *    leaf, so it cannot simply import Finance — that would be a cycle. The
- *    real answer is likely that labelling a `(doc_type_id, doc_id)` pair
- *    belongs to the caller, not to the book.
- *
- * Nothing may be added to this list without the same deliberation. A new
- * crossing fails the suite, which is the point.
+ * SIBA carried two, both into modules that were not brought over (Budget and
+ * Cash Bank Transaction), so none remains. Nothing may be added to this list
+ * without deliberation: a new crossing fails the suite, which is the point.
  */
-const KNOWN_CROSSINGS: Record<string, string[]> = {
-  budBudget: ["src/lib/erp/fiscal.ts"],
-  finCashBankTransaction: ["src/lib/erp/cash-bank.ts"],
-};
+const KNOWN_CROSSINGS: Record<string, string[]> = {};
 
 describe("a module's tables are named only by the module that owns them", () => {
   for (const [delegate, owners] of Object.entries(TABLE_OWNERS)) {
@@ -166,27 +127,6 @@ describe("a module's tables are named only by the module that owns them", () => 
 // -------------------------------------------------------- import direction
 
 describe("the dependency graph points one way", () => {
-  test("budget.ts does not import finance.ts", () => {
-    assert.ok(
-      !sibaImports(sibaModule("budget").text).includes("finance"),
-      "Finance executes what Budget plans, so Finance may depend on Budget and never " +
-        "the reverse. A plan is complete without an execution."
-    );
-  });
-
-  test("finance.ts does not import funding.ts", () => {
-    // Funding is how the anak's cash arrives, not what the realization *is*:
-    // a Cash Bank Transaction is complete without one, exactly as a Budget is
-    // complete without a realization. Funding therefore reads documents and
-    // moves their status through functions Finance exports, and Finance names
-    // nothing here — which is also what keeps the confirmation able to write
-    // both Companies inside one transaction that Funding owns.
-    assert.ok(
-      !sibaImports(sibaModule("finance").text).includes("funding"),
-      "Funding depends on Finance, never the reverse. Export what Funding needs " +
-        "from finance.ts instead of reaching back into it."
-    );
-  });
 
   test("the books depend on no domain module", () => {
     // `cash_bank_ledger` and `acc_journal` are independent historical stores
@@ -197,9 +137,6 @@ describe("the dependency graph points one way", () => {
       "period",
       "account-code",
       "permissions",
-      // A book's own catalogue: which books exist and which way each one
-      // moves. Client-safe, database-free, and declared by the book itself.
-      "subledger-catalogue",
       // The foreign-exchange kernel and the base currency. Pure functions over
       // numbers with no database and no dependency of their own, needed by
       // every book that carries a base measure and by the layers that will
@@ -211,7 +148,7 @@ describe("the dependency graph points one way", () => {
     // The Cash Bank Book is two files: the book itself and the rate layers a
     // foreign resource holds. They are one module and may name each other;
     // neither may name anything outside the kernel.
-    const BOOKS = ["cash-bank", "cash-bank-layers", "journal", "subledger"];
+    const BOOKS = ["cash-bank", "cash-bank-layers", "journal"];
     const SIBLINGS: Record<string, string[]> = {
       "cash-bank": ["cash-bank-layers"],
       "cash-bank-layers": ["cash-bank"],
@@ -244,23 +181,6 @@ describe("the dependency graph points one way", () => {
       [],
       "Import PeriodRange from `lib/erp/period` — the General Ledger and the " +
         "Accounting report route should not depend on the Cash Bank Book for a type."
-    );
-  });
-});
-
-// ----------------------------------------------------------------- the UI
-
-describe("module UI follows the same direction as its data", () => {
-  test("components/budget does not import components/finance", () => {
-    const bad = files
-      .filter((f) => f.rel.startsWith("src/components/budget/"))
-      .filter((f) => /from\s+"@\/components\/finance\//.test(code(f.text)))
-      .map((f) => f.rel);
-    assert.deepEqual(
-      bad,
-      [],
-      "Finance's screens may reuse Budget's; Budget's must not reach into Finance's, " +
-        "for the same reason `budget.ts` does not import `finance.ts`."
     );
   });
 });

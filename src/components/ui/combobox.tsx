@@ -46,7 +46,7 @@ export function Combobox({
   invalid?: boolean;
   disabled?: boolean;
   /**
-   * What has to be chosen before this field can be — `Pilih Company dulu…`.
+   * What has to be chosen before this field can be — `Pilih Kelompok Account dulu…`.
    *
    * Not the same as `disabled`, and drawn differently on purpose: disabled
    * means never, this means not yet. A picker whose prerequisite is unanswered

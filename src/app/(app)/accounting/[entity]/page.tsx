@@ -4,12 +4,9 @@ export const dynamic = "force-dynamic";
 
 export default async function Page({
   params,
-  searchParams,
 }: {
   params: Promise<{ entity: string }>;
-  searchParams: Promise<{ company?: string }>;
 }) {
   const { entity } = await params;
-  const { company } = await searchParams;
-  return <EntityListPage module="accounting" slug={entity} company={company} />;
+  return <EntityListPage module="accounting" slug={entity} />;
 }

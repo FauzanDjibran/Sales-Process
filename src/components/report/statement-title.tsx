@@ -7,7 +7,7 @@ import type { StatementColumn } from "@/lib/erp/statements";
  *
  * A figure that leaves the screen — a screenshot in a chat, a page on a desk —
  * no longer has the filter beside it, so the output names itself: the report,
- * the Company by its label, the mode, each column's dates, and when it was
+ * the mode, each column's dates, and when it was
  * produced. Two compact lines at the top of the card and nothing more, because
  * the sticky header above it (filter included) keeps the space it has.
  *
@@ -16,14 +16,12 @@ import type { StatementColumn } from "@/lib/erp/statements";
  */
 export function StatementTitle({
   name,
-  companyLabel,
   mode,
   columns,
   runAt,
   position,
 }: {
   name: string;
-  companyLabel: string;
   /** "s.d. Periode ini", "Periode ini" — or, for a Neraca, "Posisi". */
   mode: string;
   columns: StatementColumn[];
@@ -35,7 +33,6 @@ export function StatementTitle({
     <div className="rtitle">
       <div className="rt1">
         <b>{name}</b>
-        <span>{companyLabel}</span>
         <span>{mode}</span>
       </div>
       <div className="rt2">

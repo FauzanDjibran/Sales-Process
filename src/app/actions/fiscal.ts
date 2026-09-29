@@ -23,8 +23,8 @@ import {
  * button and a refused action cannot disagree.
  *
  * Activating is also what generates the twelve periods, in the same
- * transaction: a year that says Open and has no calendar behind it would let
- * Budget Month silently lose budgets (CLAUDE.md §10, rule 20).
+ * transaction: a year that says Open and has no calendar behind it would group
+ * nothing it holds.
  */
 export type TransitionResult =
   | { ok: true; status: FiscalYearStatus; message: string; periods: number }
@@ -97,7 +97,6 @@ export async function transitionFiscalYear(
 
   revalidatePath("/accounting/fiscal-year");
   revalidatePath(`/accounting/fiscal-year/${id}`);
-  revalidatePath("/budget/budget");
   revalidatePath("/dashboard");
 
   return { ok: true, status: transition.to, message: transition.done, periods };

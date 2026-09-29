@@ -1,6 +1,5 @@
 import { JournalList } from "@/components/accounting/journal-list";
 import { requirePermission } from "@/lib/erp/auth";
-import { companyScope } from "@/lib/erp/company-access";
 import { listJournals } from "@/lib/erp/journal";
 import { journalAbilities } from "@/lib/erp/journal-workflow";
 
@@ -12,27 +11,11 @@ export const dynamic = "force-dynamic";
  * Both kinds live here: journals a posting produced, which are final from the
  * moment they exist, and manual journals, which are drafted below this page at
  * `/new` and `/[id]/edit` and become the same thing once posted.
- *
- * One Company at a time, chosen from the Companies this reader's permissions
- * open. Each Company keeps its own books and its own chart of accounts, so a
- * register holding both reads as one set of duplicated rows — the same reason
- * the Chart of Accounts tree shows one Company (CLAUDE.md §12).
  */
-export default async function Page({
-  searchParams,
-}: {
-  searchParams: Promise<{ company?: string }>;
-}) {
+export default async function Page() {
   const actor = await requirePermission("JOURNAL_VIEW", "/accounting/journal");
-  const { company } = await searchParams;
-  const scope = await companyScope(actor.permissions, company);
-  const journals = scope.selected ? await listJournals([scope.selected.id]) : [];
+  const journals = await listJournals();
   return (
-    <JournalList
-      journals={journals}
-      companies={scope.options}
-      companyId={scope.selected?.id ?? null}
-      can={journalAbilities(actor.permissions)}
-    />
+    <JournalList journals={journals} can={journalAbilities(actor.permissions)} />
   );
 }

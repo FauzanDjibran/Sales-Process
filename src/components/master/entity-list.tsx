@@ -10,11 +10,6 @@ import { Pager } from "@/components/ui/pager";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { toggleStatus } from "@/app/actions/master";
-import {
-  COMPANY_LOCK_BADGE,
-  COMPANY_LOCK_BODY,
-  isCompanyEntity,
-} from "@/lib/erp/company";
 import type { EntityAbilities } from "@/lib/erp/entity-access";
 import {
   STATUS_CLASS,
@@ -27,9 +22,7 @@ import {
 } from "@/lib/erp/entities";
 import { moduleByKey } from "@/lib/erp/nav";
 import { formatDate } from "@/lib/format";
-import type { Company } from "@/lib/erp/company-access";
 import type { RefOption, Row } from "@/lib/erp/records";
-import { CompanyFilter, NoCompanyAccess } from "./company-filter";
 import { recordTitle } from "@/lib/erp/record-title";
 
 type Computed = Record<number, Record<string, string | number>>;
@@ -48,25 +41,17 @@ export function EntityList({
   refs,
   computed,
   can,
-  companies,
-  companyId,
 }: {
   entity: Entity;
   rows: Row[];
   refs: Record<string, RefOption[]>;
   computed: Computed;
   can: EntityAbilities;
-  /** Companies this user may choose between; empty for an unscoped entity. */
-  companies: Company[];
-  /** The Company being shown, or null when the user may see none. */
-  companyId: number | null;
 }) {
   const router = useRouter();
   const toast = useToast();
-  /** Company has no write path at all — see `lib/erp/company.ts`. */
-  const locked = isCompanyEntity(entity.slug);
-  const canCreate = can.create && !locked;
-  const canEdit = can.edit && !locked;
+  const canCreate = can.create;
+  const canEdit = can.edit;
   const status = entity.statusModel;
   const rowIsActive = (row: Row) =>
     status ? isActiveStatus(status, row[status.field]) : true;
@@ -283,34 +268,18 @@ export function EntityList({
             {entity.name}
           </h1>
           <div className="ph-act">
-            {locked ? (
-              <span className="bdg s-mute" title={COMPANY_LOCK_BODY}>
-                <Icon name="lock" size={11} /> {COMPANY_LOCK_BADGE}
-              </span>
-            ) : canCreate ? (
+            {canCreate && (
               <Link className="btn primary" href={`${basePath}/new`}>
                 <Icon name="plus" size={15} /> {createLabel(entity)}
               </Link>
-            ) : null}
+            )}
           </div>
         </div>
         <p className="ph-sub">{entity.desc}</p>
-        {locked && <p className="ph-sub">{COMPANY_LOCK_BODY}</p>}
       </div>
 
-      {/* A scoped entity with no Company open to this user has nothing to
-          filter or search, so the card carries the refusal alone rather than
-          an empty table that would read as "no data yet". */}
-      {entity.scope && companyId == null ? (
-        <div className="card">
-          <NoCompanyAccess what={entity.name} />
-        </div>
-      ) : (
       <div className="card">
         <div className="toolbar">
-          {companyId != null && (
-            <CompanyFilter options={companies} selectedId={companyId} />
-          )}
           <SearchField
             value={query}
             placeholder={`Cari di ${entity.name}…`}
@@ -452,9 +421,7 @@ export function EntityList({
               <p>
                 {rows.length
                   ? "Ubah kata kunci atau bersihkan filter yang sedang aktif."
-                  : locked
-                    ? COMPANY_LOCK_BODY
-                    : `Data akan muncul di sini setelah ${entity.single ?? entity.name} pertama dibuat.`}
+                  : `Data akan muncul di sini setelah ${entity.single ?? entity.name} pertama dibuat.`}
               </p>
               {/* A CTA only when the user can actually act on it. */}
               {(rows.length > 0 || canCreate) && (
@@ -474,7 +441,6 @@ export function EntityList({
           </>
         )}
       </div>
-      )}
 
       <ConfirmDialog
         open={Boolean(pendingToggle)}

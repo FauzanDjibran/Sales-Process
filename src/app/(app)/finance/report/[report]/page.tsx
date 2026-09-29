@@ -2,27 +2,18 @@ import { notFound } from "next/navigation";
 import { CashBankBalanceReport } from "@/components/report/cash-bank-balance-report";
 import { CashBankLayerReport } from "@/components/report/cash-bank-layer-report";
 import { CashBankLedgerReport } from "@/components/report/cash-bank-ledger-report";
-import { NoCompanyAccess } from "@/components/master/company-filter";
 import { ReportParams } from "@/components/report/report-params";
-import { SubjectParams } from "@/components/report/subject-params";
-import { SubledgerReport } from "@/components/report/subledger-report";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
 import { requirePermission } from "@/lib/erp/auth";
 import {
   cashBankBalanceReport,
   cashBankLedgerReport,
 } from "@/lib/erp/cash-bank";
-import { companyScope } from "@/lib/erp/company-access";
 import type { PeriodRange } from "@/lib/erp/period";
 import { reportBySlug, reportHref } from "@/lib/erp/reports";
-import { subledgerReport, subledgerSubjects } from "@/lib/erp/subledger";
-import { loadSubledgers } from "@/lib/erp/subledger-data";
-import { BookFilter } from "@/components/report/book-filter";
-import { ReportCompany } from "@/components/report/report-run";
 import { layerReport } from "@/lib/erp/cash-bank-layers";
 import { prisma } from "@/lib/prisma";
 import { formatDate } from "@/lib/format";
-import { Icon } from "@/components/icon";
 
 export const dynamic = "force-dynamic";
 
@@ -37,12 +28,6 @@ export const dynamic = "force-dynamic";
  * **Parameters come from the query string**, so a report run is a URL: linkable,
  * bookmarkable, and back-button-able. The page reads them, resolves defaults,
  * and queries — no client-side fetching (CLAUDE.md §3).
- *
- * **Every report runs for one Company**, chosen here and carried in `?company=`.
- * A cash resource, a Partner and an account all belong to one, so a report over
- * both reads as duplicated rows — and the scope is also what stops a reader
- * without anak access seeing the anak's book, which is a permission the rest of
- * the application already enforces and a report must not be a way around.
  */
 export default async function Page({
   params,
@@ -50,10 +35,7 @@ export default async function Page({
 }: {
   params: Promise<{ report: string }>;
   searchParams: Promise<{
-    company?: string;
     cashBank?: string;
-    book?: string;
-    partners?: string;
     from?: string;
     to?: string;
   }>;
@@ -62,45 +44,18 @@ export default async function Page({
   const report = reportBySlug(slug);
   if (!report) notFound();
 
-  const actor = await requirePermission(report.permission, reportHref(slug));
+  await requirePermission(report.permission, reportHref(slug));
 
   const query = await searchParams;
   const range = resolveRange(query.from, query.to);
   const cashBankId = positiveInt(query.cashBank);
-  const scope = await companyScope(actor.permissions, query.company);
-  const company = scope.selected;
   const runAt = new Date().toISOString();
 
-  if (!company) {
-    return (
-      <ReportView report={report} filter={null} runAt={runAt}>
-        <NoCompanyAccess what={report.name} />
-      </ReportView>
-    );
-  }
-
-  const companyIds = [company.id];
-
-  // ------------------------------------------------------------ subledgers
-
-  if (report.subledger) {
-    return subledgerPage({
-      report,
-      slug,
-      range,
-      bookKey: query.book,
-      partnerIds: idList(query.partners),
-      company,
-      options: scope.options,
-    });
-  }
-
-  const resources = await cashBankOptions(company.id);
+  const resources = await cashBankOptions();
 
   const filterBar = (
     <>
       <ReportParams
-        lead={<ReportCompany options={scope.options} selectedId={company.id} />}
         slug={slug}
         resources={resources}
         cashBankId={cashBankId}
@@ -109,7 +64,6 @@ export default async function Page({
         subjectRequired={report.subjectRequired}
         subjectLabel="Cash & Bank"
         allLabel={report.subjectRequired ? undefined : "Semua resource"}
-        companyId={company.id}
         dateless={report.params === "cash-bank"}
       />
     </>
@@ -118,7 +72,7 @@ export default async function Page({
   // ---------------------------------------------------------- rate layers
 
   if (report.key === "cash_bank_layer") {
-    const data = await layerReport(companyIds, cashBankId);
+    const data = await layerReport(cashBankId);
     return (
       <ReportView
         report={report}
@@ -140,7 +94,7 @@ export default async function Page({
 
   if (report.key === "cash_bank_ledger") {
     const data = cashBankId
-      ? await cashBankLedgerReport(cashBankId, range, companyIds)
+      ? await cashBankLedgerReport(cashBankId, range)
       : null;
 
     return (
@@ -170,7 +124,7 @@ export default async function Page({
 
   // -------------------------------------------------------------- balance
 
-  const data = await cashBankBalanceReport(range, companyIds, cashBankId);
+  const data = await cashBankBalanceReport(range, cashBankId);
 
   return (
     <ReportView
@@ -186,131 +140,6 @@ export default async function Page({
     >
       <CashBankBalanceReport report={data} />
     </ReportView>
-  );
-}
-
-/**
- * One subject book over a period.
- *
- * Its own function rather than another branch in the body above, because a
- * subledger asks a different question of the request: its subject is a set of
- * Partners rather than one resource, and it is Company-scoped — a Partner
- * belongs to a Company, so a user who may not see the anak must not read the
- * anak's Hutang either. The rest of the Report View convention is unchanged:
- * parameters in the URL, filter in the sticky header, read-only output.
- */
-async function subledgerPage({
-  report,
-  slug,
-  range,
-  bookKey,
-  partnerIds,
-  company,
-  options,
-}: {
-  report: NonNullable<ReturnType<typeof reportBySlug>>;
-  slug: string;
-  range: PeriodRange;
-  bookKey?: string;
-  partnerIds: number[];
-  company: { id: number; label: string; name: string };
-  options: { id: number; label: string; name: string }[];
-}) {
-  const runAt = new Date().toISOString();
-  const companyIds = [company.id];
-
-  // Which book is a parameter, and the books come from the Budget Categories —
-  // so a category created this morning is in this list this afternoon.
-  const books = await loadSubledgers();
-  if (!books.length) {
-    return (
-      <ReportView report={report} filter={null} runAt={runAt}>
-        <NoBooks />
-      </ReportView>
-    );
-  }
-
-  // An unknown or absent book falls back to the first rather than 404ing: a
-  // bookmark that outlived its category should still answer with something, the
-  // same way an unreadable `?company=` falls back inside what is permitted.
-  const book = books.find((b) => b.key === bookKey) ?? books[0];
-
-  const [subjects, data] = await Promise.all([
-    subledgerSubjects(books, book.key, companyIds),
-    subledgerReport(books, book.key, range, { partnerIds, companyIds }),
-  ]);
-  if (!data) notFound();
-
-  return (
-    <ReportView
-      report={{ ...report, name: data.book.name, desc: data.book.desc }}
-      filter={
-        <>
-          <SubjectParams
-            lead={
-              <>
-                <ReportCompany options={options} selectedId={company.id} />
-                {books.length > 1 && (
-                  <>
-                    <span className="rl">Buku</span>
-                    <div className="rf">
-                      <BookFilter books={books} selectedKey={book.key} />
-                    </div>
-                  </>
-                )}
-              </>
-            }
-            slug={slug}
-            extraParams={{ book: book.key }}
-            subjects={subjects}
-            selectedIds={partnerIds}
-            from={range.from}
-            to={range.to}
-            subjectRequired={report.subjectRequired}
-            label="Partner"
-            param="partners"
-            addPlaceholder="Tambah Partner…"
-            allPlaceholder="Semua Partner yang bergerak"
-            missingHint="Pilih minimal satu Partner terlebih dahulu."
-            companyId={company.id}
-          />
-        </>
-      }
-      runAt={runAt}
-      footnote={
-        <>
-          Kolom Bertambah dan Berkurang mengikuti arah buku ini, bukan arah uang:{" "}
-          {data.book.closingLabel.toLowerCase()} bertambah saat{" "}
-          {data.book.raises === "In" ? "uang masuk" : "uang keluar"}.
-        </>
-      }
-    >
-      <SubledgerReport report={data} />
-    </ReportView>
-  );
-}
-
-/**
- * No Budget Category keeps a book yet.
- *
- * Reachable rather than theoretical: a category keeps a book when it names a
- * Partner **and** says which way that book runs, so a fresh chart of
- * classifications — or one where nobody has set the direction — has no books at
- * all. An empty table would read as "nothing has been posted", which is a
- * different and misleading thing.
- */
-function NoBooks() {
-  return (
-    <div className="empty">
-      <div className="ic">
-        <Icon name="book" size={20} />
-      </div>
-      <h4>Belum ada buku subjek</h4>
-      <p>
-        Sebuah Budget Category memiliki buku sendiri bila memakai Partner dan
-        sudah menyatakan arah posisinya. Atur pada Master › Klasifikasi.
-      </p>
-    </div>
   );
 }
 
@@ -347,16 +176,6 @@ function positiveInt(value: string | undefined): number | null {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
-/** `partners=3,17,42` — a set of subjects, in one linkable parameter. */
-function idList(value: string | undefined): number[] {
-  if (!value) return [];
-  const ids = value
-    .split(",")
-    .map((part) => Number(part.trim()))
-    .filter((n) => Number.isInteger(n) && n > 0);
-  return [...new Set(ids)];
-}
-
 /**
  * The resources a report may be run for.
  *
@@ -364,9 +183,8 @@ function idList(value: string | undefined): number[] {
  * resource that has since been deactivated still matters. The list marks them,
  * which is what `Combobox` does with `active: false` when the value is chosen.
  */
-async function cashBankOptions(companyId: number) {
+async function cashBankOptions() {
   const rows = await prisma.mCashBank.findMany({
-    where: { company_id: companyId },
     orderBy: [{ cash_bank_label: "asc" }],
     select: {
       id: true,

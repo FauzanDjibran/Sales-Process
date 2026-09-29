@@ -19,7 +19,6 @@ import {
   cleanupFixtures,
   disconnect,
   makeAccount,
-  parentCompanyId,
   prisma,
   systemUserId,
 } from "./helpers";
@@ -33,7 +32,6 @@ import {
  * so the refusal is pushed at from every side it could be got round.
  */
 
-let company = 0;
 let actor = 0;
 let cash = 0;
 let expense = 0;
@@ -42,13 +40,11 @@ let foreignCurrency = 0;
 let foreignLabel = "";
 
 before(async () => {
-  company = await parentCompanyId();
   actor = await systemUserId();
   cash = await makeAccount({
-    companyId: company,
     subcategoryLabel: CASH_BANK_SUBCATEGORY,
   });
-  expense = await makeAccount({ companyId: company, subcategoryLabel: "5.3.1" });
+  expense = await makeAccount({ subcategoryLabel: "5.3.1" });
   currency = (
     await prisma.refCurrency.findFirstOrThrow({
       orderBy: { id: "asc" },
@@ -106,7 +102,6 @@ const line = (
 });
 
 const journal = (lines: ReturnType<typeof line>[]) => ({
-  companyId: company,
   description: "Fixture journal",
   lines,
   actorId: actor,
@@ -205,7 +200,7 @@ describe("a journal is refused unless its two sides agree", () => {
 
   test("nothing in the database is unbalanced", async () => {
     assert.deepEqual(
-      await unbalancedJournals([company]),
+      await unbalancedJournals(),
       [],
       "every journal goes through postJournal, which refuses the alternative"
     );
@@ -255,7 +250,7 @@ describe("the ledger reads journal lines the way an accountant does", () => {
   });
 
   test("opening plus movement is the closing balance, in the account's direction", async () => {
-    const report = await generalLedgerReport([cash, expense], WHOLE_TIME, [company]);
+    const report = await generalLedgerReport([cash, expense], WHOLE_TIME);
 
     for (const a of report.accounts) {
       assert.equal(
@@ -269,7 +264,7 @@ describe("the ledger reads journal lines the way an accountant does", () => {
   });
 
   test("the running balance of the last entry is the closing balance", async () => {
-    const report = await generalLedgerReport([cash, expense], WHOLE_TIME, [company]);
+    const report = await generalLedgerReport([cash, expense], WHOLE_TIME);
 
     for (const a of report.accounts) {
       if (!a.entries.length) continue;
@@ -280,20 +275,15 @@ describe("the ledger reads journal lines the way an accountant does", () => {
     }
   });
 
-  test("an account of a Company the reader cannot see is not reported", async () => {
-    const report = await generalLedgerReport([cash], WHOLE_TIME, [-1]);
-    assert.deepEqual(report.accounts, [], "the query is scoped, not the picker");
-  });
-
   test("asking for no account reports nothing", async () => {
-    const report = await generalLedgerReport([], WHOLE_TIME, [company]);
+    const report = await generalLedgerReport([], WHOLE_TIME);
     assert.deepEqual(report.accounts, []);
   });
 });
 
 describe("the trial balance balances", () => {
   test("total debits equal total credits, on one base-currency scale", async () => {
-    const report = await trialBalanceReport(WHOLE_TIME, [company]);
+    const report = await trialBalanceReport(WHOLE_TIME);
     assert.ok(report.rows.length > 0, "the cases above posted journals");
     assert.equal(
       Math.round(report.totalDebit * 100),
@@ -307,20 +297,19 @@ describe("the trial balance balances", () => {
     // The grouping is gone on purpose: a journal may hold two currencies, so
     // grouping by transaction currency would split one balanced entry across
     // two tables and leave neither balancing.
-    const report = await trialBalanceReport(WHOLE_TIME, [company]);
+    const report = await trialBalanceReport(WHOLE_TIME);
     assert.ok(!("groups" in report), "a trial balance is a base-currency statement");
     assert.ok(Array.isArray(report.rows));
   });
 
   test("it reports no unbalanced journal, because none can exist", async () => {
-    const report = await trialBalanceReport(WHOLE_TIME, [company]);
+    const report = await trialBalanceReport(WHOLE_TIME);
     assert.deepEqual(report.unbalanced, []);
   });
 
   test("a period before any journal still answers, with nothing in it", async () => {
     const report = await trialBalanceReport(
-      { from: "1990-01-01", to: "1990-12-31" },
-      [company]
+      { from: "1990-01-01", to: "1990-12-31" }
     );
     assert.deepEqual(report.rows, [], "no line was posted by 1990");
     assert.equal(report.totalDebit, 0);
@@ -480,7 +469,7 @@ describe("a journal is measured in base currency", () => {
   });
 
   test("the General Ledger reports base, and names what produced it", async () => {
-    const before = await generalLedgerReport([expense], WHOLE_TIME, [company]);
+    const before = await generalLedgerReport([expense], WHOLE_TIME);
     const openingBase = before.accounts[0].closing;
 
     await postJournal(
@@ -491,7 +480,7 @@ describe("a journal is measured in base currency", () => {
       ])
     );
 
-    const after = await generalLedgerReport([expense], WHOLE_TIME, [company]);
+    const after = await generalLedgerReport([expense], WHOLE_TIME);
     const account = after.accounts[0];
     assert.equal(
       account.closing,
@@ -515,7 +504,7 @@ describe("a journal is measured in base currency", () => {
       prisma,
       journal([line(cash, 50_000, 0), line(expense, 0, 50_000)])
     );
-    const report = await generalLedgerReport([cash], WHOLE_TIME, [company]);
+    const report = await generalLedgerReport([cash], WHOLE_TIME);
     const entry = report.accounts[0].entries.at(-1)!;
     assert.equal(entry.debit, 50_000);
     assert.equal(entry.trxAmount, null, "nothing to add — it is already rupiah");

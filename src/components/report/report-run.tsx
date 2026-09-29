@@ -10,7 +10,6 @@ import {
   useState,
 } from "react";
 import { Icon } from "@/components/icon";
-import { CompanyFilter } from "@/components/master/company-filter";
 
 /**
  * *Tampilkan* lives where every form's Simpan lives — in `.ph-act`, top right
@@ -80,32 +79,5 @@ export function ReportRunButton() {
     >
       <Icon name="srch" size={13} /> Tampilkan
     </button>
-  );
-}
-
-/**
- * The Company, as the first field of a report's first row.
- *
- * It navigates the moment it changes, unlike everything after it: the pickers
- * that follow — accounts, cash resources, Partners — belong to the Company, so
- * their options have to be read again before anything else can be chosen. A
- * reader who may see one Company is shown nothing, because one option is not a
- * choice.
- */
-export function ReportCompany({
-  options,
-  selectedId,
-}: {
-  options: { id: number; label: string; name: string }[];
-  selectedId: number;
-}) {
-  if (options.length < 2) return null;
-  return (
-    <>
-      <span className="rl">Company</span>
-      <div className="rf">
-        <CompanyFilter options={options} selectedId={selectedId} />
-      </div>
-    </>
   );
 }

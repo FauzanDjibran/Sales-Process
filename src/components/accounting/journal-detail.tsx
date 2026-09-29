@@ -80,7 +80,7 @@ export function JournalDetail({
         <FormBody>
           <FormSection>
             <FormRow>
-              <Field label="Tanggal" span={3}>
+              <Field label="Tanggal" span={4}>
                 <div className="ro">
                   {journal.postingDate ? (
                     formatDate(journal.postingDate)
@@ -90,12 +90,7 @@ export function JournalDetail({
                   )}
                 </div>
               </Field>
-              <Field label="Company" span={3}>
-                <div className="ro">
-                  <span className="lab">{journal.companyLabel}</span>
-                </div>
-              </Field>
-              <Field label="Sumber" span={3}>
+              <Field label="Sumber" span={4}>
                 <div className="ro">
                   {source ? (
                     <Drill href={source} title="Buka dokumen sumber journal ini">
@@ -112,7 +107,7 @@ export function JournalDetail({
                   )}
                 </div>
               </Field>
-              <Field label="Baris" span={3}>
+              <Field label="Baris" span={4}>
                 <div className="ro">{journal.lineCount}</div>
               </Field>
               <Field label="Keterangan" span={12}>

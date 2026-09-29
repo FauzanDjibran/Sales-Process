@@ -4,16 +4,16 @@
  * The seed owns exactly two kinds of row:
  *
  *   1. The `sys_*` tables — the bootstrap administrator, the permission
- *      catalogue, the seeded roles, and the fixed two-Company structure.
+ *      catalogue and the seeded roles.
  *   2. The reference tables that behave as system data even though their names
- *      say otherwise: account types, document types, budget categories,
- *      partner categories, and the account category / subcategory skeleton the
+ *      say otherwise: account types, document types, partner categories, and
+ *      the account category / subcategory skeleton the
  *      chart of accounts hangs off. Application logic reads these by label, so
  *      they are code in the same sense the permission catalogue is.
  *
  * Everything else — partners, cash & bank resources, currencies beyond the
- * reporting base, accounts, mappings, fiscal years and periods, budgets and
- * transactions — is business data that real users create through the
+ * reporting base, accounts, fiscal years and periods, and every document — is
+ * business data that real users create through the
  * application. It is deliberately absent here.
  *
  * The seed is idempotent and never deletes business data. Rows are created when
@@ -31,7 +31,6 @@ import { PERMISSIONS } from "../src/lib/erp/permissions";
 import { SEEDED_ROLES, ADMIN_ROLE, adminPermissionCodes } from "../src/lib/erp/roles";
 import { parentCode } from "../src/lib/erp/account-code";
 import { BASE_CURRENCY_LABEL } from "../src/lib/erp/currency";
-import { SEED_PURPOSES } from "../src/lib/erp/rules";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
@@ -48,28 +47,6 @@ const ADMIN_EMAIL = process.env.ERP_ADMIN_EMAIL?.trim().toLowerCase() || "admin@
 const ADMIN_NAME = process.env.ERP_ADMIN_NAME?.trim() || "Administrator";
 const ADMIN_INITIALS = process.env.ERP_ADMIN_INITIALS?.trim().toUpperCase() || "AD";
 
-/**
- * Further administrators, seeded beside the bootstrap one.
- *
- * A deliberate deviation from "the seeder seeds system data only" (CLAUDE.md
- * §12), and the only one: these are named people, and `/settings/user` can
- * create them through the GUI exactly as that rule intends. They are here
- * because the deployed database is rebuilt from this file, and an operator who
- * has to be re-created by hand after every reset is the step that gets
- * forgotten. They are `sys_*` rows, which is the one thing that keeps this
- * inside the seeder's stated scope rather than outside it.
- *
- * They share the bootstrap password, which was an explicit instruction. Note
- * what it costs: `audit_log` attributes every write to a person, and people
- * who share a password are not distinguishable in it. Each account is expected
- * to set its own password from the profile page after first sign-in — the seed
- * never touches an account that already exists, so doing so is permanent.
- */
-const ADDITIONAL_ADMINS = [
-  { email: "rizal@erp.app", name: "Rizal", initials: "RZ" },
-  { email: "mikhael@erp.app", name: "Mikhael", initials: "MK" },
-] as const;
-
 const DEV_PASSWORD = "erp123";
 
 function resolveAdminPassword(): string {
@@ -82,20 +59,6 @@ function resolveAdminPassword(): string {
   }
   return DEV_PASSWORD;
 }
-
-/**
- * The two Companies.
- *
- * Exactly one induk and one anak, permanently — the structure is foundational,
- * not configuration, so the application has no write path for it and these rows
- * are created once. Identity is adjusted in the database afterwards; the
- * environment variables exist so a first install does not have to start from
- * placeholder names.
- */
-const PARENT_LABEL = process.env.SIBA_PARENT_COMPANY_LABEL?.trim() || "INDUK";
-const PARENT_NAME = process.env.SIBA_PARENT_COMPANY_NAME?.trim() || "Perusahaan Induk";
-const CHILD_LABEL = process.env.SIBA_CHILD_COMPANY_LABEL?.trim() || "ANAK";
-const CHILD_NAME = process.env.SIBA_CHILD_COMPANY_NAME?.trim() || "Perusahaan Anak";
 
 /**
  * The reporting base currency. Further currencies are added through the app.
@@ -123,11 +86,9 @@ const tally = (what: string, n = 1) => {
 
 // ------------------------------------------------------------- system data
 //
-// Labels are load-bearing: `src/lib/erp/rules.ts` keys its classification
-// rules off budget and partner category labels, and `CASH_BANK_SUBCATEGORY` in
-// `records.ts` names the chart-of-accounts group a cash or bank resource posts
-// into. Renaming a label here without renaming it there silently breaks a
-// business rule.
+// Labels are load-bearing: `CASH_BANK_SUBCATEGORY` in `records.ts` names the
+// chart-of-accounts group a cash or bank resource posts into. Renaming a label
+// here without renaming it there silently breaks a business rule.
 
 /**
  * **Append only.** Each row's `doc_code` is `dtyp.<index + 1>`, so inserting a
@@ -137,86 +98,22 @@ const tally = (what: string, n = 1) => {
  * document type goes at the end, whatever the reading order would prefer.
  */
 const DOC_TYPES: [label: string, table: string][] = [
-  ["Budget", "bud_budget"],
-  ["Cash Bank Transaction", "fin_cash_bank_transaction"],
-  ["Cash Bank Transaction Line", "fin_cash_bank_transaction_line"],
-  ["Funding Request", "fin_funding_request"],
   ["Journal", "acc_journal"],
-  ["Cash Bank Transfer", "fin_cash_bank_transfer"],
-  ["Cash Bank Transfer Line", "fin_cash_bank_transfer_line"],
   ["Opening Balance", "acc_opening_balance"],
   // A Fiscal Year is a document type because closing one *produces* journals:
-  // the `CLS-` entry names the year it closed as its source, which is what
+  // the closing entry names the year it closed as its source, which is what
   // lets a reader get from a journal line back to the close that wrote it.
   ["Fiscal Year", "acc_fiscal_year"],
-  // A Debit / Credit Note writes a subject-book entry and a journal, and both
-  // name the note as their source.
-  ["Debit / Credit Note", "fin_dncn"],
 ];
 
 /**
- * The eight Budget Categories and the rules each one carries: which directions
- * are meaningful for it, whether it names a Partner at all, and which Partner
- * Categories it admits.
- *
- * Direction follows balance-sheet logic rather than cash direction:
- *
- *   Liability (Titipan, Hutang)   In = obligation up,  Out = obligation down
- *   Asset (Piutang, Investasi)    Out = asset up,      In  = asset down
- *   Contra-equity (Prive)         Out = drawing up,    In  = drawing down
- *   Expense / Fixed asset         Out only
- *   Income                        In only
- *
- * This is the **starting point**, not the running rule. Once seeded, the tables
- * are what the application reads, and the user reshapes them through
- * Master > Klasifikasi. The sync below is written so that it never overwrites
- * an edit made there — see `ensureBudgetCategoryRules`.
+ * Customer and Supplier only, for now (Claude-ERP.md P30). An account that
+ * requires a Partner names one of these, so a Piutang account takes Customers
+ * and a Hutang account Suppliers.
  */
-const BUDGET_CATEGORIES: [
-  label: string,
-  note: string,
-  directions: ("In" | "Out")[],
-  partnerCategories: string[],
-  /**
-   * Which cash direction **raises** the subject's position, and so whether the
-   * category keeps a subject book at all.
-   *
-   * Balance-sheet logic, never cash direction: money leaving raises a Piutang,
-   * a Prive and an Investasi, and *lowers* a Hutang or a Titipan. A book that
-   * mirrored the cash flow would print every position backwards.
-   *
-   * Null exactly where the category names no Partner, because a book with no
-   * subject is not a book. The pairing is mandatory in both directions:
-   * `sys_budget_category_partner_implies_book` refuses a row that names a
-   * Partner without saying which way its book runs, so a fresh database cannot
-   * be seeded at all without this column. It was missing until a reset proved
-   * it — the categories already in a database had been repaired by migration,
-   * so only a database with none showed the gap.
-   */
-  raises: "In" | "Out" | null,
-  /**
-   * Whether a Debit / Credit Note may adjust this category's book. On for the
-   * three books one Profit & Loss counter account fixes correctly — a deposit
-   * held, a payable, a receivable — and off for Prive, Investasi and Hasil
-   * Investasi, whose counter entry is not an income or an expense. Written on
-   * create only: afterwards the flag is the category's own, set on its form.
-   */
-  allowsDncn: boolean,
-][] = [
-  ["Titipan", "Dana yang dititipkan pihak lain untuk ditarik kembali. Wajib Partner: Cabang atau Stakeholder.", ["In", "Out"], ["Cabang", "Stakeholder"], "In", true],
-  ["Hutang", "Kewajiban kepada pihak lain. Wajib Partner: Cabang, Karyawan, atau Stakeholder.", ["In", "Out"], ["Cabang", "Karyawan", "Stakeholder"], "In", true],
-  ["Piutang", "Hak tagih kepada pihak lain. Wajib Partner: Cabang, Karyawan, atau Stakeholder.", ["In", "Out"], ["Cabang", "Karyawan", "Stakeholder"], "Out", true],
-  ["Prive", "Pengambilan oleh pemilik. Wajib Partner: Stakeholder.", ["In", "Out"], ["Stakeholder"], "Out", false],
-  ["Asset", "Pembelian aset tetap. Tanpa Partner, hanya arah Pengeluaran.", ["Out"], [], null, false],
-  ["Biaya", "Beban umum. Tanpa Partner, hanya arah Pengeluaran.", ["Out"], [], null, false],
-  ["Investasi", "Penyertaan dana ke entitas lain. Wajib Partner Cabang, hanya arah Pengeluaran.", ["Out"], ["Cabang"], "Out", false],
-  ["Hasil Investasi", "Pendapatan dari entitas yang diinvestasi. Wajib Partner Cabang, hanya arah Penerimaan.", ["In"], ["Cabang"], "In", false],
-];
-
 const PARTNER_CATEGORIES: [label: string, name: string, note: string][] = [
-  ["Cabang", "Cabang / Entitas", "Entitas cabang atau investee di luar dua Company utama sistem."],
-  ["Karyawan", "Karyawan", "Pegawai perusahaan. Hanya dipakai oleh Hutang dan Piutang."],
-  ["Stakeholder", "Pemegang Saham", "Pemilik / pemegang saham. Dipakai oleh Titipan, Hutang, Piutang, dan Prive."],
+  ["Customer", "Pelanggan", "Pihak yang membeli barang atau jasa dari perusahaan."],
+  ["Supplier", "Pemasok", "Pihak yang menjual barang atau jasa kepada perusahaan."],
 ];
 
 /**
@@ -383,7 +280,6 @@ async function main() {
   await bootstrapAdministrator();
   await syncPermissionCatalogue();
   await syncRoles(system);
-  await ensureCompanies(audit);
   await ensureReferenceData(audit);
 
   report();
@@ -433,7 +329,6 @@ async function bootstrapAdministrator(): Promise<void> {
 
   const people = [
     { email: ADMIN_EMAIL, name: ADMIN_NAME, initials: ADMIN_INITIALS, tallyAs: "administrator" },
-    ...ADDITIONAL_ADMINS.map((person) => ({ ...person, tallyAs: "additional administrator" })),
   ];
 
   for (const person of people) {
@@ -565,14 +460,14 @@ async function syncRoles(system: number): Promise<void> {
     }
   }
 
-  // Every seeded administrator holds the ADMIN role. Re-checked each run so a
+  // The seeded administrator holds the ADMIN role. Re-checked each run so a
   // fresh catalogue entry cannot leave the system unadministrable.
   const adminRole = await prisma.sysRole.findUnique({
     where: { role_label: ADMIN_ROLE },
     select: { id: true },
   });
   if (adminRole) {
-    for (const email of [ADMIN_EMAIL, ...ADDITIONAL_ADMINS.map((p) => p.email)]) {
+    for (const email of [ADMIN_EMAIL]) {
       const user = await prisma.sysUser.findUnique({
         where: { email },
         select: { id: true },
@@ -591,37 +486,6 @@ async function syncRoles(system: number): Promise<void> {
       }
     }
   }
-}
-
-/**
- * Exactly one induk and one anak. Created only when the table is empty: after
- * that the structure is fixed, and identity edits made directly in the database
- * must survive a re-seed.
- */
-async function ensureCompanies(audit: { created_by: number; updated_by: null }): Promise<void> {
-  if (await prisma.sysCompany.count()) return;
-
-  await prisma.sysCompany.createMany({
-    data: [
-      {
-        company_code: code("comp", 1),
-        company_label: PARENT_LABEL,
-        company_name: PARENT_NAME,
-        is_parent: true,
-        note: "Induk. Memiliki Cash Bank sendiri dan bertindak sebagai treasury provider bagi Company anak.",
-        ...audit,
-      },
-      {
-        company_code: code("comp", 2),
-        company_label: CHILD_LABEL,
-        company_name: CHILD_NAME,
-        is_parent: false,
-        note: "Anak dari Company induk. Kebutuhan dana dipenuhi melalui Funding Request ke induk.",
-        ...audit,
-      },
-    ],
-  });
-  tally("companies", 2);
 }
 
 async function ensureReferenceData(
@@ -680,28 +544,6 @@ async function ensureReferenceData(
     tally("document types", made);
   }
 
-  for (const [i, [label, note, directions, _partners, raises, allowsDncn]] of BUDGET_CATEGORIES.entries()) {
-    const made = await create(
-      () => prisma.sysBudgetCategory.findFirst({ where: { category_label: label } }),
-      () =>
-        prisma.sysBudgetCategory.create({
-          data: {
-            category_code: code("bcat", i + 1),
-            category_label: label,
-            category_name: label,
-            allows_in: directions.includes("In"),
-            allows_out: directions.includes("Out"),
-            require_partner: _partners.length > 0,
-            raises,
-            allows_dncn: allowsDncn,
-            note,
-            ...audit,
-          },
-        })
-    );
-    tally("budget categories", made);
-  }
-
   for (const [i, [label, name, note]] of PARTNER_CATEGORIES.entries()) {
     const made = await create(
       () => prisma.sysPartnerCategory.findFirst({ where: { category_label: label } }),
@@ -719,8 +561,6 @@ async function ensureReferenceData(
     tally("partner categories", made);
   }
 
-  await ensureBudgetCategoryRules(audit);
-  await ensurePurposes(audit.created_by);
 
   const typeId = new Map(
     (await prisma.sysAccountType.findMany({ select: { id: true, type_label: true } })).map((t) => [
@@ -792,7 +632,7 @@ async function ensureReferenceData(
   }
 
   // The reporting base currency, so a first install can register a Cash & Bank
-  // resource and plan a budget without setting up a master first. Every other
+  // resource without setting up a master first. Every other
   // currency is created through the application.
   const made = await create(
     () => prisma.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL } }),
@@ -811,157 +651,6 @@ async function ensureReferenceData(
 }
 
 /** Creates the row when the lookup finds nothing. Returns 1 if it created one. */
-/**
- * Brings the Budget Category rules and the Budget Category x Partner Category
- * mappings up to what `BUDGET_CATEGORIES` declares — **without ever overwriting
- * a rule the user has already shaped through the GUI.**
- *
- * That distinction is the whole difficulty here. These rows are system data by
- * origin but user data by intent: the seed states where the model starts, and
- * Master > Klasifikasi is where it goes next. A sync that simply wrote the
- * declared rules back would silently undo a morning's work the first time
- * anyone ran `npm run db:seed` to pick up a new permission.
- *
- * So each half asks a question whose answer distinguishes "never set" from
- * "set to something else":
- *
- *   - Direction is backfilled only when **both** flags are false, which no real
- *     category ever is — a category that moves in no direction could classify
- *     nothing. That state means the row predates the column.
- *   - Mappings are seeded only when the category has **no rows at all**. One
- *     row, even a deactivated one, means somebody has been here.
- *
- * Neither half deletes anything, in keeping with the seeder's contract.
- */
-async function ensureBudgetCategoryRules(audit: {
-  created_by: number;
-  updated_by: null;
-}): Promise<void> {
-  const partnerId = new Map(
-    (
-      await prisma.sysPartnerCategory.findMany({
-        select: { id: true, category_label: true },
-      })
-    ).map((c) => [c.category_label, c.id])
-  );
-
-  for (const [label, , directions, partners, raises] of BUDGET_CATEGORIES) {
-    const category = await prisma.sysBudgetCategory.findFirst({
-      where: { category_label: label },
-      select: { id: true, allows_in: true, allows_out: true, raises: true },
-    });
-    // A category the declaration names but the database does not is not this
-    // function's to create — the loop above owns that, and reaching here means
-    // somebody renamed a label.
-    if (!category) continue;
-
-    if (!category.allows_in && !category.allows_out) {
-      await prisma.sysBudgetCategory.update({
-        where: { id: category.id },
-        data: {
-          allows_in: directions.includes("In"),
-          allows_out: directions.includes("Out"),
-          require_partner: partners.length > 0,
-          raises,
-        },
-      });
-      tally("budget category rules backfilled");
-    }
-
-    // A category that predates the column and was repaired by the migration's
-    // rule rather than by name. Filled in only where it is still missing: a
-    // direction somebody has since chosen through the GUI is theirs, and the
-    // seed does not overwrite it.
-    if (partners.length && !category.raises && raises) {
-      await prisma.sysBudgetCategory.update({
-        where: { id: category.id },
-        data: { raises },
-      });
-      tally("budget category book directions backfilled");
-    }
-
-    if (!partners.length) continue;
-    const existing = await prisma.sysBudgetPartnerCategoryMapping.count({
-      where: { budget_category_id: category.id },
-    });
-    if (existing) continue;
-
-    for (const partnerLabel of partners) {
-      const id = partnerId.get(partnerLabel);
-      if (!id) continue;
-      const seq =
-        (await prisma.sysBudgetPartnerCategoryMapping.count()) + 1;
-      await prisma.sysBudgetPartnerCategoryMapping.create({
-        data: {
-          mapping_code: code("bpcm", seq),
-          budget_category_id: category.id,
-          partner_category_id: id,
-          ...audit,
-        },
-      });
-      tally("budget-partner category mappings");
-    }
-  }
-}
-
-/**
- * Plants the 22 historical Purposes, then lets the generator fill in anything
- * else the classification implies.
- *
- * Only the original 22, and only because their **keys** are already referenced
- * by posted documents — a seeded database has to be able to read those back.
- * Nothing else is planted: a Purpose for a Budget Category somebody adds later
- * is entered through the GUI, on purpose, because this table is a maintainer's
- * to own.
- *
- * Additive and idempotent: a key that already exists is left alone.
- */
-async function ensurePurposes(system: number): Promise<void> {
-  const categoryId = new Map(
-    (
-      await prisma.sysBudgetCategory.findMany({
-        select: { id: true, category_label: true },
-      })
-    ).map((c) => [c.category_label, c.id])
-  );
-  const partnerId = new Map(
-    (
-      await prisma.sysPartnerCategory.findMany({
-        select: { id: true, category_label: true },
-      })
-    ).map((c) => [c.category_label, c.id])
-  );
-
-  for (const purpose of SEED_PURPOSES) {
-    const budgetCategoryId = categoryId.get(purpose.budgetCategory);
-    // A label renamed since the first seed. The Purpose it named is already in
-    // the table under its own key, so skipping is right — planting a second row
-    // against a category that no longer answers to this name would be worse.
-    if (!budgetCategoryId) continue;
-    const partnerCategoryId = purpose.partnerCategory
-      ? partnerId.get(purpose.partnerCategory) ?? null
-      : null;
-    if (purpose.partnerCategory && !partnerCategoryId) continue;
-
-    const made = await create(
-      () => prisma.sysPurpose.findFirst({ where: { purpose_key: purpose.key } }),
-      () =>
-        prisma.sysPurpose.create({
-          data: {
-            purpose_key: purpose.key,
-            budget_category_id: budgetCategoryId,
-            partner_category_id: partnerCategoryId,
-            direction: purpose.direction,
-            created_by: system,
-            updated_by: null,
-          },
-        })
-    );
-    tally("purposes", made);
-  }
-
-}
-
 async function create<T>(find: () => Promise<T | null>, make: () => Promise<T>): Promise<number> {
   if (await find()) return 0;
   await make();
@@ -978,16 +667,13 @@ function report(): void {
   }
 
   console.log(`\nAdministrator : ${ADMIN_EMAIL}`);
-  for (const person of ADDITIONAL_ADMINS) {
-    console.log(`                ${person.email}  (${person.name})`);
-  }
   if (!process.env.ERP_ADMIN_PASSWORD) {
     console.log(`Password      : ${DEV_PASSWORD}   <-- DEVELOPMENT ONLY`);
     console.log("                Set ERP_ADMIN_PASSWORD before seeding anywhere real.");
   }
   console.log(
-    "\nBusiness data — partners, cash & bank, accounts, mappings, fiscal periods,\n" +
-      "budgets — is created through the application, not by this seed."
+    "\nBusiness data — partners, cash & bank, accounts, fiscal periods, documents —\n" +
+      "is created through the application, not by this seed."
   );
 }
 
