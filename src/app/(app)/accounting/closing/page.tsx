@@ -1,7 +1,7 @@
 import { ClosingWorkspace } from "@/components/accounting/closing-workspace";
-import { requirePermission } from "@/lib/siba/auth";
-import { closableYears, closingPlan } from "@/lib/siba/closing";
-import { companyScope } from "@/lib/siba/company-access";
+import { requirePermission } from "@/lib/erp/auth";
+import { closableYears, closingPlan } from "@/lib/erp/closing";
+import { companyScope } from "@/lib/erp/company-access";
 
 export const dynamic = "force-dynamic";
 

@@ -10,11 +10,11 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { closeFiscalYear } from "@/app/actions/closing";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { Company } from "@/lib/siba/company-access";
-import type { ClosingPlan } from "@/lib/siba/closing";
-import { BASE_CURRENCY_LABEL } from "@/lib/siba/currency";
-import { FISCAL_YEAR_TRANSITIONS } from "@/lib/siba/fiscal-workflow";
-import { headerButtonClass } from "@/lib/siba/header-actions";
+import type { Company } from "@/lib/erp/company-access";
+import type { ClosingPlan } from "@/lib/erp/closing";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import { FISCAL_YEAR_TRANSITIONS } from "@/lib/erp/fiscal-workflow";
+import { headerButtonClass } from "@/lib/erp/header-actions";
 
 /**
  * Closing a fiscal year: the checklist, the entry, and one confirm.

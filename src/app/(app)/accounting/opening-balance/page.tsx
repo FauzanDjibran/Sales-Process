@@ -1,7 +1,7 @@
 import { OpeningBalanceList } from "@/components/accounting/opening-balance-list";
-import { requirePermission } from "@/lib/siba/auth";
-import { companyScope } from "@/lib/siba/company-access";
-import { listOpeningBalances } from "@/lib/siba/opening-balance";
+import { requirePermission } from "@/lib/erp/auth";
+import { companyScope } from "@/lib/erp/company-access";
+import { listOpeningBalances } from "@/lib/erp/opening-balance";
 
 export const dynamic = "force-dynamic";
 

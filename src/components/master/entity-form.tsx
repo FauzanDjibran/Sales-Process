@@ -9,7 +9,7 @@ import {
   headerButtonClass,
   masterHeaderActions,
   type ActionTone,
-} from "@/lib/siba/header-actions";
+} from "@/lib/erp/header-actions";
 import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
 import { Select } from "@/components/ui/select";
@@ -28,8 +28,8 @@ import {
   COMPANY_LOCK_BADGE,
   COMPANY_LOCK_BODY,
   isCompanyEntity,
-} from "@/lib/siba/company";
-import type { EntityAbilities } from "@/lib/siba/entity-access";
+} from "@/lib/erp/company";
+import type { EntityAbilities } from "@/lib/erp/entity-access";
 import {
   STATUS_CLASS,
   STATUS_TEXT,
@@ -40,17 +40,17 @@ import {
   waitingClause,
   type Entity,
   type Field,
-} from "@/lib/siba/entities";
+} from "@/lib/erp/entities";
 import {
   type ClassificationCatalogue,
   allowedPartnerCategories,
-} from "@/lib/siba/classification";
-import { moduleByKey } from "@/lib/siba/nav";
-import type { RefOption, Row } from "@/lib/siba/records";
-import type { SystemDefaultKey } from "@/lib/siba/system-defaults";
+} from "@/lib/erp/classification";
+import { moduleByKey } from "@/lib/erp/nav";
+import type { RefOption, Row } from "@/lib/erp/records";
+import type { SystemDefaultKey } from "@/lib/erp/system-defaults";
 import { formatDate, formatMoney, formatRate, todayIso } from "@/lib/format";
-import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/siba/currency";
-import { recordTitle } from "@/lib/siba/record-title";
+import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
+import { recordTitle } from "@/lib/erp/record-title";
 import { MultiSelect } from "@/components/ui/multi-select";
 
 export type FormMode = "new" | "view" | "edit";
@@ -93,7 +93,7 @@ export function EntityForm({
    * How prominent Ubah is, and therefore where it sits. A header carries one
    * primary and it is the rightmost button, so when `headerActions` supplies
    * the screen's chief action — activating a Fiscal Year — Ubah steps down to
-   * neutral and moves to its left. See `lib/siba/header-actions.ts`.
+   * neutral and moves to its left. See `lib/erp/header-actions.ts`.
    */
   editTone?: ActionTone;
   /**
@@ -116,7 +116,7 @@ export function EntityForm({
   const editing = mode === "new" || mode === "edit";
   const basePath = `/${entity.module}/${entity.slug}`;
   const moduleName = moduleByKey(entity.module)?.name ?? entity.module;
-  /** Company has no write path at all — see `lib/siba/company.ts`. */
+  /** Company has no write path at all — see `lib/erp/company.ts`. */
   const locked = isCompanyEntity(entity.slug);
   const canEdit = can.edit && !locked;
   const statusModel = entity.statusModel;

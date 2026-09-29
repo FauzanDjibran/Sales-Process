@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
-import { headerButtonClass, masterHeaderActions } from "@/lib/siba/header-actions";
+import { headerButtonClass, masterHeaderActions } from "@/lib/erp/header-actions";
 import { CancelButton } from "@/components/ui/cancel-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
@@ -16,9 +16,9 @@ import {
   setUserStatusAction,
   updateUserAction,
 } from "@/app/actions/users";
-import { STATUS_CLASS, STATUS_TEXT } from "@/lib/siba/entities";
+import { STATUS_CLASS, STATUS_TEXT } from "@/lib/erp/entities";
 
-import type { UserRow } from "@/lib/siba/user-admin";
+import type { UserRow } from "@/lib/erp/user-admin";
 import { firstError } from "./user-list";
 
 export type AssignableRole = {
@@ -269,7 +269,7 @@ export function UserForm({
                       type="email"
                       value={values.email}
                       onChange={(e) => set("email", e.target.value)}
-                      placeholder="nama@siba.app"
+                      placeholder="nama@perusahaan.co.id"
                       autoComplete="off"
                     />
                   ) : (

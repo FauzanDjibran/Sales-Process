@@ -12,15 +12,15 @@ export async function runStartupCheck() {
   const production = process.env.NODE_ENV === "production";
 
   try {
-    const { assertSchemaIsCurrent } = await import("./lib/siba/startup-check");
+    const { assertSchemaIsCurrent } = await import("./lib/erp/startup-check");
     const report = await assertSchemaIsCurrent();
     if (report.ok) {
-      console.log(`[siba] schema check passed (${report.checked} tables)`);
+      console.log(`[erp] schema check passed (${report.checked} tables)`);
       return;
     }
-    fail(production, `[siba] ${report.problem}`);
+    fail(production, `[erp] ${report.problem}`);
   } catch (error) {
-    fail(production, `[siba] startup check could not run: ${String(error)}`);
+    fail(production, `[erp] startup check could not run: ${String(error)}`);
   }
 }
 
@@ -36,7 +36,7 @@ export async function runStartupCheck() {
  */
 function fail(production: boolean, message: string): never | void {
   if (!production) {
-    console.warn(`${message}\n[siba] continuing: NODE_ENV is not production.`);
+    console.warn(`${message}\n[erp] continuing: NODE_ENV is not production.`);
     return;
   }
   console.error(message);

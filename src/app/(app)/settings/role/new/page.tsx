@@ -1,7 +1,7 @@
 import { RoleForm } from "@/components/settings/role-form";
-import { actorCan } from "@/lib/siba/access";
-import { requirePermission } from "@/lib/siba/auth";
-import { permissionsByModule } from "@/lib/siba/permissions";
+import { actorCan } from "@/lib/erp/access";
+import { requirePermission } from "@/lib/erp/auth";
+import { permissionsByModule } from "@/lib/erp/permissions";
 
 export const dynamic = "force-dynamic";
 

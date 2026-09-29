@@ -1,8 +1,8 @@
 import { JournalList } from "@/components/accounting/journal-list";
-import { requirePermission } from "@/lib/siba/auth";
-import { companyScope } from "@/lib/siba/company-access";
-import { listJournals } from "@/lib/siba/journal";
-import { journalAbilities } from "@/lib/siba/journal-workflow";
+import { requirePermission } from "@/lib/erp/auth";
+import { companyScope } from "@/lib/erp/company-access";
+import { listJournals } from "@/lib/erp/journal";
+import { journalAbilities } from "@/lib/erp/journal-workflow";
 
 export const dynamic = "force-dynamic";
 

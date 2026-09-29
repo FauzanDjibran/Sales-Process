@@ -14,12 +14,12 @@ import {
   type JournalAbilities,
   type JournalAction,
   type JournalStatus,
-} from "@/lib/siba/journal-workflow";
+} from "@/lib/erp/journal-workflow";
 import {
   headerButtonClass,
   orderForHeader,
   type ActionTone,
-} from "@/lib/siba/header-actions";
+} from "@/lib/erp/header-actions";
 
 /**
  * A manual journal's lifecycle, as buttons in the page header.

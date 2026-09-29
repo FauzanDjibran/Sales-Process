@@ -3,7 +3,7 @@
 import { useId, useRef, useState } from "react";
 import { Icon } from "@/components/icon";
 import { AnchoredPopup } from "@/components/ui/anchored-popup";
-import type { RefOption } from "@/lib/siba/records";
+import type { RefOption } from "@/lib/erp/records";
 
 /**
  * FK picker: a search field over `CODE – Name` options.

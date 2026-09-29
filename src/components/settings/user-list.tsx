@@ -10,8 +10,8 @@ import { Select } from "@/components/ui/select";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { setUserStatusAction } from "@/app/actions/users";
-import { STATUS_CLASS, STATUS_TEXT } from "@/lib/siba/entities";
-import type { UserRow } from "@/lib/siba/user-admin";
+import { STATUS_CLASS, STATUS_TEXT } from "@/lib/erp/entities";
+import type { UserRow } from "@/lib/erp/user-admin";
 
 export type UserAbilities = {
   create: boolean;

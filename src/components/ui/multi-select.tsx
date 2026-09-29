@@ -2,7 +2,7 @@
 
 import { Icon } from "@/components/icon";
 import { Combobox } from "@/components/ui/combobox";
-import type { RefOption } from "@/lib/siba/records";
+import type { RefOption } from "@/lib/erp/records";
 
 /**
  * Several of something, chosen one at a time.

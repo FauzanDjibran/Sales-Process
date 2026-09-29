@@ -8,9 +8,9 @@ import {
   openLayer,
   openLayersOf,
   reconcileLayers,
-} from "../src/lib/siba/cash-bank-layers";
-import { openCashBankBook, recordCashBankEntry } from "../src/lib/siba/cash-bank";
-import { CASH_BANK_SUBCATEGORY } from "../src/lib/siba/records";
+} from "../src/lib/erp/cash-bank-layers";
+import { openCashBankBook, recordCashBankEntry } from "../src/lib/erp/cash-bank";
+import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import {
   FIXTURE_PREFIX,
   cleanupFixtures,

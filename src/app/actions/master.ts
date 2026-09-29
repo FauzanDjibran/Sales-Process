@@ -2,24 +2,24 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { type Actor } from "@/lib/siba/access";
-import { authorizeAction } from "@/lib/siba/auth";
-import { isAccessDenied } from "@/lib/siba/auth-errors";
-import { entityPermissions } from "@/lib/siba/entity-access";
+import { type Actor } from "@/lib/erp/access";
+import { authorizeAction } from "@/lib/erp/auth";
+import { isAccessDenied } from "@/lib/erp/auth-errors";
+import { entityPermissions } from "@/lib/erp/entity-access";
 import {
   COMPANY_CREATE_BLOCKED,
   COMPANY_UPDATE_BLOCKED,
   isCompanyEntity,
-} from "@/lib/siba/company";
-import { type Entity, type Field } from "@/lib/siba/entities";
+} from "@/lib/erp/company";
+import { type Entity, type Field } from "@/lib/erp/entities";
 import {
   SEGMENT_RANGE_TEXT,
   joinCode,
   parseSegment,
-} from "@/lib/siba/account-code";
-import { openCashBankBook } from "@/lib/siba/cash-bank";
-import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/siba/currency";
-import { fiscalYearShape, parseYear } from "@/lib/siba/fiscal";
+} from "@/lib/erp/account-code";
+import { openCashBankBook } from "@/lib/erp/cash-bank";
+import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
+import { fiscalYearShape, parseYear } from "@/lib/erp/fiscal";
 import {
   CASH_BANK_SUBCATEGORY,
   accountDescendants,
@@ -35,13 +35,13 @@ import {
   requireEntity,
   strandedCategories,
   syncControlAccounts,
-} from "@/lib/siba/records";
-import { loadClassification } from "@/lib/siba/classification-data";
-import { directionText } from "@/lib/siba/classification";
+} from "@/lib/erp/records";
+import { loadClassification } from "@/lib/erp/classification-data";
+import { directionText } from "@/lib/erp/classification";
 import {
   systemDefaultAccountIds,
   systemDefaultsUsingAccount,
-} from "@/lib/siba/system-settings";
+} from "@/lib/erp/system-settings";
 
 /**
  * Every action here is permission-gated before it touches anything, and every
@@ -895,7 +895,7 @@ export async function createRecord(
     // A Cash & Bank resource gets its book in the same transaction it is
     // registered in, so no resource can ever exist without one. A non-zero
     // starting figure becomes the book's opening entry rather than a column on
-    // the master — see `lib/siba/cash-bank.ts`.
+    // the master — see `lib/erp/cash-bank.ts`.
     if (entity.key === "m_cash_bank") {
       // A foreign resource keeps rate layers and opens its first one here; a
       // base-currency resource has none and opens at `1`, which is true rather

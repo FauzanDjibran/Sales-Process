@@ -1,8 +1,8 @@
 import { Icon } from "@/components/icon";
 import { ReportSummary } from "@/components/report/report-summary";
 import { formatDate, formatMoney, formatRate } from "@/lib/format";
-import { BASE_CURRENCY_LABEL } from "@/lib/siba/currency";
-import type { LayerReport as Report } from "@/lib/siba/cash-bank-layers";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import type { LayerReport as Report } from "@/lib/erp/cash-bank-layers";
 
 /**
  * One block per foreign-currency resource, listing the rate layers it holds.

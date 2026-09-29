@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
 import { OpeningBalanceDetail } from "@/components/accounting/opening-balance-detail";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
-import { requirePermission } from "@/lib/siba/auth";
-import { accessibleCompanyIds } from "@/lib/siba/company-access";
-import { getOpeningBalance } from "@/lib/siba/opening-balance";
+import { requirePermission } from "@/lib/erp/auth";
+import { accessibleCompanyIds } from "@/lib/erp/company-access";
+import { getOpeningBalance } from "@/lib/erp/opening-balance";
 
 export const dynamic = "force-dynamic";
 

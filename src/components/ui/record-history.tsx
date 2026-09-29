@@ -2,7 +2,7 @@
 
 import { Icon } from "@/components/icon";
 import { formatTimestamp } from "@/lib/format";
-import { auditEventLabel } from "@/lib/siba/audit-events";
+import { auditEventLabel } from "@/lib/erp/audit-events";
 
 /**
  * A record's own history, at the foot of its form.

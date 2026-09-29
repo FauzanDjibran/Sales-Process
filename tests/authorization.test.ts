@@ -1,15 +1,15 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { actorCan } from "../src/lib/siba/access";
-import { isAccessDenied } from "../src/lib/siba/auth-errors";
-import { abilitiesFor, entityPermissions } from "../src/lib/siba/entity-access";
+import { actorCan } from "../src/lib/erp/access";
+import { isAccessDenied } from "../src/lib/erp/auth-errors";
+import { abilitiesFor, entityPermissions } from "../src/lib/erp/entity-access";
 import {
   PERMISSIONS,
   PERMISSION_CODES,
   permissionsByModule,
-} from "../src/lib/siba/permissions";
-import { adminPermissionCodes, SEEDED_ROLES } from "../src/lib/siba/roles";
+} from "../src/lib/erp/permissions";
+import { adminPermissionCodes, SEEDED_ROLES } from "../src/lib/erp/roles";
 import {
   createUser,
   listUsers,
@@ -17,7 +17,7 @@ import {
   setUserRoles,
   setUserStatus,
   updateUser,
-} from "../src/lib/siba/user-admin";
+} from "../src/lib/erp/user-admin";
 import { actorOf, cleanup, disconnect, makeUser, prisma, roleIdFor } from "./helpers";
 
 /**
@@ -148,7 +148,7 @@ describe("staff restrictions", () => {
     await assertDenied(
       () =>
         createUser(actor, {
-          email: "authtest+sneaky@siba.test",
+          email: "authtest+sneaky@erp.test",
           name: "Sneaky",
           initials: "SN",
           password: "password-12345",
@@ -157,7 +157,7 @@ describe("staff restrictions", () => {
     );
 
     assert.equal(
-      await prisma.sysUser.count({ where: { email: "authtest+sneaky@siba.test" } }),
+      await prisma.sysUser.count({ where: { email: "authtest+sneaky@erp.test" } }),
       0,
       "nothing may be written when the call is refused"
     );
@@ -171,7 +171,7 @@ describe("staff restrictions", () => {
     await assertDenied(
       () =>
         updateUser(actor, victim.id, {
-          email: "authtest+hijacked@siba.test",
+          email: "authtest+hijacked@erp.test",
           name: "Hijacked",
           initials: "HJ",
         }),

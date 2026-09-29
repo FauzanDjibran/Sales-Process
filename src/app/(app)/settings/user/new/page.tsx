@@ -1,7 +1,7 @@
 import { UserForm } from "@/components/settings/user-form";
-import { actorCan } from "@/lib/siba/access";
-import { requirePermission } from "@/lib/siba/auth";
-import { assignableRoles } from "@/lib/siba/user-admin";
+import { actorCan } from "@/lib/erp/access";
+import { requirePermission } from "@/lib/erp/auth";
+import { assignableRoles } from "@/lib/erp/user-admin";
 
 export const dynamic = "force-dynamic";
 

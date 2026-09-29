@@ -1,10 +1,10 @@
 import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { formatDate, formatMoney } from "@/lib/format";
-import { BASE_CURRENCY_LABEL } from "@/lib/siba/currency";
-import { reportHref } from "@/lib/siba/reports";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import { reportHref } from "@/lib/erp/reports";
 import { Drill } from "./drill";
-import type { TrialBalanceReport as Report } from "@/lib/siba/ledger";
+import type { TrialBalanceReport as Report } from "@/lib/erp/ledger";
 
 /**
  * Every account that moved, with its opening, its two sides and its closing.

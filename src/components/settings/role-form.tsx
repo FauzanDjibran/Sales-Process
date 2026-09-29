@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
-import { headerButtonClass, masterHeaderActions } from "@/lib/siba/header-actions";
+import { headerButtonClass, masterHeaderActions } from "@/lib/erp/header-actions";
 import { CancelButton } from "@/components/ui/cancel-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
@@ -15,14 +15,14 @@ import {
   setRoleStatusAction,
   updateRoleAction,
 } from "@/app/actions/users";
-import { STATUS_CLASS, STATUS_TEXT } from "@/lib/siba/entities";
+import { STATUS_CLASS, STATUS_TEXT } from "@/lib/erp/entities";
 import {
   MODULE_LABELS,
   MODULE_ORDER,
   type PermissionDef,
   type PermissionModule,
-} from "@/lib/siba/permissions";
-import type { RoleRow } from "@/lib/siba/user-admin";
+} from "@/lib/erp/permissions";
+import type { RoleRow } from "@/lib/erp/user-admin";
 import { firstError } from "./user-list";
 
 export type RoleFormAbilities = {
@@ -50,7 +50,7 @@ export function RoleForm({
   mode: "new" | "view" | "edit";
   role: RoleRow | null;
   catalogue: Record<PermissionModule, PermissionDef[]>;
-  /** ADMIN's matrix cannot be edited — see `lib/siba/roles.ts`. */
+  /** ADMIN's matrix cannot be edited — see `lib/erp/roles.ts`. */
   frozen: boolean;
   frozenReason?: string;
   can: RoleFormAbilities;

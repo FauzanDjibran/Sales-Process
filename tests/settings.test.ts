@@ -1,15 +1,15 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { MODULES } from "../src/lib/siba/nav";
-import { PERMISSION_CODES } from "../src/lib/siba/permissions";
+import { MODULES } from "../src/lib/erp/nav";
+import { PERMISSION_CODES } from "../src/lib/erp/permissions";
 import {
   EMPTY_SYSTEM_DEFAULTS,
   SYSTEM_DEFAULTS,
   isSystemDefaultKey,
   refValueOf,
-} from "../src/lib/siba/system-defaults";
-import { syncControlAccounts } from "../src/lib/siba/records";
+} from "../src/lib/erp/system-defaults";
+import { syncControlAccounts } from "../src/lib/erp/records";
 import {
   checkSystemDefaultValue,
   defaultCurrencyId,
@@ -19,7 +19,7 @@ import {
   systemDefaults,
   systemDefaultsUsingAccount,
   writeSystemDefaults,
-} from "../src/lib/siba/system-settings";
+} from "../src/lib/erp/system-settings";
 import {
   FIXTURE_PREFIX,
   childCompanyId,

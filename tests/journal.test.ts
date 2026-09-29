@@ -5,16 +5,16 @@ import {
   JournalImbalance,
   postJournal,
   unbalancedJournals,
-} from "../src/lib/siba/journal";
+} from "../src/lib/erp/journal";
 import {
   generalLedgerReport,
   signedMovement,
   trialBalanceReport,
-} from "../src/lib/siba/ledger";
-import { CASH_BANK_SUBCATEGORY } from "../src/lib/siba/records";
-import { PERMISSION_CODES } from "../src/lib/siba/permissions";
-import { MODULES } from "../src/lib/siba/nav";
-import { REPORTS } from "../src/lib/siba/reports";
+} from "../src/lib/erp/ledger";
+import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
+import { PERMISSION_CODES } from "../src/lib/erp/permissions";
+import { MODULES } from "../src/lib/erp/nav";
+import { REPORTS } from "../src/lib/erp/reports";
 import {
   cleanupFixtures,
   disconnect,

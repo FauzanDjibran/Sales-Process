@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import { UserForm } from "@/components/settings/user-form";
-import { actorCan } from "@/lib/siba/access";
-import { requirePermission } from "@/lib/siba/auth";
-import { assignableRoles, getUser } from "@/lib/siba/user-admin";
+import { actorCan } from "@/lib/erp/access";
+import { requirePermission } from "@/lib/erp/auth";
+import { assignableRoles, getUser } from "@/lib/erp/user-admin";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 
 export const dynamic = "force-dynamic";

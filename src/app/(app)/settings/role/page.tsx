@@ -1,8 +1,8 @@
 import { RoleList } from "@/components/settings/role-list";
-import { actorCan } from "@/lib/siba/access";
-import { requirePermission } from "@/lib/siba/auth";
-import { PERMISSION_CODES } from "@/lib/siba/permissions";
-import { listRoles } from "@/lib/siba/user-admin";
+import { actorCan } from "@/lib/erp/access";
+import { requirePermission } from "@/lib/erp/auth";
+import { PERMISSION_CODES } from "@/lib/erp/permissions";
+import { listRoles } from "@/lib/erp/user-admin";
 
 export const dynamic = "force-dynamic";
 

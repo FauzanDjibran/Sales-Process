@@ -1,16 +1,16 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { ENTITIES } from "../src/lib/siba/entities";
-import { entityPermissions } from "../src/lib/siba/entity-access";
-import { PERMISSION_CODES } from "../src/lib/siba/permissions";
+import { ENTITIES } from "../src/lib/erp/entities";
+import { entityPermissions } from "../src/lib/erp/entity-access";
+import { PERMISSION_CODES } from "../src/lib/erp/permissions";
 import {
   ANAK_PERMISSION,
   INDUK_PERMISSION,
   accessibleCompanies,
   accessibleCompanyIds,
   companyScope,
-} from "../src/lib/siba/company-access";
+} from "../src/lib/erp/company-access";
 import {
   SEGMENT_MAX,
   SEGMENT_MIN,
@@ -20,7 +20,7 @@ import {
   joinCode,
   parentCode,
   parseSegment,
-} from "../src/lib/siba/account-code";
+} from "../src/lib/erp/account-code";
 import {
   CASH_BANK_SUBCATEGORY,
   accountDescendants,
@@ -30,7 +30,7 @@ import {
   listRows,
   checkCashBankAccount,
   partnerCategoriesForBudgetCategory,
-} from "../src/lib/siba/records";
+} from "../src/lib/erp/records";
 import {
   FIXTURE_PREFIX,
   childCompanyId,

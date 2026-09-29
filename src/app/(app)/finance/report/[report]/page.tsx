@@ -7,19 +7,19 @@ import { ReportParams } from "@/components/report/report-params";
 import { SubjectParams } from "@/components/report/subject-params";
 import { SubledgerReport } from "@/components/report/subledger-report";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
-import { requirePermission } from "@/lib/siba/auth";
+import { requirePermission } from "@/lib/erp/auth";
 import {
   cashBankBalanceReport,
   cashBankLedgerReport,
-} from "@/lib/siba/cash-bank";
-import { companyScope } from "@/lib/siba/company-access";
-import type { PeriodRange } from "@/lib/siba/period";
-import { reportBySlug, reportHref } from "@/lib/siba/reports";
-import { subledgerReport, subledgerSubjects } from "@/lib/siba/subledger";
-import { loadSubledgers } from "@/lib/siba/subledger-data";
+} from "@/lib/erp/cash-bank";
+import { companyScope } from "@/lib/erp/company-access";
+import type { PeriodRange } from "@/lib/erp/period";
+import { reportBySlug, reportHref } from "@/lib/erp/reports";
+import { subledgerReport, subledgerSubjects } from "@/lib/erp/subledger";
+import { loadSubledgers } from "@/lib/erp/subledger-data";
 import { BookFilter } from "@/components/report/book-filter";
 import { ReportCompany } from "@/components/report/report-run";
-import { layerReport } from "@/lib/siba/cash-bank-layers";
+import { layerReport } from "@/lib/erp/cash-bank-layers";
 import { prisma } from "@/lib/prisma";
 import { formatDate } from "@/lib/format";
 import { Icon } from "@/components/icon";

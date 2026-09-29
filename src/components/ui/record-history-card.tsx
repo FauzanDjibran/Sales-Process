@@ -1,4 +1,4 @@
-import { recordHistory } from "@/lib/siba/audit";
+import { recordHistory } from "@/lib/erp/audit";
 import { RecordHistory } from "./record-history";
 
 /**

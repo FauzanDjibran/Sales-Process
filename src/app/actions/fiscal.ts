@@ -2,15 +2,15 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { authorizeAction } from "@/lib/siba/auth";
-import { isAccessDenied } from "@/lib/siba/auth-errors";
-import { checkYearOpenable, ensureFiscalPeriods, parseYear } from "@/lib/siba/fiscal";
+import { authorizeAction } from "@/lib/erp/auth";
+import { isAccessDenied } from "@/lib/erp/auth-errors";
+import { checkYearOpenable, ensureFiscalPeriods, parseYear } from "@/lib/erp/fiscal";
 import {
   FISCAL_YEAR_TRANSITIONS,
   transitionAllowed,
   type FiscalYearAction,
   type FiscalYearStatus,
-} from "@/lib/siba/fiscal-workflow";
+} from "@/lib/erp/fiscal-workflow";
 
 /**
  * The Fiscal Year lifecycle's one write path.

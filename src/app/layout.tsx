@@ -15,7 +15,7 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SIBA 3.0",
+  title: "ERP",
   description:
     "Perencanaan kebutuhan dana, eksekusi kas/bank, dan kendali akuntansi multi-company.",
 };

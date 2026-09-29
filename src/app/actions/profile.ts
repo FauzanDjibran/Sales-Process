@@ -1,17 +1,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { actorOrDeny, startSession } from "@/lib/siba/auth";
-import { isAccessDenied } from "@/lib/siba/auth-errors";
+import { actorOrDeny, startSession } from "@/lib/erp/auth";
+import { isAccessDenied } from "@/lib/erp/auth-errors";
 import {
   changeOwnPassword,
   updateOwnProfile,
   type ProfileResult,
-} from "@/lib/siba/profile";
+} from "@/lib/erp/profile";
 
 /**
  * The current user's own account. Authentication is the only requirement — see
- * the note in `lib/siba/profile.ts` on why own-profile access is not a
+ * the note in `lib/erp/profile.ts` on why own-profile access is not a
  * permission — and nothing here can change access.
  */
 

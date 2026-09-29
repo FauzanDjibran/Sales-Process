@@ -7,13 +7,13 @@ import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { Combobox } from "@/components/ui/combobox";
 import { useToast } from "@/components/ui/toast";
 import { saveSystemDefaults } from "@/app/actions/settings";
-import type { RefOption } from "@/lib/siba/records";
+import type { RefOption } from "@/lib/erp/records";
 import {
   SYSTEM_DEFAULT_GROUPS,
   systemDefaultsIn,
   type SystemDefaultKey,
   type SystemDefaultValues,
-} from "@/lib/siba/system-defaults";
+} from "@/lib/erp/system-defaults";
 
 /**
  * System Default — one page for every value the application assumes when the

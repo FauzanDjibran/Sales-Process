@@ -1,16 +1,16 @@
 import { notFound } from "next/navigation";
 import { AccountTree } from "@/components/master/account-tree";
-import { companyScope } from "@/lib/siba/company-access";
+import { companyScope } from "@/lib/erp/company-access";
 import { FiscalPeriods } from "@/components/accounting/fiscal-periods";
 import { FiscalYearActions } from "@/components/accounting/fiscal-year-actions";
 import { CashBankBookCard } from "@/components/master/cash-bank-book-card";
 import { EntityForm } from "@/components/master/entity-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { EntityLocked } from "@/components/master/entity-locked";
-import { can as actorHas, requirePermission } from "@/lib/siba/auth";
-import { isCompanyEntity } from "@/lib/siba/company";
-import { abilitiesFor, entityPermissions } from "@/lib/siba/entity-access";
-import { entityBySlug, type Entity } from "@/lib/siba/entities";
+import { can as actorHas, requirePermission } from "@/lib/erp/auth";
+import { isCompanyEntity } from "@/lib/erp/company";
+import { abilitiesFor, entityPermissions } from "@/lib/erp/entity-access";
+import { entityBySlug, type Entity } from "@/lib/erp/entities";
 import {
   accountTree,
   checkAccountIsLeaf,
@@ -19,17 +19,17 @@ import {
   getRow,
   listRows,
   refOptions,
-} from "@/lib/siba/records";
-import { loadClassification } from "@/lib/siba/classification-data";
-import { cashBankBookSummary } from "@/lib/siba/cash-bank";
-import { fiscalYearPeriods } from "@/lib/siba/fiscal";
-import { defaultCurrencyId } from "@/lib/siba/system-settings";
+} from "@/lib/erp/records";
+import { loadClassification } from "@/lib/erp/classification-data";
+import { cashBankBookSummary } from "@/lib/erp/cash-bank";
+import { fiscalYearPeriods } from "@/lib/erp/fiscal";
+import { defaultCurrencyId } from "@/lib/erp/system-settings";
 import {
   fiscalYearAbilities,
   availableActions as availableFiscalActions,
   type FiscalYearStatus,
-} from "@/lib/siba/fiscal-workflow";
-import type { ActionTone } from "@/lib/siba/header-actions";
+} from "@/lib/erp/fiscal-workflow";
+import type { ActionTone } from "@/lib/erp/header-actions";
 import { EntityList } from "@/components/master/entity-list";
 
 /**

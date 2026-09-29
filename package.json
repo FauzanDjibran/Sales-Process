@@ -1,27 +1,16 @@
 {
-  "name": "siba",
+  "name": "erp",
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
+    "dev": "next dev -p 3100",
     "build": "next build",
-    "start": "next start -p 3010",
-    "start:branch": "next start -p 3020",
-    "start:vercel": "next start -p 3030",
+    "start": "next start -p 3110",
     "lint": "eslint",
     "db:seed": "node --env-file-if-exists=.env --conditions=react-server --import tsx prisma/seed.ts",
-    "db:neon-migrate": "node scripts/with-remote.mjs npx prisma migrate deploy",
-    "db:neon-seed": "node scripts/with-remote.mjs node --conditions=react-server --import tsx prisma/seed.ts",
-    "db:seed-showcase": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/seed-showcase.ts",
-    "db:neon-seed-showcase": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-showcase.ts",
-    "db:backfill-subledger": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/backfill-subledger.ts",
-    "db:backfill-account-flags": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/backfill-account-flags.ts",
     "db:truncate-transactions": "node --env-file-if-exists=.env --import tsx scripts/truncate-transactions.ts",
     "db:reset": "prisma migrate reset --force",
-    "db:neon-reset": "node scripts/with-remote.mjs --destructive npx prisma migrate reset --force",
-    "test": "node --env-file-if-exists=.env --conditions=react-server --import tsx --test --test-concurrency=1 tests/*.test.ts",
-    "build:standalone": "next build && tsx scripts/standalone.ts",
-    "start:standalone": "node .next/standalone/server.js"
+    "test": "node --env-file-if-exists=.env --conditions=react-server --import tsx --test --test-concurrency=1 tests/*.test.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
@@ -44,5 +33,11 @@
     "prisma": "^7.10.0",
     "tsx": "^4.23.13",
     "typescript": "^5"
+  },
+  "allowScripts": {
+    "@prisma/engines@7.10.0": true,
+    "esbuild@0.28.2": true,
+    "prisma@7.10.0": true,
+    "unrs-resolver@1.12.2": true
   }
 }

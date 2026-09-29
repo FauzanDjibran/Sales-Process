@@ -6,9 +6,9 @@ import { Icon } from "@/components/icon";
 import { useToast } from "@/components/ui/toast";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { changePasswordAction, updateProfileAction } from "@/app/actions/profile";
-import { STATUS_CLASS, STATUS_TEXT } from "@/lib/siba/entities";
-import { MODULE_LABELS, MODULE_ORDER, type PermissionModule } from "@/lib/siba/permissions";
-import type { ProfileView as Profile } from "@/lib/siba/profile";
+import { STATUS_CLASS, STATUS_TEXT } from "@/lib/erp/entities";
+import { MODULE_LABELS, MODULE_ORDER, type PermissionModule } from "@/lib/erp/permissions";
+import type { ProfileView as Profile } from "@/lib/erp/profile";
 
 /**
  * "Profil Saya" — what a user can see and change about their own account.

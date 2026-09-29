@@ -7,12 +7,12 @@ import {
   knownAuditSubjects,
   recentActivity,
   recordHistory,
-} from "../src/lib/siba/audit";
-import { BUDGET_TRANSITIONS } from "../src/lib/siba/budget-workflow";
-import { FISCAL_YEAR_TRANSITIONS } from "../src/lib/siba/fiscal-workflow";
-import { TRANSACTION_TRANSITIONS } from "../src/lib/siba/transaction-workflow";
-import { auditEventLabel, knownAuditEvents } from "../src/lib/siba/audit-events";
-import { withdrawFundingRequest } from "../src/lib/siba/funding";
+} from "../src/lib/erp/audit";
+import { BUDGET_TRANSITIONS } from "../src/lib/erp/budget-workflow";
+import { FISCAL_YEAR_TRANSITIONS } from "../src/lib/erp/fiscal-workflow";
+import { TRANSACTION_TRANSITIONS } from "../src/lib/erp/transaction-workflow";
+import { auditEventLabel, knownAuditEvents } from "../src/lib/erp/audit-events";
+import { withdrawFundingRequest } from "../src/lib/erp/funding";
 import { childCompanyId, systemUserId } from "./helpers";
 
 /**
@@ -103,7 +103,7 @@ describe("every audited subject can be named", () => {
     assert.deepEqual(
       undescribed,
       [],
-      "Add a subject to EXTRA_SUBJECTS in lib/siba/audit.ts, or register the entity. " +
+      "Add a subject to EXTRA_SUBJECTS in lib/erp/audit.ts, or register the entity. " +
         "An unknown key falls back to the raw table name, which is the state this " +
         "catalogue exists to fix."
     );
@@ -203,7 +203,7 @@ describe("every lifecycle transition can be named in a history", () => {
         [],
         `Every transition must be nameable in a record's history, or the panel ` +
           `reports it as a bare "Diubah". Add ${missing.join(", ")} to ` +
-          `lib/siba/audit-events.ts beside the other ${name} events.`
+          `lib/erp/audit-events.ts beside the other ${name} events.`
       );
     });
   }

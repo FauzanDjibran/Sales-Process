@@ -1,7 +1,7 @@
 import { UserList } from "@/components/settings/user-list";
-import { requirePermission } from "@/lib/siba/auth";
-import { actorCan } from "@/lib/siba/access";
-import { listUsers } from "@/lib/siba/user-admin";
+import { requirePermission } from "@/lib/erp/auth";
+import { actorCan } from "@/lib/erp/access";
+import { listUsers } from "@/lib/erp/user-admin";
 
 export const dynamic = "force-dynamic";
 

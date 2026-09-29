@@ -1,13 +1,13 @@
 import { notFound } from "next/navigation";
 import { JournalForm } from "@/components/accounting/journal-form";
-import { requirePermission } from "@/lib/siba/auth";
+import { requirePermission } from "@/lib/erp/auth";
 import {
   accessibleCompanies,
   accessibleCompanyIds,
-} from "@/lib/siba/company-access";
-import { getJournal } from "@/lib/siba/journal";
-import { journalIsEditable, type JournalStatus } from "@/lib/siba/journal-workflow";
-import { manualJournalOptions } from "@/lib/siba/manual-journal";
+} from "@/lib/erp/company-access";
+import { getJournal } from "@/lib/erp/journal";
+import { journalIsEditable, type JournalStatus } from "@/lib/erp/journal-workflow";
+import { manualJournalOptions } from "@/lib/erp/manual-journal";
 
 export const dynamic = "force-dynamic";
 

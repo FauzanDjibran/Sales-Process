@@ -1,7 +1,7 @@
 import { AppShell } from "@/components/shell/app-shell";
 import { ToastProvider } from "@/components/ui/toast";
-import { requireAuth } from "@/lib/siba/auth";
-import { visibleModules } from "@/lib/siba/nav";
+import { requireAuth } from "@/lib/erp/auth";
+import { visibleModules } from "@/lib/erp/nav";
 
 /**
  * Every application route sits under this layout, and nothing renders until a

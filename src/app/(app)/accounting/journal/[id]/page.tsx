@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
 import { JournalDetail } from "@/components/accounting/journal-detail";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
-import { requirePermission } from "@/lib/siba/auth";
-import { accessibleCompanyIds } from "@/lib/siba/company-access";
-import { getJournal } from "@/lib/siba/journal";
-import { journalAbilities } from "@/lib/siba/journal-workflow";
+import { requirePermission } from "@/lib/erp/auth";
+import { accessibleCompanyIds } from "@/lib/erp/company-access";
+import { getJournal } from "@/lib/erp/journal";
+import { journalAbilities } from "@/lib/erp/journal-workflow";
 
 export const dynamic = "force-dynamic";
 

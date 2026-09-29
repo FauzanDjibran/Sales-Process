@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
 import { RoleForm } from "@/components/settings/role-form";
-import { actorCan } from "@/lib/siba/access";
-import { requirePermission } from "@/lib/siba/auth";
-import { permissionsByModule } from "@/lib/siba/permissions";
-import { ROLE_FROZEN_MESSAGE, isFrozenRoleLabel } from "@/lib/siba/roles";
-import { getRole } from "@/lib/siba/user-admin";
+import { actorCan } from "@/lib/erp/access";
+import { requirePermission } from "@/lib/erp/auth";
+import { permissionsByModule } from "@/lib/erp/permissions";
+import { ROLE_FROZEN_MESSAGE, isFrozenRoleLabel } from "@/lib/erp/roles";
+import { getRole } from "@/lib/erp/user-admin";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 
 export const dynamic = "force-dynamic";

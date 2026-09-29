@@ -26,7 +26,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: siba30
+          POSTGRES_DB: erp
         ports:
           - 5432:5432
         # Without this the first migration can race the server's startup.
@@ -37,10 +37,10 @@ jobs:
           --health-retries 10
 
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/siba30?schema=public
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/erp?schema=public
       # The seed refuses to run without this outside development; setting it
       # here also keeps CI off the weak development fallback.
-      SIBA_ADMIN_PASSWORD: ci-only-not-a-real-password
+      ERP_ADMIN_PASSWORD: ci-only-not-a-real-password
 
     steps:
       - uses: actions/checkout@v4

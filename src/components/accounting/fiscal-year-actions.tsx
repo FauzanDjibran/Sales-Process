@@ -14,8 +14,8 @@ import {
   type FiscalYearAbilities,
   type FiscalYearAction,
   type FiscalYearStatus,
-} from "@/lib/siba/fiscal-workflow";
-import { headerButtonClass } from "@/lib/siba/header-actions";
+} from "@/lib/erp/fiscal-workflow";
+import { headerButtonClass } from "@/lib/erp/header-actions";
 
 /**
  * The Fiscal Year lifecycle, as buttons in the page header.

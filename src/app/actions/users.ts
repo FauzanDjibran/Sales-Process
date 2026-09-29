@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { actorOrDeny } from "@/lib/siba/auth";
-import { isAccessDenied } from "@/lib/siba/auth-errors";
+import { actorOrDeny } from "@/lib/erp/auth";
+import { isAccessDenied } from "@/lib/erp/auth-errors";
 import {
   type AdminResult,
   createRole,
@@ -16,7 +16,7 @@ import {
   updateUser,
   type RoleInput,
   type UserInput,
-} from "@/lib/siba/user-admin";
+} from "@/lib/erp/user-admin";
 
 /**
  * User and role administration, exposed to the client.
@@ -24,7 +24,7 @@ import {
  * Each action does three things and nothing else: resolve who is calling,
  * delegate to the guarded service, revalidate. Every rule — the permission
  * itself, the self-edit refusals, the last-administrator check — lives in
- * `lib/siba/user-admin.ts`, so calling one of these directly is checked exactly
+ * `lib/erp/user-admin.ts`, so calling one of these directly is checked exactly
  * as calling it through the UI is.
  */
 

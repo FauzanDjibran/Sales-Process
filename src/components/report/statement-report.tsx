@@ -6,10 +6,10 @@ import { Icon } from "@/components/icon";
 import { ExpandAll } from "@/components/ui/expand-all";
 import { Drill } from "./drill";
 import { formatMoney, formatPercent } from "@/lib/format";
-import { BASE_CURRENCY_LABEL } from "@/lib/siba/currency";
-import { reportHref } from "@/lib/siba/reports";
-import type { StatementColumn } from "@/lib/siba/statements";
-import type { StatementRow } from "@/lib/siba/statement-layout";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import { reportHref } from "@/lib/erp/reports";
+import type { StatementColumn } from "@/lib/erp/statements";
+import type { StatementRow } from "@/lib/erp/statement-layout";
 
 const money = (n: number) => formatMoney(n, BASE_CURRENCY_LABEL);
 

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Icon } from "@/components/icon";
-import { COMPANY_LOCK_BODY, COMPANY_LOCK_HEADING } from "@/lib/siba/company";
-import type { Entity } from "@/lib/siba/entities";
+import { COMPANY_LOCK_BODY, COMPANY_LOCK_HEADING } from "@/lib/erp/company";
+import type { Entity } from "@/lib/erp/entities";
 
 /**
  * Stands in for the create/edit form on an entity whose write path is locked.

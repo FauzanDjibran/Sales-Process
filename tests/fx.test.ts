@@ -9,7 +9,7 @@ import {
   needsEnteredRate,
   rateSource,
   settlementRefusal,
-} from "../src/lib/siba/currency";
+} from "../src/lib/erp/currency";
 import {
   carryingRate,
   drawLayer,
@@ -22,7 +22,7 @@ import {
   settle,
   type Balance,
   type Layer,
-} from "../src/lib/siba/fx";
+} from "../src/lib/erp/fx";
 
 /**
  * The foreign-exchange kernel.

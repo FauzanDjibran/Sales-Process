@@ -14,8 +14,8 @@ import {
   COMPANY_LOCK_BADGE,
   COMPANY_LOCK_BODY,
   isCompanyEntity,
-} from "@/lib/siba/company";
-import type { EntityAbilities } from "@/lib/siba/entity-access";
+} from "@/lib/erp/company";
+import type { EntityAbilities } from "@/lib/erp/entity-access";
 import {
   STATUS_CLASS,
   STATUS_TEXT,
@@ -24,13 +24,13 @@ import {
   isActiveStatus,
   type Column,
   type Entity,
-} from "@/lib/siba/entities";
-import { moduleByKey } from "@/lib/siba/nav";
+} from "@/lib/erp/entities";
+import { moduleByKey } from "@/lib/erp/nav";
 import { formatDate } from "@/lib/format";
-import type { Company } from "@/lib/siba/company-access";
-import type { RefOption, Row } from "@/lib/siba/records";
+import type { Company } from "@/lib/erp/company-access";
+import type { RefOption, Row } from "@/lib/erp/records";
 import { CompanyFilter, NoCompanyAccess } from "./company-filter";
-import { recordTitle } from "@/lib/siba/record-title";
+import { recordTitle } from "@/lib/erp/record-title";
 
 type Computed = Record<number, Record<string, string | number>>;
 
@@ -63,7 +63,7 @@ export function EntityList({
 }) {
   const router = useRouter();
   const toast = useToast();
-  /** Company has no write path at all — see `lib/siba/company.ts`. */
+  /** Company has no write path at all — see `lib/erp/company.ts`. */
   const locked = isCompanyEntity(entity.slug);
   const canCreate = can.create && !locked;
   const canEdit = can.edit && !locked;

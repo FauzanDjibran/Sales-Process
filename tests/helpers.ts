@@ -1,8 +1,8 @@
 import { prisma } from "../src/lib/prisma";
-import { actorFor, type Actor } from "../src/lib/siba/access";
-import { ensureFiscalPeriods } from "../src/lib/siba/fiscal";
-import { hashPassword } from "../src/lib/siba/login";
-import { ADMIN_ROLE, STAFF_ROLE } from "../src/lib/siba/roles";
+import { actorFor, type Actor } from "../src/lib/erp/access";
+import { ensureFiscalPeriods } from "../src/lib/erp/fiscal";
+import { hashPassword } from "../src/lib/erp/login";
+import { ADMIN_ROLE, STAFF_ROLE } from "../src/lib/erp/roles";
 
 /**
  * Shared fixtures for the security suite.
@@ -34,7 +34,7 @@ export async function makeUser(options: {
   permissions?: string[];
 }): Promise<{ id: number; email: string; password: string }> {
   counter += 1;
-  const email = `${TEST_PREFIX}${Date.now()}_${counter}@siba.test`;
+  const email = `${TEST_PREFIX}${Date.now()}_${counter}@erp.test`;
   const password = options.password ?? "test-password-123";
 
   const user = await prisma.sysUser.create({
@@ -140,7 +140,7 @@ const nextFixture = () => `${FIXTURE_PREFIX}${Date.now() % 1_000_000}${++fixture
 /** The account seeded rows are attributed to; fixtures borrow it. */
 export async function systemUserId(): Promise<number> {
   const row = await prisma.sysUser.findFirstOrThrow({
-    where: { email: "sistem@siba.app" },
+    where: { email: "sistem@erp.app" },
     select: { id: true },
   });
   return row.id;

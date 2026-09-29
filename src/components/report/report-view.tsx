@@ -1,7 +1,7 @@
 import { Icon } from "@/components/icon";
 import { formatTimestamp } from "@/lib/format";
-import { moduleByKey } from "@/lib/siba/nav";
-import type { ReportDef } from "@/lib/siba/reports";
+import { moduleByKey } from "@/lib/erp/nav";
+import type { ReportDef } from "@/lib/erp/reports";
 import { ReportRunButton, ReportRunProvider } from "./report-run";
 
 /**

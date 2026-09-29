@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { LoginForm } from "@/components/auth/login-form";
-import { currentActor } from "@/lib/siba/auth";
-import { landingHref } from "@/lib/siba/nav";
+import { currentActor } from "@/lib/erp/auth";
+import { landingHref } from "@/lib/erp/nav";
 
 export const dynamic = "force-dynamic";
 

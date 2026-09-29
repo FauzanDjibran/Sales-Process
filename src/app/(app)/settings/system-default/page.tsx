@@ -1,15 +1,15 @@
 import { SystemDefaultForm } from "@/components/settings/system-default-form";
 import { prisma } from "@/lib/prisma";
-import { actorCan } from "@/lib/siba/access";
-import { requirePermission } from "@/lib/siba/auth";
-import { structuralControlAccountIds, type RefOption } from "@/lib/siba/records";
+import { actorCan } from "@/lib/erp/access";
+import { requirePermission } from "@/lib/erp/auth";
+import { structuralControlAccountIds, type RefOption } from "@/lib/erp/records";
 import {
   SYSTEM_DEFAULTS,
   type SystemDefaultDef,
   type SystemDefaultKey,
   type SystemDefaultValues,
-} from "@/lib/siba/system-defaults";
-import { systemDefaults } from "@/lib/siba/system-settings";
+} from "@/lib/erp/system-defaults";
+import { systemDefaults } from "@/lib/erp/system-settings";
 
 export const dynamic = "force-dynamic";
 

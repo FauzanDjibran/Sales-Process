@@ -1,10 +1,10 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { executeClosing } from "../src/lib/siba/closing";
-import { generalLedgerReport, trialBalanceReport } from "../src/lib/siba/ledger";
-import { CASH_BANK_SUBCATEGORY } from "../src/lib/siba/records";
-import type { SystemDefaultKey } from "../src/lib/siba/system-defaults";
+import { executeClosing } from "../src/lib/erp/closing";
+import { generalLedgerReport, trialBalanceReport } from "../src/lib/erp/ledger";
+import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
+import type { SystemDefaultKey } from "../src/lib/erp/system-defaults";
 import {
   cleanupFixtures,
   disconnect,

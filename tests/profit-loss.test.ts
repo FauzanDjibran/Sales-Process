@@ -1,15 +1,15 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { statementMovements } from "../src/lib/siba/ledger";
+import { statementMovements } from "../src/lib/erp/ledger";
 import {
   buildProfitLoss,
   columnRange,
   type StatementAccount,
   type StatementPair,
-} from "../src/lib/siba/statement-layout";
-import { profitLossReport, type StatementColumn } from "../src/lib/siba/statements";
-import { CASH_BANK_SUBCATEGORY } from "../src/lib/siba/records";
+} from "../src/lib/erp/statement-layout";
+import { profitLossReport, type StatementColumn } from "../src/lib/erp/statements";
+import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import {
   childCompanyId,
   cleanupFixtures,

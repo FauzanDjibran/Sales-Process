@@ -2,9 +2,9 @@ import Link from "next/link";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { Icon } from "@/components/icon";
 import { formatDate, formatMoney } from "@/lib/format";
-import { BASE_CURRENCY_LABEL } from "@/lib/siba/currency";
-import { reportHref } from "@/lib/siba/reports";
-import type { OpeningBalanceDetail as Detail } from "@/lib/siba/opening-balance";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import { reportHref } from "@/lib/erp/reports";
+import type { OpeningBalanceDetail as Detail } from "@/lib/erp/opening-balance";
 
 /**
  * One Opening Balance.

@@ -1,8 +1,8 @@
 import { JournalForm } from "@/components/accounting/journal-form";
-import { requirePermission } from "@/lib/siba/auth";
-import { accessibleCompanies } from "@/lib/siba/company-access";
-import { manualJournalOptions } from "@/lib/siba/manual-journal";
-import { defaultCurrencyId } from "@/lib/siba/system-settings";
+import { requirePermission } from "@/lib/erp/auth";
+import { accessibleCompanies } from "@/lib/erp/company-access";
+import { manualJournalOptions } from "@/lib/erp/manual-journal";
+import { defaultCurrencyId } from "@/lib/erp/system-settings";
 
 export const dynamic = "force-dynamic";
 

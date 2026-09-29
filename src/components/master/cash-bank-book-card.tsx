@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { formatDate, formatMoney } from "@/lib/format";
-import { reportHref } from "@/lib/siba/reports";
+import { reportHref } from "@/lib/erp/reports";
 
 /**
  * What a Cash & Bank resource's book adds up to, on the master detail.

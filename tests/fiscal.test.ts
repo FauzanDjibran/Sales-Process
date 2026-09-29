@@ -1,10 +1,10 @@
 import test, { after, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { ENTITIES, YEAR_OPTIONS, entityBySlug } from "../src/lib/siba/entities";
-import { PERMISSION_CODES } from "../src/lib/siba/permissions";
-import { hasEntityPermissions } from "../src/lib/siba/entity-access";
-import { MODULES } from "../src/lib/siba/nav";
+import { ENTITIES, YEAR_OPTIONS, entityBySlug } from "../src/lib/erp/entities";
+import { PERMISSION_CODES } from "../src/lib/erp/permissions";
+import { hasEntityPermissions } from "../src/lib/erp/entity-access";
+import { MODULES } from "../src/lib/erp/nav";
 import {
   checkPostingPeriod,
   checkYearOpenable,
@@ -13,7 +13,7 @@ import {
   fiscalYearShape,
   unclosedYearsFor,
   parseYear,
-} from "../src/lib/siba/fiscal";
+} from "../src/lib/erp/fiscal";
 import {
   FISCAL_YEAR_TRANSITIONS,
   activationRefusal,
@@ -21,7 +21,7 @@ import {
   fiscalYearAbilities,
   transitionAllowed,
   type FiscalYearStatus,
-} from "../src/lib/siba/fiscal-workflow";
+} from "../src/lib/erp/fiscal-workflow";
 import { formatDate, formatTimestamp, toDisplayDate, toIsoDate } from "../src/lib/format";
 import {
   childCompanyId,

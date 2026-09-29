@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
-import { actorCan, actorCanAll } from "../src/lib/siba/access";
-import { AccessDeniedError, isAccessDenied } from "../src/lib/siba/auth-errors";
+import { actorCan, actorCanAll } from "../src/lib/erp/access";
+import { AccessDeniedError, isAccessDenied } from "../src/lib/erp/auth-errors";
 import { actorOf, cleanup, disconnect, makeUser } from "./helpers";
 
 /**

@@ -2,15 +2,15 @@ import Link from "next/link";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { Icon } from "@/components/icon";
 import { formatDate, formatForeignFace, formatMoney } from "@/lib/format";
-import { BASE_CURRENCY_LABEL } from "@/lib/siba/currency";
-import { reportHref } from "@/lib/siba/reports";
-import type { JournalDetail as Detail } from "@/lib/siba/journal";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import { reportHref } from "@/lib/erp/reports";
+import type { JournalDetail as Detail } from "@/lib/erp/journal";
 import {
   JOURNAL_STATUS_BADGE,
   type JournalAbilities,
   type JournalStatus,
-} from "@/lib/siba/journal-workflow";
-import { documentHref } from "@/lib/siba/document-links";
+} from "@/lib/erp/journal-workflow";
+import { documentHref } from "@/lib/erp/document-links";
 import { Drill } from "@/components/report/drill";
 import { JournalActions } from "./journal-actions";
 

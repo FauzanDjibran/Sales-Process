@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { formatDate } from "@/lib/format";
-import type { FiscalPeriodRow } from "@/lib/siba/fiscal";
+import type { FiscalPeriodRow } from "@/lib/erp/fiscal";
 
 /**
  * A Fiscal Year's twelve months, shown inside the year that owns them.

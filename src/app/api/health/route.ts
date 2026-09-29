@@ -25,7 +25,7 @@ export async function GET() {
       { status: 200, headers: { "cache-control": "no-store" } }
     );
   } catch (error) {
-    console.error("[siba] health check: database unreachable", error);
+    console.error("[erp] health check: database unreachable", error);
     return Response.json(
       { status: "degraded", database: "down" },
       { status: 503, headers: { "cache-control": "no-store" } }

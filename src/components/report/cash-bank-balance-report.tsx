@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { BalanceReport } from "@/lib/siba/cash-bank";
-import { reportHref } from "@/lib/siba/reports";
+import type { BalanceReport } from "@/lib/erp/cash-bank";
+import { reportHref } from "@/lib/erp/reports";
 
 /**
  * Saldo Kas & Bank — opening, movement and closing for every resource.

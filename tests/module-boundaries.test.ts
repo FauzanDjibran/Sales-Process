@@ -45,9 +45,9 @@ const code = (text: string) =>
   text.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
 
 const sibaModule = (name: string) =>
-  files.find((f) => f.rel === `src/lib/siba/${name}.ts`)!;
+  files.find((f) => f.rel === `src/lib/erp/${name}.ts`)!;
 
-/** The `./x` and `@/lib/siba/x` modules a file imports. */
+/** The `./x` and `@/lib/erp/x` modules a file imports. */
 function sibaImports(text: string): string[] {
   const out = new Set<string>();
   for (const m of code(text).matchAll(/from\s+"\.\/([a-z-]+)"/g)) out.add(m[1]);
@@ -70,47 +70,47 @@ function sibaImports(text: string): string[] {
 const TABLE_OWNERS: Record<string, string[]> = {
   // A module is its data module *and* its Server Action — two layers of one
   // building block, not two modules.
-  budBudget: ["src/lib/siba/budget.ts", "src/app/actions/budget.ts"],
+  budBudget: ["src/lib/erp/budget.ts", "src/app/actions/budget.ts"],
   finCashBankTransaction: [
-    "src/lib/siba/finance.ts",
+    "src/lib/erp/finance.ts",
     "src/app/actions/finance.ts",
   ],
   finCashBankTransactionLine: [
-    "src/lib/siba/finance.ts",
+    "src/lib/erp/finance.ts",
     "src/app/actions/finance.ts",
   ],
   finCashBankTransfer: [
-    "src/lib/siba/transfer.ts",
+    "src/lib/erp/transfer.ts",
     "src/app/actions/transfer.ts",
   ],
   finCashBankTransferLine: [
-    "src/lib/siba/transfer.ts",
+    "src/lib/erp/transfer.ts",
     "src/app/actions/transfer.ts",
   ],
-  finDncn: ["src/lib/siba/dncn.ts", "src/app/actions/dncn.ts"],
-  finDncnLine: ["src/lib/siba/dncn.ts", "src/app/actions/dncn.ts"],
-  finFundingRequest: ["src/lib/siba/funding.ts", "src/app/actions/funding.ts"],
-  cashBankLedger: ["src/lib/siba/cash-bank.ts"],
-  cashBankBalance: ["src/lib/siba/cash-bank.ts"],
-  subLedger: ["src/lib/siba/subledger.ts"],
-  subLedgerBalance: ["src/lib/siba/subledger.ts"],
+  finDncn: ["src/lib/erp/dncn.ts", "src/app/actions/dncn.ts"],
+  finDncnLine: ["src/lib/erp/dncn.ts", "src/app/actions/dncn.ts"],
+  finFundingRequest: ["src/lib/erp/funding.ts", "src/app/actions/funding.ts"],
+  cashBankLedger: ["src/lib/erp/cash-bank.ts"],
+  cashBankBalance: ["src/lib/erp/cash-bank.ts"],
+  subLedger: ["src/lib/erp/subledger.ts"],
+  subLedgerBalance: ["src/lib/erp/subledger.ts"],
   // The General Ledger is the one thing that may derive from journal lines
   // (CLAUDE.md §10 rule 22) — it reads them and never writes one.
-  accJournal: ["src/lib/siba/journal.ts", "src/lib/siba/ledger.ts"],
-  accJournalLine: ["src/lib/siba/journal.ts", "src/lib/siba/ledger.ts"],
+  accJournal: ["src/lib/erp/journal.ts", "src/lib/erp/ledger.ts"],
+  accJournalLine: ["src/lib/erp/journal.ts", "src/lib/erp/ledger.ts"],
   // The Opening Balance snapshot. Written by a close and read by the register;
   // the figures it is written *from* come from `ledger.ts`, which is the
   // sanctioned reader of journal lines, so this module never names another
   // module's table either.
-  accOpeningBalance: ["src/lib/siba/opening-balance.ts"],
-  accOpeningBalanceLine: ["src/lib/siba/opening-balance.ts"],
+  accOpeningBalance: ["src/lib/erp/opening-balance.ts"],
+  accOpeningBalanceLine: ["src/lib/erp/opening-balance.ts"],
   // One Company's closing state for one year. The calendar owns it, and the
   // closing process records itself through a function there rather than by
   // writing the row: closing.ts decides whether a year may be shut, and
   // fiscal.ts records that it has been. acc_fiscal_year itself is left
   // unconstrained because it is a registry entity, which the registry reaches
   // generically by design.
-  accFiscalClosing: ["src/lib/siba/fiscal.ts"],
+  accFiscalClosing: ["src/lib/erp/fiscal.ts"],
 };
 
 /**
@@ -134,8 +134,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
  * crossing fails the suite, which is the point.
  */
 const KNOWN_CROSSINGS: Record<string, string[]> = {
-  budBudget: ["src/lib/siba/fiscal.ts"],
-  finCashBankTransaction: ["src/lib/siba/cash-bank.ts"],
+  budBudget: ["src/lib/erp/fiscal.ts"],
+  finCashBankTransaction: ["src/lib/erp/cash-bank.ts"],
 };
 
 describe("a module's tables are named only by the module that owns them", () => {
@@ -242,7 +242,7 @@ describe("the dependency graph points one way", () => {
     assert.deepEqual(
       bad,
       [],
-      "Import PeriodRange from `lib/siba/period` — the General Ledger and the " +
+      "Import PeriodRange from `lib/erp/period` — the General Ledger and the " +
         "Accounting report route should not depend on the Cash Bank Book for a type."
     );
   });
@@ -274,13 +274,13 @@ describe("document numbers come from one place", () => {
     // convention on purpose (CLAUDE.md §9) and is left alone here.
     const handRolled = /-\$\{String\([^}]*\)\.padStart\(\s*4\s*,\s*"0"\s*\)\}/;
     const bad = files
-      .filter((f) => f.rel !== "src/lib/siba/document-number.ts")
+      .filter((f) => f.rel !== "src/lib/erp/document-number.ts")
       .filter((f) => handRolled.test(code(f.text)))
       .map((f) => f.rel);
     assert.deepEqual(
       bad,
       [],
-      "Use `nextDocumentNumber` from `lib/siba/document-number` — four modules " +
+      "Use `nextDocumentNumber` from `lib/erp/document-number` — four modules " +
         "previously carried their own copy of this, two of which loaded every row " +
         "in the table to find a maximum."
     );

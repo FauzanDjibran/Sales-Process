@@ -6,7 +6,7 @@ import {
   LOGIN_FAILED_MESSAGE,
   passwordProblem,
   verifyPassword,
-} from "../src/lib/siba/login";
+} from "../src/lib/erp/login";
 import {
   issueSession,
   pruneDeadSessions,
@@ -15,7 +15,7 @@ import {
   validateSessionToken,
   SESSION_MAX_AGE_MS,
   hashToken,
-} from "../src/lib/siba/session";
+} from "../src/lib/erp/session";
 import { cleanup, disconnect, makeUser, prisma } from "./helpers";
 
 /**

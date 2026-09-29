@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { logout } from "@/app/actions/auth";
-import { type NavModule, resolvePath, entityHref } from "@/lib/siba/nav";
+import { type NavModule, resolvePath, entityHref } from "@/lib/erp/nav";
 
 export type ShellUser = {
   name: string;
@@ -16,7 +16,7 @@ export type ShellUser = {
 
 /**
  * `modules` arrives already filtered by the signed-in user's permissions (see
- * `visibleModules` in `lib/siba/nav.ts`). The shell renders what it is given
+ * `visibleModules` in `lib/erp/nav.ts`). The shell renders what it is given
  * and decides nothing about access itself — the pages behind every link check
  * again on the server.
  */
@@ -86,7 +86,7 @@ export function AppShell({
         </button>
         <div className="brand">
           <div className="brand-mark">S3</div>
-          <div className="brand-txt">SIBA</div>
+          <div className="brand-txt">ERP</div>
           <span className="brand-ver">3.0</span>
         </div>
 

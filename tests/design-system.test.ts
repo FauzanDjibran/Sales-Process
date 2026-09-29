@@ -1,24 +1,24 @@
 import test, { describe } from "node:test";
 import assert from "node:assert/strict";
-import { MODULES } from "../src/lib/siba/nav";
-import { entityBySlug } from "../src/lib/siba/entities";
+import { MODULES } from "../src/lib/erp/nav";
+import { entityBySlug } from "../src/lib/erp/entities";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import {
   orderForHeader,
   masterHeaderActions,
   type ActionTone,
-} from "../src/lib/siba/header-actions";
+} from "../src/lib/erp/header-actions";
 import {
   BUDGET_TRANSITIONS,
   availableActions,
   type BudgetStatus,
-} from "../src/lib/siba/budget-workflow";
+} from "../src/lib/erp/budget-workflow";
 import {
   TRANSACTION_TRANSITIONS,
   availableTransactionActions,
-} from "../src/lib/siba/transaction-workflow";
-import { ENTITIES } from "../src/lib/siba/entities";
+} from "../src/lib/erp/transaction-workflow";
+import { ENTITIES } from "../src/lib/erp/entities";
 
 /**
  * The design system holds together, checked mechanically.
@@ -435,7 +435,7 @@ describe("a header's buttons sit where the user last left them", () => {
     assert.deepEqual(
       bad.map((f) => f.rel),
       [],
-      "Use `headerButtonClass(t.tone)` from `lib/siba/header-actions.ts`. " +
+      "Use `headerButtonClass(t.tone)` from `lib/erp/header-actions.ts`. " +
         "Deciding a button's weight inline — `t.danger ? \" danger\" : a === \"approve\" ? \" primary\" : \"\"` — " +
         "is how the primary ended up left of the danger on one status and right of it on the next."
     );
@@ -443,9 +443,9 @@ describe("a header's buttons sit where the user last left them", () => {
 
   test("every lifecycle transition declares a tone", () => {
     for (const rel of [
-      "src/lib/siba/budget-workflow.ts",
-      "src/lib/siba/transaction-workflow.ts",
-      "src/lib/siba/fiscal-workflow.ts",
+      "src/lib/erp/budget-workflow.ts",
+      "src/lib/erp/transaction-workflow.ts",
+      "src/lib/erp/fiscal-workflow.ts",
     ]) {
       const text = code(files.find((f) => f.rel === rel)!.text);
       const labels = [...text.matchAll(/^\s{4}label:/gm)].length;
@@ -716,7 +716,7 @@ describe("a form is filled in in the order its rules require", () => {
     // `prerequisitesOf` reads `resets` rather than a second list of its own.
     // Two declarations of one dependency are a dependency with two answers,
     // and they drift the first time either is edited alone.
-    const f = files.find((x) => x.rel === "src/lib/siba/entities.ts");
+    const f = files.find((x) => x.rel === "src/lib/erp/entities.ts");
     assert.ok(f);
     assert.match(
       code(f!.text),
@@ -824,7 +824,7 @@ describe("an account's postability is not something a user types", () => {
     // Claiming used to be automatic and releasing was not, which left an
     // account flagged by a mapping since repointed elsewhere closed to manual
     // entry for good. With the checkbox gone there would be no way back.
-    const f = files.find((x) => x.rel === "src/lib/siba/records.ts");
+    const f = files.find((x) => x.rel === "src/lib/erp/records.ts");
     assert.ok(f);
     assert.match(
       code(f!.text),
@@ -873,7 +873,7 @@ describe("a select displays the label it offered", () => {
 
   test("every select that stores a direction offers Indonesian labels", () => {
     const entities = readFileSync(
-      join(process.cwd(), "src/lib/siba/entities.ts"),
+      join(process.cwd(), "src/lib/erp/entities.ts"),
       "utf8"
     );
     // A registry field offering the raw In/Out enum must always name them.

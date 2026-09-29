@@ -19,14 +19,14 @@ import {
   type JournalLineValues,
 } from "@/app/actions/journal";
 import { formatMoney, todayIso } from "@/lib/format";
-import { BASE_CURRENCY_LABEL } from "@/lib/siba/currency";
-import type { Company } from "@/lib/siba/company-access";
-import type { JournalDetail } from "@/lib/siba/journal";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import type { Company } from "@/lib/erp/company-access";
+import type { JournalDetail } from "@/lib/erp/journal";
 import {
   JOURNAL_STATUS_BADGE,
   type JournalStatus,
-} from "@/lib/siba/journal-workflow";
-import type { ManualJournalOptions } from "@/lib/siba/manual-journal";
+} from "@/lib/erp/journal-workflow";
+import type { ManualJournalOptions } from "@/lib/erp/manual-journal";
 
 export type JournalFormMode = "new" | "edit";
 

@@ -1,10 +1,10 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { authorizeAction } from "@/lib/siba/auth";
-import { isAccessDenied } from "@/lib/siba/auth-errors";
-import { executeClosing } from "@/lib/siba/closing";
-import { accessibleCompanyIds } from "@/lib/siba/company-access";
+import { authorizeAction } from "@/lib/erp/auth";
+import { isAccessDenied } from "@/lib/erp/auth-errors";
+import { executeClosing } from "@/lib/erp/closing";
+import { accessibleCompanyIds } from "@/lib/erp/company-access";
 
 /**
  * Closing a fiscal year, for one Company.

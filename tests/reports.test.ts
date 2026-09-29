@@ -6,11 +6,11 @@ import {
   cashBankLedgerReport,
   openCashBankBook,
   recordCashBankEntry,
-} from "../src/lib/siba/cash-bank";
-import { CASH_BANK_SUBCATEGORY } from "../src/lib/siba/records";
-import { REPORTS, reportBySlug, reportHref } from "../src/lib/siba/reports";
-import { PERMISSION_CODES } from "../src/lib/siba/permissions";
-import { MODULES, resolvePath, visibleModules } from "../src/lib/siba/nav";
+} from "../src/lib/erp/cash-bank";
+import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
+import { REPORTS, reportBySlug, reportHref } from "../src/lib/erp/reports";
+import { PERMISSION_CODES } from "../src/lib/erp/permissions";
+import { MODULES, resolvePath, visibleModules } from "../src/lib/erp/nav";
 import {
   FIXTURE_PREFIX,
   childCompanyId,

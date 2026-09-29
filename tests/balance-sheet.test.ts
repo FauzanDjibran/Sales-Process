@@ -1,19 +1,19 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { executeClosing } from "../src/lib/siba/closing";
+import { executeClosing } from "../src/lib/erp/closing";
 import {
   buildBalanceSheet,
   type StatementAccount,
   type StatementPair,
-} from "../src/lib/siba/statement-layout";
+} from "../src/lib/erp/statement-layout";
 import {
   balanceSheetReport,
   profitLossReport,
   type StatementColumn,
-} from "../src/lib/siba/statements";
-import type { SystemDefaultKey } from "../src/lib/siba/system-defaults";
-import { CASH_BANK_SUBCATEGORY } from "../src/lib/siba/records";
+} from "../src/lib/erp/statements";
+import type { SystemDefaultKey } from "../src/lib/erp/system-defaults";
+import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import {
   cleanupFixtures,
   disconnect,

@@ -3,40 +3,40 @@ import { SubjectParams } from "@/components/report/subject-params";
 import { GeneralLedgerReport } from "@/components/report/general-ledger-report";
 import { TrialBalanceReport } from "@/components/report/trial-balance-report";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
-import { requirePermission } from "@/lib/siba/auth";
+import { requirePermission } from "@/lib/erp/auth";
 import { CompanyFilter, NoCompanyAccess } from "@/components/master/company-filter";
 import { ReportCompany } from "@/components/report/report-run";
-import { companyScope } from "@/lib/siba/company-access";
+import { companyScope } from "@/lib/erp/company-access";
 import {
   generalLedgerReport,
   ledgerAccountOptions,
   trialBalanceReport,
-} from "@/lib/siba/ledger";
-import type { PeriodRange } from "@/lib/siba/period";
-import { reportBySlug, reportHref } from "@/lib/siba/reports";
-import { BASE_CURRENCY_LABEL } from "@/lib/siba/currency";
+} from "@/lib/erp/ledger";
+import type { PeriodRange } from "@/lib/erp/period";
+import { reportBySlug, reportHref } from "@/lib/erp/reports";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import { formatDate } from "@/lib/format";
-import type { OpeningProvenance } from "@/lib/siba/ledger";
+import type { OpeningProvenance } from "@/lib/erp/ledger";
 import { FiscalPeriodParams } from "@/components/report/fiscal-period-params";
 import { StatementReport } from "@/components/report/statement-report";
 import { StatementTitle } from "@/components/report/statement-title";
-import { STATEMENT_MODES } from "@/lib/siba/statement-layout";
+import { STATEMENT_MODES } from "@/lib/erp/statement-layout";
 import Link from "next/link";
 import { Icon } from "@/components/icon";
 import {
   carriedYearsBefore,
   reportableFiscalYears,
   type ReportableFiscalYear,
-} from "@/lib/siba/fiscal";
+} from "@/lib/erp/fiscal";
 import {
   balanceSheetReport,
   profitLossReport,
   resolveColumn,
   type StatementColumn,
-} from "@/lib/siba/statements";
+} from "@/lib/erp/statements";
 import { formatMoney } from "@/lib/format";
-import type { StatementMode } from "@/lib/siba/statement-layout";
-import type { ReportDef } from "@/lib/siba/reports";
+import type { StatementMode } from "@/lib/erp/statement-layout";
+import type { ReportDef } from "@/lib/erp/reports";
 
 export const dynamic = "force-dynamic";
 

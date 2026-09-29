@@ -7,11 +7,11 @@ import { Icon } from "@/components/icon";
 import { ExpandAll } from "@/components/ui/expand-all";
 import { SearchField } from "@/components/ui/search-field";
 import { CompanyFilter, NoCompanyAccess } from "./company-filter";
-import type { EntityAbilities } from "@/lib/siba/entity-access";
-import { TAG_CLASS, createLabel, type Entity } from "@/lib/siba/entities";
-import { moduleByKey } from "@/lib/siba/nav";
-import type { Company } from "@/lib/siba/company-access";
-import type { TreeAccount, TreeCategory, TreeCompany } from "@/lib/siba/records";
+import type { EntityAbilities } from "@/lib/erp/entity-access";
+import { TAG_CLASS, createLabel, type Entity } from "@/lib/erp/entities";
+import { moduleByKey } from "@/lib/erp/nav";
+import type { Company } from "@/lib/erp/company-access";
+import type { TreeAccount, TreeCategory, TreeCompany } from "@/lib/erp/records";
 
 /**
  * Chart of Accounts renders as a tree rather than a table — it is the one

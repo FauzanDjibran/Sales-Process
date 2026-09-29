@@ -1,12 +1,12 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { closingPlan, executeClosing } from "../src/lib/siba/closing";
-import { carriedYearsBefore } from "../src/lib/siba/fiscal";
-import { closingBalances, generalLedgerReport } from "../src/lib/siba/ledger";
-import { getOpeningBalance } from "../src/lib/siba/opening-balance";
-import { CASH_BANK_SUBCATEGORY } from "../src/lib/siba/records";
-import type { SystemDefaultKey } from "../src/lib/siba/system-defaults";
+import { closingPlan, executeClosing } from "../src/lib/erp/closing";
+import { carriedYearsBefore } from "../src/lib/erp/fiscal";
+import { closingBalances, generalLedgerReport } from "../src/lib/erp/ledger";
+import { getOpeningBalance } from "../src/lib/erp/opening-balance";
+import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
+import type { SystemDefaultKey } from "../src/lib/erp/system-defaults";
 import {
   childCompanyId,
   cleanupFixtures,

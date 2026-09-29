@@ -1,8 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { currentActor, endSession, startSession } from "@/lib/siba/auth";
-import { authenticate } from "@/lib/siba/login";
+import { currentActor, endSession, startSession } from "@/lib/erp/auth";
+import { authenticate } from "@/lib/erp/login";
 
 /**
  * Sign-in and sign-out.

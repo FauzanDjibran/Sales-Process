@@ -27,11 +27,11 @@ import "dotenv/config";
 import { hash } from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
-import { PERMISSIONS } from "../src/lib/siba/permissions";
-import { SEEDED_ROLES, ADMIN_ROLE, adminPermissionCodes } from "../src/lib/siba/roles";
-import { parentCode } from "../src/lib/siba/account-code";
-import { BASE_CURRENCY_LABEL } from "../src/lib/siba/currency";
-import { SEED_PURPOSES } from "../src/lib/siba/rules";
+import { PERMISSIONS } from "../src/lib/erp/permissions";
+import { SEEDED_ROLES, ADMIN_ROLE, adminPermissionCodes } from "../src/lib/erp/roles";
+import { parentCode } from "../src/lib/erp/account-code";
+import { BASE_CURRENCY_LABEL } from "../src/lib/erp/currency";
+import { SEED_PURPOSES } from "../src/lib/erp/rules";
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
@@ -44,9 +44,9 @@ const prisma = new PrismaClient({ adapter });
  * exists purely so a local checkout works out of the box, and CLAUDE.md §11
  * records that it must not survive into a deployed environment.
  */
-const ADMIN_EMAIL = process.env.SIBA_ADMIN_EMAIL?.trim().toLowerCase() || "admin@siba.app";
-const ADMIN_NAME = process.env.SIBA_ADMIN_NAME?.trim() || "Administrator";
-const ADMIN_INITIALS = process.env.SIBA_ADMIN_INITIALS?.trim().toUpperCase() || "AD";
+const ADMIN_EMAIL = process.env.ERP_ADMIN_EMAIL?.trim().toLowerCase() || "admin@erp.app";
+const ADMIN_NAME = process.env.ERP_ADMIN_NAME?.trim() || "Administrator";
+const ADMIN_INITIALS = process.env.ERP_ADMIN_INITIALS?.trim().toUpperCase() || "AD";
 
 /**
  * Further administrators, seeded beside the bootstrap one.
@@ -66,18 +66,18 @@ const ADMIN_INITIALS = process.env.SIBA_ADMIN_INITIALS?.trim().toUpperCase() || 
  * never touches an account that already exists, so doing so is permanent.
  */
 const ADDITIONAL_ADMINS = [
-  { email: "rizal@siba.app", name: "Rizal", initials: "RZ" },
-  { email: "mikhael@siba.app", name: "Mikhael", initials: "MK" },
+  { email: "rizal@erp.app", name: "Rizal", initials: "RZ" },
+  { email: "mikhael@erp.app", name: "Mikhael", initials: "MK" },
 ] as const;
 
-const DEV_PASSWORD = "siba123";
+const DEV_PASSWORD = "erp123";
 
 function resolveAdminPassword(): string {
-  const fromEnv = process.env.SIBA_ADMIN_PASSWORD;
+  const fromEnv = process.env.ERP_ADMIN_PASSWORD;
   if (fromEnv) return fromEnv;
   if (process.env.NODE_ENV === "production") {
     throw new Error(
-      "SIBA_ADMIN_PASSWORD is required outside development. Set it before seeding."
+      "ERP_ADMIN_PASSWORD is required outside development. Set it before seeding."
     );
   }
   return DEV_PASSWORD;
@@ -100,8 +100,8 @@ const CHILD_NAME = process.env.SIBA_CHILD_COMPANY_NAME?.trim() || "Perusahaan An
 /**
  * The reporting base currency. Further currencies are added through the app.
  *
- * The **label** comes from `lib/siba/currency.ts` and is no longer configurable.
- * It used to be read from `SIBA_BASE_CURRENCY`, which was harmless while nothing
+ * The **label** comes from `lib/erp/currency.ts` and is no longer configurable.
+ * It used to be read from `ERP_BASE_CURRENCY`, which was harmless while nothing
  * in the application knew or cared which currency was base. It is not harmless
  * now: every book entry records what it was worth in base currency, and the code
  * that decides whether a rate of 1 is honest reads the constant. Two statements
@@ -110,7 +110,7 @@ const CHILD_NAME = process.env.SIBA_CHILD_COMPANY_NAME?.trim() || "Perusahaan An
  *
  * The **name** stays configurable: it is display text and nothing branches on it.
  */
-const BASE_CURRENCY_NAME = process.env.SIBA_BASE_CURRENCY_NAME?.trim() || "Rupiah Indonesia";
+const BASE_CURRENCY_NAME = process.env.ERP_BASE_CURRENCY_NAME?.trim() || "Rupiah Indonesia";
 
 const pad4 = (n: number) => String(n).padStart(4, "0");
 const code = (prefix: string, n: number) => `${prefix}.${pad4(n)}`;
@@ -123,7 +123,7 @@ const tally = (what: string, n = 1) => {
 
 // ------------------------------------------------------------- system data
 //
-// Labels are load-bearing: `src/lib/siba/rules.ts` keys its classification
+// Labels are load-bearing: `src/lib/erp/rules.ts` keys its classification
 // rules off budget and partner category labels, and `CASH_BANK_SUBCATEGORY` in
 // `records.ts` names the chart-of-accounts group a cash or bank resource posts
 // into. Renaming a label here without renaming it there silently breaks a
@@ -227,7 +227,7 @@ const PARTNER_CATEGORIES: [label: string, name: string, note: string][] = [
  * is its number of segments, and its parent is its code minus the last one.
  * Depth 1 is an Account Type, depth 2 an Account Category, depth 3 an Account
  * Subcategory. Anything deeper is an account, which users create through the
- * application — see `lib/siba/account-code.ts`.
+ * application — see `lib/erp/account-code.ts`.
  *
  * Three deviations from the sheet, all of them forced:
  *
@@ -239,7 +239,7 @@ const PARTNER_CATEGORIES: [label: string, name: string, note: string][] = [
  *   - Names are kept verbatim from the sheet, capitals included. They are the
  *     user's own chart, not ours to restyle.
  *
- * `CASH_BANK_SUBCATEGORY` in `lib/siba/records.ts` names 1.1.1 as the group a
+ * `CASH_BANK_SUBCATEGORY` in `lib/erp/records.ts` names 1.1.1 as the group a
  * cash or bank resource posts into, so that code is load-bearing.
  */
 const COA_SKELETON: [code: string, name: string][] = [
@@ -395,7 +395,7 @@ async function main() {
  */
 async function systemUser(): Promise<number> {
   const existing = await prisma.sysUser.findUnique({
-    where: { email: "sistem@siba.app" },
+    where: { email: "sistem@erp.app" },
     select: { id: true },
   });
   if (existing) return existing.id;
@@ -403,7 +403,7 @@ async function systemUser(): Promise<number> {
   const user = await prisma.sysUser.create({
     data: {
       user_code: await nextUserCode(),
-      email: "sistem@siba.app",
+      email: "sistem@erp.app",
       name: "Sistem",
       initials: "SY",
       // Unusable by construction: bcrypt never produces this string, so no
@@ -457,7 +457,7 @@ async function bootstrapAdministrator(): Promise<void> {
 }
 
 /**
- * `src/lib/siba/permissions.ts` is the source of truth; this table is its
+ * `src/lib/erp/permissions.ts` is the source of truth; this table is its
  * materialisation. Names and descriptions are re-synced so the role matrix
  * reads current copy, and a permission dropped from the catalogue is removed
  * along with every grant of it — a row no code reads is a row that can only
@@ -981,9 +981,9 @@ function report(): void {
   for (const person of ADDITIONAL_ADMINS) {
     console.log(`                ${person.email}  (${person.name})`);
   }
-  if (!process.env.SIBA_ADMIN_PASSWORD) {
+  if (!process.env.ERP_ADMIN_PASSWORD) {
     console.log(`Password      : ${DEV_PASSWORD}   <-- DEVELOPMENT ONLY`);
-    console.log("                Set SIBA_ADMIN_PASSWORD before seeding anywhere real.");
+    console.log("                Set ERP_ADMIN_PASSWORD before seeding anywhere real.");
   }
   console.log(
     "\nBusiness data — partners, cash & bank, accounts, mappings, fiscal periods,\n" +

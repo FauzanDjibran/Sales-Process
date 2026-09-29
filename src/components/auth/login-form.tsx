@@ -44,12 +44,12 @@ export function LoginForm({ next }: { next?: string }) {
       <div className="auth-brand">
         <div className="brand-mark">S3</div>
         <div>
-          <div className="auth-title">SIBA</div>
+          <div className="auth-title">ERP</div>
           <div className="auth-ver">3.0</div>
         </div>
       </div>
 
-      <h1 className="auth-h">Masuk ke SIBA</h1>
+      <h1 className="auth-h">Masuk ke ERP</h1>
       <p className="auth-sub">
         Gunakan akun yang diberikan administrator. Setiap akses di dalam aplikasi
         mengikuti Role yang melekat pada akun Anda.
@@ -63,7 +63,7 @@ export function LoginForm({ next }: { next?: string }) {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            placeholder="nama@siba.app"
+            placeholder="nama@perusahaan.co.id"
             autoComplete="username"
             autoFocus
             required

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { ReportSummary } from "@/components/report/report-summary";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { LedgerReport } from "@/lib/siba/cash-bank";
+import type { LedgerReport } from "@/lib/erp/cash-bank";
 
 /**
  * Buku Kas & Bank — every movement of one resource across a period.

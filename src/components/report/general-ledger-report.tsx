@@ -6,8 +6,8 @@ import { ExpandAll } from "@/components/ui/expand-all";
 import { ReportSummary } from "@/components/report/report-summary";
 import { Drill } from "@/components/report/drill";
 import { formatDate, formatForeignFace, formatMoney } from "@/lib/format";
-import { BASE_CURRENCY_LABEL } from "@/lib/siba/currency";
-import type { GeneralLedgerReport as Report } from "@/lib/siba/ledger";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import type { GeneralLedgerReport as Report } from "@/lib/erp/ledger";
 
 /**
  * One ledger table per account, stacked.

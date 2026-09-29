@@ -1,14 +1,14 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { type Actor } from "@/lib/siba/access";
-import { authorizeAction } from "@/lib/siba/auth";
-import { isAccessDenied } from "@/lib/siba/auth-errors";
-import { accessibleCompanyIds } from "@/lib/siba/company-access";
+import { type Actor } from "@/lib/erp/access";
+import { authorizeAction } from "@/lib/erp/auth";
+import { isAccessDenied } from "@/lib/erp/auth-errors";
+import { accessibleCompanyIds } from "@/lib/erp/company-access";
 import {
   JOURNAL_TRANSITIONS,
   type JournalAction,
-} from "@/lib/siba/journal-workflow";
+} from "@/lib/erp/journal-workflow";
 import {
   cancelManualJournal,
   createManualJournal,
@@ -17,7 +17,7 @@ import {
   updateManualJournal,
   type ManualJournalLineValues,
   type ManualJournalOptions,
-} from "@/lib/siba/manual-journal";
+} from "@/lib/erp/manual-journal";
 
 /**
  * The manual journal's write path — the only way a person puts a line in the
@@ -30,7 +30,7 @@ import {
  *  2. **The Company**, which must be one this caller's permissions open. The
  *     rules module takes its scope as an argument and never reaches into the
  *     request, so this is where the actor's own access is asked about.
- *  3. **The rules**, in `lib/siba/manual-journal.ts` — which account may be
+ *  3. **The rules**, in `lib/erp/manual-journal.ts` — which account may be
  *     written to, which line needs a Partner, which line needs a kurs. They
  *     live there rather than here so the test suite can exercise them: an
  *     action resolves its caller from a session cookie and a test has none.

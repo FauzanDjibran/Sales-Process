@@ -4,8 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { Pager, usePaging } from "@/components/ui/pager";
-import { STATUS_CLASS, STATUS_TEXT } from "@/lib/siba/entities";
-import type { RoleRow } from "@/lib/siba/user-admin";
+import { STATUS_CLASS, STATUS_TEXT } from "@/lib/erp/entities";
+import type { RoleRow } from "@/lib/erp/user-admin";
 
 /**
  * The role register. A role's worth is its permission count and how many people

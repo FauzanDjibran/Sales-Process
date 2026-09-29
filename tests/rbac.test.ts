@@ -1,12 +1,12 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { actorCan, permissionsForUser, rolesForUser } from "../src/lib/siba/access";
-import { isAccessDenied } from "../src/lib/siba/auth-errors";
-import { authenticate } from "../src/lib/siba/login";
-import { validateSessionToken } from "../src/lib/siba/session";
-import { listUsers, createUser, setUserStatus } from "../src/lib/siba/user-admin";
-import { profileFor } from "../src/lib/siba/profile";
+import { actorCan, permissionsForUser, rolesForUser } from "../src/lib/erp/access";
+import { isAccessDenied } from "../src/lib/erp/auth-errors";
+import { authenticate } from "../src/lib/erp/login";
+import { validateSessionToken } from "../src/lib/erp/session";
+import { listUsers, createUser, setUserStatus } from "../src/lib/erp/user-admin";
+import { profileFor } from "../src/lib/erp/profile";
 import { actorOf, cleanup, disconnect, makeUser, prisma } from "./helpers";
 
 /**
@@ -99,7 +99,7 @@ describe("RBAC: User -> Role -> Permission", () => {
     await assert.rejects(
       () =>
         createUser(actor, {
-          email: "authtest+norole@siba.test",
+          email: "authtest+norole@erp.test",
           name: "No Role",
           initials: "NR",
           password: "password-12345",
@@ -143,7 +143,7 @@ describe("RBAC: User -> Role -> Permission", () => {
     await assert.rejects(
       () =>
         createUser(actor, {
-          email: "authtest+notallowed@siba.test",
+          email: "authtest+notallowed@erp.test",
           name: "Nope",
           initials: "NO",
           password: "password-12345",
@@ -178,7 +178,7 @@ describe("RBAC: User -> Role -> Permission", () => {
 
     // And the combination is live: both capabilities now work.
     const created = await createUser(both, {
-      email: "authtest+combined@siba.test",
+      email: "authtest+combined@erp.test",
       name: "Combined",
       initials: "CB",
       password: "password-12345",
@@ -253,7 +253,7 @@ describe("RBAC: User -> Role -> Permission", () => {
       () => setUserStatus(actor, victim.id, "Inactive"),
       () =>
         createUser(actor, {
-          email: "authtest+direct@siba.test",
+          email: "authtest+direct@erp.test",
           name: "Direct",
           initials: "DR",
           password: "password-12345",
@@ -270,7 +270,7 @@ describe("RBAC: User -> Role -> Permission", () => {
     const after = await prisma.sysUser.findUniqueOrThrow({ where: { id: victim.id } });
     assert.equal(after.status, before.status);
     assert.equal(
-      await prisma.sysUser.count({ where: { email: "authtest+direct@siba.test" } }),
+      await prisma.sysUser.count({ where: { email: "authtest+direct@erp.test" } }),
       0
     );
   });

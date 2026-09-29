@@ -1,9 +1,9 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { authenticate } from "../src/lib/siba/login";
-import { PERMISSION_CODES } from "../src/lib/siba/permissions";
-import { issueSession, validateSessionToken } from "../src/lib/siba/session";
+import { authenticate } from "../src/lib/erp/login";
+import { PERMISSION_CODES } from "../src/lib/erp/permissions";
+import { issueSession, validateSessionToken } from "../src/lib/erp/session";
 import {
   createRole,
   createUser,
@@ -14,8 +14,8 @@ import {
   setUserRoles,
   setUserStatus,
   updateUser,
-} from "../src/lib/siba/user-admin";
-import { changeOwnPassword, profileFor, updateOwnProfile } from "../src/lib/siba/profile";
+} from "../src/lib/erp/user-admin";
+import { changeOwnPassword, profileFor, updateOwnProfile } from "../src/lib/erp/profile";
 import { actorOf, cleanup, disconnect, makeUser, prisma, roleIdFor } from "./helpers";
 
 /**
@@ -31,7 +31,7 @@ describe("administrator capabilities", () => {
     const staffRole = await roleIdFor("STAFF");
 
     const created = await createUser(actor, {
-      email: "authtest+managed@siba.test",
+      email: "authtest+managed@erp.test",
       name: "Managed User",
       initials: "MU",
       password: "password-12345",
@@ -41,7 +41,7 @@ describe("administrator capabilities", () => {
     const id = created.ok ? created.id : 0;
 
     const edited = await updateUser(actor, id, {
-      email: "authtest+managed2@siba.test",
+      email: "authtest+managed2@erp.test",
       name: "Managed User Renamed",
       initials: "MR",
     });
@@ -68,7 +68,7 @@ describe("administrator capabilities", () => {
     await assert.rejects(
       () =>
         createUser(actor, {
-          email: "authtest+backdoor@siba.test",
+          email: "authtest+backdoor@erp.test",
           name: "Backdoor",
           initials: "BD",
           password: "password-12345",
@@ -78,13 +78,13 @@ describe("administrator capabilities", () => {
     );
 
     assert.equal(
-      await prisma.sysUser.count({ where: { email: "authtest+backdoor@siba.test" } }),
+      await prisma.sysUser.count({ where: { email: "authtest+backdoor@erp.test" } }),
       0
     );
 
     // The same caller may still create a user with no access at all.
     const plain = await createUser(actor, {
-      email: "authtest+plain@siba.test",
+      email: "authtest+plain@erp.test",
       name: "Plain",
       initials: "PL",
       password: "password-12345",
@@ -196,7 +196,7 @@ describe("administrator capabilities", () => {
     const actor = await actorOf(admin.id);
 
     const created = await createUser(actor, {
-      email: "authtest+audited@siba.test",
+      email: "authtest+audited@erp.test",
       name: "Audited",
       initials: "AU",
       password: "password-12345",

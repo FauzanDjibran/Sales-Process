@@ -2,19 +2,19 @@
 
 import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
-import { authorizeAction } from "@/lib/siba/auth";
-import { isAccessDenied } from "@/lib/siba/auth-errors";
-import { syncControlAccounts } from "@/lib/siba/records";
+import { authorizeAction } from "@/lib/erp/auth";
+import { isAccessDenied } from "@/lib/erp/auth-errors";
+import { syncControlAccounts } from "@/lib/erp/records";
 import {
   isSystemDefaultKey,
   systemDefaultDef,
   type SystemDefaultKey,
-} from "@/lib/siba/system-defaults";
+} from "@/lib/erp/system-defaults";
 import {
   checkSystemDefaultValue,
   systemDefaultAccountIds,
   writeSystemDefaults,
-} from "@/lib/siba/system-settings";
+} from "@/lib/erp/system-settings";
 
 /**
  * The System Defaults' one write path.

@@ -8,14 +8,14 @@ import { Pager, usePaging } from "@/components/ui/pager";
 import { CompanyFilter, NoCompanyAccess } from "@/components/master/company-filter";
 import { SearchField } from "@/components/ui/search-field";
 import { formatDate, formatMoney } from "@/lib/format";
-import { BASE_CURRENCY_LABEL } from "@/lib/siba/currency";
-import type { Company } from "@/lib/siba/company-access";
-import type { JournalRow } from "@/lib/siba/journal";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import type { Company } from "@/lib/erp/company-access";
+import type { JournalRow } from "@/lib/erp/journal";
 import {
   JOURNAL_STATUS_BADGE,
   type JournalAbilities,
   type JournalStatus,
-} from "@/lib/siba/journal-workflow";
+} from "@/lib/erp/journal-workflow";
 
 /**
  * The Journal register — every journal, however it came to exist.

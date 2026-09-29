@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
-import { requireAuth } from "@/lib/siba/auth";
-import { landingHref } from "@/lib/siba/nav";
+import { requireAuth } from "@/lib/erp/auth";
+import { landingHref } from "@/lib/erp/nav";
 
 export const dynamic = "force-dynamic";
 

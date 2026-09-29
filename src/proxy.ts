@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE } from "@/lib/siba/session";
+import { SESSION_COOKIE } from "@/lib/erp/session";
 
 /**
  * Optimistic route protection.
@@ -9,7 +9,7 @@ import { SESSION_COOKIE } from "@/lib/siba/session";
  * evaluation. That makes it a redirect convenience, NOT a security boundary:
  * a forged cookie gets past this file and is then rejected by the real check.
  *
- * The enforcement lives in `src/lib/siba/auth.ts`, called by `(app)/layout.tsx`,
+ * The enforcement lives in `src/lib/erp/auth.ts`, called by `(app)/layout.tsx`,
  * by every page, and by every Server Action. Deleting this file would cost
  * nothing but a tidy redirect.
  *

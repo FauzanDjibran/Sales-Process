@@ -8,9 +8,9 @@ import { Pager, usePaging } from "@/components/ui/pager";
 import { CompanyFilter, NoCompanyAccess } from "@/components/master/company-filter";
 import { SearchField } from "@/components/ui/search-field";
 import { formatDate, formatMoney } from "@/lib/format";
-import { BASE_CURRENCY_LABEL } from "@/lib/siba/currency";
-import type { Company } from "@/lib/siba/company-access";
-import type { OpeningBalanceRow } from "@/lib/siba/opening-balance";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import type { Company } from "@/lib/erp/company-access";
+import type { OpeningBalanceRow } from "@/lib/erp/opening-balance";
 
 /**
  * The Opening Balance register.

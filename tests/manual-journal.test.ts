@@ -1,13 +1,13 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { postJournal, readDraftJournal } from "../src/lib/siba/journal";
+import { postJournal, readDraftJournal } from "../src/lib/erp/journal";
 import {
   JOURNAL_TRANSITIONS,
   availableJournalActions,
   journalAbilities,
   journalIsEditable,
-} from "../src/lib/siba/journal-workflow";
+} from "../src/lib/erp/journal-workflow";
 import {
   cancelManualJournal,
   checkManualJournal,
@@ -15,19 +15,19 @@ import {
   manualJournalOptions,
   postManualJournal,
   updateManualJournal,
-} from "../src/lib/siba/manual-journal";
-import { generalLedgerReport, trialBalanceReport } from "../src/lib/siba/ledger";
+} from "../src/lib/erp/manual-journal";
+import { generalLedgerReport, trialBalanceReport } from "../src/lib/erp/ledger";
 import {
   CASH_BANK_SUBCATEGORY,
   controlAccountReasons,
   syncControlAccounts,
-} from "../src/lib/siba/records";
+} from "../src/lib/erp/records";
 import {
   systemDefaultAccountIds,
   systemDefaults,
   writeSystemDefaults,
-} from "../src/lib/siba/system-settings";
-import { knownAuditEvents } from "../src/lib/siba/audit-events";
+} from "../src/lib/erp/system-settings";
+import { knownAuditEvents } from "../src/lib/erp/audit-events";
 import {
   childCompanyId,
   cleanupFiscalYear,

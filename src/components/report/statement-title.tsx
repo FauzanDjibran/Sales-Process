@@ -1,6 +1,6 @@
 import { Fragment } from "react";
 import { formatDate, formatTimestamp } from "@/lib/format";
-import type { StatementColumn } from "@/lib/siba/statements";
+import type { StatementColumn } from "@/lib/erp/statements";
 
 /**
  * What a statement is, stated on the statement itself.
