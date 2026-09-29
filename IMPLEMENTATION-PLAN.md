@@ -9,6 +9,10 @@
 
 ## Phase 1 — Carry over from SIBA
 
+**Status: done 29/09/2026.** Build, lint and tests pass on PostgreSQL 18, and
+the walk-through below was checked in a browser and in Postgres. Remaining
+rough edges are listed in `Claude-ERP.md` §17.
+
 **Scope (P23):** the Accounting module minus the Budget mapping, `m_partner`,
 `ref_currency`, `m_cash_bank`, users & roles, System Default and Profil Saya.
 Anything else only once confirmed (C17–C21, `Claude-ERP.md` §18.2).

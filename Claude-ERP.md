@@ -90,8 +90,9 @@ sales behaviour the simulation implements, and carry over through it.
 | Area | State |
 | --- | --- |
 | Project guideline (this file) | Written 29/09/2026; clash decisions recorded 29/09/2026 |
-| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 scope fully decided (P23, P29–P32) |
-| Code | None yet |
+| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 not started |
+| Code | Phase 1 carried and adapted: one company, no Budget, Control Account set by the user, `PREFIX/YYYY/MM/NNNN` numbering, dashboard placeholder. `npm run build`, `npm run lint` and `npm test` pass on PostgreSQL 18; the Phase 1 walk-through (fiscal year, accounts, Partner, Cash & Bank with opening balance, manual journal, General Ledger, Trial Balance) checked in a browser and in Postgres |
+| Schema | One baseline migration; `DBML/erp.dbml.md` in step |
 
 ---
 
@@ -475,6 +476,10 @@ Newest last. Later entries override earlier ones and say so.
 | P30 | 29/09/2026 | **Partner Category is carried, and for now holds only Customer and Supplier** (C18), seeded as system data. `m_partner` requires one; an account requiring a Partner names the one it takes. |
 | P31 | 29/09/2026 | **The Cash Bank Book is carried whole** (C19): ledger, balance, Saldo Awal at registration, rate layers, and the Buku Kas & Bank, Saldo Kas & Bank and Posisi Layer Kurs reports. |
 | P32 | 29/09/2026 | **Also carried** (C20, C21): the test harness and the suites for what is carried, `run-siba` as `run-erp`, `truncate-transactions`, the CI workflow, and a dashboard placeholder until a sales dashboard is designed. Not carried: backfill scripts, Neon / standalone scripts, SIBA's showcase seed, SIBA's dashboard composition. |
+| P33 | 29/09/2026 | **Commit straight to `main`.** Each completed step is committed to `main` and pushed as it lands; no feature branch. Replaces "commit or push only when the user asks" in §16. |
+| P34 | 29/09/2026 | **The registry's multi-reference field type is removed.** Only Budget Category used it; it returns if a master needs a set of references. |
+| P35 | 29/09/2026 | **Fiscal-year closing keeps its own record, one per year.** `acc_fiscal_closing` stays, without a company column; closing writes it and the year's Closed status in one transaction. |
+| P36 | 29/09/2026 | **The stack matches SIBA's versions, PostgreSQL 18 included**, in development, tests and CI. |
 
 ---
 
@@ -559,13 +564,24 @@ here. In addition:
 - Short imperative subject; body explains **why** and names deliberate
   deviations. Attribution trailers per the session's instructions.
 - Never commit `.env`, `node_modules/`, `.next/`, `src/generated/`.
-- Commit or push only when the user asks.
+- Commit each completed step straight to `main` and push it (P33).
 
 ---
 
 ## 17. Current Known Issues
 
-None yet.
+- **Statements name no company.** SIBA's statement title printed the
+  Company's label; with one company that name belongs to Company Setting
+  (P28), which is not built yet, so the Laba Rugi and Neraca titles omit it.
+- **A Cash Bank Book row names no document number.** Only a resource's
+  registration writes the book today; `sourceDocumentNumbers` in
+  `cash-bank.ts` returns nothing until Pembayaran adds its own documents.
+- **A manual journal keeps the number it was drafted with.** It is numbered
+  in the series of the month its draft is dated; re-dating the draft into
+  another month does not renumber it.
+- **The closing suite no longer covers a loss.** SIBA proved the loss side on
+  the second company; with one company only the profit case remains, until a
+  fixture year with a loss is added.
 
 ---
 
