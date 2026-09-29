@@ -95,6 +95,10 @@ async function confirmedOrder(confirm = true) {
   return r.id;
 }
 
+async function setPpnRate(value: string) {
+  await prisma.sysSetting.update({ where: { setting_key: "ppn_rate" }, data: { setting_value: value } });
+}
+
 const input = (over: Partial<SalesAdvanceInput> = {}): SalesAdvanceInput => ({
   order_id: f.order,
   advance_date: "2026-09-11",
@@ -254,7 +258,7 @@ describe("a bill's life", () => {
     const up = await updateSalesAdvance(r.id, input({ amount_type: "Amount", amount_value: 500_000 }), actor);
     assert.ok(up.ok);
     let a = (await getSalesAdvance(r.id))!;
-    assert.deepEqual(a.figures, { amount: 500_000, dpp: 500_000, dppOther: 458_333.33, ppn: 55_000, total: 555_000 });
+    assert.deepEqual(a.figures, { amount: 500_000, dpp: 500_000, dppOther: 458_333, ppn: 55_000, total: 555_000 });
 
     assert.deepEqual(await transitionSalesAdvance(r.id, "issue", actor), { ok: true });
     a = (await getSalesAdvance(r.id))!;
@@ -289,8 +293,30 @@ describe("a bill's life", () => {
 
   test("the PPh estimate covers the order's withheld Barang lines", async () => {
     const [o] = (await salesAdvanceOptions()).orders.filter((x) => x.id === f.order);
-    const fig = computeAdvance({ basis: o.basis, type: "Percent", typed: 30 });
+    const fig = computeAdvance({ basis: o.basis, type: "Percent", typed: 30, rates: { rate: 12, otherNum: 11, otherDen: 12 } });
     assert.deepEqual(fig.withholdings.map((w) => [w.base, w.amount]), [[600_000, 9_000]]);
+  });
+
+  test("a bill snapshots the PPN rate; Terbitkan freezes it (P60)", async () => {
+    const r = await create(input({ amount_type: "Amount", amount_value: 100_000 }));
+    assert.ok(r.ok);
+    let a = (await getSalesAdvance(r.id))!;
+    assert.deepEqual(a.rates, { rate: 12, otherNum: 11, otherDen: 12 });
+    await setPpnRate("11");
+    try {
+      // A Draft takes the rate in force at its next step…
+      assert.deepEqual(await transitionSalesAdvance(r.id, "issue", actor), { ok: true });
+      a = (await getSalesAdvance(r.id))!;
+      assert.equal(a.rates?.rate, 11);
+      assert.equal(a.figures.ppn, 10_083, "11 % × round(100.000 × 11/12) = 11 % × 91.667");
+    } finally {
+      await setPpnRate("12");
+    }
+    // …and keeps it once issued, whatever the setting says afterwards.
+    a = (await getSalesAdvance(r.id))!;
+    assert.equal(a.rates?.rate, 11);
+    assert.equal(a.figures.ppn, 10_083);
+    await transitionSalesAdvance(r.id, "cancel", actor, "uji");
   });
 
   test("the buttons offered follow the table and the permissions", () => {

@@ -93,6 +93,13 @@ Terbitkan → Diterbitkan / Batalkan; posts nothing; the SO's value caps its liv
 bills and an SO with a live bill is not cancelled. Print, payment state and open
 items follow with Company Setting and Pembayaran.
 
+**Tax arithmetic reworked — 29/09/2026** (P59, P60, `tax_concept.md`): half-up
+whole rupiah; PPN per line by the chain round(tarif × round(DPP × 11/12)), the
+document summing its lines; an inclusive price's difference absorbed in the DPP
+(at most Rp1 under the typed price); the PPN rate and DPP Nilai Lain factor as
+System Defaults, snapshotted by each Sales Order and advance bill and frozen at
+Konfirmasi / Terbitkan. PPH42-SEWA no longer seeded.
+
 Built one step at a time, **in the order the user gives**. For each step:
 
 1. Re-read the simulation's step (screens, lifecycle, arithmetic, journal) and

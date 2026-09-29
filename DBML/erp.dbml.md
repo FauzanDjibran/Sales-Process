@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20260929220605_sales_advance`
+- **As of migration:** `20260929230600_ppn_rate_snapshot`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **One company** (P9): no table carries a company. Budget, Cash Bank
@@ -26,6 +26,9 @@ migration updates this file in the same change (Claude-ERP.md §9).
 - `sal_advance` (P54–P58) — the AR advance bill, drawn from one confirmed
   Sales Order and numbered `ARA/…`. It posts nothing and stores no paid or
   used amount; that is left to the open items (C22).
+- `sal_order` and `sal_advance` snapshot the PPN rate and DPP Nilai Lain factor
+  they were computed with (P60); each `sal_order_line` stores its own DPP Nilai
+  Lain, since PPN is computed per line.
 - `created_by` / `updated_by` hold a user id with no foreign key, as in SIBA.
 - Money is `decimal(18, 2)`, rates `decimal(18, 6)`. Calendar dates are `date`,
   timestamps `timestamptz`.
@@ -785,6 +788,9 @@ Table sal_order {
   warehouse_id int [not null]
   is_taxable boolean [not null, default: true]
   price_mode PriceMode [not null]
+  ppn_rate decimal(9, 4) [null]
+  ppn_dpp_other_numerator int [null]
+  ppn_dpp_other_denominator int [null]
   po_no varchar [null]
   po_date date [null]
   requested_date date [not null]
@@ -823,6 +829,7 @@ Table sal_order_line {
   discount_amount decimal(18, 2) [not null, default: 0]
   amount decimal(18, 2) [not null]
   dpp_amount decimal(18, 2) [not null]
+  dpp_other_amount decimal(18, 2) [not null, default: 0]
   ppn_amount decimal(18, 2) [not null]
   withholding_tax_id int [null]
   withholding_rate decimal(9, 4) [null]
@@ -847,6 +854,9 @@ Table sal_advance {
   note varchar [null]
   price_mode PriceMode [not null]
   is_taxable boolean [not null]
+  ppn_rate decimal(9, 4) [null]
+  ppn_dpp_other_numerator int [null]
+  ppn_dpp_other_denominator int [null]
   amount_type AdvanceAmountType [not null]
   amount_value decimal(18, 4) [not null]
   amount decimal(18, 2) [not null]

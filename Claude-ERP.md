@@ -91,9 +91,9 @@ sales behaviour the simulation implements, and carry over through it.
 | Area | State |
 | --- | --- |
 | Project guideline (this file) | Written 29/09/2026; clash decisions recorded 29/09/2026 |
-| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 done for sales 29/09/2026 (Partner customer side, Satuan, Termin, Gudang, Jenis PPh, Item, sales defaults); Phase 3 started: Sales Order built 29/09/2026 (P49–P53); Uang Muka Penjualan built 29/09/2026 (P54–P58) |
+| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 done for sales 29/09/2026 (Partner customer side, Satuan, Termin, Gudang, Jenis PPh, Item, sales defaults); Phase 3 started: Sales Order built 29/09/2026 (P49–P53); Uang Muka Penjualan built 29/09/2026 (P54–P58); tax arithmetic moved to `tax_concept.md` (half up, per-line chain, snapshotted PPN setting) 29/09/2026 (P59, P60) |
 | Code | Phase 1 carried and adapted: one company, no Budget, Control Account set by the user, `PREFIX/YYYY/MM/NNNN` numbering, dashboard placeholder. `npm run build`, `npm run lint` and `npm test` pass on PostgreSQL 18; the Phase 1 walk-through (fiscal year, accounts, Partner, Cash & Bank with opening balance, manual journal, General Ledger, Trial Balance) checked in a browser and in Postgres |
-| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48), the customer's sales defaults (P51), Sales Order `sal_order(_line)` (P49–P53), Uang Muka Penjualan `sal_advance` (P54–P58); `DBML/erp.dbml.md` in step |
+| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48), the customer's sales defaults (P51), Sales Order `sal_order(_line)` (P49–P53), Uang Muka Penjualan `sal_advance` (P54–P58), PPN rate snapshots on SO / advance and per-line DPP Nilai Lain (P60); `DBML/erp.dbml.md` in step |
 
 ---
 
@@ -501,7 +501,7 @@ Newest last. Later entries override earlier ones and say so.
 | P41 | 29/09/2026 | **Partner is built customer-first; Supplier starts inactive.** The seeded Supplier category is deactivated (one-time, in the migration; a fresh install seeds it Inactive), so it can be switched back on when purchasing arrives. The target is one Partner master for both roles: the tax identity is shared, and role-specific tax behaviour shows only for its role. |
 | P42 | 29/09/2026 | **The Partner's tax data has its own Pajak tab.** *Identitas Pajak* is Tipe Wajib Pajak (Badan / Orang Pribadi / Instansi Pemerintah), Jenis Identitas (NPWP / NIK), the 16-digit number (stored without separators), Nama sesuai NPWP / NIK, and Status PKP. Rules: only an Orang Pribadi may use a NIK; a PKP uses its NPWP. *Perlakuan Pajak Penjualan*, for Customers only, is: customer withholds PPh 23; customer collects PPh 22; Pemungut PPN = Bukan Pemungut / Instansi Pemerintah (kode 02, only for an Instansi Pemerintah). NITKU is deferred (C23). Credit limit, default Include / Exclude PPN, sales block and the Sales Order defaults are deferred (C24). |
 | P43 | 29/09/2026 | **Reference masters for sales: Satuan, Termin Pembayaran and Gudang**, registry entities under Master › Referensi with the usual list / detail / create / edit / deactivate and their own permissions. Satuan is a unit only (Label, Nama); conversions between units belong to the Item. Termin carries Jumlah Hari (a whole number, 0 = Tunai), from which a due date is counted. Gudang is Label and Nama only while stock is ignored. **Not built:** Price Group (prices are typed by the user on the document), Salesperson (typed by hand on the document), Jenis Perizinan (Perizinan set aside for now). Kategori Barang is decided with the Item. |
-| P44 | 29/09/2026 | **Jenis PPh is a user-managed master, seeded with the common types.** Label, Nama, Tarif (percent, `Decimal(9,4)`), Objek Pajak and the PPh Dibayar Dimuka account (postable, optional until a document books a withholding). The seed creates PPH22 1,5 %, PPH23 2 %, PPH23-15 15 % and PPH42-SEWA 10 % once, matched on the system code, so a user's edits are never overwritten; users add their own. An account a Jenis PPh uses cannot be deactivated. Amends P11 (the seeder writes system data only) for these starting rows. |
+| P44 | 29/09/2026 | **Jenis PPh is a user-managed master, seeded with the common types.** Label, Nama, Tarif (percent, `Decimal(9,4)`), Objek Pajak and the PPh Dibayar Dimuka account (postable, optional until a document books a withholding). The seed creates PPH22 1,5 %, PPH23 2 %, PPH23-15 15 % *(and PPH42-SEWA 10 %, dropped by P60)* once, matched on the system code, so a user's edits are never overwritten; users add their own. An account a Jenis PPh uses cannot be deactivated. Amends P11 (the seeder writes system data only) for these starting rows. |
 | P45 | 29/09/2026 | **No Kode Pajak table.** Whether a line carries PPN is a yes / no, so it is an enum on the transactions that need it, not a master. Supersedes the simulation's `TAX_CODES` (`PPN-STD` / `NON-PPN`) and §10.2 rule 2's "tax codes". *Amended by P48: it is decided on the transaction, not on the Item.* |
 | P46 | 29/09/2026 | **The Item master (`m_item`).** Header: Tipe Item, Kategori Item, Satuan Dasar, Label, Nama, and the flags Dapat Dijual, Dapat Dibeli, Kelola Stok and Memiliki Kadaluarsa; then one tab, **Konversi Satuan** — the item's other units and their factor to the base unit (`m_item_uom`, `Decimal(18,4)`, more than 0, each unit once, never the base unit), saved with the Item in one transaction and one audit entry. **Tipe Item** is an enum, `Barang` / `Jasa` (Aset may follow). Kelola Stok and Memiliki Kadaluarsa apply to Barang only and are stored flags while stock is ignored (P5). **Not on the Item:** price (P43), group, variants, customer-owned goods, purchasing setup, photo, NIE BPOM / izin edar, HPP standar (decided at Surat Jalan), Coretax kode barang / unit codes (with Faktur Pajak). Perizinan is not an Item. |
 | P47 | 29/09/2026 | **Kategori Item is system data without a menu** (`sys_item_category`): Label, Nama and Tipe Item, seeded — Barang: Bahan Baku, Bahan Kemas, Barang Setengah Jadi, Barang Jadi, Barang Dagangan, Barang Habis Pakai; Jasa: Jasa Pemeliharaan, Jasa Konsultasi, Jasa Pengiriman, Jasa Maklon, Jasa Lain-lain. An item takes only a category of its own type; changing the type clears the choice. The account mapping per category is its own menu, later. |
@@ -634,12 +634,13 @@ here. In addition:
   which `m_cash_bank` does not hold; today the account's name carries them.
 - **The advance register shows no payment state.** Belum Dibayar / Sebagian /
   Lunas and the usage state come with Pembayaran and the open items (C22).
-- **The Sales Order and the advance still round tax down (floor)**, compute
-  PPN once per document and take the rate as a constant. P59–P60 move them to
-  half up, the chain, per-line PPN and a snapshotted rate setting; the rework
-  is the next tax step.
-- **The seed still creates PPH42-SEWA** (P44), a final-tax type that P60 puts
-  out of scope.
+- **Sales Orders and advance bills saved before 29/09/2026 keep their
+  floor-era figures.** The P59–P60 rework recomputes a Draft at its next save
+  and a document at Konfirmasi / Terbitkan. Anything already confirmed or
+  issued keeps what it was stored with (development data only).
+- **An installation seeded before P60 still holds PPH42-SEWA.** The seed no
+  longer creates it and never deletes; deactivate it by hand if it is not
+  wanted.
 - **No `seed-showcase.ts` entry for Partner yet.** The simulation's customers
   have not been turned into dev demo data.
 - **The closing suite no longer covers a loss.** SIBA proved the loss side on

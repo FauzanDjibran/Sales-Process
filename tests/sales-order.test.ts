@@ -251,6 +251,28 @@ describe("an order's life", () => {
     assert.deepEqual(events, ["create", "update", "confirm"]);
   });
 
+  test("an order snapshots the PPN rate and stores each line's figures (P60)", async () => {
+    const r = await create(header(), [soLine({ qty: 1, price: 1_000_003 }), soLine({ qty: 1, price: 1_000_003 })]);
+    assert.ok(r.ok);
+    let so = (await getSalesOrder(r.id))!;
+    assert.deepEqual(so.rates, { rate: 12, otherNum: 11, otherDen: 12 });
+    assert.equal(so.totals.ppn, 220_000, "per line: 110.000 + 110.000");
+    const lines = await prisma.salOrderLine.findMany({ where: { order_id: r.id }, orderBy: { line_no: "asc" } });
+    assert.deepEqual(lines.map((l) => [l.dpp_other_amount.toNumber(), l.ppn_amount.toNumber()]), [[916_669, 110_000], [916_669, 110_000]]);
+
+    await prisma.sysSetting.update({ where: { setting_key: "ppn_rate" }, data: { setting_value: "11" } });
+    try {
+      assert.deepEqual(await transitionSalesOrder(r.id, "confirm", actor), { ok: true });
+    } finally {
+      await prisma.sysSetting.update({ where: { setting_key: "ppn_rate" }, data: { setting_value: "12" } });
+    }
+    so = (await getSalesOrder(r.id))!;
+    assert.equal(so.rates?.rate, 11, "Konfirmasi froze the rate in force then");
+    assert.equal(so.totals.ppn, 2 * 100_834, "11 % × 916.669, per line");
+    const confirmed = await prisma.salOrderLine.findMany({ where: { order_id: r.id } });
+    assert.ok(confirmed.every((l) => l.ppn_amount.toNumber() === 100_834), "the lines are restated with it");
+  });
+
   test("cancelling needs a reason, from Draft or Dikonfirmasi", async () => {
     const r = await create();
     assert.ok(r.ok);

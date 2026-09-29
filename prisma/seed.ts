@@ -181,12 +181,9 @@ const WITHHOLDING_TAXES: [label: string, name: string, rate: number, taxObject: 
     15,
     "Dividen, bunga, royalti, serta hadiah, penghargaan dan bonus selain yang telah dipotong PPh 21.",
   ],
-  [
-    "PPH42-SEWA",
-    "PPh Pasal 4 ayat (2) — Sewa Tanah dan/atau Bangunan",
-    10,
-    "Persewaan tanah dan/atau bangunan (final).",
-  ],
+  // Final withholding (PPh 4(2)) is out of scope until it is needed (P60), so
+  // it is not seeded. An installation seeded before that keeps its row; the
+  // seed never deletes.
 ];
 
 /**
@@ -688,6 +685,21 @@ async function ensureReferenceData(
         })
     );
     tally("system default: Jenis PPh untuk Pemungut PPh 22", set);
+  }
+
+  // The PPN rate and the DPP Nilai Lain factor (P60, PMK 131/2024: 12 % on
+  // 11/12). Set once, when a key has never been set; after that they are the
+  // user's, changed when the law changes.
+  for (const [key, value] of [
+    ["ppn_rate", "12"],
+    ["ppn_dpp_other_numerator", "11"],
+    ["ppn_dpp_other_denominator", "12"],
+  ] as const) {
+    const set = await create(
+      () => prisma.sysSetting.findUnique({ where: { setting_key: key } }),
+      () => prisma.sysSetting.create({ data: { setting_key: key, setting_value: value } })
+    );
+    tally(`system default: ${key}`, set);
   }
 
 

@@ -6,6 +6,8 @@ import { authorizeAction } from "@/lib/erp/auth";
 import { isAccessDenied } from "@/lib/erp/auth-errors";
 import {
   isSystemDefaultKey,
+  numberSettingProblem,
+  systemDefaultDef,
   type SystemDefaultKey,
 } from "@/lib/erp/system-defaults";
 import {
@@ -49,6 +51,15 @@ export async function saveSystemDefaults(
     if (!isSystemDefaultKey(key)) continue;
 
     const value = raw == null ? "" : String(raw).trim();
+    // A figure the tax law sets (P60) is never empty and is checked against
+    // its bounds, and the factor's two halves against each other.
+    const def = systemDefaultDef(key);
+    if (def.type === "number") {
+      const problem = numberSettingProblem(def, value, values);
+      if (problem) errors[key] = problem;
+      else clean[key] = String(Number(value));
+      continue;
+    }
     if (value === "") {
       clean[key] = null;
       continue;

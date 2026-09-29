@@ -5,12 +5,13 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 import { formatAddress } from "./partner-shape";
 import { CUSTOMER_CATEGORY } from "./entities";
-import { defaultPph22WithholdingTaxId } from "./system-settings";
+import { PPN_SETTINGS_MISSING, defaultPph22WithholdingTaxId, ppnRates } from "./system-settings";
 import {
   computeSalesTotals,
   lineProblem,
   type AdvanceBasis,
   type DiscountType,
+  type PpnRates,
   type PriceMode,
   type SalesTotals,
 } from "./sales-tax";
@@ -114,6 +115,8 @@ export type SalesOrderOptions = {
   withholdingTaxes: SoWhtOption[];
   /** Jenis PPh a line starts on for a PPh 22 collector (P52). */
   pph22DefaultId: number | null;
+  /** The PPN rate and factor a Draft is computed with now (P60); null when unset. */
+  ppnRates: PpnRates | null;
 };
 
 /** Why a customer cannot be ordered for, or an empty list. */
@@ -135,7 +138,7 @@ function customerProblems(c: {
 }
 
 export async function salesOrderOptions(): Promise<SalesOrderOptions> {
-  const [partners, items, terms, warehouses, taxes, pph22DefaultId] = await Promise.all([
+  const [partners, items, terms, warehouses, taxes, pph22DefaultId, rates] = await Promise.all([
     prisma.mPartner.findMany({
       where: { category: { category_label: CUSTOMER_CATEGORY } },
       orderBy: { partner_label: "asc" },
@@ -156,6 +159,7 @@ export async function salesOrderOptions(): Promise<SalesOrderOptions> {
     prisma.refWarehouse.findMany({ orderBy: { warehouse_label: "asc" } }),
     prisma.refWithholdingTax.findMany({ orderBy: { wht_label: "asc" } }),
     defaultPph22WithholdingTaxId(),
+    ppnRates(),
   ]);
 
   return {
@@ -214,6 +218,7 @@ export async function salesOrderOptions(): Promise<SalesOrderOptions> {
       rate: t.rate.toNumber(),
     })),
     pph22DefaultId,
+    ppnRates: rates,
   };
 }
 
@@ -252,6 +257,8 @@ export type SalesOrderCheck =
       };
       lines: CheckedLine[];
       totals: SalesTotals;
+      /** The snapshot the totals were computed with; null when not Kena PPN. */
+      rates: PpnRates | null;
     }
   | { ok: false; errors: Record<string, string> };
 
@@ -403,6 +410,12 @@ export async function checkSalesOrder(
     errors._lines = "Ada baris yang perlu diperbaiki.";
   }
 
+  // A taxable order snapshots the PPN rate and factor in force (P60); without
+  // them there is nothing to compute its PPN with, so it is refused by name.
+  const taxable = header.is_taxable !== false;
+  const rates = taxable ? await ppnRates() : null;
+  if (taxable && !rates) errors._form = PPN_SETTINGS_MISSING;
+
   if (Object.keys(errors).length) return { ok: false, errors };
 
   const totals = computeSalesTotals({
@@ -415,8 +428,9 @@ export async function checkSalesOrder(
       withholdingKey: l.withholding_tax_id ? String(l.withholding_tax_id) : null,
     })),
     mode: mode as PriceMode,
-    taxable: header.is_taxable !== false,
+    taxable,
     vatCollector,
+    rates,
   });
 
   return {
@@ -437,6 +451,7 @@ export async function checkSalesOrder(
     },
     lines: checked,
     totals,
+    rates,
   };
 }
 
@@ -451,6 +466,14 @@ async function nextOrderNo(db: Db, date: Date): Promise<string> {
     });
     return row?.order_no ?? null;
   });
+}
+
+function rateData(r: PpnRates | null) {
+  return {
+    ppn_rate: r?.rate ?? null,
+    ppn_dpp_other_numerator: r?.otherNum ?? null,
+    ppn_dpp_other_denominator: r?.otherDen ?? null,
+  };
 }
 
 function totalsData(t: SalesTotals) {
@@ -478,6 +501,7 @@ function lineData(l: CheckedLine, t: SalesTotals, i: number) {
     discount_amount: r.discount,
     amount: r.amount,
     dpp_amount: r.dpp,
+    dpp_other_amount: r.dppOther,
     ppn_amount: r.ppn,
     withholding_tax_id: l.withholding_tax_id,
     withholding_rate: l.withholding_rate,
@@ -503,6 +527,7 @@ export async function createSalesOrder(
       data: {
         ...c.header,
         ...totalsData(c.totals),
+        ...rateData(c.rates),
         order_no: await nextOrderNo(tx, c.header.order_date),
         copied_from_id: copiedFromId,
         created_by: actorId,
@@ -538,6 +563,7 @@ export async function updateSalesOrder(
       data: {
         ...c.header,
         ...totalsData(c.totals),
+        ...rateData(c.rates),
         updated_by: actorId,
         lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i)) },
       },
@@ -649,9 +675,18 @@ export async function transitionSalesOrder(
   await prisma.$transaction(async (tx) => {
     const done = await tx.salOrder.updateMany({
       where: { id, status: "Draft" },
-      data: { status: "Confirmed", ...totalsData(c.totals), updated_by: actorId },
+      data: { status: "Confirmed", ...totalsData(c.totals), ...rateData(c.rates), updated_by: actorId },
     });
     if (done.count !== 1) throw new Error("Sales Order berubah saat diproses. Muat ulang halaman.");
+    // Konfirmasi freezes the snapshot (P60): the lines are restated with the
+    // rate in force now, in case the setting changed since the Draft was saved.
+    for (const [i, l] of c.lines.entries()) {
+      const r = c.totals.lines[i];
+      await tx.salOrderLine.updateMany({
+        where: { order_id: id, line_no: l.line_no },
+        data: { dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn, withholding_rate: l.withholding_rate },
+      });
+    }
     await audit(tx, id, "UPDATE", "confirm", actorId);
   });
   return { ok: true };
@@ -714,6 +749,8 @@ export type SalesOrderView = {
   cancelReason: string | null;
   copiedFrom: { id: number; orderNo: string } | null;
   totals: { gross: number; discount: number; dpp: number; dppOther: number; ppn: number; total: number };
+  /** The PPN rate and factor the order carries (P60); null when not Kena PPN. */
+  rates: PpnRates | null;
 };
 
 export async function getSalesOrder(id: number): Promise<SalesOrderView | null> {
@@ -771,7 +808,19 @@ export async function getSalesOrder(id: number): Promise<SalesOrderView | null> 
       ppn: o.ppn_amount.toNumber(),
       total: o.total_amount.toNumber(),
     },
+    rates: ratesOf(o),
   };
+}
+
+/** A stored snapshot back as rates, or null when the document has none. */
+function ratesOf(o: {
+  ppn_rate: Prisma.Decimal | null;
+  ppn_dpp_other_numerator: number | null;
+  ppn_dpp_other_denominator: number | null;
+}): PpnRates | null {
+  return o.ppn_rate && o.ppn_dpp_other_numerator && o.ppn_dpp_other_denominator
+    ? { rate: o.ppn_rate.toNumber(), otherNum: o.ppn_dpp_other_numerator, otherDen: o.ppn_dpp_other_denominator }
+    : null;
 }
 
 /** Order numbers by id, for the audit panel. */

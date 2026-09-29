@@ -220,7 +220,10 @@ export function SalesOrderForm({
     setPicking(false);
   };
 
-  // ---- the figures, exactly as the server will store them
+  // ---- the figures, exactly as the server will store them. A stored order
+  // shows the rate it carries; one being edited previews the rate in force,
+  // which its save will snapshot (P60).
+  const rates = mode === "view" ? (order?.rates ?? null) : options.ppnRates;
   const totals = useMemo(
     () =>
       computeSalesTotals({
@@ -238,8 +241,9 @@ export function SalesOrderForm({
         mode: header.price_mode,
         taxable: header.is_taxable,
         vatCollector: customer?.vatCollector ?? false,
+        rates,
       }),
-    [lines, header.price_mode, header.is_taxable, customer, whtById]
+    [lines, header.price_mode, header.is_taxable, customer, whtById, rates]
   );
 
   const payloadLines = (): SalesOrderLineInput[] =>
@@ -606,6 +610,15 @@ export function SalesOrderForm({
           </button>
         )}
       </div>
+      {editing && header.is_taxable && !rates && (
+        <div className="nbox bad slim">
+          <Icon name="warn" size={15} className="ni" />
+          <div>
+            <b>Tarif PPN belum diatur</b>
+            <p>Isi Tarif PPN dan faktor DPP Nilai Lain di Pengaturan › System Default sebelum menyimpan pesanan Kena PPN.</p>
+          </div>
+        </div>
+      )}
       {errors._lines && (
         <div className="nbox bad slim">
           <Icon name="warn" size={15} className="ni" />
@@ -807,11 +820,13 @@ export function SalesOrderForm({
           {header.is_taxable ? (
             <>
               <div className="ir">
-                <span>DPP Nilai Lain (11/12)</span>
-                <b>{formatMoney(totals.dppOther, "IDR")}</b>
+                <span>
+                  DPP Nilai Lain ({rates ? `${rates.otherNum}/${rates.otherDen}` : "—"}, per baris)
+                </span>
+                <b>{money(totals.dppOther)}</b>
               </div>
               <div className="ir">
-                <span>PPN 12% × DPP Nilai Lain</span>
+                <span>PPN {rates ? formatPct(rates.rate) : "—"} × DPP Nilai Lain</span>
                 <b>{money(totals.ppn)}</b>
               </div>
             </>
@@ -819,6 +834,12 @@ export function SalesOrderForm({
             <div className="ir">
               <span>PPN</span>
               <b>Tidak Kena PPN</b>
+            </div>
+          )}
+          {totals.gross - totals.discount !== totals.total && header.is_taxable && (
+            <div className="ir est">
+              <span>Pembulatan PPN (diserap DPP)</span>
+              <b>−{money(totals.gross - totals.discount - totals.total)}</b>
             </div>
           )}
           <div className="ir tot">

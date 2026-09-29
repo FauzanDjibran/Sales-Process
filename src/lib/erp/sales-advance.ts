@@ -5,12 +5,14 @@ import type { Prisma } from "@/generated/prisma/client";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
 import { advanceSourceOrders, lockSalesOrder, type AdvanceSourceOrder } from "./sales-order";
+import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
 import {
   advanceAmountProblem,
   computeAdvance,
   orderAdvanceValue,
   type AdvanceAmountType,
   type AdvanceFigures,
+  type PpnRates,
 } from "./sales-tax";
 import {
   SALES_ADVANCE_TRANSITIONS,
@@ -93,6 +95,8 @@ export type AdvanceBankOption = { id: number; label: string; name: string; activ
 export type SalesAdvanceOptions = {
   orders: AdvanceOrderOption[];
   banks: AdvanceBankOption[];
+  /** The PPN rate and factor a Draft is computed with now (P60); null when unset. */
+  ppnRates: PpnRates | null;
 };
 
 /**
@@ -101,12 +105,13 @@ export type SalesAdvanceOptions = {
  * edited, whose own draw does not count against its order.
  */
 export async function salesAdvanceOptions(current: { id: number; orderId: number } | null = null): Promise<SalesAdvanceOptions> {
-  const [orders, banks] = await Promise.all([
+  const [orders, banks, rates] = await Promise.all([
     advanceSourceOrders(current ? { ids: [current.orderId] } : { confirmedOnly: true }),
     prisma.mCashBank.findMany({
       where: { cash_bank_type: "Bank", currency: { currency_label: BASE_CURRENCY_LABEL } },
       orderBy: { cash_bank_label: "asc" },
     }),
+    ppnRates(),
   ]);
   const drawn = await drawnByOrder(orders.map((o) => o.id));
   const own = current
@@ -126,6 +131,7 @@ export async function salesAdvanceOptions(current: { id: number; orderId: number
       name: b.cash_bank_name,
       active: b.status === "Active",
     })),
+    ppnRates: rates,
   };
 }
 
@@ -146,6 +152,8 @@ type Checked = {
     amount_value: number;
   };
   figures: AdvanceFigures;
+  /** The bill's own snapshot (P60); null when the order is not Kena PPN. */
+  rates: PpnRates | null;
 };
 
 /**
@@ -189,13 +197,16 @@ export async function checkSalesAdvance(
   const type = input.amount_type;
   const typed = Number(input.amount_value);
   let figures: AdvanceFigures | null = null;
+  // The bill snapshots the PPN rate in force, not the order's (P60).
+  const rates = order?.basis.taxable ? await ppnRates() : null;
+  if (order?.basis.taxable && !rates) errors._form = PPN_SETTINGS_MISSING;
   if (type !== "Percent" && type !== "Amount") errors.amount_value = "Pilih cara mengisi nilai uang muka.";
   else if (order && !errors.order_id) {
     const value = orderAdvanceValue(order.basis);
     const drawn = await drawnByOthers(db, order.id, selfId);
     const problem = advanceAmountProblem(type, typed, value, value - drawn);
     if (problem) errors.amount_value = problem;
-    else figures = computeAdvance({ basis: order.basis, type, typed });
+    else figures = computeAdvance({ basis: order.basis, type, typed, rates });
   }
 
   if (Object.keys(errors).length || !order || !figures) return { ok: false, errors };
@@ -216,6 +227,7 @@ export async function checkSalesAdvance(
         amount_value: typed,
       },
       figures,
+      rates,
     },
   };
 }
@@ -231,6 +243,14 @@ async function nextAdvanceNo(db: Db, date: Date): Promise<string> {
     });
     return row?.advance_no ?? null;
   });
+}
+
+function rateData(r: PpnRates | null) {
+  return {
+    ppn_rate: r?.rate ?? null,
+    ppn_dpp_other_numerator: r?.otherNum ?? null,
+    ppn_dpp_other_denominator: r?.otherDen ?? null,
+  };
 }
 
 function figureData(f: AdvanceFigures) {
@@ -274,6 +294,7 @@ export async function createSalesAdvance(input: SalesAdvanceInput, actorId: numb
         data: {
           ...r.c.data,
           ...figureData(r.c.figures),
+          ...rateData(r.c.rates),
           advance_no: await nextAdvanceNo(tx, r.c.data.advance_date),
           created_by: actorId,
         },
@@ -309,7 +330,8 @@ export async function updateSalesAdvance(
       if (!r.ok) throw new Refused(r.errors);
       const done = await tx.salAdvance.updateMany({
         where: { id, status: "Draft" },
-        data: { ...r.c.data, ...figureData(r.c.figures), updated_by: actorId },
+        data: { ...r.c.data, ...figureData(r.c.figures),
+          ...rateData(r.c.rates), updated_by: actorId },
       });
       if (done.count !== 1) throw new Refused({ _form: "Tagihan berubah saat diproses. Muat ulang halaman." });
       await audit(tx, id, "UPDATE", "update", actorId);
@@ -384,7 +406,8 @@ export async function transitionSalesAdvance(
       }
       const done = await tx.salAdvance.updateMany({
         where: { id, status: "Draft" },
-        data: { status: "Issued", ...figureData(r.c.figures), updated_by: actorId },
+        data: { status: "Issued", ...figureData(r.c.figures),
+          ...rateData(r.c.rates), updated_by: actorId },
       });
       if (done.count !== 1) throw new Refused({ _form: "Tagihan berubah saat diproses. Muat ulang halaman." });
       await audit(tx, id, "UPDATE", "issue", actorId);
@@ -443,6 +466,8 @@ export type SalesAdvanceView = {
   cancelReason: string | null;
   /** As stored — the figures the bill was saved or issued with. */
   figures: { amount: number; dpp: number; dppOther: number; ppn: number; total: number };
+  /** The rate and factor it carries (P60); null when not Kena PPN. */
+  rates: PpnRates | null;
 };
 
 export async function getSalesAdvance(id: number): Promise<SalesAdvanceView | null> {
@@ -463,6 +488,10 @@ export async function getSalesAdvance(id: number): Promise<SalesAdvanceView | nu
       ppn: a.ppn_amount.toNumber(),
       total: a.total_amount.toNumber(),
     },
+    rates:
+      a.ppn_rate && a.ppn_dpp_other_numerator && a.ppn_dpp_other_denominator
+        ? { rate: a.ppn_rate.toNumber(), otherNum: a.ppn_dpp_other_numerator, otherDen: a.ppn_dpp_other_denominator }
+        : null,
   };
 }
 

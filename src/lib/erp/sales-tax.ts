@@ -1,70 +1,85 @@
 /**
- * The sales tax arithmetic — the one place PPN, DPP Nilai Lain and the PPh
- * estimate are computed (Claude-ERP.md §7, §14, P52).
+ * The sales tax arithmetic — the one place DPP, DPP Nilai Lain, PPN and the
+ * PPh estimate are computed (Claude-ERP.md §7, §14; `tax_concept.md` §3, §7).
  *
- * Client-safe and pure: the Sales Order form previews exactly what the Server
- * Action stores, because both call this. Whole rupiah throughout, rounded the
- * way the simulation rounds (`calcSo`, `ppnOf`, `allocate`):
+ * Client-safe and pure: a form previews exactly what its Server Action stores,
+ * because both call this. The rules (P59, P60):
  *
- *   line amount   = round(qty × price − discount)
- *   Exclude PPN   PPN = ⌊Σ amount × 11/100⌋, DPP = Σ amount
- *   Include PPN   PPN = ⌊Σ amount × 11/111⌋, DPP = Σ amount − PPN
- *   DPP Nilai Lain = DPP × 11/12        (PPN 12 % × 11/12 = 11 % effective)
- *   PPN is allocated to the lines by weight; the largest line absorbs the
- *   rounding.
+ *   every tax figure  whole rupiah, rounded half up (PER-11/PJ/2025 art. 129)
+ *   per line          DPP Nilai Lain = round(DPP × pembilang / penyebut)
+ *                     PPN            = round(DPP Nilai Lain × tarif)
+ *   the document      the sum of its lines, as the faktur pajak carries them
+ *   inclusive price   DPP is the largest whole rupiah whose DPP + PPN does not
+ *                     exceed the price, so the difference sits in the DPP and
+ *                     the total is at most one rupiah under the typed price
+ *   PPh               round(DPP of the lines it covers × tarif), per Jenis PPh
  *
- * A Sales Order is Kena PPN or not as a whole (P52). A non-taxable order has no
- * PPN whatever its price mode: its prices are the amounts.
+ * The rate and the factor are never constants here: each document passes the
+ * ones it snapshotted from the System Default (P60).
+ *
+ * Every division that rounds is done on integers (BigInt), so a figure that
+ * sits exactly on half a rupiah rounds up the way the regulation says, however
+ * large, and never lands on the wrong side by a floating-point hair.
+ *
+ * A document is Kena PPN or not as a whole (P52). A non-taxable document has no
+ * PPN whatever its price mode: its prices are its amounts.
  */
 
 export type PriceMode = "Exclude" | "Include";
 export type DiscountType = "Percent" | "Amount";
 
-export type SalesLineInput = {
-  qty: number;
-  /** Per unit, in the order's price mode. */
-  price: number;
-  discountType: DiscountType | null;
-  /** A percent for `Percent`, rupiah for `Amount`. */
-  discountValue: number | null;
-  /** Percent, e.g. 1.5 — null when the line is not withheld. */
-  withholdingRate: number | null;
-  /** Groups the PPh estimate; null when not withheld. */
-  withholdingKey: string | null;
+/** The PPN rate and the DPP Nilai Lain factor a document computes with. */
+export type PpnRates = {
+  /** Percent, e.g. 12. */
+  rate: number;
+  /** DPP Nilai Lain = DPP × otherNum / otherDen, e.g. 11 / 12. */
+  otherNum: number;
+  otherDen: number;
 };
 
-export type SalesLineResult = {
-  gross: number;
-  discount: number;
-  amount: number;
-  dpp: number;
-  ppn: number;
-};
+// ------------------------------------------------------------- rounding
 
-export type WithholdingEstimate = { key: string; rate: number; base: number; amount: number };
+/** Scale a percent to an integer: up to four decimals, as `Decimal(9,4)` holds. */
+const PCT_SCALE = 10_000;
 
-export type SalesTotals = {
-  lines: SalesLineResult[];
-  gross: number;
-  discount: number;
-  dpp: number;
-  /** DPP Nilai Lain, to two decimals. */
-  dppOther: number;
-  ppn: number;
-  total: number;
-  withholdings: WithholdingEstimate[];
-  withholdingTotal: number;
-  /** PPN the buyer collects and remits itself (WAPU); it does not pay it. */
-  collectedPpn: number;
-  /** What the customer is expected to transfer. */
-  expectedReceipt: number;
-};
+/** round(a × num / den), half up (half away from zero), on integers. */
+function mulDivRound(a: number, num: number, den: number): number {
+  const n = BigInt(Math.round(a)) * BigInt(Math.round(num));
+  const d = BigInt(Math.round(den));
+  const neg = n < BigInt(0) !== d < BigInt(0);
+  const an = n < BigInt(0) ? -n : n;
+  const ad = d < BigInt(0) ? -d : d;
+  let q = an / ad;
+  if ((an % ad) * BigInt(2) >= ad) q += BigInt(1);
+  const r = Number(q);
+  return neg ? -r : r;
+}
 
-/** PPN on a sum, per the price mode. The epsilon mirrors the simulation's. */
-export function ppnOf(amount: number, mode: PriceMode): number {
-  return mode === "Exclude"
-    ? Math.floor((amount * 11) / 100 + 1e-7)
-    : Math.floor((amount * 11) / 111 + 1e-7);
+/** round(amount × percent / 100), half up — the PPh, and the PPN on DPP Nilai Lain. */
+export function percentOf(amount: number, percent: number): number {
+  return mulDivRound(amount, Math.round(percent * PCT_SCALE), 100 * PCT_SCALE);
+}
+
+/** DPP Nilai Lain and PPN on a whole-rupiah DPP (the chain, P59). */
+export function ppnChain(dpp: number, r: PpnRates): { dppOther: number; ppn: number } {
+  const dppOther = mulDivRound(dpp, r.otherNum, r.otherDen);
+  return { dppOther, ppn: percentOf(dppOther, r.rate) };
+}
+
+/**
+ * An inclusive price split into DPP and PPN: the largest DPP whose DPP + PPN
+ * does not exceed the price (P60). DPP + PPN rises by one or two rupiah per
+ * rupiah of DPP, so about one price in ten has no exact split and comes out
+ * one rupiah under.
+ */
+export function inclusiveSplit(price: number, r: PpnRates): { dpp: number; dppOther: number; ppn: number } {
+  const p = Math.round(price);
+  if (p <= 0) return { dpp: p, dppOther: 0, ppn: 0 };
+  const total = (d: number) => d + ppnChain(d, r).ppn;
+  let d = Math.floor(p / (1 + ((r.rate / 100) * r.otherNum) / r.otherDen));
+  while (d > 0 && total(d) > p) d--;
+  while (total(d + 1) <= p) d++;
+  return { dpp: d, ...ppnChain(d, r) };
 }
 
 /** Shares `total` by `weights`; the largest weight absorbs what flooring leaves. */
@@ -76,6 +91,56 @@ export function allocate(total: number, weights: number[]): number[] {
   out[weights.indexOf(Math.max(...weights))] += left;
   return out;
 }
+
+/** DPP, DPP Nilai Lain and PPN of one taxable (or not) amount in a price mode. */
+function taxOf(amount: number, mode: PriceMode, taxable: boolean, rates: PpnRates | null) {
+  if (!taxable || !rates) return { dpp: amount, dppOther: 0, ppn: 0 };
+  if (mode === "Include") return inclusiveSplit(amount, rates);
+  return { dpp: amount, ...ppnChain(amount, rates) };
+}
+
+// ------------------------------------------------------------------ lines
+
+export type SalesLineInput = {
+  qty: number;
+  /** Per unit, in the order's price mode. */
+  price: number;
+  discountType: DiscountType | null;
+  /** A percent for `Percent`, an amount for `Amount`. */
+  discountValue: number | null;
+  /** Percent, e.g. 1.5 — null when the line is not withheld. */
+  withholdingRate: number | null;
+  /** Groups the PPh estimate; null when not withheld. */
+  withholdingKey: string | null;
+};
+
+export type SalesLineResult = {
+  gross: number;
+  discount: number;
+  /** qty × price − discount, in the price mode. */
+  amount: number;
+  dpp: number;
+  dppOther: number;
+  ppn: number;
+};
+
+export type WithholdingEstimate = { key: string; rate: number; base: number; amount: number };
+
+export type SalesTotals = {
+  lines: SalesLineResult[];
+  gross: number;
+  discount: number;
+  dpp: number;
+  dppOther: number;
+  ppn: number;
+  total: number;
+  withholdings: WithholdingEstimate[];
+  withholdingTotal: number;
+  /** PPN the buyer collects and remits itself (WAPU); it does not pay it. */
+  collectedPpn: number;
+  /** What the customer is expected to transfer. */
+  expectedReceipt: number;
+};
 
 /** A line before tax: what it grosses, what its discount takes, what is left. */
 export function lineAmount(l: Pick<SalesLineInput, "qty" | "price" | "discountType" | "discountValue">) {
@@ -100,52 +165,48 @@ export function lineProblem(l: Pick<SalesLineInput, "qty" | "price" | "discountT
   return null;
 }
 
+/** PPh per Jenis PPh on the DPP of the lines each covers, half up. */
+function withholdingsOf(bases: { key: string | null; rate: number | null; dpp: number }[]): WithholdingEstimate[] {
+  const groups = new Map<string, WithholdingEstimate>();
+  for (const b of bases) {
+    if (!b.key || !b.rate) continue;
+    const g = groups.get(b.key) ?? { key: b.key, rate: b.rate, base: 0, amount: 0 };
+    g.base += b.dpp;
+    groups.set(b.key, g);
+  }
+  return [...groups.values()].map((g) => ({ ...g, amount: percentOf(g.base, g.rate) }));
+}
+
 export function computeSalesTotals(input: {
   lines: SalesLineInput[];
   mode: PriceMode;
   taxable: boolean;
   /** The customer collects the PPN itself (Pemungut PPN). */
   vatCollector: boolean;
+  /** Needed when `taxable`; the document's snapshot of the System Default. */
+  rates: PpnRates | null;
 }): SalesTotals {
-  const base = input.lines.map(lineAmount);
-  const amounts = base.map((b) => b.amount);
-  const sumAmount = amounts.reduce((a, b) => a + b, 0);
-
-  const ppn = input.taxable ? ppnOf(sumAmount, input.mode) : 0;
-  const ppnLines = input.taxable ? allocate(ppn, amounts) : amounts.map(() => 0);
-  const inclusive = input.taxable && input.mode === "Include";
-
-  const lines: SalesLineResult[] = base.map((b, i) => ({
-    gross: b.gross,
-    discount: b.discount,
-    amount: b.amount,
-    dpp: inclusive ? b.amount - ppnLines[i] : b.amount,
-    ppn: ppnLines[i],
-  }));
-
-  const dpp = inclusive ? sumAmount - ppn : sumAmount;
+  const lines: SalesLineResult[] = input.lines.map((l) => {
+    const b = lineAmount(l);
+    return { ...b, ...taxOf(b.amount, input.mode, input.taxable, input.rates) };
+  });
+  const sum = (f: (l: SalesLineResult) => number) => lines.reduce((a, l) => a + f(l), 0);
+  const dpp = sum((l) => l.dpp);
+  const ppn = sum((l) => l.ppn);
   const total = dpp + ppn;
 
-  const groups = new Map<string, WithholdingEstimate>();
-  input.lines.forEach((l, i) => {
-    if (!l.withholdingKey || !l.withholdingRate) return;
-    const g = groups.get(l.withholdingKey) ?? { key: l.withholdingKey, rate: l.withholdingRate, base: 0, amount: 0 };
-    g.base += lines[i].dpp;
-    groups.set(l.withholdingKey, g);
-  });
-  const withholdings = [...groups.values()].map((g) => ({
-    ...g,
-    amount: Math.floor((g.base * g.rate) / 100 + 1e-7),
-  }));
+  const withholdings = withholdingsOf(
+    input.lines.map((l, i) => ({ key: l.withholdingKey, rate: l.withholdingRate, dpp: lines[i].dpp }))
+  );
   const withholdingTotal = withholdings.reduce((a, w) => a + w.amount, 0);
   const collectedPpn = input.vatCollector ? ppn : 0;
 
   return {
     lines,
-    gross: base.reduce((a, b) => a + b.gross, 0),
-    discount: base.reduce((a, b) => a + b.discount, 0),
+    gross: sum((l) => l.gross),
+    discount: sum((l) => l.discount),
     dpp,
-    dppOther: Math.round(((dpp * 11) / 12) * 100) / 100,
+    dppOther: sum((l) => l.dppOther),
     ppn,
     total,
     withholdings,
@@ -160,16 +221,15 @@ export function computeSalesTotals(input: {
 /**
  * The advance bill's arithmetic (P55): one value drawn from a Sales Order,
  * typed in the order's price mode — as a percent of the order's value or as a
- * flat value — and the PPN, DPP and DPP Nilai Lain that follow from it, the
- * way the simulation's `advCalc` computes them. The AP advance will draw on the
- * same function (P58).
+ * flat value — and the DPP, DPP Nilai Lain and PPN that follow from it by the
+ * same chain as a line. The AP advance will draw on the same function (P58).
  *
  * The advance is one global amount: it is not split over the order's lines.
  * The PPh estimate is the exception — the order's Jenis PPh sit on its lines,
  * Barang included (PPh 22), so the advance's DPP is shared over them by the
  * DPP each covers, the largest share absorbing the rounding, and each share is
- * withheld at its own rate (the simulation's brief B2). It is an estimate: what
- * the customer actually withholds is recorded by Pembayaran.
+ * withheld at its own rate. It is an estimate: what the customer withholds is
+ * recorded by the payment.
  */
 
 export type AdvanceAmountType = "Percent" | "Amount";
@@ -227,12 +287,17 @@ export function advanceAmountProblem(type: AdvanceAmountType, typed: number, val
   return null;
 }
 
-export function computeAdvance(input: { basis: AdvanceBasis; type: AdvanceAmountType; typed: number }): AdvanceFigures {
+export function computeAdvance(input: {
+  basis: AdvanceBasis;
+  type: AdvanceAmountType;
+  typed: number;
+  /** Needed when the order is taxable; the bill's own snapshot (P60). */
+  rates: PpnRates | null;
+}): AdvanceFigures {
   const b = input.basis;
   const value = orderAdvanceValue(b);
   const amount = advanceAmountOf(input.type, input.typed, value);
-  const ppn = b.taxable ? ppnOf(amount, b.mode) : 0;
-  const dpp = b.taxable && b.mode === "Include" ? amount - ppn : amount;
+  const { dpp, dppOther, ppn } = taxOf(amount, b.mode, b.taxable, input.rates);
   const total = dpp + ppn;
 
   const groups = b.withholdings.filter((w) => w.base > 0 && w.rate > 0);
@@ -242,7 +307,7 @@ export function computeAdvance(input: { basis: AdvanceBasis; type: AdvanceAmount
     key: w.key,
     rate: w.rate,
     base: shares[i],
-    amount: Math.floor((shares[i] * w.rate) / 100 + 1e-7),
+    amount: percentOf(shares[i], w.rate),
   }));
   const withholdingTotal = withholdings.reduce((a, w) => a + w.amount, 0);
   const collectedPpn = b.vatCollector ? ppn : 0;
@@ -251,7 +316,7 @@ export function computeAdvance(input: { basis: AdvanceBasis; type: AdvanceAmount
     amount,
     percent: value ? Math.round((amount / value) * 10000) / 100 : 0,
     dpp,
-    dppOther: b.taxable ? Math.round(((dpp * 11) / 12) * 100) / 100 : 0,
+    dppOther,
     ppn,
     total,
     withholdings,

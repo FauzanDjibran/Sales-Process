@@ -51,6 +51,7 @@ export default async function SystemDefaultPage() {
     def: SystemDefaultDef,
     current: SystemDefaultValues
   ): Promise<RefOption[]> {
+    if (def.type !== "ref") return [];
     const chosen = Number(current[def.key] ?? "");
     const keep = (id: number, active: boolean) => active || id === chosen;
 

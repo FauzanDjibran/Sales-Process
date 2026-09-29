@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { checkAccountIsLeaf } from "./records";
+import type { PpnRates } from "./sales-tax";
 import {
   EMPTY_SYSTEM_DEFAULTS,
   SYSTEM_DEFAULTS,
@@ -77,7 +78,7 @@ export async function systemDefaultsUsingAccount(
 ): Promise<string[]> {
   const current = await systemDefaults();
   return SYSTEM_DEFAULTS.filter(
-    (def) => def.ref === "acc_account" && refValueOf(current, def.key) === accountId
+    (def) => def.type === "ref" && def.ref === "acc_account" && refValueOf(current, def.key) === accountId
   ).map((def) => def.name);
 }
 
@@ -110,6 +111,27 @@ export async function defaultPph22WithholdingTaxId(): Promise<number | null> {
   return (await checkSystemDefaultValue("pph22_withholding_tax", id)) ? null : id;
 }
 
+/**
+ * The PPN rate and DPP Nilai Lain factor in force, or null when any of them
+ * is unset or unusable — a taxable document is then refused by name rather
+ * than computed on a guess (P60). A document snapshots what this returns.
+ */
+export async function ppnRates(): Promise<PpnRates | null> {
+  const v = await systemDefaults();
+  const rate = Number(v.ppn_rate);
+  const otherNum = Number(v.ppn_dpp_other_numerator);
+  const otherDen = Number(v.ppn_dpp_other_denominator);
+  const ok =
+    v.ppn_rate != null && v.ppn_dpp_other_numerator != null && v.ppn_dpp_other_denominator != null &&
+    rate > 0 && rate <= 100 && Number.isInteger(otherNum) && Number.isInteger(otherDen) &&
+    otherNum > 0 && otherDen >= otherNum;
+  return ok ? { rate, otherNum, otherDen } : null;
+}
+
+/** The refusal a taxable document reads when the PPN settings are not usable. */
+export const PPN_SETTINGS_MISSING =
+  "Tarif PPN atau faktor DPP Nilai Lain belum diatur di System Default.";
+
 // ------------------------------------------------------- posting targets
 
 /**
@@ -128,6 +150,7 @@ export async function checkSystemDefaultValue(
   id: number
 ): Promise<string | null> {
   const def = systemDefaultDef(key);
+  if (def.type !== "ref") return null;
   if (def.ref === "ref_withholding_tax") {
     const tax = await prisma.refWithholdingTax.findUnique({
       where: { id },

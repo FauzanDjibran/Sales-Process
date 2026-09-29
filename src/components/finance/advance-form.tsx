@@ -148,10 +148,15 @@ export function AdvanceForm({
   };
 
   const typed = Number(s.amount_value) || 0;
+  // A stored bill shows the rate it carries; one being edited previews the
+  // rate in force, which its save will snapshot (P60).
+  const rates = mode === "view" ? (advance?.rates ?? null) : options.ppnRates;
   const figures = useMemo(
-    () => (order ? computeAdvance({ basis: order.basis, type: s.amount_type, typed }) : null),
-    [order, s.amount_type, typed]
+    () => (order ? computeAdvance({ basis: order.basis, type: s.amount_type, typed, rates }) : null),
+    [order, s.amount_type, typed, rates]
   );
+  const factor = rates ? `${rates.otherNum}/${rates.otherDen}` : "—";
+  const ratePct = rates ? formatPct(rates.rate) : "—";
   const over =
     editing && order && typed > 0
       ? advanceAmountProblem(s.amount_type, typed, order.value, order.left) !== null
@@ -484,39 +489,32 @@ export function AdvanceForm({
             <div className="ttl">
               Perhitungan Uang Muka · {order.basis.taxable ? MODE_TEXT[order.basis.mode] : "Tidak Kena PPN"}
             </div>
-            {inclusive ? (
+            {order.basis.taxable ? (
               <>
+                {inclusive && (
+                  <div className="ir">
+                    <span>Nilai uang muka (termasuk PPN)</span>
+                    <b>{money(figures.amount)}</b>
+                  </div>
+                )}
                 <div className="ir">
-                  <span>Nilai uang muka (termasuk PPN)</span>
-                  <b>{money(figures.amount)}</b>
-                </div>
-                <div className="ir">
-                  <span>PPN = 11/111 × nilai</span>
-                  <b>{money(figures.ppn)}</b>
-                </div>
-                <div className="ir">
-                  <span>DPP = nilai − PPN</span>
+                  <span>{inclusive ? "DPP (nilai tanpa PPN)" : "DPP uang muka"}</span>
                   <b>{money(figures.dpp)}</b>
                 </div>
                 <div className="ir">
-                  <span>DPP Nilai Lain (11/12)</span>
-                  <b>{formatMoney(figures.dppOther, "IDR")}</b>
-                </div>
-              </>
-            ) : order.basis.taxable ? (
-              <>
-                <div className="ir">
-                  <span>DPP uang muka</span>
-                  <b>{money(figures.dpp)}</b>
+                  <span>DPP Nilai Lain ({factor})</span>
+                  <b>{money(figures.dppOther)}</b>
                 </div>
                 <div className="ir">
-                  <span>DPP Nilai Lain (11/12)</span>
-                  <b>{formatMoney(figures.dppOther, "IDR")}</b>
-                </div>
-                <div className="ir">
-                  <span>PPN 12% × DPP Nilai Lain</span>
+                  <span>PPN {ratePct} × DPP Nilai Lain</span>
                   <b>{money(figures.ppn)}</b>
                 </div>
+                {inclusive && figures.total !== figures.amount && (
+                  <div className="ir est">
+                    <span>Pembulatan PPN (diserap DPP)</span>
+                    <b>−{money(figures.amount - figures.total)}</b>
+                  </div>
+                )}
               </>
             ) : (
               <>

@@ -1372,6 +1372,12 @@ model SalOrder {
   /// Whether the order carries PPN at all, decided once for the order (P52).
   is_taxable   Boolean   @default(true)
   price_mode   PriceMode
+  /// The PPN rate and DPP Nilai Lain factor the order was computed with,
+  /// snapshotted from the System Default at each save while Draft and frozen
+  /// at Konfirmasi (P60). Null when the order is not Kena PPN.
+  ppn_rate                  Decimal? @db.Decimal(9, 4)
+  ppn_dpp_other_numerator   Int?
+  ppn_dpp_other_denominator Int?
 
   po_no          String?
   po_date        DateTime? @db.Date
@@ -1384,7 +1390,7 @@ model SalOrder {
   gross_amount    Decimal @default(0) @db.Decimal(18, 2)
   discount_amount Decimal @default(0) @db.Decimal(18, 2)
   dpp_amount      Decimal @default(0) @db.Decimal(18, 2)
-  /// DPP Nilai Lain, DPP × 11/12.
+  /// DPP Nilai Lain, the sum of the lines' (P60).
   dpp_other_amount Decimal @default(0) @db.Decimal(18, 2)
   ppn_amount      Decimal @default(0) @db.Decimal(18, 2)
   total_amount    Decimal @default(0) @db.Decimal(18, 2)
@@ -1435,6 +1441,8 @@ model SalOrderLine {
   /// qty × price − discount, whole rupiah.
   amount          Decimal       @db.Decimal(18, 2)
   dpp_amount      Decimal       @db.Decimal(18, 2)
+  /// DPP Nilai Lain of this line; PPN is computed per line from it (P60).
+  dpp_other_amount Decimal      @default(0) @db.Decimal(18, 2)
   ppn_amount      Decimal       @db.Decimal(18, 2)
 
   /// The PPh the customer is expected to withhold on this line, or null (P52).
@@ -1484,6 +1492,12 @@ model SalAdvance {
   /// Copied from the order, which is locked once confirmed.
   price_mode PriceMode
   is_taxable Boolean
+  /// The bill's own snapshot of the PPN rate and DPP Nilai Lain factor, taken
+  /// at each save while Draft and frozen at Terbitkan (P60). Null when the
+  /// order is not Kena PPN.
+  ppn_rate                  Decimal? @db.Decimal(9, 4)
+  ppn_dpp_other_numerator   Int?
+  ppn_dpp_other_denominator Int?
 
   /// As typed: a percent of the order's value, or a flat value (P55).
   amount_type  AdvanceAmountType
@@ -1493,7 +1507,7 @@ model SalAdvance {
   /// The value drawn, in the order's price mode — what the room is spent in.
   amount           Decimal @db.Decimal(18, 2)
   dpp_amount       Decimal @db.Decimal(18, 2)
-  /// DPP Nilai Lain, DPP × 11/12; zero when the order is not Kena PPN.
+  /// DPP Nilai Lain by the snapshotted factor; zero when not Kena PPN.
   dpp_other_amount Decimal @db.Decimal(18, 2)
   ppn_amount       Decimal @db.Decimal(18, 2)
   /// What the bill asks for: DPP + PPN.

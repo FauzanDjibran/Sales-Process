@@ -12,7 +12,9 @@
  * stays with the Server Actions. The account-valued settings are the exception
  * that names a destination: the FX difference account and the two Laba/Rugi
  * equity accounts are where postings and the Neraca go, one each for the one
- * company (Claude-ERP.md P9, P23).
+ * company (Claude-ERP.md P9, P23). The PPN settings are the other exception:
+ * they are the tax law's figures, which every taxable document snapshots when
+ * it is saved (P60), so they can never be empty.
  *
  * Client-safe on purpose — no `server-only`, no database import: the settings
  * form reads the same catalogue the Server Action writes against.
@@ -24,12 +26,15 @@ export type SystemDefaultKey =
   | "fx_account"
   | "accumulated_pl_account"
   | "current_pl_account"
-  | "pph22_withholding_tax";
+  | "pph22_withholding_tax"
+  | "ppn_rate"
+  | "ppn_dpp_other_numerator"
+  | "ppn_dpp_other_denominator";
 
 /** Which master a `ref` setting points at — a registry entity key. */
 export type SystemDefaultRef = "ref_currency" | "acc_account" | "ref_withholding_tax";
 
-export type SystemDefaultGroupKey = "application" | "fx" | "equity_pl" | "sales";
+export type SystemDefaultGroupKey = "application" | "fx" | "equity_pl" | "sales" | "tax";
 
 export type SystemDefaultGroup = {
   key: SystemDefaultGroupKey;
@@ -73,20 +78,41 @@ export const SYSTEM_DEFAULT_GROUPS = [
       "dokumennya.",
     icon: "tags",
   },
+  {
+    key: "tax",
+    name: "Pajak",
+    desc:
+      "Tarif PPN dan faktor DPP Nilai Lain yang berlaku. Ubah hanya saat " +
+      "ketentuan pajak berubah: setiap dokumen menyalin nilai yang berlaku " +
+      "saat disimpan, sehingga dokumen yang sudah ada tidak ikut berubah.",
+    icon: "scale",
+  },
 ] as const satisfies readonly SystemDefaultGroup[];
 
-export type SystemDefaultDef = {
+type SystemDefaultBase = {
   key: SystemDefaultKey;
   /** Indonesian label shown on the settings page. */
   name: string;
   help: string;
   icon: IconName;
-  /** A `ref` setting stores the referenced row's id as text. */
-  type: "ref";
-  /** Registry entity key the value points at. */
-  ref: SystemDefaultRef;
   group: SystemDefaultGroupKey;
 };
+
+export type SystemDefaultDef =
+  | (SystemDefaultBase & {
+      /** A `ref` setting stores the referenced row's id as text. */
+      type: "ref";
+      /** Registry entity key the value points at. */
+      ref: SystemDefaultRef;
+    })
+  | (SystemDefaultBase & {
+      /** A `number` setting stores a figure as text; it is never empty. */
+      type: "number";
+      decimals: number;
+      /** Exclusive lower bound and inclusive upper bound. */
+      above: number;
+      atMost: number;
+    });
 
 export const SYSTEM_DEFAULTS = [
   {
@@ -158,6 +184,45 @@ export const SYSTEM_DEFAULTS = [
     group: "sales",
     help: "mengisi Jenis PPh baris Sales Order untuk customer pemungut PPh 22",
   },
+
+  // ------------------------------------------------------------------ tax
+  //
+  // PPN = round(Tarif PPN × round(DPP × pembilang / penyebut)) (P59, P60).
+  // The factor is two whole numbers rather than a decimal because 11/12 has
+  // no exact decimal form.
+  {
+    key: "ppn_rate",
+    name: "Tarif PPN (%)",
+    icon: "scale",
+    type: "number",
+    decimals: 2,
+    above: 0,
+    atMost: 100,
+    group: "tax",
+    help: "dikalikan pada DPP Nilai Lain",
+  },
+  {
+    key: "ppn_dpp_other_numerator",
+    name: "DPP Nilai Lain — Pembilang",
+    icon: "calc",
+    type: "number",
+    decimals: 0,
+    above: 0,
+    atMost: 1000,
+    group: "tax",
+    help: "DPP Nilai Lain = DPP × pembilang / penyebut",
+  },
+  {
+    key: "ppn_dpp_other_denominator",
+    name: "DPP Nilai Lain — Penyebut",
+    icon: "calc",
+    type: "number",
+    decimals: 0,
+    above: 0,
+    atMost: 1000,
+    group: "tax",
+    help: "tidak boleh lebih kecil dari pembilang",
+  },
 ] as const satisfies readonly SystemDefaultDef[];
 
 /** What each key is set to; a key that has never been set reads as null. */
@@ -169,6 +234,9 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   accumulated_pl_account: null,
   current_pl_account: null,
   pph22_withholding_tax: null,
+  ppn_rate: null,
+  ppn_dpp_other_numerator: null,
+  ppn_dpp_other_denominator: null,
 };
 
 export function isSystemDefaultKey(key: string): key is SystemDefaultKey {
@@ -195,4 +263,24 @@ export function refValueOf(
   if (raw == null || raw === "") return null;
   const n = Number(raw);
   return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/**
+ * Why a `number` setting's value cannot be stored, or null. The factor's two
+ * halves are checked against each other: DPP Nilai Lain never exceeds the DPP.
+ */
+export function numberSettingProblem(
+  def: Extract<SystemDefaultDef, { type: "number" }>,
+  raw: string,
+  values: Partial<SystemDefaultValues>
+): string | null {
+  const n = Number(raw);
+  if (raw.trim() === "" || !Number.isFinite(n)) return "Wajib diisi dengan angka.";
+  if (def.decimals === 0 && !Number.isInteger(n)) return "Harus bilangan bulat.";
+  if (!(n > def.above) || n > def.atMost) return `Harus lebih dari ${def.above} dan paling besar ${def.atMost}.`;
+  if (def.key === "ppn_dpp_other_denominator") {
+    const num = Number(values.ppn_dpp_other_numerator);
+    if (Number.isFinite(num) && n < num) return "Penyebut tidak boleh lebih kecil dari pembilang.";
+  }
+  return null;
 }

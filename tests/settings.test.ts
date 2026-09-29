@@ -8,12 +8,15 @@ import {
   SYSTEM_DEFAULTS,
   isSystemDefaultKey,
   refValueOf,
+  numberSettingProblem,
+  systemDefaultDef,
 } from "../src/lib/erp/system-defaults";
 import {
   checkSystemDefaultValue,
   defaultCurrencyId,
   missingClosingAccounts,
   missingNeracaAccounts,
+  ppnRates,
   systemDefaults,
   systemDefaultsUsingAccount,
   writeSystemDefaults,
@@ -331,5 +334,25 @@ describe("the equity accounts closing posts into", () => {
       "Account Laba/Rugi Tahun Sebelumnya",
     ]);
     await prisma.accAccount.update({ where: { id: accumulated }, data: { is_active: true } });
+  });
+});
+
+describe("the PPN settings (P60)", () => {
+  test("seeded to 12 % on 11/12 and read as the rates documents snapshot", async () => {
+    assert.deepEqual(await ppnRates(), { rate: 12, otherNum: 11, otherDen: 12 });
+  });
+
+  test("a figure the tax law sets is never empty and stays in bounds", () => {
+    const rate = systemDefaultDef("ppn_rate");
+    const num = systemDefaultDef("ppn_dpp_other_numerator");
+    const den = systemDefaultDef("ppn_dpp_other_denominator");
+    assert.ok(rate.type === "number" && num.type === "number" && den.type === "number");
+    assert.ok(numberSettingProblem(rate, "", {}), "empty");
+    assert.ok(numberSettingProblem(rate, "0", {}), "zero");
+    assert.ok(numberSettingProblem(rate, "101", {}), "over 100 %");
+    assert.equal(numberSettingProblem(rate, "12", {}), null);
+    assert.ok(numberSettingProblem(num, "11.5", {}), "a whole number");
+    assert.ok(numberSettingProblem(den, "10", { ppn_dpp_other_numerator: "11" }), "DPP Nilai Lain never exceeds DPP");
+    assert.equal(numberSettingProblem(den, "12", { ppn_dpp_other_numerator: "11" }), null);
   });
 });
