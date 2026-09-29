@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20260929122311_remove_cash_bank_layers`
+- **As of migration:** `20260929150354_partner_address_contact_tax_regions`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **One company** (P9): no table carries a company. Budget, Cash Bank
@@ -11,6 +11,10 @@ migration updates this file in the same change (Claude-ERP.md §9).
   books are not carried (P10, P19, P25). SIBA's rate layers were removed
   (P37): a foreign Cash & Bank resource is valued at its moving average,
   `cash_bank_balance.base_balance ÷ balance`.
+- `sys_region_*` hold Indonesia's provinsi → kota/kabupaten → kecamatan →
+  kelurahan/desa with each kelurahan's kode pos. They are system reference data
+  seeded from `prisma/data/region.tsv.gz`. A Partner address stores only its
+  kelurahan (P39).
 - `created_by` / `updated_by` hold a user id with no foreign key, as in SIBA.
 - Money is `decimal(18, 2)`, rates `decimal(18, 6)`. Calendar dates are `date`,
   timestamps `timestamptz`.
@@ -67,6 +71,22 @@ Enum AuditAction {
   TAMBAH
   UPDATE
   HAPUS
+}
+
+Enum TaxpayerType {
+  Badan
+  OrangPribadi
+  InstansiPemerintah
+}
+
+Enum TaxIdType {
+  NPWP
+  NIK
+}
+
+Enum VatCollector {
+  None
+  Government
 }
 
 Enum CashBankEntryType {
@@ -234,6 +254,14 @@ Table m_partner {
   category_id int [not null]
   note varchar [null]
   status ActiveStatus [not null, default: 'Active']
+  taxpayer_type TaxpayerType [null]
+  is_pkp boolean [not null, default: false]
+  tax_id_type TaxIdType [null]
+  tax_id varchar [null]
+  tax_name varchar [null]
+  withholds_pph23 boolean [not null, default: false]
+  collects_pph22 boolean [not null, default: false]
+  vat_collector VatCollector [null]
   created_by int [not null]
   updated_by int [null]
   created_at timestamptz [not null, default: `now()`]
@@ -241,6 +269,84 @@ Table m_partner {
 
   indexes {
     category_id
+  }
+}
+
+Table m_partner_address {
+  id int [pk, increment, not null]
+  partner_id int [not null]
+  village_id int [not null]
+  street varchar [not null]
+  note varchar [null]
+  is_billing boolean [not null, default: false]
+  is_shipping boolean [not null, default: false]
+  sort_order int [not null, default: 0]
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    partner_id
+    village_id
+  }
+}
+
+Table m_partner_contact {
+  id int [pk, increment, not null]
+  partner_id int [not null]
+  contact_name varchar [not null]
+  position varchar [not null]
+  phone varchar [not null]
+  email varchar [not null]
+  sort_order int [not null, default: 0]
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    partner_id
+  }
+}
+
+Table sys_region_province {
+  id int [pk, increment, not null]
+  code varchar [unique, not null]
+  name varchar [not null]
+}
+
+Table sys_region_city {
+  id int [pk, increment, not null]
+  code varchar [unique, not null]
+  name varchar [not null]
+  province_id int [not null]
+
+  indexes {
+    province_id
+  }
+}
+
+Table sys_region_district {
+  id int [pk, increment, not null]
+  code varchar [unique, not null]
+  name varchar [not null]
+  city_id int [not null]
+
+  indexes {
+    city_id
+  }
+}
+
+Table sys_region_village {
+  id int [pk, increment, not null]
+  code varchar [unique, not null]
+  name varchar [not null]
+  district_id int [not null]
+  postal_code varchar [null]
+
+  indexes {
+    district_id
   }
 }
 
@@ -510,6 +616,12 @@ Ref: sys_role_permission.role_id > sys_role.id
 Ref: sys_role_permission.permission_id > sys_permission.id
 Ref: sys_session.user_id > sys_user.id
 Ref: m_partner.category_id > sys_partner_category.id
+Ref: m_partner_address.partner_id > m_partner.id
+Ref: m_partner_address.village_id > sys_region_village.id
+Ref: m_partner_contact.partner_id > m_partner.id
+Ref: sys_region_city.province_id > sys_region_province.id
+Ref: sys_region_district.city_id > sys_region_city.id
+Ref: sys_region_village.district_id > sys_region_district.id
 Ref: m_cash_bank.currency_id > ref_currency.id
 Ref: m_cash_bank.account_id > acc_account.id
 Ref: cash_bank_ledger.cash_bank_id > m_cash_bank.id

@@ -46,7 +46,8 @@ export const ICON_PATHS = {  grid:'<path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-
   lock:'<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
   more:'<circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/>',
   menu:'<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>',
-  wallet2:'<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><circle cx="17.5" cy="14.5" r="1.2"/>'
+  wallet2:'<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><circle cx="17.5" cy="14.5" r="1.2"/>',
+  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>'
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

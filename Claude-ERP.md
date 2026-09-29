@@ -90,9 +90,9 @@ sales behaviour the simulation implements, and carry over through it.
 | Area | State |
 | --- | --- |
 | Project guideline (this file) | Written 29/09/2026; clash decisions recorded 29/09/2026 |
-| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 not started |
+| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 started: Partner (customer side) done 29/09/2026 |
 | Code | Phase 1 carried and adapted: one company, no Budget, Control Account set by the user, `PREFIX/YYYY/MM/NNNN` numbering, dashboard placeholder. `npm run build`, `npm run lint` and `npm test` pass on PostgreSQL 18; the Phase 1 walk-through (fiscal year, accounts, Partner, Cash & Bank with opening balance, manual journal, General Ledger, Trial Balance) checked in a browser and in Postgres |
-| Schema | Baseline migration plus the removal of rate layers (P37); `DBML/erp.dbml.md` in step |
+| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42); `DBML/erp.dbml.md` in step |
 
 ---
 
@@ -297,6 +297,10 @@ is always **Penerimaan / Pengeluaran** (§12 P17). The rules most often at stake
 - Dates `dd/mm/yyyy`; `.` thousands, `,` decimals; all through `lib/format.ts`.
 - Mono font for codes, document numbers, money and rates — never names.
 - `RecordHistoryCard` is the last card on every saved record's form.
+- **Form layout (P38):** header card → tabs for the rest (only when there is
+  more than one section or collection) → history card. A collection tab is a
+  table whose rows are added and changed in a panel dialog; the dialog changes
+  the form, and the record's own Simpan writes it.
 - Every growing list has the `Pager`.
 
 **UI patterns the simulation adds** (carried as the simulation built them, into
@@ -484,6 +488,11 @@ Newest last. Later entries override earlier ones and say so.
 | P35 | 29/09/2026 | **Fiscal-year closing keeps its own record, one per year.** `acc_fiscal_closing` stays, without a company column; closing writes it and the year's Closed status in one transaction. |
 | P36 | 29/09/2026 | **The stack matches SIBA's versions, PostgreSQL 18 included**, in development, tests and CI. |
 | P37 | 29/09/2026 | **A foreign Cash & Bank resource is valued at its moving average; SIBA's rate layers are removed.** Money arriving joins the resource at the kurs it was received at; money leaving is released at the resource's carrying rate (`base_balance ÷ balance`) and takes no typed kurs; emptying a resource releases its remaining base exactly. **Backdating stays, and a backdated movement is valued at the average as it stands when it is posted** — the book does not replay history; this is the accepted concept. `cash_bank_layer`, the Posisi Layer Kurs report and its permission are dropped. Amends P31. |
+| P38 | 29/09/2026 | **The ERP's form layout: a header card, then tabs, then the record history.** Whenever a record has more than one section or collection to fill in, everything beyond the header card goes into tabs (the UI reference's §7.8 pattern: accent underline, record count on a collection tab, a marker on a tab holding an error). A form with one section has no tabs. A collection tab lists its rows in a table and adds or changes one row in a panel dialog. Overrides design convention D22 (no tabs) and §8.9 (no record editing in a modal) for forms. Built into the registry: `Entity.tabs`, `Field.tab` / `section`. Existing forms keep their layout until they are next changed. |
+| P39 | 29/09/2026 | **A Partner has addresses and contact persons, saved with it.** An address is a kelurahan / desa chosen top-down (provinsi → kota / kabupaten → kecamatan → kelurahan), the street typed by hand, a note, and two flags: **Penagihan** (the faktur target) and **Pengiriman** (the shipping target). Only the kelurahan is stored; the rest and the kode pos follow from it. **At least one address, flags optional.** It is shown as one line: `Provinsi, Kota, Kecamatan, Kelurahan, Alamat, Kode Pos`. A contact is Nama, Posisi, Nomor Telepon and Email, all required; contacts are optional. Both are part of the Partner — one transaction, one audit entry — and a removed row is deleted. |
+| P40 | 29/09/2026 | **Indonesian regions are system reference data** (`sys_region_province / city / district / village`, kode pos per kelurahan), seeded from `prisma/data/region.tsv.gz`, which is converted from cahyadsn/wilayah and cahyadsn/wilayah_kodepos (Kepmendagri 2025, MIT). The seed matches on the Kemendagri code, updates names in place and never deletes. Indonesia only for now. |
+| P41 | 29/09/2026 | **Partner is built customer-first; Supplier starts inactive.** The seeded Supplier category is deactivated (one-time, in the migration; a fresh install seeds it Inactive), so it can be switched back on when purchasing arrives. The target is one Partner master for both roles: the tax identity is shared, and role-specific tax behaviour shows only for its role. |
+| P42 | 29/09/2026 | **The Partner's tax data has its own Pajak tab.** *Identitas Pajak* is Tipe Wajib Pajak (Badan / Orang Pribadi / Instansi Pemerintah), Jenis Identitas (NPWP / NIK), the 16-digit number (stored without separators), Nama sesuai NPWP / NIK, and Status PKP. Rules: only an Orang Pribadi may use a NIK; a PKP uses its NPWP. *Perlakuan Pajak Penjualan*, for Customers only, is: customer withholds PPh 23; customer collects PPh 22; Pemungut PPN = Bukan Pemungut / Instansi Pemerintah (kode 02, only for an Instansi Pemerintah). NITKU is deferred (C23). Credit limit, default Include / Exclude PPN, sales block and the Sales Order defaults are deferred (C24). |
 
 ---
 
@@ -583,6 +592,14 @@ here. In addition:
 - **A manual journal keeps the number it was drafted with.** It is numbered
   in the series of the month its draft is dated; re-dating the draft into
   another month does not renumber it.
+- **Partners created before P39 have no address and no tax identity.** The
+  columns are nullable for them; the next save through the form requires both.
+- **Removing a Partner address deletes it.** Nothing refers to one yet. When
+  the Sales Order and the faktur arrive they must keep their own copy of the
+  address they print (or addresses must become deactivatable), otherwise
+  removing one would rewrite a posted document's address.
+- **No `seed-showcase.ts` entry for Partner yet.** The simulation's customers
+  have not been turned into dev demo data.
 - **The closing suite no longer covers a loss.** SIBA proved the loss side on
   the second company; with one company only the profit case remains, until a
   fixture year with a loss is added.
@@ -599,7 +616,9 @@ to §12.
 | # | Open item | When |
 | --- | --- | --- |
 | C3 | **Pembayaran purposes and posting accounts** — how *tujuan* is modelled and how each posting finds its accounts (P24) | When the Pembayaran menu is built |
-| C6 | **Contents of each master** — `m_item`, `m_partner`, and each reference master (P26) | When that master is built |
+| C6 | **Contents of each master** — `m_item` and each reference master (P26). `m_partner` decided in P39–P42 | When that master is built |
+| C23 | **NITKU** — the 22-digit place-of-business identity a faktur names (NPWP + 6 digits, `000000` head office). Proposed: one per billing address, since DJP registers a NITKU at an address and a faktur carries both | When Faktur Pajak is built |
+| C24 | **Customer sales terms** — credit limit (Menunggu Persetujuan over it), default Include / Exclude PPN, sales block with a reason, and the Sales Order defaults that need masters not built yet (salesperson, termin, gudang, price group) | When the Sales Order is built |
 | C14 | **Cash Bank Transfer and Debit / Credit Note** (P19) | Later |
 | C22 | **How `ar_ap_open_item_concept.md` applies** — open items and their ledger as the settlement unit for invoices, advances, receipts and DN/CN, beside the journal-and-GL positions of P25 | When the first document with an outstanding balance is built (advance, invoice, Pembayaran) |
 

@@ -112,7 +112,13 @@ export type Field = {
      * resource needs no kurs — asking for one and answering "1" would be a
      * field that states the obvious on every rupiah account in the system.
      */
-    | "currencyIsForeign";
+    | "currencyIsForeign"
+    /**
+     * The chosen Partner Category is Customer. What a customer does with the
+     * tax on a sale means nothing for a supplier, whose tax is the other way
+     * round and is designed when purchasing is.
+     */
+    | "partnerIsCustomer";
   /**
    * `segment` only. The ref fields whose chosen row supplies the code this
    * segment continues, in priority order — the first one filled wins. Chart of
@@ -144,6 +150,33 @@ export type Field = {
   full?: boolean;
   /** Clearing this field clears these too (dependent refs). */
   resets?: string[];
+  /**
+   * The form tab this field sits in (`Entity.tabs`). A field without one sits
+   * in the header card above the tabs.
+   */
+  tab?: string;
+  /** Section title within the tab's card, when the tab holds more than one. */
+  section?: string;
+};
+
+/**
+ * One tab of a record's form (Claude-ERP.md P38): a form is a header card, then
+ * its remaining content in tabs, then the record history. A form with only one
+ * section has no tabs at all.
+ *
+ * `fields` tabs hold registry fields (those naming the tab). `custom` tabs hold
+ * a collection the registry cannot describe — a Partner's addresses — drawn by
+ * the component `components/master/entity-tabs.tsx` maps the key to. Its value
+ * travels in the form under `_<key>`, and the Server Action decides what to do
+ * with it.
+ */
+export type EntityTab = {
+  key: string;
+  label: string;
+  icon: IconName;
+  /** One line under the card title saying what the tab holds. */
+  desc: string;
+  kind: "fields" | "custom";
 };
 
 export type Column = {
@@ -208,6 +241,8 @@ export type Entity = {
   statusModel?: StatusModel;
   fields: Field[];
   columns: Column[];
+  /** The form's tabs, in order. Absent for a form with one section. */
+  tabs?: EntityTab[];
 };
 
 const ACTIVE_STATUS: StatusModel = {
@@ -309,6 +344,121 @@ export const ENTITIES: Entity[] = [
       },
       STATUS_FIELD,
       NOTE_FIELD,
+
+      // ---- tab Pajak: the identity a faktur pajak names.
+      {
+        name: "taxpayer_type",
+        label: "Tipe Wajib Pajak",
+        type: "select",
+        required: true,
+        tab: "tax",
+        section: "Identitas Pajak",
+        options: ["Badan", "OrangPribadi", "InstansiPemerintah"],
+        optionLabels: {
+          Badan: "Badan",
+          OrangPribadi: "Orang Pribadi",
+          InstansiPemerintah: "Instansi Pemerintah",
+        },
+        help: "Badan dan Instansi Pemerintah wajib NPWP",
+      },
+      {
+        name: "tax_id_type",
+        label: "Jenis Identitas",
+        type: "select",
+        required: true,
+        tab: "tax",
+        section: "Identitas Pajak",
+        options: ["NPWP", "NIK"],
+        defaultValue: "NPWP",
+        help: "NIK hanya untuk Orang Pribadi",
+      },
+      {
+        name: "tax_id",
+        label: "Nomor Identitas",
+        type: "text",
+        required: true,
+        ident: true,
+        tab: "tax",
+        section: "Identitas Pajak",
+        placeholder: "16 digit",
+        help: "16 digit, tanpa titik atau spasi",
+      },
+      {
+        name: "tax_name",
+        label: "Nama sesuai NPWP / NIK",
+        type: "text",
+        required: true,
+        span: 8,
+        tab: "tax",
+        section: "Identitas Pajak",
+        placeholder: "PT Pelanggan Utama",
+        help: "nama yang tercetak di faktur pajak",
+      },
+      {
+        name: "is_pkp",
+        label: "Status PKP",
+        type: "bool",
+        tab: "tax",
+        section: "Identitas Pajak",
+        caption: "Pengusaha Kena Pajak (PKP)",
+        help: "PKP wajib memakai NPWP",
+      },
+      {
+        name: "withholds_pph23",
+        label: "PPh 23",
+        type: "bool",
+        tab: "tax",
+        section: "Perlakuan Pajak Penjualan",
+        visibleWhen: "partnerIsCustomer",
+        caption: "Customer memotong PPh 23",
+        captionDetail: "atas jasa — pembayarannya kurang sebesar PPh 23 (2%) dan diganti bukti potong",
+      },
+      {
+        name: "collects_pph22",
+        label: "PPh 22",
+        type: "bool",
+        tab: "tax",
+        section: "Perlakuan Pajak Penjualan",
+        visibleWhen: "partnerIsCustomer",
+        caption: "Customer memungut PPh 22",
+        captionDetail: "atas barang — pembayarannya kurang sebesar PPh 22 (1,5%) dan diganti bukti potong",
+      },
+      {
+        name: "vat_collector",
+        label: "Pemungut PPN (WAPU)",
+        type: "select",
+        required: true,
+        tab: "tax",
+        section: "Perlakuan Pajak Penjualan",
+        visibleWhen: "partnerIsCustomer",
+        options: ["None", "Government"],
+        optionLabels: { None: "Bukan Pemungut", Government: "Instansi Pemerintah" },
+        defaultValue: "None",
+        help: "Instansi Pemerintah: faktur kode 02, PPN disetor sendiri oleh pembeli",
+      },
+    ],
+    tabs: [
+      {
+        key: "addresses",
+        label: "Alamat",
+        icon: "pin",
+        desc: "Alamat penagihan (tujuan faktur) dan pengiriman. Minimal satu alamat.",
+        kind: "custom",
+      },
+      {
+        key: "contacts",
+        label: "Contact Person",
+        icon: "users",
+        desc: "Orang yang dihubungi pada Partner ini.",
+        kind: "custom",
+      },
+      {
+        key: "tax",
+        label: "Pajak",
+        icon: "file",
+        desc: "Identitas yang dicantumkan pada faktur pajak dan bukti potong.",
+        kind: "fields",
+      },
     ],
     columns: [
       { field: "partner_label", label: "Label", isLabel: true, width: "140px", filter: "text" },
@@ -747,19 +897,26 @@ export function waitingClause(missing: Field[]): string | null {
 export function fieldApplies(
   field: Field,
   values: Record<string, unknown>,
-  currencyLabelOf?: (id: unknown) => string | undefined
+  /** The short label of the row a ref field currently points at. */
+  refLabelOf?: (fieldName: string, id: unknown) => string | undefined
 ): boolean {
   if (!field.visibleWhen) return true;
   if (field.visibleWhen === "accountRequiresPartner") {
     const v = values.require_partner;
     return v === true || v === "true";
   }
+  if (field.visibleWhen === "partnerIsCustomer") {
+    return refLabelOf?.("category_id", values.category_id) === CUSTOMER_CATEGORY;
+  }
   // currencyIsForeign
-  const label = currencyLabelOf?.(values.currency_id);
+  const label = refLabelOf?.("currency_id", values.currency_id);
   // Nothing chosen yet is not foreign: the field appears once the answer is
   // known, rather than flickering in on an empty picker.
   return label ? !isBaseCurrency(label) : false;
 }
+
+/** The seeded Partner Category a sale is made to (prisma/seed.ts). */
+export const CUSTOMER_CATEGORY = "Customer";
 
 export const STATUS_TEXT: Record<string, string> = {
   Active: "Aktif",

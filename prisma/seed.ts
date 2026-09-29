@@ -24,6 +24,9 @@
  * Run with: npm run db:seed
  */
 import "dotenv/config";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { gunzipSync } from "node:zlib";
 import { hash } from "bcryptjs";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
@@ -110,10 +113,19 @@ const DOC_TYPES: [label: string, table: string][] = [
  * Customer and Supplier only, for now (Claude-ERP.md P30). An account that
  * requires a Partner names one of these, so a Piutang account takes Customers
  * and a Hutang account Suppliers.
+ *
+ * Supplier starts Inactive (P41): the application is built for sales first,
+ * and a supplier's tax treatment is not designed yet. It is created only when
+ * missing, so an installation that has switched it back on keeps it on.
  */
-const PARTNER_CATEGORIES: [label: string, name: string, note: string][] = [
-  ["Customer", "Pelanggan", "Pihak yang membeli barang atau jasa dari perusahaan."],
-  ["Supplier", "Pemasok", "Pihak yang menjual barang atau jasa kepada perusahaan."],
+const PARTNER_CATEGORIES: [
+  label: string,
+  name: string,
+  note: string,
+  status: "Active" | "Inactive",
+][] = [
+  ["Customer", "Pelanggan", "Pihak yang membeli barang atau jasa dari perusahaan.", "Active"],
+  ["Supplier", "Pemasok", "Pihak yang menjual barang atau jasa kepada perusahaan.", "Inactive"],
 ];
 
 /**
@@ -544,7 +556,7 @@ async function ensureReferenceData(
     tally("document types", made);
   }
 
-  for (const [i, [label, name, note]] of PARTNER_CATEGORIES.entries()) {
+  for (const [i, [label, name, note, status]] of PARTNER_CATEGORIES.entries()) {
     const made = await create(
       () => prisma.sysPartnerCategory.findFirst({ where: { category_label: label } }),
       () =>
@@ -554,12 +566,15 @@ async function ensureReferenceData(
             category_label: label,
             category_name: name,
             note,
+            status,
             ...audit,
           },
         })
     );
     tally("partner categories", made);
   }
+
+  await ensureRegions();
 
 
   const typeId = new Map(
@@ -650,6 +665,108 @@ async function ensureReferenceData(
   tally("base currency", made);
 }
 
+/**
+ * Indonesia's administrative regions and each kelurahan's kode pos, from
+ * `prisma/data/region.tsv.gz` (sources and licence in the file's header and in
+ * `prisma/data/region.LICENSE`).
+ *
+ * Matched on the Kemendagri code, level by level, parents first. A missing row
+ * is created; a row whose name or kode pos differs from the file is updated, so
+ * a newer edition of the file brings an existing installation up to date. A
+ * region is never deleted — an address may point at it.
+ *
+ * ~91.000 rows, so rows are written in batches and an installation already in
+ * step costs one read per level.
+ */
+async function ensureRegions(): Promise<void> {
+  const file = path.join(__dirname, "data", "region.tsv.gz");
+  const lines = gunzipSync(readFileSync(file)).toString("utf8").split("\n");
+
+  // code -> [name, postal]; level = number of dots.
+  const byLevel: Map<string, [string, string]>[] = [new Map(), new Map(), new Map(), new Map()];
+  for (const line of lines) {
+    if (!line || line.startsWith("#")) continue;
+    const [regionCode, name, postal = ""] = line.split("\t");
+    byLevel[regionCode.split(".").length - 1]?.set(regionCode, [name, postal]);
+  }
+  const parent = (c: string) => c.slice(0, c.lastIndexOf("."));
+
+  type Level = {
+    what: string;
+    read: () => Promise<{ id: number; code: string; name: string; postal_code?: string | null }[]>;
+    createMany: (rows: Record<string, unknown>[]) => Promise<unknown>;
+    update: (id: number, data: Record<string, unknown>) => Promise<unknown>;
+    parentKey?: string;
+  };
+  const levels: Level[] = [
+    {
+      what: "region provinces",
+      read: () => prisma.sysRegionProvince.findMany(),
+      createMany: (data) => prisma.sysRegionProvince.createMany({ data: data as never, skipDuplicates: true }),
+      update: (id, data) => prisma.sysRegionProvince.update({ where: { id }, data }),
+    },
+    {
+      what: "region cities",
+      read: () => prisma.sysRegionCity.findMany(),
+      createMany: (data) => prisma.sysRegionCity.createMany({ data: data as never, skipDuplicates: true }),
+      update: (id, data) => prisma.sysRegionCity.update({ where: { id }, data }),
+      parentKey: "province_id",
+    },
+    {
+      what: "region districts",
+      read: () => prisma.sysRegionDistrict.findMany(),
+      createMany: (data) => prisma.sysRegionDistrict.createMany({ data: data as never, skipDuplicates: true }),
+      update: (id, data) => prisma.sysRegionDistrict.update({ where: { id }, data }),
+      parentKey: "city_id",
+    },
+    {
+      what: "region villages",
+      read: () => prisma.sysRegionVillage.findMany(),
+      createMany: (data) => prisma.sysRegionVillage.createMany({ data: data as never, skipDuplicates: true }),
+      update: (id, data) => prisma.sysRegionVillage.update({ where: { id }, data }),
+      parentKey: "district_id",
+    },
+  ];
+
+  let parentIds = new Map<string, number>();
+  for (const [depth, level] of levels.entries()) {
+    const wanted = byLevel[depth];
+    const isVillage = depth === 3;
+    const existing = new Map((await level.read()).map((r) => [r.code, r]));
+
+    const missing: Record<string, unknown>[] = [];
+    let updated = 0;
+    for (const [regionCode, [name, postal]] of wanted) {
+      const row = existing.get(regionCode);
+      if (!row) {
+        missing.push({
+          code: regionCode,
+          name,
+          ...(level.parentKey ? { [level.parentKey]: parentIds.get(parent(regionCode)) } : {}),
+          ...(isVillage ? { postal_code: postal || null } : {}),
+        });
+        continue;
+      }
+      const postalChanged = isVillage && (row.postal_code ?? "") !== postal;
+      if (row.name !== name || postalChanged) {
+        await level.update(row.id, {
+          name,
+          ...(isVillage ? { postal_code: postal || null } : {}),
+        });
+        updated++;
+      }
+    }
+
+    for (let i = 0; i < missing.length; i += 5000) {
+      await level.createMany(missing.slice(i, i + 5000));
+    }
+    if (missing.length) tally(level.what, missing.length);
+    if (updated) tally(`${level.what} updated`, updated);
+
+    parentIds = new Map((await level.read()).map((r) => [r.code, r.id]));
+  }
+}
+
 /** Creates the row when the lookup finds nothing. Returns 1 if it created one. */
 async function create<T>(find: () => Promise<T | null>, make: () => Promise<T>): Promise<number> {
   if (await find()) return 0;
@@ -661,7 +778,7 @@ function report(): void {
   const entries = Object.entries(created);
   if (entries.length) {
     console.log("Created:");
-    for (const [what, n] of entries) console.log(`  ${String(n).padStart(4)}  ${what}`);
+    for (const [what, n] of entries) console.log(`  ${String(n).padStart(5)}  ${what}`);
   } else {
     console.log("Nothing to create — system data is already up to date.");
   }

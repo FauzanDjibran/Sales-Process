@@ -331,6 +331,10 @@ export async function cleanupFixtures(): Promise<void> {
   for (const a of accounts) {
     await prisma.accAccount.delete({ where: { id: a.id } });
   }
+  // A Partner's addresses and contacts are part of it and go first.
+  const fixturePartners = { partner: { partner_label: { startsWith: FIXTURE_PREFIX } } };
+  await prisma.mPartnerAddress.deleteMany({ where: fixturePartners });
+  await prisma.mPartnerContact.deleteMany({ where: fixturePartners });
   await prisma.mPartner.deleteMany({
     where: { partner_label: { startsWith: FIXTURE_PREFIX } },
   });

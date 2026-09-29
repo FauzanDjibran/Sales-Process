@@ -42,6 +42,18 @@ import type { SystemDefaultKey } from "@/lib/erp/system-defaults";
 import { formatDate, formatMoney, formatRate, todayIso } from "@/lib/format";
 import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
 import { recordTitle } from "@/lib/erp/record-title";
+import { AddressesTab, ContactsTab, type CollectionTabProps } from "@/components/master/partner-tabs";
+
+/**
+ * The components that draw a `custom` tab, by `<entity key>.<tab key>`. A
+ * custom tab edits a collection the registry cannot describe; its items travel
+ * to the Server Action under `_<tab key>`.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const CUSTOM_TABS: Record<string, (props: CollectionTabProps<any>) => React.ReactNode> = {
+  "m_partner.addresses": AddressesTab,
+  "m_partner.contacts": ContactsTab,
+};
 
 export type FormMode = "new" | "view" | "edit";
 
@@ -56,6 +68,7 @@ export function EntityForm({
   defaults,
   lockedFields,
   lockNote,
+  collections: initialCollections,
 }: {
   entity: Entity;
   mode: FormMode;
@@ -92,6 +105,8 @@ export function EntityForm({
   lockedFields?: string[];
   /** Why those fields are locked, as a closing note at the foot of the card. */
   lockNote?: string;
+  /** What each `custom` tab starts with, by tab key — a Partner's addresses. */
+  collections?: Record<string, unknown[]>;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -109,6 +124,14 @@ export function EntityForm({
   const [saving, setSaving] = useState(false);
   const [confirmToggle, setConfirmToggle] = useState(false);
   const [busyToggle, setBusyToggle] = useState(false);
+
+  // A form is a header card, its remaining content in tabs, then the record
+  // history (Claude-ERP.md P38).
+  const tabs = entity.tabs ?? [];
+  const [activeTab, setActiveTab] = useState(tabs[0]?.key ?? "");
+  const [collections, setCollections] = useState<Record<string, unknown[]>>(
+    () => initialCollections ?? {}
+  );
 
   const active = statusModel
     ? isActiveStatus(statusModel, row?.[statusModel.field])
@@ -137,12 +160,11 @@ export function EntityForm({
     });
   };
 
-  /** The short label of the Currency currently chosen, if any. */
-  const currencyLabel = (id: unknown) =>
-    refs.currency_id?.find((o) => o.id === Number(id))?.label;
+  /** The short label of the row a ref field currently points at. */
+  const refLabelOf = (fieldName: string, id: unknown) =>
+    refs[fieldName]?.find((o) => o.id === Number(id))?.label;
 
-  const applies = (field: Field) =>
-    fieldApplies(field, values, currencyLabel);
+  const applies = (field: Field) => fieldApplies(field, values, refLabelOf);
 
   /**
    * The code a `segment` field continues — the first of its `inheritsFrom`
@@ -205,16 +227,33 @@ export function EntityForm({
     }
   };
 
+  /** The tab that holds a given error key, if any. */
+  const tabOfError = (key: string): string | undefined => {
+    const custom = tabs.find((t) => t.kind === "custom" && `_${t.key}` === key);
+    if (custom) return custom.key;
+    return entity.fields.find((f) => f.name === key)?.tab;
+  };
+
   const onSave = async () => {
     setSaving(true);
+    const payload: FormValues = { ...values };
+    for (const t of tabs) {
+      if (t.kind === "custom") payload[`_${t.key}`] = JSON.stringify(collections[t.key] ?? []);
+    }
     const result =
       mode === "new"
-        ? await createRecord(entity.slug, values)
-        : await updateRecord(entity.slug, row!.id, values);
+        ? await createRecord(entity.slug, payload)
+        : await updateRecord(entity.slug, row!.id, payload);
     setSaving(false);
 
     if (!result.ok) {
       setErrors(result.errors);
+      // Bring the refusal into view: if nothing in the header card is wrong,
+      // open the first tab that holds an error.
+      const keys = Object.keys(result.errors).filter((k) => k !== "_form");
+      const headerWrong = keys.some((k) => !tabOfError(k));
+      const firstTab = tabs.find((t) => keys.some((k) => tabOfError(k) === t.key));
+      if (!headerWrong && firstTab) setActiveTab(firstTab.key);
       // `_form` is a whole-form refusal (a denied permission), not a field error.
       const refusal = result.errors._form;
       toast(
@@ -272,11 +311,82 @@ export function EntityForm({
       !(f.derived && editing)
   );
   const statusFieldName = statusModel?.field;
-  const businessFields = visible.filter(
+  const headerFields = visible.filter((f) => !f.tab);
+  const businessFields = headerFields.filter(
     (f) => f.name !== "note" && f.name !== statusFieldName
   );
-  const statusFields = visible.filter((f) => f.name === statusFieldName);
-  const noteFields = visible.filter((f) => f.name === "note");
+  const statusFields = headerFields.filter((f) => f.name === statusFieldName);
+  const noteFields = headerFields.filter((f) => f.name === "note");
+
+  const control = (f: Field, extra?: { statusLike?: boolean }) => (
+    <FieldControl
+      key={f.name}
+      field={f}
+      value={values[f.name]}
+      row={row}
+      editing={editing}
+      exists={mode !== "new"}
+      error={errors[f.name]}
+      options={optionsFor(f)}
+      prefix={f.type === "segment" ? inheritedCode(f) : null}
+      waitingFor={waitingFor(f)}
+      currencyLabel={currencyLabelOf(f)}
+      forceLocked={lockedFields?.includes(f.name)}
+      statusLike={extra?.statusLike}
+      onChange={(v) => setField(f, v)}
+    />
+  );
+
+  const tabHasError = (key: string) =>
+    Object.keys(errors).some((k) => tabOfError(k) === key);
+
+  const renderTab = () => {
+    const tab = tabs.find((t) => t.key === activeTab);
+    if (!tab) return null;
+
+    if (tab.kind === "custom") {
+      const Custom = CUSTOM_TABS[`${entity.key}.${tab.key}`];
+      if (!Custom) return null;
+      return (
+        <Custom
+          editing={editing}
+          items={collections[tab.key] ?? []}
+          error={errors[`_${tab.key}`]}
+          onChange={(items) => {
+            setCollections((c) => ({ ...c, [tab.key]: items }));
+            setDirty(true);
+            setErrors((e) => {
+              if (!e[`_${tab.key}`]) return e;
+              const next = { ...e };
+              delete next[`_${tab.key}`];
+              return next;
+            });
+          }}
+        />
+      );
+    }
+
+    const fields = visible.filter((f) => f.tab === tab.key);
+    const sections = [...new Set(fields.map((f) => f.section ?? ""))];
+    return (
+      <div className="card">
+        <div className="card-h">
+          <span className="ci">
+            <Icon name={tab.icon} size={15} />
+          </span>
+          <div className="ct">
+            <h3>{tab.label}</h3>
+            <p>{tab.desc}</p>
+          </div>
+        </div>
+        {sections.map((s) => (
+          <FormSection key={s} title={sections.length > 1 ? s : undefined}>
+            <FormRow>{fields.filter((f) => (f.section ?? "") === s).map((f) => control(f))}</FormRow>
+          </FormSection>
+        ))}
+      </div>
+    );
+  };
 
   // Before the first save there is no code and no status to show, so the
   // heading is a placeholder identity rather than a summary of blanks.
@@ -356,25 +466,7 @@ export function EntityForm({
         <div>
           <div className="card">
             <FormSection>
-              <FormRow>
-                {businessFields.map((f) => (
-                  <FieldControl
-                    key={f.name}
-                    field={f}
-                    value={values[f.name]}
-                    row={row}
-                    editing={editing}
-                    exists={mode !== "new"}
-                    error={errors[f.name]}
-                    options={optionsFor(f)}
-                    prefix={f.type === "segment" ? inheritedCode(f) : null}
-                    waitingFor={waitingFor(f)}
-                    currencyLabel={currencyLabelOf(f)}
-                    forceLocked={lockedFields?.includes(f.name)}
-                    onChange={(v) => setField(f, v)}
-                  />
-                ))}
-              </FormRow>
+              <FormRow>{businessFields.map((f) => control(f))}</FormRow>
             </FormSection>
 
             {statusFields.length > 0 && (
@@ -383,48 +475,45 @@ export function EntityForm({
               // apart.
               <FormSection title="Status Data">
                 <FormRow>
-                  {statusFields.map((f) => (
-                    <FieldControl
-                      key={f.name}
-                      field={f}
-                      value={values[f.name]}
-                      row={row}
-                      editing={editing}
-                      exists={mode !== "new"}
-                      error={errors[f.name]}
-                      options={[]}
-                      statusLike
-                      forceLocked={lockedFields?.includes(f.name)}
-                      onChange={(v) => setField(f, v)}
-                    />
-                  ))}
+                  {statusFields.map((f) => control({ ...f }, { statusLike: true }))}
                 </FormRow>
               </FormSection>
             )}
 
             {noteFields.length > 0 && (
               <FormSection>
-                <FormRow>
-                  {noteFields.map((f) => (
-                    <FieldControl
-                      key={f.name}
-                      field={f}
-                      value={values[f.name]}
-                      row={row}
-                      editing={editing}
-                      exists={mode !== "new"}
-                      error={errors[f.name]}
-                      options={[]}
-                      forceLocked={lockedFields?.includes(f.name)}
-                      onChange={(v) => setField(f, v)}
-                    />
-                  ))}
-                </FormRow>
+                <FormRow>{noteFields.map((f) => control(f))}</FormRow>
               </FormSection>
             )}
 
             {lockNote && <p className="fnote">{lockNote}</p>}
           </div>
+
+          {tabs.length > 0 && (
+            <>
+              <div className="tabs" role="tablist">
+                {tabs.map((t) => {
+                  const count = t.kind === "custom" ? (collections[t.key] ?? []).length : null;
+                  const bad = tabHasError(t.key);
+                  return (
+                    <button
+                      key={t.key}
+                      role="tab"
+                      aria-selected={t.key === activeTab}
+                      className={`tab${t.key === activeTab ? " on" : ""}${bad ? " bad" : ""}`}
+                      onClick={() => setActiveTab(t.key)}
+                    >
+                      <Icon name={t.icon} size={14} />
+                      {t.label}
+                      {count !== null && <span className="tc">{count}</span>}
+                      {bad && <span className="td" title="Ada yang perlu diperbaiki" />}
+                    </button>
+                  );
+                })}
+              </div>
+              {renderTab()}
+            </>
+          )}
         </div>
       </div>
 

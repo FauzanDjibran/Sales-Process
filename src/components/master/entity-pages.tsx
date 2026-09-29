@@ -18,6 +18,7 @@ import {
   refOptions,
 } from "@/lib/erp/records";
 import { cashBankBookSummary } from "@/lib/erp/cash-bank";
+import { partnerCollections } from "@/lib/erp/partner";
 import { fiscalYearPeriods } from "@/lib/erp/fiscal";
 import { defaultCurrencyId } from "@/lib/erp/system-settings";
 import {
@@ -36,6 +37,19 @@ import { EntityList } from "@/components/master/entity-list";
  * a second way into Partner, it is a 404. Without that, one entity would have
  * two URLs and two sets of breadcrumbs.
  */
+/**
+ * What an entity's `custom` tabs start with. Only a Partner has any: its
+ * addresses and contact persons, read in the shape the form edits them.
+ */
+async function collectionsOf(
+  entity: Entity,
+  id: number | null
+): Promise<Record<string, unknown[]> | undefined> {
+  if (entity.key !== "m_partner") return undefined;
+  if (id == null) return { addresses: [], contacts: [] };
+  return partnerCollections(id);
+}
+
 function resolve(moduleKey: string, slug: string): Entity {
   const entity = entityBySlug(slug);
   if (!entity || entity.module !== moduleKey) notFound();
@@ -109,6 +123,7 @@ export async function EntityNewPage({
       refs={refs}
       can={abilitiesFor(entity.key, actor.permissions)}
       defaults={{ default_currency: await defaultCurrencyId() }}
+      collections={await collectionsOf(entity, null)}
     />
   );
 }
@@ -169,6 +184,7 @@ export async function EntityDetailPage({
       can={abilitiesFor(entity.key, actor.permissions)}
       headerActions={headerActions}
       editTone={editTone}
+      collections={await collectionsOf(entity, row.id)}
       {...parentLock}
     />
   );
@@ -249,6 +265,7 @@ export async function EntityEditPage({
         row={row}
         refs={refs}
         can={abilitiesFor(entity.key, actor.permissions)}
+        collections={await collectionsOf(entity, row.id)}
         {...(await accountParentLock(entity, row))}
       />
       <RecordHistoryCard entityKey={entity.key} rowId={row.id} />

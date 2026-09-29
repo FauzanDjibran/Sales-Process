@@ -116,6 +116,32 @@ enum AuditAction {
   HAPUS
 }
 
+/// Who a Partner is in the eyes of the tax office. Decides which identity a
+/// faktur may carry: a Badan or an Instansi Pemerintah is known by its NPWP,
+/// an Orang Pribadi by its NPWP or its NIK.
+enum TaxpayerType {
+  Badan
+  OrangPribadi
+  InstansiPemerintah
+}
+
+/// Which number identifies the Partner to the tax office. Both are 16 digits
+/// since the NPWP-16 change, which is exactly why the kind is stored beside
+/// the number rather than guessed from its length.
+enum TaxIdType {
+  NPWP
+  NIK
+}
+
+/// Whether a customer collects the PPN on what it buys instead of paying it
+/// (Pemungut PPN / WAPU). Only a government collector for now: its faktur
+/// carries kode transaksi 02 and its payment arrives short by the PPN
+/// (Claude-ERP.md §10.2 rule 3, simulation `wapu: 'G'`).
+enum VatCollector {
+  None
+  Government
+}
+
 // ---------------------------------------------------------------- auth & access
 //
 // RBAC: USER -> ROLE -> PERMISSION. A permission is one atomic capability; a
@@ -371,6 +397,27 @@ model MPartner {
   note          String?
   status        ActiveStatus @default(Active)
 
+  // ---- Pajak: the identity a faktur pajak or a bukti potong names. Shared by
+  // every role a Partner plays, so it sits on the Partner itself. Nullable only
+  // because rows created before these columns existed have none; the Server
+  // Action requires them on every save.
+  taxpayer_type TaxpayerType?
+  is_pkp        Boolean       @default(false)
+  tax_id_type   TaxIdType?
+  /// 16 digits, stored without separators.
+  tax_id        String?
+  /// The name registered with the tax office, which a faktur prints — it can
+  /// differ from the trading name (`partner_name`).
+  tax_name      String?
+
+  // ---- Pajak, customer side: what a customer does with the tax on a sale.
+  // Applies only when the category is Customer; false / null otherwise.
+  /// The customer withholds PPh 23 on services it buys.
+  withholds_pph23 Boolean       @default(false)
+  /// The customer collects PPh 22 on goods it buys.
+  collects_pph22  Boolean       @default(false)
+  vat_collector   VatCollector?
+
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
@@ -378,12 +425,135 @@ model MPartner {
 
   category SysPartnerCategory @relation(fields: [category_id], references: [id])
 
+  addresses MPartnerAddress[]
+  contacts  MPartnerContact[]
+
   journal_lines AccJournalLine[]
 
   opening_balance_lines AccOpeningBalanceLine[]
 
   @@index([category_id])
   @@map("m_partner")
+}
+
+/// One of a Partner's addresses. A Partner has at least one; the Server
+/// Action enforces it, since a database constraint cannot count child rows.
+///
+/// Only the kelurahan / desa is stored: kecamatan, kota and provinsi follow
+/// from it, and so does the kode pos. Storing them again would let an address
+/// claim a kecamatan its own kelurahan does not sit in.
+///
+/// Part of the Partner record — written with it in one transaction, and its
+/// changes are the Partner's own audit entry.
+model MPartnerAddress {
+  id         Int    @id @default(autoincrement())
+  partner_id Int
+  village_id Int
+  /// The street part, typed by hand: jalan, nomor, blok, RT/RW, gedung.
+  street     String
+  note       String?
+  /// The address a faktur is addressed to (Alamat Penagihan).
+  is_billing  Boolean @default(false)
+  /// An address goods can be delivered to (Alamat Pengiriman).
+  is_shipping Boolean @default(false)
+  /// Display order within the Partner, as the user arranged it.
+  sort_order Int     @default(0)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  partner MPartner          @relation(fields: [partner_id], references: [id])
+  village SysRegionVillage  @relation(fields: [village_id], references: [id])
+
+  @@index([partner_id])
+  @@index([village_id])
+  @@map("m_partner_address")
+}
+
+/// A person to talk to at the Partner. Part of the Partner record, like its
+/// addresses.
+model MPartnerContact {
+  id           Int    @id @default(autoincrement())
+  partner_id   Int
+  contact_name String
+  position     String
+  phone        String
+  email        String
+  sort_order   Int    @default(0)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  partner MPartner @relation(fields: [partner_id], references: [id])
+
+  @@index([partner_id])
+  @@map("m_partner_contact")
+}
+
+// ------------------------------------------------------------- regions
+//
+// Indonesia's administrative regions, Kepmendagri No. 300.2.2-2430 Tahun 2025,
+// with the kode pos of each kelurahan / desa. System reference data: seeded
+// from `prisma/data/region.tsv.gz`, never edited in the application. `code` is
+// the Kemendagri code (`11`, `11.01`, `11.01.01`, `11.01.01.2001`), which is
+// what the seed matches on, so re-seeding a newer edition updates names in
+// place rather than duplicating them.
+
+model SysRegionProvince {
+  id   Int    @id @default(autoincrement())
+  code String @unique
+  name String
+
+  cities SysRegionCity[]
+
+  @@map("sys_region_province")
+}
+
+model SysRegionCity {
+  id          Int    @id @default(autoincrement())
+  code        String @unique
+  name        String
+  province_id Int
+
+  province  SysRegionProvince   @relation(fields: [province_id], references: [id])
+  districts SysRegionDistrict[]
+
+  @@index([province_id])
+  @@map("sys_region_city")
+}
+
+/// Kecamatan.
+model SysRegionDistrict {
+  id      Int    @id @default(autoincrement())
+  code    String @unique
+  name    String
+  city_id Int
+
+  city     SysRegionCity      @relation(fields: [city_id], references: [id])
+  villages SysRegionVillage[]
+
+  @@index([city_id])
+  @@map("sys_region_district")
+}
+
+/// Kelurahan or desa.
+model SysRegionVillage {
+  id          Int     @id @default(autoincrement())
+  code        String  @unique
+  name        String
+  district_id Int
+  /// Null where the source has none.
+  postal_code String?
+
+  district  SysRegionDistrict @relation(fields: [district_id], references: [id])
+  addresses MPartnerAddress[]
+
+  @@index([district_id])
+  @@map("sys_region_village")
 }
 
 model MCashBank {

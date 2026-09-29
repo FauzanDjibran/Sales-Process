@@ -29,6 +29,14 @@ import {
 import {
   systemDefaultsUsingAccount,
 } from "@/lib/erp/system-settings";
+import { CUSTOMER_CATEGORY } from "@/lib/erp/entities";
+import {
+  checkPartnerCollections,
+  checkPartnerTax,
+  writePartnerCollections,
+  type PartnerCollections,
+} from "@/lib/erp/partner";
+import { normalizeTaxId } from "@/lib/erp/partner-shape";
 
 /**
  * Every action here is permission-gated before it touches anything, and every
@@ -153,6 +161,12 @@ async function derive(entity: Entity, values: FormValues): Promise<FormValues> {
     };
   }
 
+  // An NPWP is typed the way it is printed — `0987 6543 2109 8765` — and
+  // stored as its 16 digits, so the check and the column see the same thing.
+  if (entity.key === "m_partner") {
+    return { ...values, tax_id: normalizeTaxId(values.tax_id) };
+  }
+
   return composeSegmentCode(entity, values);
 }
 
@@ -221,6 +235,12 @@ async function applicableFields(
       if (boolValue(values, "require_partner")) applies.add(field.name);
       continue;
     }
+    if (field.visibleWhen === "partnerIsCustomer") {
+      const categoryId = refValue(values, "category_id");
+      const label = categoryId ? await refLabel("sys_partner_category", categoryId) : null;
+      if (label === CUSTOMER_CATEGORY) applies.add(field.name);
+      continue;
+    }
     // currencyIsForeign
     const currencyId = refValue(values, "currency_id");
     const label = currencyId ? await refLabel("ref_currency", currencyId) : null;
@@ -273,6 +293,10 @@ async function validate(
   }
   if (entity.key === "acc_account") {
     Object.assign(errors, await validateAccount(values, currentId, errors, applies));
+  }
+  if (entity.key === "m_partner") {
+    const tax = checkPartnerTax(values, applies.has("vat_collector"));
+    for (const [k, v] of Object.entries(tax)) errors[k] ??= v;
   }
   if (entity.key === "acc_fiscal_year" && !parseYear(String(values.year_label ?? ""))) {
     // Everything else about a fiscal year is derived from this, so a value the
@@ -437,6 +461,23 @@ async function validateAccount(
   return errors;
 }
 
+/**
+ * The collections a record owns and saves with itself — a Partner's addresses
+ * and contacts — checked, with their problems added to `errors`. Null for an
+ * entity that owns none.
+ */
+async function ownCollections(
+  entity: Entity,
+  values: FormValues,
+  id: number | null,
+  errors: Record<string, string>
+): Promise<PartnerCollections | null> {
+  if (entity.key !== "m_partner") return null;
+  const checked = await checkPartnerCollections(values, id);
+  Object.assign(errors, checked.errors);
+  return checked.clean;
+}
+
 function buildData(entity: Entity, values: FormValues, applies: Set<string>) {
   const data: Record<string, unknown> = {};
   for (const field of entity.fields) {
@@ -462,6 +503,7 @@ export async function createRecord(
   values = await derive(entity, values);
   const applies = await applicableFields(entity, values, false);
   const errors = await validate(entity, values, null, applies);
+  const collections = await ownCollections(entity, values, null, errors);
   if (Object.keys(errors).length) return { ok: false, errors };
 
   const code = await nextCode(entity);
@@ -516,6 +558,10 @@ export async function createRecord(
       });
     }
 
+    if (collections) {
+      await writePartnerCollections(tx, row.id, collections, actor.user.id);
+    }
+
     return row;
   });
 
@@ -547,6 +593,7 @@ export async function updateRecord(
   values = await derive(entity, values);
   const applies = await applicableFields(entity, values, true);
   const errors = await validate(entity, values, id, applies);
+  const collections = await ownCollections(entity, values, id, errors);
   if (Object.keys(errors).length) return { ok: false, errors };
 
   const data = buildData(entity, values, applies);
@@ -555,9 +602,15 @@ export async function updateRecord(
     if (field.locked) delete data[field.name];
   }
 
-  await delegate(entity.key).update({
-    where: { id },
-    data: { ...data, updated_by: actor.user.id },
+  // The record and the collections it owns change together or not at all.
+  await prisma.$transaction(async (tx) => {
+    await delegate(entity.key, tx).update({
+      where: { id },
+      data: { ...data, updated_by: actor.user.id },
+    });
+    if (collections) {
+      await writePartnerCollections(tx, id, collections, actor.user.id);
+    }
   });
 
   await prisma.auditLog.create({

@@ -19,6 +19,9 @@ import type { RefOption } from "@/lib/erp/records";
  * one is for. Escape closes; `AnchoredPopup` takes it in the capture phase, so
  * one press closes this and not the dialog around it.
  *
+ * An option with an empty label shows its name alone — a region has no code
+ * a user would recognise, so it has no chip.
+ *
  * Inactive records are hidden, except the one currently selected — otherwise
  * editing an old record would silently drop a still-valid reference. That was
  * an open question in the UI reference doc; this is the answer.
@@ -84,7 +87,7 @@ export function Combobox({
         <span className="v">
           {selected ? (
             <>
-              <span className="lab">{selected.label}</span>
+              {selected.label && <span className="lab">{selected.label}</span>}
               <span className="nm">{selected.name}</span>
             </>
           ) : (
@@ -143,7 +146,11 @@ export function Combobox({
             // The value that is already set, as the prompt: the field still
             // says what it holds while it is being searched in.
             placeholder={
-              selected ? `${selected.label} – ${selected.name}` : placeholder
+              selected
+                ? selected.label
+                  ? `${selected.label} – ${selected.name}`
+                  : selected.name
+                : placeholder
             }
             onKeyDown={(e) => {
               if (e.key === "Enter") {
@@ -156,7 +163,7 @@ export function Combobox({
           <span className="v">
             {selected ? (
               <>
-                <span className="lab">{selected.label}</span>
+                {selected.label && <span className="lab">{selected.label}</span>}
                 <span className="nm">{selected.name}</span>
               </>
             ) : (
@@ -202,7 +209,7 @@ export function Combobox({
                 className={`cbo${o.id === value ? " sel" : ""}`}
                 onClick={() => pick(o.id)}
               >
-                <span className="lab">{o.label}</span>
+                {o.label && <span className="lab">{o.label}</span>}
                 <span className="nm">{o.name}</span>
                 {o.id === value && (
                   <span className="tick">

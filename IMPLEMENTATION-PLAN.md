@@ -63,7 +63,7 @@ Candidates, from the simulation:
 
 | Master | From the simulation | Notes |
 | --- | --- | --- |
-| Customer (`m_partner`) | `CUSTOMERS` | Evolves from SIBA's Partner (P12): tax identity, faktur entities (NITKU / NIK), ship-to addresses, defaults, credit limit, PKP / WAPU / PPh 22 flags, credit block |
+| Customer (`m_partner`) | `CUSTOMERS` | **Done 29/09/2026** (P38–P42): addresses on the region reference, contact persons, Pajak tab with tax identity and PPh 23 / PPh 22 / WAPU. Deferred: NITKU (C23); credit limit, default mode harga, credit block, SO defaults (C24); showcase data |
 | Salesperson | `SALES` | |
 | Termin Pembayaran | `TERMS` | |
 | Gudang | `WAREHOUSES` | Delivery origin only while stock is ignored (P5) |
