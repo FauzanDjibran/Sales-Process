@@ -22,7 +22,8 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        # The same major version the application runs on locally (Claude-ERP.md §4).
+        image: postgres:18
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
