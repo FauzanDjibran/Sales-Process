@@ -451,6 +451,27 @@ export const ENTITIES: Entity[] = [
         defaultValue: "None",
         help: "Instansi Pemerintah: faktur kode 02, PPN disetor sendiri oleh pembeli",
       },
+
+      // ---- tab Penjualan: what a new Sales Order starts from (P51).
+      {
+        name: "default_term_id",
+        label: "Termin Pembayaran Default",
+        type: "ref",
+        ref: "ref_payment_term",
+        tab: "sales",
+        visibleWhen: "partnerIsCustomer",
+        help: "diisikan ke Sales Order baru, tetap dapat diubah",
+      },
+      {
+        name: "default_price_mode",
+        label: "Mode Harga Default",
+        type: "select",
+        tab: "sales",
+        visibleWhen: "partnerIsCustomer",
+        options: ["Exclude", "Include"],
+        optionLabels: { Exclude: "Exclude PPN", Include: "Include PPN" },
+        help: "harga diketik sebelum PPN atau sudah termasuk PPN",
+      },
     ],
     tabs: [
       {
@@ -472,6 +493,13 @@ export const ENTITIES: Entity[] = [
         label: "Pajak",
         icon: "file",
         desc: "Identitas yang dicantumkan pada faktur pajak dan bukti potong.",
+        kind: "fields",
+      },
+      {
+        key: "sales",
+        label: "Penjualan",
+        icon: "tags",
+        desc: "Nilai awal Sales Order baru untuk customer ini. Semuanya dapat diubah pada Sales Order.",
         kind: "fields",
       },
     ],

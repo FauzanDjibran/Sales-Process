@@ -32,6 +32,7 @@ import {
 import { CUSTOMER_CATEGORY } from "@/lib/erp/entities";
 import {
   checkPartnerCollections,
+  checkPartnerSalesDefaults,
   checkPartnerTax,
   writePartnerCollections,
 } from "@/lib/erp/partner";
@@ -332,6 +333,11 @@ async function validate(
       ...(await checkItemCategory(values, currentId)),
       ...(await checkItemBaseUom(values, currentId)),
     })) {
+      errors[k] ??= v;
+    }
+  }
+  if (entity.key === "m_partner" && applies.has("default_term_id")) {
+    for (const [k, v] of Object.entries(await checkPartnerSalesDefaults(values, currentId))) {
       errors[k] ??= v;
     }
   }

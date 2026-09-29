@@ -90,9 +90,9 @@ sales behaviour the simulation implements, and carry over through it.
 | Area | State |
 | --- | --- |
 | Project guideline (this file) | Written 29/09/2026; clash decisions recorded 29/09/2026 |
-| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 started: Partner (customer side), Satuan, Termin Pembayaran, Gudang, Jenis PPh and Item done 29/09/2026 |
+| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 done for sales 29/09/2026 (Partner customer side, Satuan, Termin, Gudang, Jenis PPh, Item, sales defaults); Phase 3 next: Sales Order (P49–P53) |
 | Code | Phase 1 carried and adapted: one company, no Budget, Control Account set by the user, `PREFIX/YYYY/MM/NNNN` numbering, dashboard placeholder. `npm run build`, `npm run lint` and `npm test` pass on PostgreSQL 18; the Phase 1 walk-through (fiscal year, accounts, Partner, Cash & Bank with opening balance, manual journal, General Ledger, Trial Balance) checked in a browser and in Postgres |
-| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48); `DBML/erp.dbml.md` in step |
+| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48), the customer's sales defaults (P51); `DBML/erp.dbml.md` in step |
 
 ---
 
@@ -375,11 +375,11 @@ auth and RBAC (9–13); the Cash Bank Book (22, 29, P31).
 Recorded here as the specification; each becomes enforced when its step is
 built. Parent-decision numbers in brackets.
 
-1. **Sales Order** starts from the customer; defaults (identitas faktur,
-   alamat kirim, salesperson, termin, gudang, price group, mode harga) come from
-   it. **Include / Exclude PPN is an explicit user decision** on the SO. Draft →
-   Konfirmasi → Dikonfirmasi, or Menunggu Persetujuan when receivable + open SOs
-   + this SO exceed the credit limit → Setujui / Tolak. Batalkan; Salin. Posts
+1. **Sales Order** (SO Barang only, P49) starts from the customer; its Termin
+   and mode harga default from the customer (P51), and it names one of the
+   customer's addresses (P53). **Include / Exclude PPN and Kena PPN are
+   explicit user decisions** on the SO header (P52). Draft → Konfirmasi →
+   Dikonfirmasi; Batalkan; Salin — no credit limit or approval (P50). Posts
    nothing. Ends Selesai automatically (fully delivered and invoiced) or by
    Tutup Pesanan with a reason [S15, S22].
 2. **PPN arithmetic:** per document per tax code. Exclude: PPN =
@@ -501,6 +501,11 @@ Newest last. Later entries override earlier ones and say so.
 | P46 | 29/09/2026 | **The Item master (`m_item`).** Header: Tipe Item, Kategori Item, Satuan Dasar, Label, Nama, and the flags Dapat Dijual, Dapat Dibeli, Kelola Stok and Memiliki Kadaluarsa; then one tab, **Konversi Satuan** — the item's other units and their factor to the base unit (`m_item_uom`, `Decimal(18,4)`, more than 0, each unit once, never the base unit), saved with the Item in one transaction and one audit entry. **Tipe Item** is an enum, `Barang` / `Jasa` (Aset may follow). Kelola Stok and Memiliki Kadaluarsa apply to Barang only and are stored flags while stock is ignored (P5). **Not on the Item:** price (P43), group, variants, customer-owned goods, purchasing setup, photo, NIE BPOM / izin edar, HPP standar (decided at Surat Jalan), Coretax kode barang / unit codes (with Faktur Pajak). Perizinan is not an Item. |
 | P47 | 29/09/2026 | **Kategori Item is system data without a menu** (`sys_item_category`): Label, Nama and Tipe Item, seeded — Barang: Bahan Baku, Bahan Kemas, Barang Setengah Jadi, Barang Jadi, Barang Dagangan, Barang Habis Pakai; Jasa: Jasa Pemeliharaan, Jasa Konsultasi, Jasa Pengiriman, Jasa Maklon, Jasa Lain-lain. An item takes only a category of its own type; changing the type clears the choice. The account mapping per category is its own menu, later. |
 | P48 | 29/09/2026 | **An Item carries no tax treatment.** Kena / Tidak Kena PPN and the Jenis PPh are decided on the transaction line. A line may start from a rule on the item's Tipe (Barang → PPh 22 for a collector customer, Jasa → PPh 23 for a withholding one), and the user can change it. Amends P45. |
+| P49 | 29/09/2026 | **The Sales Order is SO Barang only.** Its lines offer Items of Tipe Barang marked Dapat Dijual. Jasa sales are a later, separate matter. Numbered `SO/YYYY/MM/NNNN`. |
+| P50 | 29/09/2026 | **No credit control on sales.** A customer has no credit limit, there is no Menunggu Persetujuan / Setujui / Tolak, and no sales block. The Sales Order lifecycle is Draft → Konfirmasi → Dikonfirmasi, with Batalkan and Salin; Selesai and Tutup Pesanan arrive with the Surat Jalan. Supersedes the simulation's plafon kredit, approval and Blocked status (§10.2 rule 1). Closes C24 together with P51. |
+| P51 | 29/09/2026 | **A customer carries two sales defaults, in a Penjualan tab**: Termin Pembayaran Default and Mode Harga Default (Include / Exclude PPN). Both are optional, customer-only, and only pre-fill a new Sales Order, which can change them. No default Gudang or salesperson. A tab whose fields are all out of play for the record (Penjualan on a supplier) is not shown. |
+| P52 | 29/09/2026 | **The Sales Order's tax and line rules.** *Kena PPN* (Ya / Tidak) and the mode harga are decided **once per Sales Order**, in its header — amends P48's "per line". PPN arithmetic stays the simulation's (12 %, DPP Nilai Lain 11/12, floor, largest line absorbs rounding) in one client-safe tax module. **Jenis PPh is per line** (empty = not withheld), pre-filled for a customer marked Pemungut PPh 22 from the System Default *Jenis PPh untuk Pemungut PPh 22* (seeded to PPH22, changeable in Pengaturan), and editable. **Diskon is per line in two modes**, % or nominal, chosen by a toggle. **Salesperson** is optional free text; **Gudang** is picked on the SO. |
+| P53 | 29/09/2026 | **A Sales Order names one customer address**, any of them regardless of its Penagihan / Pengiriman flags, by id — not a copied text. An address a document uses is protected: it cannot be removed from the Partner. Replaces the simulation's separate Identitas Faktur and Alamat Kirim on the SO. |
 
 ---
 
@@ -602,10 +607,9 @@ here. In addition:
   another month does not renumber it.
 - **Partners created before P39 have no address and no tax identity.** The
   columns are nullable for them; the next save through the form requires both.
-- **Removing a Partner address deletes it.** Nothing refers to one yet. When
-  the Sales Order and the faktur arrive they must keep their own copy of the
-  address they print (or addresses must become deactivatable), otherwise
-  removing one would rewrite a posted document's address.
+- **Removing a Partner address deletes it.** Nothing refers to one yet. P53
+  decides the fix: when the Sales Order is built, an address a document uses
+  cannot be removed.
 - **No `seed-showcase.ts` entry for Partner yet.** The simulation's customers
   have not been turned into dev demo data.
 - **The closing suite no longer covers a loss.** SIBA proved the loss side on
@@ -626,7 +630,6 @@ to §12.
 | C3 | **Pembayaran purposes and posting accounts** — how *tujuan* is modelled and how each posting finds its accounts (P24) | When the Pembayaran menu is built |
 | C6 | **Contents of each master** — each further reference master (P26). `m_partner` decided in P39–P42, `m_item` in P46–P48 | When that master is built |
 | C23 | **NITKU** — the 22-digit place-of-business identity a faktur names (NPWP + 6 digits, `000000` head office). Proposed: one per billing address, since DJP registers a NITKU at an address and a faktur carries both | When Faktur Pajak is built |
-| C24 | **Customer sales terms** — credit limit (Menunggu Persetujuan over it), default Include / Exclude PPN, sales block with a reason, and default Termin / Gudang on the customer (price group and salesperson are not masters, P43) | When the Sales Order is built |
 | C25 | **Account mapping per Kategori Item** — its own menu naming Penjualan, Retur, HPP and Persediaan accounts per category (P47) | When the first document that posts an item is built (Surat Jalan, Faktur) |
 | C14 | **Cash Bank Transfer and Debit / Credit Note** (P19) | Later |
 | C22 | **How `ar_ap_open_item_concept.md` applies** — open items and their ledger as the settlement unit for invoices, advances, receipts and DN/CN, beside the journal-and-GL positions of P25 | When the first document with an outstanding balance is built (advance, invoice, Pembayaran) |

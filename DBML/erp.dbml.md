@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20260929160431_item_master`
+- **As of migration:** `20260929162541_partner_sales_defaults`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **One company** (P9): no table carries a company. Budget, Cash Bank
@@ -92,6 +92,11 @@ Enum TaxIdType {
 Enum VatCollector {
   None
   Government
+}
+
+Enum PriceMode {
+  Exclude
+  Include
 }
 
 Enum ItemType {
@@ -391,6 +396,8 @@ Table m_partner {
   withholds_pph23 boolean [not null, default: false]
   collects_pph22 boolean [not null, default: false]
   vat_collector VatCollector [null]
+  default_term_id int [null]
+  default_price_mode PriceMode [null]
   created_by int [not null]
   updated_by int [null]
   created_at timestamptz [not null, default: `now()`]
@@ -750,6 +757,7 @@ Ref: m_item_uom.item_id > m_item.id
 Ref: m_item_uom.uom_id > ref_uom.id
 Ref: ref_withholding_tax.prepaid_account_id > acc_account.id
 Ref: m_partner.category_id > sys_partner_category.id
+Ref: m_partner.default_term_id > ref_payment_term.id
 Ref: m_partner_address.partner_id > m_partner.id
 Ref: m_partner_address.village_id > sys_region_village.id
 Ref: m_partner_contact.partner_id > m_partner.id

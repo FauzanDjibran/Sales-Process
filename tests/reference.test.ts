@@ -7,6 +7,7 @@ import { MODULES } from "../src/lib/erp/nav";
 import { PERMISSIONS } from "../src/lib/erp/permissions";
 import { paymentTermDaysError, withholdingRateError } from "../src/lib/erp/reference-rules";
 import { formatPct } from "../src/lib/format";
+import { checkSystemDefaultValue, defaultPph22WithholdingTaxId } from "../src/lib/erp/system-settings";
 import { disconnect, prisma } from "./helpers";
 
 /**
@@ -79,5 +80,32 @@ describe("Jenis PPh carries a real rate", () => {
     const entity = ENTITIES.find((e) => e.key === "ref_withholding_tax")!;
     assert.ok(entityPermissions(entity.key).create, "users may add their own");
     assert.ok(!entity.fields.find((f) => f.name === "rate")?.locked, "and edit the rate");
+  });
+});
+
+describe("the PPh 22 collector rule points at a Jenis PPh (P52)", () => {
+  test("seeded to PPH22 and resolvable", async () => {
+    const id = await defaultPph22WithholdingTaxId();
+    assert.ok(id, "set by the seed");
+    const row = await prisma.refWithholdingTax.findUniqueOrThrow({ where: { id: id! } });
+    assert.equal(row.wht_code, "wht.0001");
+  });
+
+  test("an inactive Jenis PPh cannot be stored as the default", async () => {
+    const row = await prisma.refWithholdingTax.create({
+      data: {
+        wht_code: `test.WHTX${Date.now() % 100000}`,
+        wht_label: `ZZTESTWHT${Date.now() % 100000}`,
+        wht_name: "Fixture",
+        rate: 1,
+        status: "Inactive",
+        created_by: 1,
+      },
+    });
+    try {
+      assert.ok(await checkSystemDefaultValue("pph22_withholding_tax", row.id));
+    } finally {
+      await prisma.refWithholdingTax.delete({ where: { id: row.id } });
+    }
   });
 });

@@ -23,12 +23,13 @@ export type SystemDefaultKey =
   | "default_currency"
   | "fx_account"
   | "accumulated_pl_account"
-  | "current_pl_account";
+  | "current_pl_account"
+  | "pph22_withholding_tax";
 
 /** Which master a `ref` setting points at — a registry entity key. */
-export type SystemDefaultRef = "ref_currency" | "acc_account";
+export type SystemDefaultRef = "ref_currency" | "acc_account" | "ref_withholding_tax";
 
-export type SystemDefaultGroupKey = "application" | "fx" | "equity_pl";
+export type SystemDefaultGroupKey = "application" | "fx" | "equity_pl" | "sales";
 
 export type SystemDefaultGroup = {
   key: SystemDefaultGroupKey;
@@ -63,6 +64,14 @@ export const SYSTEM_DEFAULT_GROUPS = [
       "tahun yang belum ditutup; Tahun Berjalan adalah baris Neraca yang " +
       "nilainya dihitung, tidak pernah diposting.",
     icon: "calc",
+  },
+  {
+    key: "sales",
+    name: "Penjualan",
+    desc:
+      "Nilai awal pada dokumen penjualan. Semuanya tetap dapat diubah pada " +
+      "dokumennya.",
+    icon: "tags",
   },
 ] as const satisfies readonly SystemDefaultGroup[];
 
@@ -133,6 +142,22 @@ export const SYSTEM_DEFAULTS = [
     group: "equity_pl",
     help: "baris penyajian Neraca, tidak pernah diposting",
   },
+
+  // ---------------------------------------------------------------- sales
+  //
+  // Jenis PPh is user data (P44), so the rule "a PPh 22 collector withholds
+  // PPh 22" needs a fixed pointer to the row that means PPh 22. It pre-fills a
+  // Sales Order line for a customer marked as a PPh 22 collector; the line can
+  // change it or clear it.
+  {
+    key: "pph22_withholding_tax",
+    name: "Jenis PPh untuk Pemungut PPh 22",
+    icon: "calc",
+    type: "ref",
+    ref: "ref_withholding_tax",
+    group: "sales",
+    help: "mengisi Jenis PPh baris Sales Order untuk customer pemungut PPh 22",
+  },
 ] as const satisfies readonly SystemDefaultDef[];
 
 /** What each key is set to; a key that has never been set reads as null. */
@@ -143,6 +168,7 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   fx_account: null,
   accumulated_pl_account: null,
   current_pl_account: null,
+  pph22_withholding_tax: null,
 };
 
 export function isSystemDefaultKey(key: string): key is SystemDefaultKey {

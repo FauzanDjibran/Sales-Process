@@ -130,8 +130,22 @@ export function EntityForm({
 
   // A form is a header card, its remaining content in tabs, then the record
   // history (Claude-ERP.md P38).
-  const tabs = entity.tabs ?? [];
-  const [activeTab, setActiveTab] = useState(tabs[0]?.key ?? "");
+  // A fields tab whose every field is out of play for this record — the
+  // customer-only Penjualan tab on a supplier — is not offered at all.
+  const tabs = (entity.tabs ?? []).filter(
+    (t) =>
+      t.kind === "custom" ||
+      entity.fields.some(
+        (f) =>
+          f.tab === t.key &&
+          fieldApplies(f, values, (name, id) =>
+            refs[name]?.find((o) => o.id === Number(id))?.label
+          )
+      )
+  );
+  const [chosenTab, setActiveTab] = useState(tabs[0]?.key ?? "");
+  // The chosen tab, unless it has since dropped out of play.
+  const activeTab = tabs.some((t) => t.key === chosenTab) ? chosenTab : (tabs[0]?.key ?? "");
   const [collections, setCollections] = useState<Record<string, unknown[]>>(
     () => initialCollections ?? {}
   );

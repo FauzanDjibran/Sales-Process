@@ -54,6 +54,20 @@ export default async function SystemDefaultPage() {
     const chosen = Number(current[def.key] ?? "");
     const keep = (id: number, active: boolean) => active || id === chosen;
 
+    if (def.ref === "ref_withholding_tax") {
+      const rows = await prisma.refWithholdingTax.findMany({
+        orderBy: { wht_label: "asc" },
+      });
+      return rows
+        .filter((t) => keep(t.id, t.status === "Active"))
+        .map((t) => ({
+          id: t.id,
+          label: t.wht_label,
+          name: t.wht_name,
+          active: t.status === "Active",
+        }));
+    }
+
     if (def.ref === "ref_currency") {
       const rows = await prisma.refCurrency.findMany({
         orderBy: { currency_label: "asc" },

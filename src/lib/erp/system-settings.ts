@@ -99,6 +99,17 @@ export async function defaultCurrencyId(): Promise<number | null> {
   return currency && currency.status === "Active" ? currency.id : null;
 }
 
+/**
+ * The Jenis PPh a Sales Order line starts on for a PPh 22 collector, or null
+ * when unset or no longer active — a default is never a value the form itself
+ * would refuse.
+ */
+export async function defaultPph22WithholdingTaxId(): Promise<number | null> {
+  const id = refValueOf(await systemDefaults(), "pph22_withholding_tax");
+  if (!id) return null;
+  return (await checkSystemDefaultValue("pph22_withholding_tax", id)) ? null : id;
+}
+
 // ------------------------------------------------------- posting targets
 
 /**
@@ -117,6 +128,14 @@ export async function checkSystemDefaultValue(
   id: number
 ): Promise<string | null> {
   const def = systemDefaultDef(key);
+  if (def.ref === "ref_withholding_tax") {
+    const tax = await prisma.refWithholdingTax.findUnique({
+      where: { id },
+      select: { status: true },
+    });
+    if (!tax) return "Jenis PPh tidak ditemukan.";
+    return tax.status === "Active" ? null : "Jenis PPh tersebut non-aktif.";
+  }
   if (def.ref !== "acc_account") return null;
 
   const account = await prisma.accAccount.findUnique({

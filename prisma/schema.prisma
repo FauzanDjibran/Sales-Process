@@ -142,6 +142,14 @@ enum VatCollector {
   Government
 }
 
+/// How the prices on a sales document are typed: before PPN or with it
+/// already in (the simulation's `EXC` / `INC`). Chosen on each Sales Order; a
+/// customer may carry a default.
+enum PriceMode {
+  Exclude
+  Include
+}
+
 /// What an Item is. Decides which Kategori it may take, whether it can be
 /// stock-managed, and — by rule on the transaction — which PPh a withholding
 /// customer applies (Barang → PPh 22, Jasa → PPh 23). `Aset` joins later.
@@ -516,6 +524,8 @@ model RefPaymentTerm {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
+  partners MPartner[]
+
   @@map("ref_payment_term")
 }
 
@@ -599,12 +609,18 @@ model MPartner {
   collects_pph22  Boolean       @default(false)
   vat_collector   VatCollector?
 
+  // ---- Penjualan, customer side: what a new Sales Order starts from (P51).
+  // Both are defaults only; the Sales Order can change them.
+  default_term_id    Int?
+  default_price_mode PriceMode?
+
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  category SysPartnerCategory @relation(fields: [category_id], references: [id])
+  category     SysPartnerCategory @relation(fields: [category_id], references: [id])
+  default_term RefPaymentTerm?    @relation(fields: [default_term_id], references: [id])
 
   addresses MPartnerAddress[]
   contacts  MPartnerContact[]

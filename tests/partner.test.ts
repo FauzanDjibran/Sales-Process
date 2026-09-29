@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   checkPartnerCollections,
+  checkPartnerSalesDefaults,
   checkPartnerTax,
   partnerCollections,
   regionOptions,
@@ -21,6 +22,7 @@ import {
 } from "../src/lib/erp/partner-shape";
 import { ENTITIES, fieldApplies } from "../src/lib/erp/entities";
 import {
+  FIXTURE_PREFIX,
   cleanupFixtures,
   disconnect,
   makePartner,
@@ -331,7 +333,9 @@ describe("the tax identity", () => {
 
 describe("the customer's tax behaviour belongs to customers", () => {
   const partner = ENTITIES.find((e) => e.key === "m_partner")!;
-  const customerFields = partner.fields.filter((f) => f.visibleWhen === "partnerIsCustomer");
+  const customerFields = partner.fields.filter(
+    (f) => f.visibleWhen === "partnerIsCustomer" && f.tab === "tax"
+  );
   const labelOf = (label: string) => (name: string) => (name === "category_id" ? label : undefined);
 
   test("PPh 23, PPh 22 and Pemungut PPN apply to a Customer", () => {
@@ -357,7 +361,7 @@ describe("the customer's tax behaviour belongs to customers", () => {
     for (const name of ["taxpayer_type", "tax_id_type", "tax_id", "tax_name", "is_pkp", ...customerFields.map((f) => f.name)]) {
       assert.ok(tax.includes(name), `${name} is on the Pajak tab`);
     }
-    assert.deepEqual(partner.tabs?.map((t) => t.label), ["Alamat", "Contact Person", "Pajak"]);
+    assert.deepEqual(partner.tabs?.map((t) => t.label), ["Alamat", "Contact Person", "Pajak", "Penjualan"]);
   });
 });
 
@@ -370,5 +374,53 @@ describe("Supplier starts switched off", () => {
     const status = Object.fromEntries(rows.map((r) => [r.category_label, r.status]));
     assert.equal(status.Customer, "Active");
     assert.equal(status.Supplier, "Inactive");
+  });
+});
+
+describe("a customer's sales defaults (P51)", () => {
+  const partner = ENTITIES.find((e) => e.key === "m_partner")!;
+
+  test("the Penjualan tab holds default Termin and mode harga, for Customers only", () => {
+    const sales = partner.fields.filter((f) => f.tab === "sales");
+    assert.deepEqual(sales.map((f) => f.name).sort(), ["default_price_mode", "default_term_id"]);
+    for (const f of sales) {
+      assert.equal(f.visibleWhen, "partnerIsCustomer");
+      assert.ok(!f.required, "a default is never required");
+    }
+    assert.deepEqual(
+      partner.fields.find((f) => f.name === "default_price_mode")?.options,
+      ["Exclude", "Include"]
+    );
+  });
+
+  test("a default Termin must be active, unless the partner already has it", async () => {
+    const make = (status: "Active" | "Inactive") =>
+      prisma.refPaymentTerm.create({
+        data: {
+          term_code: `test.${FIXTURE_PREFIX}T${status}${Date.now() % 100000}`,
+          term_label: `${FIXTURE_PREFIX}T${status}`,
+          term_name: `Fixture ${status}`,
+          due_days: 30,
+          status,
+          created_by: actor,
+        },
+      });
+    const active = await make("Active");
+    const inactive = await make("Inactive");
+    try {
+      assert.deepEqual(await checkPartnerSalesDefaults({ default_term_id: active.id }, null), {});
+      assert.ok((await checkPartnerSalesDefaults({ default_term_id: inactive.id }, null)).default_term_id);
+
+      const id = await makePartner({ categoryLabel: "Customer" });
+      await prisma.mPartner.update({ where: { id }, data: { default_term_id: inactive.id } });
+      assert.deepEqual(
+        await checkPartnerSalesDefaults({ default_term_id: inactive.id }, id),
+        {},
+        "the one it already carries stays"
+      );
+      await prisma.mPartner.update({ where: { id }, data: { default_term_id: null } });
+    } finally {
+      await prisma.refPaymentTerm.deleteMany({ where: { id: { in: [active.id, inactive.id] } } });
+    }
   });
 });

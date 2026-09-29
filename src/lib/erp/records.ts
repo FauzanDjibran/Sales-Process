@@ -154,6 +154,15 @@ export async function optionsFor(
         active: r.status === "Active",
       }));
     }
+    case "ref_payment_term": {
+      const rows = await prisma.refPaymentTerm.findMany({ orderBy: { due_days: "asc" } });
+      return rows.map((r) => ({
+        id: r.id,
+        label: r.term_label,
+        name: r.term_name,
+        active: r.status === "Active",
+      }));
+    }
     case "ref_uom": {
       const rows = await prisma.refUom.findMany({ orderBy: { uom_label: "asc" } });
       return rows.map((r) => ({
@@ -219,6 +228,7 @@ const LABEL_COLUMN: Record<string, string> = {
   sys_partner_category: "category_label",
   ref_currency: "currency_label",
   ref_uom: "uom_label",
+  ref_payment_term: "term_label",
   sys_item_category: "category_label",
   acc_account_subcategory: "subcategory_label",
   acc_account: "account_label",

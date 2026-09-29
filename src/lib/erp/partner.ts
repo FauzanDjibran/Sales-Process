@@ -296,6 +296,26 @@ export function checkPartnerTax(
   return errors;
 }
 
+/**
+ * The default Termin must exist and be active, unless it is the one the
+ * Partner already carries — an old default stays readable, a new pick must be
+ * one the picker offers.
+ */
+export async function checkPartnerSalesDefaults(
+  values: Record<string, unknown>,
+  partnerId: number | null
+): Promise<Record<string, string>> {
+  const termId = Number(values.default_term_id) || null;
+  if (!termId) return {};
+  const term = await prisma.refPaymentTerm.findUnique({ where: { id: termId }, select: { status: true } });
+  if (!term) return { default_term_id: "Termin tidak ditemukan." };
+  if (term.status === "Active") return {};
+  const current = partnerId
+    ? await prisma.mPartner.findUnique({ where: { id: partnerId }, select: { default_term_id: true } })
+    : null;
+  return current?.default_term_id === termId ? {} : { default_term_id: "Termin tersebut sudah nonaktif." };
+}
+
 // ------------------------------------------------------------------- writes
 
 /**
