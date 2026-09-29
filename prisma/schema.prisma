@@ -164,6 +164,22 @@ enum DiscountType {
   Amount
 }
 
+/// Where an advance bill is in its life (P57). Issuing posts nothing; the
+/// money, when it comes, is recorded by Pembayaran.
+enum AdvanceStatus {
+  Draft
+  Issued
+  Cancelled
+}
+
+/// How an advance's value was typed: a percentage of its order's value, or a
+/// flat value in the order's price mode (P55). Shared by the AR advance and,
+/// later, the AP advance, which mirror each other (P58).
+enum AdvanceAmountType {
+  Percent
+  Amount
+}
+
 /// What an Item is. Decides which Kategori it may take, whether it can be
 /// stock-managed, and — by rule on the transaction — which PPh a withholding
 /// customer applies (Barang → PPh 22, Jasa → PPh 23). `Aset` joins later.
@@ -648,7 +664,8 @@ model MPartner {
   addresses MPartnerAddress[]
   contacts  MPartnerContact[]
 
-  sales_orders SalOrder[]
+  sales_orders   SalOrder[]
+  sales_advances SalAdvance[]
 
   journal_lines AccJournalLine[]
 
@@ -803,6 +820,9 @@ model MCashBank {
 
   ledger       CashBankLedger[]
   book_balance CashBankBalance?
+
+  /// Advance bills that print this account as where to pay (P56).
+  sales_advances SalAdvance[]
 
   @@map("m_cash_bank")
 }
@@ -1385,6 +1405,7 @@ model SalOrder {
   copied_from SalOrder?       @relation("SalesOrderCopy", fields: [copied_from_id], references: [id])
   copies      SalOrder[]      @relation("SalesOrderCopy")
   lines       SalOrderLine[]
+  advances    SalAdvance[]
 
   @@index([customer_id])
   @@index([status, order_date])
@@ -1431,4 +1452,66 @@ model SalOrderLine {
   @@unique([order_id, line_no])
   @@index([item_id])
   @@map("sal_order_line")
+}
+
+/// An AR advance bill — Uang Muka Penjualan (P54–P58). A bill, not a
+/// transaction: it posts nothing at any step. It is the anchor the customer's
+/// payment and, later, the invoice deduction name. Its money and its PPN are
+/// recorded by Pembayaran on the day it arrives; how much of it is paid or used
+/// is not stored here — that belongs to the open items (C22).
+///
+/// Always drawn from one confirmed Sales Order, whose customer, address, price
+/// mode and Kena PPN it follows. Its figures are stored as the tax module
+/// computed them at the last save.
+model SalAdvance {
+  id           Int           @id @default(autoincrement())
+  /// `ARA/YYYY/MM/NNNN`, in the series of the bill's own month.
+  advance_no   String        @unique
+  advance_date DateTime      @db.Date
+  due_date     DateTime      @db.Date
+  status       AdvanceStatus @default(Draft)
+
+  order_id     Int
+  /// The order's customer, kept on the bill because the partner is what an
+  /// advance is settled by (C22).
+  customer_id  Int
+  /// A Bank-type Cash & Bank in rupiah, printed on the bill as where to pay.
+  cash_bank_id Int
+  /// The one line the bill prints.
+  description  String
+  note         String?
+
+  /// Copied from the order, which is locked once confirmed.
+  price_mode PriceMode
+  is_taxable Boolean
+
+  /// As typed: a percent of the order's value, or a flat value (P55).
+  amount_type  AdvanceAmountType
+  amount_value Decimal           @db.Decimal(18, 4)
+
+  // ---- figures, from `lib/erp/sales-tax.ts`, whole rupiah.
+  /// The value drawn, in the order's price mode — what the room is spent in.
+  amount           Decimal @db.Decimal(18, 2)
+  dpp_amount       Decimal @db.Decimal(18, 2)
+  /// DPP Nilai Lain, DPP × 11/12; zero when the order is not Kena PPN.
+  dpp_other_amount Decimal @db.Decimal(18, 2)
+  ppn_amount       Decimal @db.Decimal(18, 2)
+  /// What the bill asks for: DPP + PPN.
+  total_amount     Decimal @db.Decimal(18, 2)
+
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  order     SalOrder  @relation(fields: [order_id], references: [id])
+  customer  MPartner  @relation(fields: [customer_id], references: [id])
+  cash_bank MCashBank @relation(fields: [cash_bank_id], references: [id])
+
+  @@index([order_id])
+  @@index([customer_id])
+  @@index([status, advance_date])
+  @@map("sal_advance")
 }

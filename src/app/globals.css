@@ -1254,3 +1254,6 @@ table.grid.coll tbody td.addr .an{display:block;margin-top:2px;font-size:11px;co
 .impact .ir.tot span{color:var(--ink);font-weight:700}
 .impact .ir.tot b{font-size:13px;color:var(--brand)}
 .impact .ir.est span{color:var(--muted-2)}
+/* A secondary fact beside a read-only value — a date beside a document
+   number (the simulation's `.ro .rx`). */
+.ro .rx{color:var(--muted-2);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}

@@ -7,6 +7,7 @@ import { recordTitle } from "./record-title";
 import { fiscalClosingLabels } from "./fiscal";
 import { journalNumbersByIds } from "./journal";
 import { openingBalanceNumbersByIds } from "./opening-balance";
+import { salesAdvanceNumbersByIds } from "./sales-advance";
 import { salesOrderNumbersByIds } from "./sales-order";
 import { userLabels, roleLabels } from "./users";
 
@@ -67,6 +68,7 @@ function registrySubject(key: string): Subject | null {
 const EXTRA_SUBJECTS: Record<string, Subject> = {
   acc_journal: { label: "Journal", resolve: journalNumbersByIds },
   sal_order: { label: "Sales Order", resolve: salesOrderNumbersByIds },
+  sal_advance: { label: "Uang Muka Penjualan", resolve: salesAdvanceNumbersByIds },
   acc_opening_balance: {
     label: "Opening Balance",
     resolve: openingBalanceNumbersByIds,

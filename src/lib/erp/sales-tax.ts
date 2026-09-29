@@ -154,3 +154,109 @@ export function computeSalesTotals(input: {
     expectedReceipt: total - withholdingTotal - collectedPpn,
   };
 }
+
+// ================================================================ advance
+
+/**
+ * The advance bill's arithmetic (P55): one value drawn from a Sales Order,
+ * typed in the order's price mode — as a percent of the order's value or as a
+ * flat value — and the PPN, DPP and DPP Nilai Lain that follow from it, the
+ * way the simulation's `advCalc` computes them. The AP advance will draw on the
+ * same function (P58).
+ *
+ * The advance is one global amount: it is not split over the order's lines.
+ * The PPh estimate is the exception — the order's Jenis PPh sit on its lines,
+ * Barang included (PPh 22), so the advance's DPP is shared over them by the
+ * DPP each covers, the largest share absorbing the rounding, and each share is
+ * withheld at its own rate (the simulation's brief B2). It is an estimate: what
+ * the customer actually withholds is recorded by Pembayaran.
+ */
+
+export type AdvanceAmountType = "Percent" | "Amount";
+
+export type AdvanceBasis = {
+  mode: PriceMode;
+  taxable: boolean;
+  vatCollector: boolean;
+  /** The order's DPP. */
+  dpp: number;
+  /** The order's total, PPN included. */
+  total: number;
+  /** Per Jenis PPh on the order: its rate and the DPP of the lines it covers. */
+  withholdings: { key: string; rate: number; base: number }[];
+};
+
+export type AdvanceFigures = {
+  /** The value drawn, in the order's price mode. */
+  amount: number;
+  /** `amount` as a percent of the order's value, to two decimals. */
+  percent: number;
+  dpp: number;
+  dppOther: number;
+  ppn: number;
+  total: number;
+  withholdings: WithholdingEstimate[];
+  withholdingTotal: number;
+  collectedPpn: number;
+  expectedReceipt: number;
+};
+
+/**
+ * What an advance is drawn from: the order's value in its price mode — its
+ * total when prices include PPN, its DPP when they exclude it (the same number
+ * when the order is not Kena PPN).
+ */
+export function orderAdvanceValue(b: Pick<AdvanceBasis, "mode" | "taxable" | "dpp" | "total">): number {
+  return b.taxable && b.mode === "Include" ? b.total : b.dpp;
+}
+
+/** The drawn value a typed percent or flat value comes to, whole rupiah. */
+export function advanceAmountOf(type: AdvanceAmountType, typed: number, value: number): number {
+  const v = Number(typed) || 0;
+  return type === "Percent" ? Math.round((value * v) / 100) : Math.round(v);
+}
+
+/** Why a typed advance cannot stand, or null. `left` is the order's room. */
+export function advanceAmountProblem(type: AdvanceAmountType, typed: number, value: number, left: number): string | null {
+  const v = Number(typed);
+  if (!Number.isFinite(v) || !(v > 0)) return "Isi nilai uang muka.";
+  if (type === "Percent" && v > 100) return "Persentase tidak boleh lebih dari 100%.";
+  const amount = advanceAmountOf(type, v, value);
+  if (!(amount > 0)) return "Nilai uang muka terlalu kecil.";
+  if (amount > left) return "Melebihi sisa nilai Sales Order yang dapat ditagih.";
+  return null;
+}
+
+export function computeAdvance(input: { basis: AdvanceBasis; type: AdvanceAmountType; typed: number }): AdvanceFigures {
+  const b = input.basis;
+  const value = orderAdvanceValue(b);
+  const amount = advanceAmountOf(input.type, input.typed, value);
+  const ppn = b.taxable ? ppnOf(amount, b.mode) : 0;
+  const dpp = b.taxable && b.mode === "Include" ? amount - ppn : amount;
+  const total = dpp + ppn;
+
+  const groups = b.withholdings.filter((w) => w.base > 0 && w.rate > 0);
+  const withheldBase = groups.reduce((a, w) => a + w.base, 0);
+  const shares = allocate(dpp, [...groups.map((w) => w.base), Math.max(0, b.dpp - withheldBase)]);
+  const withholdings = groups.map((w, i) => ({
+    key: w.key,
+    rate: w.rate,
+    base: shares[i],
+    amount: Math.floor((shares[i] * w.rate) / 100 + 1e-7),
+  }));
+  const withholdingTotal = withholdings.reduce((a, w) => a + w.amount, 0);
+  const collectedPpn = b.vatCollector ? ppn : 0;
+
+  return {
+    amount,
+    percent: value ? Math.round((amount / value) * 10000) / 100 : 0,
+    dpp,
+    dppOther: b.taxable ? Math.round(((dpp * 11) / 12) * 100) / 100 : 0,
+    ppn,
+    total,
+    withholdings,
+    withholdingTotal,
+    collectedPpn,
+    expectedReceipt: total - withholdingTotal - collectedPpn,
+  };
+}

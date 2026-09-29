@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20260929163522_sales_order`
+- **As of migration:** `20260929220605_sales_advance`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **One company** (P9): no table carries a company. Budget, Cash Bank
@@ -23,6 +23,9 @@ migration updates this file in the same change (Claude-ERP.md §9).
 - Sales: `sal_order` and `sal_order_line` (P49–P53) — SO Barang, rupiah only,
   totals stored as `lib/erp/sales-tax.ts` computed them. A Sales Order posts
   nothing.
+- `sal_advance` (P54–P58) — the AR advance bill, drawn from one confirmed
+  Sales Order and numbered `ARA/…`. It posts nothing and stores no paid or
+  used amount; that is left to the open items (C22).
 - `created_by` / `updated_by` hold a user id with no foreign key, as in SIBA.
 - Money is `decimal(18, 2)`, rates `decimal(18, 6)`. Calendar dates are `date`,
   timestamps `timestamptz`.
@@ -109,6 +112,17 @@ Enum SalesOrderStatus {
 }
 
 Enum DiscountType {
+  Percent
+  Amount
+}
+
+Enum AdvanceStatus {
+  Draft
+  Issued
+  Cancelled
+}
+
+Enum AdvanceAmountType {
   Percent
   Amount
 }
@@ -820,6 +834,39 @@ Table sal_order_line {
   }
 }
 
+Table sal_advance {
+  id int [pk, increment, not null]
+  advance_no varchar [unique, not null]
+  advance_date date [not null]
+  due_date date [not null]
+  status AdvanceStatus [not null, default: 'Draft']
+  order_id int [not null]
+  customer_id int [not null]
+  cash_bank_id int [not null]
+  description varchar [not null]
+  note varchar [null]
+  price_mode PriceMode [not null]
+  is_taxable boolean [not null]
+  amount_type AdvanceAmountType [not null]
+  amount_value decimal(18, 4) [not null]
+  amount decimal(18, 2) [not null]
+  dpp_amount decimal(18, 2) [not null]
+  dpp_other_amount decimal(18, 2) [not null]
+  ppn_amount decimal(18, 2) [not null]
+  total_amount decimal(18, 2) [not null]
+  cancel_reason varchar [null]
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    order_id
+    customer_id
+    (status, advance_date)
+  }
+}
+
 Ref: sys_user_role.user_id > sys_user.id
 Ref: sys_user_role.role_id > sys_role.id
 Ref: sys_role_permission.role_id > sys_role.id
@@ -869,4 +916,7 @@ Ref: sal_order_line.order_id > sal_order.id
 Ref: sal_order_line.item_id > m_item.id
 Ref: sal_order_line.uom_id > ref_uom.id
 Ref: sal_order_line.withholding_tax_id > ref_withholding_tax.id
+Ref: sal_advance.order_id > sal_order.id
+Ref: sal_advance.customer_id > m_partner.id
+Ref: sal_advance.cash_bank_id > m_cash_bank.id
 ```

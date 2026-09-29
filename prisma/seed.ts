@@ -114,6 +114,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   // A Surat Jalan, a Faktur and a Pembayaran will name the order they come
   // from through the weak (doc_type_id, doc_id) pair (§3.1).
   ["Sales Order", "sal_order"],
+  // Pembayaran will name the advance bill it settles the same way.
+  ["Uang Muka Penjualan", "sal_advance"],
 ];
 
 /**

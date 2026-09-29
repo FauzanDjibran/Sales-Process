@@ -637,7 +637,7 @@ export function SalesOrderForm({
                 <th style={{ width: 96 }}>Satuan</th>
                 <th className="num" style={{ width: 88 }}>Qty</th>
                 <th className="num" style={{ width: 128 }}>Harga</th>
-                <th style={{ width: 168 }}>Diskon</th>
+                <th style={{ width: 196 }}>Diskon</th>
                 <th style={{ width: 132 }}>Jenis PPh</th>
                 <th className="num" style={{ width: 128 }}>Jumlah</th>
                 {editing && <th style={{ width: 40 }} />}
@@ -721,7 +721,7 @@ export function SalesOrderForm({
                                   })
                                 }
                               >
-                                {t === "Percent" ? "%" : "Rp"}
+                                {t === "Percent" ? "%" : "Nominal"}
                               </button>
                             ))}
                           </span>

@@ -160,9 +160,23 @@ export const MODULES: NavModule[] = [
     key: "finance",
     name: "Finance",
     icon: "wallet2",
-    desc: "Buku Kas & Bank dan laporannya.",
+    desc: "Uang muka, Buku Kas & Bank dan laporannya.",
     permission: "MENU_FINANCE_ACCESS",
     groups: [
+      {
+        key: "advance",
+        name: "Uang Muka",
+        entities: [
+          {
+            key: "sal_advance",
+            slug: "advance/sales",
+            name: "Uang Muka Penjualan",
+            icon: "wallet",
+            desc: "Tagihan uang muka ke customer atas Sales Order. Tidak memposting apa pun; pembayarannya dicatat di Pembayaran.",
+            permission: "SALES_ADVANCE_VIEW",
+          },
+        ],
+      },
       {
         key: "report",
         name: "Laporan",

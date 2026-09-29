@@ -86,6 +86,13 @@ per-line unit, qty, price, % / nominal discount and Jenis PPh; figures from
 `lib/erp/sales-tax.ts`; posts nothing. Selesai / Tutup Pesanan follow with the
 Surat Jalan.
 
+**Uang Muka Penjualan — done 29/09/2026** (P54–P58): the AR advance bill under
+Finance › Uang Muka, `ARA/…`, drawn from a confirmed SO; % / Nominal value in
+the SO's price mode; PPN and the PPh estimate from `sales-tax.ts`; Draft →
+Terbitkan → Diterbitkan / Batalkan; posts nothing; the SO's value caps its live
+bills and an SO with a live bill is not cancelled. Print, payment state and open
+items follow with Company Setting and Pembayaran.
+
 Built one step at a time, **in the order the user gives**. For each step:
 
 1. Re-read the simulation's step (screens, lifecycle, arithmetic, journal) and

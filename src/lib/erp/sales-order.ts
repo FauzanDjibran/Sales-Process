@@ -9,6 +9,7 @@ import { defaultPph22WithholdingTaxId } from "./system-settings";
 import {
   computeSalesTotals,
   lineProblem,
+  type AdvanceBasis,
   type DiscountType,
   type PriceMode,
   type SalesTotals,
@@ -577,6 +578,22 @@ function asInput(o: Prisma.SalOrderGetPayload<{ include: { lines: true } }>) {
   return { header, lines };
 }
 
+/**
+ * Why an order cannot be cancelled because of its advance bills, or null.
+ * Counted through the order's own relation, so this module never names the
+ * advance's table (the way `partner.ts` protects a used address).
+ */
+async function liveAdvanceRefusal(db: Db, id: number): Promise<string | null> {
+  const row = await db.salOrder.findUnique({
+    where: { id },
+    select: { _count: { select: { advances: { where: { status: { not: "Cancelled" } } } } } },
+  });
+  const n = row?._count.advances ?? 0;
+  return n
+    ? `Sales Order ini masih memiliki ${n} tagihan uang muka yang belum dibatalkan. Batalkan tagihan uang muka tersebut dulu.`
+    : null;
+}
+
 export type SalesOrderTransitionResult =
   | { ok: true }
   | { ok: false; errors: Record<string, string> };
@@ -603,6 +620,11 @@ export async function transitionSalesOrder(
   if (action === "cancel") {
     const why = String(reason ?? "").trim();
     if (!why) return { ok: false, errors: { reason: "Alasan pembatalan wajib diisi." } };
+    // An order with a live advance bill is not cancelled: the bill is
+    // cancelled first (P57). Asked again inside the transaction, after the
+    // row is locked by the update, so a bill issued meanwhile is seen.
+    const blocked = await liveAdvanceRefusal(prisma, id);
+    if (blocked) return { ok: false, errors: { _form: blocked } };
     await prisma.$transaction(async (tx) => {
       // Conditional on the status just read, so two people cancelling or
       // confirming at once cannot both succeed.
@@ -611,6 +633,8 @@ export async function transitionSalesOrder(
         data: { status: "Cancelled", cancel_reason: why, updated_by: actorId },
       });
       if (done.count !== 1) throw new Error("Sales Order berubah saat diproses. Muat ulang halaman.");
+      const late = await liveAdvanceRefusal(tx, id);
+      if (late) throw new Error(late);
       await audit(tx, id, "UPDATE", "cancel", actorId);
     });
     return { ok: true };
@@ -757,4 +781,105 @@ export async function salesOrderNumbersByIds(ids: number[]): Promise<Map<number,
     select: { id: true, order_no: true },
   });
   return new Map(rows.map((r) => [r.id, r.order_no]));
+}
+
+// ------------------------------------------------------ for the advance bill
+
+/**
+ * A Sales Order as an advance bill reads it (P54): who it is for, where it is
+ * billed, and the basis the advance is drawn from — the order's DPP, total,
+ * mode and, per Jenis PPh on its lines, the DPP that Jenis PPh covers. The
+ * advance module takes this rather than reading `sal_order` itself.
+ */
+export type AdvanceSourceOrder = {
+  id: number;
+  orderNo: string;
+  orderDate: string;
+  status: SalesOrderStatus;
+  customerId: number;
+  customerLabel: string;
+  customerName: string;
+  customerActive: boolean;
+  taxIdType: string | null;
+  taxId: string | null;
+  isPkp: boolean;
+  collectsPph22: boolean;
+  addressText: string;
+  poNo: string | null;
+  basis: AdvanceBasis;
+  /** Jenis PPh label by the basis's withholding key. */
+  withholdingLabels: Record<string, string>;
+};
+
+/** Confirmed orders, or the ones named — any status — for a stored bill. */
+export async function advanceSourceOrders(
+  filter: { ids?: number[]; confirmedOnly?: boolean },
+  db: Db = prisma
+): Promise<AdvanceSourceOrder[]> {
+  const rows = await db.salOrder.findMany({
+    where: {
+      ...(filter.ids ? { id: { in: filter.ids } } : {}),
+      ...(filter.confirmedOnly ? { status: "Confirmed" } : {}),
+    },
+    orderBy: [{ order_date: "desc" }, { id: "desc" }],
+    include: {
+      customer: true,
+      address: { include: { village: { include: { district: { include: { city: { include: { province: true } } } } } } } },
+      lines: { include: { withholding_tax: true } },
+    },
+  });
+  return rows.map((o) => {
+    const groups = new Map<string, { key: string; rate: number; base: number }>();
+    const labels: Record<string, string> = {};
+    for (const l of o.lines) {
+      if (!l.withholding_tax_id || !l.withholding_rate) continue;
+      const key = String(l.withholding_tax_id);
+      const g = groups.get(key) ?? { key, rate: l.withholding_rate.toNumber(), base: 0 };
+      g.base += l.dpp_amount.toNumber();
+      groups.set(key, g);
+      labels[key] = l.withholding_tax?.wht_label ?? "PPh";
+    }
+    const d = o.address.village.district;
+    return {
+      id: o.id,
+      orderNo: o.order_no,
+      orderDate: isoDay(o.order_date),
+      status: o.status as SalesOrderStatus,
+      customerId: o.customer_id,
+      customerLabel: o.customer.partner_label,
+      customerName: o.customer.partner_name,
+      customerActive: o.customer.status === "Active",
+      taxIdType: o.customer.tax_id_type,
+      taxId: o.customer.tax_id,
+      isPkp: o.customer.is_pkp,
+      collectsPph22: o.customer.collects_pph22,
+      addressText: formatAddress({
+        provinceName: d.city.province.name,
+        cityName: d.city.name,
+        districtName: d.name,
+        villageName: o.address.village.name,
+        street: o.address.street,
+        postalCode: o.address.village.postal_code ?? "",
+      }),
+      poNo: o.po_no,
+      basis: {
+        mode: o.price_mode as PriceMode,
+        taxable: o.is_taxable,
+        vatCollector: o.customer.vat_collector === "Government",
+        dpp: o.dpp_amount.toNumber(),
+        total: o.total_amount.toNumber(),
+        withholdings: [...groups.values()],
+      },
+      withholdingLabels: labels,
+    };
+  });
+}
+
+/**
+ * Locks an order's row for the rest of the transaction, so an advance drawn
+ * from it and a cancellation of it cannot pass each other (P57), and two bills
+ * cannot both spend the same room.
+ */
+export async function lockSalesOrder(tx: Prisma.TransactionClient, id: number): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM sal_order WHERE id = ${id} FOR UPDATE`;
 }

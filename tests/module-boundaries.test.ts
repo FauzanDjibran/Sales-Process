@@ -90,6 +90,7 @@ const TABLE_OWNERS: Record<string, string[]> = {
   accFiscalClosing: ["src/lib/erp/fiscal.ts"],
   salOrder: ["src/lib/erp/sales-order.ts"],
   salOrderLine: ["src/lib/erp/sales-order.ts"],
+  salAdvance: ["src/lib/erp/sales-advance.ts"],
 };
 
 /**

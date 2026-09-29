@@ -1,7 +1,9 @@
 import test, { describe } from "node:test";
 import assert from "node:assert/strict";
 import {
+  advanceAmountProblem,
   allocate,
+  computeAdvance,
   computeSalesTotals,
   lineAmount,
   lineProblem,
@@ -132,5 +134,63 @@ describe("an order's totals", () => {
     assert.equal(t.collectedPpn, 93_500);
     assert.equal(t.withholdingTotal, 12_750);
     assert.equal(t.expectedReceipt, 850_000 + 93_500 - 93_500 - 12_750);
+  });
+});
+
+describe("an advance bill (P55)", () => {
+  test("Exclude: a percent of the order's DPP, PPN on top, PPh shared by the lines it covers", () => {
+    const a = computeAdvance({
+      basis: {
+        mode: "Exclude",
+        taxable: true,
+        vatCollector: false,
+        dpp: 1_716_400,
+        total: 1_905_204,
+        withholdings: [{ key: "22", rate: 1.5, base: 850_000 }],
+      },
+      type: "Percent",
+      typed: 30,
+    });
+    assert.equal(a.amount, 514_920);
+    assert.equal(a.dpp, 514_920, "Exclude: the value typed is the DPP");
+    assert.equal(a.ppn, 56_641);
+    assert.equal(a.total, 571_561);
+    assert.equal(a.dppOther, 472_010);
+    assert.equal(a.percent, 30);
+    assert.deepEqual(a.withholdings, [{ key: "22", rate: 1.5, base: 255_000, amount: 3_825 }]);
+    assert.equal(a.expectedReceipt, 571_561 - 3_825);
+  });
+
+  test("Include: a flat value with the PPN in it, and a WAPU buyer", () => {
+    const a = computeAdvance({
+      basis: { mode: "Include", taxable: true, vatCollector: true, dpp: 2_162_613, total: 2_400_500, withholdings: [] },
+      type: "Amount",
+      typed: 1_000_000,
+    });
+    assert.equal(a.ppn, 99_099);
+    assert.equal(a.dpp, 900_901);
+    assert.equal(a.total, 1_000_000, "the value typed is what the bill asks for");
+    assert.equal(a.dppOther, 825_825.92);
+    assert.equal(a.percent, 41.66, "of the order's total, since its prices include PPN");
+    assert.equal(a.collectedPpn, 99_099);
+    assert.equal(a.expectedReceipt, 900_901);
+  });
+
+  test("an order that is not Kena PPN gives an advance without PPN", () => {
+    const a = computeAdvance({
+      basis: { mode: "Include", taxable: false, vatCollector: false, dpp: 111_000, total: 111_000, withholdings: [] },
+      type: "Percent",
+      typed: 100,
+    });
+    assert.deepEqual([a.amount, a.ppn, a.dpp, a.dppOther, a.total], [111_000, 0, 111_000, 0, 111_000]);
+  });
+
+  test("what cannot be billed is refused", () => {
+    assert.ok(advanceAmountProblem("Percent", 0, 1_000, 1_000));
+    assert.ok(advanceAmountProblem("Percent", 100.01, 1_000, 1_000));
+    assert.ok(advanceAmountProblem("Amount", 1_001, 1_000, 1_000), "more than the order");
+    assert.ok(advanceAmountProblem("Percent", 60, 1_000, 500), "more than is left of it");
+    assert.equal(advanceAmountProblem("Percent", 50, 1_000, 500), null);
+    assert.equal(advanceAmountProblem("Amount", 1_000, 1_000, 1_000), null);
   });
 });

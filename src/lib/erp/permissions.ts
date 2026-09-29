@@ -168,6 +168,13 @@ export const PERMISSIONS = [
   // ---------------------------------------------------------------- finance
   { code: "MENU_FINANCE_ACCESS", name: "Akses menu Finance", module: "finance" },
 
+  // Uang Muka Penjualan — the AR advance bill (P54–P58).
+  { code: "SALES_ADVANCE_VIEW", name: "Lihat Uang Muka Penjualan", module: "finance", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "SALES_ADVANCE_CREATE", name: "Buat Uang Muka Penjualan", module: "finance", description: "Membuat Draft tagihan dari Sales Order yang sudah dikonfirmasi." },
+  { code: "SALES_ADVANCE_EDIT", name: "Ubah Uang Muka Penjualan", module: "finance", description: "Hanya selama masih Draft." },
+  { code: "SALES_ADVANCE_ISSUE", name: "Terbitkan Uang Muka Penjualan", module: "finance", description: "Mengunci tagihan untuk dikirim ke customer. Tidak memposting journal." },
+  { code: "SALES_ADVANCE_CANCEL", name: "Batalkan Uang Muka Penjualan", module: "finance", description: "Draft maupun yang sudah diterbitkan, dengan alasan." },
+
   // Report Views. `REPORT_` comes first for the same reason `MENU_` does: the
   // prefix says what kind of capability this is before it says which subject.
   // A report is read-only, so a single view permission is the whole capability.
