@@ -1,0 +1,601 @@
+# Project Context — ERP
+
+> The main guideline for Claude Code in this folder. Read it before any
+> substantial work. It overrides the parent `Simulation-Project/CLAUDE.md`
+> wherever the two differ (§1.3). Every decision agreed with the user is
+> recorded in §12, and every open clash in §18, so it applies to all future work.
+>
+> Named `Claude-ERP.md` to tell it apart from SIBA's `CLAUDE.md`. The
+> one-line `CLAUDE.md` beside it only imports this file, so Claude Code still
+> loads it automatically.
+
+---
+
+## 1. Project Overview
+
+**ERP** is a new ERP project: a business web application, built in Indonesian
+for Indonesian accounting and tax practice. It is a **real application on a
+real database**, run mainly on the user's own machine, where people enter their
+own data. **One installation serves one company.**
+
+It grows module by module, and **sales comes first**: the first goal is to do
+everything the PRJ.001 simulation `Initialization/actual-simulation-v2.html`
+("sales.html") does, including its tax handling (PPN, PPh 22/23, Coretax faktur
+pajak, bukti potong). It is built on **SIBA 3.0's stack, workflow and
+accounting framework** (`D:\Claude Code\Budget-Project`). SIBA already solves
+accounts, journals, ledgers, fiscal periods, cash & bank, multi-currency, RBAC,
+audit and the UI system; this project leans on those rather than re-inventing
+them.
+
+**It is a standalone project** (P22). SIBA is only the source the working parts
+are carried from during initialization. Once carried, the code is this
+project's own: nothing imports from SIBA or follows its later changes. The
+way of working, though, is SIBA's exactly — the same workflow, discipline,
+conventions and documentation habits.
+
+### 1.1 Source material (`Initialization/`, read-only)
+
+| File | Role |
+| --- | --- |
+| `actual-simulation-v2.html` | **Behaviour and UI reference for sales** — a ~5.6k-line vanilla-JS SPA carrying SIBA's stylesheet verbatim. Its flows, rules, tax arithmetic, journals and screens are what the sales module must reproduce. Its **data is demo content** and never canonical |
+| `design-convention.md` | The shared UI/UX convention, extracted from SIBA (P1–P12, D1–D22). **Followed in full** |
+| `Core_UI_Reference.md` | Benchmark study behind the convention; background only |
+| `multi_currency_concept.md` | **The multi-currency convention this app follows** (§12 P13) — identical to SIBA's `CORE Multi Currency Concept.md` |
+| `ar_ap_open_item_concept.md` | The AR/AP open-item model: each financial source (receipt, invoice, DN/CN, advance) creates an open item with direction and current balance; an append-only open-item ledger; allocation between items of the same partner and currency. **Reference for when invoices, advances and Pembayaran are built** — not in force until the user decides how it applies (§18.1) |
+
+Outside this repository, read-only, consulted when needed:
+
+| Where | What |
+| --- | --- |
+| `D:\Claude Code\Budget-Project` (SIBA 3.0, `main` @ `3b33094`) | The framework being carried over: code, `CLAUDE.md`, `prisma/schema.prisma`, `SIBA DBML/`, tests |
+| `D:\Claude Code\Budget-Project\Initialization\SIBA Multi Currency Concept.md` | How SIBA applied the multi-currency convention — background for the carried engine |
+| `..\simulation-notes.md` | How each simulation step was designed and why |
+| `..\..\CLAUDE.md` §6, decisions S11–S22 | The sales-flow decisions the simulation embodies |
+
+### 1.2 Authority when sources disagree
+
+1. **The user's decisions in §12** win over everything.
+2. **SIBA's framework** decides *how* things are built — stack, architecture,
+   books, posting engine, multi-currency, UI system, security (§3–§11 here,
+   SIBA's `CLAUDE.md` behind them).
+3. **The simulation** decides *what* the sales process does — documents,
+   lifecycles, tax arithmetic, journal lines, screen content.
+4. Where 2 and 3 conflict, **nothing is resolved silently**: the clash is
+   written into §18 with a recommendation and **the user decides**. Only then
+   does it move into §12.
+
+### 1.3 Relation to the parent `Simulation-Project/CLAUDE.md`
+
+The parent file governs single-file HTML simulations. This folder is a real
+application and a project of its own, not a numbered simulation (§12 P21), so
+the parent's tech stack and folder numbering **do not apply here** — SIBA's
+stack does. Its UI rules (Indonesian copy, P1–P12, status map, icon set) still
+hold, because they are the same convention. Decisions S11–S22 there are the
+sales behaviour the simulation implements, and carry over through it.
+
+### 1.4 Scope
+
+- **Carried over from SIBA** — see §13.
+- **Built new** — master data (Phase 2) and the sales process (Phase 3), in
+  the order the user instructs. Other ERP modules come after sales.
+- **Knowingly ignored until stated otherwise** — **stock / inventory
+  quantities** (no stock check, no stock card, no warehouse movement; cost of
+  goods uses a placeholder value, §12 P18). Other items the user sets aside are
+  added to this line.
+- **Not carried from SIBA** — the two-company structure and everything
+  Budget-related (§12 P9, P10).
+
+### 1.5 Current status
+
+| Area | State |
+| --- | --- |
+| Project guideline (this file) | Written 29/09/2026; clash decisions recorded 29/09/2026 |
+| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 scope fully decided (P23, P29–P32) |
+| Code | None yet |
+
+---
+
+## 2. Core Principles
+
+1. **SIBA builds it; the simulation specifies sales.** Reuse SIBA's modules,
+   components and rules as they are. Build new only what SIBA does not have.
+2. **Carry over verbatim, then change by decision.** A SIBA file is copied
+   unchanged first; any deviation is a recorded decision (§12), never a quiet
+   edit during the copy.
+3. **The design system is finished work.** `globals.css` is SIBA's, byte for
+   byte. New classes only for what SIBA lacks, in a clearly marked additions
+   block, built from SIBA's tokens.
+4. **Registry over pages** for master data; **bespoke modules** for documents
+   with a lifecycle — exactly as SIBA splits them.
+5. **Validate on the server.** The UI narrows; the Server Action enforces.
+6. **Post is the boundary, and it is one transaction.** A Draft touches no
+   book, no journal, no tax document. Post writes everything or nothing.
+7. **A posted document is permanent.** No edit, delete or reversal; a
+   correction is a new document (retur, pengembalian, faktur pengganti).
+8. **Books are append-only.** Journal and Cash Bank Book are written side by
+   side at Post; neither is derived from the other.
+9. **A document that is not a transaction posts no journal** (SO, advance bill,
+   Pengajuan Perizinan, tax documents).
+10. **Every write is audited**, and every lifecycle step names its event.
+11. **Master data is never deleted.** Deactivate instead.
+12. **Indonesian UI, English code.**
+13. **One installation, one company.** No company table, no `company_id`.
+14. **Nothing assumes a business row exists.** Demo data from the simulation is
+    for development only and never reaches the seeder.
+
+---
+
+## 3. Architecture
+
+SIBA's architecture, unchanged:
+
+```
+Browser
+  ├─ Server Components  ──► src/lib/erp/*.ts (server-only) ──► Prisma ──► PostgreSQL
+  └─ Client Components  ──► Server Actions (src/app/actions/*) ──► Prisma ──► PostgreSQL
+                                     └─ revalidatePath() + router.refresh()
+```
+
+- **No REST/GraphQL layer.** Reads through Server Components, writes through
+  Server Actions.
+- **One authorization gate** (`auth.ts`): pages `requireAuth` /
+  `requirePermission`, actions `actorOrDeny` / `authorizeAction`.
+- **Serialization boundary:** Prisma `Decimal` / `Date` pass through
+  `serialize()` before reaching a client component.
+
+### 3.1 The module contract (from SIBA, in force)
+
+1. A module's tables are named only by that module (data module + its Server
+   Action count as one).
+2. Dependencies point one way. Planned direction for sales:
+   `Sales documents → Pembayaran → books`; tax documents depend on the
+   documents that raise them, never the reverse.
+3. **The books depend on nothing** but the shared kernel (`journal`,
+   `cash-bank`, `fx`, `currency`, `document-number`, `period`, …).
+4. A reference into **master** data is a foreign key; a reference into another
+   module's **document** is the weak `(doc_type_id, doc_id)` pair. Within one
+   module (e.g. SO → Surat Jalan → Faktur Penjualan) foreign keys are fine.
+5. `tests/module-boundaries.test.ts` enforces it.
+
+### 3.2 Planned sales modules (detail comes per instruction)
+
+| Module | Owns | Posts |
+| --- | --- | --- |
+| Sales Order | `sal_order(_line)` | nothing |
+| Uang Muka Penjualan | `sal_advance` | nothing (bill only) |
+| Surat Jalan | `sal_delivery(_line)` | HPP / Persediaan at a placeholder cost (P18) |
+| Faktur Penjualan | `sal_invoice(_line, _advance_deduction)` | journal + faktur pajak |
+| Nota Retur | `sal_return(_line)` | journal + faktur pajak |
+| Perizinan | `sal_permit_request(_line)`, its advance and invoice | per simulation |
+| Pembayaran | `fin_payment(_line)` | Cash Bank Book + journal + tax documents |
+| Pajak | `tax_faktur(_line)`, `tax_withholding_slip` | never a journal |
+
+Table prefixes follow SIBA (`sys_`, `ref_`, `m_`, `acc_`, `fin_`) plus
+`sal_` (sales) and `tax_` (tax documents). Later ERP modules take their own
+prefix when they arrive.
+
+---
+
+## 4. Technology Stack
+
+Identical to SIBA 3.0.
+
+| Concern | Choice |
+| --- | --- |
+| Language | TypeScript (strict) |
+| Framework | Next.js 16.3.5, App Router, Turbopack — **read `node_modules/next/dist/docs/` before writing Next code; `AGENTS.md` is managed by `next dev`** |
+| UI | React 19.2 |
+| ORM | Prisma 7.10 with `@prisma/adapter-pg` (driver adapter required) |
+| Database | PostgreSQL 18, local |
+| Styling | SIBA's `globals.css`, plain CSS, no utility framework |
+| Fonts | `next/font` — Plus Jakarta Sans + JetBrains Mono |
+| Auth | SIBA's own: `bcryptjs` + `node:crypto`, database sessions, no auth library |
+| Validation | Hand-written in Server Actions |
+| Tests | `node:test` via `tsx` (`npm test`), against a real seeded database |
+| Lint | ESLint 9 + `eslint-config-next` |
+
+Path alias `@/*` → `./src/*`. No new dependency without saying why.
+
+**Runs locally.** Neon / Vercel scripts from SIBA are not carried. Ports are
+chosen so SIBA and this app can run side by side:
+
+| Run | Command | Port |
+| --- | --- | --- |
+| Development (hot reload) | `npm run dev` | 3100 |
+| Local run — production build | `npm run build`, then `npm start` | 3110 |
+
+Package name `erp`; database name `erp`.
+
+---
+
+## 5. Repository Structure (target)
+
+```
+Initialization/        Read-only source material (§1.1)
+Claude-ERP.md          This file
+CLAUDE.md              One line: imports Claude-ERP.md (auto-loaded by Claude Code)
+IMPLEMENTATION-PLAN.md Phased plan; updated as phases complete
+AGENTS.md              Managed by `next dev` — keep, never put context in it
+DBML/erp.dbml.md       Current schema as DBML, updated with every migration
+prisma/                schema.prisma, migrations/, seed.ts (system data only)
+scripts/               seed-showcase.ts — dev-only demo data from the simulation
+src/
+  app/(auth)/login, app/(app)/<module>/…, app/actions/*
+  components/ui, shell, master, report, accounting, finance, sales, tax
+  lib/format.ts        The only place a date, amount or rate is formatted
+  lib/erp/             SIBA's lib/siba/, renamed: registry, nav, permissions,
+                       books, workflows, fx, tax engine
+tests/                 Carried SIBA suites + one suite per new module
+.claude/skills/        run-erp (adapted from SIBA's run-siba)
+```
+
+---
+
+## 6. Development Workflow
+
+Same commands as SIBA once Phase 1 lands: `npm run dev`, `npm run build`,
+`npm start`, `npm run lint`, `npm test`, `npm run db:seed` (idempotent, system
+data only), `npm run db:seed-showcase` (dev demo data), `npm run db:reset`
+(**destructive**), `npx prisma migrate dev`.
+
+- **Validate before reporting done:** `npm run build`, `npm run lint`,
+  `npm test`; for UI, exercise it in a browser; for write paths, check the rows
+  in Postgres. Anything touching money, tax, auth or posting needs a test.
+- **State plainly what was not verified.**
+- **Windows gotchas (from SIBA):** PowerShell 5.1 `Set-Content -Encoding utf8`
+  writes a BOM that breaks CSS/TS — use the Write tool. Postgres CLI lives in
+  `C:\Program Files\PostgreSQL\18\bin`. `npm` is `npm.cmd`.
+
+---
+
+## 7. Coding Conventions (from SIBA)
+
+| Thing | Convention |
+| --- | --- |
+| Prisma model | PascalCase + `@@map` to snake_case table |
+| Prisma field | **snake_case** — the registry references columns as strings |
+| TS file | kebab-case |
+| Component | PascalCase |
+| Function / variable | camelCase |
+| Route segment | kebab-case slug |
+
+- Server Components by default; `"use client"` only for interactivity.
+- DB-reading pages: `export const dynamic = "force-dynamic"`.
+- Server Actions return `{ ok: true, … } | { ok: false, errors }`.
+- Route params are Promises in Next 16.
+- Comments explain **why**. Modules touching the DB import `"server-only"`.
+- Business arithmetic (PPN, DPP Nilai Lain, withholding, allocation) lives in
+  **pure, client-safe modules** so a form previews exactly what Post computes —
+  the pattern SIBA uses for `fx.ts` and `transfer-valuation.ts`.
+
+---
+
+## 8. UI / UX Conventions
+
+**Follow `Initialization/design-convention.md` in full** — it is SIBA's
+convention and the simulation already conforms to it. The table in SIBA's
+`CLAUDE.md` §8 applies unchanged, with one exception: payment direction
+is always **Penerimaan / Pengeluaran** (§12 P17). The rules most often at stake:
+
+- Sticky page header; **every action in `.ph-act`**, danger → neutral →
+  primary, one primary rightmost; row menus the reverse.
+- The app draws its own controls: `Combobox`, `Select`, `DateInput`,
+  `MoneyInput`, `RateInput`, `MultiSelect` — never native `<select>`, date or
+  number inputs.
+- Forms from `FormBody` / `FormSection` / `FormRow` / `Field` only; 12
+  columns; help on the label line; no summary side card; no `.ph-sub` on forms.
+- Read-only is text (`.ro`); locked fields show a `Terkunci` chip.
+- A document's heading is its number (`.docno`) + status badge; before saving,
+  a placeholder (`Sales Order Baru`).
+- A field waiting on another reads `Pilih <apa> dulu…`; pickers read
+  `Pilih <apa>…`.
+- **Consequences before commitment:** every Post / Konfirmasi / Batalkan goes
+  through `ConfirmDialog` stating what will happen — for posting, the journal
+  lines it will write.
+- One status → label → class map; one icon set through `<Icon>`.
+- Dates `dd/mm/yyyy`; `.` thousands, `,` decimals; all through `lib/format.ts`.
+- Mono font for codes, document numbers, money and rates — never names.
+- `RecordHistoryCard` is the last card on every saved record's form.
+- Every growing list has the `Pager`.
+
+**UI patterns the simulation adds** (carried as the simulation built them, into
+the additions block): the `.impact` calculation box (DPP → DPP Nilai Lain →
+PPN → total, and *Estimasi Penerimaan*), the decision-option list (`.optlist`,
+`.chk.on`) used when a price mode changes, `.cardfoot.multi`, and `.ro .rx`.
+Documents show **their own figures only** and link to related documents
+(`Referensi`), never embed them (parent S13/S14).
+
+---
+
+## 9. Data / Database Conventions (from SIBA)
+
+| Rule | Detail |
+| --- | --- |
+| Primary keys | `Int @id @default(autoincrement())` |
+| Timestamps | `Timestamptz(6)`; `created_at`, `updated_at` |
+| Authorship | `created_by Int`, `updated_by Int?`, no FK |
+| Company | **None** — no company table and no `company_id` column anywhere (P9) |
+| Money | `Decimal(18, 2)`, face and base measure per SIBA's multi-currency rules |
+| Rates | `Decimal(18, 6)` |
+| Percentages (discount, PPh rate) | `Decimal(9, 4)` — new; SIBA has none |
+| Quantities | `Decimal(18, 4)` — new; SIBA has none |
+| Calendar dates | `@db.Date`, UTC midnight, shown `dd/mm/yyyy` |
+| Master status | `ActiveStatus` (Active / Inactive) |
+| Deletion | None on master data; a document is cancelled, never deleted |
+| System codes | `<prefix>.<4 digits>`, generated |
+| Document numbers | `PREFIX/YYYY/MM/NNNN`, series per prefix per month, for every document and journal (P15) |
+| Audit | Every create/update → `audit_log`, with `event` for lifecycle steps |
+
+- **Migrations:** `npx prisma migrate dev` only; never edit an applied one;
+  never `db push`. **Every migration updates `DBML/erp.dbml.md` in the same
+  change.**
+- **Seed:** system data only, idempotent, deletes nothing.
+- **A balance is never a column on a master table**; it comes from its book.
+- **Tax arithmetic in whole rupiah** exactly as the simulation computes it
+  (`Math.floor` for PPN and PPh, largest line absorbs rounding); stored as
+  `Decimal(18,2)`.
+
+---
+
+## 10. Business / Domain Rules
+
+### 10.1 Carried from SIBA (in force once Phase 1 lands)
+
+SIBA `CLAUDE.md` §10 rules on accounts, journals and multi-currency apply
+unchanged unless a §12 decision says otherwise — notably: every journal
+balances or nothing is written (47); a journal is append-only and immutable
+(48); dated by its document, never ahead (49); lineage-numbered chart of
+accounts, frozen numbers, parent accounts not postable (44–46, 77–78); an
+account requiring a Partner names its Partner Category (15); manual journals
+drafted then posted, never on a control account (81–83); fiscal-period lock,
+closing and Opening Balance snapshot (95–96); multi-currency (66–76); reports
+read-only and reconciling (39–43); audit events and record history (63–65);
+auth and RBAC (9–13); the Cash Bank Book (22, 29, P31).
+
+**Changed from SIBA:**
+
+- **Control Account is set by the user** on the account form (P16), not
+  recomputed from structure (SIBA rule 79–80). `is_postable` stays derived
+  from the tree.
+- Everything resting on the two companies (rules 1, 8's per-company scope,
+  38, 57–62), on Budget (18–20, 25–28, 34–36, 50) and on subject books
+  (52–56) is **not carried** (P9, P10, P25).
+- Opening balances start empty (P27).
+
+### 10.2 Sales domain (from the simulation — implemented step by step)
+
+Recorded here as the specification; each becomes enforced when its step is
+built. Parent-decision numbers in brackets.
+
+1. **Sales Order** starts from the customer; defaults (identitas faktur,
+   alamat kirim, salesperson, termin, gudang, price group, mode harga) come from
+   it. **Include / Exclude PPN is an explicit user decision** on the SO. Draft →
+   Konfirmasi → Dikonfirmasi, or Menunggu Persetujuan when receivable + open SOs
+   + this SO exceed the credit limit → Setujui / Tolak. Batalkan; Salin. Posts
+   nothing. Ends Selesai automatically (fully delivered and invoiced) or by
+   Tutup Pesanan with a reason [S15, S22].
+2. **PPN arithmetic:** per document per tax code. Exclude: PPN =
+   ⌊DPP × 11/100⌋; Include: PPN = ⌊gross × 11/111⌋, DPP = gross − PPN;
+   DPP Nilai Lain = DPP × 11/12; allocated to lines by weight, the largest
+   line absorbs rounding. Tax codes `PPN-STD` and `NON-PPN`.
+3. **Withholding is flagged per SO line** and inherited downstream; its type
+   decides the rate (PPh 22 1,5 % goods to a collector, PPh 23 2 % services).
+   WAPU buyers collect PPN themselves (kode transaksi 02 for government) [S20].
+4. **Uang Muka Penjualan** is its own document, made from a confirmed SO in its
+   own menu; one global amount typed in the SO's price mode; PPN follows.
+   Issuing posts nothing [S11, S16, S21].
+5. **Pembayaran** is one document for every movement of money, Penerimaan and
+   Pengeluaran; its *tujuan* decides what it settles and how it posts (how
+   purposes are modelled is open, §18 C3). Withholding and buyer-collected PPN
+   explain the cash shortfall by rule [S12, S14, S17, S20].
+6. **Tax documents are created automatically** by the transaction that gives
+   rise to them and never post a journal: Faktur Pajak Keluaran (uang muka at
+   receipt; pelunasan / normal at invoice, dated the delivery date; upload to
+   Coretax by the 15th of the next month) and Bukti Potong PPh (awaiting the
+   customer's BPPU) [S18].
+7. **Surat Jalan** from a confirmed SO Barang, may be partial, carries no
+   prices [S19]. Posts Dr HPP / Cr Persediaan at a **placeholder cost** until
+   stock exists; no stock check (P18).
+8. **Faktur Penjualan** from one posted Surat Jalan; deducts the same SO's
+   paid advances before posting, so PPN is acknowledged once: Dr Piutang (net),
+   Dr Uang Muka (advance DPP) / Cr Penjualan (full DPP), Cr PPN Keluaran (net)
+   [S20].
+9. **Leftover advance** is refunded via Pembayaran (Pengembalian Uang Muka),
+   never moved to another SO; tax corrected by Faktur Pengganti or Pembatalan;
+   the bukti potong goes to Perlu Pembetulan [S22].
+10. **Nota Retur** from a posted invoice: reduces revenue and PPN in the retur
+    period; the open AR first, the paid part to Kredit Pelanggan (refunded via
+    Pembayaran) [S22].
+11. **Perizinan** (makloon product registration): Pengajuan → Uang Muka
+    Perizinan → Realisasi → Biaya Perizinan (payment, no tax) → Invoice
+    Perizinan with advance deduction. Pengajuan and realisasi post nothing.
+12. **Per-customer positions** (Piutang, Uang Muka) sit on accounts that
+    require a Partner, so every such journal line names the customer; they are
+    read from journal lines and the General Ledger only (P25). The
+    simulation's Kredit Pelanggan balance concept is ignored unless the user
+    states otherwise.
+
+**To verify with a tax consultant** (from the simulation notes, not blockers):
+kode transaksi 04 for DPP Nilai Lain and 02 for government buyers; PPh 22 rate
+for goods to a government treasurer; NSFP format; faktur pengganti vs
+pembatalan rules; non-PKP nota retur in Coretax.
+
+---
+
+## 11. Security Rules (from SIBA, unchanged)
+
+Authentication everywhere but `/login`; authorize in the Server Action; ask for
+a permission, never a role; no default permissions; nobody edits their own
+access; the app always keeps an administrator; bcrypt + opaque SHA-256 session
+tokens; indistinguishable login failures; denials reveal nothing; never commit
+`.env` or credentials. SIBA `CLAUDE.md` §11 is the full text. Company-access
+permissions are not carried (P9).
+
+New permissions follow SIBA's naming: `MENU_<AREA>_ACCESS` for a menu, and
+`<ENTITY>_<ACTION>` for an action (e.g. `SALES_ORDER_APPROVE`,
+`SALES_INVOICE_POST`, `TAX_FAKTUR_UPLOAD`).
+
+---
+
+## 12. Decisions
+
+Newest last. Later entries override earlier ones and say so.
+
+| # | Date | Decision |
+| --- | --- | --- |
+| P1 | 29/09/2026 | **Goal.** Turn the PRJ.001 simulation (`actual-simulation-v2.html`) into a real, locally-run application with SIBA 3.0's tech stack, workflow and accounting framework. |
+| P2 | 29/09/2026 | **Order of work:** (1) import and implement everything carried over from SIBA as is; (2) develop the master data as needed; (3) develop the sales process as the user instructs, step by step. |
+| P3 | 29/09/2026 | **SIBA's design convention is carried over in full**, and SIBA's stylesheet byte for byte. |
+| P4 | 29/09/2026 | **Clashes between SIBA's concepts and this app's are validated with the user before anything is built on them** (§18). |
+| P5 | 29/09/2026 | **Stock is knowingly ignored until stated otherwise.** |
+| P6 | 29/09/2026 | **This file is the main project guideline**, overriding the parent `Simulation-Project/CLAUDE.md` where they differ. |
+| P7 | 29/09/2026 | **The guideline is named `Claude-ERP.md`**, to tell it apart from SIBA's `CLAUDE.md`. A one-line `CLAUDE.md` imports it so Claude Code still loads it at session start. |
+| P8 | 29/09/2026 | **The project is an ERP; sales is achieved first.** Other ERP modules follow once sales is done. |
+| P9 | 29/09/2026 | **One installation, one company** (C1). There is no company table and no `company_id` column; SIBA's two-company structure, Company access, Company filter, Funding Request and intercompany bridge are not carried. |
+| P10 | 29/09/2026 | **Budget is not carried** (C2). Everything related to Budget is skipped — Budget, Budget Month, approval, realization, Budget Category and the mappings and Purposes resting on it, and SIBA's Cash Bank Transaction that realizes Budgets. |
+| P11 | 29/09/2026 | **Master data is created through the application** (C5): full list / detail / create / edit / deactivate. The seeder seeds system data only; the simulation's demo data goes into a dev-only showcase script. |
+| P12 | 29/09/2026 | **Partner, and accounts requiring a Partner, carry over from SIBA** (C4). Per-customer positions sit on partner-requiring accounts. What each master holds is discussed when Phase 2 starts; the Partner concept evolves from SIBA's (C6). |
+| P13 | 29/09/2026 | **SIBA's multi-currency engine is used**, governed by the same multi-currency concept documents as SIBA (C7). Sales documents are rupiah only for now. |
+| P14 | 29/09/2026 | **Chart of accounts is SIBA's lineage-numbered tree** (C10). |
+| P15 | 29/09/2026 | **Document numbers use the simulation's format** `PREFIX/YYYY/MM/NNNN` for every document and journal (C8). Replaces SIBA's `CBT-0001` style. |
+| P16 | 29/09/2026 | **Manual journal follows SIBA** (C9), **but Control Account is chosen by the user** on the account form, as it was before SIBA made it derived. The manual journal still refuses a control account. Overrides SIBA rules 79–80 for `is_control_account`; `is_postable` stays derived. |
+| P17 | 29/09/2026 | **Payment direction reads Penerimaan / Pengeluaran** (C13), never Uang Masuk / Uang Keluar. |
+| P18 | 29/09/2026 | **Surat Jalan posts cost of goods at a placeholder value until stock exists** (C12): Dr HPP / Cr Persediaan, no stock check. |
+| P19 | 29/09/2026 | **Cash Bank Transfer and Debit / Credit Note are on hold** (C14): neither is carried now; discussed later. |
+| P20 | 29/09/2026 | **Go-live opening balances are decided when needed** (C11). |
+| P21 | 29/09/2026 | **This is a new ERP project** (C15), not part of PRJ.001 and not a numbered simulation. |
+| P22 | 29/09/2026 | **Standalone project.** SIBA is used only during initialization, as the source to carry working parts from so development can begin. After that nothing here depends on SIBA, imports from it or tracks its changes. **Development works exactly the way SIBA was developed** — same workflow, discipline, conventions and documentation habits (§6, §15, §16, §19). |
+| P23 | 29/09/2026 | **Initial carry-over is exactly:** the Accounting module minus the Budget mapping (chart of accounts tree, account types / categories / subcategories, journal and manual journal, General Ledger, Trial Balance, Laba Rugi, Neraca, Fiscal Year, closing, Opening Balance); `m_partner`; `ref_currency`; `m_cash_bank`; the user & role concept; the System Default concept; and Profil Saya. **Anything else from SIBA is brought over only after the user confirms it** (§18). |
+| P24 | 29/09/2026 | **Pembayaran purposes are not part of initialization** (C3). They are designed when the Pembayaran menu is built. |
+| P25 | 29/09/2026 | **Only the journal line and the General Ledger carry partner positions** (C4b). The Chart of Accounts keeps SIBA's partner concept (an account may require a Partner, naming its Partner Category), and per-partner balances are read from journal lines and the General Ledger. SIBA's subject books (`sub_ledger`) are not carried. A separate customer-credit balance concept is ignored unless the user states otherwise. |
+| P26 | 29/09/2026 | **Initial masters are `m_item` and `m_partner`** (C6); everything else is a reference master (currency, unit of measure, …). What each holds is agreed when it is built. |
+| P27 | 29/09/2026 | **Opening balances follow SIBA's concept and start empty** unless stated otherwise (C11). Replaces P20's "decided when needed". |
+| P28 | 29/09/2026 | **Company identity lives in its own Company Setting menu** (C16) — seller name, NPWP, address and whatever else it will hold, discussed when that menu is built. There is still no company table in SIBA's sense (P9). |
+| P29 | 29/09/2026 | **SIBA's application foundation is carried as is** (C17): shell and navigation, `components/ui`, `globals.css` and icons, `format.ts`, sign-in / sessions / `proxy.ts`, audit log and record history, the entity registry and its pages, error / forbidden pages, health and startup checks. |
+| P30 | 29/09/2026 | **Partner Category is carried, and for now holds only Customer and Supplier** (C18), seeded as system data. `m_partner` requires one; an account requiring a Partner names the one it takes. |
+| P31 | 29/09/2026 | **The Cash Bank Book is carried whole** (C19): ledger, balance, Saldo Awal at registration, rate layers, and the Buku Kas & Bank, Saldo Kas & Bank and Posisi Layer Kurs reports. |
+| P32 | 29/09/2026 | **Also carried** (C20, C21): the test harness and the suites for what is carried, `run-siba` as `run-erp`, `truncate-transactions`, the CI workflow, and a dashboard placeholder until a sales dashboard is designed. Not carried: backfill scripts, Neon / standalone scripts, SIBA's showcase seed, SIBA's dashboard composition. |
+
+---
+
+## 13. Carry-over Map
+
+What comes from SIBA during initialization and in which shape (P22, P23).
+**Confirmed** parts are copied unchanged first, then adjusted by the decisions
+named. **Awaiting** parts are brought over only after the user confirms (§18.2).
+After initialization this table is history: the code here is this project's own.
+
+| SIBA part | Status | Shape |
+| --- | --- | --- |
+| Accounting: account types / categories / subcategories and seeded skeleton, chart of accounts tree | Confirmed (P23) | No `company_id`; Control Account set by the user (P14, P16) |
+| Journal engine, register / detail, manual journal | Confirmed (P23) | Numbering `JV/YYYY/MM/NNNN` (P15, P16) |
+| General Ledger, Trial Balance, Laba Rugi, Neraca, Report View chrome | Confirmed (P23) | One company |
+| Fiscal Year, periods, posting lock, backdating, Fiscal Year Closing, Opening Balance | Confirmed (P23) | One company; opening balances start empty (P27) |
+| Budget Category ↔ account mapping | Not carried (P10) | — |
+| `m_partner` | Confirmed (P23) | Evolves as a master (P26) |
+| `ref_currency`, `fx.ts`, `currency.ts` | Confirmed (P23) | Multi-currency engine (P13) |
+| `m_cash_bank` | Confirmed (P23) | With its book (P31) |
+| Users, roles, permissions, RBAC, user & role admin | Confirmed (P23) | Permission catalogue trimmed to what exists |
+| System Default (catalogue in code, `sys_setting`) | Confirmed (P23) | Keeps default currency, FX difference account, Laba/Rugi equity accounts — one each; bridge and DN/CN keys dropped (P9, P19) |
+| Profil Saya | Confirmed (P23) | As is |
+| Foundation: shell, `components/ui`, `globals.css`, icons, `format.ts`, sign-in / sessions, audit log and record history, entity registry, error pages, health check, startup check | Confirmed (P29) | As is |
+| Partner Category | Confirmed (P30) | Customer and Supplier only, seeded |
+| Cash Bank Book, rate layers, their three reports | Confirmed (P31) | As is |
+| Dashboard | Confirmed (P32) | Placeholder page |
+| Tests, `run-siba` skill, CI, `truncate-transactions` | Confirmed (P32) | Trimmed to what is carried; skill as `run-erp` |
+| Subject books (`sub_ledger`) and their report | Not carried (P25) | — |
+| Company, Company access / filter, Funding Request, bridge accounts | Not carried (P9) | — |
+| Budget, Budget Month, Budget Category, Purpose, Cash Bank Transaction | Not carried (P10) | — |
+| Cash Bank Transfer, Debit / Credit Note | On hold (P19) | — |
+| Git: `main` only, small per-feature commits, why-first messages | Adopted (§16, P22) | — |
+
+---
+## 14. Do Not Do
+
+Everything in SIBA `CLAUDE.md` §14 that concerns a part carried over applies
+here. In addition:
+
+- Do **not** build anything listed in §18 before the user decides it.
+- Do **not** add a company table, a `company_id` column, or a company picker.
+- Do **not** bring back anything Budget-related.
+- Do **not** restyle SIBA's classes or edit `globals.css`'s carried part; add
+  to the marked additions block only.
+- Do **not** put demo data from the simulation in `prisma/seed.ts`.
+- Do **not** post a journal from a non-transaction document (SO, advance bill,
+  Pengajuan Perizinan, tax documents).
+- Do **not** let a Draft write a book, a journal or a tax document.
+- Do **not** add an edit, delete or reversal path to a posted document or a
+  posted journal.
+- Do **not** compute PPN, DPP Nilai Lain or withholding anywhere but the one
+  client-safe tax module, and do **not** round any other way than the
+  simulation does.
+- Do **not** show a figure of another document on a document page; link to it.
+- Do **not** add stock handling until the user lifts P5.
+- Do **not** write *Uang Masuk* / *Uang Keluar*; it is Penerimaan / Pengeluaran.
+- Do **not** put project context in `AGENTS.md` or `CLAUDE.md`; it belongs in
+  this file. Do **not** delete either.
+- Do **not** edit, move or remove `Initialization/`.
+
+---
+
+## 15. Change Discipline (from SIBA)
+
+1. Read before writing — look at how the simulation behaves before building a
+   step, and at how SIBA built the nearest equivalent.
+2. Smallest change that works; no speculative abstraction.
+3. Reuse existing patterns — registry config, Server Action shape, CSS classes.
+4. Small, per-feature commits.
+5. Validate (§6) before reporting done.
+6. Report files changed, what was verified, what was not, and what is open.
+7. Surface conflicts — never resolve them silently (§1.2).
+8. Clean up test data by fixture teardown, never by reseeding or reset.
+
+---
+
+## 16. Git / Version Control
+
+- **`main` is the only branch** (SIBA's frozen workflow). The repository was
+  initialised on `master`; it is renamed to `main` before the first commit.
+- Short imperative subject; body explains **why** and names deliberate
+  deviations. Attribution trailers per the session's instructions.
+- Never commit `.env`, `node_modules/`, `.next/`, `src/generated/`.
+- Commit or push only when the user asks.
+
+---
+
+## 17. Current Known Issues
+
+None yet.
+
+---
+
+## 18. Needs Confirmation
+
+**Nothing here is built until the user decides.** On decision an entry moves
+to §12.
+
+### 18.1 Deferred by the user (decided later, at the stated point)
+
+| # | Open item | When |
+| --- | --- | --- |
+| C3 | **Pembayaran purposes and posting accounts** — how *tujuan* is modelled and how each posting finds its accounts (P24) | When the Pembayaran menu is built |
+| C6 | **Contents of each master** — `m_item`, `m_partner`, and each reference master (P26) | When that master is built |
+| C14 | **Cash Bank Transfer and Debit / Credit Note** (P19) | Later |
+| C22 | **How `ar_ap_open_item_concept.md` applies** — open items and their ledger as the settlement unit for invoices, advances, receipts and DN/CN, beside the journal-and-GL positions of P25 | When the first document with an outstanding balance is built (advance, invoice, Pembayaran) |
+
+### 18.2 SIBA parts outside the P23 list
+
+All decided 29/09/2026 (P29–P32). Anything else found in SIBA during
+initialization is asked about before it is carried.
+
+---
+
+## 19. Context Maintenance Rules (from SIBA)
+
+- Read this file before substantial work; it is authoritative unless the user
+  overrides it.
+- Update it in the same change as any durable decision.
+- Decisions go into §12; open items into §18 until decided, then to §12.
+- Keep §1.5 and §17 accurate. No session narration or task history here.
+- Never silently remove or overwrite an established decision; surface the
+  conflict first.
