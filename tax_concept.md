@@ -1,15 +1,15 @@
 # Tax Concept
 
-> **Status: draft, decisions of 29/09/2026 recorded.** This document records
+> **Status: settled 29/09/2026.** This document records
 > how tax works in the system, under Indonesian tax law. Like the open-item
 > and multi-currency concepts, it names no menu, screen, table or product. It
 > describes transactions, documents and records in general terms, so it
 > applies to any module that sells, buys, bills or pays.
 >
-> Settled points are written as rules; §11 lists what was decided. Points
-> marked **[open n]** are still under discussion (§12). Points marked
-> **[verify]** need a tax consultant's confirmation (§13). The document keeps
-> evolving during development.
+> Every point is written as a rule; §11 lists the decisions behind them.
+> Points marked **[verify]** need a tax consultant's confirmation (§12). The
+> document keeps evolving during development, and a later decision is added
+> to §11.
 
 ---
 
@@ -101,10 +101,14 @@ are not luxury are taxed at **12 % on a DPP Nilai Lain of 11/12** of the price,
 so the effective rate is 11 %.
 
 - The **PPN rate** (12 %) and the **DPP Nilai Lain factor** (11/12) are
-  **settings, not constants**.
-- They are changed by an authorised user when the law changes, and each value
-  carries the **date it takes effect from**. A document uses the values in
-  force on its tax point, and stores them (§1.6).
+  **one system-wide setting each**, not constants. An authorised user changes
+  them when the law changes.
+- **Every transaction snapshots them.** When a transaction is recorded, it
+  copies the rate and the factor in force at that moment and carries them from
+  then on (§1.6). Each transaction takes its own snapshot; it does not inherit
+  one from the document it came from.
+- A change to the setting therefore affects only transactions recorded after
+  the change. The setting is changed on the day the new law takes effect.
 - Luxury goods (12 % on the full price, PPnBM) are out of scope for now.
 
 ### 3.4 The computation chain
@@ -123,8 +127,16 @@ This is the chain a tax invoice reports: its DPP Nilai Lain is a whole-rupiah
 figure, and its PPN is the rate applied to that figure.
 
 **Inclusive prices.** The PPN in a typed inclusive price is taken out so that
-DPP + PPN equals the typed price, with the difference **absorbed in the DPP**.
-**[open 2]**: about one typed price in ten has no exact split under the chain.
+DPP + PPN equals the typed price, with the difference **absorbed in the DPP**:
+the DPP is the largest whole-rupiah figure whose DPP + PPN does not exceed the
+typed price.
+
+- About one typed price in ten has no exact split under the chain. For
+  example, a typed 1.004 gives DPP 904 → total 1.003, or DPP 905 → total
+  1.005, and nothing in between.
+- In that case the total is **one rupiah below** the typed price. The customer
+  is never billed above the quoted price, and the PPN still matches the tax
+  invoice.
 
 ### 3.5 When PPN is due (tax point)
 
@@ -186,12 +198,11 @@ Each withholding type is master data holding:
 | --- | --- | --- |
 | PPh 22 | 1,5 % | Goods bought by a designated collector |
 | PPh 23 | 2 % | Services; 15 % on dividends, interest and royalties |
-| PPh 4(2) | per object (e.g. rent 10 %) | Final withholding |
 
 - PPh 22 and PPh 23 withheld from the company are **prepaid tax**: a credit
   against the company's annual income tax, once the withholding slip is in
   hand.
-- PPh 4(2) is **final**: it cannot be credited. **[open 5]**
+- Final withholding (such as PPh 4(2)) is out of scope until it is needed.
 
 ### 4.2 Which lines are withheld
 
@@ -216,7 +227,13 @@ Each withholding type is master data holding:
   2. The withheld PPh is booked on the withholding type's account.
   3. A **pending withholding slip** is created per payment per withholding
      type (§6).
-- Whether the user may change the rule's figure is **[open 4]**.
+- **The user never types a PPh amount.** A payment for a bill that carries
+  withholding has one switch, *PPh withheld* (on by default):
+  - **on**: the withholding is computed by rule;
+  - **off**: the payer paid without withholding, so there is no PPh and no
+    slip, and the cash settles the bill in full.
+- A payer who withheld a different amount than the rule's figure is not
+  modelled. The rule's figure is recorded.
 
 ### 4.4 Advances and withholding
 
@@ -337,7 +354,7 @@ rupiah, half up**:
 Example: PPN of Rp1.900.000,50 becomes Rp1.900.001.
 
 - **Every tax figure is rounded this way.** This replaces the round-down
-  (floor) of the e-Faktur era, which the first built documents used.
+  (floor) of the e-Faktur era.
 - Money is stored with two decimals, but a tax figure always holds a whole
   rupiah value.
 - **[verify]** Sources word the exact 0,50 boundary differently.
@@ -361,7 +378,22 @@ Example: PPN of Rp1.900.000,50 becomes Rp1.900.001.
 
 ### 7.3 The level at which PPN is computed
 
-**[open 1].** Per line then summed, or once on the document's total DPP.
+**PPN is computed per line, and the document's figures are the sum of its
+lines.**
+
+- On a tax invoice, each line carries its own DPP, DPP Nilai Lain and PPN, and
+  the invoice total is the sum of the lines.
+- Computing PPN once on the document's total DPP would differ from that sum in
+  a large share of multi-line documents, usually by Rp1. For example, two lines
+  of DPP 1.000.003 give 110.000 + 110.000 = **220.000** per line, but
+  **220.001** once on the total of 2.000.006.
+- The books would then carry output VAT that the tax invoice does not show.
+  Per line, the stored document equals the tax invoice line for line.
+- Each line's DPP, DPP Nilai Lain and PPN are **stored**. They are figures
+  for the tax invoice and the books, and do not need to be shown on the
+  line itself.
+- **[verify]** Confirm with one test invoice of two lines of DPP 1.000.003 in
+  the tax authority's system; it should show 220.000.
 
 ### 7.4 Allocation
 
@@ -449,15 +481,17 @@ purchasing is built.
 
 ---
 
-## 11. Decided (29/09/2026)
+## 11. Decisions (29/09/2026)
 
 | # | Decision |
 | --- | --- |
 | Q1 | Tax figures round **half up to whole rupiah** (PER-11/PJ/2025), replacing floor |
+| Q2 | PPN is computed **per line**; the document's figures are the sum of its lines |
 | Q3 | PPN follows the **chain**: `round(12 % × round(DPP × 11/12))` |
-| Q4 | An inclusive price's PPN difference is **absorbed in the DPP** (see open 2 for the case with no exact split) |
+| Q4 | An inclusive price's difference is **absorbed in the DPP**. Where no exact split exists, the total is one rupiah below the typed price |
+| Q5 | Rounding DPP Nilai Lain is accepted: at most Rp1 from `round(11 % × DPP)`, and never accumulating (§7.2) |
 | Q6 | PPh rounds half up to whole rupiah |
-| Q7 | The PPN rate and the DPP Nilai Lain factor are **settings**, changeable when the law changes, dated from when they take effect |
+| Q7 | The PPN rate and the DPP Nilai Lain factor are **one system-wide setting each**. Every transaction snapshots them when it is recorded and carries them |
 | Q8 | Luxury goods / PPnBM: not now |
 | Q9 | PPN is one decision per document; no mixed documents |
 | Q10 | A tax invoice exists only when the transaction carries PPN. A non-taxable transaction and everything downstream of it never produce one |
@@ -468,49 +502,22 @@ purchasing is built.
 | Q15 | Return note for a non-PKP buyer: later |
 | Q16 | A tax invoice record is fully derived; no manual edits of its figures |
 | Q17 | NITKU: one per billing address, on the tax invoice; built later |
+| Q18 | No manual PPh amount. A payment has a *PPh withheld* switch: on computes by rule, off means no PPh and no slip. A different withheld amount is not modelled |
 | Q19 | One withholding slip per payment per withholding type |
 | Q20 | A slip that never arrives stays *awaiting* (late); its closing is decided later |
-| Q21 | A received slip is assumed to match the recorded amount; differences later |
+| Q21 | A received slip is assumed to match the recorded amount |
+| Q22 | Final withholding (PPh 4(2)) is out of scope until needed; no *final* mark |
 | Q23 | The no-NPWP surcharge: not now |
 | Q24 | Purchase side: outline only |
 | Q25 | A periodic tax report, read-only |
 
 ---
 
-## 12. Still open
-
-| # | Question | Recommendation |
-| --- | --- | --- |
-| open 1 (Q2) | PPN per line then summed, or once on the document's total DPP? | Per line, *if* the tax authority's system computes per line; see the note below |
-| open 2 (Q4) | About 1 in 10 typed inclusive prices has no DPP whose DPP + chain(PPN) equals it exactly. E.g. a typed 1.004 gives DPP 904 → 1.003 or DPP 905 → 1.005. Which way? | Take the split just **below** the typed price (total one rupiah less), so the customer is never billed above the quoted price and the PPN still matches the tax invoice |
-| open 3 (Q5) | Confirm that rounding DPP Nilai Lain is acceptable, given §7.2 | Yes |
-| open 4 (Q18) | May the user change the PPh the rule assumes at payment? | Yes, per withholding type, with the rule's figure as the default |
-| open 5 (Q22) | Final PPh 4(2): booked as expense rather than prepaid tax, still with a slip record? | Yes; a *final* mark on the withholding type |
-
-**Note on open 1.** On a tax invoice, each line carries its own DPP, DPP Nilai
-Lain and PPN, and the invoice total is the sum of the lines. If PPN is computed
-once on the document total, it differs from the sum of rounded lines in a large
-share of multi-line documents, usually by Rp1.
-
-For example, two lines of DPP 1.000.003:
-
-- per line: 110.000 + 110.000 = **220.000**;
-- once on the total DPP of 2.000.006: **220.001**.
-
-If the tax authority's system computes per line, then computing once would
-book one rupiah of output VAT that the tax invoice does not show. That is a
-drift between the books and the reported tax, on every such document.
-
-It can be checked with one test invoice of two lines of DPP 1.000.003 in the
-tax authority's system: it will show 220.000 or 220.001.
-
----
-
-## 13. To verify with a tax consultant
+## 12. To verify with a tax consultant
 
 - The exact 0,50 boundary (§7.1).
-- Whether the tax authority's system computes PPN per line and sums, and
-  whether it uses the rounded DPP Nilai Lain (open 1; §7.2).
+- That the tax authority's system computes PPN per line from the rounded DPP
+  Nilai Lain, and sums the lines (§7.2, §7.3).
 - The PPh 22 rate for goods sold to a government treasurer (when WAPU comes).
 - Replacement versus cancellation when an advance is partly or fully
   refunded.
@@ -518,13 +525,13 @@ tax authority's system: it will show 220.000 or 220.001.
 
 ---
 
-## 14. References
+## 13. References
 
 - UU PPN (as amended by UU HPP); PMK 131/2024 (PPN 12 %, DPP Nilai Lain
   11/12).
 - PMK 81/2024 (tax provisions for the Coretax system: tax invoice timing,
   15th-of-next-month reporting, withholding slips).
 - **PER-11/PJ/2025, article 129** (rounding to whole rupiah).
-- UU PPh articles 4(2), 22 and 23; the Minister of Finance weekly exchange
+- UU PPh articles 22 and 23; the Minister of Finance weekly exchange
   rate decisions (KMK).
 - Internal: the open-item concept and the multi-currency concept.

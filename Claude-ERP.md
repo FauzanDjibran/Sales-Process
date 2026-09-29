@@ -41,6 +41,7 @@ conventions and documentation habits.
 | `design-convention.md` | The shared UI/UX convention, extracted from SIBA (P1–P12, D1–D22). **Followed in full** |
 | `Core_UI_Reference.md` | Benchmark study behind the convention; background only |
 | `multi_currency_concept.md` | **The multi-currency convention this app follows** (§12 P13) — identical to SIBA's `CORE Multi Currency Concept.md` |
+| `tax_concept.md` | **The tax convention this app follows** (P59, P60): PPN, PPh, the faktur pajak and bukti potong as records, rounding. Written in the repository root; it moves into `Initialization/` when the user places it there |
 | `ar_ap_open_item_concept.md` | The AR/AP open-item model: each financial source (receipt, invoice, DN/CN, advance) creates an open item with direction and current balance; an append-only open-item ledger; allocation between items of the same partner and currency. **Reference for when invoices, advances and Pembayaran are built** — not in force until the user decides how it applies (§18.1) |
 
 Outside this repository, read-only, consulted when needed:
@@ -516,6 +517,7 @@ Newest last. Later entries override earlier ones and say so.
 | P57 | 29/09/2026 | **The advance bill's lifecycle:** Draft → Terbitkan → Diterbitkan; Batalkan with a reason from Draft or Diterbitkan. It posts nothing at any step. Numbered `ARA/YYYY/MM/NNNN`. The live bills on one order never exceed its value; this is checked at save and at Terbitkan with the order's row locked. **A Sales Order with a live bill cannot be cancelled**: the bill is cancelled first. |
 | P58 | 29/09/2026 | **AR and AP advances mirror each other in engine and design but keep their own tables.** The AP advance, when it comes, reuses the arithmetic, the lifecycle shape and the screen layout, with the other side's words and its own table and prefix. Neither bill stores what is paid or used; that belongs to the open items (C22). |
 | P59 | 29/09/2026 | **The tax concept's first decisions** (`tax_concept.md` §11). Tax figures round **half up to whole rupiah** (PER-11/PJ/2025 art. 129), replacing the simulation's floor. PPN follows the chain `round(12 % × round(DPP × 11/12))`. An inclusive price's difference is absorbed in the DPP. The PPN rate and the DPP Nilai Lain factor become **dated settings** a user changes when the law changes. PPN is one decision per document, and a non-taxable transaction never produces a faktur pajak downstream. No transaction codes and no WAPU for now: basic private-sector faktur first. A faktur record is fully derived. There is one bukti potong per payment per Jenis PPh; a slip that never arrives stays awaiting. A read-only periodic tax report is part of the plan. Amends P52 and P55 on rounding; the built Sales Order and advance are reworked to it once C26's open points close. |
+| P60 | 29/09/2026 | **The tax concept is settled** (`tax_concept.md` §11), closing C26. **PPN is computed per line** and the document's figures are the sum of its lines, as the faktur pajak carries them. In the ERP each line stores its DPP, DPP Nilai Lain and PPN, but **the line table does not grow columns for them**: they surface in the totals box and the faktur. An inclusive price absorbs the difference in DPP, and where no exact split exists the total is one rupiah below the typed price. **The PPN rate and the 11/12 factor are one system-wide setting each** (Pengaturan), with no effective dates; every transaction snapshots both when it is saved and carries them. **No manual PPh amount at payment:** a *Potong PPh* switch, on by default, applies the rule's figure; off means no PPh and no bukti potong. A different amount withheld by the customer is not modelled. **Final PPh (4(2)) is out of scope** until needed. Amends P59 on the dated settings. |
 
 ---
 
@@ -632,10 +634,12 @@ here. In addition:
   which `m_cash_bank` does not hold; today the account's name carries them.
 - **The advance register shows no payment state.** Belum Dibayar / Sebagian /
   Lunas and the usage state come with Pembayaran and the open items (C22).
-- **The Sales Order and the advance still round tax down (floor)** and
-  compute PPN once per document. P59 moves them to half up and the chain; the
-  rework waits for C26's open points (the level of computation, inclusive
-  prices without an exact split).
+- **The Sales Order and the advance still round tax down (floor)**, compute
+  PPN once per document and take the rate as a constant. P59–P60 move them to
+  half up, the chain, per-line PPN and a snapshotted rate setting; the rework
+  is the next tax step.
+- **The seed still creates PPH42-SEWA** (P44), a final-tax type that P60 puts
+  out of scope.
 - **No `seed-showcase.ts` entry for Partner yet.** The simulation's customers
   have not been turned into dev demo data.
 - **The closing suite no longer covers a loss.** SIBA proved the loss side on
@@ -658,7 +662,6 @@ to §12.
 | C23 | **NITKU** — the 22-digit place-of-business identity a faktur names (NPWP + 6 digits, `000000` head office). Proposed: one per billing address, since DJP registers a NITKU at an address and a faktur carries both | When Faktur Pajak is built |
 | C25 | **Account mapping per Kategori Item** — its own menu naming Penjualan, Retur, HPP and Persediaan accounts per category (P47) | When the first document that posts an item is built (Surat Jalan, Faktur) |
 | C14 | **Cash Bank Transfer and Debit / Credit Note** (P19) | Later |
-| C26 | **The tax concept** — `tax_concept.md` (repository root). Decided points are in P59. Still open (its §12): PPN per line or once per document; the direction for inclusive prices with no exact split; confirming the rounded DPP Nilai Lain; whether the user may change the PPh assumed at payment; final PPh 4(2) as expense | Now. No new tax arithmetic is built until these close; then the document joins `Initialization/` and the SO and advance are reworked |
 | C22 | **How `ar_ap_open_item_concept.md` applies** — open items and their ledger as the settlement unit for invoices, advances, receipts and DN/CN, beside the journal-and-GL positions of P25. Proposed: the advance *bill* is not an open item (like SAP's noted item); the ADVANCE open item is created by the receipt in Pembayaran, naming the bill. **Clash to settle:** the concept lets any open item of the same partner and currency be allocated, while the simulation deducts only the same SO's advances and never moves a leftover to another SO (S22) | When Pembayaran and the Faktur Penjualan are built |
 
 ### 18.2 SIBA parts outside the P23 list
