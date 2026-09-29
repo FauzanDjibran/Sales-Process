@@ -161,6 +161,18 @@ export function formatPercent(change: number, base: number): string | null {
   return `${formatNumber((change / Math.abs(base)) * 100, 1)}%`;
 }
 
+/**
+ * A stored percentage — a tax rate, a discount: `1,5%`, `2%`, `12,25%`.
+ * As many decimals as it has, up to the four `Decimal(9,4)` holds, and none
+ * when it is whole.
+ */
+export function formatPct(
+  value: number | string | { toString(): string } | null | undefined
+): string {
+  const n = Number(value ?? 0);
+  return `${n.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 4 })}%`;
+}
+
 /** IDR renders as `Rp 1.250.000` with no decimals; other currencies keep two. */
 export function formatMoney(
   value: number | string | { toString(): string } | null | undefined,

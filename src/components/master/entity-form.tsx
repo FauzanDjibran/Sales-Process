@@ -39,7 +39,7 @@ import {
 import { moduleByKey } from "@/lib/erp/nav";
 import type { RefOption, Row } from "@/lib/erp/records";
 import type { SystemDefaultKey } from "@/lib/erp/system-defaults";
-import { formatDate, formatMoney, formatRate, todayIso } from "@/lib/format";
+import { formatDate, formatMoney, formatPct, formatRate, todayIso } from "@/lib/format";
 import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
 import { recordTitle } from "@/lib/erp/record-title";
 import { AddressesTab, ContactsTab, type CollectionTabProps } from "@/components/master/partner-tabs";
@@ -713,6 +713,15 @@ function readOnlyBody({
       </div>
     );
   }
+  if (field.type === "percent") {
+    return raw == null || raw === "" ? (
+      <div className="ro nil">tidak diisi</div>
+    ) : (
+      <div className="ro">
+        <span className="mny">{formatPct(raw as number)}</span>
+      </div>
+    );
+  }
   if (field.type === "rate") {
     return raw == null || raw === "" ? (
       <div className="ro nil">tidak diisi</div>
@@ -850,6 +859,18 @@ function editableControl({
       <MoneyInput
         value={value == null ? "" : String(value)}
         currencyLabel={currencyLabel}
+        invalid={Boolean(error)}
+        placeholder={field.placeholder ?? "0"}
+        onChange={onChange}
+      />
+    );
+  }
+  if (field.type === "percent") {
+    return (
+      <MoneyInput
+        value={value == null ? "" : String(value)}
+        currencyLabel="%"
+        decimals={4}
         invalid={Boolean(error)}
         placeholder={field.placeholder ?? "0"}
         onChange={onChange}

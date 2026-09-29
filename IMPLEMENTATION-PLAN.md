@@ -64,14 +64,16 @@ Candidates, from the simulation:
 | Master | From the simulation | Notes |
 | --- | --- | --- |
 | Customer (`m_partner`) | `CUSTOMERS` | **Done 29/09/2026** (P38–P42): addresses on the region reference, contact persons, Pajak tab with tax identity and PPh 23 / PPh 22 / WAPU. Deferred: NITKU (C23); credit limit, default mode harga, credit block, SO defaults (C24); showcase data |
-| Salesperson | `SALES` | |
-| Termin Pembayaran | `TERMS` | |
-| Gudang | `WAREHOUSES` | Delivery origin only while stock is ignored (P5) |
-| Price group | `PRICE_GROUPS` | |
+| Salesperson | `SALES` | **Not a master** (P43): typed on the document |
+| Termin Pembayaran | `TERMS` | **Done 29/09/2026** (P43) |
+| Gudang | `WAREHOUSES` | **Done 29/09/2026** (P43): Label + Nama, delivery origin only while stock is ignored (P5) |
+| Price group | `PRICE_GROUPS` | **Not built** (P43): prices are typed on the document |
 | Barang (`m_item`) | `GOODS` | Units with conversion, tax code, NIE BPOM + expiry, price list per price group × mode, placeholder cost (P18) |
-| Jenis Perizinan | `PERMITS` | Not an item |
-| Jenis PPh | `WHT_TYPES` | Rate, object, prepaid-tax account |
-| Kode Pajak | `TAX_CODES` | Master or code catalogue — decided when built |
+| Jenis Perizinan | `PERMITS` | Not an item. Set aside for now (P43) |
+| Jenis PPh | `WHT_TYPES` | **Done 29/09/2026** (P44): user-managed, four common types seeded |
+| Kode Pajak | `TAX_CODES` | **No table** (P45): PPN yes / no is an enum on the Item and transactions |
+| Satuan | `GOODS.uoms` | **Done 29/09/2026** (P43): unit only; conversions per Item |
+| Kategori Barang | `GOODS.cat` | Decided with the Item |
 | Company Setting | `COMPANY` | Its own menu (P28) |
 
 ---

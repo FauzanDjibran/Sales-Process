@@ -386,6 +386,92 @@ model RefCurrency {
   @@map("ref_currency")
 }
 
+/// Satuan — a unit an item is counted in (PCS, BOX, SET). Only the unit; how
+/// many of one make another depends on the item (a box of serum is 12 pcs, a
+/// box of facial wash 24), so conversions live on the item.
+model RefUom {
+  id        Int          @id @default(autoincrement())
+  uom_code  String       @unique
+  uom_label String
+  uom_name  String
+  note      String?
+  status    ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@map("ref_uom")
+}
+
+/// Termin Pembayaran — how long a customer has to pay. `due_days` after the
+/// invoice date is the due date; `0` is Tunai.
+model RefPaymentTerm {
+  id         Int          @id @default(autoincrement())
+  term_code  String       @unique
+  term_label String
+  term_name  String
+  due_days   Int
+  note       String?
+  status     ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@map("ref_payment_term")
+}
+
+/// Gudang — where goods ship from. Code and name only while stock is ignored
+/// (P5); it is the Surat Jalan's origin, not yet a place stock is counted.
+model RefWarehouse {
+  id              Int          @id @default(autoincrement())
+  warehouse_code  String       @unique
+  warehouse_label String
+  warehouse_name  String
+  note            String?
+  status          ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@map("ref_warehouse")
+}
+
+/// Jenis PPh — an income tax a customer withholds from what it pays (PPh 22,
+/// PPh 23, PPh 4(2) …): its rate, what it is levied on, and the prepaid-tax
+/// account the withheld amount is booked to until the bukti potong credits it.
+/// The common types are seeded; users edit them and add their own (P44).
+model RefWithholdingTax {
+  id         Int          @id @default(autoincrement())
+  wht_code   String       @unique
+  wht_label  String
+  wht_name   String
+  /// Percent, e.g. `1.5` for 1,5 %.
+  rate       Decimal      @db.Decimal(9, 4)
+  /// What the tax is levied on — the objek pajak, in words.
+  tax_object String?
+  /// "PPh … Dibayar Dimuka". Optional here because a fresh chart of accounts
+  /// has none yet; the document that books a withholding requires it.
+  prepaid_account_id Int?
+  note       String?
+  status     ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  prepaid_account AccAccount? @relation(fields: [prepaid_account_id], references: [id])
+
+  @@index([prepaid_account_id])
+  @@map("ref_withholding_tax")
+}
+
 // ---------------------------------------------------------------- master
 
 model MPartner {
@@ -781,6 +867,8 @@ model AccAccount {
   journal_lines AccJournalLine[]
 
   opening_balance_lines AccOpeningBalanceLine[]
+
+  withholding_taxes RefWithholdingTax[]
 
   @@unique([account_label])
   @@index([account_subcategory_id])

@@ -38,6 +38,12 @@ export type FieldType =
    */
   | "rate"
   /**
+   * A percentage — a tax rate. `MoneyInput` with a `%` in the box and the four
+   * decimals `Decimal(9,4)` holds, so `1,5` is typed the way it is written.
+   * Stored as the percent itself (`1.5`), not as a fraction.
+   */
+  | "percent"
+  /**
    * One number continuing a code the record inherits. The user types `5`; the
    * Server Action writes `1.1.1.5` into the field named by `writesTo`. See
    * `lib/erp/account-code.ts` — Chart of Accounts is the entity that needs it.
@@ -196,6 +202,8 @@ export type Column = {
   isTag?: boolean;
   isBool?: boolean;
   isDate?: boolean;
+  /** A stored percentage, shown `1,5%`. */
+  isPercent?: boolean;
   truncate?: boolean;
   /** Value comes from the server-computed map rather than the row. */
   computed?: boolean;
@@ -607,6 +615,209 @@ export const ENTITIES: Entity[] = [
       { field: "cash_bank_count", label: "Cash & Bank", computed: true, numeric: true, width: "112px" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
       { field: "note", label: "Catatan", muted: true, truncate: true },
+    ],
+  },
+
+  {
+    key: "ref_uom",
+    slug: "uom",
+    module: "master",
+    name: "Satuan",
+    icon: "tags",
+    desc: "Satuan hitung barang (PCS, BOX, SET). Konversi antarsatuan ditentukan per barang.",
+    codeField: "uom_code",
+    codePrefix: "uom",
+    labelField: "uom_label",
+    nameField: "uom_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "uom_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "PCS",
+        help: "singkatan yang tercetak di dokumen",
+      },
+      {
+        name: "uom_name",
+        label: "Nama Satuan",
+        type: "text",
+        required: true,
+        placeholder: "Pieces",
+        help: "nama lengkap",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "uom_label", label: "Label", isLabel: true, width: "118px", filter: "text" },
+      { field: "uom_name", label: "Nama Satuan", primary: true, filter: "text" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+      { field: "note", label: "Catatan", muted: true, truncate: true },
+    ],
+  },
+
+  {
+    key: "ref_payment_term",
+    slug: "payment-term",
+    module: "master",
+    name: "Termin Pembayaran",
+    single: "Termin",
+    icon: "cal",
+    desc: "Berapa hari customer boleh membayar setelah tanggal faktur. 0 hari berarti Tunai.",
+    codeField: "term_code",
+    codePrefix: "term",
+    labelField: "term_label",
+    nameField: "term_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "term_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "N30",
+        help: identHelp,
+      },
+      {
+        name: "term_name",
+        label: "Nama Termin",
+        type: "text",
+        required: true,
+        placeholder: "Net 30 hari",
+        help: "nama yang tercetak di faktur",
+      },
+      {
+        name: "due_days",
+        label: "Jumlah Hari",
+        type: "number",
+        required: true,
+        placeholder: "30",
+        help: "jatuh tempo = tanggal faktur + hari ini",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "term_label", label: "Label", isLabel: true, width: "118px", filter: "text" },
+      { field: "term_name", label: "Nama Termin", primary: true, filter: "text" },
+      { field: "due_days", label: "Hari", numeric: true, width: "96px" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+      { field: "note", label: "Catatan", muted: true, truncate: true },
+    ],
+  },
+
+  {
+    key: "ref_warehouse",
+    slug: "warehouse",
+    module: "master",
+    name: "Gudang",
+    icon: "build",
+    desc: "Tempat barang dikirim. Selama stok belum dikelola, gudang hanya menandai asal pengiriman.",
+    codeField: "warehouse_code",
+    codePrefix: "whse",
+    labelField: "warehouse_label",
+    nameField: "warehouse_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "warehouse_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "GD-CKR",
+        help: identHelp,
+      },
+      {
+        name: "warehouse_name",
+        label: "Nama Gudang",
+        type: "text",
+        required: true,
+        placeholder: "Gudang Cikarang",
+        help: "nama lengkap",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "warehouse_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
+      { field: "warehouse_name", label: "Nama Gudang", primary: true, filter: "text" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+      { field: "note", label: "Catatan", muted: true, truncate: true },
+    ],
+  },
+
+  {
+    key: "ref_withholding_tax",
+    slug: "withholding-tax",
+    module: "master",
+    name: "Jenis PPh",
+    icon: "calc",
+    desc: "PPh yang dipotong atau dipungut customer saat membayar: tarif, objek pajak dan akun PPh dibayar dimuka.",
+    codeField: "wht_code",
+    codePrefix: "wht",
+    labelField: "wht_label",
+    nameField: "wht_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "wht_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "PPH23",
+        help: identHelp,
+      },
+      {
+        name: "wht_name",
+        label: "Nama Jenis PPh",
+        type: "text",
+        required: true,
+        placeholder: "PPh Pasal 23 — Jasa",
+        help: "nama lengkap",
+      },
+      {
+        name: "rate",
+        label: "Tarif",
+        type: "percent",
+        required: true,
+        placeholder: "2",
+        help: "persen dari DPP",
+      },
+      {
+        name: "prepaid_account_id",
+        label: "Akun PPh Dibayar Dimuka",
+        type: "ref",
+        ref: "acc_account",
+        refFilter: "postableAccount",
+        span: 8,
+        help: "tempat PPh yang dipotong customer dicatat sampai bukti potong diterima",
+      },
+      {
+        name: "tax_object",
+        label: "Objek Pajak",
+        type: "textarea",
+        full: true,
+        placeholder: "Penghasilan yang dikenai PPh ini…",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "wht_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
+      { field: "wht_name", label: "Nama Jenis PPh", primary: true, filter: "text" },
+      { field: "rate", label: "Tarif", isPercent: true, numeric: true, width: "96px" },
+      { field: "prepaid_account_id", label: "Akun Dibayar Dimuka", isRef: true, width: "240px" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
   },
 

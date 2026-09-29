@@ -21,7 +21,7 @@ import {
   type Entity,
 } from "@/lib/erp/entities";
 import { moduleByKey } from "@/lib/erp/nav";
-import { formatDate } from "@/lib/format";
+import { formatDate, formatPct } from "@/lib/format";
 import type { RefOption, Row } from "@/lib/erp/records";
 import { recordTitle } from "@/lib/erp/record-title";
 
@@ -82,6 +82,7 @@ export function EntityList({
         return opt ? `${opt.label} ${opt.name}` : "";
       }
       if (column.isDate) return formatDate(raw as string);
+      if (column.isPercent) return raw == null ? "" : formatPct(raw as number);
       if (column.isStatus || column.isBool) {
         return STATUS_TEXT[String(raw)] ?? String(raw ?? "");
       }
@@ -210,6 +211,10 @@ export function EntityList({
 
     if (column.isDate) {
       return value ? <>{formatDate(value as string)}</> : <span className="dash">—</span>;
+    }
+
+    if (column.isPercent) {
+      return value == null ? <span className="dash">—</span> : <span className="mny">{formatPct(value as number)}</span>;
     }
 
     if (column.isLabel) {

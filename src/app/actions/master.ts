@@ -37,6 +37,7 @@ import {
   type PartnerCollections,
 } from "@/lib/erp/partner";
 import { normalizeTaxId } from "@/lib/erp/partner-shape";
+import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-rules";
 
 /**
  * Every action here is permission-gated before it touches anything, and every
@@ -103,7 +104,8 @@ function coerce(field: Field, raw: string | boolean | null | undefined) {
     field.type === "ref" ||
     field.type === "number" ||
     field.type === "money" ||
-    field.type === "rate"
+    field.type === "rate" ||
+    field.type === "percent"
   ) {
     if (value === "") return null;
     const n = Number(value);
@@ -293,6 +295,27 @@ async function validate(
   }
   if (entity.key === "acc_account") {
     Object.assign(errors, await validateAccount(values, currentId, errors, applies));
+  }
+  // A term is a whole number of days; a tax rate is a share of the base.
+  if (entity.key === "ref_payment_term" && !errors.due_days) {
+    const error = paymentTermDaysError(numberValue(values, "due_days"));
+    if (error) errors.due_days = error;
+  }
+  if (entity.key === "ref_withholding_tax" && !errors.rate) {
+    const error = withholdingRateError(numberValue(values, "rate"));
+    if (error) errors.rate = error;
+    // The picker offers postable accounts only; a crafted request could name
+    // a heading account, which no journal line may ever hit.
+    const accountId = refValue(values, "prepaid_account_id");
+    if (accountId) {
+      const account = await prisma.accAccount.findUnique({
+        where: { id: accountId },
+        select: { is_postable: true, is_active: true, _count: { select: { children: true } } },
+      });
+      if (!account || !account.is_postable || account._count.children > 0 || !account.is_active) {
+        errors.prepaid_account_id = "Pilih account aktif yang dapat diposting.";
+      }
+    }
   }
   if (entity.key === "m_partner") {
     const tax = checkPartnerTax(values, applies.has("vat_collector"));
@@ -652,9 +675,21 @@ export async function toggleStatus(
   if (!guard.ok) return { ok: false, message: guard.denial.errors._form };
   const actor = guard.actor;
 
-  // Deactivating an account that a Cash & Bank resource posts to would leave
-  // that resource pointing at an account it could no longer have chosen.
+  // Deactivating an account that a Cash & Bank resource or a Jenis PPh posts
+  // to would leave it pointing at an account it could no longer have chosen.
   if (entity.key === "acc_account" && !nextActive) {
+    const taxes = await prisma.refWithholdingTax.findMany({
+      where: { prepaid_account_id: id },
+      select: { wht_label: true },
+    });
+    if (taxes.length) {
+      return {
+        ok: false,
+        message: `Account ini dipakai Jenis PPh (${taxes
+          .map((t) => t.wht_label)
+          .join(", ")}) dan tidak dapat dinonaktifkan.`,
+      };
+    }
     const dependents = await prisma.mCashBank.findMany({
       where: { account_id: id },
       select: { cash_bank_label: true },

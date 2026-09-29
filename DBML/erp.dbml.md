@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20260929150354_partner_address_contact_tax_regions`
+- **As of migration:** `20260929153749_reference_uom_term_warehouse_wht`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **One company** (P9): no table carries a company. Budget, Cash Bank
@@ -15,6 +15,9 @@ migration updates this file in the same change (Claude-ERP.md §9).
   kelurahan/desa with each kelurahan's kode pos. They are system reference data
   seeded from `prisma/data/region.tsv.gz`. A Partner address stores only its
   kelurahan (P39).
+- Reference masters `ref_uom`, `ref_payment_term`, `ref_warehouse` and
+  `ref_withholding_tax` (P43, P44). There is no tax-code table: whether a line
+  carries PPN is an enum on the transaction (P45).
 - `created_by` / `updated_by` hold a user id with no foreign key, as in SIBA.
 - Money is `decimal(18, 2)`, rates `decimal(18, 6)`. Calendar dates are `date`,
   timestamps `timestamptz`.
@@ -244,6 +247,66 @@ Table ref_currency {
   updated_by int [null]
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
+}
+
+Table ref_uom {
+  id int [pk, increment, not null]
+  uom_code varchar [unique, not null]
+  uom_label varchar [not null]
+  uom_name varchar [not null]
+  note varchar [null]
+  status ActiveStatus [not null, default: 'Active']
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table ref_payment_term {
+  id int [pk, increment, not null]
+  term_code varchar [unique, not null]
+  term_label varchar [not null]
+  term_name varchar [not null]
+  due_days int [not null]
+  note varchar [null]
+  status ActiveStatus [not null, default: 'Active']
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table ref_warehouse {
+  id int [pk, increment, not null]
+  warehouse_code varchar [unique, not null]
+  warehouse_label varchar [not null]
+  warehouse_name varchar [not null]
+  note varchar [null]
+  status ActiveStatus [not null, default: 'Active']
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table ref_withholding_tax {
+  id int [pk, increment, not null]
+  wht_code varchar [unique, not null]
+  wht_label varchar [not null]
+  wht_name varchar [not null]
+  rate decimal(9, 4) [not null]
+  tax_object varchar [null]
+  prepaid_account_id int [null]
+  note varchar [null]
+  status ActiveStatus [not null, default: 'Active']
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    prepaid_account_id
+  }
 }
 
 Table m_partner {
@@ -615,6 +678,7 @@ Ref: sys_user_role.role_id > sys_role.id
 Ref: sys_role_permission.role_id > sys_role.id
 Ref: sys_role_permission.permission_id > sys_permission.id
 Ref: sys_session.user_id > sys_user.id
+Ref: ref_withholding_tax.prepaid_account_id > acc_account.id
 Ref: m_partner.category_id > sys_partner_category.id
 Ref: m_partner_address.partner_id > m_partner.id
 Ref: m_partner_address.village_id > sys_region_village.id

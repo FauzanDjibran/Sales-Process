@@ -61,6 +61,30 @@ export const PERMISSIONS = [
   { code: "CURRENCY_ACTIVATE", name: "Aktifkan Currency", module: "master" },
   { code: "CURRENCY_DEACTIVATE", name: "Nonaktifkan Currency", module: "master" },
 
+  { code: "UOM_VIEW", name: "Lihat Satuan", module: "master" },
+  { code: "UOM_CREATE", name: "Tambah Satuan", module: "master" },
+  { code: "UOM_EDIT", name: "Ubah Satuan", module: "master" },
+  { code: "UOM_ACTIVATE", name: "Aktifkan Satuan", module: "master" },
+  { code: "UOM_DEACTIVATE", name: "Nonaktifkan Satuan", module: "master" },
+
+  { code: "PAYMENT_TERM_VIEW", name: "Lihat Termin Pembayaran", module: "master" },
+  { code: "PAYMENT_TERM_CREATE", name: "Tambah Termin Pembayaran", module: "master" },
+  { code: "PAYMENT_TERM_EDIT", name: "Ubah Termin Pembayaran", module: "master" },
+  { code: "PAYMENT_TERM_ACTIVATE", name: "Aktifkan Termin Pembayaran", module: "master" },
+  { code: "PAYMENT_TERM_DEACTIVATE", name: "Nonaktifkan Termin Pembayaran", module: "master" },
+
+  { code: "WAREHOUSE_VIEW", name: "Lihat Gudang", module: "master" },
+  { code: "WAREHOUSE_CREATE", name: "Tambah Gudang", module: "master" },
+  { code: "WAREHOUSE_EDIT", name: "Ubah Gudang", module: "master" },
+  { code: "WAREHOUSE_ACTIVATE", name: "Aktifkan Gudang", module: "master" },
+  { code: "WAREHOUSE_DEACTIVATE", name: "Nonaktifkan Gudang", module: "master" },
+
+  { code: "WITHHOLDING_TAX_VIEW", name: "Lihat Jenis PPh", module: "master" },
+  { code: "WITHHOLDING_TAX_CREATE", name: "Tambah Jenis PPh", module: "master" },
+  { code: "WITHHOLDING_TAX_EDIT", name: "Ubah Jenis PPh", module: "master" },
+  { code: "WITHHOLDING_TAX_ACTIVATE", name: "Aktifkan Jenis PPh", module: "master" },
+  { code: "WITHHOLDING_TAX_DEACTIVATE", name: "Nonaktifkan Jenis PPh", module: "master" },
+
   { code: "PARTNER_CATEGORY_VIEW", name: "Lihat Partner Category", module: "settings" },
   { code: "PARTNER_CATEGORY_CREATE", name: "Tambah Partner Category", module: "settings" },
   { code: "PARTNER_CATEGORY_EDIT", name: "Ubah Partner Category", module: "settings" },

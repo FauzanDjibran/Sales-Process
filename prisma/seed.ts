@@ -1,7 +1,7 @@
 /**
  * Brings the system tables up to date. Nothing else.
  *
- * The seed owns exactly two kinds of row:
+ * The seed owns exactly three kinds of row:
  *
  *   1. The `sys_*` tables — the bootstrap administrator, the permission
  *      catalogue and the seeded roles.
@@ -9,7 +9,10 @@
  *      say otherwise: account types, document types, partner categories, and
  *      the account category / subcategory skeleton the
  *      chart of accounts hangs off. Application logic reads these by label, so
- *      they are code in the same sense the permission catalogue is.
+ *      they are code in the same sense the permission catalogue is. The
+ *      Indonesian region reference (P40) is the same kind of row.
+ *   3. Starting rows the user asked for (P44): the common Jenis PPh. Created
+ *      once, then the user's to edit — never overwritten.
  *
  * Everything else — partners, cash & bank resources, currencies beyond the
  * reporting base, accounts, fiscal years and periods, and every document — is
@@ -126,6 +129,39 @@ const PARTNER_CATEGORIES: [
 ][] = [
   ["Customer", "Pelanggan", "Pihak yang membeli barang atau jasa dari perusahaan.", "Active"],
   ["Supplier", "Pemasok", "Pihak yang menjual barang atau jasa kepada perusahaan.", "Inactive"],
+];
+
+/**
+ * The Jenis PPh a new installation starts with — the withholdings a customer
+ * commonly applies when it pays (P44). Starting data, not code: users change
+ * rates and objek as the rules change, and add their own. No prepaid-tax
+ * account, because the chart a fresh install has holds no such account yet.
+ */
+const WITHHOLDING_TAXES: [label: string, name: string, rate: number, taxObject: string][] = [
+  [
+    "PPH22",
+    "PPh Pasal 22 — Penjualan kepada Pemungut",
+    1.5,
+    "Penjualan barang kepada pemungut PPh 22: bendahara instansi pemerintah, BUMN dan badan tertentu.",
+  ],
+  [
+    "PPH23",
+    "PPh Pasal 23 — Jasa dan Sewa",
+    2,
+    "Imbalan jasa, sewa dan penghasilan lain sehubungan dengan penggunaan harta selain tanah dan/atau bangunan.",
+  ],
+  [
+    "PPH23-15",
+    "PPh Pasal 23 — Dividen, Bunga, Royalti, Hadiah",
+    15,
+    "Dividen, bunga, royalti, serta hadiah, penghargaan dan bonus selain yang telah dipotong PPh 21.",
+  ],
+  [
+    "PPH42-SEWA",
+    "PPh Pasal 4 ayat (2) — Sewa Tanah dan/atau Bangunan",
+    10,
+    "Persewaan tanah dan/atau bangunan (final).",
+  ],
 ];
 
 /**
@@ -575,6 +611,27 @@ async function ensureReferenceData(
   }
 
   await ensureRegions();
+
+  // The common withholding taxes a customer applies to what it pays (P44).
+  // Matched on the system code, which never changes, so a user's edits to the
+  // label, name, rate or objek stay theirs and a re-seed adds nothing twice.
+  for (const [i, [label, name, rate, taxObject]] of WITHHOLDING_TAXES.entries()) {
+    const made = await create(
+      () => prisma.refWithholdingTax.findUnique({ where: { wht_code: code("wht", i + 1) } }),
+      () =>
+        prisma.refWithholdingTax.create({
+          data: {
+            wht_code: code("wht", i + 1),
+            wht_label: label,
+            wht_name: name,
+            rate,
+            tax_object: taxObject,
+            ...audit,
+          },
+        })
+    );
+    tally("withholding taxes (Jenis PPh)", made);
+  }
 
 
   const typeId = new Map(
