@@ -1,0 +1,623 @@
+import test, { after, before, describe } from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  cashBankBalanceReport,
+  cashBankLedgerReport,
+  openCashBankBook,
+  recordCashBankEntry,
+} from "../src/lib/siba/cash-bank";
+import { CASH_BANK_SUBCATEGORY } from "../src/lib/siba/records";
+import { REPORTS, reportBySlug, reportHref } from "../src/lib/siba/reports";
+import { PERMISSION_CODES } from "../src/lib/siba/permissions";
+import { MODULES, resolvePath, visibleModules } from "../src/lib/siba/nav";
+import {
+  FIXTURE_PREFIX,
+  childCompanyId,
+  cleanupFixtures,
+  disconnect,
+  makeAccount,
+  parentCompanyId,
+  prisma,
+  systemUserId,
+} from "./helpers";
+
+/**
+ * The two Cash Bank Report Views.
+ *
+ * A money report has one property that matters more than anything it displays:
+ * **opening + in − out = closing**, for every subject and every period. A report
+ * that cannot be checked on its own page is not evidence of anything, so most
+ * of what follows is that identity, pushed at from the edges — entries exactly
+ * on the boundaries, entries before the period, a period with nothing in it,
+ * and a resource that was deactivated after it had already moved money.
+ *
+ * Fixtures are built here and removed again: the seed carries system data only.
+ */
+
+let company = 0;
+/** The Companies the report reader may see. */
+let scope: number[] = [];
+let actor = 0;
+let currency = 0;
+let otherCurrency = 0;
+
+const cashBanks: number[] = [];
+
+async function makeCashBank(options: {
+  opening?: number;
+  openingDate?: string;
+  currencyId?: number;
+  status?: "Active" | "Inactive";
+  companyId?: number;
+}): Promise<number> {
+  const companyId = options.companyId ?? company;
+  const account = await makeAccount({
+    companyId,
+    subcategoryLabel: CASH_BANK_SUBCATEGORY,
+  });
+  const key = `${FIXTURE_PREFIX}R${cashBanks.length + 1}${Date.now() % 100000}`;
+  const row = await prisma.mCashBank.create({
+    data: {
+      cash_bank_code: `test.${key}`,
+      cash_bank_label: key,
+      cash_bank_name: `Fixture ${key}`,
+      company_id: companyId,
+      cash_bank_type: "Cash",
+      currency_id: options.currencyId ?? currency,
+      account_id: account,
+      status: "Active",
+      created_by: actor,
+    },
+    select: { id: true },
+  });
+  cashBanks.push(row.id);
+
+  await openCashBankBook(prisma, {
+    cashBankId: row.id,
+    openingBalance: options.opening ?? 0,
+    rate: 1,
+    date: options.openingDate ?? "2026-01-01",
+    actorId: actor,
+  });
+
+  // Deactivated only after its book exists, which is the case the balance
+  // report has to keep visible.
+  if (options.status === "Inactive") {
+    await prisma.mCashBank.update({
+      where: { id: row.id },
+      data: { status: "Inactive" },
+    });
+  }
+  return row.id;
+}
+
+const move = (
+  cashBankId: number,
+  date: string,
+  direction: "In" | "Out",
+  amount: number
+) =>
+  recordCashBankEntry(prisma, {
+    cashBankId,
+    date,
+    type: "Transaction",
+    direction,
+    amount,
+    rate: 1,
+    note: `fixture ${direction} ${date}`,
+    actorId: actor,
+  });
+
+before(async () => {
+  company = await parentCompanyId();
+  // Every report takes the reader's Company scope, so the suite runs as a
+  // reader who may see the Company its fixtures belong to.
+  scope = [company];
+  actor = await systemUserId();
+
+  const currencies = await prisma.refCurrency.findMany({
+    orderBy: { id: "asc" },
+    select: { id: true },
+  });
+  currency = currencies[0].id;
+  if (currencies.length > 1) {
+    otherCurrency = currencies[1].id;
+  } else {
+    const made = await prisma.refCurrency.create({
+      data: {
+        currency_code: `test.${FIXTURE_PREFIX}RCUR`,
+        currency_label: `${FIXTURE_PREFIX}Y`,
+        currency_name: "Fixture currency",
+        created_by: actor,
+      },
+      select: { id: true },
+    });
+    otherCurrency = made.id;
+  }
+});
+
+after(async () => {
+  if (cashBanks.length) {
+    await prisma.cashBankLedger.deleteMany({
+      where: { cash_bank_id: { in: cashBanks } },
+    });
+    await prisma.cashBankBalance.deleteMany({
+      where: { cash_bank_id: { in: cashBanks } },
+    });
+    await prisma.mCashBank.deleteMany({ where: { id: { in: cashBanks } } });
+  }
+  await prisma.refCurrency.deleteMany({
+    where: { currency_label: { startsWith: FIXTURE_PREFIX } },
+  });
+  await cleanupFixtures();
+  await disconnect();
+});
+
+// ------------------------------------------------------------- the catalogue
+
+describe("the report catalogue is the index of every Report View", () => {
+  test("every report names a permission that exists", () => {
+    const codes: string[] = PERMISSION_CODES;
+    for (const r of REPORTS) {
+      assert.ok(
+        codes.includes(r.permission),
+        `${r.key} names ${r.permission}, which is not in the catalogue`
+      );
+    }
+  });
+
+  test("every report is reachable by its slug", () => {
+    for (const r of REPORTS) {
+      assert.equal(reportBySlug(r.slug)?.key, r.key);
+    }
+    assert.equal(reportBySlug("not-a-report"), undefined);
+  });
+
+  test("every report in the menu exists in the catalogue, and vice versa", () => {
+    // Report Views live in more than one module now — Finance has the cash
+    // books, Accounting the General Ledger and the Trial Balance — so the menu
+    // side is gathered by slug shape rather than from one module.
+    const menu = MODULES.flatMap((m) =>
+      (m.groups ?? []).flatMap((g) =>
+        g.entities.filter((e) => e.slug.startsWith("report/"))
+      )
+    );
+
+    assert.equal(menu.length, REPORTS.length);
+    for (const entry of menu) {
+      const slug = entry.slug.replace(/^report\//, "");
+      const report = reportBySlug(slug);
+      assert.ok(report, `menu entry ${entry.slug} has no catalogue entry`);
+      assert.equal(
+        entry.permission,
+        report.permission,
+        `${entry.slug} and its report must ask for the same permission`
+      );
+    }
+  });
+
+  test("a report is hidden from someone without its permission", () => {
+    const visible = visibleModules(["MENU_FINANCE_ACCESS"]);
+    const finance = visible.find((m) => m.key === "finance");
+    assert.ok(
+      !finance?.groups?.some((g) => g.key === "report"),
+      "the Laporan group must disappear when no report is permitted"
+    );
+  });
+
+  test("a report URL carries its parameters and drops the empty ones", () => {
+    assert.equal(
+      reportHref("cash-bank-ledger", { cashBank: 4, from: "2026-01-01", to: "2026-01-31" }),
+      "/finance/report/cash-bank-ledger?cashBank=4&from=2026-01-01&to=2026-01-31"
+    );
+    assert.equal(
+      reportHref("cash-bank-balance", { cashBank: null, from: "", to: undefined }),
+      "/finance/report/cash-bank-balance"
+    );
+  });
+});
+
+describe("navigation still resolves every route shape", () => {
+  test("a two-segment report slug resolves to its entry", () => {
+    const { module, group, entity } = resolvePath(
+      "/finance/report/cash-bank-ledger"
+    );
+    assert.equal(module?.key, "finance");
+    assert.equal(group?.key, "report");
+    assert.equal(entity?.key, "report_cash_bank_ledger");
+  });
+
+  test("existing entity routes are unaffected", () => {
+    assert.equal(resolvePath("/master/partner").entity?.key, "m_partner");
+    assert.equal(resolvePath("/master/partner/12").entity?.key, "m_partner");
+    assert.equal(
+      resolvePath("/master/cash-bank/12/edit").entity?.key,
+      "m_cash_bank"
+    );
+    assert.equal(
+      resolvePath("/budget/budget/month/5").entity?.key,
+      "bud_budget_month"
+    );
+    assert.equal(
+      resolvePath("/finance/cash-bank-transaction/7").entity?.key,
+      "fin_cash_bank_transaction"
+    );
+  });
+
+  test("an unknown path inside a real module resolves to no entity", () => {
+    const { module, entity } = resolvePath("/finance/nothing-here");
+    assert.equal(module?.key, "finance");
+    assert.equal(entity, undefined);
+  });
+});
+
+// ------------------------------------------------------------ ledger report
+
+describe("the ledger report reconciles", () => {
+  test("opening + masuk - keluar = saldo akhir", async () => {
+    const cb = await makeCashBank({ opening: 1_000_000, openingDate: "2026-01-01" });
+    await move(cb, "2026-02-10", "In", 500_000);
+    await move(cb, "2026-02-20", "Out", 200_000);
+
+    const report = await cashBankLedgerReport(
+      cb,
+      { from: "2026-02-01", to: "2026-02-28" },
+      scope
+    );
+    assert.ok(report);
+    assert.equal(report.opening, 1_000_000);
+    assert.equal(report.totalIn, 500_000);
+    assert.equal(report.totalOut, 200_000);
+    assert.equal(report.closing, 1_300_000);
+    assert.equal(
+      report.opening + report.totalIn - report.totalOut,
+      report.closing
+    );
+    assert.ok(report.reconciles, "the stored running balance must agree");
+  });
+
+  test("an entry before the period moves the opening and is not listed", async () => {
+    const cb = await makeCashBank({ opening: 2_000_000, openingDate: "2026-01-01" });
+    await move(cb, "2026-01-15", "Out", 500_000);
+    await move(cb, "2026-03-05", "In", 100_000);
+
+    const report = await cashBankLedgerReport(
+      cb,
+      { from: "2026-03-01", to: "2026-03-31" },
+      scope
+    );
+    assert.ok(report);
+    assert.equal(report.opening, 1_500_000, "everything before March is carried in");
+    assert.equal(report.entries.length, 1);
+    assert.equal(report.entries[0].date, "2026-03-05");
+    assert.equal(report.closing, 1_600_000);
+  });
+
+  test("both boundary dates are inside the period", async () => {
+    const cb = await makeCashBank({ opening: 0, openingDate: "2026-01-01" });
+    await move(cb, "2026-04-01", "In", 10_000);
+    await move(cb, "2026-04-30", "In", 20_000);
+    await move(cb, "2026-05-01", "In", 40_000);
+
+    const report = await cashBankLedgerReport(
+      cb,
+      { from: "2026-04-01", to: "2026-04-30" },
+      scope
+    );
+    assert.ok(report);
+    assert.equal(report.entries.length, 2, "the first and last day both count");
+    assert.equal(report.totalIn, 30_000);
+    assert.equal(report.closing, 30_000);
+  });
+
+  test("a period with no movement still reports its balances", async () => {
+    const cb = await makeCashBank({ opening: 750_000, openingDate: "2026-01-01" });
+
+    const report = await cashBankLedgerReport(
+      cb,
+      { from: "2026-06-01", to: "2026-06-30" },
+      scope
+    );
+    assert.ok(report);
+    assert.equal(report.entries.length, 0);
+    assert.equal(report.opening, 750_000);
+    assert.equal(
+      report.closing,
+      750_000,
+      "no movement is an answer, not an absence"
+    );
+    assert.ok(report.reconciles);
+  });
+
+  test("entries read by date, not by the order they were written", async () => {
+    const cb = await makeCashBank({ opening: 100_000, openingDate: "2026-01-01" });
+    await move(cb, "2026-07-03", "Out", 30_000);
+    // Written second, dated first — a backdated posting.
+    await move(cb, "2026-07-02", "In", 50_000);
+
+    const report = await cashBankLedgerReport(
+      cb,
+      { from: "2026-07-01", to: "2026-07-31" },
+      scope
+    );
+    assert.ok(report);
+    assert.deepEqual(
+      report.entries.map((e) => e.date),
+      ["2026-07-02", "2026-07-03"]
+    );
+    assert.equal(report.closing, 120_000);
+    assert.ok(report.reconciles, "the book still agrees with its stored balance");
+  });
+
+  test("a backdated entry moves the opening of every later period", async () => {
+    const cb = await makeCashBank({ opening: 100_000, openingDate: "2026-01-01" });
+    await move(cb, "2026-08-10", "In", 10_000);
+    // Written after August's entry, dated in July.
+    await move(cb, "2026-07-20", "In", 5_000);
+
+    const august = await cashBankLedgerReport(
+      cb,
+      { from: "2026-08-01", to: "2026-08-31" },
+      scope
+    );
+    assert.ok(august);
+    assert.equal(august.opening, 105_000, "July's backdated entry is carried in");
+    assert.equal(august.closing, 115_000);
+    assert.ok(august.reconciles);
+  });
+
+  test("an entry names the document that caused it", async () => {
+    // Opened with enough to cover the payment below: a resource can no longer
+    // be driven negative.
+    const cb = await makeCashBank({ opening: 500_000, openingDate: "2026-01-01" });
+    const docType = await prisma.sysDocType.findFirstOrThrow({
+      where: { doc_table: "fin_cash_bank_transaction" },
+      select: { id: true },
+    });
+    const doc = await prisma.finCashBankTransaction.create({
+      data: {
+        transaction_no: `TST-REF${Date.now() % 100000}`,
+        transaction_type: "Out",
+        company_id: company,
+        purpose: "BYA_OUT",
+        cash_bank_id: cb,
+        currency_id: currency,
+        transaction_amount: 75_000,
+        transaction_base_amount: 75_000,
+        status: "Posted",
+        created_by: actor,
+      },
+      select: { id: true, transaction_no: true },
+    });
+    await recordCashBankEntry(prisma, {
+      cashBankId: cb,
+      date: "2026-05-12",
+      type: "Transaction",
+      direction: "Out",
+      amount: 75_000,
+      rate: 1,
+      sourceDocTypeId: docType.id,
+      sourceDocId: doc.id,
+      note: doc.transaction_no,
+      actorId: actor,
+    });
+
+    const report = await cashBankLedgerReport(
+      cb,
+      { from: "2026-05-01", to: "2026-05-31" },
+      scope
+    );
+    assert.ok(report);
+    const entry = report.entries[0];
+    assert.equal(entry.sourceDocTable, "fin_cash_bank_transaction");
+    assert.equal(entry.sourceDocId, doc.id);
+    assert.equal(
+      entry.sourceDocNo,
+      doc.transaction_no,
+      "a ledger row must be traceable back to the document that moved the money"
+    );
+
+    await prisma.finCashBankTransaction.delete({ where: { id: doc.id } });
+  });
+
+  test("an opening entry carries no document reference", async () => {
+    const cb = await makeCashBank({ opening: 400_000, openingDate: "2026-05-02" });
+    const report = await cashBankLedgerReport(
+      cb,
+      { from: "2026-05-01", to: "2026-05-31" },
+      scope
+    );
+    assert.ok(report);
+    assert.equal(report.entries[0].type, "Opening");
+    assert.equal(report.entries[0].sourceDocTable, null);
+    assert.equal(report.entries[0].sourceDocNo, null);
+  });
+
+  test("an unknown resource has no report at all", async () => {
+    assert.equal(
+      await cashBankLedgerReport(
+        0,
+        { from: "2026-01-01", to: "2026-12-31" },
+        scope
+      ),
+      null
+    );
+  });
+});
+
+// ----------------------------------------------------------- balance report
+
+describe("the balance report summarises every resource", () => {
+  test("each row reconciles, and the currency total is the sum of its rows", async () => {
+    const a = await makeCashBank({ opening: 1_000_000, openingDate: "2026-01-01" });
+    const b = await makeCashBank({ opening: 4_000_000, openingDate: "2026-01-01" });
+    await move(a, "2026-08-05", "Out", 250_000);
+    await move(b, "2026-08-06", "In", 600_000);
+
+    const report = await cashBankBalanceReport(
+      { from: "2026-08-01", to: "2026-08-31" },
+      scope
+    );
+
+    const group = report.groups.find((g) => g.currencyId === currency);
+    assert.ok(group);
+
+    for (const row of group.rows) {
+      assert.equal(
+        row.opening + row.totalIn - row.totalOut,
+        row.closing,
+        `${row.label} does not reconcile`
+      );
+    }
+
+    const mine = group.rows.filter((r) => r.cashBankId === a || r.cashBankId === b);
+    assert.equal(mine.length, 2);
+    assert.equal(mine.find((r) => r.cashBankId === a)!.closing, 750_000);
+    assert.equal(mine.find((r) => r.cashBankId === b)!.closing, 4_600_000);
+
+    assert.equal(
+      group.closing,
+      group.rows.reduce((t, r) => t + r.closing, 0),
+      "the currency total must be its own rows"
+    );
+  });
+
+  test("currencies are grouped and never added together", async () => {
+    const idr = await makeCashBank({ opening: 1_000_000, openingDate: "2026-01-01" });
+    const other = await makeCashBank({
+      opening: 2_000,
+      openingDate: "2026-01-01",
+      currencyId: otherCurrency,
+    });
+
+    const report = await cashBankBalanceReport(
+      { from: "2026-09-01", to: "2026-09-30" },
+      scope
+    );
+
+    const groupOf = (id: number) =>
+      report.groups.find((g) => g.rows.some((r) => r.cashBankId === id));
+
+    const one = groupOf(idr);
+    const two = groupOf(other);
+    assert.ok(one && two);
+    assert.notEqual(
+      one.currencyId,
+      two.currencyId,
+      "two currencies must never share a group"
+    );
+
+    // Each group totals its own rows and nothing else — which is what makes a
+    // combined figure across currencies impossible rather than merely absent.
+    for (const g of report.groups) {
+      assert.equal(g.opening, g.rows.reduce((t, r) => t + r.opening, 0));
+      assert.equal(g.totalIn, g.rows.reduce((t, r) => t + r.totalIn, 0));
+      assert.equal(g.totalOut, g.rows.reduce((t, r) => t + r.totalOut, 0));
+      assert.equal(g.closing, g.rows.reduce((t, r) => t + r.closing, 0));
+    }
+
+    // A total spanning currencies now exists, and is legitimate — but only in
+    // base. It is built from what each movement was actually worth when it
+    // moved, which the books record, rather than from a rate applied to a
+    // closing figure at read time. The per-currency groups stay either way:
+    // what a resource holds is the figure somebody spends.
+    assert.equal(
+      report.baseClosing,
+      report.groups.reduce((t, g) => t + g.baseClosing, 0),
+      "the base total is the sum of the groups' own base figures"
+    );
+    assert.ok(
+      !report.groups.some((g) => "closing" in g && typeof g.closing !== "number"),
+      "every group still reports its own currency's figures"
+    );
+
+    // And nothing anywhere adds the foreign amounts together, which would
+    // still require inventing a rate.
+    const foreignTotals = Object.entries(report).filter(
+      ([k, v]) =>
+        typeof v === "number" && /total|grand|sum|closing|opening/i.test(k) && !/^base/.test(k)
+    );
+    assert.deepEqual(
+      foreignTotals,
+      [],
+      "a report-wide total in transaction currency would have to invent a rate"
+    );
+  });
+
+  test("a deactivated resource still appears when it holds or moved money", async () => {
+    const cb = await makeCashBank({
+      opening: 900_000,
+      openingDate: "2026-01-01",
+      status: "Inactive",
+    });
+    await move(cb, "2026-10-04", "Out", 100_000);
+
+    const report = await cashBankBalanceReport(
+      { from: "2026-10-01", to: "2026-10-31" },
+      scope
+    );
+    const row = report.groups
+      .flatMap((g) => g.rows)
+      .find((r) => r.cashBankId === cb);
+
+    assert.ok(
+      row,
+      "omitting it would leave a report that does not match its own ledger"
+    );
+    assert.equal(row.active, false);
+    assert.equal(row.closing, 800_000);
+  });
+
+  test("narrowing to one resource reports only that resource", async () => {
+    const cb = await makeCashBank({ opening: 300_000, openingDate: "2026-01-01" });
+
+    const report = await cashBankBalanceReport(
+      { from: "2026-11-01", to: "2026-11-30" },
+      scope,
+      cb
+    );
+    assert.equal(report.resources, 1);
+    assert.equal(report.groups.length, 1);
+    assert.equal(report.groups[0].rows[0].cashBankId, cb);
+    assert.equal(report.groups[0].rows[0].opening, 300_000);
+  });
+
+  test("a resource outside the reader's Company scope is not reported", async () => {
+    // A report is read-only, not exempt: Company access is a permission
+    // (CLAUDE.md §12), and a report that ignored it would be the way around
+    // every other screen that enforces it. An out-of-scope resource reads as
+    // not found — the same answer one that does not exist gives.
+    const anak = await childCompanyId();
+    const theirs = await makeCashBank({
+      companyId: anak,
+      opening: 900_000,
+      openingDate: "2026-01-01",
+    });
+    const range = { from: "2026-01-01", to: "2026-12-31" };
+
+    assert.equal(await cashBankLedgerReport(theirs, range, scope), null);
+    assert.ok(await cashBankLedgerReport(theirs, range, [anak]));
+
+    const balance = await cashBankBalanceReport(range, scope);
+    const listed = balance.groups.flatMap((g) => g.rows.map((r) => r.cashBankId));
+    assert.ok(!listed.includes(theirs), "another Company's resource is not a row");
+  });
+
+  test("the two reports agree with each other for the same subject and period", async () => {
+    const cb = await makeCashBank({ opening: 5_000_000, openingDate: "2026-01-01" });
+    await move(cb, "2026-12-03", "In", 1_000_000);
+    await move(cb, "2026-12-09", "Out", 250_000);
+    const range = { from: "2026-12-01", to: "2026-12-31" };
+
+    const ledger = await cashBankLedgerReport(cb, range, scope);
+    const balance = await cashBankBalanceReport(range, scope, cb);
+    const row = balance.groups[0].rows[0];
+
+    assert.ok(ledger);
+    assert.equal(row.opening, ledger.opening);
+    assert.equal(row.totalIn, ledger.totalIn);
+    assert.equal(row.totalOut, ledger.totalOut);
+    assert.equal(row.closing, ledger.closing);
+  });
+});

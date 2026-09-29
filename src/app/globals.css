@@ -1,0 +1,1204 @@
+/* ============================================================================
+   SIBA 3.0 — design system
+   ----------------------------------------------------------------------------
+   Lifted verbatim from the <style> block of `Initialization/SIBA Mockup 2.0.html`.
+   This is the mockup's finished design system and already encodes the decisions
+   from `akui_proto_ui_reference.md` (radius scale, brand/accent palette, type
+   choices, per-column table filters). Treat it as the source of truth for look
+   and feel: React components emit these class names rather than restyling.
+
+   The only addition is the font wiring at the bottom, which routes the two
+   families through next/font instead of the mockup's render-blocking
+   <link> to Google Fonts.
+   ========================================================================== */
+/* ============================================================
+   Design tokens
+   ============================================================ */
+:root{
+  --brand:#3E495A;      --brand-d:#333D4C;
+  --brand-50:#EEF1F5;   --brand-100:#DDE2EA;
+  --accent:#DBC360;     --accent-s:#D9B84C;  --accent-d:#CBAA3E;
+  --accent-50:#FBF7E8;  --accent-100:#F3EAC4;
+  --rail:#1D2633;
+
+  --bg:#F4F6F8;  --surface:#FFFFFF;
+  --line:#E2E8F0; --line-2:#F1F5F9; --line-3:#F8FAFC;
+  --ink:#1E293B; --ink-2:#3E495A;
+  --muted:#64748B; --muted-2:#94A3B8; --muted-3:#CBD5E1;
+
+  --ok:#047857;   --ok-bg:#ECFDF5;   --ok-line:#A7F3D0;  --ok-solid:#059669;
+  --warn:#B45309; --warn-bg:#FFFBEB; --warn-line:#FDE68A;--warn-solid:#D97706;
+  --bad:#BE123C;  --bad-bg:#FFF1F2;  --bad-line:#FECDD3; --bad-solid:#E11D48;
+  --info:#1D4ED8; --info-bg:#EFF6FF; --info-line:#BFDBFE;
+  --vio:#6D28D9;  --vio-bg:#F5F3FF;  --vio-line:#DDD6FE;
+  --slate-bg:#F1F5F9; --slate-line:#E2E8F0;
+
+  --r-sm:6px; --r:9px; --r-lg:12px; --r-xl:18px;
+  --sh-xs:0 1px 1px rgba(15,23,42,.04);
+  --sh-sm:0 1px 3px rgba(15,23,42,.06), 0 1px 2px rgba(15,23,42,.04);
+  --sh-md:0 4px 12px rgba(15,23,42,.08);
+  --sh-lg:0 10px 30px rgba(15,23,42,.12);
+  --sh-xl:0 20px 50px rgba(15,23,42,.20);
+
+  --f:'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --f-mono:'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --h-top:52px; --w-rail:58px; --w-sub:238px; --gap:12px;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f);font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#CBD5E1;border-radius:8px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#94A3B8;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+:focus-visible{outline:2px solid var(--accent-s);outline-offset:1px;border-radius:4px}
+.mono{font-family:var(--f-mono)}
+
+/* ============================================================ shell */
+.app{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.topbar{height:var(--h-top);flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:0 14px;
+  background:rgba(255,255,255,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--line);z-index:40}
+.tb-burger{width:32px;height:32px;border:1px solid var(--line);background:#fff;color:var(--ink-2);border-radius:var(--r);
+  display:none;align-items:center;justify-content:center;cursor:pointer;flex:0 0 auto}
+.brand{display:flex;align-items:center;gap:9px;flex:0 0 auto}
+.brand-mark{width:28px;height:28px;border-radius:8px;background:var(--brand);color:var(--accent);
+  display:grid;place-items:center;font-weight:800;font-size:11.5px;letter-spacing:-.3px;box-shadow:var(--sh-sm)}
+.brand-txt{font-weight:800;font-size:14.5px;letter-spacing:-.3px;color:var(--brand);white-space:nowrap}
+.brand-ver{margin-left:7px;padding:2px 6px;border-radius:5px;background:var(--line-2);color:var(--muted-2);
+  font-family:var(--f-mono);font-size:9.5px;font-weight:700;letter-spacing:.04em;line-height:1.4}
+.tb-div{width:1px;height:22px;background:var(--line);flex:0 0 auto}
+.tb-spacer{flex:1 1 auto}
+
+.ticon{width:32px;height:32px;border:1px solid var(--line);background:#fff;border-radius:var(--r);
+  display:grid;place-items:center;cursor:pointer;color:var(--muted);flex:0 0 auto;box-shadow:var(--sh-xs)}
+.ticon:hover{background:var(--line-3);color:var(--ink-2)}
+.uchip{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px 0 3px;border-radius:99px;cursor:pointer;
+  border:1px solid var(--line);background:#fff;flex:0 0 auto;box-shadow:var(--sh-xs)}
+.uchip:hover{background:var(--line-3)}
+.avatar{width:24px;height:24px;border-radius:50%;background:var(--brand);color:#fff;display:grid;place-items:center;font-weight:800;font-size:10px;flex:0 0 auto}
+.uchip b{font-size:12.5px;font-weight:700;color:var(--ink-2);white-space:nowrap}
+
+.body{flex:1 1 auto;display:flex;gap:var(--gap);padding:var(--gap);min-height:0}
+
+/* rail */
+.rail{width:var(--w-rail);flex:0 0 auto;background:var(--rail);border-radius:14px;display:flex;flex-direction:column;box-shadow:var(--sh-lg);overflow:visible}
+.rail-top{padding:7px}
+.rail-mid{flex:1 1 auto;overflow-y:auto;overflow-x:visible;padding:0 7px}
+.rail-mid::-webkit-scrollbar{width:0}
+.rail-hr{height:1px;background:rgba(255,255,255,.1);margin:2px 10px}
+.ri{position:relative;width:44px;height:44px;border:0;background:rgba(255,255,255,.05);color:#CBD5E1;border-radius:11px;
+  display:grid;place-items:center;cursor:pointer;margin-bottom:6px}
+.ri:hover{background:rgba(255,255,255,.13);color:#fff}
+.ri.on{background:var(--accent);color:var(--brand);box-shadow:0 6px 16px rgba(219,195,96,.34)}
+.ri-tip{position:absolute;left:calc(100% + 11px);top:50%;transform:translateY(-50%);background:#0F172A;color:#fff;
+  font-size:11px;font-weight:700;padding:5px 10px;border-radius:var(--r-sm);white-space:nowrap;opacity:0;
+  pointer-events:none;transition:opacity .12s;z-index:70;box-shadow:var(--sh-md)}
+.ri-tip::before{content:"";position:absolute;right:100%;top:50%;transform:translateY(-50%);border:6px solid transparent;border-right-color:#0F172A}
+.ri:hover .ri-tip{opacity:1}
+
+/* sub panel */
+.sub{width:var(--w-sub);flex:0 0 auto;background:#fff;border:1px solid var(--line);border-radius:14px;
+  display:flex;flex-direction:column;box-shadow:var(--sh-md);overflow:hidden;transition:width .18s ease}
+body.sub-off .sub,body.no-sub .sub{width:0;border-width:0;opacity:0;pointer-events:none;padding:0}
+.sub-h{padding:14px 14px 11px;border-bottom:1px solid var(--line-2);display:flex;gap:8px;align-items:flex-start}
+.sub-h .t{flex:1 1 auto;min-width:0}
+.sub-h h2{margin:0;font-size:14px;font-weight:800;letter-spacing:-.25px;color:var(--brand);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sub-h p{margin:3px 0 0;font-size:11px;color:var(--muted);line-height:1.45}
+.collapse{width:26px;height:26px;border:1px solid var(--line);background:#fff;border-radius:50%;
+  display:grid;place-items:center;cursor:pointer;color:var(--muted);flex:0 0 auto;box-shadow:var(--sh-xs)}
+.collapse:hover{background:var(--line-3);color:var(--ink-2)}
+.sub-l{flex:1 1 auto;overflow-y:auto;padding:9px 9px 16px}
+.grp{margin-bottom:5px}
+.grp-b{width:100%;display:flex;align-items:center;gap:8px;padding:8px 11px;border:0;background:transparent;
+  border-radius:11px;cursor:pointer;font-size:11.5px;font-weight:800;color:var(--muted);text-align:left}
+.grp-b:hover{background:var(--line-3);color:var(--ink-2)}
+.grp-b.on{background:var(--brand);color:#fff}
+.grp-b .dot{width:6px;height:6px;border-radius:50%;background:var(--muted-3);flex:0 0 auto}
+.grp-b.on .dot{background:var(--accent)}
+.grp-b .gt{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.grp-i{padding:3px 0 5px 10px;margin-left:10px;border-left:1px solid var(--line-2)}
+.leaf{width:100%;display:flex;align-items:center;gap:8px;padding:7px 10px;border:0;background:transparent;
+  border-radius:9px;cursor:pointer;font-size:12.5px;font-weight:500;color:var(--muted);text-align:left;margin-bottom:1px}
+.leaf:hover{background:var(--line-3);color:var(--ink)}
+.leaf.on{background:var(--line-2);color:var(--brand);font-weight:700}
+.leaf .lt{flex:1 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+
+.content{flex:1 1 auto;min-width:0;overflow-y:auto;position:relative}
+.pad{padding:0 4px 44px}
+
+/* ============================================================ page header */
+/* Every page-header rule is scoped `.pad > .ph` deliberately, and this sheet
+   carries no bare `.ph` rule at all: `.ph` is *also* the placeholder class
+   inside a Combobox, a Select and a DateInput. A bare `.ph{margin-bottom:15px}`
+   used to sit here, and it leaked 15px onto every dropdown placeholder in the
+   application — inside a flex row centred on its children that pushed "Pilih
+   Cash & Bank…" half a line above the caret beside it, on every report filter
+   and every form. The header travels with the page so a form's actions stay
+   reachable from anywhere in it, which is why nothing is parked at the bottom
+   any more. */
+.pad > .ph{position:sticky;top:0;z-index:30;margin:0 -4px 15px;padding:10px 4px 12px;
+  background:var(--bg);box-shadow:0 10px 12px -10px rgba(15,23,42,.10)}
+.crumb{display:flex;align-items:center;gap:7px;font-size:9.5px;font-weight:800;letter-spacing:.11em;
+  text-transform:uppercase;color:var(--muted-2);margin-bottom:7px;flex-wrap:wrap}
+.crumb button{border:0;background:none;padding:0;font:inherit;text-transform:uppercase;letter-spacing:inherit;color:var(--muted-2);cursor:pointer}
+.crumb button:hover{color:var(--brand)}
+.crumb .cur{color:var(--brand)}
+
+.ph-row{display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.ph-row h1{margin:0;font-size:19px;font-weight:800;letter-spacing:-.45px;color:var(--brand);
+  display:flex;align-items:center;gap:9px;flex:1 1 300px;min-width:0;flex-wrap:wrap}
+.ph-ico{width:30px;height:30px;border-radius:9px;background:var(--brand-50);color:var(--brand);display:grid;place-items:center;flex:0 0 auto}
+.ph-act{display:flex;align-items:center;gap:8px;flex:0 0 auto;flex-wrap:wrap}
+.ph-sub{margin:7px 0 0;font-size:12.5px;color:var(--muted);max-width:880px;line-height:1.55}
+
+/* ============================================================ buttons */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:33px;padding:0 13px;border-radius:var(--r);
+  border:1px solid var(--line);background:#fff;color:var(--ink-2);font-size:12.5px;font-weight:700;cursor:pointer;
+  white-space:nowrap;box-shadow:var(--sh-xs)}
+.btn:hover{background:var(--line-3);border-color:var(--muted-3)}
+.btn:active{transform:translateY(.5px)}
+.btn[disabled]{opacity:.45;cursor:not-allowed;pointer-events:none}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:0 4px 12px rgba(62,73,90,.22)}
+.btn.primary:hover{background:var(--brand-d);border-color:var(--brand-d)}
+.btn.danger{color:var(--bad);border-color:var(--bad-line);background:#fff}
+.btn.danger:hover{background:var(--bad-bg)}
+.btn.solid-danger{background:var(--bad-solid);border-color:var(--bad-solid);color:#fff}
+.btn.solid-danger:hover{filter:brightness(.94)}
+.btn.ghost{box-shadow:none;border-color:transparent;background:transparent}
+.btn.ghost:hover{background:var(--line-2)}
+.btn.sm{height:28px;padding:0 10px;font-size:11.5px}
+.btn.ico{width:33px;padding:0}
+
+/* ============================================================ card */
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-sm)}
+.card + .card{margin-top:14px}
+.card-h{display:flex;align-items:center;gap:11px;padding:13px 16px;border-bottom:1px solid var(--line-2)}
+.card-h .ci{width:28px;height:28px;border-radius:8px;background:var(--brand-50);color:var(--brand);display:grid;place-items:center;flex:0 0 auto}
+.card-h .ct{flex:1 1 auto;min-width:0}
+.card-h h3{margin:0;font-size:13px;font-weight:800;letter-spacing:-.15px;color:var(--brand)}
+.card-h p{margin:2px 0 0;font-size:11.5px;color:var(--muted)}
+.card-h .hint{font-size:11px;color:var(--muted-2);text-align:right;flex:0 0 auto;font-weight:500}
+.card-b{padding:16px}
+.sec-t{font-size:9.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--muted-2);
+  padding:14px 16px 0;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.sec-t .h{margin-left:auto;font-size:10.5px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted-2)}
+
+/* ============================================================ toolbar */
+.toolbar{display:flex;align-items:center;gap:9px;padding:11px 13px;border-bottom:1px solid var(--line-2);flex-wrap:wrap}
+.srch{position:relative;flex:1 1 250px;max-width:380px;min-width:190px}
+/* Search is the only control in this toolbar, so it takes the width. */
+.srch.grow{flex:1 1 auto;max-width:none}
+.srch svg{position:absolute;left:10px;top:50%;transform:translateY(-50%);stroke:var(--muted-2)}
+.srch input{width:100%;height:32px;border:1px solid var(--line);border-radius:var(--r);padding:0 30px 0 31px;font-size:12.5px;background:#fff}
+.srch input:focus{border-color:var(--accent-s);outline:none;box-shadow:0 0 0 3px var(--accent-50)}
+.srch .x{position:absolute;right:5px;top:50%;transform:translateY(-50%);width:22px;height:22px;border:0;background:transparent;
+  border-radius:5px;cursor:pointer;display:none;place-items:center;color:var(--muted)}
+.srch.has .x{display:grid}
+.srch .x:hover{background:var(--line-2)}
+.tspace{flex:1 1 auto}
+.count{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2);white-space:nowrap}
+.count b{color:var(--brand);font-weight:800}
+
+/* ============================================================ table */
+.tw{overflow-x:auto;position:relative}
+/* A table standing on its own rather than filling a card — inside a dialog,
+   say. The border was being written inline in three places. */
+.tw.boxed{border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+table.grid{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+table.grid thead th{position:sticky;top:0;z-index:3;background:#fff;text-align:left;font-size:10px;font-weight:800;
+  letter-spacing:.1em;text-transform:uppercase;color:var(--muted-2);padding:10px 11px;border-bottom:1px solid var(--line);white-space:nowrap}
+
+th.srt{cursor:pointer;user-select:none}
+th.srt:hover{color:var(--ink-2);background:var(--line-3)}
+th .ar{display:inline-block;margin-left:5px;opacity:.35;font-size:8px;vertical-align:1.5px}
+th.act .ar{opacity:1;color:var(--brand)}
+
+table.grid tbody td{padding:8px 11px;border-bottom:1px solid var(--line-2);vertical-align:middle;white-space:nowrap;height:38px}
+table.grid tbody td.wrapok{white-space:normal}
+table.grid tbody tr{cursor:pointer}
+table.grid tbody tr:hover td{background:#F8FAFC}
+table.grid tbody tr:last-child td{border-bottom:0}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+td.pri{font-weight:700;color:var(--ink)}
+td.mut{color:var(--muted)}
+.no{color:var(--muted-3);font-size:11px;font-variant-numeric:tabular-nums}
+.trunc{display:inline-block;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.dash{color:var(--muted-3)}
+
+/* identitas: label chip + nama */
+.lab{display:inline-block;font-family:var(--f-mono);font-size:11px;font-weight:600;letter-spacing:.02em;
+  background:var(--brand-50);color:var(--brand);padding:2px 7px;border-radius:var(--r-sm);white-space:nowrap;flex:0 0 auto}
+.lab.lg{font-size:12px;padding:3px 9px}
+.idc{display:flex;align-items:center;gap:7px;min-width:0;max-width:100%}
+.idc .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* badges */
+.bdg{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+  padding:3px 8px;border-radius:var(--r-sm);border:1px solid transparent;white-space:nowrap;line-height:1.45}
+.s-ok{background:var(--ok-solid);border-color:var(--ok-solid);color:#fff}
+.s-bad{background:var(--bad-solid);border-color:var(--bad-solid);color:#fff}
+.s-warn{background:var(--warn-solid);border-color:var(--warn-solid);color:#fff}
+.s-mute{background:#64748B;border-color:#64748B;color:#fff}
+.s-info{background:#2563EB;border-color:#2563EB;color:#fff}
+.t-info{background:var(--info-bg);color:var(--info);border-color:var(--info-line)}
+.t-vio{background:var(--vio-bg);color:var(--vio);border-color:var(--vio-line)}
+.t-warn{background:var(--warn-bg);color:var(--warn);border-color:var(--warn-line)}
+.t-ok{background:var(--ok-bg);color:var(--ok);border-color:var(--ok-line)}
+.t-bad{background:var(--bad-bg);color:var(--bad);border-color:var(--bad-line)}
+.t-slate{background:var(--slate-bg);color:var(--muted);border-color:var(--slate-line)}
+.t-acc{background:var(--accent-50);color:#8A6D08;border-color:var(--accent-100)}
+button.bdg{cursor:pointer}
+button.bdg:hover{filter:brightness(1.07);box-shadow:var(--sh-xs)}
+
+/* row actions */
+.ract{display:flex;align-items:center;gap:2px;justify-content:flex-end}
+.ract .sp{width:24px;display:inline-block}
+.iact{width:24px;height:24px;border:0;background:transparent;border-radius:var(--r-sm);cursor:pointer;display:grid;place-items:center;color:var(--muted-2)}
+.iact:hover{background:var(--line-2);color:var(--brand)}
+.iact.kb{opacity:.55}
+tr:hover .iact.kb{opacity:1}
+td.acts{width:88px;padding-right:7px}
+
+/* pagination */
+.pager{display:flex;align-items:center;gap:11px;padding:10px 13px;border-top:1px solid var(--line-2);flex-wrap:wrap}
+.pager .inf{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--muted-2)}
+.pager .inf b{color:var(--brand);font-weight:800}
+.psel{height:28px;border:1px solid var(--line);border-radius:var(--r);background:#fff;padding:0 24px 0 10px;font-size:11px;
+  font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);cursor:pointer;appearance:none;box-shadow:var(--sh-xs);
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='3' stroke-linecap='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat:no-repeat;background-position:right 7px center}
+.pgs{display:flex;align-items:center;gap:3px;margin-left:auto}
+.pg{min-width:28px;height:28px;padding:0 7px;border:1px solid var(--line);background:#fff;border-radius:var(--r-sm);
+  font-size:11.5px;font-weight:700;cursor:pointer;color:var(--muted);display:inline-flex;align-items:center;justify-content:center}
+.pg:hover:not([disabled]):not(.on){background:var(--line-3);color:var(--ink-2)}
+.pg.on{background:var(--accent);border-color:var(--accent);color:#3B2F06;font-weight:800}
+.pg[disabled]{opacity:.35;cursor:not-allowed}
+
+/* empty */
+.empty{padding:48px 22px;text-align:center}
+.empty .ic{width:44px;height:44px;border-radius:12px;background:var(--line-2);display:grid;place-items:center;margin:0 auto 13px;color:var(--muted-2)}
+.empty h4{margin:0 0 5px;font-size:13.5px;font-weight:700;color:var(--ink-2)}
+.empty p{margin:0 auto;font-size:12px;color:var(--muted);max-width:440px;line-height:1.6}
+.empty .cta{margin-top:15px}
+
+/* ============================================================ COA tree */
+.tree{padding:8px 10px 14px}
+.tgrp{margin-bottom:1px}
+.tn{display:flex;align-items:center;gap:9px;padding:7px 10px;border-radius:var(--r);border:1px solid transparent;
+  cursor:pointer;min-height:36px}
+.tn:hover{background:#F8FAFC;border-color:var(--line-2)}
+.tn .tw5{width:18px;height:18px;display:grid;place-items:center;flex:0 0 auto;color:var(--muted-2)}
+.tn .chev{display:grid;place-items:center;transition:transform .14s}
+.tn .chev.o{transform:rotate(90deg)}
+.tn .tgl{width:18px;height:18px;border:0;background:transparent;padding:0;cursor:pointer;color:var(--muted);display:grid;place-items:center;border-radius:4px}
+.tn .tgl:hover{background:var(--line-2);color:var(--brand)}
+.tn .tdot{width:5px;height:5px;border-radius:50%;background:var(--muted-3)}
+.tn .tname{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.tn .tright{margin-left:auto;display:flex;align-items:center;gap:7px;flex:0 0 auto}
+.tn .tcount{font-size:10.5px;font-weight:700;color:var(--muted-2);white-space:nowrap}
+/* kategori & kelompok = struktur, bukan account */
+.tn.k-cat{background:#EFF2F6;border-color:#E2E8F0;margin-top:4px}
+.tn.k-cat:hover{background:#E8EDF3}
+.tn.k-cat .tname{font-weight:800;color:var(--brand);font-size:12.5px;letter-spacing:.01em}
+.tn.k-sub{background:var(--line-3);border-color:var(--line-2)}
+.tn.k-sub:hover{background:#F1F5F9}
+.tn.k-sub .tname{font-weight:700;color:var(--ink-2);font-size:12.5px}
+/* account = data sebenarnya */
+.tn.k-acc .tname{font-weight:600;color:var(--ink)}
+.tn.k-acc.off .tname{color:var(--muted-2);font-style:italic}
+.tkids{margin-left:19px;padding-left:11px;border-left:1px solid var(--line-2)}
+.tempty{padding:8px 12px;font-size:11.5px;color:var(--muted-3)}
+.flag{width:20px;height:20px;border-radius:var(--r-sm);display:grid;place-items:center;font-size:9px;font-weight:800;
+  flex:0 0 auto;border:1px solid transparent}
+.f-h{background:var(--slate-bg);color:var(--muted);border-color:var(--slate-line)}
+.f-r{background:var(--accent-50);color:#8A6D08;border-color:var(--accent-100)}
+.f-c{background:var(--vio-bg);color:var(--vio);border-color:var(--vio-line)}
+/* kategori Partner pada account subledger â€” chip berlabel, bukan flag satu huruf */
+.pcflag{flex:0 0 auto;height:20px;display:inline-flex;align-items:center;padding:0 7px;border-radius:var(--r-sm);
+  background:var(--accent-50);color:#8A6D08;border:1px solid var(--accent-100);
+  font-size:9.5px;font-weight:800;letter-spacing:.03em;white-space:nowrap}
+.tacts{display:flex;gap:1px;opacity:0}
+.tn:hover .tacts{opacity:1}
+
+/* ============================================================ form */
+.fgrid{display:grid;grid-template-columns:minmax(0,1fr) 306px;gap:14px;align-items:start}
+/* A form with no summary beside it — which, since the summary card was retired,
+   is every form. Kept as a modifier rather than folded into `.fgrid` so a
+   future two-column form does not need a new container. */
+.fgrid.solo{grid-template-columns:minmax(0,1fr)}
+.fsec + .fsec{border-top:1px solid var(--line-2)}
+/* Twelve columns, not two. A field declares how much of the row it wants
+   (`.f-3` … `.f-12`, half by default), so a date picker no longer sits in a
+   500px box and a third field no longer starts a new row. See the form-layout
+   note further down for why the row shrank. */
+.frow{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:0 18px;padding:10px 16px 12px}
+.fld{padding:4px 0;min-width:0;grid-column:span 6}
+.fld.f-3{grid-column:span 3}
+.fld.f-4{grid-column:span 4}
+.fld.f-5{grid-column:span 5}
+.fld.f-6{grid-column:span 6}
+.fld.f-8{grid-column:span 8}
+.fld.f-12,.fld.full{grid-column:1/-1}
+.fld > label{display:flex;align-items:center;gap:5px;font-size:9.5px;font-weight:800;letter-spacing:.1em;
+  text-transform:uppercase;color:var(--muted);margin-bottom:4px}
+/* The label's own text never shrinks; the help beside it does, and keeps the
+   whole sentence in its `title` for a column too narrow to show it. */
+.fld > label .lt{flex:0 0 auto}
+.fld > label .lh{flex:0 1 auto;min-width:0;margin-left:auto;text-align:right;
+  font-size:10px;font-weight:500;letter-spacing:0;text-transform:none;color:var(--muted-2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The body of a card holding form sections: the rows pay the padding, once. */
+.fbody{padding:0 0 2px}
+.req{color:var(--bad-solid);font-weight:800}
+.lockb{font-size:8.5px;font-weight:800;letter-spacing:.06em;background:var(--line-2);color:var(--muted-2);
+  padding:1px 5px;border-radius:4px;text-transform:uppercase}
+.help{font-size:10.5px;color:var(--muted-2);margin-top:5px;line-height:1.5}
+.err{font-size:10.5px;color:var(--bad);margin-top:4px;font-weight:600;display:flex;align-items:center;gap:4px}
+.inp,.ta{width:100%;height:34px;border:1px solid var(--line);border-radius:var(--r);background:#fff;padding:0 11px;
+  font-size:12.5px;font-weight:500;color:var(--ink)}
+.inp.idf{font-family:var(--f-mono);font-size:12px;font-weight:600}
+/* A line table's row is built for a 32px control — `.ltab tbody td` is 46px
+   high with 7px of padding — and `.mwrap.sm` already sizes an amount field to
+   it. This is the same size for a text field, so every control in a journal or
+   document line sits on one height instead of four. */
+.inp.sm{height:32px;padding:0 10px;font-size:12px}
+.inp::placeholder,.ta::placeholder{color:var(--muted-3);font-weight:400}
+.ta{height:auto;min-height:58px;padding:9px 11px;resize:vertical;line-height:1.55}
+/* There was a `.slc` here, styling a native `<select>`. Nothing renders one
+   any more — `components/ui/select.tsx` draws the whole control, list included
+   — and a style for a control the application has banned is an invitation to
+   use it again. */
+.inp:focus,.ta:focus{border-color:var(--accent-s);outline:none;box-shadow:0 0 0 3px var(--accent-50)}
+.inp:disabled,.ta:disabled{background:var(--line-3);color:var(--muted-2);cursor:not-allowed}
+.inp.bad,.ta.bad,.cbx.bad{border-color:var(--bad-solid);box-shadow:0 0 0 3px var(--bad-bg)}
+.chk{display:flex;align-items:flex-start;gap:9px;padding:9px 11px;border:1px solid var(--line);border-radius:var(--r);background:#fff;cursor:pointer}
+.chk:hover{background:var(--line-3)}
+.chk input{margin:1px 0 0;width:15px;height:15px;accent-color:var(--brand);cursor:pointer;flex:0 0 auto}
+.chk .ct{font-size:12px;font-weight:600}
+.chk .cd{font-size:10.5px;color:var(--muted-2);margin-top:1px;line-height:1.45}
+/* A toggle whose caption says it all: one line, no explanation under it. */
+.chk.sm{align-items:center;gap:8px;padding:0 10px;height:34px}
+.chk.sm input{margin:0;width:14px;height:14px}
+.chk.sm .ct{font-size:11.5px}
+
+/* An identifier continued from its parent: the inherited code, then the one
+   number that is typed. `.pfx` is read-only text, never a disabled input. */
+.segf{display:flex;align-items:stretch;border:1px solid var(--line);border-radius:var(--r);background:#fff;overflow:hidden}
+.segf:focus-within{border-color:var(--accent-s);box-shadow:0 0 0 3px var(--accent-50)}
+.segf.bad{border-color:var(--bad-solid);box-shadow:0 0 0 3px var(--bad-bg)}
+.segf .pfx{display:flex;align-items:center;padding:0 2px 0 11px;background:var(--line-3);border-right:1px solid var(--line-2);
+  font-family:var(--f-mono);font-size:12px;font-weight:700;color:var(--muted);white-space:nowrap;flex:0 0 auto}
+.segf .pfx.nil{font-family:inherit;font-size:11px;font-weight:500;font-style:italic;color:var(--muted-3);padding-right:11px}
+.segf input{flex:1 1 auto;min-width:0;width:100%;height:34px;border:0;background:transparent;padding:0 11px;
+  font-family:var(--f-mono);font-size:12px;font-weight:600;color:var(--ink)}
+.segf input:focus{outline:none}
+.segf input:disabled{background:var(--line-3);color:var(--muted-3);cursor:not-allowed}
+/* A read-only field has no hit area to protect, so it compacts further than
+   the editable form does. */
+.ro{min-height:26px;display:flex;align-items:center;gap:8px;padding:3px 0;font-size:13px;color:var(--ink);border-bottom:1px dashed var(--line)}
+.ro.nil,.ro .nil{color:var(--muted-3);font-style:italic;font-size:12px}
+.ro.mono{font-family:var(--f-mono);font-size:12px}
+.ro.multi{display:block;white-space:pre-wrap;line-height:1.6}
+
+/* combobox */
+.cbx{width:100%;height:34px;border:1px solid var(--line);border-radius:var(--r);background:#fff;display:flex;align-items:center;
+  gap:8px;padding:0 8px 0 11px;cursor:pointer;text-align:left;font:inherit}
+.cbx:hover{border-color:var(--muted-3)}
+.cbx.open{border-color:var(--accent-s);box-shadow:0 0 0 3px var(--accent-50)}
+/* The same 32px a line table's other controls take. It is still a field — a
+   picker inside a row must not turn into the toolbar pill (`.psel`), which is
+   uppercase, letter-spaced and only as wide as its own text. */
+.cbx.sm{height:32px;padding:0 6px 0 10px;gap:6px}
+.cbx.sm .ph,.cbx.sm .nm,.cbx.sm .cbq{font-size:12px}
+.cbx .v{flex:1 1 auto;min-width:0;display:flex;align-items:center;gap:8px;overflow:hidden}
+.cbx .ph{color:var(--muted-3);font-size:12.5px}
+.cbx .nm{font-size:12.5px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cbx .xb{width:20px;height:20px;border:0;background:transparent;border-radius:4px;display:grid;place-items:center;color:var(--muted-2);cursor:pointer;flex:0 0 auto}
+.cbx .xb:hover{background:var(--line-2);color:var(--bad)}
+.cbx .cv{color:var(--muted-2);flex:0 0 auto}
+.cbpop{position:fixed;z-index:96;background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-xl);
+  overflow:hidden;display:flex;flex-direction:column;max-height:300px}
+/* The search box IS the control. A Combobox and a searchable Select swap their
+   own contents for `.cbq` while open, so the field a user clicked is the field
+   they type into — the popup used to grow a second bar of its own, which sat
+   below the control and had to be travelled to with the mouse. */
+.cbq{flex:1 1 auto;min-width:0;width:100%;border:0;background:transparent;padding:0;margin:0;
+  font:inherit;color:var(--ink);letter-spacing:inherit;text-transform:inherit}
+.cbq:focus{outline:none}
+.cbq::placeholder{color:var(--muted-3);font-weight:inherit;text-transform:inherit}
+.cbx .cbq{font-size:12.5px;font-weight:500}
+.cbpop .l{overflow-y:auto;padding:5px;flex:1 1 auto}
+.cbo{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:var(--r-sm);cursor:pointer;font-size:12.5px}
+.cbo:hover,.cbo.hi{background:var(--brand-50)}
+.cbo.sel{background:var(--accent-50)}
+.cbo .nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:500}
+.cbo .tick{color:var(--brand);flex:0 0 auto}
+/* A heading over a run of options, for a list long enough that the reader needs
+   landmarks rather than 22 rows of prose. Sticky against `.cbpop .l`, which is
+   the scroll box, so the group a row belongs to is on screen while it is read.
+   Same treatment as `.sec-t`, because it is the same idea in a smaller box. */
+.cbpop .cbgh{position:sticky;top:0;z-index:1;background:#fff;padding:7px 9px 5px;
+  font-size:9.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;
+  color:var(--muted-2);border-bottom:1px solid var(--line-2)}
+.cbpop .cbgh + .cbo{margin-top:3px}
+.cbe{padding:20px;text-align:center;font-size:12px;color:var(--muted-2)}
+
+/* Unsaved changes, stated beside the Simpan button that resolves them. */
+.ph-dirty{display:inline-flex;align-items:center;gap:6px;height:33px;padding:0 11px;border-radius:var(--r);
+  border:1px solid var(--warn-line);background:var(--warn-bg);color:var(--warn);
+  font-size:11.5px;font-weight:700;white-space:nowrap}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--warn-solid);animation:pl 1.6s ease-in-out infinite}
+@keyframes pl{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* side panel */
+.side .card-b{padding:0}
+.mrow{display:flex;gap:11px;padding:9px 16px;font-size:12px;align-items:baseline}
+.mrow .k{flex:0 0 80px;color:var(--muted-2);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.mrow .v{flex:1 1 auto;min-width:0;color:var(--ink-2);word-break:break-word}
+.mrow .v.mono{font-family:var(--f-mono);font-size:11.5px}
+.mrow .v small{display:block;color:var(--muted-2);font-size:11px;margin-top:1px}
+
+/* ============================================================ audit log
+   A record's own history, at the foot of its form.
+
+   This began as the dashboard's activity feed, where each entry was a bordered
+   card with a 30px avatar — about 64px of height apiece. On a form the panel is
+   supporting material under the record itself, so the cards are gone and the
+   entries hang off a single timeline rail instead: about 45px a row against the
+   feed's 74px, and a document's whole lifecycle fits without pushing the form
+   off the screen.
+
+   The rail is drawn on .alog rather than per-entry, so it is one continuous
+   line rather than a stack of segments that fail to meet. */
+.alog{padding:12px 16px 14px;position:relative}
+.alog::before{content:"";position:absolute;left:30px;top:20px;bottom:20px;width:1px;background:var(--line)}
+.ae{display:flex;gap:11px;align-items:flex-start;padding:4px 0;position:relative}
+.ae[data-h]{cursor:pointer}
+/* The marker sits on the rail and masks it, so the line reads as passing
+   behind each event rather than through it. */
+.aav{width:29px;height:29px;border-radius:50%;background:var(--line-2);color:var(--muted);
+  display:grid;place-items:center;flex:0 0 auto;border:2px solid #fff;position:relative;z-index:1}
+.aav.t-ok{background:var(--ok-bg);color:var(--ok)}
+.aav.t-bad{background:var(--bad-bg);color:var(--bad)}
+.ab{flex:1 1 auto;min-width:0;padding-top:2px}
+/* Event and timestamp on one line: the event is what is scanned for, the time
+   is what it is checked against, and stacking them doubled the row height for
+   no gain. They stack only when the row is too narrow to hold both. */
+.aact{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.aent{font-size:12.5px;font-weight:700;color:var(--ink-2);min-width:0}
+.aent .asub{font-style:normal;font-weight:500;color:var(--ink-3);margin-left:6px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;
+  max-width:220px;vertical-align:bottom}
+.atime{font-size:11.5px;color:var(--muted-2);font-variant-numeric:tabular-nums;margin-left:auto;
+  white-space:nowrap}
+.amail{font-size:11.5px;color:var(--muted);margin-top:1px;line-height:1.35;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* An event nobody chose — a Budget closing because a posting reached its
+   planned amount. Named so the actor beside it is not misread as a decision. */
+.amail .asys{color:var(--muted-2);font-style:italic}
+/* "menampilkan 10 dari 47" — the cap, stated rather than hidden. */
+.amore{font-size:11.5px;color:var(--muted-2);padding:9px 0 0 40px;border-top:1px solid var(--line-2);margin-top:8px}
+@media (max-width:640px){
+  .atime{margin-left:0}
+}
+
+/* ============================================================ dashboard */
+.kpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(176px,1fr));gap:12px;margin-bottom:14px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);padding:13px 15px;box-shadow:var(--sh-sm);cursor:pointer}
+.kpi:hover{box-shadow:var(--sh-md);border-color:var(--muted-3)}
+.kpi .h{display:flex;align-items:center;gap:8px;margin-bottom:9px}
+.kpi .i{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex:0 0 auto}
+.kpi .l{font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted-2)}
+.kpi .v{font-size:25px;font-weight:800;letter-spacing:-.9px;line-height:1;color:var(--brand);font-variant-numeric:tabular-nums}
+.kpi .d{font-size:11.5px;color:var(--muted);margin-top:6px}
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px;align-items:start}
+.two > .card + .card{margin-top:0}
+.att{display:flex;align-items:flex-start;gap:11px;padding:12px 16px;border-top:1px solid var(--line-2);cursor:pointer}
+.att:first-child{border-top:0}
+.att:hover{background:#F8FAFC}
+.att .i{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;flex:0 0 auto}
+.att .b{flex:1 1 auto}
+.att .b b{display:block;font-size:12.5px;font-weight:700;color:var(--ink-2);margin-bottom:2px}
+.att .b span{display:block;font-size:11.5px;color:var(--muted);line-height:1.5}
+
+/* ============================================================ overlays */
+#toasts{position:fixed;right:16px;bottom:16px;z-index:100;display:flex;flex-direction:column;gap:8px;max-width:370px}
+.toast{display:flex;align-items:flex-start;gap:10px;background:#fff;border:1px solid var(--line);border-left:3px solid var(--brand);
+  border-radius:var(--r-lg);box-shadow:var(--sh-lg);padding:11px 13px;animation:ti .2s ease-out}
+@keyframes ti{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+.toast.ok{border-left-color:var(--ok-solid)}
+.toast.err{border-left-color:var(--bad-solid)}
+.toast .t{flex:1 1 auto;font-size:12px}
+.toast .t b{display:block;font-weight:700;margin-bottom:1px;color:var(--ink)}
+.toast .t span{color:var(--muted);font-size:11.5px;line-height:1.45}
+.toast .x{border:0;background:none;cursor:pointer;color:var(--muted-2);padding:0;line-height:1;font-size:15px}
+
+.ovl{position:fixed;inset:0;background:rgba(15,23,42,.55);backdrop-filter:blur(5px);z-index:90;display:flex;
+  align-items:center;justify-content:center;padding:20px;animation:fi .12s}
+@keyframes fi{from{opacity:0}to{opacity:1}}
+.modal{background:#fff;border-radius:var(--r-xl);box-shadow:var(--sh-xl);width:min(384px,100%);padding:24px;text-align:center;
+  border:1px solid var(--line-2);animation:mi .17s cubic-bezier(.2,.9,.3,1)}
+@keyframes mi{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:none}}
+.modal .mi{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;margin:0 auto 14px}
+/* The tinted icon's tone is a class, not an inline style: four dialogs used to
+   write the same `background`/`color` pair by hand and they had drifted. `.sm`
+   is the size a panel dialog's header uses, where the icon sits beside the
+   title rather than above it. */
+.mi.t-ok{background:var(--ok-bg);color:var(--ok)}
+.mi.t-bad{background:var(--bad-bg);color:var(--bad)}
+.mi.t-brand{background:var(--brand-50);color:var(--brand)}
+.mi.t-warn{background:var(--warn-bg);color:var(--warn)}
+.modal .mi.sm{width:34px;height:34px;margin:0;flex:0 0 auto}
+.modal h3{margin:0 0 8px;font-size:15.5px;font-weight:800;color:var(--brand)}
+.modal .subj{display:inline-block;margin-bottom:10px;font-family:var(--f-mono);font-size:11.5px;font-weight:500;
+  background:var(--line-2);color:var(--ink-2);padding:5px 11px;border-radius:var(--r-sm);max-width:100%;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.modal p{margin:0;font-size:12.5px;color:var(--muted);line-height:1.6}
+.modal .mf{display:flex;gap:9px;margin-top:20px}
+.modal .mf .btn{flex:1 1 0;height:36px}
+.reflist{margin:12px 0 0;padding:11px 13px;background:var(--bad-bg);border:1px solid var(--bad-line);border-radius:var(--r);
+  font-size:11.5px;color:var(--bad);text-align:left}
+.reflist b{display:block;margin-bottom:5px;font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+.reflist ul{margin:0;padding-left:17px}
+
+.menu{position:fixed;z-index:95;background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-xl);padding:5px;min-width:190px}
+.menu button{display:flex;align-items:center;gap:10px;width:100%;text-align:left;border:0;background:none;padding:8px 10px;
+  border-radius:var(--r-sm);cursor:pointer;font-size:12.5px;font-weight:500;color:var(--ink-2)}
+.menu button:hover{background:var(--brand-50);color:var(--brand)}
+.menu button.dg{color:var(--bad)}
+.menu button.dg:hover{background:var(--bad-bg)}
+.menu .hd{padding:9px 11px 7px}
+.menu .hd b{display:block;font-size:12.5px;font-weight:800;color:var(--ink)}
+.menu .hd span{font-size:11px;color:var(--muted)}
+.menu .dv{height:1px;background:var(--line-2);margin:4px 2px}
+
+.scrim{display:none}
+
+/* ============================================================ budget */
+.mny{font-family:var(--f-mono);font-size:12px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums;white-space:nowrap}
+.mny.z{color:var(--muted-3);font-weight:500}
+.mny.in{color:var(--ok)}
+.mny.out{color:var(--ink)}
+.mny.big{font-size:15px;font-weight:700;color:var(--brand)}
+.mstack{display:flex;flex-direction:column;align-items:flex-end;line-height:1.3;gap:1px}
+.mstack .rz{font-family:var(--f-mono);font-size:10px;color:var(--muted-2);font-variant-numeric:tabular-nums}
+.mstack .rz.z{color:var(--muted-3)}
+.dstack{display:flex;flex-direction:column;line-height:1.3;gap:1px;min-width:0}
+.dstack .d1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;color:var(--ink);max-width:260px}
+.dstack .d2{font-family:var(--f-mono);font-size:10px;color:var(--muted-2)}
+/* ---------- money entry ----------
+   One control for every amount somebody types, drawn by `ui/money-input.tsx`:
+   the currency label sits inside the box on the left, the figure is mono,
+   right-aligned and grouped in thousands as it is typed. There is no native
+   `<input type="number">` anywhere — its spinner is drawn by the operating
+   system, it right-aligns nothing, and it cannot carry a separator, so the
+   same amount used to read three different ways on three screens. `.sm` is the
+   in-table size; `.over` is the one state an amount can be in. */
+.mwrap{position:relative;display:block}
+.mwrap .cur{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-family:var(--f-mono);font-size:11px;
+  font-weight:700;color:var(--muted-2);pointer-events:none;letter-spacing:.02em}
+.inp.mfield{padding-left:48px;font-family:var(--f-mono);font-size:13.5px;font-weight:700;text-align:right;
+  letter-spacing:.02em;font-variant-numeric:tabular-nums}
+.mwrap.sm .cur{left:9px;font-size:10px}
+.mwrap.sm .inp.mfield{height:32px;padding-left:40px;padding-right:10px;font-size:12.5px}
+.mwrap.nocur .inp.mfield{padding-left:11px}
+.mwrap.sm.nocur .inp.mfield{padding-left:10px}
+/* A rate names a pair, not a currency: `USD → IDR` is three times the width of
+   `USD`, and the 48px reserved for a currency label is not enough for it. The
+   figure is right-aligned, so a short rate cleared the label by luck and a
+   six-decimal one would have run into it. */
+.mwrap.pair .inp.mfield{padding-left:92px}
+.inp.mfield.over{border-color:var(--warn-solid);background:var(--warn-bg);color:var(--warn)}
+.mwrap.over .cur{color:var(--warn)}
+.inp.mfield:disabled{background:var(--line-3);color:var(--muted-3)}
+.pgrp{display:flex;gap:4px;flex-wrap:nowrap}
+.pgrp .bdg{padding:2px 6px;font-size:9.5px}
+.kpis.bud{grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.kpi.wide{background:linear-gradient(180deg,#fff 0%,#FCFDFE 100%)}
+.kpi .more{margin-left:auto;font-size:10px;font-weight:700;color:var(--muted-2);display:inline-flex;align-items:center;gap:2px}
+.kpi:hover .more{color:var(--brand)}
+.kpi[data-fs]{cursor:pointer}
+.tsel{height:32px;border:1px solid var(--line);border-radius:var(--r);background:#fff;padding:0 26px 0 10px;
+  font-size:12px;font-weight:600;color:var(--ink-2);cursor:pointer;appearance:none;box-shadow:var(--sh-xs);max-width:180px;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='3' stroke-linecap='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat:no-repeat;background-position:right 8px center}
+.tsel.set{border-color:var(--accent-s);background-color:var(--accent-50)}
+.mchip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 4px 0 11px;border-radius:var(--r);
+  background:var(--accent-50);border:1px solid var(--accent-100);color:#8A6D08;font-size:11.5px;font-weight:700}
+.mchip button{width:22px;height:22px;border:0;background:transparent;border-radius:5px;cursor:pointer;color:#8A6D08;display:grid;place-items:center}
+.mchip button:hover{background:rgba(219,195,96,.35)}
+.foot-note{margin:12px 2px 0;font-size:11.5px;color:var(--muted-2);line-height:1.55}
+.bar{height:6px;border-radius:99px;background:var(--line-2);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--ok-solid);border-radius:99px}
+.totrow td{background:var(--line-3);font-weight:800;color:var(--brand);border-top:1px solid var(--line)}
+tr.nowrow td{background:var(--accent-50)}
+tr.nowrow:hover td{background:#F7F0D4}
+.chk.bad{border-color:var(--bad-solid);box-shadow:0 0 0 3px var(--bad-bg)}
+/* A toggle whose answer is no longer the record's to give — an account that has
+   gained a sub-account does not decide whether it is postable. */
+.chk.dis{background:var(--line-3);color:var(--muted-2);cursor:not-allowed}
+.chk.dis:hover{background:var(--line-3)}
+.chk.dis input{cursor:not-allowed}
+
+/* approval modal */
+.apsum{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px 16px;background:var(--line-3);
+  border:1px solid var(--line-2);border-radius:var(--r);padding:12px 14px}
+.apsum > div{padding:4px 0;min-width:0}
+.apsum > div.full{grid-column:1/-1}
+.apsum span{display:block;font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted-2)}
+.apsum b{display:block;font-size:12.5px;font-weight:600;color:var(--ink);margin-top:2px}
+.apsum .amt b{font-family:var(--f-mono);font-size:16px;font-weight:700;color:var(--brand)}
+.apmap{margin-top:12px;padding:9px 12px;border-radius:var(--r);background:var(--info-bg);border:1px solid var(--info-line);
+  color:var(--info);font-size:11.5px;font-weight:600;display:flex;align-items:center;gap:7px}
+.apmap.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+
+/* print picker */
+.cbx2{display:grid;place-items:center;cursor:pointer}
+.cbx2 input{width:15px;height:15px;accent-color:var(--brand);cursor:pointer}
+.pklist{max-height:44vh;overflow:auto;border:1px solid var(--line);border-radius:var(--r)}
+.pklist tbody tr.on td{background:var(--accent-50)}
+.pklist tbody tr:hover td{background:#F1F5F9}
+.pksum{display:flex;justify-content:space-between;padding:10px 13px;margin-top:10px;background:var(--line-3);
+  border:1px solid var(--line-2);border-radius:var(--r);font-size:12px;color:var(--muted)}
+.pksum b{color:var(--brand);font-weight:800}
+
+/* ---------- laporan pengajuan (modal) ---------- */
+/* modal berbingkai: header tetap, isi bisa di-scroll, footer tetap */
+.modal.modal-flex{padding:0;text-align:left;display:flex;flex-direction:column;max-height:86vh;overflow:hidden}
+.rp-head{display:flex;gap:11px;align-items:center;padding:16px 20px 14px;border-bottom:1px solid var(--line-2);flex:0 0 auto}
+.rp-head .t{flex:1 1 auto;min-width:0}
+.rp-head h3{margin:0;text-align:left;font-size:14.5px}
+.rp-head p{text-align:left;margin-top:2px;font-size:11.5px}
+.rp-body{flex:1 1 auto;min-height:0;overflow-y:auto;padding:0 20px 18px}
+.rp-foot{flex:0 0 auto;display:flex;align-items:center;gap:10px;margin-top:0;
+  padding:12px 20px;border-top:1px solid var(--line-2);background:#fff}
+.rp-foot .fnote{flex:1 1 auto;font-size:11.5px;color:var(--muted)}
+/* A footer with no note still ends on the right, so the concluding action is
+   where it is on every other dialog. */
+.rp-foot > .btn:first-child{margin-left:auto}
+.rp-foot .fnote b{color:var(--brand);font-weight:800}
+.rp-foot .btn{flex:0 0 auto;height:34px}
+.allbox{display:flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid var(--line);border-radius:var(--r);
+  background:#fff;cursor:pointer;font-size:12px;font-weight:700;color:var(--ink-2);flex:0 0 auto;box-shadow:var(--sh-xs)}
+.allbox:hover{background:var(--line-3)}
+.allbox input{width:15px;height:15px;accent-color:var(--brand);cursor:pointer}
+.rp-sec{font-size:9.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--muted-2);
+  margin:16px 0 8px;display:flex;align-items:center;gap:10px}
+.rp-sec::after{content:"";flex:1 1 auto;height:1px;background:var(--line-2)}
+.rp-sec:first-of-type{margin-top:14px}
+
+/* Ringkasan tetap terlihat saat menggulir.
+   Yang ditempel (sticky) adalah PEMBUNGKUS buram, bukan tabelnya:
+   sel tabel berlatar transparan, sehingga bila tabel sendiri yang dibuat sticky
+   isi yang bergulir akan tembus pandang di baliknya. */
+.rcp-stick{position:sticky;top:0;z-index:20;background:#fff;
+  padding:0 20px 9px;margin:0 -20px}
+.rcp-stick::after{content:"";position:absolute;left:0;right:0;bottom:0;height:9px;
+  transform:translateY(100%);pointer-events:none;
+  background:linear-gradient(rgba(15,23,42,.11),rgba(15,23,42,0))}
+/* tabel di dalam modal tidak boleh mewarisi header sticky dari table.grid */
+.rp-body table.pkt thead th{position:static;z-index:auto}
+
+table.rcp{width:100%;border-collapse:separate;border-spacing:0;font-size:12px;background:#fff;
+  border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+table.rcp th{background:#D9E1F2;color:#1F3864;font-size:9.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase;
+  padding:7px 11px;text-align:left;border-bottom:1px solid #B7C6E6;white-space:nowrap}
+table.rcp th span{display:block;font-weight:600;letter-spacing:0;text-transform:none;font-size:9px;opacity:.75}
+table.rcp th.num,table.rcp td.num{text-align:right}
+table.rcp td{padding:8px 11px;border-bottom:1px solid var(--line-2);font-family:var(--f-mono);background:#fff;
+  font-size:11.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+table.rcp tr:last-child td{border-bottom:0}
+table.rcp td.lb{font-family:var(--f);font-weight:800;color:var(--brand)}
+table.rcp td.pos{color:var(--ok)}
+table.rcp td.neg{color:var(--bad)}
+table.rcp td.z{color:var(--muted-3)}
+table.rcp td.tot{font-weight:800;color:var(--brand);background:#FFF8E1}
+
+.cblock{border:1px solid var(--line);border-radius:var(--r);overflow:hidden;margin-bottom:12px}
+.cbh{display:flex;align-items:center;gap:10px;padding:9px 12px;background:#1F3864;color:#fff}
+.cbh b{font-size:12.5px;font-weight:800}
+.cbh .cbn{font-size:11px;opacity:.85;font-weight:600}
+.cbh .cbo2{margin-left:auto;font-family:var(--f-mono);font-size:11px;opacity:.85}
+.cbh .cbx2 input{accent-color:#DBC360}
+.cbnone{padding:16px 14px;font-size:12px;color:var(--muted);font-style:italic;background:var(--line-3)}
+table.pkt{font-size:11.5px}
+table.pkt thead th{padding:7px 10px;font-size:9px}
+table.pkt tbody td{height:32px;padding:5px 10px}
+.cbh{padding:8px 12px}
+.cblock{margin-bottom:10px}
+table.rcp td{padding:7px 10px}
+table.rcp th{padding:6px 10px}
+table.pkt tbody tr.on td{background:#FBF7E8}
+table.pkt tbody tr.off td{opacity:.45}
+table.pkt tbody tr:hover td{background:#F1F5F9}
+table.pkt tr.ptot td{background:#F2F2F2;font-weight:800;color:var(--brand);border-top:1px solid var(--line);
+  font-family:var(--f-mono);font-size:11.5px}
+table.pkt tr.ptot td:first-child{font-family:var(--f);text-align:right}
+table.pkt .mny.in{color:var(--ok)}
+.pksum{display:flex;justify-content:space-between;gap:14px;padding:10px 13px;margin-top:12px;background:var(--line-3);
+  border:1px solid var(--line-2);border-radius:var(--r);font-size:11.5px;color:var(--muted)}
+.pksum b{color:var(--brand);font-weight:800}
+
+@media print{
+  @page{size:A4;margin:14mm}
+  body{background:#fff}
+  .app,#toasts{display:none!important}
+  #layer .ovl{position:static;background:none;backdrop-filter:none;padding:0;display:block;overflow:visible}
+  .psheet{width:100%;margin:0}
+  .ps-doc{box-shadow:none;padding:0;border-radius:0}
+  .noprint{display:none!important}
+  table.ps-tb{font-size:10px}
+  tr{break-inside:avoid}
+}
+
+/* ============================================================ finance */
+.ro .rate{margin-left:auto;font-family:var(--f-mono);font-size:10.5px;color:var(--muted-2);
+  background:#fff;border:1px solid var(--line);border-radius:5px;padding:1px 6px;flex:0 0 auto}
+.ro .nil{color:var(--muted-3);font-style:italic}
+/* chip filter aktif di toolbar */
+.fchip{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 4px 0 11px;border-radius:var(--r);
+  background:var(--brand-50);border:1px solid var(--brand-100);color:var(--brand);font-size:11.5px;font-weight:600;flex:0 0 auto}
+.fchip b{font-weight:800}
+.fchip button{width:22px;height:22px;border:0;background:transparent;border-radius:5px;cursor:pointer;
+  color:var(--brand);display:grid;place-items:center}
+.fchip button:hover{background:var(--brand-100)}
+
+/* ringkasan dampak transaksi â€” kanan bawah kartu baris dokumen */
+.cardfoot{display:flex;justify-content:flex-end;padding:12px 14px 14px;border-top:1px solid var(--line-2);
+  background:var(--line-3)}
+.impact{min-width:288px;max-width:100%;background:#fff;border:1px solid var(--line);border-radius:var(--r);
+  padding:10px 13px;box-shadow:var(--sh-xs)}
+.impact .ttl{font-size:9px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--muted-2);
+  padding-bottom:7px;margin-bottom:3px;border-bottom:1px solid var(--line-2)}
+.impact .ir{display:flex;align-items:baseline;gap:14px;padding:4px 0;font-size:11.5px}
+.impact .ir span{color:var(--muted);flex:1 1 auto;min-width:0}
+.impact .ir b{font-family:var(--f-mono);font-size:12px;font-weight:700;color:var(--ink);
+  font-variant-numeric:tabular-nums;white-space:nowrap}
+.lockchip{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border-radius:var(--r);
+  background:var(--line-3);border:1px solid var(--line);color:var(--muted);font-size:11.5px;font-weight:700}
+
+/* kotak penjelas */
+.nbox{display:flex;gap:11px;align-items:flex-start;margin-top:14px;padding:13px 15px;border-radius:var(--r-lg);
+  background:var(--info-bg);border:1px solid var(--info-line);color:var(--info)}
+.nbox.warn{background:var(--warn-bg);border-color:var(--warn-line);color:var(--warn)}
+.nbox.bad{background:var(--bad-bg);border-color:var(--bad-line);color:var(--bad)}
+.nbox.slim{margin:12px 14px 0;padding:9px 12px;border-radius:var(--r)}
+.nbox .ni{flex:0 0 auto;margin-top:1px}
+.nbox b{font-size:12.5px;font-weight:800;display:block}
+.nbox p{margin:3px 0 0;font-size:11.5px;line-height:1.6;color:inherit;opacity:.9}
+.nbox p b{display:inline;font-size:inherit}
+
+/* tabel line dokumen */
+table.ltab,table.pkt2{table-layout:fixed}
+table.ltab .dstack,table.pkt2 .dstack{max-width:100%}
+table.ltab{font-size:12px}
+table.ltab thead th{padding:9px 9px}
+table.ltab tbody td{height:46px;padding:7px 9px}
+table.ltab .dstack .d1,table.pkt2 .dstack .d1{max-width:100%}
+table.ltab .mny{font-size:11.5px}
+table.ltab tr.overrow td{background:var(--warn-bg)}
+table.ltab tfoot td{padding:11px}
+.mny.over{color:var(--warn)}
+.overtag{display:block;margin-top:3px;font-size:9.5px;font-weight:800;letter-spacing:.04em;color:var(--warn);
+  text-transform:none}
+.fulltag{display:block;margin-top:3px;font-size:9.5px;font-weight:700;color:var(--muted-2)}
+.mstack .rz.warnrz{color:var(--warn);font-weight:600}
+.iact.del:hover{color:var(--bad);background:var(--bad-bg)}
+/* An empty state inside a card, a dialog or a report body, rather than filling
+   a page. There are exactly two sizes: eight screens had drifted onto four
+   different hand-written paddings between them. */
+.empty.sm{padding:30px 18px}
+.empty.sm .ic{width:38px;height:38px}
+/* A card or empty-state icon tinted by the global tone classes, which lose to
+   the icon's own two-class background without these. */
+.card-h .ci.t-ok,.empty .ic.t-ok{background:var(--ok-bg);color:var(--ok)}
+.card-h .ci.t-warn,.empty .ic.t-warn{background:var(--warn-bg);color:var(--warn)}
+.card-h .ci.t-info,.empty .ic.t-info{background:var(--info-bg);color:var(--info)}
+.card-h .ci.t-bad,.empty .ic.t-bad{background:var(--bad-bg);color:var(--bad)}
+.empty.sm h4{font-size:13px}
+
+/* kriteria header pada modal pemilihan budget */
+.critbar{display:flex;flex-wrap:wrap;gap:7px;margin:14px 0 4px;padding:10px 12px;background:var(--line-3);
+  border:1px solid var(--line-2);border-radius:var(--r)}
+.critbar .cr{display:flex;flex-direction:column;gap:1px;padding:2px 11px 2px 0;border-right:1px solid var(--line);
+  font-size:11.5px;font-weight:700;color:var(--ink)}
+.critbar .cr:last-child{border-right:0}
+.critbar .cr i{font-style:normal;font-size:9px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted-2)}
+.critbar .cr em{font-style:normal;font-size:9.5px;font-weight:600;color:var(--muted-2);margin-left:5px}
+table.pkt2{font-size:12px}
+table.pkt2 thead th{position:static;z-index:auto;padding:7px 9px;font-size:9px}
+table.pkt2 tbody td{height:44px;padding:5px 9px}
+table.pkt2 tbody tr{cursor:pointer}
+table.pkt2 td.pkchk{text-align:center}
+table.pkt2 td.pkchk input{width:15px;height:15px;accent-color:var(--brand);cursor:pointer;vertical-align:middle}
+table.pkt2 tbody tr.on td{background:var(--accent-50)}
+table.pkt2 tbody tr.off td{opacity:.62}
+table.pkt2 tbody tr:hover td{background:#F1F5F9}
+table.pkt2 tbody tr.on:hover td{background:#F7F0D4}
+
+/* daftar dokumen realisasi pada halaman Budget */
+.rzlist{display:flex;flex-direction:column;gap:1px;padding:4px 0}
+.rzi{display:flex;align-items:center;gap:10px;width:100%;padding:8px 16px;background:none;border:0;cursor:pointer;text-align:left}
+.rzi:hover{background:var(--line-3)}
+.rzi .n{display:flex;align-items:center;gap:6px;flex:0 0 auto}
+.rzi .m{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:1px}
+.rzi .dt{font-size:10px;color:var(--muted-2)}
+.sidenote{margin:0;padding:9px 16px 4px;font-size:11px;line-height:1.6;color:var(--muted-2)}
+.mrow .v small.mono{font-family:var(--f-mono)}
+
+/* ============================================================
+   Responsive â€” dioptimalkan untuk laptop / desktop.
+   Di bawah 1080px layout tetap berfungsi, bukan target utama.
+   ============================================================ */
+@media (max-width:1320px){ .fgrid{grid-template-columns:minmax(0,1fr)} }
+@media (max-width:1000px){ .frow > .fld{grid-column:1/-1} }
+@media (max-width:860px){
+  .tb-burger{display:flex}
+  .body{padding:0;gap:0}
+  .rail,.sub{position:fixed;top:var(--h-top);bottom:0;z-index:60;border-radius:0;border-width:0;transition:transform .2s ease}
+  .rail{left:0;transform:translateX(calc(-1 * var(--w-rail)))}
+  .sub{left:var(--w-rail);border-right:1px solid var(--line);transform:translateX(calc(-1 * (var(--w-rail) + var(--w-sub))))}
+  body.nav-open .rail,body.nav-open .sub{transform:none;box-shadow:var(--sh-lg)}
+  body.nav-open .scrim{display:block;position:fixed;inset:var(--h-top) 0 0 0;background:rgba(15,23,42,.45);z-index:55}
+  body.sub-off .sub,body.no-sub .sub{width:var(--w-sub);opacity:1;pointer-events:auto}
+  body.no-sub .sub{transform:translateX(calc(-1 * (var(--w-rail) + var(--w-sub))))!important}
+  .content{padding:12px}
+}
+@media print{ .topbar,.rail,.sub,.toolbar,.pager,.ph-act,.ract{display:none!important} .pad > .ph{position:static;box-shadow:none} .content{overflow:visible} body{background:#fff} }
+
+/* ============================================================ font wiring
+   The mockup pulled Plus Jakarta Sans and JetBrains Mono from a Google Fonts
+   <link>. next/font self-hosts them and exposes these two variables, so the
+   token definitions above resolve without a network round-trip. */
+:root{
+  --f:var(--font-jakarta), -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --f-mono:var(--font-jetbrains-mono), ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* ============================================================ link reset
+   The mockup navigated with <button> and a hash router, so it never styled
+   anchors. Real routing uses <Link>, which renders <a> — strip the browser
+   defaults so the shared button/crumb/leaf classes look the same either way. */
+a{color:inherit;text-decoration:none}
+.crumb a:hover{color:var(--brand)}
+
+/* ============================================================ auth & access
+   New components the mockup never had: it stubbed out authentication entirely.
+   Written against the same tokens as the rest of the sheet — no new colours,
+   no new radii, no new type sizes. */
+
+/* ---------- login screen ---------- */
+.auth{min-height:100vh;display:grid;place-items:center;padding:24px 16px;
+  background:linear-gradient(180deg,var(--bg) 0%,var(--brand-50) 100%)}
+.auth-card{width:100%;max-width:392px;background:var(--surface);border:1px solid var(--line);
+  border-radius:var(--r-xl);box-shadow:var(--sh-lg);padding:26px 26px 20px}
+.auth-brand{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+.auth-brand .brand-mark{width:34px;height:34px;font-size:12px}
+.auth-title{font-size:15px;font-weight:800;letter-spacing:-.3px;color:var(--brand);line-height:1.1}
+.auth-ver{font-size:10px;font-weight:700;color:var(--muted-2);letter-spacing:.06em}
+.auth-h{margin:0 0 5px;font-size:18px;font-weight:800;letter-spacing:-.4px;color:var(--ink)}
+.auth-sub{margin:0 0 18px;font-size:11.5px;color:var(--muted);line-height:1.55}
+.auth-card .fld{padding:0 0 12px}
+.auth-btn{width:100%;height:38px;margin-top:6px}
+.auth-card .err{margin:2px 0 10px}
+.auth-foot{margin:16px 0 0;padding-top:14px;border-top:1px solid var(--line-2);
+  font-size:10.5px;color:var(--muted-2);text-align:center}
+
+/* ---------- topbar account menu ---------- */
+.uchip-wrap{position:relative;flex:0 0 auto}
+/* .uchip is now a <button>; it keeps the chip styling defined in the shell
+   section above and only needs the text alignment a button would otherwise
+   centre. */
+.uchip{text-align:left}
+.uchip svg{stroke:var(--muted-2)}
+.umenu{position:absolute;right:0;top:38px;z-index:60;min-width:242px;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-lg);overflow:hidden}
+.umenu-h{padding:12px 14px;border-bottom:1px solid var(--line-2);display:grid;gap:2px}
+.umenu-h b{font-size:12.5px;font-weight:800;color:var(--ink)}
+.umenu-h span{font-size:11px;color:var(--muted)}
+.umenu-roles{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.umenu-i{display:flex;width:100%;align-items:center;gap:9px;padding:10px 14px;border:0;background:transparent;
+  font-size:12.5px;font-weight:600;color:var(--ink-2);cursor:pointer;text-align:left}
+.umenu-i:hover{background:var(--line-3)}
+.umenu-i.danger{color:var(--bad);border-top:1px solid var(--line-2)}
+.umenu-i.danger:hover{background:var(--bad-bg)}
+
+/* ---------- permission matrix ---------- */
+.pmod + .pmod{border-top:1px solid var(--line-2)}
+.pmod-h{display:flex;align-items:center;gap:9px;padding:12px 16px 8px}
+.pmod-h .mt{font-size:9.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--muted-2)}
+.pmod-h .mc{font-size:10.5px;font-weight:700;color:var(--brand)}
+.pmod-h .ma{margin-left:auto;display:flex;gap:6px}
+.pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(266px,1fr));gap:1px 16px;padding:0 16px 14px}
+.pitem{display:flex;align-items:flex-start;gap:9px;padding:7px 9px;border-radius:var(--r-sm);cursor:pointer}
+.pitem:hover{background:var(--line-3)}
+/* A .pgrid inside a form field rather than a card: the card padding belongs to
+   the card, and a set of three reads better in a tighter column. */
+.pgrid.tight{padding:0;gap:1px 12px;grid-template-columns:repeat(auto-fill,minmax(212px,1fr))}
+.pgrid.tight .pitem{padding:6px 8px;border:1px solid var(--line-2);border-radius:var(--r-sm)}
+.pgrid.bad .pitem{border-color:var(--bad)}
+.pitem input{margin:2px 0 0;width:15px;height:15px;accent-color:var(--brand);cursor:pointer;flex:0 0 auto}
+.pitem.view{cursor:default}
+.pitem.view:hover{background:transparent}
+.pitem .pn{font-size:12px;font-weight:600;color:var(--ink);line-height:1.35}
+.pitem .pc{display:block;font-family:var(--f-mono);font-size:10px;font-weight:500;color:var(--muted-2);margin-top:2px}
+.pitem .pd{display:block;font-size:10.5px;color:var(--muted-2);margin-top:3px;line-height:1.45}
+.pitem.off .pn{color:var(--muted-2)}
+.pitem .pok{stroke:var(--ok);flex:0 0 auto;margin-top:2px}
+.pitem .pno{stroke:var(--muted-3);flex:0 0 auto;margin-top:2px}
+
+/* ---------- role chips in a table cell ---------- */
+.rchips{display:flex;flex-wrap:wrap;gap:4px}
+
+/* ---------- confirm dialog that needs one input of its own ---------- */
+.modal .mbody{margin-top:16px;text-align:left}
+.modal .mbody .fld{padding:0}
+
+/* ============================================================ date field
+   `dd/mm/yyyy` text input plus its own calendar. A native date input renders
+   in the browser's locale and opens an OS picker, neither of which this
+   application controls — see `components/ui/date-input.tsx`. */
+.dtf{position:relative;display:block}
+.dtf .dti{padding-right:34px;font-variant-numeric:tabular-nums}
+.dtb{position:absolute;right:5px;top:50%;transform:translateY(-50%);width:26px;height:26px;border:0;
+  background:transparent;border-radius:var(--r-sm);display:grid;place-items:center;color:var(--muted-2);cursor:pointer}
+.dtb:hover{background:var(--line-2);color:var(--ink-2)}
+.dtb[disabled]{opacity:.4;cursor:not-allowed}
+
+.cal{width:258px;padding:9px;gap:8px;overflow-y:auto}
+.cal > *{flex:0 0 auto}
+.cal-h{display:flex;align-items:center;gap:3px}
+.cal-h .cal-t{flex:1 1 auto;text-align:center;font-size:12px;font-weight:800;color:var(--brand)}
+.cal-g{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.cal-d{display:grid;place-items:center;height:22px;font-size:9px;font-weight:800;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted-3)}
+.cal-c{height:29px;border:1px solid transparent;background:transparent;border-radius:var(--r-sm);cursor:pointer;
+  font-size:12px;font-weight:600;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.cal-c:hover{background:var(--brand-50)}
+.cal-c.now{border-color:var(--accent-s)}
+.cal-c.sel{background:var(--accent);border-color:var(--accent);color:#3B2F06;font-weight:800}
+.cal-f{display:flex;gap:6px;padding-top:7px;border-top:1px solid var(--line-2)}
+.cal-f .btn{flex:1 1 auto;justify-content:center}
+
+/* ---------- dropdown rendered by the app, not by the OS ---------- */
+
+.tsel,.psel{text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tsel.open,.psel.open{border-color:var(--accent-s)}
+.cbx.ph .nm,.cbx .ph{color:var(--muted-3)}
+.cbo.off{opacity:.45;cursor:not-allowed}
+.cbo.off:hover{background:transparent}
+.cbo .lab{margin-left:auto}
+/* The triggers are `<div>`s, not `<button>`s — a button may not contain the
+   input the search turns it into — so a disabled one says so with a class and
+   centres its own label rather than relying on a button's own layout. */
+.tsel,.psel{display:inline-flex;align-items:center}
+.tsel .tv,.psel .tv{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cbx.dis,.tsel.dis,.psel.dis{background-color:var(--line-3);color:var(--muted-2);
+  cursor:not-allowed;border-color:var(--line)}
+.cbx.dis .cv{opacity:.5}
+/* Waiting for its prerequisite, not locked against one. `.dis` means never
+   and `.wait` means not yet, so the clause naming what to choose first is set
+   the way the segment input's "menunggu induk" prefix is — italic, muted, and
+   plainly not a value. */
+.cbx.wait,.tsel.wait,.psel.wait{cursor:default}
+.cbx.wait .ph,.tsel.wait .tv,.psel.wait .tv{font-style:italic;font-size:11.5px}
+
+/* ============================================================ report view
+   A Report View gives the viewport to its figures. Two pieces make that
+   possible, and both are shared by every report so they read as one screen
+   type (CLAUDE.md §12):
+
+     `.rfil`  the filter, living inside the sticky page header. Because the
+              header travels with the page, the criteria are always on screen —
+              which is what makes restating them underneath the parameter bar
+              redundant, and why no Report View carries a `.critbar` any more.
+
+     `.rsum`  a block's headline figures, labels above numbers. Stated in one
+              run-on line they cannot be read at a glance, which is the whole
+              job of a summary. */
+
+/* ---------- the filter, inside `.pad > .ph` ---------- */
+.rfil{display:flex;flex-direction:column;align-items:stretch;gap:6px;margin-top:9px;padding-top:9px;
+  border-top:1px solid var(--line-2)}
+/* The filter reads in rows, in the order it is filled in: what the report is
+   about first, then when, then what to compare against. The first label of each
+   row takes one width, so the rows line up as a column the eye can run down. */
+.rfil .rrow{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0}
+.rfil .rrow > .rl:first-child{min-width:78px}
+.rfil .rl{font-size:9px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted-2);white-space:nowrap}
+.rfil .rf{flex:0 1 auto;min-width:0}
+.rfil .rf.wide{flex:0 1 230px;min-width:168px}
+.rfil .rf.date{flex:0 0 112px;width:112px}
+.rfil .cbx,.rfil .inp,.rfil .tsel{height:30px;font-size:12px}
+.rfil .cbx .nm,.rfil .cbx .ph{font-size:12px}
+.rfil .dtf .dti{padding-right:30px}
+.rfil .dtb{width:22px;height:22px;right:4px}
+.rfil .btn{height:30px}
+.rfil .rsep{align-self:stretch;width:1px;margin:2px 3px;background:var(--line)}
+.rfil .err{margin-left:2px}
+
+/* chosen subjects, on their own row: a picker shows one value, and the set is
+   the point. Clicking a chip drops that subject from the run. */
+.rchips{display:flex;align-items:center;gap:5px;flex-wrap:wrap;flex-basis:100%;min-width:0}
+.rchip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 6px 0 9px;border-radius:999px;
+  border:1px solid var(--brand-100);background:var(--brand-50);color:var(--brand);cursor:pointer;
+  font-family:var(--f-mono);font-size:10.5px;font-weight:700}
+.rchip:hover{background:var(--line);border-color:var(--muted-3)}
+.rchip svg{opacity:.5}
+.rchip:hover svg{opacity:1;color:var(--bad)}
+.rchips .lnk{border:0;background:none;padding:0 4px;cursor:pointer;font-size:10.5px;font-weight:700;color:var(--muted-2)}
+.rchips .lnk:hover{color:var(--bad)}
+
+/* ---------- headline figures on a block header ---------- */
+.cbh .rsum{margin-left:auto;display:flex;align-items:stretch;flex-wrap:wrap}
+.cbh .rsum > span{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:1px;
+  padding:0 11px;border-left:1px solid rgba(255,255,255,.16)}
+.cbh .rsum > span:first-child{border-left:0}
+.cbh .rsum > span:last-child{padding-right:0}
+.cbh .rsum i{font-style:normal;font-size:8.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;opacity:.6}
+.cbh .rsum b{font-family:var(--f-mono);font-size:11.5px;font-weight:700;white-space:nowrap}
+.cbh .rsum .k b{font-size:13px}
+.cbh .rsum .z b{opacity:.45}
+.cbh .rsum .neg b{color:#FCA5A5}
+
+/* A balanced report says nothing about balance; only a broken one speaks. */
+.cbh .rwarn{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 10px;border-radius:999px;
+  background:rgba(225,29,72,.28);border:1px solid rgba(253,164,175,.55);color:#FFE4E6;
+  font-size:10.5px;font-weight:800;white-space:nowrap}
+.cbh .rsum + .rwarn{margin-left:11px}
+.cbh > .rwarn:only-of-type{margin-left:auto}
+
+/* When a report was produced. Small, at the foot, out of the way of the
+   figures — but on the output, because a page of numbers with no run time
+   cannot be checked by anybody who did not run it. */
+.rstamp{margin:9px 2px 0;font-size:10.5px;font-weight:600;letter-spacing:.03em;color:var(--muted-3)}
+
+@media (max-width:1000px){
+  .cbh{flex-wrap:wrap}
+  .cbh .rsum{margin-left:0;flex-basis:100%;justify-content:flex-start;margin-top:6px;
+    padding-top:6px;border-top:1px solid rgba(255,255,255,.14)}
+  .cbh .rsum > span:first-child{padding-left:0}
+}
+
+/* A small bar above a report's blocks — how many, over what period, and the
+   expand control. Not a `.toolbar`: the filter is in the page header now, and
+   a second full-width bar under it read as a second set of controls. */
+.rhead{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin:0 0 11px}
+
+/* A secondary line inside a table cell — a partner under the description it
+   belongs to. It costs no column width, which a column of its own did. */
+table.grid tbody td .rsub{display:block;margin-top:2px;font-family:var(--f-mono);
+  font-size:10px;font-weight:600;letter-spacing:.02em;color:var(--muted-2)}
+
+/* The block chevron rotated only inside `.tn`; a collapsible report block
+   needs the same affordance. */
+.cbh .chev{flex:0 0 auto;display:grid;place-items:center;opacity:.75;transition:transform .14s}
+.cbh .chev.o{transform:rotate(90deg);opacity:1}
+
+/* Normal balance, as one letter beside the account it belongs to. A column of
+   its own cost 84px on every row to say one of two words. */
+.nb{flex:0 0 auto;display:grid;place-items:center;width:15px;height:15px;border-radius:4px;
+  background:var(--line-2);color:var(--muted-2);font-family:var(--f-mono);font-size:9px;font-weight:800}
+
+/* ============================================================ financial statement
+   The Laba Rugi and the Neraca are one table whose first column is a tree:
+   a step or section heads its categories, each heading carries the total of
+   what sits beneath it, and a result line closes the steps above it. The
+   indentation is the hierarchy, so it is a class per depth rather than a
+   padding written on each row. */
+table.grid.stm tbody td{height:32px;padding-top:5px;padding-bottom:5px}
+table.grid.stm td.stn .stc{display:flex;align-items:center;gap:7px;min-width:0}
+table.grid.stm td.stn .nm{overflow:hidden;text-overflow:ellipsis;min-width:0}
+table.grid.stm td.stn .cd{font-family:var(--f-mono);font-size:11px;font-weight:700;color:var(--muted-2)}
+table.grid.stm td.stn .tgl{width:18px;height:18px;flex:0 0 auto;border:0;background:transparent;padding:0;
+  display:grid;place-items:center;border-radius:4px;color:var(--muted);cursor:pointer}
+table.grid.stm td.stn span.tgl{cursor:default}
+table.grid.stm td.stn button.tgl:hover{background:var(--line-2);color:var(--brand)}
+table.grid.stm td.stn .chev{display:grid;place-items:center;transition:transform .14s}
+table.grid.stm td.stn .chev.o{transform:rotate(90deg)}
+table.grid.stm td.stn.d1{padding-left:25px}
+table.grid.stm td.stn.d2{padding-left:39px}
+table.grid.stm td.stn.d3{padding-left:53px}
+table.grid.stm td.stn.d4{padding-left:67px}
+table.grid.stm td.stn.d5{padding-left:81px}
+table.grid.stm td.stn.d6{padding-left:95px}
+table.grid.stm tr.st-step td{background:var(--line-3)}
+table.grid.stm tr.st-step td.stn .nm{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--brand)}
+table.grid.stm tr.st-cat td.stn .nm{font-weight:700;color:var(--ink)}
+table.grid.stm tr.st-sub td.stn .nm{font-weight:600;color:var(--ink-2)}
+table.grid.stm tr.st-par td{color:var(--muted)}
+table.grid.stm tr.st-par td.stn .nm{font-size:11.5px}
+table.grid.stm tr.st-res td.stn .nm{text-transform:uppercase;letter-spacing:.04em}
+
+/* Drill-through: a figure or reference that opens what produced it. The text
+   keeps its own look; the row's hover reveals a chevron, and the link itself
+   tints — so which numbers can be clicked is visible without guessing. */
+a.drl{display:inline-flex;align-items:center;gap:3px;color:inherit;text-decoration:none;
+  border-radius:4px;padding:1px 3px;margin:-1px -3px;cursor:pointer}
+a.drl .drl-i{display:grid;place-items:center;opacity:0;color:var(--brand);transition:opacity .12s}
+table.grid tbody tr:hover a.drl .drl-i{opacity:.6}
+a.drl:hover{background:var(--brand-100);color:var(--brand)}
+a.drl:hover .mny{color:inherit}
+table.grid tbody tr a.drl:hover .drl-i,a.drl:hover .drl-i{opacity:1}
+td.num a.drl{flex-direction:row-reverse}
+/* Outside a table there is no row to hover, so the link states itself. */
+.ro a.drl{color:var(--brand);font-weight:600}
+.ro a.drl .drl-i{opacity:.7}
+table.grid thead th .rsub{display:block;margin-top:2px;font-family:var(--f-mono);font-size:9.5px;
+  font-weight:600;letter-spacing:.02em;text-transform:none;color:var(--muted-2)}
+/* A statement's own title: what it is, for whom, over when, and when it was
+   read — two compact lines, so a screenshot cannot be mistaken for another run
+   and the sticky header above keeps its room. */
+.rtitle{margin:0 0 10px;padding:0 2px 9px;border-bottom:1px solid var(--line-2)}
+.rtitle .rt1{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:12.5px;color:var(--ink-2)}
+.rtitle .rt1 b{font-size:13px;font-weight:800;letter-spacing:.04em;text-transform:uppercase;color:var(--brand)}
+.rtitle .rt1 span+span::before,.rtitle .rt1 b+span::before{content:"·";margin-right:8px;color:var(--muted-3)}
+.rtitle .rt2{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:3px;
+  font-family:var(--f-mono);font-size:11px;font-weight:600;color:var(--muted)}
+.rtitle .rt2 .sep{font-family:var(--f-sans);font-weight:700;color:var(--muted-2)}
+.rtitle .rt2 .when{margin-left:auto;color:var(--muted-3)}
+.mny.neg{color:var(--bad)}
+.rfil .chk.sm{height:30px}
+
+/* ============================================================ form layout
+   The rules themselves live in the form section above, beside the ones they
+   replaced; this note is why they read the way they do.
+
+   Three things used to pay for a form's height. A field cost 89px to present a
+   34px control: 14px of its own padding, 20px of label, and 21px of help
+   *beneath* the control. The row was hard-wired to two equal columns, so a date
+   picker sat in a 500px box, every third field started a new row, and the
+   pointer crossed ~570px between two controls that each needed 180px. And the
+   card body's 16px padding was doubled by the row's own.
+
+   So the help moved onto the label row — no height at all, and still read
+   without hovering — the row became a 12-column grid that each field spans, and
+   the padding is paid once, by `.fbody`. A Budget create form went from 704px
+   to 390px. The 34px control height is deliberately untouched: these operators
+   work by mouse, and a smaller target would cost them more than the pixels are
+   worth.
+
+   `components/ui/form.tsx` is the only thing that emits this markup. */
+
+/* A document's heading is its number, with the status beside it, because that
+   is how a document names itself — the description is a field on the form, and
+   repeating it as the heading states it twice. Mono at the title's weight, and
+   without the -.45px display tracking `.ph-row h1` gives a proportional face: a
+   monospaced number is already evenly spaced, so negative tracking only crowds
+   it. Scoped `.pad >` like every other page-header rule — `.ph` is the
+   placeholder class too. */
+.pad > .ph .ph-row h1 .docno{font-family:var(--f-mono);font-size:17px;font-weight:700;letter-spacing:0}
+
+/* A closing note under a form's fields — what the record's state means for
+   what has already moved. It replaced the summary card's `.sidenote`, which
+   only existed because the card needed filling. */
+.fnote{padding:11px 16px 13px;border-top:1px solid var(--line-2);font-size:11.5px;
+  line-height:1.6;color:var(--muted);margin:0}
+/* A master record is known by its name, so the name stays the heading and the
+   system code sits beside it as the technical reference §9 calls it. */
+.pad > .ph .ph-row h1 .docno.sm{font-size:11.5px;font-weight:600;color:var(--muted-2);
+  background:var(--line-2);border-radius:5px;padding:2px 7px;letter-spacing:.02em}

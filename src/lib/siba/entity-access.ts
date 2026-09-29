@@ -1,0 +1,130 @@
+/**
+ * Which permission each registry entity's operations require.
+ *
+ * The Master module is registry-driven, so its authorization is registry-driven
+ * too: one map instead of a check written out in every page and action. Adding
+ * an entity means adding its row here — the same shape as adding it to
+ * `entities.ts`.
+ *
+ * Client-safe (no `server-only`, no database import): the list and form
+ * components read the same map the Server Actions enforce, so a hidden button
+ * and a rejected action can never disagree about which permission is at stake.
+ */
+import type { PermissionCode } from "./permissions";
+
+export type EntityPermissions = {
+  view: PermissionCode;
+  /** Absent where the operation does not exist — Company is create/edit-locked. */
+  create?: PermissionCode;
+  edit?: PermissionCode;
+  activate?: PermissionCode;
+  deactivate?: PermissionCode;
+};
+
+const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
+  sys_company: { view: "COMPANY_VIEW" },
+  m_partner: {
+    view: "PARTNER_VIEW",
+    create: "PARTNER_CREATE",
+    edit: "PARTNER_EDIT",
+    activate: "PARTNER_ACTIVATE",
+    deactivate: "PARTNER_DEACTIVATE",
+  },
+  m_cash_bank: {
+    view: "CASH_BANK_VIEW",
+    create: "CASH_BANK_CREATE",
+    edit: "CASH_BANK_EDIT",
+    activate: "CASH_BANK_ACTIVATE",
+    deactivate: "CASH_BANK_DEACTIVATE",
+  },
+  ref_currency: {
+    view: "CURRENCY_VIEW",
+    create: "CURRENCY_CREATE",
+    edit: "CURRENCY_EDIT",
+    activate: "CURRENCY_ACTIVATE",
+    deactivate: "CURRENCY_DEACTIVATE",
+  },
+  sys_budget_category: {
+    view: "BUDGET_CATEGORY_VIEW",
+    create: "BUDGET_CATEGORY_CREATE",
+    edit: "BUDGET_CATEGORY_EDIT",
+    activate: "BUDGET_CATEGORY_ACTIVATE",
+    deactivate: "BUDGET_CATEGORY_DEACTIVATE",
+  },
+  sys_partner_category: {
+    view: "PARTNER_CATEGORY_VIEW",
+    create: "PARTNER_CATEGORY_CREATE",
+    edit: "PARTNER_CATEGORY_EDIT",
+    activate: "PARTNER_CATEGORY_ACTIVATE",
+    deactivate: "PARTNER_CATEGORY_DEACTIVATE",
+  },
+  sys_purpose: {
+    view: "PURPOSE_VIEW",
+    create: "PURPOSE_CREATE",
+    edit: "PURPOSE_EDIT",
+    activate: "PURPOSE_ACTIVATE",
+    deactivate: "PURPOSE_DEACTIVATE",
+  },
+  acc_account: {
+    view: "ACCOUNT_VIEW",
+    create: "ACCOUNT_CREATE",
+    edit: "ACCOUNT_EDIT",
+    activate: "ACCOUNT_ACTIVATE",
+    deactivate: "ACCOUNT_DEACTIVATE",
+  },
+  // Mapping and the fiscal calendar have no activate/deactivate: a mapping
+  // either exists or does not, and a fiscal record moves Draft -> Open ->
+  // Closed through an edit rather than a toggle.
+  acc_budget_category_account: {
+    view: "MAPPING_VIEW",
+    create: "MAPPING_CREATE",
+    edit: "MAPPING_EDIT",
+  },
+  // Fiscal Period has no row because it has no screen: periods are generated
+  // when a Fiscal Year is opened and read from inside it, so the year's
+  // permissions are the only ones at stake.
+  acc_fiscal_year: {
+    view: "FISCAL_YEAR_VIEW",
+    create: "FISCAL_YEAR_CREATE",
+    edit: "FISCAL_YEAR_EDIT",
+  },
+};
+
+/**
+ * Throws rather than returning a default, so an entity added to the registry
+ * without a permission row fails loudly instead of silently becoming open.
+ */
+export function entityPermissions(entityKey: string): EntityPermissions {
+  const perms = ENTITY_PERMISSIONS[entityKey];
+  if (!perms) {
+    throw new Error(`No permissions declared for entity: ${entityKey}`);
+  }
+  return perms;
+}
+
+export function hasEntityPermissions(entityKey: string): boolean {
+  return entityKey in ENTITY_PERMISSIONS;
+}
+
+/** What the current user may do with one entity — passed into the client. */
+export type EntityAbilities = {
+  create: boolean;
+  edit: boolean;
+  activate: boolean;
+  deactivate: boolean;
+};
+
+export function abilitiesFor(
+  entityKey: string,
+  permissions: Iterable<string>
+): EntityAbilities {
+  const held = permissions instanceof Set ? permissions : new Set(permissions);
+  const perms = entityPermissions(entityKey);
+  const has = (code?: PermissionCode) => Boolean(code && held.has(code));
+  return {
+    create: has(perms.create),
+    edit: has(perms.edit),
+    activate: has(perms.activate),
+    deactivate: has(perms.deactivate),
+  };
+}

@@ -1,0 +1,48 @@
+{
+  "name": "siba",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3010",
+    "start:branch": "next start -p 3020",
+    "start:vercel": "next start -p 3030",
+    "lint": "eslint",
+    "db:seed": "node --env-file-if-exists=.env --conditions=react-server --import tsx prisma/seed.ts",
+    "db:neon-migrate": "node scripts/with-remote.mjs npx prisma migrate deploy",
+    "db:neon-seed": "node scripts/with-remote.mjs node --conditions=react-server --import tsx prisma/seed.ts",
+    "db:seed-showcase": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/seed-showcase.ts",
+    "db:neon-seed-showcase": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-showcase.ts",
+    "db:backfill-subledger": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/backfill-subledger.ts",
+    "db:backfill-account-flags": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/backfill-account-flags.ts",
+    "db:truncate-transactions": "node --env-file-if-exists=.env --import tsx scripts/truncate-transactions.ts",
+    "db:reset": "prisma migrate reset --force",
+    "db:neon-reset": "node scripts/with-remote.mjs --destructive npx prisma migrate reset --force",
+    "test": "node --env-file-if-exists=.env --conditions=react-server --import tsx --test --test-concurrency=1 tests/*.test.ts",
+    "build:standalone": "next build && tsx scripts/standalone.ts",
+    "start:standalone": "node .next/standalone/server.js"
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.10.0",
+    "@prisma/client": "^7.10.0",
+    "bcryptjs": "^3.0.3",
+    "next": "16.3.5",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/bcryptjs": "^2.4.6",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "dotenv": "^17.4.2",
+    "eslint": "^9",
+    "eslint-config-next": "16.3.5",
+    "prisma": "^7.10.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5"
+  }
+}
