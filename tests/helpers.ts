@@ -316,7 +316,6 @@ export async function cleanupFixtures(): Promise<void> {
   });
   if (orphans.length) {
     const ids = orphans.map((o) => o.id);
-    await prisma.cashBankLayer.deleteMany({ where: { cash_bank_id: { in: ids } } });
     await prisma.cashBankLedger.deleteMany({ where: { cash_bank_id: { in: ids } } });
     await prisma.cashBankBalance.deleteMany({ where: { cash_bank_id: { in: ids } } });
     await prisma.mCashBank.deleteMany({ where: { id: { in: ids } } });

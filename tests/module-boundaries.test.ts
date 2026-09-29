@@ -139,23 +139,15 @@ describe("the dependency graph points one way", () => {
       "permissions",
       // The foreign-exchange kernel and the base currency. Pure functions over
       // numbers with no database and no dependency of their own, needed by
-      // every book that carries a base measure and by the layers that will
-      // value one. A book that had to import a *module* to round a base amount
+      // every book that carries a base measure. A book that had to import a *module* to round a base amount
       // would not be liftable; a book that imports arithmetic still is.
       "fx",
       "currency",
     ];
-    // The Cash Bank Book is two files: the book itself and the rate layers a
-    // foreign resource holds. They are one module and may name each other;
-    // neither may name anything outside the kernel.
-    const BOOKS = ["cash-bank", "cash-bank-layers", "journal"];
-    const SIBLINGS: Record<string, string[]> = {
-      "cash-bank": ["cash-bank-layers"],
-      "cash-bank-layers": ["cash-bank"],
-    };
+    const BOOKS = ["cash-bank", "journal"];
 
     for (const book of BOOKS) {
-      const allowed = [...KERNEL, ...(SIBLINGS[book] ?? [])];
+      const allowed = KERNEL;
       const leaked = sibaImports(sibaModule(book).text).filter(
         (d) => !allowed.includes(d)
       );

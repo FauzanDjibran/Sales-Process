@@ -97,14 +97,15 @@ export function settlementRefusal(
  * shown. This is the only case where a rate of 1 is correct; a rate of 1
  * between two foreign amounts would assert that USD 100 is IDR 100.
  *
- * `layer` — foreign currency leaving a foreign resource. The rate is read off
- * the layer the user chose, never typed.
+ * `carrying` — foreign currency leaving a foreign resource. It is valued at
+ * the resource's moving average (its carrying rate) at the moment of posting,
+ * never typed — a backdated payment too (Claude-ERP.md P37).
  *
  * `entered` — everywhere else a foreign currency is involved. The user types
  * the rate the bank actually used, and it is never defaulted, inherited or
  * looked up from a table.
  */
-export type RateSource = "identity" | "layer" | "entered";
+export type RateSource = "identity" | "carrying" | "entered";
 
 /**
  * Which of the three a given movement uses.
@@ -127,17 +128,17 @@ export function rateSource(
   const resourceIsBase = isBaseCurrency(resourceCurrency);
   const documentIsBase = isBaseCurrency(documentCurrency);
 
-  // Base money on a base resource: nothing is converted and nothing is layered.
+  // Base money on a base resource: nothing is converted.
   if (documentIsBase && resourceIsBase) return "identity";
 
-  // A base-currency resource is unlayered, so a foreign document paid through
-  // one converts at a rate somebody has to state.
+  // A foreign document paid through a base-currency resource converts at a
+  // rate somebody has to state.
   if (resourceIsBase) return "entered";
 
   // A foreign resource, in the document's own currency. Money leaving it is
-  // valued by the layer the user picks; money arriving creates a layer, and the
-  // rate that creates it has to be stated.
-  return direction === "Out" ? "layer" : "entered";
+  // valued at the resource's moving average; money arriving joins the pool at
+  // a rate that has to be stated.
+  return direction === "Out" ? "carrying" : "entered";
 }
 
 /** Whether this movement needs the user to type a kurs. */
@@ -147,31 +148,4 @@ export function needsEnteredRate(
   resourceCurrency: string
 ): boolean {
   return rateSource(direction, documentCurrency, resourceCurrency) === "entered";
-}
-
-/**
- * Whether this movement draws on a layer — the only case that also caps the
- * document at what that layer still holds.
- */
-export function consumesLayer(
-  direction: "In" | "Out",
-  documentCurrency: string,
-  resourceCurrency: string
-): boolean {
-  return rateSource(direction, documentCurrency, resourceCurrency) === "layer";
-}
-
-/**
- * Whether this movement creates a layer.
- *
- * Foreign currency arriving into a foreign resource, and nothing else: a base
- * resource is unlayered, and money leaving never creates.
- */
-export function createsLayer(
-  direction: "In" | "Out",
-  documentCurrency: string,
-  resourceCurrency: string
-): boolean {
-  if (!maySettle(documentCurrency, resourceCurrency)) return false;
-  return direction === "In" && !isBaseCurrency(resourceCurrency);
 }

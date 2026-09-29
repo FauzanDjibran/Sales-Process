@@ -2,8 +2,6 @@ import test, { describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   BASE_CURRENCY_LABEL,
-  consumesLayer,
-  createsLayer,
   isBaseCurrency,
   maySettle,
   needsEnteredRate,
@@ -12,7 +10,6 @@ import {
 } from "../src/lib/erp/currency";
 import {
   carryingRate,
-  drawLayer,
   fxDifference,
   FxRangeError,
   originate,
@@ -21,7 +18,6 @@ import {
   roundBase,
   settle,
   type Balance,
-  type Layer,
 } from "../src/lib/erp/fx";
 
 /**
@@ -154,42 +150,53 @@ describe("releasing base from a balance", () => {
   });
 });
 
-// ------------------------------------------------------------------ layers
+// ----------------------------------------------------------- moving average
 
-describe("a layer is a balance", () => {
-  test("drawing on a layer never moves its rate", () => {
-    let layer: Layer = { foreign: 300, base: 4_650_000, rate: 15_500 };
+describe("a foreign resource is one pool at its moving average", () => {
+  test("money arriving moves the average toward its own rate, by weight", () => {
+    // USD 200 at 15.000, then USD 300 at 15.500: the pool carries at 15.300,
+    // a rate nobody quoted.
+    const first = originate(200, 15_000);
+    const second = originate(300, 15_500);
+    const pool: Balance = {
+      foreign: first.foreign + second.foreign,
+      base: first.base + second.base,
+    };
+    assert.deepEqual(pool, { foreign: 500, base: 7_650_000 });
+    assert.equal(carryingRate(pool), 15_300);
+  });
+
+  test("money leaving never moves the average", () => {
+    let pool: Balance = { foreign: 500, base: 7_650_000 };
     for (const take of [100, 50, 130]) {
-      layer = drawLayer(layer, take).remaining;
-      assert.equal(
-        layer.base / layer.foreign,
-        15_500,
-        "a layer's rate is fixed for its life"
-      );
-      assert.equal(layer.rate, 15_500);
+      const relief = relieve(pool, take);
+      assert.equal(relief.base, take * 15_300, "released at the average");
+      pool = relief.remaining;
+      assert.equal(carryingRate(pool), 15_300);
     }
   });
 
-  test("drawing a layer to nothing releases its remaining base exactly", () => {
-    const layer: Layer = { foreign: 300, base: 4_650_000, rate: 15_500 };
-    const drawn = drawLayer(layer, 300);
-    assert.equal(drawn.base, 4_650_000);
-    assert.equal(drawn.exhausted, true);
-    assert.deepEqual(drawn.remaining, { foreign: 0, base: 0, rate: 15_500 });
+  test("emptying the pool releases its remaining base exactly", () => {
+    // Three receipts whose average is not a whole number of cents: partial
+    // releases round, and the last release absorbs what they left behind.
+    let pool: Balance = { foreign: 700, base: 10_650_000 };
+    let released = 0;
+    for (const take of [100, 250]) {
+      const relief = relieve(pool, take);
+      released += relief.base;
+      pool = relief.remaining;
+    }
+    const last = relieve(pool, pool.foreign);
+    assert.equal(last.exhausted, true);
+    assert.deepEqual(last.remaining, { foreign: 0, base: 0 });
+    assert.equal(roundBase(released + last.base), 10_650_000, "base is conserved");
   });
 
-  test("a layer cannot be overdrawn", () => {
-    assert.throws(
-      () => drawLayer({ foreign: 200, base: 3_000_000, rate: 15_000 }, 201),
-      OverRelief
-    );
+  test("the pool cannot be overdrawn", () => {
+    assert.throws(() => relieve({ foreign: 200, base: 3_000_000 }, 201), OverRelief);
   });
 
-  test("originating a layer is one multiplication", () => {
-    assert.deepEqual(originate(200, 15_000), { foreign: 200, base: 3_000_000 });
-  });
-
-  test("a layer cannot be created at a rate of zero or below", () => {
+  test("currency joins the pool at a rate above zero only", () => {
     assert.throws(() => originate(100, 0), FxRangeError);
     assert.throws(() => originate(100, -15_000), FxRangeError);
   });
@@ -361,129 +368,39 @@ describe("the core specification's worked illustration", () => {
   });
 });
 
-// ------------------------------------------- the layered worked example
+// --------------------------------------------- paying out of the pool
 
-describe("the layered specification's worked illustration, one layer per transaction", () => {
-  /**
-   * The source illustration lets one settlement consume several layers. SIBA
-   * does not: a transaction names one bank and one kurs, so a selection that
-   * spanned two layers is two documents.
-   *
-   * These tests check that the narrowing is only a narrowing — that splitting a
-   * multi-layer settlement into consecutive single-layer ones reproduces the
-   * stated result exactly. It does, because base value is conserved either way,
-   * and that is the evidence the constraint costs nothing in accounting terms.
-   */
-  const L1: Layer = { foreign: 200, base: 3_000_000, rate: 15_000 };
-  const L2: Layer = { foreign: 300, base: 4_650_000, rate: 15_500 };
-  const L3: Layer = { foreign: 200, base: 3_000_000, rate: 15_000 };
+describe("a payment out of a foreign resource is valued at its average", () => {
+  // Receipts of USD 200 at 15.000, 300 at 15.500 and 200 at 15.000: one pool of
+  // USD 700 carried at 15.214,29 — the average, not any receipt's rate.
+  const pool: Balance = { foreign: 700, base: 10_650_000 };
 
-  test("two receipts at the same rate stay two layers", () => {
-    // Layer identity is per acquisition event, never per rate. "Use the 15.000"
-    // names neither of these, which is why the user picks a layer and not a rate.
-    assert.equal(L1.rate, L3.rate);
-    assert.notDeepEqual(L1, { ...L3, foreign: 999 });
-    const account: Balance = {
-      foreign: L1.foreign + L2.foreign + L3.foreign,
-      base: L1.base + L2.base + L3.base,
-    };
-    assert.deepEqual(account, { foreign: 700, base: 10_650_000 });
-    // The account's own rate is the weighted average, and values nothing.
-    assert.equal(
-      Math.round(carryingRate(account)! * 100) / 100,
-      15_214.29
-    );
+  test("the pool's rate is the weighted average of what it received", () => {
+    assert.equal(Math.round(carryingRate(pool)! * 100) / 100, 15_214.29);
   });
 
-  test("Selection A, split into two documents, still nets a 142.000 loss", () => {
-    // The source: L2 in full plus L3 partially, settling a USD 400 obligation
-    // carried at 15.020, giving a 142.000 loss.
-    let position: Balance = { foreign: 400, base: 6_008_000 };
-    let net = 0;
-
-    // Document 1 — USD 300, drawn wholly from L2.
-    const fromL2 = drawLayer(L2, 300);
-    assert.equal(fromL2.base, 4_650_000);
-    const first = settle({
-      position,
-      foreign: 300,
-      transactionBase: fromL2.base,
+  test("settling an obligation compares its carrying rate with the pool's", () => {
+    // A USD 400 obligation carried at 15.020, paid in full from the pool.
+    const cash = relieve(pool, 400);
+    assert.equal(cash.base, 6_085_714.29);
+    const settled = settle({
+      position: { foreign: 400, base: 6_008_000 },
+      foreign: 400,
+      transactionBase: cash.base,
     });
-    assert.equal(first.settlementBase, 4_506_000);
-    net += first.difference.amount;
-    position = first.remaining!;
-
-    // Document 2 — USD 100, drawn from L3, closing the obligation.
-    const fromL3 = drawLayer(L3, 100);
-    assert.equal(fromL3.base, 1_500_000);
-    const second = settle({
-      position,
-      foreign: 100,
-      transactionBase: fromL3.base,
-    });
-    assert.equal(second.settlementBase, 1_502_000);
-    net += second.difference.amount;
-    position = second.remaining!;
-
-    assert.deepEqual(position, { foreign: 0, base: 0 });
-    assert.equal(net, -142_000, "the figure the source states for Selection A");
+    assert.equal(settled.settlementBase, 6_008_000);
+    assert.deepEqual(settled.difference, { amount: -77_714.29, side: "loss" });
+    assert.deepEqual(settled.remaining, { foreign: 0, base: 0 });
   });
 
-  test("Selection B, split into two documents, still nets an 8.000 gain", () => {
-    // The source: L1 in full plus L3 in full — the same payment against the
-    // same obligation, yielding a gain instead, because the user chose
-    // differently. That is the feature working as intended.
-    let position: Balance = { foreign: 400, base: 6_008_000 };
-    let net = 0;
-
-    const first = settle({
-      position,
-      foreign: 200,
-      transactionBase: drawLayer(L1, 200).base,
-    });
-    net += first.difference.amount;
-    position = first.remaining!;
-
-    const second = settle({
-      position,
-      foreign: 200,
-      transactionBase: drawLayer(L3, 200).base,
-    });
-    net += second.difference.amount;
-    position = second.remaining!;
-
-    assert.deepEqual(position, { foreign: 0, base: 0 });
-    assert.equal(net, 8_000, "the figure the source states for Selection B");
-  });
-
-  test("the same payment against the same obligation can gain or lose", () => {
-    // One USD 300 payment against one obligation carried at 15.020. Paying
-    // with currency that cost 15.500 loses; paying with currency that cost
-    // 15.000 gains. Nothing about the obligation changed — only which kurs the
-    // user picked, which is why the choice is recorded and shown on the
-    // document rather than made by the system.
-    const position: Balance = { foreign: 400, base: 6_008_000 };
-
-    const dearer = settle({
-      position,
-      foreign: 300,
-      transactionBase: drawLayer(L2, 300).base, // 15.500
-    });
-    const cheaper = settle({
-      position,
-      foreign: 300,
-      transactionBase: drawLayer({ foreign: 300, base: 4_500_000, rate: 15_000 }, 300)
-        .base,
-    });
-
-    assert.equal(dearer.settlementBase, cheaper.settlementBase, "the obligation released the same either way");
-    assert.deepEqual(dearer.difference, { amount: -144_000, side: "loss" });
-    assert.deepEqual(cheaper.difference, { amount: 6_000, side: "gain" });
-    assert.equal(
-      cheaper.difference.amount - dearer.difference.amount,
-      150_000,
-      "the user's choice is worth 150.000 on this one payment"
-    );
+  test("splitting the payment does not change what it costs", () => {
+    // USD 300 then USD 100 out of the same pool releases what USD 400 does in
+    // one go, to the rupiah — nothing is left to a choice of which currency
+    // was spent.
+    const once = relieve(pool, 400).base;
+    const first = relieve(pool, 300);
+    const second = relieve(first.remaining, 100);
+    assert.ok(Math.abs(first.base + second.base - once) <= 0.01);
   });
 });
 
@@ -535,23 +452,19 @@ describe("where a kurs comes from", () => {
     assert.notEqual(rateSource("In", "USD", "USD"), "identity");
   });
 
-  test("foreign leaving a foreign resource is valued by the chosen layer", () => {
-    assert.equal(rateSource("Out", "USD", "USD"), "layer");
-    assert.equal(consumesLayer("Out", "USD", "USD"), true);
+  test("foreign leaving a foreign resource is valued at its moving average", () => {
+    assert.equal(rateSource("Out", "USD", "USD"), "carrying");
     assert.equal(needsEnteredRate("Out", "USD", "USD"), false);
   });
 
   test("foreign arriving into a foreign resource states its own rate", () => {
     assert.equal(rateSource("In", "USD", "USD"), "entered");
-    assert.equal(createsLayer("In", "USD", "USD"), true);
-    assert.equal(consumesLayer("In", "USD", "USD"), false);
+    assert.equal(needsEnteredRate("In", "USD", "USD"), true);
   });
 
-  test("a base resource is unlayered in both directions", () => {
+  test("a foreign document through a base resource states its rate both ways", () => {
     assert.equal(rateSource("Out", "USD", "IDR"), "entered");
     assert.equal(rateSource("In", "USD", "IDR"), "entered");
-    assert.equal(createsLayer("In", "USD", "IDR"), false);
-    assert.equal(consumesLayer("Out", "USD", "IDR"), false);
   });
 
   test("an impossible pairing has no kurs at all", () => {
@@ -560,7 +473,6 @@ describe("where a kurs comes from", () => {
     assert.equal(rateSource("Out", "USD", "EUR"), null);
     assert.equal(rateSource("Out", "IDR", "USD"), null);
     assert.equal(needsEnteredRate("Out", "USD", "EUR"), false);
-    assert.equal(createsLayer("In", "IDR", "USD"), false);
   });
 
   test("every allowed pairing resolves to exactly one source", () => {

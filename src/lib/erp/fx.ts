@@ -31,12 +31,14 @@
  * is the balancing figure of the journal entry — its sign is never chosen
  * separately, which is what makes an unbalanced FX entry unrepresentable.
  *
- * ## A layer is a balance
+ * ## A Cash & Bank resource is one pool
  *
- * A foreign Cash & Bank resource holds rate layers, and a layer is a balance
- * like any other. `drawLayer` is therefore `relieve` with a name that says what
- * it is used for — which is also why a layer's rate cannot drift: relieving a
- * balance at its own carrying rate leaves that rate untouched by construction.
+ * A foreign Cash & Bank resource is a balance like any other, valued at a
+ * **moving average** (Claude-ERP.md P37): money arriving joins the pool at the
+ * rate it was received at, and money leaving is released by `relieve` at the
+ * pool's carrying rate. Relieving a balance at its own carrying rate leaves
+ * that rate untouched by construction, so the average moves only when new
+ * currency is added — never because some was spent.
  */
 
 /**
@@ -99,9 +101,6 @@ export function roundBase(value: number): number {
  * movement actually cost.
  */
 export type Balance = { foreign: number; base: number };
-
-/** A rate layer. A balance, plus the rate that created it. */
-export type Layer = Balance & { rate: number };
 
 /**
  * The effective rate a balance is carried at, or **null** when it holds no
@@ -204,27 +203,6 @@ export function relieve(balance: Balance, foreign: number): Relief {
   };
 }
 
-/**
- * Draws `foreign` out of a rate layer.
- *
- * A layer is a balance, so this is `relieve` under the name the Cash Bank Book
- * uses. The layer's rate is carried through untouched, and it stays true:
- * releasing base in proportion to what is left preserves `base ÷ foreign`, so a
- * layer's rate is fixed for its whole life and only ever set when it is created.
- */
-export function drawLayer(
-  layer: Layer,
-  foreign: number
-): { foreign: number; base: number; remaining: Layer; exhausted: boolean } {
-  const relief = relieve({ foreign: layer.foreign, base: layer.base }, foreign);
-  return {
-    foreign: relief.foreign,
-    base: relief.base,
-    remaining: { ...relief.remaining, rate: layer.rate },
-    exhausted: relief.exhausted,
-  };
-}
-
 export type FxSide = "gain" | "loss";
 
 export type FxDifference = {
@@ -261,7 +239,10 @@ export type SettlementInput = {
   position: Balance | null;
   /** Foreign amount being settled, in the document's currency. */
   foreign: number;
-  /** What the cash actually cost in base, from the layer or the entered kurs. */
+  /**
+   * What the cash actually cost in base: the resource's moving average for
+   * money leaving it, or the entered kurs.
+   */
   transactionBase: number;
 };
 

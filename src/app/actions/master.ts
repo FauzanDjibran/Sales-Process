@@ -295,9 +295,9 @@ async function validateCashBank(
   const errors: Record<string, string> = {};
 
   // An opening balance becomes the resource's first book entry, and for a
-  // foreign resource its first rate layer as well. The currency it starts with
-  // was acquired at some price, and that price is what a later payment out of
-  // it releases — so the kurs is required rather than assumed. A base-currency
+  // foreign resource the first rate of its moving average. The currency it
+  // starts with was acquired at some price, and that price is what a later
+  // payment out of it releases — so the kurs is required rather than assumed. A base-currency
   // resource needs none: rupiah is already the measure.
   const openingBalance = numberValue(values, "opening_balance") ?? 0;
   const openingRate = numberValue(values, "opening_rate");
@@ -498,20 +498,19 @@ export async function createRecord(
     // starting figure becomes the book's opening entry rather than a column on
     // the master — see `lib/erp/cash-bank.ts`.
     if (entity.key === "m_cash_bank") {
-      // A foreign resource keeps rate layers and opens its first one here; a
-      // base-currency resource has none and opens at `1`, which is true rather
-      // than a placeholder. `validateCashBank` has already refused a foreign
+      // A foreign resource opens its moving average at the stated kurs; a
+      // base-currency resource opens at `1`, which is true rather than a
+      // placeholder. `validateCashBank` has already refused a foreign
       // opening balance with no kurs, so by here the rate is honest.
       const currencyId = refValue(values, "currency_id");
       const currencyLabel = currencyId
         ? await refLabel("ref_currency", currencyId)
         : null;
-      const layered = Boolean(currencyLabel) && !isBaseCurrency(currencyLabel);
+      const foreign = Boolean(currencyLabel) && !isBaseCurrency(currencyLabel);
       await openCashBankBook(tx, {
         cashBankId: row.id,
         openingBalance: numberValue(values, "opening_balance") ?? 0,
-        rate: layered ? numberValue(values, "opening_rate") ?? 1 : 1,
-        layered,
+        rate: foreign ? numberValue(values, "opening_rate") ?? 1 : 1,
         date: new Date().toISOString().slice(0, 10),
         actorId: actor.user.id,
       });

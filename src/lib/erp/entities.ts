@@ -390,9 +390,9 @@ export const ENTITIES: Entity[] = [
       },
       {
         // A foreign resource's opening balance was acquired at some price, and
-        // that price is what a later payment out of it releases. Without it the
-        // account would hold currency of unknown value — which is why a foreign
-        // opening balance was refused outright until layers existed.
+        // that price starts its moving average — what a later payment out of
+        // it releases. Without it the account would hold currency of unknown
+        // value.
         name: "opening_rate",
         label: "Kurs Perolehan",
         type: "rate",

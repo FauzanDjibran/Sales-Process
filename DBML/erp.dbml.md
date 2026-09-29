@@ -3,12 +3,14 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20260929113524_baseline`
+- **As of migration:** `20260929122311_remove_cash_bank_layers`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **One company** (P9): no table carries a company. Budget, Cash Bank
   Transaction, Transfer, Debit / Credit Note, Funding Request and the subject
-  books are not carried (P10, P19, P25).
+  books are not carried (P10, P19, P25). SIBA's rate layers were removed
+  (P37): a foreign Cash & Bank resource is valued at its moving average,
+  `cash_bank_balance.base_balance ÷ balance`.
 - `created_by` / `updated_by` hold a user id with no foreign key, as in SIBA.
 - Money is `decimal(18, 2)`, rates `decimal(18, 6)`. Calendar dates are `date`,
   timestamps `timestamptz`.
@@ -71,12 +73,6 @@ Enum CashBankEntryType {
   Opening
   Transaction
   Adjustment
-}
-
-Enum CashBankLayerStatus {
-  Open
-  Exhausted
-  ClosedByRevaluation
 }
 
 Enum JournalStatus {
@@ -300,32 +296,6 @@ Table cash_bank_balance {
   updated_at timestamptz [not null, default: `now()`]
 }
 
-Table cash_bank_layer {
-  id int [pk, increment, not null]
-  layer_no varchar [unique, not null]
-  cash_bank_id int [not null]
-  acquisition_date date [not null]
-  acquisition_seq int [not null]
-  rate decimal(18, 6) [not null]
-  foreign_original decimal(18, 2) [not null]
-  base_original decimal(18, 2) [not null]
-  foreign_remaining decimal(18, 2) [not null]
-  base_remaining decimal(18, 2) [not null]
-  status CashBankLayerStatus [not null, default: 'Open']
-  source_doc_type_id int [null]
-  source_doc_id int [null]
-  note varchar [null]
-  created_by int [not null]
-  updated_by int [null]
-  created_at timestamptz [not null, default: `now()`]
-  updated_at timestamptz [not null, default: `now()`]
-
-  indexes {
-    (cash_bank_id, status, acquisition_date, acquisition_seq)
-    (source_doc_type_id, source_doc_id)
-  }
-}
-
 Table acc_account_category {
   id int [pk, increment, not null]
   account_type_id int [not null]
@@ -472,7 +442,7 @@ Table acc_opening_balance_line {
   updated_at timestamptz [not null, default: `now()`]
 
   indexes {
-    (opening_id, account_id, partner_id) [unique, note: 'NULLS NOT DISTINCT — a null partner is a value of its own']
+    (opening_id, account_id, partner_id) [unique]
     opening_id
   }
 }
@@ -545,8 +515,6 @@ Ref: m_cash_bank.account_id > acc_account.id
 Ref: cash_bank_ledger.cash_bank_id > m_cash_bank.id
 Ref: cash_bank_ledger.source_doc_type_id > sys_doc_type.id
 Ref: cash_bank_balance.cash_bank_id > m_cash_bank.id
-Ref: cash_bank_layer.cash_bank_id > m_cash_bank.id
-Ref: cash_bank_layer.source_doc_type_id > sys_doc_type.id
 Ref: acc_account_category.account_type_id > sys_account_type.id
 Ref: acc_account_subcategory.account_category_id > acc_account_category.id
 Ref: acc_account.account_subcategory_id > acc_account_subcategory.id

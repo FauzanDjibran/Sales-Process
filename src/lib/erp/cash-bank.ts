@@ -3,8 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
-import { openLayer } from "./cash-bank-layers";
-import { roundBase } from "./fx";
+import { relieve, roundBase } from "./fx";
 import type { PeriodRange } from "./period";
 
 /**
@@ -28,36 +27,35 @@ type Db = Prisma.TransactionClient | typeof prisma;
 
 export type CashBankEntryType = "Opening" | "Transaction" | "Adjustment";
 
-export type NewEntry = {
+type EntryCommon = {
   cashBankId: number;
   /** `YYYY-MM-DD`. */
   date: string;
   type: CashBankEntryType;
-  direction: "In" | "Out";
   /** Positive; `direction` carries the sign. */
   amount: number;
-  /**
-   * The kurs this movement is valued at, converting the resource's own
-   * currency to base. Required, and deliberately so: there is no sensible
-   * default. `1` is correct only when the resource holds base currency, and
-   * defaulting to it for a foreign resource would silently record that a
-   * dollar is a rupiah.
-   */
-  rate: number;
-  /**
-   * The exact base value, when the caller already knows it.
-   *
-   * A layer drawn to nothing releases its remaining base *exactly* rather than
-   * as a recomputed product, so the figure can differ from `amount × rate` by a
-   * rounding unit. The caller passes what it actually released; everything else
-   * lets this module multiply.
-   */
-  baseAmount?: number;
   sourceDocTypeId?: number | null;
   sourceDocId?: number | null;
   note?: string | null;
   actorId: number;
 };
+
+/**
+ * One movement for the book.
+ *
+ * **Money arriving** states the kurs it was received at, converting the
+ * resource's own currency to base. Required, and deliberately so: there is no
+ * sensible default. `1` is correct only when the resource holds base currency,
+ * and defaulting to it for a foreign resource would silently record that a
+ * dollar is a rupiah.
+ *
+ * **Money leaving** takes no kurs at all. It is valued at the resource's
+ * moving average — `base_balance ÷ balance` at the moment it is posted
+ * (Claude-ERP.md P37) — so a caller cannot state one, and the type says so.
+ */
+export type NewEntry =
+  | (EntryCommon & { direction: "In"; rate: number })
+  | (EntryCommon & { direction: "Out"; rate?: never });
 
 const asDate = (d: string) => new Date(`${d}T00:00:00Z`);
 
@@ -98,6 +96,16 @@ async function nextEntryNo(db: Db, date: string): Promise<string> {
 }
 
 /**
+ * The moving average a resource is carried at, to the six decimals the `rate`
+ * column holds. Recorded on an outgoing entry so the row says what it was
+ * valued at; never multiplied by — the base released comes from `relieve`,
+ * which computes it in one expression.
+ */
+function averageRate(balance: number, baseBalance: number): number {
+  return Math.round((baseBalance / balance) * 1_000_000) / 1_000_000;
+}
+
+/**
  * Appends one entry and moves the balance with it.
  *
  * Both writes happen inside the caller's transaction, so the book and its total
@@ -105,17 +113,24 @@ async function nextEntryNo(db: Db, date: string): Promise<string> {
  * neither is.
  */
 export async function recordCashBankEntry(db: Db, entry: NewEntry) {
-  if (!(entry.rate > 0)) {
+  if (!(entry.amount > 0)) {
+    throw new Error(
+      `Nominal entri Cash Bank Book harus lebih besar dari nol (diterima ${entry.amount}).`
+    );
+  }
+  if (entry.direction === "In" && !(entry.rate > 0)) {
     throw new Error(
       `Kurs entri Cash Bank Book harus lebih besar dari nol (diterima ${entry.rate}).`
     );
   }
+  if (entry.direction === "Out" && entry.rate !== undefined) {
+    throw new Error(
+      "Pengeluaran Cash Bank Book tidak menerima kurs — nilainya selalu kurs " +
+        "rata-rata resource saat diposting."
+    );
+  }
 
-  const amount = Math.abs(entry.amount);
-  const base = entry.baseAmount ?? roundBase(amount * entry.rate);
-  const sign = entry.direction === "In" ? 1 : -1;
-  const movement = sign * amount;
-  const baseMovement = sign * base;
+  const amount = entry.amount;
 
   const current = await db.cashBankBalance.findUnique({
     where: { cash_bank_id: entry.cashBankId },
@@ -123,17 +138,33 @@ export async function recordCashBankEntry(db: Db, entry: NewEntry) {
   });
   const before = current ? current.balance.toNumber() : 0;
   const beforeBase = current ? current.base_balance.toNumber() : 0;
-  const after = before + movement;
-  const afterBase = roundBase(beforeBase + baseMovement);
 
-  // A resource cannot hold less than nothing. Nothing checked this before, so
-  // a payment larger than the account held was written and the balance simply
-  // went negative — the same mistake a layer's remaining balance already
-  // refuses on a foreign resource, and refusing it in one currency but not the
-  // other would be worse than refusing it in neither.
-  if (after < 0) {
+  // A resource cannot hold less than nothing, in any currency.
+  if (entry.direction === "Out" && amount > before) {
     throw new InsufficientFunds(entry.cashBankId, before, amount);
   }
+
+  // Money arriving joins the pool at its own kurs. Money leaving is released
+  // at the pool's moving average as it stands *now* — the balance row is the
+  // current position, whatever date the entry carries, so a backdated payment
+  // is valued at today's average (Claude-ERP.md P37). `relieve` hands back the
+  // remaining base exactly when the resource is emptied, so a pool never ends
+  // holding zero currency against a leftover rupiah.
+  let base: number;
+  let rate: number;
+  if (entry.direction === "In") {
+    rate = entry.rate;
+    base = roundBase(amount * rate);
+  } else {
+    base = relieve({ foreign: before, base: beforeBase }, amount).base;
+    rate = averageRate(before, beforeBase);
+  }
+
+  const sign = entry.direction === "In" ? 1 : -1;
+  const movement = sign * amount;
+  const baseMovement = sign * base;
+  const after = before + movement;
+  const afterBase = roundBase(beforeBase + baseMovement);
 
   const created = await db.cashBankLedger.create({
     data: {
@@ -145,7 +176,7 @@ export async function recordCashBankEntry(db: Db, entry: NewEntry) {
       amount,
       movement,
       balance_after: after,
-      rate: entry.rate,
+      rate,
       base_amount: base,
       base_movement: baseMovement,
       base_balance_after: afterBase,
@@ -191,20 +222,13 @@ export async function openCashBankBook(
   options: {
     cashBankId: number;
     openingBalance: number;
-    /** The kurs the opening figure is valued at. `1` for a base-currency resource. */
+    /**
+     * The kurs the opening figure is valued at — the first rate of the
+     * resource's moving average. `1` for a base-currency resource.
+     */
     rate: number;
     date: string;
     actorId: number;
-    /**
-     * Whether this resource holds a foreign currency, and therefore keeps rate
-     * layers. A non-zero opening balance on one opens its **first layer** at
-     * the same kurs as its first book entry — the currency it starts with was
-     * acquired at some price, and that price is what a later payment releases.
-     *
-     * Passed in rather than looked up: the book is a leaf and does not read the
-     * master's currency to decide how to behave.
-     */
-    layered?: boolean;
   }
 ) {
   // A resource cannot start out owing money. The figure used to accept a
@@ -239,21 +263,6 @@ export async function openCashBankBook(
     note: "Saldo awal saat resource didaftarkan.",
     actorId: options.actorId,
   });
-
-  // The book entry says the resource holds it; the layer says what it cost.
-  // Both, or the account's balance and its layers would disagree from the
-  // moment it was registered — which is the one thing `reconcileLayers` exists
-  // to catch and the one thing nothing would ever repair.
-  if (options.layered) {
-    await openLayer(db, {
-      cashBankId: options.cashBankId,
-      date: options.date,
-      rate: options.rate,
-      foreign: options.openingBalance,
-      note: "Saldo awal saat resource didaftarkan.",
-      actorId: options.actorId,
-    });
-  }
 }
 
 /**

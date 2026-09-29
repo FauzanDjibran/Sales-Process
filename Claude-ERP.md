@@ -92,7 +92,7 @@ sales behaviour the simulation implements, and carry over through it.
 | Project guideline (this file) | Written 29/09/2026; clash decisions recorded 29/09/2026 |
 | Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 not started |
 | Code | Phase 1 carried and adapted: one company, no Budget, Control Account set by the user, `PREFIX/YYYY/MM/NNNN` numbering, dashboard placeholder. `npm run build`, `npm run lint` and `npm test` pass on PostgreSQL 18; the Phase 1 walk-through (fiscal year, accounts, Partner, Cash & Bank with opening balance, manual journal, General Ledger, Trial Balance) checked in a browser and in Postgres |
-| Schema | One baseline migration; `DBML/erp.dbml.md` in step |
+| Schema | Baseline migration plus the removal of rate layers (P37); `DBML/erp.dbml.md` in step |
 
 ---
 
@@ -362,6 +362,9 @@ auth and RBAC (9–13); the Cash Bank Book (22, 29, P31).
   38, 57–62), on Budget (18–20, 25–28, 34–36, 50) and on subject books
   (52–56) is **not carried** (P9, P10, P25).
 - Opening balances start empty (P27).
+- **No rate layers** (P37): a foreign Cash & Bank resource is one pool at
+  its moving average. Money leaving is valued at the average when it is
+  posted, a backdated movement included.
 
 ### 10.2 Sales domain (from the simulation — implemented step by step)
 
@@ -474,12 +477,13 @@ Newest last. Later entries override earlier ones and say so.
 | P28 | 29/09/2026 | **Company identity lives in its own Company Setting menu** (C16) — seller name, NPWP, address and whatever else it will hold, discussed when that menu is built. There is still no company table in SIBA's sense (P9). |
 | P29 | 29/09/2026 | **SIBA's application foundation is carried as is** (C17): shell and navigation, `components/ui`, `globals.css` and icons, `format.ts`, sign-in / sessions / `proxy.ts`, audit log and record history, the entity registry and its pages, error / forbidden pages, health and startup checks. |
 | P30 | 29/09/2026 | **Partner Category is carried, and for now holds only Customer and Supplier** (C18), seeded as system data. `m_partner` requires one; an account requiring a Partner names the one it takes. |
-| P31 | 29/09/2026 | **The Cash Bank Book is carried whole** (C19): ledger, balance, Saldo Awal at registration, rate layers, and the Buku Kas & Bank, Saldo Kas & Bank and Posisi Layer Kurs reports. |
+| P31 | 29/09/2026 | **The Cash Bank Book is carried whole** (C19): ledger, balance, Saldo Awal at registration, rate layers, and the Buku Kas & Bank, Saldo Kas & Bank and Posisi Layer Kurs reports. *Rate layers and their report removed by P37.* |
 | P32 | 29/09/2026 | **Also carried** (C20, C21): the test harness and the suites for what is carried, `run-siba` as `run-erp`, `truncate-transactions`, the CI workflow, and a dashboard placeholder until a sales dashboard is designed. Not carried: backfill scripts, Neon / standalone scripts, SIBA's showcase seed, SIBA's dashboard composition. |
 | P33 | 29/09/2026 | **Commit straight to `main`.** Each completed step is committed to `main` and pushed as it lands; no feature branch. Replaces "commit or push only when the user asks" in §16. |
 | P34 | 29/09/2026 | **The registry's multi-reference field type is removed.** Only Budget Category used it; it returns if a master needs a set of references. |
 | P35 | 29/09/2026 | **Fiscal-year closing keeps its own record, one per year.** `acc_fiscal_closing` stays, without a company column; closing writes it and the year's Closed status in one transaction. |
 | P36 | 29/09/2026 | **The stack matches SIBA's versions, PostgreSQL 18 included**, in development, tests and CI. |
+| P37 | 29/09/2026 | **A foreign Cash & Bank resource is valued at its moving average; SIBA's rate layers are removed.** Money arriving joins the resource at the kurs it was received at; money leaving is released at the resource's carrying rate (`base_balance ÷ balance`) and takes no typed kurs; emptying a resource releases its remaining base exactly. **Backdating stays, and a backdated movement is valued at the average as it stands when it is posted** — the book does not replay history; this is the accepted concept. `cash_bank_layer`, the Posisi Layer Kurs report and its permission are dropped. Amends P31. |
 
 ---
 
@@ -505,7 +509,7 @@ After initialization this table is history: the code here is this project's own.
 | Profil Saya | Confirmed (P23) | As is |
 | Foundation: shell, `components/ui`, `globals.css`, icons, `format.ts`, sign-in / sessions, audit log and record history, entity registry, error pages, health check, startup check | Confirmed (P29) | As is |
 | Partner Category | Confirmed (P30) | Customer and Supplier only, seeded |
-| Cash Bank Book, rate layers, their three reports | Confirmed (P31) | As is |
+| Cash Bank Book, rate layers, their three reports | Confirmed (P31) | Ledger, balance and two reports as is; rate layers and Posisi Layer Kurs removed — moving average instead (P37) |
 | Dashboard | Confirmed (P32) | Placeholder page |
 | Tests, `run-siba` skill, CI, `truncate-transactions` | Confirmed (P32) | Trimmed to what is carried; skill as `run-erp` |
 | Subject books (`sub_ledger`) and their report | Not carried (P25) | — |

@@ -144,14 +144,6 @@ export const PERMISSIONS = [
     module: "finance",
     description: "Saldo awal, penerimaan, pengeluaran, dan saldo akhir per resource.",
   },
-  {
-    code: "REPORT_CASH_BANK_LAYER_VIEW",
-    name: "Lihat Posisi Layer Kurs",
-    module: "finance",
-    description:
-      "Layer kurs tiap resource mata uang asing — berapa yang tersisa pada " +
-      "masing-masing kurs perolehan.",
-  },
 
   // ---------------------------------------------------------------- settings
   { code: "MENU_SETTINGS_ACCESS", name: "Akses menu Pengaturan", module: "settings" },

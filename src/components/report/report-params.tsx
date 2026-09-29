@@ -38,19 +38,12 @@ export function ReportParams({
   subjectLabel,
   allLabel,
   lead,
-  dateless = false,
 }: {
   slug: string;
   resources: RefOption[];
   cashBankId: number | null;
   from: string;
   to: string;
-  /**
-   * A report whose answer is a standing position rather than a period's
-   * movement takes no date range, and showing an inert one would invite a
-   * reader to set it and wonder why nothing changed.
-   */
-  dateless?: boolean;
   subjectRequired: boolean;
   subjectLabel: string;
   /** Copy for "no subject chosen", where the report allows it. */
@@ -65,7 +58,7 @@ export function ReportParams({
   const [start, setStart] = useState(from);
   const [end, setEnd] = useState(to);
 
-  const invalidRange = !dateless && Boolean(start && end && start > end);
+  const invalidRange = Boolean(start && end && start > end);
   const missingSubject = subjectRequired && !subject;
 
   useReportRun(
@@ -75,7 +68,8 @@ export function ReportParams({
         router.push(
           reportHref(slug, {
             cashBank: subject,
-            ...(dateless ? {} : { from: start, to: end }),
+            from: start,
+            to: end,
           })
         );
       });
@@ -104,24 +98,22 @@ export function ReportParams({
         </div>
       </div>
 
-      {!dateless && (
-        <div className="rrow">
-          <span className="rl">Periode</span>
-          <div className="rf date">
-            <DateInput value={start} invalid={invalidRange} onChange={setStart} />
-          </div>
-          <span className="rl">s/d</span>
-          <div className="rf date">
-            <DateInput value={end} invalid={invalidRange} onChange={setEnd} />
-          </div>
-          {invalidRange && (
-            <span className="err">
-              <Icon name="warn" size={11} />
-              Tanggal akhir lebih awal dari tanggal mulai.
-            </span>
-          )}
+      <div className="rrow">
+        <span className="rl">Periode</span>
+        <div className="rf date">
+          <DateInput value={start} invalid={invalidRange} onChange={setStart} />
         </div>
-      )}
+        <span className="rl">s/d</span>
+        <div className="rf date">
+          <DateInput value={end} invalid={invalidRange} onChange={setEnd} />
+        </div>
+        {invalidRange && (
+          <span className="err">
+            <Icon name="warn" size={11} />
+            Tanggal akhir lebih awal dari tanggal mulai.
+          </span>
+        )}
+      </div>
     </>
   );
 }

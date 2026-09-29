@@ -132,7 +132,6 @@ describe("the balance never disagrees with the ledger", () => {
       type: "Transaction",
       direction: "Out",
       amount: 250_000,
-      rate: 1,
       actorId: actor,
     });
     await recordCashBankEntry(prisma, {
@@ -174,7 +173,6 @@ describe("the balance never disagrees with the ledger", () => {
       type: "Adjustment",
       direction: "Out",
       amount: 400_000,
-      rate: 1,
       actorId: actor,
     });
 
@@ -206,7 +204,6 @@ describe("the balance never disagrees with the ledger", () => {
       type: "Transaction",
       direction: "Out",
       amount: 125_000,
-      rate: 1,
       actorId: actor,
     });
     // The payment, not the opening entry that had to precede it.
@@ -310,28 +307,6 @@ describe("every entry carries what it was worth in base currency", () => {
     );
   });
 
-  test("the caller's exact base wins over the product", async () => {
-    // A layer drawn to nothing releases its remaining base exactly rather than
-    // as a recomputed product, so the two can differ by a rounding unit and the
-    // caller's figure is the true one.
-    const id = await makeCashBank(0);
-    await recordCashBankEntry(prisma, {
-      cashBankId: id,
-      date: today,
-      type: "Transaction",
-      direction: "In",
-      amount: 3,
-      rate: 3_333.333333,
-      baseAmount: 10_000,
-      actorId: actor,
-    });
-    const entry = await prisma.cashBankLedger.findFirstOrThrow({
-      where: { cash_bank_id: id, entry_type: "Transaction" },
-    });
-    assert.equal(entry.base_amount.toNumber(), 10_000);
-    assert.notEqual(entry.base_amount.toNumber(), 9_999.99);
-  });
-
   test("both measures rebuild from their own column, and agree with the total", async () => {
     const id = await makeCashBank(0);
     for (const [amount, rate] of [
@@ -375,6 +350,126 @@ describe("every entry carries what it was worth in base currency", () => {
   });
 });
 
+describe("money leaving is valued at the moving average", () => {
+  /** USD 200 at 15.000 and USD 300 at 15.500 — a pool carried at 15.300. */
+  async function pooled(): Promise<number> {
+    const id = await makeCashBank(0);
+    for (const [amount, rate] of [
+      [200, 15_000],
+      [300, 15_500],
+    ] as const) {
+      await recordCashBankEntry(prisma, {
+        cashBankId: id,
+        date: today,
+        type: "Transaction",
+        direction: "In",
+        amount,
+        rate,
+        actorId: actor,
+      });
+    }
+    return id;
+  }
+
+  const pay = (id: number, amount: number, date = today) =>
+    recordCashBankEntry(prisma, {
+      cashBankId: id,
+      date,
+      type: "Transaction",
+      direction: "Out",
+      amount,
+      actorId: actor,
+    });
+
+  test("a payment records the average and releases base at it", async () => {
+    const id = await pooled();
+    const entry = await pay(id, 120);
+    assert.equal(entry.rate.toNumber(), 15_300);
+    assert.equal(entry.base_amount.toNumber(), 1_836_000);
+    assert.equal(entry.base_balance_after.toNumber(), 7_650_000 - 1_836_000);
+    // Spending never moves the average of what is left.
+    assert.equal(entry.base_balance_after.toNumber() / entry.balance_after.toNumber(), 15_300);
+  });
+
+  test("a receipt after a payment moves the average; a payment does not", async () => {
+    const id = await pooled();
+    await pay(id, 100); // 400 left, still at 15.300
+    await recordCashBankEntry(prisma, {
+      cashBankId: id,
+      date: today,
+      type: "Transaction",
+      direction: "In",
+      amount: 100,
+      rate: 16_300,
+      actorId: actor,
+    });
+    // (400 × 15.300 + 100 × 16.300) ÷ 500 = 15.500
+    const entry = await pay(id, 50);
+    assert.equal(entry.rate.toNumber(), 15_500);
+    assert.equal(entry.base_amount.toNumber(), 775_000);
+  });
+
+  test("emptying the resource releases its remaining base exactly", async () => {
+    const id = await makeCashBank(0);
+    for (const [amount, rate] of [
+      [200, 15_000],
+      [300, 15_500],
+      [200, 15_000],
+    ] as const) {
+      await recordCashBankEntry(prisma, {
+        cashBankId: id,
+        date: today,
+        type: "Transaction",
+        direction: "In",
+        amount,
+        rate,
+        actorId: actor,
+      });
+    }
+    await pay(id, 100);
+    await pay(id, 250);
+    const last = await pay(id, 350);
+    assert.equal(last.balance_after.toNumber(), 0);
+    assert.equal(last.base_balance_after.toNumber(), 0, "no rupiah left against no currency");
+    const rebuilt = await rebuildCashBankBalance(id);
+    assert.deepEqual(rebuilt, { balance: 0, baseBalance: 0 });
+  });
+
+  test("a backdated payment is valued at the average as it stands now", async () => {
+    // P37: the book does not replay history. A payment dated before the last
+    // receipt still takes the average that receipt produced.
+    const id = await pooled();
+    const backdated = await pay(id, 100, "2020-01-15");
+    assert.equal(backdated.entry_date.toISOString().slice(0, 10), "2020-01-15");
+    assert.equal(backdated.rate.toNumber(), 15_300);
+    assert.equal(backdated.base_amount.toNumber(), 1_530_000);
+    assert.equal(backdated.balance_after.toNumber(), 400, "the running balance is in posting order");
+  });
+
+  test("a payment cannot state its own kurs", async () => {
+    const id = await pooled();
+    await assert.rejects(
+      () =>
+        // @ts-expect-error — the type refuses it too
+        recordCashBankEntry(prisma, {
+          cashBankId: id,
+          date: today,
+          type: "Transaction",
+          direction: "Out",
+          amount: 10,
+          rate: 16_000,
+          actorId: actor,
+        }),
+      /tidak menerima kurs/
+    );
+  });
+
+  test("a movement of nothing is refused", async () => {
+    const id = await pooled();
+    await assert.rejects(() => pay(id, 0), /lebih besar dari nol/);
+  });
+});
+
 describe("a resource can never hold less than nothing", () => {
   test("a payment larger than the balance is refused", async () => {
     const id = await makeCashBank(500_000);
@@ -386,7 +481,6 @@ describe("a resource can never hold less than nothing", () => {
           type: "Transaction",
           direction: "Out",
           amount: 500_001,
-          rate: 1,
           actorId: actor,
         }),
       /Saldo Cash & Bank tidak mencukupi/
@@ -403,7 +497,6 @@ describe("a resource can never hold less than nothing", () => {
         type: "Transaction",
         direction: "Out",
         amount: 900_000,
-        rate: 1,
         actorId: actor,
       })
     );
@@ -428,7 +521,6 @@ describe("a resource can never hold less than nothing", () => {
       type: "Transaction",
       direction: "Out",
       amount: 500_000,
-      rate: 1,
       actorId: actor,
     });
     const stored = await prisma.cashBankBalance.findUniqueOrThrow({

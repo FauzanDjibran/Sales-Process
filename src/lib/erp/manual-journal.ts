@@ -31,8 +31,8 @@ import {
  * ## The one thing it must never do
  *
  * **A manual journal may not create a discrepancy between the General Ledger
- * and a book.** The operational books — the Cash Bank Book, its rate layers,
- * and the partner positions a document posts — are independent historical stores written
+ * and a book.** The operational books — the Cash Bank Book and the partner
+ * positions a document posts — are independent historical stores written
  * alongside the journal by the same posting (concept doc §2.5). They agree with
  * the General Ledger because one posting writes both. A hand-written journal
  * line touching an account one of those books reconciles against would move the

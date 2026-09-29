@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import { CashBankBalanceReport } from "@/components/report/cash-bank-balance-report";
-import { CashBankLayerReport } from "@/components/report/cash-bank-layer-report";
 import { CashBankLedgerReport } from "@/components/report/cash-bank-ledger-report";
 import { ReportParams } from "@/components/report/report-params";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
@@ -11,7 +10,6 @@ import {
 } from "@/lib/erp/cash-bank";
 import type { PeriodRange } from "@/lib/erp/period";
 import { reportBySlug, reportHref } from "@/lib/erp/reports";
-import { layerReport } from "@/lib/erp/cash-bank-layers";
 import { prisma } from "@/lib/prisma";
 import { formatDate } from "@/lib/format";
 
@@ -64,31 +62,9 @@ export default async function Page({
         subjectRequired={report.subjectRequired}
         subjectLabel="Cash & Bank"
         allLabel={report.subjectRequired ? undefined : "Semua resource"}
-        dateless={report.params === "cash-bank"}
       />
     </>
   );
-
-  // ---------------------------------------------------------- rate layers
-
-  if (report.key === "cash_bank_layer") {
-    const data = await layerReport(cashBankId);
-    return (
-      <ReportView
-        report={report}
-        filter={filterBar}
-        runAt={runAt}
-        footnote={
-          <>
-            Satu transaksi memakai tepat satu layer, sehingga nominalnya
-            dibatasi sisa layer yang dipilih.
-          </>
-        }
-      >
-        <CashBankLayerReport report={data} />
-      </ReportView>
-    );
-  }
 
   // --------------------------------------------------------------- ledger
 

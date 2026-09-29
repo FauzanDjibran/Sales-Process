@@ -13,7 +13,7 @@
  *
  * WHAT IT DELETES
  *   acc_journal_line, acc_journal                  the books' journals
- *   cash_bank_ledger, cash_bank_layer              the Cash Bank Book
+ *   cash_bank_ledger                               the Cash Bank Book
  *   audit_log rows belonging to those documents
  *
  * WHAT IT KEEPS
@@ -59,7 +59,6 @@ async function main() {
     acc_journal_line: await prisma.accJournalLine.count(),
     acc_journal: await prisma.accJournal.count(),
     cash_bank_ledger: await prisma.cashBankLedger.count(),
-    cash_bank_layer: await prisma.cashBankLayer.count(),
     audit_log: await prisma.auditLog.count({
       where: { entity_key: { in: DOCUMENT_ENTITY_KEYS } },
     }),
@@ -91,13 +90,11 @@ async function main() {
   }
 
   await prisma.$transaction(async (tx) => {
-    // Order follows the foreign keys: lines before their documents, documents
-    // before the layer a payment drew on, everything before the books.
+    // Order follows the foreign keys: lines before their documents.
     await tx.accJournalLine.deleteMany();
     await tx.accJournal.deleteMany();
 
     await tx.cashBankLedger.deleteMany();
-    await tx.cashBankLayer.deleteMany();
 
     // Reset rather than delete — see the note at the top of this file.
     await tx.cashBankBalance.updateMany({

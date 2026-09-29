@@ -93,11 +93,12 @@ const move = (
     cashBankId,
     date,
     type: "Transaction",
-    direction,
     amount,
-    rate: 1,
     note: `fixture ${direction} ${date}`,
     actorId: actor,
+    // Money leaving takes the resource's moving average; only money arriving
+    // states a kurs (P37).
+    ...(direction === "In" ? { direction, rate: 1 } : { direction }),
   });
 
 before(async () => {
