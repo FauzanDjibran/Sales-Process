@@ -20,9 +20,11 @@ adapter, PostgreSQL 18, plain CSS, `node:test` against a real database.
 1. PostgreSQL 18 running locally, with a database named `erp`.
 2. `cp .env.example .env`, then set `DATABASE_URL` to your Postgres password.
 3. `npm install`
-4. `npx prisma generate`
-5. `npx prisma migrate deploy`
-6. `npm run db:seed` — system data only; prints the administrator sign-in.
+4. `npx prisma migrate deploy`
+5. `npm run db:seed` — system data only; prints the administrator sign-in.
+
+`npm run build` generates the Prisma client itself (`prebuild`), since
+`src/generated/` is not committed.
 
 | Run | Command | Port |
 | --- | --- | --- |
