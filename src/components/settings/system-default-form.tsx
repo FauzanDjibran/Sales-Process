@@ -6,6 +6,7 @@ import { CancelButton } from "@/components/ui/cancel-button";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { Combobox } from "@/components/ui/combobox";
 import { MoneyInput } from "@/components/ui/money-input";
+import { PercentInput } from "@/components/ui/percent-input";
 import { useToast } from "@/components/ui/toast";
 import { saveSystemDefaults } from "@/app/actions/settings";
 import { formatNumber } from "@/lib/format";
@@ -190,6 +191,15 @@ export function SystemDefaultForm({
                     >
                       {def.type === "number" ? (
                         canEdit ? (
+                          "percent" in def && def.percent ? (
+                            <PercentInput
+                              decimals={def.decimals}
+                              value={value ?? ""}
+                              invalid={Boolean(errors[def.key])}
+                              ariaLabel={def.name}
+                              onChange={(v) => set(def.key, v)}
+                            />
+                          ) : (
                           <MoneyInput
                             decimals={def.decimals}
                             value={value ?? ""}
@@ -197,9 +207,10 @@ export function SystemDefaultForm({
                             ariaLabel={def.name}
                             onChange={(v) => set(def.key, v)}
                           />
+                          )
                         ) : (
                           <div className="ro">
-                            <span className="mny">{value == null ? "—" : formatNumber(Number(value), Number(value) % 1 ? def.decimals : 0)}</span>
+                            <span className="mny">{value == null ? "—" : `${formatNumber(Number(value), Number(value) % 1 ? def.decimals : 0)}${"percent" in def && def.percent ? "%" : ""}`}</span>
                           </div>
                         )
                       ) : canEdit ? (

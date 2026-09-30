@@ -1257,3 +1257,25 @@ table.grid.coll tbody td.addr .an{display:block;margin-top:2px;font-size:11px;co
 /* A secondary fact beside a read-only value — a date beside a document
    number (the simulation's `.ro .rx`). */
 .ro .rx{color:var(--muted-2);font-size:11.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+
+/* ---------- keyboard highlight in a dropdown list ----------
+   ↓ / ↑ move `.cbo.hi`, and hovering moves it too, so a row the mouse merely
+   rests on must not keep its own hover colour beside the highlighted one. */
+.cbpop .cbo:not(.hi):not(.sel):hover{background:transparent}
+.cbpop .cbo.sel.hi{background:var(--brand-50)}
+
+/* ---------- percent field ----------
+   `PercentInput`: the amount field with a `%` inside the box on the right,
+   after the figure, so a percent is never read as an amount. */
+.pwrap{position:relative;display:block}
+.pwrap .inp.mfield{padding-right:28px}
+.pwrap .pct{position:absolute;right:11px;top:50%;transform:translateY(-50%);font-family:var(--f-mono);font-size:12px;
+  font-weight:700;color:var(--muted-2);pointer-events:none}
+.pwrap.sm .inp.mfield{padding-right:24px}
+.pwrap.sm .pct{right:9px;font-size:11px}
+.dcell .pwrap{flex:1 1 auto;min-width:0}
+
+/* ---------- two impact boxes side by side (the simulation's) ----------
+   The estimate on the left, the document's own figures on the right; each as
+   tall as its own rows. */
+.cardfoot.multi{gap:12px;flex-wrap:wrap;align-items:flex-start}

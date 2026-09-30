@@ -14,6 +14,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
 import { Select } from "@/components/ui/select";
 import { MoneyInput } from "@/components/ui/money-input";
+import { PercentInput } from "@/components/ui/percent-input";
 import { RateInput } from "@/components/ui/rate-input";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
@@ -892,9 +893,8 @@ function editableControl({
   }
   if (field.type === "percent") {
     return (
-      <MoneyInput
+      <PercentInput
         value={value == null ? "" : String(value)}
-        currencyLabel="%"
         decimals={4}
         invalid={Boolean(error)}
         placeholder={field.placeholder ?? "0"}

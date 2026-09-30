@@ -116,6 +116,8 @@ export type SystemDefaultDef =
       /** Exclusive lower bound and inclusive upper bound. */
       above: number;
       atMost: number;
+      /** Typed in the percent field, with its `%`. */
+      percent?: boolean;
     });
 
 export const SYSTEM_DEFAULTS = [
@@ -132,6 +134,7 @@ export const SYSTEM_DEFAULTS = [
     decimals: 2,
     above: 0,
     atMost: 100,
+    percent: true,
     group: "tax",
     help: "dikalikan pada DPP Nilai Lain",
   },
