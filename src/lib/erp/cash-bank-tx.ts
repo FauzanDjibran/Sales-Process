@@ -7,6 +7,7 @@ import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate } from "./fiscal";
 import { postJournal, type JournalLineInput } from "./journal";
 import { recordCashBankEntry } from "./cash-bank";
+import { createArItem } from "./ar-item";
 import { checkAccountIsLeaf } from "./records";
 import { lockSalesAdvances, settlementAdvances, type SettlementAdvance } from "./sales-advance";
 import {
@@ -750,6 +751,24 @@ export async function transitionCashReceipt(
       await tx.finCashBankTxLine.deleteMany({ where: { tx_id: id } });
       for (const line of lineRows(saleTypeId, r.c.lines, actorId)) {
         await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
+      }
+      // Each bill paid is an Uang Muka the customer now holds (P73): one AR
+      // item per bill, at the DPP part the Uang Muka account was credited
+      // with, so the items reconcile with that account.
+      for (const l of r.c.lines) {
+        if (!(l.dppPart > 0)) continue;
+        await createArItem(tx, {
+          type: "Advance",
+          partnerId: t.partner_id,
+          currencyId: baseCurrency.id,
+          date: isoDay(t.tx_date),
+          source: { docTypeId: typeId, docId: id, no: t.tx_no },
+          ref: { docTypeId: saleTypeId, docId: l.docId, no: l.bill.advanceNo },
+          order: { id: l.bill.orderId, no: l.bill.orderNo },
+          amount: l.dppPart,
+          note: `Uang muka ${l.bill.advanceNo} diterima`,
+          actorId,
+        });
       }
       await audit(tx, id, "UPDATE", "post", actorId);
     });

@@ -34,6 +34,11 @@ migration updates this file in the same change (Claude-ERP.md §9).
   `(doc_type_id, doc_id)` pair and stores its DPP / PPN parts;
   `fin_cash_bank_tx_line_wht` holds its PPh per Jenis PPh — the unit one
   Bukti Potong is made from. Posting writes the journal and the Cash Bank Book.
+- `fin_ar_item` and `fin_ar_ledger` (P71–P75) — AR items (Uang Muka and
+  Invoice) and Buku Piutang, the append-only history of every change to an
+  item's balance. `current_balance` equals the sum of the item's entries. An
+  item names its source and reference documents and its Sales Order by the
+  weak pair; there is no allocation table.
 - `sal_order` and `sal_advance` snapshot the PPN rate and DPP Nilai Lain factor
   they were computed with (P60); each `sal_order_line` stores its own DPP Nilai
   Lain, since PPN is computed per line.
@@ -1012,4 +1017,79 @@ Ref: fin_cash_bank_tx_line.tx_id > fin_cash_bank_tx.id [delete: cascade]
 Ref: fin_cash_bank_tx_line.doc_type_id > sys_doc_type.id
 Ref: fin_cash_bank_tx_line_wht.line_id > fin_cash_bank_tx_line.id [delete: cascade]
 Ref: fin_cash_bank_tx_line_wht.withholding_tax_id > ref_withholding_tax.id
+
+Enum ArItemType {
+  Advance
+  Invoice
+}
+
+Enum ArDirection {
+  Increase
+  Decrease
+}
+
+Enum ArEvent {
+  Create
+  Payment
+  AdvanceUsed
+}
+
+Table fin_ar_item {
+  id int [pk, increment, not null]
+  item_type ArItemType [not null]
+  direction ArDirection [not null, note: 'Invoice raises Piutang Usaha, Uang Muka lowers it']
+  partner_id int [not null]
+  currency_id int [not null]
+  item_date date [not null]
+  due_date date [null, note: 'Invoice only; Umur Piutang ages from it']
+  source_doc_type_id int [not null, note: 'the document that created it']
+  source_doc_id int [not null]
+  source_no varchar [not null]
+  ref_doc_type_id int [null, note: 'the advance bill an Uang Muka was paid against']
+  ref_doc_id int [null]
+  ref_no varchar [null]
+  order_id int [null, note: 'weak: an invoice uses only its own order advances']
+  order_no varchar [null]
+  current_balance decimal(18, 2) [not null, note: 'sum of its fin_ar_ledger entries']
+  created_by int [not null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (partner_id, item_type)
+    order_id
+    (source_doc_type_id, source_doc_id)
+    (ref_doc_type_id, ref_doc_id)
+  }
+}
+
+Table fin_ar_ledger {
+  id int [pk, increment, not null, note: 'Buku Piutang — append-only']
+  item_id int [not null]
+  event ArEvent [not null]
+  entry_date date [not null]
+  amount decimal(18, 2) [not null]
+  movement decimal(18, 2) [not null, note: 'signed on the item balance']
+  balance_after decimal(18, 2) [not null]
+  doc_type_id int [not null]
+  doc_id int [not null]
+  doc_no varchar [not null]
+  counter_item_id int [null, note: 'the Invoice item that used an advance']
+  note varchar [null]
+  created_by int [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (item_id, entry_date)
+    (doc_type_id, doc_id)
+  }
+}
+
+Ref: fin_ar_item.partner_id > m_partner.id
+Ref: fin_ar_item.currency_id > ref_currency.id
+Ref: fin_ar_item.source_doc_type_id > sys_doc_type.id
+Ref: fin_ar_item.ref_doc_type_id > sys_doc_type.id
+Ref: fin_ar_ledger.item_id > fin_ar_item.id
+Ref: fin_ar_ledger.counter_item_id > fin_ar_item.id
+Ref: fin_ar_ledger.doc_type_id > sys_doc_type.id
 ```

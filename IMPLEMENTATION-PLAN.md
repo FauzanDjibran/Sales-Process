@@ -136,6 +136,15 @@ refuses Batalkan. Next in this area, as instructed: further purposes
 (Pelunasan Faktur, Pengembalian Uang Muka, lain-lain), Pengeluaran, the Pajak
 records, then the open items (C22).
 
+**AR items and Buku Piutang — done 30/09/2026** (P71–P75): the open-item
+concept applied to AR — `fin_ar_item` (Uang Muka and Invoice, balance held on
+the item) and `fin_ar_ledger` (Buku Piutang, append-only), no allocation step.
+A posted receipt creates one Uang Muka item per bill at its DPP part; existing
+receipts were backfilled. Reports: Buku Piutang, Umur Piutang and Uang Muka
+Customer (checked against the GL). Invoice items and the Pembayaran / Dipakai
+Invoice events arrive with the Faktur Penjualan and the Pelunasan Faktur
+purpose.
+
 Built one step at a time, **in the order the user gives**. For each step:
 
 1. Re-read the simulation's step (screens, lifecycle, arithmetic, journal) and

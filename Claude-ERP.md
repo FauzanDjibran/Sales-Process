@@ -42,7 +42,7 @@ conventions and documentation habits.
 | `Core_UI_Reference.md` | Benchmark study behind the convention; background only |
 | `multi_currency_concept.md` | **The multi-currency convention this app follows** (§12 P13) — identical to SIBA's `CORE Multi Currency Concept.md` |
 | `tax_concept.md` | **The tax convention this app follows** (P59, P60): PPN, PPh, the faktur pajak and bukti potong as records, rounding. Written in the repository root; it moves into `Initialization/` when the user places it there |
-| `ar_ap_open_item_concept.md` | The AR/AP open-item model: each financial source (receipt, invoice, DN/CN, advance) creates an open item with direction and current balance; an append-only open-item ledger; allocation between items of the same partner and currency. **Reference for when invoices, advances and Pembayaran are built** — not in force until the user decides how it applies (§18.1) |
+| `ar_ap_open_item_concept.md` | The AR/AP open-item model: each financial source creates an open item with direction and current balance; an append-only open-item ledger; allocation between items of the same partner and currency. **Applied to AR by P71–P75** as AR items and Buku Piutang, without a separate allocation step; AP follows the same way when purchasing is built |
 
 Outside this repository, read-only, consulted when needed:
 
@@ -91,9 +91,9 @@ sales behaviour the simulation implements, and carry over through it.
 | Area | State |
 | --- | --- |
 | Project guideline (this file) | Written 29/09/2026; clash decisions recorded 29/09/2026 |
-| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 done for sales 29/09/2026 (Partner customer side, Satuan, Termin, Gudang, Jenis PPh, Item, sales defaults); Phase 3 started: Sales Order built 29/09/2026 (P49–P53); Uang Muka Penjualan built 29/09/2026 (P54–P58); tax arithmetic moved to `tax_concept.md` (half up, per-line chain, snapshotted PPN setting) 29/09/2026 (P59, P60); settings split into System Default and Account Mapping 29/09/2026 (P61); Sales Order lifecycle Draft → Diajukan → Open → Ditutup, form rework, advance layout, dropdown keyboard and percent field 30/09/2026 (P63–P65); Penerimaan Kas & Bank with its first purpose, Penerimaan Uang Muka Penjualan, settling several bills per receipt 30/09/2026 (P66–P70) |
+| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 done for sales 29/09/2026 (Partner customer side, Satuan, Termin, Gudang, Jenis PPh, Item, sales defaults); Phase 3 started: Sales Order built 29/09/2026 (P49–P53); Uang Muka Penjualan built 29/09/2026 (P54–P58); tax arithmetic moved to `tax_concept.md` (half up, per-line chain, snapshotted PPN setting) 29/09/2026 (P59, P60); settings split into System Default and Account Mapping 29/09/2026 (P61); Sales Order lifecycle Draft → Diajukan → Open → Ditutup, form rework, advance layout, dropdown keyboard and percent field 30/09/2026 (P63–P65); Penerimaan Kas & Bank with its first purpose, Penerimaan Uang Muka Penjualan, settling several bills per receipt 30/09/2026 (P66–P70); AR items and Buku Piutang with the Buku Piutang, Umur Piutang and Uang Muka Customer reports 30/09/2026 (P71–P75) |
 | Code | Phase 1 carried and adapted: one company, no Budget, Control Account set by the user, `PREFIX/YYYY/MM/NNNN` numbering, dashboard placeholder. `npm run build`, `npm run lint` and `npm test` pass on PostgreSQL 18; the Phase 1 walk-through (fiscal year, accounts, Partner, Cash & Bank with opening balance, manual journal, General Ledger, Trial Balance) checked in a browser and in Postgres |
-| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48), the customer's sales defaults (P51), Sales Order `sal_order(_line)` (P49–P53), Uang Muka Penjualan `sal_advance` (P54–P58), PPN rate snapshots on SO / advance and per-line DPP Nilai Lain (P60), the SO's new statuses with Gudang and Kirim Diminta dropped (P63), the cash & bank transaction `fin_cash_bank_tx(_line, _line_wht)` (P66); `DBML/erp.dbml.md` in step |
+| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48), the customer's sales defaults (P51), Sales Order `sal_order(_line)` (P49–P53), Uang Muka Penjualan `sal_advance` (P54–P58), PPN rate snapshots on SO / advance and per-line DPP Nilai Lain (P60), the SO's new statuses with Gudang and Kirim Diminta dropped (P63), the cash & bank transaction `fin_cash_bank_tx(_line, _line_wht)` (P66), AR items `fin_ar_item` and Buku Piutang `fin_ar_ledger` (P71–P75); `DBML/erp.dbml.md` in step |
 
 ---
 
@@ -172,6 +172,7 @@ Browser
 | Nota Retur | `sal_return(_line)` | journal + faktur pajak |
 | Perizinan | `sal_permit_request(_line)`, its advance and invoice | per simulation |
 | Penerimaan / Pengeluaran Kas & Bank (Finance › Kas & Bank, `BKM/…`, `BKK/…`) | `fin_cash_bank_tx(_line, _line_wht)` | Cash Bank Book + journal; the figures tax documents are made from |
+| AR items (a book: kernel only; documents call it) | `fin_ar_item`, `fin_ar_ledger` (Buku Piutang) | never a journal — the receipt and the Faktur post, and write their AR items beside |
 | Pajak | `tax_faktur(_line)`, `tax_withholding_slip` | never a journal |
 
 Table prefixes follow SIBA (`sys_`, `ref_`, `m_`, `acc_`, `fin_`) plus
@@ -435,10 +436,11 @@ built. Parent-decision numbers in brackets.
     Perizinan → Realisasi → Biaya Perizinan (payment, no tax) → Invoice
     Perizinan with advance deduction. Pengajuan and realisasi post nothing.
 12. **Per-customer positions** (Piutang, Uang Muka) sit on accounts that
-    require a Partner, so every such journal line names the customer; they are
-    read from journal lines and the General Ledger only (P25). The
-    simulation's Kredit Pelanggan balance concept is ignored unless the user
-    states otherwise.
+    require a Partner, so every such journal line names the customer, and
+    **per document in AR items** (P71): an Invoice item per Faktur, an Uang
+    Muka item per bill per receipt, each moved only through Buku Piutang and
+    reconciling with its account. The simulation's Kredit Pelanggan balance
+    concept is ignored unless the user states otherwise.
 
 **To verify with a tax consultant** (from the simulation notes, not blockers):
 kode transaksi 04 for DPP Nilai Lain and 02 for government buyers; PPh 22 rate
@@ -538,6 +540,11 @@ Newest last. Later entries override earlier ones and say so.
 | P68 | 30/09/2026 | **A bank charge on a receipt is the company's.** Typed once per transaction, it goes to Beban Bank and still clears the bills; leaving it out keeps the difference open on the bill, which is how a customer is made to bear it. No tolerance rule for now. |
 | P69 | 30/09/2026 | **One Bukti Potong per bill, per payment, per Jenis PPh** — the unit the customer's BPPU refers to in Coretax (one base document per slip). A receipt settling two bills withheld under PPh 23 yields two slips; a bill paid in two instalments yields one per instalment. Amends P59's "one bukti potong per payment per Jenis PPh". |
 | P70 | 30/09/2026 | **Numbering: `BKM/YYYY/MM/NNNN` for every Penerimaan, `BKK/…` for every Pengeluaran**, cash or bank alike. |
+| P71 | 30/09/2026 | **The open-item concept applies to AR as AR items**, in tables of its own (`fin_ar_item`, `fin_ar_ledger`); AP will have its own. The mainstream shape: the **Invoice is the main item and the Uang Muka a special one**. **Shipment creates no Piutang** — the Surat Jalan posts HPP / Persediaan only (P18); Piutang is born at the Faktur Penjualan. Two types for now, shown as **Uang Muka** and **Invoice**; the type is how items are told apart. Each item stores its direction (Invoice raises Piutang Usaha, Uang Muka lowers it) without showing it. Wording: **AR Item**, **Buku Piutang** (the ledger), **Piutang Usaha** (the position). The AR items are a book, like the journal and the Cash Bank Book: kernel imports only, called by the documents inside their posting transaction. Amends P25: partner positions are also kept per document in AR items, which reconcile with the General Ledger. |
+| P72 | 30/09/2026 | **An AR item holds its own balance, and Buku Piutang is append-only.** One table for the item and its balance: `current_balance` equals the sum of the item's Buku Piutang entries, written in the same transaction as each. **There is no allocation step or table**: a payment moves an Invoice item directly (event *Pembayaran*, naming the receipt), and a Faktur uses its order's Uang Muka at its own posting (event *Dipakai Invoice*, naming the Faktur and the Invoice item that took it). An item never goes below zero. **No reversal event**: a correction is a new document (§2 rule 7). |
+| P73 | 30/09/2026 | **What each item is worth.** An **Uang Muka** item is created by a posted receipt, one per bill per receipt, at the bill line's **DPP part** — the amount the Uang Muka Penjualan account was credited with — so the items reconcile with that account; it names the receipt, the bill and the Sales Order. An **Invoice** item is created by the Faktur at the **net Piutang** (after the advances it uses) with its due date, reconciling with the Piutang account. **An invoice uses only its own Sales Order's Uang Muka** (S22): the Faktur Pajak Pelunasan names the Faktur Pajak Uang Muka of that order, and a leftover is refunded, not moved. Closes C22. The advance *bill* stays outside the AR items (a request, like SAP's noted item); its Belum Dibayar / Sebagian / Lunas keeps reading the receipt lines, in the bill's gross terms. Existing posted receipts were backfilled into Uang Muka items by the migration. |
+| P74 | 30/09/2026 | **Only Uang Muka and Invoice items for now.** Refund of a leftover advance, Nota Retur, DN/CN and unapplied receipts are modelled when they are built; no item type or event is added for them in advance. |
+| P75 | 30/09/2026 | **Three AR reports under Finance › Laporan**, each with its own view permission: **Buku Piutang** (one customer over a period: every entry signed on Piutang Usaha, with the position before and after and the open Invoice and Uang Muka behind it), **Umur Piutang** (open Invoice items per customer in the buckets Belum Jatuh Tempo / 1–30 / 31–60 / 61–90 / > 90 days from the due date, beside the Uang Muka still held and the net position, with the open invoices listed) and **Uang Muka Customer** (open Uang Muka items per customer and Sales Order, checked against the Uang Muka Penjualan account in the General Ledger). Each reads Buku Piutang as of its date, so a past date is reported as it stood. |
 
 ---
 
@@ -654,9 +661,10 @@ here. In addition:
 - **The advance bill does not print yet.** A printed bill needs the seller's
   identity (Company Setting, P28) and the bank's account number and holder,
   which `m_cash_bank` does not hold; today the account's name carries them.
-- **An advance bill's paid state is read from posted receipt lines** — the
-  simple route until the open items are built after payment (C22). How much
-  of an advance an invoice has used comes with them.
+- **AR items carry no Invoice yet.** Invoice items, the *Pembayaran* and
+  *Dipakai Invoice* events, and the Umur Piutang buckets fill in when the
+  Faktur Penjualan and the Pelunasan Faktur purpose are built; the engine
+  already supports them.
 - **A receipt handles no overpayment, no foreign currency and no WAPU.** Money
   beyond the ticked bills is refused; a customer marked Pemungut PPN is
   treated like any other (P59: no WAPU yet).
@@ -690,7 +698,6 @@ to §12.
 | C25 | **Account mapping per Kategori Item** — its own menu naming Penjualan, Retur, HPP and Persediaan accounts per category (P47) | When the first document that posts an item is built (Surat Jalan, Faktur) |
 | C27 | **Delivery schedule** — a document derived from a Sales Order that splits its quantity into dated deliveries (e.g. 1.000 PCS as five of 200, over five months), each with its own expected date; the Kirim Diminta date left the SO for it (P63). Proposed: rows of item, qty and date, never more than the SO line's quantity in total, feeding the Surat Jalan | When the user instructs, before or with the Surat Jalan |
 | C14 | **Cash Bank Transfer and Debit / Credit Note** (P19) | Later |
-| C22 | **How `ar_ap_open_item_concept.md` applies** — to be built after payment is complete (the user, 30/09/2026); until then a bill's paid state is read from posted receipt lines (P66) — open items and their ledger as the settlement unit for invoices, advances, receipts and DN/CN, beside the journal-and-GL positions of P25. Proposed: the advance *bill* is not an open item (like SAP's noted item); the ADVANCE open item is created by the receipt in Pembayaran, naming the bill. **Clash to settle:** the concept lets any open item of the same partner and currency be allocated, while the simulation deducts only the same SO's advances and never moves a leftover to another SO (S22) | When Pembayaran and the Faktur Penjualan are built |
 
 ### 18.2 SIBA parts outside the P23 list
 

@@ -208,6 +208,9 @@ export const PERMISSIONS = [
     module: "finance",
     description: "Saldo awal, penerimaan, pengeluaran, dan saldo akhir per resource.",
   },
+  { code: "REPORT_AR_LEDGER_VIEW", name: "Lihat Buku Piutang", module: "finance", description: "Riwayat AR item per customer." },
+  { code: "REPORT_AR_AGING_VIEW", name: "Lihat Umur Piutang", module: "finance", description: "Invoice belum lunas menurut umur, per customer." },
+  { code: "REPORT_CUSTOMER_ADVANCE_VIEW", name: "Lihat Uang Muka Customer", module: "finance", description: "Uang muka diterima yang belum dipakai invoice." },
 
   // ---------------------------------------------------------------- settings
   { code: "MENU_SETTINGS_ACCESS", name: "Akses menu Pengaturan", module: "settings" },

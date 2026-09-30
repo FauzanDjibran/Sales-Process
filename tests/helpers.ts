@@ -331,6 +331,18 @@ export async function cleanupFixtures(): Promise<void> {
   for (const a of accounts) {
     await prisma.accAccount.delete({ where: { id: a.id } });
   }
+  // An AR item names its partner, so one a suite left behind would block the
+  // partner's removal. Its Buku Piutang entries go with it.
+  const fixtureItems = await prisma.finArItem.findMany({
+    where: { partner: { partner_label: { startsWith: FIXTURE_PREFIX } } },
+    select: { id: true },
+  });
+  if (fixtureItems.length) {
+    const ids = fixtureItems.map((i) => i.id);
+    await prisma.finArLedger.deleteMany({ where: { OR: [{ item_id: { in: ids } }, { counter_item_id: { in: ids } }] } });
+    await prisma.finArItem.deleteMany({ where: { id: { in: ids } } });
+  }
+
   // A Partner's addresses and contacts are part of it and go first.
   const fixturePartners = { partner: { partner_label: { startsWith: FIXTURE_PREFIX } } };
   await prisma.mPartnerAddress.deleteMany({ where: fixturePartners });

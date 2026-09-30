@@ -12,6 +12,7 @@
  * are untouched.
  *
  * WHAT IT DELETES
+ *   fin_ar_ledger, fin_ar_item                     Buku Piutang and its AR items
  *   fin_cash_bank_tx(_line, _line_wht)             Penerimaan / Pengeluaran Kas & Bank
  *   acc_journal_line, acc_journal                  the books' journals
  *   cash_bank_ledger                               the Cash Bank Book
@@ -71,6 +72,8 @@ async function main() {
   const confirmed = process.argv.includes("--confirm");
 
   const counts = {
+    fin_ar_ledger: await prisma.finArLedger.count(),
+    fin_ar_item: await prisma.finArItem.count(),
     fin_cash_bank_tx_line_wht: await prisma.finCashBankTxLineWht.count(),
     fin_cash_bank_tx_line: await prisma.finCashBankTxLine.count(),
     fin_cash_bank_tx: await prisma.finCashBankTx.count(),
@@ -111,7 +114,12 @@ async function main() {
   }
 
   await prisma.$transaction(async (tx) => {
-    // Receipts first: each names the journal it posted. Their lines and PPh
+    // Buku Piutang and its AR items first: they record what the receipts and
+    // invoices below created.
+    await tx.finArLedger.deleteMany();
+    await tx.finArItem.deleteMany();
+
+    // Receipts next: each names the journal it posted. Their lines and PPh
     // rows cascade.
     await tx.finCashBankTx.deleteMany();
 

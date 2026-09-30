@@ -194,7 +194,13 @@ before(async () => {
 });
 
 after(async () => {
-  if (receipts.length) await prisma.finCashBankTx.deleteMany({ where: { id: { in: receipts } } });
+  // AR items a posted receipt created: their Buku Piutang entries first.
+  if (receipts.length) {
+    const items = await prisma.finArItem.findMany({ where: { source_doc_id: { in: receipts }, source_doc_type: { doc_table: "fin_cash_bank_tx" } }, select: { id: true } });
+    await prisma.finArLedger.deleteMany({ where: { item_id: { in: items.map((i) => i.id) } } });
+    await prisma.finArItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
+    await prisma.finCashBankTx.deleteMany({ where: { id: { in: receipts } } });
+  }
   await prisma.auditLog.deleteMany({ where: { entity_key: "fin_cash_bank_tx", row_id: { in: receipts } } });
   await prisma.salAdvance.deleteMany({ where: { id: { in: advances } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "sal_advance", row_id: { in: advances } } });
@@ -326,6 +332,25 @@ describe("posting a receipt of two bills (P66)", () => {
 
     const events = (await prisma.auditLog.findMany({ where: { entity_key: "fin_cash_bank_tx", row_id: r.id }, orderBy: { id: "asc" } })).map((a) => a.event);
     assert.deepEqual(events, ["create", "post"]);
+
+    // One Uang Muka AR item per bill, at its DPP part (P73), each with its
+    // Create entry in Buku Piutang naming the receipt.
+    const items = await prisma.finArItem.findMany({
+      where: { source_doc_id: r.id, source_doc_type: { doc_table: "fin_cash_bank_tx" } },
+      include: { entries: true },
+      orderBy: { id: "asc" },
+    });
+    assert.deepEqual(
+      items.map((i) => [i.item_type, i.direction, i.ref_doc_id, i.current_balance.toNumber()]),
+      [["Advance", "Decrease", f.bill2, 900_000], ["Advance", "Decrease", f.bill3, 450_000]]
+    );
+    assert.ok(items.every((i) => i.partner_id === f.customer && i.order_id === orders[0] && i.source_no === r.txNo));
+    assert.ok(items.every((i) => i.entries.length === 1 && i.entries[0].event === "Create" && i.entries[0].doc_no === r.txNo));
+    assert.equal(
+      items.reduce((a, i) => a + i.current_balance.toNumber(), 0),
+      on(f.advAcc, "kredit_amount"),
+      "the Uang Muka items reconcile with the Uang Muka Penjualan account"
+    );
   });
 
   test("a posted receipt is permanent; its bill refuses Batalkan", async () => {

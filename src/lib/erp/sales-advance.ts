@@ -533,6 +533,7 @@ export type SettlementAdvance = {
   dueDate: string;
   status: AdvanceStatus;
   customerId: number;
+  orderId: number;
   orderNo: string;
   description: string;
   total: number;
@@ -574,6 +575,7 @@ export async function settlementAdvances(
       dueDate: isoDay(a.due_date),
       status: a.status as AdvanceStatus,
       customerId: a.customer_id,
+      orderId: a.order_id,
       orderNo: order.orderNo,
       description: a.description,
       // As stored: the figures the bill was issued with.

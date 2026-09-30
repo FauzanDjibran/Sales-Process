@@ -32,7 +32,11 @@ export type ReportParams =
    * against — the financial statements. Always a period viewpoint: a Laba Rugi
    * or a Neraca is read for a month of a year, never for two arbitrary dates.
    */
-  | "fiscal-period";
+  | "fiscal-period"
+  /** An optional customer and the one date the figures stand at (P75). */
+  | "ar-asof"
+  /** One customer and a date range — a book of that customer (P75). */
+  | "ar-period";
 
 export type ReportDef = {
   key: string;
@@ -78,6 +82,46 @@ const FIXED_REPORTS = [
     params: "cash-bank-period",
     // Every resource at once is the useful default; narrowing to one is a
     // filter, not a precondition.
+    subjectRequired: false,
+  },
+  {
+    key: "ar_ledger",
+    slug: "ar-ledger",
+    module: "finance",
+    name: "Buku Piutang",
+    desc:
+      "Setiap perubahan AR item satu customer pada rentang tanggal — invoice, uang muka " +
+      "dan pembayarannya — dengan posisi Piutang Usaha awal dan akhir.",
+    icon: "book",
+    permission: "REPORT_AR_LEDGER_VIEW",
+    params: "ar-period",
+    // A book is a book *of* someone.
+    subjectRequired: true,
+  },
+  {
+    key: "ar_aging",
+    slug: "ar-aging",
+    module: "finance",
+    name: "Umur Piutang",
+    desc:
+      "Invoice yang belum lunas per customer menurut umur jatuh temponya, beserta uang " +
+      "muka yang masih dipegang dan posisi bersihnya.",
+    icon: "clock",
+    permission: "REPORT_AR_AGING_VIEW",
+    params: "ar-asof",
+    subjectRequired: false,
+  },
+  {
+    key: "customer_advance",
+    slug: "customer-advance",
+    module: "finance",
+    name: "Uang Muka Customer",
+    desc:
+      "Uang muka yang sudah diterima dan belum dipakai invoice, per customer dan Sales " +
+      "Order, dicocokkan dengan account Uang Muka Penjualan.",
+    icon: "wallet",
+    permission: "REPORT_CUSTOMER_ADVANCE_VIEW",
+    params: "ar-asof",
     subjectRequired: false,
   },
   {

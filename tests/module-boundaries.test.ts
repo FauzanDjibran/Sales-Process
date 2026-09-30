@@ -94,6 +94,10 @@ const TABLE_OWNERS: Record<string, string[]> = {
   finCashBankTx: ["src/lib/erp/cash-bank-tx.ts"],
   finCashBankTxLine: ["src/lib/erp/cash-bank-tx.ts"],
   finCashBankTxLineWht: ["src/lib/erp/cash-bank-tx.ts"],
+  // AR items and Buku Piutang: written only by their book, which the posting
+  // documents call (P71–P72).
+  finArItem: ["src/lib/erp/ar-item.ts"],
+  finArLedger: ["src/lib/erp/ar-item.ts"],
 };
 
 /**
@@ -150,7 +154,7 @@ describe("the dependency graph points one way", () => {
       "fx",
       "currency",
     ];
-    const BOOKS = ["cash-bank", "journal"];
+    const BOOKS = ["cash-bank", "journal", "ar-item"];
 
     for (const book of BOOKS) {
       const allowed = KERNEL;

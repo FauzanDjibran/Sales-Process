@@ -12,6 +12,13 @@ import type { PeriodRange } from "@/lib/erp/period";
 import { reportBySlug, reportHref } from "@/lib/erp/reports";
 import { prisma } from "@/lib/prisma";
 import { formatDate } from "@/lib/format";
+import { ArReportParams } from "@/components/report/ar-report-params";
+import { ArAgingReport } from "@/components/report/ar-aging-report";
+import { ArLedgerReportBody } from "@/components/report/ar-ledger-report";
+import { CustomerAdvanceReport, type AdvanceReconciliation } from "@/components/report/customer-advance-report";
+import { arItemsReconcile, arLedgerReport, arPartnerOptions, openArItemsAsOf } from "@/lib/erp/ar-item";
+import { closingBalances } from "@/lib/erp/ledger";
+import { postingAccounts } from "@/lib/erp/system-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +41,8 @@ export default async function Page({
   params: Promise<{ report: string }>;
   searchParams: Promise<{
     cashBank?: string;
+    customer?: string;
+    asOf?: string;
     from?: string;
     to?: string;
   }>;
@@ -48,6 +57,10 @@ export default async function Page({
   const range = resolveRange(query.from, query.to);
   const cashBankId = positiveInt(query.cashBank);
   const runAt = new Date().toISOString();
+
+  if (report.params === "ar-asof" || report.params === "ar-period") {
+    return arReport(report, query, range, runAt);
+  }
 
   const resources = await cashBankOptions();
 
@@ -182,3 +195,100 @@ async function cashBankOptions() {
     active: true,
   }));
 }
+
+// ------------------------------------------------------------ AR reports
+
+/**
+ * Buku Piutang, Umur Piutang and Uang Muka Customer (P75). Their figures come
+ * from the AR items; the Uang Muka report is also checked against the General
+ * Ledger, which is composed here — the AR book never reads the journal.
+ */
+async function arReport(
+  report: NonNullable<ReturnType<typeof reportBySlug>>,
+  query: { customer?: string; asOf?: string },
+  range: PeriodRange,
+  runAt: string
+) {
+  const customerId = positiveInt(query.customer);
+  const asOf = isDate(query.asOf) ? query.asOf : new Date().toISOString().slice(0, 10);
+  const customers = await arPartnerOptions();
+  const filter = (
+    <ArReportParams
+      slug={report.slug}
+      customers={customers}
+      customerId={customerId}
+      mode={report.params === "ar-asof" ? "asof" : "period"}
+      asOf={asOf}
+      from={range.from}
+      to={range.to}
+      subjectRequired={report.subjectRequired}
+    />
+  );
+  const reconciles = await arItemsReconcile(customerId);
+  const mismatch = reconciles ? null : (
+    <>Ada AR item yang saldonya tidak sama dengan jumlah entri Buku Piutang-nya; angka di atas dibaca dari entri.</>
+  );
+
+  if (report.key === "ar_ledger") {
+    const data = customerId ? await arLedgerReport(customerId, range) : null;
+    return (
+      <ReportView
+        report={report}
+        filter={filter}
+        runAt={runAt}
+        footnote={mismatch ?? <>Menambah menaikkan Piutang Usaha customer (invoice, uang muka yang dipakai); Mengurangi menurunkannya (uang muka diterima, pembayaran).</>}
+      >
+        {data ? (
+          <ArLedgerReportBody report={data} />
+        ) : (
+          <ReportNeedsSubject
+            icon="book"
+            title="Pilih Customer terlebih dahulu"
+            body="Buku Piutang selalu milik satu customer. Pilih customer dan rentang tanggal di atas, lalu tekan Tampilkan."
+          />
+        )}
+      </ReportView>
+    );
+  }
+
+  const advances = await openArItemsAsOf("Advance", asOf, customerId);
+
+  if (report.key === "ar_aging") {
+    const invoices = await openArItemsAsOf("Invoice", asOf, customerId);
+    return (
+      <ReportView
+        report={report}
+        filter={filter}
+        runAt={runAt}
+        footnote={mismatch ?? <>Umur dihitung dari tanggal jatuh tempo invoice per {formatDate(asOf)}; uang muka mengurangi posisi bersih tetapi tidak dialokasikan ke kelompok umur.</>}
+      >
+        <ArAgingReport invoices={invoices} advances={advances} asOf={asOf} />
+      </ReportView>
+    );
+  }
+
+  // Uang Muka Customer, checked against the Uang Muka Penjualan account.
+  let gl: AdvanceReconciliation;
+  const mapped = await postingAccounts(["sales_advance_account"] as const);
+  if (!mapped.ok) {
+    gl = { ok: false, missing: `${mapped.missing.join(", ")} belum diatur di Account Mapping.` };
+  } else {
+    const accountId = mapped.ids.sales_advance_account;
+    const balances = (await closingBalances(asOf)).filter((b) => b.accountId === accountId);
+    const account = await prisma.accAccount.findUnique({ where: { id: accountId }, select: { account_label: true, account_name: true } });
+    const byPartner: Record<number, number> = {};
+    for (const b of balances) if (b.partnerId) byPartner[b.partnerId] = (byPartner[b.partnerId] ?? 0) + b.balance;
+    gl = { ok: true, accountLabel: account?.account_label ?? "", accountName: account?.account_name ?? "", byPartner };
+  }
+  return (
+    <ReportView
+      report={report}
+      filter={filter}
+      runAt={runAt}
+      footnote={mismatch ?? <>Nilai uang muka adalah bagian DPP-nya — yang tercatat di account Uang Muka Penjualan; PPN-nya sudah tercatat di PPN Keluaran saat diterima.</>}
+    >
+      <CustomerAdvanceReport rows={advances} gl={gl} />
+    </ReportView>
+  );
+}
+

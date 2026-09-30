@@ -1,0 +1,359 @@
+import "server-only";
+
+import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/generated/prisma/client";
+import type { PeriodRange } from "./period";
+
+/**
+ * AR items and Buku Piutang (Claude-ERP.md P71–P75).
+ *
+ * An **AR item** is the settlement unit of what a customer owes or has paid
+ * ahead: an **Uang Muka** is born when an advance is received, an **Invoice**
+ * when a Faktur Penjualan is posted. Documents stay the origin; the item is
+ * what remains open, and it keeps its own balance.
+ *
+ * **Buku Piutang** is the history of every change to an item's balance, and it
+ * is append-only: an entry is never edited or deleted. The item's
+ * `current_balance` is the sum of its entries, written in the same transaction
+ * as each one, so the two can never disagree — and `arItemsReconcile` proves
+ * it from the entries alone, the way the Cash Bank Book is proved.
+ *
+ * There is no allocation step (P72): a payment moves an Invoice item directly,
+ * and a Faktur uses its order's Uang Muka when it is posted. The entry names
+ * the document that did it, and — for an advance used — the Invoice item that
+ * took it.
+ *
+ * **It is a book**: it depends on nothing but the shared kernel. Documents call
+ * it inside their posting transaction, as they call the journal and the Cash
+ * Bank Book; it never reaches back to them.
+ *
+ * AP will have tables of its own (P71).
+ */
+
+type Db = Prisma.TransactionClient | typeof prisma;
+
+export type ArItemType = "Advance" | "Invoice";
+export type ArEvent = "Create" | "Payment" | "AdvanceUsed";
+
+export const AR_TYPE_TEXT: Record<ArItemType, string> = {
+  Advance: "Uang Muka",
+  Invoice: "Invoice",
+};
+
+export const AR_EVENT_TEXT: Record<ArEvent, string> = {
+  Create: "Terbentuk",
+  Payment: "Pembayaran",
+  AdvanceUsed: "Dipakai Invoice",
+};
+
+/**
+ * Which way an item moves the customer's Piutang Usaha: an Invoice raises it,
+ * an Uang Muka lowers it. Exposure = balance × this.
+ */
+export const AR_SIGN: Record<ArItemType, 1 | -1> = { Invoice: 1, Advance: -1 };
+
+const asDate = (d: string) => new Date(`${d}T00:00:00Z`);
+const isoDay = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
+
+// ------------------------------------------------------------------ writes
+
+export type NewArItem = {
+  type: ArItemType;
+  partnerId: number;
+  currencyId: number;
+  /** `YYYY-MM-DD`. */
+  date: string;
+  dueDate?: string | null;
+  source: { docTypeId: number; docId: number; no: string };
+  ref?: { docTypeId: number; docId: number; no: string } | null;
+  order?: { id: number; no: string } | null;
+  amount: number;
+  note?: string | null;
+  actorId: number;
+};
+
+/** Creates an item and its Create entry, inside the caller's transaction. */
+export async function createArItem(db: Db, item: NewArItem): Promise<number> {
+  if (!(item.amount > 0)) {
+    throw new Error(`Nilai AR item harus lebih besar dari nol (diterima ${item.amount}).`);
+  }
+  const row = await db.finArItem.create({
+    data: {
+      item_type: item.type,
+      direction: AR_SIGN[item.type] > 0 ? "Increase" : "Decrease",
+      partner_id: item.partnerId,
+      currency_id: item.currencyId,
+      item_date: asDate(item.date),
+      due_date: item.dueDate ? asDate(item.dueDate) : null,
+      source_doc_type_id: item.source.docTypeId,
+      source_doc_id: item.source.docId,
+      source_no: item.source.no,
+      ref_doc_type_id: item.ref?.docTypeId ?? null,
+      ref_doc_id: item.ref?.docId ?? null,
+      ref_no: item.ref?.no ?? null,
+      order_id: item.order?.id ?? null,
+      order_no: item.order?.no ?? null,
+      current_balance: item.amount,
+      created_by: item.actorId,
+    },
+    select: { id: true },
+  });
+  await db.finArLedger.create({
+    data: {
+      item_id: row.id,
+      event: "Create",
+      entry_date: asDate(item.date),
+      amount: item.amount,
+      movement: item.amount,
+      balance_after: item.amount,
+      doc_type_id: item.source.docTypeId,
+      doc_id: item.source.docId,
+      doc_no: item.source.no,
+      note: item.note ?? null,
+      created_by: item.actorId,
+    },
+  });
+  return row.id;
+}
+
+/** An item's balance would go below zero — the whole posting is refused. */
+export class ArItemOverdrawn extends Error {
+  constructor(readonly itemId: number, readonly balance: number, readonly requested: number) {
+    super(`Sisa AR item tidak mencukupi: tersisa ${balance}, diminta ${requested}. Posting dibatalkan.`);
+    this.name = "ArItemOverdrawn";
+  }
+}
+
+/**
+ * Lowers an item's balance by `amount` — a payment on an Invoice, an advance
+ * used by an Invoice — with the row locked, and writes the entry. Thrown
+ * rather than returned, like `InsufficientFunds`: the caller is inside its
+ * posting transaction and must go down whole.
+ */
+export async function settleArItem(
+  db: Prisma.TransactionClient,
+  move: {
+    itemId: number;
+    event: Exclude<ArEvent, "Create">;
+    amount: number;
+    date: string;
+    doc: { docTypeId: number; docId: number; no: string };
+    counterItemId?: number | null;
+    note?: string | null;
+    actorId: number;
+  }
+): Promise<void> {
+  if (!(move.amount > 0)) throw new Error("Nilai penyelesaian AR item harus lebih besar dari nol.");
+  await db.$queryRaw`SELECT id FROM fin_ar_item WHERE id = ${move.itemId} FOR UPDATE`;
+  const item = await db.finArItem.findUniqueOrThrow({ where: { id: move.itemId }, select: { current_balance: true } });
+  const balance = item.current_balance.toNumber();
+  const cents = (n: number) => Math.round(n * 100);
+  if (cents(move.amount) > cents(balance)) throw new ArItemOverdrawn(move.itemId, balance, move.amount);
+  const after = (cents(balance) - cents(move.amount)) / 100;
+  await db.finArItem.update({ where: { id: move.itemId }, data: { current_balance: after } });
+  await db.finArLedger.create({
+    data: {
+      item_id: move.itemId,
+      event: move.event,
+      entry_date: asDate(move.date),
+      amount: move.amount,
+      movement: -move.amount,
+      balance_after: after,
+      doc_type_id: move.doc.docTypeId,
+      doc_id: move.doc.docId,
+      doc_no: move.doc.no,
+      counter_item_id: move.counterItemId ?? null,
+      note: move.note ?? null,
+      created_by: move.actorId,
+    },
+  });
+}
+
+// ------------------------------------------------------------------- reads
+
+export type ArItemRow = {
+  id: number;
+  type: ArItemType;
+  partnerId: number;
+  partnerLabel: string;
+  partnerName: string;
+  date: string;
+  dueDate: string | null;
+  sourceNo: string;
+  sourceTable: string;
+  sourceId: number;
+  refNo: string | null;
+  refTable: string | null;
+  refId: number | null;
+  orderNo: string | null;
+  /** The Create entry's amount. */
+  original: number;
+  /** What left the item up to the date asked about. */
+  settled: number;
+  /** Open at that date. */
+  open: number;
+};
+
+/**
+ * Every item of a type with a balance at the end of `asOf`, read from Buku
+ * Piutang rather than `current_balance`, so a report for a past date is right
+ * however much has moved since.
+ */
+export async function openArItemsAsOf(
+  type: ArItemType,
+  asOf: string,
+  partnerId: number | null = null
+): Promise<ArItemRow[]> {
+  const items = await prisma.finArItem.findMany({
+    where: { item_type: type, item_date: { lte: asDate(asOf) }, ...(partnerId ? { partner_id: partnerId } : {}) },
+    include: {
+      partner: { select: { partner_label: true, partner_name: true } },
+      source_doc_type: { select: { doc_table: true } },
+      ref_doc_type: { select: { doc_table: true } },
+      entries: { where: { entry_date: { lte: asDate(asOf) } }, select: { event: true, amount: true, movement: true } },
+    },
+    orderBy: [{ item_date: "asc" }, { id: "asc" }],
+  });
+  return items
+    .map((i) => {
+      const original = i.entries.filter((e) => e.event === "Create").reduce((a, e) => a + e.amount.toNumber(), 0);
+      const open = i.entries.reduce((a, e) => a + e.movement.toNumber(), 0);
+      return {
+        id: i.id,
+        type: i.item_type as ArItemType,
+        partnerId: i.partner_id,
+        partnerLabel: i.partner.partner_label,
+        partnerName: i.partner.partner_name,
+        date: isoDay(i.item_date),
+        dueDate: i.due_date ? isoDay(i.due_date) : null,
+        sourceNo: i.source_no,
+        sourceTable: i.source_doc_type.doc_table,
+        sourceId: i.source_doc_id,
+        refNo: i.ref_no,
+        refTable: i.ref_doc_type?.doc_table ?? null,
+        refId: i.ref_doc_id,
+        orderNo: i.order_no,
+        original,
+        settled: original - open,
+        open,
+      };
+    })
+    .filter((r) => Math.round(r.open * 100) !== 0);
+}
+
+export type ArLedgerEntryRow = {
+  id: number;
+  date: string;
+  itemId: number;
+  type: ArItemType;
+  event: ArEvent;
+  docNo: string;
+  docTable: string;
+  docId: number;
+  /** The item's own identity: its source and, for an Uang Muka, the bill. */
+  itemSourceNo: string;
+  itemRefNo: string | null;
+  orderNo: string | null;
+  note: string | null;
+  /** Signed on the customer's Piutang Usaha: + raises it, − lowers it. */
+  exposure: number;
+};
+
+export type ArLedgerReport = {
+  partner: { id: number; label: string; name: string };
+  range: PeriodRange;
+  /** Piutang Usaha position at the start: Σ exposure before `range.from`. */
+  opening: number;
+  entries: ArLedgerEntryRow[];
+  increase: number;
+  decrease: number;
+  closing: number;
+  /** What each type holds at the end, as a positive figure. */
+  closingByType: Record<ArItemType, number>;
+};
+
+/**
+ * Buku Piutang of one customer over a period: every entry on any of their
+ * items, oldest first, each signed on their Piutang Usaha position, with the
+ * position before and after.
+ */
+export async function arLedgerReport(partnerId: number, range: PeriodRange): Promise<ArLedgerReport | null> {
+  const partner = await prisma.mPartner.findUnique({
+    where: { id: partnerId },
+    select: { id: true, partner_label: true, partner_name: true },
+  });
+  if (!partner) return null;
+  const rows = await prisma.finArLedger.findMany({
+    where: { item: { partner_id: partnerId }, entry_date: { lte: asDate(range.to) } },
+    include: {
+      item: { select: { item_type: true, source_no: true, ref_no: true, order_no: true } },
+      doc_type: { select: { doc_table: true } },
+    },
+    orderBy: [{ entry_date: "asc" }, { id: "asc" }],
+  });
+  const exposureOf = (r: (typeof rows)[number]) => r.movement.toNumber() * AR_SIGN[r.item.item_type as ArItemType];
+
+  let opening = 0;
+  const entries: ArLedgerEntryRow[] = [];
+  const closingByType: Record<ArItemType, number> = { Advance: 0, Invoice: 0 };
+  for (const r of rows) {
+    closingByType[r.item.item_type as ArItemType] += r.movement.toNumber();
+    if (isoDay(r.entry_date) < range.from) {
+      opening += exposureOf(r);
+      continue;
+    }
+    entries.push({
+      id: r.id,
+      date: isoDay(r.entry_date),
+      itemId: r.item_id,
+      type: r.item.item_type as ArItemType,
+      event: r.event as ArEvent,
+      docNo: r.doc_no,
+      docTable: r.doc_type.doc_table,
+      docId: r.doc_id,
+      itemSourceNo: r.item.source_no,
+      itemRefNo: r.item.ref_no,
+      orderNo: r.item.order_no,
+      note: r.note,
+      exposure: exposureOf(r),
+    });
+  }
+  const increase = entries.filter((e) => e.exposure > 0).reduce((a, e) => a + e.exposure, 0);
+  const decrease = -entries.filter((e) => e.exposure < 0).reduce((a, e) => a + e.exposure, 0);
+  return {
+    partner: { id: partner.id, label: partner.partner_label, name: partner.partner_name },
+    range,
+    opening,
+    entries,
+    increase,
+    decrease,
+    closing: opening + increase - decrease,
+    closingByType,
+  };
+}
+
+/** The customers that have ever had an AR item — the report's picker. */
+export async function arPartnerOptions(): Promise<{ id: number; label: string; name: string; active: boolean }[]> {
+  const rows = await prisma.mPartner.findMany({
+    where: { ar_items: { some: {} } },
+    orderBy: { partner_label: "asc" },
+    select: { id: true, partner_label: true, partner_name: true },
+  });
+  return rows.map((r) => ({ id: r.id, label: r.partner_label, name: r.partner_name, active: true }));
+}
+
+/**
+ * Whether every item's stored balance equals the sum of its entries. The
+ * stored figure is a convenience; the entries are the record (P72).
+ */
+export async function arItemsReconcile(partnerId: number | null = null): Promise<boolean> {
+  const items = await prisma.finArItem.findMany({
+    where: partnerId ? { partner_id: partnerId } : {},
+    select: { current_balance: true, entries: { select: { movement: true } } },
+  });
+  return items.every(
+    (i) =>
+      Math.round(i.current_balance.toNumber() * 100) ===
+      Math.round(i.entries.reduce((a, e) => a + e.movement.toNumber(), 0) * 100)
+  );
+}

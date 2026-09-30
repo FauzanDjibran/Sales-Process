@@ -392,6 +392,9 @@ model SysDocType {
   ledger_entries     CashBankLedger[]
   journals           AccJournal[]
   cash_bank_tx_lines FinCashBankTxLine[]
+  ar_item_sources    FinArItem[]         @relation("ArItemSource")
+  ar_item_refs       FinArItem[]         @relation("ArItemRef")
+  ar_ledger_entries  FinArLedger[]
 
   @@map("sys_doc_type")
 }
@@ -432,6 +435,7 @@ model RefCurrency {
 
   cash_banks    MCashBank[]
   journal_lines AccJournalLine[]
+  ar_items      FinArItem[]
 
   @@map("ref_currency")
 }
@@ -670,6 +674,7 @@ model MPartner {
   sales_orders   SalOrder[]
   sales_advances SalAdvance[]
   cash_bank_txs  FinCashBankTx[]
+  ar_items       FinArItem[]
 
   journal_lines AccJournalLine[]
 
@@ -1641,4 +1646,111 @@ model FinCashBankTxLineWht {
 
   @@unique([line_id, withholding_tax_id])
   @@map("fin_cash_bank_tx_line_wht")
+}
+
+// ---------------------------------------------------------------- AR items
+//
+// What a customer owes and has paid ahead, per document (Claude-ERP.md
+// P71–P75). An AR item is the settlement unit: an Uang Muka is born when an
+// advance is received, an Invoice when a Faktur Penjualan is posted. Its
+// balance moves only through Buku Piutang, which is append-only. AP will have
+// tables of its own.
+
+enum ArItemType {
+  Advance
+  Invoice
+}
+
+/// Whether the item raises the customer's Piutang Usaha (Invoice) or lowers
+/// it (Advance). Exposure = balance × direction.
+enum ArDirection {
+  Increase
+  Decrease
+}
+
+/// What moved an AR item's balance. Refund, retur and DN/CN arrive when they
+/// are built (P74).
+enum ArEvent {
+  Create
+  Payment
+  AdvanceUsed
+}
+
+model FinArItem {
+  id          Int         @id @default(autoincrement())
+  item_type   ArItemType
+  direction   ArDirection
+  partner_id  Int
+  currency_id Int
+  item_date   DateTime    @db.Date
+  /// When an Invoice falls due, for Umur Piutang. None on an Uang Muka.
+  due_date    DateTime?   @db.Date
+
+  /// The document that created the item — the receipt for an Uang Muka, the
+  /// Faktur for an Invoice — and its number as it read then.
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  /// What it belongs to beside that: the advance bill an Uang Muka was paid
+  /// against.
+  ref_doc_type_id    Int?
+  ref_doc_id         Int?
+  ref_no             String?
+  /// The Sales Order, by id — an invoice uses only its own order's advances
+  /// (P73). A weak reference: the order belongs to another module.
+  order_id           Int?
+  order_no           String?
+
+  /// What is still open, in the item's own currency: the sum of its Buku
+  /// Piutang entries, updated in the same transaction as each (P72).
+  current_balance Decimal @db.Decimal(18, 2)
+
+  created_by Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  partner         MPartner      @relation(fields: [partner_id], references: [id])
+  currency        RefCurrency   @relation(fields: [currency_id], references: [id])
+  source_doc_type SysDocType    @relation("ArItemSource", fields: [source_doc_type_id], references: [id])
+  ref_doc_type    SysDocType?   @relation("ArItemRef", fields: [ref_doc_type_id], references: [id])
+  entries         FinArLedger[] @relation("ArItemEntries")
+  counter_entries FinArLedger[] @relation("ArItemCounter")
+
+  @@index([partner_id, item_type])
+  @@index([order_id])
+  @@index([source_doc_type_id, source_doc_id])
+  @@index([ref_doc_type_id, ref_doc_id])
+  @@map("fin_ar_item")
+}
+
+/// Buku Piutang — every change to an AR item's balance, append-only: an entry
+/// is never edited or deleted (P72).
+model FinArLedger {
+  id            Int      @id @default(autoincrement())
+  item_id       Int
+  event         ArEvent
+  entry_date    DateTime @db.Date
+  /// Always positive; `movement` carries the sign on the item's balance.
+  amount        Decimal  @db.Decimal(18, 2)
+  movement      Decimal  @db.Decimal(18, 2)
+  balance_after Decimal  @db.Decimal(18, 2)
+
+  /// The document that caused the entry, and its number.
+  doc_type_id     Int
+  doc_id          Int
+  doc_no          String
+  /// An advance used by an invoice names the Invoice item that took it.
+  counter_item_id Int?
+  note            String?
+
+  created_by Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  item         FinArItem  @relation("ArItemEntries", fields: [item_id], references: [id])
+  counter_item FinArItem? @relation("ArItemCounter", fields: [counter_item_id], references: [id])
+  doc_type     SysDocType @relation(fields: [doc_type_id], references: [id])
+
+  @@index([item_id, entry_date])
+  @@index([doc_type_id, doc_id])
+  @@map("fin_ar_ledger")
 }
