@@ -646,9 +646,6 @@ here. In addition:
 - **An installation seeded before P60 still holds PPH42-SEWA.** The seed no
   longer creates it and never deletes; deactivate it by hand if it is not
   wanted.
-- **`db:truncate-transactions` does not clear sales documents.** It empties
-  the journals and the Cash Bank Book only; Sales Orders and advance bills
-  survive it. Extend it when the first posting sales document is built.
 - **The closing suite no longer covers a loss.** SIBA proved the loss side on
   the second company; with one company only the profit case remains, until a
   fixture year with a loss is added.

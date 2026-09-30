@@ -14,12 +14,22 @@
  * WHAT IT DELETES
  *   acc_journal_line, acc_journal                  the books' journals
  *   cash_bank_ledger                               the Cash Bank Book
+ *   sal_advance                                    Uang Muka Penjualan bills
+ *   sal_order_line, sal_order                      Sales Orders
  *   audit_log rows belonging to those documents
  *
  * WHAT IT KEEPS
- *   every sys_* table, ref_currency, m_partner, m_cash_bank, the whole chart of
- *   accounts, acc_fiscal_year / acc_fiscal_period, and the
- *   master records' own audit history.
+ *   every sys_* table and every ref_* master (currency, satuan, termin, gudang,
+ *   Jenis PPh), m_partner with its addresses and contacts, m_item, m_cash_bank,
+ *   the whole chart of accounts, acc_fiscal_year / acc_fiscal_period, the
+ *   settings (System Default, Account Mapping), and the master records' own
+ *   audit history.
+ *
+ * WHY THE SALES DOCUMENTS GO IN THIS ORDER
+ *   The foreign keys decide it: an advance bill names its Sales Order, and an
+ *   order line names its order, so advances go first, then lines, then orders.
+ *   With them gone, the customer addresses the orders named are free to be
+ *   removed again (P53).
  *
  * WHY cash_bank_balance IS RESET RATHER THAN DELETED
  *   A Cash & Bank resource has a book from the moment it is registered, even at
@@ -50,7 +60,7 @@ import "dotenv/config";
 import { prisma } from "@/lib/prisma";
 
 /** Audit rows follow the documents they describe; master history stays. */
-const DOCUMENT_ENTITY_KEYS = ["acc_journal"];
+const DOCUMENT_ENTITY_KEYS = ["acc_journal", "sal_order", "sal_advance"];
 
 async function main() {
   const confirmed = process.argv.includes("--confirm");
@@ -59,6 +69,9 @@ async function main() {
     acc_journal_line: await prisma.accJournalLine.count(),
     acc_journal: await prisma.accJournal.count(),
     cash_bank_ledger: await prisma.cashBankLedger.count(),
+    sal_advance: await prisma.salAdvance.count(),
+    sal_order_line: await prisma.salOrderLine.count(),
+    sal_order: await prisma.salOrder.count(),
     audit_log: await prisma.auditLog.count({
       where: { entity_key: { in: DOCUMENT_ENTITY_KEYS } },
     }),
@@ -81,7 +94,7 @@ async function main() {
   if (!confirmed) {
     console.log(
       `\n${total} baris akan dihapus, dan saldo ${resources} Cash & Bank direset ke nol.` +
-        "\nMaster data (Partner, Cash & Bank, Bagan Akun, Tahun Buku) tidak tersentuh." +
+        "\nMaster data (Partner, Item, Cash & Bank, Bagan Akun, Tahun Buku, pengaturan) tidak tersentuh." +
         "\nSaldo awal Cash & Bank ikut terhapus dan tidak dapat diisi ulang dari GUI." +
         "\n\nJalankan ulang dengan --confirm untuk benar-benar menghapus:" +
         "\n  npm run db:truncate-transactions -- --confirm\n"
@@ -95,6 +108,12 @@ async function main() {
     await tx.accJournal.deleteMany();
 
     await tx.cashBankLedger.deleteMany();
+
+    // Sales documents, children before what they name: an advance bill names
+    // its order, a line its order.
+    await tx.salAdvance.deleteMany();
+    await tx.salOrderLine.deleteMany();
+    await tx.salOrder.deleteMany();
 
     // Reset rather than delete — see the note at the top of this file.
     await tx.cashBankBalance.updateMany({
