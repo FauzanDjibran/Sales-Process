@@ -63,8 +63,8 @@ export function SalesOrderList({ orders, can }: { orders: SalesOrderListRow[]; c
           </div>
         </div>
         <p className="ph-sub">
-          Pesanan barang dari customer. Sales Order tidak memposting apa pun; setelah dikonfirmasi isinya
-          terkunci dan menjadi dasar pengiriman dan penagihan.
+          Pesanan barang dari customer. Sales Order tidak memposting apa pun; setelah diajukan isinya
+          terkunci, dan setelah disetujui (Open) menjadi dasar pengiriman dan penagihan.
         </p>
       </div>
 
@@ -77,7 +77,7 @@ export function SalesOrderList({ orders, can }: { orders: SalesOrderListRow[]; c
             set={Boolean(status)}
             options={[
               { value: "", label: "Status: semua" },
-              ...(["Draft", "Confirmed", "Cancelled"] as SalesOrderStatus[]).map((s) => ({
+              ...(["Draft", "Submitted", "Open", "Closed", "Cancelled", "Rejected"] as SalesOrderStatus[]).map((s) => ({
                 value: s,
                 label: SALES_ORDER_STATUS_TEXT[s],
               })),

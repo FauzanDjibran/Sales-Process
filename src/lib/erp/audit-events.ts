@@ -86,12 +86,20 @@ const JOURNAL_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(JOURNAL_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
-/** Sales Order: Draft → Dikonfirmasi, or Dibatalkan (P50). */
+/**
+ * Sales Order: Draft → Diajukan → Open → Ditutup, or Dibatalkan / Ditolak
+ * (P63). `confirm` is the step orders took before P63, kept so their history
+ * still reads.
+ */
 const SALES_ORDER_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   create: { label: "Sales Order dibuat", icon: "clip", tone: "neutral" },
-  confirm: fromTransition(SALES_ORDER_TRANSITIONS.confirm, "Dikonfirmasi"),
+  confirm: { label: "Dikonfirmasi", icon: "check", tone: "primary" },
+  submit: fromTransition(SALES_ORDER_TRANSITIONS.submit, "Diajukan"),
+  approve: fromTransition(SALES_ORDER_TRANSITIONS.approve, "Disetujui"),
+  reject: fromTransition(SALES_ORDER_TRANSITIONS.reject, "Ditolak"),
   cancel: fromTransition(SALES_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
+  close: fromTransition(SALES_ORDER_TRANSITIONS.close, "Ditutup"),
 };
 
 /** Uang Muka Penjualan: Draft → Diterbitkan, or Dibatalkan (P57). */

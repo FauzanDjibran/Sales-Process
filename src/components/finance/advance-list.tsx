@@ -71,7 +71,7 @@ export function AdvanceList({ rows: all, can }: { rows: SalesAdvanceListRow[]; c
           </div>
         </div>
         <p className="ph-sub">
-          Tagihan uang muka ke customer atas Sales Order yang sudah dikonfirmasi. Menerbitkan tagihan tidak
+          Tagihan uang muka ke customer atas Sales Order berstatus Open. Menerbitkan tagihan tidak
           memposting apa pun; kas, Uang Muka Penjualan dan PPN Keluaran dicatat saat pembayarannya diterima.
         </p>
       </div>
@@ -176,7 +176,7 @@ export function AdvanceList({ rows: all, can }: { rows: SalesAdvanceListRow[]; c
             <p>
               {q || status
                 ? "Tidak ada tagihan yang sesuai dengan pencarian atau filter."
-                : "Buat tagihan uang muka dari Sales Order yang sudah dikonfirmasi."}
+                : "Buat tagihan uang muka dari Sales Order berstatus Open."}
             </p>
             {q || status ? (
               <div className="cta">

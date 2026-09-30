@@ -249,6 +249,7 @@ ask Claude rather than editing it by hand.
 | After a pull, a page errors on a missing column | `npx prisma migrate deploy` |
 | `npm` blocked by PowerShell | Use `npm.cmd` / `npx.cmd`, see the top of this file |
 | Files show as changed but you did not touch them (line endings) | The repository forces LF endings (`.gitattributes`); `git restore .` puts them back |
+| A Sales Order shows no **Setujui / Tolak** or **Tutup Pesanan** button | The role needs the permission *Setujui / Tolak Sales Order* or *Tutup Sales Order* (Pengaturan › Role). The administrator gets every permission from `npm run db:seed`; sign out and in again afterwards |
 | Saving a taxable Sales Order says *Tarif PPN belum diatur* | Fill the Pajak card in Pengaturan › System Default (or run `npm run db:seed`) |
 
 ---

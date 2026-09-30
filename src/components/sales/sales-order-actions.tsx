@@ -18,9 +18,17 @@ import {
   type SalesOrderStatus,
 } from "@/lib/erp/sales-order-workflow";
 
+/** Why a final or waiting order offers no button, for the lock chip. */
+const LOCK_TEXT: Partial<Record<SalesOrderStatus, string>> = {
+  Submitted: "Menunggu persetujuan",
+  Closed: "Sales Order ditutup",
+  Cancelled: "Sales Order dibatalkan",
+  Rejected: "Sales Order ditolak",
+};
+
 /**
  * A Sales Order's lifecycle as buttons in the page header: Salin, Ubah (Draft
- * only), Konfirmasi and Batalkan. What is offered comes from the transition
+ * only), Ajukan, Setujui / Tolak, Batalkan and Tutup Pesanan (P63). What is offered comes from the transition
  * table, so this can never offer a step the Server Action would refuse.
  * Ordered danger → neutral → primary in the markup.
  */
@@ -43,8 +51,8 @@ export function SalesOrderActions({
   const [busy, setBusy] = useState(false);
 
   const run = async (action: SalesOrderAction) => {
-    if (SALES_ORDER_TRANSITIONS[action].needsReason && !reason.trim()) {
-      setReasonError("Alasan pembatalan wajib diisi.");
+    if (SALES_ORDER_TRANSITIONS[action].reason && !reason.trim()) {
+      setReasonError("Alasan wajib diisi.");
       return;
     }
     setBusy(true);
@@ -127,7 +135,7 @@ export function SalesOrderActions({
         buttons.map((b) => b.node)
       ) : (
         <span className="lockchip">
-          <Icon name="lock" size={13} /> {status === "Cancelled" ? "Sales Order dibatalkan" : "Terkunci"}
+          <Icon name="lock" size={13} /> {LOCK_TEXT[status] ?? "Terkunci"}
         </span>
       )}
 
@@ -145,7 +153,7 @@ export function SalesOrderActions({
           onConfirm={() => run(confirm)}
           onCancel={() => setConfirm(null)}
         >
-          {t.needsReason && (
+          {t.reason && (
             <div className="mbody">
               <Field label="Alasan" span={12} required error={reasonError}>
                 <textarea
@@ -153,7 +161,7 @@ export function SalesOrderActions({
                   rows={2}
                   value={reason}
                   autoFocus
-                  placeholder="Mengapa pesanan ini dibatalkan…"
+                  placeholder={t.reason}
                   onChange={(e) => {
                     setReason(e.target.value);
                     setReasonError("");

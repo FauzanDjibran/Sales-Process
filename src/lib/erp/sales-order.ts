@@ -46,12 +46,10 @@ export type SalesOrderHeaderInput = {
   customer_id: number | null;
   address_id: number | null;
   term_id: number | null;
-  warehouse_id: number | null;
   price_mode: string;
   is_taxable: boolean;
   po_no: string;
   po_date: string;
-  requested_date: string;
   salesperson: string;
   note: string;
 };
@@ -111,7 +109,6 @@ export type SalesOrderOptions = {
   customers: SoCustomerOption[];
   items: SoItemOption[];
   terms: SoRefOption[];
-  warehouses: SoRefOption[];
   withholdingTaxes: SoWhtOption[];
   /** The PPN rate and factor a Draft is computed with now (P60); null when unset. */
   ppnRates: PpnRates | null;
@@ -136,7 +133,7 @@ function customerProblems(c: {
 }
 
 export async function salesOrderOptions(): Promise<SalesOrderOptions> {
-  const [partners, items, terms, warehouses, taxes, rates] = await Promise.all([
+  const [partners, items, terms, taxes, rates] = await Promise.all([
     prisma.mPartner.findMany({
       where: { category: { category_label: CUSTOMER_CATEGORY } },
       orderBy: { partner_label: "asc" },
@@ -154,7 +151,6 @@ export async function salesOrderOptions(): Promise<SalesOrderOptions> {
       include: { base_uom: true, uoms: { include: { uom: true }, orderBy: [{ sort_order: "asc" }, { id: "asc" }] } },
     }),
     prisma.refPaymentTerm.findMany({ orderBy: { due_days: "asc" } }),
-    prisma.refWarehouse.findMany({ orderBy: { warehouse_label: "asc" } }),
     prisma.refWithholdingTax.findMany({ orderBy: { wht_label: "asc" } }),
     ppnRates(),
   ]);
@@ -201,12 +197,6 @@ export async function salesOrderOptions(): Promise<SalesOrderOptions> {
       ],
     })),
     terms: terms.map((t) => ({ id: t.id, label: t.term_label, name: t.term_name, active: t.status === "Active" })),
-    warehouses: warehouses.map((w) => ({
-      id: w.id,
-      label: w.warehouse_label,
-      name: w.warehouse_name,
-      active: w.status === "Active",
-    })),
     withholdingTaxes: taxes.map((t) => ({
       id: t.id,
       label: t.wht_label,
@@ -242,12 +232,10 @@ export type SalesOrderCheck =
         customer_id: number;
         address_id: number;
         term_id: number;
-        warehouse_id: number;
         price_mode: PriceMode;
         is_taxable: boolean;
         po_no: string | null;
         po_date: Date | null;
-        requested_date: Date;
         salesperson: string | null;
         note: string | null;
       };
@@ -260,7 +248,7 @@ export type SalesOrderCheck =
 
 /**
  * Every rule a Sales Order must satisfy to be saved — and, run again against
- * what was stored, to be confirmed. The form narrows the same choices; this is
+ * what was stored, to be submitted. The form narrows the same choices; this is
  * what enforces them.
  */
 export async function checkSalesOrder(
@@ -271,13 +259,8 @@ export async function checkSalesOrder(
 
   // ---- dates
   const orderDate = String(header.order_date ?? "").trim();
-  const reqDate = String(header.requested_date ?? "").trim();
   const poDate = String(header.po_date ?? "").trim();
   if (!DAY.test(orderDate)) errors.order_date = "Tanggal SO wajib diisi.";
-  if (!DAY.test(reqDate)) errors.requested_date = "Tanggal kirim yang diminta wajib diisi.";
-  else if (DAY.test(orderDate) && reqDate < orderDate) {
-    errors.requested_date = "Tidak boleh sebelum tanggal SO.";
-  }
   if (poDate && !DAY.test(poDate)) errors.po_date = "Tanggal PO tidak valid.";
   else if (poDate && DAY.test(orderDate) && poDate > orderDate) {
     errors.po_date = "Tidak boleh setelah tanggal SO.";
@@ -316,15 +299,10 @@ export async function checkSalesOrder(
     else if (t.status !== "Active") errors.term_id = "Termin tersebut sudah nonaktif.";
   }
 
-  const warehouseId = Number(header.warehouse_id) || null;
-  if (!warehouseId) errors.warehouse_id = "Pilih Gudang.";
-  else {
-    const w = await prisma.refWarehouse.findUnique({ where: { id: warehouseId }, select: { status: true } });
-    if (!w) errors.warehouse_id = "Gudang tidak ditemukan.";
-    else if (w.status !== "Active") errors.warehouse_id = "Gudang tersebut sudah nonaktif.";
-  }
-
-  const mode = header.price_mode;
+  // Include / Exclude is a question only a taxable order asks (P63): an order
+  // without PPN has nothing to include, so it is stored as Exclude.
+  const taxable = header.is_taxable !== false;
+  const mode = taxable ? header.price_mode : "Exclude";
   if (mode !== "Exclude" && mode !== "Include") errors.price_mode = "Pilih mode harga.";
 
   // ---- lines
@@ -348,7 +326,7 @@ export async function checkSalesOrder(
   for (const [i, l] of lines.entries()) {
     const item = items.get(Number(l.item_id));
     if (!item) {
-      errors[lineKey(i, "item_id")] = "Barang tidak ditemukan.";
+      errors[lineKey(i, "item_id")] = l.item_id ? "Barang tidak ditemukan." : "Pilih barang.";
       continue;
     }
     if (item.item_type !== "Barang" || !item.can_sell) {
@@ -408,7 +386,6 @@ export async function checkSalesOrder(
 
   // A taxable order snapshots the PPN rate and factor in force (P60); without
   // them there is nothing to compute its PPN with, so it is refused by name.
-  const taxable = header.is_taxable !== false;
   const rates = taxable ? await ppnRates() : null;
   if (taxable && !rates) errors._form = PPN_SETTINGS_MISSING;
 
@@ -436,12 +413,10 @@ export async function checkSalesOrder(
       customer_id: customerId!,
       address_id: Number(header.address_id),
       term_id: termId!,
-      warehouse_id: warehouseId!,
       price_mode: mode as PriceMode,
-      is_taxable: header.is_taxable !== false,
+      is_taxable: taxable,
       po_no: String(header.po_no ?? "").trim() || null,
       po_date: poDate ? asDate(poDate) : null,
-      requested_date: asDate(reqDate),
       salesperson: String(header.salesperson ?? "").trim() || null,
       note: String(header.note ?? "").trim() || null,
     },
@@ -545,7 +520,7 @@ export async function updateSalesOrder(
   const current = await prisma.salOrder.findUnique({ where: { id }, select: { status: true, order_no: true } });
   if (!current) return { ok: false, errors: { _form: "Sales Order tidak ditemukan." } };
   if (!salesOrderIsEditable(current.status as SalesOrderStatus)) {
-    return { ok: false, errors: { _form: "Sales Order yang sudah dikonfirmasi atau dibatalkan tidak dapat diubah." } };
+    return { ok: false, errors: { _form: "Hanya Sales Order berstatus Draft yang dapat diubah." } };
   }
 
   const c = await checkSalesOrder(header, lines);
@@ -576,12 +551,10 @@ function asInput(o: Prisma.SalOrderGetPayload<{ include: { lines: true } }>) {
     customer_id: o.customer_id,
     address_id: o.address_id,
     term_id: o.term_id,
-    warehouse_id: o.warehouse_id,
     price_mode: o.price_mode,
     is_taxable: o.is_taxable,
     po_no: o.po_no ?? "",
     po_date: isoDay(o.po_date),
-    requested_date: isoDay(o.requested_date),
     salesperson: o.salesperson ?? "",
     note: o.note ?? "",
   };
@@ -600,31 +573,31 @@ function asInput(o: Prisma.SalOrderGetPayload<{ include: { lines: true } }>) {
   return { header, lines };
 }
 
-/**
- * Why an order cannot be cancelled because of its advance bills, or null.
- * Counted through the order's own relation, so this module never names the
- * advance's table (the way `partner.ts` protects a used address).
- */
-async function liveAdvanceRefusal(db: Db, id: number): Promise<string | null> {
-  const row = await db.salOrder.findUnique({
-    where: { id },
-    select: { _count: { select: { advances: { where: { status: { not: "Cancelled" } } } } } },
-  });
-  const n = row?._count.advances ?? 0;
-  return n
-    ? `Sales Order ini masih memiliki ${n} tagihan uang muka yang belum dibatalkan. Batalkan tagihan uang muka tersebut dulu.`
-    : null;
-}
-
 export type SalesOrderTransitionResult =
   | { ok: true }
   | { ok: false; errors: Record<string, string> };
 
+/** The event name each step writes to the audit log. */
+const STEP_EVENT: Record<SalesOrderAction, string> = {
+  submit: "submit",
+  approve: "approve",
+  reject: "reject",
+  cancel: "cancel",
+  close: "close",
+};
+
 /**
- * Runs one lifecycle step. Confirming re-checks the stored order against
- * today's masters — a customer, item or Jenis PPh deactivated since the draft
- * was saved stops the confirmation, by name — and stores the totals that
- * check produced, so the confirmed figures are the ones it was confirmed on.
+ * Runs one lifecycle step (P63).
+ *
+ * **Ajukan** re-checks the stored order against today's masters — a customer,
+ * item or Jenis PPh deactivated since the draft was saved stops it, by name —
+ * and stores the totals that check produced, with the PPN rate in force, so the
+ * submitted figures are frozen as they were submitted (P60). Setujui changes
+ * only the status: nothing the order carries moves after Ajukan.
+ *
+ * Tolak, Batalkan and Tutup Pesanan ask for a reason, stored in
+ * `status_reason`. Every step is conditional on the status just read, so two
+ * people acting on the same order at once cannot both succeed.
  */
 export async function transitionSalesOrder(
   id: number,
@@ -638,26 +611,31 @@ export async function transitionSalesOrder(
   if (!salesOrderTransitionAllowed(action, order.status as SalesOrderStatus)) {
     return { ok: false, errors: { _form: `Sales Order berstatus ini tidak dapat di-${t.label.toLowerCase()}.` } };
   }
+  const from = order.status;
+  const moved = "Sales Order berubah saat diproses. Muat ulang halaman.";
 
-  if (action === "cancel") {
+  if (t.reason) {
     const why = String(reason ?? "").trim();
-    if (!why) return { ok: false, errors: { reason: "Alasan pembatalan wajib diisi." } };
-    // An order with a live advance bill is not cancelled: the bill is
-    // cancelled first (P57). Asked again inside the transaction, after the
-    // row is locked by the update, so a bill issued meanwhile is seen.
-    const blocked = await liveAdvanceRefusal(prisma, id);
-    if (blocked) return { ok: false, errors: { _form: blocked } };
+    if (!why) return { ok: false, errors: { reason: "Alasan wajib diisi." } };
     await prisma.$transaction(async (tx) => {
-      // Conditional on the status just read, so two people cancelling or
-      // confirming at once cannot both succeed.
       const done = await tx.salOrder.updateMany({
-        where: { id, status: order.status },
-        data: { status: "Cancelled", cancel_reason: why, updated_by: actorId },
+        where: { id, status: from },
+        data: { status: t.to, status_reason: why, updated_by: actorId },
       });
-      if (done.count !== 1) throw new Error("Sales Order berubah saat diproses. Muat ulang halaman.");
-      const late = await liveAdvanceRefusal(tx, id);
-      if (late) throw new Error(late);
-      await audit(tx, id, "UPDATE", "cancel", actorId);
+      if (done.count !== 1) throw new Error(moved);
+      await audit(tx, id, "UPDATE", STEP_EVENT[action], actorId);
+    });
+    return { ok: true };
+  }
+
+  if (action === "approve") {
+    await prisma.$transaction(async (tx) => {
+      const done = await tx.salOrder.updateMany({
+        where: { id, status: from },
+        data: { status: t.to, updated_by: actorId },
+      });
+      if (done.count !== 1) throw new Error(moved);
+      await audit(tx, id, "UPDATE", STEP_EVENT[action], actorId);
     });
     return { ok: true };
   }
@@ -666,16 +644,16 @@ export async function transitionSalesOrder(
   const c = await checkSalesOrder(input.header, input.lines);
   if (!c.ok) {
     const first = Object.entries(c.errors).find(([k]) => k !== "_lines")?.[1] ?? c.errors._lines;
-    return { ok: false, errors: { _form: `Belum bisa dikonfirmasi: ${first}` } };
+    return { ok: false, errors: { _form: `Belum bisa diajukan: ${first}` } };
   }
   await prisma.$transaction(async (tx) => {
     const done = await tx.salOrder.updateMany({
-      where: { id, status: "Draft" },
-      data: { status: "Confirmed", ...totalsData(c.totals), ...rateData(c.rates), updated_by: actorId },
+      where: { id, status: from },
+      data: { status: t.to, ...totalsData(c.totals), ...rateData(c.rates), updated_by: actorId },
     });
-    if (done.count !== 1) throw new Error("Sales Order berubah saat diproses. Muat ulang halaman.");
-    // Konfirmasi freezes the snapshot (P60): the lines are restated with the
-    // rate in force now, in case the setting changed since the Draft was saved.
+    if (done.count !== 1) throw new Error(moved);
+    // Ajukan freezes the snapshot (P60): the lines are restated with the rate
+    // in force now, in case the setting changed since the Draft was saved.
     for (const [i, l] of c.lines.entries()) {
       const r = c.totals.lines[i];
       await tx.salOrderLine.updateMany({
@@ -683,7 +661,7 @@ export async function transitionSalesOrder(
         data: { dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn, withholding_rate: l.withholding_rate },
       });
     }
-    await audit(tx, id, "UPDATE", "confirm", actorId);
+    await audit(tx, id, "UPDATE", STEP_EVENT[action], actorId);
   });
   return { ok: true };
 }
@@ -740,9 +718,8 @@ export type SalesOrderView = {
   addressText: string;
   termLabel: string;
   termName: string;
-  warehouseLabel: string;
-  warehouseName: string;
-  cancelReason: string | null;
+  /** Why it was cancelled, rejected or closed by hand (P63). */
+  statusReason: string | null;
   copiedFrom: { id: number; orderNo: string } | null;
   totals: { gross: number; discount: number; dpp: number; dppOther: number; ppn: number; total: number };
   /** The PPN rate and factor the order carries (P60); null when not Kena PPN. */
@@ -755,7 +732,6 @@ export async function getSalesOrder(id: number): Promise<SalesOrderView | null> 
     include: {
       customer: true,
       term: true,
-      warehouse: true,
       copied_from: { select: { id: true, order_no: true } },
       address: { include: { village: { include: { district: { include: { city: { include: { province: true } } } } } } } },
       lines: { include: { item: true, uom: true, withholding_tax: true }, orderBy: { line_no: "asc" } },
@@ -792,9 +768,7 @@ export async function getSalesOrder(id: number): Promise<SalesOrderView | null> 
     }),
     termLabel: o.term.term_label,
     termName: o.term.term_name,
-    warehouseLabel: o.warehouse.warehouse_label,
-    warehouseName: o.warehouse.warehouse_name,
-    cancelReason: o.cancel_reason,
+    statusReason: o.status_reason,
     copiedFrom: o.copied_from ? { id: o.copied_from.id, orderNo: o.copied_from.order_no } : null,
     totals: {
       gross: o.gross_amount.toNumber(),
@@ -851,24 +825,31 @@ export type AdvanceSourceOrder = {
   collectsPph22: boolean;
   addressText: string;
   poNo: string | null;
+  poDate: string;
+  termLabel: string;
+  termName: string;
+  salesperson: string | null;
+  /** How many lines the order has, for the bill's one-line summary of it. */
+  lineCount: number;
   basis: AdvanceBasis;
   /** Jenis PPh label by the basis's withholding key. */
   withholdingLabels: Record<string, string>;
 };
 
-/** Confirmed orders, or the ones named — any status — for a stored bill. */
+/** Open orders, or the ones named — any status — for a stored bill. */
 export async function advanceSourceOrders(
-  filter: { ids?: number[]; confirmedOnly?: boolean },
+  filter: { ids?: number[]; openOnly?: boolean },
   db: Db = prisma
 ): Promise<AdvanceSourceOrder[]> {
   const rows = await db.salOrder.findMany({
     where: {
       ...(filter.ids ? { id: { in: filter.ids } } : {}),
-      ...(filter.confirmedOnly ? { status: "Confirmed" } : {}),
+      ...(filter.openOnly ? { status: "Open" } : {}),
     },
     orderBy: [{ order_date: "desc" }, { id: "desc" }],
     include: {
       customer: true,
+      term: true,
       address: { include: { village: { include: { district: { include: { city: { include: { province: true } } } } } } } },
       lines: { include: { withholding_tax: true } },
     },
@@ -907,6 +888,11 @@ export async function advanceSourceOrders(
         postalCode: o.address.village.postal_code ?? "",
       }),
       poNo: o.po_no,
+      poDate: isoDay(o.po_date),
+      termLabel: o.term.term_label,
+      termName: o.term.term_name,
+      salesperson: o.salesperson,
+      lineCount: o.lines.length,
       basis: {
         mode: o.price_mode as PriceMode,
         taxable: o.is_taxable,
@@ -922,8 +908,8 @@ export async function advanceSourceOrders(
 
 /**
  * Locks an order's row for the rest of the transaction, so an advance drawn
- * from it and a cancellation of it cannot pass each other (P57), and two bills
- * cannot both spend the same room.
+ * from it and the order's closing cannot pass each other, and two bills
+ * cannot both spend the same room (P57).
  */
 export async function lockSalesOrder(tx: Prisma.TransactionClient, id: number): Promise<void> {
   await tx.$queryRaw`SELECT id FROM sal_order WHERE id = ${id} FOR UPDATE`;

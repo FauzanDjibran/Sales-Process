@@ -9,13 +9,14 @@ import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
+import { PercentInput } from "@/components/ui/percent-input";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { SalesOrderActions } from "@/components/sales/sales-order-actions";
-import { ItemPicker } from "@/components/sales/item-picker";
 import { createSalesOrderAction, updateSalesOrderAction } from "@/app/actions/sales-order";
 import { computeSalesTotals, type DiscountType, type PriceMode } from "@/lib/erp/sales-tax";
 import {
+  SALES_ORDER_REASON_TEXT,
   SALES_ORDER_STATUS_BADGE,
   SALES_ORDER_STATUS_TEXT,
   type SalesOrderAbilities,
@@ -34,8 +35,12 @@ import { formatDate, formatMoney, formatNumber, formatPct, todayIso } from "@/li
  *
  * Built the way the simulation's SO screen reads: the customer first — its
  * Termin and mode harga fill in from it (P51) — then the order, then the lines.
+ * Kena PPN is asked before the mode harga, which only a taxable order asks
+ * (P63). Each line picks its item from a dropdown like every other field.
  * Every figure is `computeSalesTotals`, the module the Server Action stores
- * from, so the impact box shows exactly what saving will write.
+ * from, so the impact box shows exactly what saving will write; the expected
+ * PPh deduction is a separate box on its left, because it is information for
+ * the user rather than part of the order's value.
  *
  * A document is a header card and a lines card (design convention §8.1); with
  * one collection there are no tabs (P38).
@@ -45,8 +50,9 @@ export type SoMode = "new" | "edit" | "view";
 
 type LineState = {
   key: string;
-  item_id: number;
-  uom_id: number;
+  /** Null on a line just added, until its item is picked. */
+  item_id: number | null;
+  uom_id: number | null;
   qty: string;
   price: string;
   discount_type: DiscountType | null;
@@ -60,12 +66,10 @@ type HeaderState = {
   customer_id: number | null;
   address_id: number | null;
   term_id: number | null;
-  warehouse_id: number | null;
   price_mode: PriceMode;
   is_taxable: boolean;
   po_no: string;
   po_date: string;
-  requested_date: string;
   salesperson: string;
   note: string;
 };
@@ -75,11 +79,18 @@ const newKey = () => `l${Date.now().toString(36)}${seq++}`;
 const MODE_TEXT: Record<PriceMode, string> = { Exclude: "Exclude PPN", Include: "Include PPN" };
 const money = (n: number) => formatMoney(n, "IDR");
 
-function addDays(iso: string, days: number): string {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
+const emptyLine = (): LineState => ({
+  key: newKey(),
+  item_id: null,
+  uom_id: null,
+  qty: "1",
+  price: "",
+  discount_type: null,
+  discount_value: "",
+  // No Jenis PPh is pre-filled (P61): the user picks it per line.
+  withholding_tax_id: null,
+  note: "",
+});
 
 export function SalesOrderForm({
   mode,
@@ -111,12 +122,10 @@ export function SalesOrderForm({
         customer_id: Number(h.customer_id),
         address_id: Number(h.address_id),
         term_id: Number(h.term_id),
-        warehouse_id: Number(h.warehouse_id),
         price_mode: h.price_mode as PriceMode,
         is_taxable: h.is_taxable,
         po_no: copyFrom ? "" : h.po_no,
         po_date: copyFrom ? "" : h.po_date,
-        requested_date: copyFrom ? addDays(today, 3) : h.requested_date,
         salesperson: h.salesperson,
         note: h.note,
       };
@@ -127,12 +136,10 @@ export function SalesOrderForm({
       customer_id: null,
       address_id: null,
       term_id: null,
-      warehouse_id: null,
       price_mode: "Exclude",
       is_taxable: true,
       po_no: "",
       po_date: "",
-      requested_date: addDays(today, 3),
       salesperson: "",
       note: "",
     };
@@ -154,7 +161,6 @@ export function SalesOrderForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(Boolean(copyFrom));
   const [saving, setSaving] = useState(false);
-  const [picking, setPicking] = useState(false);
 
   const customer = options.customers.find((c) => c.id === header.customer_id) ?? null;
   const itemById = useMemo(() => new Map(options.items.map((i) => [i.id, i])), [options.items]);
@@ -195,25 +201,26 @@ export function SalesOrderForm({
     touch("_lines");
   };
 
-  const addItems = (ids: number[]) => {
-    setLines((ls) => [
-      ...ls,
-      ...ids.map((id) => ({
-        key: newKey(),
-        item_id: id,
-        uom_id: itemById.get(id)!.uoms[0].id,
-        qty: "1",
-        price: "",
-        discount_type: null,
-        discount_value: "",
-        // No Jenis PPh is pre-filled (P61): the user picks it per line.
-        withholding_tax_id: null,
-        note: "",
-      })),
-    ]);
+  const addLine = () => {
+    setLines((ls) => [...ls, emptyLine()]);
     touch("_lines");
-    setPicking(false);
   };
+
+  /** Picking an item starts the line on its base unit. */
+  const pickItem = (key: string, id: number | null) =>
+    setLine(key, { item_id: id, uom_id: id ? (itemById.get(id)?.uoms[0]?.id ?? null) : null });
+
+  /** Kena PPN on starts on the customer's default mode; off, the mode is moot. */
+  const setTaxable = (taxable: boolean) => {
+    setHeader((h) => ({
+      ...h,
+      is_taxable: taxable,
+      price_mode: taxable ? (customer?.defaultPriceMode ?? h.price_mode) : h.price_mode,
+    }));
+    touch("is_taxable", "price_mode");
+  };
+  // Only a taxable order has a mode harga (P63); without PPN it is Exclude.
+  const priceMode: PriceMode = header.is_taxable ? header.price_mode : "Exclude";
 
   // ---- the figures, exactly as the server will store them. A stored order
   // shows the rate it carries; one being edited previews the rate in force,
@@ -233,12 +240,12 @@ export function SalesOrderForm({
             withholdingKey: t ? String(t.id) : null,
           };
         }),
-        mode: header.price_mode,
+        mode: priceMode,
         taxable: header.is_taxable,
         vatCollector: customer?.vatCollector ?? false,
         rates,
       }),
-    [lines, header.price_mode, header.is_taxable, customer, whtById, rates]
+    [lines, priceMode, header.is_taxable, customer, whtById, rates]
   );
 
   const payloadLines = (): SalesOrderLineInput[] =>
@@ -420,25 +427,8 @@ export function SalesOrderForm({
               )}
             </Field>
             <Field
-              label="Kirim Diminta"
-              span={3}
-              required={editing}
-              help={editing ? "permintaan customer" : undefined}
-              error={errors.requested_date}
-            >
-              {editing ? (
-                <DateInput
-                  value={header.requested_date}
-                  invalid={Boolean(errors.requested_date)}
-                  onChange={(v) => set("requested_date", v)}
-                />
-              ) : (
-                ro(formatDate(header.requested_date))
-              )}
-            </Field>
-            <Field
               label="Termin Pembayaran"
-              span={4}
+              span={3}
               required={editing}
               help={
                 editing && customer?.defaultTermId && header.term_id !== customer.defaultTermId
@@ -464,25 +454,7 @@ export function SalesOrderForm({
                 )
               )}
             </Field>
-            <Field label="Gudang Pengirim" span={4} required={editing} error={errors.warehouse_id}>
-              {editing ? (
-                <Combobox
-                  value={header.warehouse_id}
-                  options={refOptions(options.warehouses)}
-                  placeholder="Pilih Gudang…"
-                  invalid={Boolean(errors.warehouse_id)}
-                  onChange={(v) => set("warehouse_id", v)}
-                />
-              ) : (
-                ro(
-                  <>
-                    <span className="lab">{order?.warehouseLabel}</span>
-                    <span>{order?.warehouseName}</span>
-                  </>
-                )
-              )}
-            </Field>
-            <Field label="Salesperson" span={4} help={editing ? "opsional" : undefined}>
+            <Field label="Salesperson" span={6} help={editing ? "opsional" : undefined}>
               {editing ? (
                 <input
                   className="inp"
@@ -502,33 +474,13 @@ export function SalesOrderForm({
 
         <FormSection title="Harga & Pajak">
           <FormRow>
-            <Field
-              label="Mode Harga"
-              span={4}
-              required={editing}
-              help={editing ? "harga baris diketik sebelum atau sudah termasuk PPN" : undefined}
-              error={errors.price_mode}
-            >
-              {editing ? (
-                <Select
-                  value={header.price_mode}
-                  options={[
-                    { value: "Exclude", label: MODE_TEXT.Exclude },
-                    { value: "Include", label: MODE_TEXT.Include },
-                  ]}
-                  onChange={(v) => set("price_mode", (v || "Exclude") as PriceMode)}
-                />
-              ) : (
-                ro(<span className="bdg t-slate">{MODE_TEXT[header.price_mode]}</span>)
-              )}
-            </Field>
             <Field label="PPN" span={4} help={editing ? "berlaku untuk seluruh baris" : undefined}>
               {editing ? (
                 <label className="chk sm">
                   <input
                     type="checkbox"
                     checked={header.is_taxable}
-                    onChange={(e) => set("is_taxable", e.target.checked)}
+                    onChange={(e) => setTaxable(e.target.checked)}
                   />
                   <span>
                     <span className="ct">Kena PPN</span>
@@ -542,6 +494,28 @@ export function SalesOrderForm({
                 )
               )}
             </Field>
+            {header.is_taxable && (
+              <Field
+                label="Mode Harga"
+                span={4}
+                required={editing}
+                help={editing ? "harga baris diketik sebelum atau sudah termasuk PPN" : undefined}
+                error={errors.price_mode}
+              >
+                {editing ? (
+                  <Select
+                    value={header.price_mode}
+                    options={[
+                      { value: "Exclude", label: MODE_TEXT.Exclude },
+                      { value: "Include", label: MODE_TEXT.Include },
+                    ]}
+                    onChange={(v) => set("price_mode", (v || "Exclude") as PriceMode)}
+                  />
+                ) : (
+                  ro(<span className="bdg t-slate">{MODE_TEXT[header.price_mode]}</span>)
+                )}
+              </Field>
+            )}
             {order?.copiedFrom && (
               <Field label="Disalin dari" span={4}>
                 {ro(
@@ -568,9 +542,9 @@ export function SalesOrderForm({
             </Field>
           </FormRow>
         </FormSection>
-        {order?.status === "Cancelled" && order.cancelReason && (
+        {order?.statusReason && SALES_ORDER_REASON_TEXT[order.status] && (
           <p className="fnote">
-            <b>Dibatalkan:</b> {order.cancelReason}
+            <b>{SALES_ORDER_REASON_TEXT[order.status]}:</b> {order.statusReason}
           </p>
         )}
       </FormBody>
@@ -595,13 +569,13 @@ export function SalesOrderForm({
         <div className="ct">
           <h3>Barang Dipesan</h3>
           <p>
-            Harga per satuan dalam {MODE_TEXT[header.price_mode]}. Jenis PPh diisi bila customer akan memotong atau
-            memungut PPh.
+            {header.is_taxable ? `Harga per satuan dalam ${MODE_TEXT[priceMode]}.` : "Harga per satuan, tanpa PPN."}{" "}
+            Jenis PPh diisi bila customer akan memotong atau memungut PPh.
           </p>
         </div>
         {editing && (
-          <button className="btn sm primary" onClick={() => setPicking(true)}>
-            <Icon name="plus" size={14} /> Tambah Barang
+          <button className="btn sm primary" onClick={addLine}>
+            <Icon name="plus" size={14} /> Tambah Baris
           </button>
         )}
       </div>
@@ -630,8 +604,8 @@ export function SalesOrderForm({
           <h4>Belum ada barang</h4>
           <p>Sales Order memerlukan minimal satu barang yang dapat dijual.</p>
           {editing && (
-            <button className="btn primary sm cta" onClick={() => setPicking(true)}>
-              <Icon name="plus" size={14} /> Tambah Barang
+            <button className="btn primary sm cta" onClick={addLine}>
+              <Icon name="plus" size={14} /> Tambah Baris
             </button>
           )}
         </div>
@@ -641,19 +615,19 @@ export function SalesOrderForm({
             <thead>
               <tr>
                 <th style={{ width: 34 }}>No</th>
-                <th>Barang</th>
+                <th style={{ minWidth: 260 }}>Barang</th>
                 <th style={{ width: 96 }}>Satuan</th>
                 <th className="num" style={{ width: 88 }}>Qty</th>
-                <th className="num" style={{ width: 128 }}>Harga</th>
-                <th style={{ width: 196 }}>Diskon</th>
-                <th style={{ width: 132 }}>Jenis PPh</th>
-                <th className="num" style={{ width: 128 }}>Jumlah</th>
+                <th className="num" style={{ width: 120 }}>Harga</th>
+                <th style={{ width: 184 }}>Diskon</th>
+                <th style={{ width: 120 }}>Jenis PPh</th>
+                <th className="num" style={{ width: 120 }}>Jumlah</th>
                 {editing && <th style={{ width: 40 }} />}
               </tr>
             </thead>
             <tbody>
               {lines.map((l, i) => {
-                const item = itemById.get(l.item_id);
+                const item = l.item_id ? itemById.get(l.item_id) : undefined;
                 const view = order?.lines[i];
                 const r = totals.lines[i];
                 const uoms = item?.uoms ?? [];
@@ -665,17 +639,32 @@ export function SalesOrderForm({
                   <tr key={l.key} className={lineError ? "overrow" : undefined}>
                     <td className="no">{i + 1}</td>
                     <td>
-                      <span className="idc">
-                        <span className="lab">{item?.label ?? view?.itemLabel}</span>
-                        <span className="nm">{item?.name ?? view?.itemName}</span>
-                      </span>
+                      {editing ? (
+                        <Combobox
+                          size="sm"
+                          value={l.item_id}
+                          // Each item once per order: the others' items are not offered.
+                          options={options.items.filter(
+                            (o) => o.id === l.item_id || !lines.some((x) => x.key !== l.key && x.item_id === o.id)
+                          )}
+                          placeholder="Pilih Barang…"
+                          invalid={Boolean(lineErr(i, "item_id"))}
+                          onChange={(v) => pickItem(l.key, v)}
+                        />
+                      ) : (
+                        <span className="idc">
+                          <span className="lab">{item?.label ?? view?.itemLabel}</span>
+                          <span className="nm">{item?.name ?? view?.itemName}</span>
+                        </span>
+                      )}
                       {lineError && <span className="overtag">{lineError}</span>}
                     </td>
                     <td>
                       {editing ? (
                         <Select
                           size="sm"
-                          value={String(l.uom_id)}
+                          value={l.uom_id ? String(l.uom_id) : ""}
+                          waitingFor={l.item_id ? null : "Pilih Barang dulu…"}
                           options={uoms.map((u) => ({
                             value: String(u.id),
                             label: u.label,
@@ -733,10 +722,16 @@ export function SalesOrderForm({
                               </button>
                             ))}
                           </span>
-                          {l.discount_type ? (
+                          {l.discount_type === "Percent" ? (
+                            <PercentInput
+                              size="sm"
+                              value={l.discount_value}
+                              ariaLabel="Diskon persen"
+                              onChange={(v) => setLine(l.key, { discount_value: v })}
+                            />
+                          ) : l.discount_type ? (
                             <MoneyInput
                               size="sm"
-                              decimals={l.discount_type === "Percent" ? 2 : 0}
                               value={l.discount_value}
                               ariaLabel="Nilai diskon"
                               onChange={(v) => setLine(l.key, { discount_value: v })}
@@ -795,9 +790,38 @@ export function SalesOrderForm({
           </table>
         </div>
       )}
-      <div className="cardfoot">
+      <div className="cardfoot multi">
+        {/* The expected deduction is information, not part of the order's
+            value, so it stands in its own box to the left (P63). */}
+        {(totals.withholdingTotal > 0 || totals.collectedPpn > 0) && (
+          <div className="impact">
+            <div className="ttl">Estimasi Penerimaan</div>
+            <div className="ir">
+              <span>Total Sales Order</span>
+              <b>{money(totals.total)}</b>
+            </div>
+            {totals.withholdings.map((w) => (
+              <div className="ir" key={w.key}>
+                <span>
+                  {whtById.get(Number(w.key))?.label ?? "PPh"} {formatPct(w.rate)} × DPP {money(w.base)}
+                </span>
+                <b>−{money(w.amount)}</b>
+              </div>
+            ))}
+            {totals.collectedPpn > 0 && (
+              <div className="ir">
+                <span>PPN dipungut pembeli (WAPU)</span>
+                <b>−{money(totals.collectedPpn)}</b>
+              </div>
+            )}
+            <div className="ir tot">
+              <span>Estimasi dana diterima</span>
+              <b>{money(totals.expectedReceipt)}</b>
+            </div>
+          </div>
+        )}
         <div className="impact">
-          <div className="ttl">Nilai Pesanan</div>
+          <div className="ttl">Nilai Pesanan · {header.is_taxable ? MODE_TEXT[priceMode] : "Tidak Kena PPN"}</div>
           <div className="ir">
             <span>Subtotal</span>
             <b>{money(totals.gross)}</b>
@@ -833,36 +857,16 @@ export function SalesOrderForm({
           )}
           {/* Only a price that already holds its PPN can come out a rupiah under
               (P60); an Exclude order's total is its amounts plus PPN by design. */}
-          {header.is_taxable && header.price_mode === "Include" && totals.gross - totals.discount !== totals.total && (
+          {header.is_taxable && priceMode === "Include" && totals.gross - totals.discount !== totals.total && (
             <div className="ir est">
               <span>Pembulatan PPN (diserap DPP)</span>
               <b>−{money(totals.gross - totals.discount - totals.total)}</b>
             </div>
           )}
           <div className="ir tot">
-            <span>Total</span>
+            <span>Total Sales Order</span>
             <b>{money(totals.total)}</b>
           </div>
-          {totals.withholdings.map((w) => (
-            <div className="ir est" key={w.key}>
-              <span>
-                Estimasi {whtById.get(Number(w.key))?.label ?? "PPh"} {formatPct(w.rate)} × {money(w.base)}
-              </span>
-              <b>−{money(w.amount)}</b>
-            </div>
-          ))}
-          {totals.collectedPpn > 0 && (
-            <div className="ir est">
-              <span>PPN dipungut pembeli (WAPU)</span>
-              <b>−{money(totals.collectedPpn)}</b>
-            </div>
-          )}
-          {(totals.withholdingTotal > 0 || totals.collectedPpn > 0) && (
-            <div className="ir tot">
-              <span>Estimasi Penerimaan</span>
-              <b>{money(totals.expectedReceipt)}</b>
-            </div>
-          )}
         </div>
       </div>
     </div>
@@ -921,14 +925,6 @@ export function SalesOrderForm({
         </div>
       </div>
 
-      {picking && (
-        <ItemPicker
-          items={options.items.filter((i) => i.active)}
-          taken={lines.map((l) => l.item_id)}
-          onCancel={() => setPicking(false)}
-          onPick={addItems}
-        />
-      )}
     </>
   );
 }

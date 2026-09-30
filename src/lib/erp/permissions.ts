@@ -104,8 +104,10 @@ export const PERMISSIONS = [
   { code: "SALES_ORDER_VIEW", name: "Lihat Sales Order", module: "sales", description: "Termasuk yang masih Draft dan yang dibatalkan." },
   { code: "SALES_ORDER_CREATE", name: "Buat Sales Order", module: "sales", description: "Membuat Draft baru, termasuk lewat Salin." },
   { code: "SALES_ORDER_EDIT", name: "Ubah Sales Order", module: "sales", description: "Hanya selama masih Draft." },
-  { code: "SALES_ORDER_CONFIRM", name: "Konfirmasi Sales Order", module: "sales", description: "Mengunci pesanan; setelah itu tidak dapat diubah." },
-  { code: "SALES_ORDER_CANCEL", name: "Batalkan Sales Order", module: "sales", description: "Draft maupun yang sudah dikonfirmasi, dengan alasan." },
+  { code: "SALES_ORDER_SUBMIT", name: "Ajukan Sales Order", module: "sales", description: "Mengunci Draft dan mengajukannya untuk disetujui." },
+  { code: "SALES_ORDER_APPROVE", name: "Setujui / Tolak Sales Order", module: "sales", description: "Menjadikan pesanan yang diajukan Open, atau menolaknya dengan alasan." },
+  { code: "SALES_ORDER_CANCEL", name: "Batalkan Sales Order", module: "sales", description: "Hanya Draft, dengan alasan." },
+  { code: "SALES_ORDER_CLOSE", name: "Tutup Sales Order", module: "sales", description: "Menutup pesanan Open walaupun belum seluruhnya dikirim, dengan alasan." },
 
   { code: "MENU_ACCOUNTING_ACCESS", name: "Akses menu Accounting", module: "accounting" },
 
@@ -181,7 +183,7 @@ export const PERMISSIONS = [
 
   // Uang Muka Penjualan — the AR advance bill (P54–P58).
   { code: "SALES_ADVANCE_VIEW", name: "Lihat Uang Muka Penjualan", module: "finance", description: "Termasuk yang masih Draft dan yang dibatalkan." },
-  { code: "SALES_ADVANCE_CREATE", name: "Buat Uang Muka Penjualan", module: "finance", description: "Membuat Draft tagihan dari Sales Order yang sudah dikonfirmasi." },
+  { code: "SALES_ADVANCE_CREATE", name: "Buat Uang Muka Penjualan", module: "finance", description: "Membuat Draft tagihan dari Sales Order berstatus Open." },
   { code: "SALES_ADVANCE_EDIT", name: "Ubah Uang Muka Penjualan", module: "finance", description: "Hanya selama masih Draft." },
   { code: "SALES_ADVANCE_ISSUE", name: "Terbitkan Uang Muka Penjualan", module: "finance", description: "Mengunci tagihan untuk dikirim ke customer. Tidak memposting journal." },
   { code: "SALES_ADVANCE_CANCEL", name: "Batalkan Uang Muka Penjualan", module: "finance", description: "Draft maupun yang sudah diterbitkan, dengan alasan." },

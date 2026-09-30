@@ -26,9 +26,9 @@ import {
 
 /**
  * Uang Muka Penjualan (P54–P58): what may be saved, how the order's room is
- * spent, how a bill moves Draft → Diterbitkan / Dibatalkan, and that an order
- * with a live bill is not cancelled. A bill posts nothing, which the journal
- * count proves.
+ * spent, how a bill moves Draft → Diterbitkan / Dibatalkan, and that only an
+ * Open order takes one — a closed order takes no new bill, though its issued
+ * ones stand (P63). A bill posts nothing, which the journal count proves.
  */
 
 let actor = 0;
@@ -58,8 +58,8 @@ async function cashBank(label: string, type: "Cash" | "Bank", status: "Active" |
   ).id;
 }
 
-/** A confirmed order: 2 PCS withheld + 1 PCS not, 1.000.000 each, Exclude PPN. */
-async function confirmedOrder(confirm = true) {
+/** An Open order: 2 PCS withheld + 1 PCS not, 1.000.000 each, Exclude PPN. */
+async function openOrder(open = true) {
   const line = (over: Partial<SalesOrderLineInput> = {}): SalesOrderLineInput => ({
     item_id: f.goods,
     uom_id: f.pcs,
@@ -77,12 +77,10 @@ async function confirmedOrder(confirm = true) {
       customer_id: f.customer,
       address_id: f.address,
       term_id: f.term,
-      warehouse_id: f.warehouse,
       price_mode: "Exclude",
       is_taxable: true,
       po_no: "PO-ADV-1",
       po_date: "",
-      requested_date: "2026-09-12",
       salesperson: "",
       note: "",
     },
@@ -91,7 +89,10 @@ async function confirmedOrder(confirm = true) {
   );
   assert.ok(r.ok, JSON.stringify(r));
   orders.push(r.id);
-  if (confirm) assert.deepEqual(await transitionSalesOrder(r.id, "confirm", actor), { ok: true });
+  if (open) {
+    assert.deepEqual(await transitionSalesOrder(r.id, "submit", actor), { ok: true });
+    assert.deepEqual(await transitionSalesOrder(r.id, "approve", actor), { ok: true });
+  }
   return r.id;
 }
 
@@ -127,7 +128,6 @@ before(async () => {
     })
   ).id;
   f.term = (await prisma.refPaymentTerm.create({ data: { term_code: `test.${key("T")}`, term_label: key("T"), term_name: "Net 30", due_days: 30, created_by: actor } })).id;
-  f.warehouse = (await prisma.refWarehouse.create({ data: { warehouse_code: `test.${key("W")}`, warehouse_label: key("W"), warehouse_name: "Gudang", created_by: actor } })).id;
   f.wht = (await prisma.refWithholdingTax.create({ data: { wht_code: `test.${key("WHT")}`, wht_label: key("WHT"), wht_name: "PPh 22 Uji", rate: 1.5, created_by: actor } })).id;
 
   f.customer = await makePartner({ categoryLabel: "Customer" });
@@ -140,13 +140,12 @@ before(async () => {
 
   f.bank = await cashBank("BANK", "Bank");
   f.cash = await cashBank("KAS", "Cash");
-  f.order = await confirmedOrder();
+  f.order = await openOrder();
 
   cleanups.push(
     () => prisma.mItem.deleteMany({ where: { id: f.goods } }),
     () => prisma.refUom.deleteMany({ where: { id: f.pcs } }),
     () => prisma.refPaymentTerm.deleteMany({ where: { id: f.term } }),
-    () => prisma.refWarehouse.deleteMany({ where: { id: f.warehouse } }),
     () => prisma.refWithholdingTax.deleteMany({ where: { id: f.wht } })
   );
 });
@@ -165,8 +164,8 @@ after(async () => {
 // ----------------------------------------------------------------- options
 
 describe("what the form offers", () => {
-  test("confirmed orders with their room, and rupiah bank accounts only", async () => {
-    const draft = await confirmedOrder(false);
+  test("Open orders with their room, and rupiah bank accounts only", async () => {
+    const draft = await openOrder(false);
     const o = await salesAdvanceOptions();
     const so = o.orders.find((x) => x.id === f.order);
     assert.ok(so);
@@ -193,9 +192,9 @@ describe("what may be saved", () => {
   });
 
   test("the order, dates, bank, description and value are enforced", async () => {
-    const draft = await confirmedOrder(false);
+    const draft = await openOrder(false);
     const a = await checkSalesAdvance(prisma, input({ order_id: draft }), null);
-    assert.ok(!a.ok && /Dikonfirmasi/.test(a.errors.order_id));
+    assert.ok(!a.ok && /Open/.test(a.errors.order_id));
     const b = await checkSalesAdvance(
       prisma,
       input({ advance_date: "2026-09-01", due_date: "2026-08-30", cash_bank_id: f.cash, description: " ", amount_value: 101 }),
@@ -212,7 +211,7 @@ describe("what may be saved", () => {
 
 describe("an order's room is spent once", () => {
   test("bills drawn from one order cannot exceed it; a cancelled bill gives its share back", async () => {
-    const order = await confirmedOrder();
+    const order = await openOrder();
     const first = await create(input({ order_id: order, amount_value: 30 }));
     assert.ok(first.ok);
     const tooMuch = await create(input({ order_id: order, amount_value: 80 }));
@@ -228,7 +227,7 @@ describe("an order's room is spent once", () => {
   });
 
   test("editing a bill does not count its own draw against it", async () => {
-    const order = await confirmedOrder();
+    const order = await openOrder();
     const r = await create(input({ order_id: order, amount_value: 100 }));
     assert.ok(r.ok);
     const up = await updateSalesAdvance(r.id, input({ order_id: order, amount_value: 90 }), actor);
@@ -253,7 +252,7 @@ describe("a bill's life", () => {
     const journals = await prisma.accJournal.count();
     const r = await create();
     assert.ok(r.ok);
-    const moved = await updateSalesAdvance(r.id, input({ order_id: await confirmedOrder() }), actor);
+    const moved = await updateSalesAdvance(r.id, input({ order_id: await openOrder() }), actor);
     assert.ok(!moved.ok && moved.errors.order_id, "the order cannot be swapped");
     const up = await updateSalesAdvance(r.id, input({ amount_type: "Amount", amount_value: 500_000 }), actor);
     assert.ok(up.ok);
@@ -330,16 +329,15 @@ describe("a bill's life", () => {
 
 // ------------------------------------------------------ the order's side
 
-describe("an order with a live bill is not cancelled (P57)", () => {
-  test("the bill is cancelled first", async () => {
-    const order = await confirmedOrder();
+describe("a closed order takes no new bill (P63)", () => {
+  test("its issued bill stands; a new one is refused", async () => {
+    const order = await openOrder();
     const r = await create(input({ order_id: order }));
     assert.ok(r.ok);
-    const blocked = await transitionSalesOrder(order, "cancel", actor, "batal");
-    assert.ok(!blocked.ok && /uang muka/.test(blocked.errors._form));
-    assert.deepEqual(await transitionSalesAdvance(r.id, "cancel", actor, "batal"), { ok: true });
-    assert.deepEqual(await transitionSalesOrder(order, "cancel", actor, "batal"), { ok: true });
+    assert.deepEqual(await transitionSalesAdvance(r.id, "issue", actor), { ok: true });
+    assert.deepEqual(await transitionSalesOrder(order, "close", actor, "selesai"), { ok: true });
+    assert.equal((await getSalesAdvance(r.id))!.status, "Issued", "closing leaves the bill alone");
     const late = await create(input({ order_id: order }));
-    assert.ok(!late.ok && late.errors.order_id, "a cancelled order takes no bill");
+    assert.ok(!late.ok && late.errors.order_id, "a closed order takes no bill");
   });
 });

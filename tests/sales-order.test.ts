@@ -20,9 +20,10 @@ import {
 import { FIXTURE_PREFIX, cleanupFixtures, disconnect, makePartner, prisma, systemUserId } from "./helpers";
 
 /**
- * The Sales Order (P49–P53): what may be saved, how it is numbered, how it
- * moves Draft → Dikonfirmasi / Dibatalkan, and that it protects the address it
- * names. It posts nothing, which the journal count proves.
+ * The Sales Order (P49–P53, P63): what may be saved, how it is numbered, how
+ * it moves Draft → Diajukan → Open → Ditutup (or Dibatalkan / Ditolak), and
+ * that it protects the address it names. It posts nothing, which the journal
+ * count proves.
  */
 
 let actor = 0;
@@ -62,12 +63,10 @@ const header = (over: Partial<SalesOrderHeaderInput> = {}): SalesOrderHeaderInpu
   customer_id: f.customer,
   address_id: f.address,
   term_id: f.term,
-  warehouse_id: f.warehouse,
   price_mode: "Exclude",
   is_taxable: true,
   po_no: "",
   po_date: "",
-  requested_date: "2026-09-12",
   salesperson: "",
   note: "",
   ...over,
@@ -115,7 +114,6 @@ before(async () => {
   await prisma.mItemUom.create({ data: { item_id: f.goods, uom_id: f.box, factor: 12, created_by: actor } });
 
   f.term = (await prisma.refPaymentTerm.create({ data: { term_code: `test.${key("T")}`, term_label: key("T"), term_name: "Net 30", due_days: 30, created_by: actor } })).id;
-  f.warehouse = (await prisma.refWarehouse.create({ data: { warehouse_code: `test.${key("W")}`, warehouse_label: key("W"), warehouse_name: "Gudang Uji", created_by: actor } })).id;
   f.wht = (await prisma.refWithholdingTax.create({ data: { wht_code: `test.${key("WHT")}`, wht_label: key("WHT"), wht_name: "PPh Uji", rate: 1.5, created_by: actor } })).id;
 
   f.customer = await fixtureCustomer(true);
@@ -131,7 +129,6 @@ before(async () => {
     () => prisma.mItem.deleteMany({ where: { id: { in: [f.goods, f.service, f.unsellable] } } }),
     () => prisma.refUom.deleteMany({ where: { id: { in: [f.pcs, f.box, f.ctn] } } }),
     () => prisma.refPaymentTerm.deleteMany({ where: { id: f.term } }),
-    () => prisma.refWarehouse.deleteMany({ where: { id: f.warehouse } }),
     () => prisma.refWithholdingTax.deleteMany({ where: { id: f.wht } })
   );
 });
@@ -180,14 +177,25 @@ describe("what may be saved", () => {
   });
 
   test("the header's required choices and dates", async () => {
-    const c = await checkSalesOrder(
-      header({ customer_id: null, term_id: null, warehouse_id: null, requested_date: "2026-09-01", po_date: "2026-09-20" }),
-      []
-    );
+    const c = await checkSalesOrder(header({ customer_id: null, term_id: null, po_date: "2026-09-20" }), []);
     assert.ok(!c.ok);
-    for (const k of ["customer_id", "term_id", "warehouse_id", "requested_date", "po_date", "_lines"]) {
+    for (const k of ["customer_id", "term_id", "po_date", "_lines"]) {
       assert.ok(c.errors[k], `${k} is refused`);
     }
+  });
+
+  test("an order without PPN has no mode harga: it is stored as Exclude (P63)", async () => {
+    const c = await checkSalesOrder(header({ is_taxable: false, price_mode: "Include" }), [soLine()]);
+    assert.ok(c.ok);
+    assert.equal(c.header.price_mode, "Exclude");
+    assert.equal(c.totals.ppn, 0);
+    assert.equal(c.totals.total, 2_000_000);
+  });
+
+  test("a line without an item asks for one", async () => {
+    const c = await checkSalesOrder(header(), [soLine({ item_id: null, uom_id: null })]);
+    assert.ok(!c.ok);
+    assert.equal(c.errors["lines.0.item_id"], "Pilih barang.");
   });
 
   test("an incomplete customer and another customer's address are refused", async () => {
@@ -224,13 +232,13 @@ describe("what may be saved", () => {
 describe("an order's life", () => {
   test("numbered in its own month's series", async () => {
     const a = await create();
-    const b = await create(header({ order_date: "2026-09-11", requested_date: "2026-09-11" }));
+    const b = await create(header({ order_date: "2026-09-11" }));
     assert.ok(a.ok && b.ok);
     assert.match(a.orderNo, /^SO\/2026\/09\/\d{4}$/);
     assert.equal(Number(b.orderNo.slice(-4)), Number(a.orderNo.slice(-4)) + 1);
   });
 
-  test("a Draft is edited; confirming locks it; posting nothing", async () => {
+  test("a Draft is edited; Ajukan locks it; Setujui opens it; posting nothing", async () => {
     const journals = await prisma.accJournal.count();
     const r = await create();
     assert.ok(r.ok);
@@ -240,15 +248,22 @@ describe("an order's life", () => {
     assert.equal(so.totals.total, 2_220_000);
     assert.equal(so.totals.ppn, 220_000);
 
-    assert.deepEqual(await transitionSalesOrder(r.id, "confirm", actor), { ok: true });
+    assert.deepEqual(await transitionSalesOrder(r.id, "submit", actor), { ok: true });
     so = (await getSalesOrder(r.id))!;
-    assert.equal(so.status, "Confirmed");
+    assert.equal(so.status, "Submitted");
     const again = await updateSalesOrder(r.id, header(), [soLine()], actor);
-    assert.ok(!again.ok && again.errors._form, "a confirmed order is not edited");
+    assert.ok(!again.ok && again.errors._form, "a submitted order is not edited");
+    const cancel = await transitionSalesOrder(r.id, "cancel", actor, "tarik");
+    assert.ok(!cancel.ok, "a submitted order is not taken back or cancelled");
+
+    assert.deepEqual(await transitionSalesOrder(r.id, "approve", actor), { ok: true });
+    so = (await getSalesOrder(r.id))!;
+    assert.equal(so.status, "Open");
+    assert.equal(so.totals.total, 2_220_000, "Setujui changes nothing but the status");
     assert.equal(await prisma.accJournal.count(), journals, "a Sales Order posts nothing");
 
     const events = (await prisma.auditLog.findMany({ where: { entity_key: "sal_order", row_id: r.id }, orderBy: { id: "asc" } })).map((a) => a.event);
-    assert.deepEqual(events, ["create", "update", "confirm"]);
+    assert.deepEqual(events, ["create", "update", "submit", "approve"]);
   });
 
   test("an order snapshots the PPN rate and stores each line's figures (P60)", async () => {
@@ -262,37 +277,64 @@ describe("an order's life", () => {
 
     await prisma.sysSetting.update({ where: { setting_key: "ppn_rate" }, data: { setting_value: "11" } });
     try {
-      assert.deepEqual(await transitionSalesOrder(r.id, "confirm", actor), { ok: true });
+      assert.deepEqual(await transitionSalesOrder(r.id, "submit", actor), { ok: true });
     } finally {
       await prisma.sysSetting.update({ where: { setting_key: "ppn_rate" }, data: { setting_value: "12" } });
     }
     so = (await getSalesOrder(r.id))!;
-    assert.equal(so.rates?.rate, 11, "Konfirmasi froze the rate in force then");
+    assert.equal(so.rates?.rate, 11, "Ajukan froze the rate in force then");
     assert.equal(so.totals.ppn, 2 * 100_834, "11 % × 916.669, per line");
     const confirmed = await prisma.salOrderLine.findMany({ where: { order_id: r.id } });
     assert.ok(confirmed.every((l) => l.ppn_amount.toNumber() === 100_834), "the lines are restated with it");
   });
 
-  test("cancelling needs a reason, from Draft or Dikonfirmasi", async () => {
+  test("Batalkan: from Draft only, with a reason, final", async () => {
     const r = await create();
     assert.ok(r.ok);
     const bare = await transitionSalesOrder(r.id, "cancel", actor, "  ");
     assert.ok(!bare.ok && bare.errors.reason);
-    assert.deepEqual(await transitionSalesOrder(r.id, "confirm", actor), { ok: true });
     assert.deepEqual(await transitionSalesOrder(r.id, "cancel", actor, "Duplikat"), { ok: true });
     const so = (await getSalesOrder(r.id))!;
     assert.equal(so.status, "Cancelled");
-    assert.equal(so.cancelReason, "Duplikat");
-    const twice = await transitionSalesOrder(r.id, "cancel", actor, "lagi");
-    assert.ok(!twice.ok, "a cancelled order stays cancelled");
+    assert.equal(so.statusReason, "Duplikat");
+    assert.ok(!(await transitionSalesOrder(r.id, "submit", actor)).ok, "a cancelled order stays cancelled");
   });
 
-  test("confirming re-checks the masters", async () => {
+  test("Tolak: from Diajukan, with a reason, final", async () => {
+    const r = await create();
+    assert.ok(r.ok);
+    assert.ok(!(await transitionSalesOrder(r.id, "reject", actor, "x")).ok, "a Draft is not rejected");
+    assert.deepEqual(await transitionSalesOrder(r.id, "submit", actor), { ok: true });
+    const bare = await transitionSalesOrder(r.id, "reject", actor, "");
+    assert.ok(!bare.ok && bare.errors.reason);
+    assert.deepEqual(await transitionSalesOrder(r.id, "reject", actor, "Harga salah"), { ok: true });
+    const so = (await getSalesOrder(r.id))!;
+    assert.equal(so.status, "Rejected");
+    assert.equal(so.statusReason, "Harga salah");
+    assert.ok(!(await transitionSalesOrder(r.id, "approve", actor)).ok, "a rejected order stays rejected");
+  });
+
+  test("Tutup Pesanan: from Open, with a reason, final", async () => {
+    const r = await create();
+    assert.ok(r.ok);
+    assert.ok(!(await transitionSalesOrder(r.id, "close", actor, "x")).ok, "a Draft is not closed");
+    await transitionSalesOrder(r.id, "submit", actor);
+    await transitionSalesOrder(r.id, "approve", actor);
+    assert.ok(!(await transitionSalesOrder(r.id, "close", actor, " ")).ok, "a reason is required");
+    assert.deepEqual(await transitionSalesOrder(r.id, "close", actor, "Sisa tidak jadi dikirim"), { ok: true });
+    const so = (await getSalesOrder(r.id))!;
+    assert.equal(so.status, "Closed");
+    assert.equal(so.statusReason, "Sisa tidak jadi dikirim");
+    const events = (await prisma.auditLog.findMany({ where: { entity_key: "sal_order", row_id: r.id }, orderBy: { id: "asc" } })).map((a) => a.event);
+    assert.deepEqual(events, ["create", "submit", "approve", "close"]);
+  });
+
+  test("Ajukan re-checks the masters", async () => {
     const r = await create();
     assert.ok(r.ok);
     await prisma.mItem.update({ where: { id: f.goods }, data: { status: "Inactive" } });
     try {
-      const c = await transitionSalesOrder(r.id, "confirm", actor);
+      const c = await transitionSalesOrder(r.id, "submit", actor);
       assert.ok(!c.ok && /nonaktif/.test(c.errors._form));
     } finally {
       await prisma.mItem.update({ where: { id: f.goods }, data: { status: "Active" } });
@@ -300,14 +342,26 @@ describe("an order's life", () => {
   });
 
   test("the buttons offered follow the table and the permissions", () => {
-    const all = salesOrderAbilities(["SALES_ORDER_CONFIRM", "SALES_ORDER_CANCEL"]);
-    assert.deepEqual(availableSalesOrderActions("Draft", all), ["confirm", "cancel"]);
-    assert.deepEqual(availableSalesOrderActions("Confirmed", all), ["cancel"]);
-    assert.deepEqual(availableSalesOrderActions("Cancelled", all), []);
+    const all = salesOrderAbilities([
+      "SALES_ORDER_SUBMIT",
+      "SALES_ORDER_APPROVE",
+      "SALES_ORDER_CANCEL",
+      "SALES_ORDER_CLOSE",
+    ]);
+    assert.deepEqual(availableSalesOrderActions("Draft", all), ["cancel", "submit"]);
+    assert.deepEqual(availableSalesOrderActions("Submitted", all), ["reject", "approve"]);
+    assert.deepEqual(availableSalesOrderActions("Open", all), ["close"]);
+    for (const final of ["Closed", "Cancelled", "Rejected"] as const) {
+      assert.deepEqual(availableSalesOrderActions(final, all), []);
+    }
+    assert.deepEqual(
+      availableSalesOrderActions("Submitted", salesOrderAbilities(["SALES_ORDER_SUBMIT"])),
+      [],
+      "only the approve permission sees Setujui / Tolak"
+    );
     assert.deepEqual(availableSalesOrderActions("Draft", salesOrderAbilities([])), []);
   });
 });
-
 // ------------------------------------------------------------- protection
 
 describe("an address a Sales Order names is protected (P53)", () => {

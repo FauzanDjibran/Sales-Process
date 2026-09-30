@@ -22,8 +22,10 @@ migration updates this file in the same change (Claude-ERP.md §9).
   `sys_item_category` (P46–P48). An Item holds no price and no tax treatment.
 - Sales: `sal_order` and `sal_order_line` (P49–P53) — SO Barang, rupiah only,
   totals stored as `lib/erp/sales-tax.ts` computed them. A Sales Order posts
-  nothing.
-- `sal_advance` (P54–P58) — the AR advance bill, drawn from one confirmed
+  nothing. Its life is Draft → Submitted → Open → Closed, with Cancelled and
+  Rejected final (P63); it names no warehouse and no delivery date — the
+  Surat Jalan and the delivery schedule will.
+- `sal_advance` (P54–P58) — the AR advance bill, drawn from one Open
   Sales Order and numbered `ARA/…`. It posts nothing and stores no paid or
   used amount; that is left to the open items (C22).
 - `sal_order` and `sal_advance` snapshot the PPN rate and DPP Nilai Lain factor
@@ -110,8 +112,11 @@ Enum PriceMode {
 
 Enum SalesOrderStatus {
   Draft
-  Confirmed
+  Submitted
+  Open
+  Closed
   Cancelled
+  Rejected
 }
 
 Enum DiscountType {
@@ -785,7 +790,6 @@ Table sal_order {
   customer_id int [not null]
   address_id int [not null]
   term_id int [not null]
-  warehouse_id int [not null]
   is_taxable boolean [not null, default: true]
   price_mode PriceMode [not null]
   ppn_rate decimal(9, 4) [null]
@@ -793,7 +797,6 @@ Table sal_order {
   ppn_dpp_other_denominator int [null]
   po_no varchar [null]
   po_date date [null]
-  requested_date date [not null]
   salesperson varchar [null]
   note varchar [null]
   gross_amount decimal(18, 2) [not null, default: 0]
@@ -802,7 +805,7 @@ Table sal_order {
   dpp_other_amount decimal(18, 2) [not null, default: 0]
   ppn_amount decimal(18, 2) [not null, default: 0]
   total_amount decimal(18, 2) [not null, default: 0]
-  cancel_reason varchar [null]
+  status_reason varchar [null, note: 'why it was cancelled, rejected or closed by hand']
   copied_from_id int [null]
   created_by int [not null]
   updated_by int [null]
@@ -920,7 +923,6 @@ Ref: acc_journal_line.currency_id > ref_currency.id
 Ref: sal_order.customer_id > m_partner.id
 Ref: sal_order.address_id > m_partner_address.id
 Ref: sal_order.term_id > ref_payment_term.id
-Ref: sal_order.warehouse_id > ref_warehouse.id
 Ref: sal_order.copied_from_id > sal_order.id
 Ref: sal_order_line.order_id > sal_order.id
 Ref: sal_order_line.item_id > m_item.id

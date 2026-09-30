@@ -91,9 +91,9 @@ sales behaviour the simulation implements, and carry over through it.
 | Area | State |
 | --- | --- |
 | Project guideline (this file) | Written 29/09/2026; clash decisions recorded 29/09/2026 |
-| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 done for sales 29/09/2026 (Partner customer side, Satuan, Termin, Gudang, Jenis PPh, Item, sales defaults); Phase 3 started: Sales Order built 29/09/2026 (P49–P53); Uang Muka Penjualan built 29/09/2026 (P54–P58); tax arithmetic moved to `tax_concept.md` (half up, per-line chain, snapshotted PPN setting) 29/09/2026 (P59, P60); settings split into System Default and Account Mapping 29/09/2026 (P61) |
+| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 done for sales 29/09/2026 (Partner customer side, Satuan, Termin, Gudang, Jenis PPh, Item, sales defaults); Phase 3 started: Sales Order built 29/09/2026 (P49–P53); Uang Muka Penjualan built 29/09/2026 (P54–P58); tax arithmetic moved to `tax_concept.md` (half up, per-line chain, snapshotted PPN setting) 29/09/2026 (P59, P60); settings split into System Default and Account Mapping 29/09/2026 (P61); Sales Order lifecycle Draft → Diajukan → Open → Ditutup, form rework, advance layout, dropdown keyboard and percent field 30/09/2026 (P63–P65) |
 | Code | Phase 1 carried and adapted: one company, no Budget, Control Account set by the user, `PREFIX/YYYY/MM/NNNN` numbering, dashboard placeholder. `npm run build`, `npm run lint` and `npm test` pass on PostgreSQL 18; the Phase 1 walk-through (fiscal year, accounts, Partner, Cash & Bank with opening balance, manual journal, General Ledger, Trial Balance) checked in a browser and in Postgres |
-| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48), the customer's sales defaults (P51), Sales Order `sal_order(_line)` (P49–P53), Uang Muka Penjualan `sal_advance` (P54–P58), PPN rate snapshots on SO / advance and per-line DPP Nilai Lain (P60); `DBML/erp.dbml.md` in step |
+| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48), the customer's sales defaults (P51), Sales Order `sal_order(_line)` (P49–P53), Uang Muka Penjualan `sal_advance` (P54–P58), PPN rate snapshots on SO / advance and per-line DPP Nilai Lain (P60), the SO's new statuses with Gudang and Kirim Diminta dropped (P63); `DBML/erp.dbml.md` in step |
 
 ---
 
@@ -384,10 +384,12 @@ built. Parent-decision numbers in brackets.
 
 1. **Sales Order** (SO Barang only, P49) starts from the customer; its Termin
    and mode harga default from the customer (P51), and it names one of the
-   customer's addresses (P53). **Include / Exclude PPN and Kena PPN are
-   explicit user decisions** on the SO header (P52). Draft → Konfirmasi →
-   Dikonfirmasi; Batalkan; Salin — no credit limit or approval (P50). Posts
-   nothing. Ends Selesai automatically (fully delivered and invoiced) or by
+   customer's addresses (P53). **Kena PPN, then Include / Exclude PPN, are
+   explicit user decisions** on the SO header; the mode is asked only when
+   Kena PPN (P52, P63). No warehouse and no delivery date (P63). Draft →
+   Ajukan → Diajukan → Setujui → Open → Ditutup; Batalkan (Draft) and Tolak
+   (Diajukan) are final; Salin — no credit limit (P50, P63). Posts nothing.
+   Closes automatically once the Surat Jalan has delivered everything, or by
    Tutup Pesanan with a reason [S15, S22].
 2. **PPN arithmetic** follows `tax_concept.md` (P59): half-up whole rupiah,
    PPN = round(12 % × round(DPP × 11/12)), an inclusive price's difference
@@ -398,12 +400,11 @@ built. Parent-decision numbers in brackets.
    taken from the Jenis PPh master (P44) and picked by the user per line (P61; formerly defaulted from the item's Tipe,
    P48). The SO offers only items marked Dapat Dijual (P46).
    WAPU buyers collect PPN themselves (kode transaksi 02 for government) [S20].
-4. **Uang Muka Penjualan** is its own document (P54–P58), drawn from one
-   confirmed SO under Finance › Uang Muka. One global value, typed as % or
+4. **Uang Muka Penjualan** is its own document (P54–P58, P64), drawn from one
+   Open SO under Finance › Uang Muka. One global value, typed as % or
    Nominal in the SO's price mode; PPN follows; the PPh estimate follows the
    SO lines' Jenis PPh. Terbitkan and Batalkan post nothing; the SO's value
-   caps its live bills; an SO with a live bill is not cancelled
-   [S11, S16, S21].
+   caps its live bills; a closed SO takes no new bill [S11, S16, S21].
 5. **Pembayaran** is one document for every movement of money, Penerimaan and
    Pengeluaran; its *tujuan* decides what it settles and how it posts (how
    purposes are modelled is open, §18 C3). Withholding and buyer-collected PPN
@@ -525,6 +526,9 @@ Newest last. Later entries override earlier ones and say so.
 | P60 | 29/09/2026 | **The tax concept is settled** (`tax_concept.md` §11), closing C26. **PPN is computed per line** and the document's figures are the sum of its lines, as the faktur pajak carries them. In the ERP each line stores its DPP, DPP Nilai Lain and PPN, but **the line table does not grow columns for them**: they surface in the totals box and the faktur. An inclusive price absorbs the difference in DPP, and where no exact split exists the total is one rupiah below the typed price. **The PPN rate and the 11/12 factor are one system-wide setting each** (Pengaturan), with no effective dates; every transaction snapshots both when it is saved and carries them. **No manual PPh amount at payment:** a *Potong PPh* switch, on by default, applies the rule's figure; off means no PPh and no bukti potong. A different amount withheld by the customer is not modelled. **Final PPh (4(2)) is out of scope** until needed. Amends P59 on the dated settings. |
 | P61 | 29/09/2026 | **Settings are split into two menus over one store** (`sys_setting`, one catalogue in code). **System Default** (Pengaturan › Sistem) is application-wide configuration: the **Base Currency**, shown locked because it is a constant the books are measured in (`currency.ts`), and the Pajak card (PPN rate, DPP Nilai Lain factor); later defaults such as a transit warehouse join it. **Account Mapping** (Accounting › Pengaturan, permissions `MENU_ACCOUNT_MAPPING_ACCESS` / `ACCOUNT_MAPPING_VIEW` / `ACCOUNT_MAPPING_EDIT`) says where each kind of posting lands: Account Selisih Kurs and the two Laba/Rugi equity accounts today. A mapping is added only when the document that posts it is built (Piutang, Uang Muka, PPN Keluaran with Pembayaran / Faktur; Hutang, PPN Masukan with purchasing). PPh accounts stay on each Jenis PPh (P44); item accounts go to the Kategori Item mapping (C25). **Currency Default is removed**: a new record's Currency starts on the base currency. **The Jenis PPh pointer for PPh 22 collectors is removed**: Jenis PPh is a plain master and nothing pre-fills a line's Jenis PPh. Amends P52 and P23 (default currency). |
 | P62 | 30/09/2026 | **The system seed carries starter reference data**, so a fresh or reset installation is usable on day one: currencies **IDR** (base) and **USD**; Satuan **PCS, UNIT, SET, PAK, BOX, LSN, KRT, BTL, GR, KG, ML, L**; Termin **TUNAI, NET7, NET14, NET30, NET45, NET60**; and, as before (P44), Jenis PPh **PPH22, PPH23, PPH23-15**. Each starter row is matched on its label (case-insensitive) and created only when missing, with the next free code; it is user data from then on and never overwritten. Gudang stays unseeded (it is the company's own), and **moves from Master › Referensi to Master › Entitas**. Amends P11 and P43 for these rows. |
+| P63 | 30/09/2026 | **The Sales Order's lifecycle is Draft → Diajukan → Open → Ditutup.** *Ajukan* (`SALES_ORDER_SUBMIT`, formerly Konfirmasi) locks the order and freezes its figures and PPN snapshot; a submitted order is **not taken back**. *Setujui* / *Tolak* share one permission, `SALES_ORDER_APPROVE` — whoever holds it may approve, their own order included. *Tolak* (reason) and *Batalkan* (Draft only, reason) are final; a rejected order is re-entered with Salin. *Tutup Pesanan* (`SALES_ORDER_CLOSE`, reason) closes an Open order even with quantity undelivered, and is allowed while it has an issued advance bill; the Surat Jalan will close an order itself once everything is delivered. Labels: Draft · Diajukan · Open · Ditutup · Dibatalkan · Ditolak. The reason of the final step is one column, `status_reason`. Existing Dikonfirmasi orders became Open. **The SO no longer carries a Gudang** — a company's warehouses are its own stores (bahan baku, bahan kemas, …) and the one goods leave from is chosen on the Surat Jalan — **nor a Kirim Diminta date**, which belongs to a delivery schedule derived from the SO (C27). **Mode Harga is asked only when Kena PPN**; an order without PPN is stored Exclude. Each line picks its item from a dropdown like every other field, each item once per order. The expected PPh deduction (*Estimasi Penerimaan*) is a separate box left of the order's figures, because it is information, not part of the document. Supersedes P50's "no Menunggu Persetujuan / Setujui / Tolak" and its lifecycle; amends P52 (Gudang on the SO) and P57 (the SO-cancel guard, now moot: only a Draft is cancelled and only an Open SO takes a bill). |
+| P64 | 30/09/2026 | **The advance bill reads like its Sales Order.** Its header shows the order's side in the SO's own sections and places — Customer, Pesanan (with the Sales Order picker), Harga & Pajak — then its own Tagihan section. The **Dasar Uang Muka** card shows the order as **one line**: the bill's Uraian (typed there, printed on the bill), the order's total and its DPP, with the total DPP under it; the value drawn is typed below (% or Nominal), with the room left as the field's help, and the figures in two boxes as on the SO. It follows the simulation's Uang Muka Perizinan. Only an **Open** SO takes a bill (P63). Amends P56's summary strip. |
+| P65 | 30/09/2026 | **Every dropdown answers the keyboard, and every percent says so.** Combobox, Select and MultiSelect move a highlight with ↓ / ↑ (Home / End outside a search box), pick with Enter, and close on Esc or Tab; the highlight starts on the current value and follows the mouse. MultiSelect stays open after each pick. **A percent field** (`PercentInput`) shows `%` inside the box after the figure and refuses any keystroke that would take it past 100, so it only ever holds 0–100: discount %, advance %, Jenis PPh tarif, Tarif PPN. |
 
 ---
 
@@ -632,7 +636,8 @@ here. In addition:
   used address becomes read-only.
 - **A Sales Order keeps the number it was first saved with**, like a manual
   journal: re-dating a Draft into another month does not renumber it.
-- **Selesai and Tutup Pesanan are not built yet**; they need the Surat Jalan.
+- **A Sales Order closes only by hand**; closing itself once everything is
+  delivered needs the Surat Jalan.
 - **An issued advance bill can be cancelled with no payment check.** Nothing
   can be paid yet; when Pembayaran records money against a bill, a paid bill
   must refuse Batalkan (its leftover goes by Pengembalian Uang Muka instead).
@@ -643,7 +648,7 @@ here. In addition:
   Lunas and the usage state come with Pembayaran and the open items (C22).
 - **Sales Orders and advance bills saved before 29/09/2026 keep their
   floor-era figures.** The P59–P60 rework recomputes a Draft at its next save
-  and a document at Konfirmasi / Terbitkan. Anything already confirmed or
+  and a document at Ajukan / Terbitkan. Anything already confirmed or
   issued keeps what it was stored with (development data only).
 - **An installation seeded before P60 still holds PPH42-SEWA.** The seed no
   longer creates it and never deletes; deactivate it by hand if it is not
@@ -667,6 +672,7 @@ to §12.
 | C6 | **Contents of each master** — each further reference master (P26). `m_partner` decided in P39–P42, `m_item` in P46–P48 | When that master is built |
 | C23 | **NITKU** — the 22-digit place-of-business identity a faktur names (NPWP + 6 digits, `000000` head office). Proposed: one per billing address, since DJP registers a NITKU at an address and a faktur carries both | When Faktur Pajak is built |
 | C25 | **Account mapping per Kategori Item** — its own menu naming Penjualan, Retur, HPP and Persediaan accounts per category (P47) | When the first document that posts an item is built (Surat Jalan, Faktur) |
+| C27 | **Delivery schedule** — a document derived from a Sales Order that splits its quantity into dated deliveries (e.g. 1.000 PCS as five of 200, over five months), each with its own expected date; the Kirim Diminta date left the SO for it (P63). Proposed: rows of item, qty and date, never more than the SO line's quantity in total, feeding the Surat Jalan | When the user instructs, before or with the Surat Jalan |
 | C14 | **Cash Bank Transfer and Debit / Credit Note** (P19) | Later |
 | C22 | **How `ar_ap_open_item_concept.md` applies** — open items and their ledger as the settlement unit for invoices, advances, receipts and DN/CN, beside the journal-and-GL positions of P25. Proposed: the advance *bill* is not an open item (like SAP's noted item); the ADVANCE open item is created by the receipt in Pembayaran, naming the bill. **Clash to settle:** the concept lets any open item of the same partner and currency be allocated, while the simulation deducts only the same SO's advances and never moves a leftover to another SO (S22) | When Pembayaran and the Faktur Penjualan are built |
 

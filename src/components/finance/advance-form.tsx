@@ -9,6 +9,7 @@ import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
+import { PercentInput } from "@/components/ui/percent-input";
 import { useToast } from "@/components/ui/toast";
 import { AdvanceActions } from "@/components/finance/advance-actions";
 import { createSalesAdvanceAction, updateSalesAdvanceAction } from "@/app/actions/sales-advance";
@@ -32,10 +33,11 @@ import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
  * `edit` (Draft only) and `view` (P54–P58).
  *
  * The Sales Order comes first and decides everything the bill follows —
- * customer, address, PO, mode harga, Kena PPN — then the bill itself, then its
- * value. The order's lines are not copied onto the bill: a bill shows its own
- * figures and links to the order (S13/S14); what it draws from is summed up in
- * one strip — the order's value, what other bills took, what is left.
+ * customer, address, PO, mode harga, Kena PPN — laid out as the Sales Order's
+ * own header is, then the bill itself, then its value. The order's lines are
+ * not copied onto the bill: a bill shows its own figures and links to the
+ * order (S13/S14). The order is one line — the bill's Uraian beside the
+ * order's total and DPP — and the value drawn from it is typed below (P64).
  *
  * The value is typed as a percent of the order or a flat value, with the same
  * toggle as a Sales Order line's discount (P55), and read in the order's price
@@ -205,19 +207,51 @@ export function AdvanceForm({
         .filter(Boolean)
         .join(" · ")
     : null;
+  /** A value that follows from the order, or a wait while none is chosen. */
+  const fromOrder = (node: (o: NonNullable<typeof order>) => React.ReactNode, empty = "tidak diisi") =>
+    order ? node(order) ?? nil(empty) : nil(waitOrder);
 
   // ======================================================= header card
+  //
+  // The order's side reads exactly as the Sales Order's own header does —
+  // Customer, Pesanan, Harga & Pajak, the same fields in the same places — so
+  // a reader who knows one page finds everything on the other (P64). Only
+  // the Tagihan section is the bill's own.
   const headerCard = (
     <div className="card">
       <FormBody>
-        <FormSection title="Sales Order">
+        <FormSection title="Customer">
+          <FormRow>
+            <Field label="Customer" span={6}>
+              {fromOrder((o) =>
+                ro(
+                  <>
+                    <span className="lab">{o.customerLabel}</span>
+                    <span>{o.customerName}</span>
+                  </>
+                )
+              )}
+            </Field>
+            <Field label={order?.taxIdType === "NIK" ? "NIK Pembeli" : "NPWP Pembeli"} span={3}>
+              {fromOrder((o) => (o.taxId ? ro(<span className="mono">{formatTaxId(o.taxId)}</span>) : null))}
+            </Field>
+            <Field label="Status Pajak" span={3}>
+              {fromOrder(() => ro(<span className="bdg t-slate">{taxStatus}</span>))}
+            </Field>
+            <Field label="Alamat" span={12} help={editing && order ? "dari Sales Order" : undefined}>
+              {fromOrder((o) => ro(<span>{o.addressText}</span>))}
+            </Field>
+          </FormRow>
+        </FormSection>
+
+        <FormSection title="Pesanan">
           <FormRow>
             <Field
               label="Sales Order"
-              span={4}
+              span={3}
               required={mode === "new"}
               locked={mode === "edit"}
-              help={mode === "new" ? "hanya SO yang sudah dikonfirmasi" : undefined}
+              help={mode === "new" ? "hanya SO berstatus Open" : undefined}
               error={errors.order_id}
             >
               {mode === "new" ? (
@@ -232,51 +266,55 @@ export function AdvanceForm({
                 />
               ) : order ? (
                 ro(
-                  <>
-                    <Link className="drl" href={`/sales/order/${order.id}`}>
-                      <span className="mono">{order.orderNo}</span>
-                    </Link>
-                    <span className="rx">{formatDate(order.orderDate)}</span>
-                  </>
+                  <Link className="drl" href={`/sales/order/${order.id}`}>
+                    <span className="mono">{order.orderNo}</span>
+                  </Link>
                 )
               ) : (
                 nil()
               )}
             </Field>
-            <Field label="Customer" span={5}>
-              {order
-                ? ro(
-                    <>
-                      <span className="lab">{order.customerLabel}</span>
-                      <span>{order.customerName}</span>
-                    </>
-                  )
-                : nil(waitOrder)}
+            <Field label="Tanggal SO" span={3}>
+              {fromOrder((o) => ro(formatDate(o.orderDate)))}
             </Field>
             <Field label="No. PO Customer" span={3}>
-              {order ? (order.poNo ? ro(<span className="mono">{order.poNo}</span>) : nil()) : nil(waitOrder)}
+              {fromOrder((o) => (o.poNo ? ro(<span className="mono">{o.poNo}</span>) : null))}
             </Field>
-            <Field label="Alamat Penagihan" span={12} help={editing && order ? "dari Sales Order" : undefined}>
-              {order ? ro(<span>{order.addressText}</span>) : nil(waitOrder)}
+            <Field label="Tanggal PO" span={3}>
+              {fromOrder((o) => (o.poDate ? ro(formatDate(o.poDate)) : null))}
             </Field>
-            <Field label={order?.taxIdType === "NIK" ? "NIK Pembeli" : "NPWP Pembeli"} span={3}>
-              {order?.taxId ? ro(<span className="mono">{formatTaxId(order.taxId)}</span>) : nil(order ? "tidak diisi" : waitOrder)}
+            <Field label="Termin Pembayaran" span={3}>
+              {fromOrder((o) =>
+                ro(
+                  <>
+                    <span className="lab">{o.termLabel}</span>
+                    <span>{o.termName}</span>
+                  </>
+                )
+              )}
             </Field>
-            <Field label="Status Pajak" span={3}>
-              {taxStatus ? ro(<span className="bdg t-slate">{taxStatus}</span>) : nil(waitOrder)}
+            <Field label="Salesperson" span={6}>
+              {fromOrder((o) => (o.salesperson ? ro(o.salesperson) : null))}
             </Field>
-            <Field label="Mode Harga" span={3}>
-              {order ? ro(<span className="bdg t-slate">{MODE_TEXT[order.basis.mode]}</span>) : nil(waitOrder)}
+          </FormRow>
+        </FormSection>
+
+        <FormSection title="Harga & Pajak">
+          <FormRow>
+            <Field label="PPN" span={4}>
+              {fromOrder((o) =>
+                ro(
+                  <span className={`bdg ${o.basis.taxable ? "s-ok" : "s-mute"}`}>
+                    {o.basis.taxable ? "Kena PPN" : "Tidak Kena PPN"}
+                  </span>
+                )
+              )}
             </Field>
-            <Field label="PPN" span={3}>
-              {order
-                ? ro(
-                    <span className={`bdg ${order.basis.taxable ? "s-ok" : "s-mute"}`}>
-                      {order.basis.taxable ? "Kena PPN" : "Tidak Kena PPN"}
-                    </span>
-                  )
-                : nil(waitOrder)}
-            </Field>
+            {order?.basis.taxable && (
+              <Field label="Mode Harga" span={4}>
+                {ro(<span className="bdg t-slate">{MODE_TEXT[order.basis.mode]}</span>)}
+              </Field>
+            )}
           </FormRow>
         </FormSection>
 
@@ -331,25 +369,6 @@ export function AdvanceForm({
                 )
               )}
             </Field>
-            <Field
-              label="Uraian pada Tagihan"
-              span={12}
-              required={editing}
-              help={editing ? "baris yang tercetak pada tagihan" : undefined}
-              error={errors.description}
-            >
-              {editing ? (
-                <input
-                  className={`inp${errors.description ? " bad" : ""}`}
-                  value={s.description}
-                  placeholder="mis. Uang muka 30% atas pesanan …"
-                  autoComplete="off"
-                  onChange={(e) => set("description", e.target.value)}
-                />
-              ) : (
-                ro(s.description)
-              )}
-            </Field>
             <Field label="Catatan" span={12}>
               {editing ? (
                 <textarea
@@ -383,177 +402,261 @@ export function AdvanceForm({
     </div>
   );
 
-  // ======================================================== value card
-  const inclusive = order?.basis.taxable && order.basis.mode === "Include";
+  // ======================================================== basis card
+  //
+  // The order as one line — its Uraian, what it is worth and its DPP — then
+  // the one value the bill draws from it (P64), the shape the simulation's
+  // Uang Muka Perizinan gives its pengajuan.
+  const inclusive = Boolean(order?.basis.taxable && order.basis.mode === "Include");
   const valueLabel = !order
     ? "Nilai Uang Muka"
     : !order.basis.taxable
-      ? "Nilai Uang Muka (tanpa PPN)"
+      ? "Uang Muka Ditarik (tanpa PPN)"
       : inclusive
-        ? "Nilai Uang Muka (termasuk PPN)"
-        : "Nilai Uang Muka (DPP, sebelum PPN)";
-  const orderValueLabel = !order || !order.basis.taxable ? "Nilai Sales Order" : inclusive ? "Total Sales Order" : "DPP Sales Order";
+        ? "Uang Muka Ditarik (termasuk PPN)"
+        : "Uang Muka Ditarik (DPP)";
+  const orderValueLabel = !order || !order.basis.taxable ? "nilai pesanan" : inclusive ? "total pesanan" : "DPP pesanan";
+  const roomHelp =
+    editing && order
+      ? `maks ${money(order.left)}${order.drawn ? ` — ${money(order.drawn)} sudah ditagih uang muka lain` : ""}`
+      : undefined;
 
-  const valueCard = (
+  const basisCard = (
     <div className="card" style={{ marginTop: 14 }}>
       <div className="card-h">
         <span className="ci">
           <Icon name="calc" size={15} />
         </span>
         <div className="ct">
-          <h3>Nilai Uang Muka</h3>
+          <h3>Dasar Uang Muka</h3>
           <p>
-            {order
-              ? `Satu nilai yang ditarik dari Sales Order, dalam ${MODE_TEXT[order.basis.mode]}. PPN, DPP Nilai Lain dan estimasi PPh dihitung dari nilai itu.`
-              : "Sales Order yang dipilih menjadi dasar uang muka."}
+            {!order
+              ? "Nilai pesanan dari Sales Order yang dipilih menjadi dasar uang muka."
+              : !order.basis.taxable
+                ? "Pesanan sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya. Tanpa PPN."
+                : inclusive
+                  ? "Pesanan sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya (sudah termasuk PPN). DPP, DPP Nilai Lain dan PPN dihitung dari nilai itu."
+                  : "Pesanan sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya (sebelum PPN). DPP Nilai Lain dan PPN dihitung dari nilai itu."}
           </p>
         </div>
       </div>
-      <FormBody>
-        <FormRow>
-          <Field label={orderValueLabel} span={4}>
-            {order ? ro(<span className="mny">{money(order.value)}</span>) : nil(waitOrder)}
-          </Field>
-          <Field label="Sudah Ditagih Uang Muka Lain" span={4}>
-            {order ? ro(<span className="mny">{money(order.drawn)}</span>) : nil(waitOrder)}
-          </Field>
-          {editing ? (
-            <Field label="Sisa yang Dapat Ditagih" span={4}>
-              {order ? ro(<span className="mny">{money(order.left)}</span>) : nil(waitOrder)}
-            </Field>
-          ) : (
-            <Field label="Sisa Setelah Tagihan Ini" span={4}>
-              {order
-                ? ro(<span className="mny">{money(order.left - (status === "Cancelled" ? 0 : (figures?.amount ?? 0)))}</span>)
-                : nil()}
-            </Field>
-          )}
-          <Field label={valueLabel} span={6} required={editing} error={errors.amount_value}>
-            {editing ? (
-              order ? (
-                <div className="dcell">
-                  <span className="dtog" role="group" aria-label="Cara mengisi nilai uang muka">
-                    {(["Percent", "Amount"] as AdvanceAmountType[]).map((t) => (
-                      <button
-                        key={t}
-                        type="button"
-                        className={s.amount_type === t ? "on" : undefined}
-                        onClick={() => {
-                          if (s.amount_type === t) return;
-                          setS((x) => ({ ...x, amount_type: t, amount_value: "" }));
-                          touch("amount_value");
-                        }}
-                      >
-                        {t === "Percent" ? "%" : "Nominal"}
-                      </button>
-                    ))}
-                  </span>
-                  <MoneyInput
-                    decimals={s.amount_type === "Percent" ? 2 : 0}
-                    value={s.amount_value}
-                    invalid={Boolean(errors.amount_value)}
-                    over={over}
-                    ariaLabel={valueLabel}
-                    onChange={(v) => set("amount_value", v)}
-                  />
-                  <button type="button" className="btn sm" onClick={fillRest} disabled={order.left <= 0}>
-                    Sisa
-                  </button>
-                </div>
-              ) : (
-                <div className="ro nil">Pilih Sales Order dulu…</div>
-              )
-            ) : (
-              ro(
-                <span className="mny">
-                  {s.amount_type === "Percent" ? formatPct(typed) : money(typed)}
-                </span>
-              )
-            )}
-          </Field>
-          <Field label="Nilai Ditarik" span={6}>
-            {figures && figures.amount > 0
-              ? ro(
-                  <>
-                    <span className="mny">{money(figures.amount)}</span>
-                    <span className="rx">{formatPct(figures.percent)} dari {orderValueLabel}</span>
-                  </>
-                )
-              : nil(order ? "belum diisi" : waitOrder)}
-          </Field>
-        </FormRow>
-      </FormBody>
-      {order && figures && (
-        <div className="cardfoot">
-          <div className="impact">
-            <div className="ttl">
-              Perhitungan Uang Muka · {order.basis.taxable ? MODE_TEXT[order.basis.mode] : "Tidak Kena PPN"}
-            </div>
-            {order.basis.taxable ? (
-              <>
-                {inclusive && (
-                  <div className="ir">
-                    <span>Nilai uang muka (termasuk PPN)</span>
-                    <b>{money(figures.amount)}</b>
-                  </div>
-                )}
-                <div className="ir">
-                  <span>{inclusive ? "DPP (nilai tanpa PPN)" : "DPP uang muka"}</span>
-                  <b>{money(figures.dpp)}</b>
-                </div>
-                <div className="ir">
-                  <span>DPP Nilai Lain ({factor})</span>
-                  <b>{money(figures.dppOther)}</b>
-                </div>
-                <div className="ir">
-                  <span>PPN {ratePct} × DPP Nilai Lain</span>
-                  <b>{money(figures.ppn)}</b>
-                </div>
-                {inclusive && figures.total !== figures.amount && (
-                  <div className="ir est">
-                    <span>Pembulatan PPN (diserap DPP)</span>
-                    <b>−{money(figures.amount - figures.total)}</b>
-                  </div>
-                )}
-              </>
-            ) : (
-              <>
-                <div className="ir">
-                  <span>DPP uang muka</span>
-                  <b>{money(figures.dpp)}</b>
-                </div>
-                <div className="ir">
-                  <span>PPN</span>
-                  <b>Tidak Kena PPN</b>
-                </div>
-              </>
-            )}
-            <div className="ir tot">
-              <span>Total Tagihan Uang Muka</span>
-              <b>{money(figures.total)}</b>
-            </div>
-            {figures.withholdings.map((w) => (
-              <div className="ir est" key={w.key}>
-                <span>
-                  Estimasi {order.withholdingLabels[w.key] ?? "PPh"} {formatPct(w.rate)} × {money(w.base)}
-                </span>
-                <b>−{money(w.amount)}</b>
-              </div>
-            ))}
-            {figures.collectedPpn > 0 && (
-              <div className="ir est">
-                <span>PPN dipungut pembeli (WAPU)</span>
-                <b>−{money(figures.collectedPpn)}</b>
-              </div>
-            )}
-            {(figures.withholdingTotal > 0 || figures.collectedPpn > 0) && (
-              <div className="ir tot">
-                <span>Estimasi Penerimaan</span>
-                <b>{money(figures.expectedReceipt)}</b>
-              </div>
-            )}
+      {!order ? (
+        <div className="empty sm">
+          <div className="ic">
+            <Icon name="box" size={18} />
           </div>
+          <h4>Menunggu Sales Order</h4>
+          <p>Nilai pesanan tampil di sini; uang muka ditarik dari nilai itu.</p>
         </div>
+      ) : (
+        <>
+          <div className="tw">
+            <table className="grid ltab">
+              <thead>
+                <tr>
+                  <th style={{ width: 34 }}>No</th>
+                  <th>Uraian pada Tagihan</th>
+                  <th className="num" style={{ width: 150 }}>Total Pesanan</th>
+                  <th className="num" style={{ width: 160 }}>DPP (sebelum pajak)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className={errors.description ? "overrow" : undefined}>
+                  <td className="no">1</td>
+                  <td>
+                    <span className="dstack">
+                      {editing ? (
+                        <input
+                          className={`inp sm${errors.description ? " bad" : ""}`}
+                          value={s.description}
+                          placeholder="mis. Uang muka 30% atas pesanan …"
+                          autoComplete="off"
+                          aria-label="Uraian pada Tagihan"
+                          onChange={(e) => set("description", e.target.value)}
+                        />
+                      ) : (
+                        <span className="d1" title={s.description}>
+                          {s.description}
+                        </span>
+                      )}
+                      <span className="d2">
+                        {order.orderNo}
+                        {order.poNo ? ` · PO ${order.poNo}` : ""} · {order.lineCount} barang
+                      </span>
+                    </span>
+                    {errors.description && <span className="overtag">{errors.description}</span>}
+                  </td>
+                  <td className="num">
+                    <span className="mny">{money(order.basis.total)}</span>
+                  </td>
+                  <td className="num">
+                    <span className="mny">{money(order.basis.dpp)}</span>
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr className="totrow">
+                  <td colSpan={3} style={{ textAlign: "right" }}>
+                    Total DPP pesanan
+                  </td>
+                  <td className="num">
+                    <span className="mny big">{money(order.basis.dpp)}</span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <FormBody>
+            <FormRow>
+              <Field label={valueLabel} span={6} required={editing} help={roomHelp} error={errors.amount_value}>
+                {editing ? (
+                  <div className="dcell">
+                    <span className="dtog" role="group" aria-label="Cara mengisi nilai uang muka">
+                      {(["Percent", "Amount"] as AdvanceAmountType[]).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          className={s.amount_type === t ? "on" : undefined}
+                          onClick={() => {
+                            if (s.amount_type === t) return;
+                            setS((x) => ({ ...x, amount_type: t, amount_value: "" }));
+                            touch("amount_value");
+                          }}
+                        >
+                          {t === "Percent" ? "%" : "Nominal"}
+                        </button>
+                      ))}
+                    </span>
+                    {s.amount_type === "Percent" ? (
+                      <PercentInput
+                        value={s.amount_value}
+                        invalid={Boolean(errors.amount_value) || over}
+                        ariaLabel={valueLabel}
+                        onChange={(v) => set("amount_value", v)}
+                      />
+                    ) : (
+                      <MoneyInput
+                        value={s.amount_value}
+                        invalid={Boolean(errors.amount_value)}
+                        over={over}
+                        ariaLabel={valueLabel}
+                        onChange={(v) => set("amount_value", v)}
+                      />
+                    )}
+                    <button type="button" className="btn sm" onClick={fillRest} disabled={order.left <= 0}>
+                      Sisa
+                    </button>
+                  </div>
+                ) : (
+                  ro(<span className="mny">{s.amount_type === "Percent" ? formatPct(typed) : money(typed)}</span>)
+                )}
+              </Field>
+              <Field label="Nilai Ditarik" span={6}>
+                {figures && figures.amount > 0
+                  ? ro(
+                      <>
+                        <span className="mny">{money(figures.amount)}</span>
+                        <span className="rx">
+                          {formatPct(figures.percent)} dari {orderValueLabel} {money(order.value)}
+                        </span>
+                      </>
+                    )
+                  : nil("belum diisi")}
+              </Field>
+            </FormRow>
+          </FormBody>
+          {figures && (
+            <div className="cardfoot multi">
+              {(figures.withholdingTotal > 0 || figures.collectedPpn > 0) && (
+                <div className="impact">
+                  <div className="ttl">Estimasi Penerimaan</div>
+                  <div className="ir">
+                    <span>Total tagihan uang muka</span>
+                    <b>{money(figures.total)}</b>
+                  </div>
+                  {figures.withholdings.map((w) => (
+                    <div className="ir" key={w.key}>
+                      <span>
+                        {order.withholdingLabels[w.key] ?? "PPh"} {formatPct(w.rate)} × DPP {money(w.base)}
+                      </span>
+                      <b>−{money(w.amount)}</b>
+                    </div>
+                  ))}
+                  {figures.collectedPpn > 0 && (
+                    <div className="ir">
+                      <span>PPN dipungut pembeli (WAPU)</span>
+                      <b>−{money(figures.collectedPpn)}</b>
+                    </div>
+                  )}
+                  <div className="ir tot">
+                    <span>Estimasi dana diterima</span>
+                    <b>{money(figures.expectedReceipt)}</b>
+                  </div>
+                </div>
+              )}
+              <div className="impact">
+                <div className="ttl">
+                  Perhitungan Uang Muka · {order.basis.taxable ? MODE_TEXT[order.basis.mode] : "Tidak Kena PPN"}
+                </div>
+                <div className="ir">
+                  <span>DPP pesanan</span>
+                  <b>{money(order.basis.dpp)}</b>
+                </div>
+                {order.basis.taxable ? (
+                  <>
+                    {inclusive && (
+                      <div className="ir">
+                        <span>Uang muka ditarik (termasuk PPN)</span>
+                        <b>{money(figures.amount)}</b>
+                      </div>
+                    )}
+                    <div className="ir">
+                      <span>
+                        {inclusive ? "DPP uang muka = nilai − PPN" : "Uang muka ditarik (DPP)"} · {formatPct(figures.percent)}
+                      </span>
+                      <b>{money(figures.dpp)}</b>
+                    </div>
+                    <div className="ir">
+                      <span>DPP Nilai Lain ({factor})</span>
+                      <b>{money(figures.dppOther)}</b>
+                    </div>
+                    <div className="ir">
+                      <span>PPN {ratePct} × DPP Nilai Lain</span>
+                      <b>{money(figures.ppn)}</b>
+                    </div>
+                    {inclusive && figures.total !== figures.amount && (
+                      <div className="ir est">
+                        <span>Pembulatan PPN (diserap DPP)</span>
+                        <b>−{money(figures.amount - figures.total)}</b>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="ir">
+                      <span>Uang muka ditarik · {formatPct(figures.percent)}</span>
+                      <b>{money(figures.dpp)}</b>
+                    </div>
+                    <div className="ir">
+                      <span>PPN</span>
+                      <b>Tidak Kena PPN</b>
+                    </div>
+                  </>
+                )}
+                <div className="ir tot">
+                  <span>Total Tagihan Uang Muka</span>
+                  <b>{money(figures.total)}</b>
+                </div>
+                {!editing && (
+                  <div className="ir est">
+                    <span>Sisa {orderValueLabel} setelah tagihan ini</span>
+                    <b>{money(order.left - (status === "Cancelled" ? 0 : figures.amount))}</b>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -615,7 +718,7 @@ export function AdvanceForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {valueCard}
+          {basisCard}
         </div>
       </div>
     </>

@@ -27,7 +27,7 @@ import {
  * is `sal_advance`, and nothing else names it.
  *
  * A bill, not a transaction: it posts nothing at any step. It is drawn from one
- * confirmed Sales Order, whose customer, address, price mode and Kena PPN it
+ * Open Sales Order, whose customer, address, price mode and Kena PPN it
  * follows, and asks for one value typed as a percent of the order or a flat
  * value. The figures come from `sales-tax.ts`, which the form previews from.
  *
@@ -100,13 +100,13 @@ export type SalesAdvanceOptions = {
 };
 
 /**
- * What the form picks from: confirmed orders — with what each has left — and
+ * What the form picks from: Open orders — with what each has left — and
  * the rupiah bank accounts a bill can print. `current` is the bill being
  * edited, whose own draw does not count against its order.
  */
 export async function salesAdvanceOptions(current: { id: number; orderId: number } | null = null): Promise<SalesAdvanceOptions> {
   const [orders, banks, rates] = await Promise.all([
-    advanceSourceOrders(current ? { ids: [current.orderId] } : { confirmedOnly: true }),
+    advanceSourceOrders(current ? { ids: [current.orderId] } : { openOnly: true }),
     prisma.mCashBank.findMany({
       where: { cash_bank_type: "Bank", currency: { currency_label: BASE_CURRENCY_LABEL } },
       orderBy: { cash_bank_label: "asc" },
@@ -171,7 +171,7 @@ export async function checkSalesAdvance(
   const [order] = orderId ? await advanceSourceOrders({ ids: [orderId] }, db) : [];
   if (!orderId) errors.order_id = "Pilih Sales Order.";
   else if (!order) errors.order_id = "Sales Order tidak ditemukan.";
-  else if (order.status !== "Confirmed") errors.order_id = "Sales Order harus berstatus Dikonfirmasi.";
+  else if (order.status !== "Open") errors.order_id = "Sales Order harus berstatus Open.";
   else if (!order.customerActive) errors.order_id = "Customer pada Sales Order ini sudah nonaktif.";
 
   const date = String(input.advance_date ?? "").trim();
@@ -366,7 +366,7 @@ export type SalesAdvanceTransitionResult = { ok: true } | { ok: false; errors: R
 
 /**
  * Runs one lifecycle step. Issuing re-checks the stored bill with the order
- * locked — the order still confirmed, its room still there, the bank still
+ * locked — the order still Open, its room still there, the bank still
  * active — and stores the figures that check produced.
  */
 export async function transitionSalesAdvance(

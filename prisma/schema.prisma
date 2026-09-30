@@ -150,12 +150,15 @@ enum PriceMode {
   Include
 }
 
-/// Where a Sales Order is in its life (P50). Selesai and Tutup Pesanan join
-/// when the Surat Jalan does.
+/// Where a Sales Order is in its life (P63): Draft → Submitted → Open →
+/// Closed. Cancelled (from Draft) and Rejected (from Submitted) are final.
 enum SalesOrderStatus {
   Draft
-  Confirmed
+  Submitted
+  Open
+  Closed
   Cancelled
+  Rejected
 }
 
 /// How a line's discount was typed: a percentage of the line, or an amount.
@@ -578,8 +581,6 @@ model RefWarehouse {
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  sales_orders SalOrder[]
 
   @@map("ref_warehouse")
 }
@@ -1368,20 +1369,18 @@ model SalOrder {
   /// One of the customer's addresses, by id (P53).
   address_id   Int
   term_id      Int
-  warehouse_id Int
   /// Whether the order carries PPN at all, decided once for the order (P52).
   is_taxable   Boolean   @default(true)
   price_mode   PriceMode
   /// The PPN rate and DPP Nilai Lain factor the order was computed with,
   /// snapshotted from the System Default at each save while Draft and frozen
-  /// at Konfirmasi (P60). Null when the order is not Kena PPN.
+  /// at Ajukan (P60, P63). Null when the order is not Kena PPN.
   ppn_rate                  Decimal? @db.Decimal(9, 4)
   ppn_dpp_other_numerator   Int?
   ppn_dpp_other_denominator Int?
 
   po_no          String?
   po_date        DateTime? @db.Date
-  requested_date DateTime  @db.Date
   /// Free text (P43, P52).
   salesperson    String?
   note           String?
@@ -1395,7 +1394,9 @@ model SalOrder {
   ppn_amount      Decimal @default(0) @db.Decimal(18, 2)
   total_amount    Decimal @default(0) @db.Decimal(18, 2)
 
-  cancel_reason String?
+  /// Why the order was cancelled, rejected or closed by hand — the one final
+  /// step it took (P63). Null for an order closed because it was fulfilled.
+  status_reason String?
   /// The order this one was copied from with Salin, if any.
   copied_from_id Int?
 
@@ -1407,7 +1408,6 @@ model SalOrder {
   customer    MPartner        @relation(fields: [customer_id], references: [id])
   address     MPartnerAddress @relation(fields: [address_id], references: [id])
   term        RefPaymentTerm  @relation(fields: [term_id], references: [id])
-  warehouse   RefWarehouse    @relation(fields: [warehouse_id], references: [id])
   copied_from SalOrder?       @relation("SalesOrderCopy", fields: [copied_from_id], references: [id])
   copies      SalOrder[]      @relation("SalesOrderCopy")
   lines       SalOrderLine[]

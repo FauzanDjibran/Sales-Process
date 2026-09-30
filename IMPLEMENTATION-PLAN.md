@@ -110,6 +110,18 @@ not), and `scripts/seed-showcase.ts` (`db:seed-showcase`, `db:fresh`) fills a
 dev database with the simulation's customers, goods, references, accounts,
 account mapping, banks and an open fiscal year.
 
+**Sales Order lifecycle and form rework — 30/09/2026** (P63–P65): Draft →
+Ajukan → Diajukan → Setujui → Open → Tutup Pesanan → Ditutup, with Batalkan
+(Draft only) and Tolak (from Diajukan) final; new permissions
+`SALES_ORDER_APPROVE` and `SALES_ORDER_CLOSE`, `SALES_ORDER_CONFIRM` renamed
+`SALES_ORDER_SUBMIT`. Gudang and Kirim Diminta leave the SO (the Surat Jalan
+and a future delivery schedule carry them); the item is picked per line from a
+dropdown; Mode Harga is asked only when Kena PPN; the PPh estimate is its own
+box. The advance bill reads the SO's header in the SO's layout and shows the
+order as one line (Uraian, total, DPP) with the value typed below; it needs an
+Open SO. Every dropdown answers ↓ / ↑ / Enter, and every percent field shows
+`%` and takes 0–100 only. Automatic closing waits for the Surat Jalan.
+
 Built one step at a time, **in the order the user gives**. For each step:
 
 1. Re-read the simulation's step (screens, lifecycle, arithmetic, journal) and
@@ -130,7 +142,7 @@ instruction decides:
 
 | # | Step | Posts |
 | --- | --- | --- |
-| 3.1 | Sales Order Barang (credit check, approval, Salin, Tutup Pesanan) | nothing |
+| 3.1 | Sales Order Barang (approval, Salin, Tutup Pesanan) | nothing |
 | 3.2 | Uang Muka Penjualan | nothing |
 | 3.3 | Pembayaran — Uang Muka (+ Penerimaan / Pengeluaran lain-lain) | Cash Bank Book, journal |
 | 3.4 | Faktur Pajak Keluaran (uang muka) and Bukti Potong PPh | nothing — tax documents |
