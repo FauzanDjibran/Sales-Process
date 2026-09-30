@@ -831,7 +831,9 @@ export function SalesOrderForm({
               <b>Tidak Kena PPN</b>
             </div>
           )}
-          {totals.gross - totals.discount !== totals.total && header.is_taxable && (
+          {/* Only a price that already holds its PPN can come out a rupiah under
+              (P60); an Exclude order's total is its amounts plus PPN by design. */}
+          {header.is_taxable && header.price_mode === "Include" && totals.gross - totals.discount !== totals.total && (
             <div className="ir est">
               <span>Pembulatan PPN (diserap DPP)</span>
               <b>−{money(totals.gross - totals.discount - totals.total)}</b>

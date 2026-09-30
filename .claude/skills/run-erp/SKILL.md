@@ -75,7 +75,8 @@ periods, documents — is never seeded. A fresh installation starts empty
 and the user builds it through the application.
 
 If the user explicitly asks to start over from nothing, `npm run db:reset` drops
-the database, reapplies every migration and re-seeds. **It destroys all data** —
+the database, reapplies every migration and re-seeds (`npm run db:fresh` also
+adds the development demo data from `db:seed-showcase`). **It destroys all data** —
 only run it on a clear, specific yes.
 
 ## 6. Build and start

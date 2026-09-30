@@ -105,6 +105,11 @@ Pajak card) and Account Mapping (Accounting › Pengaturan: selisih kurs and
 laba/rugi equity accounts, more as their documents are built). Currency
 Default and the PPh 22 Jenis PPh pointer retired.
 
+**Seeding — 30/09/2026**: `db:reset` now runs the system seed (Prisma 7 does
+not), and `scripts/seed-showcase.ts` (`db:seed-showcase`, `db:fresh`) fills a
+dev database with the simulation's customers, goods, references, accounts,
+account mapping, banks and an open fiscal year.
+
 Built one step at a time, **in the order the user gives**. For each step:
 
 1. Re-read the simulation's step (screens, lifecycle, arithmetic, journal) and

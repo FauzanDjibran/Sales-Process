@@ -82,12 +82,46 @@ node --env-file-if-exists=.env --conditions=react-server --import tsx --test tes
 | Command | What it does | Safe? |
 | --- | --- | --- |
 | `npx prisma migrate deploy` | Applies new migrations (schema changes) that came with a pull | ✅ Safe, never deletes data |
-| `npm run db:seed` | Adds missing **system** data: permissions, admin role and user, reference tables, region data, Kategori Item, the starting Jenis PPh, the PPN settings. Never overwrites your edits, never deletes | ✅ Safe, run it after every pull |
+| `npm run db:seed` | Adds missing **system** data: permissions, admin role and user, the chart-of-accounts skeleton, document types, partner categories, **all Indonesian regions** (38 provinsi, 514 kota/kabupaten, 7.285 kecamatan, 83.762 kelurahan with kode pos), Kategori Item, the starting Jenis PPh, the PPN settings and the base currency. Never overwrites your edits, never deletes | ✅ Safe, run it after every pull |
+| `npm run db:seed-showcase` | Adds **demo data** from the simulation so you can test straight away (see below). Development only. Additive: matched on label / name, never duplicates, never overwrites | ✅ Safe on a dev database |
 | `npx prisma generate` | Rebuilds the database client code. `npm run build` does it for you; run it by hand only if an error mentions `@/generated/prisma` or *"Cannot read properties of undefined (reading 'findMany')"* | ✅ Safe |
 | `npx prisma studio` | Opens a browser table viewer of the database (<http://localhost:5555>) | ✅ Look only; edits there skip the app's rules and audit |
-| `npm run db:truncate-transactions` | Empties **journals and the Cash Bank Book** (and their audit rows), keeping all master data, the chart of accounts and the fiscal calendar. Cash & Bank opening balances are lost | ⚠️ Deletes transactions |
-| `npm run db:reset` | **Drops the whole database**, re-applies every migration and re-seeds. Everything you entered is gone | ⛔ Destroys all data |
+| `npm run db:truncate-transactions` | Empties **journals and the Cash Bank Book** (and their audit rows), keeping all master data, the chart of accounts and the fiscal calendar. Cash & Bank opening balances are lost. Sales Orders and advance bills are **not** cleared yet | ⚠️ Deletes transactions |
+| `npm run db:reset` | **Drops the whole database**, re-applies every migration, then runs `db:seed`. You get system data only (admin, regions, settings…) and nothing you entered | ⛔ Destroys all data |
+| `npm run db:fresh` | `db:reset` **plus** `db:seed-showcase`: a clean database already filled with the demo data. The quickest way to start testing from zero | ⛔ Destroys all data |
 | `npx prisma migrate dev --name <name>` | Creates a **new** migration from a schema change. Developer command; Claude runs it, you normally never do | ⚠️ Can offer to reset in some states |
+
+> **Why `db:reset` used to leave everything empty:** Prisma 7 only seeds after
+> a reset when a seed command is configured in a Prisma config file, and this
+> project has none. `db:reset` now runs `db:seed` itself. If you ever run
+> `npx prisma migrate reset` directly, run `npm run db:seed` straight after it.
+
+### What the showcase data contains (`db:seed-showcase`)
+
+| Area | Created |
+| --- | --- |
+| Master › Referensi | Satuan PCS / BOX / SET; Termin TUNAI, NET7, NET14, NET30, NET45, NET60; Gudang GD-CKR, GD-SBY |
+| Chart of Accounts | 18 postable accounts under the seeded skeleton: Bank BCA / Mandiri, Piutang Usaha, Persediaan, PPh 22 / 23 Dibayar Dimuka, PPN Keluaran, Uang Muka Penjualan, Modal, Laba/Rugi (both), Penjualan, Retur, Pendapatan Lain-lain, Selisih Kurs, HPP, Beban Bank, Beban Umum |
+| Account Mapping | Selisih Kurs and both Laba/Rugi accounts (only where still empty) |
+| Jenis PPh | PPh Dibayar Dimuka accounts on PPH22, PPH23, PPH23-15 (only where still empty) |
+| Cash & Bank | BCA and MANDIRI, rupiah, with their book at zero |
+| Fiscal Year | The current year, Open, with 12 periods |
+| Partner | The simulation's 10 customers: tax identity, sales defaults, addresses on real kelurahan, contacts (PT Dermaskin inactive) |
+| Item | The simulation's 8 finished goods, with their BOX conversions |
+
+Not created: opening balances, Sales Orders or other documents, and the
+perizinan services.
+
+### Start again from a clean database
+
+```powershell
+npm run db:fresh          # ⛔ wipes everything, then system data + demo data
+npm run build
+npm start                 # sign in: admin@erp.app / erp123 (or your ERP_ADMIN_PASSWORD)
+```
+
+Use `npm run db:reset` instead if you want an empty application with system
+data only.
 
 ### First-time setup on a new machine
 
@@ -99,6 +133,7 @@ npm install
 & "C:\Program Files\PostgreSQL\18\bin\createdb.exe" -U postgres erp
 npx prisma migrate deploy
 npm run db:seed
+npm run db:seed-showcase           # optional: demo data to test with
 npm run build
 npm start
 ```
@@ -208,6 +243,8 @@ ask Claude rather than editing it by hand.
 | *Can't reach database server at localhost:5432* | Postgres is not running; see §2 |
 | *Port 3110 is already in use* | Another copy is still running. Find it with `netstat -ano \| findstr :3110`, then stop it with `taskkill /PID <number> /F` |
 | A new menu answers *403* / *tidak diizinkan* | `npm run db:seed`, then sign out and in again |
+| After a reset the app is empty: no provinces, no sign-in, no settings | The seed did not run. `npm run db:seed` (add `npm run db:seed-showcase` for demo data). `db:reset` and `db:fresh` now do this for you |
+| `db:seed-showcase` says *System data is missing* or *Region not found* | Run `npm run db:seed` first, then the showcase again |
 | Error about `@/generated/prisma` or `findMany` of undefined | `npx prisma generate` (or `npm run build`) |
 | After a pull, a page errors on a missing column | `npx prisma migrate deploy` |
 | `npm` blocked by PowerShell | Use `npm.cmd` / `npx.cmd`, see the top of this file |

@@ -237,8 +237,12 @@ tests/                 Carried SIBA suites + one suite per new module
 
 Same commands as SIBA once Phase 1 lands: `npm run dev`, `npm run build`,
 `npm start`, `npm run lint`, `npm test`, `npm run db:seed` (idempotent, system
-data only), `npm run db:seed-showcase` (dev demo data), `npm run db:reset`
-(**destructive**), `npx prisma migrate dev`.
+data only), `npm run db:seed-showcase` (dev demo data from the simulation,
+`scripts/seed-showcase.ts`: additive, matched on label / name), `npm run
+db:reset` (**destructive**; drops, migrates, then runs `db:seed` — Prisma 7
+seeds nothing on its own without a config file), `npm run db:fresh`
+(**destructive**; `db:reset` plus the showcase), `npx prisma migrate dev`.
+`git_command.md` is the user's command reference; keep it in step.
 
 - **Validate before reporting done:** `npm run build`, `npm run lint`,
   `npm test`; for UI, exercise it in a browser; for write paths, check the rows
@@ -642,8 +646,9 @@ here. In addition:
 - **An installation seeded before P60 still holds PPH42-SEWA.** The seed no
   longer creates it and never deletes; deactivate it by hand if it is not
   wanted.
-- **No `seed-showcase.ts` entry for Partner yet.** The simulation's customers
-  have not been turned into dev demo data.
+- **`db:truncate-transactions` does not clear sales documents.** It empties
+  the journals and the Cash Bank Book only; Sales Orders and advance bills
+  survive it. Extend it when the first posting sales document is built.
 - **The closing suite no longer covers a loss.** SIBA proved the loss side on
   the second company; with one company only the profit case remains, until a
   fixture year with a loss is added.
