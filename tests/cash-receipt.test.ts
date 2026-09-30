@@ -31,7 +31,7 @@ import {
 
 /**
  * Penerimaan Kas & Bank (P66–P70): what one receipt may settle — the purpose's
- * documents, owed by one partner — how it balances, and what posting writes:
+ * documents, owed by one partner — how its money settles them, and what posting writes:
  * one balanced journal naming the customer, one Cash Bank Book entry, and the
  * settled figures per bill, with the bills locked so two receipts cannot both
  * clear the last of one. A posted receipt makes its bill refuse Batalkan.
@@ -125,9 +125,8 @@ const input = (over: Partial<CashReceiptInput> = {}): CashReceiptInput => ({
   cash_bank_id: f.bank,
   bank_ref: "TRF-1",
   note: "",
-  cash_amount: 990_000,
   bank_charge: 0,
-  lines: [{ doc_id: f.bill1, settled: 999_000, withhold: true }],
+  lines: [{ doc_id: f.bill1, cash: 990_000, withhold: true }],
   ...over,
 });
 
@@ -233,11 +232,11 @@ describe("what one receipt may settle (P67)", () => {
   });
 
   test("another partner's bill, a repeated bill, or no bill is refused", async () => {
-    const other = await checkCashReceipt(prisma, input({ lines: [{ doc_id: f.otherBill, settled: 999_000, withhold: true }] }), null);
+    const other = await checkCashReceipt(prisma, input({ lines: [{ doc_id: f.otherBill, cash: 990_000, withhold: true }] }), null);
     assert.ok(!other.ok && /bukan tagihan partner ini/.test(other.errors["lines.0.doc_id"]));
     const twice = await checkCashReceipt(
       prisma,
-      input({ lines: [{ doc_id: f.bill1, settled: 500_000, withhold: true }, { doc_id: f.bill1, settled: 499_000, withhold: true }] }),
+      input({ lines: [{ doc_id: f.bill1, cash: 500_000, withhold: true }, { doc_id: f.bill1, cash: 490_000, withhold: true }] }),
       null
     );
     assert.ok(!twice.ok && /lebih dari sekali/.test(twice.errors["lines.1.doc_id"]));
@@ -245,34 +244,46 @@ describe("what one receipt may settle (P67)", () => {
     assert.ok(!none.ok && none.errors._lines);
   });
 
-  test("a line may not clear more than is open", async () => {
-    const r = await checkCashReceipt(prisma, input({ lines: [{ doc_id: f.bill1, settled: 1_000_000, withhold: true }] }), null);
-    assert.ok(!r.ok && /Melebihi sisa/.test(r.errors["lines.0.settled"]));
+  test("a line may not receive more than clears the bill", async () => {
+    const r = await checkCashReceipt(prisma, input({ lines: [{ doc_id: f.bill1, cash: 990_001, withhold: true }] }), null);
+    assert.ok(!r.ok && /Melebihi yang melunasi/.test(r.errors["lines.0.cash"]));
   });
 });
 
-// -------------------------------------------------------------- balancing
+// -------------------------------------------------------------- the money
 
-describe("the receipt balances: Dilunasi = dana + biaya bank + PPh", () => {
-  test("a full payment with PPh withheld", async () => {
+describe("the receipt's money follows its lines (P76)", () => {
+  test("money short by exactly the PPh clears the bill", async () => {
     const r = await checkCashReceipt(prisma, input(), null);
     assert.ok(r.ok, JSON.stringify(!r.ok && r.errors));
+    assert.equal(r.c.data.cash_amount, 990_000);
+    assert.equal(r.c.data.settled_amount, 999_000);
     assert.equal(r.c.data.pph_amount, 9_000);
     assert.equal(r.c.lines[0].ppnPart, 99_000);
     assert.equal(r.c.lines[0].dppPart, 900_000);
   });
 
-  test("an unexplained gap is refused, and a bank charge explains it", async () => {
-    const short = await checkCashReceipt(prisma, input({ cash_amount: 983_500 }), null);
-    assert.ok(!short.ok && /Selisih Rp/.test(short.errors._balance));
-    const charged = await checkCashReceipt(prisma, input({ cash_amount: 983_500, bank_charge: 6_500 }), null);
-    assert.ok(charged.ok);
+  test("less money is a partial payment carrying its share of the PPh", async () => {
+    const r = await checkCashReceipt(prisma, input({ lines: [{ doc_id: f.bill1, cash: 495_000, withhold: true }] }), null);
+    assert.ok(r.ok, JSON.stringify(!r.ok && r.errors));
+    assert.equal(r.c.data.settled_amount, 499_500);
+    assert.equal(r.c.data.pph_amount, 4_500);
   });
 
-  test("Potong PPh off: the customer paid in full, no PPh", async () => {
-    const r = await checkCashReceipt(prisma, input({ cash_amount: 999_000, lines: [{ doc_id: f.bill1, settled: 999_000, withhold: false }] }), null);
+  test("the bank charge comes off what reached the bank, not off the bill", async () => {
+    const r = await checkCashReceipt(prisma, input({ bank_charge: 6_500 }), null);
+    assert.ok(r.ok);
+    assert.equal(r.c.data.cash_amount, 983_500);
+    assert.equal(r.c.data.settled_amount, 999_000);
+    const all = await checkCashReceipt(prisma, input({ bank_charge: 990_000 }), null);
+    assert.ok(!all.ok && /lebih kecil/.test(all.errors.bank_charge));
+  });
+
+  test("Potong PPh off: the money is what it settles", async () => {
+    const r = await checkCashReceipt(prisma, input({ lines: [{ doc_id: f.bill1, cash: 999_000, withhold: false }] }), null);
     assert.ok(r.ok);
     assert.equal(r.c.data.pph_amount, 0);
+    assert.equal(r.c.data.settled_amount, 999_000);
   });
 });
 
@@ -282,11 +293,10 @@ describe("posting a receipt of two bills (P66)", () => {
   test("one journal, one Cash Bank Book entry, the bills paid", async () => {
     // bill2 in full with a 6.500 fee; bill3 half, without withholding.
     const i = input({
-      cash_amount: 990_000 - 6_500 + 499_500,
       bank_charge: 6_500,
       lines: [
-        { doc_id: f.bill2, settled: 999_000, withhold: true },
-        { doc_id: f.bill3, settled: 499_500, withhold: false },
+        { doc_id: f.bill2, cash: 990_000, withhold: true },
+        { doc_id: f.bill3, cash: 499_500, withhold: false },
       ],
     });
     const r = await create(i);
@@ -364,9 +374,9 @@ describe("posting a receipt of two bills (P66)", () => {
   });
 
   test("the second half of a bill takes what is left, and the bill cannot be over-settled", async () => {
-    const over = await checkCashReceipt(prisma, input({ cash_amount: 999_000, lines: [{ doc_id: f.bill3, settled: 999_000, withhold: false }] }), null);
+    const over = await checkCashReceipt(prisma, input({ lines: [{ doc_id: f.bill3, cash: 999_000, withhold: false }] }), null);
     assert.ok(!over.ok, "only 499.500 is open");
-    const r = await create(input({ cash_amount: 499_500, lines: [{ doc_id: f.bill3, settled: 499_500, withhold: false }] }));
+    const r = await create(input({ lines: [{ doc_id: f.bill3, cash: 499_500, withhold: false }] }));
     assert.ok(r.ok, JSON.stringify(r));
     assert.deepEqual(await transitionCashReceipt(r.id, "post", actor), { ok: true });
     const parts = await prisma.finCashBankTxLine.findMany({ where: { doc_id: f.bill3, tx: { status: "Posted" } } });
@@ -380,7 +390,7 @@ describe("posting a receipt of two bills (P66)", () => {
     assert.ok(a.ok && b.ok);
     assert.deepEqual(await transitionCashReceipt(a.id, "post", actor), { ok: true });
     const late = await transitionCashReceipt(b.id, "post", actor);
-    assert.ok(!late.ok && /Melebihi sisa|Belum bisa diposting/.test(late.errors._form));
+    assert.ok(!late.ok && /Melebihi|Belum bisa diposting/.test(late.errors._form));
     assert.deepEqual(await transitionCashReceipt(b.id, "cancel", actor, "duplikat"), { ok: true });
     assert.equal((await getCashReceipt(b.id))!.status, "Cancelled");
   });
@@ -388,7 +398,7 @@ describe("posting a receipt of two bills (P66)", () => {
 
 describe("posting refuses what it cannot book", () => {
   test("a missing mapping is named", async () => {
-    const r = await create(input({ partner_id: f.other, cash_amount: 990_000, lines: [{ doc_id: f.otherBill, settled: 999_000, withhold: true }] }));
+    const r = await create(input({ partner_id: f.other, lines: [{ doc_id: f.otherBill, cash: 990_000, withhold: true }] }));
     assert.ok(r.ok);
     await setMapping("output_vat_account", null);
     try {

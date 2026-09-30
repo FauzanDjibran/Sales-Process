@@ -11,10 +11,9 @@ import { createArItem } from "./ar-item";
 import { checkAccountIsLeaf } from "./records";
 import { lockSalesAdvances, settlementAdvances, type SettlementAdvance } from "./sales-advance";
 import {
-  settleBill,
-  settlementBalance,
-  settlementLineProblem,
-  type SettlementBalance,
+  cashToClear,
+  receivedProblem,
+  settleBillFromCash,
   type SettlementLine,
 } from "./sales-tax";
 import { postingAccounts } from "./system-settings";
@@ -69,7 +68,8 @@ type Db = Prisma.TransactionClient | typeof prisma;
 
 export type CashReceiptLineInput = {
   doc_id: number | null;
-  settled: number;
+  /** What the customer actually paid for this bill (P76). */
+  cash: number;
   withhold: boolean;
 };
 
@@ -80,7 +80,7 @@ export type CashReceiptInput = {
   cash_bank_id: number | null;
   bank_ref: string;
   note: string;
-  cash_amount: number;
+  /** The company's bank charge on the transfer (P68). */
   bank_charge: number;
   lines: CashReceiptLineInput[];
 };
@@ -246,6 +246,13 @@ export async function cashReceiptOptions(current: { id: number; docIds: number[]
 
 // ------------------------------------------------------------- validation
 
+/**
+ * The document's figures, all following from its lines (P76): what the lines
+ * received, less the bank charge, is what reached the bank; what they cleared
+ * is that money plus the charge plus the PPh withheld.
+ */
+export type ReceiptTotals = { received: number; bankCharge: number; cash: number; settled: number; pph: number };
+
 type CheckedLine = SettlementLine & { docId: number; withhold: boolean; bill: OpenBill };
 
 type Checked = {
@@ -263,7 +270,7 @@ type Checked = {
     pph_amount: number;
   };
   lines: CheckedLine[];
-  balance: SettlementBalance;
+  balance: ReceiptTotals;
   cashBankAccountId: number;
 };
 
@@ -305,10 +312,7 @@ export async function checkCashReceipt(
     else cashBankAccountId = cb.account_id;
   }
 
-  const cash = Number(input.cash_amount);
   const charge = Number(input.bank_charge) || 0;
-  if (!Number.isFinite(cash) || !(cash > 0)) errors.cash_amount = "Isi dana yang diterima.";
-  else if (cash !== Math.round(cash)) errors.cash_amount = "Dana diterima harus dalam rupiah penuh.";
   if (!Number.isFinite(charge) || charge < 0 || charge !== Math.round(charge)) {
     errors.bank_charge = "Biaya bank harus rupiah penuh, nol atau lebih.";
   }
@@ -344,30 +348,37 @@ export async function checkCashReceipt(
       errors[lineKey(i, "doc_id")] = `Tanggal terima sebelum tanggal ${bill.advanceNo}.`;
       continue;
     }
-    const settled = Number(l.settled);
-    const problem = settlementLineProblem(settled, bill.open);
+    const received = Number(l.cash);
+    const withhold = purpose?.withholding ? l.withhold !== false : false;
+    const max = cashToClear(bill, bill.paid, withhold);
+    const problem = receivedProblem(received, max);
     if (problem) {
-      errors[lineKey(i, "settled")] = problem === "Melebihi sisa tagihan." ? `Melebihi sisa ${bill.advanceNo} (${money(bill.open)}).` : problem;
+      errors[lineKey(i, "cash")] = problem === "Melebihi sisa tagihan." ? `Melebihi yang melunasi ${bill.advanceNo} (${money(max)}).` : problem;
       continue;
     }
-    const withhold = purpose?.withholding ? l.withhold !== false : false;
-    lines.push({
-      ...settleBill({ bill, before: bill.paid, settled, withhold }),
-      docId: id,
-      withhold,
-      bill,
-    });
+    const settled = settleBillFromCash({ bill, before: bill.paid, cash: received, withhold });
+    if (settled.cash !== received) {
+      // Two PPh shares moving on the same rupiah can skip a figure; one rupiah
+      // either way always lands.
+      errors[lineKey(i, "cash")] = `Nilai ini tidak dapat dibagi tepat dengan PPh-nya; ubah Rp1 (mis. ${money(settled.cash)}).`;
+      continue;
+    }
+    lines.push({ ...settled, docId: id, withhold, bill });
   }
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) {
     errors._lines = "Ada tagihan yang perlu diperbaiki.";
   }
 
-  const balance = settlementBalance(lines, Number.isFinite(cash) ? cash : 0, charge);
-  if (!errors._lines && !errors.cash_amount && !errors.bank_charge && lines.length && balance.difference !== 0) {
-    errors._balance =
-      balance.difference > 0
-        ? `Dana diterima ${money(balance.difference)} lebih besar dari yang dijelaskan tagihan. Tambah nilai dilunasi atau periksa dana diterima.`
-        : `Selisih ${money(-balance.difference)} belum dijelaskan: kurangi nilai dilunasi, atau isi sebagai biaya bank bila dipotong bank.`;
+  const received = lines.reduce((a, l) => a + l.cash, 0);
+  const balance: ReceiptTotals = {
+    received,
+    bankCharge: charge,
+    cash: received - charge,
+    settled: lines.reduce((a, l) => a + l.settled, 0),
+    pph: lines.reduce((a, l) => a + l.pph, 0),
+  };
+  if (!errors.bank_charge && !errors._lines && lines.length && charge >= received) {
+    errors.bank_charge = "Biaya bank harus lebih kecil dari total diterima.";
   }
 
   if (Object.keys(errors).length || !purpose) return { ok: false, errors };
@@ -382,7 +393,7 @@ export async function checkCashReceipt(
         cash_bank_id: cashBankId!,
         bank_ref: String(input.bank_ref ?? "").trim() || null,
         note: String(input.note ?? "").trim() || null,
-        cash_amount: cash,
+        cash_amount: balance.cash,
         bank_charge: charge,
         settled_amount: balance.settled,
         pph_amount: balance.pph,
@@ -507,11 +518,10 @@ function asInput(t: Prisma.FinCashBankTxGetPayload<{ include: { lines: true } }>
     cash_bank_id: t.cash_bank_id,
     bank_ref: t.bank_ref ?? "",
     note: t.note ?? "",
-    cash_amount: t.cash_amount.toNumber(),
     bank_charge: t.bank_charge.toNumber(),
     lines: [...t.lines]
       .sort((a, b) => a.line_no - b.line_no)
-      .map((l) => ({ doc_id: l.doc_id, settled: l.settled_amount.toNumber(), withhold: l.withhold })),
+      .map((l) => ({ doc_id: l.doc_id, cash: l.settled_amount.minus(l.pph_amount).toNumber(), withhold: l.withhold })),
   };
 }
 
@@ -708,7 +718,13 @@ export async function transitionCashReceipt(
 
       const done = await tx.finCashBankTx.updateMany({
         where: { id, status: "Draft" },
-        data: { status: "Posted", settled_amount: r.c.balance.settled, pph_amount: r.c.balance.pph, updated_by: actorId },
+        data: {
+          status: "Posted",
+          cash_amount: r.c.data.cash_amount,
+          settled_amount: r.c.balance.settled,
+          pph_amount: r.c.balance.pph,
+          updated_by: actorId,
+        },
       });
       if (done.count !== 1) throw new Refused({ _form: "Penerimaan berubah saat diproses. Muat ulang halaman." });
 

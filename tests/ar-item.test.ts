@@ -111,8 +111,17 @@ describe("an AR item's balance moves only through Buku Piutang", () => {
     assert.equal((await openArItemsAsOf("Invoice", "2026-09-09", f.customer)).length, 0, "not yet born");
   });
 
-  test("Buku Piutang signs each entry on the Piutang Usaha position", async () => {
+  test("Buku Piutang holds Invoice items only unless Uang Muka is asked for (P77)", async () => {
     const r = (await arLedgerReport(f.customer, { from: "2026-09-05", to: "2026-09-30" }))!;
+    assert.equal(r.includeAdvance, false);
+    assert.equal(r.opening, 0, "the advance before the period is beside the book");
+    assert.deepEqual(r.entries.map((e) => [e.event, e.type, e.exposure]), [["Create", "Invoice", 5_000_000]]);
+    assert.equal(r.closing, 5_000_000);
+    assert.deepEqual(r.closingByType, { Advance: 600_000, Invoice: 5_000_000 }, "still stated beside it");
+  });
+
+  test("with Uang Muka, Buku Piutang signs each entry on the net position", async () => {
+    const r = (await arLedgerReport(f.customer, { from: "2026-09-05", to: "2026-09-30" }, { includeAdvance: true }))!;
     assert.equal(r.opening, -1_000_000, "the advance received before the period lowers the position");
     assert.deepEqual(r.entries.map((e) => [e.event, e.type, e.exposure]), [
       ["Create", "Invoice", 5_000_000],

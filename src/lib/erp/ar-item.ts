@@ -262,6 +262,8 @@ export type ArLedgerEntryRow = {
 export type ArLedgerReport = {
   partner: { id: number; label: string; name: string };
   range: PeriodRange;
+  /** Whether Uang Muka entries are in the book, or only stated beside it (P77). */
+  includeAdvance: boolean;
   /** Piutang Usaha position at the start: Σ exposure before `range.from`. */
   opening: number;
   entries: ArLedgerEntryRow[];
@@ -273,11 +275,21 @@ export type ArLedgerReport = {
 };
 
 /**
- * Buku Piutang of one customer over a period: every entry on any of their
- * items, oldest first, each signed on their Piutang Usaha position, with the
- * position before and after.
+ * Buku Piutang of one customer over a period: every entry on their items,
+ * oldest first, each signed on their Piutang Usaha position, with the position
+ * before and after.
+ *
+ * By default the book holds **Invoice items only** and states the Uang Muka
+ * still held beside it, as mainstream ERPs keep a customer's down payments out
+ * of the receivables line until they are cleared against an invoice (P77).
+ * `includeAdvance` puts the Uang Muka entries in, netting the position.
  */
-export async function arLedgerReport(partnerId: number, range: PeriodRange): Promise<ArLedgerReport | null> {
+export async function arLedgerReport(
+  partnerId: number,
+  range: PeriodRange,
+  opts: { includeAdvance?: boolean } = {}
+): Promise<ArLedgerReport | null> {
+  const includeAdvance = Boolean(opts.includeAdvance);
   const partner = await prisma.mPartner.findUnique({
     where: { id: partnerId },
     select: { id: true, partner_label: true, partner_name: true },
@@ -298,6 +310,8 @@ export async function arLedgerReport(partnerId: number, range: PeriodRange): Pro
   const closingByType: Record<ArItemType, number> = { Advance: 0, Invoice: 0 };
   for (const r of rows) {
     closingByType[r.item.item_type as ArItemType] += r.movement.toNumber();
+    // Uang Muka is shown beside the book, not in it, unless asked for (P77).
+    if (!includeAdvance && r.item.item_type === "Advance") continue;
     if (isoDay(r.entry_date) < range.from) {
       opening += exposureOf(r);
       continue;
@@ -319,10 +333,12 @@ export async function arLedgerReport(partnerId: number, range: PeriodRange): Pro
     });
   }
   const increase = entries.filter((e) => e.exposure > 0).reduce((a, e) => a + e.exposure, 0);
-  const decrease = -entries.filter((e) => e.exposure < 0).reduce((a, e) => a + e.exposure, 0);
+  // `|| 0` so an empty period reads 0, not −0.
+  const decrease = -entries.filter((e) => e.exposure < 0).reduce((a, e) => a + e.exposure, 0) || 0;
   return {
     partner: { id: partner.id, label: partner.partner_label, name: partner.partner_name },
     range,
+    includeAdvance,
     opening,
     entries,
     increase,

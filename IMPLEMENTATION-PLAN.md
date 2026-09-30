@@ -125,10 +125,12 @@ Open SO. Every dropdown answers ↓ / ↑ / Enter, and every percent field shows
 **Penerimaan Kas & Bank — done 30/09/2026** (P66–P70): Finance › Kas & Bank ›
 Penerimaan, one table (`fin_cash_bank_tx`) for both directions, `BKM/…`.
 Purposes are a catalogue in code; the first is Penerimaan Uang Muka
-Penjualan. Tujuan → Customer lists every open bill with a tick box; one
-receipt settles several, fully or partly (Alokasikan Dana spends the typed
-money oldest first). PPh by rule per bill per Jenis PPh, bank charge absorbed
-into Beban Bank, balance enforced. Posting writes the journal and the Cash
+Penjualan. Tujuan → Customer, then *Pilih Tagihan* opens the customer's open
+bills in a dialog; one receipt settles several, fully or partly. Each line
+takes the cash actually received for its bill and the PPh follows from it
+(P76, reworked 30/09/2026 from the first build's typed Dilunasi and balance
+check); the header's money follows from the lines, the bank charge absorbed
+into Beban Bank. Posting writes the journal and the Cash
 Bank Book in one transaction with the bills locked; each line keeps the DPP /
 PPN / PPh figures the Faktur Pajak Uang Muka and Bukti Potong will be made
 from. Advance bills show Belum Dibayar / Sebagian / Lunas and a paid one
@@ -140,8 +142,9 @@ records, then the open items (C22).
 concept applied to AR — `fin_ar_item` (Uang Muka and Invoice, balance held on
 the item) and `fin_ar_ledger` (Buku Piutang, append-only), no allocation step.
 A posted receipt creates one Uang Muka item per bill at its DPP part; existing
-receipts were backfilled. Reports: Buku Piutang, Umur Piutang and Uang Muka
-Customer (checked against the GL). Invoice items and the Pembayaran / Dipakai
+receipts were backfilled. Reports: Buku Piutang (Invoice items, with a
+*Sertakan Uang Muka* switch, P77), Umur Piutang and Uang Muka Customer
+(checked against the GL). Invoice items and the Pembayaran / Dipakai
 Invoice events arrive with the Faktur Penjualan and the Pelunasan Faktur
 purpose.
 

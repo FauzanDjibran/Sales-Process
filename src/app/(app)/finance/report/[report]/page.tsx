@@ -45,6 +45,7 @@ export default async function Page({
     asOf?: string;
     from?: string;
     to?: string;
+    advance?: string;
   }>;
 }) {
   const { report: slug } = await params;
@@ -205,13 +206,15 @@ async function cashBankOptions() {
  */
 async function arReport(
   report: NonNullable<ReturnType<typeof reportBySlug>>,
-  query: { customer?: string; asOf?: string },
+  query: { customer?: string; asOf?: string; advance?: string },
   range: PeriodRange,
   runAt: string
 ) {
   const customerId = positiveInt(query.customer);
   const asOf = isDate(query.asOf) ? query.asOf : new Date().toISOString().slice(0, 10);
   const customers = await arPartnerOptions();
+  // Buku Piutang holds Invoice items only unless Uang Muka is asked for (P77).
+  const includeAdvance = query.advance === "1";
   const filter = (
     <ArReportParams
       slug={report.slug}
@@ -222,6 +225,7 @@ async function arReport(
       from={range.from}
       to={range.to}
       subjectRequired={report.subjectRequired}
+      advance={report.key === "ar_ledger" ? includeAdvance : null}
     />
   );
   const reconciles = await arItemsReconcile(customerId);
@@ -230,13 +234,20 @@ async function arReport(
   );
 
   if (report.key === "ar_ledger") {
-    const data = customerId ? await arLedgerReport(customerId, range) : null;
+    const data = customerId ? await arLedgerReport(customerId, range, { includeAdvance }) : null;
     return (
       <ReportView
         report={report}
         filter={filter}
         runAt={runAt}
-        footnote={mismatch ?? <>Menambah menaikkan Piutang Usaha customer (invoice, uang muka yang dipakai); Mengurangi menurunkannya (uang muka diterima, pembayaran).</>}
+        footnote={
+          mismatch ??
+          (includeAdvance ? (
+            <>Menambah menaikkan Piutang Usaha customer (invoice, uang muka yang dipakai); Mengurangi menurunkannya (uang muka diterima, pembayaran).</>
+          ) : (
+            <>Buku ini memuat Invoice saja; uang muka yang masih dipegang customer disebut di bawahnya. Centang Sertakan Uang Muka untuk memasukkannya ke buku.</>
+          ))
+        }
       >
         {data ? (
           <ArLedgerReportBody report={data} />

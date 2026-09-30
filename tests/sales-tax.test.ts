@@ -13,7 +13,7 @@ import {
   type PpnRates,
   type SalesLineInput,
 } from "../src/lib/erp/sales-tax";
-import { settleBill, settlementBalance, settlementLineProblem } from "../src/lib/erp/sales-tax";
+import { cashToClear, receivedProblem, settleBill, settleBillFromCash } from "../src/lib/erp/sales-tax";
 
 /**
  * The sales tax arithmetic (P59, P60; `tax_concept.md` §3, §7), against figures
@@ -284,19 +284,71 @@ describe("settling a bill in parts (P66–P69, tax_concept.md §7.5)", () => {
     assert.equal(b.pph, 9_000, "only the second half's share");
   });
 
-  test("a line may not clear more than is open", () => {
-    assert.equal(settlementLineProblem(0, 100), "Isi nilai yang dilunasi.");
-    assert.equal(settlementLineProblem(101, 100), "Melebihi sisa tagihan.");
-    assert.equal(settlementLineProblem(100, 100), null);
+  test("what clears a bill is its open amount less the PPh still to come", () => {
+    assert.equal(cashToClear(bill, 0, true), 1_092_000);
+    assert.equal(cashToClear(bill, 0, false), 1_110_000);
+    assert.equal(cashToClear(bill, 555_000, true), 546_000, "the second half carries half the PPh");
+  });
+});
+
+describe("settling from what the customer paid (P76, the simulation's Dana Diterima)", () => {
+  const bill = {
+    total: 1_110_000,
+    ppn: 110_000,
+    withholdings: [
+      { key: "23", rate: 2, base: 600_000, amount: 12_000 },
+      { key: "22", rate: 1.5, base: 400_000, amount: 6_000 },
+    ],
+  };
+
+  test("money short by exactly the PPh clears the bill; the gap is the PPh", () => {
+    const l = settleBillFromCash({ bill, before: 0, cash: 1_092_000, withhold: true });
+    assert.equal(l.settled, 1_110_000);
+    assert.equal(l.pph, 18_000);
+    assert.equal(l.cash, 1_092_000);
   });
 
-  test("the document balances: Dilunasi = dana + biaya bank + PPh", () => {
-    const l1 = settleBill({ bill, before: 0, settled: 1_110_000, withhold: true });
-    const l2 = settleBill({ bill: { total: 500_000, ppn: 0, withholdings: [] }, before: 0, settled: 500_000, withhold: true });
-    const ok = settlementBalance([l1, l2], 1_585_500, 6_500);
-    assert.equal(ok.expectedCash, 1_585_500);
-    assert.equal(ok.difference, 0);
-    const short = settlementBalance([l1, l2], 1_580_000, 0);
-    assert.equal(short.difference, -12_000);
+  test("less money settles a part, whose PPh is its positional share", () => {
+    const a = settleBillFromCash({ bill, before: 0, cash: 546_000, withhold: true });
+    assert.equal(a.settled, 555_000);
+    assert.equal(a.pph, 9_000);
+    assert.equal(a.cash, 546_000);
+    // The rest is cleared by exactly what is left to arrive.
+    const b = settleBillFromCash({ bill, before: a.settled, cash: cashToClear(bill, a.settled, true), withhold: true });
+    assert.equal(a.settled + b.settled, bill.total);
+    assert.equal(a.pph + b.pph, 18_000);
+  });
+
+  test("with Potong PPh off the money is what it settles", () => {
+    const l = settleBillFromCash({ bill, before: 0, cash: 500_000, withhold: false });
+    assert.equal(l.settled, 500_000);
+    assert.equal(l.pph, 0);
+    const full = settleBillFromCash({ bill, before: 0, cash: 1_110_000, withhold: false });
+    assert.equal(full.settled, 1_110_000);
+  });
+
+  test("every rupiah received lands exactly, or one rupiah beside it", () => {
+    const single = { total: 999_000, ppn: 99_000, withholdings: [{ key: "23", rate: 2, base: 900_000, amount: 18_000 }] };
+    let misses = 0;
+    for (let cash = 1; cash <= cashToClear(single, 0, true); cash += 997) {
+      const l = settleBillFromCash({ bill: single, before: 0, cash, withhold: true });
+      assert.equal(l.cash, cash, `one Jenis PPh always lands (${cash})`);
+    }
+    for (let cash = 1; cash <= cashToClear(bill, 0, true); cash += 991) {
+      const l = settleBillFromCash({ bill, before: 0, cash, withhold: true });
+      if (l.cash !== cash) {
+        misses++;
+        assert.ok(cash - l.cash <= 1, "never more than a rupiah under");
+        assert.equal(settleBillFromCash({ bill, before: 0, cash: cash + 1, withhold: true }).cash, cash + 1);
+      }
+      assert.ok(l.settled <= bill.total);
+    }
+    assert.ok(misses < 50);
+  });
+
+  test("a line may not receive more than clears the bill", () => {
+    assert.equal(receivedProblem(0, 100), "Isi nilai yang diterima.");
+    assert.equal(receivedProblem(101, 100), "Melebihi sisa tagihan.");
+    assert.equal(receivedProblem(100, 100), null);
   });
 });

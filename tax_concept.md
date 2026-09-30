@@ -256,6 +256,11 @@ cash received + bank charges + PPh withheld (+ PPN kept by a VAT collector, late
 - A partial payment takes each component in proportion.
 - Each split is cumulative: the payment that clears the bill takes what is
   left, so the parts always add up to the bill (§7.4).
+- The cash is what the user enters; the rest follows from it. Cash that
+  reaches the remainder less its remaining withholding clears the bill, the
+  gap being the PPh. Less cash settles the smallest part whose cash, after its
+  own share of each withholding, is exactly what was received; the rest of the
+  bill stays open.
 
 ---
 

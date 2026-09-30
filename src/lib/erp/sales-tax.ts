@@ -392,35 +392,58 @@ export function settleBill(input: {
   return { settled, dppPart: settled - ppnPart, ppnPart, withholdings, pph, cash: settled - pph };
 }
 
-/** Why a line's Dilunasi cannot stand, or null. `open` is what is left of the bill. */
-export function settlementLineProblem(settled: number, open: number): string | null {
-  if (!(settled > 0)) return "Isi nilai yang dilunasi.";
-  if (settled !== Math.round(settled)) return "Nilai dilunasi harus dalam rupiah penuh.";
-  if (settled > open) return "Melebihi sisa tagihan.";
-  return null;
+/**
+ * What still has to arrive in the bank to clear a bill: what is left of it less
+ * the PPh still to be withheld on it (none when the Potong PPh switch is off).
+ */
+export function cashToClear(bill: SettlementBill, before: number, withhold: boolean): number {
+  const b = Math.max(0, Math.round(before));
+  const open = Math.max(0, bill.total - b);
+  return open - settleBill({ bill, before: b, settled: open, withhold }).pph;
 }
 
-export type SettlementBalance = {
-  settled: number;
-  pph: number;
-  bankCharge: number;
-  /** What the bank should have received: Dilunasi − PPh − biaya bank. */
-  expectedCash: number;
-  cash: number;
-  /** cash − expected: positive is more money than the bills explain. */
-  difference: number;
-};
-
 /**
- * The document's balance: Σ Dilunasi = dana diterima + biaya bank + Σ PPh
- * (`tax_concept.md` §4.5). The bank charge belongs to the whole transfer, not
- * to a bill; the company absorbs it, so it still clears the bills (P68).
+ * One bill settled from **what the customer actually paid** for it (P76).
+ *
+ * The user types the money received; the bill is cleared by that money plus
+ * the PPh that goes with it. Money that reaches `cashToClear` clears the bill
+ * — the gap is the PPh the customer withheld. Less money settles part of the
+ * bill: the smallest part whose cash, after its own positional PPh share, is
+ * exactly what was received, so the rest of the bill stays open. With the
+ * switch off there is no PPh and the part is the money itself.
  */
-export function settlementBalance(lines: SettlementLine[], cash: number, bankCharge: number): SettlementBalance {
-  const settled = lines.reduce((a, l) => a + l.settled, 0);
-  const pph = lines.reduce((a, l) => a + l.pph, 0);
-  const c = Math.round(cash) || 0;
-  const charge = Math.round(bankCharge) || 0;
-  const expectedCash = settled - pph - charge;
-  return { settled, pph, bankCharge: charge, expectedCash, cash: c, difference: c - expectedCash };
+export function settleBillFromCash(input: {
+  bill: SettlementBill;
+  before: number;
+  /** What was received for this bill. */
+  cash: number;
+  withhold: boolean;
+}): SettlementLine {
+  const { bill, withhold } = input;
+  const before = Math.max(0, Math.round(input.before));
+  const cash = Math.max(0, Math.round(input.cash));
+  const open = Math.max(0, bill.total - before);
+  const at = (settled: number) => settleBill({ bill, before, settled, withhold });
+  if (cash >= cashToClear(bill, before, withhold)) return at(open);
+  if (!withhold || cash === 0) return at(cash);
+
+  // cash(s) = s − pph(s) moves by at most one rupiah per rupiah of s, so the
+  // exact part sits a few rupiah from the proportional estimate.
+  const clear = at(open);
+  const estimate = clear.cash > 0 ? mulDivRound(cash, open, clear.cash) : cash;
+  let best: SettlementLine | null = null;
+  for (let s = Math.max(0, estimate - 4); s <= Math.min(open, estimate + 4); s++) {
+    const line = at(s);
+    if (line.cash === cash) return line;
+    if (line.cash < cash && (!best || line.cash > best.cash)) best = line;
+  }
+  return best ?? at(cash);
+}
+
+/** Why a line's Diterima cannot stand, or null. `max` is what clears the bill. */
+export function receivedProblem(cash: number, max: number): string | null {
+  if (!(cash > 0)) return "Isi nilai yang diterima.";
+  if (cash !== Math.round(cash)) return "Nilai diterima harus dalam rupiah penuh.";
+  if (cash > max) return "Melebihi sisa tagihan.";
+  return null;
 }

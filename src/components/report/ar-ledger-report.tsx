@@ -5,10 +5,12 @@ import { AR_EVENT_TEXT, AR_TYPE_TEXT, type ArLedgerReport } from "@/lib/erp/ar-i
 import { formatDate, formatMoney } from "@/lib/format";
 
 /**
- * Buku Piutang (P72, P75) — one customer's AR items over a period, entry by
- * entry, each signed on their Piutang Usaha position: an Invoice raises it, an
- * Uang Muka lowers it, a payment or an advance used moves it back. Oldest
- * first, with the position carried in at the top and struck at the bottom.
+ * Buku Piutang (P72, P75, P77) — one customer's AR items over a period, entry
+ * by entry, each signed on their Piutang Usaha position: an Invoice raises it,
+ * a payment moves it back. Oldest first, with the position carried in at the
+ * top and struck at the bottom. By default only Invoice items are in the book
+ * and the Uang Muka still held is stated under it; with Uang Muka included,
+ * a down payment lowers the position and its use at a Faktur raises it back.
  */
 const money = (n: number) => formatMoney(n, "IDR");
 
@@ -107,8 +109,11 @@ export function ArLedgerReportBody({ report }: { report: ArLedgerReport }) {
         <div>
           <b>
             Per {formatDate(report.range.to)}: Invoice terbuka {money(report.closingByType.Invoice)} − Uang Muka terbuka{" "}
-            {money(report.closingByType.Advance)} = Posisi {money(report.closing)}
+            {money(report.closingByType.Advance)} = Posisi bersih {money(report.closingByType.Invoice - report.closingByType.Advance)}
           </b>
+          {!report.includeAdvance && report.closingByType.Advance > 0 && (
+            <p>Uang muka tidak dimasukkan ke buku di atas — dipakai saat Faktur Penjualan atas Sales Order yang sama diposting.</p>
+          )}
         </div>
       </div>
     </>

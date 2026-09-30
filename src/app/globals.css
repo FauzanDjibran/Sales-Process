@@ -1286,12 +1286,16 @@ table.grid.coll tbody td.addr .an{display:block;margin-top:2px;font-size:11px;co
 .modal.wide{width:min(680px,100%)}
 .modal.wide .mbody .tw{max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:var(--r)}
 
-/* ---------- the settlement table on a Penerimaan (P67) ----------
-   Every open bill of the partner is a row; a ticked row takes part. An
-   unticked row is dimmed but stays, so the whole list is in view. */
+/* ---------- the bill picker of a Penerimaan (P67, P76) ----------
+   Every open bill of the partner is a row of the Pilih Tagihan dialog; an
+   unticked row is dimmed but stays, so the whole list is in view. A line's
+   "lunas bila …" tag is a button that fills the amount clearing the bill. */
 table.ltab tr.unpicked td{color:var(--muted-2)}
 table.ltab tr.unpicked .mny{color:var(--muted-3)}
 table.ltab td.pick,table.ltab th.pick{width:40px;text-align:center;padding-left:8px;padding-right:8px}
 table.ltab td.pick input,table.ltab th.pick input{width:15px;height:15px;accent-color:var(--brand);cursor:pointer}
+button.fulltag.lnk{border:0;background:none;padding:0;cursor:pointer;color:var(--brand);font-family:inherit;text-align:right;margin-left:auto}
+button.fulltag.lnk:hover{text-decoration:underline}
+table.ltab tr.clk{cursor:pointer}
 .impact .ir.diff b{color:var(--bad)}
 .impact .ir.ok b{color:var(--ok)}
