@@ -83,6 +83,14 @@ export const MODULES: NavModule[] = [
             desc: "Resource tempat uang berada. Setiap Cash Bank memiliki Cash Bank Book sendiri.",
             permission: "CASH_BANK_VIEW",
           },
+          {
+            key: "ref_warehouse",
+            slug: "warehouse",
+            name: "Gudang",
+            icon: "build",
+            desc: "Tempat barang dikirim. Selama stok belum dikelola, gudang hanya menandai asal pengiriman.",
+            permission: "WAREHOUSE_VIEW",
+          },
         ],
       },
       {
@@ -112,14 +120,6 @@ export const MODULES: NavModule[] = [
             icon: "cal",
             desc: "Berapa hari customer boleh membayar setelah tanggal faktur. 0 hari berarti Tunai.",
             permission: "PAYMENT_TERM_VIEW",
-          },
-          {
-            key: "ref_warehouse",
-            slug: "warehouse",
-            name: "Gudang",
-            icon: "build",
-            desc: "Tempat barang dikirim. Selama stok belum dikelola, gudang hanya menandai asal pengiriman.",
-            permission: "WAREHOUSE_VIEW",
           },
           {
             key: "ref_withholding_tax",

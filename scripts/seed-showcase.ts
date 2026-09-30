@@ -7,7 +7,7 @@
  * depends on it. Run it after `npm run db:seed` (or use `npm run db:fresh`).
  *
  * What it creates, taken from `Initialization/actual-simulation-v2.html`:
- *   Satuan, Termin Pembayaran, Gudang
+ *   Gudang (Satuan, Termin and currencies come from the system seed, P62)
  *   the accounts the sales flow posts to, under the seeded chart skeleton
  *   Account Mapping (Selisih Kurs, Laba/Rugi) and the Jenis PPh accounts
  *   two rupiah bank accounts (Cash & Bank, each with its book)
@@ -39,21 +39,6 @@ import { BASE_CURRENCY_LABEL } from "../src/lib/erp/currency";
 import { CUSTOMER_CATEGORY } from "../src/lib/erp/entities";
 
 // ------------------------------------------------------------------- data
-
-const UOMS: [label: string, name: string][] = [
-  ["PCS", "Pcs"],
-  ["BOX", "Box"],
-  ["SET", "Set"],
-];
-
-const TERMS: [label: string, name: string, days: number][] = [
-  ["TUNAI", "Tunai", 0],
-  ["NET7", "Net 7 hari", 7],
-  ["NET14", "Net 14 hari", 14],
-  ["NET30", "Net 30 hari", 30],
-  ["NET45", "Net 45 hari", 45],
-  ["NET60", "Net 60 hari", 60],
-];
 
 const WAREHOUSES: [label: string, name: string][] = [
   ["GD-CKR", "Gudang Cikarang"],
@@ -300,31 +285,12 @@ async function main() {
   if (!sistem) throw new Error("System data is missing. Run `npm run db:seed` first.");
   actor = sistem.id;
 
-  // ---- Satuan, Termin, Gudang
-  const uomId = new Map<string, number>();
-  for (const [label, name] of UOMS) {
-    let row = await prisma.refUom.findFirst({ where: { uom_label: label } });
-    if (!row) {
-      row = await prisma.refUom.create({
-        data: { uom_code: await nextCode(entity("ref_uom")), uom_label: label, uom_name: name, created_by: actor },
-      });
-      await audit("ref_uom", row.id);
-      tally("satuan");
-    }
-    uomId.set(label, row.id);
-  }
-
-  const termId = new Map<string, number>();
-  for (const [label, name, days] of TERMS) {
-    let row = await prisma.refPaymentTerm.findFirst({ where: { term_label: label } });
-    if (!row) {
-      row = await prisma.refPaymentTerm.create({
-        data: { term_code: await nextCode(entity("ref_payment_term")), term_label: label, term_name: name, due_days: days, created_by: actor },
-      });
-      await audit("ref_payment_term", row.id);
-      tally("termin pembayaran");
-    }
-    termId.set(label, row.id);
+  // ---- Satuan and Termin come from the system seed (P62); Gudang is
+  // business data, so it is created here.
+  const uomId = new Map((await prisma.refUom.findMany()).map((u) => [u.uom_label.toUpperCase(), u.id]));
+  const termId = new Map((await prisma.refPaymentTerm.findMany()).map((t) => [t.term_label.toUpperCase(), t.id]));
+  for (const needed of ["PCS", "BOX", "SET"]) {
+    if (!uomId.has(needed)) throw new Error(`Satuan ${needed} is missing. Run \`npm run db:seed\` first.`);
   }
 
   for (const [label, name] of WAREHOUSES) {

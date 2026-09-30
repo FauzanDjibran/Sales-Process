@@ -351,6 +351,7 @@ async function main() {
   await syncPermissionCatalogue();
   await syncRoles(system);
   await ensureReferenceData(audit);
+  await ensureStarterReferences(audit);
 
   report();
 }
@@ -875,6 +876,83 @@ async function ensureRegions(): Promise<void> {
     if (updated) tally(`${level.what} updated`, updated);
 
     parentIds = new Map((await level.read()).map((r) => [r.code, r.id]));
+  }
+}
+
+/**
+ * Starter rows for the reference masters a user needs on day one (P62): a
+ * second currency, the common units of measure and the standard payment
+ * terms. They are user data from then on — edited, deactivated or added to
+ * through the application.
+ *
+ * Matched on the **label**, case-insensitively, and created only when no row
+ * carries it, with the next free system code. So an installation that already
+ * made its own `KG` keeps it and gets no second one, and nothing is ever
+ * overwritten. (A starter row renamed by the user comes back under its
+ * original label on the next seed; deactivate it instead of renaming it.)
+ */
+const STARTER_CURRENCIES: [label: string, name: string][] = [["USD", "Dolar Amerika Serikat"]];
+
+const STARTER_UOMS: [label: string, name: string][] = [
+  ["PCS", "Pcs"],
+  ["UNIT", "Unit"],
+  ["SET", "Set"],
+  ["PAK", "Pak"],
+  ["BOX", "Box"],
+  ["LSN", "Lusin"],
+  ["KRT", "Karton"],
+  ["BTL", "Botol"],
+  ["GR", "Gram"],
+  ["KG", "Kilogram"],
+  ["ML", "Mililiter"],
+  ["L", "Liter"],
+];
+
+const STARTER_TERMS: [label: string, name: string, days: number][] = [
+  ["TUNAI", "Tunai", 0],
+  ["NET7", "Net 7 hari", 7],
+  ["NET14", "Net 14 hari", 14],
+  ["NET30", "Net 30 hari", 30],
+  ["NET45", "Net 45 hari", 45],
+  ["NET60", "Net 60 hari", 60],
+];
+
+/** The next `<prefix>.NNNN` after the highest code already in `codes`. */
+function nextCodeAfter(prefix: string, codes: string[]): string {
+  let max = 0;
+  for (const c of codes) {
+    const n = Number(c.split(".")[1]);
+    if (Number.isFinite(n) && n > max) max = n;
+  }
+  return code(prefix, max + 1);
+}
+
+async function ensureStarterReferences(audit: { created_by: number; updated_by: null }): Promise<void> {
+  for (const [label, name] of STARTER_CURRENCIES) {
+    if (await prisma.refCurrency.findFirst({ where: { currency_label: { equals: label, mode: "insensitive" } } })) continue;
+    const codes = (await prisma.refCurrency.findMany({ select: { currency_code: true } })).map((r) => r.currency_code);
+    await prisma.refCurrency.create({
+      data: { currency_code: nextCodeAfter("curr", codes), currency_label: label, currency_name: name, ...audit },
+    });
+    tally("currencies", 1);
+  }
+
+  for (const [label, name] of STARTER_UOMS) {
+    if (await prisma.refUom.findFirst({ where: { uom_label: { equals: label, mode: "insensitive" } } })) continue;
+    const codes = (await prisma.refUom.findMany({ select: { uom_code: true } })).map((r) => r.uom_code);
+    await prisma.refUom.create({
+      data: { uom_code: nextCodeAfter("uom", codes), uom_label: label, uom_name: name, ...audit },
+    });
+    tally("satuan", 1);
+  }
+
+  for (const [label, name, days] of STARTER_TERMS) {
+    if (await prisma.refPaymentTerm.findFirst({ where: { term_label: { equals: label, mode: "insensitive" } } })) continue;
+    const codes = (await prisma.refPaymentTerm.findMany({ select: { term_code: true } })).map((r) => r.term_code);
+    await prisma.refPaymentTerm.create({
+      data: { term_code: nextCodeAfter("term", codes), term_label: label, term_name: name, due_days: days, ...audit },
+    });
+    tally("termin pembayaran", 1);
   }
 }
 

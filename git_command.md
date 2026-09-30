@@ -82,7 +82,7 @@ node --env-file-if-exists=.env --conditions=react-server --import tsx --test tes
 | Command | What it does | Safe? |
 | --- | --- | --- |
 | `npx prisma migrate deploy` | Applies new migrations (schema changes) that came with a pull | ✅ Safe, never deletes data |
-| `npm run db:seed` | Adds missing **system** data: permissions, admin role and user, the chart-of-accounts skeleton, document types, partner categories, **all Indonesian regions** (38 provinsi, 514 kota/kabupaten, 7.285 kecamatan, 83.762 kelurahan with kode pos), Kategori Item, the starting Jenis PPh, the PPN settings and the base currency. Never overwrites your edits, never deletes | ✅ Safe, run it after every pull |
+| `npm run db:seed` | Adds missing **system** data: permissions, admin role and user, the chart-of-accounts skeleton, document types, partner categories, **all Indonesian regions** (38 provinsi, 514 kota/kabupaten, 7.285 kecamatan, 83.762 kelurahan with kode pos), Kategori Item, the PPN settings, and the **starter references**: Currency IDR + USD; Satuan PCS, UNIT, SET, PAK, BOX, LSN, KRT, BTL, GR, KG, ML, L; Termin TUNAI, NET7, NET14, NET30, NET45, NET60; Jenis PPh PPH22, PPH23, PPH23-15. A starter row is added only when no row has that label. Never overwrites your edits, never deletes | ✅ Safe, run it after every pull |
 | `npm run db:seed-showcase` | Adds **demo data** from the simulation so you can test straight away (see below). Development only. Additive: matched on label / name, never duplicates, never overwrites | ✅ Safe on a dev database |
 | `npx prisma generate` | Rebuilds the database client code. `npm run build` does it for you; run it by hand only if an error mentions `@/generated/prisma` or *"Cannot read properties of undefined (reading 'findMany')"* | ✅ Safe |
 | `npx prisma studio` | Opens a browser table viewer of the database (<http://localhost:5555>) | ✅ Look only; edits there skip the app's rules and audit |
@@ -100,7 +100,7 @@ node --env-file-if-exists=.env --conditions=react-server --import tsx --test tes
 
 | Area | Created |
 | --- | --- |
-| Master › Referensi | Satuan PCS / BOX / SET; Termin TUNAI, NET7, NET14, NET30, NET45, NET60; Gudang GD-CKR, GD-SBY |
+| Master › Entitas | Gudang GD-CKR, GD-SBY (Satuan, Termin and Currency already come from `db:seed`) |
 | Chart of Accounts | 18 postable accounts under the seeded skeleton: Bank BCA / Mandiri, Piutang Usaha, Persediaan, PPh 22 / 23 Dibayar Dimuka, PPN Keluaran, Uang Muka Penjualan, Modal, Laba/Rugi (both), Penjualan, Retur, Pendapatan Lain-lain, Selisih Kurs, HPP, Beban Bank, Beban Umum |
 | Account Mapping | Selisih Kurs and both Laba/Rugi accounts (only where still empty) |
 | Jenis PPh | PPh Dibayar Dimuka accounts on PPH22, PPH23, PPH23-15 (only where still empty) |
