@@ -1279,3 +1279,19 @@ table.grid.coll tbody td.addr .an{display:block;margin-top:2px;font-size:11px;co
    The estimate on the left, the document's own figures on the right; each as
    tall as its own rows. */
 .cardfoot.multi{gap:12px;flex-wrap:wrap;align-items:flex-start}
+
+/* ---------- a confirmation that shows its consequences as a table ----------
+   Posting a receipt lists the journal lines it will write before it writes
+   them; the plain 384px dialog cannot hold four columns. */
+.modal.wide{width:min(680px,100%)}
+.modal.wide .mbody .tw{max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:var(--r)}
+
+/* ---------- the settlement table on a Penerimaan (P67) ----------
+   Every open bill of the partner is a row; a ticked row takes part. An
+   unticked row is dimmed but stays, so the whole list is in view. */
+table.ltab tr.unpicked td{color:var(--muted-2)}
+table.ltab tr.unpicked .mny{color:var(--muted-3)}
+table.ltab td.pick,table.ltab th.pick{width:40px;text-align:center;padding-left:8px;padding-right:8px}
+table.ltab td.pick input,table.ltab th.pick input{width:15px;height:15px;accent-color:var(--brand);cursor:pointer}
+.impact .ir.diff b{color:var(--bad)}
+.impact .ir.ok b{color:var(--ok)}

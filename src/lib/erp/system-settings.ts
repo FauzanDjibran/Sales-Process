@@ -241,6 +241,25 @@ export async function neracaAccounts(
   return { ok: true, currentId: currentId!, accumulatedId };
 }
 
+/**
+ * Several posting targets at once, by key, or the ones that are not usable, by
+ * name — the refusal a posting reads when Account Mapping is incomplete. Each
+ * is resolved against the master, exactly as `closingAccount` is.
+ */
+export async function postingAccounts<K extends SystemDefaultKey>(
+  keys: readonly K[]
+): Promise<{ ok: true; ids: Record<K, number> } | { ok: false; missing: string[] }> {
+  const values = await systemDefaults();
+  const ids = {} as Record<K, number>;
+  const missing: string[] = [];
+  for (const key of keys) {
+    const id = await usableAccount(values, key);
+    if (id) ids[key] = id;
+    else missing.push(systemDefaultDef(key).name);
+  }
+  return missing.length ? { ok: false, missing } : { ok: true, ids };
+}
+
 export type ClosingAccount =
   | { ok: true; accountId: number }
   | { ok: false; missing: string };

@@ -389,8 +389,9 @@ model SysDocType {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  ledger_entries   CashBankLedger[]
-  journals         AccJournal[]
+  ledger_entries     CashBankLedger[]
+  journals           AccJournal[]
+  cash_bank_tx_lines FinCashBankTxLine[]
 
   @@map("sys_doc_type")
 }
@@ -451,8 +452,8 @@ model RefUom {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  base_items  MItem[]    @relation("ItemBaseUom")
-  item_uoms   MItemUom[]
+  base_items MItem[]    @relation("ItemBaseUom")
+  item_uoms  MItemUom[]
 
   sales_order_lines SalOrderLine[]
 
@@ -485,8 +486,8 @@ model SysItemCategory {
 /// price (typed on the document, P43) and no tax treatment: Kena PPN and the
 /// Jenis PPh are decided on each transaction (P45, P48).
 model MItem {
-  id          Int          @id @default(autoincrement())
-  item_code   String       @unique
+  id          Int      @id @default(autoincrement())
+  item_code   String   @unique
   item_label  String
   item_name   String
   item_type   ItemType
@@ -525,9 +526,9 @@ model MItem {
 /// An alternate unit of an Item and how many base units it holds: a BOX of
 /// this serum is 12 PCS. Part of the Item — saved with it, one audit entry.
 model MItemUom {
-  id      Int     @id @default(autoincrement())
-  item_id Int
-  uom_id  Int
+  id         Int     @id @default(autoincrement())
+  item_id    Int
+  uom_id     Int
   /// Base units in one of this unit. More than 0.
   factor     Decimal @db.Decimal(18, 4)
   sort_order Int     @default(0)
@@ -590,19 +591,19 @@ model RefWarehouse {
 /// account the withheld amount is booked to until the bukti potong credits it.
 /// The common types are seeded; users edit them and add their own (P44).
 model RefWithholdingTax {
-  id         Int          @id @default(autoincrement())
-  wht_code   String       @unique
-  wht_label  String
-  wht_name   String
+  id                 Int          @id @default(autoincrement())
+  wht_code           String       @unique
+  wht_label          String
+  wht_name           String
   /// Percent, e.g. `1.5` for 1,5 %.
-  rate       Decimal      @db.Decimal(9, 4)
+  rate               Decimal      @db.Decimal(9, 4)
   /// What the tax is levied on — the objek pajak, in words.
-  tax_object String?
+  tax_object         String?
   /// "PPh … Dibayar Dimuka". Optional here because a fresh chart of accounts
   /// has none yet; the document that books a withholding requires it.
   prepaid_account_id Int?
-  note       String?
-  status     ActiveStatus @default(Active)
+  note               String?
+  status             ActiveStatus @default(Active)
 
   created_by Int
   updated_by Int?
@@ -612,6 +613,7 @@ model RefWithholdingTax {
   prepaid_account AccAccount? @relation(fields: [prepaid_account_id], references: [id])
 
   sales_order_lines SalOrderLine[]
+  cash_bank_tx_whts FinCashBankTxLineWht[]
 
   @@index([prepaid_account_id])
   @@map("ref_withholding_tax")
@@ -667,6 +669,7 @@ model MPartner {
 
   sales_orders   SalOrder[]
   sales_advances SalAdvance[]
+  cash_bank_txs  FinCashBankTx[]
 
   journal_lines AccJournalLine[]
 
@@ -686,26 +689,26 @@ model MPartner {
 /// Part of the Partner record — written with it in one transaction, and its
 /// changes are the Partner's own audit entry.
 model MPartnerAddress {
-  id         Int    @id @default(autoincrement())
-  partner_id Int
-  village_id Int
+  id          Int     @id @default(autoincrement())
+  partner_id  Int
+  village_id  Int
   /// The street part, typed by hand: jalan, nomor, blok, RT/RW, gedung.
-  street     String
-  note       String?
+  street      String
+  note        String?
   /// The address a faktur is addressed to (Alamat Penagihan).
   is_billing  Boolean @default(false)
   /// An address goods can be delivered to (Alamat Pengiriman).
   is_shipping Boolean @default(false)
   /// Display order within the Partner, as the user arranged it.
-  sort_order Int     @default(0)
+  sort_order  Int     @default(0)
 
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  partner MPartner          @relation(fields: [partner_id], references: [id])
-  village SysRegionVillage  @relation(fields: [village_id], references: [id])
+  partner MPartner         @relation(fields: [partner_id], references: [id])
+  village SysRegionVillage @relation(fields: [village_id], references: [id])
 
   /// Documents that name this address. While any does, it cannot be removed
   /// from the Partner (P53).
@@ -821,6 +824,7 @@ model MCashBank {
 
   ledger       CashBankLedger[]
   book_balance CashBankBalance?
+  transactions FinCashBankTx[]
 
   /// Advance bills that print this account as where to pay (P56).
   sales_advances SalAdvance[]
@@ -1270,6 +1274,7 @@ model AccJournal {
 
   source_doc_type SysDocType?      @relation(fields: [source_doc_type_id], references: [id])
   lines           AccJournalLine[]
+  cash_bank_txs   FinCashBankTx[]
 
   @@index([posting_date])
   @@index([source_doc_type_id, source_doc_id])
@@ -1359,44 +1364,44 @@ model AuditLog {
 /// save, so a list can show them and a confirmed order keeps the figures it was
 /// confirmed with.
 model SalOrder {
-  id       Int              @id @default(autoincrement())
+  id         Int              @id @default(autoincrement())
   /// `SO/YYYY/MM/NNNN`, in the series of the order's own month.
-  order_no String           @unique
-  order_date DateTime       @db.Date
-  status   SalesOrderStatus @default(Draft)
+  order_no   String           @unique
+  order_date DateTime         @db.Date
+  status     SalesOrderStatus @default(Draft)
 
-  customer_id  Int
+  customer_id               Int
   /// One of the customer's addresses, by id (P53).
-  address_id   Int
-  term_id      Int
+  address_id                Int
+  term_id                   Int
   /// Whether the order carries PPN at all, decided once for the order (P52).
-  is_taxable   Boolean   @default(true)
-  price_mode   PriceMode
+  is_taxable                Boolean   @default(true)
+  price_mode                PriceMode
   /// The PPN rate and DPP Nilai Lain factor the order was computed with,
   /// snapshotted from the System Default at each save while Draft and frozen
   /// at Ajukan (P60, P63). Null when the order is not Kena PPN.
-  ppn_rate                  Decimal? @db.Decimal(9, 4)
+  ppn_rate                  Decimal?  @db.Decimal(9, 4)
   ppn_dpp_other_numerator   Int?
   ppn_dpp_other_denominator Int?
 
-  po_no          String?
-  po_date        DateTime? @db.Date
+  po_no       String?
+  po_date     DateTime? @db.Date
   /// Free text (P43, P52).
-  salesperson    String?
-  note           String?
+  salesperson String?
+  note        String?
 
   // ---- totals, from `lib/erp/sales-tax.ts`, whole rupiah.
-  gross_amount    Decimal @default(0) @db.Decimal(18, 2)
-  discount_amount Decimal @default(0) @db.Decimal(18, 2)
-  dpp_amount      Decimal @default(0) @db.Decimal(18, 2)
+  gross_amount     Decimal @default(0) @db.Decimal(18, 2)
+  discount_amount  Decimal @default(0) @db.Decimal(18, 2)
+  dpp_amount       Decimal @default(0) @db.Decimal(18, 2)
   /// DPP Nilai Lain, the sum of the lines' (P60).
   dpp_other_amount Decimal @default(0) @db.Decimal(18, 2)
-  ppn_amount      Decimal @default(0) @db.Decimal(18, 2)
-  total_amount    Decimal @default(0) @db.Decimal(18, 2)
+  ppn_amount       Decimal @default(0) @db.Decimal(18, 2)
+  total_amount     Decimal @default(0) @db.Decimal(18, 2)
 
   /// Why the order was cancelled, rejected or closed by hand — the one final
   /// step it took (P63). Null for an order closed because it was fulfilled.
-  status_reason String?
+  status_reason  String?
   /// The order this one was copied from with Salin, if any.
   copied_from_id Int?
 
@@ -1434,16 +1439,16 @@ model SalOrderLine {
   /// Per `uom_id`, typed in the order's price mode.
   price      Decimal @db.Decimal(18, 2)
 
-  discount_type   DiscountType?
+  discount_type    DiscountType?
   /// A percent (`Percent`) or an amount (`Amount`), as typed.
-  discount_value  Decimal?      @db.Decimal(18, 4)
-  discount_amount Decimal       @default(0) @db.Decimal(18, 2)
+  discount_value   Decimal?      @db.Decimal(18, 4)
+  discount_amount  Decimal       @default(0) @db.Decimal(18, 2)
   /// qty × price − discount, whole rupiah.
-  amount          Decimal       @db.Decimal(18, 2)
-  dpp_amount      Decimal       @db.Decimal(18, 2)
+  amount           Decimal       @db.Decimal(18, 2)
+  dpp_amount       Decimal       @db.Decimal(18, 2)
   /// DPP Nilai Lain of this line; PPN is computed per line from it (P60).
-  dpp_other_amount Decimal      @default(0) @db.Decimal(18, 2)
-  ppn_amount      Decimal       @db.Decimal(18, 2)
+  dpp_other_amount Decimal       @default(0) @db.Decimal(18, 2)
+  ppn_amount       Decimal       @db.Decimal(18, 2)
 
   /// The PPh the customer is expected to withhold on this line, or null (P52).
   withholding_tax_id Int?
@@ -1490,12 +1495,12 @@ model SalAdvance {
   note         String?
 
   /// Copied from the order, which is locked once confirmed.
-  price_mode PriceMode
-  is_taxable Boolean
+  price_mode                PriceMode
+  is_taxable                Boolean
   /// The bill's own snapshot of the PPN rate and DPP Nilai Lain factor, taken
   /// at each save while Draft and frozen at Terbitkan (P60). Null when the
   /// order is not Kena PPN.
-  ppn_rate                  Decimal? @db.Decimal(9, 4)
+  ppn_rate                  Decimal?  @db.Decimal(9, 4)
   ppn_dpp_other_numerator   Int?
   ppn_dpp_other_denominator Int?
 
@@ -1528,4 +1533,112 @@ model SalAdvance {
   @@index([customer_id])
   @@index([status, advance_date])
   @@map("sal_advance")
+}
+
+// ------------------------------------------------------ cash bank transaction
+//
+// Penerimaan and Pengeluaran Kas & Bank (Claude-ERP.md P66–P70): one document
+// for every movement of money through a cash or bank resource, in one table
+// for both directions. Its purpose — a key of the catalogue in
+// `lib/erp/cash-bank-purposes.ts` — decides what it settles and how it posts.
+// A Draft touches no book; posting writes the journal and the Cash Bank Book
+// together.
+
+enum CashBankTxStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+model FinCashBankTx {
+  id        Int              @id @default(autoincrement())
+  /// `BKM/YYYY/MM/NNNN` for Penerimaan, `BKK/…` for Pengeluaran.
+  tx_no     String           @unique
+  direction FlowDirection
+  /// A key of the purpose catalogue in code (P66), not a foreign key.
+  purpose   String
+  tx_date   DateTime         @db.Date
+  status    CashBankTxStatus @default(Draft)
+
+  partner_id   Int
+  cash_bank_id Int
+  /// The transaction number on the bank statement.
+  bank_ref     String?
+  note         String?
+
+  /// What actually reached (or left) the resource — the Cash Bank Book amount.
+  cash_amount    Decimal @db.Decimal(18, 2)
+  /// The transfer fee the bank kept; the company absorbs it (P68).
+  bank_charge    Decimal @default(0) @db.Decimal(18, 2)
+  /// The lines' Dilunasi, summed.
+  settled_amount Decimal @default(0) @db.Decimal(18, 2)
+  /// The PPh the partner withheld, summed over lines and types.
+  pph_amount     Decimal @default(0) @db.Decimal(18, 2)
+
+  /// The journal posting wrote.
+  journal_id    Int?
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  partner   MPartner            @relation(fields: [partner_id], references: [id])
+  cash_bank MCashBank           @relation(fields: [cash_bank_id], references: [id])
+  journal   AccJournal?         @relation(fields: [journal_id], references: [id])
+  lines     FinCashBankTxLine[]
+
+  @@index([direction, status, tx_date])
+  @@index([partner_id])
+  @@map("fin_cash_bank_tx")
+}
+
+/// One document a transaction settles, named by the weak `(doc_type_id,
+/// doc_id)` pair because it belongs to another module (§3.1). Each document
+/// appears once per transaction.
+model FinCashBankTxLine {
+  id          Int @id @default(autoincrement())
+  tx_id       Int
+  line_no     Int
+  doc_type_id Int
+  doc_id      Int
+
+  /// The part of the document this line clears: cash + its share of the
+  /// bank charge + PPh withheld.
+  settled_amount Decimal @db.Decimal(18, 2)
+  /// The Potong PPh switch (P60): off, the partner paid without withholding.
+  withhold       Boolean @default(true)
+  /// The split of `settled_amount` an advance's faktur pajak will carry.
+  dpp_part       Decimal @default(0) @db.Decimal(18, 2)
+  ppn_part       Decimal @default(0) @db.Decimal(18, 2)
+  pph_amount     Decimal @default(0) @db.Decimal(18, 2)
+
+  created_by Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  tx       FinCashBankTx          @relation(fields: [tx_id], references: [id], onDelete: Cascade)
+  doc_type SysDocType             @relation(fields: [doc_type_id], references: [id])
+  whts     FinCashBankTxLineWht[]
+
+  @@unique([tx_id, doc_type_id, doc_id])
+  @@index([doc_type_id, doc_id])
+  @@map("fin_cash_bank_tx_line")
+}
+
+/// The PPh withheld on one line, per Jenis PPh — the unit one Bukti Potong
+/// will be made from (P69).
+model FinCashBankTxLineWht {
+  id                 Int     @id @default(autoincrement())
+  line_id            Int
+  withholding_tax_id Int
+  rate               Decimal @db.Decimal(9, 4)
+  base_amount        Decimal @db.Decimal(18, 2)
+  amount             Decimal @db.Decimal(18, 2)
+
+  line            FinCashBankTxLine @relation(fields: [line_id], references: [id], onDelete: Cascade)
+  withholding_tax RefWithholdingTax @relation(fields: [withholding_tax_id], references: [id])
+
+  @@unique([line_id, withholding_tax_id])
+  @@map("fin_cash_bank_tx_line_wht")
 }

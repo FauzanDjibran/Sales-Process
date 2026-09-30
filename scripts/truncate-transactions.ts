@@ -12,6 +12,7 @@
  * are untouched.
  *
  * WHAT IT DELETES
+ *   fin_cash_bank_tx(_line, _line_wht)             Penerimaan / Pengeluaran Kas & Bank
  *   acc_journal_line, acc_journal                  the books' journals
  *   cash_bank_ledger                               the Cash Bank Book
  *   sal_advance                                    Uang Muka Penjualan bills
@@ -24,6 +25,10 @@
  *   the whole chart of accounts, acc_fiscal_year / acc_fiscal_period, the
  *   settings (System Default, Account Mapping), and the master records' own
  *   audit history.
+ *
+ * WHY THE RECEIPTS GO FIRST
+ *   A receipt names the journal it posted and, by the weak pair, the advance
+ *   bills it settled; its lines and their PPh rows cascade with it.
  *
  * WHY THE SALES DOCUMENTS GO IN THIS ORDER
  *   The foreign keys decide it: an advance bill names its Sales Order, and an
@@ -60,12 +65,15 @@ import "dotenv/config";
 import { prisma } from "@/lib/prisma";
 
 /** Audit rows follow the documents they describe; master history stays. */
-const DOCUMENT_ENTITY_KEYS = ["acc_journal", "sal_order", "sal_advance"];
+const DOCUMENT_ENTITY_KEYS = ["acc_journal", "sal_order", "sal_advance", "fin_cash_bank_tx"];
 
 async function main() {
   const confirmed = process.argv.includes("--confirm");
 
   const counts = {
+    fin_cash_bank_tx_line_wht: await prisma.finCashBankTxLineWht.count(),
+    fin_cash_bank_tx_line: await prisma.finCashBankTxLine.count(),
+    fin_cash_bank_tx: await prisma.finCashBankTx.count(),
     acc_journal_line: await prisma.accJournalLine.count(),
     acc_journal: await prisma.accJournal.count(),
     cash_bank_ledger: await prisma.cashBankLedger.count(),
@@ -103,6 +111,10 @@ async function main() {
   }
 
   await prisma.$transaction(async (tx) => {
+    // Receipts first: each names the journal it posted. Their lines and PPh
+    // rows cascade.
+    await tx.finCashBankTx.deleteMany();
+
     // Order follows the foreign keys: lines before their documents.
     await tx.accJournalLine.deleteMany();
     await tx.accJournal.deleteMany();

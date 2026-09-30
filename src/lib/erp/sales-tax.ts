@@ -325,3 +325,102 @@ export function computeAdvance(input: {
     expectedReceipt: total - withholdingTotal - collectedPpn,
   };
 }
+
+// ============================================================= settlement
+
+/**
+ * One bill settled by one line of a Penerimaan (P66–P69).
+ *
+ * A bill is settled in parts — one payment or several — and each part carries
+ * its share of the bill's PPN and of every PPh the customer withholds. The
+ * shares are **positional** (`tax_concept.md` §7.5): a figure's share of the
+ * part that takes the bill from `before` to `after` is
+ *
+ *   round(figure × after / total) − round(figure × before / total)
+ *
+ * so the parts always add up to the figure, the part that clears the bill
+ * takes exactly what is left, and a part settled without withholding (the
+ * Potong PPh switch off, P60) leaves no PPh behind for a later part to pick up.
+ *
+ * What the line clears is what the user types — **Dilunasi**. The PPh follows
+ * from it, and the cash the bill brings in is Dilunasi less its PPh.
+ */
+
+export type SettlementBill = {
+  /** What the bill asks for, PPN included. */
+  total: number;
+  ppn: number;
+  /** Per Jenis PPh: its rate, the DPP it is withheld on and the PPh. */
+  withholdings: { key: string; rate: number; base: number; amount: number }[];
+};
+
+export type SettlementLine = {
+  /** What this line clears of the bill. */
+  settled: number;
+  dppPart: number;
+  ppnPart: number;
+  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  pph: number;
+  /** What the bill brings into the bank: Dilunasi less its PPh. */
+  cash: number;
+};
+
+/** A figure's share of the bill as settled up to `upTo`. */
+const shareUpTo = (figure: number, upTo: number, total: number) =>
+  total > 0 ? mulDivRound(figure, Math.min(upTo, total), total) : 0;
+
+export function settleBill(input: {
+  bill: SettlementBill;
+  /** What posted payments settled before this one. */
+  before: number;
+  settled: number;
+  withhold: boolean;
+}): SettlementLine {
+  const { bill } = input;
+  const settled = Math.max(0, Math.round(input.settled));
+  const before = Math.max(0, Math.round(input.before));
+  const after = before + settled;
+  const part = (figure: number) => shareUpTo(figure, after, bill.total) - shareUpTo(figure, before, bill.total);
+
+  const ppnPart = part(bill.ppn);
+  const withholdings = input.withhold
+    ? bill.withholdings
+        .map((w) => ({ key: w.key, rate: w.rate, base: part(w.base), amount: part(w.amount) }))
+        .filter((w) => w.amount > 0)
+    : [];
+  const pph = withholdings.reduce((a, w) => a + w.amount, 0);
+  return { settled, dppPart: settled - ppnPart, ppnPart, withholdings, pph, cash: settled - pph };
+}
+
+/** Why a line's Dilunasi cannot stand, or null. `open` is what is left of the bill. */
+export function settlementLineProblem(settled: number, open: number): string | null {
+  if (!(settled > 0)) return "Isi nilai yang dilunasi.";
+  if (settled !== Math.round(settled)) return "Nilai dilunasi harus dalam rupiah penuh.";
+  if (settled > open) return "Melebihi sisa tagihan.";
+  return null;
+}
+
+export type SettlementBalance = {
+  settled: number;
+  pph: number;
+  bankCharge: number;
+  /** What the bank should have received: Dilunasi − PPh − biaya bank. */
+  expectedCash: number;
+  cash: number;
+  /** cash − expected: positive is more money than the bills explain. */
+  difference: number;
+};
+
+/**
+ * The document's balance: Σ Dilunasi = dana diterima + biaya bank + Σ PPh
+ * (`tax_concept.md` §4.5). The bank charge belongs to the whole transfer, not
+ * to a bill; the company absorbs it, so it still clears the bills (P68).
+ */
+export function settlementBalance(lines: SettlementLine[], cash: number, bankCharge: number): SettlementBalance {
+  const settled = lines.reduce((a, l) => a + l.settled, 0);
+  const pph = lines.reduce((a, l) => a + l.pph, 0);
+  const c = Math.round(cash) || 0;
+  const charge = Math.round(bankCharge) || 0;
+  const expectedCash = settled - pph - charge;
+  return { settled, pph, bankCharge: charge, expectedCash, cash: c, difference: c - expectedCash };
+}

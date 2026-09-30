@@ -5,9 +5,9 @@
  *     └──────────cancel─────────────────┘
  *
  * Issuing posts nothing: a bill is not a transaction. The money, its journal
- * and the Faktur Pajak Uang Muka come with the payment, in Pembayaran. Until
- * Pembayaran exists nothing can have been paid, so an issued bill may still be
- * cancelled; once it does, a paid bill will refuse it.
+ * and the figures of the Faktur Pajak Uang Muka come with the payment, in
+ * Penerimaan Kas & Bank. A bill a posted receipt has settled, even in part,
+ * refuses Batalkan (P66); its leftover is refunded instead.
  *
  * The same shape as `sales-order-workflow.ts`, and the one the AP advance will
  * mirror (P58). Client-safe on purpose — no `server-only`, no database import.
@@ -46,7 +46,7 @@ export const SALES_ADVANCE_TRANSITIONS: Record<AdvanceAction, AdvanceTransition>
     body:
       "Tagihan dikunci dan siap dikirim ke customer. Tidak ada journal dan tidak ada " +
       "faktur pajak: kas, Uang Muka Penjualan dan PPN Keluaran baru dicatat saat " +
-      "pembayarannya diterima di menu Pembayaran, dan tanggal terima itu menjadi " +
+      "pembayarannya diterima di menu Penerimaan Kas & Bank, dan tanggal terima itu menjadi " +
       "tanggal Faktur Pajak Uang Muka.",
     confirmLabel: "Ya, Terbitkan",
     done: "Tagihan uang muka diterbitkan",

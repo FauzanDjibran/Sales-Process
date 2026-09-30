@@ -72,16 +72,21 @@ function addDays(iso: string, days: number): string {
 const descriptionFor = (orderNo: string, poNo: string | null) =>
   `Uang muka atas pesanan ${orderNo}${poNo ? ` (PO ${poNo})` : ""}`;
 
+/** A receipt that names this bill, as its page lists them (P66). */
+export type AdvancePayment = { id: number; txNo: string; date: string; status: string; settled: number };
+
 export function AdvanceForm({
   mode,
   advance,
   options,
   can,
+  payments = [],
 }: {
   mode: AdvanceMode;
   advance: SalesAdvanceView | null;
   options: SalesAdvanceOptions;
   can: AdvanceAbilities;
+  payments?: AdvancePayment[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -369,6 +374,36 @@ export function AdvanceForm({
                 )
               )}
             </Field>
+            {!editing && advance?.status === "Issued" && (
+              <Field label="Pembayaran" span={12}>
+                {payments.length
+                  ? ro(
+                      <>
+                        {(() => {
+                          const paid = payments.filter((p) => p.status === "Posted").reduce((a, p) => a + p.settled, 0);
+                          const total = advance.figures.total;
+                          return (
+                            <span className={`bdg ${paid >= total ? "t-ok" : paid > 0 ? "t-info" : "t-warn"}`}>
+                              {paid >= total ? "Lunas" : paid > 0 ? `Sebagian · ${money(paid)}` : "Belum Dibayar"}
+                            </span>
+                          );
+                        })()}
+                        {payments.map((p) => (
+                          <span key={p.id}>
+                            <span className="rx">·</span>
+                            <Link className="drl" href={`/finance/cash-bank/receipt/${p.id}`}>
+                              <span className="mono">{p.txNo}</span>
+                            </Link>
+                            <span className="rx">
+                              {p.status === "Posted" ? money(p.settled) : p.status === "Draft" ? "draft" : "dibatalkan"}
+                            </span>
+                          </span>
+                        ))}
+                      </>
+                    )
+                  : nil("belum dibayar")}
+              </Field>
+            )}
             <Field label="Catatan" span={12}>
               {editing ? (
                 <textarea
@@ -395,7 +430,7 @@ export function AdvanceForm({
           <p className="fnote">
             {advance?.status === "Draft"
               ? "Tagihan masih Draft — belum dikirim ke customer dan masih dapat diubah. Menerbitkan tagihan tidak membentuk journal."
-              : "Tagihan sudah diterbitkan. Tagihan uang muka bukan transaksi, sehingga tidak membentuk journal: kas, Uang Muka Penjualan dan PPN Keluaran dicatat saat pembayarannya diterima di menu Pembayaran."}
+              : "Tagihan sudah diterbitkan. Tagihan uang muka bukan transaksi, sehingga tidak membentuk journal: kas, Uang Muka Penjualan dan PPN Keluaran dicatat saat pembayarannya diterima di menu Penerimaan Kas & Bank."}
           </p>
         )}
       </FormBody>

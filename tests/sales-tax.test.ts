@@ -13,6 +13,7 @@ import {
   type PpnRates,
   type SalesLineInput,
 } from "../src/lib/erp/sales-tax";
+import { settleBill, settlementBalance, settlementLineProblem } from "../src/lib/erp/sales-tax";
 
 /**
  * The sales tax arithmetic (P59, P60; `tax_concept.md` §3, §7), against figures
@@ -234,5 +235,68 @@ describe("an advance bill (P55, P60)", () => {
     assert.ok(advanceAmountProblem("Percent", 60, 1_000, 500), "more than is left of it");
     assert.equal(advanceAmountProblem("Percent", 50, 1_000, 500), null);
     assert.equal(advanceAmountProblem("Amount", 1_000, 1_000, 1_000), null);
+  });
+});
+
+// -------------------------------------------------------------- settlement
+
+describe("settling a bill in parts (P66–P69, tax_concept.md §7.5)", () => {
+  // An Exclude advance: DPP 1.000.000 → DPP NL 916.667 → PPN 110.000; total
+  // 1.110.000. PPh 23 2 % on 600.000 of the DPP (12.000), PPh 22 1,5 % on
+  // 400.000 (6.000).
+  const bill = {
+    total: 1_110_000,
+    ppn: 110_000,
+    withholdings: [
+      { key: "23", rate: 2, base: 600_000, amount: 12_000 },
+      { key: "22", rate: 1.5, base: 400_000, amount: 6_000 },
+    ],
+  };
+
+  test("settled in full, a line carries the bill's own figures", () => {
+    const l = settleBill({ bill, before: 0, settled: 1_110_000, withhold: true });
+    assert.equal(l.ppnPart, 110_000);
+    assert.equal(l.dppPart, 1_000_000);
+    assert.equal(l.pph, 18_000);
+    assert.equal(l.cash, 1_092_000);
+    assert.deepEqual(l.withholdings.map((w) => [w.key, w.base, w.amount]), [["23", 600_000, 12_000], ["22", 400_000, 6_000]]);
+  });
+
+  test("parts add up to the bill, and the clearing part takes what is left", () => {
+    const a = settleBill({ bill, before: 0, settled: 333_333, withhold: true });
+    const b = settleBill({ bill, before: 333_333, settled: 444_444, withhold: true });
+    const c = settleBill({ bill, before: 777_777, settled: 332_223, withhold: true });
+    assert.equal(a.ppnPart + b.ppnPart + c.ppnPart, 110_000);
+    assert.equal(a.dppPart + b.dppPart + c.dppPart, 1_000_000);
+    for (const k of [0, 1]) {
+      assert.equal(a.withholdings[k].amount + b.withholdings[k].amount + c.withholdings[k].amount, bill.withholdings[k].amount);
+      assert.equal(a.withholdings[k].base + b.withholdings[k].base + c.withholdings[k].base, bill.withholdings[k].base);
+    }
+    // round(110.000 × 333.333 / 1.110.000) = round(33.033,3) = 33.033
+    assert.equal(a.ppnPart, 33_033);
+  });
+
+  test("a part without withholding leaves no PPh for a later part to take", () => {
+    const a = settleBill({ bill, before: 0, settled: 555_000, withhold: false });
+    const b = settleBill({ bill, before: 555_000, settled: 555_000, withhold: true });
+    assert.equal(a.pph, 0);
+    assert.equal(a.cash, 555_000);
+    assert.equal(b.pph, 9_000, "only the second half's share");
+  });
+
+  test("a line may not clear more than is open", () => {
+    assert.equal(settlementLineProblem(0, 100), "Isi nilai yang dilunasi.");
+    assert.equal(settlementLineProblem(101, 100), "Melebihi sisa tagihan.");
+    assert.equal(settlementLineProblem(100, 100), null);
+  });
+
+  test("the document balances: Dilunasi = dana + biaya bank + PPh", () => {
+    const l1 = settleBill({ bill, before: 0, settled: 1_110_000, withhold: true });
+    const l2 = settleBill({ bill: { total: 500_000, ppn: 0, withholdings: [] }, before: 0, settled: 500_000, withhold: true });
+    const ok = settlementBalance([l1, l2], 1_585_500, 6_500);
+    assert.equal(ok.expectedCash, 1_585_500);
+    assert.equal(ok.difference, 0);
+    const short = settlementBalance([l1, l2], 1_580_000, 0);
+    assert.equal(short.difference, -12_000);
   });
 });

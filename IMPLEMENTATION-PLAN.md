@@ -122,6 +122,20 @@ order as one line (Uraian, total, DPP) with the value typed below; it needs an
 Open SO. Every dropdown answers ↓ / ↑ / Enter, and every percent field shows
 `%` and takes 0–100 only. Automatic closing waits for the Surat Jalan.
 
+**Penerimaan Kas & Bank — done 30/09/2026** (P66–P70): Finance › Kas & Bank ›
+Penerimaan, one table (`fin_cash_bank_tx`) for both directions, `BKM/…`.
+Purposes are a catalogue in code; the first is Penerimaan Uang Muka
+Penjualan. Tujuan → Customer lists every open bill with a tick box; one
+receipt settles several, fully or partly (Alokasikan Dana spends the typed
+money oldest first). PPh by rule per bill per Jenis PPh, bank charge absorbed
+into Beban Bank, balance enforced. Posting writes the journal and the Cash
+Bank Book in one transaction with the bills locked; each line keeps the DPP /
+PPN / PPh figures the Faktur Pajak Uang Muka and Bukti Potong will be made
+from. Advance bills show Belum Dibayar / Sebagian / Lunas and a paid one
+refuses Batalkan. Next in this area, as instructed: further purposes
+(Pelunasan Faktur, Pengembalian Uang Muka, lain-lain), Pengeluaran, the Pajak
+records, then the open items (C22).
+
 Built one step at a time, **in the order the user gives**. For each step:
 
 1. Re-read the simulation's step (screens, lifecycle, arithmetic, journal) and
@@ -144,7 +158,7 @@ instruction decides:
 | --- | --- | --- |
 | 3.1 | Sales Order Barang (approval, Salin, Tutup Pesanan) | nothing |
 | 3.2 | Uang Muka Penjualan | nothing |
-| 3.3 | Pembayaran — Uang Muka (+ Penerimaan / Pengeluaran lain-lain) | Cash Bank Book, journal |
+| 3.3 | Penerimaan Kas & Bank — Uang Muka (done); Penerimaan / Pengeluaran lain-lain | Cash Bank Book, journal |
 | 3.4 | Faktur Pajak Keluaran (uang muka) and Bukti Potong PPh | nothing — tax documents |
 | 3.5 | Surat Jalan | HPP / Persediaan at placeholder cost (P18) |
 | 3.6 | Faktur Penjualan with advance deduction; faktur pelunasan / normal | journal, faktur |

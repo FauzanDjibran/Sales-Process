@@ -225,8 +225,8 @@ Each withholding type is master data holding:
   1. The withholding is **assumed to exist**, by rule: the payment explains
      its shortfall with the PPh the payer is expected to have kept.
   2. The withheld PPh is booked on the withholding type's account.
-  3. A **pending withholding slip** is created per payment per withholding
-     type (§6).
+  3. A **pending withholding slip** is created per settled document, per
+     payment, per withholding type (§6).
 - **The user never types a PPh amount.** A payment for a bill that carries
   withholding has one switch, *PPh withheld* (on by default):
   - **on**: the withholding is computed by rule;
@@ -326,8 +326,11 @@ Needs correction <────────────────────�
    └─ corrected slip received ──> Received
 ```
 
-- It is **created automatically** as *awaiting*, **one per payment per
-  withholding type**, when a payment carrying withholding is recorded.
+- It is **created automatically** as *awaiting*, **one per settled document,
+  per payment, per withholding type**, when a payment carrying withholding is
+  recorded. A payer's slip refers to one base document, so a payment settling
+  two withheld bills yields two slips, and a bill paid in two instalments
+  yields one per instalment.
 - **Awaiting** past its expected date is flagged **late**. A slip that never
   arrives simply stays *awaiting* and late. How it is eventually closed is
   decided later.
@@ -503,7 +506,7 @@ purchasing is built.
 | Q16 | A tax invoice record is fully derived; no manual edits of its figures |
 | Q17 | NITKU: one per billing address, on the tax invoice; built later |
 | Q18 | No manual PPh amount. A payment has a *PPh withheld* switch: on computes by rule, off means no PPh and no slip. A different withheld amount is not modelled |
-| Q19 | One withholding slip per payment per withholding type |
+| Q19 | One withholding slip per settled document, per payment, per withholding type (amended 30/09/2026: a payment may settle several documents, and a payer's slip refers to one) |
 | Q20 | A slip that never arrives stays *awaiting* (late); its closing is decided later |
 | Q21 | A received slip is assumed to match the recorded amount |
 | Q22 | Final withholding (PPh 4(2)) is out of scope until needed; no *final* mark |

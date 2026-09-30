@@ -18,12 +18,29 @@ import {
 
 /**
  * The Uang Muka Penjualan register. Drafts sort first, then newest first. An
- * issued bill past its due date is marked; until Pembayaran exists every issued
- * bill is unpaid, so the mark is not yet narrowed by payment.
+ * issued bill carries its payment state — Belum Dibayar, Sebagian or Lunas —
+ * from the posted receipts that settled it (P66), and one not fully paid past
+ * its due date is marked.
  */
-const isOverdue = (r: SalesAdvanceListRow, today: string) => r.status === "Issued" && r.dueDate < today;
+export type PayState = "Belum Dibayar" | "Sebagian" | "Lunas";
+export function payStateOf(total: number, paid: number): PayState {
+  return paid >= total ? "Lunas" : paid > 0 ? "Sebagian" : "Belum Dibayar";
+}
+const PAY_TAG: Record<PayState, string> = { "Belum Dibayar": "t-warn", Sebagian: "t-info", Lunas: "t-ok" };
 
-export function AdvanceList({ rows: all, can }: { rows: SalesAdvanceListRow[]; can: AdvanceAbilities }) {
+export function AdvanceList({
+  rows: all,
+  paid,
+  can,
+}: {
+  rows: SalesAdvanceListRow[];
+  /** Settled by posted receipts, per bill id. */
+  paid: Record<number, number>;
+  can: AdvanceAbilities;
+}) {
+  const stateOf = (r: SalesAdvanceListRow) => payStateOf(r.total, paid[r.id] ?? 0);
+  const isOverdue = (r: SalesAdvanceListRow, today: string) =>
+    r.status === "Issued" && r.dueDate < today && stateOf(r) !== "Lunas";
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
@@ -33,7 +50,12 @@ export function AdvanceList({ rows: all, can }: { rows: SalesAdvanceListRow[]; c
   const rows = useMemo(() => {
     const out = all.filter(
       (r) =>
-        (!status || (status === "overdue" ? isOverdue(r, today) : r.status === status)) &&
+        (!status ||
+          (status === "overdue"
+            ? isOverdue(r, today)
+            : status.startsWith("pay:")
+              ? r.status === "Issued" && stateOf(r) === status.slice(4)
+              : r.status === status)) &&
         (!q ||
           r.advanceNo.toLowerCase().includes(q) ||
           r.orderNo.toLowerCase().includes(q) ||
@@ -41,7 +63,8 @@ export function AdvanceList({ rows: all, can }: { rows: SalesAdvanceListRow[]; c
           r.customerName.toLowerCase().includes(q))
     );
     return out.sort((a, b) => Number(b.status === "Draft") - Number(a.status === "Draft"));
-  }, [all, q, status, today]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [all, q, status, today, paid]);
   const paging = usePaging(rows, `${q}|${status}`);
   const money = (n: number) => formatMoney(n, "IDR");
 
@@ -89,6 +112,9 @@ export function AdvanceList({ rows: all, can }: { rows: SalesAdvanceListRow[]; c
                 value: s,
                 label: ADVANCE_STATUS_TEXT[s],
               })),
+              { value: "pay:Belum Dibayar", label: "Belum Dibayar" },
+              { value: "pay:Sebagian", label: "Dibayar Sebagian" },
+              { value: "pay:Lunas", label: "Lunas" },
               { value: "overdue", label: "Lewat jatuh tempo" },
             ]}
             onChange={setStatus}
@@ -113,6 +139,7 @@ export function AdvanceList({ rows: all, can }: { rows: SalesAdvanceListRow[]; c
                     <th className="num" style={{ width: 140 }}>DPP</th>
                     <th className="num" style={{ width: 120 }}>PPN</th>
                     <th className="num" style={{ width: 150 }}>Total Tagihan</th>
+                    <th style={{ width: 120 }}>Pembayaran</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -152,6 +179,15 @@ export function AdvanceList({ rows: all, can }: { rows: SalesAdvanceListRow[]; c
                       </td>
                       <td className="num">
                         <span className="mny">{money(r.total)}</span>
+                      </td>
+                      <td>
+                        {r.status === "Issued" ? (
+                          <span className={`bdg ${PAY_TAG[stateOf(r)]}`} title={paid[r.id] ? `dibayar ${money(paid[r.id])}` : undefined}>
+                            {stateOf(r)}
+                          </span>
+                        ) : (
+                          <span className="dash">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}

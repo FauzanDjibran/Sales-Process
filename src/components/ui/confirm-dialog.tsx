@@ -21,6 +21,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
   children,
+  wide,
 }: {
   open: boolean;
   icon: IconName;
@@ -35,6 +36,8 @@ export function ConfirmDialog({
   onCancel: () => void;
   /** Extra input the confirmation itself needs, e.g. a replacement password. */
   children?: React.ReactNode;
+  /** Room for a table of consequences — the journal lines a posting writes. */
+  wide?: boolean;
 }) {
   useEffect(() => {
     if (!open) return;
@@ -57,7 +60,7 @@ export function ConfirmDialog({
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div className="modal" role="dialog" aria-modal="true">
+      <div className={`modal${wide ? " wide" : ""}`} role="dialog" aria-modal="true">
         <div className={`mi ${toneClass}`}>
           <Icon name={icon} size={21} />
         </div>

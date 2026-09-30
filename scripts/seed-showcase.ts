@@ -84,6 +84,9 @@ const MAPPINGS: [setting: string, account: string][] = [
   ["fx_account", "fx"],
   ["accumulated_pl_account", "plPrior"],
   ["current_pl_account", "plCurrent"],
+  ["sales_advance_account", "advance"],
+  ["output_vat_account", "vat"],
+  ["bank_charge_account", "bankFee"],
 ];
 
 /** Jenis PPh label → its PPh Dibayar Dimuka account (only when unset). */

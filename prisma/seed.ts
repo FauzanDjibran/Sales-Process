@@ -116,6 +116,9 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Sales Order", "sal_order"],
   // Pembayaran will name the advance bill it settles the same way.
   ["Uang Muka Penjualan", "sal_advance"],
+  // A posted Penerimaan / Pengeluaran names itself on its journal and its
+  // Cash Bank Book entry.
+  ["Transaksi Kas & Bank", "fin_cash_bank_tx"],
 ];
 
 /**

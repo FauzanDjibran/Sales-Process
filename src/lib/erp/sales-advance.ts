@@ -35,8 +35,9 @@ import {
  * with the order's row locked, so two bills cannot both take the last of it,
  * and a bill and the order's cancellation cannot pass each other.
  *
- * Nothing here records what is paid or used: that is the open items' concern
- * (C22), fed by Pembayaran.
+ * Nothing here records what is paid: a Penerimaan Kas & Bank records what it
+ * settles, and this module is told (P66). What is *used* by invoices will be
+ * the open items' concern (C22).
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -373,7 +374,14 @@ export async function transitionSalesAdvance(
   id: number,
   action: AdvanceAction,
   actorId: number,
-  reason?: string
+  reason?: string,
+  /**
+   * Why the bill may no longer be cancelled, asked inside the transaction with
+   * the bill's row locked. The payment module answers it (a posted receipt
+   * settles the bill); it is passed in from the action layer, so this module
+   * never depends on the payment module that depends on it.
+   */
+  cancelGuard?: (tx: Prisma.TransactionClient, id: number) => Promise<string | null>
 ): Promise<SalesAdvanceTransitionResult> {
   const bill = await prisma.salAdvance.findUnique({ where: { id } });
   if (!bill) return { ok: false, errors: { _form: "Tagihan uang muka tidak ditemukan." } };
@@ -385,15 +393,20 @@ export async function transitionSalesAdvance(
   if (action === "cancel") {
     const why = String(reason ?? "").trim();
     if (!why) return { ok: false, errors: { reason: "Alasan pembatalan wajib diisi." } };
-    await prisma.$transaction(async (tx) => {
-      const done = await tx.salAdvance.updateMany({
-        where: { id, status: bill.status },
-        data: { status: "Cancelled", cancel_reason: why, updated_by: actorId },
+    return refusable(async () => {
+      await prisma.$transaction(async (tx) => {
+        await lockSalesAdvances(tx, [id]);
+        const blocked = cancelGuard ? await cancelGuard(tx, id) : null;
+        if (blocked) throw new Refused({ _form: blocked });
+        const done = await tx.salAdvance.updateMany({
+          where: { id, status: bill.status },
+          data: { status: "Cancelled", cancel_reason: why, updated_by: actorId },
+        });
+        if (done.count !== 1) throw new Error("Tagihan berubah saat diproses. Muat ulang halaman.");
+        await audit(tx, id, "UPDATE", "cancel", actorId);
       });
-      if (done.count !== 1) throw new Error("Tagihan berubah saat diproses. Muat ulang halaman.");
-      await audit(tx, id, "UPDATE", "cancel", actorId);
+      return { ok: true as const };
     });
-    return { ok: true };
   }
 
   return refusable(async () => {
@@ -502,4 +515,83 @@ export async function salesAdvanceNumbersByIds(ids: number[]): Promise<Map<numbe
     select: { id: true, advance_no: true },
   });
   return new Map(rows.map((r) => [r.id, r.advance_no]));
+}
+
+// ------------------------------------------------------- for the payment
+
+/**
+ * An advance bill as a Penerimaan settles it (P66): who owes it, what it asks
+ * for, and — per Jenis PPh — what the customer is expected to withhold, as
+ * `computeAdvance` works it out from the order the bill is drawn from and the
+ * rate the bill carries. The payment module takes this rather than reading
+ * `sal_advance` itself; what has been *paid* is the payment's own record.
+ */
+export type SettlementAdvance = {
+  id: number;
+  advanceNo: string;
+  advanceDate: string;
+  dueDate: string;
+  status: AdvanceStatus;
+  customerId: number;
+  orderNo: string;
+  description: string;
+  total: number;
+  dpp: number;
+  ppn: number;
+  withholdings: { key: string; rate: number; base: number; amount: number }[];
+};
+
+export async function settlementAdvances(
+  filter: { ids?: number[]; issuedOnly?: boolean },
+  db: Db = prisma
+): Promise<SettlementAdvance[]> {
+  const rows = await db.salAdvance.findMany({
+    where: {
+      ...(filter.ids ? { id: { in: filter.ids } } : {}),
+      ...(filter.issuedOnly ? { status: "Issued" } : {}),
+    },
+    orderBy: [{ advance_date: "asc" }, { id: "asc" }],
+  });
+  const orders = new Map(
+    (await advanceSourceOrders({ ids: [...new Set(rows.map((r) => r.order_id))] }, db)).map((o) => [o.id, o])
+  );
+  return rows.map((a) => {
+    const order = orders.get(a.order_id)!;
+    const rates =
+      a.ppn_rate && a.ppn_dpp_other_numerator && a.ppn_dpp_other_denominator
+        ? { rate: a.ppn_rate.toNumber(), otherNum: a.ppn_dpp_other_numerator, otherDen: a.ppn_dpp_other_denominator }
+        : null;
+    const f = computeAdvance({
+      basis: order.basis,
+      type: a.amount_type as AdvanceAmountType,
+      typed: a.amount_value.toNumber(),
+      rates,
+    });
+    return {
+      id: a.id,
+      advanceNo: a.advance_no,
+      advanceDate: isoDay(a.advance_date),
+      dueDate: isoDay(a.due_date),
+      status: a.status as AdvanceStatus,
+      customerId: a.customer_id,
+      orderNo: order.orderNo,
+      description: a.description,
+      // As stored: the figures the bill was issued with.
+      total: a.total_amount.toNumber(),
+      dpp: a.dpp_amount.toNumber(),
+      ppn: a.ppn_amount.toNumber(),
+      withholdings: f.withholdings,
+    };
+  });
+}
+
+/**
+ * Locks bills' rows for the rest of the transaction, in id order, so a payment
+ * posting against them and their cancellation cannot pass each other, and two
+ * payments cannot both clear the last of one.
+ */
+export async function lockSalesAdvances(tx: Prisma.TransactionClient, ids: number[]): Promise<void> {
+  for (const id of [...new Set(ids)].sort((a, b) => a - b)) {
+    await tx.$queryRaw`SELECT id FROM sal_advance WHERE id = ${id} FOR UPDATE`;
+  }
 }

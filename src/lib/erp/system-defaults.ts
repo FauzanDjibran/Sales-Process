@@ -29,6 +29,9 @@ export type SystemDefaultKey =
   | "fx_account"
   | "accumulated_pl_account"
   | "current_pl_account"
+  | "sales_advance_account"
+  | "output_vat_account"
+  | "bank_charge_account"
   | "ppn_rate"
   | "ppn_dpp_other_numerator"
   | "ppn_dpp_other_denominator";
@@ -39,7 +42,7 @@ export type SystemDefaultRef = "acc_account";
 /** The page a setting is edited on. */
 export type SettingsPage = "default" | "account";
 
-export type SystemDefaultGroupKey = "application" | "tax" | "fx" | "equity_pl";
+export type SystemDefaultGroupKey = "application" | "tax" | "receipt" | "fx" | "equity_pl";
 
 export type SystemDefaultGroup = {
   key: SystemDefaultGroupKey;
@@ -69,6 +72,17 @@ export const SYSTEM_DEFAULT_GROUPS = [
       "ketentuan pajak berubah: setiap dokumen menyalin nilai yang berlaku " +
       "saat disimpan, sehingga dokumen yang sudah ada tidak ikut berubah.",
     icon: "scale",
+  },
+  {
+    key: "receipt",
+    page: "account",
+    name: "Penerimaan Penjualan",
+    desc:
+      "Account yang dipakai saat Penerimaan Kas & Bank diposting: kewajiban " +
+      "uang muka dari customer, PPN Keluaran yang terutang, dan biaya transfer " +
+      "yang dipotong bank. PPh yang dipotong customer memakai account pada " +
+      "setiap Jenis PPh.",
+    icon: "down",
   },
   {
     key: "fx",
@@ -161,6 +175,37 @@ export const SYSTEM_DEFAULTS = [
     help: "tidak boleh lebih kecil dari pembilang",
   },
 
+  // ------------------------------------------------------------- receipt
+  //
+  // Added with the document that posts them (P61): Penerimaan Kas & Bank.
+  {
+    key: "sales_advance_account",
+    name: "Account Uang Muka Penjualan",
+    icon: "wallet",
+    type: "ref",
+    ref: "acc_account",
+    group: "receipt",
+    help: "kewajiban atas uang muka yang diterima, per customer",
+  },
+  {
+    key: "output_vat_account",
+    name: "Account PPN Keluaran",
+    icon: "scale",
+    type: "ref",
+    ref: "acc_account",
+    group: "receipt",
+    help: "PPN yang terutang saat uang muka diterima",
+  },
+  {
+    key: "bank_charge_account",
+    name: "Account Beban Bank",
+    icon: "coin",
+    type: "ref",
+    ref: "acc_account",
+    group: "receipt",
+    help: "biaya transfer yang dipotong bank",
+  },
+
   // ------------------------------------------------------------------ fx
   //
   // One account rather than a gain and a loss. A gain and a loss are the same
@@ -213,6 +258,9 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   fx_account: null,
   accumulated_pl_account: null,
   current_pl_account: null,
+  sales_advance_account: null,
+  output_vat_account: null,
+  bank_charge_account: null,
   ppn_rate: null,
   ppn_dpp_other_numerator: null,
   ppn_dpp_other_denominator: null,

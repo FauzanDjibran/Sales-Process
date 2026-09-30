@@ -89,7 +89,15 @@ describe("the settings catalogue lives in code", () => {
   test("configuration and account routing sit on separate pages (P61)", () => {
     assert.deepEqual(
       SYSTEM_DEFAULTS.filter((d) => settingPageOf(d.key) === "account").map((d) => d.key),
-      ["fx_account", "accumulated_pl_account", "current_pl_account"]
+      [
+        // Penerimaan Kas & Bank's posting targets (P66), added with it.
+        "sales_advance_account",
+        "output_vat_account",
+        "bank_charge_account",
+        "fx_account",
+        "accumulated_pl_account",
+        "current_pl_account",
+      ]
     );
     for (const d of SYSTEM_DEFAULTS) {
       assert.equal(

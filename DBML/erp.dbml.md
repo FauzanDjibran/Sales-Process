@@ -28,6 +28,12 @@ migration updates this file in the same change (Claude-ERP.md §9).
 - `sal_advance` (P54–P58) — the AR advance bill, drawn from one Open
   Sales Order and numbered `ARA/…`. It posts nothing and stores no paid or
   used amount; that is left to the open items (C22).
+- `fin_cash_bank_tx` (P66–P70) — Penerimaan and Pengeluaran Kas & Bank in one
+  table (`BKM/…`, `BKK/…`). Its purpose is a key of the catalogue in code.
+  `fin_cash_bank_tx_line` names each settled document by the weak
+  `(doc_type_id, doc_id)` pair and stores its DPP / PPN parts;
+  `fin_cash_bank_tx_line_wht` holds its PPh per Jenis PPh — the unit one
+  Bukti Potong is made from. Posting writes the journal and the Cash Bank Book.
 - `sal_order` and `sal_advance` snapshot the PPN rate and DPP Nilai Lain factor
   they were computed with (P60); each `sal_order_line` stores its own DPP Nilai
   Lain, since PPN is computed per line.
@@ -931,4 +937,79 @@ Ref: sal_order_line.withholding_tax_id > ref_withholding_tax.id
 Ref: sal_advance.order_id > sal_order.id
 Ref: sal_advance.customer_id > m_partner.id
 Ref: sal_advance.cash_bank_id > m_cash_bank.id
+
+Enum CashBankTxStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+Table fin_cash_bank_tx {
+  id int [pk, increment, not null]
+  tx_no varchar [unique, not null, note: 'BKM/YYYY/MM/NNNN or BKK/…']
+  direction FlowDirection [not null]
+  purpose varchar [not null, note: 'key of the purpose catalogue in code']
+  tx_date date [not null]
+  status CashBankTxStatus [not null, default: 'Draft']
+  partner_id int [not null]
+  cash_bank_id int [not null]
+  bank_ref varchar [null]
+  note varchar [null]
+  cash_amount decimal(18, 2) [not null, note: 'what reached the resource']
+  bank_charge decimal(18, 2) [not null, default: 0]
+  settled_amount decimal(18, 2) [not null, default: 0]
+  pph_amount decimal(18, 2) [not null, default: 0]
+  journal_id int [null]
+  cancel_reason varchar [null]
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (direction, status, tx_date)
+    partner_id
+  }
+}
+
+Table fin_cash_bank_tx_line {
+  id int [pk, increment, not null]
+  tx_id int [not null]
+  line_no int [not null]
+  doc_type_id int [not null, note: 'weak reference to the settled document']
+  doc_id int [not null]
+  settled_amount decimal(18, 2) [not null, note: 'Dilunasi']
+  withhold boolean [not null, default: true]
+  dpp_part decimal(18, 2) [not null, default: 0]
+  ppn_part decimal(18, 2) [not null, default: 0]
+  pph_amount decimal(18, 2) [not null, default: 0]
+  created_by int [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (tx_id, doc_type_id, doc_id) [unique]
+    (doc_type_id, doc_id)
+  }
+}
+
+Table fin_cash_bank_tx_line_wht {
+  id int [pk, increment, not null]
+  line_id int [not null]
+  withholding_tax_id int [not null]
+  rate decimal(9, 4) [not null]
+  base_amount decimal(18, 2) [not null]
+  amount decimal(18, 2) [not null]
+
+  indexes {
+    (line_id, withholding_tax_id) [unique]
+  }
+}
+
+Ref: fin_cash_bank_tx.partner_id > m_partner.id
+Ref: fin_cash_bank_tx.cash_bank_id > m_cash_bank.id
+Ref: fin_cash_bank_tx.journal_id > acc_journal.id
+Ref: fin_cash_bank_tx_line.tx_id > fin_cash_bank_tx.id [delete: cascade]
+Ref: fin_cash_bank_tx_line.doc_type_id > sys_doc_type.id
+Ref: fin_cash_bank_tx_line_wht.line_id > fin_cash_bank_tx_line.id [delete: cascade]
+Ref: fin_cash_bank_tx_line_wht.withholding_tax_id > ref_withholding_tax.id
 ```

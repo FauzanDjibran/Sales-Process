@@ -160,9 +160,24 @@ export const MODULES: NavModule[] = [
     key: "finance",
     name: "Finance",
     icon: "wallet2",
-    desc: "Uang muka, Buku Kas & Bank dan laporannya.",
+    desc: "Penerimaan kas & bank, uang muka, Buku Kas & Bank dan laporannya.",
     permission: "MENU_FINANCE_ACCESS",
     groups: [
+      {
+        key: "cash_bank",
+        name: "Kas & Bank",
+        entities: [
+          {
+            key: "fin_cash_receipt",
+            slug: "cash-bank/receipt",
+            name: "Penerimaan",
+            single: "Penerimaan Kas & Bank",
+            icon: "down",
+            desc: "Dana masuk ke kas atau bank. Tujuannya menentukan dokumen yang diselesaikan dan journal yang dibentuk.",
+            permission: "CASH_RECEIPT_VIEW",
+          },
+        ],
+      },
       {
         key: "advance",
         name: "Uang Muka",
@@ -172,7 +187,7 @@ export const MODULES: NavModule[] = [
             slug: "advance/sales",
             name: "Uang Muka Penjualan",
             icon: "wallet",
-            desc: "Tagihan uang muka ke customer atas Sales Order. Tidak memposting apa pun; pembayarannya dicatat di Pembayaran.",
+            desc: "Tagihan uang muka ke customer atas Sales Order. Tidak memposting apa pun; pembayarannya dicatat di Penerimaan Kas & Bank.",
             permission: "SALES_ADVANCE_VIEW",
           },
         ],
