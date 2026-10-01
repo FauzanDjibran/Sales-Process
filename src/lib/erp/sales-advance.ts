@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
-import { advanceSourceOrders, lockSalesOrder, type AdvanceSourceOrder } from "./sales-order";
+import { advanceSourceOrders, lockCustomerOrder, type AdvanceSourceOrder } from "./customer-order";
 import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
 import {
   advanceAmountProblem,
@@ -27,7 +27,7 @@ import {
  * is `sal_advance`, and nothing else names it.
  *
  * A bill, not a transaction: it posts nothing at any step. It is drawn from one
- * Open Sales Order, whose customer, address, price mode and Kena PPN it
+ * Open Customer Order, whose customer, address, price mode and Kena PPN it
  * follows, and asks for one value typed as a percent of the order or a flat
  * value. The figures come from `sales-tax.ts`, which the form previews from.
  *
@@ -66,7 +66,7 @@ const isoDay = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
 /** What other live bills have drawn from an order, in its price mode. */
 async function drawnByOthers(db: Db, orderId: number, exceptId: number | null): Promise<number> {
   const r = await db.salAdvance.aggregate({
-    where: { order_id: orderId, status: { not: "Cancelled" }, ...(exceptId ? { id: { not: exceptId } } : {}) },
+    where: { customer_order_id: orderId, status: { not: "Cancelled" }, ...(exceptId ? { id: { not: exceptId } } : {}) },
     _sum: { amount: true },
   });
   return r._sum.amount?.toNumber() ?? 0;
@@ -75,11 +75,11 @@ async function drawnByOthers(db: Db, orderId: number, exceptId: number | null): 
 /** Drawn by live bills, per order. */
 async function drawnByOrder(orderIds: number[]): Promise<Map<number, number>> {
   const rows = await prisma.salAdvance.groupBy({
-    by: ["order_id"],
-    where: { order_id: { in: orderIds }, status: { not: "Cancelled" } },
+    by: ["customer_order_id"],
+    where: { customer_order_id: { in: orderIds }, status: { not: "Cancelled" } },
     _sum: { amount: true },
   });
-  return new Map(rows.map((r) => [r.order_id, r._sum.amount?.toNumber() ?? 0]));
+  return new Map(rows.map((r) => [r.customer_order_id, r._sum.amount?.toNumber() ?? 0]));
 }
 
 // ---------------------------------------------------------------- options
@@ -140,7 +140,7 @@ export async function salesAdvanceOptions(current: { id: number; orderId: number
 
 type Checked = {
   data: {
-    order_id: number;
+    customer_order_id: number;
     customer_id: number;
     advance_date: Date;
     due_date: Date;
@@ -170,15 +170,15 @@ export async function checkSalesAdvance(
 
   const orderId = Number(input.order_id) || null;
   const [order] = orderId ? await advanceSourceOrders({ ids: [orderId] }, db) : [];
-  if (!orderId) errors.order_id = "Pilih Sales Order.";
-  else if (!order) errors.order_id = "Sales Order tidak ditemukan.";
-  else if (order.status !== "Open") errors.order_id = "Sales Order harus berstatus Open.";
-  else if (!order.customerActive) errors.order_id = "Customer pada Sales Order ini sudah nonaktif.";
+  if (!orderId) errors.order_id = "Pilih Customer Order.";
+  else if (!order) errors.order_id = "Customer Order tidak ditemukan.";
+  else if (order.status !== "Open") errors.order_id = "Customer Order harus berstatus Open.";
+  else if (!order.customerActive) errors.order_id = "Customer pada Customer Order ini sudah nonaktif.";
 
   const date = String(input.advance_date ?? "").trim();
   const due = String(input.due_date ?? "").trim();
   if (!DAY.test(date)) errors.advance_date = "Tanggal tagihan wajib diisi.";
-  else if (order && date < order.orderDate) errors.advance_date = "Tidak boleh sebelum tanggal Sales Order.";
+  else if (order && date < order.orderDate) errors.advance_date = "Tidak boleh sebelum tanggal Customer Order.";
   if (!DAY.test(due)) errors.due_date = "Jatuh tempo wajib diisi.";
   else if (DAY.test(date) && due < date) errors.due_date = "Tidak boleh sebelum tanggal tagihan.";
 
@@ -215,7 +215,7 @@ export async function checkSalesAdvance(
     ok: true,
     c: {
       data: {
-        order_id: order.id,
+        customer_order_id: order.id,
         customer_id: order.customerId,
         advance_date: asDate(date),
         due_date: asDate(due),
@@ -288,7 +288,7 @@ export async function createSalesAdvance(input: SalesAdvanceInput, actorId: numb
   return refusable(async () => {
     const made = await prisma.$transaction(async (tx) => {
       const orderId = Number(input.order_id) || null;
-      if (orderId) await lockSalesOrder(tx, orderId);
+      if (orderId) await lockCustomerOrder(tx, orderId);
       const r = await checkSalesAdvance(tx, input, null);
       if (!r.ok) throw new Refused(r.errors);
       const row = await tx.salAdvance.create({
@@ -314,19 +314,19 @@ export async function updateSalesAdvance(
 ): Promise<SalesAdvanceResult> {
   const current = await prisma.salAdvance.findUnique({
     where: { id },
-    select: { status: true, advance_no: true, order_id: true },
+    select: { status: true, advance_no: true, customer_order_id: true },
   });
   if (!current) return { ok: false, errors: { _form: "Tagihan uang muka tidak ditemukan." } };
   if (!advanceIsEditable(current.status as AdvanceStatus)) {
     return { ok: false, errors: { _form: "Tagihan yang sudah diterbitkan atau dibatalkan tidak dapat diubah." } };
   }
-  if (Number(input.order_id) !== current.order_id) {
-    return { ok: false, errors: { order_id: "Sales Order tidak dapat diganti. Buat tagihan baru untuk Sales Order lain." } };
+  if (Number(input.order_id) !== current.customer_order_id) {
+    return { ok: false, errors: { order_id: "Customer Order tidak dapat diganti. Buat tagihan baru untuk Customer Order lain." } };
   }
 
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
-      await lockSalesOrder(tx, current.order_id);
+      await lockCustomerOrder(tx, current.customer_order_id);
       const r = await checkSalesAdvance(tx, input, id);
       if (!r.ok) throw new Refused(r.errors);
       const done = await tx.salAdvance.updateMany({
@@ -342,7 +342,7 @@ export async function updateSalesAdvance(
 }
 
 function asInput(a: {
-  order_id: number;
+  customer_order_id: number;
   advance_date: Date;
   due_date: Date;
   cash_bank_id: number;
@@ -352,7 +352,7 @@ function asInput(a: {
   amount_value: Prisma.Decimal;
 }): SalesAdvanceInput {
   return {
-    order_id: a.order_id,
+    order_id: a.customer_order_id,
     advance_date: isoDay(a.advance_date),
     due_date: isoDay(a.due_date),
     cash_bank_id: a.cash_bank_id,
@@ -411,7 +411,7 @@ export async function transitionSalesAdvance(
 
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
-      await lockSalesOrder(tx, bill.order_id);
+      await lockCustomerOrder(tx, bill.customer_order_id);
       const r = await checkSalesAdvance(tx, asInput(bill), id);
       if (!r.ok) {
         const first = Object.values(r.errors)[0];
@@ -450,7 +450,7 @@ export type SalesAdvanceListRow = {
 export async function listSalesAdvances(): Promise<SalesAdvanceListRow[]> {
   const rows = await prisma.salAdvance.findMany({
     orderBy: [{ advance_date: "desc" }, { id: "desc" }],
-    include: { customer: true, order: { select: { order_no: true } } },
+    include: { customer: true, customer_order: { select: { order_no: true } } },
   });
   return rows.map((r) => ({
     id: r.id,
@@ -460,7 +460,7 @@ export async function listSalesAdvances(): Promise<SalesAdvanceListRow[]> {
     status: r.status as AdvanceStatus,
     customerLabel: r.customer.partner_label,
     customerName: r.customer.partner_name,
-    orderNo: r.order.order_no,
+    orderNo: r.customer_order.order_no,
     priceMode: r.price_mode,
     isTaxable: r.is_taxable,
     dpp: r.dpp_amount.toNumber(),
@@ -554,10 +554,10 @@ export async function settlementAdvances(
     orderBy: [{ advance_date: "asc" }, { id: "asc" }],
   });
   const orders = new Map(
-    (await advanceSourceOrders({ ids: [...new Set(rows.map((r) => r.order_id))] }, db)).map((o) => [o.id, o])
+    (await advanceSourceOrders({ ids: [...new Set(rows.map((r) => r.customer_order_id))] }, db)).map((o) => [o.id, o])
   );
   return rows.map((a) => {
-    const order = orders.get(a.order_id)!;
+    const order = orders.get(a.customer_order_id)!;
     const rates =
       a.ppn_rate && a.ppn_dpp_other_numerator && a.ppn_dpp_other_denominator
         ? { rate: a.ppn_rate.toNumber(), otherNum: a.ppn_dpp_other_numerator, otherDen: a.ppn_dpp_other_denominator }
@@ -575,7 +575,7 @@ export async function settlementAdvances(
       dueDate: isoDay(a.due_date),
       status: a.status as AdvanceStatus,
       customerId: a.customer_id,
-      orderId: a.order_id,
+      orderId: a.customer_order_id,
       orderNo: order.orderNo,
       description: a.description,
       // As stored: the figures the bill was issued with.

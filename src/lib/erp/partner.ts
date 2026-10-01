@@ -187,7 +187,7 @@ export async function checkPartnerCollections(
     ? new Set(
         (
           await prisma.mPartnerAddress.findMany({
-            where: { partner_id: partnerId, sales_orders: { some: {} } },
+            where: { partner_id: partnerId, customer_orders: { some: {} } },
             select: { id: true },
           })
         ).map((a) => a.id)
@@ -234,12 +234,12 @@ export async function checkPartnerCollections(
         isShipping: a.isShipping === true,
       });
     }
-    // A removed address that a Sales Order names is refused.
+    // A removed address that a Customer Order names is refused.
     const kept = new Set(addresses.map((x) => Number(x.id)).filter(Boolean));
     const removedInUse = [...inUse].filter((id) => !kept.has(id));
     if (removedInUse.length) {
       problems.push(
-        `${removedInUse.length} alamat yang dihapus sudah dipakai Sales Order dan tidak dapat dihapus.`
+        `${removedInUse.length} alamat yang dihapus sudah dipakai Customer Order dan tidak dapat dihapus.`
       );
     }
     if (problems.length) errors[ADDRESSES_KEY] = problems.join(" ");

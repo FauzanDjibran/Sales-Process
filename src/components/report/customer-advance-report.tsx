@@ -64,7 +64,7 @@ export function CustomerAdvanceReport({ rows, gl }: { rows: ArItemRow[]; gl: Adv
                     <th style={{ width: 96 }}>Tanggal</th>
                     <th style={{ width: 150 }}>Tagihan</th>
                     <th style={{ width: 150 }}>Penerimaan</th>
-                    <th>Sales Order</th>
+                    <th>Customer Order</th>
                     <th className="num" style={{ width: 130 }}>Diterima (DPP)</th>
                     <th className="num" style={{ width: 130 }}>Terpakai</th>
                     <th className="num" style={{ width: 130 }}>Sisa</th>

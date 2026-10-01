@@ -14,7 +14,7 @@ import {
   type CashReceiptInput,
 } from "../src/lib/erp/cash-bank-tx";
 import { createSalesAdvance, transitionSalesAdvance } from "../src/lib/erp/sales-advance";
-import { createSalesOrder, transitionSalesOrder, type SalesOrderLineInput } from "../src/lib/erp/sales-order";
+import { createCustomerOrder, transitionCustomerOrder, type CustomerOrderLineInput } from "../src/lib/erp/customer-order";
 import { availableCashReceiptActions, cashReceiptAbilities } from "../src/lib/erp/cash-bank-tx-workflow";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import {
@@ -83,7 +83,7 @@ async function customer() {
 }
 
 async function openOrder(cust: { id: number; address: number }) {
-  const line = (over: Partial<SalesOrderLineInput> = {}): SalesOrderLineInput => ({
+  const line = (over: Partial<CustomerOrderLineInput> = {}): CustomerOrderLineInput => ({
     item_id: f.goods,
     uom_id: f.pcs,
     qty: 1,
@@ -94,15 +94,15 @@ async function openOrder(cust: { id: number; address: number }) {
     note: "",
     ...over,
   });
-  const r = await createSalesOrder(
+  const r = await createCustomerOrder(
     { order_date: "2026-09-10", customer_id: cust.id, address_id: cust.address, term_id: f.term, price_mode: "Exclude", is_taxable: true, po_no: "", po_date: "", salesperson: "", note: "" },
     [line({ qty: 2, withholding_tax_id: f.wht }), line()],
     actor
   );
   assert.ok(r.ok, JSON.stringify(r));
   orders.push(r.id);
-  await transitionSalesOrder(r.id, "submit", actor);
-  await transitionSalesOrder(r.id, "approve", actor);
+  await transitionCustomerOrder(r.id, "submit", actor);
+  await transitionCustomerOrder(r.id, "approve", actor);
   return r.id;
 }
 
@@ -203,9 +203,9 @@ after(async () => {
   await prisma.auditLog.deleteMany({ where: { entity_key: "fin_cash_bank_tx", row_id: { in: receipts } } });
   await prisma.salAdvance.deleteMany({ where: { id: { in: advances } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "sal_advance", row_id: { in: advances } } });
-  await prisma.salOrderLine.deleteMany({ where: { order_id: { in: orders } } });
-  await prisma.salOrder.deleteMany({ where: { id: { in: orders } } });
-  await prisma.auditLog.deleteMany({ where: { entity_key: "sal_order", row_id: { in: orders } } });
+  await prisma.salCustomerOrderLine.deleteMany({ where: { order_id: { in: orders } } });
+  await prisma.salCustomerOrder.deleteMany({ where: { id: { in: orders } } });
+  await prisma.auditLog.deleteMany({ where: { entity_key: "sal_customer_order", row_id: { in: orders } } });
   for (const [k, v] of savedSettings) {
     await prisma.sysSetting.update({ where: { setting_key: k }, data: { setting_value: v } });
   }
@@ -354,7 +354,7 @@ describe("posting a receipt of two bills (P66)", () => {
       items.map((i) => [i.item_type, i.direction, i.ref_doc_id, i.current_balance.toNumber()]),
       [["Advance", "Decrease", f.bill2, 900_000], ["Advance", "Decrease", f.bill3, 450_000]]
     );
-    assert.ok(items.every((i) => i.partner_id === f.customer && i.order_id === orders[0] && i.source_no === r.txNo));
+    assert.ok(items.every((i) => i.partner_id === f.customer && i.customer_order_id === orders[0] && i.source_no === r.txNo));
     assert.ok(items.every((i) => i.entries.length === 1 && i.entries[0].event === "Create" && i.entries[0].doc_no === r.txNo));
     assert.equal(
       items.reduce((a, i) => a + i.current_balance.toNumber(), 0),

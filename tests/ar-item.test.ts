@@ -55,7 +55,7 @@ async function make(type: "Advance" | "Invoice", date: string, amount: number, d
     date,
     dueDate,
     source: { docTypeId: f.receiptType, docId: f.doc, no: `${FIXTURE_PREFIX}/${type}/${items.length}` },
-    order: { id: 1, no: "SO/TEST" },
+    order: { id: 1, no: "CO/TEST" },
     amount,
     actorId: actor,
   });

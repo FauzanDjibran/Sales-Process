@@ -24,7 +24,7 @@ import { FISCAL_YEAR_TRANSITIONS } from "./fiscal-workflow";
 import type { ActionTone } from "./header-actions";
 import { JOURNAL_TRANSITIONS } from "./journal-workflow";
 import { SALES_ADVANCE_TRANSITIONS } from "./sales-advance-workflow";
-import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
+import { CUSTOMER_ORDER_TRANSITIONS } from "./customer-order-workflow";
 import { CASH_RECEIPT_TRANSITIONS } from "./cash-bank-tx-workflow";
 
 /** How an entry is drawn: its words, its icon, and its weight. */
@@ -88,19 +88,19 @@ const JOURNAL_EVENTS: Record<string, AuditEventLabel> = {
 };
 
 /**
- * Sales Order: Draft → Diajukan → Open → Ditutup, or Dibatalkan / Ditolak
+ * Customer Order: Draft → Diajukan → Open → Ditutup, or Dibatalkan / Ditolak
  * (P63). `confirm` is the step orders took before P63, kept so their history
  * still reads.
  */
-const SALES_ORDER_EVENTS: Record<string, AuditEventLabel> = {
+const CUSTOMER_ORDER_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
-  create: { label: "Sales Order dibuat", icon: "clip", tone: "neutral" },
+  create: { label: "Customer Order dibuat", icon: "clip", tone: "neutral" },
   confirm: { label: "Dikonfirmasi", icon: "check", tone: "primary" },
-  submit: fromTransition(SALES_ORDER_TRANSITIONS.submit, "Diajukan"),
-  approve: fromTransition(SALES_ORDER_TRANSITIONS.approve, "Disetujui"),
-  reject: fromTransition(SALES_ORDER_TRANSITIONS.reject, "Ditolak"),
-  cancel: fromTransition(SALES_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
-  close: fromTransition(SALES_ORDER_TRANSITIONS.close, "Ditutup"),
+  submit: fromTransition(CUSTOMER_ORDER_TRANSITIONS.submit, "Diajukan"),
+  approve: fromTransition(CUSTOMER_ORDER_TRANSITIONS.approve, "Disetujui"),
+  reject: fromTransition(CUSTOMER_ORDER_TRANSITIONS.reject, "Ditolak"),
+  cancel: fromTransition(CUSTOMER_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
+  close: fromTransition(CUSTOMER_ORDER_TRANSITIONS.close, "Ditutup"),
 };
 
 /** Penerimaan / Pengeluaran Kas & Bank: Draft → Posted, or Dibatalkan (P66). */
@@ -168,7 +168,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   acc_fiscal_year: FISCAL_EVENTS,
   acc_fiscal_closing: FISCAL_CLOSING_EVENTS,
   acc_journal: JOURNAL_EVENTS,
-  sal_order: SALES_ORDER_EVENTS,
+  sal_customer_order: CUSTOMER_ORDER_EVENTS,
   sal_advance: SALES_ADVANCE_EVENTS,
   fin_cash_bank_tx: CASH_BANK_TX_EVENTS,
   sys_user: USER_EVENTS,

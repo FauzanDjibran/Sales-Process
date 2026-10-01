@@ -86,7 +86,7 @@ node --env-file-if-exists=.env --conditions=react-server --import tsx --test tes
 | `npm run db:seed-showcase` | Adds **demo data** from the simulation so you can test straight away (see below). Development only. Additive: matched on label / name, never duplicates, never overwrites | ✅ Safe on a dev database |
 | `npx prisma generate` | Rebuilds the database client code. `npm run build` does it for you; run it by hand only if an error mentions `@/generated/prisma` or *"Cannot read properties of undefined (reading 'findMany')"* | ✅ Safe |
 | `npx prisma studio` | Opens a browser table viewer of the database (<http://localhost:5555>) | ✅ Look only; edits there skip the app's rules and audit |
-| `npm run db:truncate-transactions` | Shows what it would delete; add `-- --confirm` to really delete. Empties **journals, the Cash Bank Book, Penerimaan Kas & Bank, AR items with Buku Piutang, Sales Orders and Uang Muka Penjualan bills** (and their audit rows), keeping all master data (partners, items, references), the chart of accounts, the fiscal calendar and the settings. Cash & Bank opening balances are lost; document numbers restart at 0001 | ⚠️ Deletes transactions |
+| `npm run db:truncate-transactions` | Shows what it would delete; add `-- --confirm` to really delete. Empties **journals, the Cash Bank Book, Penerimaan Kas & Bank, AR items with Buku Piutang, Customer Orders and Uang Muka Penjualan bills** (and their audit rows), keeping all master data (partners, items, references), the chart of accounts, the fiscal calendar and the settings. Cash & Bank opening balances are lost; document numbers restart at 0001 | ⚠️ Deletes transactions |
 | `npm run db:reset` | **Drops the whole database**, re-applies every migration, then runs `db:seed`. You get system data only (admin, regions, settings…) and nothing you entered | ⛔ Destroys all data |
 | `npm run db:fresh` | `db:reset` **plus** `db:seed-showcase`: a clean database already filled with the demo data. The quickest way to start testing from zero | ⛔ Destroys all data |
 | `npx prisma migrate dev --name <name>` | Creates a **new** migration from a schema change. Developer command; Claude runs it, you normally never do | ⚠️ Can offer to reset in some states |
@@ -109,7 +109,7 @@ node --env-file-if-exists=.env --conditions=react-server --import tsx --test tes
 | Partner | The simulation's 10 customers: tax identity, sales defaults, addresses on real kelurahan, contacts (PT Dermaskin inactive) |
 | Item | The simulation's 8 finished goods, with their BOX conversions |
 
-Not created: opening balances, Sales Orders or other documents, and the
+Not created: opening balances, Customer Orders or other documents, and the
 perizinan services.
 
 ### Start again from a clean database
@@ -249,11 +249,11 @@ ask Claude rather than editing it by hand.
 | After a pull, a page errors on a missing column | `npx prisma migrate deploy` |
 | `npm` blocked by PowerShell | Use `npm.cmd` / `npx.cmd`, see the top of this file |
 | Files show as changed but you did not touch them (line endings) | The repository forces LF endings (`.gitattributes`); `git restore .` puts them back |
-| A Sales Order shows no **Setujui / Tolak** or **Tutup Pesanan** button | The role needs the permission *Setujui / Tolak Sales Order* or *Tutup Sales Order* (Pengaturan › Role). The administrator gets every permission from `npm run db:seed`; sign out and in again afterwards |
+| A Customer Order shows no **Setujui / Tolak** or **Tutup Pesanan** button | The role needs the permission *Setujui / Tolak Customer Order* or *Tutup Customer Order* (Pengaturan › Role). The administrator gets every permission from `npm run db:seed`; sign out and in again afterwards |
 | Posting a Penerimaan says *account belum diatur atau tidak dapat dipakai* | Fill Accounting › Pengaturan › Account Mapping (Uang Muka Penjualan, PPN Keluaran, Beban Bank) and the PPh Dibayar Dimuka account on each Jenis PPh the bills use (Master › Referensi › Jenis PPh). `npm run db:seed-showcase` fills them on a dev database |
 | Umur Piutang shows only Uang Muka, no invoices | Expected for now: Invoice AR items are created by the Faktur Penjualan, which is not built yet |
 | A Penerimaan shows *Tidak ada tagihan terbuka* | The customer has no **issued** Uang Muka Penjualan bill left unpaid. Issue one (Terbitkan) first |
-| Saving a taxable Sales Order says *Tarif PPN belum diatur* | Fill the Pajak card in Pengaturan › System Default (or run `npm run db:seed`) |
+| Saving a taxable Customer Order says *Tarif PPN belum diatur* | Fill the Pajak card in Pengaturan › System Default (or run `npm run db:seed`) |
 
 ---
 

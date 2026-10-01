@@ -91,9 +91,9 @@ sales behaviour the simulation implements, and carry over through it.
 | Area | State |
 | --- | --- |
 | Project guideline (this file) | Written 29/09/2026; clash decisions recorded 29/09/2026 |
-| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 done for sales 29/09/2026 (Partner customer side, Satuan, Termin, Gudang, Jenis PPh, Item, sales defaults); Phase 3 started: Sales Order built 29/09/2026 (P49–P53); Uang Muka Penjualan built 29/09/2026 (P54–P58); tax arithmetic moved to `tax_concept.md` (half up, per-line chain, snapshotted PPN setting) 29/09/2026 (P59, P60); settings split into System Default and Account Mapping 29/09/2026 (P61); Sales Order lifecycle Draft → Diajukan → Open → Ditutup, form rework, advance layout, dropdown keyboard and percent field 30/09/2026 (P63–P65); Penerimaan Kas & Bank with its first purpose, Penerimaan Uang Muka Penjualan, settling several bills per receipt 30/09/2026 (P66–P70); AR items and Buku Piutang with the Buku Piutang, Umur Piutang and Uang Muka Customer reports 30/09/2026 (P71–P75); the receipt reworked to cash-first lines picked from a dialog, and Buku Piutang's Sertakan Uang Muka switch 30/09/2026 (P76, P77) |
+| Implementation plan | `IMPLEMENTATION-PLAN.md` — Phase 1 done 29/09/2026; Phase 2 done for sales 29/09/2026 (Partner customer side, Satuan, Termin, Gudang, Jenis PPh, Item, sales defaults); Phase 3 started: Sales Order built 29/09/2026 (P49–P53); Uang Muka Penjualan built 29/09/2026 (P54–P58); tax arithmetic moved to `tax_concept.md` (half up, per-line chain, snapshotted PPN setting) 29/09/2026 (P59, P60); settings split into System Default and Account Mapping 29/09/2026 (P61); Sales Order lifecycle Draft → Diajukan → Open → Ditutup, form rework, advance layout, dropdown keyboard and percent field 30/09/2026 (P63–P65); Penerimaan Kas & Bank with its first purpose, Penerimaan Uang Muka Penjualan, settling several bills per receipt 30/09/2026 (P66–P70); AR items and Buku Piutang with the Buku Piutang, Umur Piutang and Uang Muka Customer reports 30/09/2026 (P71–P75); the receipt reworked to cash-first lines picked from a dialog, and Buku Piutang's Sertakan Uang Muka switch 30/09/2026 (P76, P77); the Sales Order renamed the Customer Order 01/10/2026 (P78) |
 | Code | Phase 1 carried and adapted: one company, no Budget, Control Account set by the user, `PREFIX/YYYY/MM/NNNN` numbering, dashboard placeholder. `npm run build`, `npm run lint` and `npm test` pass on PostgreSQL 18; the Phase 1 walk-through (fiscal year, accounts, Partner, Cash & Bank with opening balance, manual journal, General Ledger, Trial Balance) checked in a browser and in Postgres |
-| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48), the customer's sales defaults (P51), Sales Order `sal_order(_line)` (P49–P53), Uang Muka Penjualan `sal_advance` (P54–P58), PPN rate snapshots on SO / advance and per-line DPP Nilai Lain (P60), the SO's new statuses with Gudang and Kirim Diminta dropped (P63), the cash & bank transaction `fin_cash_bank_tx(_line, _line_wht)` (P66), AR items `fin_ar_item` and Buku Piutang `fin_ar_ledger` (P71–P75); `DBML/erp.dbml.md` in step |
+| Schema | Baseline migration, removal of rate layers (P37), Partner addresses / contacts / tax identity and the region reference (P39–P42), the reference masters Satuan / Termin / Gudang / Jenis PPh (P43, P44), Item with unit conversions and Kategori Item (P46–P48), the customer's sales defaults (P51), Sales Order `sal_order(_line)` (P49–P53), Uang Muka Penjualan `sal_advance` (P54–P58), PPN rate snapshots on SO / advance and per-line DPP Nilai Lain (P60), the SO's new statuses with Gudang and Kirim Diminta dropped (P63), the cash & bank transaction `fin_cash_bank_tx(_line, _line_wht)` (P66), AR items `fin_ar_item` and Buku Piutang `fin_ar_ledger` (P71–P75); the Sales Order renamed in place to the Customer Order `sal_customer_order(_line)` (P78); `DBML/erp.dbml.md` in step |
 
 ---
 
@@ -165,7 +165,7 @@ Browser
 
 | Module | Owns | Posts |
 | --- | --- | --- |
-| Sales Order | `sal_order(_line)` | nothing |
+| Customer Order (`CO/…`) | `sal_customer_order(_line)` | nothing |
 | Uang Muka Penjualan (Finance menu, `ARA/…`) | `sal_advance` | nothing (bill only) |
 | Surat Jalan | `sal_delivery(_line)` | HPP / Persediaan at a placeholder cost (P18) |
 | Faktur Penjualan | `sal_invoice(_line, _advance_deduction)` | journal + faktur pajak |
@@ -385,15 +385,15 @@ auth and RBAC (9–13); the Cash Bank Book (22, 29, P31).
 Recorded here as the specification; each becomes enforced when its step is
 built. Parent-decision numbers in brackets.
 
-1. **Sales Order** (SO Barang only, P49) starts from the customer; its Termin
+1. **Customer Order** (the Sales Order until P78; Barang only, P49) starts from the customer; its Termin
    and mode harga default from the customer (P51), and it names one of the
    customer's addresses (P53). **Kena PPN, then Include / Exclude PPN, are
    explicit user decisions** on the SO header; the mode is asked only when
    Kena PPN (P52, P63). No warehouse and no delivery date (P63). Draft →
    Ajukan → Diajukan → Setujui → Open → Ditutup; Batalkan (Draft) and Tolak
    (Diajukan) are final; Salin — no credit limit (P50, P63). Posts nothing.
-   Closes automatically once the Surat Jalan has delivered everything, or by
-   Tutup Pesanan with a reason [S15, S22].
+   Closes by Tutup Pesanan with a reason [S15, S22]. It is the basis of the
+   advance and the invoice (P78).
 2. **PPN arithmetic** follows `tax_concept.md` (P59): half-up whole rupiah,
    PPN = round(12 % × round(DPP × 11/12)), an inclusive price's difference
    absorbed in the DPP. The simulation's floor (⌊DPP × 11/100⌋,
@@ -548,6 +548,7 @@ Newest last. Later entries override earlier ones and say so.
 | P75 | 30/09/2026 | **Three AR reports under Finance › Laporan**, each with its own view permission: **Buku Piutang** (one customer over a period: every entry signed on Piutang Usaha, with the position before and after and the open Invoice and Uang Muka behind it), **Umur Piutang** (open Invoice items per customer in the buckets Belum Jatuh Tempo / 1–30 / 31–60 / 61–90 / > 90 days from the due date, beside the Uang Muka still held and the net position, with the open invoices listed) and **Uang Muka Customer** (open Uang Muka items per customer and Sales Order, checked against the Uang Muka Penjualan account in the General Ledger). Each reads Buku Piutang as of its date, so a past date is reported as it stood. |
 | P76 | 30/09/2026 | **A receipt line takes the cash actually received; the PPh follows from it**, as the simulation's *Dana Diterima di Bank* does. The user types, per bill, what the customer paid for it (*Diterima*). Money that reaches the bill's remainder less its remaining PPh clears the bill, the gap being the PPh; less money is a partial payment that settles the smallest part whose cash, after its own positional PPh share, is exactly the money, and the rest stays open (`tax_concept.md` §4.5). *Potong PPh* per line (P60) says whether the gap is PPh at all. **The header's money follows from the lines**: Total Diterima = Σ Diterima, Biaya Bank is typed, Dana Masuk ke Bank = Total Diterima − Biaya Bank; there is no typed Dana Diterima and no balance check. **The page shows only the bills being paid**: *Pilih Tagihan* opens the partner's open bills in a dialog (dates, total, paid, sisa, *Pilih semua*, and an optional *Bagikan Dana* that spreads one transfer oldest first), and each line shows only the bill, its Sisa, Diterima, PPh and what is left after it. Supersedes P67's checklist, typed Dilunasi, *Alokasikan Dana* and balance rule; amends P68 (the charge comes off what reached the bank, while the bill is cleared by what the customer sent). |
 | P77 | 30/09/2026 | **Buku Piutang holds Invoice items by default; a *Sertakan Uang Muka* switch puts the Uang Muka entries in.** Mainstream ERPs keep a customer's down payments out of the receivables line until they are cleared against an invoice (SAP's special G/L down payments are shown only when asked for; Odoo, NetSuite and Dynamics show unapplied payments and deposits apart from open invoices). So the book's position is Piutang Usaha from invoices, and the Uang Muka still held is stated under it with the net position. The switch is off by default and lives in the URL (`advance=1`). Amends P75. |
+| P78 | 01/10/2026 | **The Sales Order of P49–P63 is renamed the Customer Order (CO)**, numbered `CO/YYYY/MM/NNNN`, under Sales › Customer Order (`/sales/customer-order`). It is the commercial agreement — quantity, price, PPN, PPh, address, PO — and stays **the basis of every financial document**: Uang Muka Penjualan and, later, the Faktur Penjualan are drawn from it, and AR items name it. Its rules and lifecycle are unchanged (Draft → Diajukan → Open → Ditutup). The rename is in place: tables `sal_customer_order(_line)`, enum `CustomerOrderStatus`, `sal_advance.customer_order_id`, `fin_ar_item.customer_order_id / _no`, permissions `CUSTOMER_ORDER_*` (role grants kept), document type and audit trail; existing `SO/…` numbers became `CO/…`, while text already written into posted records (journal lines, Cash Bank Book notes, a bill's Uraian) is left as written. The name **Sales Order** passes to the CO's child document (P79). Amends P49–P53, P57, P63, P64, P73. |
 
 ---
 
@@ -701,6 +702,7 @@ to §12.
 | C25 | **Account mapping per Kategori Item** — its own menu naming Penjualan, Retur, HPP and Persediaan accounts per category (P47) | When the first document that posts an item is built (Surat Jalan, Faktur) |
 | C27 | **Delivery schedule** — a document derived from a Sales Order that splits its quantity into dated deliveries (e.g. 1.000 PCS as five of 200, over five months), each with its own expected date; the Kirim Diminta date left the SO for it (P63). Proposed: rows of item, qty and date, never more than the SO line's quantity in total, feeding the Surat Jalan | When the user instructs, before or with the Surat Jalan |
 | C14 | **Cash Bank Transfer and Debit / Credit Note** (P19) | Later |
+| C28 | **Delivery Order and Delivery Note**, replacing the simulation's Surat Jalan. As the user described it: a *Delivery Order* instructs the warehouse — its header names the Customer Order, its lines are lines of that order's Sales Orders; a *Delivery Note* is the document the goods actually leave on. Everything about them (numbering, lifecycle, partial delivery, closing a Sales Order and a Customer Order when delivered, the HPP placeholder of P18) is set aside until the Sales Order is finished | After the Sales Order |
 
 ### 18.2 SIBA parts outside the P23 list
 

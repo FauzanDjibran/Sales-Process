@@ -8,19 +8,19 @@ import { Pager, usePaging } from "@/components/ui/pager";
 import { SearchField } from "@/components/ui/search-field";
 import { Select } from "@/components/ui/select";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { SalesOrderListRow } from "@/lib/erp/sales-order";
+import type { CustomerOrderListRow } from "@/lib/erp/customer-order";
 import {
-  SALES_ORDER_STATUS_BADGE,
-  SALES_ORDER_STATUS_TEXT,
-  type SalesOrderAbilities,
-  type SalesOrderStatus,
-} from "@/lib/erp/sales-order-workflow";
+  CUSTOMER_ORDER_STATUS_BADGE,
+  CUSTOMER_ORDER_STATUS_TEXT,
+  type CustomerOrderAbilities,
+  type CustomerOrderStatus,
+} from "@/lib/erp/customer-order-workflow";
 
 /**
- * The Sales Order register. Drafts sort first — they are the rows somebody
+ * The Customer Order register. Drafts sort first — they are the rows somebody
  * still has something to do about — then newest first.
  */
-export function SalesOrderList({ orders, can }: { orders: SalesOrderListRow[]; can: SalesOrderAbilities }) {
+export function CustomerOrderList({ orders, can }: { orders: CustomerOrderListRow[]; can: CustomerOrderAbilities }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
@@ -45,48 +45,48 @@ export function SalesOrderList({ orders, can }: { orders: SalesOrderListRow[]; c
         <div className="crumb">
           <span>Penjualan</span>
           <span>/</span>
-          <span className="cur">Sales Order</span>
+          <span className="cur">Customer Order</span>
         </div>
         <div className="ph-row">
           <h1>
             <span className="ph-ico">
               <Icon name="clip" size={16} />
             </span>
-            Sales Order
+            Customer Order
           </h1>
           <div className="ph-act">
             {can.create && (
-              <Link className="btn primary" href="/sales/order/new">
-                <Icon name="plus" size={15} /> Sales Order Baru
+              <Link className="btn primary" href="/sales/customer-order/new">
+                <Icon name="plus" size={15} /> Customer Order Baru
               </Link>
             )}
           </div>
         </div>
         <p className="ph-sub">
-          Pesanan barang dari customer. Sales Order tidak memposting apa pun; setelah diajukan isinya
-          terkunci, dan setelah disetujui (Open) menjadi dasar pengiriman dan penagihan.
+          Pesanan barang dari customer. Customer Order tidak memposting apa pun; setelah diajukan isinya
+          terkunci, dan setelah disetujui (Open) menjadi dasar uang muka, invoice dan Sales Order.
         </p>
       </div>
 
       <div className="card">
         <div className="toolbar">
-          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor SO atau customer…" />
+          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor CO atau customer…" />
           <Select
             variant="toolbar"
             value={status}
             set={Boolean(status)}
             options={[
               { value: "", label: "Status: semua" },
-              ...(["Draft", "Submitted", "Open", "Closed", "Cancelled", "Rejected"] as SalesOrderStatus[]).map((s) => ({
+              ...(["Draft", "Submitted", "Open", "Closed", "Cancelled", "Rejected"] as CustomerOrderStatus[]).map((s) => ({
                 value: s,
-                label: SALES_ORDER_STATUS_TEXT[s],
+                label: CUSTOMER_ORDER_STATUS_TEXT[s],
               })),
             ]}
             onChange={setStatus}
           />
           <span className="tspace" />
           <span className="count">
-            <b>{rows.length}</b> sales order
+            <b>{rows.length}</b> customer order
           </span>
         </div>
 
@@ -106,15 +106,15 @@ export function SalesOrderList({ orders, can }: { orders: SalesOrderListRow[]; c
                 </thead>
                 <tbody>
                   {paging.pageRows.map((o) => (
-                    <tr key={o.id} onClick={() => router.push(`/sales/order/${o.id}`)}>
+                    <tr key={o.id} onClick={() => router.push(`/sales/customer-order/${o.id}`)}>
                       <td>
-                        <Link className="lab" href={`/sales/order/${o.id}`}>
+                        <Link className="lab" href={`/sales/customer-order/${o.id}`}>
                           {o.orderNo}
                         </Link>
                       </td>
                       <td>
-                        <span className={`bdg ${SALES_ORDER_STATUS_BADGE[o.status]}`}>
-                          {SALES_ORDER_STATUS_TEXT[o.status]}
+                        <span className={`bdg ${CUSTOMER_ORDER_STATUS_BADGE[o.status]}`}>
+                          {CUSTOMER_ORDER_STATUS_TEXT[o.status]}
                         </span>
                       </td>
                       <td>{formatDate(o.orderDate)}</td>
@@ -147,11 +147,11 @@ export function SalesOrderList({ orders, can }: { orders: SalesOrderListRow[]; c
             <div className="ic">
               <Icon name="clip" size={20} />
             </div>
-            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada Sales Order"}</h4>
+            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada Customer Order"}</h4>
             <p>
               {q || status
-                ? "Tidak ada Sales Order yang sesuai dengan pencarian atau filter."
-                : "Sales Order dimulai dari customer: termin dan mode harganya mengikuti data customer."}
+                ? "Tidak ada Customer Order yang sesuai dengan pencarian atau filter."
+                : "Customer Order dimulai dari customer: termin dan mode harganya mengikuti data customer."}
             </p>
             {q || status ? (
               <div className="cta">
@@ -168,8 +168,8 @@ export function SalesOrderList({ orders, can }: { orders: SalesOrderListRow[]; c
             ) : (
               can.create && (
                 <div className="cta">
-                  <Link className="btn primary" href="/sales/order/new">
-                    <Icon name="plus" size={15} /> Sales Order Baru
+                  <Link className="btn primary" href="/sales/customer-order/new">
+                    <Icon name="plus" size={15} /> Customer Order Baru
                   </Link>
                 </div>
               )

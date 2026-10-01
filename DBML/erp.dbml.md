@@ -20,13 +20,13 @@ migration updates this file in the same change (Claude-ERP.md §9).
   carries PPN is an enum on the transaction (P45).
 - `m_item` with its unit conversions `m_item_uom` and the seeded, menu-less
   `sys_item_category` (P46–P48). An Item holds no price and no tax treatment.
-- Sales: `sal_order` and `sal_order_line` (P49–P53) — SO Barang, rupiah only,
-  totals stored as `lib/erp/sales-tax.ts` computed them. A Sales Order posts
+- Sales: `sal_customer_order` and `sal_customer_order_line` (P49–P53, P78) —
+  the Customer Order (the Sales Order until P78), `CO/…`, Barang only, rupiah
+  only, totals stored as `lib/erp/sales-tax.ts` computed them. It posts
   nothing. Its life is Draft → Submitted → Open → Closed, with Cancelled and
-  Rejected final (P63); it names no warehouse and no delivery date — the
-  Surat Jalan and the delivery schedule will.
+  Rejected final (P63); it names no warehouse and no delivery date.
 - `sal_advance` (P54–P58) — the AR advance bill, drawn from one Open
-  Sales Order and numbered `ARA/…`. It posts nothing and stores no paid or
+  Customer Order (`customer_order_id`) and numbered `ARA/…`. It posts nothing and stores no paid or
   used amount; that is left to the open items (C22).
 - `fin_cash_bank_tx` (P66–P70) — Penerimaan and Pengeluaran Kas & Bank in one
   table (`BKM/…`, `BKK/…`). Its purpose is a key of the catalogue in code.
@@ -37,10 +37,10 @@ migration updates this file in the same change (Claude-ERP.md §9).
 - `fin_ar_item` and `fin_ar_ledger` (P71–P75) — AR items (Uang Muka and
   Invoice) and Buku Piutang, the append-only history of every change to an
   item's balance. `current_balance` equals the sum of the item's entries. An
-  item names its source and reference documents and its Sales Order by the
+  item names its source and reference documents and its Customer Order by the
   weak pair; there is no allocation table.
-- `sal_order` and `sal_advance` snapshot the PPN rate and DPP Nilai Lain factor
-  they were computed with (P60); each `sal_order_line` stores its own DPP Nilai
+- `sal_customer_order` and `sal_advance` snapshot the PPN rate and DPP Nilai
+  Lain factor they were computed with (P60); each `sal_customer_order_line` stores its own DPP Nilai
   Lain, since PPN is computed per line.
 - `created_by` / `updated_by` hold a user id with no foreign key, as in SIBA.
 - Money is `decimal(18, 2)`, rates `decimal(18, 6)`. Calendar dates are `date`,
@@ -121,7 +121,7 @@ Enum PriceMode {
   Include
 }
 
-Enum SalesOrderStatus {
+Enum CustomerOrderStatus {
   Draft
   Submitted
   Open
@@ -793,11 +793,11 @@ Table audit_log {
   }
 }
 
-Table sal_order {
+Table sal_customer_order {
   id int [pk, increment, not null]
   order_no varchar [unique, not null]
   order_date date [not null]
-  status SalesOrderStatus [not null, default: 'Draft']
+  status CustomerOrderStatus [not null, default: 'Draft']
   customer_id int [not null]
   address_id int [not null]
   term_id int [not null]
@@ -829,7 +829,7 @@ Table sal_order {
   }
 }
 
-Table sal_order_line {
+Table sal_customer_order_line {
   id int [pk, increment, not null]
   order_id int [not null]
   line_no int [not null]
@@ -861,7 +861,7 @@ Table sal_advance {
   advance_date date [not null]
   due_date date [not null]
   status AdvanceStatus [not null, default: 'Draft']
-  order_id int [not null]
+  customer_order_id int [not null]
   customer_id int [not null]
   cash_bank_id int [not null]
   description varchar [not null]
@@ -885,7 +885,7 @@ Table sal_advance {
   updated_at timestamptz [not null, default: `now()`]
 
   indexes {
-    order_id
+    customer_order_id
     customer_id
     (status, advance_date)
   }
@@ -931,15 +931,15 @@ Ref: acc_journal_line.journal_id > acc_journal.id
 Ref: acc_journal_line.account_id > acc_account.id
 Ref: acc_journal_line.partner_id > m_partner.id
 Ref: acc_journal_line.currency_id > ref_currency.id
-Ref: sal_order.customer_id > m_partner.id
-Ref: sal_order.address_id > m_partner_address.id
-Ref: sal_order.term_id > ref_payment_term.id
-Ref: sal_order.copied_from_id > sal_order.id
-Ref: sal_order_line.order_id > sal_order.id
-Ref: sal_order_line.item_id > m_item.id
-Ref: sal_order_line.uom_id > ref_uom.id
-Ref: sal_order_line.withholding_tax_id > ref_withholding_tax.id
-Ref: sal_advance.order_id > sal_order.id
+Ref: sal_customer_order.customer_id > m_partner.id
+Ref: sal_customer_order.address_id > m_partner_address.id
+Ref: sal_customer_order.term_id > ref_payment_term.id
+Ref: sal_customer_order.copied_from_id > sal_customer_order.id
+Ref: sal_customer_order_line.order_id > sal_customer_order.id
+Ref: sal_customer_order_line.item_id > m_item.id
+Ref: sal_customer_order_line.uom_id > ref_uom.id
+Ref: sal_customer_order_line.withholding_tax_id > ref_withholding_tax.id
+Ref: sal_advance.customer_order_id > sal_customer_order.id
 Ref: sal_advance.customer_id > m_partner.id
 Ref: sal_advance.cash_bank_id > m_cash_bank.id
 
@@ -1048,8 +1048,8 @@ Table fin_ar_item {
   ref_doc_type_id int [null, note: 'the advance bill an Uang Muka was paid against']
   ref_doc_id int [null]
   ref_no varchar [null]
-  order_id int [null, note: 'weak: an invoice uses only its own order advances']
-  order_no varchar [null]
+  customer_order_id int [null, note: 'weak: an invoice uses only its own Customer Order advances']
+  customer_order_no varchar [null]
   current_balance decimal(18, 2) [not null, note: 'sum of its fin_ar_ledger entries']
   created_by int [not null]
   created_at timestamptz [not null, default: `now()`]
@@ -1057,7 +1057,7 @@ Table fin_ar_item {
 
   indexes {
     (partner_id, item_type)
-    order_id
+    customer_order_id
     (source_doc_type_id, source_doc_id)
     (ref_doc_type_id, ref_doc_id)
   }

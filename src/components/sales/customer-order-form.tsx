@@ -12,29 +12,30 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { PercentInput } from "@/components/ui/percent-input";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
-import { SalesOrderActions } from "@/components/sales/sales-order-actions";
-import { createSalesOrderAction, updateSalesOrderAction } from "@/app/actions/sales-order";
+import { CustomerOrderActions } from "@/components/sales/customer-order-actions";
+import { createCustomerOrderAction, updateCustomerOrderAction } from "@/app/actions/customer-order";
 import { computeSalesTotals, type DiscountType, type PriceMode } from "@/lib/erp/sales-tax";
 import {
-  SALES_ORDER_REASON_TEXT,
-  SALES_ORDER_STATUS_BADGE,
-  SALES_ORDER_STATUS_TEXT,
-  type SalesOrderAbilities,
-} from "@/lib/erp/sales-order-workflow";
+  CUSTOMER_ORDER_REASON_TEXT,
+  CUSTOMER_ORDER_STATUS_BADGE,
+  CUSTOMER_ORDER_STATUS_TEXT,
+  type CustomerOrderAbilities,
+} from "@/lib/erp/customer-order-workflow";
 import type {
-  SalesOrderLineInput,
-  SalesOrderOptions,
-  SalesOrderView,
-} from "@/lib/erp/sales-order";
+  CustomerOrderLineInput,
+  CustomerOrderOptions,
+  CustomerOrderView,
+} from "@/lib/erp/customer-order";
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso } from "@/lib/format";
 
 /**
- * The Sales Order, in all three modes: `new` (also a Salin), `edit` (Draft
+ * The Customer Order, in all three modes: `new` (also a Salin), `edit` (Draft
  * only) and `view`.
  *
- * Built the way the simulation's SO screen reads: the customer first — its
- * Termin and mode harga fill in from it (P51) — then the order, then the lines.
+ * Built the way the simulation's SO screen reads (the Customer Order since
+ * P78): the customer first — its Termin and mode harga fill in from it (P51) —
+ * then the order, then the lines.
  * Kena PPN is asked before the mode harga, which only a taxable order asks
  * (P63). Each line picks its item from a dropdown like every other field.
  * Every figure is `computeSalesTotals`, the module the Server Action stores
@@ -92,7 +93,7 @@ const emptyLine = (): LineState => ({
   note: "",
 });
 
-export function SalesOrderForm({
+export function CustomerOrderForm({
   mode,
   order,
   options,
@@ -100,11 +101,11 @@ export function SalesOrderForm({
   copyFrom,
 }: {
   mode: SoMode;
-  order: SalesOrderView | null;
-  options: SalesOrderOptions;
-  can: SalesOrderAbilities;
+  order: CustomerOrderView | null;
+  options: CustomerOrderOptions;
+  can: CustomerOrderAbilities;
   /** Salin: the order the new draft starts from. */
-  copyFrom?: SalesOrderView | null;
+  copyFrom?: CustomerOrderView | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -248,7 +249,7 @@ export function SalesOrderForm({
     [lines, priceMode, header.is_taxable, customer, whtById, rates]
   );
 
-  const payloadLines = (): SalesOrderLineInput[] =>
+  const payloadLines = (): CustomerOrderLineInput[] =>
     lines.map((l) => ({
       item_id: l.item_id,
       uom_id: l.uom_id,
@@ -264,8 +265,8 @@ export function SalesOrderForm({
     setSaving(true);
     const result =
       mode === "edit"
-        ? await updateSalesOrderAction(order!.id, header, payloadLines())
-        : await createSalesOrderAction(header, payloadLines(), copyFrom?.id ?? null);
+        ? await updateCustomerOrderAction(order!.id, header, payloadLines())
+        : await createCustomerOrderAction(header, payloadLines(), copyFrom?.id ?? null);
     setSaving(false);
     if (!result.ok) {
       setErrors(result.errors);
@@ -278,13 +279,13 @@ export function SalesOrderForm({
       return;
     }
     setDirty(false);
-    toast("Sales Order disimpan", `${result.orderNo} · Draft`, "ok");
-    router.push(`/sales/order/${result.id}`);
+    toast("Customer Order disimpan", `${result.orderNo} · Draft`, "ok");
+    router.push(`/sales/customer-order/${result.id}`);
     router.refresh();
   }
 
   const status = order?.status ?? "Draft";
-  const backHref = order ? `/sales/order/${order.id}` : "/sales/order";
+  const backHref = order ? `/sales/customer-order/${order.id}` : "/sales/customer-order";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
   const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
   const waitCustomer = header.customer_id ? null : "Pilih Customer dulu…";
@@ -387,7 +388,7 @@ export function SalesOrderForm({
 
         <FormSection title="Pesanan">
           <FormRow>
-            <Field label="Tanggal SO" span={3} required={editing} error={errors.order_date}>
+            <Field label="Tanggal CO" span={3} required={editing} error={errors.order_date}>
               {editing ? (
                 <DateInput
                   value={header.order_date}
@@ -519,7 +520,7 @@ export function SalesOrderForm({
             {order?.copiedFrom && (
               <Field label="Disalin dari" span={4}>
                 {ro(
-                  <Link className="drl" href={`/sales/order/${order.copiedFrom.id}`}>
+                  <Link className="drl" href={`/sales/customer-order/${order.copiedFrom.id}`}>
                     <span className="mono">{order.copiedFrom.orderNo}</span>
                   </Link>
                 )}
@@ -542,9 +543,9 @@ export function SalesOrderForm({
             </Field>
           </FormRow>
         </FormSection>
-        {order?.statusReason && SALES_ORDER_REASON_TEXT[order.status] && (
+        {order?.statusReason && CUSTOMER_ORDER_REASON_TEXT[order.status] && (
           <p className="fnote">
-            <b>{SALES_ORDER_REASON_TEXT[order.status]}:</b> {order.statusReason}
+            <b>{CUSTOMER_ORDER_REASON_TEXT[order.status]}:</b> {order.statusReason}
           </p>
         )}
       </FormBody>
@@ -602,7 +603,7 @@ export function SalesOrderForm({
             <Icon name="box" size={18} />
           </div>
           <h4>Belum ada barang</h4>
-          <p>Sales Order memerlukan minimal satu barang yang dapat dijual.</p>
+          <p>Customer Order memerlukan minimal satu barang yang dapat dijual.</p>
           {editing && (
             <button className="btn primary sm cta" onClick={addLine}>
               <Icon name="plus" size={14} /> Tambah Baris
@@ -797,7 +798,7 @@ export function SalesOrderForm({
           <div className="impact">
             <div className="ttl">Estimasi Penerimaan</div>
             <div className="ir">
-              <span>Total Sales Order</span>
+              <span>Total Customer Order</span>
               <b>{money(totals.total)}</b>
             </div>
             {totals.withholdings.map((w) => (
@@ -864,7 +865,7 @@ export function SalesOrderForm({
             </div>
           )}
           <div className="ir tot">
-            <span>Total Sales Order</span>
+            <span>Total Customer Order</span>
             <b>{money(totals.total)}</b>
           </div>
         </div>
@@ -879,7 +880,7 @@ export function SalesOrderForm({
         <div className="crumb">
           <span>Penjualan</span>
           <span>/</span>
-          <Link href="/sales/order">Sales Order</Link>
+          <Link href="/sales/customer-order">Customer Order</Link>
           <span>/</span>
           <span className="cur">{order ? order.orderNo : "Baru"}</span>
         </div>
@@ -891,10 +892,10 @@ export function SalesOrderForm({
             {order ? (
               <>
                 <span className="docno">{order.orderNo}</span>
-                <span className={`bdg ${SALES_ORDER_STATUS_BADGE[status]}`}>{SALES_ORDER_STATUS_TEXT[status]}</span>
+                <span className={`bdg ${CUSTOMER_ORDER_STATUS_BADGE[status]}`}>{CUSTOMER_ORDER_STATUS_TEXT[status]}</span>
               </>
             ) : (
-              "Sales Order Baru"
+              "Customer Order Baru"
             )}
             {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
           </h1>
@@ -912,7 +913,7 @@ export function SalesOrderForm({
                 </button>
               </>
             ) : (
-              <SalesOrderActions id={order!.id} subject={order!.orderNo} status={status} can={can} />
+              <CustomerOrderActions id={order!.id} subject={order!.orderNo} status={status} can={can} />
             )}
           </div>
         </div>

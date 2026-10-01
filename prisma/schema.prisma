@@ -150,9 +150,9 @@ enum PriceMode {
   Include
 }
 
-/// Where a Sales Order is in its life (P63): Draft → Submitted → Open →
-/// Closed. Cancelled (from Draft) and Rejected (from Submitted) are final.
-enum SalesOrderStatus {
+/// Where a Customer Order is in its life (P63, P78): Draft → Submitted → Open
+/// → Closed. Cancelled (from Draft) and Rejected (from Submitted) are final.
+enum CustomerOrderStatus {
   Draft
   Submitted
   Open
@@ -459,7 +459,7 @@ model RefUom {
   base_items MItem[]    @relation("ItemBaseUom")
   item_uoms  MItemUom[]
 
-  sales_order_lines SalOrderLine[]
+  customer_order_lines SalCustomerOrderLine[]
 
   @@map("ref_uom")
 }
@@ -520,7 +520,7 @@ model MItem {
   base_uom RefUom          @relation("ItemBaseUom", fields: [base_uom_id], references: [id])
   uoms     MItemUom[]
 
-  sales_order_lines SalOrderLine[]
+  customer_order_lines SalCustomerOrderLine[]
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -566,8 +566,8 @@ model RefPaymentTerm {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  partners     MPartner[]
-  sales_orders SalOrder[]
+  partners        MPartner[]
+  customer_orders SalCustomerOrder[]
 
   @@map("ref_payment_term")
 }
@@ -616,8 +616,8 @@ model RefWithholdingTax {
 
   prepaid_account AccAccount? @relation(fields: [prepaid_account_id], references: [id])
 
-  sales_order_lines SalOrderLine[]
-  cash_bank_tx_whts FinCashBankTxLineWht[]
+  customer_order_lines SalCustomerOrderLine[]
+  cash_bank_tx_whts    FinCashBankTxLineWht[]
 
   @@index([prepaid_account_id])
   @@map("ref_withholding_tax")
@@ -671,10 +671,10 @@ model MPartner {
   addresses MPartnerAddress[]
   contacts  MPartnerContact[]
 
-  sales_orders   SalOrder[]
-  sales_advances SalAdvance[]
-  cash_bank_txs  FinCashBankTx[]
-  ar_items       FinArItem[]
+  customer_orders SalCustomerOrder[]
+  sales_advances  SalAdvance[]
+  cash_bank_txs   FinCashBankTx[]
+  ar_items        FinArItem[]
 
   journal_lines AccJournalLine[]
 
@@ -717,7 +717,7 @@ model MPartnerAddress {
 
   /// Documents that name this address. While any does, it cannot be removed
   /// from the Partner (P53).
-  sales_orders SalOrder[]
+  customer_orders SalCustomerOrder[]
 
   @@index([partner_id])
   @@index([village_id])
@@ -1364,16 +1364,19 @@ model AuditLog {
 // Sales documents (Claude-ERP.md §3.2). Rupiah only for now (P13), so no
 // currency column: every amount here is IDR.
 
-/// A Sales Order — SO Barang (P49). Posts nothing: no journal, no book, no tax
+/// A Customer Order (P49, P78; called the Sales Order until P78) — the
+/// commercial agreement: what the customer ordered, at what price, with what
+/// tax. Advances and invoices are drawn from it; the Sales Orders that release
+/// its quantity to PPIC are its children. Posts nothing: no journal, no book, no tax
 /// document. Its totals are stored as the tax module computed them at the last
 /// save, so a list can show them and a confirmed order keeps the figures it was
 /// confirmed with.
-model SalOrder {
-  id         Int              @id @default(autoincrement())
-  /// `SO/YYYY/MM/NNNN`, in the series of the order's own month.
-  order_no   String           @unique
-  order_date DateTime         @db.Date
-  status     SalesOrderStatus @default(Draft)
+model SalCustomerOrder {
+  id         Int                 @id @default(autoincrement())
+  /// `CO/YYYY/MM/NNNN`, in the series of the order's own month (P78).
+  order_no   String              @unique
+  order_date DateTime            @db.Date
+  status     CustomerOrderStatus @default(Draft)
 
   customer_id               Int
   /// One of the customer's addresses, by id (P53).
@@ -1415,21 +1418,21 @@ model SalOrder {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  customer    MPartner        @relation(fields: [customer_id], references: [id])
-  address     MPartnerAddress @relation(fields: [address_id], references: [id])
-  term        RefPaymentTerm  @relation(fields: [term_id], references: [id])
-  copied_from SalOrder?       @relation("SalesOrderCopy", fields: [copied_from_id], references: [id])
-  copies      SalOrder[]      @relation("SalesOrderCopy")
-  lines       SalOrderLine[]
+  customer    MPartner               @relation(fields: [customer_id], references: [id])
+  address     MPartnerAddress        @relation(fields: [address_id], references: [id])
+  term        RefPaymentTerm         @relation(fields: [term_id], references: [id])
+  copied_from SalCustomerOrder?      @relation("CustomerOrderCopy", fields: [copied_from_id], references: [id])
+  copies      SalCustomerOrder[]     @relation("CustomerOrderCopy")
+  lines       SalCustomerOrderLine[]
   advances    SalAdvance[]
 
   @@index([customer_id])
   @@index([status, order_date])
-  @@map("sal_order")
+  @@map("sal_customer_order")
 }
 
-/// One line of a Sales Order: a Barang, in one of its units, at a typed price.
-model SalOrderLine {
+/// One line of a Customer Order: a Barang, in one of its units, at a typed price.
+model SalCustomerOrderLine {
   id       Int @id @default(autoincrement())
   order_id Int
   line_no  Int
@@ -1462,14 +1465,14 @@ model SalOrderLine {
 
   note String?
 
-  order           SalOrder           @relation(fields: [order_id], references: [id])
+  order           SalCustomerOrder   @relation(fields: [order_id], references: [id])
   item            MItem              @relation(fields: [item_id], references: [id])
   uom             RefUom             @relation(fields: [uom_id], references: [id])
   withholding_tax RefWithholdingTax? @relation(fields: [withholding_tax_id], references: [id])
 
   @@unique([order_id, line_no])
   @@index([item_id])
-  @@map("sal_order_line")
+  @@map("sal_customer_order_line")
 }
 
 /// An AR advance bill — Uang Muka Penjualan (P54–P58). A bill, not a
@@ -1478,7 +1481,7 @@ model SalOrderLine {
 /// recorded by Pembayaran on the day it arrives; how much of it is paid or used
 /// is not stored here — that belongs to the open items (C22).
 ///
-/// Always drawn from one confirmed Sales Order, whose customer, address, price
+/// Always drawn from one Open Customer Order (P78), whose customer, address, price
 /// mode and Kena PPN it follows. Its figures are stored as the tax module
 /// computed them at the last save.
 model SalAdvance {
@@ -1489,15 +1492,15 @@ model SalAdvance {
   due_date     DateTime      @db.Date
   status       AdvanceStatus @default(Draft)
 
-  order_id     Int
+  customer_order_id Int
   /// The order's customer, kept on the bill because the partner is what an
   /// advance is settled by (C22).
-  customer_id  Int
+  customer_id       Int
   /// A Bank-type Cash & Bank in rupiah, printed on the bill as where to pay.
-  cash_bank_id Int
+  cash_bank_id      Int
   /// The one line the bill prints.
-  description  String
-  note         String?
+  description       String
+  note              String?
 
   /// Copied from the order, which is locked once confirmed.
   price_mode                PriceMode
@@ -1530,11 +1533,11 @@ model SalAdvance {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  order     SalOrder  @relation(fields: [order_id], references: [id])
-  customer  MPartner  @relation(fields: [customer_id], references: [id])
-  cash_bank MCashBank @relation(fields: [cash_bank_id], references: [id])
+  customer_order SalCustomerOrder @relation(fields: [customer_order_id], references: [id])
+  customer       MPartner         @relation(fields: [customer_id], references: [id])
+  cash_bank      MCashBank        @relation(fields: [cash_bank_id], references: [id])
 
-  @@index([order_id])
+  @@index([customer_order_id])
   @@index([customer_id])
   @@index([status, advance_date])
   @@map("sal_advance")
@@ -1696,10 +1699,10 @@ model FinArItem {
   ref_doc_type_id    Int?
   ref_doc_id         Int?
   ref_no             String?
-  /// The Sales Order, by id — an invoice uses only its own order's advances
-  /// (P73). A weak reference: the order belongs to another module.
-  order_id           Int?
-  order_no           String?
+  /// The Customer Order, by id — an invoice uses only its own order's
+  /// advances (P73, P78). A weak reference: the order belongs to another module.
+  customer_order_id  Int?
+  customer_order_no  String?
 
   /// What is still open, in the item's own currency: the sum of its Buku
   /// Piutang entries, updated in the same transaction as each (P72).
@@ -1717,7 +1720,7 @@ model FinArItem {
   counter_entries FinArLedger[] @relation("ArItemCounter")
 
   @@index([partner_id, item_type])
-  @@index([order_id])
+  @@index([customer_order_id])
   @@index([source_doc_type_id, source_doc_id])
   @@index([ref_doc_type_id, ref_doc_id])
   @@map("fin_ar_item")

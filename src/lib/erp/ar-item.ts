@@ -66,6 +66,7 @@ export type NewArItem = {
   dueDate?: string | null;
   source: { docTypeId: number; docId: number; no: string };
   ref?: { docTypeId: number; docId: number; no: string } | null;
+  /** The Customer Order the item belongs to (P73, P78). */
   order?: { id: number; no: string } | null;
   amount: number;
   note?: string | null;
@@ -91,8 +92,8 @@ export async function createArItem(db: Db, item: NewArItem): Promise<number> {
       ref_doc_type_id: item.ref?.docTypeId ?? null,
       ref_doc_id: item.ref?.docId ?? null,
       ref_no: item.ref?.no ?? null,
-      order_id: item.order?.id ?? null,
-      order_no: item.order?.no ?? null,
+      customer_order_id: item.order?.id ?? null,
+      customer_order_no: item.order?.no ?? null,
       current_balance: item.amount,
       created_by: item.actorId,
     },
@@ -232,7 +233,7 @@ export async function openArItemsAsOf(
         refNo: i.ref_no,
         refTable: i.ref_doc_type?.doc_table ?? null,
         refId: i.ref_doc_id,
-        orderNo: i.order_no,
+        orderNo: i.customer_order_no,
         original,
         settled: original - open,
         open,
@@ -298,7 +299,7 @@ export async function arLedgerReport(
   const rows = await prisma.finArLedger.findMany({
     where: { item: { partner_id: partnerId }, entry_date: { lte: asDate(range.to) } },
     include: {
-      item: { select: { item_type: true, source_no: true, ref_no: true, order_no: true } },
+      item: { select: { item_type: true, source_no: true, ref_no: true, customer_order_no: true } },
       doc_type: { select: { doc_table: true } },
     },
     orderBy: [{ entry_date: "asc" }, { id: "asc" }],
@@ -327,7 +328,7 @@ export async function arLedgerReport(
       docId: r.doc_id,
       itemSourceNo: r.item.source_no,
       itemRefNo: r.item.ref_no,
-      orderNo: r.item.order_no,
+      orderNo: r.item.customer_order_no,
       note: r.note,
       exposure: exposureOf(r),
     });

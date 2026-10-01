@@ -112,7 +112,7 @@ export function ArLedgerReportBody({ report }: { report: ArLedgerReport }) {
             {money(report.closingByType.Advance)} = Posisi bersih {money(report.closingByType.Invoice - report.closingByType.Advance)}
           </b>
           {!report.includeAdvance && report.closingByType.Advance > 0 && (
-            <p>Uang muka tidak dimasukkan ke buku di atas — dipakai saat Faktur Penjualan atas Sales Order yang sama diposting.</p>
+            <p>Uang muka tidak dimasukkan ke buku di atas — dipakai saat Faktur Penjualan atas Customer Order yang sama diposting.</p>
           )}
         </div>
       </div>

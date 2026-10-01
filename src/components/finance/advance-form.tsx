@@ -32,15 +32,15 @@ import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
  * Uang Muka Penjualan — the AR advance bill, in all three modes: `new`,
  * `edit` (Draft only) and `view` (P54–P58).
  *
- * The Sales Order comes first and decides everything the bill follows —
- * customer, address, PO, mode harga, Kena PPN — laid out as the Sales Order's
+ * The Customer Order comes first and decides everything the bill follows —
+ * customer, address, PO, mode harga, Kena PPN — laid out as the Customer Order's
  * own header is, then the bill itself, then its value. The order's lines are
  * not copied onto the bill: a bill shows its own figures and links to the
  * order (S13/S14). The order is one line — the bill's Uraian beside the
  * order's total and DPP — and the value drawn from it is typed below (P64).
  *
  * The value is typed as a percent of the order or a flat value, with the same
- * toggle as a Sales Order line's discount (P55), and read in the order's price
+ * toggle as a Customer Order line's discount (P55), and read in the order's price
  * mode. Every figure is `computeAdvance`, which the Server Action stores from.
  *
  * The AP advance will be this form with the other side's words (P58).
@@ -205,7 +205,7 @@ export function AdvanceForm({
   const backHref = advance ? `/finance/advance/sales/${advance.id}` : "/finance/advance/sales";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
   const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
-  const waitOrder = "menunggu Sales Order";
+  const waitOrder = "menunggu Customer Order";
 
   const taxStatus = order
     ? [order.isPkp ? "PKP" : "Non-PKP", order.basis.vatCollector ? "Pemungut PPN" : null, order.collectsPph22 ? "Pemungut PPh 22" : null]
@@ -218,7 +218,7 @@ export function AdvanceForm({
 
   // ======================================================= header card
   //
-  // The order's side reads exactly as the Sales Order's own header does —
+  // The order's side reads exactly as the Customer Order's own header does —
   // Customer, Pesanan, Harga & Pajak, the same fields in the same places — so
   // a reader who knows one page finds everything on the other (P64). Only
   // the Tagihan section is the bill's own.
@@ -243,7 +243,7 @@ export function AdvanceForm({
             <Field label="Status Pajak" span={3}>
               {fromOrder(() => ro(<span className="bdg t-slate">{taxStatus}</span>))}
             </Field>
-            <Field label="Alamat" span={12} help={editing && order ? "dari Sales Order" : undefined}>
+            <Field label="Alamat" span={12} help={editing && order ? "dari Customer Order" : undefined}>
               {fromOrder((o) => ro(<span>{o.addressText}</span>))}
             </Field>
           </FormRow>
@@ -252,11 +252,11 @@ export function AdvanceForm({
         <FormSection title="Pesanan">
           <FormRow>
             <Field
-              label="Sales Order"
+              label="Customer Order"
               span={3}
               required={mode === "new"}
               locked={mode === "edit"}
-              help={mode === "new" ? "hanya SO berstatus Open" : undefined}
+              help={mode === "new" ? "hanya CO berstatus Open" : undefined}
               error={errors.order_id}
             >
               {mode === "new" ? (
@@ -265,13 +265,13 @@ export function AdvanceForm({
                   options={options.orders
                     .filter((o) => o.left > 0)
                     .map((o) => ({ id: o.id, label: o.orderNo, name: o.customerName, active: true }))}
-                  placeholder="Pilih Sales Order…"
+                  placeholder="Pilih Customer Order…"
                   invalid={Boolean(errors.order_id)}
                   onChange={pickOrder}
                 />
               ) : order ? (
                 ro(
-                  <Link className="drl" href={`/sales/order/${order.id}`}>
+                  <Link className="drl" href={`/sales/customer-order/${order.id}`}>
                     <span className="mono">{order.orderNo}</span>
                   </Link>
                 )
@@ -279,7 +279,7 @@ export function AdvanceForm({
                 nil()
               )}
             </Field>
-            <Field label="Tanggal SO" span={3}>
+            <Field label="Tanggal CO" span={3}>
               {fromOrder((o) => ro(formatDate(o.orderDate)))}
             </Field>
             <Field label="No. PO Customer" span={3}>
@@ -466,7 +466,7 @@ export function AdvanceForm({
           <h3>Dasar Uang Muka</h3>
           <p>
             {!order
-              ? "Nilai pesanan dari Sales Order yang dipilih menjadi dasar uang muka."
+              ? "Nilai pesanan dari Customer Order yang dipilih menjadi dasar uang muka."
               : !order.basis.taxable
                 ? "Pesanan sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya. Tanpa PPN."
                 : inclusive
@@ -480,7 +480,7 @@ export function AdvanceForm({
           <div className="ic">
             <Icon name="box" size={18} />
           </div>
-          <h4>Menunggu Sales Order</h4>
+          <h4>Menunggu Customer Order</h4>
           <p>Nilai pesanan tampil di sini; uang muka ditarik dari nilai itu.</p>
         </div>
       ) : (

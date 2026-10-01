@@ -455,7 +455,7 @@ export const ENTITIES: Entity[] = [
         help: "Instansi Pemerintah: faktur kode 02, PPN disetor sendiri oleh pembeli",
       },
 
-      // ---- tab Penjualan: what a new Sales Order starts from (P51).
+      // ---- tab Penjualan: what a new Customer Order starts from (P51).
       {
         name: "default_term_id",
         label: "Termin Pembayaran Default",
@@ -463,7 +463,7 @@ export const ENTITIES: Entity[] = [
         ref: "ref_payment_term",
         tab: "sales",
         visibleWhen: "partnerIsCustomer",
-        help: "diisikan ke Sales Order baru, tetap dapat diubah",
+        help: "diisikan ke Customer Order baru, tetap dapat diubah",
       },
       {
         name: "default_price_mode",
@@ -502,7 +502,7 @@ export const ENTITIES: Entity[] = [
         key: "sales",
         label: "Penjualan",
         icon: "tags",
-        desc: "Nilai awal Sales Order baru untuk customer ini. Semuanya dapat diubah pada Sales Order.",
+        desc: "Nilai awal Customer Order baru untuk customer ini. Semuanya dapat diubah pada Customer Order.",
         kind: "fields",
       },
     ],

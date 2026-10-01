@@ -16,18 +16,18 @@ import {
   type SalesTotals,
 } from "./sales-tax";
 import {
-  SALES_ORDER_TRANSITIONS,
-  salesOrderIsEditable,
-  salesOrderTransitionAllowed,
-  type SalesOrderAction,
-  type SalesOrderStatus,
-} from "./sales-order-workflow";
+  CUSTOMER_ORDER_TRANSITIONS,
+  customerOrderIsEditable,
+  customerOrderTransitionAllowed,
+  type CustomerOrderAction,
+  type CustomerOrderStatus,
+} from "./customer-order-workflow";
 
 /**
- * The Sales Order module (Claude-ERP.md P49–P53): its tables are `sal_order`
- * and `sal_order_line`, and nothing else names them.
+ * The Customer Order module (Claude-ERP.md P49–P53): its tables are `sal_customer_order`
+ * and `sal_customer_order_line`, and nothing else names them.
  *
- * A Sales Order posts nothing. It is a record of what the customer ordered,
+ * A Customer Order posts nothing. It is a record of what the customer ordered,
  * at what price, under which tax treatment — the source the Surat Jalan and
  * the Faktur will later draw from. Everything the form shows as a figure comes
  * from `sales-tax.ts`, the same module the save below stores from.
@@ -41,7 +41,7 @@ type Db = Prisma.TransactionClient | typeof prisma;
 
 // ------------------------------------------------------------------ input
 
-export type SalesOrderHeaderInput = {
+export type CustomerOrderHeaderInput = {
   order_date: string;
   customer_id: number | null;
   address_id: number | null;
@@ -54,7 +54,7 @@ export type SalesOrderHeaderInput = {
   note: string;
 };
 
-export type SalesOrderLineInput = {
+export type CustomerOrderLineInput = {
   item_id: number | null;
   uom_id: number | null;
   qty: number;
@@ -65,7 +65,7 @@ export type SalesOrderLineInput = {
   note: string;
 };
 
-export type SalesOrderResult =
+export type CustomerOrderResult =
   | { ok: true; id: number; orderNo: string }
   | { ok: false; errors: Record<string, string> };
 
@@ -89,7 +89,7 @@ export type SoCustomerOption = {
   isPkp: boolean;
   taxIdType: string | null;
   taxId: string | null;
-  /** What keeps this customer off a Sales Order, in words. Empty when usable. */
+  /** What keeps this customer off a Customer Order, in words. Empty when usable. */
   problems: string[];
 };
 
@@ -105,7 +105,7 @@ export type SoItemOption = {
 export type SoRefOption = { id: number; label: string; name: string; active: boolean };
 export type SoWhtOption = SoRefOption & { rate: number };
 
-export type SalesOrderOptions = {
+export type CustomerOrderOptions = {
   customers: SoCustomerOption[];
   items: SoItemOption[];
   terms: SoRefOption[];
@@ -132,7 +132,7 @@ function customerProblems(c: {
   return out;
 }
 
-export async function salesOrderOptions(): Promise<SalesOrderOptions> {
+export async function customerOrderOptions(): Promise<CustomerOrderOptions> {
   const [partners, items, terms, taxes, rates] = await Promise.all([
     prisma.mPartner.findMany({
       where: { category: { category_label: CUSTOMER_CATEGORY } },
@@ -224,7 +224,7 @@ type CheckedLine = {
   note: string | null;
 };
 
-export type SalesOrderCheck =
+export type CustomerOrderCheck =
   | {
       ok: true;
       header: {
@@ -247,23 +247,23 @@ export type SalesOrderCheck =
   | { ok: false; errors: Record<string, string> };
 
 /**
- * Every rule a Sales Order must satisfy to be saved — and, run again against
+ * Every rule a Customer Order must satisfy to be saved — and, run again against
  * what was stored, to be submitted. The form narrows the same choices; this is
  * what enforces them.
  */
-export async function checkSalesOrder(
-  header: SalesOrderHeaderInput,
-  lines: SalesOrderLineInput[]
-): Promise<SalesOrderCheck> {
+export async function checkCustomerOrder(
+  header: CustomerOrderHeaderInput,
+  lines: CustomerOrderLineInput[]
+): Promise<CustomerOrderCheck> {
   const errors: Record<string, string> = {};
 
   // ---- dates
   const orderDate = String(header.order_date ?? "").trim();
   const poDate = String(header.po_date ?? "").trim();
-  if (!DAY.test(orderDate)) errors.order_date = "Tanggal SO wajib diisi.";
+  if (!DAY.test(orderDate)) errors.order_date = "Tanggal CO wajib diisi.";
   if (poDate && !DAY.test(poDate)) errors.po_date = "Tanggal PO tidak valid.";
   else if (poDate && DAY.test(orderDate) && poDate > orderDate) {
-    errors.po_date = "Tidak boleh setelah tanggal SO.";
+    errors.po_date = "Tidak boleh setelah tanggal CO.";
   }
 
   // ---- customer and what hangs off it
@@ -429,8 +429,8 @@ export async function checkSalesOrder(
 // ------------------------------------------------------------------ writes
 
 async function nextOrderNo(db: Db, date: Date): Promise<string> {
-  return nextDocumentNumber("SO", date, async (series) => {
-    const row = await db.salOrder.findFirst({
+  return nextDocumentNumber("CO", date, async (series) => {
+    const row = await db.salCustomerOrder.findFirst({
       where: { order_no: { startsWith: series } },
       orderBy: { id: "desc" },
       select: { order_no: true },
@@ -481,20 +481,20 @@ function lineData(l: CheckedLine, t: SalesTotals, i: number) {
 }
 
 async function audit(db: Db, id: number, action: "TAMBAH" | "UPDATE", event: string, by: number) {
-  await db.auditLog.create({ data: { entity_key: "sal_order", row_id: id, action, event, by } });
+  await db.auditLog.create({ data: { entity_key: "sal_customer_order", row_id: id, action, event, by } });
 }
 
-export async function createSalesOrder(
-  header: SalesOrderHeaderInput,
-  lines: SalesOrderLineInput[],
+export async function createCustomerOrder(
+  header: CustomerOrderHeaderInput,
+  lines: CustomerOrderLineInput[],
   actorId: number,
   copiedFromId: number | null = null
-): Promise<SalesOrderResult> {
-  const c = await checkSalesOrder(header, lines);
+): Promise<CustomerOrderResult> {
+  const c = await checkCustomerOrder(header, lines);
   if (!c.ok) return c;
 
   const made = await prisma.$transaction(async (tx) => {
-    const order = await tx.salOrder.create({
+    const order = await tx.salCustomerOrder.create({
       data: {
         ...c.header,
         ...totalsData(c.totals),
@@ -511,25 +511,25 @@ export async function createSalesOrder(
   return { ok: true, id: made.id, orderNo: made.order_no };
 }
 
-export async function updateSalesOrder(
+export async function updateCustomerOrder(
   id: number,
-  header: SalesOrderHeaderInput,
-  lines: SalesOrderLineInput[],
+  header: CustomerOrderHeaderInput,
+  lines: CustomerOrderLineInput[],
   actorId: number
-): Promise<SalesOrderResult> {
-  const current = await prisma.salOrder.findUnique({ where: { id }, select: { status: true, order_no: true } });
-  if (!current) return { ok: false, errors: { _form: "Sales Order tidak ditemukan." } };
-  if (!salesOrderIsEditable(current.status as SalesOrderStatus)) {
-    return { ok: false, errors: { _form: "Hanya Sales Order berstatus Draft yang dapat diubah." } };
+): Promise<CustomerOrderResult> {
+  const current = await prisma.salCustomerOrder.findUnique({ where: { id }, select: { status: true, order_no: true } });
+  if (!current) return { ok: false, errors: { _form: "Customer Order tidak ditemukan." } };
+  if (!customerOrderIsEditable(current.status as CustomerOrderStatus)) {
+    return { ok: false, errors: { _form: "Hanya Customer Order berstatus Draft yang dapat diubah." } };
   }
 
-  const c = await checkSalesOrder(header, lines);
+  const c = await checkCustomerOrder(header, lines);
   if (!c.ok) return c;
 
   await prisma.$transaction(async (tx) => {
     // A Draft's lines are nobody's reference yet, so they are replaced whole.
-    await tx.salOrderLine.deleteMany({ where: { order_id: id } });
-    await tx.salOrder.update({
+    await tx.salCustomerOrderLine.deleteMany({ where: { order_id: id } });
+    await tx.salCustomerOrder.update({
       where: { id },
       data: {
         ...c.header,
@@ -544,9 +544,9 @@ export async function updateSalesOrder(
   return { ok: true, id, orderNo: current.order_no };
 }
 
-/** A stored order, back in the shape `checkSalesOrder` reads. */
-function asInput(o: Prisma.SalOrderGetPayload<{ include: { lines: true } }>) {
-  const header: SalesOrderHeaderInput = {
+/** A stored order, back in the shape `checkCustomerOrder` reads. */
+function asInput(o: Prisma.SalCustomerOrderGetPayload<{ include: { lines: true } }>) {
+  const header: CustomerOrderHeaderInput = {
     order_date: isoDay(o.order_date),
     customer_id: o.customer_id,
     address_id: o.address_id,
@@ -558,7 +558,7 @@ function asInput(o: Prisma.SalOrderGetPayload<{ include: { lines: true } }>) {
     salesperson: o.salesperson ?? "",
     note: o.note ?? "",
   };
-  const lines: SalesOrderLineInput[] = [...o.lines]
+  const lines: CustomerOrderLineInput[] = [...o.lines]
     .sort((a, b) => a.line_no - b.line_no)
     .map((l) => ({
       item_id: l.item_id,
@@ -573,12 +573,12 @@ function asInput(o: Prisma.SalOrderGetPayload<{ include: { lines: true } }>) {
   return { header, lines };
 }
 
-export type SalesOrderTransitionResult =
+export type CustomerOrderTransitionResult =
   | { ok: true }
   | { ok: false; errors: Record<string, string> };
 
 /** The event name each step writes to the audit log. */
-const STEP_EVENT: Record<SalesOrderAction, string> = {
+const STEP_EVENT: Record<CustomerOrderAction, string> = {
   submit: "submit",
   approve: "approve",
   reject: "reject",
@@ -599,26 +599,26 @@ const STEP_EVENT: Record<SalesOrderAction, string> = {
  * `status_reason`. Every step is conditional on the status just read, so two
  * people acting on the same order at once cannot both succeed.
  */
-export async function transitionSalesOrder(
+export async function transitionCustomerOrder(
   id: number,
-  action: SalesOrderAction,
+  action: CustomerOrderAction,
   actorId: number,
   reason?: string
-): Promise<SalesOrderTransitionResult> {
-  const order = await prisma.salOrder.findUnique({ where: { id }, include: { lines: true } });
-  if (!order) return { ok: false, errors: { _form: "Sales Order tidak ditemukan." } };
-  const t = SALES_ORDER_TRANSITIONS[action];
-  if (!salesOrderTransitionAllowed(action, order.status as SalesOrderStatus)) {
-    return { ok: false, errors: { _form: `Sales Order berstatus ini tidak dapat di-${t.label.toLowerCase()}.` } };
+): Promise<CustomerOrderTransitionResult> {
+  const order = await prisma.salCustomerOrder.findUnique({ where: { id }, include: { lines: true } });
+  if (!order) return { ok: false, errors: { _form: "Customer Order tidak ditemukan." } };
+  const t = CUSTOMER_ORDER_TRANSITIONS[action];
+  if (!customerOrderTransitionAllowed(action, order.status as CustomerOrderStatus)) {
+    return { ok: false, errors: { _form: `Customer Order berstatus ini tidak dapat di-${t.label.toLowerCase()}.` } };
   }
   const from = order.status;
-  const moved = "Sales Order berubah saat diproses. Muat ulang halaman.";
+  const moved = "Customer Order berubah saat diproses. Muat ulang halaman.";
 
   if (t.reason) {
     const why = String(reason ?? "").trim();
     if (!why) return { ok: false, errors: { reason: "Alasan wajib diisi." } };
     await prisma.$transaction(async (tx) => {
-      const done = await tx.salOrder.updateMany({
+      const done = await tx.salCustomerOrder.updateMany({
         where: { id, status: from },
         data: { status: t.to, status_reason: why, updated_by: actorId },
       });
@@ -630,7 +630,7 @@ export async function transitionSalesOrder(
 
   if (action === "approve") {
     await prisma.$transaction(async (tx) => {
-      const done = await tx.salOrder.updateMany({
+      const done = await tx.salCustomerOrder.updateMany({
         where: { id, status: from },
         data: { status: t.to, updated_by: actorId },
       });
@@ -641,13 +641,13 @@ export async function transitionSalesOrder(
   }
 
   const input = asInput(order);
-  const c = await checkSalesOrder(input.header, input.lines);
+  const c = await checkCustomerOrder(input.header, input.lines);
   if (!c.ok) {
     const first = Object.entries(c.errors).find(([k]) => k !== "_lines")?.[1] ?? c.errors._lines;
     return { ok: false, errors: { _form: `Belum bisa diajukan: ${first}` } };
   }
   await prisma.$transaction(async (tx) => {
-    const done = await tx.salOrder.updateMany({
+    const done = await tx.salCustomerOrder.updateMany({
       where: { id, status: from },
       data: { status: t.to, ...totalsData(c.totals), ...rateData(c.rates), updated_by: actorId },
     });
@@ -656,7 +656,7 @@ export async function transitionSalesOrder(
     // in force now, in case the setting changed since the Draft was saved.
     for (const [i, l] of c.lines.entries()) {
       const r = c.totals.lines[i];
-      await tx.salOrderLine.updateMany({
+      await tx.salCustomerOrderLine.updateMany({
         where: { order_id: id, line_no: l.line_no },
         data: { dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn, withholding_rate: l.withholding_rate },
       });
@@ -668,19 +668,19 @@ export async function transitionSalesOrder(
 
 // ------------------------------------------------------------------- reads
 
-export type SalesOrderListRow = {
+export type CustomerOrderListRow = {
   id: number;
   orderNo: string;
   orderDate: string;
   customerLabel: string;
   customerName: string;
   total: number;
-  status: SalesOrderStatus;
+  status: CustomerOrderStatus;
   lines: number;
 };
 
-export async function listSalesOrders(): Promise<SalesOrderListRow[]> {
-  const rows = await prisma.salOrder.findMany({
+export async function listCustomerOrders(): Promise<CustomerOrderListRow[]> {
+  const rows = await prisma.salCustomerOrder.findMany({
     orderBy: [{ order_date: "desc" }, { id: "desc" }],
     include: { customer: true, _count: { select: { lines: true } } },
   });
@@ -691,12 +691,12 @@ export async function listSalesOrders(): Promise<SalesOrderListRow[]> {
     customerLabel: r.customer.partner_label,
     customerName: r.customer.partner_name,
     total: r.total_amount.toNumber(),
-    status: r.status as SalesOrderStatus,
+    status: r.status as CustomerOrderStatus,
     lines: r._count.lines,
   }));
 }
 
-export type SalesOrderLineView = SalesOrderLineInput & {
+export type CustomerOrderLineView = CustomerOrderLineInput & {
   itemLabel: string;
   itemName: string;
   uomLabel: string;
@@ -707,12 +707,12 @@ export type SalesOrderLineView = SalesOrderLineInput & {
   discountAmount: number;
 };
 
-export type SalesOrderView = {
+export type CustomerOrderView = {
   id: number;
   orderNo: string;
-  status: SalesOrderStatus;
-  header: SalesOrderHeaderInput;
-  lines: SalesOrderLineView[];
+  status: CustomerOrderStatus;
+  header: CustomerOrderHeaderInput;
+  lines: CustomerOrderLineView[];
   customerLabel: string;
   customerName: string;
   addressText: string;
@@ -726,8 +726,8 @@ export type SalesOrderView = {
   rates: PpnRates | null;
 };
 
-export async function getSalesOrder(id: number): Promise<SalesOrderView | null> {
-  const o = await prisma.salOrder.findUnique({
+export async function getCustomerOrder(id: number): Promise<CustomerOrderView | null> {
+  const o = await prisma.salCustomerOrder.findUnique({
     where: { id },
     include: {
       customer: true,
@@ -743,7 +743,7 @@ export async function getSalesOrder(id: number): Promise<SalesOrderView | null> 
   return {
     id: o.id,
     orderNo: o.order_no,
-    status: o.status as SalesOrderStatus,
+    status: o.status as CustomerOrderStatus,
     header: input.header,
     lines: o.lines.map((l, i) => ({
       ...input.lines[i],
@@ -794,8 +794,8 @@ function ratesOf(o: {
 }
 
 /** Order numbers by id, for the audit panel. */
-export async function salesOrderNumbersByIds(ids: number[]): Promise<Map<number, string>> {
-  const rows = await prisma.salOrder.findMany({
+export async function customerOrderNumbersByIds(ids: number[]): Promise<Map<number, string>> {
+  const rows = await prisma.salCustomerOrder.findMany({
     where: { id: { in: ids } },
     select: { id: true, order_no: true },
   });
@@ -805,16 +805,16 @@ export async function salesOrderNumbersByIds(ids: number[]): Promise<Map<number,
 // ------------------------------------------------------ for the advance bill
 
 /**
- * A Sales Order as an advance bill reads it (P54): who it is for, where it is
+ * A Customer Order as an advance bill reads it (P54): who it is for, where it is
  * billed, and the basis the advance is drawn from — the order's DPP, total,
  * mode and, per Jenis PPh on its lines, the DPP that Jenis PPh covers. The
- * advance module takes this rather than reading `sal_order` itself.
+ * advance module takes this rather than reading `sal_customer_order` itself.
  */
 export type AdvanceSourceOrder = {
   id: number;
   orderNo: string;
   orderDate: string;
-  status: SalesOrderStatus;
+  status: CustomerOrderStatus;
   customerId: number;
   customerLabel: string;
   customerName: string;
@@ -841,7 +841,7 @@ export async function advanceSourceOrders(
   filter: { ids?: number[]; openOnly?: boolean },
   db: Db = prisma
 ): Promise<AdvanceSourceOrder[]> {
-  const rows = await db.salOrder.findMany({
+  const rows = await db.salCustomerOrder.findMany({
     where: {
       ...(filter.ids ? { id: { in: filter.ids } } : {}),
       ...(filter.openOnly ? { status: "Open" } : {}),
@@ -870,7 +870,7 @@ export async function advanceSourceOrders(
       id: o.id,
       orderNo: o.order_no,
       orderDate: isoDay(o.order_date),
-      status: o.status as SalesOrderStatus,
+      status: o.status as CustomerOrderStatus,
       customerId: o.customer_id,
       customerLabel: o.customer.partner_label,
       customerName: o.customer.partner_name,
@@ -911,6 +911,6 @@ export async function advanceSourceOrders(
  * from it and the order's closing cannot pass each other, and two bills
  * cannot both spend the same room (P57).
  */
-export async function lockSalesOrder(tx: Prisma.TransactionClient, id: number): Promise<void> {
-  await tx.$queryRaw`SELECT id FROM sal_order WHERE id = ${id} FOR UPDATE`;
+export async function lockCustomerOrder(tx: Prisma.TransactionClient, id: number): Promise<void> {
+  await tx.$queryRaw`SELECT id FROM sal_customer_order WHERE id = ${id} FOR UPDATE`;
 }

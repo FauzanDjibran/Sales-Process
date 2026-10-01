@@ -219,7 +219,7 @@ export function computeSalesTotals(input: {
 // ================================================================ advance
 
 /**
- * The advance bill's arithmetic (P55): one value drawn from a Sales Order,
+ * The advance bill's arithmetic (P55): one value drawn from a Customer Order,
  * typed in the order's price mode — as a percent of the order's value or as a
  * flat value — and the DPP, DPP Nilai Lain and PPN that follow from it by the
  * same chain as a line. The AP advance will draw on the same function (P58).
@@ -283,7 +283,7 @@ export function advanceAmountProblem(type: AdvanceAmountType, typed: number, val
   if (type === "Percent" && v > 100) return "Persentase tidak boleh lebih dari 100%.";
   const amount = advanceAmountOf(type, v, value);
   if (!(amount > 0)) return "Nilai uang muka terlalu kecil.";
-  if (amount > left) return "Melebihi sisa nilai Sales Order yang dapat ditagih.";
+  if (amount > left) return "Melebihi sisa nilai Customer Order yang dapat ditagih.";
   return null;
 }
 

@@ -111,9 +111,10 @@ const DOC_TYPES: [label: string, table: string][] = [
   // the closing entry names the year it closed as its source, which is what
   // lets a reader get from a journal line back to the close that wrote it.
   ["Fiscal Year", "acc_fiscal_year"],
-  // A Surat Jalan, a Faktur and a Pembayaran will name the order they come
-  // from through the weak (doc_type_id, doc_id) pair (§3.1).
-  ["Sales Order", "sal_order"],
+  // A Faktur and a Pembayaran name the order they come from through the weak
+  // (doc_type_id, doc_id) pair (§3.1). Called "Sales Order" until P78, when
+  // the migration renamed this row in place.
+  ["Customer Order", "sal_customer_order"],
   // Pembayaran will name the advance bill it settles the same way.
   ["Uang Muka Penjualan", "sal_advance"],
   // A posted Penerimaan / Pengeluaran names itself on its journal and its

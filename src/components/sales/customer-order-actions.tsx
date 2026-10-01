@@ -7,32 +7,32 @@ import { Icon } from "@/components/icon";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
-import { transitionSalesOrderAction } from "@/app/actions/sales-order";
+import { transitionCustomerOrderAction } from "@/app/actions/customer-order";
 import { headerButtonClass, orderForHeader, type ActionTone } from "@/lib/erp/header-actions";
 import {
-  SALES_ORDER_TRANSITIONS,
-  availableSalesOrderActions,
-  salesOrderIsEditable,
-  type SalesOrderAbilities,
-  type SalesOrderAction,
-  type SalesOrderStatus,
-} from "@/lib/erp/sales-order-workflow";
+  CUSTOMER_ORDER_TRANSITIONS,
+  availableCustomerOrderActions,
+  customerOrderIsEditable,
+  type CustomerOrderAbilities,
+  type CustomerOrderAction,
+  type CustomerOrderStatus,
+} from "@/lib/erp/customer-order-workflow";
 
 /** Why a final or waiting order offers no button, for the lock chip. */
-const LOCK_TEXT: Partial<Record<SalesOrderStatus, string>> = {
+const LOCK_TEXT: Partial<Record<CustomerOrderStatus, string>> = {
   Submitted: "Menunggu persetujuan",
-  Closed: "Sales Order ditutup",
-  Cancelled: "Sales Order dibatalkan",
-  Rejected: "Sales Order ditolak",
+  Closed: "Customer Order ditutup",
+  Cancelled: "Customer Order dibatalkan",
+  Rejected: "Customer Order ditolak",
 };
 
 /**
- * A Sales Order's lifecycle as buttons in the page header: Salin, Ubah (Draft
+ * A Customer Order's lifecycle as buttons in the page header: Salin, Ubah (Draft
  * only), Ajukan, Setujui / Tolak, Batalkan and Tutup Pesanan (P63). What is offered comes from the transition
  * table, so this can never offer a step the Server Action would refuse.
  * Ordered danger → neutral → primary in the markup.
  */
-export function SalesOrderActions({
+export function CustomerOrderActions({
   id,
   subject,
   status,
@@ -40,23 +40,23 @@ export function SalesOrderActions({
 }: {
   id: number;
   subject: string;
-  status: SalesOrderStatus;
-  can: SalesOrderAbilities;
+  status: CustomerOrderStatus;
+  can: CustomerOrderAbilities;
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [confirm, setConfirm] = useState<SalesOrderAction | null>(null);
+  const [confirm, setConfirm] = useState<CustomerOrderAction | null>(null);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const run = async (action: SalesOrderAction) => {
-    if (SALES_ORDER_TRANSITIONS[action].reason && !reason.trim()) {
+  const run = async (action: CustomerOrderAction) => {
+    if (CUSTOMER_ORDER_TRANSITIONS[action].reason && !reason.trim()) {
       setReasonError("Alasan wajib diisi.");
       return;
     }
     setBusy(true);
-    const result = await transitionSalesOrderAction(id, action, reason);
+    const result = await transitionCustomerOrderAction(id, action, reason);
     setBusy(false);
     if (!result.ok) {
       if (result.errors.reason) {
@@ -73,7 +73,7 @@ export function SalesOrderActions({
     router.refresh();
   };
 
-  const actions = availableSalesOrderActions(status, can);
+  const actions = availableCustomerOrderActions(status, can);
   const buttons = orderForHeader(
     [
       ...(can.create
@@ -82,20 +82,20 @@ export function SalesOrderActions({
               key: "copy",
               tone: "neutral" as ActionTone,
               node: (
-                <Link key="copy" className="btn" href={`/sales/order/new?from=${id}`}>
+                <Link key="copy" className="btn" href={`/sales/customer-order/new?from=${id}`}>
                   <Icon name="copy" size={15} /> Salin
                 </Link>
               ),
             },
           ]
         : []),
-      ...(salesOrderIsEditable(status) && can.edit
+      ...(customerOrderIsEditable(status) && can.edit
         ? [
             {
               key: "edit",
               tone: "neutral" as ActionTone,
               node: (
-                <Link key="edit" className="btn" href={`/sales/order/${id}/edit`}>
+                <Link key="edit" className="btn" href={`/sales/customer-order/${id}/edit`}>
                   <Icon name="pen" size={15} /> Ubah
                 </Link>
               ),
@@ -103,7 +103,7 @@ export function SalesOrderActions({
           ]
         : []),
       ...actions.map((a) => {
-        const t = SALES_ORDER_TRANSITIONS[a];
+        const t = CUSTOMER_ORDER_TRANSITIONS[a];
         return {
           key: a,
           tone: t.tone,
@@ -127,7 +127,7 @@ export function SalesOrderActions({
     (i) => i.tone
   );
 
-  const t = confirm ? SALES_ORDER_TRANSITIONS[confirm] : null;
+  const t = confirm ? CUSTOMER_ORDER_TRANSITIONS[confirm] : null;
 
   return (
     <>

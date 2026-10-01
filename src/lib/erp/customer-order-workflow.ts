@@ -1,5 +1,5 @@
 /**
- * The Sales Order's lifecycle, written once and read by both sides (P63).
+ * The Customer Order's lifecycle, written once and read by both sides (P63).
  *
  *   Draft ──submit──> Submitted ──approve──> Open ──close──> Closed
  *     │                   │
@@ -22,18 +22,18 @@ import type { IconName } from "@/components/icon";
 import type { ActionTone } from "./header-actions";
 import type { PermissionCode } from "./permissions";
 
-export type SalesOrderStatus = "Draft" | "Submitted" | "Open" | "Closed" | "Cancelled" | "Rejected";
+export type CustomerOrderStatus = "Draft" | "Submitted" | "Open" | "Closed" | "Cancelled" | "Rejected";
 
-export type SalesOrderAction = "submit" | "approve" | "reject" | "cancel" | "close";
+export type CustomerOrderAction = "submit" | "approve" | "reject" | "cancel" | "close";
 
 /** The order the header offers them in, before `orderForHeader` sorts by tone. */
-export const SALES_ORDER_ACTIONS: SalesOrderAction[] = ["cancel", "reject", "close", "submit", "approve"];
+export const CUSTOMER_ORDER_ACTIONS: CustomerOrderAction[] = ["cancel", "reject", "close", "submit", "approve"];
 
-export type SalesOrderTransition = {
+export type CustomerOrderTransition = {
   label: string;
   permission: PermissionCode;
-  from: SalesOrderStatus[];
-  to: SalesOrderStatus;
+  from: CustomerOrderStatus[];
+  to: CustomerOrderStatus;
   icon: IconName;
   tone: ActionTone;
   title: string;
@@ -44,98 +44,98 @@ export type SalesOrderTransition = {
   done: string;
 };
 
-export const SALES_ORDER_TRANSITIONS: Record<SalesOrderAction, SalesOrderTransition> = {
+export const CUSTOMER_ORDER_TRANSITIONS: Record<CustomerOrderAction, CustomerOrderTransition> = {
   submit: {
     label: "Ajukan",
-    permission: "SALES_ORDER_SUBMIT",
+    permission: "CUSTOMER_ORDER_SUBMIT",
     from: ["Draft"],
     to: "Submitted",
     icon: "send",
     tone: "primary",
-    title: "Ajukan Sales Order",
+    title: "Ajukan Customer Order",
     body:
       "Pesanan dikunci dan menunggu persetujuan: customer, alamat, Kena PPN, " +
       "mode harga dan seluruh baris tidak dapat diubah lagi, dan tidak dapat " +
       "ditarik kembali. Tidak ada journal atau dokumen pajak yang dibuat.",
     confirmLabel: "Ya, Ajukan",
-    done: "Sales Order diajukan",
+    done: "Customer Order diajukan",
   },
   approve: {
     label: "Setujui",
-    permission: "SALES_ORDER_APPROVE",
+    permission: "CUSTOMER_ORDER_APPROVE",
     from: ["Submitted"],
     to: "Open",
     icon: "check",
     tone: "primary",
-    title: "Setujui Sales Order",
+    title: "Setujui Customer Order",
     body:
       "Pesanan menjadi Open: siap ditagihkan uang muka dan, nanti, dikirim " +
       "dengan Surat Jalan. Tidak ada journal atau dokumen pajak yang dibuat.",
     confirmLabel: "Ya, Setujui",
-    done: "Sales Order disetujui",
+    done: "Customer Order disetujui",
   },
   reject: {
     label: "Tolak",
-    permission: "SALES_ORDER_APPROVE",
+    permission: "CUSTOMER_ORDER_APPROVE",
     from: ["Submitted"],
     to: "Rejected",
     icon: "block",
     tone: "danger",
-    title: "Tolak Sales Order",
+    title: "Tolak Customer Order",
     body:
       "Pesanan ditandai Ditolak dan tidak dapat dipakai lagi. Status ini " +
       "final; untuk mengajukan ulang, Salin pesanan ini menjadi Draft baru.",
     confirmLabel: "Ya, Tolak",
     reason: "Mengapa pesanan ini ditolak…",
-    done: "Sales Order ditolak",
+    done: "Customer Order ditolak",
   },
   cancel: {
     label: "Batalkan",
-    permission: "SALES_ORDER_CANCEL",
+    permission: "CUSTOMER_ORDER_CANCEL",
     from: ["Draft"],
     to: "Cancelled",
     icon: "block",
     tone: "danger",
-    title: "Batalkan Sales Order",
+    title: "Batalkan Customer Order",
     body:
       "Draft ditandai Dibatalkan dan tidak dapat dipakai lagi. Status ini " +
       "final. Nomornya tetap tersimpan sebagai jejak.",
     confirmLabel: "Ya, Batalkan",
     reason: "Mengapa pesanan ini dibatalkan…",
-    done: "Sales Order dibatalkan",
+    done: "Customer Order dibatalkan",
   },
   close: {
     label: "Tutup Pesanan",
-    permission: "SALES_ORDER_CLOSE",
+    permission: "CUSTOMER_ORDER_CLOSE",
     from: ["Open"],
     to: "Closed",
     icon: "lock",
     tone: "neutral",
-    title: "Tutup Sales Order",
+    title: "Tutup Customer Order",
     body:
       "Pesanan ditutup walaupun belum seluruhnya dikirim: tidak ada Surat " +
       "Jalan atau tagihan uang muka baru yang dapat dibuat darinya. Tagihan " +
       "uang muka yang sudah terbit tidak berubah. Status ini final.",
     confirmLabel: "Ya, Tutup",
     reason: "Mengapa pesanan ini ditutup…",
-    done: "Sales Order ditutup",
+    done: "Customer Order ditutup",
   },
 };
 
-export function salesOrderTransitionAllowed(
-  action: SalesOrderAction,
-  status: SalesOrderStatus
+export function customerOrderTransitionAllowed(
+  action: CustomerOrderAction,
+  status: CustomerOrderStatus
 ): boolean {
-  return SALES_ORDER_TRANSITIONS[action].from.includes(status);
+  return CUSTOMER_ORDER_TRANSITIONS[action].from.includes(status);
 }
 
 /** Only a Draft can be edited; submitting locks the order. */
-export function salesOrderIsEditable(status: SalesOrderStatus): boolean {
+export function customerOrderIsEditable(status: CustomerOrderStatus): boolean {
   return status === "Draft";
 }
 
-/** What the signed-in user may do with Sales Orders — presentation only. */
-export type SalesOrderAbilities = {
+/** What the signed-in user may do with Customer Orders — presentation only. */
+export type CustomerOrderAbilities = {
   create: boolean;
   edit: boolean;
   submit: boolean;
@@ -145,30 +145,30 @@ export type SalesOrderAbilities = {
   close: boolean;
 };
 
-export function salesOrderAbilities(permissions: Iterable<string>): SalesOrderAbilities {
+export function customerOrderAbilities(permissions: Iterable<string>): CustomerOrderAbilities {
   const held = permissions instanceof Set ? permissions : new Set(permissions);
   return {
-    create: held.has("SALES_ORDER_CREATE"),
-    edit: held.has("SALES_ORDER_EDIT"),
-    submit: held.has("SALES_ORDER_SUBMIT"),
-    approve: held.has("SALES_ORDER_APPROVE"),
-    reject: held.has("SALES_ORDER_APPROVE"),
-    cancel: held.has("SALES_ORDER_CANCEL"),
-    close: held.has("SALES_ORDER_CLOSE"),
+    create: held.has("CUSTOMER_ORDER_CREATE"),
+    edit: held.has("CUSTOMER_ORDER_EDIT"),
+    submit: held.has("CUSTOMER_ORDER_SUBMIT"),
+    approve: held.has("CUSTOMER_ORDER_APPROVE"),
+    reject: held.has("CUSTOMER_ORDER_APPROVE"),
+    cancel: held.has("CUSTOMER_ORDER_CANCEL"),
+    close: held.has("CUSTOMER_ORDER_CLOSE"),
   };
 }
 
 /** The transitions this user may run on an order in this status. */
-export function availableSalesOrderActions(
-  status: SalesOrderStatus,
-  can: SalesOrderAbilities
-): SalesOrderAction[] {
-  return SALES_ORDER_ACTIONS.filter(
-    (a) => salesOrderTransitionAllowed(a, status) && can[a]
+export function availableCustomerOrderActions(
+  status: CustomerOrderStatus,
+  can: CustomerOrderAbilities
+): CustomerOrderAction[] {
+  return CUSTOMER_ORDER_ACTIONS.filter(
+    (a) => customerOrderTransitionAllowed(a, status) && can[a]
   );
 }
 
-export const SALES_ORDER_STATUS_TEXT: Record<SalesOrderStatus, string> = {
+export const CUSTOMER_ORDER_STATUS_TEXT: Record<CustomerOrderStatus, string> = {
   Draft: "Draft",
   Submitted: "Diajukan",
   Open: "Open",
@@ -177,7 +177,7 @@ export const SALES_ORDER_STATUS_TEXT: Record<SalesOrderStatus, string> = {
   Rejected: "Ditolak",
 };
 
-export const SALES_ORDER_STATUS_BADGE: Record<SalesOrderStatus, string> = {
+export const CUSTOMER_ORDER_STATUS_BADGE: Record<CustomerOrderStatus, string> = {
   Draft: "s-warn",
   Submitted: "s-info",
   Open: "s-ok",
@@ -187,7 +187,7 @@ export const SALES_ORDER_STATUS_BADGE: Record<SalesOrderStatus, string> = {
 };
 
 /** The final steps that carry a reason, and how the form introduces it. */
-export const SALES_ORDER_REASON_TEXT: Partial<Record<SalesOrderStatus, string>> = {
+export const CUSTOMER_ORDER_REASON_TEXT: Partial<Record<CustomerOrderStatus, string>> = {
   Cancelled: "Dibatalkan",
   Rejected: "Ditolak",
   Closed: "Ditutup",

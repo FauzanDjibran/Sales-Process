@@ -9,7 +9,7 @@
  * Penerimaan Kas & Bank. A bill a posted receipt has settled, even in part,
  * refuses Batalkan (P66); its leftover is refunded instead.
  *
- * The same shape as `sales-order-workflow.ts`, and the one the AP advance will
+ * The same shape as `customer-order-workflow.ts`, and the one the AP advance will
  * mirror (P58). Client-safe on purpose — no `server-only`, no database import.
  */
 import type { IconName } from "@/components/icon";
@@ -60,7 +60,7 @@ export const SALES_ADVANCE_TRANSITIONS: Record<AdvanceAction, AdvanceTransition>
     tone: "danger",
     title: "Konfirmasi Batalkan Tagihan Uang Muka",
     body:
-      "Tagihan ditandai Dibatalkan dan nilainya kembali menjadi sisa Sales Order yang " +
+      "Tagihan ditandai Dibatalkan dan nilainya kembali menjadi sisa Customer Order yang " +
       "dapat ditagih. Tidak ada journal atau pajak yang terpengaruh karena tagihan " +
       "tidak pernah memposting. Status Dibatalkan bersifat final.",
     confirmLabel: "Ya, Batalkan",

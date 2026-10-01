@@ -148,6 +148,11 @@ receipts were backfilled. Reports: Buku Piutang (Invoice items, with a
 Invoice events arrive with the Faktur Penjualan and the Pelunasan Faktur
 purpose.
 
+**Customer Order — renamed 01/10/2026** (P78): the Sales Order built above is
+now the Customer Order, `CO/…`, the commercial basis of advances and
+invoices; tables, permissions, document type and numbers were renamed in
+place. The name Sales Order passes to its child document.
+
 Built one step at a time, **in the order the user gives**. For each step:
 
 1. Re-read the simulation's step (screens, lifecycle, arithmetic, journal) and

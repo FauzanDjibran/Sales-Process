@@ -10,7 +10,7 @@ import {
   updateSalesAdvance,
   type SalesAdvanceInput,
 } from "../src/lib/erp/sales-advance";
-import { createSalesOrder, transitionSalesOrder, type SalesOrderLineInput } from "../src/lib/erp/sales-order";
+import { createCustomerOrder, transitionCustomerOrder, type CustomerOrderLineInput } from "../src/lib/erp/customer-order";
 import { availableAdvanceActions, salesAdvanceAbilities } from "../src/lib/erp/sales-advance-workflow";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import { computeAdvance } from "../src/lib/erp/sales-tax";
@@ -60,7 +60,7 @@ async function cashBank(label: string, type: "Cash" | "Bank", status: "Active" |
 
 /** An Open order: 2 PCS withheld + 1 PCS not, 1.000.000 each, Exclude PPN. */
 async function openOrder(open = true) {
-  const line = (over: Partial<SalesOrderLineInput> = {}): SalesOrderLineInput => ({
+  const line = (over: Partial<CustomerOrderLineInput> = {}): CustomerOrderLineInput => ({
     item_id: f.goods,
     uom_id: f.pcs,
     qty: 1,
@@ -71,7 +71,7 @@ async function openOrder(open = true) {
     note: "",
     ...over,
   });
-  const r = await createSalesOrder(
+  const r = await createCustomerOrder(
     {
       order_date: "2026-09-10",
       customer_id: f.customer,
@@ -90,8 +90,8 @@ async function openOrder(open = true) {
   assert.ok(r.ok, JSON.stringify(r));
   orders.push(r.id);
   if (open) {
-    assert.deepEqual(await transitionSalesOrder(r.id, "submit", actor), { ok: true });
-    assert.deepEqual(await transitionSalesOrder(r.id, "approve", actor), { ok: true });
+    assert.deepEqual(await transitionCustomerOrder(r.id, "submit", actor), { ok: true });
+    assert.deepEqual(await transitionCustomerOrder(r.id, "approve", actor), { ok: true });
   }
   return r.id;
 }
@@ -153,9 +153,9 @@ before(async () => {
 after(async () => {
   await prisma.salAdvance.deleteMany({ where: { id: { in: advances } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "sal_advance", row_id: { in: advances } } });
-  await prisma.salOrderLine.deleteMany({ where: { order_id: { in: orders } } });
-  await prisma.salOrder.deleteMany({ where: { id: { in: orders } } });
-  await prisma.auditLog.deleteMany({ where: { entity_key: "sal_order", row_id: { in: orders } } });
+  await prisma.salCustomerOrderLine.deleteMany({ where: { order_id: { in: orders } } });
+  await prisma.salCustomerOrder.deleteMany({ where: { id: { in: orders } } });
+  await prisma.auditLog.deleteMany({ where: { entity_key: "sal_customer_order", row_id: { in: orders } } });
   await cleanupFixtures();
   for (const c of cleanups) await c();
   await disconnect();
@@ -335,7 +335,7 @@ describe("a closed order takes no new bill (P63)", () => {
     const r = await create(input({ order_id: order }));
     assert.ok(r.ok);
     assert.deepEqual(await transitionSalesAdvance(r.id, "issue", actor), { ok: true });
-    assert.deepEqual(await transitionSalesOrder(order, "close", actor, "selesai"), { ok: true });
+    assert.deepEqual(await transitionCustomerOrder(order, "close", actor, "selesai"), { ok: true });
     assert.equal((await getSalesAdvance(r.id))!.status, "Issued", "closing leaves the bill alone");
     const late = await create(input({ order_id: order }));
     assert.ok(!late.ok && late.errors.order_id, "a closed order takes no bill");

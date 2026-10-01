@@ -94,14 +94,14 @@ export function AdvanceList({
           </div>
         </div>
         <p className="ph-sub">
-          Tagihan uang muka ke customer atas Sales Order berstatus Open. Menerbitkan tagihan tidak
+          Tagihan uang muka ke customer atas Customer Order berstatus Open. Menerbitkan tagihan tidak
           memposting apa pun; kas, Uang Muka Penjualan dan PPN Keluaran dicatat saat pembayarannya diterima.
         </p>
       </div>
 
       <div className="card">
         <div className="toolbar">
-          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor, Sales Order atau customer…" />
+          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor, Customer Order atau customer…" />
           <Select
             variant="toolbar"
             value={status}
@@ -135,7 +135,7 @@ export function AdvanceList({
                     <th style={{ width: 116 }}>Status</th>
                     <th style={{ width: 100 }}>Tanggal</th>
                     <th style={{ width: 106 }}>Jatuh Tempo</th>
-                    <th>Customer / Sales Order</th>
+                    <th>Customer / Customer Order</th>
                     <th className="num" style={{ width: 140 }}>DPP</th>
                     <th className="num" style={{ width: 120 }}>PPN</th>
                     <th className="num" style={{ width: 150 }}>Total Tagihan</th>
@@ -212,7 +212,7 @@ export function AdvanceList({
             <p>
               {q || status
                 ? "Tidak ada tagihan yang sesuai dengan pencarian atau filter."
-                : "Buat tagihan uang muka dari Sales Order berstatus Open."}
+                : "Buat tagihan uang muka dari Customer Order berstatus Open."}
             </p>
             {q || status ? (
               <div className="cta">
