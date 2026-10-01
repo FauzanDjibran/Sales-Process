@@ -56,7 +56,8 @@ type LineState = {
   uom_id: number | null;
   qty: string;
   price: string;
-  discount_type: DiscountType | null;
+  /** The discount field's mode; no discount is an empty value, not a mode. */
+  discount_type: DiscountType;
   discount_value: string;
   withholding_tax_id: number | null;
   note: string;
@@ -79,6 +80,11 @@ let seq = 0;
 const newKey = () => `l${Date.now().toString(36)}${seq++}`;
 const MODE_TEXT: Record<PriceMode, string> = { Exclude: "Exclude PPN", Include: "Include PPN" };
 const money = (n: number) => formatMoney(n, "IDR");
+/** A line's discount as stored: none unless a value above zero is typed. */
+const discountOf = (l: { discount_type: DiscountType; discount_value: string }) =>
+  Number(l.discount_value) > 0
+    ? { type: l.discount_type, value: Number(l.discount_value) }
+    : { type: null, value: null };
 
 const emptyLine = (): LineState => ({
   key: newKey(),
@@ -86,7 +92,7 @@ const emptyLine = (): LineState => ({
   uom_id: null,
   qty: "1",
   price: "",
-  discount_type: null,
+  discount_type: "Percent",
   discount_value: "",
   // No Jenis PPh is pre-filled (P61): the user picks it per line.
   withholding_tax_id: null,
@@ -153,7 +159,7 @@ export function CustomerOrderForm({
       uom_id: Number(l.uom_id),
       qty: String(l.qty),
       price: String(l.price),
-      discount_type: (l.discount_type as DiscountType | null) ?? null,
+      discount_type: (l.discount_type as DiscountType | null) ?? "Percent",
       discount_value: l.discount_value == null ? "" : String(l.discount_value),
       withholding_tax_id: l.withholding_tax_id ? Number(l.withholding_tax_id) : null,
       note: l.note ?? "",
@@ -235,8 +241,8 @@ export function CustomerOrderForm({
           return {
             qty: Number(l.qty) || 0,
             price: Number(l.price) || 0,
-            discountType: l.discount_type,
-            discountValue: l.discount_type ? Number(l.discount_value) || 0 : null,
+            discountType: discountOf(l).type,
+            discountValue: discountOf(l).value,
             withholdingRate: t?.rate ?? null,
             withholdingKey: t ? String(t.id) : null,
           };
@@ -255,8 +261,8 @@ export function CustomerOrderForm({
       uom_id: l.uom_id,
       qty: Number(l.qty) || 0,
       price: Number(l.price) || 0,
-      discount_type: l.discount_type,
-      discount_value: l.discount_type ? Number(l.discount_value) || 0 : null,
+      discount_type: discountOf(l).type,
+      discount_value: discountOf(l).value,
       withholding_tax_id: l.withholding_tax_id,
       note: l.note,
     }));
@@ -554,7 +560,7 @@ export function CustomerOrderForm({
 
   // ======================================================== lines card
   const whtOptions = [
-    { value: "", label: "Tidak dipotong" },
+    { value: "", label: "Tanpa PPh" },
     ...options.withholdingTaxes
       .filter((t) => t.active)
       .map((t) => ({ value: String(t.id), label: t.label, hint: formatPct(t.rate) })),
@@ -612,17 +618,18 @@ export function CustomerOrderForm({
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab">
+          {/* The table keeps a floor width and scrolls inside its card rather
+              than squeezing Barang — the one column a reader needs whole. */}
+          <table className="grid ltab" style={{ minWidth: editing ? 980 : 860 }}>
             <thead>
               <tr>
-                <th style={{ width: 34 }}>No</th>
-                <th style={{ minWidth: 260 }}>Barang</th>
-                <th style={{ width: 96 }}>Satuan</th>
-                <th className="num" style={{ width: 88 }}>Qty</th>
-                <th className="num" style={{ width: 120 }}>Harga</th>
-                <th style={{ width: 184 }}>Diskon</th>
+                <th style={{ width: 40 }}>No</th>
+                <th>Barang</th>
+                <th style={{ width: editing ? 172 : 130 }}>Qty</th>
+                <th className="num" style={{ width: 128 }}>Harga</th>
+                <th style={{ width: editing ? 168 : 112 }}>Diskon</th>
                 <th style={{ width: 120 }}>Jenis PPh</th>
-                <th className="num" style={{ width: 120 }}>Jumlah</th>
+                <th className="num" style={{ width: 128 }}>Jumlah</th>
                 {editing && <th style={{ width: 40 }} />}
               </tr>
             </thead>
@@ -660,35 +667,39 @@ export function CustomerOrderForm({
                       )}
                       {lineError && <span className="overtag">{lineError}</span>}
                     </td>
+                    {/* Quantity and its unit read as one — "10 PCS". The unit is
+                        a choice only when the item has more than one. */}
                     <td>
                       {editing ? (
-                        <Select
-                          size="sm"
-                          value={l.uom_id ? String(l.uom_id) : ""}
-                          waitingFor={l.item_id ? null : "Pilih Barang dulu…"}
-                          options={uoms.map((u) => ({
-                            value: String(u.id),
-                            label: u.label,
-                            hint: u.factor === 1 ? "satuan dasar" : `isi ${formatNumber(u.factor)}`,
-                          }))}
-                          ariaLabel="Satuan"
-                          onChange={(v) => setLine(l.key, { uom_id: Number(v) })}
-                        />
+                        <div className="qcell">
+                          <MoneyInput
+                            size="sm"
+                            decimals={4}
+                            value={l.qty}
+                            ariaLabel="Qty"
+                            onChange={(v) => setLine(l.key, { qty: v })}
+                          />
+                          {uoms.length > 1 ? (
+                            <Select
+                              size="sm"
+                              value={l.uom_id ? String(l.uom_id) : ""}
+                              options={uoms.map((u) => ({
+                                value: String(u.id),
+                                label: u.label,
+                                hint: u.factor === 1 ? "satuan dasar" : `isi ${formatNumber(u.factor)}`,
+                              }))}
+                              ariaLabel="Satuan"
+                              onChange={(v) => setLine(l.key, { uom_id: Number(v) })}
+                            />
+                          ) : (
+                            <span className="qu">{uom?.label ?? ""}</span>
+                          )}
+                        </div>
                       ) : (
-                        <span className="lab">{uom?.label ?? view?.uomLabel}</span>
-                      )}
-                    </td>
-                    <td className="num">
-                      {editing ? (
-                        <MoneyInput
-                          size="sm"
-                          decimals={4}
-                          value={l.qty}
-                          ariaLabel="Qty"
-                          onChange={(v) => setLine(l.key, { qty: v })}
-                        />
-                      ) : (
-                        <span className="mny">{formatNumber(Number(l.qty), Number(l.qty) % 1 ? 2 : 0)}</span>
+                        <span className="qview">
+                          <span className="mny">{formatNumber(Number(l.qty), Number(l.qty) % 1 ? 2 : 0)}</span>
+                          <span className="lab">{uom?.label ?? view?.uomLabel}</span>
+                        </span>
                       )}
                     </td>
                     <td className="num">
@@ -712,17 +723,16 @@ export function CustomerOrderForm({
                                 key={t}
                                 type="button"
                                 className={l.discount_type === t ? "on" : undefined}
+                                title={t === "Percent" ? "Diskon persen" : "Diskon nominal per baris"}
                                 onClick={() =>
-                                  setLine(l.key, {
-                                    discount_type: l.discount_type === t ? null : t,
-                                    discount_value: "",
-                                  })
+                                  l.discount_type !== t && setLine(l.key, { discount_type: t, discount_value: "" })
                                 }
                               >
                                 {t === "Percent" ? "%" : "Nominal"}
                               </button>
                             ))}
                           </span>
+                          {/* Always a field: left empty, the line has no discount. */}
                           {l.discount_type === "Percent" ? (
                             <PercentInput
                               size="sm"
@@ -730,18 +740,16 @@ export function CustomerOrderForm({
                               ariaLabel="Diskon persen"
                               onChange={(v) => setLine(l.key, { discount_value: v })}
                             />
-                          ) : l.discount_type ? (
+                          ) : (
                             <MoneyInput
                               size="sm"
                               value={l.discount_value}
                               ariaLabel="Nilai diskon"
                               onChange={(v) => setLine(l.key, { discount_value: v })}
                             />
-                          ) : (
-                            <span className="dash">tanpa diskon</span>
                           )}
                         </div>
-                      ) : l.discount_type ? (
+                      ) : discountOf(l).type ? (
                         <span className="mny">
                           {l.discount_type === "Percent"
                             ? formatPct(Number(l.discount_value))

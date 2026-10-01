@@ -219,7 +219,10 @@ export function Combobox({
           setOpen(false);
           setQuery("");
         }}
-        width="anchor"
+        // A picker in a line row is narrower than the codes and names it lists,
+        // so its list may grow past the trigger instead of clipping them.
+        width={size === "sm" ? "auto" : "anchor"}
+        maxWidth={size === "sm" ? 440 : undefined}
         className="cbpop"
       >
         <div className="l" id={listId} role="listbox" ref={listRef}>

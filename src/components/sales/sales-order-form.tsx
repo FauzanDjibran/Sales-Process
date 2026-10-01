@@ -12,6 +12,7 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { SalesOrderActions } from "@/components/sales/sales-order-actions";
+import { SalesOrderLinePicker } from "@/components/sales/sales-order-line-picker";
 import { createSalesOrderAction, updateSalesOrderAction } from "@/app/actions/sales-order";
 import {
   SALES_ORDER_REASON_TEXT,
@@ -19,7 +20,7 @@ import {
   SALES_ORDER_STATUS_TEXT,
   type SalesOrderAbilities,
 } from "@/lib/erp/sales-order-workflow";
-import type { SalesOrderHeaderInput, SalesOrderOptions, SalesOrderView, SoSourceOption } from "@/lib/erp/sales-order";
+import type { SalesOrderHeaderInput, SalesOrderOptions, SalesOrderView } from "@/lib/erp/sales-order";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
 
 /**
@@ -43,14 +44,6 @@ let seq = 0;
 const newKey = () => `l${Date.now().toString(36)}${seq++}`;
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 
-/**
- * A fresh Draft's lines: every Customer Order line with something left, the
- * quantity still to type. A line left blank is not part of the Sales Order.
- */
-const linesFor = (o: SoSourceOption | undefined): LineState[] =>
-  (o?.lines ?? [])
-    .filter((l) => l.qty - l.held > 0)
-    .map((l) => ({ key: newKey(), customer_order_line_id: l.id, qty: "" }));
 
 export function SalesOrderForm({
   mode,
@@ -89,7 +82,7 @@ export function SalesOrderForm({
           customer_order_line_id: Number(l.customer_order_line_id),
           qty: String(l.qty),
         }))
-      : linesFor(presetCustomerOrderId ? orderById.get(presetCustomerOrderId) : undefined)
+      : []
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
@@ -118,15 +111,27 @@ export function SalesOrderForm({
   const pickOrder = (id: number | null) => {
     const o = id ? orderById.get(id) : undefined;
     setHeader((x) => ({ ...x, customer_order_id: id, address_id: o?.addressId ?? null }));
-    setLines(linesFor(o));
+    setLines([]);
     touch("customer_order_id", "address_id", "_lines");
+  };
+
+  /** The picker's ticks become the lines: kept ones keep their quantity, new ones start blank. */
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const applyPicked = (ids: number[]) => {
+    setLines((ls) =>
+      ids.map(
+        (id) => ls.find((l) => l.customer_order_line_id === id) ?? { key: newKey(), customer_order_line_id: id, qty: "" }
+      )
+    );
+    touch("_lines");
+    setPickerOpen(false);
   };
 
   async function onSave() {
     setSaving(true);
-    // A line left without a quantity is a Customer Order line this delivery
-    // does not take; it is not sent, rather than refused.
-    const sent = lines.filter((l) => l.qty.trim() !== "");
+    // Every line was picked on purpose (P81), so a blank quantity is sent and
+    // refused on its row rather than quietly dropped.
+    const sent = lines;
     const payload = sent.map((l) => ({ customer_order_line_id: l.customer_order_line_id, qty: l.qty, note: "" }));
     const result =
       mode === "edit" ? await updateSalesOrderAction(order!.id, header, payload) : await createSalesOrderAction(header, payload);
@@ -291,7 +296,11 @@ export function SalesOrderForm({
   );
 
   // ======================================================== lines card
-  const usedLineIds = (key: string) => new Set(lines.filter((x) => x.key !== key).map((x) => x.customer_order_line_id));
+  const addButton = (cta?: boolean) => (
+    <button className={`btn sm primary${cta ? " cta" : ""}`} onClick={() => setPickerOpen(true)}>
+      <Icon name="plus" size={14} /> Tambah Item
+    </button>
+  );
   const linesCard = (
     <div className="card" style={{ marginTop: 14 }}>
       <div className="card-h">
@@ -301,22 +310,13 @@ export function SalesOrderForm({
         <div className="ct">
           <h3>Barang Dikirim</h3>
           <p>
-            Jumlah per barang dari Customer Order, dalam satuannya. {editing && "Kosongkan Qty untuk barang yang tidak dikirim di Sales Order ini. "}
+            {editing
+              ? "Pilih barang dari Customer Order lewat Tambah Item, lalu isi Qty yang dikirim pada tanggal ini."
+              : "Jumlah per barang dari Customer Order, dalam satuannya."}{" "}
             Harga dan pajak tetap di Customer Order.
           </p>
         </div>
-        {editing && source && (
-          <button
-            className="btn sm primary"
-            disabled={lines.length >= source.lines.length}
-            onClick={() => {
-              setLines((ls) => [...ls, { key: newKey(), customer_order_line_id: null, qty: "" }]);
-              touch("_lines");
-            }}
-          >
-            <Icon name="plus" size={14} /> Tambah Baris
-          </button>
-        )}
+        {editing && source && lines.length > 0 && addButton()}
       </div>
       {errors._lines && (
         <div className="nbox bad slim">
@@ -334,21 +334,19 @@ export function SalesOrderForm({
           <h4>{source ? "Belum ada barang" : "Pilih Customer Order dulu…"}</h4>
           <p>
             {source
-              ? "Seluruh jumlah Customer Order ini sudah dijadwalkan, atau semua baris dihapus."
+              ? "Pilih barang Customer Order yang dikirim di Sales Order ini."
               : "Barang yang dapat dikirim mengikuti baris Customer Order."}
           </p>
+          {editing && source && addButton(true)}
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab">
+          <table className="grid ltab" style={{ minWidth: 560 }}>
             <thead>
               <tr>
-                <th style={{ width: 34 }}>No</th>
-                <th style={{ minWidth: 280 }}>Barang</th>
-                <th style={{ width: 96 }}>Satuan</th>
-                <th className="num" style={{ width: 170 }}>
-                  Qty
-                </th>
+                <th style={{ width: 40 }}>No</th>
+                <th>Barang</th>
+                <th style={{ width: editing ? 220 : 160 }}>Qty</th>
                 {editing && <th style={{ width: 40 }} />}
               </tr>
             </thead>
@@ -363,52 +361,37 @@ export function SalesOrderForm({
                   <tr key={l.key} className={lineError || over ? "overrow" : undefined}>
                     <td className="no">{i + 1}</td>
                     <td>
-                      {editing ? (
-                        <Select
-                          size="sm"
-                          value={l.customer_order_line_id ? String(l.customer_order_line_id) : ""}
-                          options={(source?.lines ?? [])
-                            .filter((o) => o.id === l.customer_order_line_id || !usedLineIds(l.key).has(o.id))
-                            .map((o) => ({
-                              value: String(o.id),
-                              label: `${o.itemLabel} — ${o.itemName}`,
-                              hint: `sisa ${qtyText(o.qty - o.held)} ${o.uomLabel}`,
-                            }))}
-                          placeholder="Pilih Barang…"
-                          waitingFor={waitOrder}
-                          ariaLabel="Barang"
-                          onChange={(v) => setLine(l.key, { customer_order_line_id: v ? Number(v) : null })}
-                        />
-                      ) : (
-                        <span className="idc">
-                          <span className="lab">{co?.itemLabel}</span>
-                          <span className="nm">{co?.itemName}</span>
-                        </span>
-                      )}
+                      <span className="idc">
+                        <span className="lab">{co?.itemLabel}</span>
+                        <span className="nm">{co?.itemName}</span>
+                      </span>
                       {lineError && <span className="overtag">{lineError}</span>}
                     </td>
                     <td>
-                      <span className="lab">{co?.uomLabel ?? "—"}</span>
-                    </td>
-                    <td className="num">
                       {editing ? (
                         <>
-                          <MoneyInput
-                            size="sm"
-                            decimals={4}
-                            value={l.qty}
-                            over={over}
-                            ariaLabel={`Qty ${co?.itemLabel ?? ""}`}
-                            onChange={(v) => setLine(l.key, { qty: v })}
-                          />
+                          <div className="qcell">
+                            <MoneyInput
+                              size="sm"
+                              decimals={4}
+                              value={l.qty}
+                              over={over}
+                              ariaLabel={`Qty ${co?.itemLabel ?? ""}`}
+                              onChange={(v) => setLine(l.key, { qty: v })}
+                            />
+                            <span className="qu">{co?.uomLabel}</span>
+                          </div>
                           {co && (
                             <span className="fulltag">
-                              sisa CO {qtyText(left)} {co.uomLabel}
+                              maks. {qtyText(left)} {co.uomLabel}
                             </span>
                           )}
                         </>
                       ) : (
-                        <span className="mny">{qtyText(Number(l.qty))}</span>
+                        <span className="qview">
+                          <span className="mny">{qtyText(Number(l.qty))}</span>
+                          <span className="lab">{co?.uomLabel}</span>
+                        </span>
                       )}
                     </td>
                     {editing && (
@@ -431,6 +414,15 @@ export function SalesOrderForm({
             </tbody>
           </table>
         </div>
+      )}
+      {pickerOpen && source && (
+        <SalesOrderLinePicker
+          lines={source.lines}
+          current={lines.flatMap((l) => (l.customer_order_line_id ? [l.customer_order_line_id] : []))}
+          orderNo={source.orderNo}
+          onApply={applyPicked}
+          onClose={() => setPickerOpen(false)}
+        />
       )}
     </div>
   );

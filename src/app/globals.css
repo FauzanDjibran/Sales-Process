@@ -1249,6 +1249,17 @@ table.grid.coll tbody td.addr .an{display:block;margin-top:2px;font-size:11px;co
 .dtog button.on{background:var(--brand);color:#fff}
 .dcell{display:flex;gap:5px;align-items:center}
 .dcell .mwrap{flex:1 1 auto;min-width:0}
+/* Quantity and its unit in one cell, read as "10 PCS": the amount field
+   takes the room, the unit sits after it — a picker only when the item has
+   more than one unit, plain text otherwise. */
+.qcell{display:flex;gap:5px;align-items:center}
+.qcell .mwrap{flex:1 1 auto;min-width:0}
+.qcell > :not(.mwrap){flex:0 0 74px;min-width:0}
+.qcell .qu{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.02em}
+.qview{display:inline-flex;gap:6px;align-items:baseline}
+/* `th.num` means right-aligned, but `table.grid thead th` outranks it and
+   set every amount's heading flush left, away from its figures. */
+table.grid thead th.num{text-align:right}
 /* A total row inside the impact box, and the estimate rows under it. */
 .impact .ir.tot{margin-top:3px;padding-top:7px;border-top:1px solid var(--line-2)}
 .impact .ir.tot span{color:var(--ink);font-weight:700}
