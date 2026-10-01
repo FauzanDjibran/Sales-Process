@@ -198,7 +198,6 @@ export function AdvanceForm({
     setDirty(false);
     toast("Tagihan uang muka disimpan", `${result.advanceNo} · Draft`, "ok");
     router.push(`/finance/advance/sales/${result.id}`);
-    router.refresh();
   }
 
   const status = advance?.status ?? "Draft";

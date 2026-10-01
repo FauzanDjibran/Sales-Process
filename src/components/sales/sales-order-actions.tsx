@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/form";
@@ -43,7 +42,6 @@ export function SalesOrderActions({
   status: SalesOrderStatus;
   can: SalesOrderAbilities;
 }) {
-  const router = useRouter();
   const toast = useToast();
   const [confirm, setConfirm] = useState<SalesOrderAction | null>(null);
   const [reason, setReason] = useState("");
@@ -70,7 +68,6 @@ export function SalesOrderActions({
     setConfirm(null);
     setReason("");
     toast(result.message, subject, "ok");
-    router.refresh();
   };
 
   const actions = availableSalesOrderActions(status, can);

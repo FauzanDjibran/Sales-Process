@@ -287,7 +287,6 @@ export function CustomerOrderForm({
     setDirty(false);
     toast("Customer Order disimpan", `${result.orderNo} · Draft`, "ok");
     router.push(`/sales/customer-order/${result.id}`);
-    router.refresh();
   }
 
   const status = order?.status ?? "Draft";

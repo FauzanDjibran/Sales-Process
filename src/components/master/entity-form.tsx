@@ -300,7 +300,6 @@ export function EntityForm({
       toast("Perubahan tersimpan", `${entity.name} berhasil diperbarui.`, "ok");
     }
     router.push(`${basePath}/${result.id}`);
-    router.refresh();
   };
 
   const onToggle = async () => {
@@ -315,7 +314,6 @@ export function EntityForm({
         `${title} sekarang ${result.active ? "aktif" : "nonaktif"}.`,
         "ok"
       );
-      router.refresh();
     } else {
       toast("Gagal", result.message ?? "Status tidak dapat diubah.", "err");
     }

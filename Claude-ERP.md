@@ -135,7 +135,7 @@ SIBA's architecture, unchanged:
 Browser
   ├─ Server Components  ──► src/lib/erp/*.ts (server-only) ──► Prisma ──► PostgreSQL
   └─ Client Components  ──► Server Actions (src/app/actions/*) ──► Prisma ──► PostgreSQL
-                                     └─ revalidatePath() + router.refresh()
+                                     └─ revalidatePath() (re-renders the page in the action's own response)
 ```
 
 - **No REST/GraphQL layer.** Reads through Server Components, writes through
@@ -284,6 +284,10 @@ follows).
 - Server Components by default; `"use client"` only for interactivity.
 - DB-reading pages: `export const dynamic = "force-dynamic"`.
 - Server Actions return `{ ok: true, … } | { ok: false, errors }`.
+- **No `router.refresh()` after a Server Action.** A successful action calls
+  `revalidatePath`, which re-renders the current page inside the action's own
+  response; a client refresh on top is a second full render (and a third
+  after `router.push`), which is slow on the deployed database.
 - Route params are Promises in Next 16.
 - Comments explain **why**. Modules touching the DB import `"server-only"`.
 - Business arithmetic (PPN, DPP Nilai Lain, withholding, allocation) lives in

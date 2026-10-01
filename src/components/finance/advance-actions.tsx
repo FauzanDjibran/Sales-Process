@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/form";
@@ -38,7 +37,6 @@ export function AdvanceActions({
   can: AdvanceAbilities;
   figures: { dpp: number; ppn: number; total: number };
 }) {
-  const router = useRouter();
   const toast = useToast();
   const [confirm, setConfirm] = useState<AdvanceAction | null>(null);
   const [reason, setReason] = useState("");
@@ -65,7 +63,6 @@ export function AdvanceActions({
     setConfirm(null);
     setReason("");
     toast(result.message, subject, "ok");
-    router.refresh();
   };
 
   const buttons = orderForHeader(

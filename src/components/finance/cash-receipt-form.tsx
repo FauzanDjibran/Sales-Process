@@ -194,7 +194,6 @@ export function CashReceiptForm({
     setDirty(false);
     toast("Penerimaan disimpan", `${result.txNo} · Draft`, "ok");
     router.push(`/finance/cash-bank/receipt/${result.id}`);
-    router.refresh();
   }
 
   const status = receipt?.status ?? "Draft";

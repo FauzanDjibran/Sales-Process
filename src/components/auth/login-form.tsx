@@ -34,9 +34,9 @@ export function LoginForm({ next }: { next?: string }) {
       return;
     }
 
-    // A full refresh, so the shell re-renders with the new session's menu.
+    // Setting the session cookie in the action already cleared the client
+    // cache, so this navigation renders the shell with the new session's menu.
     router.replace(next ?? "/");
-    router.refresh();
   };
 
   return (

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/form";
@@ -39,7 +38,6 @@ export function CashReceiptActions({
   status: CashBankTxStatus;
   can: CashReceiptAbilities;
 }) {
-  const router = useRouter();
   const toast = useToast();
   const [confirm, setConfirm] = useState<CashBankTxAction | null>(null);
   const [preview, setPreview] = useState<PostingLine[] | null>(null);
@@ -82,7 +80,6 @@ export function CashReceiptActions({
     }
     setConfirm(null);
     toast(result.message, subject, "ok");
-    router.refresh();
   };
 
   const buttons = orderForHeader(

@@ -74,7 +74,6 @@ export function ClosingWorkspace({
         "Tidak ada journal penutup — tahun buku ini tidak memiliki hasil untuk dipindahkan",
       "ok"
     );
-    router.refresh();
   };
 
   const offer = canClose && plan?.ready && !plan.closed;
