@@ -96,6 +96,22 @@ node --env-file-if-exists=.env --conditions=react-server --import tsx --test tes
 > project has none. `db:reset` now runs `db:seed` itself. If you ever run
 > `npx prisma migrate reset` directly, run `npm run db:seed` straight after it.
 
+### The deployed copy on Vercel + Neon
+
+Vercel rebuilds the `erp` project on every push to `main`, but it does **not**
+touch the database. The Neon database is changed from this machine, through
+`.env.neon` (never committed). Create it once: Vercel → Storage →
+`erp-postgres` → *Show Metadata & Quickstart* → *Show secret* → *Copy Snippet*,
+paste the whole snippet into `.env.neon`, and add a line
+`ERP_ADMIN_PASSWORD="..."` (the password of the deployed administrator).
+
+| Command | What it does | Safe? |
+| --- | --- | --- |
+| `npm run db:neon-migrate` | Applies new migrations to the deployed database. Run it after every push that adds a migration | ✅ Safe, never deletes data |
+| `npm run db:neon-seed` | `db:seed` on the deployed database. Refuses without `ERP_ADMIN_PASSWORD` in `.env.neon` | ✅ Safe |
+| `npm run db:neon-seed-showcase` | The demo data on the deployed database. Only for a demo deployment | ✅ Additive |
+| `npm run db:neon-reset` | Shows what it would destroy; add `-- --confirm` to really drop and re-migrate the deployed database. Seeds nothing: run `db:neon-seed` after it | ⛔ Destroys all deployed data |
+
 ### What the showcase data contains (`db:seed-showcase`)
 
 | Area | Created |

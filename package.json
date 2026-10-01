@@ -9,10 +9,14 @@
     "start": "next start -p 3110",
     "lint": "eslint",
     "db:seed": "node --env-file-if-exists=.env --conditions=react-server --import tsx prisma/seed.ts",
+    "db:neon-migrate": "node scripts/with-remote.mjs npx prisma migrate deploy",
+    "db:neon-seed": "node scripts/with-remote.mjs node --conditions=react-server --import tsx prisma/seed.ts",
     "db:truncate-transactions": "node --env-file-if-exists=.env --import tsx scripts/truncate-transactions.ts",
     "db:seed-showcase": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/seed-showcase.ts",
+    "db:neon-seed-showcase": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-showcase.ts",
     "db:reset": "prisma migrate reset --force && npm run db:seed",
     "db:fresh": "npm run db:reset && npm run db:seed-showcase",
+    "db:neon-reset": "node scripts/with-remote.mjs --destructive npx prisma migrate reset --force",
     "test": "node --env-file-if-exists=.env --conditions=react-server --import tsx --test --test-concurrency=1 tests/*.test.ts"
   },
   "dependencies": {
