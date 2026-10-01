@@ -25,9 +25,15 @@ migration updates this file in the same change (Claude-ERP.md §9).
   only, totals stored as `lib/erp/sales-tax.ts` computed them. It posts
   nothing. Its life is Draft → Submitted → Open → Closed, with Cancelled and
   Rejected final (P63); it names no warehouse and no delivery date.
+- `sal_order` and `sal_order_line` (P79) — the Sales Order, `SO/…`: a dated
+  part of one Open Customer Order released to PPIC. Quantity and delivery
+  date only; each line names the Customer Order line it takes from
+  (`customer_order_line_id`, once per order) and reads its item and unit
+  there. Life: Draft → Submitted → PreSO (Pra-SO) → Open → Closed, with
+  Cancelled and Rejected final. Posts nothing; not an AR item.
 - `sal_advance` (P54–P58) — the AR advance bill, drawn from one Open
-  Customer Order (`customer_order_id`) and numbered `ARA/…`. It posts nothing and stores no paid or
-  used amount; that is left to the open items (C22).
+  Customer Order (`customer_order_id`) and numbered `ARA/…`. It posts nothing
+  and stores no paid or used amount; that is left to the open items (C22).
 - `fin_cash_bank_tx` (P66–P70) — Penerimaan and Pengeluaran Kas & Bank in one
   table (`BKM/…`, `BKK/…`). Its purpose is a key of the catalogue in code.
   `fin_cash_bank_tx_line` names each settled document by the weak
@@ -124,6 +130,16 @@ Enum PriceMode {
 Enum CustomerOrderStatus {
   Draft
   Submitted
+  Open
+  Closed
+  Cancelled
+  Rejected
+}
+
+Enum SalesOrderStatus {
+  Draft
+  Submitted
+  PreSO
   Open
   Closed
   Cancelled
@@ -855,6 +871,43 @@ Table sal_customer_order_line {
   }
 }
 
+Table sal_order {
+  id int [pk, increment, not null]
+  order_no varchar [unique, not null, note: 'SO/YYYY/MM/NNNN']
+  order_date date [not null]
+  delivery_date date [not null, note: 'what PPIC plans to']
+  status SalesOrderStatus [not null, default: 'Draft']
+  customer_order_id int [not null]
+  customer_id int [not null, note: 'the Customer Order customer, for the list']
+  address_id int [not null, note: 'any of the customer addresses; starts on the Customer Order one']
+  note varchar [null]
+  status_reason varchar [null]
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    customer_order_id
+    (status, delivery_date)
+  }
+}
+
+Table sal_order_line {
+  id int [pk, increment, not null]
+  order_id int [not null]
+  line_no int [not null]
+  customer_order_line_id int [not null, note: 'its item and unit are read there']
+  qty decimal(18, 4) [not null]
+  note varchar [null]
+
+  indexes {
+    (order_id, line_no) [unique]
+    (order_id, customer_order_line_id) [unique]
+    customer_order_line_id
+  }
+}
+
 Table sal_advance {
   id int [pk, increment, not null]
   advance_no varchar [unique, not null]
@@ -940,6 +993,11 @@ Ref: sal_customer_order_line.item_id > m_item.id
 Ref: sal_customer_order_line.uom_id > ref_uom.id
 Ref: sal_customer_order_line.withholding_tax_id > ref_withholding_tax.id
 Ref: sal_advance.customer_order_id > sal_customer_order.id
+Ref: sal_order.customer_order_id > sal_customer_order.id
+Ref: sal_order.customer_id > m_partner.id
+Ref: sal_order.address_id > m_partner_address.id
+Ref: sal_order_line.order_id > sal_order.id
+Ref: sal_order_line.customer_order_line_id > sal_customer_order_line.id
 Ref: sal_advance.customer_id > m_partner.id
 Ref: sal_advance.cash_bank_id > m_cash_bank.id
 

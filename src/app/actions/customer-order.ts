@@ -13,6 +13,7 @@ import {
   type CustomerOrderResult,
 } from "@/lib/erp/customer-order";
 import { CUSTOMER_ORDER_TRANSITIONS, type CustomerOrderAction } from "@/lib/erp/customer-order-workflow";
+import { liveSalesOrderRefusal } from "@/lib/erp/sales-order";
 
 /**
  * The Customer Order's write path. The permission is checked here; every rule is
@@ -77,7 +78,10 @@ export async function transitionCustomerOrderAction(
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
   try {
-    const result = await transitionCustomerOrder(id, action, g.actor.user.id, reason);
+    // Tutup Pesanan is refused while a Sales Order drawn from the order is
+    // still running (P79); the two modules meet here, not in each other.
+    const guard = action === "close" ? liveSalesOrderRefusal : undefined;
+    const result = await transitionCustomerOrder(id, action, g.actor.user.id, reason, guard);
     if (!result.ok) return result;
   } catch (error) {
     return { ok: false, errors: { _form: error instanceof Error ? error.message : "Gagal diproses." } };

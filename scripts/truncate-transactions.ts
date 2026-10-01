@@ -17,6 +17,7 @@
  *   acc_journal_line, acc_journal                  the books' journals
  *   cash_bank_ledger                               the Cash Bank Book
  *   sal_advance                                    Uang Muka Penjualan bills
+ *   sal_order_line, sal_order                      Sales Orders
  *   sal_customer_order_line, sal_customer_order    Customer Orders
  *   audit_log rows belonging to those documents
  *
@@ -32,8 +33,10 @@
  *   bills it settled; its lines and their PPh rows cascade with it.
  *
  * WHY THE SALES DOCUMENTS GO IN THIS ORDER
- *   The foreign keys decide it: an advance bill names its Customer Order, and an
- *   order line names its order, so advances go first, then lines, then orders.
+ *   The foreign keys decide it: an advance bill and a Sales Order name their
+ *   Customer Order, a Sales Order line names a Customer Order line, and an
+ *   order line names its order — so advances and Sales Orders go first, then
+ *   the Customer Orders' lines, then the Customer Orders.
  *   With them gone, the customer addresses the orders named are free to be
  *   removed again (P53).
  *
@@ -66,7 +69,7 @@ import "dotenv/config";
 import { prisma } from "@/lib/prisma";
 
 /** Audit rows follow the documents they describe; master history stays. */
-const DOCUMENT_ENTITY_KEYS = ["acc_journal", "sal_customer_order", "sal_advance", "fin_cash_bank_tx"];
+const DOCUMENT_ENTITY_KEYS = ["acc_journal", "sal_order", "sal_customer_order", "sal_advance", "fin_cash_bank_tx"];
 
 async function main() {
   const confirmed = process.argv.includes("--confirm");
@@ -81,6 +84,8 @@ async function main() {
     acc_journal: await prisma.accJournal.count(),
     cash_bank_ledger: await prisma.cashBankLedger.count(),
     sal_advance: await prisma.salAdvance.count(),
+    sal_order_line: await prisma.salOrderLine.count(),
+    sal_order: await prisma.salOrder.count(),
     sal_customer_order_line: await prisma.salCustomerOrderLine.count(),
     sal_customer_order: await prisma.salCustomerOrder.count(),
     audit_log: await prisma.auditLog.count({
@@ -129,9 +134,11 @@ async function main() {
 
     await tx.cashBankLedger.deleteMany();
 
-    // Sales documents, children before what they name: an advance bill names
-    // its order, a line its order.
+    // Sales documents, children before what they name: an advance bill and a
+    // Sales Order name their Customer Order, a line its order.
     await tx.salAdvance.deleteMany();
+    await tx.salOrderLine.deleteMany();
+    await tx.salOrder.deleteMany();
     await tx.salCustomerOrderLine.deleteMany();
     await tx.salCustomerOrder.deleteMany();
 

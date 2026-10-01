@@ -10,6 +10,7 @@ import { openingBalanceNumbersByIds } from "./opening-balance";
 import { salesAdvanceNumbersByIds } from "./sales-advance";
 import { cashBankTxNumbersByIds } from "./cash-bank-tx";
 import { customerOrderNumbersByIds } from "./customer-order";
+import { salesOrderNumbersByIds } from "./sales-order";
 import { userLabels, roleLabels } from "./users";
 
 /**
@@ -69,6 +70,7 @@ function registrySubject(key: string): Subject | null {
 const EXTRA_SUBJECTS: Record<string, Subject> = {
   acc_journal: { label: "Journal", resolve: journalNumbersByIds },
   sal_customer_order: { label: "Customer Order", resolve: customerOrderNumbersByIds },
+  sal_order: { label: "Sales Order", resolve: salesOrderNumbersByIds },
   sal_advance: { label: "Uang Muka Penjualan", resolve: salesAdvanceNumbersByIds },
   fin_cash_bank_tx: { label: "Transaksi Kas & Bank", resolve: cashBankTxNumbersByIds },
   acc_opening_balance: {

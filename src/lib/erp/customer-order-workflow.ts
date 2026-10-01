@@ -7,9 +7,10 @@
  *
  * Cancelled, Rejected and Closed are final. A submitted order is not taken
  * back: it is approved or rejected, and a rejected one is copied with Salin.
- * Closing is by hand for now, even with quantity still to deliver; the Surat
- * Jalan will close an order itself once everything is delivered. A Sales
- * Order posts nothing at any step.
+ * Closing is by hand for now, even with quantity still to deliver, and is
+ * refused while a Sales Order drawn from the order is still running (P79); the
+ * delivery documents may close it once they exist (C28). A Customer Order
+ * posts nothing at any step.
  *
  * Every transition names the status it may start from, the status it produces
  * and the one permission it needs. The header buttons read this table to decide
@@ -69,8 +70,8 @@ export const CUSTOMER_ORDER_TRANSITIONS: Record<CustomerOrderAction, CustomerOrd
     tone: "primary",
     title: "Setujui Customer Order",
     body:
-      "Pesanan menjadi Open: siap ditagihkan uang muka dan, nanti, dikirim " +
-      "dengan Surat Jalan. Tidak ada journal atau dokumen pajak yang dibuat.",
+      "Pesanan menjadi Open: siap ditagihkan uang muka dan dijadwalkan " +
+      "pengirimannya dengan Sales Order. Tidak ada journal atau dokumen pajak yang dibuat.",
     confirmLabel: "Ya, Setujui",
     done: "Customer Order disetujui",
   },
@@ -113,9 +114,10 @@ export const CUSTOMER_ORDER_TRANSITIONS: Record<CustomerOrderAction, CustomerOrd
     tone: "neutral",
     title: "Tutup Customer Order",
     body:
-      "Pesanan ditutup walaupun belum seluruhnya dikirim: tidak ada Surat " +
-      "Jalan atau tagihan uang muka baru yang dapat dibuat darinya. Tagihan " +
-      "uang muka yang sudah terbit tidak berubah. Status ini final.",
+      "Pesanan ditutup walaupun belum seluruhnya dikirim: tidak ada Sales " +
+      "Order atau tagihan uang muka baru yang dapat dibuat darinya. Tagihan " +
+      "uang muka yang sudah terbit tidak berubah. Ditolak bila masih ada Sales " +
+      "Order yang berjalan. Status ini final.",
     confirmLabel: "Ya, Tutup",
     reason: "Mengapa pesanan ini ditutup…",
     done: "Customer Order ditutup",

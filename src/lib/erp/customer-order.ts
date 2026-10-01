@@ -28,8 +28,9 @@ import {
  * and `sal_customer_order_line`, and nothing else names them.
  *
  * A Customer Order posts nothing. It is a record of what the customer ordered,
- * at what price, under which tax treatment — the source the Surat Jalan and
- * the Faktur will later draw from. Everything the form shows as a figure comes
+ * at what price, under which tax treatment (P78) — the basis the advance bill
+ * and, later, the Faktur draw from, and the order the Sales Orders release to
+ * PPIC in dated parts (P79). Everything the form shows as a figure comes
  * from `sales-tax.ts`, the same module the save below stores from.
  *
  * The rules live here rather than in the Server Action so the test suite can
@@ -603,7 +604,13 @@ export async function transitionCustomerOrder(
   id: number,
   action: CustomerOrderAction,
   actorId: number,
-  reason?: string
+  reason?: string,
+  /**
+   * Run inside the step's transaction with the order's row locked, before it
+   * moves; a message refuses the step. Tutup Pesanan is handed the Sales Order
+   * module's check by the caller (P79), so this module never reads its tables.
+   */
+  guard?: (tx: Prisma.TransactionClient, id: number) => Promise<string | null>
 ): Promise<CustomerOrderTransitionResult> {
   const order = await prisma.salCustomerOrder.findUnique({ where: { id }, include: { lines: true } });
   if (!order) return { ok: false, errors: { _form: "Customer Order tidak ditemukan." } };
@@ -617,7 +624,13 @@ export async function transitionCustomerOrder(
   if (t.reason) {
     const why = String(reason ?? "").trim();
     if (!why) return { ok: false, errors: { reason: "Alasan wajib diisi." } };
+    let refused: string | null = null;
     await prisma.$transaction(async (tx) => {
+      if (guard) {
+        await lockCustomerOrder(tx, id);
+        refused = await guard(tx, id);
+        if (refused) return;
+      }
       const done = await tx.salCustomerOrder.updateMany({
         where: { id, status: from },
         data: { status: t.to, status_reason: why, updated_by: actorId },
@@ -625,7 +638,7 @@ export async function transitionCustomerOrder(
       if (done.count !== 1) throw new Error(moved);
       await audit(tx, id, "UPDATE", STEP_EVENT[action], actorId);
     });
-    return { ok: true };
+    return refused ? { ok: false, errors: { _form: refused } } : { ok: true };
   }
 
   if (action === "approve") {
@@ -913,4 +926,66 @@ export async function advanceSourceOrders(
  */
 export async function lockCustomerOrder(tx: Prisma.TransactionClient, id: number): Promise<void> {
   await tx.$queryRaw`SELECT id FROM sal_customer_order WHERE id = ${id} FOR UPDATE`;
+}
+
+// -------------------------------------------------------- for the Sales Order
+
+/**
+ * A Customer Order as a Sales Order reads it (P79): whose it is, where it
+ * delivers by default, and its lines — the item, the unit and the quantity a
+ * Sales Order may take a part of. The Sales Order module takes this rather
+ * than reading `sal_customer_order` itself; a Customer Order's lines are
+ * frozen once it is submitted, so what a Sales Order names does not move.
+ */
+export type SalesOrderSource = {
+  id: number;
+  orderNo: string;
+  orderDate: string;
+  status: CustomerOrderStatus;
+  customerId: number;
+  customerLabel: string;
+  customerName: string;
+  customerActive: boolean;
+  /** The Customer Order's own address — where a Sales Order delivers unless told otherwise. */
+  addressId: number;
+  poNo: string | null;
+  lines: { id: number; lineNo: number; itemLabel: string; itemName: string; uomLabel: string; qty: number }[];
+};
+
+/** Open orders, or the ones named — any status — for a stored Sales Order. */
+export async function salesOrderSources(
+  filter: { ids?: number[]; openOnly?: boolean },
+  db: Db = prisma
+): Promise<SalesOrderSource[]> {
+  const rows = await db.salCustomerOrder.findMany({
+    where: {
+      ...(filter.ids ? { id: { in: filter.ids } } : {}),
+      ...(filter.openOnly ? { status: "Open" } : {}),
+    },
+    orderBy: [{ order_date: "desc" }, { id: "desc" }],
+    include: {
+      customer: true,
+      lines: { include: { item: true, uom: true }, orderBy: { line_no: "asc" } },
+    },
+  });
+  return rows.map((o) => ({
+    id: o.id,
+    orderNo: o.order_no,
+    orderDate: isoDay(o.order_date),
+    status: o.status as CustomerOrderStatus,
+    customerId: o.customer_id,
+    customerLabel: o.customer.partner_label,
+    customerName: o.customer.partner_name,
+    customerActive: o.customer.status === "Active",
+    addressId: o.address_id,
+    poNo: o.po_no,
+    lines: o.lines.map((l) => ({
+      id: l.id,
+      lineNo: l.line_no,
+      itemLabel: l.item.item_label,
+      itemName: l.item.item_name,
+      uomLabel: l.uom.uom_label,
+      qty: l.qty.toNumber(),
+    })),
+  }));
 }

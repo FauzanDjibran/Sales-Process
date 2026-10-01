@@ -120,6 +120,9 @@ const DOC_TYPES: [label: string, table: string][] = [
   // A posted Penerimaan / Pengeluaran names itself on its journal and its
   // Cash Bank Book entry.
   ["Transaksi Kas & Bank", "fin_cash_bank_tx"],
+  // The Customer Order's child that releases quantity to PPIC (P79); the
+  // Delivery Order will name it line by line (C28).
+  ["Sales Order", "sal_order"],
 ];
 
 /**

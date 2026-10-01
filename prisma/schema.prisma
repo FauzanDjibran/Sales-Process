@@ -161,6 +161,20 @@ enum CustomerOrderStatus {
   Rejected
 }
 
+/// Where a Sales Order is in its life (P79): Draft → Submitted → PreSO →
+/// Open → Closed. Cancelled (from Draft) and Rejected (from Submitted) are
+/// final. PreSO (Pra-SO) may be used to buy material; Open may also be
+/// produced. Neither purchasing nor production exists yet.
+enum SalesOrderStatus {
+  Draft
+  Submitted
+  PreSO
+  Open
+  Closed
+  Cancelled
+  Rejected
+}
+
 /// How a line's discount was typed: a percentage of the line, or an amount.
 enum DiscountType {
   Percent
@@ -672,6 +686,7 @@ model MPartner {
   contacts  MPartnerContact[]
 
   customer_orders SalCustomerOrder[]
+  sales_orders    SalOrder[]
   sales_advances  SalAdvance[]
   cash_bank_txs   FinCashBankTx[]
   ar_items        FinArItem[]
@@ -718,6 +733,7 @@ model MPartnerAddress {
   /// Documents that name this address. While any does, it cannot be removed
   /// from the Partner (P53).
   customer_orders SalCustomerOrder[]
+  sales_orders    SalOrder[]
 
   @@index([partner_id])
   @@index([village_id])
@@ -1418,13 +1434,15 @@ model SalCustomerOrder {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  customer    MPartner               @relation(fields: [customer_id], references: [id])
-  address     MPartnerAddress        @relation(fields: [address_id], references: [id])
-  term        RefPaymentTerm         @relation(fields: [term_id], references: [id])
-  copied_from SalCustomerOrder?      @relation("CustomerOrderCopy", fields: [copied_from_id], references: [id])
-  copies      SalCustomerOrder[]     @relation("CustomerOrderCopy")
-  lines       SalCustomerOrderLine[]
-  advances    SalAdvance[]
+  customer     MPartner               @relation(fields: [customer_id], references: [id])
+  address      MPartnerAddress        @relation(fields: [address_id], references: [id])
+  term         RefPaymentTerm         @relation(fields: [term_id], references: [id])
+  copied_from  SalCustomerOrder?      @relation("CustomerOrderCopy", fields: [copied_from_id], references: [id])
+  copies       SalCustomerOrder[]     @relation("CustomerOrderCopy")
+  lines        SalCustomerOrderLine[]
+  advances     SalAdvance[]
+  /// The Sales Orders that release this order's quantity to PPIC (P79).
+  sales_orders SalOrder[]
 
   @@index([customer_id])
   @@index([status, order_date])
@@ -1465,14 +1483,76 @@ model SalCustomerOrderLine {
 
   note String?
 
-  order           SalCustomerOrder   @relation(fields: [order_id], references: [id])
-  item            MItem              @relation(fields: [item_id], references: [id])
-  uom             RefUom             @relation(fields: [uom_id], references: [id])
-  withholding_tax RefWithholdingTax? @relation(fields: [withholding_tax_id], references: [id])
+  order             SalCustomerOrder   @relation(fields: [order_id], references: [id])
+  item              MItem              @relation(fields: [item_id], references: [id])
+  uom               RefUom             @relation(fields: [uom_id], references: [id])
+  withholding_tax   RefWithholdingTax? @relation(fields: [withholding_tax_id], references: [id])
+  sales_order_lines SalOrderLine[]
 
   @@unique([order_id, line_no])
   @@index([item_id])
   @@map("sal_customer_order_line")
+}
+
+/// A Sales Order (P79): one dated slice of an Open Customer Order's quantity,
+/// released to PPIC — e.g. 10.000 PCS ordered, delivered as five Sales Orders
+/// of 2.000, one a month. It carries quantity and a delivery date only: the
+/// price, the tax and every financial document stay with the Customer Order.
+/// It posts nothing at any step, and it is not an AR item.
+model SalOrder {
+  id            Int              @id @default(autoincrement())
+  /// `SO/YYYY/MM/NNNN`, in the series of the order's own month.
+  order_no      String           @unique
+  order_date    DateTime         @db.Date
+  /// When the goods are to be delivered — what PPIC plans to.
+  delivery_date DateTime         @db.Date
+  status        SalesOrderStatus @default(Draft)
+
+  /// The one Customer Order it is drawn from, chosen once and locked.
+  customer_order_id Int
+  /// The order's customer, kept here so a list reads without a join.
+  customer_id       Int
+  /// Where this delivery goes: any of the customer's addresses, starting on
+  /// the Customer Order's.
+  address_id        Int
+  note              String?
+
+  /// Why it was cancelled, rejected or closed by hand.
+  status_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  customer_order SalCustomerOrder @relation(fields: [customer_order_id], references: [id])
+  customer       MPartner         @relation(fields: [customer_id], references: [id])
+  address        MPartnerAddress  @relation(fields: [address_id], references: [id])
+  lines          SalOrderLine[]
+
+  @@index([customer_order_id])
+  @@index([status, delivery_date])
+  @@map("sal_order")
+}
+
+/// One line of a Sales Order: a quantity of one Customer Order line, in that
+/// line's unit. The item and the unit are read from the Customer Order line,
+/// which is frozen once the order is submitted.
+model SalOrderLine {
+  id                     Int     @id @default(autoincrement())
+  order_id               Int
+  line_no                Int
+  customer_order_line_id Int
+  qty                    Decimal @db.Decimal(18, 4)
+  note                   String?
+
+  order               SalOrder             @relation(fields: [order_id], references: [id])
+  customer_order_line SalCustomerOrderLine @relation(fields: [customer_order_line_id], references: [id])
+
+  @@unique([order_id, line_no])
+  @@unique([order_id, customer_order_line_id])
+  @@index([customer_order_line_id])
+  @@map("sal_order_line")
 }
 
 /// An AR advance bill — Uang Muka Penjualan (P54–P58). A bill, not a

@@ -153,6 +153,14 @@ now the Customer Order, `CO/…`, the commercial basis of advances and
 invoices; tables, permissions, document type and numbers were renamed in
 place. The name Sales Order passes to its child document.
 
+**Sales Order — done 01/10/2026** (P79): Sales › Sales Order, `SO/…`, a dated
+part of one Open Customer Order released to PPIC — quantity and Tanggal Kirim
+only, lines drawn from the Customer Order's lines and never more than them in
+total. Draft → Diajukan → Pra-SO → Open → Ditutup; Batalkan and Tolak give
+the quantity back. The Customer Order shows its schedule and cannot be
+closed while a Sales Order is running. Next, as instructed: the Delivery Order
+and Delivery Note (C28); purchasing and production will read Pra-SO / Open.
+
 Built one step at a time, **in the order the user gives**. For each step:
 
 1. Re-read the simulation's step (screens, lifecycle, arithmetic, journal) and
