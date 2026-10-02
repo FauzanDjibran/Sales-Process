@@ -138,6 +138,31 @@ refuses Batalkan. Next in this area, as instructed: further purposes
 (Pelunasan Faktur, Pengembalian Uang Muka, lain-lain), Pengeluaran, the Pajak
 records, then the open items (C22).
 
+**Payment menu roadmap — set 02/10/2026** (P83–P86), after a review against
+SAP, Dynamics 365, NetSuite, Odoo, Accurate and Jurnal. One engine, one table,
+BKM / BKK stay. In order:
+
+1. **Complete the base:** the Pengeluaran menu; Penerimaan / Pengeluaran
+   Lain-lain (account lines, partner optional — `partner_id` becomes
+   nullable and lines gain an account kind); Penerimaan Belum Teridentifikasi
+   to a suspense account (P85); print Bukti Kas Masuk / Keluar; a
+   proof-of-transfer attachment.
+2. **With the Faktur Penjualan:** Penerimaan dari Customer settling advance
+   bills and invoices together (P83); Pengembalian Uang Muka; the Faktur Pajak
+   Uang Muka and Bukti Potong records; closing a bill or AR item with a
+   write-off by its owner (P84); clearing the suspense (C31).
+3. **Bank:** Transfer (C14), Rekonsiliasi Bank with statement import, Giro
+   Mundur.
+4. **With purchasing:** supplier payments, the PPh the company withholds
+   (Hutang PPh, its own bukti potong), Setoran Pajak, a payment run with the
+   bank's bulk file, kasbon karyawan.
+5. **Currency and cash:** foreign-currency payments with realised selisih
+   kurs; a cash-position forecast.
+
+Set aside: reversal of a posted payment (C29, needs the user's go-ahead),
+approval of Pengeluaran (C30, at the very end), menu layout and shortcuts
+(C32, at the end).
+
 **AR items and Buku Piutang — done 30/09/2026** (P71–P75): the open-item
 concept applied to AR — `fin_ar_item` (Uang Muka and Invoice, balance held on
 the item) and `fin_ar_ledger` (Buku Piutang, append-only), no allocation step.
