@@ -10,12 +10,15 @@ import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { PercentInput } from "@/components/ui/percent-input";
+import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { AdvanceActions } from "@/components/finance/advance-actions";
 import { createSalesAdvanceAction, updateSalesAdvanceAction } from "@/app/actions/sales-advance";
 import {
   advanceAmountProblem,
   computeAdvance,
+  orderAdvanceValue,
+  ppnChain,
   type AdvanceAmountType,
   type PriceMode,
 } from "@/lib/erp/sales-tax";
@@ -40,8 +43,10 @@ import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
  * order's total and DPP — and the value drawn from it is typed below (P64).
  *
  * The value is typed as a percent of the order or a flat value, with the same
- * toggle as a Customer Order line's discount (P55), and read in the order's price
- * mode. Every figure is `computeAdvance`, which the Server Action stores from.
+ * toggle as a Customer Order line's discount (P55), in the bill's **own** price
+ * mode, which starts on the order's and may differ from it (P90). The order's
+ * room is shown and checked in DPP. Every figure is `computeAdvance`, which the
+ * Server Action stores from.
  *
  * The AP advance will be this form with the other side's words (P58).
  */
@@ -55,6 +60,7 @@ type State = {
   cash_bank_id: number | null;
   description: string;
   note: string;
+  price_mode: PriceMode;
   amount_type: AdvanceAmountType;
   amount_value: string;
 };
@@ -102,6 +108,7 @@ export function AdvanceForm({
         cash_bank_id: Number(i.cash_bank_id),
         description: i.description,
         note: i.note,
+        price_mode: i.price_mode as PriceMode,
         amount_type: i.amount_type as AdvanceAmountType,
         amount_value: String(i.amount_value),
       };
@@ -115,6 +122,7 @@ export function AdvanceForm({
       cash_bank_id: banks.length === 1 ? banks[0].id : null,
       description: "",
       note: "",
+      price_mode: "Exclude",
       amount_type: "Percent",
       amount_value: "",
     };
@@ -148,34 +156,44 @@ export function AdvanceForm({
         ...x,
         order_id: id,
         description: o && auto ? descriptionFor(o.orderNo, o.poNo) : x.description,
+        // The bill's mode starts on the order's and may be changed (P90).
+        price_mode: o ? o.basis.mode : x.price_mode,
         amount_value: "",
       };
     });
-    touch("order_id", "description", "amount_value");
+    touch("order_id", "description", "amount_value", "price_mode");
   };
 
   const typed = Number(s.amount_value) || 0;
   // A stored bill shows the rate it carries; one being edited previews the
   // rate in force, which its save will snapshot (P60).
   const rates = mode === "view" ? (advance?.rates ?? null) : options.ppnRates;
+  // The bill's own mode; an order without PPN has none to choose (P90).
+  const billMode: PriceMode = order?.basis.taxable ? s.price_mode : "Exclude";
+  const basis = useMemo(() => (order ? { ...order.basis, mode: billMode } : null), [order, billMode]);
   const figures = useMemo(
-    () => (order ? computeAdvance({ basis: order.basis, type: s.amount_type, typed, rates }) : null),
-    [order, s.amount_type, typed, rates]
+    () => (basis ? computeAdvance({ basis, type: s.amount_type, typed, rates }) : null),
+    [basis, s.amount_type, typed, rates]
   );
   const factor = rates ? `${rates.otherNum}/${rates.otherDen}` : "—";
   const ratePct = rates ? formatPct(rates.rate) : "—";
+  // The value on its own terms, then the order's room — in DPP (P90).
   const over =
-    editing && order && typed > 0
-      ? advanceAmountProblem(s.amount_type, typed, order.value, order.left) !== null
+    editing && basis && order && typed > 0
+      ? advanceAmountProblem(s.amount_type, typed, orderAdvanceValue(basis), Number.POSITIVE_INFINITY) !== null ||
+        (figures !== null && figures.dpp > order.left)
       : false;
 
+  /** Sisa: the bill that takes exactly the DPP the order has left. */
   const fillRest = () => {
     if (!order) return;
-    setS((x) =>
-      order.drawn === 0
-        ? { ...x, amount_type: "Percent", amount_value: "100" }
-        : { ...x, amount_type: "Amount", amount_value: String(order.left) }
-    );
+    if (order.drawn === 0) {
+      setS((x) => ({ ...x, amount_type: "Percent", amount_value: "100" }));
+    } else {
+      // Typed Include, the value is that DPP plus its PPN; Exclude, the DPP itself.
+      const value = billMode === "Include" && rates ? order.left + ppnChain(order.left, rates).ppn : order.left;
+      setS((x) => ({ ...x, amount_type: "Amount", amount_value: String(value) }));
+    }
     touch("amount_value");
   };
 
@@ -315,8 +333,30 @@ export function AdvanceForm({
               )}
             </Field>
             {order?.basis.taxable && (
-              <Field label="Mode Harga" span={4}>
+              <Field label="Mode Harga CO" span={4}>
                 {ro(<span className="bdg t-slate">{MODE_TEXT[order.basis.mode]}</span>)}
+              </Field>
+            )}
+            {order?.basis.taxable && (
+              <Field
+                label="Mode Harga Uang Muka"
+                span={4}
+                required={editing}
+                help={editing ? "nilai uang muka diketik sebelum atau sudah termasuk PPN" : undefined}
+                error={errors.price_mode}
+              >
+                {editing ? (
+                  <Select
+                    value={s.price_mode}
+                    options={[
+                      { value: "Exclude", label: MODE_TEXT.Exclude },
+                      { value: "Include", label: MODE_TEXT.Include },
+                    ]}
+                    onChange={(v) => set("price_mode", (v || order.basis.mode) as PriceMode)}
+                  />
+                ) : (
+                  ro(<span className="bdg t-slate">{MODE_TEXT[billMode]}</span>)
+                )}
               </Field>
             )}
           </FormRow>
@@ -441,7 +481,7 @@ export function AdvanceForm({
   // The order as one line — its Uraian, what it is worth and its DPP — then
   // the one value the bill draws from it (P64), the shape the simulation's
   // Uang Muka Perizinan gives its pengajuan.
-  const inclusive = Boolean(order?.basis.taxable && order.basis.mode === "Include");
+  const inclusive = Boolean(order?.basis.taxable && billMode === "Include");
   const valueLabel = !order
     ? "Nilai Uang Muka"
     : !order.basis.taxable
@@ -452,7 +492,7 @@ export function AdvanceForm({
   const orderValueLabel = !order || !order.basis.taxable ? "nilai pesanan" : inclusive ? "total pesanan" : "DPP pesanan";
   const roomHelp =
     editing && order
-      ? `maks ${money(order.left)}${order.drawn ? ` — ${money(order.drawn)} sudah ditagih uang muka lain` : ""}`
+      ? `sisa DPP ${money(order.left)}${order.drawn ? ` — DPP ${money(order.drawn)} sudah ditagih uang muka lain` : ""}`
       : undefined;
 
   const basisCard = (
@@ -591,7 +631,7 @@ export function AdvanceForm({
                       <>
                         <span className="mny">{money(figures.amount)}</span>
                         <span className="rx">
-                          {formatPct(figures.percent)} dari {orderValueLabel} {money(order.value)}
+                          {formatPct(figures.percent)} dari {orderValueLabel} {money(basis ? orderAdvanceValue(basis) : order.value)}
                         </span>
                       </>
                     )
@@ -630,7 +670,7 @@ export function AdvanceForm({
               )}
               <div className="impact">
                 <div className="ttl">
-                  Perhitungan Uang Muka · {order.basis.taxable ? MODE_TEXT[order.basis.mode] : "Tidak Kena PPN"}
+                  Perhitungan Uang Muka · {order.basis.taxable ? MODE_TEXT[billMode] : "Tidak Kena PPN"}
                 </div>
                 <div className="ir">
                   <span>DPP pesanan</span>
@@ -683,8 +723,8 @@ export function AdvanceForm({
                 </div>
                 {!editing && (
                   <div className="ir est">
-                    <span>Sisa {orderValueLabel} setelah tagihan ini</span>
-                    <b>{money(order.left - (status === "Cancelled" ? 0 : figures.amount))}</b>
+                    <span>Sisa DPP pesanan setelah tagihan ini</span>
+                    <b>{money(order.left - (status === "Cancelled" ? 0 : figures.dpp))}</b>
                   </div>
                 )}
               </div>

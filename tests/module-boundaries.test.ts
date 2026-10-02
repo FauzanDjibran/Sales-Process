@@ -99,6 +99,7 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // AR items and Buku Piutang: written only by their book, which the posting
   // documents call (P71–P72).
   finArItem: ["src/lib/erp/ar-item.ts"],
+  finArItemWht: ["src/lib/erp/ar-item.ts"],
   finArLedger: ["src/lib/erp/ar-item.ts"],
 };
 

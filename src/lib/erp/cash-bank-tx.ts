@@ -7,12 +7,19 @@ import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate } from "./fiscal";
 import { postJournal, type JournalLineInput } from "./journal";
 import { recordCashBankEntry } from "./cash-bank";
-import { createArItem } from "./ar-item";
+import {
+  createArItem,
+  findArItem,
+  lockArItems,
+  openArItems,
+  receiveArItem,
+  settleArItem,
+} from "./ar-item";
 import { checkAccountIsLeaf } from "./records";
-import { lockSalesAdvances, settlementAdvances, type SettlementAdvance } from "./sales-advance";
 import {
   cashToClear,
   receivedProblem,
+  settleBill,
   settleBillFromCash,
   type SettlementLine,
 } from "./sales-tax";
@@ -54,12 +61,15 @@ import { formatMoney } from "@/lib/format";
  * clears the bills. Leaving it out keeps the difference open on the bill.
  *
  * A Draft touches no book. Posting writes the journal and the Cash Bank Book
- * in one transaction, with every settled bill's row locked and its open amount
+ * in one transaction, with every settled item's row locked and its open amount
  * read again, so two receipts cannot both clear the last of one bill.
  *
- * Dependencies point one way (§3.1): this module reads the advance through
- * `sales-advance.ts`; the advance learns what was paid through
- * `settledByDocuments` here, composed by the action or page that needs both.
+ * **It reads only the AR book** (P87): what a customer can be paid for is the
+ * open Tagihan Uang Muka items — each carrying its DPP, PPN and expected PPh —
+ * never the advance bill's table. Posting moves the Tagihan item down and adds
+ * the money to the bill's one Uang Muka item, creating it on the bill's first
+ * receipt and raising it on every later one (P88). This module imports no sales
+ * module at all.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -103,31 +113,6 @@ async function docTypeId(db: Db, table: string): Promise<number> {
   return row.id;
 }
 
-/**
- * What posted transactions have settled of each document, by id — the one
- * source of a bill's paid state until the open items arrive (C22). `exceptTx`
- * leaves one transaction out, so a Draft being edited does not count itself.
- */
-export async function settledByDocuments(
-  table: string,
-  ids: number[],
-  db: Db = prisma,
-  exceptTx: number | null = null
-): Promise<Map<number, number>> {
-  if (!ids.length) return new Map();
-  const typeId = await docTypeId(db, table);
-  const rows = await db.finCashBankTxLine.groupBy({
-    by: ["doc_id"],
-    where: {
-      doc_type_id: typeId,
-      doc_id: { in: ids },
-      tx: { status: "Posted", ...(exceptTx ? { id: { not: exceptTx } } : {}) },
-    },
-    _sum: { settled_amount: true },
-  });
-  return new Map(rows.map((r) => [r.doc_id, r._sum.settled_amount?.toNumber() ?? 0]));
-}
-
 /** The transactions that name a document, newest first — for its page. */
 export async function settlementsOfDocument(
   table: string,
@@ -150,39 +135,57 @@ export async function settlementsOfDocument(
 }
 
 /**
- * Why a document may no longer be cancelled, or null: a posted transaction
- * has settled it, even in part (P66). Handed to the advance's cancellation by
- * the action layer; asked inside its transaction, with the bill locked.
+ * A bill as a receipt settles it — its Tagihan Uang Muka item in the AR book
+ * (P87–P88), read whole from the item: what it asks for, its PPN, the PPh the
+ * customer is expected to withhold per Jenis PPh, what receipts have paid and
+ * what is left. `id` is the bill's own id, the document a receipt line names.
  */
-export async function settledDocumentRefusal(
-  table: string,
-  tx: Prisma.TransactionClient,
-  id: number
-): Promise<string | null> {
-  const paid = (await settledByDocuments(table, [id], tx)).get(id) ?? 0;
-  return paid > 0
-    ? `Tagihan ini sudah dibayar ${money(paid)} melalui Penerimaan Kas & Bank. Sisa yang tidak terpakai dikembalikan, bukan dibatalkan.`
-    : null;
-}
-
-/** An open bill as the form offers it: the bill, and what is left of it. */
-export type OpenBill = SettlementAdvance & {
-  /** Settled by posted receipts, this one excepted. */
+export type OpenBill = {
+  id: number;
+  itemId: number;
+  docTypeId: number;
+  advanceNo: string;
+  advanceDate: string;
+  dueDate: string;
+  customerId: number;
+  currencyId: number;
+  orderId: number | null;
+  orderNo: string | null;
+  total: number;
+  dpp: number;
+  ppn: number;
+  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  /** What posted receipts have settled. */
   paid: number;
   open: number;
 };
 
-async function openBills(
-  db: Db,
-  filter: { ids?: number[]; issuedOnly?: boolean },
-  exceptTx: number | null
-): Promise<OpenBill[]> {
-  const bills = await settlementAdvances(filter, db);
-  const paid = await settledByDocuments("sal_advance", bills.map((b) => b.id), db, exceptTx);
-  return bills.map((b) => {
-    const p = paid.get(b.id) ?? 0;
-    return { ...b, paid: p, open: b.total - p };
+async function openBills(db: Db, filter: { ids?: number[]; onlyOpen?: boolean }): Promise<OpenBill[]> {
+  if (filter.ids && !filter.ids.length) return [];
+  const items = await openArItems(db, {
+    type: "AdvanceRequest",
+    sourceTable: "sal_advance",
+    sourceIds: filter.ids,
+    onlyOpen: filter.onlyOpen,
   });
+  return items.map((i) => ({
+    id: i.source.docId,
+    itemId: i.id,
+    docTypeId: i.source.docTypeId,
+    advanceNo: i.source.no,
+    advanceDate: i.date,
+    dueDate: i.dueDate ?? i.date,
+    customerId: i.partnerId,
+    currencyId: i.currencyId,
+    orderId: i.orderId,
+    orderNo: i.orderNo,
+    total: i.original.gross,
+    dpp: i.original.dpp,
+    ppn: i.original.ppn,
+    withholdings: i.withholdings,
+    paid: i.paid,
+    open: i.open.gross,
+  }));
 }
 
 // ---------------------------------------------------------------- options
@@ -194,7 +197,7 @@ export type CashReceiptOptions = {
   purposes: CashBankPurpose[];
   partners: ReceiptPartnerOption[];
   cashBanks: ReceiptCashBankOption[];
-  /** Every issued bill still open — the form narrows them to the partner. */
+  /** Every bill with an open Tagihan item — the form narrows them to the partner. */
   bills: OpenBill[];
   /** Jenis PPh labels by id, for the withholding columns. */
   withholdingLabels: Record<string, string>;
@@ -219,9 +222,11 @@ export async function cashReceiptOptions(current: { id: number; docIds: number[]
     }),
     prisma.refWithholdingTax.findMany({ select: { id: true, wht_label: true } }),
   ]);
-  const issued = await openBills(prisma, { issuedOnly: true }, current?.id ?? null);
+  // A Draft moves no item, so a receipt being edited never counts against its
+  // own bills; its bills are offered even once closed, so it still shows them.
+  const issued = await openBills(prisma, { onlyOpen: true });
   const own = current?.docIds.length
-    ? await openBills(prisma, { ids: current.docIds.filter((id) => !issued.some((b) => b.id === id)) }, current.id)
+    ? await openBills(prisma, { ids: current.docIds.filter((id) => !issued.some((b) => b.id === id)) })
     : [];
   return {
     purposes,
@@ -276,12 +281,13 @@ type Checked = {
 
 /**
  * Every rule a receipt must satisfy to be saved — and, run again inside the
- * posting transaction with the bills locked, to be posted.
+ * posting transaction with the items locked, to be posted. What a bill still
+ * asks for is read from its Tagihan item, which only posted receipts move, so a
+ * Draft being edited never counts against itself.
  */
 export async function checkCashReceipt(
   db: Db,
-  input: CashReceiptInput,
-  selfId: number | null
+  input: CashReceiptInput
 ): Promise<{ ok: true; c: Checked } | { ok: false; errors: Record<string, string> }> {
   const errors: Record<string, string> = {};
 
@@ -303,13 +309,17 @@ export async function checkCashReceipt(
 
   const cashBankId = Number(input.cash_bank_id) || null;
   let cashBankAccountId = 0;
+  let cashBankCurrencyId = 0;
   if (!cashBankId) errors.cash_bank_id = "Pilih kas atau bank penerima.";
   else {
     const cb = await db.mCashBank.findUnique({ where: { id: cashBankId }, include: { currency: true } });
     if (!cb) errors.cash_bank_id = "Kas & Bank tidak ditemukan.";
     else if (cb.currency.currency_label !== BASE_CURRENCY_LABEL) errors.cash_bank_id = "Hanya kas & bank Rupiah untuk saat ini.";
     else if (cb.status !== "Active") errors.cash_bank_id = "Kas & Bank tersebut sudah nonaktif.";
-    else cashBankAccountId = cb.account_id;
+    else {
+      cashBankAccountId = cb.account_id;
+      cashBankCurrencyId = cb.currency_id;
+    }
   }
 
   const charge = Number(input.bank_charge) || 0;
@@ -322,13 +332,14 @@ export async function checkCashReceipt(
   const lines: CheckedLine[] = [];
   if (!raw.length) errors._lines = "Pilih minimal satu tagihan yang dibayar.";
   const ids = raw.map((l) => Number(l.doc_id)).filter(Boolean);
-  const bills = new Map((await openBills(db, { ids }, selfId)).map((b) => [b.id, b]));
+  const bills = new Map((await openBills(db, { ids })).map((b) => [b.id, b]));
   const seen = new Set<number>();
   for (const [i, l] of raw.entries()) {
     const id = Number(l.doc_id);
     const bill = bills.get(id);
     if (!bill) {
-      errors[lineKey(i, "doc_id")] = "Tagihan tidak ditemukan.";
+      // A bill reaches the AR book only when it is issued (P88).
+      errors[lineKey(i, "doc_id")] = "Tagihan tidak ditemukan atau belum diterbitkan.";
       continue;
     }
     if (seen.has(id)) {
@@ -340,8 +351,14 @@ export async function checkCashReceipt(
       errors[lineKey(i, "doc_id")] = `${bill.advanceNo} bukan tagihan partner ini.`;
       continue;
     }
-    if (bill.status !== "Issued") {
-      errors[lineKey(i, "doc_id")] = `${bill.advanceNo} tidak berstatus Diterbitkan.`;
+    if (!(bill.open > 0)) {
+      errors[lineKey(i, "doc_id")] = `${bill.advanceNo} sudah lunas atau dibatalkan.`;
+      continue;
+    }
+    // One currency per settlement until foreign receipts are opened (P92): a
+    // bill in another currency than the resource would need a movement rate.
+    if (cashBankCurrencyId && bill.currencyId !== cashBankCurrencyId) {
+      errors[lineKey(i, "doc_id")] = `${bill.advanceNo} dalam mata uang lain dari kas & bank ini; belum didukung.`;
       continue;
     }
     if (DAY.test(date) && date < bill.advanceDate) {
@@ -461,7 +478,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
 }
 
 export async function createCashReceipt(input: CashReceiptInput, actorId: number): Promise<CashReceiptResult> {
-  const r = await checkCashReceipt(prisma, input, null);
+  const r = await checkCashReceipt(prisma, input);
   if (!r.ok) return r;
   const made = await prisma.$transaction(async (tx) => {
     const typeId = await docTypeId(tx, "sal_advance");
@@ -488,7 +505,7 @@ export async function updateCashReceipt(id: number, input: CashReceiptInput, act
   if (input.purpose !== current.purpose) {
     return { ok: false, errors: { purpose: "Tujuan tidak dapat diganti. Buat penerimaan baru untuk tujuan lain." } };
   }
-  const r = await checkCashReceipt(prisma, input, id);
+  const r = await checkCashReceipt(prisma, input);
   if (!r.ok) return r;
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
@@ -634,7 +651,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
     out.push(line(t.prepaid_account_id!, g.amount, 0, `${t.wht_label} dipotong ${partnerName} — bukti potong menunggu`, c.data.partner_id));
   }
   for (const l of c.lines) {
-    if (l.dppPart > 0) out.push(line(advanceAcc, 0, l.dppPart, `Uang muka ${l.bill.advanceNo} (${l.bill.orderNo})`, c.data.partner_id));
+    if (l.dppPart > 0) out.push(line(advanceAcc, 0, l.dppPart, `Uang muka ${l.bill.advanceNo}${l.bill.orderNo ? ` (${l.bill.orderNo})` : ""}`, c.data.partner_id));
   }
   const ppn = c.lines.reduce((a, l) => a + l.ppnPart, 0);
   if (ppn > 0) out.push(line(vatAcc, 0, ppn, `PPN uang muka terutang saat diterima — ${c.lines.filter((l) => l.ppnPart > 0).map((l) => l.bill.advanceNo).join(", ")}`));
@@ -662,7 +679,7 @@ async function accountProblem(db: Db, id: number): Promise<string | null> {
 export async function previewCashReceiptPosting(id: number): Promise<Posting> {
   const t = await prisma.finCashBankTx.findUnique({ where: { id }, include: { lines: true, partner: true } });
   if (!t) return { ok: false, message: "Penerimaan tidak ditemukan." };
-  const r = await checkCashReceipt(prisma, asInput(t), id);
+  const r = await checkCashReceipt(prisma, asInput(t));
   if (!r.ok) return { ok: false, message: Object.values(r.errors)[0] };
   return buildPosting(prisma, r.c, t.partner.partner_name);
 }
@@ -710,8 +727,10 @@ export async function transitionCashReceipt(
 
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
-      await lockSalesAdvances(tx, t.lines.map((l) => l.doc_id));
-      const r = await checkCashReceipt(tx, asInput(t), id);
+      // The bills' Tagihan items are locked, then read again: another receipt
+      // may have paid part of a bill since this Draft was saved.
+      await lockArItems(tx, (await openBills(tx, { ids: t.lines.map((l) => l.doc_id) })).map((b) => b.itemId));
+      const r = await checkCashReceipt(tx, asInput(t));
       if (!r.ok) throw new Refused({ _form: `Belum bisa diposting: ${Object.values(r.errors)[0]}` });
       const posting = await buildPosting(tx, r.c, t.partner.partner_name);
       if (!posting.ok) throw new Refused({ _form: posting.message });
@@ -768,28 +787,95 @@ export async function transitionCashReceipt(
       for (const line of lineRows(saleTypeId, r.c.lines, actorId)) {
         await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
       }
-      // Each bill paid is an Uang Muka the customer now holds (P73): one AR
-      // item per bill, at the DPP part the Uang Muka account was credited
-      // with, so the items reconcile with that account.
-      for (const l of r.c.lines) {
-        if (!(l.dppPart > 0)) continue;
-        await createArItem(tx, {
-          type: "Advance",
-          partnerId: t.partner_id,
-          currencyId: baseCurrency.id,
-          date: isoDay(t.tx_date),
-          source: { docTypeId: typeId, docId: id, no: t.tx_no },
-          ref: { docTypeId: saleTypeId, docId: l.docId, no: l.bill.advanceNo },
-          order: { id: l.bill.orderId, no: l.bill.orderNo },
-          amount: l.dppPart,
-          note: `Uang muka ${l.bill.advanceNo} diterima`,
-          actorId,
-        });
-      }
+      await writeReceiptToAr(tx, { ...t, docTypeId: typeId }, r.c.lines, actorId);
       await audit(tx, id, "UPDATE", "post", actorId);
     });
     return { ok: true as const };
   });
+}
+
+/**
+ * What a posted receipt writes to the AR book (P87–P88). Each bill paid moves
+ * two items: its Tagihan goes down by what the receipt cleared — DPP, PPN and
+ * the expected PPh that goes with it — and its one Uang Muka item goes up by
+ * the same money, valued gross: born on the bill's first receipt, raised on
+ * every later one. The bills are read again here, inside the caller's
+ * transaction, so a second line on the same bill or a later receipt builds on
+ * what the first one left.
+ */
+export async function writeReceiptToAr(
+  tx: Prisma.TransactionClient,
+  t: { id: number; tx_no: string; tx_date: Date; partner_id: number; exchange_rate: Prisma.Decimal; docTypeId: number },
+  lines: { docId: number; settled: number; dppPart: number; ppnPart: number }[],
+  actorId: number
+): Promise<void> {
+  const txDoc = { docTypeId: t.docTypeId, docId: t.id, no: t.tx_no };
+  const date = isoDay(t.tx_date);
+  const rate = t.exchange_rate.toNumber();
+  for (const l of lines) {
+    const [bill] = await openBills(tx, { ids: [l.docId] });
+    if (!bill) throw new Error(`Tagihan ${l.docId} belum ada di buku piutang.`);
+    // The PPh the item expected on this part, whether or not it was withheld.
+    const expected = settleBill({ bill, before: bill.paid, settled: l.settled, withhold: true }).pph;
+    await settleArItem(tx, {
+      itemId: bill.itemId,
+      event: "Payment",
+      amounts: { gross: l.settled, dpp: l.dppPart, ppn: l.ppnPart, pph: expected },
+      date,
+      doc: txDoc,
+      note: `${bill.advanceNo} dibayar`,
+      actorId,
+    });
+    const received = { gross: l.settled, dpp: l.dppPart, ppn: l.ppnPart, pph: 0 };
+    const note = `Uang muka ${bill.advanceNo} diterima`;
+    const held = await findArItem(tx, "Advance", bill.docTypeId, l.docId);
+    if (held) {
+      await receiveArItem(tx, { itemId: held, amounts: received, rate, date, doc: txDoc, note, actorId });
+    } else {
+      await createArItem(tx, {
+        type: "Advance",
+        partnerId: t.partner_id,
+        currencyId: bill.currencyId,
+        date,
+        source: { docTypeId: bill.docTypeId, docId: l.docId, no: bill.advanceNo },
+        order: bill.orderId ? { id: bill.orderId, no: bill.orderNo ?? "" } : null,
+        amounts: received,
+        rate,
+        by: txDoc,
+        note,
+        actorId,
+      });
+    }
+  }
+}
+
+/** Posted receipts with their lines, oldest first — for rebuilding the AR book. */
+export async function postedReceiptsForAr(): Promise<
+  { id: number; tx_no: string; tx_date: Date; partner_id: number; exchange_rate: Prisma.Decimal; lines: { docId: number; settled: number; dppPart: number; ppnPart: number }[] }[]
+> {
+  const rows = await prisma.finCashBankTx.findMany({
+    where: { direction: "In", status: "Posted" },
+    orderBy: [{ tx_date: "asc" }, { id: "asc" }],
+    include: { lines: { orderBy: { line_no: "asc" } } },
+  });
+  return rows.map((t) => ({
+    id: t.id,
+    tx_no: t.tx_no,
+    tx_date: t.tx_date,
+    partner_id: t.partner_id,
+    exchange_rate: t.exchange_rate,
+    lines: t.lines.map((l) => ({
+      docId: l.doc_id,
+      settled: l.settled_amount.toNumber(),
+      dppPart: l.dpp_part.toNumber(),
+      ppnPart: l.ppn_part.toNumber(),
+    })),
+  }));
+}
+
+/** The receipt's own document type id. */
+export async function cashBankTxDocTypeId(): Promise<number> {
+  return docTypeId(prisma, "fin_cash_bank_tx");
 }
 
 // ------------------------------------------------------------------- reads
@@ -818,7 +904,7 @@ export async function listCashReceipts(): Promise<CashReceiptListRow[]> {
     include: { partner: true, cash_bank: true, lines: { select: { doc_id: true } } },
   });
   const docIds = [...new Set(rows.flatMap((r) => r.lines.map((l) => l.doc_id)))];
-  const bills = new Map((await settlementAdvances({ ids: docIds })).map((b) => [b.id, b.advanceNo]));
+  const bills = new Map((await openBills(prisma, { ids: docIds })).map((b) => [b.id, b.advanceNo]));
   return rows.map((r) => ({
     id: r.id,
     txNo: r.tx_no,

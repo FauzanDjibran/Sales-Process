@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
+import { BASE_CURRENCY_LABEL } from "./currency";
 import { formatAddress } from "./partner-shape";
 import { CUSTOMER_CATEGORY } from "./entities";
 import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
@@ -494,12 +495,19 @@ export async function createCustomerOrder(
   const c = await checkCustomerOrder(header, lines);
   if (!c.ok) return c;
 
+  // Sales are in the base currency at rate 1 until foreign sales are opened;
+  // the order carries both so every document drawn from it inherits them (P92).
+  const base = await prisma.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
+  if (!base) return { ok: false, errors: { _form: "Mata uang dasar belum ada. Jalankan db:seed." } };
+
   const made = await prisma.$transaction(async (tx) => {
     const order = await tx.salCustomerOrder.create({
       data: {
         ...c.header,
         ...totalsData(c.totals),
         ...rateData(c.rates),
+        currency_id: base.id,
+        exchange_rate: 1,
         order_no: await nextOrderNo(tx, c.header.order_date),
         copied_from_id: copiedFromId,
         created_by: actorId,
@@ -844,6 +852,9 @@ export type AdvanceSourceOrder = {
   salesperson: string | null;
   /** How many lines the order has, for the bill's one-line summary of it. */
   lineCount: number;
+  /** The order's currency and origination rate, which its documents inherit (P92). */
+  currencyId: number;
+  exchangeRate: number;
   basis: AdvanceBasis;
   /** Jenis PPh label by the basis's withholding key. */
   withholdingLabels: Record<string, string>;
@@ -906,6 +917,8 @@ export async function advanceSourceOrders(
       termName: o.term.term_name,
       salesperson: o.salesperson,
       lineCount: o.lines.length,
+      currencyId: o.currency_id,
+      exchangeRate: o.exchange_rate.toNumber(),
       basis: {
         mode: o.price_mode as PriceMode,
         taxable: o.is_taxable,

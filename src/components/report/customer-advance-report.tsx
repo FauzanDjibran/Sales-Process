@@ -31,6 +31,7 @@ export function CustomerAdvanceReport({ rows, gl }: { rows: ArItemRow[]; gl: Adv
   }
   const partners = [...new Map(rows.map((r) => [r.partnerId, r])).values()];
   const grand = rows.reduce((a, r) => a + r.open, 0);
+  const grandDpp = rows.reduce((a, r) => a + r.openDpp, 0);
   const glGrand = gl.ok ? partners.reduce((a, p) => a + (gl.byPartner[p.partnerId] ?? 0), 0) : 0;
 
   return (
@@ -40,8 +41,11 @@ export function CustomerAdvanceReport({ rows, gl }: { rows: ArItemRow[]; gl: Adv
         const open = mine.reduce((a, r) => a + r.open, 0);
         const received = mine.reduce((a, r) => a + r.original, 0);
         const used = mine.reduce((a, r) => a + r.settled, 0);
+        // The account holds the DPP part only; the PPN went to PPN Keluaran on
+        // receipt (P89), so the check is on the items' open DPP.
+        const openDpp = mine.reduce((a, r) => a + r.openDpp, 0);
         const glBal = gl.ok ? gl.byPartner[p.partnerId] ?? 0 : null;
-        const off = glBal !== null && Math.round(glBal * 100) !== Math.round(open * 100);
+        const off = glBal !== null && Math.round(glBal * 100) !== Math.round(openDpp * 100);
         return (
           <div className="cblock" key={p.partnerId}>
             <div className="cbh">
@@ -54,6 +58,7 @@ export function CustomerAdvanceReport({ rows, gl }: { rows: ArItemRow[]; gl: Adv
                   { label: "Diterima", value: money(received) },
                   { label: "Terpakai", value: money(used), zero: !used },
                   { label: "Sisa", value: money(open), key: true },
+                  { label: "Sisa DPP", value: money(openDpp) },
                 ]}
               />
             </div>
@@ -63,20 +68,17 @@ export function CustomerAdvanceReport({ rows, gl }: { rows: ArItemRow[]; gl: Adv
                   <tr>
                     <th style={{ width: 96 }}>Tanggal</th>
                     <th style={{ width: 150 }}>Tagihan</th>
-                    <th style={{ width: 150 }}>Penerimaan</th>
                     <th>Customer Order</th>
-                    <th className="num" style={{ width: 130 }}>Diterima (DPP)</th>
+                    <th className="num" style={{ width: 130 }}>Diterima</th>
                     <th className="num" style={{ width: 130 }}>Terpakai</th>
                     <th className="num" style={{ width: 130 }}>Sisa</th>
+                    <th className="num" style={{ width: 130 }}>Sisa DPP</th>
                   </tr>
                 </thead>
                 <tbody>
                   {mine.map((r) => (
                     <tr key={r.id} style={{ cursor: "default" }}>
                       <td className="mono mut" style={{ fontSize: "11.5px" }}>{formatDate(r.date)}</td>
-                      <td>
-                        <DocLink table={r.refTable} id={r.refId} no={r.refNo} />
-                      </td>
                       <td>
                         <DocLink table={r.sourceTable} id={r.sourceId} no={r.sourceNo} />
                       </td>
@@ -86,6 +88,7 @@ export function CustomerAdvanceReport({ rows, gl }: { rows: ArItemRow[]; gl: Adv
                       <td className="num"><span className="mny">{money(r.original)}</span></td>
                       <td className="num">{r.settled ? <span className="mny">{money(r.settled)}</span> : <span className="dash">–</span>}</td>
                       <td className="num"><b className="mny">{money(r.open)}</b></td>
+                      <td className="num"><span className="mny">{money(r.openDpp)}</span></td>
                     </tr>
                   ))}
                 </tbody>
@@ -96,7 +99,7 @@ export function CustomerAdvanceReport({ rows, gl }: { rows: ArItemRow[]; gl: Adv
                 <span className="ni"><Icon name="warn" size={14} /></span>
                 <div>
                   <b>Tidak cocok dengan account {gl.ok ? gl.accountLabel : ""}: saldo customer ini di General Ledger {money(glBal ?? 0)}.</b>
-                  <p>Selisih {money((glBal ?? 0) - open)} — periksa journal manual pada account Uang Muka Penjualan untuk customer ini.</p>
+                  <p>Selisih {money((glBal ?? 0) - openDpp)} terhadap sisa DPP uang muka — periksa journal manual pada account Uang Muka Penjualan untuk customer ini.</p>
                 </div>
               </div>
             )}
@@ -111,6 +114,7 @@ export function CustomerAdvanceReport({ rows, gl }: { rows: ArItemRow[]; gl: Adv
             figures={[
               ...(gl.ok ? [{ label: `GL ${gl.accountLabel}`, value: money(glGrand) }] : []),
               { label: "Sisa Uang Muka", value: money(grand), key: true },
+              { label: "Sisa DPP", value: money(grandDpp) },
             ]}
           />
         </div>
