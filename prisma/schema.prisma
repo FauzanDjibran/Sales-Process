@@ -407,7 +407,6 @@ model SysDocType {
   journals           AccJournal[]
   cash_bank_tx_lines FinCashBankTxLine[]
   ar_item_sources    FinArItem[]         @relation("ArItemSource")
-  ar_item_refs       FinArItem[]         @relation("ArItemRef")
   ar_ledger_entries  FinArLedger[]
 
   @@map("sys_doc_type")
@@ -450,6 +449,7 @@ model RefCurrency {
   cash_banks    MCashBank[]
   journal_lines AccJournalLine[]
   ar_items      FinArItem[]
+  customer_orders SalCustomerOrder[]
 
   @@map("ref_currency")
 }
@@ -632,6 +632,7 @@ model RefWithholdingTax {
 
   customer_order_lines SalCustomerOrderLine[]
   cash_bank_tx_whts    FinCashBankTxLineWht[]
+  ar_item_whts         FinArItemWht[]
 
   @@index([prepaid_account_id])
   @@map("ref_withholding_tax")
@@ -1401,6 +1402,11 @@ model SalCustomerOrder {
   /// Whether the order carries PPN at all, decided once for the order (P52).
   is_taxable                Boolean   @default(true)
   price_mode                PriceMode
+  /// The order's currency and the rate that converts it to the base currency
+  /// at origination (P92). Base currency and rate 1 until foreign sales are
+  /// opened; every financial document drawn from the order inherits both.
+  currency_id               Int
+  exchange_rate             Decimal   @default(1) @db.Decimal(18, 6)
   /// The PPN rate and DPP Nilai Lain factor the order was computed with,
   /// snapshotted from the System Default at each save while Draft and frozen
   /// at Ajukan (P60, P63). Null when the order is not Kena PPN.
@@ -1437,6 +1443,7 @@ model SalCustomerOrder {
   customer     MPartner               @relation(fields: [customer_id], references: [id])
   address      MPartnerAddress        @relation(fields: [address_id], references: [id])
   term         RefPaymentTerm         @relation(fields: [term_id], references: [id])
+  currency     RefCurrency            @relation(fields: [currency_id], references: [id])
   copied_from  SalCustomerOrder?      @relation("CustomerOrderCopy", fields: [copied_from_id], references: [id])
   copies       SalCustomerOrder[]     @relation("CustomerOrderCopy")
   lines        SalCustomerOrderLine[]
@@ -1654,6 +1661,10 @@ model FinCashBankTx {
   bank_ref     String?
   note         String?
 
+  /// The movement rate from the settled documents' currency into the
+  /// resource's currency (P92): 1 when they are the same, and then it may not
+  /// be entered; typed from the bank's own rate when they differ.
+  exchange_rate  Decimal @default(1) @db.Decimal(18, 6)
   /// What actually reached (or left) the resource — the Cash Bank Book amount.
   cash_amount    Decimal @db.Decimal(18, 2)
   /// The transfer fee the bank kept; the company absorbs it (P68).
@@ -1733,19 +1744,26 @@ model FinCashBankTxLineWht {
 
 // ---------------------------------------------------------------- AR items
 //
-// What a customer owes and has paid ahead, per document (Claude-ERP.md
-// P71–P75). An AR item is the settlement unit: an Uang Muka is born when an
-// advance is received, an Invoice when a Faktur Penjualan is posted. Its
-// balance moves only through Buku Piutang, which is append-only. AP will have
-// tables of its own.
+// What a customer owes, has been asked for and has paid ahead, per document
+// (Claude-ERP.md P71–P75, P87–P92). An AR item is the one place the next menu
+// reads from: it carries its open amount split into DPP, PPN and the PPh still
+// expected, so no menu reads another menu's tables. One item per document per
+// type (P88): a bill paid in two receipts is one Uang Muka item. Its balance
+// moves only through Buku Piutang, which is append-only. AP will have tables of
+// its own.
 
 enum ArItemType {
+  /// Tagihan Uang Muka — a noted item: what an issued advance bill still asks
+  /// for. No General Ledger effect; outside the Piutang reports (P88).
+  AdvanceRequest
+  /// Uang Muka — what the customer has paid ahead and not yet used.
   Advance
+  /// Invoice — what the customer owes on a Faktur Penjualan.
   Invoice
 }
 
 /// Whether the item raises the customer's Piutang Usaha (Invoice) or lowers
-/// it (Advance). Exposure = balance × direction.
+/// it (Advance). Exposure = balance × direction; a noted item has none.
 enum ArDirection {
   Increase
   Decrease
@@ -1754,9 +1772,16 @@ enum ArDirection {
 /// What moved an AR item's balance. Refund, retur and DN/CN arrive when they
 /// are built (P74).
 enum ArEvent {
+  /// Terbentuk — the item is born.
   Create
+  /// Diterima — more money received on an Uang Muka item (P88).
+  Received
+  /// Pembayaran — a receipt settles part of the item.
   Payment
+  /// Dipakai Invoice — a Faktur uses part of an Uang Muka item.
   AdvanceUsed
+  /// Dibatalkan — a noted item closed because its bill was cancelled.
+  Cancelled
 }
 
 model FinArItem {
@@ -1765,45 +1790,69 @@ model FinArItem {
   direction   ArDirection
   partner_id  Int
   currency_id Int
+  /// The date of the posting that created the item.
   item_date   DateTime    @db.Date
-  /// When an Invoice falls due, for Umur Piutang. None on an Uang Muka.
+  /// When a bill or an invoice falls due, for Umur Piutang. None on an Uang Muka.
   due_date    DateTime?   @db.Date
 
-  /// The document that created the item — the receipt for an Uang Muka, the
-  /// Faktur for an Invoice — and its number as it read then.
+  /// The document the item is about — the advance bill for a Tagihan and an
+  /// Uang Muka, the Faktur for an Invoice — and its number as it read then.
+  /// For display and drill-down only: nothing calculates from it (P87). What
+  /// *created* the item is its first Buku Piutang entry.
   source_doc_type_id Int
   source_doc_id      Int
   source_no          String
-  /// What it belongs to beside that: the advance bill an Uang Muka was paid
-  /// against.
-  ref_doc_type_id    Int?
-  ref_doc_id         Int?
-  ref_no             String?
   /// The Customer Order, by id — an invoice uses only its own order's
-  /// advances (P73, P78). A weak reference: the order belongs to another module.
+  /// advances (P73, P78) — and its number, for display.
   customer_order_id  Int?
   customer_order_no  String?
 
   /// What is still open, in the item's own currency: the sum of its Buku
-  /// Piutang entries, updated in the same transaction as each (P72).
+  /// Piutang entries, updated in the same transaction as each (P72) — the
+  /// gross, and the DPP, PPN and PPh still expected within it (P87).
   current_balance Decimal @db.Decimal(18, 2)
+  current_dpp     Decimal @default(0) @db.Decimal(18, 2)
+  current_ppn     Decimal @default(0) @db.Decimal(18, 2)
+  current_pph     Decimal @default(0) @db.Decimal(18, 2)
+  /// The same open balance in the base currency; carrying rate =
+  /// current_base_balance ÷ current_balance, never stored (P92).
+  current_base_balance Decimal @default(0) @db.Decimal(18, 2)
 
   created_by Int
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  partner         MPartner      @relation(fields: [partner_id], references: [id])
-  currency        RefCurrency   @relation(fields: [currency_id], references: [id])
-  source_doc_type SysDocType    @relation("ArItemSource", fields: [source_doc_type_id], references: [id])
-  ref_doc_type    SysDocType?   @relation("ArItemRef", fields: [ref_doc_type_id], references: [id])
-  entries         FinArLedger[] @relation("ArItemEntries")
-  counter_entries FinArLedger[] @relation("ArItemCounter")
+  partner         MPartner        @relation(fields: [partner_id], references: [id])
+  currency        RefCurrency     @relation(fields: [currency_id], references: [id])
+  source_doc_type SysDocType      @relation("ArItemSource", fields: [source_doc_type_id], references: [id])
+  entries         FinArLedger[]   @relation("ArItemEntries")
+  counter_entries FinArLedger[]   @relation("ArItemCounter")
+  withholdings    FinArItemWht[]
 
+  /// One item per document per type (P88).
+  @@unique([item_type, source_doc_type_id, source_doc_id])
   @@index([partner_id, item_type])
   @@index([customer_order_id])
   @@index([source_doc_type_id, source_doc_id])
-  @@index([ref_doc_type_id, ref_doc_id])
   @@map("fin_ar_item")
+}
+
+/// The PPh a customer is expected to withhold on an item, per Jenis PPh, as
+/// the item was created (P87): what a receipt shares out positionally when it
+/// settles part of the item. Written once with the item, never changed.
+model FinArItemWht {
+  id                 Int     @id @default(autoincrement())
+  item_id            Int
+  withholding_tax_id Int
+  rate               Decimal @db.Decimal(9, 4)
+  base_amount        Decimal @db.Decimal(18, 2)
+  amount             Decimal @db.Decimal(18, 2)
+
+  item            FinArItem         @relation(fields: [item_id], references: [id])
+  withholding_tax RefWithholdingTax @relation(fields: [withholding_tax_id], references: [id])
+
+  @@unique([item_id, withholding_tax_id])
+  @@map("fin_ar_item_wht")
 }
 
 /// Buku Piutang — every change to an AR item's balance, append-only: an entry
@@ -1817,6 +1866,16 @@ model FinArLedger {
   amount        Decimal  @db.Decimal(18, 2)
   movement      Decimal  @db.Decimal(18, 2)
   balance_after Decimal  @db.Decimal(18, 2)
+  /// The same movement split into DPP, PPN and PPh still expected (P87),
+  /// signed like `movement`.
+  dpp_movement  Decimal  @default(0) @db.Decimal(18, 2)
+  ppn_movement  Decimal  @default(0) @db.Decimal(18, 2)
+  pph_movement  Decimal  @default(0) @db.Decimal(18, 2)
+  /// The rate the movement was valued at, and its base-currency value (P92):
+  /// an amount arriving takes its own rate; one leaving takes the item's
+  /// carrying rate, the last one taking the base left exactly.
+  rate          Decimal  @default(1) @db.Decimal(18, 6)
+  base_movement Decimal  @default(0) @db.Decimal(18, 2)
 
   /// The document that caused the entry, and its number.
   doc_type_id     Int
@@ -1824,14 +1883,19 @@ model FinArLedger {
   doc_no          String
   /// An advance used by an invoice names the Invoice item that took it.
   counter_item_id Int?
+  /// The entry this one draws down — a Dipakai Invoice names the Terbentuk or
+  /// Diterima entry (one receipt) whose money it uses (P91).
+  source_entry_id Int?
   note            String?
 
   created_by Int
   created_at DateTime @default(now()) @db.Timestamptz(6)
 
-  item         FinArItem  @relation("ArItemEntries", fields: [item_id], references: [id])
-  counter_item FinArItem? @relation("ArItemCounter", fields: [counter_item_id], references: [id])
-  doc_type     SysDocType @relation(fields: [doc_type_id], references: [id])
+  item          FinArItem     @relation("ArItemEntries", fields: [item_id], references: [id])
+  counter_item  FinArItem?    @relation("ArItemCounter", fields: [counter_item_id], references: [id])
+  source_entry  FinArLedger?  @relation("ArEntryDrawdown", fields: [source_entry_id], references: [id])
+  drawn_by      FinArLedger[] @relation("ArEntryDrawdown")
+  doc_type      SysDocType    @relation(fields: [doc_type_id], references: [id])
 
   @@index([item_id, entry_date])
   @@index([doc_type_id, doc_id])

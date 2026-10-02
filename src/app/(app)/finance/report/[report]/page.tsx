@@ -296,7 +296,7 @@ async function arReport(
       report={report}
       filter={filter}
       runAt={runAt}
-      footnote={mismatch ?? <>Nilai uang muka adalah bagian DPP-nya — yang tercatat di account Uang Muka Penjualan; PPN-nya sudah tercatat di PPN Keluaran saat diterima.</>}
+      footnote={mismatch ?? <>Satu uang muka per tagihan, dicatat bruto (DPP + PPN) seperti yang dibayar customer. Sisa DPP-nya yang dicocokkan dengan account Uang Muka Penjualan; PPN-nya sudah tercatat di PPN Keluaran saat diterima.</>}
     >
       <CustomerAdvanceReport rows={advances} gl={gl} />
     </ReportView>

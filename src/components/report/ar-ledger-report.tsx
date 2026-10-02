@@ -68,7 +68,7 @@ export function ArLedgerReportBody({ report }: { report: ArLedgerReport }) {
                       <span className="dstack">
                         <span>
                           <span className={`bdg ${e.type === "Advance" ? "t-vio" : "t-info"}`}>{AR_TYPE_TEXT[e.type]}</span>{" "}
-                          <span className="lab">{e.itemRefNo ?? e.itemSourceNo}</span>
+                          <span className="lab">{e.itemSourceNo}</span>
                         </span>
                         {e.orderNo && <span className="d2">{e.orderNo}</span>}
                       </span>

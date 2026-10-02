@@ -14,6 +14,7 @@ import { createCustomerOrder, transitionCustomerOrder, type CustomerOrderLineInp
 import { availableAdvanceActions, salesAdvanceAbilities } from "../src/lib/erp/sales-advance-workflow";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import { computeAdvance } from "../src/lib/erp/sales-tax";
+import { arDocumentPositions, openArItems } from "../src/lib/erp/ar-item";
 import {
   FIXTURE_PREFIX,
   cleanupFixtures,
@@ -107,6 +108,7 @@ const input = (over: Partial<SalesAdvanceInput> = {}): SalesAdvanceInput => ({
   cash_bank_id: f.bank,
   description: "Uang muka 30%",
   note: "",
+  price_mode: "Exclude",
   amount_type: "Percent",
   amount_value: 30,
   ...over,
@@ -169,7 +171,7 @@ describe("what the form offers", () => {
     const o = await salesAdvanceOptions();
     const so = o.orders.find((x) => x.id === f.order);
     assert.ok(so);
-    assert.equal(so.value, 3_000_000, "Exclude: drawn from the order's DPP");
+    assert.equal(so.value, 3_000_000, "the room is the order's DPP (P90)");
     assert.equal(so.left, 3_000_000 - so.drawn);
     assert.deepEqual(so.basis.withholdings, [{ key: String(f.wht), rate: 1.5, base: 2_000_000 }]);
     assert.ok(!o.orders.some((x) => x.id === draft), "a Draft order is not offered");
@@ -226,6 +228,34 @@ describe("an order's room is spent once", () => {
     assert.ok(again.ok, "the cancelled bill's 30 % is billable again");
   });
 
+  test("a bill picks its own price mode; bills in both modes share one room in DPP (P90)", async () => {
+    const order = await openOrder();
+    // The order is Exclude: DPP 3.000.000, total 3.330.000.
+    const inc = await checkSalesAdvance(prisma, input({ order_id: order, price_mode: "Include", amount_type: "Amount", amount_value: 1_110_000 }), null);
+    assert.ok(inc.ok, JSON.stringify(!inc.ok && inc.errors));
+    assert.equal(inc.c.data.price_mode, "Include");
+    assert.deepEqual([inc.c.figures.dpp, inc.c.figures.ppn, inc.c.figures.total], [1_000_000, 110_000, 1_110_000]);
+    // Include + % is a share of the order's total; Exclude + % of its DPP.
+    const half = await checkSalesAdvance(prisma, input({ order_id: order, price_mode: "Include", amount_value: 50 }), null);
+    assert.ok(half.ok);
+    assert.deepEqual([half.c.figures.amount, half.c.figures.dpp], [1_665_000, 1_500_000]);
+
+    const a = await create(input({ order_id: order, price_mode: "Include", amount_type: "Amount", amount_value: 1_110_000 }));
+    assert.ok(a.ok);
+    const b = await create(input({ order_id: order, price_mode: "Exclude", amount_type: "Amount", amount_value: 2_000_000 }));
+    assert.ok(b.ok, "1.000.000 + 2.000.000 DPP fills the order exactly");
+    const c = await create(input({ order_id: order, price_mode: "Include", amount_type: "Amount", amount_value: 2 }));
+    assert.ok(!c.ok && /DPP/.test(c.errors.amount_value), "nothing is left in DPP");
+  });
+
+  test("on a Kena PPN order the bill's mode is its own choice, and required", async () => {
+    const r = await checkSalesAdvance(prisma, input({ price_mode: "Include" }), null);
+    assert.ok(r.ok);
+    assert.equal(r.c.data.price_mode, "Include", "a Kena PPN order takes the bill's choice");
+    const bad = await checkSalesAdvance(prisma, input({ price_mode: "" }), null);
+    assert.ok(!bad.ok && bad.errors.price_mode, "a Kena PPN order needs one");
+  });
+
   test("editing a bill does not count its own draw against it", async () => {
     const order = await openOrder();
     const r = await create(input({ order_id: order, amount_value: 100 }));
@@ -271,10 +301,19 @@ describe("a bill's life", () => {
     ).map((x) => x.event);
     assert.deepEqual(events, ["create", "update", "issue"]);
 
+    // Issuing hands the bill to the AR book: one noted Tagihan item (P88).
+    const [item] = await openArItems(prisma, { type: "AdvanceRequest", sourceTable: "sal_advance", sourceIds: [r.id] });
+    assert.ok(item, "the bill has its Tagihan item");
+    assert.deepEqual(item.open, { gross: 555_000, dpp: 500_000, ppn: 55_000, pph: item.withholdings.reduce((s, w) => s + w.amount, 0) });
+    assert.ok(item.open.pph > 0, "it carries the PPh the customer is expected to withhold");
+    assert.equal(item.partnerId, f.customer);
+    assert.equal(item.dueDate, "2026-09-18");
+
     const bare = await transitionSalesAdvance(r.id, "cancel", actor, " ");
     assert.ok(!bare.ok && bare.errors.reason);
     assert.deepEqual(await transitionSalesAdvance(r.id, "cancel", actor, "Customer batal"), { ok: true });
     assert.equal((await getSalesAdvance(r.id))!.cancelReason, "Customer batal");
+    assert.equal((await arDocumentPositions("AdvanceRequest", "sal_advance", [r.id])).get(r.id)?.open, 0, "cancelling closes it");
   });
 
   test("issuing re-checks the bank", async () => {

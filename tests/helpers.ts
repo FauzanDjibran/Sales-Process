@@ -339,6 +339,7 @@ export async function cleanupFixtures(): Promise<void> {
   });
   if (fixtureItems.length) {
     const ids = fixtureItems.map((i) => i.id);
+    await prisma.finArItemWht.deleteMany({ where: { item_id: { in: ids } } });
     await prisma.finArLedger.deleteMany({ where: { OR: [{ item_id: { in: ids } }, { counter_item_id: { in: ids } }] } });
     await prisma.finArItem.deleteMany({ where: { id: { in: ids } } });
   }

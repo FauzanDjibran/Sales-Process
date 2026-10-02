@@ -5,14 +5,17 @@ import type { Prisma } from "@/generated/prisma/client";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
 import { advanceSourceOrders, lockCustomerOrder, type AdvanceSourceOrder } from "./customer-order";
+import { closeArItem, createArItem, findArItem, lockArItems, openArItems } from "./ar-item";
 import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
 import {
   advanceAmountProblem,
   computeAdvance,
   orderAdvanceValue,
   type AdvanceAmountType,
+  type AdvanceBasis,
   type AdvanceFigures,
   type PpnRates,
+  type PriceMode,
 } from "./sales-tax";
 import {
   SALES_ADVANCE_TRANSITIONS,
@@ -26,18 +29,25 @@ import {
  * Uang Muka Penjualan — the AR advance bill (Claude-ERP.md P54–P58). Its table
  * is `sal_advance`, and nothing else names it.
  *
- * A bill, not a transaction: it posts nothing at any step. It is drawn from one
- * Open Customer Order, whose customer, address, price mode and Kena PPN it
+ * A bill, not a transaction: it posts nothing to the books at any step. It is
+ * drawn from one Open Customer Order, whose customer, address and Kena PPN it
  * follows, and asks for one value typed as a percent of the order or a flat
- * value. The figures come from `sales-tax.ts`, which the form previews from.
+ * value — in **its own** price mode, which starts on the order's and may differ
+ * from it (P90). The figures come from `sales-tax.ts`, which the form previews
+ * from.
  *
- * The order's room — its value less every live bill drawn from it — is spent
- * with the order's row locked, so two bills cannot both take the last of it,
- * and a bill and the order's cancellation cannot pass each other.
+ * The order's room — its DPP less the DPP of every live bill drawn from it
+ * (P90) — is spent with the order's row locked, so two bills cannot both take
+ * the last of it, and a bill and the order's cancellation cannot pass each
+ * other. DPP, because bills in different modes compare only in one measure,
+ * and the Faktur deducts advances in DPP.
  *
- * Nothing here records what is paid: a Penerimaan Kas & Bank records what it
- * settles, and this module is told (P66). What is *used* by invoices will be
- * the open items' concern (C22).
+ * **Terbitkan hands the bill to the AR book** (P87–P88): it creates the bill's
+ * Tagihan Uang Muka item — a noted item, no journal — carrying its DPP, PPN and
+ * the PPh the customer is expected to withhold, per Jenis PPh. From then on a
+ * Penerimaan reads that item, never this table, and what is paid is the item's
+ * own record. Cancelling an issued bill closes the item, and is refused once a
+ * receipt has paid any of it.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -49,6 +59,8 @@ export type SalesAdvanceInput = {
   cash_bank_id: number | null;
   description: string;
   note: string;
+  /** The bill's own price mode (P90); ignored when the order is not Kena PPN. */
+  price_mode: string;
   amount_type: string;
   amount_value: number;
 };
@@ -63,29 +75,43 @@ const isoDay = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
 
 // ------------------------------------------------------------------- room
 
-/** What other live bills have drawn from an order, in its price mode. */
+/** The DPP other live bills have drawn from an order (P90). */
 async function drawnByOthers(db: Db, orderId: number, exceptId: number | null): Promise<number> {
   const r = await db.salAdvance.aggregate({
     where: { customer_order_id: orderId, status: { not: "Cancelled" }, ...(exceptId ? { id: { not: exceptId } } : {}) },
-    _sum: { amount: true },
+    _sum: { dpp_amount: true },
   });
-  return r._sum.amount?.toNumber() ?? 0;
+  return r._sum.dpp_amount?.toNumber() ?? 0;
 }
 
-/** Drawn by live bills, per order. */
+/** DPP drawn by live bills, per order. */
 async function drawnByOrder(orderIds: number[]): Promise<Map<number, number>> {
   const rows = await prisma.salAdvance.groupBy({
     by: ["customer_order_id"],
     where: { customer_order_id: { in: orderIds }, status: { not: "Cancelled" } },
-    _sum: { amount: true },
+    _sum: { dpp_amount: true },
   });
-  return new Map(rows.map((r) => [r.customer_order_id, r._sum.amount?.toNumber() ?? 0]));
+  return new Map(rows.map((r) => [r.customer_order_id, r._sum.dpp_amount?.toNumber() ?? 0]));
+}
+
+/**
+ * The bill's price mode (P90): its own choice when the order is Kena PPN,
+ * starting on the order's; a bill on an order without PPN is stored Exclude.
+ */
+export function advanceModeOf(order: Pick<AdvanceSourceOrder, "basis">, typed: string | null | undefined): PriceMode {
+  if (!order.basis.taxable) return "Exclude";
+  return typed === "Include" || typed === "Exclude" ? typed : order.basis.mode;
+}
+
+/** The order seen in the bill's mode: a share of its total when Include, of its DPP when Exclude. */
+function basisIn(order: AdvanceSourceOrder, mode: PriceMode): AdvanceBasis {
+  return { ...order.basis, mode };
 }
 
 // ---------------------------------------------------------------- options
 
 export type AdvanceOrderOption = AdvanceSourceOrder & {
-  /** The order's value in its price mode, what drawn by other bills, and what is left. */
+  /** The order's DPP, the DPP other bills drew from it, and what is left (P90). */
   value: number;
   drawn: number;
   left: number;
@@ -116,13 +142,13 @@ export async function salesAdvanceOptions(current: { id: number; orderId: number
   ]);
   const drawn = await drawnByOrder(orders.map((o) => o.id));
   const own = current
-    ? (await prisma.salAdvance.findUnique({ where: { id: current.id }, select: { amount: true, status: true } })) ?? null
+    ? (await prisma.salAdvance.findUnique({ where: { id: current.id }, select: { dpp_amount: true, status: true } })) ?? null
     : null;
   return {
     orders: orders.map((o) => {
-      const value = orderAdvanceValue(o.basis);
+      const value = o.basis.dpp;
       const all = drawn.get(o.id) ?? 0;
-      const mine = own && own.status !== "Cancelled" ? own.amount.toNumber() : 0;
+      const mine = own && own.status !== "Cancelled" ? own.dpp_amount.toNumber() : 0;
       const others = all - mine;
       return { ...o, value, drawn: others, left: value - others };
     }),
@@ -147,12 +173,13 @@ type Checked = {
     cash_bank_id: number;
     description: string;
     note: string | null;
-    price_mode: "Exclude" | "Include";
+    price_mode: PriceMode;
     is_taxable: boolean;
     amount_type: AdvanceAmountType;
     amount_value: number;
   };
   figures: AdvanceFigures;
+  order: AdvanceSourceOrder;
   /** The bill's own snapshot (P60); null when the order is not Kena PPN. */
   rates: PpnRates | null;
 };
@@ -201,13 +228,23 @@ export async function checkSalesAdvance(
   // The bill snapshots the PPN rate in force, not the order's (P60).
   const rates = order?.basis.taxable ? await ppnRates() : null;
   if (order?.basis.taxable && !rates) errors._form = PPN_SETTINGS_MISSING;
+  const mode = order ? advanceModeOf(order, input.price_mode) : "Exclude";
+  if (order?.basis.taxable && input.price_mode !== "Include" && input.price_mode !== "Exclude") {
+    errors.price_mode = "Pilih mode harga uang muka.";
+  }
   if (type !== "Percent" && type !== "Amount") errors.amount_value = "Pilih cara mengisi nilai uang muka.";
   else if (order && !errors.order_id) {
-    const value = orderAdvanceValue(order.basis);
-    const drawn = await drawnByOthers(db, order.id, selfId);
-    const problem = advanceAmountProblem(type, typed, value, value - drawn);
+    const basis = basisIn(order, mode);
+    // The value is checked on its own terms first; the room is checked in DPP (P90).
+    const problem = advanceAmountProblem(type, typed, orderAdvanceValue(basis), Number.POSITIVE_INFINITY);
     if (problem) errors.amount_value = problem;
-    else figures = computeAdvance({ basis: order.basis, type, typed, rates });
+    else {
+      const f = computeAdvance({ basis, type, typed, rates });
+      const left = order.basis.dpp - (await drawnByOthers(db, order.id, selfId));
+      if (f.dpp > left) {
+        errors.amount_value = `DPP uang muka melebihi sisa DPP Customer Order yang dapat ditagih (${left.toLocaleString("id-ID")}).`;
+      } else figures = f;
+    }
   }
 
   if (Object.keys(errors).length || !order || !figures) return { ok: false, errors };
@@ -222,12 +259,13 @@ export async function checkSalesAdvance(
         cash_bank_id: bankId!,
         description,
         note: String(input.note ?? "").trim() || null,
-        price_mode: order.basis.mode,
+        price_mode: mode,
         is_taxable: order.basis.taxable,
         amount_type: type as AdvanceAmountType,
         amount_value: typed,
       },
       figures,
+      order,
       rates,
     },
   };
@@ -348,6 +386,7 @@ function asInput(a: {
   cash_bank_id: number;
   description: string;
   note: string | null;
+  price_mode: string;
   amount_type: string;
   amount_value: Prisma.Decimal;
 }): SalesAdvanceInput {
@@ -358,6 +397,7 @@ function asInput(a: {
     cash_bank_id: a.cash_bank_id,
     description: a.description,
     note: a.note ?? "",
+    price_mode: a.price_mode,
     amount_type: a.amount_type,
     amount_value: a.amount_value.toNumber(),
   };
@@ -365,23 +405,84 @@ function asInput(a: {
 
 export type SalesAdvanceTransitionResult = { ok: true } | { ok: false; errors: Record<string, string> };
 
+/** The bill's own document type, for the AR item that is about it. */
+async function advanceDocTypeId(db: Db): Promise<number> {
+  const row = await db.sysDocType.findFirst({ where: { doc_table: "sal_advance" }, select: { id: true } });
+  if (!row) throw new Error("Jenis dokumen sal_advance belum terdaftar. Jalankan db:seed.");
+  return row.id;
+}
+
+/**
+ * Hands an issued bill to the AR book (P87–P88): its Tagihan Uang Muka item,
+ * carrying what the bill asks for — DPP, PPN and the PPh the customer is
+ * expected to withhold, per Jenis PPh — dated and due as the bill is, in the
+ * order's currency and rate (P92). Called inside the transaction that issues
+ * it; also used to rebuild items for bills issued before the AR book held them.
+ */
+export async function handAdvanceToAr(
+  tx: Prisma.TransactionClient,
+  bill: { id: number; advance_no: string; advance_date: Date; due_date: Date; customer_id: number },
+  order: AdvanceSourceOrder,
+  figures: AdvanceFigures,
+  actorId: number
+): Promise<number> {
+  const doc = { docTypeId: await advanceDocTypeId(tx), docId: bill.id, no: bill.advance_no };
+  const { itemId } = await createArItem(tx, {
+    type: "AdvanceRequest",
+    partnerId: bill.customer_id,
+    currencyId: order.currencyId,
+    date: isoDay(bill.advance_date),
+    dueDate: isoDay(bill.due_date),
+    source: doc,
+    order: { id: order.id, no: order.orderNo },
+    amounts: { gross: figures.total, dpp: figures.dpp, ppn: figures.ppn, pph: figures.withholdingTotal },
+    withholdings: figures.withholdings.map((w) => ({ taxId: Number(w.key), rate: w.rate, base: w.base, amount: w.amount })),
+    rate: order.exchangeRate,
+    by: doc,
+    note: `Tagihan uang muka ${bill.advance_no} diterbitkan`,
+    actorId,
+  });
+  return itemId;
+}
+
+/**
+ * The figures a stored bill was issued with, as `checkSalesAdvance` would work
+ * them out again — the per-Jenis PPh expectation is not a column of the bill.
+ */
+export async function storedAdvanceFigures(
+  db: Db,
+  billId: number
+): Promise<{ bill: Prisma.SalAdvanceGetPayload<object>; order: AdvanceSourceOrder; figures: AdvanceFigures } | null> {
+  const bill = await db.salAdvance.findUnique({ where: { id: billId } });
+  if (!bill) return null;
+  const [order] = await advanceSourceOrders({ ids: [bill.customer_order_id] }, db);
+  if (!order) return null;
+  const rates =
+    bill.ppn_rate && bill.ppn_dpp_other_numerator && bill.ppn_dpp_other_denominator
+      ? { rate: bill.ppn_rate.toNumber(), otherNum: bill.ppn_dpp_other_numerator, otherDen: bill.ppn_dpp_other_denominator }
+      : null;
+  const figures = computeAdvance({
+    basis: basisIn(order, advanceModeOf(order, bill.price_mode)),
+    type: bill.amount_type as AdvanceAmountType,
+    typed: bill.amount_value.toNumber(),
+    rates,
+  });
+  return { bill, order, figures };
+}
+
 /**
  * Runs one lifecycle step. Issuing re-checks the stored bill with the order
  * locked — the order still Open, its room still there, the bank still
- * active — and stores the figures that check produced.
+ * active — stores the figures that check produced, and creates the bill's
+ * Tagihan Uang Muka item in the same transaction. Cancelling closes that item,
+ * and is refused once any receipt has paid the bill (P66): a paid bill's
+ * leftover is refunded, not cancelled.
  */
 export async function transitionSalesAdvance(
   id: number,
   action: AdvanceAction,
   actorId: number,
-  reason?: string,
-  /**
-   * Why the bill may no longer be cancelled, asked inside the transaction with
-   * the bill's row locked. The payment module answers it (a posted receipt
-   * settles the bill); it is passed in from the action layer, so this module
-   * never depends on the payment module that depends on it.
-   */
-  cancelGuard?: (tx: Prisma.TransactionClient, id: number) => Promise<string | null>
+  reason?: string
 ): Promise<SalesAdvanceTransitionResult> {
   const bill = await prisma.salAdvance.findUnique({ where: { id } });
   if (!bill) return { ok: false, errors: { _form: "Tagihan uang muka tidak ditemukan." } };
@@ -396,8 +497,24 @@ export async function transitionSalesAdvance(
     return refusable(async () => {
       await prisma.$transaction(async (tx) => {
         await lockSalesAdvances(tx, [id]);
-        const blocked = cancelGuard ? await cancelGuard(tx, id) : null;
-        if (blocked) throw new Refused({ _form: blocked });
+        const typeId = await advanceDocTypeId(tx);
+        const itemId = await findArItem(tx, "AdvanceRequest", typeId, id);
+        if (itemId) {
+          await lockArItems(tx, [itemId]);
+          const [item] = await openArItems(tx, { type: "AdvanceRequest", sourceTable: "sal_advance", sourceIds: [id] });
+          if (item && item.paid > 0) {
+            throw new Refused({
+              _form: `Tagihan ini sudah dibayar ${item.paid.toLocaleString("id-ID")} melalui Penerimaan Kas & Bank. Sisa yang tidak terpakai dikembalikan, bukan dibatalkan.`,
+            });
+          }
+          await closeArItem(tx, {
+            itemId,
+            date: new Date().toISOString().slice(0, 10) < isoDay(bill.advance_date) ? isoDay(bill.advance_date) : new Date().toISOString().slice(0, 10),
+            doc: { docTypeId: typeId, docId: id, no: bill.advance_no },
+            note: `Dibatalkan: ${why}`,
+            actorId,
+          });
+        }
         const done = await tx.salAdvance.updateMany({
           where: { id, status: bill.status },
           data: { status: "Cancelled", cancel_reason: why, updated_by: actorId },
@@ -423,6 +540,7 @@ export async function transitionSalesAdvance(
           ...rateData(r.c.rates), updated_by: actorId },
       });
       if (done.count !== 1) throw new Refused({ _form: "Tagihan berubah saat diproses. Muat ulang halaman." });
+      await handAdvanceToAr(tx, bill, r.c.order, r.c.figures, actorId);
       await audit(tx, id, "UPDATE", "issue", actorId);
     });
     return { ok: true as const };
@@ -517,82 +635,13 @@ export async function salesAdvanceNumbersByIds(ids: number[]): Promise<Map<numbe
   return new Map(rows.map((r) => [r.id, r.advance_no]));
 }
 
-// ------------------------------------------------------- for the payment
+// ------------------------------------------------------------------- locks
 
 /**
- * An advance bill as a Penerimaan settles it (P66): who owes it, what it asks
- * for, and — per Jenis PPh — what the customer is expected to withhold, as
- * `computeAdvance` works it out from the order the bill is drawn from and the
- * rate the bill carries. The payment module takes this rather than reading
- * `sal_advance` itself; what has been *paid* is the payment's own record.
+ * Locks bills' rows for the rest of the transaction, in id order, so a bill's
+ * cancellation and anything else changing it cannot pass each other.
  */
-export type SettlementAdvance = {
-  id: number;
-  advanceNo: string;
-  advanceDate: string;
-  dueDate: string;
-  status: AdvanceStatus;
-  customerId: number;
-  orderId: number;
-  orderNo: string;
-  description: string;
-  total: number;
-  dpp: number;
-  ppn: number;
-  withholdings: { key: string; rate: number; base: number; amount: number }[];
-};
-
-export async function settlementAdvances(
-  filter: { ids?: number[]; issuedOnly?: boolean },
-  db: Db = prisma
-): Promise<SettlementAdvance[]> {
-  const rows = await db.salAdvance.findMany({
-    where: {
-      ...(filter.ids ? { id: { in: filter.ids } } : {}),
-      ...(filter.issuedOnly ? { status: "Issued" } : {}),
-    },
-    orderBy: [{ advance_date: "asc" }, { id: "asc" }],
-  });
-  const orders = new Map(
-    (await advanceSourceOrders({ ids: [...new Set(rows.map((r) => r.customer_order_id))] }, db)).map((o) => [o.id, o])
-  );
-  return rows.map((a) => {
-    const order = orders.get(a.customer_order_id)!;
-    const rates =
-      a.ppn_rate && a.ppn_dpp_other_numerator && a.ppn_dpp_other_denominator
-        ? { rate: a.ppn_rate.toNumber(), otherNum: a.ppn_dpp_other_numerator, otherDen: a.ppn_dpp_other_denominator }
-        : null;
-    const f = computeAdvance({
-      basis: order.basis,
-      type: a.amount_type as AdvanceAmountType,
-      typed: a.amount_value.toNumber(),
-      rates,
-    });
-    return {
-      id: a.id,
-      advanceNo: a.advance_no,
-      advanceDate: isoDay(a.advance_date),
-      dueDate: isoDay(a.due_date),
-      status: a.status as AdvanceStatus,
-      customerId: a.customer_id,
-      orderId: a.customer_order_id,
-      orderNo: order.orderNo,
-      description: a.description,
-      // As stored: the figures the bill was issued with.
-      total: a.total_amount.toNumber(),
-      dpp: a.dpp_amount.toNumber(),
-      ppn: a.ppn_amount.toNumber(),
-      withholdings: f.withholdings,
-    };
-  });
-}
-
-/**
- * Locks bills' rows for the rest of the transaction, in id order, so a payment
- * posting against them and their cancellation cannot pass each other, and two
- * payments cannot both clear the last of one.
- */
-export async function lockSalesAdvances(tx: Prisma.TransactionClient, ids: number[]): Promise<void> {
+async function lockSalesAdvances(tx: Prisma.TransactionClient, ids: number[]): Promise<void> {
   for (const id of [...new Set(ids)].sort((a, b) => a - b)) {
     await tx.$queryRaw`SELECT id FROM sal_advance WHERE id = ${id} FOR UPDATE`;
   }
