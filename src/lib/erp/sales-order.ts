@@ -407,7 +407,14 @@ export async function transitionSalesOrder(
   id: number,
   action: SalesOrderAction,
   actorId: number,
-  reason?: string
+  reason?: string,
+  /**
+   * Run inside the step's transaction, with the Customer Order's row locked,
+   * before the order moves; a message refuses the step. Tutup is handed the
+   * Delivery Order module's check by the caller (P93), so this module never
+   * reads its tables.
+   */
+  guard?: (tx: Prisma.TransactionClient, id: number) => Promise<string | null>
 ): Promise<SalesOrderTransitionResult> {
   const order = await prisma.salOrder.findUnique({ where: { id }, include: { lines: true } });
   if (!order) return { ok: false, errors: { _form: "Sales Order tidak ditemukan." } };
@@ -434,6 +441,13 @@ export async function transitionSalesOrder(
           const first = Object.entries(r.errors).find(([k]) => k !== "_lines")?.[1] ?? r.errors._lines;
           throw new Refused({ _form: `Belum bisa diajukan: ${first}` });
         }
+      }
+      if (guard) {
+        // The same lock a Delivery Order takes to draw on this order's lines,
+        // so the check and a new Delivery Order cannot pass each other.
+        await lockCustomerOrder(tx, order.customer_order_id);
+        const refused = await guard(tx, id);
+        if (refused) throw new Refused({ _form: refused });
       }
       const done = await tx.salOrder.updateMany({
         where: { id, status: from },
@@ -559,4 +573,95 @@ export async function customerOrderSchedule(customerOrderId: number): Promise<Cu
     })),
     lines: source?.lines ?? [],
   };
+}
+
+// ------------------------------------------------- for the Delivery Order
+
+/**
+ * One line of a Sales Order as a Delivery Order reads it (P93): which Sales
+ * Order, when it is due, the Customer Order line's item and unit, and the
+ * quantity a Delivery Order may send a part of. A Sales Order's lines are
+ * frozen once it is submitted, and only an Open one is shipped from, so what a
+ * Delivery Order names does not move.
+ */
+export type DeliverySourceLine = {
+  id: number;
+  salesOrderId: number;
+  salesOrderNo: string;
+  salesOrderStatus: SalesOrderStatus;
+  deliveryDate: string;
+  itemLabel: string;
+  itemName: string;
+  uomLabel: string;
+  qty: number;
+};
+
+export type DeliverySource = Omit<SalesOrderSource, "lines"> & {
+  addresses: { id: number; text: string }[];
+  salesOrders: { id: number; orderNo: string; deliveryDate: string; addressId: number; status: SalesOrderStatus }[];
+  lines: DeliverySourceLine[];
+};
+
+/**
+ * The Customer Orders a Delivery Order may ship from, each with its **Open**
+ * Sales Orders and their lines. With `openOnly`, only Open Customer Orders that
+ * have at least one Open Sales Order. `withLineIds` also brings in the Sales
+ * Orders owning those lines, and `withOrderIds` those Sales Orders, whatever
+ * their status — a stored Delivery Order keeps reading the lines it named after
+ * their Sales Order is closed.
+ */
+export async function deliveryOrderSources(
+  filter: { ids?: number[]; openOnly?: boolean; withLineIds?: number[]; withOrderIds?: number[] },
+  db: Db = prisma
+): Promise<DeliverySource[]> {
+  const cos = await salesOrderSources({ ids: filter.ids, openOnly: filter.openOnly }, db);
+  if (!cos.length) return [];
+  const withLines = filter.withLineIds?.length ? filter.withLineIds : null;
+  const orders = await db.salOrder.findMany({
+    where: {
+      customer_order_id: { in: cos.map((c) => c.id) },
+      OR: [
+        { status: "Open" },
+        ...(withLines ? [{ lines: { some: { id: { in: withLines } } } }] : []),
+        ...(filter.withOrderIds?.length ? [{ id: { in: filter.withOrderIds } }] : []),
+      ],
+    },
+    orderBy: [{ delivery_date: "asc" }, { id: "asc" }],
+    include: { lines: { orderBy: { line_no: "asc" } } },
+  });
+  const addresses = await addressesOf(db, [...new Set(cos.map((c) => c.customerId))]);
+  const out: DeliverySource[] = [];
+  for (const { lines: coLines, ...co } of cos) {
+    const coLine = new Map(coLines.map((l) => [l.id, l]));
+    const mine = orders.filter((o) => o.customer_order_id === co.id);
+    if (filter.openOnly && !mine.some((o) => o.status === "Open")) continue;
+    out.push({
+      ...co,
+      addresses: addresses.get(co.customerId) ?? [],
+      salesOrders: mine.map((o) => ({
+        id: o.id,
+        orderNo: o.order_no,
+        deliveryDate: isoDay(o.delivery_date),
+        addressId: o.address_id,
+        status: o.status as SalesOrderStatus,
+      })),
+      lines: mine.flatMap((o) =>
+        o.lines.map((l) => {
+          const c = coLine.get(l.customer_order_line_id);
+          return {
+            id: l.id,
+            salesOrderId: o.id,
+            salesOrderNo: o.order_no,
+            salesOrderStatus: o.status as SalesOrderStatus,
+            deliveryDate: isoDay(o.delivery_date),
+            itemLabel: c?.itemLabel ?? "",
+            itemName: c?.itemName ?? "",
+            uomLabel: c?.uomLabel ?? "",
+            qty: l.qty.toNumber(),
+          };
+        })
+      ),
+    });
+  }
+  return out;
 }

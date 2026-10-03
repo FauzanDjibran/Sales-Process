@@ -48,7 +48,9 @@ export const ICON_PATHS = {  grid:'<path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-
   menu:'<line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/>',
   wallet2:'<rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><circle cx="17.5" cy="14.5" r="1.2"/>',
   box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><polyline points="3 8 12 13 21 8"/><line x1="12" y1="13" x2="12" y2="21"/>',
-  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>'
+  pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>',
+  // From the simulation's icon set (Surat Jalan), for the delivery documents.
+  truck:'<path d="M1 4h14v12H1z"/><path d="M15 8h4.5L23 11.5V16h-8z"/><circle cx="5.5" cy="18.5" r="2.2"/><circle cx="18.5" cy="18.5" r="2.2"/>'
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

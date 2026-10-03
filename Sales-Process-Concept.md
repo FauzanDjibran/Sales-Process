@@ -27,7 +27,7 @@ Sources: decisions P49–P86 in `Claude-ERP.md` §12, `tax_concept.md`,
 2. Documents and records
 3. Rules shared by every document
 4. Customer Order
-5. Sales Order
+5. Sales Order and Delivery Order
 6. Uang Muka Penjualan (the advance bill)
 7. Penerimaan Kas & Bank (the receipt)
 8. AR items and Buku Piutang
@@ -46,6 +46,14 @@ Sources: decisions P49–P86 in `Claude-ERP.md` §12, `tax_concept.md`,
 ```
                         ┌──────────────► Sales Order SO/…  (quantity + Tanggal Kirim, to PPIC)
                         │                 posts nothing
+                        │                       │ Open lines picked by
+                        │                       ▼
+                        │                Delivery Order DO/…  (one warehouse, one address)
+                        │                 posts nothing
+                        │                       │ [Planned] leaves on
+                        │                       ▼
+                        │                Delivery Note  ── posts HPP / Persediaan (placeholder)
+                        │
 Customer Order CO/… ────┤
 (the commercial         │
  agreement: qty,        └──────────────► Uang Muka Penjualan ARA/…  (the bill: asks for money)
@@ -68,7 +76,7 @@ Three lanes, never mixed:
 
 | Lane | Documents | Touches the books? |
 | --- | --- | --- |
-| **Commercial** | Customer Order, Sales Order, advance bill | No. They are agreements and requests |
+| **Commercial** | Customer Order, Sales Order, Delivery Order, advance bill | No. They are agreements, instructions and requests |
 | **Money** | Penerimaan Kas & Bank | Yes: journal + Cash Bank Book |
 | **Position** | AR items, Buku Piutang | It is a book itself; written only by the money lane and the Faktur |
 
@@ -80,6 +88,8 @@ Three lanes, never mixed:
 | --- | --- | --- | --- | --- | --- | --- |
 | Customer Order | `CO/YYYY/MM/NNNN` | Sales › Customer Order | `sal_customer_order`, `_line` | No | No | [Built] |
 | Sales Order | `SO/YYYY/MM/NNNN` | Sales › Sales Order | `sal_order`, `_line` | No | No | [Built] |
+| Delivery Order | `DO/YYYY/MM/NNNN` | Sales › Delivery Order | `sal_delivery_order`, `_line` | No | No | [Built] |
+| Delivery Note | not decided | Sales | not decided | HPP / Persediaan | No | [Planned] (C28) |
 | Uang Muka Penjualan (bill) | `ARA/YYYY/MM/NNNN` | Finance › Uang Muka | `sal_advance` | No | No | [Built] |
 | Penerimaan Kas & Bank | `BKM/YYYY/MM/NNNN` | Finance › Kas & Bank › Penerimaan | `fin_cash_bank_tx`, `_line`, `_line_wht` | Yes, at Post | No | [Built] |
 | AR item + Buku Piutang | `ARI/YYYY/MM/NNNN` | (no menu; seen in reports) | `fin_ar_item`, `fin_ar_ledger` | Never | **Yes** | [Built], revised shape [Agreed, not built] |
@@ -202,7 +212,7 @@ A **Closed** order takes no new Sales Order and no new bill.
 
 ---
 
-## 5. Sales Order  [Built]
+## 5. Sales Order and Delivery Order  [Built]
 
 ### 5.1 What it is
 
@@ -269,6 +279,55 @@ Order line).
 | *Sisa* | Line qty − Sudah di-SO |
 | Delivery schedule of a Customer Order | Its Sales Orders by `delivery_date`, with their lines |
 | Check | Sudah di-SO ≤ line qty for every Customer Order line |
+| Can it be closed? | Not while a Delivery Order drawing on it is Draft or Diterbitkan |
+
+### 5.7 Delivery Order — the warehouse instruction  [Built] (P93)
+
+The instruction to **one warehouse** to send goods of **one Customer Order**
+to **one address** on **one date**. Its header names the Customer Order; each
+line is a quantity of one line of that order's **Open** Sales Orders, so one
+Delivery Order may ship from several Sales Orders of the same Customer Order.
+Quantity only, **posts nothing** (no journal, no stock movement). The goods
+actually leave on the **Delivery Note** [Planned], which will post HPP /
+Persediaan at a placeholder cost.
+
+| Field | Rules |
+| --- | --- |
+| Customer Order | **Open**, with at least one **Open** Sales Order; chosen once, then locked |
+| Tanggal DO, Tanggal Kirim | Tanggal DO not before the Customer Order; Tanggal Kirim not before Tanggal DO, and starts on the first Sales Order picked |
+| Gudang | One active warehouse — the goods leave from it |
+| Alamat Kirim | Any of the customer's addresses; starts on the first Sales Order picked |
+| Lines | Picked with **Tambah Item**: a dialog lists the Open Sales Orders' lines with Sales Order, due date, *Qty SO*, *Sudah di-DO* and *Sisa*. Each Sales Order line once per Delivery Order; **blank quantity refused** |
+
+**Quantity ceiling.** For every Sales Order line: **Σ qty of its Delivery
+Orders (every status except Dibatalkan — Ditutup included) ≤ the line's qty.**
+Checked at save and at Terbitkan, with the Customer Order's row locked.
+
+**Lifecycle — no approval:**
+
+```
+Draft ──Terbitkan──► Diterbitkan ──Tutup (reason)──► Ditutup
+  └──Batalkan (reason)──► Dibatalkan (final, gives the quantity back)
+```
+
+| Step | Permission | Meaning |
+| --- | --- | --- |
+| Terbitkan | `DELIVERY_ORDER_ISSUE` | Locks it and sends it to the warehouse; rechecks the ceiling, the Sales Orders still Open and the warehouse still active |
+| Batalkan | `DELIVERY_ORDER_CANCEL` | Draft only |
+| Tutup | `DELIVERY_ORDER_CLOSE` | From Diterbitkan; the Delivery Notes will close it themselves once everything has left |
+
+**Tables.** `sal_delivery_order`: do_no, do_date, delivery_date, status,
+customer_order_id, customer_id (for the list), **warehouse_id**, address_id,
+note, status_reason. `sal_delivery_order_line`: delivery_order_id, line_no,
+**sales_order_line_id** (item and unit read through the Sales Order line from
+the Customer Order line), qty, note. Unique (order, line_no) and (order, Sales
+Order line).
+
+| Need | How |
+| --- | --- |
+| *Sudah di-DO* of a Sales Order line | Σ qty of `sal_delivery_order_line` on that line whose order is not Cancelled |
+| What a Sales Order has instructed | Its page's *Perintah Kirim* card: per line Qty SO / Di-DO / Sisa, and the Delivery Orders |
+| Check | Sudah di-DO ≤ Sales Order line qty for every Sales Order line |
 
 ---
 
@@ -800,7 +859,7 @@ Muka, the receipt from its Terbentuk entry [Agreed, not built].
 | Pengembalian Uang Muka (refund) | [Planned] Pengeluaran purpose |
 | Closing a bill / invoice remainder by its owner (write-off) | [Planned] with the close action |
 | *Penerimaan Belum Teridentifikasi* and how it is cleared | [Planned]; clearing is open (C31) |
-| Delivery Order / Delivery Note; a closed Sales Order releasing undelivered quantity; auto-closing CO and SO when delivered | [Planned] (C28) |
+| Delivery Note; a closed Sales Order / Delivery Order releasing undelivered quantity; auto-closing CO, SO and DO when delivered | [Planned] (C28). The Delivery Order is built (P93) |
 | Printing the advance bill | Needs Company Setting and bank account details |
 | Multi-currency columns and behaviour | Later (U6) |
 | Whether manual revaluation includes Uang Muka items | **Open** (recommended: no) |
@@ -842,7 +901,11 @@ Agreed with the user on 02/10/2026; to be recorded in §12 when built.
 | `default: …` | Starting value |
 | `note: '…'` | Explanation |
 | `indexes { … }` | Kept sorted for fast lookup |
-| `Ref: a.x > b.id` | Many `a` rows point to one `b` row, enforced by the database |
+| `Ref: sal_delivery_order.customer_order_id > sal_customer_order.id
+Ref: sal_delivery_order.warehouse_id > ref_warehouse.id
+Ref: sal_delivery_order_line.delivery_order_id > sal_delivery_order.id
+Ref: sal_delivery_order_line.sales_order_line_id > sal_order_line.id
+Ref: a.x > b.id` | Many `a` rows point to one `b` row, enforced by the database |
 | `[delete: cascade]` | Deleting the parent deletes these rows (only a Draft receipt's lines are ever replaced) |
 
 Paste the block into <https://dbdiagram.io> to see it as a diagram. AR tables
@@ -871,6 +934,13 @@ Enum SalesOrderStatus {
   Closed     // Ditutup
   Cancelled  // Dibatalkan
   Rejected   // Ditolak
+}
+
+Enum DeliveryOrderStatus {
+  Draft
+  Issued
+  Closed
+  Cancelled
 }
 
 Enum PriceMode {
@@ -1064,6 +1134,33 @@ Table sal_advance {
 
 // ============================================================ Receipt
 
+Table sal_delivery_order {
+  id int [pk, increment, not null]
+  do_no varchar [unique, not null, note: 'DO/YYYY/MM/NNNN']
+  do_date date [not null]
+  delivery_date date [not null, note: 'when the goods are to leave']
+  status DeliveryOrderStatus [not null, default: 'Draft']
+  customer_order_id int [not null]
+  customer_id int [not null]
+  warehouse_id int [not null, note: 'one warehouse per Delivery Order']
+  address_id int [not null]
+  note varchar [null]
+  status_reason varchar [null]
+}
+
+Table sal_delivery_order_line {
+  id int [pk, increment, not null]
+  delivery_order_id int [not null]
+  line_no int [not null]
+  sales_order_line_id int [not null, note: 'a line of an Open Sales Order of the same Customer Order']
+  qty decimal(18, 4) [not null]
+  note varchar [null]
+
+  indexes {
+    (delivery_order_id, sales_order_line_id) [unique]
+  }
+}
+
 Table fin_cash_bank_tx {
   id int [pk, increment, not null]
   tx_no varchar [unique, not null, note: 'BKM/YYYY/MM/NNNN or BKK/…']
@@ -1201,6 +1298,12 @@ Table m_item {
 Table ref_uom {
   id int [pk]
   uom_label varchar
+}
+
+Table ref_warehouse {
+  id int [pk, increment, not null]
+  warehouse_label varchar [not null]
+  warehouse_name varchar [not null]
 }
 
 Table ref_payment_term {

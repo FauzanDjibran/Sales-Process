@@ -26,6 +26,7 @@ import { JOURNAL_TRANSITIONS } from "./journal-workflow";
 import { SALES_ADVANCE_TRANSITIONS } from "./sales-advance-workflow";
 import { CUSTOMER_ORDER_TRANSITIONS } from "./customer-order-workflow";
 import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
+import { DELIVERY_ORDER_TRANSITIONS } from "./delivery-order-workflow";
 import { CASH_RECEIPT_TRANSITIONS } from "./cash-bank-tx-workflow";
 
 /** How an entry is drawn: its words, its icon, and its weight. */
@@ -116,6 +117,15 @@ const SALES_ORDER_EVENTS: Record<string, AuditEventLabel> = {
   close: fromTransition(SALES_ORDER_TRANSITIONS.close, "Ditutup"),
 };
 
+/** Delivery Order: Draft → Diterbitkan → Ditutup, or Dibatalkan (P93). */
+const DELIVERY_ORDER_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Delivery Order dibuat", icon: "truck", tone: "neutral" },
+  issue: fromTransition(DELIVERY_ORDER_TRANSITIONS.issue, "Diterbitkan"),
+  cancel: fromTransition(DELIVERY_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
+  close: fromTransition(DELIVERY_ORDER_TRANSITIONS.close, "Ditutup"),
+};
+
 /** Penerimaan / Pengeluaran Kas & Bank: Draft → Posted, or Dibatalkan (P66). */
 const CASH_BANK_TX_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
@@ -183,6 +193,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   acc_journal: JOURNAL_EVENTS,
   sal_customer_order: CUSTOMER_ORDER_EVENTS,
   sal_order: SALES_ORDER_EVENTS,
+  sal_delivery_order: DELIVERY_ORDER_EVENTS,
   sal_advance: SALES_ADVANCE_EVENTS,
   fin_cash_bank_tx: CASH_BANK_TX_EVENTS,
   sys_user: USER_EVENTS,

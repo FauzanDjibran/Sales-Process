@@ -92,6 +92,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
   salCustomerOrderLine: ["src/lib/erp/customer-order.ts"],
   salOrder: ["src/lib/erp/sales-order.ts"],
   salOrderLine: ["src/lib/erp/sales-order.ts"],
+  salDeliveryOrder: ["src/lib/erp/delivery-order.ts"],
+  salDeliveryOrderLine: ["src/lib/erp/delivery-order.ts"],
   salAdvance: ["src/lib/erp/sales-advance.ts"],
   finCashBankTx: ["src/lib/erp/cash-bank-tx.ts"],
   finCashBankTxLine: ["src/lib/erp/cash-bank-tx.ts"],

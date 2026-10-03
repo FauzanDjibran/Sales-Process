@@ -13,6 +13,7 @@ import {
   type SalesOrderResult,
 } from "@/lib/erp/sales-order";
 import { SALES_ORDER_TRANSITIONS, type SalesOrderAction } from "@/lib/erp/sales-order-workflow";
+import { liveDeliveryOrderRefusal } from "@/lib/erp/delivery-order";
 
 /**
  * The Sales Order's write path. The permission is checked here; every rule is
@@ -39,6 +40,8 @@ function revalidate(id?: number) {
   if (id) revalidatePath(`/sales/order/${id}`);
   // The Customer Order's page lists the Sales Orders drawn from it.
   revalidatePath("/sales/customer-order", "layout");
+  // A Delivery Order draws on Open Sales Orders.
+  revalidatePath("/sales/delivery-order", "layout");
 }
 
 export async function createSalesOrderAction(
@@ -78,7 +81,10 @@ export async function transitionSalesOrderAction(
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
   try {
-    const result = await transitionSalesOrder(id, action, g.actor.user.id, reason);
+    // Tutup is refused while a Delivery Order drawing on the Sales Order is
+    // still running (P93); the two modules meet here, not in each other.
+    const guard = action === "close" ? liveDeliveryOrderRefusal : undefined;
+    const result = await transitionSalesOrder(id, action, g.actor.user.id, reason, guard);
     if (!result.ok) return result;
   } catch (error) {
     return { ok: false, errors: { _form: error instanceof Error ? error.message : "Gagal diproses." } };

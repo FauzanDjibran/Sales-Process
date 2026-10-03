@@ -16,6 +16,7 @@ const ROUTES: Record<string, string> = {
   sal_advance: "/finance/advance/sales",
   sal_customer_order: "/sales/customer-order",
   sal_order: "/sales/order",
+  sal_delivery_order: "/sales/delivery-order",
 };
 
 /** The page a source document is read on, or null when it has none. */

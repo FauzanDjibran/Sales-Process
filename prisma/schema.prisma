@@ -601,6 +601,9 @@ model RefWarehouse {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
+  /// The Delivery Orders that send goods out of this warehouse.
+  delivery_orders SalDeliveryOrder[]
+
   @@map("ref_warehouse")
 }
 
@@ -687,6 +690,7 @@ model MPartner {
 
   customer_orders SalCustomerOrder[]
   sales_orders    SalOrder[]
+  delivery_orders SalDeliveryOrder[]
   sales_advances  SalAdvance[]
   cash_bank_txs   FinCashBankTx[]
   ar_items        FinArItem[]
@@ -734,6 +738,7 @@ model MPartnerAddress {
   /// from the Partner (P53).
   customer_orders SalCustomerOrder[]
   sales_orders    SalOrder[]
+  delivery_orders SalDeliveryOrder[]
 
   @@index([partner_id])
   @@index([village_id])
@@ -1434,15 +1439,17 @@ model SalCustomerOrder {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  customer     MPartner               @relation(fields: [customer_id], references: [id])
-  address      MPartnerAddress        @relation(fields: [address_id], references: [id])
-  term         RefPaymentTerm         @relation(fields: [term_id], references: [id])
-  copied_from  SalCustomerOrder?      @relation("CustomerOrderCopy", fields: [copied_from_id], references: [id])
-  copies       SalCustomerOrder[]     @relation("CustomerOrderCopy")
-  lines        SalCustomerOrderLine[]
-  advances     SalAdvance[]
+  customer        MPartner               @relation(fields: [customer_id], references: [id])
+  address         MPartnerAddress        @relation(fields: [address_id], references: [id])
+  term            RefPaymentTerm         @relation(fields: [term_id], references: [id])
+  copied_from     SalCustomerOrder?      @relation("CustomerOrderCopy", fields: [copied_from_id], references: [id])
+  copies          SalCustomerOrder[]     @relation("CustomerOrderCopy")
+  lines           SalCustomerOrderLine[]
+  advances        SalAdvance[]
   /// The Sales Orders that release this order's quantity to PPIC (P79).
-  sales_orders SalOrder[]
+  sales_orders    SalOrder[]
+  /// The Delivery Orders that send this order's goods (C28).
+  delivery_orders SalDeliveryOrder[]
 
   @@index([customer_id])
   @@index([status, order_date])
@@ -1546,13 +1553,85 @@ model SalOrderLine {
   qty                    Decimal @db.Decimal(18, 4)
   note                   String?
 
-  order               SalOrder             @relation(fields: [order_id], references: [id])
-  customer_order_line SalCustomerOrderLine @relation(fields: [customer_order_line_id], references: [id])
+  order                SalOrder               @relation(fields: [order_id], references: [id])
+  customer_order_line  SalCustomerOrderLine   @relation(fields: [customer_order_line_id], references: [id])
+  delivery_order_lines SalDeliveryOrderLine[]
 
   @@unique([order_id, line_no])
   @@unique([order_id, customer_order_line_id])
   @@index([customer_order_line_id])
   @@map("sal_order_line")
+}
+
+enum DeliveryOrderStatus {
+  Draft
+  Issued
+  Closed
+  Cancelled
+}
+
+/// A Delivery Order (P93): the instruction to one warehouse to send goods of
+/// one Customer Order to one address on one date. Its header names the
+/// Customer Order; its lines are lines of that order's **Open** Sales Orders,
+/// so one Delivery Order may ship from several Sales Orders. Quantity only —
+/// no price and no tax — and it posts nothing: the Delivery Note, which the
+/// goods actually leave on, will post HPP / Persediaan (P18).
+model SalDeliveryOrder {
+  id            Int                 @id @default(autoincrement())
+  /// `DO/YYYY/MM/NNNN`, in the series of the order's own month.
+  do_no         String              @unique
+  do_date       DateTime            @db.Date
+  /// When the goods are to leave the warehouse.
+  delivery_date DateTime            @db.Date
+  status        DeliveryOrderStatus @default(Draft)
+
+  /// The one Customer Order it ships from, chosen once and locked.
+  customer_order_id Int
+  /// The order's customer, kept here so a list reads without a join.
+  customer_id       Int
+  /// The warehouse the goods leave from — one per Delivery Order.
+  warehouse_id      Int
+  /// Where the goods go: any of the customer's addresses.
+  address_id        Int
+  note              String?
+
+  /// Why it was cancelled or closed by hand.
+  status_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  customer_order SalCustomerOrder       @relation(fields: [customer_order_id], references: [id])
+  customer       MPartner               @relation(fields: [customer_id], references: [id])
+  warehouse      RefWarehouse           @relation(fields: [warehouse_id], references: [id])
+  address        MPartnerAddress        @relation(fields: [address_id], references: [id])
+  lines          SalDeliveryOrderLine[]
+
+  @@index([customer_order_id])
+  @@index([status, delivery_date])
+  @@map("sal_delivery_order")
+}
+
+/// One line of a Delivery Order: a quantity of one Sales Order line, in that
+/// line's unit. The Delivery Orders on a Sales Order line never hold more than
+/// the line.
+model SalDeliveryOrderLine {
+  id                  Int     @id @default(autoincrement())
+  delivery_order_id   Int
+  line_no             Int
+  sales_order_line_id Int
+  qty                 Decimal @db.Decimal(18, 4)
+  note                String?
+
+  delivery_order   SalDeliveryOrder @relation(fields: [delivery_order_id], references: [id])
+  sales_order_line SalOrderLine     @relation(fields: [sales_order_line_id], references: [id])
+
+  @@unique([delivery_order_id, line_no])
+  @@unique([delivery_order_id, sales_order_line_id])
+  @@index([sales_order_line_id])
+  @@map("sal_delivery_order_line")
 }
 
 /// An AR advance bill — Uang Muka Penjualan (P54–P58). A bill, not a

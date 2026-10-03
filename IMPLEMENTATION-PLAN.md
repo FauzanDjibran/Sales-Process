@@ -186,6 +186,15 @@ the quantity back. The Customer Order shows its schedule and cannot be
 closed while a Sales Order is running. Next, as instructed: the Delivery Order
 and Delivery Note (C28); purchasing and production will read Pra-SO / Open.
 
+**Delivery Order — done 03/10/2026** (P93): Sales › Delivery Order, `DO/…`,
+the instruction to one warehouse to send goods of one Customer Order to one
+address; its lines are picked from that order's Open Sales Orders and never
+hold more than a Sales Order line in total. Draft → Diterbitkan → Ditutup,
+Batalkan from Draft; no approval; posts nothing. The Sales Order shows what it
+has instructed (*Perintah Kirim*) and cannot be closed while a Delivery Order
+on it is running. Next: the Delivery Note (C28), which posts HPP / Persediaan
+at the placeholder cost (P18).
+
 Built one step at a time, **in the order the user gives**. For each step:
 
 1. Re-read the simulation's step (screens, lifecycle, arithmetic, journal) and
@@ -210,7 +219,7 @@ instruction decides:
 | 3.2 | Uang Muka Penjualan | nothing |
 | 3.3 | Penerimaan Kas & Bank — Uang Muka (done); Penerimaan / Pengeluaran lain-lain | Cash Bank Book, journal |
 | 3.4 | Faktur Pajak Keluaran (uang muka) and Bukti Potong PPh | nothing — tax documents |
-| 3.5 | Surat Jalan | HPP / Persediaan at placeholder cost (P18) |
+| 3.5 | Delivery Order (done, P93), then Delivery Note — replacing the Surat Jalan (C28) | Delivery Note: HPP / Persediaan at placeholder cost (P18) |
 | 3.6 | Faktur Penjualan with advance deduction; faktur pelunasan / normal | journal, faktur |
 | 3.7 | Pembayaran — Faktur Penjualan (withholding and WAPU by rule) | Cash Bank Book, journal, bukti potong |
 | 3.8 | Pengembalian Uang Muka, Faktur Pengganti / Pembatalan, Perlu Pembetulan | Cash Bank Book, journal, tax corrections |

@@ -31,6 +31,12 @@ migration updates this file in the same change (Claude-ERP.md §9).
   (`customer_order_line_id`, once per order) and reads its item and unit
   there. Life: Draft → Submitted → PreSO (Pra-SO) → Open → Closed, with
   Cancelled and Rejected final. Posts nothing; not an AR item.
+- `sal_delivery_order` and `sal_delivery_order_line` (P93) — the Delivery
+  Order, `DO/…`: the instruction to one warehouse (`warehouse_id`) to send
+  goods of one Customer Order to one address on one date. Each line takes a
+  quantity of one line of that order's Open Sales Orders
+  (`sales_order_line_id`, once per Delivery Order). Life: Draft → Issued →
+  Closed, with Cancelled final. Posts nothing; the Delivery Note will.
 - `sal_advance` (P54–P58) — the AR advance bill, drawn from one Open
   Customer Order (`customer_order_id`) and numbered `ARA/…`. It posts nothing
   and stores no paid or used amount; that is left to the open items (C22).
@@ -144,6 +150,13 @@ Enum SalesOrderStatus {
   Closed
   Cancelled
   Rejected
+}
+
+Enum DeliveryOrderStatus {
+  Draft
+  Issued
+  Closed
+  Cancelled
 }
 
 Enum DiscountType {
@@ -908,6 +921,44 @@ Table sal_order_line {
   }
 }
 
+Table sal_delivery_order {
+  id int [pk, increment, not null]
+  do_no varchar [unique, not null, note: 'DO/YYYY/MM/NNNN']
+  do_date date [not null]
+  delivery_date date [not null, note: 'when the goods are to leave']
+  status DeliveryOrderStatus [not null, default: 'Draft']
+  customer_order_id int [not null]
+  customer_id int [not null, note: 'the Customer Order customer, for the list']
+  warehouse_id int [not null, note: 'the one warehouse the goods leave from']
+  address_id int [not null, note: 'any of the customer addresses; starts on the first Sales Order picked']
+  note varchar [null]
+  status_reason varchar [null]
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    customer_order_id
+    (status, delivery_date)
+  }
+}
+
+Table sal_delivery_order_line {
+  id int [pk, increment, not null]
+  delivery_order_id int [not null]
+  line_no int [not null]
+  sales_order_line_id int [not null, note: 'a line of an Open Sales Order of the same Customer Order']
+  qty decimal(18, 4) [not null]
+  note varchar [null]
+
+  indexes {
+    (delivery_order_id, line_no) [unique]
+    (delivery_order_id, sales_order_line_id) [unique]
+    sales_order_line_id
+  }
+}
+
 Table sal_advance {
   id int [pk, increment, not null]
   advance_no varchar [unique, not null]
@@ -998,6 +1049,12 @@ Ref: sal_order.customer_id > m_partner.id
 Ref: sal_order.address_id > m_partner_address.id
 Ref: sal_order_line.order_id > sal_order.id
 Ref: sal_order_line.customer_order_line_id > sal_customer_order_line.id
+Ref: sal_delivery_order.customer_order_id > sal_customer_order.id
+Ref: sal_delivery_order.customer_id > m_partner.id
+Ref: sal_delivery_order.warehouse_id > ref_warehouse.id
+Ref: sal_delivery_order.address_id > m_partner_address.id
+Ref: sal_delivery_order_line.delivery_order_id > sal_delivery_order.id
+Ref: sal_delivery_order_line.sales_order_line_id > sal_order_line.id
 Ref: sal_advance.customer_id > m_partner.id
 Ref: sal_advance.cash_bank_id > m_cash_bank.id
 

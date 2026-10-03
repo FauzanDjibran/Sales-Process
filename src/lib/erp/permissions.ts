@@ -115,7 +115,13 @@ export const PERMISSIONS = [
   { code: "SALES_ORDER_APPROVE", name: "Setujui / Tolak Sales Order", module: "sales", description: "Menjadikan Sales Order yang diajukan Pra-SO, atau menolaknya dengan alasan." },
   { code: "SALES_ORDER_CONFIRM", name: "Konfirmasi Sales Order", module: "sales", description: "Menjadikan Pra-SO Open, sehingga dapat menjadi dasar produksi." },
   { code: "SALES_ORDER_CANCEL", name: "Batalkan Sales Order", module: "sales", description: "Hanya Draft, dengan alasan." },
-  { code: "SALES_ORDER_CLOSE", name: "Tutup Sales Order", module: "sales", description: "Menutup Pra-SO atau Open dengan alasan." },
+  { code: "SALES_ORDER_CLOSE", name: "Tutup Sales Order", module: "sales", description: "Menutup Pra-SO atau Open dengan alasan, bila tidak ada Delivery Order yang masih berjalan." },
+  { code: "DELIVERY_ORDER_VIEW", name: "Lihat Delivery Order", module: "sales", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "DELIVERY_ORDER_CREATE", name: "Buat Delivery Order", module: "sales", description: "Membuat Draft dari Sales Order berstatus Open." },
+  { code: "DELIVERY_ORDER_EDIT", name: "Ubah Delivery Order", module: "sales", description: "Hanya selama masih Draft." },
+  { code: "DELIVERY_ORDER_ISSUE", name: "Terbitkan Delivery Order", module: "sales", description: "Mengunci Draft dan mengirimnya ke gudang sebagai perintah kirim." },
+  { code: "DELIVERY_ORDER_CANCEL", name: "Batalkan Delivery Order", module: "sales", description: "Hanya Draft, dengan alasan." },
+  { code: "DELIVERY_ORDER_CLOSE", name: "Tutup Delivery Order", module: "sales", description: "Menutup Delivery Order yang sudah diterbitkan, dengan alasan." },
 
   { code: "MENU_ACCOUNTING_ACCESS", name: "Akses menu Accounting", module: "accounting" },
 

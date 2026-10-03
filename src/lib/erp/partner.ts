@@ -187,7 +187,14 @@ export async function checkPartnerCollections(
     ? new Set(
         (
           await prisma.mPartnerAddress.findMany({
-            where: { partner_id: partnerId, customer_orders: { some: {} } },
+            where: {
+              partner_id: partnerId,
+              OR: [
+                { customer_orders: { some: {} } },
+                { sales_orders: { some: {} } },
+                { delivery_orders: { some: {} } },
+              ],
+            },
             select: { id: true },
           })
         ).map((a) => a.id)

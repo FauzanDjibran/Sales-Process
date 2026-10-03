@@ -123,6 +123,9 @@ const DOC_TYPES: [label: string, table: string][] = [
   // The Customer Order's child that releases quantity to PPIC (P79); the
   // Delivery Order will name it line by line (C28).
   ["Sales Order", "sal_order"],
+  // The warehouse instruction drawn from Open Sales Orders (P93); the Delivery
+  // Note will name it.
+  ["Delivery Order", "sal_delivery_order"],
 ];
 
 /**
