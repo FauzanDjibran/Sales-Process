@@ -759,3 +759,35 @@ initialization is asked about before it is carried.
 - Keep §1.5 and §17 accurate. No session narration or task history here.
 - Never silently remove or overwrite an established decision; surface the
   conflict first.
+
+---
+
+## 20. Shared Knowledge Base
+
+This project adopts concepts from the central knowledge base at
+`D:\Claude Code\Knowledge-Base`, governed by its `PROTOCOL.md`. **What is
+adopted, at which version and with which choices, is listed in `KNOWLEDGE.md`**
+at the root of this repository.
+
+- **Check at the start of substantial work.** Run
+  `node "D:/Claude Code/Knowledge-Base/tools/kb-check.mjs" ERP-Project`.
+  If it reports anything other than `ok`, tell the user what changed before
+  starting (PROTOCOL §5).
+- **Deviation check: never deviate silently.** Before recording a decision or
+  writing code that contradicts an adopted concept, or the choice recorded for
+  it, **stop**:
+  1. Quote the rule.
+  2. State the deviation.
+  3. Make the honest case for the existing rule.
+  4. Ask the user to choose: **A** follow the concept, **B** improve it for
+     every project, **C** create a second concept (option or variant), or
+     **D** keep a local exception.
+
+  For **C**, confirm once more that a second concept is really wanted. Build
+  nothing on it until answered (PROTOCOL §4).
+- **Harvest.** When a decision recorded here would hold in another project,
+  add it to `KNOWLEDGE.md` → *Harvest queue* and offer to fold it into the
+  knowledge base (PROTOCOL §3).
+- **Edit the KB from here through the protocol only.** Each change needs a
+  version bump, a changelog line, a `REGISTRY.md` update, and this project's
+  adoption row brought up to date.
