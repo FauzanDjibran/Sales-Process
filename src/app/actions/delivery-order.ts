@@ -13,6 +13,7 @@ import {
   type DeliveryOrderResult,
 } from "@/lib/erp/delivery-order";
 import { DELIVERY_ORDER_TRANSITIONS, type DeliveryOrderAction } from "@/lib/erp/delivery-order-workflow";
+import { liveDeliveryNoteRefusal } from "@/lib/erp/delivery-note";
 
 /**
  * The Delivery Order's write path. The permission is checked here; every rule
@@ -39,6 +40,8 @@ function revalidate(id?: number) {
   if (id) revalidatePath(`/sales/delivery-order/${id}`);
   // The Sales Order's page lists the Delivery Orders drawing on it.
   revalidatePath("/sales/order", "layout");
+  // A Delivery Note draws on issued Delivery Orders.
+  revalidatePath("/sales/delivery-note", "layout");
 }
 
 export async function createDeliveryOrderAction(
@@ -78,7 +81,10 @@ export async function transitionDeliveryOrderAction(
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
   try {
-    const result = await transitionDeliveryOrder(id, action, g.actor.user.id, reason);
+    // Tutup is refused while a Delivery Note on the order is still Draft; the
+    // two modules meet here, not in each other.
+    const guard = action === "close" ? liveDeliveryNoteRefusal : undefined;
+    const result = await transitionDeliveryOrder(id, action, g.actor.user.id, reason, guard);
     if (!result.ok) return result;
   } catch (error) {
     return { ok: false, errors: { _form: error instanceof Error ? error.message : "Gagal diproses." } };

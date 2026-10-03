@@ -32,6 +32,8 @@ export type SystemDefaultKey =
   | "sales_advance_account"
   | "output_vat_account"
   | "bank_charge_account"
+  | "cogs_account"
+  | "inventory_account"
   | "ppn_rate"
   | "ppn_dpp_other_numerator"
   | "ppn_dpp_other_denominator";
@@ -42,7 +44,7 @@ export type SystemDefaultRef = "acc_account";
 /** The page a setting is edited on. */
 export type SettingsPage = "default" | "account";
 
-export type SystemDefaultGroupKey = "application" | "tax" | "receipt" | "fx" | "equity_pl";
+export type SystemDefaultGroupKey = "application" | "tax" | "receipt" | "delivery" | "fx" | "equity_pl";
 
 export type SystemDefaultGroup = {
   key: SystemDefaultGroupKey;
@@ -83,6 +85,16 @@ export const SYSTEM_DEFAULT_GROUPS = [
       "yang dipotong bank. PPh yang dipotong customer memakai account pada " +
       "setiap Jenis PPh.",
     icon: "down",
+  },
+  {
+    key: "delivery",
+    page: "account",
+    name: "Pengiriman Barang",
+    desc:
+      "Account yang dipakai saat Delivery Note diposting: harga pokok barang " +
+      "yang keluar dibebankan ke HPP dan mengurangi Persediaan. Berlaku untuk " +
+      "semua barang sampai pemetaan per Kategori Item dibuat.",
+    icon: "truck",
   },
   {
     key: "fx",
@@ -206,6 +218,29 @@ export const SYSTEM_DEFAULTS = [
     help: "biaya transfer yang dipotong bank",
   },
 
+  // ------------------------------------------------------------ delivery
+  //
+  // Added with the Delivery Note (U12), one each for the company until the
+  // Kategori Item mapping (C25) names them per category.
+  {
+    key: "cogs_account",
+    name: "Account HPP",
+    icon: "trend",
+    type: "ref",
+    ref: "acc_account",
+    group: "delivery",
+    help: "harga pokok barang yang dikirim",
+  },
+  {
+    key: "inventory_account",
+    name: "Account Persediaan",
+    icon: "box",
+    type: "ref",
+    ref: "acc_account",
+    group: "delivery",
+    help: "persediaan barang yang berkurang saat dikirim",
+  },
+
   // ------------------------------------------------------------------ fx
   //
   // One account rather than a gain and a loss. A gain and a loss are the same
@@ -261,6 +296,8 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   sales_advance_account: null,
   output_vat_account: null,
   bank_charge_account: null,
+  cogs_account: null,
+  inventory_account: null,
   ppn_rate: null,
   ppn_dpp_other_numerator: null,
   ppn_dpp_other_denominator: null,

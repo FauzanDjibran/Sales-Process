@@ -75,22 +75,33 @@ const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 /**
  * What the Sales Orders already hold of each Customer Order line — every order
  * but a cancelled or rejected one, and but `exceptOrderId`, the one being
- * saved. A closed order keeps its quantity until delivery says otherwise.
+ * saved. A running order holds its whole quantity; a **closed** one only what
+ * was delivered of it (U14), so closing an order releases the rest.
  */
 async function heldByLines(db: Db, lineIds: number[], exceptOrderId: number | null): Promise<Map<number, number>> {
   if (!lineIds.length) return new Map();
-  const rows = await db.salOrderLine.groupBy({
-    by: ["customer_order_line_id"],
-    where: {
-      customer_order_line_id: { in: lineIds },
-      order: {
-        status: { in: SALES_ORDER_HOLDS_QTY },
-        ...(exceptOrderId ? { id: { not: exceptOrderId } } : {}),
+  const except = exceptOrderId ? { id: { not: exceptOrderId } } : {};
+  const [running, closed] = await Promise.all([
+    db.salOrderLine.groupBy({
+      by: ["customer_order_line_id"],
+      where: {
+        customer_order_line_id: { in: lineIds },
+        order: { status: { in: SALES_ORDER_HOLDS_QTY.filter((st) => st !== "Closed") }, ...except },
       },
-    },
-    _sum: { qty: true },
-  });
-  return new Map(rows.map((r) => [r.customer_order_line_id, r._sum?.qty?.toNumber() ?? 0]));
+      _sum: { qty: true },
+    }),
+    db.salOrderLine.groupBy({
+      by: ["customer_order_line_id"],
+      where: { customer_order_line_id: { in: lineIds }, order: { status: "Closed", ...except } },
+      _sum: { delivered_qty: true },
+    }),
+  ]);
+  const out = new Map<number, number>();
+  for (const r of running) out.set(r.customer_order_line_id, r._sum?.qty?.toNumber() ?? 0);
+  for (const r of closed) {
+    out.set(r.customer_order_line_id, (out.get(r.customer_order_line_id) ?? 0) + (r._sum?.delivered_qty?.toNumber() ?? 0));
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- options
@@ -590,10 +601,14 @@ export type DeliverySourceLine = {
   salesOrderNo: string;
   salesOrderStatus: SalesOrderStatus;
   deliveryDate: string;
+  itemId: number;
   itemLabel: string;
   itemName: string;
   uomLabel: string;
+  uomFactor: number;
   qty: number;
+  /** What posted Delivery Notes sent of this Sales Order line. */
+  delivered: number;
 };
 
 export type DeliverySource = Omit<SalesOrderSource, "lines"> & {
@@ -654,14 +669,52 @@ export async function deliveryOrderSources(
             salesOrderNo: o.order_no,
             salesOrderStatus: o.status as SalesOrderStatus,
             deliveryDate: isoDay(o.delivery_date),
+            itemId: c?.itemId ?? 0,
             itemLabel: c?.itemLabel ?? "",
             itemName: c?.itemName ?? "",
             uomLabel: c?.uomLabel ?? "",
+            uomFactor: c?.uomFactor ?? 1,
             qty: l.qty.toNumber(),
+            delivered: l.delivered_qty.toNumber(),
           };
         })
       ),
     });
   }
   return out;
+}
+
+/**
+ * Records what a posted Delivery Note sent of these Sales Order lines (U14),
+ * then closes every Open Sales Order whose lines are now all delivered — closed
+ * because fulfilled, so with no reason. Called inside the note's posting
+ * transaction, under the Customer Order's lock, through the Delivery Order
+ * module; returns the numbers of the orders it closed.
+ */
+export async function recordSalesOrderDelivery(
+  tx: Prisma.TransactionClient,
+  sent: Map<number, number>,
+  actorId: number
+): Promise<string[]> {
+  if (!sent.size) return [];
+  for (const [lineId, qty] of sent) {
+    await tx.salOrderLine.update({ where: { id: lineId }, data: { delivered_qty: { increment: qty } } });
+  }
+  const orders = await tx.salOrder.findMany({
+    where: { status: "Open", lines: { some: { id: { in: [...sent.keys()] } } } },
+    include: { lines: true },
+  });
+  const closed: string[] = [];
+  for (const o of orders) {
+    if (!o.lines.every((l) => units(l.delivered_qty.toNumber()) >= units(l.qty.toNumber()))) continue;
+    const done = await tx.salOrder.updateMany({
+      where: { id: o.id, status: "Open" },
+      data: { status: "Closed", status_reason: null, updated_by: actorId },
+    });
+    if (done.count === 1) {
+      await audit(tx, o.id, "UPDATE", "fulfil", actorId);
+      closed.push(o.order_no);
+    }
+  }
+  return closed;
 }

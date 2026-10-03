@@ -195,6 +195,16 @@ has instructed (*Perintah Kirim*) and cannot be closed while a Delivery Order
 on it is running. Next: the Delivery Note (C28), which posts HPP / Persediaan
 at the placeholder cost (P18).
 
+**Delivery Note — done 03/10/2026** (P94): Sales › Delivery Note, `SJ/…`, from
+one issued Delivery Order; Draft → Posting → Posted, Batalkan from Draft.
+Posting issues the goods through the stand-in inventory (`lib/erp/inventory.ts`
+over the temporary `tmp_item_cost` / `tmp_stock_movement`, kept in Master ›
+Sementara › Harga Pokok (Sementara)) and writes Dr HPP / Cr Persediaan from
+Account Mapping — no Piutang. Delivered quantity is recorded on the Delivery
+Order and Sales Order lines, which close themselves once fully delivered;
+closing one by hand releases what never left. Next: the Faktur Penjualan,
+taking Delivery Note lines whole.
+
 Built one step at a time, **in the order the user gives**. For each step:
 
 1. Re-read the simulation's step (screens, lifecycle, arithmetic, journal) and
@@ -219,7 +229,7 @@ instruction decides:
 | 3.2 | Uang Muka Penjualan | nothing |
 | 3.3 | Penerimaan Kas & Bank — Uang Muka (done); Penerimaan / Pengeluaran lain-lain | Cash Bank Book, journal |
 | 3.4 | Faktur Pajak Keluaran (uang muka) and Bukti Potong PPh | nothing — tax documents |
-| 3.5 | Delivery Order (done, P93), then Delivery Note — replacing the Surat Jalan (C28) | Delivery Note: HPP / Persediaan at placeholder cost (P18) |
+| 3.5 | Delivery Order (done, P93) and Delivery Note (done, P94) — replacing the Surat Jalan | Delivery Note: HPP / Persediaan at the stand-in's Harga Pokok |
 | 3.6 | Faktur Penjualan with advance deduction; faktur pelunasan / normal | journal, faktur |
 | 3.7 | Pembayaran — Faktur Penjualan (withholding and WAPU by rule) | Cash Bank Book, journal, bukti potong |
 | 3.8 | Pengembalian Uang Muka, Faktur Pengganti / Pembatalan, Perlu Pembetulan | Cash Bank Book, journal, tax corrections |

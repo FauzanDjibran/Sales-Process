@@ -94,6 +94,9 @@ describe("the settings catalogue lives in code", () => {
         "sales_advance_account",
         "output_vat_account",
         "bank_charge_account",
+        // The Delivery Note's (U12).
+        "cogs_account",
+        "inventory_account",
         "fx_account",
         "accumulated_pl_account",
         "current_pl_account",

@@ -12,8 +12,8 @@
  *
  * Batalkan is for a Draft and Tolak for a submitted order — once approved,
  * purchasing may already lean on it, so it is closed rather than cancelled.
- * Closing is by hand, with a reason; the delivery documents will close an
- * order themselves once everything is delivered (C28). A Sales Order posts
+ * Closing by hand takes a reason; a posted Delivery Note closes an Open
+ * order itself once every line is delivered (U14). A Sales Order posts
  * nothing at any step.
  *
  * Client-safe on purpose — no `server-only`, no database import.
@@ -127,8 +127,9 @@ export const SALES_ORDER_TRANSITIONS: Record<SalesOrderAction, SalesOrderTransit
     tone: "neutral",
     title: "Tutup Sales Order",
     body:
-      "Sales Order ditutup dan tidak dapat dipakai lagi. Jumlahnya tetap " +
-      "tercatat sebagai bagian Customer Order yang sudah dijadwalkan. Status ini final.",
+      "Sales Order ditutup dan tidak dapat dipakai lagi. Hanya jumlah yang sudah " +
+      "terkirim yang tetap tercatat pada Customer Order; sisanya kembali menjadi " +
+      "sisa Customer Order. Status ini final.",
     confirmLabel: "Ya, Tutup",
     reason: "Mengapa Sales Order ini ditutup…",
     done: "Sales Order ditutup",
@@ -146,8 +147,8 @@ export function salesOrderIsEditable(status: SalesOrderStatus): boolean {
 
 /**
  * The statuses whose quantity is taken from the Customer Order. A cancelled or
- * rejected order gives its quantity back; a closed one keeps it until the
- * delivery documents say what was really delivered (C28).
+ * rejected order gives its quantity back; a closed one holds only what was
+ * delivered of it (U14).
  */
 export const SALES_ORDER_HOLDS_QTY: SalesOrderStatus[] = ["Draft", "Submitted", "PreSO", "Open", "Closed"];
 

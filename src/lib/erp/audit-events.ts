@@ -27,6 +27,7 @@ import { SALES_ADVANCE_TRANSITIONS } from "./sales-advance-workflow";
 import { CUSTOMER_ORDER_TRANSITIONS } from "./customer-order-workflow";
 import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
 import { DELIVERY_ORDER_TRANSITIONS } from "./delivery-order-workflow";
+import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
 import { CASH_RECEIPT_TRANSITIONS } from "./cash-bank-tx-workflow";
 
 /** How an entry is drawn: its words, its icon, and its weight. */
@@ -115,6 +116,7 @@ const SALES_ORDER_EVENTS: Record<string, AuditEventLabel> = {
   confirm: fromTransition(SALES_ORDER_TRANSITIONS.confirm, "Dikonfirmasi — Open"),
   cancel: fromTransition(SALES_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
   close: fromTransition(SALES_ORDER_TRANSITIONS.close, "Ditutup"),
+  fulfil: { label: "Ditutup — seluruhnya terkirim", icon: "truck", tone: "primary", systemDriven: true },
 };
 
 /** Delivery Order: Draft → Diterbitkan → Ditutup, or Dibatalkan (P93). */
@@ -124,6 +126,15 @@ const DELIVERY_ORDER_EVENTS: Record<string, AuditEventLabel> = {
   issue: fromTransition(DELIVERY_ORDER_TRANSITIONS.issue, "Diterbitkan"),
   cancel: fromTransition(DELIVERY_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
   close: fromTransition(DELIVERY_ORDER_TRANSITIONS.close, "Ditutup"),
+  fulfil: { label: "Ditutup — seluruhnya terkirim", icon: "truck", tone: "primary", systemDriven: true },
+};
+
+/** Delivery Note: Draft → Diposting, or Dibatalkan (C28). */
+const DELIVERY_NOTE_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Delivery Note dibuat", icon: "truck", tone: "neutral" },
+  post: fromTransition(DELIVERY_NOTE_TRANSITIONS.post, "Diposting — barang keluar"),
+  cancel: fromTransition(DELIVERY_NOTE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
 /** Penerimaan / Pengeluaran Kas & Bank: Draft → Posted, or Dibatalkan (P66). */
@@ -194,6 +205,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   sal_customer_order: CUSTOMER_ORDER_EVENTS,
   sal_order: SALES_ORDER_EVENTS,
   sal_delivery_order: DELIVERY_ORDER_EVENTS,
+  sal_delivery_note: DELIVERY_NOTE_EVENTS,
   sal_advance: SALES_ADVANCE_EVENTS,
   fin_cash_bank_tx: CASH_BANK_TX_EVENTS,
   sys_user: USER_EVENTS,

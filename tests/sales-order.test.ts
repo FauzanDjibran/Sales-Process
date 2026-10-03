@@ -270,7 +270,9 @@ describe("Draft → Diajukan → Pra-SO → Open → Ditutup (P79)", () => {
     assert.equal((await getSalesOrder(first))!.status, "Open");
     assert.deepEqual(await transitionSalesOrder(first, "close", actor), { ok: false, errors: { reason: "Alasan wajib diisi." } });
     assert.deepEqual(await transitionSalesOrder(first, "close", actor, "terkirim"), { ok: true });
-    assert.deepEqual((await customerOrderSchedule(co.id)).lines.map((l) => l.held), [4_000, 0], "a closed order keeps its quantity");
+    // Closed by hand with nothing delivered, it holds only what was delivered —
+    // none — and its 2.000 goes back to the Customer Order (U14).
+    assert.deepEqual((await customerOrderSchedule(co.id)).lines.map((l) => l.held), [2_000, 0], "a closed order releases what was not delivered");
   });
 
   test("a Pra-SO may be closed without being confirmed", async () => {

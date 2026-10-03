@@ -89,7 +89,8 @@ Three lanes, never mixed:
 | Customer Order | `CO/YYYY/MM/NNNN` | Sales › Customer Order | `sal_customer_order`, `_line` | No | No | [Built] |
 | Sales Order | `SO/YYYY/MM/NNNN` | Sales › Sales Order | `sal_order`, `_line` | No | No | [Built] |
 | Delivery Order | `DO/YYYY/MM/NNNN` | Sales › Delivery Order | `sal_delivery_order`, `_line` | No | No | [Built] |
-| Delivery Note | not decided | Sales | not decided | HPP / Persediaan | No | [Planned] (C28) |
+| Delivery Note | `SJ/YYYY/MM/NNNN` | Sales › Delivery Note | `sal_delivery_note`, `_line` | HPP / Persediaan | No | [Built] (P94) |
+| Harga Pokok (Sementara) | — | Master › Sementara | `tmp_item_cost`, `tmp_stock_movement` (temporary) | No | No | [Built] stand-in (U11) |
 | Uang Muka Penjualan (bill) | `ARA/YYYY/MM/NNNN` | Finance › Uang Muka | `sal_advance` | No | No | [Built] |
 | Penerimaan Kas & Bank | `BKM/YYYY/MM/NNNN` | Finance › Kas & Bank › Penerimaan | `fin_cash_bank_tx`, `_line`, `_line_wht` | Yes, at Post | No | [Built] |
 | AR item + Buku Piutang | `ARI/YYYY/MM/NNNN` | (no menu; seen in reports) | `fin_ar_item`, `fin_ar_ledger` | Never | **Yes** | [Built], revised shape [Agreed, not built] |
@@ -331,7 +332,7 @@ Order line).
 
 ---
 
-### 5.8 Delivery Note — the goods leave  [Agreed, not built] (C28, U11–U14)
+### 5.8 Delivery Note — the goods leave  [Built] (P94; C28, U11–U14)
 
 The document the goods **actually leave on**. It is made from **one issued
 Delivery Order**, takes items out of the Delivery Order's warehouse, and is the
@@ -410,6 +411,12 @@ Draft ──Posting──► Posted (final; corrected later by a return, never e
 5. If every line of the Delivery Order is fully delivered, the Delivery Order
    closes itself (fulfilled, no reason); likewise each Sales Order whose lines
    are all fully delivered.
+
+**Delivered quantity is stored on the order lines** (`delivered_qty` on Sales
+Order and Delivery Order lines), written by Posting through each module's own
+function — a module never reads the Delivery Note's tables, so the order line
+carries "qty delivered" as mainstream ERPs do. It is what the closing rule
+below reads.
 
 **After posting** — shown, never stored: per line **Belum Ditagih / Ditagih**,
 per note **Belum Ditagih / Sebagian / Ditagih**, read from the Faktur lines that
@@ -984,7 +991,8 @@ Muka, the receipt from its Terbentuk entry [Agreed, not built].
 | Pengembalian Uang Muka (refund) | [Planned] Pengeluaran purpose |
 | Closing a bill / invoice remainder by its owner (write-off) | [Planned] with the close action |
 | *Penerimaan Belum Teridentifikasi* and how it is cleared | [Planned]; clearing is open (C31) |
-| Delivery Note; a closed Sales Order / Delivery Order releasing undelivered quantity; auto-closing CO, SO and DO when delivered | [Planned] (C28). The Delivery Order is built (P93) |
+| Delivery Note, closing SO / DO when delivered, releasing undelivered quantity on a hand-closed SO / DO | [Built] (P94) |
+| Auto-closing the Customer Order once delivered (and invoiced) | With the Faktur |
 | Printing the advance bill | Needs Company Setting and bank account details |
 | Multi-currency columns and behaviour | Later (U6) |
 | Whether manual revaluation includes Uang Muka items | **Open** (recommended: no) |

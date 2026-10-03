@@ -1,26 +1,26 @@
 import Link from "next/link";
 import { Icon } from "@/components/icon";
-import type { SalesOrderDeliveries } from "@/lib/erp/delivery-order";
-import { DELIVERY_ORDER_STATUS_BADGE, DELIVERY_ORDER_STATUS_TEXT } from "@/lib/erp/delivery-order-workflow";
+import type { DeliveryOrderNotes } from "@/lib/erp/delivery-note";
+import { DELIVERY_NOTE_STATUS_BADGE, DELIVERY_NOTE_STATUS_TEXT } from "@/lib/erp/delivery-note-workflow";
 import { formatDate, formatNumber } from "@/lib/format";
 
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 
 /**
- * How much of a Sales Order has been instructed to the warehouse (P93): per
- * line, what the Delivery Orders hold and what is left, then the Delivery
- * Orders themselves by ship date, each a link. The quantities are the Sales
- * Order's own state — how far it is instructed — not another document's figures.
+ * How much of a Delivery Order has left the warehouse (C28): per line, what the
+ * Delivery Notes sent or reserved and what is left, then the notes themselves
+ * by date, each a link. The quantities are the Delivery Order's own state — how
+ * far it is shipped — not another document's figures.
  */
-export function SalesOrderDeliveriesCard({
-  salesOrderId,
+export function DeliveryOrderNotesCard({
+  deliveryOrderId,
   deliveries,
   canCreate,
   open,
 }: {
-  salesOrderId: number;
-  deliveries: SalesOrderDeliveries;
-  /** May this user make a Delivery Order, and is the Sales Order Open? */
+  deliveryOrderId: number;
+  deliveries: DeliveryOrderNotes;
+  /** May this user make a Delivery Note, and is the Delivery Order issued? */
   canCreate: boolean;
   open: boolean;
 }) {
@@ -32,15 +32,12 @@ export function SalesOrderDeliveriesCard({
           <Icon name="truck" size={15} />
         </span>
         <div className="ct">
-          <h3>Perintah Kirim</h3>
-          <p>
-            Bagian Sales Order yang sudah diperintahkan ke gudang, dan yang sudah keluar dengan Delivery Note. Delivery Order
-            yang dibatalkan tidak dihitung; yang ditutup hanya menghitung yang sudah terkirim.
-          </p>
+          <h3>Pengiriman</h3>
+          <p>Barang yang sudah keluar dengan Delivery Note, atau disiapkan oleh Delivery Note Draft. Yang dibatalkan tidak dihitung.</p>
         </div>
         {canCreate && open && anyLeft && (
-          <Link className="btn sm primary" href={`/sales/delivery-order/new?so=${salesOrderId}`}>
-            <Icon name="plus" size={14} /> Delivery Order Baru
+          <Link className="btn sm primary" href={`/sales/delivery-note/new?do=${deliveryOrderId}`}>
+            <Icon name="plus" size={14} /> Delivery Note Baru
           </Link>
         )}
       </div>
@@ -51,13 +48,10 @@ export function SalesOrderDeliveriesCard({
               <th style={{ minWidth: 240 }}>Barang</th>
               <th style={{ width: 90 }}>Satuan</th>
               <th className="num" style={{ width: 130 }}>
-                Qty SO
+                Qty DO
               </th>
               <th className="num" style={{ width: 130 }}>
-                Di-DO
-              </th>
-              <th className="num" style={{ width: 130 }}>
-                Terkirim
+                Dikirim
               </th>
               <th className="num" style={{ width: 130 }}>
                 Sisa
@@ -83,13 +77,10 @@ export function SalesOrderDeliveriesCard({
                   {l.held ? <span className="mny">{qtyText(l.held)}</span> : <span className="dash">—</span>}
                 </td>
                 <td className="num">
-                  {l.delivered ? <span className="mny">{qtyText(l.delivered)}</span> : <span className="dash">—</span>}
-                </td>
-                <td className="num">
                   {l.qty - l.held > 0 ? (
                     <span className="mny">{qtyText(l.qty - l.held)}</span>
                   ) : (
-                    <span className="bdg s-ok">Diperintahkan</span>
+                    <span className="bdg s-ok">Terkirim</span>
                   )}
                 </td>
               </tr>
@@ -97,30 +88,28 @@ export function SalesOrderDeliveriesCard({
           </tbody>
         </table>
       </div>
-      {deliveries.orders.length ? (
+      {deliveries.notes.length ? (
         <div className="tw">
           <table className="grid">
             <thead>
               <tr>
-                <th style={{ width: 170 }}>Delivery Order</th>
+                <th style={{ width: 170 }}>Delivery Note</th>
                 <th style={{ width: 120 }}>Status</th>
-                <th style={{ width: 120 }}>Tanggal DO</th>
                 <th>Tanggal Kirim</th>
               </tr>
             </thead>
             <tbody>
-              {deliveries.orders.map((o) => (
+              {deliveries.notes.map((o) => (
                 <tr key={o.id} style={{ cursor: "default" }}>
                   <td>
-                    <Link className="lab" href={`/sales/delivery-order/${o.id}`}>
-                      {o.doNo}
+                    <Link className="lab" href={`/sales/delivery-note/${o.id}`}>
+                      {o.dnNo}
                     </Link>
                   </td>
                   <td>
-                    <span className={`bdg ${DELIVERY_ORDER_STATUS_BADGE[o.status]}`}>{DELIVERY_ORDER_STATUS_TEXT[o.status]}</span>
+                    <span className={`bdg ${DELIVERY_NOTE_STATUS_BADGE[o.status]}`}>{DELIVERY_NOTE_STATUS_TEXT[o.status]}</span>
                   </td>
-                  <td>{formatDate(o.doDate)}</td>
-                  <td>{formatDate(o.deliveryDate)}</td>
+                  <td>{formatDate(o.dnDate)}</td>
                 </tr>
               ))}
             </tbody>
@@ -128,7 +117,7 @@ export function SalesOrderDeliveriesCard({
         </div>
       ) : (
         <p className="fnote">
-          {open ? "Belum ada Delivery Order dari Sales Order ini." : "Delivery Order dibuat dari Sales Order berstatus Open."}
+          {open ? "Belum ada Delivery Note dari Delivery Order ini." : "Delivery Note dibuat dari Delivery Order yang sudah diterbitkan."}
         </p>
       )}
     </div>

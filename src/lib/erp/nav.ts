@@ -94,6 +94,22 @@ export const MODULES: NavModule[] = [
         ],
       },
       {
+        // Temporary until stock is built (U11): the stand-in inventory's
+        // valuation, kept apart so it is obvious what goes when stock arrives.
+        key: "temporary",
+        name: "Sementara",
+        entities: [
+          {
+            key: "tmp_item_cost",
+            slug: "item-cost",
+            name: "Harga Pokok (Sementara)",
+            icon: "coin",
+            desc: "Harga pokok per barang yang dipakai Delivery Note untuk mengakui HPP selama stok belum dikelola.",
+            permission: "ITEM_COST_VIEW",
+          },
+        ],
+      },
+      {
         key: "reference",
         name: "Referensi",
         entities: [
@@ -167,6 +183,14 @@ export const MODULES: NavModule[] = [
             icon: "truck",
             desc: "Perintah kirim ke gudang: barang dari Sales Order Open satu Customer Order, ke satu alamat. Tidak memposting apa pun.",
             permission: "DELIVERY_ORDER_VIEW",
+          },
+          {
+            key: "sal_delivery_note",
+            slug: "delivery-note",
+            name: "Delivery Note",
+            icon: "truck",
+            desc: "Surat jalan: barang keluar dari gudang berdasarkan Delivery Order. Posting mengakui HPP; piutang diakui di Faktur.",
+            permission: "DELIVERY_NOTE_VIEW",
           },
         ],
       },

@@ -308,7 +308,8 @@ describe("Draft → Diterbitkan → Ditutup (P93)", () => {
     assert.ok(!(await updateDeliveryOrder(first, header(), [line(10)], actor)).ok, "issued is locked");
     assert.ok(!(await transitionDeliveryOrder(first, "cancel", actor, "x")).ok, "only a Draft is cancelled");
     assert.deepEqual(await transitionDeliveryOrder(first, "close", actor, "dikirim sebagian"), { ok: true });
-    assert.deepEqual((await salesOrderDeliveries(so.id, co.id)).lines.map((l) => l.held), [1_000, 100], "a closed order keeps its quantity");
+    // Closed by hand with nothing delivered, its 500 goes back to the Sales Order (U14).
+    assert.deepEqual((await salesOrderDeliveries(so.id, co.id)).lines.map((l) => l.held), [500, 100], "a closed order releases what was not delivered");
   });
 
   test("Terbitkan is refused once the warehouse is deactivated", async () => {
@@ -355,9 +356,9 @@ describe("a Sales Order with a running Delivery Order is not closed", () => {
 
     const late = await create(header(), [line(1)]);
     assert.ok(!late.ok && /tidak lagi berstatus Open|bukan bagian/.test(late.errors["lines.0.sales_order_line_id"]), "a closed Sales Order takes no new Delivery Order");
-    // The closed Sales Order still reads, with what was instructed: the two
-    // closed Delivery Orders (500 + 50) keep theirs, the cancelled ones gave it back.
-    assert.deepEqual((await salesOrderDeliveries(so.id, co.id)).lines.map((l) => l.held), [550, 0]);
+    // The closed Sales Order still reads. Its Delivery Orders were closed with
+    // nothing delivered (no Delivery Note here), so they hold nothing (U14).
+    assert.deepEqual((await salesOrderDeliveries(so.id, co.id)).lines.map((l) => l.held), [0, 0]);
     // And the Customer Order closes once its Sales Orders do.
     for (const id of salesOrders) {
       const s = await prisma.salOrder.findUniqueOrThrow({ where: { id }, select: { status: true, customer_order_id: true } });

@@ -949,7 +949,17 @@ export type SalesOrderSource = {
   /** The Customer Order's own address — where a Sales Order delivers unless told otherwise. */
   addressId: number;
   poNo: string | null;
-  lines: { id: number; lineNo: number; itemLabel: string; itemName: string; uomLabel: string; qty: number }[];
+  lines: {
+    id: number;
+    lineNo: number;
+    itemId: number;
+    itemLabel: string;
+    itemName: string;
+    uomLabel: string;
+    /** Base units in one of the line's unit — what a delivery issues stock in. */
+    uomFactor: number;
+    qty: number;
+  }[];
 };
 
 /** Open orders, or the ones named — any status — for a stored Sales Order. */
@@ -982,9 +992,11 @@ export async function salesOrderSources(
     lines: o.lines.map((l) => ({
       id: l.id,
       lineNo: l.line_no,
+      itemId: l.item_id,
       itemLabel: l.item.item_label,
       itemName: l.item.item_name,
       uomLabel: l.uom.uom_label,
+      uomFactor: l.uom_factor.toNumber(),
       qty: l.qty.toNumber(),
     })),
   }));

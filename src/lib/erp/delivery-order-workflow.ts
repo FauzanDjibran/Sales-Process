@@ -7,9 +7,9 @@
  *
  * Terbitkan sends the instruction to the warehouse and locks it; there is no
  * approval step. Batalkan is for a Draft only: once issued, the warehouse may
- * already be picking, so an issued order is closed with a reason instead. The
- * Delivery Notes will close an order themselves once everything has left
- * (C28). A Delivery Order posts nothing at any step.
+ * already be picking, so an issued order is closed with a reason instead. A
+ * posted Delivery Note closes an order itself once every line has left (U14).
+ * A Delivery Order posts nothing at any step.
  *
  * Client-safe on purpose — no `server-only`, no database import.
  */
@@ -79,8 +79,9 @@ export const DELIVERY_ORDER_TRANSITIONS: Record<DeliveryOrderAction, DeliveryOrd
     tone: "neutral",
     title: "Tutup Delivery Order",
     body:
-      "Delivery Order ditutup dan tidak dapat dipakai lagi. Jumlahnya tetap tercatat " +
-      "sebagai bagian Sales Order yang sudah diperintahkan kirim. Status ini final.",
+      "Delivery Order ditutup dan tidak dapat dipakai lagi. Hanya jumlah yang sudah " +
+      "terkirim yang tetap tercatat pada Sales Order; sisanya kembali menjadi sisa " +
+      "Sales Order. Status ini final.",
     confirmLabel: "Ya, Tutup",
     reason: "Mengapa Delivery Order ini ditutup…",
     done: "Delivery Order ditutup",
@@ -98,8 +99,7 @@ export function deliveryOrderIsEditable(status: DeliveryOrderStatus): boolean {
 
 /**
  * The statuses whose quantity is taken from the Sales Order. A cancelled order
- * gives its quantity back; a closed one keeps it until the Delivery Notes say
- * what really left (C28).
+ * gives its quantity back; a closed one holds only what was delivered (U14).
  */
 export const DELIVERY_ORDER_HOLDS_QTY: DeliveryOrderStatus[] = ["Draft", "Issued", "Closed"];
 

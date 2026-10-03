@@ -37,6 +37,16 @@ migration updates this file in the same change (Claude-ERP.md §9).
   quantity of one line of that order's Open Sales Orders
   (`sales_order_line_id`, once per Delivery Order). Life: Draft → Issued →
   Closed, with Cancelled final. Posts nothing; the Delivery Note will.
+- `sal_delivery_note` and `sal_delivery_note_line` (P94) — the Delivery Note,
+  `SJ/…`: the goods leaving, from one issued Delivery Order whose Customer
+  Order, customer, warehouse and address it copies. Each line takes a quantity
+  of one Delivery Order line and, at Posting, stores its base quantity, unit
+  cost and cost. Posting writes the journal (`journal_id`) Dr HPP / Cr
+  Persediaan. `delivered_qty` on `sal_order_line` and `sal_delivery_order_line`
+  is what posted notes sent of each line.
+- `tmp_item_cost` and `tmp_stock_movement` (P94) — **temporary**: the stand-in
+  inventory's Harga Pokok per item and its issue log, named only by
+  `lib/erp/inventory.ts`; dropped when inventory is built.
 - `sal_advance` (P54–P58) — the AR advance bill, drawn from one Open
   Customer Order (`customer_order_id`) and numbered `ARA/…`. It posts nothing
   and stores no paid or used amount; that is left to the open items (C22).
@@ -156,6 +166,12 @@ Enum DeliveryOrderStatus {
   Draft
   Issued
   Closed
+  Cancelled
+}
+
+Enum DeliveryNoteStatus {
+  Draft
+  Posted
   Cancelled
 }
 
@@ -912,6 +928,7 @@ Table sal_order_line {
   line_no int [not null]
   customer_order_line_id int [not null, note: 'its item and unit are read there']
   qty decimal(18, 4) [not null]
+  delivered_qty decimal(18, 4) [not null, default: 0, note: 'what posted Delivery Notes sent; a closed order holds only this']
   note varchar [null]
 
   indexes {
@@ -950,12 +967,89 @@ Table sal_delivery_order_line {
   line_no int [not null]
   sales_order_line_id int [not null, note: 'a line of an Open Sales Order of the same Customer Order']
   qty decimal(18, 4) [not null]
+  delivered_qty decimal(18, 4) [not null, default: 0, note: 'what posted Delivery Notes sent; a closed order holds only this']
   note varchar [null]
 
   indexes {
     (delivery_order_id, line_no) [unique]
     (delivery_order_id, sales_order_line_id) [unique]
     sales_order_line_id
+  }
+}
+
+Table sal_delivery_note {
+  id int [pk, increment, not null]
+  dn_no varchar [unique, not null, note: 'SJ/YYYY/MM/NNNN']
+  dn_date date [not null, note: 'the day the goods leave; the journal date']
+  status DeliveryNoteStatus [not null, default: 'Draft']
+  delivery_order_id int [not null]
+  customer_order_id int [not null, note: 'copied from the Delivery Order']
+  customer_id int [not null]
+  warehouse_id int [not null]
+  address_id int [not null]
+  vehicle_no varchar [null]
+  driver_name varchar [null]
+  note varchar [null]
+  cost_amount decimal(18, 2) [not null, default: 0, note: 'sum of the lines, set at Posting']
+  journal_id int [null, note: 'Dr HPP / Cr Persediaan']
+  cancel_reason varchar [null]
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    delivery_order_id
+    customer_order_id
+    (status, dn_date)
+  }
+}
+
+Table sal_delivery_note_line {
+  id int [pk, increment, not null]
+  delivery_note_id int [not null]
+  line_no int [not null]
+  delivery_order_line_id int [not null]
+  qty decimal(18, 4) [not null, note: 'in the Customer Order line unit']
+  base_qty decimal(18, 4) [not null, default: 0, note: 'qty x unit factor, set at Posting']
+  unit_cost decimal(18, 2) [not null, default: 0, note: 'what the inventory issued at']
+  cost_amount decimal(18, 2) [not null, default: 0]
+  note varchar [null]
+
+  indexes {
+    (delivery_note_id, line_no) [unique]
+    (delivery_note_id, delivery_order_line_id) [unique]
+    delivery_order_line_id
+  }
+}
+
+Table tmp_item_cost {
+  id int [pk, increment, not null, note: 'TEMPORARY until inventory is built']
+  item_id int [unique, not null]
+  unit_cost decimal(18, 2) [not null, note: 'Harga Pokok per base unit']
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table tmp_stock_movement {
+  id int [pk, increment, not null, note: 'TEMPORARY until inventory is built']
+  item_id int [not null]
+  warehouse_id int [not null]
+  movement_date date [not null]
+  base_qty_out decimal(18, 4) [not null]
+  unit_cost decimal(18, 2) [not null]
+  cost_amount decimal(18, 2) [not null]
+  source_doc_type_id int [not null]
+  source_doc_id int [not null]
+  source_no varchar [not null]
+  created_by int [not null]
+  created_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (item_id, warehouse_id, movement_date)
+    (source_doc_type_id, source_doc_id)
   }
 }
 
@@ -1055,6 +1149,16 @@ Ref: sal_delivery_order.warehouse_id > ref_warehouse.id
 Ref: sal_delivery_order.address_id > m_partner_address.id
 Ref: sal_delivery_order_line.delivery_order_id > sal_delivery_order.id
 Ref: sal_delivery_order_line.sales_order_line_id > sal_order_line.id
+Ref: sal_delivery_note.delivery_order_id > sal_delivery_order.id
+Ref: sal_delivery_note.customer_order_id > sal_customer_order.id
+Ref: sal_delivery_note.customer_id > m_partner.id
+Ref: sal_delivery_note.warehouse_id > ref_warehouse.id
+Ref: sal_delivery_note.address_id > m_partner_address.id
+Ref: sal_delivery_note_line.delivery_note_id > sal_delivery_note.id
+Ref: sal_delivery_note_line.delivery_order_line_id > sal_delivery_order_line.id
+Ref: tmp_item_cost.item_id - m_item.id
+Ref: tmp_stock_movement.item_id > m_item.id
+Ref: tmp_stock_movement.warehouse_id > ref_warehouse.id
 Ref: sal_advance.customer_id > m_partner.id
 Ref: sal_advance.cash_bank_id > m_cash_bank.id
 

@@ -535,6 +535,9 @@ model MItem {
   uoms     MItemUom[]
 
   customer_order_lines SalCustomerOrderLine[]
+  /// The stand-in inventory's Harga Pokok and issues (U11) — temporary.
+  tmp_cost             TmpItemCost?
+  tmp_movements        TmpStockMovement[]
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -603,6 +606,8 @@ model RefWarehouse {
 
   /// The Delivery Orders that send goods out of this warehouse.
   delivery_orders SalDeliveryOrder[]
+  delivery_notes  SalDeliveryNote[]
+  tmp_movements   TmpStockMovement[]
 
   @@map("ref_warehouse")
 }
@@ -691,6 +696,7 @@ model MPartner {
   customer_orders SalCustomerOrder[]
   sales_orders    SalOrder[]
   delivery_orders SalDeliveryOrder[]
+  delivery_notes  SalDeliveryNote[]
   sales_advances  SalAdvance[]
   cash_bank_txs   FinCashBankTx[]
   ar_items        FinArItem[]
@@ -739,6 +745,7 @@ model MPartnerAddress {
   customer_orders SalCustomerOrder[]
   sales_orders    SalOrder[]
   delivery_orders SalDeliveryOrder[]
+  delivery_notes  SalDeliveryNote[]
 
   @@index([partner_id])
   @@index([village_id])
@@ -1448,8 +1455,9 @@ model SalCustomerOrder {
   advances        SalAdvance[]
   /// The Sales Orders that release this order's quantity to PPIC (P79).
   sales_orders    SalOrder[]
-  /// The Delivery Orders that send this order's goods (C28).
+  /// The Delivery Orders that send this order's goods, and the notes they leave on.
   delivery_orders SalDeliveryOrder[]
+  delivery_notes  SalDeliveryNote[]
 
   @@index([customer_id])
   @@index([status, order_date])
@@ -1551,6 +1559,10 @@ model SalOrderLine {
   line_no                Int
   customer_order_line_id Int
   qty                    Decimal @db.Decimal(18, 4)
+  /// What posted Delivery Notes sent of this line, written through the Sales
+  /// Order module when a note posts (U14). A closed Sales Order holds only this
+  /// much of its Customer Order line.
+  delivered_qty          Decimal @default(0) @db.Decimal(18, 4)
   note                   String?
 
   order                SalOrder               @relation(fields: [order_id], references: [id])
@@ -1608,6 +1620,7 @@ model SalDeliveryOrder {
   warehouse      RefWarehouse           @relation(fields: [warehouse_id], references: [id])
   address        MPartnerAddress        @relation(fields: [address_id], references: [id])
   lines          SalDeliveryOrderLine[]
+  delivery_notes SalDeliveryNote[]
 
   @@index([customer_order_id])
   @@index([status, delivery_date])
@@ -1623,15 +1636,138 @@ model SalDeliveryOrderLine {
   line_no             Int
   sales_order_line_id Int
   qty                 Decimal @db.Decimal(18, 4)
+  /// What posted Delivery Notes sent of this line, written through the
+  /// Delivery Order module when a note posts (U14). A closed Delivery Order
+  /// holds only this much of its Sales Order line.
+  delivered_qty       Decimal @default(0) @db.Decimal(18, 4)
   note                String?
 
-  delivery_order   SalDeliveryOrder @relation(fields: [delivery_order_id], references: [id])
-  sales_order_line SalOrderLine     @relation(fields: [sales_order_line_id], references: [id])
+  delivery_order   SalDeliveryOrder      @relation(fields: [delivery_order_id], references: [id])
+  sales_order_line SalOrderLine          @relation(fields: [sales_order_line_id], references: [id])
+  note_lines       SalDeliveryNoteLine[]
 
   @@unique([delivery_order_id, line_no])
   @@unique([delivery_order_id, sales_order_line_id])
   @@index([sales_order_line_id])
   @@map("sal_delivery_order_line")
+}
+
+enum DeliveryNoteStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+/// A Delivery Note (C28, U11–U14): the document the goods leave on, made from
+/// one issued Delivery Order and numbered `SJ/YYYY/MM/NNNN`. Posting issues the
+/// goods through the inventory module and writes one journal, Dr HPP / Cr
+/// Persediaan — cost of goods only; Piutang is born at the Faktur. Its line is
+/// the unit the Faktur takes whole.
+model SalDeliveryNote {
+  id      Int                @id @default(autoincrement())
+  dn_no   String             @unique
+  /// The day the goods leave — the journal's date and, later, the tax point.
+  dn_date DateTime           @db.Date
+  status  DeliveryNoteStatus @default(Draft)
+
+  delivery_order_id Int
+  /// Copied from the Delivery Order, for lists, printing and the Faktur.
+  customer_order_id Int
+  customer_id       Int
+  warehouse_id      Int
+  address_id        Int
+
+  vehicle_no  String?
+  driver_name String?
+  note        String?
+
+  /// Σ of the lines' cost, set at Posting.
+  cost_amount   Decimal @default(0) @db.Decimal(18, 2)
+  journal_id    Int?
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  delivery_order SalDeliveryOrder      @relation(fields: [delivery_order_id], references: [id])
+  customer_order SalCustomerOrder      @relation(fields: [customer_order_id], references: [id])
+  customer       MPartner              @relation(fields: [customer_id], references: [id])
+  warehouse      RefWarehouse          @relation(fields: [warehouse_id], references: [id])
+  address        MPartnerAddress       @relation(fields: [address_id], references: [id])
+  lines          SalDeliveryNoteLine[]
+
+  @@index([delivery_order_id])
+  @@index([customer_order_id])
+  @@index([status, dn_date])
+  @@map("sal_delivery_note")
+}
+
+/// One line of a Delivery Note: a quantity of one Delivery Order line, in the
+/// Customer Order line's unit. Its cost is fixed at Posting from what the
+/// inventory module returned.
+model SalDeliveryNoteLine {
+  id                     Int     @id @default(autoincrement())
+  delivery_note_id       Int
+  line_no                Int
+  delivery_order_line_id Int
+  qty                    Decimal @db.Decimal(18, 4)
+  /// qty × the Customer Order line's unit factor, set at Posting.
+  base_qty               Decimal @default(0) @db.Decimal(18, 4)
+  unit_cost              Decimal @default(0) @db.Decimal(18, 2)
+  cost_amount            Decimal @default(0) @db.Decimal(18, 2)
+  note                   String?
+
+  delivery_note       SalDeliveryNote      @relation(fields: [delivery_note_id], references: [id])
+  delivery_order_line SalDeliveryOrderLine @relation(fields: [delivery_order_line_id], references: [id])
+
+  @@unique([delivery_note_id, line_no])
+  @@unique([delivery_note_id, delivery_order_line_id])
+  @@index([delivery_order_line_id])
+  @@map("sal_delivery_note_line")
+}
+
+/// TEMPORARY (U11). The stand-in inventory's valuation: one Harga Pokok per
+/// item, per base unit, kept by the user until real stock exists. Read only by
+/// `lib/erp/inventory.ts`; dropped when inventory is built.
+model TmpItemCost {
+  id         Int      @id @default(autoincrement())
+  item_id    Int      @unique
+  unit_cost  Decimal  @db.Decimal(18, 2)
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  item MItem @relation(fields: [item_id], references: [id])
+
+  @@map("tmp_item_cost")
+}
+
+/// TEMPORARY (U11). One row per item per issue, as a stock card would show it.
+/// Written only by `lib/erp/inventory.ts`; replaced by the real inventory ledger.
+model TmpStockMovement {
+  id                 Int      @id @default(autoincrement())
+  item_id            Int
+  warehouse_id       Int
+  movement_date      DateTime @db.Date
+  /// What left the warehouse, in the item's base unit.
+  base_qty_out       Decimal  @db.Decimal(18, 4)
+  unit_cost          Decimal  @db.Decimal(18, 2)
+  cost_amount        Decimal  @db.Decimal(18, 2)
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  created_by         Int
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  item      MItem        @relation(fields: [item_id], references: [id])
+  warehouse RefWarehouse @relation(fields: [warehouse_id], references: [id])
+
+  @@index([item_id, warehouse_id, movement_date])
+  @@index([source_doc_type_id, source_doc_id])
+  @@map("tmp_stock_movement")
 }
 
 /// An AR advance bill — Uang Muka Penjualan (P54–P58). A bill, not a

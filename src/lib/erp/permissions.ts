@@ -121,7 +121,14 @@ export const PERMISSIONS = [
   { code: "DELIVERY_ORDER_EDIT", name: "Ubah Delivery Order", module: "sales", description: "Hanya selama masih Draft." },
   { code: "DELIVERY_ORDER_ISSUE", name: "Terbitkan Delivery Order", module: "sales", description: "Mengunci Draft dan mengirimnya ke gudang sebagai perintah kirim." },
   { code: "DELIVERY_ORDER_CANCEL", name: "Batalkan Delivery Order", module: "sales", description: "Hanya Draft, dengan alasan." },
-  { code: "DELIVERY_ORDER_CLOSE", name: "Tutup Delivery Order", module: "sales", description: "Menutup Delivery Order yang sudah diterbitkan, dengan alasan." },
+  { code: "DELIVERY_ORDER_CLOSE", name: "Tutup Delivery Order", module: "sales", description: "Menutup Delivery Order yang sudah diterbitkan, dengan alasan, bila tidak ada Delivery Note Draft." },
+  { code: "DELIVERY_NOTE_VIEW", name: "Lihat Delivery Note", module: "sales", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "DELIVERY_NOTE_CREATE", name: "Buat Delivery Note", module: "sales", description: "Membuat Draft dari Delivery Order yang sudah diterbitkan." },
+  { code: "DELIVERY_NOTE_EDIT", name: "Ubah Delivery Note", module: "sales", description: "Hanya selama masih Draft." },
+  { code: "DELIVERY_NOTE_POST", name: "Posting Delivery Note", module: "sales", description: "Mencatat barang keluar dan menjurnal HPP / Persediaan." },
+  { code: "DELIVERY_NOTE_CANCEL", name: "Batalkan Delivery Note", module: "sales", description: "Hanya Draft, dengan alasan." },
+  { code: "ITEM_COST_VIEW", name: "Lihat Harga Pokok (Sementara)", module: "master", description: "Harga pokok per barang yang dipakai Delivery Note selama stok belum dikelola." },
+  { code: "ITEM_COST_EDIT", name: "Ubah Harga Pokok (Sementara)", module: "master", description: "Hanya berlaku untuk pengiriman berikutnya." },
 
   { code: "MENU_ACCOUNTING_ACCESS", name: "Akses menu Accounting", module: "accounting" },
 

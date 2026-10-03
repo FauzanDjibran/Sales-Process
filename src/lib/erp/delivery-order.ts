@@ -5,7 +5,12 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 import { formatNumber } from "@/lib/format";
 import { lockCustomerOrder } from "./customer-order";
-import { deliveryOrderSources, type DeliverySource, type DeliverySourceLine } from "./sales-order";
+import {
+  deliveryOrderSources,
+  recordSalesOrderDelivery,
+  type DeliverySource,
+  type DeliverySourceLine,
+} from "./sales-order";
 import {
   DELIVERY_ORDER_HOLDS_QTY,
   DELIVERY_ORDER_LIVE,
@@ -78,18 +83,30 @@ const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
  */
 async function heldByLines(db: Db, lineIds: number[], exceptId: number | null): Promise<Map<number, number>> {
   if (!lineIds.length) return new Map();
-  const rows = await db.salDeliveryOrderLine.groupBy({
-    by: ["sales_order_line_id"],
-    where: {
-      sales_order_line_id: { in: lineIds },
-      delivery_order: {
-        status: { in: DELIVERY_ORDER_HOLDS_QTY },
-        ...(exceptId ? { id: { not: exceptId } } : {}),
+  const except = exceptId ? { id: { not: exceptId } } : {};
+  // A running order holds its whole quantity; a closed one only what was
+  // delivered of it (U14), so closing it releases the rest.
+  const [running, closed] = await Promise.all([
+    db.salDeliveryOrderLine.groupBy({
+      by: ["sales_order_line_id"],
+      where: {
+        sales_order_line_id: { in: lineIds },
+        delivery_order: { status: { in: DELIVERY_ORDER_HOLDS_QTY.filter((st) => st !== "Closed") }, ...except },
       },
-    },
-    _sum: { qty: true },
-  });
-  return new Map(rows.map((r) => [r.sales_order_line_id, r._sum?.qty?.toNumber() ?? 0]));
+      _sum: { qty: true },
+    }),
+    db.salDeliveryOrderLine.groupBy({
+      by: ["sales_order_line_id"],
+      where: { sales_order_line_id: { in: lineIds }, delivery_order: { status: "Closed", ...except } },
+      _sum: { delivered_qty: true },
+    }),
+  ]);
+  const out = new Map<number, number>();
+  for (const r of running) out.set(r.sales_order_line_id, r._sum?.qty?.toNumber() ?? 0);
+  for (const r of closed) {
+    out.set(r.sales_order_line_id, (out.get(r.sales_order_line_id) ?? 0) + (r._sum?.delivered_qty?.toNumber() ?? 0));
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------- options
@@ -406,7 +423,14 @@ export async function transitionDeliveryOrder(
   id: number,
   action: DeliveryOrderAction,
   actorId: number,
-  reason?: string
+  reason?: string,
+  /**
+   * Run inside the step's transaction, with the Customer Order's row locked,
+   * before the order moves; a message refuses the step. Tutup is handed the
+   * Delivery Note module's check by the caller, so this module never reads its
+   * tables.
+   */
+  guard?: (tx: Prisma.TransactionClient, id: number) => Promise<string | null>
 ): Promise<DeliveryOrderTransitionResult> {
   const order = await prisma.salDeliveryOrder.findUnique({ where: { id }, include: { lines: true } });
   if (!order) return { ok: false, errors: { _form: "Delivery Order tidak ditemukan." } };
@@ -432,6 +456,11 @@ export async function transitionDeliveryOrder(
           const first = Object.entries(r.errors).find(([k]) => k !== "_lines")?.[1] ?? r.errors._lines;
           throw new Refused({ _form: `Belum bisa diterbitkan: ${first}` });
         }
+      }
+      if (guard) {
+        await lockCustomerOrder(tx, order.customer_order_id);
+        const refused = await guard(tx, id);
+        if (refused) throw new Refused({ _form: refused });
       }
       const done = await tx.salDeliveryOrder.updateMany({
         where: { id, status: from },
@@ -560,4 +589,148 @@ export async function salesOrderDeliveries(salesOrderId: number, customerOrderId
     })),
     lines: source?.lines.filter((l) => l.salesOrderId === salesOrderId) ?? [],
   };
+}
+
+// ------------------------------------------------- for the Delivery Note
+
+/**
+ * An issued Delivery Order as a Delivery Note reads it (C28): its header —
+ * Customer Order, customer, warehouse, address — and its lines with the item,
+ * the unit and its factor, the quantity ordered and what has been delivered.
+ * An issued order's lines are frozen, so what a note names does not move.
+ */
+export type DeliveryNoteSourceLine = {
+  id: number;
+  lineNo: number;
+  salesOrderId: number;
+  salesOrderNo: string;
+  itemId: number;
+  itemLabel: string;
+  itemName: string;
+  uomLabel: string;
+  uomFactor: number;
+  qty: number;
+  delivered: number;
+};
+
+export type DeliveryNoteSource = {
+  id: number;
+  doNo: string;
+  doDate: string;
+  deliveryDate: string;
+  status: DeliveryOrderStatus;
+  customerOrderId: number;
+  customerOrderNo: string;
+  poNo: string | null;
+  customerId: number;
+  customerLabel: string;
+  customerName: string;
+  customerActive: boolean;
+  warehouseId: number;
+  warehouseLabel: string;
+  warehouseName: string;
+  addressId: number;
+  addressText: string;
+  lines: DeliveryNoteSourceLine[];
+};
+
+/** Issued Delivery Orders (with `issuedOnly`), or the ones named — any status — for a stored note. */
+export async function deliveryNoteSources(
+  filter: { ids?: number[]; issuedOnly?: boolean },
+  db: Db = prisma
+): Promise<DeliveryNoteSource[]> {
+  const rows = await db.salDeliveryOrder.findMany({
+    where: {
+      ...(filter.ids ? { id: { in: filter.ids } } : {}),
+      ...(filter.issuedOnly ? { status: "Issued" } : {}),
+    },
+    orderBy: [{ delivery_date: "asc" }, { id: "asc" }],
+    include: { customer: true, warehouse: true, lines: { orderBy: { line_no: "asc" } } },
+  });
+  if (!rows.length) return [];
+  const sources = await deliveryOrderSources({
+    ids: [...new Set(rows.map((r) => r.customer_order_id))],
+    withLineIds: rows.flatMap((r) => r.lines.map((l) => l.sales_order_line_id)),
+  }, db);
+  const soLine = new Map(sources.flatMap((s) => s.lines.map((l) => [l.id, l] as const)));
+  const coById = new Map(sources.map((s) => [s.id, s]));
+  return rows.map((r) => {
+    const co = coById.get(r.customer_order_id);
+    return {
+      id: r.id,
+      doNo: r.do_no,
+      doDate: isoDay(r.do_date),
+      deliveryDate: isoDay(r.delivery_date),
+      status: r.status as DeliveryOrderStatus,
+      customerOrderId: r.customer_order_id,
+      customerOrderNo: co?.orderNo ?? "",
+      poNo: co?.poNo ?? null,
+      customerId: r.customer_id,
+      customerLabel: r.customer.partner_label,
+      customerName: r.customer.partner_name,
+      customerActive: r.customer.status === "Active",
+      warehouseId: r.warehouse_id,
+      warehouseLabel: r.warehouse.warehouse_label,
+      warehouseName: r.warehouse.warehouse_name,
+      addressId: r.address_id,
+      addressText: co?.addresses.find((a) => a.id === r.address_id)?.text ?? "",
+      lines: r.lines.map((l) => {
+        const so = soLine.get(l.sales_order_line_id);
+        return {
+          id: l.id,
+          lineNo: l.line_no,
+          salesOrderId: so?.salesOrderId ?? 0,
+          salesOrderNo: so?.salesOrderNo ?? "",
+          itemId: so?.itemId ?? 0,
+          itemLabel: so?.itemLabel ?? "",
+          itemName: so?.itemName ?? "",
+          uomLabel: so?.uomLabel ?? "",
+          uomFactor: so?.uomFactor ?? 1,
+          qty: l.qty.toNumber(),
+          delivered: l.delivered_qty.toNumber(),
+        };
+      }),
+    };
+  });
+}
+
+/**
+ * Records what a posted Delivery Note sent of this Delivery Order's lines
+ * (U14): the Delivery Order closes itself once every line is delivered, and
+ * the same quantities are recorded on the Sales Order lines, which close their
+ * orders when complete. Called inside the note's posting transaction, under the
+ * Customer Order's lock. Returns the numbers of the orders it closed.
+ */
+export async function recordDeliveryOrderDelivery(
+  tx: Prisma.TransactionClient,
+  deliveryOrderId: number,
+  sent: Map<number, number>,
+  actorId: number
+): Promise<string[]> {
+  if (!sent.size) return [];
+  const bySoLine = new Map<number, number>();
+  for (const [lineId, qty] of sent) {
+    const line = await tx.salDeliveryOrderLine.update({
+      where: { id: lineId },
+      data: { delivered_qty: { increment: qty } },
+      select: { sales_order_line_id: true },
+    });
+    bySoLine.set(line.sales_order_line_id, (bySoLine.get(line.sales_order_line_id) ?? 0) + qty);
+  }
+  const closed: string[] = [];
+  const order = await tx.salDeliveryOrder.findUnique({ where: { id: deliveryOrderId }, include: { lines: true } });
+  if (
+    order?.status === "Issued" &&
+    order.lines.every((l) => units(l.delivered_qty.toNumber()) >= units(l.qty.toNumber()))
+  ) {
+    const done = await tx.salDeliveryOrder.updateMany({
+      where: { id: deliveryOrderId, status: "Issued" },
+      data: { status: "Closed", status_reason: null, updated_by: actorId },
+    });
+    if (done.count === 1) {
+      await audit(tx, deliveryOrderId, "UPDATE", "fulfil", actorId);
+      closed.push(order.do_no);
+    }
+  }
+  return [...closed, ...(await recordSalesOrderDelivery(tx, bySoLine, actorId))];
 }
