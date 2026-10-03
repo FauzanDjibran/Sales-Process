@@ -331,6 +331,131 @@ Order line).
 
 ---
 
+### 5.8 Delivery Note — the goods leave  [Agreed, not built] (C28, U11–U14)
+
+The document the goods **actually leave on**. It is made from **one issued
+Delivery Order**, takes items out of the Delivery Order's warehouse, and is the
+only sales document before the Faktur that **posts**: it recognises **HPP
+(cost of goods sold) and nothing else** — no Piutang, no revenue, no PPN.
+Piutang is born at the Faktur (P71).
+
+**Stock in this cycle — a stand-in inventory module (U11).** No real stock
+yet (P5), but the Delivery Note must behave as it will with real stock. So it
+asks an **inventory module** to issue goods, exactly as it later will, and is
+never aware that the module is a stand-in:
+
+```
+Delivery Note posting ──issue(item, warehouse, base qty, date, document)──► inventory module
+                       ◄──────────── unit cost, cost ─────────────────────┘
+```
+
+Today the inventory module is backed by **temporary tables** of its own,
+clearly marked temporary and never named by any sales module:
+
+| Temporary table | Holds | Behaviour |
+| --- | --- | --- |
+| `tmp_item_cost` | One **Harga Pokok** per item (per base unit), kept by the user in a small menu *Harga Pokok (Sementara)* | The valuation every issue uses; stock is always sufficient |
+| `tmp_stock_movement` | One row per item per issue: item, warehouse, date, base qty out, unit cost, cost, source document | What a stock card would show — a real inventory ledger replaces it |
+
+An item with no Harga Pokok cannot be issued, so the Delivery Note refuses to
+post and names it. When real inventory is built, the module keeps its
+`issue(...)` contract and the temporary tables are dropped; the Delivery Note
+does not change. `m_item` gets no cost column.
+
+**Why its line is the unit of billing.** The Faktur Penjualan will be made by
+taking Delivery Note lines **whole** — never part of a line. So one Delivery
+Note line is exactly one billable quantity: it traces to one Delivery Order
+line → one Sales Order line → one Customer Order line, where its price, discount,
+PPN and Jenis PPh live. A line is billed once, by one Faktur; a Delivery Note's
+lines may go to different Fakturs.
+
+```
+CO line (price, PPN, PPh) ◄── SO line ◄── DO line ◄── DN line  ──whole──►  Faktur line
+                                                      posts HPP           posts Piutang / Penjualan / PPN
+```
+
+**What the user fills in**
+
+| Field | Rules |
+| --- | --- |
+| Delivery Order | An **issued** one with something left to send; chosen once, then locked. Customer Order, customer, Gudang and Alamat Kirim follow from it, read-only |
+| Tanggal Kirim | The day the goods leave — also the PPN tax point the Faktur will carry (§10.2 rule 6); not before the Delivery Order's date |
+| No. Kendaraan, Pengemudi, Catatan | Free text, printed on the note |
+| Lines | Picked with **Tambah Item** from the Delivery Order's lines: *Qty DO*, *Sudah Dikirim*, *Sisa*. Each Delivery Order line once per note; blank refused |
+
+**Quantity ceiling.** For every Delivery Order line: **Σ qty of its Delivery
+Notes (Draft and Posted; not Dibatalkan) ≤ the line's qty.** Checked at save and
+at Posting with the Customer Order's row locked. A Delivery Order may be sent
+in several notes.
+
+**Lifecycle**
+
+```
+Draft ──Posting──► Posted (final; corrected later by a return, never edited)
+  └──Batalkan (reason)──► Dibatalkan (final, gives the quantity back)
+```
+
+**What Posting writes (one transaction)**
+
+1. Locks the Customer Order, rechecks the ceiling and that the Delivery Order
+   is still Diterbitkan.
+2. Per line: base qty = qty × the Customer Order line's unit factor; the
+   inventory module **issues** it from the note's warehouse and returns the
+   **unit cost** and **cost** (whole rupiah), stored on the line (snapshot).
+3. **Journal**, dated Tanggal Kirim: Dr **HPP** / Cr **Persediaan**, one pair per
+   line, describing item, quantity and cost. Both accounts come from **Account
+   Mapping** (two new entries, *HPP* and *Persediaan*); the per-Kategori Item
+   mapping (C25) replaces them later (U12).
+4. Status Posted; posted quantity now counts as **delivered**.
+5. If every line of the Delivery Order is fully delivered, the Delivery Order
+   closes itself (fulfilled, no reason); likewise each Sales Order whose lines
+   are all fully delivered.
+
+**After posting** — shown, never stored: per line **Belum Ditagih / Ditagih**,
+per note **Belum Ditagih / Sebagian / Ditagih**, read from the Faktur lines that
+took it (when the Faktur exists).
+
+**Tables (proposed)**
+
+`sal_delivery_note`: dn_no, dn_date, status, delivery_order_id,
+customer_order_id, customer_id, warehouse_id, address_id (copied from the
+Delivery Order for lists and printing), vehicle_no, driver_name, note,
+journal_id, cost_amount (Σ lines), cancel_reason.
+
+`sal_delivery_note_line`: delivery_note_id, line_no,
+**delivery_order_line_id**, qty (in the Customer Order line's unit),
+**base_qty**, **unit_cost**, **cost_amount**, note. Unique (note, line_no) and
+(note, Delivery Order line).
+
+**Worked example.** CO/2026/10/0001: 10.000 PCS × 1.000. DO/2026/10/0001 sends
+1.500 from SO/2026/10/0001 and 500 from SO/2026/10/0002 from GDG-FG. Unit cost
+600 / PCS.
+
+| Note | Date | Lines | Cost | Journal |
+| --- | --- | --- | ---: | --- |
+| SJ/2026/10/0001 | 15/10 | 1.000 (SO …0001) | 600.000 | Dr HPP 600.000 / Cr Persediaan 600.000 |
+| SJ/2026/10/0002 | 17/10 | 500 (SO …0001) + 500 (SO …0002) | 600.000 | two pairs of 300.000 |
+
+After SJ/…0002 every DO line is fully delivered, so DO/2026/10/0001 closes
+itself. A Faktur may later take SJ/…0001's line alone (DPP 1.000.000), and
+SJ/…0002's two lines together or apart — never 300 of the 500.
+
+**Closing (U14).** A Delivery Order closes itself when every line is fully
+delivered by posted notes; a Sales Order likewise. Closing either by hand
+(*Tutup*) then **releases what was never delivered**: a closed Delivery Order
+holds only its delivered quantity on the Sales Order line, and a closed Sales
+Order only its delivered quantity on the Customer Order line. The Customer
+Order stays closed by hand until the Faktur is designed. Numbered
+**`SJ/YYYY/MM/NNNN`** (U13) — Surat Jalan, the name on the paper, and no clash
+with DN for Debit Note.
+
+**Still open for the Faktur, not the Delivery Note:** a Faktur Pajak carries
+one date (the delivery date); if one Faktur may take lines from notes posted on
+different days, which date it carries — or whether a Faktur takes lines of
+notes of one date only — is decided with the Faktur.
+
+---
+
 ## 6. Uang Muka Penjualan — the advance bill  [Built]
 
 ### 6.1 What it is
@@ -884,6 +1009,10 @@ Agreed with the user on 02/10/2026; to be recorded in §12 when built.
 | **U7** | **An invoice never searches payment history** (03/10/2026). A receipt is a transaction, not a root document. The Faktur reads only its Customer Order's AR items: their balances give the advance DPP, and its PPN is the chain on the net DPP. The advance's PPN is never needed. |
 | **U8** | **The user picks the Uang Muka a Faktur uses and types the DPP used from each** (03/10/2026), up to each item's balance and in total up to the Faktur's DPP. An item may be used in part. Replaces the earlier "one total drawn oldest first". |
 | **U9** | **An AR item carries its own tax document's figures** (03/10/2026): `tax_dpp`, `tax_dpp_other`, `tax_ppn`, `tax_invoice_no`. A Uang Muka item is its Faktur Pajak Uang Muka. The columns are generic (a later Nota Retur item fills them the same way), so no type adds a column. **One item per bill per receipt stays** (reconfirmed): a bill paid twice has two Faktur Pajak Uang Muka, so two items. |
+| **U11** | **The Delivery Note issues goods through an inventory module; today a stand-in** (03/10/2026). It calls `issue(item, warehouse, base qty, date, document)` and gets the unit cost back, as it will with real stock. The stand-in is backed by temporary tables of its own (`tmp_item_cost`: one Harga Pokok per item kept in a small menu; `tmp_stock_movement`: one row per issue), never named by a sales module; stock is always sufficient. Real inventory later keeps the contract and drops the temporary tables. `m_item` gets no cost column. |
+| **U12** | **HPP and Persediaan come from Account Mapping** (03/10/2026), one each for the company, until the Kategori Item mapping (C25). |
+| **U13** | **The Delivery Note is numbered `SJ/YYYY/MM/NNNN`** (03/10/2026). |
+| **U14** | **Delivery Orders and Sales Orders close themselves when fully delivered** (03/10/2026); closing one by hand releases the undelivered quantity. The Customer Order stays closed by hand until the Faktur. A Faktur takes Delivery Note lines **whole**, never part of a line; the Delivery Note recognises HPP only, never Piutang. |
 | **U10** | **The sales process keeps its tax without a Pajak menu** (03/10/2026). The Faktur stores its full, deducted and net figures, its tax date and Coretax number, and its deduction rows (`sal_invoice_advance_deduction`: AR item, dpp_used). Every output-tax figure is on a Uang Muka item or a Faktur; a Pajak menu, if ever built, reads them and owns nothing. Mirrors Accurate / SAP B1 / Odoo, where the down-payment record carries its tax and the final invoice records its own deduction; differs only in the advance's tax point being the receipt, as the law sets it (as SAP S/4HANA does). |
 
 ---
