@@ -400,10 +400,11 @@ Permissions `CASH_RECEIPT_VIEW / _CREATE / _EDIT / _POST / _CANCEL`.
    future **Faktur Pajak Uang Muka** (per line) and **Bukti Potong** (per PPh
    row: one per bill, per payment, per Jenis PPh).
 5. **One Uang Muka AR item per line** with a DPP part (section 8).
-6. [Planned, Pajak menu] **One Faktur Pajak Uang Muka record per line**, from
-   the line's dpp_part / ppn_part, **naming the AR item created beside it**.
-   Item and faktur pajak are born together, one to one, so later documents go
-   from the item straight to its faktur pajak (U7).
+6. **The Uang Muka item carries its own Faktur Pajak Uang Muka figures**
+   (`tax_dpp`, `tax_dpp_other`, `tax_ppn`, U9), copied from the line. One item
+   = one payment of one bill = one Faktur Pajak Uang Muka, dated the receipt
+   date. From then on the item is where that tax lives; nothing reads it back
+   from the receipt.
 7. Status Posted.
 
 **Why the AR item is at DPP, not gross:** PPN on an advance is due when the
@@ -498,6 +499,8 @@ No reversal event, no edit. After creation an item only goes **down**.
 | source_doc_type_id + source_doc_id + source_no | The document the item is **about** | ARA/2026/10/0001 |
 | customer_order_id | Settlement scope (id only) | CO/2026/10/0001 |
 | current_balance | Open amount = Σ its entries' movements; never below zero | 1.500.000 |
+| tax_dpp, tax_dpp_other, tax_ppn | Figures of the item's **own** tax document, fixed at creation (U9). Uang Muka: its Faktur Pajak Uang Muka. Empty for an Invoice item (the Faktur holds its tax) and for any item with no tax document | 1.500.000 / 1.375.000 / 165.000 |
+| tax_invoice_no | Coretax number of that tax document, typed or imported after upload; empty until then | |
 
 `fin_ar_ledger` (Buku Piutang)
 
@@ -536,7 +539,8 @@ existing item, delete an item, write from a Draft.
 | Items of one bill | Items whose source is the bill |
 | What posting X did | Entries with that document; its Terbentuk entries are the items it created |
 | Advances an invoice may use | Uang Muka items, same customer, same currency, same `customer_order_id`, balance > 0, oldest first |
-| Faktur Pajak Uang Muka of an item | The faktur pajak record naming the item (U7) — never via the receipt |
+| Faktur Pajak Uang Muka of an item | The item's own tax columns (U9) — never via the receipt |
+| Output tax of a period (no Pajak menu needed) | Uang Muka items by item_date (tax columns) + Fakturs by tax date (net figures) |
 | Items an invoice used | Dipakai Invoice entries whose counter_item_id is the Invoice item |
 | Net position | Σ balance × (+1 Invoice, −1 Uang Muka) |
 | Aging | Open Invoice items by days past due_date |
@@ -561,11 +565,13 @@ Only what is already fixed:
   currency only), so PPN is acknowledged once:
   Dr Piutang Usaha (net) · Dr Uang Muka Penjualan (advance DPP used) / Cr
   Penjualan (full DPP) · Cr PPN Keluaran (net).
-- **The user types how much advance the Faktur uses** (*Uang Muka Dipakai*,
-  in DPP), from 0 up to the lesser of the order's open Uang Muka and the
-  Faktur's own DPP. Nothing is pre-filled. The system draws that amount from the
-  order's open Uang Muka items, oldest first; the last item it touches may be
-  used only in part (U8).
+- **The user picks the Uang Muka the Faktur uses** (*Pilih Uang Muka*: the
+  order's open items with number, receipt date, balance and faktur pajak
+  number) **and types the DPP used from each**, up to its balance; the total
+  never exceeds the Faktur's own DPP. Nothing is pre-filled; an item may be
+  used in part and the rest by a later Faktur (U8).
+- Each pick is a row of `sal_invoice_advance_deduction` (invoice, AR item,
+  dpp_used) — the Faktur's own record of what it deducted (U10).
 - Creates the **Invoice item** at net Piutang, with due date from the Termin,
   and writes **Dipakai Invoice** on each Uang Muka item used.
 - **The Faktur never reads payment history** (U7). Everything it needs is in
@@ -575,10 +581,16 @@ Only what is already fixed:
     (never "full PPN − advance PPN"); net Piutang = net DPP + PPN;
   - the printed invoice shows Total DPP − Uang Muka Dipakai = net DPP, then
     PPN and total, so the advance's PPN is never needed.
-- Its Faktur Pajak Pelunasan names the Faktur Pajak Uang Muka it deducts. The
-  tax module finds them in one direct step: the Faktur's Dipakai Invoice
-  entries → the items used → the Faktur Pajak Uang Muka record that names each
-  item (created with the item by the same receipt). Never through the receipt.
+- **The Faktur stores its own tax** (U10): full DPP / DPP Nilai Lain / PPN,
+  advance DPP used, net DPP / DPP Nilai Lain / PPN, tax date (the delivery
+  date) and `tax_invoice_no`. These are its Faktur Pajak Pelunasan (or Normal,
+  when nothing is deducted). The Faktur Pajak Uang Muka it references are its
+  deduction rows' items, read by key (`ar_item_id` → `tax_invoice_no`).
+- **No Pajak menu is needed** for the sales process to calculate and keep its
+  tax: the Uang Muka items and the Fakturs hold every output-tax figure, and
+  the receipt's PPh rows hold the withholding.
+- A Faktur fully covered by its advances (net Piutang 0) is **[Open]**:
+  recommended to allow it without an Invoice item.
 - Paid through the receipt by the purpose **Penerimaan dari Customer**, which
   lists advance bills and invoices together; each line posts by its document's
   kind (invoice: Cr Piutang Usaha, **Pembayaran** on the Invoice item).
@@ -780,7 +792,8 @@ Muka, the receipt from its Terbentuk entry [Agreed, not built].
 | --- | --- |
 | Revised AR item shape (`ar_item_no`, source = what it is about, `ref_*` dropped) | [Agreed, not built] — U1 |
 | Faktur Penjualan, Invoice items, Dipakai Invoice, Pembayaran | [Planned] |
-| How the Faktur Pajak Uang Muka record names its AR item (a column on the tax record) | [Proposed] with the Pajak menu — U7 |
+| Tax columns on `fin_ar_item` (U9) | [Agreed, not built] — with the U1 migration |
+| Whether Coretax accepts one Faktur Pajak Uang Muka referenced by two Faktur Pelunasan (partial use) | To verify with a tax consultant |
 | A settlement PPN 1 rupiah off "full PPN − advance PPN" after odd partial receipts | Accepted: the chain on the net DPP wins (it is what the Faktur Pajak Pelunasan carries) |
 | *Penerimaan dari Customer* (bills and invoices in one receipt) | [Planned] with the Faktur |
 | Faktur Pajak Uang Muka and Bukti Potong as records | [Planned] Pajak menu; figures already stored |
@@ -809,8 +822,10 @@ Agreed with the user on 02/10/2026; to be recorded in §12 when built.
 | **U4** | **Tax uses the document's kurs** for now; a separate Kurs KMK is decided later. |
 | **U5** | **An invoice uses only advances in its own currency.** |
 | **U6** | **Multi-currency base columns on AR items are added later**, when foreign sales are built — not in the U1 migration. |
-| **U7** | **An invoice never searches payment history** (03/10/2026). A receipt is a transaction, not a root document. The Faktur reads only its Customer Order's AR items: their balances give the advance DPP, and its PPN is the chain on the net DPP. The advance's PPN is never needed. The Faktur Pajak Uang Muka is reached from the item it was born with, not through the receipt. |
-| **U8** | **The user types the advance a Faktur uses** (03/10/2026), as one DPP amount, up to the lesser of the order's open Uang Muka and the Faktur's DPP. The system draws it from the items oldest first, so an item may be used in part. |
+| **U7** | **An invoice never searches payment history** (03/10/2026). A receipt is a transaction, not a root document. The Faktur reads only its Customer Order's AR items: their balances give the advance DPP, and its PPN is the chain on the net DPP. The advance's PPN is never needed. |
+| **U8** | **The user picks the Uang Muka a Faktur uses and types the DPP used from each** (03/10/2026), up to each item's balance and in total up to the Faktur's DPP. An item may be used in part. Replaces the earlier "one total drawn oldest first". |
+| **U9** | **An AR item carries its own tax document's figures** (03/10/2026): `tax_dpp`, `tax_dpp_other`, `tax_ppn`, `tax_invoice_no`. A Uang Muka item is its Faktur Pajak Uang Muka. The columns are generic (a later Nota Retur item fills them the same way), so no type adds a column. **One item per bill per receipt stays** (reconfirmed): a bill paid twice has two Faktur Pajak Uang Muka, so two items. |
+| **U10** | **The sales process keeps its tax without a Pajak menu** (03/10/2026). The Faktur stores its full, deducted and net figures, its tax date and Coretax number, and its deduction rows (`sal_invoice_advance_deduction`: AR item, dpp_used). Every output-tax figure is on a Uang Muka item or a Faktur; a Pajak menu, if ever built, reads them and owns nothing. Mirrors Accurate / SAP B1 / Odoo, where the down-payment record carries its tax and the final invoice records its own deduction; differs only in the advance's tax point being the receipt, as the law sets it (as SAP S/4HANA does). |
 
 ---
 
@@ -1126,6 +1141,10 @@ Table fin_ar_item {
   source_no varchar [not null]
   customer_order_id int [null, note: 'weak: settlement scope']
   current_balance decimal(18, 2) [not null, note: 'sum of its ledger movements']
+  tax_dpp decimal(18, 2) [null, note: 'own tax document (U9): Uang Muka = its Faktur Pajak Uang Muka']
+  tax_dpp_other decimal(18, 2) [null]
+  tax_ppn decimal(18, 2) [null]
+  tax_invoice_no varchar [null, note: 'Coretax number, typed after upload']
   created_by int [not null]
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
