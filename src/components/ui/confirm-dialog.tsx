@@ -18,6 +18,7 @@ export function ConfirmDialog({
   confirmLabel,
   confirmTone = "primary",
   busy,
+  confirmDisabled,
   onConfirm,
   onCancel,
   children,
@@ -32,6 +33,11 @@ export function ConfirmDialog({
   confirmLabel: string;
   confirmTone?: "primary" | "solid-danger";
   busy?: boolean;
+  /**
+   * The step cannot succeed as things stand — the dialog says why above its
+   * buttons — so the confirm button is off while Batal stays available.
+   */
+  confirmDisabled?: boolean;
   onConfirm: () => void;
   onCancel: () => void;
   /** Extra input the confirmation itself needs, e.g. a replacement password. */
@@ -75,7 +81,7 @@ export function ConfirmDialog({
           <button
             className={`btn ${confirmTone}`}
             onClick={onConfirm}
-            disabled={busy}
+            disabled={busy || confirmDisabled}
           >
             {busy ? "Memproses…" : confirmLabel}
           </button>

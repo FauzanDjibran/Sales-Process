@@ -714,9 +714,6 @@ here. In addition:
 - **A journal names its source as the document type and row id** ("Delivery
   Note #21"), not the document's number, for every source document; the
   journal's description carries the number.
-- **Posting's confirmation still offers "Ya, Posting" when an item has no
-  Harga Pokok or a mapping is missing**; it names the problem above the
-  journal, and the server refuses the posting with the same message.
 - **A Delivery Order keeps the number it was first saved with**, like the
   Sales Order: re-dating a Draft into another month does not renumber it.
 - **A Sales Order keeps the number it was first saved with**, like the

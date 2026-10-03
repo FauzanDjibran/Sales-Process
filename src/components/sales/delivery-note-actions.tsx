@@ -164,6 +164,7 @@ export function DeliveryNoteActions({
           confirmLabel={t.confirmLabel}
           confirmTone={t.tone === "danger" ? "solid-danger" : "primary"}
           busy={busy}
+          confirmDisabled={blocked.length > 0}
           onConfirm={() => run(confirm)}
           onCancel={() => setConfirm(null)}
         >
