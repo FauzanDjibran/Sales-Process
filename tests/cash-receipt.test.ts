@@ -195,7 +195,7 @@ before(async () => {
 after(async () => {
   // AR items a posted receipt created: their Buku Piutang entries first.
   if (receipts.length) {
-    const items = await prisma.finArItem.findMany({ where: { source_doc_id: { in: receipts }, source_doc_type: { doc_table: "fin_cash_bank_tx" } }, select: { id: true } });
+    const items = await prisma.finArItem.findMany({ where: { entries: { some: { event: "Create", doc_id: { in: receipts }, doc_type: { doc_table: "fin_cash_bank_tx" } } } }, select: { id: true } });
     await prisma.finArLedger.deleteMany({ where: { item_id: { in: items.map((i) => i.id) } } });
     await prisma.finArItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
     await prisma.finCashBankTx.deleteMany({ where: { id: { in: receipts } } });

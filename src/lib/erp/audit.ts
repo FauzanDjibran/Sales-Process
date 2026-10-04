@@ -13,6 +13,7 @@ import { customerOrderNumbersByIds } from "./customer-order";
 import { salesOrderNumbersByIds } from "./sales-order";
 import { deliveryOrderNumbersByIds } from "./delivery-order";
 import { deliveryNoteNumbersByIds } from "./delivery-note";
+import { invoiceNumbersByIds } from "./sales-invoice";
 import { userLabels, roleLabels } from "./users";
 
 /**
@@ -75,6 +76,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   sal_order: { label: "Sales Order", resolve: salesOrderNumbersByIds },
   sal_delivery_order: { label: "Delivery Order", resolve: deliveryOrderNumbersByIds },
   sal_delivery_note: { label: "Delivery Note", resolve: deliveryNoteNumbersByIds },
+  sal_invoice: { label: "Faktur Penjualan", resolve: invoiceNumbersByIds },
   tmp_item_cost: { label: "Harga Pokok (Sementara)", resolve: null },
   tmp_stock_lot: { label: "Lot (Sementara)", resolve: null },
   sal_advance: { label: "Uang Muka Penjualan", resolve: salesAdvanceNumbersByIds },

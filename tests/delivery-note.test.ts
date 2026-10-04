@@ -351,17 +351,21 @@ describe("orders close themselves once fully delivered (U14)", () => {
     assert.ok(!refused.ok && new RegExp(draft.dnNo.replace(/\//g, "\\/")).test(refused.errors._form));
   });
 
-  test("the note that sends the rest closes the Delivery Order and the Sales Order", async () => {
+  test("the note that sends the rest closes the Delivery Order, the Sales Order and the Customer Order", async () => {
     await setItemCost(f.other, "1000", actor);
     const last = ids.dn[ids.dn.length - 1];
     const r = await transitionDeliveryNote(last, "post", actor);
     assert.ok(r.ok, JSON.stringify(r));
-    assert.equal(r.ok && r.closed?.length, 2, "both named");
+    assert.equal(r.ok && r.closed?.length, 3, "the Delivery Order, the Sales Order and the Customer Order (U21) named");
     // 60 BOX × 12 × 3.000 + 50 PCS × 1.000
     assert.equal((await getDeliveryNote(last))!.cost, 2_210_000);
     const dOrder = await prisma.salDeliveryOrder.findUniqueOrThrow({ where: { id: order.doId } });
     const sOrder = await prisma.salOrder.findUniqueOrThrow({ where: { id: order.soId } });
-    assert.deepEqual([dOrder.status, dOrder.status_reason, sOrder.status, sOrder.status_reason], ["Closed", null, "Closed", null]);
+    const cOrder = await prisma.salCustomerOrder.findUniqueOrThrow({ where: { id: order.coId } });
+    assert.deepEqual(
+      [dOrder.status, dOrder.status_reason, sOrder.status, sOrder.status_reason, cOrder.status, cOrder.status_reason],
+      ["Closed", null, "Closed", null, "Closed", null]
+    );
     const events = await prisma.auditLog.findMany({ where: { entity_key: { in: ["sal_delivery_order", "sal_order"] }, row_id: { in: [order.doId, order.soId] }, event: "fulfil" } });
     assert.equal(events.length, 2);
     assert.ok(!(await deliveryNoteOptions()).orders.some((o) => o.id === order.doId), "a closed order takes no new note");

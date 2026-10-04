@@ -166,7 +166,7 @@ export function lineProblem(l: Pick<SalesLineInput, "qty" | "price" | "discountT
 }
 
 /** PPh per Jenis PPh on the DPP of the lines each covers, half up. */
-function withholdingsOf(bases: { key: string | null; rate: number | null; dpp: number }[]): WithholdingEstimate[] {
+export function withholdingsOf(bases: { key: string | null; rate: number | null; dpp: number }[]): WithholdingEstimate[] {
   const groups = new Map<string, WithholdingEstimate>();
   for (const b of bases) {
     if (!b.key || !b.rate) continue;
@@ -446,4 +446,123 @@ export function receivedProblem(cash: number, max: number): string | null {
   if (cash !== Math.round(cash)) return "Nilai diterima harus dalam rupiah penuh.";
   if (cash > max) return "Melebihi sisa tagihan.";
   return null;
+}
+
+// ================================================================ invoice
+
+/**
+ * The Faktur Penjualan's arithmetic (`Sales-Process-Concept.md` §9).
+ *
+ * A Faktur line bills one Delivery Note line: a quantity of one Customer Order
+ * line at that line's price and discount. A percent discount applies to the
+ * quantity billed; a nominal one is shared by quantity. **The bill that
+ * completes the order line takes what is left of its amount**, so the Fakturs
+ * on a line always add up to the order line exactly.
+ *
+ * The Uang Muka used is a DPP typed by the user (U8). It is shared over the
+ * lines by their DPP, the largest absorbing the rounding, and each line's PPN
+ * is the chain on its DPP after the advance — so the document is still the sum
+ * of its lines (P60) and its PPN is on the net DPP, never "full PPN − the
+ * advance's PPN" (U7). Piutang = net DPP + PPN.
+ */
+
+export type InvoiceLineInput = {
+  /** What this Faktur bills, in the order line's unit. */
+  qty: number;
+  /** The Customer Order line. */
+  orderQty: number;
+  orderAmount: number;
+  price: number;
+  discountType: DiscountType | null;
+  discountValue: number | null;
+  /** What other live Fakturs bill of the same order line. */
+  billedQtyBefore: number;
+  billedAmountBefore: number;
+  withholdingRate: number | null;
+  withholdingKey: string | null;
+};
+
+export type InvoiceLineResult = {
+  /** qty × price − its share of the discount, in the price mode. */
+  amount: number;
+  /** DPP of the goods billed. */
+  dpp: number;
+  /** The share of the Uang Muka used that this line carries. */
+  advanceDpp: number;
+  /** DPP after the advance; DPP Nilai Lain and PPN are on it. */
+  netDpp: number;
+  dppOther: number;
+  ppn: number;
+};
+
+export type InvoiceFigures = {
+  lines: InvoiceLineResult[];
+  amount: number;
+  dpp: number;
+  advanceUsed: number;
+  netDpp: number;
+  dppOther: number;
+  ppn: number;
+  /** Net Piutang: net DPP + PPN. */
+  total: number;
+  withholdings: WithholdingEstimate[];
+  withholdingTotal: number;
+  expectedReceipt: number;
+};
+
+const Q = 10_000;
+
+/** What one Faktur line bills, with the completing bill taking the remainder. */
+export function invoiceLineAmount(l: InvoiceLineInput): number {
+  const qty = Math.round((Number(l.qty) || 0) * Q);
+  const before = Math.round((Number(l.billedQtyBefore) || 0) * Q);
+  const ordered = Math.round((Number(l.orderQty) || 0) * Q);
+  if (qty <= 0) return 0;
+  if (ordered > 0 && before + qty >= ordered) return Math.round(l.orderAmount - l.billedAmountBefore);
+  if (l.discountType === "Amount") {
+    const raw = (qty / Q) * (Number(l.price) || 0);
+    const off = ordered > 0 ? ((Number(l.discountValue) || 0) * qty) / ordered : 0;
+    return Math.round(raw - off);
+  }
+  return lineAmount({ qty: qty / Q, price: l.price, discountType: l.discountType, discountValue: l.discountValue }).amount;
+}
+
+export function computeInvoice(input: {
+  lines: InvoiceLineInput[];
+  mode: PriceMode;
+  taxable: boolean;
+  rates: PpnRates | null;
+  /** Σ DPP used of the Uang Muka picked. */
+  advanceUsed: number;
+}): InvoiceFigures {
+  const amounts = input.lines.map(invoiceLineAmount);
+  const full = amounts.map((a) => taxOf(a, input.mode, input.taxable, input.rates).dpp);
+  const dpp = full.reduce((a, b) => a + b, 0);
+  const advanceUsed = Math.max(0, Math.min(Math.round(input.advanceUsed) || 0, dpp));
+  const shares = advanceUsed > 0 ? allocate(advanceUsed, full) : full.map(() => 0);
+  const lines: InvoiceLineResult[] = amounts.map((amount, i) => {
+    const netDpp = full[i] - shares[i];
+    const tax = input.taxable && input.rates ? ppnChain(netDpp, input.rates) : { dppOther: 0, ppn: 0 };
+    return { amount, dpp: full[i], advanceDpp: shares[i], netDpp, ...tax };
+  });
+  const sum = (f: (l: InvoiceLineResult) => number) => lines.reduce((a, l) => a + f(l), 0);
+  const netDpp = sum((l) => l.netDpp);
+  const ppn = sum((l) => l.ppn);
+  const withholdings = withholdingsOf(
+    input.lines.map((l, i) => ({ key: l.withholdingKey, rate: l.withholdingRate, dpp: lines[i].netDpp }))
+  );
+  const withholdingTotal = withholdings.reduce((a, w) => a + w.amount, 0);
+  return {
+    lines,
+    amount: sum((l) => l.amount),
+    dpp,
+    advanceUsed,
+    netDpp,
+    dppOther: sum((l) => l.dppOther),
+    ppn,
+    total: netDpp + ppn,
+    withholdings,
+    withholdingTotal,
+    expectedReceipt: netDpp + ppn - withholdingTotal,
+  };
 }

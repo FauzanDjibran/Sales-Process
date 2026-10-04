@@ -5,7 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 import { formatAddress } from "./partner-shape";
 import { formatNumber } from "@/lib/format";
-import { lockCustomerOrder, salesOrderSources, type SalesOrderSource } from "./customer-order";
+import { lockCustomerOrder, recordCustomerOrderDelivery, salesOrderSources, type SalesOrderSource } from "./customer-order";
 import {
   SALES_ORDER_HOLDS_QTY,
   SALES_ORDER_LIVE,
@@ -601,6 +601,7 @@ export type DeliverySourceLine = {
   salesOrderNo: string;
   salesOrderStatus: SalesOrderStatus;
   deliveryDate: string;
+  customerOrderLineId: number;
   itemId: number;
   itemLabel: string;
   itemName: string;
@@ -669,6 +670,7 @@ export async function deliveryOrderSources(
             salesOrderNo: o.order_no,
             salesOrderStatus: o.status as SalesOrderStatus,
             deliveryDate: isoDay(o.delivery_date),
+            customerOrderLineId: l.customer_order_line_id,
             itemId: c?.itemId ?? 0,
             itemLabel: c?.itemLabel ?? "",
             itemName: c?.itemName ?? "",
@@ -697,8 +699,14 @@ export async function recordSalesOrderDelivery(
   actorId: number
 ): Promise<string[]> {
   if (!sent.size) return [];
+  const byCoLine = new Map<number, number>();
   for (const [lineId, qty] of sent) {
-    await tx.salOrderLine.update({ where: { id: lineId }, data: { delivered_qty: { increment: qty } } });
+    const line = await tx.salOrderLine.update({
+      where: { id: lineId },
+      data: { delivered_qty: { increment: qty } },
+      select: { customer_order_line_id: true },
+    });
+    byCoLine.set(line.customer_order_line_id, (byCoLine.get(line.customer_order_line_id) ?? 0) + qty);
   }
   const orders = await tx.salOrder.findMany({
     where: { status: "Open", lines: { some: { id: { in: [...sent.keys()] } } } },
@@ -716,5 +724,6 @@ export async function recordSalesOrderDelivery(
       closed.push(o.order_no);
     }
   }
-  return closed;
+  // The Customer Order learns what left too, and closes once all of it has (U21).
+  return [...closed, ...(await recordCustomerOrderDelivery(tx, byCoLine, actorId))];
 }

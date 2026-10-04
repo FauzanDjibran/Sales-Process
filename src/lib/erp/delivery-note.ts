@@ -746,6 +746,8 @@ export type DeliveryNoteView = {
   status: DeliveryNoteStatus;
   header: DeliveryNoteHeaderInput;
   lines: (DeliveryNoteLineInput & {
+    /** The stored line's id — what a Faktur names (U17). */
+    id: number;
     baseQty: number;
     unitCost: number;
     cost: number;
@@ -771,6 +773,7 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
     header: input.header,
     lines: input.lines.map((l, i) => ({
       ...l,
+      id: sorted[i].id,
       baseQty: sorted[i].base_qty.toNumber(),
       unitCost: sorted[i].unit_cost.toNumber(),
       cost: sorted[i].cost_amount.toNumber(),
@@ -814,4 +817,72 @@ export async function deliveryOrderNotes(deliveryOrderId: number): Promise<Deliv
     notes: rows.map((r) => ({ id: r.id, dnNo: r.dn_no, dnDate: isoDay(r.dn_date), status: r.status as DeliveryNoteStatus })),
     lines: source?.lines ?? [],
   };
+}
+
+// ------------------------------------------------------------- for the Faktur
+
+/**
+ * A Delivery Note line as a Faktur Penjualan reads it (U17): a quantity that
+ * left, of one Customer Order line, on a posted note with its Tanggal Kirim.
+ * The Faktur takes the line whole; it names it by id and prices it from the
+ * Customer Order line. A posted note never changes, so what a Faktur bills
+ * does not move.
+ */
+export type InvoiceSourceLine = {
+  id: number;
+  deliveryNoteId: number;
+  dnNo: string;
+  dnDate: string;
+  status: DeliveryNoteStatus;
+  customerOrderId: number;
+  customerOrderLineId: number;
+  salesOrderNo: string;
+  itemLabel: string;
+  itemName: string;
+  uomLabel: string;
+  qty: number;
+  /** The lots it left from, as printed on the note. */
+  lots: string[];
+};
+
+/**
+ * Lines of posted notes — of the orders named, or every order — or the lines
+ * named, whatever their note's status, for a stored Faktur.
+ */
+export async function invoiceSourceLines(
+  filter: { customerOrderIds?: number[]; lineIds?: number[] },
+  db: Db = prisma
+): Promise<InvoiceSourceLine[]> {
+  const notes = await db.salDeliveryNote.findMany({
+    where: filter.lineIds
+      ? { lines: { some: { id: { in: filter.lineIds } } } }
+      : { status: "Posted", ...(filter.customerOrderIds ? { customer_order_id: { in: filter.customerOrderIds } } : {}) },
+    orderBy: [{ dn_date: "asc" }, { id: "asc" }],
+    include: { lines: { include: { picks: { orderBy: { pick_no: "asc" } } }, orderBy: { line_no: "asc" } } },
+  });
+  if (!notes.length) return [];
+  const sources = await deliveryNoteSources({ ids: [...new Set(notes.map((n) => n.delivery_order_id))] }, db);
+  const doLine = new Map(sources.flatMap((s) => s.lines.map((l) => [l.id, l] as const)));
+  return notes.flatMap((n) =>
+    n.lines
+      .filter((l) => !filter.lineIds || filter.lineIds.includes(l.id))
+      .map((l) => {
+        const d = doLine.get(l.delivery_order_line_id);
+        return {
+          id: l.id,
+          deliveryNoteId: n.id,
+          dnNo: n.dn_no,
+          dnDate: isoDay(n.dn_date),
+          status: n.status as DeliveryNoteStatus,
+          customerOrderId: n.customer_order_id,
+          customerOrderLineId: d?.customerOrderLineId ?? 0,
+          salesOrderNo: d?.salesOrderNo ?? "",
+          itemLabel: d?.itemLabel ?? "",
+          itemName: d?.itemName ?? "",
+          uomLabel: d?.uomLabel ?? "",
+          qty: l.qty.toNumber(),
+          lots: l.picks.map((p) => p.lot_no),
+        };
+      })
+  );
 }

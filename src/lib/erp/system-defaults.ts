@@ -32,6 +32,8 @@ export type SystemDefaultKey =
   | "sales_advance_account"
   | "output_vat_account"
   | "bank_charge_account"
+  | "receivable_account"
+  | "sales_revenue_account"
   | "cogs_account"
   | "inventory_account"
   | "ppn_rate"
@@ -44,7 +46,7 @@ export type SystemDefaultRef = "acc_account";
 /** The page a setting is edited on. */
 export type SettingsPage = "default" | "account";
 
-export type SystemDefaultGroupKey = "application" | "tax" | "receipt" | "delivery" | "fx" | "equity_pl";
+export type SystemDefaultGroupKey = "application" | "tax" | "receipt" | "invoice" | "delivery" | "fx" | "equity_pl";
 
 export type SystemDefaultGroup = {
   key: SystemDefaultGroupKey;
@@ -85,6 +87,16 @@ export const SYSTEM_DEFAULT_GROUPS = [
       "yang dipotong bank. PPh yang dipotong customer memakai account pada " +
       "setiap Jenis PPh.",
     icon: "down",
+  },
+  {
+    key: "invoice",
+    page: "account",
+    name: "Faktur Penjualan",
+    desc:
+      "Account yang dipakai saat Faktur Penjualan diposting: piutang usaha " +
+      "atas barang yang ditagih dan penjualannya. Uang Muka Penjualan dan PPN " +
+      "Keluaran memakai account pada Penerimaan Penjualan.",
+    icon: "file",
   },
   {
     key: "delivery",
@@ -218,6 +230,29 @@ export const SYSTEM_DEFAULTS = [
     help: "biaya transfer yang dipotong bank",
   },
 
+  // ------------------------------------------------------------- invoice
+  //
+  // Added with the Faktur Penjualan (U22), one each for the company until the
+  // Kategori Item mapping (C25) names them per category.
+  {
+    key: "receivable_account",
+    name: "Account Piutang Usaha",
+    icon: "wallet",
+    type: "ref",
+    ref: "acc_account",
+    group: "invoice",
+    help: "piutang customer atas faktur, per customer",
+  },
+  {
+    key: "sales_revenue_account",
+    name: "Account Penjualan",
+    icon: "trend",
+    type: "ref",
+    ref: "acc_account",
+    group: "invoice",
+    help: "pendapatan atas barang yang ditagih",
+  },
+
   // ------------------------------------------------------------ delivery
   //
   // Added with the Delivery Note (U12), one each for the company until the
@@ -296,6 +331,8 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   sales_advance_account: null,
   output_vat_account: null,
   bank_charge_account: null,
+  receivable_account: null,
+  sales_revenue_account: null,
   cogs_account: null,
   inventory_account: null,
   ppn_rate: null,

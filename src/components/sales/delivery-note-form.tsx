@@ -55,6 +55,7 @@ export function DeliveryNoteForm({
   can,
   preview = null,
   presetDeliveryOrderId = null,
+  billing = null,
 }: {
   mode: DeliveryNoteMode;
   note: DeliveryNoteView | null;
@@ -64,6 +65,8 @@ export function DeliveryNoteForm({
   preview?: DeliveryNotePreview | null;
   /** `?do=<id>` — started from a Delivery Order's page: its open lines start ticked. */
   presetDeliveryOrderId?: number | null;
+  /** For a posted note: the live Faktur billing each line, by line id (U17). */
+  billing?: Record<number, { id: number; no: string; status: string }> | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -413,7 +416,7 @@ export function DeliveryNoteForm({
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: posted ? 980 : 900 }}>
+          <table className="grid ltab" style={{ minWidth: posted ? (billing ? 1100 : 980) : 900 }}>
             <thead>
               <tr>
                 <th style={{ width: 40 }}>No</th>
@@ -429,6 +432,7 @@ export function DeliveryNoteForm({
                     <th className="num" style={{ width: 130 }}>
                       HPP
                     </th>
+                    {billing && <th style={{ width: 150 }}>Ditagih</th>}
                   </>
                 )}
                 {editing && <th style={{ width: 40 }} />}
@@ -495,6 +499,17 @@ export function DeliveryNoteForm({
                         <td className="num">
                           <span className="mny">{money(stored?.cost ?? 0)}</span>
                         </td>
+                        {billing && (
+                          <td>
+                            {stored && billing[stored.id] ? (
+                              <Link className="lab" href={`/sales/invoice/${billing[stored.id].id}`}>
+                                {billing[stored.id].no}
+                              </Link>
+                            ) : (
+                              <span className="dash">Belum ditagih</span>
+                            )}
+                          </td>
+                        )}
                       </>
                     )}
                     {editing && (
@@ -524,6 +539,7 @@ export function DeliveryNoteForm({
                   <td className="num">
                     <span className="mny">{money(note?.cost ?? 0)}</span>
                   </td>
+                  {billing && <td />}
                 </tr>
               </tfoot>
             )}

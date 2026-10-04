@@ -194,6 +194,7 @@ export async function checkPartnerCollections(
                 { sales_orders: { some: {} } },
                 { delivery_orders: { some: {} } },
                 { delivery_notes: { some: {} } },
+                { invoices: { some: {} } },
               ],
             },
             select: { id: true },

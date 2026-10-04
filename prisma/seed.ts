@@ -128,6 +128,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Delivery Order", "sal_delivery_order"],
   // The note the goods leave on; its journal and stock issues name it.
   ["Delivery Note", "sal_delivery_note"],
+  ["Faktur Penjualan", "sal_invoice"],
 ];
 
 /**

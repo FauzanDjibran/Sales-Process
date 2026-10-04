@@ -919,6 +919,130 @@ export async function advanceSourceOrders(
   });
 }
 
+// ------------------------------------------------------------- for the Faktur
+
+/**
+ * A Customer Order as a Faktur Penjualan reads it (U16, U18, U20): whose it
+ * is, its Termin, its price mode, Kena PPN and PPN snapshot, and per line the
+ * price and discount a Faktur bills at, with the line's Jenis PPh. The Faktur
+ * module takes this rather than reading `sal_customer_order` itself; a
+ * submitted order's lines are frozen, so what a Faktur prices from does not move.
+ */
+export type InvoiceSourceOrder = {
+  id: number;
+  orderNo: string;
+  orderDate: string;
+  status: CustomerOrderStatus;
+  customerId: number;
+  customerLabel: string;
+  customerName: string;
+  customerActive: boolean;
+  addressId: number;
+  poNo: string | null;
+  termLabel: string;
+  termDays: number;
+  mode: PriceMode;
+  taxable: boolean;
+  rates: PpnRates | null;
+  lines: {
+    id: number;
+    lineNo: number;
+    itemLabel: string;
+    itemName: string;
+    uomLabel: string;
+    qty: number;
+    price: number;
+    discountType: "Percent" | "Amount" | null;
+    discountValue: number | null;
+    amount: number;
+    withholdingTaxId: number | null;
+    withholdingRate: number | null;
+    withholdingLabel: string | null;
+  }[];
+};
+
+export async function invoiceSourceOrders(filter: { ids?: number[] }, db: Db = prisma): Promise<InvoiceSourceOrder[]> {
+  const rows = await db.salCustomerOrder.findMany({
+    where: filter.ids ? { id: { in: filter.ids } } : { status: { in: ["Open", "Closed"] } },
+    orderBy: [{ order_date: "desc" }, { id: "desc" }],
+    include: {
+      customer: true,
+      term: true,
+      lines: { include: { item: true, uom: true, withholding_tax: true }, orderBy: { line_no: "asc" } },
+    },
+  });
+  return rows.map((o) => ({
+    id: o.id,
+    orderNo: o.order_no,
+    orderDate: isoDay(o.order_date),
+    status: o.status as CustomerOrderStatus,
+    customerId: o.customer_id,
+    customerLabel: o.customer.partner_label,
+    customerName: o.customer.partner_name,
+    customerActive: o.customer.status === "Active",
+    addressId: o.address_id,
+    poNo: o.po_no,
+    termLabel: o.term.term_label,
+    termDays: o.term.due_days,
+    mode: o.price_mode as PriceMode,
+    taxable: o.is_taxable,
+    rates:
+      o.is_taxable && o.ppn_rate && o.ppn_dpp_other_numerator && o.ppn_dpp_other_denominator
+        ? { rate: o.ppn_rate.toNumber(), otherNum: o.ppn_dpp_other_numerator, otherDen: o.ppn_dpp_other_denominator }
+        : null,
+    lines: o.lines.map((l) => ({
+      id: l.id,
+      lineNo: l.line_no,
+      itemLabel: l.item.item_label,
+      itemName: l.item.item_name,
+      uomLabel: l.uom.uom_label,
+      qty: l.qty.toNumber(),
+      price: l.price.toNumber(),
+      discountType: (l.discount_type as "Percent" | "Amount" | null) ?? null,
+      discountValue: l.discount_value?.toNumber() ?? null,
+      amount: l.amount.toNumber(),
+      withholdingTaxId: l.withholding_tax_id,
+      withholdingRate: l.withholding_rate?.toNumber() ?? null,
+      withholdingLabel: l.withholding_tax?.wht_label ?? null,
+    })),
+  }));
+}
+
+/**
+ * Records what posted Delivery Notes sent of each order line (U21), called by
+ * the Sales Order module inside the posting transaction, and closes every Open
+ * order whose lines are now fully delivered — the order is finished when its
+ * delivery is; billing follows. Returns the numbers of the orders it closed.
+ */
+export async function recordCustomerOrderDelivery(
+  tx: Prisma.TransactionClient,
+  sent: Map<number, number>,
+  actorId: number
+): Promise<string[]> {
+  if (!sent.size) return [];
+  for (const [lineId, qty] of sent) {
+    await tx.salCustomerOrderLine.update({ where: { id: lineId }, data: { delivered_qty: { increment: qty } } });
+  }
+  const orders = await tx.salCustomerOrder.findMany({
+    where: { status: "Open", lines: { some: { id: { in: [...sent.keys()] } } } },
+    include: { lines: true },
+  });
+  const units = (n: number) => Math.round(n * 10_000);
+  const closed: string[] = [];
+  for (const o of orders) {
+    if (!o.lines.every((l) => units(l.delivered_qty.toNumber()) >= units(l.qty.toNumber()))) continue;
+    const done = await tx.salCustomerOrder.updateMany({
+      where: { id: o.id, status: "Open" },
+      data: { status: "Closed", status_reason: null, updated_by: actorId },
+    });
+    if (done.count === 1) {
+      await audit(tx, o.id, "UPDATE", "fulfil", actorId);
+      closed.push(o.order_no);
+    }
+  }
+  return closed;
+}
+
 /**
  * Locks an order's row for the rest of the transaction, so an advance drawn
  * from it and the order's closing cannot pass each other, and two bills

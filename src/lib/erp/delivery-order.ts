@@ -604,6 +604,7 @@ export type DeliveryNoteSourceLine = {
   lineNo: number;
   salesOrderId: number;
   salesOrderNo: string;
+  customerOrderLineId: number;
   itemId: number;
   itemLabel: string;
   itemName: string;
@@ -681,6 +682,7 @@ export async function deliveryNoteSources(
           lineNo: l.line_no,
           salesOrderId: so?.salesOrderId ?? 0,
           salesOrderNo: so?.salesOrderNo ?? "",
+          customerOrderLineId: so?.customerOrderLineId ?? 0,
           itemId: so?.itemId ?? 0,
           itemLabel: so?.itemLabel ?? "",
           itemName: so?.itemName ?? "",

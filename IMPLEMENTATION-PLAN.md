@@ -212,9 +212,12 @@ line in full and issues each lot as its own stock movement.
 U16–U22), in three steps: (1) **the AR item's revised shape — done 04/10/2026**
 (P96): `ARI/…` numbers, source = the document an item is about, the receipt
 named by the Create entry, tax columns carrying an Uang Muka's Faktur Pajak
-Uang Muka; (2) the Faktur itself, billing whole lines of the Customer Order's
-posted Delivery Notes, with the Customer Order closing itself once fully
-delivered; (3) *Penerimaan dari Customer* (P83).
+Uang Muka; (2) **the Faktur itself — done 04/10/2026** (P97): Sales › Faktur
+Penjualan, `INV/…`, whole lines of one Customer Order's posted Delivery Notes,
+the order's Uang Muka picked and its DPP typed, posting Dr Piutang · Dr Uang
+Muka / Cr Penjualan · Cr PPN and the Invoice AR item, with the Customer Order
+closing itself once fully delivered; (3) *Penerimaan dari Customer* (P83) —
+next.
 
 Built one step at a time, **in the order the user gives**. For each step:
 

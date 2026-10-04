@@ -641,6 +641,7 @@ model RefWithholdingTax {
 
   customer_order_lines SalCustomerOrderLine[]
   cash_bank_tx_whts    FinCashBankTxLineWht[]
+  invoice_lines        SalInvoiceLine[]
 
   @@index([prepaid_account_id])
   @@map("ref_withholding_tax")
@@ -698,6 +699,7 @@ model MPartner {
   sales_orders    SalOrder[]
   delivery_orders SalDeliveryOrder[]
   delivery_notes  SalDeliveryNote[]
+  invoices        SalInvoice[]
   sales_advances  SalAdvance[]
   cash_bank_txs   FinCashBankTx[]
   ar_items        FinArItem[]
@@ -747,6 +749,7 @@ model MPartnerAddress {
   sales_orders    SalOrder[]
   delivery_orders SalDeliveryOrder[]
   delivery_notes  SalDeliveryNote[]
+  invoices        SalInvoice[]
 
   @@index([partner_id])
   @@index([village_id])
@@ -862,6 +865,7 @@ model MCashBank {
 
   /// Advance bills that print this account as where to pay (P56).
   sales_advances SalAdvance[]
+  sales_invoices SalInvoice[]
 
   @@map("m_cash_bank")
 }
@@ -1459,6 +1463,7 @@ model SalCustomerOrder {
   /// The Delivery Orders that send this order's goods, and the notes they leave on.
   delivery_orders SalDeliveryOrder[]
   delivery_notes  SalDeliveryNote[]
+  invoices        SalInvoice[]
 
   @@index([customer_id])
   @@index([status, order_date])
@@ -1497,6 +1502,11 @@ model SalCustomerOrderLine {
   /// The rate at save, so an estimate does not move when the master does.
   withholding_rate   Decimal? @db.Decimal(9, 4)
 
+  /// What posted Delivery Notes sent of this line, written by the Sales
+  /// Order module as each posts (U21): the order closes itself once every line
+  /// is fully delivered.
+  delivered_qty Decimal @default(0) @db.Decimal(18, 4)
+
   note String?
 
   order             SalCustomerOrder   @relation(fields: [order_id], references: [id])
@@ -1504,6 +1514,7 @@ model SalCustomerOrderLine {
   uom               RefUom             @relation(fields: [uom_id], references: [id])
   withholding_tax   RefWithholdingTax? @relation(fields: [withholding_tax_id], references: [id])
   sales_order_lines SalOrderLine[]
+  invoice_lines     SalInvoiceLine[]
 
   @@unique([order_id, line_no])
   @@index([item_id])
@@ -1725,6 +1736,8 @@ model SalDeliveryNoteLine {
   /// For an item with Kelola Stok: which lots the line's quantity is taken
   /// from (U15). Their quantities add up to the line's at Posting.
   picks               SalDeliveryNotePick[]
+  /// The Faktur line that bills it, at most one live (U17).
+  invoice_lines       SalInvoiceLine[]
 
   @@unique([delivery_note_id, line_no])
   @@unique([delivery_note_id, delivery_order_line_id])
@@ -1756,6 +1769,130 @@ model SalDeliveryNotePick {
   @@unique([delivery_note_line_id, lot_id])
   @@index([lot_id])
   @@map("sal_delivery_note_pick")
+}
+
+enum InvoiceStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+/// The Faktur Penjualan (`Sales-Process-Concept.md` §9, U16–U22): the bill
+/// for goods already sent. One Customer Order; its lines are whole lines of
+/// that order's posted Delivery Notes. Posting writes Piutang, revenue and
+/// PPN, uses the order's Uang Muka the user picked, and creates the Invoice
+/// AR item.
+model SalInvoice {
+  id           Int           @id @default(autoincrement())
+  invoice_no   String        @unique
+  /// Typed; the journal's date. Not before `tax_date`.
+  invoice_date DateTime      @db.Date
+  /// The latest Tanggal Kirim of the notes billed — the faktur pajak's date (U19).
+  tax_date     DateTime      @db.Date
+  /// `tax_date` + the order's Termin days (U19).
+  due_date     DateTime      @db.Date
+  status       InvoiceStatus @default(Draft)
+
+  customer_order_id Int
+  customer_id       Int
+  /// The billing address: any of the customer's.
+  address_id        Int
+  /// Where the customer is asked to pay, printed on the bill.
+  cash_bank_id      Int
+
+  /// The order's, copied (U18, U20).
+  price_mode                PriceMode
+  is_taxable                Boolean
+  ppn_rate                  Decimal? @db.Decimal(9, 4)
+  ppn_dpp_other_numerator   Int?
+  ppn_dpp_other_denominator Int?
+
+  // ---- totals, from `lib/erp/sales-tax.ts` (`computeInvoice`), whole rupiah.
+  amount             Decimal @default(0) @db.Decimal(18, 2)
+  /// DPP of the goods billed.
+  dpp_amount         Decimal @default(0) @db.Decimal(18, 2)
+  /// Uang Muka used, in DPP (U8).
+  advance_dpp_amount Decimal @default(0) @db.Decimal(18, 2)
+  net_dpp_amount     Decimal @default(0) @db.Decimal(18, 2)
+  dpp_other_amount   Decimal @default(0) @db.Decimal(18, 2)
+  ppn_amount         Decimal @default(0) @db.Decimal(18, 2)
+  /// Net Piutang: net DPP + PPN.
+  total_amount       Decimal @default(0) @db.Decimal(18, 2)
+
+  /// Coretax number of its faktur pajak, typed after upload (U10).
+  tax_invoice_no String?
+  journal_id     Int?
+  /// The Invoice AR item it created; none when nothing is left to pay.
+  ar_item_id     Int?
+  note           String?
+  cancel_reason  String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  customer_order SalCustomerOrder              @relation(fields: [customer_order_id], references: [id])
+  customer       MPartner                      @relation(fields: [customer_id], references: [id])
+  address        MPartnerAddress               @relation(fields: [address_id], references: [id])
+  cash_bank      MCashBank                     @relation(fields: [cash_bank_id], references: [id])
+  lines          SalInvoiceLine[]
+  deductions     SalInvoiceAdvanceDeduction[]
+
+  @@index([customer_order_id])
+  @@index([status, invoice_date])
+  @@map("sal_invoice")
+}
+
+/// One Faktur line: one Delivery Note line, whole (U17), priced from its
+/// Customer Order line. A Delivery Note line is billed by at most one live
+/// Faktur, checked under the order's lock.
+model SalInvoiceLine {
+  id                     Int     @id @default(autoincrement())
+  invoice_id             Int
+  line_no                Int
+  delivery_note_line_id  Int
+  customer_order_line_id Int
+  /// The Delivery Note line's, in the order line's unit.
+  qty                    Decimal @db.Decimal(18, 4)
+  price                  Decimal @db.Decimal(18, 2)
+  amount                 Decimal @db.Decimal(18, 2)
+  dpp_amount             Decimal @db.Decimal(18, 2)
+  /// Its share of the Uang Muka used.
+  advance_dpp_amount     Decimal @default(0) @db.Decimal(18, 2)
+  net_dpp_amount         Decimal @db.Decimal(18, 2)
+  dpp_other_amount       Decimal @default(0) @db.Decimal(18, 2)
+  ppn_amount             Decimal @default(0) @db.Decimal(18, 2)
+  /// The order line's, carried for the PPh the receipt will expect.
+  withholding_tax_id     Int?
+  withholding_rate       Decimal? @db.Decimal(9, 4)
+
+  invoice             SalInvoice           @relation(fields: [invoice_id], references: [id])
+  delivery_note_line  SalDeliveryNoteLine  @relation(fields: [delivery_note_line_id], references: [id])
+  customer_order_line SalCustomerOrderLine @relation(fields: [customer_order_line_id], references: [id])
+  withholding_tax     RefWithholdingTax?   @relation(fields: [withholding_tax_id], references: [id])
+
+  @@unique([invoice_id, line_no])
+  @@unique([invoice_id, delivery_note_line_id])
+  @@index([delivery_note_line_id])
+  @@index([customer_order_line_id])
+  @@map("sal_invoice_line")
+}
+
+/// An Uang Muka the Faktur uses (U8, U10): the AR item, by id — the AR items
+/// are a book — and the DPP typed from it.
+model SalInvoiceAdvanceDeduction {
+  id         Int     @id @default(autoincrement())
+  invoice_id Int
+  ar_item_id Int
+  ar_item_no String
+  dpp_used   Decimal @db.Decimal(18, 2)
+
+  invoice SalInvoice @relation(fields: [invoice_id], references: [id])
+
+  @@unique([invoice_id, ar_item_id])
+  @@index([ar_item_id])
+  @@map("sal_invoice_advance_deduction")
 }
 
 /// TEMPORARY (U15). The stand-in inventory's lots: what a picker chooses from,

@@ -1310,3 +1310,5 @@ button.fulltag.lnk:hover{text-decoration:underline}
 table.ltab tr.clk{cursor:pointer}
 .impact .ir.diff b{color:var(--bad)}
 .impact .ir.ok b{color:var(--ok)}
+/* A group heading row inside a picker table — the Faktur's Delivery Note per group. */
+table.ltab tr.grp td{background:var(--line-3);font-weight:700;padding-top:7px;padding-bottom:7px}

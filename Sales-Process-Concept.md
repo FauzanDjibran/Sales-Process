@@ -94,7 +94,7 @@ Three lanes, never mixed:
 | Uang Muka Penjualan (bill) | `ARA/YYYY/MM/NNNN` | Finance › Uang Muka | `sal_advance` | No | No | [Built] |
 | Penerimaan Kas & Bank | `BKM/YYYY/MM/NNNN` | Finance › Kas & Bank › Penerimaan | `fin_cash_bank_tx`, `_line`, `_line_wht` | Yes, at Post | No | [Built] |
 | AR item + Buku Piutang | `ARI/YYYY/MM/NNNN` | (no menu; seen in reports) | `fin_ar_item`, `fin_ar_ledger` | Never | **Yes** | [Built] (revised shape U1, U9: P96) |
-| Faktur Penjualan | `INV/…` | Sales | `sal_invoice(_line, _advance_deduction)` | Yes | Invoice item | [Planned] (§9) |
+| Faktur Penjualan | `INV/…` | Sales | `sal_invoice(_line, _advance_deduction)` | Yes | Invoice item | [Built] (§9, P97) |
 
 ---
 
@@ -767,7 +767,7 @@ adjustment.
 
 ---
 
-## 9. Faktur Penjualan — the bill for what was sent  [Planned] (U16–U22)
+## 9. Faktur Penjualan — the bill for what was sent  [Built] (P97; U16–U22)
 
 The document that **bills goods already sent**. It is where Piutang, revenue
 and output PPN are born (P71), where the order's paid Uang Muka is deducted,
@@ -817,6 +817,12 @@ line's unit) × the order line's price, less the discount:
   rates the order snapshotted (U20).
 - Jenis PPh and its rate are the order line's, carried for the expected
   withholding (*Estimasi Penerimaan*), as on the order.
+
+**As built (P97):** the Uang Muka used is shared over the lines by DPP, the
+largest absorbing the rounding, and each line's DPP Nilai Lain and PPN are the
+chain on its own net DPP — so the document is still the sum of its lines (P60)
+while PPN is on the net DPP (U7). A Draft reserves the Uang Muka it uses; a
+later Faktur may use only what is free.
 
 ### 9.4 The totals and the advance
 
@@ -1124,7 +1130,7 @@ Muka, the receipt from its Terbentuk entry [Built] (P96).
 | Item | State |
 | --- | --- |
 | Revised AR item shape (`ar_item_no`, source = what it is about, `ref_*` dropped) | [Built] — U1, P96 |
-| Faktur Penjualan, Invoice items, Dipakai Invoice, Pembayaran | [Planned] — §9, U16–U22 agreed |
+| Faktur Penjualan, Invoice items, Dipakai Invoice | [Built] — §9, P97. Pembayaran on an Invoice item comes with *Penerimaan dari Customer* |
 | Tax columns on `fin_ar_item` (U9) | [Built] — P96; `tax_invoice_no` has no entry screen yet |
 | Whether Coretax accepts one Faktur Pajak Uang Muka referenced by two Faktur Pelunasan (partial use) | To verify with a tax consultant |
 | A settlement PPN 1 rupiah off "full PPN − advance PPN" after odd partial receipts | Accepted: the chain on the net DPP wins (it is what the Faktur Pajak Pelunasan carries) |
@@ -1134,7 +1140,7 @@ Muka, the receipt from its Terbentuk entry [Built] (P96).
 | Closing a bill / invoice remainder by its owner (write-off) | [Planned] with the close action |
 | *Penerimaan Belum Teridentifikasi* and how it is cleared | [Planned]; clearing is open (C31) |
 | Delivery Note, closing SO / DO when delivered, releasing undelivered quantity on a hand-closed SO / DO | [Built] (P94) |
-| Auto-closing the Customer Order once fully delivered | [Agreed, not built] — U21, built with the Faktur |
+| Auto-closing the Customer Order once fully delivered | [Built] — U21, P97 |
 | Printing the advance bill | Needs Company Setting and bank account details |
 | Multi-currency columns and behaviour | Later (U6) |
 | Whether manual revaluation includes Uang Muka items | **Open** (recommended: no) |

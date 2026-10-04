@@ -94,6 +94,9 @@ describe("the settings catalogue lives in code", () => {
         "sales_advance_account",
         "output_vat_account",
         "bank_charge_account",
+        // The Faktur Penjualan's (U22).
+        "receivable_account",
+        "sales_revenue_account",
         // The Delivery Note's (U12).
         "cogs_account",
         "inventory_account",

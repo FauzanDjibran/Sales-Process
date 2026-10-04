@@ -46,6 +46,15 @@ migration updates this file in the same change (Claude-ERP.md §9).
   is what posted notes sent of each line. `sal_delivery_note_pick` (P95) is the
   stock picking of a line of a Barang with Kelola Stok: one row per lot, with
   the lot number and expiry copied, and its cost once posted.
+- `sal_invoice`, `sal_invoice_line` and `sal_invoice_advance_deduction` (P97)
+  — the Faktur Penjualan, `INV/…`: one Customer Order; each line is one whole
+  posted Delivery Note line (`delivery_note_line_id`, billed by at most one
+  live Faktur) priced from its Customer Order line; each deduction an Uang
+  Muka AR item (by id, no foreign key: AR items are a book) and the DPP used.
+  Its own `invoice_date`; `tax_date` and `due_date` from the latest Tanggal
+  Kirim. Posting writes the journal and the Invoice AR item (`ar_item_id`).
+  `delivered_qty` on `sal_customer_order_line` (P97) is what its Sales Order
+  lines delivered; the order closes itself once all is delivered.
 - `tmp_item_cost`, `tmp_stock_lot` and `tmp_stock_movement` (P94, P95) —
   **temporary**: the stand-in inventory's Harga Pokok per item, its lots per
   item and warehouse, and its issue log (one row per lot issued), named only by
@@ -175,6 +184,12 @@ Enum DeliveryOrderStatus {
 }
 
 Enum DeliveryNoteStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+Enum InvoiceStatus {
   Draft
   Posted
   Cancelled
@@ -897,6 +912,7 @@ Table sal_customer_order_line {
   ppn_amount decimal(18, 2) [not null]
   withholding_tax_id int [null]
   withholding_rate decimal(9, 4) [null]
+  delivered_qty decimal(18, 4) [not null, default: 0, note: 'what posted Delivery Notes sent (U21)']
   note varchar [null]
 
   indexes {
@@ -1044,6 +1060,83 @@ Table sal_delivery_note_pick {
     (delivery_note_line_id, pick_no) [unique]
     (delivery_note_line_id, lot_id) [unique]
     lot_id
+  }
+}
+
+Table sal_invoice {
+  id int [pk, increment, not null]
+  invoice_no varchar [unique, not null, note: 'INV/YYYY/MM/NNNN']
+  invoice_date date [not null, note: 'typed; the journal date']
+  tax_date date [not null, note: 'latest Tanggal Kirim billed; the faktur pajak date']
+  due_date date [not null, note: 'tax_date + Termin days']
+  status InvoiceStatus [not null, default: 'Draft']
+  customer_order_id int [not null]
+  customer_id int [not null]
+  address_id int [not null, note: 'billing address, any of the customer']
+  cash_bank_id int [not null, note: 'printed: where to pay']
+  price_mode PriceMode [not null, note: 'the order, copied']
+  is_taxable boolean [not null]
+  ppn_rate decimal(9, 4) [null]
+  ppn_dpp_other_numerator int [null]
+  ppn_dpp_other_denominator int [null]
+  amount decimal(18, 2) [not null, default: 0]
+  dpp_amount decimal(18, 2) [not null, default: 0, note: 'DPP of the goods billed']
+  advance_dpp_amount decimal(18, 2) [not null, default: 0, note: 'Uang Muka used']
+  net_dpp_amount decimal(18, 2) [not null, default: 0]
+  dpp_other_amount decimal(18, 2) [not null, default: 0]
+  ppn_amount decimal(18, 2) [not null, default: 0, note: 'on the net DPP, per line']
+  total_amount decimal(18, 2) [not null, default: 0, note: 'net Piutang']
+  tax_invoice_no varchar [null, note: 'Coretax number, typed after upload']
+  journal_id int [null]
+  ar_item_id int [null, note: 'the Invoice AR item; none when nothing is left to pay']
+  note varchar [null]
+  cancel_reason varchar [null]
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    customer_order_id
+    (status, invoice_date)
+  }
+}
+
+Table sal_invoice_line {
+  id int [pk, increment, not null]
+  invoice_id int [not null]
+  line_no int [not null]
+  delivery_note_line_id int [not null, note: 'taken whole (U17)']
+  customer_order_line_id int [not null]
+  qty decimal(18, 4) [not null]
+  price decimal(18, 2) [not null]
+  amount decimal(18, 2) [not null]
+  dpp_amount decimal(18, 2) [not null]
+  advance_dpp_amount decimal(18, 2) [not null, default: 0, note: 'its share of the Uang Muka used']
+  net_dpp_amount decimal(18, 2) [not null]
+  dpp_other_amount decimal(18, 2) [not null, default: 0]
+  ppn_amount decimal(18, 2) [not null, default: 0]
+  withholding_tax_id int [null]
+  withholding_rate decimal(9, 4) [null]
+
+  indexes {
+    (invoice_id, line_no) [unique]
+    (invoice_id, delivery_note_line_id) [unique]
+    delivery_note_line_id
+    customer_order_line_id
+  }
+}
+
+Table sal_invoice_advance_deduction {
+  id int [pk, increment, not null]
+  invoice_id int [not null]
+  ar_item_id int [not null, note: 'weak: an Uang Muka AR item of the same order']
+  ar_item_no varchar [not null]
+  dpp_used decimal(18, 2) [not null]
+
+  indexes {
+    (invoice_id, ar_item_id) [unique]
+    ar_item_id
   }
 }
 
@@ -1200,6 +1293,15 @@ Ref: sal_delivery_note.address_id > m_partner_address.id
 Ref: sal_delivery_note_line.delivery_note_id > sal_delivery_note.id
 Ref: sal_delivery_note_line.delivery_order_line_id > sal_delivery_order_line.id
 Ref: sal_delivery_note_pick.delivery_note_line_id > sal_delivery_note_line.id
+Ref: sal_invoice.customer_order_id > sal_customer_order.id
+Ref: sal_invoice.customer_id > m_partner.id
+Ref: sal_invoice.address_id > m_partner_address.id
+Ref: sal_invoice.cash_bank_id > m_cash_bank.id
+Ref: sal_invoice_line.invoice_id > sal_invoice.id
+Ref: sal_invoice_line.delivery_note_line_id > sal_delivery_note_line.id
+Ref: sal_invoice_line.customer_order_line_id > sal_customer_order_line.id
+Ref: sal_invoice_line.withholding_tax_id > ref_withholding_tax.id
+Ref: sal_invoice_advance_deduction.invoice_id > sal_invoice.id
 Ref: tmp_stock_lot.item_id > m_item.id
 Ref: tmp_stock_lot.warehouse_id > ref_warehouse.id
 Ref: tmp_item_cost.item_id - m_item.id

@@ -4,6 +4,7 @@ import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { deliveryNoteOptions, deliveryNotePreview, getDeliveryNote } from "@/lib/erp/delivery-note";
 import { deliveryNoteAbilities } from "@/lib/erp/delivery-note-workflow";
+import { deliveryNoteBilling } from "@/lib/erp/sales-invoice";
 
 export const dynamic = "force-dynamic";
 
@@ -13,15 +14,17 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const note = await getDeliveryNote(Number(id));
   if (!note) notFound();
   const can = deliveryNoteAbilities(actor.permissions);
-  const [options, preview] = await Promise.all([
+  const [options, preview, billing] = await Promise.all([
     deliveryNoteOptions({ id: note.id, deliveryOrderId: Number(note.header.delivery_order_id) }),
     // The journal Posting would write, for its confirmation — only for a Draft
     // this user may post.
     note.status === "Draft" && can.post ? deliveryNotePreview(note.id) : Promise.resolve(null),
+    // Which Faktur bills each line — the invoice module's to say; composed here (U17).
+    note.status === "Posted" && actor.permissions.has("SALES_INVOICE_VIEW") ? deliveryNoteBilling(note.lines.map((l) => l.id)) : Promise.resolve(null),
   ]);
   return (
     <>
-      <DeliveryNoteForm mode="view" note={note} options={options} can={can} preview={preview} />
+      <DeliveryNoteForm mode="view" note={note} options={options} can={can} preview={preview} billing={billing} />
       <RecordHistoryCard entityKey="sal_delivery_note" rowId={note.id} />
     </>
   );

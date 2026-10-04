@@ -408,3 +408,63 @@ export async function arItemsReconcile(partnerId: number | null = null): Promise
       Math.round(i.entries.reduce((a, e) => a + e.movement.toNumber(), 0) * 100)
   );
 }
+
+// ------------------------------------------------------ for the Faktur
+
+/**
+ * An Uang Muka item as a Faktur reads it (U7, U8): the item, what it is about,
+ * the receipt that created it, its balance and its own tax document. A Faktur
+ * uses only its own Customer Order's items, and never reads the receipts.
+ */
+export type AdvanceItemForInvoice = {
+  id: number;
+  arItemNo: string;
+  date: string;
+  partnerId: number;
+  orderId: number | null;
+  /** The advance bill. */
+  sourceNo: string;
+  sourceTable: string;
+  sourceId: number;
+  /** The receipt, from the Create entry. */
+  createdByNo: string;
+  balance: number;
+  original: number;
+  taxDpp: number | null;
+  taxPpn: number | null;
+  taxInvoiceNo: string | null;
+};
+
+/** Uang Muka items of the orders named with a balance left, or the items named — whatever their balance. */
+export async function advanceItemsForInvoice(
+  filter: { orderIds?: number[]; ids?: number[] },
+  db: Db = prisma
+): Promise<AdvanceItemForInvoice[]> {
+  const rows = await db.finArItem.findMany({
+    where: {
+      item_type: "Advance",
+      ...(filter.ids ? { id: { in: filter.ids } } : { customer_order_id: { in: filter.orderIds ?? [] }, current_balance: { gt: 0 } }),
+    },
+    include: {
+      source_doc_type: { select: { doc_table: true } },
+      entries: { where: { event: "Create" }, select: { doc_no: true, amount: true } },
+    },
+    orderBy: [{ item_date: "asc" }, { id: "asc" }],
+  });
+  return rows.map((i) => ({
+    id: i.id,
+    arItemNo: i.ar_item_no,
+    date: isoDay(i.item_date),
+    partnerId: i.partner_id,
+    orderId: i.customer_order_id,
+    sourceNo: i.source_no,
+    sourceTable: i.source_doc_type.doc_table,
+    sourceId: i.source_doc_id,
+    createdByNo: i.entries[0]?.doc_no ?? "",
+    balance: i.current_balance.toNumber(),
+    original: i.entries[0]?.amount.toNumber() ?? 0,
+    taxDpp: i.tax_dpp?.toNumber() ?? null,
+    taxPpn: i.tax_ppn?.toNumber() ?? null,
+    taxInvoiceNo: i.tax_invoice_no,
+  }));
+}

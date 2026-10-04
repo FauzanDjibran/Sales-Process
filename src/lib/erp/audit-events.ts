@@ -28,6 +28,7 @@ import { CUSTOMER_ORDER_TRANSITIONS } from "./customer-order-workflow";
 import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
 import { DELIVERY_ORDER_TRANSITIONS } from "./delivery-order-workflow";
 import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
+import { INVOICE_TRANSITIONS } from "./sales-invoice-workflow";
 import { CASH_RECEIPT_TRANSITIONS } from "./cash-bank-tx-workflow";
 
 /** How an entry is drawn: its words, its icon, and its weight. */
@@ -104,6 +105,7 @@ const CUSTOMER_ORDER_EVENTS: Record<string, AuditEventLabel> = {
   reject: fromTransition(CUSTOMER_ORDER_TRANSITIONS.reject, "Ditolak"),
   cancel: fromTransition(CUSTOMER_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
   close: fromTransition(CUSTOMER_ORDER_TRANSITIONS.close, "Ditutup"),
+  fulfil: { label: "Ditutup — seluruhnya terkirim", icon: "truck", tone: "primary", systemDriven: true },
 };
 
 /** Sales Order: Draft → Diajukan → Pra-SO → Open → Ditutup, or Dibatalkan / Ditolak (P79). */
@@ -135,6 +137,14 @@ const DELIVERY_NOTE_EVENTS: Record<string, AuditEventLabel> = {
   create: { label: "Delivery Note dibuat", icon: "truck", tone: "neutral" },
   post: fromTransition(DELIVERY_NOTE_TRANSITIONS.post, "Diposting — barang keluar"),
   cancel: fromTransition(DELIVERY_NOTE_TRANSITIONS.cancel, "Dibatalkan"),
+};
+
+/** Faktur Penjualan: Draft → Posted, or Dibatalkan (§9). */
+const INVOICE_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Faktur Penjualan dibuat", icon: "file", tone: "neutral" },
+  post: fromTransition(INVOICE_TRANSITIONS.post, "Diposting — piutang diakui"),
+  cancel: fromTransition(INVOICE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
 /** Penerimaan / Pengeluaran Kas & Bank: Draft → Posted, or Dibatalkan (P66). */
@@ -206,6 +216,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   sal_order: SALES_ORDER_EVENTS,
   sal_delivery_order: DELIVERY_ORDER_EVENTS,
   sal_delivery_note: DELIVERY_NOTE_EVENTS,
+  sal_invoice: INVOICE_EVENTS,
   sal_advance: SALES_ADVANCE_EVENTS,
   fin_cash_bank_tx: CASH_BANK_TX_EVENTS,
   sys_user: USER_EVENTS,
