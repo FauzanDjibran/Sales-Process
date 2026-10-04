@@ -19,6 +19,7 @@ import { CustomerAdvanceReport, type AdvanceReconciliation } from "@/components/
 import { arItemsReconcile, arLedgerReport, arPartnerOptions, openArItemsAsOf } from "@/lib/erp/ar-item";
 import { closingBalances } from "@/lib/erp/ledger";
 import { postingAccounts } from "@/lib/erp/system-settings";
+import { customerOrderNumbersByIds } from "@/lib/erp/customer-order";
 
 export const dynamic = "force-dynamic";
 
@@ -250,7 +251,7 @@ async function arReport(
         }
       >
         {data ? (
-          <ArLedgerReportBody report={data} />
+          <ArLedgerReportBody report={data} orderNos={await orderNumbers(data.entries.map((e) => e.orderId))} />
         ) : (
           <ReportNeedsSubject
             icon="book"
@@ -298,8 +299,17 @@ async function arReport(
       runAt={runAt}
       footnote={mismatch ?? <>Nilai uang muka adalah bagian DPP-nya — yang tercatat di account Uang Muka Penjualan; PPN-nya sudah tercatat di PPN Keluaran saat diterima.</>}
     >
-      <CustomerAdvanceReport rows={advances} gl={gl} />
+      <CustomerAdvanceReport rows={advances} gl={gl} orderNos={await orderNumbers(advances.map((a) => a.orderId))} />
     </ReportView>
   );
 }
 
+
+/**
+ * Customer Order numbers by id for the AR reports: the AR book names an order
+ * by id only, and the page composes the order module's numbers (§3.1).
+ */
+async function orderNumbers(ids: (number | null)[]): Promise<Record<number, string>> {
+  const wanted = [...new Set(ids.filter((id): id is number => id !== null))];
+  return wanted.length ? Object.fromEntries(await customerOrderNumbersByIds(wanted)) : {};
+}

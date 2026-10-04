@@ -407,7 +407,6 @@ model SysDocType {
   journals           AccJournal[]
   cash_bank_tx_lines FinCashBankTxLine[]
   ar_item_sources    FinArItem[]         @relation("ArItemSource")
-  ar_item_refs       FinArItem[]         @relation("ArItemRef")
   ar_ledger_entries  FinArLedger[]
 
   @@map("sys_doc_type")
@@ -2034,6 +2033,9 @@ enum ArEvent {
 
 model FinArItem {
   id          Int         @id @default(autoincrement())
+  /// `ARI/YYYY/MM/NNNN`, in the month of `item_date` — the item's name for
+  /// people (U1).
+  ar_item_no  String      @unique
   item_type   ArItemType
   direction   ArDirection
   partner_id  Int
@@ -2042,24 +2044,29 @@ model FinArItem {
   /// When an Invoice falls due, for Umur Piutang. None on an Uang Muka.
   due_date    DateTime?   @db.Date
 
-  /// The document that created the item — the receipt for an Uang Muka, the
-  /// Faktur for an Invoice — and its number as it read then.
+  /// The document the item is **about** — the advance bill for an Uang Muka,
+  /// the Faktur for an Invoice — and its number as it read then (U1). What
+  /// created the item is its Create entry's document.
   source_doc_type_id Int
   source_doc_id      Int
   source_no          String
-  /// What it belongs to beside that: the advance bill an Uang Muka was paid
-  /// against.
-  ref_doc_type_id    Int?
-  ref_doc_id         Int?
-  ref_no             String?
-  /// The Customer Order, by id — an invoice uses only its own order's
-  /// advances (P73, P78). A weak reference: the order belongs to another module.
+  /// The Customer Order, by id — the settlement scope: an invoice uses only
+  /// its own order's advances (P73, P78). A weak reference: the order belongs
+  /// to another module.
   customer_order_id  Int?
-  customer_order_no  String?
 
   /// What is still open, in the item's own currency: the sum of its Buku
   /// Piutang entries, updated in the same transaction as each (P72).
   current_balance Decimal @db.Decimal(18, 2)
+
+  /// The item's own tax document, fixed at creation (U9): for an Uang Muka its
+  /// Faktur Pajak Uang Muka. Empty where the item has none of its own (an
+  /// Invoice: the Faktur holds its tax).
+  tax_dpp        Decimal? @db.Decimal(18, 2)
+  tax_dpp_other  Decimal? @db.Decimal(18, 2)
+  tax_ppn        Decimal? @db.Decimal(18, 2)
+  /// The Coretax number of that tax document, typed after upload.
+  tax_invoice_no String?
 
   created_by Int
   created_at DateTime @default(now()) @db.Timestamptz(6)
@@ -2068,14 +2075,12 @@ model FinArItem {
   partner         MPartner      @relation(fields: [partner_id], references: [id])
   currency        RefCurrency   @relation(fields: [currency_id], references: [id])
   source_doc_type SysDocType    @relation("ArItemSource", fields: [source_doc_type_id], references: [id])
-  ref_doc_type    SysDocType?   @relation("ArItemRef", fields: [ref_doc_type_id], references: [id])
   entries         FinArLedger[] @relation("ArItemEntries")
   counter_entries FinArLedger[] @relation("ArItemCounter")
 
   @@index([partner_id, item_type])
   @@index([customer_order_id])
   @@index([source_doc_type_id, source_doc_id])
-  @@index([ref_doc_type_id, ref_doc_id])
   @@map("fin_ar_item")
 }
 

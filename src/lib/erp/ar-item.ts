@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
+import { nextDocumentNumber } from "./document-number";
 import type { PeriodRange } from "./period";
 
 /**
@@ -17,6 +18,11 @@ import type { PeriodRange } from "./period";
  * `current_balance` is the sum of its entries, written in the same transaction
  * as each one, so the two can never disagree — and `arItemsReconcile` proves
  * it from the entries alone, the way the Cash Bank Book is proved.
+ *
+ * Each item is named `ARI/YYYY/MM/NNNN` and is **about** one document — the
+ * advance bill for an Uang Muka, the Faktur for an Invoice; what created it is
+ * its Create entry's document (U1). It carries its own tax document's figures
+ * where it has one — an Uang Muka its Faktur Pajak Uang Muka (U9).
  *
  * There is no allocation step (P72): a payment moves an Invoice item directly,
  * and a Faktur uses its order's Uang Muka when it is posted. The entry names
@@ -64,11 +70,15 @@ export type NewArItem = {
   /** `YYYY-MM-DD`. */
   date: string;
   dueDate?: string | null;
+  /** What the item is about: the advance bill, the Faktur (U1). */
   source: { docTypeId: number; docId: number; no: string };
-  ref?: { docTypeId: number; docId: number; no: string } | null;
-  /** The Customer Order the item belongs to (P73, P78). */
-  order?: { id: number; no: string } | null;
+  /** The posting that creates it — named by the Create entry only. */
+  createdBy: { docTypeId: number; docId: number; no: string };
+  /** The Customer Order it is settled within (P73, P78). */
+  orderId?: number | null;
   amount: number;
+  /** The item's own tax document, when it has one (U9). */
+  tax?: { dpp: number; dppOther: number; ppn: number } | null;
   note?: string | null;
   actorId: number;
 };
@@ -78,23 +88,32 @@ export async function createArItem(db: Db, item: NewArItem): Promise<number> {
   if (!(item.amount > 0)) {
     throw new Error(`Nilai AR item harus lebih besar dari nol (diterima ${item.amount}).`);
   }
+  const date = asDate(item.date);
+  const arItemNo = await nextDocumentNumber("ARI", date, async (series) => {
+    const last = await db.finArItem.findFirst({
+      where: { ar_item_no: { startsWith: series } },
+      orderBy: { ar_item_no: "desc" },
+      select: { ar_item_no: true },
+    });
+    return last?.ar_item_no ?? null;
+  });
   const row = await db.finArItem.create({
     data: {
+      ar_item_no: arItemNo,
       item_type: item.type,
       direction: AR_SIGN[item.type] > 0 ? "Increase" : "Decrease",
       partner_id: item.partnerId,
       currency_id: item.currencyId,
-      item_date: asDate(item.date),
+      item_date: date,
       due_date: item.dueDate ? asDate(item.dueDate) : null,
       source_doc_type_id: item.source.docTypeId,
       source_doc_id: item.source.docId,
       source_no: item.source.no,
-      ref_doc_type_id: item.ref?.docTypeId ?? null,
-      ref_doc_id: item.ref?.docId ?? null,
-      ref_no: item.ref?.no ?? null,
-      customer_order_id: item.order?.id ?? null,
-      customer_order_no: item.order?.no ?? null,
+      customer_order_id: item.orderId ?? null,
       current_balance: item.amount,
+      tax_dpp: item.tax?.dpp ?? null,
+      tax_dpp_other: item.tax?.dppOther ?? null,
+      tax_ppn: item.tax?.ppn ?? null,
       created_by: item.actorId,
     },
     select: { id: true },
@@ -103,13 +122,13 @@ export async function createArItem(db: Db, item: NewArItem): Promise<number> {
     data: {
       item_id: row.id,
       event: "Create",
-      entry_date: asDate(item.date),
+      entry_date: date,
       amount: item.amount,
       movement: item.amount,
       balance_after: item.amount,
-      doc_type_id: item.source.docTypeId,
-      doc_id: item.source.docId,
-      doc_no: item.source.no,
+      doc_type_id: item.createdBy.docTypeId,
+      doc_id: item.createdBy.docId,
+      doc_no: item.createdBy.no,
       note: item.note ?? null,
       created_by: item.actorId,
     },
@@ -174,19 +193,26 @@ export async function settleArItem(
 
 export type ArItemRow = {
   id: number;
+  arItemNo: string;
   type: ArItemType;
   partnerId: number;
   partnerLabel: string;
   partnerName: string;
   date: string;
   dueDate: string | null;
+  /** What the item is about: the advance bill, the Faktur. */
   sourceNo: string;
   sourceTable: string;
   sourceId: number;
-  refNo: string | null;
-  refTable: string | null;
-  refId: number | null;
-  orderNo: string | null;
+  /** The posting that created it — its Create entry's document. */
+  createdByNo: string;
+  createdByTable: string;
+  createdById: number;
+  /** By id: the order belongs to another module, whose page names it. */
+  orderId: number | null;
+  taxDpp: number | null;
+  taxPpn: number | null;
+  taxInvoiceNo: string | null;
   /** The Create entry's amount. */
   original: number;
   /** What left the item up to the date asked about. */
@@ -210,17 +236,22 @@ export async function openArItemsAsOf(
     include: {
       partner: { select: { partner_label: true, partner_name: true } },
       source_doc_type: { select: { doc_table: true } },
-      ref_doc_type: { select: { doc_table: true } },
-      entries: { where: { entry_date: { lte: asDate(asOf) } }, select: { event: true, amount: true, movement: true } },
+      entries: {
+        where: { entry_date: { lte: asDate(asOf) } },
+        select: { event: true, amount: true, movement: true, doc_id: true, doc_no: true, doc_type: { select: { doc_table: true } } },
+        orderBy: { id: "asc" },
+      },
     },
     orderBy: [{ item_date: "asc" }, { id: "asc" }],
   });
   return items
     .map((i) => {
-      const original = i.entries.filter((e) => e.event === "Create").reduce((a, e) => a + e.amount.toNumber(), 0);
+      const created = i.entries.find((e) => e.event === "Create");
+      const original = created?.amount.toNumber() ?? 0;
       const open = i.entries.reduce((a, e) => a + e.movement.toNumber(), 0);
       return {
         id: i.id,
+        arItemNo: i.ar_item_no,
         type: i.item_type as ArItemType,
         partnerId: i.partner_id,
         partnerLabel: i.partner.partner_label,
@@ -230,10 +261,13 @@ export async function openArItemsAsOf(
         sourceNo: i.source_no,
         sourceTable: i.source_doc_type.doc_table,
         sourceId: i.source_doc_id,
-        refNo: i.ref_no,
-        refTable: i.ref_doc_type?.doc_table ?? null,
-        refId: i.ref_doc_id,
-        orderNo: i.customer_order_no,
+        createdByNo: created?.doc_no ?? "",
+        createdByTable: created?.doc_type.doc_table ?? "",
+        createdById: created?.doc_id ?? 0,
+        orderId: i.customer_order_id,
+        taxDpp: i.tax_dpp?.toNumber() ?? null,
+        taxPpn: i.tax_ppn?.toNumber() ?? null,
+        taxInvoiceNo: i.tax_invoice_no,
         original,
         settled: original - open,
         open,
@@ -251,10 +285,10 @@ export type ArLedgerEntryRow = {
   docNo: string;
   docTable: string;
   docId: number;
-  /** The item's own identity: its source and, for an Uang Muka, the bill. */
+  /** The item's own identity: its number and what it is about. */
+  itemNo: string;
   itemSourceNo: string;
-  itemRefNo: string | null;
-  orderNo: string | null;
+  orderId: number | null;
   note: string | null;
   /** Signed on the customer's Piutang Usaha: + raises it, − lowers it. */
   exposure: number;
@@ -299,7 +333,7 @@ export async function arLedgerReport(
   const rows = await prisma.finArLedger.findMany({
     where: { item: { partner_id: partnerId }, entry_date: { lte: asDate(range.to) } },
     include: {
-      item: { select: { item_type: true, source_no: true, ref_no: true, customer_order_no: true } },
+      item: { select: { item_type: true, ar_item_no: true, source_no: true, customer_order_id: true } },
       doc_type: { select: { doc_table: true } },
     },
     orderBy: [{ entry_date: "asc" }, { id: "asc" }],
@@ -326,9 +360,9 @@ export async function arLedgerReport(
       docNo: r.doc_no,
       docTable: r.doc_type.doc_table,
       docId: r.doc_id,
+      itemNo: r.item.ar_item_no,
       itemSourceNo: r.item.source_no,
-      itemRefNo: r.item.ref_no,
-      orderNo: r.item.customer_order_no,
+      orderId: r.item.customer_order_id,
       note: r.note,
       exposure: exposureOf(r),
     });

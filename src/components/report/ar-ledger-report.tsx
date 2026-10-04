@@ -14,7 +14,14 @@ import { formatDate, formatMoney } from "@/lib/format";
  */
 const money = (n: number) => formatMoney(n, "IDR");
 
-export function ArLedgerReportBody({ report }: { report: ArLedgerReport }) {
+export function ArLedgerReportBody({
+  report,
+  orderNos,
+}: {
+  report: ArLedgerReport;
+  /** Customer Order numbers by id, composed by the page (the order is another module's). */
+  orderNos: Record<number, string>;
+}) {
   // The position after each entry, worked out before rendering.
   const positions = report.entries.reduce<number[]>(
     (acc, e) => [...acc, (acc.length ? acc[acc.length - 1] : report.opening) + e.exposure],
@@ -68,9 +75,12 @@ export function ArLedgerReportBody({ report }: { report: ArLedgerReport }) {
                       <span className="dstack">
                         <span>
                           <span className={`bdg ${e.type === "Advance" ? "t-vio" : "t-info"}`}>{AR_TYPE_TEXT[e.type]}</span>{" "}
-                          <span className="lab">{e.itemRefNo ?? e.itemSourceNo}</span>
+                          <span className="lab">{e.itemNo}</span>
                         </span>
-                        {e.orderNo && <span className="d2">{e.orderNo}</span>}
+                        <span className="d2">
+                          {e.itemSourceNo}
+                          {e.orderId && orderNos[e.orderId] ? ` · ${orderNos[e.orderId]}` : ""}
+                        </span>
                       </span>
                     </td>
                     <td>

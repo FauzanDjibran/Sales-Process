@@ -17,7 +17,16 @@ export type AdvanceReconciliation =
 
 const money = (n: number) => formatMoney(n, "IDR");
 
-export function CustomerAdvanceReport({ rows, gl }: { rows: ArItemRow[]; gl: AdvanceReconciliation }) {
+export function CustomerAdvanceReport({
+  rows,
+  gl,
+  orderNos,
+}: {
+  rows: ArItemRow[];
+  gl: AdvanceReconciliation;
+  /** Customer Order numbers by id, composed by the page (the order is another module's). */
+  orderNos: Record<number, string>;
+}) {
   if (!rows.length) {
     return (
       <div className="empty sm">
@@ -62,6 +71,7 @@ export function CustomerAdvanceReport({ rows, gl }: { rows: ArItemRow[]; gl: Adv
                 <thead>
                   <tr>
                     <th style={{ width: 96 }}>Tanggal</th>
+                    <th style={{ width: 150 }}>AR Item</th>
                     <th style={{ width: 150 }}>Tagihan</th>
                     <th style={{ width: 150 }}>Penerimaan</th>
                     <th>Customer Order</th>
@@ -75,13 +85,16 @@ export function CustomerAdvanceReport({ rows, gl }: { rows: ArItemRow[]; gl: Adv
                     <tr key={r.id} style={{ cursor: "default" }}>
                       <td className="mono mut" style={{ fontSize: "11.5px" }}>{formatDate(r.date)}</td>
                       <td>
-                        <DocLink table={r.refTable} id={r.refId} no={r.refNo} />
+                        <span className="lab">{r.arItemNo}</span>
                       </td>
                       <td>
                         <DocLink table={r.sourceTable} id={r.sourceId} no={r.sourceNo} />
                       </td>
                       <td>
-                        <span className="lab">{r.orderNo ?? "—"}</span>
+                        <DocLink table={r.createdByTable} id={r.createdById} no={r.createdByNo} />
+                      </td>
+                      <td>
+                        <DocLink table={r.orderId ? "sal_customer_order" : null} id={r.orderId} no={r.orderId ? (orderNos[r.orderId] ?? null) : null} />
                       </td>
                       <td className="num"><span className="mny">{money(r.original)}</span></td>
                       <td className="num">{r.settled ? <span className="mny">{money(r.settled)}</span> : <span className="dash">–</span>}</td>

@@ -206,8 +206,15 @@ closing one by hand releases what never left. **Stock picking — done
 04/10/2026** (P95): a line of a Barang with Kelola Stok is picked by lot from
 the stand-in lot list (`tmp_stock_lot`, Master › Sementara › Lot (Sementara)),
 earliest expiry first; a Draft may be picked in part, Posting needs every such
-line in full and issues each lot as its own stock movement. Next: the Faktur
-Penjualan, taking Delivery Note lines whole.
+line in full and issues each lot as its own stock movement.
+
+**Faktur Penjualan — planned 04/10/2026** (`Sales-Process-Concept.md` §9,
+U16–U22), in three steps: (1) **the AR item's revised shape — done 04/10/2026**
+(P96): `ARI/…` numbers, source = the document an item is about, the receipt
+named by the Create entry, tax columns carrying an Uang Muka's Faktur Pajak
+Uang Muka; (2) the Faktur itself, billing whole lines of the Customer Order's
+posted Delivery Notes, with the Customer Order closing itself once fully
+delivered; (3) *Penerimaan dari Customer* (P83).
 
 Built one step at a time, **in the order the user gives**. For each step:
 

@@ -343,18 +343,29 @@ describe("posting a receipt of two bills (P66)", () => {
     const events = (await prisma.auditLog.findMany({ where: { entity_key: "fin_cash_bank_tx", row_id: r.id }, orderBy: { id: "asc" } })).map((a) => a.event);
     assert.deepEqual(events, ["create", "post"]);
 
-    // One Uang Muka AR item per bill, at its DPP part (P73), each with its
-    // Create entry in Buku Piutang naming the receipt.
+    // One Uang Muka AR item per bill, at its DPP part (P73), about the bill
+    // and numbered ARI/… (U1), each with its Create entry in Buku Piutang
+    // naming the receipt, and carrying its Faktur Pajak Uang Muka (U9).
     const items = await prisma.finArItem.findMany({
-      where: { source_doc_id: r.id, source_doc_type: { doc_table: "fin_cash_bank_tx" } },
+      where: { entries: { some: { event: "Create", doc_id: r.id, doc_type: { doc_table: "fin_cash_bank_tx" } } } },
       include: { entries: true },
       orderBy: { id: "asc" },
     });
     assert.deepEqual(
-      items.map((i) => [i.item_type, i.direction, i.ref_doc_id, i.current_balance.toNumber()]),
+      items.map((i) => [i.item_type, i.direction, i.source_doc_id, i.current_balance.toNumber()]),
       [["Advance", "Decrease", f.bill2, 900_000], ["Advance", "Decrease", f.bill3, 450_000]]
     );
-    assert.ok(items.every((i) => i.partner_id === f.customer && i.customer_order_id === orders[0] && i.source_no === r.txNo));
+    assert.ok(items.every((i) => i.partner_id === f.customer && i.customer_order_id === orders[0] && /^ARI\/\d{4}\/\d{2}\/\d{4}$/.test(i.ar_item_no)));
+    assert.ok(
+      items.every(
+        (i) =>
+          i.tax_dpp?.toNumber() === i.current_balance.toNumber() &&
+          i.tax_dpp_other?.toNumber() === Math.round((i.tax_dpp.toNumber() * 11) / 12) &&
+          (i.tax_ppn?.toNumber() ?? 0) > 0 &&
+          i.tax_invoice_no === null
+      ),
+      "each item carries its Faktur Pajak Uang Muka"
+    );
     assert.ok(items.every((i) => i.entries.length === 1 && i.entries[0].event === "Create" && i.entries[0].doc_no === r.txNo));
     assert.equal(
       items.reduce((a, i) => a + i.current_balance.toNumber(), 0),

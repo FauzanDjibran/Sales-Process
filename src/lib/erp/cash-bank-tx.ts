@@ -12,6 +12,7 @@ import { checkAccountIsLeaf } from "./records";
 import { lockSalesAdvances, settlementAdvances, type SettlementAdvance } from "./sales-advance";
 import {
   cashToClear,
+  ppnChain,
   receivedProblem,
   settleBillFromCash,
   type SettlementLine,
@@ -770,7 +771,9 @@ export async function transitionCashReceipt(
       }
       // Each bill paid is an Uang Muka the customer now holds (P73): one AR
       // item per bill, at the DPP part the Uang Muka account was credited
-      // with, so the items reconcile with that account.
+      // with, so the items reconcile with that account. The item is about the
+      // bill and carries its Faktur Pajak Uang Muka (U1, U9); the receipt is
+      // named by its Create entry.
       for (const l of r.c.lines) {
         if (!(l.dppPart > 0)) continue;
         await createArItem(tx, {
@@ -778,10 +781,11 @@ export async function transitionCashReceipt(
           partnerId: t.partner_id,
           currencyId: baseCurrency.id,
           date: isoDay(t.tx_date),
-          source: { docTypeId: typeId, docId: id, no: t.tx_no },
-          ref: { docTypeId: saleTypeId, docId: l.docId, no: l.bill.advanceNo },
-          order: { id: l.bill.orderId, no: l.bill.orderNo },
+          source: { docTypeId: saleTypeId, docId: l.docId, no: l.bill.advanceNo },
+          createdBy: { docTypeId: typeId, docId: id, no: t.tx_no },
+          orderId: l.bill.orderId,
           amount: l.dppPart,
+          tax: l.bill.rates ? { dpp: l.dppPart, dppOther: ppnChain(l.dppPart, l.bill.rates).dppOther, ppn: l.ppnPart } : null,
           note: `Uang muka ${l.bill.advanceNo} diterima`,
           actorId,
         });

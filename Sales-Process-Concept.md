@@ -93,7 +93,7 @@ Three lanes, never mixed:
 | Harga Pokok (Sementara), Lot (Sementara) | — | Master › Sementara | `tmp_item_cost`, `tmp_stock_lot`, `tmp_stock_movement` (temporary) | No | No | [Built] stand-in (U11, U15) |
 | Uang Muka Penjualan (bill) | `ARA/YYYY/MM/NNNN` | Finance › Uang Muka | `sal_advance` | No | No | [Built] |
 | Penerimaan Kas & Bank | `BKM/YYYY/MM/NNNN` | Finance › Kas & Bank › Penerimaan | `fin_cash_bank_tx`, `_line`, `_line_wht` | Yes, at Post | No | [Built] |
-| AR item + Buku Piutang | `ARI/YYYY/MM/NNNN` | (no menu; seen in reports) | `fin_ar_item`, `fin_ar_ledger` | Never | **Yes** | [Built], revised shape [Agreed, not built] |
+| AR item + Buku Piutang | `ARI/YYYY/MM/NNNN` | (no menu; seen in reports) | `fin_ar_item`, `fin_ar_ledger` | Never | **Yes** | [Built] (revised shape U1, U9: P96) |
 | Faktur Penjualan | `INV/…` | Sales | `sal_invoice(_line, _advance_deduction)` | Yes | Invoice item | [Planned] (§9) |
 
 ---
@@ -651,8 +651,8 @@ amount. One row = one future Bukti Potong.
 
 ## 8. AR items and Buku Piutang
 
-[Built] in an earlier shape; the shape below is **[Agreed, not built]**
-(section 14, U1).
+[Built] in this shape (U1, U9; P96, 04/10/2026). The Invoice item, the
+*Pembayaran* and *Dipakai Invoice* events in use, come with the Faktur.
 
 ### 8.1 The idea
 
@@ -1115,7 +1115,7 @@ position as it stood.
 | **Uang Muka Customer** | Open Uang Muka items per customer and Customer Order, checked against the Uang Muka Penjualan account | own view permission |
 
 Items are shown by `ARI/…` number with their source document and, for an Uang
-Muka, the receipt from its Terbentuk entry [Agreed, not built].
+Muka, the receipt from its Terbentuk entry [Built] (P96).
 
 ---
 
@@ -1123,9 +1123,9 @@ Muka, the receipt from its Terbentuk entry [Agreed, not built].
 
 | Item | State |
 | --- | --- |
-| Revised AR item shape (`ar_item_no`, source = what it is about, `ref_*` dropped) | [Agreed, not built] — U1 |
+| Revised AR item shape (`ar_item_no`, source = what it is about, `ref_*` dropped) | [Built] — U1, P96 |
 | Faktur Penjualan, Invoice items, Dipakai Invoice, Pembayaran | [Planned] — §9, U16–U22 agreed |
-| Tax columns on `fin_ar_item` (U9) | [Agreed, not built] — with the U1 migration |
+| Tax columns on `fin_ar_item` (U9) | [Built] — P96; `tax_invoice_no` has no entry screen yet |
 | Whether Coretax accepts one Faktur Pajak Uang Muka referenced by two Faktur Pelunasan (partial use) | To verify with a tax consultant |
 | A settlement PPN 1 rupiah off "full PPN − advance PPN" after odd partial receipts | Accepted: the chain on the net DPP wins (it is what the Faktur Pajak Pelunasan carries) |
 | *Penerimaan dari Customer* (bills and invoices in one receipt) | [Planned] with the Faktur |

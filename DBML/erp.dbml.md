@@ -62,8 +62,10 @@ migration updates this file in the same change (Claude-ERP.md §9).
 - `fin_ar_item` and `fin_ar_ledger` (P71–P75) — AR items (Uang Muka and
   Invoice) and Buku Piutang, the append-only history of every change to an
   item's balance. `current_balance` equals the sum of the item's entries. An
-  item names its source and reference documents and its Customer Order by the
-  weak pair; there is no allocation table.
+  item is numbered `ARI/…`, names the document it is **about** (the advance
+  bill, the Faktur) by the weak pair and its Customer Order by id; what
+  created it is its Create entry's document (P96, U1). It carries its own tax
+  document's figures (`tax_*`, U9). There is no allocation table.
 - `sal_customer_order` and `sal_advance` snapshot the PPN rate and DPP Nilai
   Lain factor they were computed with (P60); each `sal_customer_order_line` stores its own DPP Nilai
   Lain, since PPN is computed per line.
@@ -1299,21 +1301,22 @@ Enum ArEvent {
 
 Table fin_ar_item {
   id int [pk, increment, not null]
+  ar_item_no varchar [unique, not null, note: 'ARI/YYYY/MM/NNNN, month of item_date']
   item_type ArItemType [not null]
   direction ArDirection [not null, note: 'Invoice raises Piutang Usaha, Uang Muka lowers it']
   partner_id int [not null]
   currency_id int [not null]
   item_date date [not null]
   due_date date [null, note: 'Invoice only; Umur Piutang ages from it']
-  source_doc_type_id int [not null, note: 'the document that created it']
+  source_doc_type_id int [not null, note: 'what it is about: the advance bill, the Faktur']
   source_doc_id int [not null]
   source_no varchar [not null]
-  ref_doc_type_id int [null, note: 'the advance bill an Uang Muka was paid against']
-  ref_doc_id int [null]
-  ref_no varchar [null]
   customer_order_id int [null, note: 'weak: an invoice uses only its own Customer Order advances']
-  customer_order_no varchar [null]
   current_balance decimal(18, 2) [not null, note: 'sum of its fin_ar_ledger entries']
+  tax_dpp decimal(18, 2) [null, note: 'its own tax document: Faktur Pajak Uang Muka']
+  tax_dpp_other decimal(18, 2) [null]
+  tax_ppn decimal(18, 2) [null]
+  tax_invoice_no varchar [null, note: 'Coretax number, typed after upload']
   created_by int [not null]
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
@@ -1322,7 +1325,6 @@ Table fin_ar_item {
     (partner_id, item_type)
     customer_order_id
     (source_doc_type_id, source_doc_id)
-    (ref_doc_type_id, ref_doc_id)
   }
 }
 
@@ -1351,7 +1353,6 @@ Table fin_ar_ledger {
 Ref: fin_ar_item.partner_id > m_partner.id
 Ref: fin_ar_item.currency_id > ref_currency.id
 Ref: fin_ar_item.source_doc_type_id > sys_doc_type.id
-Ref: fin_ar_item.ref_doc_type_id > sys_doc_type.id
 Ref: fin_ar_ledger.item_id > fin_ar_item.id
 Ref: fin_ar_ledger.counter_item_id > fin_ar_item.id
 Ref: fin_ar_ledger.doc_type_id > sys_doc_type.id

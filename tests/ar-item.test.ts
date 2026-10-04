@@ -55,7 +55,8 @@ async function make(type: "Advance" | "Invoice", date: string, amount: number, d
     date,
     dueDate,
     source: { docTypeId: f.receiptType, docId: f.doc, no: `${FIXTURE_PREFIX}/${type}/${items.length}` },
-    order: { id: 1, no: "CO/TEST" },
+    createdBy: { docTypeId: f.receiptType, docId: f.doc, no: `${FIXTURE_PREFIX}/R/${items.length}` },
+    orderId: 1,
     amount,
     actorId: actor,
   });
@@ -101,6 +102,18 @@ describe("an AR item's balance moves only through Buku Piutang", () => {
     );
     assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: adv } })).current_balance.toNumber(), 600_000, "nothing written");
     assert.equal(await arItemsReconcile(f.customer), true);
+  });
+
+  test("numbered ARI/YYYY/MM/NNNN in its month, about its source, created by the posting its Create entry names (U1)", async () => {
+    const rows = await prisma.finArItem.findMany({ where: { id: { in: items } }, include: { entries: { where: { event: "Create" } } }, orderBy: { id: "asc" } });
+    assert.ok(rows.every((r) => /^ARI\/2026\/09\/\d{4}$/.test(r.ar_item_no)));
+    assert.ok(Number(rows[1].ar_item_no.slice(-4)) > Number(rows[0].ar_item_no.slice(-4)), "the series runs on");
+    assert.ok(rows.every((r) => r.source_no.includes("/Advance/") || r.source_no.includes("/Invoice/")));
+    assert.ok(rows.every((r) => r.entries[0].doc_no.includes("/R/")), "the Create entry names the creating posting");
+    const report = await openArItemsAsOf("Advance", "2026-09-30", f.customer);
+    assert.equal(report[0].arItemNo, rows[0].ar_item_no);
+    assert.match(report[0].createdByNo, /\/R\//);
+    assert.equal(report[0].orderId, 1);
   });
 
   test("a report for a past date reads the entries, not today's balance", async () => {

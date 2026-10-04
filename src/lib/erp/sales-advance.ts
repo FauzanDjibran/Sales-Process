@@ -539,6 +539,8 @@ export type SettlementAdvance = {
   total: number;
   dpp: number;
   ppn: number;
+  /** The PPN rate and DPP Nilai Lain factor the bill was issued with; null without PPN. */
+  rates: PpnRates | null;
   withholdings: { key: string; rate: number; base: number; amount: number }[];
 };
 
@@ -582,6 +584,7 @@ export async function settlementAdvances(
       total: a.total_amount.toNumber(),
       dpp: a.dpp_amount.toNumber(),
       ppn: a.ppn_amount.toNumber(),
+      rates: a.ppn_amount.toNumber() > 0 ? rates : null,
       withholdings: f.withholdings,
     };
   });
