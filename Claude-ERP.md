@@ -44,6 +44,13 @@ conventions and documentation habits.
 | `tax_concept.md` | **The tax convention this app follows** (P59, P60): PPN, PPh, the faktur pajak and bukti potong as records, rounding. Written in the repository root; it moves into `Initialization/` when the user places it there |
 | `ar_ap_open_item_concept.md` | The AR/AP open-item model: each financial source creates an open item with direction and current balance; an append-only open-item ledger; allocation between items of the same partner and currency. **Applied to AR by P71–P75** as AR items and Buku Piutang, without a separate allocation step; AP follows the same way when purchasing is built |
 
+**The concept files above are frozen originals.** The copies this app follows
+are in **`knowledge/`**, kept in step with the shared knowledge base (§20):
+`knowledge/design-convention.md`, `knowledge/multi_currency_concept.md`,
+`knowledge/ar_ap_open_item_concept.md` and `knowledge/Core_UI_Reference.md`.
+`tax_concept.md` stays in the repository root as the living copy. Where this
+file says "follow `<concept>.md`", read the `knowledge/` copy.
+
 Outside this repository, read-only, consulted when needed:
 
 | Where | What |
@@ -302,7 +309,7 @@ follows).
 
 ## 8. UI / UX Conventions
 
-**Follow `Initialization/design-convention.md` in full** — it is SIBA's
+**Follow `knowledge/design-convention.md` in full** — it is SIBA's
 convention and the simulation already conforms to it. The table in SIBA's
 `CLAUDE.md` §8 applies unchanged, with one exception: payment direction
 is always **Penerimaan / Pengeluaran** (§12 P17). The rules most often at stake:
@@ -821,6 +828,15 @@ at the root of this repository.
   `node "D:/Claude Code/Knowledge-Base/tools/kb-check.mjs" ERP-Project`.
   If it reports anything other than `ok`, tell the user what changed before
   starting (PROTOCOL §5).
+- **No access to `D:\Claude Code\Knowledge-Base`** (a cloud session, another
+  machine)? Do not skip:
+  - treat `KNOWLEDGE.md` and the copies in `knowledge/` as the adopted rules;
+  - still run the deviation check;
+  - queue every reusable decision, and every edit to a concept document, in
+    `KNOWLEDGE.md` → *Harvest queue* as `Queued from cloud`, in the same
+    commit (PROTOCOL §5a).
+- **Adopted concept copies live in `knowledge/`**, and that is the copy to
+  follow. `Initialization/` holds the frozen originals.
 - **Deviation check: never deviate silently.** Before recording a decision or
   writing code that contradicts an adopted concept, or the choice recorded for
   it, **stop**:

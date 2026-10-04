@@ -7,8 +7,8 @@ DBML and how to use the tables, with no program code. Every later change to
 the concept is made **here**.
 
 Sources: decisions P49–P86 in `Claude-ERP.md` §12, `tax_concept.md`,
-`Initialization/ar_ap_open_item_concept.md`,
-`Initialization/multi_currency_concept.md`, and the concept updates in section
+`knowledge/ar_ap_open_item_concept.md`,
+`knowledge/multi_currency_concept.md`, and the concept updates in section
 14 that are not yet in `Claude-ERP.md`.
 
 **Status labels used throughout**
