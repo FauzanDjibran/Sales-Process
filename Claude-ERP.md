@@ -702,8 +702,9 @@ here. In addition:
   used address becomes read-only.
 - **A Customer Order keeps the number it was first saved with**, like a manual
   journal: re-dating a Draft into another month does not renumber it.
-- **A Customer Order closes only by hand**; whether it closes itself once
-  everything is delivered and invoiced is decided with the Faktur. Sales
+- **A Customer Order closes only by hand** until the Faktur step is built; it
+  will then close itself once fully delivered, billing coming after
+  (`Sales-Process-Concept.md` U21). Sales
   Orders and Delivery Orders close themselves when fully delivered (P94).
 - **Sales Orders and Delivery Orders closed before P94 now hold nothing.**
   Their delivered quantity starts at 0, so under the new rule a closed one
