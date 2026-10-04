@@ -320,7 +320,7 @@ describe("Posting issues the goods and books HPP only", () => {
     );
     const journal = await prisma.accJournal.findUniqueOrThrow({ where: { id: note.journalId! } });
     assert.equal(journal.posting_date?.toISOString().slice(0, 10), today);
-    assert.equal(await prisma.finArItem.count(), arCount, "no Piutang: the Faktur recognises it");
+    assert.equal(await prisma.finArItem.count(), arCount, "no Piutang: the Invoice recognises it");
     const moves = await prisma.tmpStockMovement.findMany({ where: { source_doc_id: first, item_id: f.goods } });
     assert.deepEqual(moves.map((m) => [m.warehouse_id, m.base_qty_out.toNumber(), m.cost_amount.toNumber()]), [[f.warehouse, 480, 1_200_000]]);
   });

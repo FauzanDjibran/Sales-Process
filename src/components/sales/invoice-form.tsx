@@ -27,14 +27,14 @@ import { computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineIn
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso } from "@/lib/format";
 
 /**
- * A Faktur Penjualan in all three modes: `new`, `edit` (Draft only) and `view`
+ * An Invoice Penjualan in all three modes: `new`, `edit` (Draft only) and `view`
  * (`Sales-Process-Concept.md` §9, U16–U22).
  *
  * It starts from one Customer Order, chosen once and locked: the customer,
  * Termin, price mode and Kena PPN are the order's and shown, not chosen. Its
  * lines are whole lines of the order's posted Delivery Notes, picked with
  * *Pilih Surat Jalan*; their price comes from the order. The Uang Muka used is
- * picked with *Pilih Uang Muka* and its DPP typed on the row. The Faktur has
+ * picked with *Pilih Uang Muka* and its DPP typed on the row. The Invoice has
  * its own date; the tax date and the due date follow from the latest Tanggal
  * Kirim of the notes picked. The figures are worked out by the same tax module
  * the server stores them with.
@@ -97,7 +97,7 @@ export function InvoiceForm({
   can: InvoiceAbilities;
   preview?: InvoicePreview | null;
   presetOrderId?: number | null;
-  /** A posted Faktur's standing, from its Invoice AR item (U26). */
+  /** A posted Invoice's standing, from its Invoice AR item (U26). */
   pay?: { state: InvoicePayState; open: number; overdue: boolean } | null;
   /** The receipts that name it. */
   payments?: { id: number; txNo: string; date: string; status: string; settled: number }[];
@@ -222,7 +222,7 @@ export function InvoiceForm({
       return;
     }
     setDirty(false);
-    toast("Faktur disimpan", `${result.invoiceNo} · Draft`, "ok");
+    toast("Invoice disimpan", `${result.invoiceNo} · Draft`, "ok");
     router.push(`/sales/invoice/${result.id}`);
   }
 
@@ -298,7 +298,7 @@ export function InvoiceForm({
         </FormSection>
         <FormSection title="Tagihan">
           <FormRow>
-            <Field label="Tanggal Faktur" span={4} required={editing} help={editing ? "tanggal journal" : undefined} error={errors.invoice_date}>
+            <Field label="Tanggal Invoice" span={4} required={editing} help={editing ? "tanggal journal" : undefined} error={errors.invoice_date}>
               {editing ? (
                 <DateInput value={header.invoice_date} invalid={Boolean(errors.invoice_date)} onChange={(v) => set("invoice_date", v)} />
               ) : (
@@ -332,7 +332,7 @@ export function InvoiceForm({
                 nil()
               )}
             </Field>
-            <Field label="Rekening Pembayaran" span={4} required={editing} help={editing ? "tercetak pada faktur" : undefined} error={errors.cash_bank_id}>
+            <Field label="Rekening Pembayaran" span={4} required={editing} help={editing ? "tercetak pada invoice" : undefined} error={errors.cash_bank_id}>
               {editing ? (
                 <Combobox
                   value={header.cash_bank_id}
@@ -391,7 +391,7 @@ export function InvoiceForm({
             )}
             <Field label="Catatan" span={12}>
               {editing ? (
-                <textarea className="ta" rows={2} value={header.note} placeholder="Catatan pada faktur…" onChange={(e) => set("note", e.target.value)} />
+                <textarea className="ta" rows={2} value={header.note} placeholder="Catatan pada invoice…" onChange={(e) => set("note", e.target.value)} />
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
@@ -444,7 +444,7 @@ export function InvoiceForm({
             <Icon name="truck" size={18} />
           </div>
           <h4>{order ? "Belum ada barang" : "Pilih Customer Order dulu…"}</h4>
-          <p>{order ? "Pilih baris Delivery Note yang ditagih dengan Faktur ini." : "Faktur hanya menagih barang yang sudah dikirim dengan Delivery Note."}</p>
+          <p>{order ? "Pilih baris Delivery Note yang ditagih dengan Invoice ini." : "Invoice hanya menagih barang yang sudah dikirim dengan Delivery Note."}</p>
           {editing && order && pickNotes(true)}
         </div>
       ) : (
@@ -566,7 +566,7 @@ export function InvoiceForm({
         </span>
         <div className="ct">
           <h3>Uang Muka Dipakai</h3>
-          <p>Uang muka Customer Order ini yang sudah diterima, dipotong dari DPP faktur. Isi DPP yang dipakai dari tiap uang muka.</p>
+          <p>Uang muka Customer Order ini yang sudah diterima, dipotong dari DPP invoice. Isi DPP yang dipakai dari tiap uang muka.</p>
         </div>
         {editing && order && deds.length > 0 && pickAdvances()}
       </div>
@@ -601,7 +601,7 @@ export function InvoiceForm({
                 <th style={{ width: 160 }}>AR Item</th>
                 <th>Tagihan · Penerimaan</th>
                 <th style={{ width: 150 }}>No. Faktur Pajak</th>
-                {/* The item's balance belongs to the AR item: shown while choosing, not on a saved Faktur. */}
+                {/* The item's balance belongs to the AR item: shown while choosing, not on a saved Invoice. */}
                 {editing && (
                   <th className="num" style={{ width: 130 }}>
                     Sisa (DPP)
@@ -719,7 +719,7 @@ export function InvoiceForm({
             </div>
           )}
           <div className="impact">
-            <div className="ttl">Nilai Faktur · {order.taxable ? MODE_TEXT[order.mode] : "Tidak Kena PPN"}</div>
+            <div className="ttl">Nilai Invoice · {order.taxable ? MODE_TEXT[order.mode] : "Tidak Kena PPN"}</div>
             <div className="ir">
               <span>DPP barang ditagih</span>
               <b>{money(figures.dpp)}</b>
@@ -774,7 +774,7 @@ export function InvoiceForm({
         <div className="crumb">
           <span>Penjualan</span>
           <span>/</span>
-          <Link href="/sales/invoice">Faktur Penjualan</Link>
+          <Link href="/sales/invoice">Invoice Penjualan</Link>
           <span>/</span>
           <span className="cur">{invoice ? invoice.invoiceNo : "Baru"}</span>
         </div>
@@ -789,7 +789,7 @@ export function InvoiceForm({
                 <span className={`bdg ${INVOICE_STATUS_BADGE[status]}`}>{INVOICE_STATUS_TEXT[status]}</span>
               </>
             ) : (
-              "Faktur Penjualan Baru"
+              "Invoice Penjualan Baru"
             )}
             {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
           </h1>

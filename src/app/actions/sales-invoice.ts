@@ -16,7 +16,7 @@ import {
 import { INVOICE_TRANSITIONS, type InvoiceAction } from "@/lib/erp/sales-invoice-workflow";
 
 /**
- * The Faktur Penjualan's write path. The permission is checked here; every
+ * The Invoice Penjualan's write path. The permission is checked here; every
  * rule is in `lib/erp/sales-invoice.ts`, where the tests can reach it.
  */
 
@@ -38,7 +38,7 @@ async function authorize(code: string): Promise<Guard> {
 function revalidate(id?: number) {
   revalidatePath("/sales/invoice");
   if (id) revalidatePath(`/sales/invoice/${id}`);
-  // The Delivery Note shows what is billed, the Customer Order its Fakturs,
+  // The Delivery Note shows what is billed, the Customer Order its Invoices,
   // and posting moves the AR reports.
   revalidatePath("/sales/delivery-note", "layout");
   revalidatePath("/sales/customer-order", "layout");

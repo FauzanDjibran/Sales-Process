@@ -23,7 +23,7 @@ export type CashBankPurposeKey = "customer_receipt";
 /** The kinds of document a purpose settles, by `sys_doc_type.doc_table`. */
 export type SettledDocKind = "sal_advance" | "sal_invoice";
 
-export const SETTLED_DOC_TEXT: Record<SettledDocKind, string> = { sal_advance: "Uang Muka", sal_invoice: "Faktur" };
+export const SETTLED_DOC_TEXT: Record<SettledDocKind, string> = { sal_advance: "Uang Muka", sal_invoice: "Invoice" };
 
 /** One settled document's key, unique across both kinds. */
 export const billKey = (kind: SettledDocKind, id: number) => `${kind}:${id}`;
@@ -48,15 +48,15 @@ export type CashBankPurpose = {
 
 export const CASH_BANK_PURPOSES = [
   // One customer purpose settles every kind of open customer document (P83):
-  // advance bills and Fakturs together, each line posting by its kind.
+  // advance bills and Invoices together, each line posting by its kind.
   {
     key: "customer_receipt",
     direction: "In",
     name: "Penerimaan dari Customer",
     short: "Dari Customer",
     desc:
-      "Dana dari customer atas tagihan uang muka yang diterbitkan dan faktur penjualan yang " +
-      "diposting. Uang muka mencatat kewajiban dan PPN Keluaran; faktur melunasi piutang.",
+      "Dana dari customer atas tagihan uang muka yang diterbitkan dan invoice penjualan yang " +
+      "diposting. Uang muka mencatat kewajiban dan PPN Keluaran; invoice melunasi piutang.",
     partnerCategory: "Customer",
     settles: ["sal_advance", "sal_invoice"],
     docNoun: "Tagihan",

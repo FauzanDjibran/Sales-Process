@@ -129,7 +129,7 @@ export function CashReceiptForm({
 
   // ---- what may be settled: the purpose's documents, owed by the partner
   const partnerBills = useMemo(
-    // Already oldest due first (the server sorts), advance bills and Fakturs together.
+    // Already oldest due first (the server sorts), advance bills and Invoices together.
     () => (purpose && h.partner_id ? options.bills.filter((b) => b.customerId === h.partner_id && purpose.settles.includes(b.kind)) : []),
     [options.bills, purpose, h.partner_id]
   );
@@ -611,7 +611,7 @@ export function CashReceiptForm({
             <div className="ttl">Bagian yang Dibukukan</div>
             {shown.map((x) =>
               x.bill.kind === "sal_invoice" ? (
-                // A Faktur's PPN was booked at the Faktur: what it settles clears Piutang (U25).
+                // An Invoice's PPN was booked at the Invoice: what it settles clears Piutang (U25).
                 <div className="ir" key={x.bill.key}>
                   <span>{x.bill.no} · Piutang Usaha</span>
                   <b>{money(x.settled)}</b>

@@ -7,7 +7,7 @@ import { formatDate, formatMoney } from "@/lib/format";
 /**
  * Umur Piutang (P75) — open Invoice items per customer, spread over how late
  * they are at the date asked about, beside the Uang Muka each customer still
- * holds and the net position. Invoices are born when a Faktur Penjualan posts;
+ * holds and the net position. Invoices are born when an Invoice Penjualan posts;
  * until then only the Uang Muka column has figures.
  */
 const money = (n: number) => formatMoney(n, "IDR");
@@ -124,7 +124,7 @@ export function ArAgingReport({ invoices, advances, asOf }: { invoices: ArItemRo
         </div>
       ) : (
         <p className="fnote">
-          Belum ada invoice terbuka pada tanggal ini. Invoice terbentuk saat Faktur Penjualan diposting.
+          Belum ada invoice terbuka pada tanggal ini. Invoice terbentuk saat Invoice Penjualan diposting.
         </p>
       )}
     </>

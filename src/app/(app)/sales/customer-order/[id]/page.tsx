@@ -20,7 +20,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   // two (P79), and shows it once the order can carry Sales Orders.
   const showSchedule = order.status !== "Draft" && order.status !== "Submitted" && actor.permissions.has("SALES_ORDER_VIEW");
   const schedule = showSchedule ? await customerOrderSchedule(order.id) : null;
-  // Its Fakturs are the invoice module's; listed once the order can be billed (§9).
+  // Its Invoices are the invoice module's; listed once the order can be billed (§9).
   const showInvoices = (order.status === "Open" || order.status === "Closed") && actor.permissions.has("SALES_INVOICE_VIEW");
   const invoices = showInvoices ? await customerOrderInvoices(order.id) : null;
   return (

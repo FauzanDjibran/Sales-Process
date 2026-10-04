@@ -139,10 +139,10 @@ const DELIVERY_NOTE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(DELIVERY_NOTE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
-/** Faktur Penjualan: Draft → Posted, or Dibatalkan (§9). */
+/** Invoice Penjualan: Draft → Posted, or Dibatalkan (§9). */
 const INVOICE_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
-  create: { label: "Faktur Penjualan dibuat", icon: "file", tone: "neutral" },
+  create: { label: "Invoice Penjualan dibuat", icon: "file", tone: "neutral" },
   post: fromTransition(INVOICE_TRANSITIONS.post, "Diposting — piutang diakui"),
   cancel: fromTransition(INVOICE_TRANSITIONS.cancel, "Dibatalkan"),
 };

@@ -62,14 +62,14 @@ import { formatMoney } from "@/lib/format";
  * in one transaction, with every settled bill's row locked and its open amount
  * read again, so two receipts cannot both clear the last of one bill.
  *
- * One customer purpose settles advance bills and Fakturs together (P83, §7.8):
+ * One customer purpose settles advance bills and Invoices together (P83, §7.8):
  * an advance-bill line posts Cr Uang Muka Penjualan (its DPP part) and Cr PPN
- * Keluaran and creates an Uang Muka AR item; a Faktur line posts Cr Piutang
- * Usaha for all it settles and records *Pembayaran* on the Faktur's Invoice
- * AR item, whose balance is what the Faktur still asks for (U23).
+ * Keluaran and creates an Uang Muka AR item; an Invoice line posts Cr Piutang
+ * Usaha for all it settles and records *Pembayaran* on the Invoice's Invoice
+ * AR item, whose balance is what the Invoice still asks for (U23).
  *
  * Dependencies point one way (§3.1): this module reads the advance through
- * `sales-advance.ts` and the Faktur through `sales-invoice.ts`; the advance
+ * `sales-advance.ts` and the Invoice through `sales-invoice.ts`; the advance
  * learns what was paid through `settledByDocuments` here, composed by the
  * action or page that needs both.
  */
@@ -180,7 +180,7 @@ export async function settledDocumentRefusal(
 }
 
 /**
- * An open document as the form offers it — an advance bill or a Faktur — with
+ * An open document as the form offers it — an advance bill or an Invoice — with
  * what is left of it. Both settle by the same rule (§7.3); they differ in what
  * is open and in how they post (§7.8).
  */
@@ -192,7 +192,7 @@ export type OpenBill = {
   no: string;
   date: string;
   dueDate: string;
-  /** The advance bill's or the Faktur's own status. */
+  /** The advance bill's or the Invoice's own status. */
   status: string;
   customerId: number;
   orderId: number;
@@ -201,10 +201,10 @@ export type OpenBill = {
   total: number;
   dpp: number;
   ppn: number;
-  /** The advance bill's PPN snapshot, for its Faktur Pajak Uang Muka; null for a Faktur. */
+  /** The advance bill's PPN snapshot, for its Faktur Pajak Uang Muka; null for an Invoice. */
   rates: PpnRates | null;
   withholdings: { key: string; rate: number; base: number; amount: number }[];
-  /** A Faktur's Invoice AR item. */
+  /** An Invoice's Invoice AR item. */
   arItemId: number | null;
   /** Settled before this receipt. */
   paid: number;
@@ -224,7 +224,7 @@ async function openBills(
     wantInvoices ? settlementInvoices(filter.openOnly ? { postedOnly: true } : { ids: filter.invoiceIds }, db) : Promise.resolve([]),
   ]);
   const paid = await settledByDocuments("sal_advance", advances.map((b) => b.id), db, exceptTx);
-  // A Faktur's open amount is its Invoice item's balance — the book (U23).
+  // An Invoice's open amount is its Invoice item's balance — the book (U23).
   const balances = await arItemBalances(invoices.flatMap((i) => (i.arItemId ? [i.arItemId] : [])), db);
   const out: OpenBill[] = [
     ...advances.map((b) => {
@@ -678,7 +678,7 @@ type Posting = { ok: true; description: string; lines: PostingLine[] } | { ok: f
  *   Dr PPh Dibayar Dimuka   per Jenis PPh
  *      Cr Uang Muka Penjualan   per advance bill, its DPP part, naming the customer
  *      Cr PPN Keluaran          the advance bills' PPN parts
- *      Cr Piutang Usaha         per Faktur, all it settles, naming the customer
+ *      Cr Piutang Usaha         per Invoice, all it settles, naming the customer
  *
  * Every account is resolved against the master; a missing or unusable one
  * refuses the posting by name, never falls back.
@@ -776,7 +776,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
   }
   const ppn = advances.reduce((a, l) => a + l.ppnPart, 0);
   if (ppn > 0) out.push(line(vatAcc, 0, ppn, `PPN uang muka terutang saat diterima — ${advances.filter((l) => l.ppnPart > 0).map((l) => l.bill.no).join(", ")}`));
-  // A Faktur's PPN was booked at the Faktur: all it settles clears Piutang (U25).
+  // An Invoice's PPN was booked at the Invoice: all it settles clears Piutang (U25).
   for (const l of invoices) {
     out.push(line(arAcc, 0, l.settled, `Pelunasan ${l.bill.no}${l.settled < l.bill.open ? " (sebagian)" : ""} (${l.bill.orderNo})`, c.data.partner_id));
   }
@@ -853,7 +853,7 @@ export async function transitionCashReceipt(
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
       // Every document the receipt settles is locked before it is read again:
-      // the advance bills, and the Fakturs' Invoice items (U28).
+      // the advance bills, and the Invoices' Invoice items (U28).
       const stored = asInput(t);
       await lockSalesAdvances(tx, stored.lines.filter((l) => l.doc_type !== "sal_invoice").map((l) => Number(l.doc_id)));
       const invoiceIds = stored.lines.filter((l) => l.doc_type === "sal_invoice").map((l) => Number(l.doc_id));
@@ -938,7 +938,7 @@ export async function transitionCashReceipt(
           actorId,
         });
       }
-      // Each Faktur paid lowers its Invoice item by all it settles (P72).
+      // Each Invoice paid lowers its Invoice item by all it settles (P72).
       for (const l of r.c.lines) {
         if (l.kind !== "sal_invoice" || !l.bill.arItemId) continue;
         await settleArItem(tx, {

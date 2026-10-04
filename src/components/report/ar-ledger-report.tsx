@@ -10,7 +10,7 @@ import { formatDate, formatMoney } from "@/lib/format";
  * a payment moves it back. Oldest first, with the position carried in at the
  * top and struck at the bottom. By default only Invoice items are in the book
  * and the Uang Muka still held is stated under it; with Uang Muka included,
- * a down payment lowers the position and its use at a Faktur raises it back.
+ * a down payment lowers the position and its use at an Invoice raises it back.
  */
 const money = (n: number) => formatMoney(n, "IDR");
 
@@ -122,7 +122,7 @@ export function ArLedgerReportBody({
             {money(report.closingByType.Advance)} = Posisi bersih {money(report.closingByType.Invoice - report.closingByType.Advance)}
           </b>
           {!report.includeAdvance && report.closingByType.Advance > 0 && (
-            <p>Uang muka tidak dimasukkan ke buku di atas — dipakai saat Faktur Penjualan atas Customer Order yang sama diposting.</p>
+            <p>Uang muka tidak dimasukkan ke buku di atas — dipakai saat Invoice Penjualan atas Customer Order yang sama diposting.</p>
           )}
         </div>
       </div>

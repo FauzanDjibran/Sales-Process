@@ -5,7 +5,7 @@ import { invoiceAbilities } from "@/lib/erp/sales-invoice-workflow";
 
 export const dynamic = "force-dynamic";
 
-/** A new Faktur — with `?co=<id>`, started from that Customer Order's page. */
+/** A new Invoice — with `?co=<id>`, started from that Customer Order's page. */
 export default async function Page({ searchParams }: { searchParams: Promise<{ co?: string }> }) {
   const actor = await requirePermission("SALES_INVOICE_CREATE", "/sales/invoice/new");
   const { co } = await searchParams;

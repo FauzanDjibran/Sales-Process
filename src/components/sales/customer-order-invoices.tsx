@@ -4,7 +4,7 @@ import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, type InvoiceStatus } from "@
 import { formatDate } from "@/lib/format";
 
 /**
- * The Fakturs drawn from a Customer Order (§9), each a link — their figures are
+ * The Invoices drawn from a Customer Order (§9), each a link — their figures are
  * their own, so the order shows only which exist and where they stand. A
  * closed order is still billed for what it sent (U21).
  */
@@ -24,12 +24,12 @@ export function CustomerOrderInvoicesCard({
           <Icon name="file" size={15} />
         </span>
         <div className="ct">
-          <h3>Faktur Penjualan</h3>
+          <h3>Invoice Penjualan</h3>
           <p>Tagihan atas barang Customer Order ini yang sudah dikirim.</p>
         </div>
         {canCreate && (
           <Link className="btn sm primary" href={`/sales/invoice/new?co=${customerOrderId}`}>
-            <Icon name="plus" size={14} /> Faktur Baru
+            <Icon name="plus" size={14} /> Invoice Baru
           </Link>
         )}
       </div>
@@ -65,8 +65,8 @@ export function CustomerOrderInvoicesCard({
           <div className="ic">
             <Icon name="file" size={18} />
           </div>
-          <h4>Belum ada faktur</h4>
-          <p>Faktur dibuat dari barang yang sudah dikirim dengan Delivery Note yang diposting.</p>
+          <h4>Belum ada invoice</h4>
+          <p>Invoice dibuat dari barang yang sudah dikirim dengan Delivery Note yang diposting.</p>
         </div>
       )}
     </div>

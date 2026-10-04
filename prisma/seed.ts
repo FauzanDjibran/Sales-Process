@@ -111,7 +111,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   // the closing entry names the year it closed as its source, which is what
   // lets a reader get from a journal line back to the close that wrote it.
   ["Fiscal Year", "acc_fiscal_year"],
-  // A Faktur and a Pembayaran name the order they come from through the weak
+  // An Invoice and a Pembayaran name the order they come from through the weak
   // (doc_type_id, doc_id) pair (§3.1). Called "Sales Order" until P78, when
   // the migration renamed this row in place.
   ["Customer Order", "sal_customer_order"],
@@ -128,7 +128,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Delivery Order", "sal_delivery_order"],
   // The note the goods leave on; its journal and stock issues name it.
   ["Delivery Note", "sal_delivery_note"],
-  ["Faktur Penjualan", "sal_invoice"],
+  ["Invoice Penjualan", "sal_invoice"],
 ];
 
 /**
@@ -613,7 +613,9 @@ async function ensureReferenceData(
 
   for (const [i, [label, table]] of DOC_TYPES.entries()) {
     const made = await create(
-      () => prisma.sysDocType.findFirst({ where: { doc_label: label } }),
+      // Matched on the label or the table: a document type renamed in the UI
+      // (Faktur Penjualan → Invoice Penjualan, P99) keeps its row.
+      () => prisma.sysDocType.findFirst({ where: { OR: [{ doc_label: label }, { doc_table: table }] } }),
       () =>
         prisma.sysDocType.create({
           data: {

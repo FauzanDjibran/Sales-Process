@@ -19,7 +19,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     // The journal Posting would write, for its confirmation — only for a Draft
     // this user may post.
     note.status === "Draft" && can.post ? deliveryNotePreview(note.id) : Promise.resolve(null),
-    // Which Faktur bills each line — the invoice module's to say; composed here (U17).
+    // Which Invoice bills each line — the invoice module's to say; composed here (U17).
     note.status === "Posted" && actor.permissions.has("SALES_INVOICE_VIEW") ? deliveryNoteBilling(note.lines.map((l) => l.id)) : Promise.resolve(null),
   ]);
   return (

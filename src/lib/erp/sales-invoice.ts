@@ -32,15 +32,15 @@ import {
 } from "./sales-invoice-workflow";
 
 /**
- * The Faktur Penjualan module (`Sales-Process-Concept.md` §9, U16–U22): its
+ * The Invoice Penjualan module (`Sales-Process-Concept.md` §9, U16–U22): its
  * tables are `sal_invoice`, `sal_invoice_line` and
  * `sal_invoice_advance_deduction`, and nothing else names them.
  *
- * A Faktur bills **one Customer Order** (U16) for goods already sent: its lines
+ * An Invoice bills **one Customer Order** (U16) for goods already sent: its lines
  * are whole lines of that order's posted Delivery Notes (U17), each billed by
- * at most one live Faktur, priced from the order line in the order's price mode
+ * at most one live Invoice, priced from the order line in the order's price mode
  * and PPN snapshot (U18, U20). The user picks which of the order's Uang Muka
- * items it uses and types the DPP used from each (U8). The Faktur has its own
+ * items it uses and types the DPP used from each (U8). The Invoice has its own
  * date; its faktur pajak's date and its due date follow from the latest
  * Tanggal Kirim of the notes it bills (U19).
  *
@@ -91,7 +91,7 @@ async function docTypeId(db: Db, table: string): Promise<number> {
 
 // ------------------------------------------------------------- what is held
 
-/** Delivery Note lines other live Fakturs bill — by line, the Faktur that does. */
+/** Delivery Note lines other live Invoices bill — by line, the Invoice that does. */
 async function billedNoteLines(db: Db, lineIds: number[], exceptId: number | null): Promise<Map<number, { id: number; no: string }>> {
   if (!lineIds.length) return new Map();
   const rows = await db.salInvoiceLine.findMany({
@@ -104,7 +104,7 @@ async function billedNoteLines(db: Db, lineIds: number[], exceptId: number | nul
   return new Map(rows.map((r) => [r.delivery_note_line_id, { id: r.invoice.id, no: r.invoice.invoice_no }]));
 }
 
-/** What other live Fakturs bill of each Customer Order line: quantity and amount. */
+/** What other live Invoices bill of each Customer Order line: quantity and amount. */
 async function billedOrderLines(db: Db, lineIds: number[], exceptId: number | null): Promise<Map<number, { qty: number; amount: number }>> {
   if (!lineIds.length) return new Map();
   const rows = await db.salInvoiceLine.groupBy({
@@ -120,7 +120,7 @@ async function billedOrderLines(db: Db, lineIds: number[], exceptId: number | nu
   );
 }
 
-/** What other Draft Fakturs reserve of each Uang Muka item; a posted one has already lowered its balance. */
+/** What other Draft Invoices reserve of each Uang Muka item; a posted one has already lowered its balance. */
 async function reservedAdvances(db: Db, itemIds: number[], exceptId: number | null): Promise<Map<number, number>> {
   if (!itemIds.length) return new Map();
   const rows = await db.salInvoiceAdvanceDeduction.groupBy({
@@ -134,12 +134,12 @@ async function reservedAdvances(db: Db, itemIds: number[], exceptId: number | nu
 // ---------------------------------------------------------------- options
 
 export type InvoiceNoteLine = InvoiceSourceLine & {
-  /** The live Faktur that already bills it, if any. */
+  /** The live Invoice that already bills it, if any. */
   billedBy: { id: number; no: string } | null;
 };
 
 export type InvoiceAdvance = AdvanceItemForInvoice & {
-  /** What other Draft Fakturs reserve of it. */
+  /** What other Draft Invoices reserve of it. */
   reserved: number;
 };
 
@@ -147,7 +147,7 @@ export type InvoiceOrderOption = InvoiceSourceOrder & {
   addresses: { id: number; text: string; isBilling: boolean }[];
   noteLines: InvoiceNoteLine[];
   advances: InvoiceAdvance[];
-  /** Per Customer Order line, what other live Fakturs bill — for the completing-bill rule. */
+  /** Per Customer Order line, what other live Invoices bill — for the completing-bill rule. */
   billedBefore: Record<number, { qty: number; amount: number }>;
 };
 
@@ -216,7 +216,7 @@ async function orderOptions(
 /**
  * What the form offers: every Open or Closed Customer Order with a posted,
  * unbilled Delivery Note line, and the rupiah banks to print. `current` is the
- * Faktur being edited or shown — its own order is always included, and its own
+ * Invoice being edited or shown — its own order is always included, and its own
  * lines and Uang Muka never count against it.
  */
 export async function invoiceOptions(
@@ -293,7 +293,7 @@ export type CheckedInvoice = {
 };
 
 /**
- * Every rule a Faktur must satisfy to be saved — and, run again inside the
+ * Every rule an Invoice must satisfy to be saved — and, run again inside the
  * posting transaction with the order locked, to be posted.
  */
 export async function checkInvoice(
@@ -339,7 +339,7 @@ export async function checkInvoice(
   // ---- dates (U19)
   const taxDate = picked.reduce((m, l) => (l.dnDate > m ? l.dnDate : m), "");
   const invoiceDate = String(header.invoice_date ?? "").trim();
-  if (!DAY.test(invoiceDate)) errors.invoice_date = "Tanggal faktur wajib diisi.";
+  if (!DAY.test(invoiceDate)) errors.invoice_date = "Tanggal invoice wajib diisi.";
   else if (taxDate && invoiceDate < taxDate) errors.invoice_date = `Tidak boleh sebelum Tanggal Kirim terakhir (${isoDay(asDate(taxDate)).split("-").reverse().join("/")}).`;
 
   // ---- address and bank
@@ -407,11 +407,11 @@ export async function checkInvoice(
     const free = Math.max(0, item.balance - item.reserved);
     if (!Number.isFinite(used) || !(used > 0)) errors[key] = "Isi DPP yang dipakai lebih dari 0.";
     else if (used !== Math.round(used)) errors[key] = "DPP dipakai harus dalam rupiah penuh.";
-    else if (used > free) errors[key] = `Melebihi sisa uang muka (${money(free)}${item.reserved ? `; ${money(item.reserved)} dicadangkan Faktur Draft lain` : ""}).`;
+    else if (used > free) errors[key] = `Melebihi sisa uang muka (${money(free)}${item.reserved ? `; ${money(item.reserved)} dicadangkan Invoice Draft lain` : ""}).`;
     else checkedDeds.push({ ar_item_id: id, ar_item_no: item.arItemNo, dpp_used: used });
   }
   const used = checkedDeds.reduce((a, d) => a + d.dpp_used, 0);
-  if (used > before.dpp) errors._deductions = `Uang muka dipakai (${money(used)}) melebihi DPP faktur (${money(before.dpp)}).`;
+  if (used > before.dpp) errors._deductions = `Uang muka dipakai (${money(used)}) melebihi DPP invoice (${money(before.dpp)}).`;
   else if (!errors._deductions && Object.keys(errors).some((k) => k.startsWith("deductions."))) {
     errors._deductions = "Ada uang muka yang perlu diperbaiki.";
   }
@@ -546,12 +546,12 @@ export async function updateInvoice(
     where: { id },
     select: { status: true, invoice_no: true, customer_order_id: true, lines: { select: { delivery_note_line_id: true } }, deductions: { select: { ar_item_id: true } } },
   });
-  if (!current) return { ok: false, errors: { _form: "Faktur Penjualan tidak ditemukan." } };
+  if (!current) return { ok: false, errors: { _form: "Invoice Penjualan tidak ditemukan." } };
   if (!invoiceIsEditable(current.status as InvoiceStatus)) {
-    return { ok: false, errors: { _form: "Faktur yang sudah diposting atau dibatalkan tidak dapat diubah." } };
+    return { ok: false, errors: { _form: "Invoice yang sudah diposting atau dibatalkan tidak dapat diubah." } };
   }
   if (Number(header.customer_order_id) !== current.customer_order_id) {
-    return { ok: false, errors: { customer_order_id: "Customer Order tidak dapat diganti. Buat Faktur baru untuk Customer Order lain." } };
+    return { ok: false, errors: { customer_order_id: "Customer Order tidak dapat diganti. Buat Invoice baru untuk Customer Order lain." } };
   }
   const keep = { lineIds: current.lines.map((l) => l.delivery_note_line_id), itemIds: current.deductions.map((d) => d.ar_item_id) };
   return refusable(async () => {
@@ -560,7 +560,7 @@ export async function updateInvoice(
       const r = await checkInvoice(tx, header, lines, deductions, id, keep);
       if (!r.ok) throw new Refused(r.errors);
       const done = await tx.salInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, updated_by: actorId } });
-      if (done.count !== 1) throw new Refused({ _form: "Faktur berubah saat diproses. Muat ulang halaman." });
+      if (done.count !== 1) throw new Refused({ _form: "Invoice berubah saat diproses. Muat ulang halaman." });
       await writeRows(tx, id, r.c);
       await audit(tx, id, "UPDATE", "update", actorId);
     });
@@ -602,7 +602,7 @@ type InvoicePosting =
   | { ok: true; description: string; lines: InvoicePostingLine[] }
   | { ok: false; missing: string[] };
 
-/** The journal a checked Faktur writes — shown by the Posting dialog and written by Posting. */
+/** The journal a checked Invoice writes — shown by the Posting dialog and written by Posting. */
 async function buildPosting(db: Db, invoiceNo: string, c: CheckedInvoice): Promise<InvoicePosting> {
   const f = c.figures;
   const keys = [
@@ -642,7 +642,7 @@ async function buildPosting(db: Db, invoiceNo: string, c: CheckedInvoice): Promi
       line(ids.output_vat_account, 0, f.ppn, f.advanceUsed > 0 ? `PPN atas DPP setelah uang muka — ${invoiceNo}` : `PPN atas penyerahan — ${invoiceNo}`)
     );
   }
-  return { ok: true, description: `${invoiceNo} · Faktur Penjualan ${c.order.orderNo} — ${c.order.customerName}`, lines: out };
+  return { ok: true, description: `${invoiceNo} · Invoice Penjualan ${c.order.orderNo} — ${c.order.customerName}`, lines: out };
 }
 
 /** Why an account may not be posted to, or null. */
@@ -677,10 +677,10 @@ export type InvoiceTransitionResult = { ok: true } | { ok: false; errors: Record
 
 /**
  * Runs one lifecycle step. **Posting**, in one transaction with the order
- * locked: checks the stored Faktur again, writes the journal dated Tanggal
- * Faktur, creates the Invoice AR item at net Piutang with its due date, lowers
+ * locked: checks the stored Invoice again, writes the journal dated Tanggal
+ * Invoice, creates the Invoice AR item at net Piutang with its due date, lowers
  * each Uang Muka item used (*Dipakai Invoice*, naming the Invoice item), and
- * restates the Faktur's figures as posted. **Batalkan** (Draft only) asks for a
+ * restates the Invoice's figures as posted. **Batalkan** (Draft only) asks for a
  * reason and writes nothing else.
  */
 export async function transitionInvoice(
@@ -690,12 +690,12 @@ export async function transitionInvoice(
   reason?: string
 ): Promise<InvoiceTransitionResult> {
   const n = await prisma.salInvoice.findUnique({ where: { id }, include: WITH_ROWS });
-  if (!n) return { ok: false, errors: { _form: "Faktur Penjualan tidak ditemukan." } };
+  if (!n) return { ok: false, errors: { _form: "Invoice Penjualan tidak ditemukan." } };
   const t = INVOICE_TRANSITIONS[action];
   if (!invoiceTransitionAllowed(action, n.status as InvoiceStatus)) {
-    return { ok: false, errors: { _form: `Faktur berstatus ini tidak dapat di-${t.label.toLowerCase()}.` } };
+    return { ok: false, errors: { _form: `Invoice berstatus ini tidak dapat di-${t.label.toLowerCase()}.` } };
   }
-  const moved = "Faktur berubah saat diproses. Muat ulang halaman.";
+  const moved = "Invoice berubah saat diproses. Muat ulang halaman.";
 
   if (action === "cancel") {
     const why = String(reason ?? "").trim();
@@ -747,7 +747,7 @@ export async function transitionInvoice(
         })),
       });
 
-      // The Invoice item at net Piutang, about this Faktur (U1), then each Uang
+      // The Invoice item at net Piutang, about this Invoice (U1), then each Uang
       // Muka used, naming it (P72).
       const doc = { docTypeId: typeId, docId: id, no: n.invoice_no };
       const date = isoDay(r.c.data.invoice_date);
@@ -763,7 +763,7 @@ export async function transitionInvoice(
               createdBy: doc,
               orderId: r.c.order.id,
               amount: r.c.figures.total,
-              note: `Faktur ${n.invoice_no} diposting`,
+              note: `Invoice ${n.invoice_no} diposting`,
               actorId,
             })
           : null;
@@ -790,7 +790,7 @@ export async function transitionInvoice(
 
 export type InvoiceListRow = {
   id: number;
-  /** A posted Faktur's standing with its customer (U26). */
+  /** A posted Invoice's standing with its customer (U26). */
   pay: { state: InvoicePayState; open: number; overdue: boolean } | null;
   invoiceNo: string;
   invoiceDate: string;
@@ -895,14 +895,14 @@ export async function getInvoice(id: number): Promise<InvoiceView | null> {
   };
 }
 
-/** Faktur numbers by id, for the audit panel. */
+/** Invoice numbers by id, for the audit panel. */
 export async function invoiceNumbersByIds(ids: number[]): Promise<Map<number, string>> {
   const rows = await prisma.salInvoice.findMany({ where: { id: { in: ids } }, select: { id: true, invoice_no: true } });
   return new Map(rows.map((r) => [r.id, r.invoice_no]));
 }
 
 /**
- * Which live Faktur bills each line of a Delivery Note — for the note's page,
+ * Which live Invoice bills each line of a Delivery Note — for the note's page,
  * which composes it with its own record (*Ditagih*, shown, never stored there).
  */
 export async function deliveryNoteBilling(lineIds: number[]): Promise<Record<number, { id: number; no: string; status: InvoiceStatus }>> {
@@ -916,7 +916,7 @@ export async function deliveryNoteBilling(lineIds: number[]): Promise<Record<num
   );
 }
 
-/** A Customer Order's Fakturs, for its page. */
+/** A Customer Order's Invoices, for its page. */
 export async function customerOrderInvoices(
   customerOrderId: number
 ): Promise<{ id: number; invoiceNo: string; invoiceDate: string; status: InvoiceStatus; total: number }[]> {
@@ -936,7 +936,7 @@ export async function customerOrderInvoices(
 // ------------------------------------------------------- for the receipt
 
 /**
- * A posted Faktur as a receipt reads it (§7.8, U23–U25): what it asks for
+ * A posted Invoice as a receipt reads it (§7.8, U23–U25): what it asks for
  * (net Piutang), its PPN, the PPh the customer may withhold — per Jenis PPh on
  * its net DPP, after the Uang Muka (U24) — and its Invoice AR item, whose
  * balance is what is still open. The receipt module takes this rather than
@@ -958,7 +958,7 @@ export type SettlementInvoice = {
   arItemId: number | null;
 };
 
-/** Posted Fakturs that leave something to pay (with `postedOnly`), or the ones named, whatever their state. */
+/** Posted Invoices that leave something to pay (with `postedOnly`), or the ones named, whatever their state. */
 export async function settlementInvoices(filter: { ids?: number[]; postedOnly?: boolean }, db: Db = prisma): Promise<SettlementInvoice[]> {
   const rows = await db.salInvoice.findMany({
     where: {
@@ -995,9 +995,9 @@ export async function settlementInvoices(filter: { ids?: number[]; postedOnly?: 
 }
 
 /**
- * Where each posted Faktur stands (U26), read from its Invoice AR item: what
+ * Where each posted Invoice stands (U26), read from its Invoice AR item: what
  * is still open, Belum Dibayar / Sebagian / Lunas, and whether it is overdue.
- * A Faktur its Uang Muka covered whole has no item and is Lunas.
+ * An Invoice its Uang Muka covered whole has no item and is Lunas.
  */
 export async function invoicePayStates(
   ids: number[]

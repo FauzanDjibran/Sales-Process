@@ -51,7 +51,7 @@ export const DELIVERY_NOTE_TRANSITIONS: Record<DeliveryNoteAction, DeliveryNoteT
     title: "Posting Delivery Note",
     body:
       "Barang dicatat keluar dari gudang pada Tanggal Kirim dan harga pokoknya diakui " +
-      "dengan journal di bawah ini. Piutang belum diakui — itu terjadi saat Faktur " +
+      "dengan journal di bawah ini. Piutang belum diakui — itu terjadi saat Invoice " +
       "Penjualan diposting. Delivery Note yang sudah diposting tidak dapat diubah " +
       "atau dibatalkan.",
     confirmLabel: "Ya, Posting",

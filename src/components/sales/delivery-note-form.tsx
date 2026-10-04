@@ -65,7 +65,7 @@ export function DeliveryNoteForm({
   preview?: DeliveryNotePreview | null;
   /** `?do=<id>` — started from a Delivery Order's page: its open lines start ticked. */
   presetDeliveryOrderId?: number | null;
-  /** For a posted note: the live Faktur billing each line, by line id (U17). */
+  /** For a posted note: the live Invoice billing each line, by line id (U17). */
   billing?: Record<number, { id: number; no: string; status: string }> | null;
 }) {
   const router = useRouter();

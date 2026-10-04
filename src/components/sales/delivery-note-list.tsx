@@ -68,7 +68,7 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
         </div>
         <p className="ph-sub">
           Surat jalan: barang yang benar-benar keluar dari gudang, dibuat dari Delivery Order yang sudah diterbitkan.
-          Posting mengakui HPP dan mengurangi Persediaan; piutang baru diakui di Faktur Penjualan.
+          Posting mengakui HPP dan mengurangi Persediaan; piutang baru diakui di Invoice Penjualan.
         </p>
       </div>
 

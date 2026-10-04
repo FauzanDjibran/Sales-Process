@@ -838,6 +838,8 @@ adjustment.
 
 ## 9. Faktur Penjualan — the bill for what was sent  [Built] (P97; U16–U22)
 
+> **Named *Invoice Penjualan* in the application since P99**, so that *Faktur* alone means the faktur pajak. This section keeps its original wording.
+
 The document that **bills goods already sent**. It is where Piutang, revenue
 and output PPN are born (P71), where the order's paid Uang Muka is deducted,
 and where the Invoice AR item is created. It bills **only what left on a posted

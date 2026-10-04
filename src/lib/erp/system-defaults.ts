@@ -91,9 +91,9 @@ export const SYSTEM_DEFAULT_GROUPS = [
   {
     key: "invoice",
     page: "account",
-    name: "Faktur Penjualan",
+    name: "Invoice Penjualan",
     desc:
-      "Account yang dipakai saat Faktur Penjualan diposting: piutang usaha " +
+      "Account yang dipakai saat Invoice Penjualan diposting: piutang usaha " +
       "atas barang yang ditagih dan penjualannya. Uang Muka Penjualan dan PPN " +
       "Keluaran memakai account pada Penerimaan Penjualan.",
     icon: "file",
@@ -232,7 +232,7 @@ export const SYSTEM_DEFAULTS = [
 
   // ------------------------------------------------------------- invoice
   //
-  // Added with the Faktur Penjualan (U22), one each for the company until the
+  // Added with the Invoice Penjualan (U22), one each for the company until the
   // Kategori Item mapping (C25) names them per category.
   {
     key: "receivable_account",
@@ -241,7 +241,7 @@ export const SYSTEM_DEFAULTS = [
     type: "ref",
     ref: "acc_account",
     group: "invoice",
-    help: "piutang customer atas faktur, per customer",
+    help: "piutang customer atas invoice, per customer",
   },
   {
     key: "sales_revenue_account",

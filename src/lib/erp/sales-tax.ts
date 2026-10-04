@@ -451,12 +451,12 @@ export function receivedProblem(cash: number, max: number): string | null {
 // ================================================================ invoice
 
 /**
- * The Faktur Penjualan's arithmetic (`Sales-Process-Concept.md` §9).
+ * The Invoice Penjualan's arithmetic (`Sales-Process-Concept.md` §9).
  *
- * A Faktur line bills one Delivery Note line: a quantity of one Customer Order
+ * An Invoice line bills one Delivery Note line: a quantity of one Customer Order
  * line at that line's price and discount. A percent discount applies to the
  * quantity billed; a nominal one is shared by quantity. **The bill that
- * completes the order line takes what is left of its amount**, so the Fakturs
+ * completes the order line takes what is left of its amount**, so the Invoices
  * on a line always add up to the order line exactly.
  *
  * The Uang Muka used is a DPP typed by the user (U8). It is shared over the
@@ -467,7 +467,7 @@ export function receivedProblem(cash: number, max: number): string | null {
  */
 
 export type InvoiceLineInput = {
-  /** What this Faktur bills, in the order line's unit. */
+  /** What this Invoice bills, in the order line's unit. */
   qty: number;
   /** The Customer Order line. */
   orderQty: number;
@@ -475,7 +475,7 @@ export type InvoiceLineInput = {
   price: number;
   discountType: DiscountType | null;
   discountValue: number | null;
-  /** What other live Fakturs bill of the same order line. */
+  /** What other live Invoices bill of the same order line. */
   billedQtyBefore: number;
   billedAmountBefore: number;
   withholdingRate: number | null;
@@ -512,7 +512,7 @@ export type InvoiceFigures = {
 
 const Q = 10_000;
 
-/** What one Faktur line bills, with the completing bill taking the remainder. */
+/** What one Invoice line bills, with the completing bill taking the remainder. */
 export function invoiceLineAmount(l: InvoiceLineInput): number {
   const qty = Math.round((Number(l.qty) || 0) * Q);
   const before = Math.round((Number(l.billedQtyBefore) || 0) * Q);

@@ -17,7 +17,7 @@ import { roundBase } from "./fx";
  * ## Automatic and manual journals
  *
  * Almost every journal here is written *by* a business document being posted —
- * a Pembayaran, a Faktur Penjualan — and is `Posted` the
+ * a Pembayaran, an Invoice Penjualan — and is `Posted` the
  * moment it exists, because it records something that has already happened.
  *
  * A **manual** journal is typed by a person: a depreciation entry, an accrual,

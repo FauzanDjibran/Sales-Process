@@ -21,17 +21,17 @@ import { formatMoney } from "@/lib/format";
 
 /** Why a final note offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<InvoiceStatus, string>> = {
-  Posted: "Faktur diposting",
-  Cancelled: "Faktur dibatalkan",
+  Posted: "Invoice diposting",
+  Cancelled: "Invoice dibatalkan",
 };
 
 const money = (n: number) => formatMoney(n, "IDR");
 
 /**
- * A Faktur's lifecycle as buttons in the page header: Ubah (Draft only),
+ * An Invoice's lifecycle as buttons in the page header: Ubah (Draft only),
  * Batalkan and Posting. Posting's confirmation states the journal it will
  * write — Piutang and the Uang Muka used debited, Penjualan and PPN Keluaran
- * credited — and refuses up front when the Faktur cannot post (a line billed
+ * credited — and refuses up front when the Invoice cannot post (a line billed
  * since, an Uang Muka used since, a missing mapping or a closed period).
  */
 export function InvoiceActions({
@@ -45,7 +45,7 @@ export function InvoiceActions({
   subject: string;
   status: InvoiceStatus;
   can: InvoiceAbilities;
-  /** What Posting would write; null once the Faktur is final. */
+  /** What Posting would write; null once the Invoice is final. */
   preview: InvoicePreview | null;
 }) {
   const toast = useToast();

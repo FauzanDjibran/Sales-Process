@@ -38,7 +38,7 @@ import {
  * lot by lot where picked — through the inventory module, which says what they
  * cost, and
  * writes one journal: Dr HPP / Cr Persediaan. **Cost of goods only** — Piutang
- * is born at the Faktur, which will take this note's lines whole.
+ * is born at the Invoice, which will take this note's lines whole.
  *
  * The Delivery Order is read through `deliveryNoteSources` and told what left
  * through `recordDeliveryOrderDelivery`; the Customer Order is locked through
@@ -746,7 +746,7 @@ export type DeliveryNoteView = {
   status: DeliveryNoteStatus;
   header: DeliveryNoteHeaderInput;
   lines: (DeliveryNoteLineInput & {
-    /** The stored line's id — what a Faktur names (U17). */
+    /** The stored line's id — what an Invoice names (U17). */
     id: number;
     baseQty: number;
     unitCost: number;
@@ -819,13 +819,13 @@ export async function deliveryOrderNotes(deliveryOrderId: number): Promise<Deliv
   };
 }
 
-// ------------------------------------------------------------- for the Faktur
+// ------------------------------------------------------------- for the Invoice
 
 /**
- * A Delivery Note line as a Faktur Penjualan reads it (U17): a quantity that
+ * A Delivery Note line as an Invoice Penjualan reads it (U17): a quantity that
  * left, of one Customer Order line, on a posted note with its Tanggal Kirim.
- * The Faktur takes the line whole; it names it by id and prices it from the
- * Customer Order line. A posted note never changes, so what a Faktur bills
+ * The Invoice takes the line whole; it names it by id and prices it from the
+ * Customer Order line. A posted note never changes, so what an Invoice bills
  * does not move.
  */
 export type InvoiceSourceLine = {
@@ -847,7 +847,7 @@ export type InvoiceSourceLine = {
 
 /**
  * Lines of posted notes — of the orders named, or every order — or the lines
- * named, whatever their note's status, for a stored Faktur.
+ * named, whatever their note's status, for a stored Invoice.
  */
 export async function invoiceSourceLines(
   filter: { customerOrderIds?: number[]; lineIds?: number[] },

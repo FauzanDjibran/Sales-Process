@@ -19,9 +19,9 @@ import {
 } from "@/lib/erp/sales-invoice-workflow";
 
 /**
- * The Faktur Penjualan register (§9). Drafts sort first — goods not yet
+ * The Invoice Penjualan register (§9). Drafts sort first — goods not yet
  * billed — then newest first. The total is the net Piutang, after the Uang
- * Muka each Faktur used.
+ * Muka each Invoice used.
  */
 export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can: InvoiceAbilities }) {
   const router = useRouter();
@@ -49,19 +49,19 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
         <div className="crumb">
           <span>Penjualan</span>
           <span>/</span>
-          <span className="cur">Faktur Penjualan</span>
+          <span className="cur">Invoice Penjualan</span>
         </div>
         <div className="ph-row">
           <h1>
             <span className="ph-ico">
               <Icon name="file" size={16} />
             </span>
-            Faktur Penjualan
+            Invoice Penjualan
           </h1>
           <div className="ph-act">
             {can.create && (
               <Link className="btn primary" href="/sales/invoice/new">
-                <Icon name="plus" size={15} /> Faktur Baru
+                <Icon name="plus" size={15} /> Invoice Baru
               </Link>
             )}
           </div>
@@ -74,7 +74,7 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
 
       <div className="card">
         <div className="toolbar">
-          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor faktur, CO atau customer…" />
+          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor invoice, CO atau customer…" />
           <Select
             variant="toolbar"
             value={status}
@@ -90,7 +90,7 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
           />
           <span className="tspace" />
           <span className="count">
-            <b>{rows.length}</b> faktur
+            <b>{rows.length}</b> invoice
           </span>
         </div>
 
@@ -169,11 +169,11 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
             <div className="ic">
               <Icon name="file" size={20} />
             </div>
-            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada Faktur Penjualan"}</h4>
+            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada Invoice Penjualan"}</h4>
             <p>
               {q || status
-                ? "Tidak ada Faktur yang sesuai dengan pencarian atau filter."
-                : "Faktur dibuat dari Customer Order yang barangnya sudah dikirim: pilih baris Delivery Note yang ditagih dan uang muka yang dipakai."}
+                ? "Tidak ada Invoice yang sesuai dengan pencarian atau filter."
+                : "Invoice dibuat dari Customer Order yang barangnya sudah dikirim: pilih baris Delivery Note yang ditagih dan uang muka yang dipakai."}
             </p>
             {q || status ? (
               <div className="cta">
@@ -191,7 +191,7 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
               can.create && (
                 <div className="cta">
                   <Link className="btn primary" href="/sales/invoice/new">
-                    <Icon name="plus" size={15} /> Faktur Baru
+                    <Icon name="plus" size={15} /> Invoice Baru
                   </Link>
                 </div>
               )

@@ -29,7 +29,7 @@ import {
  *
  * A Customer Order posts nothing. It is a record of what the customer ordered,
  * at what price, under which tax treatment (P78) — the basis the advance bill
- * and, later, the Faktur draw from, and the order the Sales Orders release to
+ * and, later, the Invoice draw from, and the order the Sales Orders release to
  * PPIC in dated parts (P79). Everything the form shows as a figure comes
  * from `sales-tax.ts`, the same module the save below stores from.
  *
@@ -919,14 +919,14 @@ export async function advanceSourceOrders(
   });
 }
 
-// ------------------------------------------------------------- for the Faktur
+// ------------------------------------------------------------- for the Invoice
 
 /**
- * A Customer Order as a Faktur Penjualan reads it (U16, U18, U20): whose it
+ * A Customer Order as an Invoice Penjualan reads it (U16, U18, U20): whose it
  * is, its Termin, its price mode, Kena PPN and PPN snapshot, and per line the
- * price and discount a Faktur bills at, with the line's Jenis PPh. The Faktur
+ * price and discount an Invoice bills at, with the line's Jenis PPh. The Invoice
  * module takes this rather than reading `sal_customer_order` itself; a
- * submitted order's lines are frozen, so what a Faktur prices from does not move.
+ * submitted order's lines are frozen, so what an Invoice prices from does not move.
  */
 export type InvoiceSourceOrder = {
   id: number;

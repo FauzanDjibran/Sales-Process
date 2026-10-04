@@ -20,9 +20,9 @@ function toggled(set: Set<number>, ids: number[], on: boolean): Set<number> {
 
 /**
  * *Pilih Surat Jalan* (U17): the Customer Order's posted Delivery Note lines,
- * grouped by note, to tick the ones this Faktur bills — a whole note at once
+ * grouped by note, to tick the ones this Invoice bills — a whole note at once
  * or line by line. Each line is billed whole, so there is nothing to type. A
- * line another Faktur already bills is shown but cannot be ticked.
+ * line another Invoice already bills is shown but cannot be ticked.
  */
 export function InvoiceNotePicker({
   lines,
@@ -46,7 +46,7 @@ export function InvoiceNotePicker({
       open
       icon="truck"
       title="Pilih Surat Jalan"
-      subtitle={`${orderNo} · centang barang terkirim yang ditagih dengan Faktur ini`}
+      subtitle={`${orderNo} · centang barang terkirim yang ditagih dengan Invoice ini`}
       width={880}
       onClose={onClose}
       foot={
@@ -67,7 +67,7 @@ export function InvoiceNotePicker({
             <Icon name="truck" size={18} />
           </div>
           <h4>Belum ada barang terkirim</h4>
-          <p>Faktur hanya menagih barang dari Delivery Note yang sudah diposting.</p>
+          <p>Invoice hanya menagih barang dari Delivery Note yang sudah diposting.</p>
         </div>
       ) : (
         <div className="tw">
@@ -159,7 +159,7 @@ export function InvoiceNotePicker({
 /**
  * *Pilih Uang Muka* (U8): the Customer Order's Uang Muka still open, with the
  * bill it pays, the receipt that brought it, what is left and what other Draft
- * Fakturs reserve. The DPP used is typed on the page after Terapkan; nothing is
+ * Invoices reserve. The DPP used is typed on the page after Terapkan; nothing is
  * pre-filled.
  */
 export function InvoiceAdvancePicker({

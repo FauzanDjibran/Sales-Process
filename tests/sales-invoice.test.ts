@@ -37,7 +37,7 @@ import {
 } from "./helpers";
 
 /**
- * The Faktur Penjualan (`Sales-Process-Concept.md` §9, U16–U22): one Customer
+ * The Invoice Penjualan (`Sales-Process-Concept.md` §9, U16–U22): one Customer
  * Order, whole lines of its posted Delivery Notes, the order's price mode and
  * PPN snapshot, the Uang Muka the user picks. Its own date; the tax date and
  * due date from the latest Tanggal Kirim. Posting: Dr Piutang (net) · Dr Uang
@@ -271,7 +271,7 @@ after(async () => {
 
 // -------------------------------------------------------------- arithmetic
 
-describe("a Faktur line's amount (§9.3)", () => {
+describe("an Invoice line's amount (§9.3)", () => {
   const base = { orderQty: 10, orderAmount: 990_000, price: 100_000, discountType: "Amount" as const, discountValue: 10_000, withholdingRate: null, withholdingKey: null };
   test("a nominal discount is shared by quantity; the completing bill takes what is left", () => {
     assert.equal(invoiceLineAmount({ ...base, qty: 4, billedQtyBefore: 0, billedAmountBefore: 0 }), 396_000);
@@ -301,7 +301,7 @@ describe("a Faktur line's amount (§9.3)", () => {
 
 // ----------------------------------------------------------------- options
 
-describe("what a Faktur may bill (U16, U17)", () => {
+describe("what an Invoice may bill (U16, U17)", () => {
   test("the order is offered with its posted lines and its open Uang Muka", async () => {
     const o = (await invoiceOptions()).orders.find((x) => x.id === order.co)!;
     assert.ok(o, "an order with posted, unbilled lines is offered");
@@ -324,7 +324,7 @@ describe("what a Faktur may bill (U16, U17)", () => {
     const over = await checkInvoice(prisma, header(), lines(notes.firstLines), use(300_001), null);
     assert.ok(!over.ok && /Melebihi sisa uang muka/.test(over.errors["deductions.0.dpp_used"]));
     const tooMuch = await checkInvoice(prisma, header(), lines([notes.firstLines[1]]), use(200_001), null);
-    assert.ok(!tooMuch.ok && /melebihi DPP faktur/.test(tooMuch.errors._deductions));
+    assert.ok(!tooMuch.ok && /melebihi DPP invoice/.test(tooMuch.errors._deductions));
   });
 });
 
@@ -345,7 +345,7 @@ describe("a Draft holds its lines and reserves its Uang Muka", () => {
     assert.deepEqual([v.stored.dpp, v.stored.advanceUsed, v.stored.netDpp, v.stored.ppn, v.stored.total], [596_000, 100_000, 496_000, 54_560, 550_560]);
   });
 
-  test("another Faktur cannot bill the same lines, nor take what the Draft reserves", async () => {
+  test("another Invoice cannot bill the same lines, nor take what the Draft reserves", async () => {
     const twice = await create(header(), notes.firstLines);
     assert.ok(!twice.ok && /Sudah ditagih dengan INV\//.test(twice.errors["lines.0.delivery_note_line_id"]));
     const o = (await invoiceOptions()).orders.find((x) => x.id === order.co);
@@ -407,7 +407,7 @@ describe("Posting recognises Piutang, revenue and PPN once", () => {
     ]);
   });
 
-  test("a posted Faktur is final", async () => {
+  test("a posted Invoice is final", async () => {
     assert.ok(!(await updateInvoice(ids.inv[0], header(), lines(notes.firstLines), [], actor)).ok);
     assert.ok(!(await transitionInvoice(ids.inv[0], "cancel", actor, "x")).ok);
     assert.deepEqual(availableInvoiceActions("Posted", invoiceAbilities(["SALES_INVOICE_POST", "SALES_INVOICE_CANCEL"])), []);
@@ -454,7 +454,7 @@ describe("the order is finished when its delivery is; billing comes after (U21)"
 
 // -------------------------------------------- paying it (§7.8, U23–U28)
 
-describe("Penerimaan dari Customer pays Fakturs and advance bills together", () => {
+describe("Penerimaan dari Customer pays Invoices and advance bills together", () => {
   const receipt = (lines: { doc_type: "sal_advance" | "sal_invoice"; doc_id: number; cash: number; withhold: boolean }[]) => ({
     purpose: "customer_receipt",
     tx_date: today,
@@ -467,7 +467,7 @@ describe("Penerimaan dari Customer pays Fakturs and advance bills together", () 
   });
   const inv = () => ({ first: ids.inv[0], second: ids.inv[ids.inv.length - 1] });
 
-  test("the form offers the customer's posted Fakturs beside its issued bills, each open by its Invoice item", async () => {
+  test("the form offers the customer's posted Invoices beside its issued bills, each open by its Invoice item", async () => {
     const o = await cashReceiptOptions();
     const mine = o.bills.filter((b) => b.customerId === f.customer);
     assert.ok(mine.some((b) => b.kind === "sal_advance" && b.id === f.bill2));
@@ -500,12 +500,12 @@ describe("Penerimaan dari Customer pays Fakturs and advance bills together", () 
       ["Create", 550_560, (await getInvoice(inv().first))!.invoiceNo],
       ["Payment", -expected.settled, t.tx_no],
     ]);
-    assert.equal(await prisma.finArItem.count({ where: { entries: { some: { event: "Create", doc_id: r.id, doc_type: { doc_table: "fin_cash_bank_tx" } } } } }), 0, "no AR item is created by paying a Faktur");
+    assert.equal(await prisma.finArItem.count({ where: { entries: { some: { event: "Create", doc_id: r.id, doc_type: { doc_table: "fin_cash_bank_tx" } } } } }), 0, "no AR item is created by paying an Invoice");
     const state = (await invoicePayStates([inv().first]))[inv().first];
     assert.deepEqual([state.state, state.open], ["Partial", 550_560 - expected.settled]);
   });
 
-  test("one transfer clears both Fakturs and an advance bill, each posting by its kind", async () => {
+  test("one transfer clears both Invoices and an advance bill, each posting by its kind", async () => {
     const [a, b] = await settlementInvoices({ ids: [inv().first, inv().second] });
     const open = async (id: number) => (await prisma.finArItem.findUniqueOrThrow({ where: { id } })).current_balance.toNumber();
     const before = a.total - (await open(a.arItemId!));
@@ -528,7 +528,7 @@ describe("Penerimaan dari Customer pays Fakturs and advance bills together", () 
     const t = await prisma.finCashBankTx.findUniqueOrThrow({ where: { id: r.id } });
     const jl = await prisma.accJournalLine.findMany({ where: { journal_id: t.journal_id! }, orderBy: { sequence_no: "asc" } });
     const credit = (acc: number) => jl.filter((l) => l.account_id === acc).reduce((s, l) => s + l.kredit_amount.toNumber(), 0);
-    assert.equal(credit(f.arAcc), (a.total - before) + b.total, "Piutang cleared by all each Faktur still owed");
+    assert.equal(credit(f.arAcc), (a.total - before) + b.total, "Piutang cleared by all each Invoice still owed");
     assert.deepEqual([credit(f.advAcc), credit(f.vatAcc)], [100_000, 11_000], "the bill posts as an advance");
     const debit = jl.reduce((s, l) => s + l.debit_amount.toNumber(), 0);
     assert.equal(debit, jl.reduce((s, l) => s + l.kredit_amount.toNumber(), 0));
@@ -536,7 +536,7 @@ describe("Penerimaan dari Customer pays Fakturs and advance bills together", () 
     assert.equal(newAdvance?.current_balance.toNumber(), 100_000);
   });
 
-  test("a Faktur paid in full is offered no more, and takes no overpayment", async () => {
+  test("an Invoice paid in full is offered no more, and takes no overpayment", async () => {
     const o = await cashReceiptOptions();
     assert.ok(!o.bills.some((b) => b.kind === "sal_invoice" && b.customerId === f.customer));
     const over = await checkCashReceipt(prisma, receipt([{ doc_type: "sal_invoice", doc_id: inv().first, cash: 1, withhold: true }]), null);

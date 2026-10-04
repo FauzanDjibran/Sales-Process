@@ -10,11 +10,11 @@ import type { OpenBill } from "@/lib/erp/cash-bank-tx";
 import { SETTLED_DOC_TEXT, type SettledDocKind } from "@/lib/erp/cash-bank-purposes";
 import { formatDate, formatMoney } from "@/lib/format";
 
-/** A bill on the Penerimaan — an advance bill or a Faktur: what was received for it, and whether PPh was withheld. */
+/** A bill on the Penerimaan — an advance bill or an Invoice: what was received for it, and whether PPh was withheld. */
 export type PickedLine = { key: string; kind: SettledDocKind; docId: number; cash: string; withhold: boolean };
 
 /**
- * The partner's open bills — advance bills and Fakturs together (P83), oldest
+ * The partner's open bills — advance bills and Invoices together (P83), oldest
  * due first — to tick the ones being paid. What helps choose —
  * dates, totals, what earlier receipts paid — lives here, so the page holds
  * only the bills being settled. A bill already on the page keeps its figures.
@@ -78,7 +78,7 @@ export function BillPicker({
       open
       icon="wallet"
       title={`Pilih ${noun}`}
-      subtitle={`${partnerName} · uang muka diterbitkan dan faktur diposting yang belum lunas`}
+      subtitle={`${partnerName} · uang muka diterbitkan dan invoice diposting yang belum lunas`}
       width={880}
       onClose={onClose}
       foot={

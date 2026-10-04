@@ -10,7 +10,7 @@ import type { PeriodRange } from "./period";
  *
  * An **AR item** is the settlement unit of what a customer owes or has paid
  * ahead: an **Uang Muka** is born when an advance is received, an **Invoice**
- * when a Faktur Penjualan is posted. Documents stay the origin; the item is
+ * when an Invoice Penjualan is posted. Documents stay the origin; the item is
  * what remains open, and it keeps its own balance.
  *
  * **Buku Piutang** is the history of every change to an item's balance, and it
@@ -20,12 +20,12 @@ import type { PeriodRange } from "./period";
  * it from the entries alone, the way the Cash Bank Book is proved.
  *
  * Each item is named `ARI/YYYY/MM/NNNN` and is **about** one document — the
- * advance bill for an Uang Muka, the Faktur for an Invoice; what created it is
+ * advance bill for an Uang Muka, the Invoice for an Invoice; what created it is
  * its Create entry's document (U1). It carries its own tax document's figures
  * where it has one — an Uang Muka its Faktur Pajak Uang Muka (U9).
  *
  * There is no allocation step (P72): a payment moves an Invoice item directly,
- * and a Faktur uses its order's Uang Muka when it is posted. The entry names
+ * and an Invoice uses its order's Uang Muka when it is posted. The entry names
  * the document that did it, and — for an advance used — the Invoice item that
  * took it.
  *
@@ -70,7 +70,7 @@ export type NewArItem = {
   /** `YYYY-MM-DD`. */
   date: string;
   dueDate?: string | null;
-  /** What the item is about: the advance bill, the Faktur (U1). */
+  /** What the item is about: the advance bill, the Invoice (U1). */
   source: { docTypeId: number; docId: number; no: string };
   /** The posting that creates it — named by the Create entry only. */
   createdBy: { docTypeId: number; docId: number; no: string };
@@ -200,7 +200,7 @@ export type ArItemRow = {
   partnerName: string;
   date: string;
   dueDate: string | null;
-  /** What the item is about: the advance bill, the Faktur. */
+  /** What the item is about: the advance bill, the Invoice. */
   sourceNo: string;
   sourceTable: string;
   sourceId: number;
@@ -409,11 +409,11 @@ export async function arItemsReconcile(partnerId: number | null = null): Promise
   );
 }
 
-// ------------------------------------------------------ for the Faktur
+// ------------------------------------------------------ for the Invoice
 
 /**
- * An Uang Muka item as a Faktur reads it (U7, U8): the item, what it is about,
- * the receipt that created it, its balance and its own tax document. A Faktur
+ * An Uang Muka item as an Invoice reads it (U7, U8): the item, what it is about,
+ * the receipt that created it, its balance and its own tax document. An Invoice
  * uses only its own Customer Order's items, and never reads the receipts.
  */
 export type AdvanceItemForInvoice = {
