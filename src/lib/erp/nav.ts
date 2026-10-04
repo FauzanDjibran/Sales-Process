@@ -107,6 +107,14 @@ export const MODULES: NavModule[] = [
             desc: "Harga pokok per barang yang dipakai Delivery Note untuk mengakui HPP selama stok belum dikelola.",
             permission: "ITEM_COST_VIEW",
           },
+          {
+            key: "tmp_stock_lot",
+            slug: "stock-lot",
+            name: "Lot (Sementara)",
+            icon: "layers",
+            desc: "Lot per barang dan gudang yang dipilih Delivery Note saat barang keluar, selama stok belum dikelola.",
+            permission: "STOCK_LOT_VIEW",
+          },
         ],
       },
       {

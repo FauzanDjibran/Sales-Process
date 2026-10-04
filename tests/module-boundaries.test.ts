@@ -96,8 +96,10 @@ const TABLE_OWNERS: Record<string, string[]> = {
   salDeliveryOrderLine: ["src/lib/erp/delivery-order.ts"],
   salDeliveryNote: ["src/lib/erp/delivery-note.ts"],
   salDeliveryNoteLine: ["src/lib/erp/delivery-note.ts"],
+  salDeliveryNotePick: ["src/lib/erp/delivery-note.ts"],
   // The stand-in inventory's temporary tables (U11): only it may name them.
   tmpItemCost: ["src/lib/erp/inventory.ts"],
+  tmpStockLot: ["src/lib/erp/inventory.ts"],
   tmpStockMovement: ["src/lib/erp/inventory.ts"],
   salAdvance: ["src/lib/erp/sales-advance.ts"],
   finCashBankTx: ["src/lib/erp/cash-bank-tx.ts"],

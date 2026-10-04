@@ -129,6 +129,8 @@ export const PERMISSIONS = [
   { code: "DELIVERY_NOTE_CANCEL", name: "Batalkan Delivery Note", module: "sales", description: "Hanya Draft, dengan alasan." },
   { code: "ITEM_COST_VIEW", name: "Lihat Harga Pokok (Sementara)", module: "master", description: "Harga pokok per barang yang dipakai Delivery Note selama stok belum dikelola." },
   { code: "ITEM_COST_EDIT", name: "Ubah Harga Pokok (Sementara)", module: "master", description: "Hanya berlaku untuk pengiriman berikutnya." },
+  { code: "STOCK_LOT_VIEW", name: "Lihat Lot (Sementara)", module: "master", description: "Daftar lot per barang dan gudang yang dipilih Delivery Note selama stok belum dikelola." },
+  { code: "STOCK_LOT_EDIT", name: "Kelola Lot (Sementara)", module: "master", description: "Tambah, nonaktifkan dan aktifkan lot." },
 
   { code: "MENU_ACCOUNTING_ACCESS", name: "Akses menu Accounting", module: "accounting" },
 

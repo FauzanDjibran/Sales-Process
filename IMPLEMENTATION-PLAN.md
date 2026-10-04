@@ -202,8 +202,12 @@ over the temporary `tmp_item_cost` / `tmp_stock_movement`, kept in Master ›
 Sementara › Harga Pokok (Sementara)) and writes Dr HPP / Cr Persediaan from
 Account Mapping — no Piutang. Delivered quantity is recorded on the Delivery
 Order and Sales Order lines, which close themselves once fully delivered;
-closing one by hand releases what never left. Next: the Faktur Penjualan,
-taking Delivery Note lines whole.
+closing one by hand releases what never left. **Stock picking — done
+04/10/2026** (P95): a line of a Barang with Kelola Stok is picked by lot from
+the stand-in lot list (`tmp_stock_lot`, Master › Sementara › Lot (Sementara)),
+earliest expiry first; a Draft may be picked in part, Posting needs every such
+line in full and issues each lot as its own stock movement. Next: the Faktur
+Penjualan, taking Delivery Note lines whole.
 
 Built one step at a time, **in the order the user gives**. For each step:
 

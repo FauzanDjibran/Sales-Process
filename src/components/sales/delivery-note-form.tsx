@@ -12,6 +12,7 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
 import { DeliveryNoteActions } from "@/components/sales/delivery-note-actions";
 import { DeliveryNoteLinePicker } from "@/components/sales/delivery-note-line-picker";
+import { DeliveryNoteLotPicker, type LotPick } from "@/components/sales/delivery-note-lot-picker";
 import { createDeliveryNoteAction, updateDeliveryNoteAction } from "@/app/actions/delivery-note";
 import {
   DELIVERY_NOTE_STATUS_BADGE,
@@ -23,6 +24,7 @@ import type {
   DeliveryNoteOptions,
   DeliveryNotePreview,
   DeliveryNoteView,
+  DnSourceLine,
 } from "@/lib/erp/delivery-note";
 import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
 
@@ -33,13 +35,13 @@ import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
  * It starts from an issued Delivery Order, chosen once and locked: the
  * Customer Order, customer, warehouse and address all come from it and are
  * shown, not chosen. The user sets the day the goods leave, the vehicle and the
- * driver, and picks which of the order's lines leave now and how much. Once
- * posted, each line shows the Harga Pokok it left at and the HPP it booked.
+ * driver, and picks which of the order's lines leave now and how much — and,
+ * for an item kept by lot, which lots they leave from (U15). Once posted, each line shows the Harga Pokok it left at and the HPP it booked.
  */
 
 export type DeliveryNoteMode = "new" | "edit" | "view";
 
-type LineState = { key: string; delivery_order_line_id: number | null; qty: string };
+type LineState = { key: string; delivery_order_line_id: number | null; qty: string; picks: LotPick[] };
 
 let seq = 0;
 const newKey = () => `l${Date.now().toString(36)}${seq++}`;
@@ -76,16 +78,22 @@ export function DeliveryNoteForm({
   );
   const [lines, setLines] = useState<LineState[]>(() => {
     if (note) {
-      return note.lines.map((l) => ({ key: newKey(), delivery_order_line_id: Number(l.delivery_order_line_id), qty: String(l.qty) }));
+      return note.lines.map((l) => ({
+        key: newKey(),
+        delivery_order_line_id: Number(l.delivery_order_line_id),
+        qty: String(l.qty),
+        picks: (l.picks ?? []).map((p) => ({ lot_id: Number(p.lot_id), qty: String(p.qty) })),
+      }));
     }
     return (preset?.lines ?? [])
       .filter((l) => l.qty - l.held > 0)
-      .map((l) => ({ key: newKey(), delivery_order_line_id: l.id, qty: "" }));
+      .map((l) => ({ key: newKey(), delivery_order_line_id: l.id, qty: "", picks: [] }));
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [lotsFor, setLotsFor] = useState<string | null>(null);
 
   const source = header.delivery_order_id ? orderById.get(header.delivery_order_id) : undefined;
   const doLineById = useMemo(() => new Map((source?.lines ?? []).map((l) => [l.id, l])), [source]);
@@ -115,7 +123,7 @@ export function DeliveryNoteForm({
   /** The picker's ticks become the lines: kept ones keep their quantity, new ones start blank. */
   const applyPicked = (ids: number[]) => {
     setLines((ls) =>
-      ids.map((id) => ls.find((l) => l.delivery_order_line_id === id) ?? { key: newKey(), delivery_order_line_id: id, qty: "" })
+      ids.map((id) => ls.find((l) => l.delivery_order_line_id === id) ?? { key: newKey(), delivery_order_line_id: id, qty: "", picks: [] })
     );
     touch("_lines");
     setPickerOpen(false);
@@ -126,7 +134,7 @@ export function DeliveryNoteForm({
     // Every line was picked on purpose, so a blank quantity is sent and refused
     // on its row rather than quietly dropped.
     const sent = lines;
-    const payload = sent.map((l) => ({ delivery_order_line_id: l.delivery_order_line_id, qty: l.qty, note: "" }));
+    const payload = sent.map((l) => ({ delivery_order_line_id: l.delivery_order_line_id, qty: l.qty, note: "", picks: l.picks }));
     const result =
       mode === "edit" ? await updateDeliveryNoteAction(note!.id, header, payload) : await createDeliveryNoteAction(header, payload);
     setSaving(false);
@@ -318,6 +326,51 @@ export function DeliveryNoteForm({
     </button>
   );
   const viewLines = note?.lines ?? [];
+  /**
+   * The Lot cell: for an item kept by lot, what is picked against the line's
+   * quantity — a button in a Draft being edited, the lots themselves otherwise.
+   */
+  const lotCell = (l: LineState, d: DnSourceLine | undefined, stored?: DeliveryNoteView["lines"][number]) => {
+    if (!d) return null;
+    if (!d.lotTracked) return <span className="dash">tanpa lot</span>;
+    const lineQty = Number(String(l.qty).replace(",", ".")) || 0;
+    const picked = l.picks.reduce((s, p) => s + Math.round(Number(p.qty) * 10_000), 0) / 10_000;
+    const full = lineQty > 0 && Math.abs(picked - lineQty) < 1e-9;
+    if (editing) {
+      return (
+        <>
+          <button className="btn sm" disabled={!(lineQty > 0)} title={lineQty > 0 ? undefined : "Isi Qty dulu"} onClick={() => setLotsFor(l.key)}>
+            <Icon name="layers" size={14} /> {l.picks.length ? `${l.picks.length} lot` : "Pilih Lot"}
+          </button>
+          <span className={full ? "fulltag" : "overtag"}>
+            {lineQty > 0 ? `${qtyText(picked)} / ${qtyText(lineQty)} ${d.uomLabel}${full ? "" : " · belum penuh"}` : "isi Qty dulu"}
+          </span>
+        </>
+      );
+    }
+    const lots = stored?.pickedLots ?? [];
+    const names = new Map((source?.lots[d.itemId] ?? []).map((x) => [x.id, x]));
+    if (!lots.length) return <span className="overtag">Belum dipilih</span>;
+    return (
+      <span className="dstack" style={{ gap: 4 }}>
+        {lots.map((p) => {
+          const expiry = p.expiry ?? names.get(p.lotId)?.expiry ?? null;
+          return (
+            <span key={p.lotId} className="dstack">
+              <span className="d1">
+                <span className="lab">{p.lotNo}</span>{" "}
+                <span className="mny">
+                  {qtyText(p.qty)} {d.uomLabel}
+                </span>
+              </span>
+              {expiry && <span className="d2">ED {formatDate(expiry)}</span>}
+            </span>
+          );
+        })}
+        {!posted && !full && <span className="overtag">{qtyText(picked)} dari {qtyText(lineQty)} · belum penuh</span>}
+      </span>
+    );
+  };
   const linesCard = (
     <div className="card" style={{ marginTop: 14 }}>
       <div className="card-h">
@@ -328,10 +381,10 @@ export function DeliveryNoteForm({
           <h3>Barang Keluar</h3>
           <p>
             {editing
-              ? "Pilih barang dari Delivery Order lewat Tambah Item, lalu isi Qty yang keluar."
+              ? "Pilih barang dari Delivery Order lewat Tambah Item, isi Qty yang keluar, lalu pilih lotnya untuk barang yang dikelola per lot."
               : posted
-                ? "Jumlah yang keluar, dengan Harga Pokok saat diposting dan HPP yang dijurnal."
-                : "Jumlah per barang dari Delivery Order, dalam satuannya."}{" "}
+                ? "Jumlah yang keluar dan lotnya, dengan Harga Pokok saat diposting dan HPP yang dijurnal."
+                : "Jumlah per barang dari Delivery Order, dalam satuannya, dan lot yang dipilih."}{" "}
             Harga jual dan pajak tetap di Customer Order.
           </p>
         </div>
@@ -360,19 +413,20 @@ export function DeliveryNoteForm({
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: posted ? 900 : 700 }}>
+          <table className="grid ltab" style={{ minWidth: posted ? 980 : 900 }}>
             <thead>
               <tr>
                 <th style={{ width: 40 }}>No</th>
-                <th style={{ width: 170 }}>Sales Order</th>
+                <th style={{ width: 150 }}>Sales Order</th>
                 <th>Barang</th>
-                <th style={{ width: editing ? 220 : 150 }}>Qty</th>
+                <th style={{ width: editing ? 220 : 110 }}>Qty</th>
+                <th style={{ width: editing ? 170 : 180 }}>Lot</th>
                 {posted && (
                   <>
-                    <th className="num" style={{ width: 140 }}>
+                    <th className="num" style={{ width: 120 }}>
                       Harga Pokok
                     </th>
-                    <th className="num" style={{ width: 150 }}>
+                    <th className="num" style={{ width: 130 }}>
                       HPP
                     </th>
                   </>
@@ -386,7 +440,7 @@ export function DeliveryNoteForm({
                 const left = d ? d.qty - d.held : 0;
                 const typed = Number(l.qty) || 0;
                 const over = Boolean(d && typed > left + 1e-9);
-                const lineError = lineErr(l.key, "delivery_order_line_id") ?? lineErr(l.key, "qty");
+                const lineError = lineErr(l.key, "delivery_order_line_id") ?? lineErr(l.key, "qty") ?? lineErr(l.key, "picks");
                 const stored = viewLines[i];
                 return (
                   <tr key={l.key} className={lineError || over ? "overrow" : undefined}>
@@ -432,6 +486,7 @@ export function DeliveryNoteForm({
                         </span>
                       )}
                     </td>
+                    <td>{lotCell(l, d, stored)}</td>
                     {posted && (
                       <>
                         <td className="num">
@@ -463,7 +518,7 @@ export function DeliveryNoteForm({
             {posted && (
               <tfoot>
                 <tr className="totrow">
-                  <td colSpan={5} style={{ textAlign: "right" }}>
+                  <td colSpan={6} style={{ textAlign: "right" }}>
                     Total HPP
                   </td>
                   <td className="num">
@@ -475,6 +530,26 @@ export function DeliveryNoteForm({
           </table>
         </div>
       )}
+      {lotsFor && source && (() => {
+        const l = lines.find((x) => x.key === lotsFor);
+        const d = l?.delivery_order_line_id ? doLineById.get(l.delivery_order_line_id) : undefined;
+        if (!l || !d) return null;
+        return (
+          <DeliveryNoteLotPicker
+            line={d}
+            lots={source.lots[d.itemId] ?? []}
+            lineQty={Number(String(l.qty).replace(",", ".")) || 0}
+            current={l.picks}
+            shipDate={header.dn_date}
+            onApply={(picks) => {
+              setLine(l.key, { picks });
+              touch(`lines.${l.key}.picks`);
+              setLotsFor(null);
+            }}
+            onClose={() => setLotsFor(null)}
+          />
+        );
+      })()}
       {pickerOpen && source && (
         <DeliveryNoteLinePicker
           lines={source.lines}

@@ -14,7 +14,7 @@ import {
   type DeliveryNoteSource,
   type DeliveryNoteSourceLine,
 } from "./delivery-order";
-import { InventoryRefusal, issueStock, issueValuation } from "./inventory";
+import { InventoryRefusal, issueStock, issueValuation, lotOptions, lotTrackedItems, type LotOption } from "./inventory";
 import { postingAccounts } from "./system-settings";
 import {
   DELIVERY_NOTE_HOLDS_QTY,
@@ -26,14 +26,17 @@ import {
 } from "./delivery-note-workflow";
 
 /**
- * The Delivery Note module (C28, U11–U14): its tables are `sal_delivery_note`
- * and `sal_delivery_note_line`, and nothing else names them.
+ * The Delivery Note module (C28, U11–U15): its tables are `sal_delivery_note`,
+ * `sal_delivery_note_line` and `sal_delivery_note_pick`, and nothing else names
+ * them.
  *
  * A Delivery Note is the document the goods leave on. It is made from one
  * issued Delivery Order — whose Customer Order, customer, warehouse and address
  * it copies — and takes a quantity of some of its lines; a Delivery Order may
- * be sent in several notes, never more than its lines in total. Posting issues
- * the goods through the inventory module, which says what they cost, and
+ * be sent in several notes, never more than its lines in total. A Barang with
+ * Kelola Stok is picked by lot on the note (U15). Posting issues the goods —
+ * lot by lot where picked — through the inventory module, which says what they
+ * cost, and
  * writes one journal: Dr HPP / Cr Persediaan. **Cost of goods only** — Piutang
  * is born at the Faktur, which will take this note's lines whole.
  *
@@ -54,10 +57,15 @@ export type DeliveryNoteHeaderInput = {
   note: string;
 };
 
+/** One lot a line takes goods from — the stock picking (U15). */
+export type DeliveryNotePickInput = { lot_id: number | null; qty: number | string };
+
 export type DeliveryNoteLineInput = {
   delivery_order_line_id: number | null;
   qty: number | string;
   note: string;
+  /** Only for an item with Kelola Stok; empty for any other. */
+  picks?: DeliveryNotePickInput[];
 };
 
 export type DeliveryNoteResult = { ok: true; id: number; dnNo: string } | { ok: false; errors: Record<string, string> };
@@ -101,20 +109,39 @@ async function heldByLines(db: Db, lineIds: number[], exceptId: number | null): 
 export type DnSourceLine = DeliveryNoteSourceLine & {
   /** What other Delivery Notes hold of this line — sent or reserved by a Draft. */
   held: number;
+  /** The item leaves by lot (Kelola Stok, U15): the line must be picked. */
+  lotTracked: boolean;
 };
 
-export type DnSourceOption = Omit<DeliveryNoteSource, "lines"> & { lines: DnSourceLine[] };
+export type DnSourceOption = Omit<DeliveryNoteSource, "lines"> & {
+  lines: DnSourceLine[];
+  /** The lots each lot-tracked item may be picked from in this order's warehouse, by item id, earliest expiry first. */
+  lots: Record<number, LotOption[]>;
+};
 
 export type DeliveryNoteOptions = { orders: DnSourceOption[] };
 
 async function sourceOptions(
   db: Db,
   filter: { ids?: number[]; issuedOnly?: boolean },
-  exceptId: number | null
+  exceptId: number | null,
+  /** Lots a stored note already names, kept readable whatever their status. */
+  withLotIds: number[] = []
 ): Promise<DnSourceOption[]> {
   const sources = await deliveryNoteSources(filter, db);
   const held = await heldByLines(db, sources.flatMap((s) => s.lines.map((l) => l.id)), exceptId);
-  return sources.map((s) => ({ ...s, lines: s.lines.map((l) => ({ ...l, held: held.get(l.id) ?? 0 })) }));
+  const tracked = await lotTrackedItems([...new Set(sources.flatMap((s) => s.lines.map((l) => l.itemId)))], db);
+  const out: DnSourceOption[] = [];
+  for (const s of sources) {
+    const lotItems = [...new Set(s.lines.map((l) => l.itemId).filter((id) => tracked.has(id)))];
+    const lots = await lotOptions(lotItems, s.warehouseId, db, withLotIds);
+    out.push({
+      ...s,
+      lines: s.lines.map((l) => ({ ...l, held: held.get(l.id) ?? 0, lotTracked: tracked.has(l.itemId) })),
+      lots: Object.fromEntries([...lots.entries()]),
+    });
+  }
+  return out;
 }
 
 /**
@@ -124,20 +151,26 @@ async function sourceOptions(
  * the room.
  */
 export async function deliveryNoteOptions(
-  current: { id: number; deliveryOrderId: number } | null = null
+  current: { id: number; deliveryOrderId: number; lotIds?: number[] } | null = null
 ): Promise<DeliveryNoteOptions> {
   const issued = (await sourceOptions(prisma, { issuedOnly: true }, current?.id ?? null)).filter(
-    (o) => o.id === current?.deliveryOrderId || o.lines.some((l) => units(l.qty) > units(l.held))
+    (o) => o.id !== current?.deliveryOrderId && o.lines.some((l) => units(l.qty) > units(l.held))
   );
-  if (current && !issued.some((o) => o.id === current.deliveryOrderId)) {
-    issued.push(...(await sourceOptions(prisma, { ids: [current.deliveryOrderId] }, current.id)));
-  }
+  if (current) issued.push(...(await sourceOptions(prisma, { ids: [current.deliveryOrderId] }, current.id, current.lotIds ?? [])));
   return { orders: issued };
 }
 
 // ------------------------------------------------------------- validation
 
-type CheckedLine = { line_no: number; delivery_order_line_id: number; qty: number; note: string | null };
+type CheckedPick = { pick_no: number; lot_id: number; lot_no: string; expiry_date: Date | null; qty: number };
+
+type CheckedLine = {
+  line_no: number;
+  delivery_order_line_id: number;
+  qty: number;
+  note: string | null;
+  picks: CheckedPick[];
+};
 
 type Checked = {
   source: DnSourceOption;
@@ -157,13 +190,16 @@ type Checked = {
 
 /**
  * Every rule a Delivery Note must satisfy to be saved — and, run again inside
- * the posting transaction with the Customer Order locked, to be posted.
+ * the posting transaction with the Customer Order locked and `forPosting`, to
+ * be posted. A Draft may be picked in part; posting needs every lot-tracked
+ * line picked in full (U15).
  */
 export async function checkDeliveryNote(
   db: Db,
   header: DeliveryNoteHeaderInput,
   lines: DeliveryNoteLineInput[],
-  selfId: number | null
+  selfId: number | null,
+  forPosting = false
 ): Promise<{ ok: true; c: Checked } | { ok: false; errors: Record<string, string> }> {
   const errors: Record<string, string> = {};
 
@@ -206,7 +242,18 @@ export async function checkDeliveryNote(
     else if (units(qty) > units(left)) {
       errors[lineKey(i, "qty")] = `Melebihi sisa Delivery Order (${qtyText(left)} ${doLine.uomLabel}).`;
     } else {
-      out.push({ line_no: out.length + 1, delivery_order_line_id: lineId, qty: fromUnits(units(qty)), note: text(l.note) });
+      const picks = checkPicks(l.picks, doLine, source!.lots[doLine.itemId] ?? [], fromUnits(units(qty)), forPosting);
+      if (!picks.ok) {
+        errors[lineKey(i, "picks")] = picks.error;
+        continue;
+      }
+      out.push({
+        line_no: out.length + 1,
+        delivery_order_line_id: lineId,
+        qty: fromUnits(units(qty)),
+        note: text(l.note),
+        picks: picks.picks,
+      });
     }
   }
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) {
@@ -232,6 +279,52 @@ export async function checkDeliveryNote(
       lines: out,
     },
   };
+}
+
+/**
+ * A line's picking (U15). A lot-tracked line takes lots of its item in the
+ * note's warehouse, each once, each more than 0, together never more than the
+ * line — and, to be posted, exactly the line. Any other line takes none.
+ */
+function checkPicks(
+  raw: DeliveryNotePickInput[] | undefined,
+  line: DnSourceLine,
+  lots: LotOption[],
+  lineQty: number,
+  forPosting: boolean
+): { ok: true; picks: CheckedPick[] } | { ok: false; error: string } {
+  const list = Array.isArray(raw) ? raw : [];
+  if (!line.lotTracked) {
+    return list.length ? { ok: false, error: `${line.itemLabel} tidak dikelola per lot.` } : { ok: true, picks: [] };
+  }
+  const byId = new Map(lots.map((l) => [l.id, l]));
+  const seen = new Set<number>();
+  const picks: CheckedPick[] = [];
+  let total = 0;
+  for (const p of list) {
+    const lot = byId.get(Number(p.lot_id));
+    if (!lot) return { ok: false, error: `Lot tidak ada di gudang ini untuk ${line.itemLabel}.` };
+    if (seen.has(lot.id)) return { ok: false, error: `Lot ${lot.lotNo} dipilih lebih dari sekali.` };
+    seen.add(lot.id);
+    const qty = Number(String(p.qty ?? "").replace(",", "."));
+    if (!Number.isFinite(qty) || !(qty > 0)) return { ok: false, error: `Isi jumlah lot ${lot.lotNo} lebih dari 0.` };
+    if (Math.abs(qty * QTY_SCALE - units(qty)) > 1e-6) return { ok: false, error: "Jumlah lot paling banyak 4 angka desimal." };
+    total += units(qty);
+    picks.push({
+      pick_no: picks.length + 1,
+      lot_id: lot.id,
+      lot_no: lot.lotNo,
+      expiry_date: lot.expiry ? asDate(lot.expiry) : null,
+      qty: fromUnits(units(qty)),
+    });
+  }
+  if (total > units(lineQty)) {
+    return { ok: false, error: `Lot yang dipilih (${qtyText(fromUnits(total))}) melebihi Qty baris (${qtyText(lineQty)} ${line.uomLabel}).` };
+  }
+  if (forPosting && total !== units(lineQty)) {
+    return { ok: false, error: `${line.itemLabel}: lot baru ${qtyText(fromUnits(total))} dari ${qtyText(lineQty)} ${line.uomLabel}. Pilih lot sampai penuh.` };
+  }
+  return { ok: true, picks };
 }
 
 // ------------------------------------------------------------------ writes
@@ -291,7 +384,7 @@ export async function createDeliveryNote(
           ...r.c.data,
           dn_no: await nextDnNo(tx, r.c.data.dn_date),
           created_by: actorId,
-          lines: { create: r.c.lines },
+          lines: { create: r.c.lines.map(({ picks, ...l }) => ({ ...l, picks: { create: picks } })) },
         },
       });
       await audit(tx, row.id, "TAMBAH", "create", actorId);
@@ -328,16 +421,22 @@ export async function updateDeliveryNote(
       if (!r.ok) throw new Refused(r.errors);
       const done = await tx.salDeliveryNote.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: "Delivery Note berubah saat diproses. Muat ulang halaman." });
-      // A Draft's lines are rewritten whole: nothing names a Delivery Note line yet.
+      // A Draft's lines and picks are rewritten whole: nothing names them yet.
+      await tx.salDeliveryNotePick.deleteMany({ where: { line: { delivery_note_id: id } } });
       await tx.salDeliveryNoteLine.deleteMany({ where: { delivery_note_id: id } });
-      await tx.salDeliveryNoteLine.createMany({ data: r.c.lines.map((l) => ({ ...l, delivery_note_id: id })) });
+      for (const { picks, ...l } of r.c.lines) {
+        await tx.salDeliveryNoteLine.create({ data: { ...l, delivery_note_id: id, picks: { create: picks } } });
+      }
       await audit(tx, id, "UPDATE", "update", actorId);
     });
     return { ok: true as const, id, dnNo: current.dn_no };
   });
 }
 
-function asInput(n: Prisma.SalDeliveryNoteGetPayload<{ include: { lines: true } }>): {
+type StoredNote = Prisma.SalDeliveryNoteGetPayload<{ include: { lines: { include: { picks: true } } } }>;
+const WITH_PICKS = { lines: { include: { picks: { orderBy: { pick_no: "asc" as const } } } } };
+
+function asInput(n: StoredNote): {
   header: DeliveryNoteHeaderInput;
   lines: DeliveryNoteLineInput[];
 } {
@@ -351,7 +450,12 @@ function asInput(n: Prisma.SalDeliveryNoteGetPayload<{ include: { lines: true } 
     },
     lines: [...n.lines]
       .sort((a, b) => a.line_no - b.line_no)
-      .map((l) => ({ delivery_order_line_id: l.delivery_order_line_id, qty: l.qty.toNumber(), note: l.note ?? "" })),
+      .map((l) => ({
+        delivery_order_line_id: l.delivery_order_line_id,
+        qty: l.qty.toNumber(),
+        note: l.note ?? "",
+        picks: l.picks.map((p) => ({ lot_id: p.lot_id, qty: p.qty.toNumber() })),
+      })),
   };
 }
 
@@ -365,6 +469,8 @@ export type DeliveryNotePreviewLine = {
   baseQty: number;
   unitCost: number | null;
   cost: number;
+  /** The lots the line leaves from, for a lot-tracked item. */
+  picks: { lotNo: string; qty: number }[];
 };
 
 /**
@@ -379,13 +485,17 @@ export type DeliveryNotePreview = {
   total: number;
   /** Items the inventory cannot issue yet — no Harga Pokok. */
   missingCost: string[];
+  /** Lot-tracked lines not yet picked in full (U15), as "ITEM: 4 dari 10 PCS". */
+  unpicked: string[];
   accounts: { cogs: PreviewAccount | null; inventory: PreviewAccount | null; missing: string[] };
 };
 
 export async function deliveryNotePreview(id: number): Promise<DeliveryNotePreview | null> {
-  const n = await prisma.salDeliveryNote.findUnique({ where: { id }, include: { lines: true } });
+  const n = await prisma.salDeliveryNote.findUnique({ where: { id }, include: WITH_PICKS });
   if (!n) return null;
   const [source] = await deliveryNoteSources({ ids: [n.delivery_order_id] });
+  const tracked = await lotTrackedItems((source?.lines ?? []).map((l) => l.itemId));
+  const unpicked: string[] = [];
   const byId = new Map((source?.lines ?? []).map((l) => [l.id, l]));
   const docLines = [...n.lines].sort((a, b) => a.line_no - b.line_no);
   const valuation = await issueValuation([...new Set(docLines.map((l) => byId.get(l.delivery_order_line_id)?.itemId ?? 0))]);
@@ -394,6 +504,14 @@ export async function deliveryNotePreview(id: number): Promise<DeliveryNotePrevi
     const qty = l.qty.toNumber();
     const baseQty = fromUnits(units(qty * (d?.uomFactor ?? 1)));
     const unitCost = valuation.get(d?.itemId ?? 0) ?? null;
+    const lotTracked = tracked.has(d?.itemId ?? 0);
+    const picks = l.picks.map((p) => ({ lotNo: p.lot_no, qty: p.qty.toNumber() }));
+    const picked = picks.reduce((s, p) => s + units(p.qty), 0);
+    if (lotTracked && picked !== units(qty)) {
+      unpicked.push(`${d?.itemLabel ?? ""}: ${qtyText(fromUnits(picked))} dari ${qtyText(qty)} ${d?.uomLabel ?? ""}`);
+    }
+    // Posting issues each pick on its own, rounding each to whole rupiah.
+    const parts = lotTracked && picks.length ? picks.map((p) => fromUnits(units(p.qty * (d?.uomFactor ?? 1)))) : [baseQty];
     return {
       itemLabel: d?.itemLabel ?? "",
       itemName: d?.itemName ?? "",
@@ -401,7 +519,8 @@ export async function deliveryNotePreview(id: number): Promise<DeliveryNotePrevi
       uomLabel: d?.uomLabel ?? "",
       baseQty,
       unitCost,
-      cost: unitCost === null ? 0 : Math.round(baseQty * unitCost),
+      cost: unitCost === null ? 0 : parts.reduce((s, b) => s + Math.round(b * unitCost), 0),
+      picks: lotTracked ? picks : [],
     };
   });
   const mapped = await postingAccounts(["cogs_account", "inventory_account"] as const);
@@ -421,6 +540,7 @@ export async function deliveryNotePreview(id: number): Promise<DeliveryNotePrevi
     lines,
     total: lines.reduce((s, l) => s + l.cost, 0),
     missingCost: lines.filter((l) => l.unitCost === null).map((l) => l.itemLabel),
+    unpicked,
     accounts,
   };
 }
@@ -446,7 +566,7 @@ export async function transitionDeliveryNote(
   actorId: number,
   reason?: string
 ): Promise<DeliveryNoteTransitionResult> {
-  const note = await prisma.salDeliveryNote.findUnique({ where: { id }, include: { lines: true } });
+  const note = await prisma.salDeliveryNote.findUnique({ where: { id }, include: WITH_PICKS });
   if (!note) return { ok: false, errors: { _form: "Delivery Note tidak ditemukan." } };
   const t = DELIVERY_NOTE_TRANSITIONS[action];
   if (!deliveryNoteTransitionAllowed(action, note.status as DeliveryNoteStatus)) {
@@ -481,7 +601,7 @@ export async function transitionDeliveryNote(
     const closed = await prisma.$transaction(async (tx) => {
       await lockCustomerOrder(tx, note.customer_order_id);
       const input = asInput(note);
-      const r = await checkDeliveryNote(tx, input.header, input.lines, id);
+      const r = await checkDeliveryNote(tx, input.header, input.lines, id, true);
       if (!r.ok) {
         const first = Object.entries(r.errors).find(([k]) => k !== "_lines")?.[1] ?? r.errors._lines;
         throw new Refused({ _form: `Belum bisa diposting: ${first}` });
@@ -497,18 +617,38 @@ export async function transitionDeliveryNote(
       for (const line of r.c.lines) {
         const d = byId.get(line.delivery_order_line_id)!;
         const baseQty = fromUnits(units(line.qty * d.uomFactor));
-        const issued = await issueStock(tx, {
-          itemId: d.itemId,
-          warehouseId: r.c.source.warehouseId,
-          baseQty,
-          date: r.c.data.dn_date,
-          source: { docTypeId: typeId, docId: id, no: note.dn_no },
-          actorId,
-        });
-        await tx.salDeliveryNoteLine.update({
-          where: { delivery_note_id_delivery_order_line_id: { delivery_note_id: id, delivery_order_line_id: line.delivery_order_line_id } },
-          data: { base_qty: baseQty, unit_cost: issued.unitCost, cost_amount: issued.cost },
-        });
+        const where = { delivery_note_id_delivery_order_line_id: { delivery_note_id: id, delivery_order_line_id: line.delivery_order_line_id } };
+        const source = { docTypeId: typeId, docId: id, no: note.dn_no };
+        // A picked line leaves lot by lot, one stock movement per pick (U15);
+        // the line's cost is what its picks cost.
+        const issued = { unitCost: 0, cost: 0 };
+        if (line.picks.length) {
+          const stored = await tx.salDeliveryNoteLine.findUniqueOrThrow({ where, select: { id: true } });
+          for (const p of line.picks) {
+            const pickBase = fromUnits(units(p.qty * d.uomFactor));
+            const out = await issueStock(tx, {
+              itemId: d.itemId,
+              warehouseId: r.c.source.warehouseId,
+              lotId: p.lot_id,
+              baseQty: pickBase,
+              date: r.c.data.dn_date,
+              source,
+              actorId,
+            });
+            await tx.salDeliveryNotePick.update({
+              where: { delivery_note_line_id_pick_no: { delivery_note_line_id: stored.id, pick_no: p.pick_no } },
+              data: { base_qty: pickBase, unit_cost: out.unitCost, cost_amount: out.cost },
+            });
+            issued.unitCost = out.unitCost;
+            issued.cost += out.cost;
+          }
+        } else {
+          Object.assign(
+            issued,
+            await issueStock(tx, { itemId: d.itemId, warehouseId: r.c.source.warehouseId, baseQty, date: r.c.data.dn_date, source, actorId })
+          );
+        }
+        await tx.salDeliveryNoteLine.update({ where, data: { base_qty: baseQty, unit_cost: issued.unitCost, cost_amount: issued.cost } });
         sent.set(line.delivery_order_line_id, line.qty);
         total += issued.cost;
         if (issued.cost > 0) {
@@ -605,7 +745,13 @@ export type DeliveryNoteView = {
   dnNo: string;
   status: DeliveryNoteStatus;
   header: DeliveryNoteHeaderInput;
-  lines: (DeliveryNoteLineInput & { baseQty: number; unitCost: number; cost: number })[];
+  lines: (DeliveryNoteLineInput & {
+    baseQty: number;
+    unitCost: number;
+    cost: number;
+    /** The lots picked, as stored on the note (snapshotted lot no and expiry). */
+    pickedLots: { lotId: number; lotNo: string; expiry: string | null; qty: number; cost: number }[];
+  })[];
   cost: number;
   journalId: number | null;
   journalNo: string | null;
@@ -613,7 +759,7 @@ export type DeliveryNoteView = {
 };
 
 export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | null> {
-  const n = await prisma.salDeliveryNote.findUnique({ where: { id }, include: { lines: true } });
+  const n = await prisma.salDeliveryNote.findUnique({ where: { id }, include: WITH_PICKS });
   if (!n) return null;
   const input = asInput(n);
   const sorted = [...n.lines].sort((a, b) => a.line_no - b.line_no);
@@ -628,6 +774,13 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
       baseQty: sorted[i].base_qty.toNumber(),
       unitCost: sorted[i].unit_cost.toNumber(),
       cost: sorted[i].cost_amount.toNumber(),
+      pickedLots: sorted[i].picks.map((p) => ({
+        lotId: p.lot_id,
+        lotNo: p.lot_no,
+        expiry: p.expiry_date ? isoDay(p.expiry_date) : null,
+        qty: p.qty.toNumber(),
+        cost: p.cost_amount.toNumber(),
+      })),
     })),
     cost: n.cost_amount.toNumber(),
     journalId: n.journal_id,

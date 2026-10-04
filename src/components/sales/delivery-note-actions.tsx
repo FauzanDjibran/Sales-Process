@@ -32,7 +32,8 @@ const money = (n: number) => formatMoney(n, "IDR");
  * A Delivery Note's lifecycle as buttons in the page header: Ubah (Draft only),
  * Batalkan and Posting. Posting's confirmation states the journal it will write
  * — HPP debited, Persediaan credited, per item at its Harga Pokok — and refuses
- * up front when an item has no Harga Pokok or Account Mapping is incomplete.
+ * up front when an item has no Harga Pokok, a lot-kept line is not fully picked
+ * or Account Mapping is incomplete.
  */
 export function DeliveryNoteActions({
   id,
@@ -126,6 +127,7 @@ export function DeliveryNoteActions({
           ...(preview.missingCost.length
             ? [`Harga Pokok belum diisi untuk ${preview.missingCost.join(", ")} (Master › Harga Pokok (Sementara)).`]
             : []),
+          ...(preview.unpicked.length ? [`Lot belum dipilih penuh — ${preview.unpicked.join("; ")}. Ubah Delivery Note dan pilih lotnya.`] : []),
           ...(preview.accounts.missing.length ? [`Account Mapping belum lengkap: ${preview.accounts.missing.join(", ")}.`] : []),
         ]
       : [];
@@ -133,7 +135,8 @@ export function DeliveryNoteActions({
   // The journal Posting writes, in the order the posting writes it: per item,
   // HPP debited and Persediaan credited at its Harga Pokok.
   const journal = (preview?.lines ?? []).flatMap((l) => {
-    const what = `${l.itemLabel} · ${qtyText(l.qty)} ${l.uomLabel}`;
+    const lots = l.picks.length ? ` · lot ${l.picks.map((p) => p.lotNo).join(", ")}` : "";
+    const what = `${l.itemLabel} · ${qtyText(l.qty)} ${l.uomLabel}${lots}`;
     const amount = l.unitCost === null ? "—" : money(l.cost);
     const at = l.unitCost === null ? "Harga Pokok belum diisi" : `× ${money(l.unitCost)} per satuan dasar`;
     return [

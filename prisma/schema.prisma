@@ -538,6 +538,7 @@ model MItem {
   /// The stand-in inventory's Harga Pokok and issues (U11) — temporary.
   tmp_cost             TmpItemCost?
   tmp_movements        TmpStockMovement[]
+  tmp_lots             TmpStockLot[]
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -608,6 +609,7 @@ model RefWarehouse {
   delivery_orders SalDeliveryOrder[]
   delivery_notes  SalDeliveryNote[]
   tmp_movements   TmpStockMovement[]
+  tmp_lots        TmpStockLot[]
 
   @@map("ref_warehouse")
 }
@@ -1719,13 +1721,66 @@ model SalDeliveryNoteLine {
   cost_amount            Decimal @default(0) @db.Decimal(18, 2)
   note                   String?
 
-  delivery_note       SalDeliveryNote      @relation(fields: [delivery_note_id], references: [id])
-  delivery_order_line SalDeliveryOrderLine @relation(fields: [delivery_order_line_id], references: [id])
+  delivery_note       SalDeliveryNote       @relation(fields: [delivery_note_id], references: [id])
+  delivery_order_line SalDeliveryOrderLine  @relation(fields: [delivery_order_line_id], references: [id])
+  /// For an item with Kelola Stok: which lots the line's quantity is taken
+  /// from (U15). Their quantities add up to the line's at Posting.
+  picks               SalDeliveryNotePick[]
 
   @@unique([delivery_note_id, line_no])
   @@unique([delivery_note_id, delivery_order_line_id])
   @@index([delivery_order_line_id])
   @@map("sal_delivery_note_line")
+}
+
+/// One lot a Delivery Note line takes goods from (U15) — the stock picking.
+/// Written with the note while it is a Draft; at Posting each pick is issued
+/// on its own and stores what it cost. The lot is the inventory's, named by id
+/// without a foreign key (the inventory behind it is a stand-in today), with
+/// its number and expiry copied as printed on the note.
+model SalDeliveryNotePick {
+  id                    Int       @id @default(autoincrement())
+  delivery_note_line_id Int
+  pick_no               Int
+  lot_id                Int
+  lot_no                String
+  expiry_date           DateTime? @db.Date
+  /// In the line's unit.
+  qty                   Decimal   @db.Decimal(18, 4)
+  base_qty              Decimal   @default(0) @db.Decimal(18, 4)
+  unit_cost             Decimal   @default(0) @db.Decimal(18, 2)
+  cost_amount           Decimal   @default(0) @db.Decimal(18, 2)
+
+  line SalDeliveryNoteLine @relation(fields: [delivery_note_line_id], references: [id])
+
+  @@unique([delivery_note_line_id, pick_no])
+  @@unique([delivery_note_line_id, lot_id])
+  @@index([lot_id])
+  @@map("sal_delivery_note_pick")
+}
+
+/// TEMPORARY (U15). The stand-in inventory's lots: what a picker chooses from,
+/// per item and warehouse, earliest expiry first. No quantity is kept — stock
+/// is always sufficient until inventory is built. Named only by
+/// `lib/erp/inventory.ts`; dropped with the other temporary tables.
+model TmpStockLot {
+  id           Int          @id @default(autoincrement())
+  item_id      Int
+  warehouse_id Int
+  lot_no       String
+  /// Required when the item has Memiliki Kadaluarsa.
+  expiry_date  DateTime?    @db.Date
+  status       ActiveStatus @default(Active)
+  created_by   Int
+  updated_by   Int?
+  created_at   DateTime     @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+
+  item      MItem        @relation(fields: [item_id], references: [id])
+  warehouse RefWarehouse @relation(fields: [warehouse_id], references: [id])
+
+  @@unique([item_id, warehouse_id, lot_no])
+  @@map("tmp_stock_lot")
 }
 
 /// TEMPORARY (U11). The stand-in inventory's valuation: one Harga Pokok per
@@ -1759,6 +1814,9 @@ model TmpStockMovement {
   source_doc_type_id Int
   source_doc_id      Int
   source_no          String
+  /// The lot it left from, for an item with Kelola Stok (U15).
+  lot_id             Int?
+  lot_no             String?
   created_by         Int
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 

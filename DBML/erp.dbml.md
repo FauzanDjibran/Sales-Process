@@ -43,9 +43,12 @@ migration updates this file in the same change (Claude-ERP.md §9).
   of one Delivery Order line and, at Posting, stores its base quantity, unit
   cost and cost. Posting writes the journal (`journal_id`) Dr HPP / Cr
   Persediaan. `delivered_qty` on `sal_order_line` and `sal_delivery_order_line`
-  is what posted notes sent of each line.
-- `tmp_item_cost` and `tmp_stock_movement` (P94) — **temporary**: the stand-in
-  inventory's Harga Pokok per item and its issue log, named only by
+  is what posted notes sent of each line. `sal_delivery_note_pick` (P95) is the
+  stock picking of a line of a Barang with Kelola Stok: one row per lot, with
+  the lot number and expiry copied, and its cost once posted.
+- `tmp_item_cost`, `tmp_stock_lot` and `tmp_stock_movement` (P94, P95) —
+  **temporary**: the stand-in inventory's Harga Pokok per item, its lots per
+  item and warehouse, and its issue log (one row per lot issued), named only by
   `lib/erp/inventory.ts`; dropped when inventory is built.
 - `sal_advance` (P54–P58) — the AR advance bill, drawn from one Open
   Customer Order (`customer_order_id`) and numbered `ARA/…`. It posts nothing
@@ -1023,6 +1026,42 @@ Table sal_delivery_note_line {
   }
 }
 
+Table sal_delivery_note_pick {
+  id int [pk, increment, not null]
+  delivery_note_line_id int [not null]
+  pick_no int [not null]
+  lot_id int [not null, note: 'the inventory lot; no FK (stand-in today)']
+  lot_no varchar [not null, note: 'as printed on the note']
+  expiry_date date [null]
+  qty decimal(18, 4) [not null, note: 'in the line unit']
+  base_qty decimal(18, 4) [not null, default: 0, note: 'set at Posting']
+  unit_cost decimal(18, 2) [not null, default: 0]
+  cost_amount decimal(18, 2) [not null, default: 0]
+
+  indexes {
+    (delivery_note_line_id, pick_no) [unique]
+    (delivery_note_line_id, lot_id) [unique]
+    lot_id
+  }
+}
+
+Table tmp_stock_lot {
+  id int [pk, increment, not null, note: 'TEMPORARY until inventory is built']
+  item_id int [not null]
+  warehouse_id int [not null]
+  lot_no varchar [not null]
+  expiry_date date [null, note: 'required when the item has an expiry']
+  status ActiveStatus [not null, default: 'Active']
+  created_by int [not null]
+  updated_by int [null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (item_id, warehouse_id, lot_no) [unique]
+  }
+}
+
 Table tmp_item_cost {
   id int [pk, increment, not null, note: 'TEMPORARY until inventory is built']
   item_id int [unique, not null]
@@ -1038,6 +1077,8 @@ Table tmp_stock_movement {
   item_id int [not null]
   warehouse_id int [not null]
   movement_date date [not null]
+  lot_id int [null, note: 'the lot issued, for an item kept by lot']
+  lot_no varchar [null]
   base_qty_out decimal(18, 4) [not null]
   unit_cost decimal(18, 2) [not null]
   cost_amount decimal(18, 2) [not null]
@@ -1156,6 +1197,9 @@ Ref: sal_delivery_note.warehouse_id > ref_warehouse.id
 Ref: sal_delivery_note.address_id > m_partner_address.id
 Ref: sal_delivery_note_line.delivery_note_id > sal_delivery_note.id
 Ref: sal_delivery_note_line.delivery_order_line_id > sal_delivery_order_line.id
+Ref: sal_delivery_note_pick.delivery_note_line_id > sal_delivery_note_line.id
+Ref: tmp_stock_lot.item_id > m_item.id
+Ref: tmp_stock_lot.warehouse_id > ref_warehouse.id
 Ref: tmp_item_cost.item_id - m_item.id
 Ref: tmp_stock_movement.item_id > m_item.id
 Ref: tmp_stock_movement.warehouse_id > ref_warehouse.id

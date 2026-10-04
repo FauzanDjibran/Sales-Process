@@ -76,6 +76,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   sal_delivery_order: { label: "Delivery Order", resolve: deliveryOrderNumbersByIds },
   sal_delivery_note: { label: "Delivery Note", resolve: deliveryNoteNumbersByIds },
   tmp_item_cost: { label: "Harga Pokok (Sementara)", resolve: null },
+  tmp_stock_lot: { label: "Lot (Sementara)", resolve: null },
   sal_advance: { label: "Uang Muka Penjualan", resolve: salesAdvanceNumbersByIds },
   fin_cash_bank_tx: { label: "Transaksi Kas & Bank", resolve: cashBankTxNumbersByIds },
   acc_opening_balance: {

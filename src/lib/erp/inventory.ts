@@ -12,9 +12,10 @@ import type { Prisma } from "@/generated/prisma/client";
  * is always sufficient, P5), and every item is valued at the one Harga Pokok
  * the user keeps for it in *Harga Pokok (Sementara)*.
  *
- * Its tables are temporary and its own — `tmp_item_cost` (the Harga Pokok) and
- * `tmp_stock_movement` (one row per item per issue, as a stock card would show
- * it) — and nothing else names them. When inventory is built, `issueStock`
+ * Its tables are temporary and its own — `tmp_item_cost` (the Harga Pokok),
+ * `tmp_stock_lot` (the lots a picker chooses from, U15) and `tmp_stock_movement`
+ * (one row per issue, as a stock card would show it) — and nothing else names
+ * them. An item with Kelola Stok is **lot-tracked**: it leaves from a named lot. When inventory is built, `issueStock`
  * keeps its contract, the temporary tables are dropped, and the documents that
  * call it do not change.
  */
@@ -27,6 +28,8 @@ export class InventoryRefusal extends Error {}
 export type StockIssue = {
   itemId: number;
   warehouseId: number;
+  /** The lot it leaves from — required for a lot-tracked item, refused for any other. */
+  lotId?: number | null;
   /** In the item's base unit. */
   baseQty: number;
   date: Date;
@@ -64,6 +67,18 @@ export async function issueStock(tx: Prisma.TransactionClient, issue: StockIssue
     const item = await tx.mItem.findUnique({ where: { id: issue.itemId }, select: { item_label: true } });
     throw new InventoryRefusal(`${item?.item_label ?? "Barang"} belum punya Harga Pokok. Isi di Master › Harga Pokok (Sementara).`);
   }
+  const tracked = (await lotTrackedItems([issue.itemId], tx)).has(issue.itemId);
+  let lot: { id: number; lot_no: string } | null = null;
+  if (tracked) {
+    if (!issue.lotId) throw new InventoryRefusal(`${row.item.item_label} dikelola per lot: pilih lotnya.`);
+    lot = await tx.tmpStockLot.findFirst({
+      where: { id: issue.lotId, item_id: issue.itemId, warehouse_id: issue.warehouseId, status: "Active" },
+      select: { id: true, lot_no: true },
+    });
+    if (!lot) throw new InventoryRefusal(`Lot ${row.item.item_label} tidak ada atau nonaktif di gudang ini.`);
+  } else if (issue.lotId) {
+    throw new InventoryRefusal(`${row.item.item_label} tidak dikelola per lot.`);
+  }
   const unitCost = row.unit_cost.toNumber();
   const cost = rupiah(issue.baseQty * unitCost);
   await tx.tmpStockMovement.create({
@@ -77,10 +92,150 @@ export async function issueStock(tx: Prisma.TransactionClient, issue: StockIssue
       source_doc_type_id: issue.source.docTypeId,
       source_doc_id: issue.source.docId,
       source_no: issue.source.no,
+      lot_id: lot?.id ?? null,
+      lot_no: lot?.lot_no ?? null,
       created_by: issue.actorId,
     },
   });
   return { unitCost, cost };
+}
+
+// ------------------------------------------------------------------- lots
+
+/** The items that leave by lot: Barang with Kelola Stok (U15). */
+export async function lotTrackedItems(itemIds: number[], db: Db = prisma): Promise<Set<number>> {
+  if (!itemIds.length) return new Set();
+  const rows = await db.mItem.findMany({
+    where: { id: { in: itemIds }, item_type: "Barang", track_stock: true },
+    select: { id: true },
+  });
+  return new Set(rows.map((r) => r.id));
+}
+
+export type LotOption = { id: number; lotNo: string; expiry: string | null; active: boolean };
+
+/**
+ * The lots a picker may choose for each item in one warehouse, earliest expiry
+ * first (FEFO), a lot without expiry last. `withIds` also brings in lots a
+ * stored document already names, whatever their status, so it keeps reading.
+ */
+export async function lotOptions(
+  itemIds: number[],
+  warehouseId: number,
+  db: Db = prisma,
+  withIds: number[] = []
+): Promise<Map<number, LotOption[]>> {
+  const out = new Map<number, LotOption[]>();
+  if (!itemIds.length) return out;
+  const rows = await db.tmpStockLot.findMany({
+    where: {
+      item_id: { in: itemIds },
+      warehouse_id: warehouseId,
+      OR: [{ status: "Active" }, ...(withIds.length ? [{ id: { in: withIds } }] : [])],
+    },
+    orderBy: [{ expiry_date: { sort: "asc", nulls: "last" } }, { lot_no: "asc" }],
+  });
+  for (const r of rows) {
+    const list = out.get(r.item_id) ?? [];
+    list.push({ id: r.id, lotNo: r.lot_no, expiry: r.expiry_date ? r.expiry_date.toISOString().slice(0, 10) : null, active: r.status === "Active" });
+    out.set(r.item_id, list);
+  }
+  return out;
+}
+
+// --------------------------------------------------------- Lot (Sementara)
+
+export type StockLotRow = {
+  id: number;
+  itemId: number;
+  itemLabel: string;
+  itemName: string;
+  hasExpiry: boolean;
+  warehouseId: number;
+  warehouseLabel: string;
+  warehouseName: string;
+  lotNo: string;
+  expiry: string | null;
+  active: boolean;
+};
+
+export async function listStockLots(): Promise<StockLotRow[]> {
+  const rows = await prisma.tmpStockLot.findMany({
+    include: { item: true, warehouse: true },
+    orderBy: [{ item: { item_label: "asc" } }, { expiry_date: { sort: "asc", nulls: "last" } }, { lot_no: "asc" }],
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    itemId: r.item_id,
+    itemLabel: r.item.item_label,
+    itemName: r.item.item_name,
+    hasExpiry: r.item.has_expiry,
+    warehouseId: r.warehouse_id,
+    warehouseLabel: r.warehouse.warehouse_label,
+    warehouseName: r.warehouse.warehouse_name,
+    lotNo: r.lot_no,
+    expiry: r.expiry_date ? r.expiry_date.toISOString().slice(0, 10) : null,
+    active: r.status === "Active",
+  }));
+}
+
+/** What the lot form offers: lot-tracked items and active warehouses. */
+export async function stockLotFormOptions(): Promise<{
+  items: { id: number; label: string; name: string; hasExpiry: boolean }[];
+  warehouses: { id: number; label: string; name: string }[];
+}> {
+  const [items, warehouses] = await Promise.all([
+    prisma.mItem.findMany({ where: { item_type: "Barang", track_stock: true, status: "Active" }, orderBy: { item_label: "asc" } }),
+    prisma.refWarehouse.findMany({ where: { status: "Active" }, orderBy: { warehouse_label: "asc" } }),
+  ]);
+  return {
+    items: items.map((i) => ({ id: i.id, label: i.item_label, name: i.item_name, hasExpiry: i.has_expiry })),
+    warehouses: warehouses.map((w) => ({ id: w.id, label: w.warehouse_label, name: w.warehouse_name })),
+  };
+}
+
+export type StockLotInput = { item_id: number | null; warehouse_id: number | null; lot_no: string; expiry_date: string };
+
+/** Registers one lot of a lot-tracked item in a warehouse; an item with Memiliki Kadaluarsa needs its expiry. */
+export async function createStockLot(input: StockLotInput, actorId: number): Promise<ItemCostResult> {
+  const errors: Record<string, string> = {};
+  const itemId = Number(input.item_id) || null;
+  const warehouseId = Number(input.warehouse_id) || null;
+  const lotNo = String(input.lot_no ?? "").trim().toUpperCase();
+  const expiry = String(input.expiry_date ?? "").trim();
+  const item = itemId ? await prisma.mItem.findUnique({ where: { id: itemId } }) : null;
+  if (!itemId) errors.item_id = "Pilih barang.";
+  else if (!item || item.item_type !== "Barang" || !item.track_stock) errors.item_id = "Hanya barang dengan Kelola Stok yang punya lot.";
+  if (!warehouseId) errors.warehouse_id = "Pilih gudang.";
+  if (!lotNo) errors.lot_no = "No. Lot wajib diisi.";
+  if (expiry && !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) errors.expiry_date = "Tanggal tidak valid.";
+  else if (!expiry && item?.has_expiry) errors.expiry_date = "Barang ini memiliki kadaluarsa: isi tanggalnya.";
+  if (!errors.lot_no && itemId && warehouseId) {
+    const dup = await prisma.tmpStockLot.findFirst({ where: { item_id: itemId, warehouse_id: warehouseId, lot_no: lotNo } });
+    if (dup) errors.lot_no = "Lot ini sudah ada untuk barang dan gudang tersebut.";
+  }
+  if (Object.keys(errors).length) return { ok: false, errors };
+  await prisma.$transaction(async (tx) => {
+    const row = await tx.tmpStockLot.create({
+      data: {
+        item_id: itemId!,
+        warehouse_id: warehouseId!,
+        lot_no: lotNo,
+        expiry_date: expiry ? new Date(`${expiry}T00:00:00Z`) : null,
+        created_by: actorId,
+      },
+    });
+    await tx.auditLog.create({ data: { entity_key: "tmp_stock_lot", row_id: row.id, action: "TAMBAH", event: "create", by: actorId } });
+  });
+  return { ok: true };
+}
+
+/** Deactivates or reactivates a lot; an inactive lot is no longer offered to a picker. */
+export async function setStockLotActive(id: number, active: boolean, actorId: number): Promise<ItemCostResult> {
+  const done = await prisma.tmpStockLot.updateMany({ where: { id }, data: { status: active ? "Active" : "Inactive", updated_by: actorId } });
+  if (done.count !== 1) return { ok: false, errors: { _form: "Lot tidak ditemukan." } };
+  await prisma.auditLog.create({ data: { entity_key: "tmp_stock_lot", row_id: id, action: "UPDATE", event: active ? "activate" : "deactivate", by: actorId } });
+  return { ok: true };
 }
 
 // ------------------------------------------------- Harga Pokok (Sementara)

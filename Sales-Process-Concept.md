@@ -90,7 +90,7 @@ Three lanes, never mixed:
 | Sales Order | `SO/YYYY/MM/NNNN` | Sales › Sales Order | `sal_order`, `_line` | No | No | [Built] |
 | Delivery Order | `DO/YYYY/MM/NNNN` | Sales › Delivery Order | `sal_delivery_order`, `_line` | No | No | [Built] |
 | Delivery Note | `SJ/YYYY/MM/NNNN` | Sales › Delivery Note | `sal_delivery_note`, `_line` | HPP / Persediaan | No | [Built] (P94) |
-| Harga Pokok (Sementara) | — | Master › Sementara | `tmp_item_cost`, `tmp_stock_movement` (temporary) | No | No | [Built] stand-in (U11) |
+| Harga Pokok (Sementara), Lot (Sementara) | — | Master › Sementara | `tmp_item_cost`, `tmp_stock_lot`, `tmp_stock_movement` (temporary) | No | No | [Built] stand-in (U11, U15) |
 | Uang Muka Penjualan (bill) | `ARA/YYYY/MM/NNNN` | Finance › Uang Muka | `sal_advance` | No | No | [Built] |
 | Penerimaan Kas & Bank | `BKM/YYYY/MM/NNNN` | Finance › Kas & Bank › Penerimaan | `fin_cash_bank_tx`, `_line`, `_line_wht` | Yes, at Post | No | [Built] |
 | AR item + Buku Piutang | `ARI/YYYY/MM/NNNN` | (no menu; seen in reports) | `fin_ar_item`, `fin_ar_ledger` | Never | **Yes** | [Built], revised shape [Agreed, not built] |
@@ -332,7 +332,7 @@ Order line).
 
 ---
 
-### 5.8 Delivery Note — the goods leave  [Built] (P94; C28, U11–U14)
+### 5.8 Delivery Note — the goods leave  [Built] (P94, P95; C28, U11–U15)
 
 The document the goods **actually leave on**. It is made from **one issued
 Delivery Order**, takes items out of the Delivery Order's warehouse, and is the
@@ -383,6 +383,20 @@ CO line (price, PPN, PPh) ◄── SO line ◄── DO line ◄── DN line 
 | Tanggal Kirim | The day the goods leave — also the PPN tax point the Faktur will carry (§10.2 rule 6); not before the Delivery Order's date |
 | No. Kendaraan, Pengemudi, Catatan | Free text, printed on the note |
 | Lines | Picked with **Tambah Item** from the Delivery Order's lines: *Qty DO*, *Sudah Dikirim*, *Sisa*. Each Delivery Order line once per note; blank refused |
+| Lot (U15) | For a Barang with Kelola Stok: **Pilih Lot** opens the item's lots in the note's warehouse, earliest expiry first, each with the quantity taken from it; *Isi FEFO* puts the rest on the earliest. A Draft may be picked in part; Posting needs the line picked in full. Any other item takes no lot |
+
+**Stock picking (U15).** The goods leave **by lot**: a line of a Barang with
+Kelola Stok holds its **picks** (`sal_delivery_note_pick`: lot, quantity, and
+the lot number and expiry copied as printed), together never more than the
+line and, to post, exactly it. The lots come from the inventory module — today
+a stand-in lot list (`tmp_stock_lot`: lot number and expiry per item and
+warehouse, no quantity, kept in *Lot (Sementara)*), offered earliest expiry
+first; a lot is named by id without a foreign key so real stock can replace
+the list. An inactive lot is no longer offered, and a Draft that picked it
+does not post until it is changed. At Posting **each pick is issued on its
+own** — one stock movement per lot — and stores its cost; the line's cost is
+the sum of its picks'. The Faktur still takes the line whole; the lots stay on
+the note, where a recall or a customer's complaint traces them.
 
 **Quantity ceiling.** For every Delivery Order line: **Σ qty of its Delivery
 Notes (Draft and Posted; not Dibatalkan) ≤ the line's qty.** Checked at save and
@@ -403,6 +417,9 @@ Draft ──Posting──► Posted (final; corrected later by a return, never e
 2. Per line: base qty = qty × the Customer Order line's unit factor; the
    inventory module **issues** it from the note's warehouse and returns the
    **unit cost** and **cost** (whole rupiah), stored on the line (snapshot).
+   A picked line is issued pick by pick, each from its lot, and each pick
+   stores its own cost (U15); posting refuses a lot-kept line not fully
+   picked, and the confirmation says so before the button.
 3. **Journal**, dated Tanggal Kirim: Dr **HPP** / Cr **Persediaan**, one pair per
    line, describing item, quantity and cost. Both accounts come from **Account
    Mapping** (two new entries, *HPP* and *Persediaan*); the per-Kategori Item
@@ -433,6 +450,10 @@ journal_id, cost_amount (Σ lines), cancel_reason.
 **delivery_order_line_id**, qty (in the Customer Order line's unit),
 **base_qty**, **unit_cost**, **cost_amount**, note. Unique (note, line_no) and
 (note, Delivery Order line).
+
+`sal_delivery_note_pick` (U15): delivery_note_line_id, pick_no, lot_id (no
+FK), lot_no, expiry_date, qty, base_qty, unit_cost, cost_amount. Unique (line,
+pick_no) and (line, lot).
 
 **Worked example.** CO/2026/10/0001: 10.000 PCS × 1.000. DO/2026/10/0001 sends
 1.500 from SO/2026/10/0001 and 500 from SO/2026/10/0002 from GDG-FG. Unit cost
@@ -1021,6 +1042,7 @@ Agreed with the user on 02/10/2026; to be recorded in §12 when built.
 | **U12** | **HPP and Persediaan come from Account Mapping** (03/10/2026), one each for the company, until the Kategori Item mapping (C25). |
 | **U13** | **The Delivery Note is numbered `SJ/YYYY/MM/NNNN`** (03/10/2026). |
 | **U14** | **Delivery Orders and Sales Orders close themselves when fully delivered** (03/10/2026); closing one by hand releases the undelivered quantity. The Customer Order stays closed by hand until the Faktur. A Faktur takes Delivery Note lines **whole**, never part of a line; the Delivery Note recognises HPP only, never Piutang. |
+| **U15** | **The Delivery Note picks stock by lot** (04/10/2026). Every Barang with Kelola Stok leaves by lot: the line holds picks (lot, quantity, lot number and expiry as printed), never more than the line and exactly it to post; a Draft may be picked in part. The lots come from the inventory module — today a stand-in lot list (`tmp_stock_lot`, no quantity, earliest expiry first, kept in *Lot (Sementara)*); each pick is its own stock movement and carries its own cost. Lot-less items take no pick. |
 | **U10** | **The sales process keeps its tax without a Pajak menu** (03/10/2026). The Faktur stores its full, deducted and net figures, its tax date and Coretax number, and its deduction rows (`sal_invoice_advance_deduction`: AR item, dpp_used). Every output-tax figure is on a Uang Muka item or a Faktur; a Pajak menu, if ever built, reads them and owns nothing. Mirrors Accurate / SAP B1 / Odoo, where the down-payment record carries its tax and the final invoice records its own deduction; differs only in the advance's tax point being the receipt, as the law sets it (as SAP S/4HANA does). |
 
 ---
