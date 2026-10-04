@@ -7,13 +7,15 @@ import { Field, FormRow } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { cashToClear } from "@/lib/erp/sales-tax";
 import type { OpenBill } from "@/lib/erp/cash-bank-tx";
+import { SETTLED_DOC_TEXT, type SettledDocKind } from "@/lib/erp/cash-bank-purposes";
 import { formatDate, formatMoney } from "@/lib/format";
 
-/** A bill on the Penerimaan: what was received for it, and whether PPh was withheld. */
-export type PickedLine = { docId: number; cash: string; withhold: boolean };
+/** A bill on the Penerimaan — an advance bill or a Faktur: what was received for it, and whether PPh was withheld. */
+export type PickedLine = { key: string; kind: SettledDocKind; docId: number; cash: string; withhold: boolean };
 
 /**
- * The partner's open bills, to tick the ones being paid. What helps choose —
+ * The partner's open bills — advance bills and Fakturs together (P83), oldest
+ * due first — to tick the ones being paid. What helps choose —
  * dates, totals, what earlier receipts paid — lives here, so the page holds
  * only the bills being settled. A bill already on the page keeps its figures.
  *
@@ -37,10 +39,10 @@ export function BillPicker({
   onApply: (lines: PickedLine[]) => void;
   onClose: () => void;
 }) {
-  const [on, setOn] = useState<Set<number>>(() => new Set(current.map((l) => l.docId)));
+  const [on, setOn] = useState<Set<string>>(() => new Set(current.map((l) => l.key)));
   const [spread, setSpread] = useState("");
-  const allOn = bills.length > 0 && bills.every((b) => on.has(b.id));
-  const toggle = (id: number, v: boolean) =>
+  const allOn = bills.length > 0 && bills.every((b) => on.has(b.key));
+  const toggle = (id: string, v: boolean) =>
     setOn((x) => {
       const next = new Set(x);
       if (v) next.add(id);
@@ -48,9 +50,9 @@ export function BillPicker({
       return next;
     });
 
-  const kept = (b: OpenBill) => current.find((l) => l.docId === b.id);
+  const kept = (b: OpenBill) => current.find((l) => l.key === b.key);
   const clearOf = (b: OpenBill) => cashToClear(b, b.paid, withhold ? kept(b)?.withhold ?? true : false);
-  const chosen = bills.filter((b) => on.has(b.id));
+  const chosen = bills.filter((b) => on.has(b.key));
   const clearTotal = chosen.reduce((a, b) => a + clearOf(b), 0);
   const amount = Number(spread) || 0;
 
@@ -63,9 +65,9 @@ export function BillPicker({
         const take = Math.min(left, clearOf(b));
         if (take <= 0) continue;
         left -= take;
-        out.push({ docId: b.id, cash: String(take), withhold: w });
+        out.push({ key: b.key, kind: b.kind, docId: b.id, cash: String(take), withhold: w });
       } else {
-        out.push(kept(b) ?? { docId: b.id, cash: String(clearOf(b)), withhold: w });
+        out.push(kept(b) ?? { key: b.key, kind: b.kind, docId: b.id, cash: String(clearOf(b)), withhold: w });
       }
     }
     onApply(out);
@@ -76,7 +78,7 @@ export function BillPicker({
       open
       icon="wallet"
       title={`Pilih ${noun}`}
-      subtitle={`${partnerName} · ${noun.toLowerCase()} diterbitkan yang belum lunas`}
+      subtitle={`${partnerName} · uang muka diterbitkan dan faktur diposting yang belum lunas`}
       width={880}
       onClose={onClose}
       foot={
@@ -104,7 +106,7 @@ export function BillPicker({
                   type="checkbox"
                   checked={allOn}
                   aria-label="Pilih semua"
-                  onChange={(e) => setOn(new Set(e.target.checked ? bills.map((b) => b.id) : []))}
+                  onChange={(e) => setOn(new Set(e.target.checked ? bills.map((b) => b.key) : []))}
                 />
               </th>
               <th>{noun}</th>
@@ -122,27 +124,30 @@ export function BillPicker({
           </thead>
           <tbody>
             {bills.map((b) => {
-              const v = on.has(b.id);
+              const v = on.has(b.key);
               return (
-                <tr key={b.id} className={v ? "clk" : "clk unpicked"} onClick={() => toggle(b.id, !v)}>
+                <tr key={b.key} className={v ? "clk" : "clk unpicked"} onClick={() => toggle(b.key, !v)}>
                   <td className="pick">
                     <input
                       type="checkbox"
                       checked={v}
-                      aria-label={`Pilih ${b.advanceNo}`}
+                      aria-label={`Pilih ${b.no}`}
                       onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => toggle(b.id, e.target.checked)}
+                      onChange={(e) => toggle(b.key, e.target.checked)}
                     />
                   </td>
                   <td>
                     <span className="dstack">
-                      <span className="d1 mono">{b.advanceNo}</span>
+                      <span className="d1">
+                        <span className={`bdg ${b.kind === "sal_invoice" ? "t-info" : "t-vio"}`}>{SETTLED_DOC_TEXT[b.kind]}</span>{" "}
+                        <span className="mono">{b.no}</span>
+                      </span>
                       <span className="d2">{b.orderNo}</span>
                     </span>
                   </td>
                   <td>
                     <span className="dstack">
-                      <span>{formatDate(b.advanceDate)}</span>
+                      <span>{formatDate(b.date)}</span>
                       <span className="d2">jt {formatDate(b.dueDate)}</span>
                     </span>
                   </td>

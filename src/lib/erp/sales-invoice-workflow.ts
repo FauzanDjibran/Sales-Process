@@ -109,3 +109,18 @@ export const INVOICE_STATUS_BADGE: Record<InvoiceStatus, string> = {
   Posted: "s-ok",
   Cancelled: "s-mute",
 };
+
+/** Where a posted Faktur stands with its customer (U26), read from its Invoice AR item. */
+export type InvoicePayState = "Unpaid" | "Partial" | "Paid";
+
+export const INVOICE_PAY_TEXT: Record<InvoicePayState, string> = {
+  Unpaid: "Belum Dibayar",
+  Partial: "Sebagian",
+  Paid: "Lunas",
+};
+
+export const INVOICE_PAY_BADGE: Record<InvoicePayState, string> = {
+  Unpaid: "t-warn",
+  Partial: "t-info",
+  Paid: "t-ok",
+};

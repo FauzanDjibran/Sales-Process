@@ -14,11 +14,12 @@ import { invoiceSourceLines, type InvoiceSourceLine } from "./delivery-note";
 import {
   ArItemOverdrawn,
   advanceItemsForInvoice,
+  arItemBalances,
   createArItem,
   settleArItem,
   type AdvanceItemForInvoice,
 } from "./ar-item";
-import { computeInvoice, type InvoiceFigures, type InvoiceLineInput as TaxLine } from "./sales-tax";
+import { computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine } from "./sales-tax";
 import { postingAccounts } from "./system-settings";
 import {
   INVOICE_HOLDS,
@@ -26,6 +27,7 @@ import {
   invoiceIsEditable,
   invoiceTransitionAllowed,
   type InvoiceAction,
+  type InvoicePayState,
   type InvoiceStatus,
 } from "./sales-invoice-workflow";
 
@@ -788,6 +790,8 @@ export async function transitionInvoice(
 
 export type InvoiceListRow = {
   id: number;
+  /** A posted Faktur's standing with its customer (U26). */
+  pay: { state: InvoicePayState; open: number; overdue: boolean } | null;
   invoiceNo: string;
   invoiceDate: string;
   dueDate: string;
@@ -808,8 +812,10 @@ export async function listInvoices(): Promise<InvoiceListRow[]> {
   const orders = new Map(
     (await invoiceSourceOrders({ ids: [...new Set(rows.map((r) => r.customer_order_id))] })).map((o) => [o.id, o.orderNo])
   );
+  const pay = await invoicePayStates(rows.filter((r) => r.status === "Posted").map((r) => r.id));
   return rows.map((r) => ({
     id: r.id,
+    pay: pay[r.id] ?? null,
     invoiceNo: r.invoice_no,
     invoiceDate: isoDay(r.invoice_date),
     dueDate: isoDay(r.due_date),
@@ -925,4 +931,90 @@ export async function customerOrderInvoices(
     status: r.status as InvoiceStatus,
     total: r.total_amount.toNumber(),
   }));
+}
+
+// ------------------------------------------------------- for the receipt
+
+/**
+ * A posted Faktur as a receipt reads it (§7.8, U23–U25): what it asks for
+ * (net Piutang), its PPN, the PPh the customer may withhold — per Jenis PPh on
+ * its net DPP, after the Uang Muka (U24) — and its Invoice AR item, whose
+ * balance is what is still open. The receipt module takes this rather than
+ * reading `sal_invoice` itself.
+ */
+export type SettlementInvoice = {
+  id: number;
+  invoiceNo: string;
+  invoiceDate: string;
+  dueDate: string;
+  status: InvoiceStatus;
+  customerId: number;
+  orderId: number;
+  orderNo: string;
+  total: number;
+  dpp: number;
+  ppn: number;
+  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  arItemId: number | null;
+};
+
+/** Posted Fakturs that leave something to pay (with `postedOnly`), or the ones named, whatever their state. */
+export async function settlementInvoices(filter: { ids?: number[]; postedOnly?: boolean }, db: Db = prisma): Promise<SettlementInvoice[]> {
+  const rows = await db.salInvoice.findMany({
+    where: {
+      ...(filter.ids ? { id: { in: filter.ids } } : {}),
+      ...(filter.postedOnly ? { status: "Posted", ar_item_id: { not: null } } : {}),
+    },
+    include: { lines: true },
+    orderBy: [{ due_date: "asc" }, { id: "asc" }],
+  });
+  const orders = new Map(
+    (await invoiceSourceOrders({ ids: [...new Set(rows.map((r) => r.customer_order_id))] }, db)).map((o) => [o.id, o.orderNo])
+  );
+  return rows.map((r) => ({
+    id: r.id,
+    invoiceNo: r.invoice_no,
+    invoiceDate: isoDay(r.invoice_date),
+    dueDate: isoDay(r.due_date),
+    status: r.status as InvoiceStatus,
+    customerId: r.customer_id,
+    orderId: r.customer_order_id,
+    orderNo: orders.get(r.customer_order_id) ?? "",
+    total: r.total_amount.toNumber(),
+    dpp: r.net_dpp_amount.toNumber(),
+    ppn: r.ppn_amount.toNumber(),
+    withholdings: withholdingsOf(
+      r.lines.map((l) => ({
+        key: l.withholding_tax_id ? String(l.withholding_tax_id) : null,
+        rate: l.withholding_rate?.toNumber() ?? null,
+        dpp: l.net_dpp_amount.toNumber(),
+      }))
+    ),
+    arItemId: r.ar_item_id,
+  }));
+}
+
+/**
+ * Where each posted Faktur stands (U26), read from its Invoice AR item: what
+ * is still open, Belum Dibayar / Sebagian / Lunas, and whether it is overdue.
+ * A Faktur its Uang Muka covered whole has no item and is Lunas.
+ */
+export async function invoicePayStates(
+  ids: number[]
+): Promise<Record<number, { state: InvoicePayState; open: number; overdue: boolean }>> {
+  if (!ids.length) return {};
+  const rows = await prisma.salInvoice.findMany({
+    where: { id: { in: ids }, status: "Posted" },
+    select: { id: true, total_amount: true, ar_item_id: true, due_date: true },
+  });
+  const balances = await arItemBalances(rows.flatMap((r) => (r.ar_item_id ? [r.ar_item_id] : [])));
+  const today = new Date().toISOString().slice(0, 10);
+  return Object.fromEntries(
+    rows.map((r) => {
+      const open = r.ar_item_id ? (balances.get(r.ar_item_id) ?? 0) : 0;
+      const total = r.total_amount.toNumber();
+      const state: InvoicePayState = open <= 0 ? "Paid" : open >= total ? "Unpaid" : "Partial";
+      return [r.id, { state, open, overdue: open > 0 && isoDay(r.due_date) < today }];
+    })
+  );
 }

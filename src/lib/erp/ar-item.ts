@@ -468,3 +468,22 @@ export async function advanceItemsForInvoice(
     taxInvoiceNo: i.tax_invoice_no,
   }));
 }
+
+// ------------------------------------------------------- for the receipt
+
+/** Items' balances now, by id — what is still open on each. */
+export async function arItemBalances(ids: number[], db: Db = prisma): Promise<Map<number, number>> {
+  if (!ids.length) return new Map();
+  const rows = await db.finArItem.findMany({ where: { id: { in: ids } }, select: { id: true, current_balance: true } });
+  return new Map(rows.map((r) => [r.id, r.current_balance.toNumber()]));
+}
+
+/**
+ * Locks items' rows for the rest of the transaction, so a posting that reads
+ * their balances and then moves them cannot be passed by another (U28).
+ */
+export async function lockArItems(tx: Prisma.TransactionClient, ids: number[]): Promise<void> {
+  for (const id of [...new Set(ids)].sort((a, b) => a - b)) {
+    await tx.$queryRaw`SELECT id FROM fin_ar_item WHERE id = ${id} FOR UPDATE`;
+  }
+}

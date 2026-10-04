@@ -40,6 +40,9 @@ function revalidate(id?: number) {
   if (id) revalidatePath(`/finance/cash-bank/receipt/${id}`);
   // A posted receipt changes the bills' paid state.
   revalidatePath("/finance/advance/sales");
+  // A Faktur paid shows its new standing; the AR reports move (U26).
+  revalidatePath("/sales/invoice", "layout");
+  revalidatePath("/finance/report", "layout");
 }
 
 export async function createCashReceiptAction(input: CashReceiptInput): Promise<CashReceiptResult> {

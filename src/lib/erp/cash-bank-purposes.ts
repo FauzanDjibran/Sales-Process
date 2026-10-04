@@ -18,7 +18,15 @@
 
 export type CashBankDirection = "In" | "Out";
 
-export type CashBankPurposeKey = "sales_advance";
+export type CashBankPurposeKey = "customer_receipt";
+
+/** The kinds of document a purpose settles, by `sys_doc_type.doc_table`. */
+export type SettledDocKind = "sal_advance" | "sal_invoice";
+
+export const SETTLED_DOC_TEXT: Record<SettledDocKind, string> = { sal_advance: "Uang Muka", sal_invoice: "Faktur" };
+
+/** One settled document's key, unique across both kinds. */
+export const billKey = (kind: SettledDocKind, id: number) => `${kind}:${id}`;
 
 export type CashBankPurpose = {
   key: CashBankPurposeKey;
@@ -30,8 +38,8 @@ export type CashBankPurpose = {
   desc: string;
   /** The partner category the partner is drawn from (P30). */
   partnerCategory: "Customer" | "Supplier";
-  /** The `sys_doc_type.doc_table` of what it settles. */
-  settles: "sal_advance";
+  /** The `sys_doc_type.doc_table`s of what it settles. */
+  settles: readonly SettledDocKind[];
   /** What one settled document is called on the form. */
   docNoun: string;
   /** Whether the settled documents carry PPh a partner may withhold. */
@@ -39,17 +47,19 @@ export type CashBankPurpose = {
 };
 
 export const CASH_BANK_PURPOSES = [
+  // One customer purpose settles every kind of open customer document (P83):
+  // advance bills and Fakturs together, each line posting by its kind.
   {
-    key: "sales_advance",
+    key: "customer_receipt",
     direction: "In",
-    name: "Penerimaan Uang Muka Penjualan",
-    short: "Uang Muka Penjualan",
+    name: "Penerimaan dari Customer",
+    short: "Dari Customer",
     desc:
-      "Dana dari customer atas tagihan uang muka yang sudah diterbitkan. Kewajiban " +
-      "uang muka dan PPN Keluaran tercatat pada tanggal terima.",
+      "Dana dari customer atas tagihan uang muka yang diterbitkan dan faktur penjualan yang " +
+      "diposting. Uang muka mencatat kewajiban dan PPN Keluaran; faktur melunasi piutang.",
     partnerCategory: "Customer",
-    settles: "sal_advance",
-    docNoun: "Tagihan Uang Muka",
+    settles: ["sal_advance", "sal_invoice"],
+    docNoun: "Tagihan",
     withholding: true,
   },
 ] as const satisfies readonly CashBankPurpose[];

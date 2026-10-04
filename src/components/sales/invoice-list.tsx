@@ -10,6 +10,8 @@ import { Select } from "@/components/ui/select";
 import { formatDate, formatMoney } from "@/lib/format";
 import type { InvoiceListRow } from "@/lib/erp/sales-invoice";
 import {
+  INVOICE_PAY_BADGE,
+  INVOICE_PAY_TEXT,
   INVOICE_STATUS_BADGE,
   INVOICE_STATUS_TEXT,
   type InvoiceAbilities,
@@ -104,8 +106,8 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
                     <th style={{ width: 106 }}>Jatuh Tempo</th>
                     <th style={{ width: 160 }}>Customer Order</th>
                     <th>Customer</th>
-                    <th className="num" style={{ width: 70 }}>Baris</th>
                     <th className="num" style={{ width: 150 }}>Total Tagihan</th>
+                    <th style={{ width: 150 }}>Pembayaran</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -132,9 +134,21 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
                           <span className="nm">{o.customerName}</span>
                         </span>
                       </td>
-                      <td className="num">{o.lines}</td>
                       <td className="num">
                         <span className="mny">{formatMoney(o.total, "IDR")}</span>
+                      </td>
+                      <td>
+                        {o.pay ? (
+                          <span className="dstack">
+                            <span>
+                              <span className={`bdg ${INVOICE_PAY_BADGE[o.pay.state]}`}>{INVOICE_PAY_TEXT[o.pay.state]}</span>
+                              {o.pay.overdue && <span className="bdg t-bad" style={{ marginLeft: 4 }}>Lewat tempo</span>}
+                            </span>
+                            {o.pay.state === "Partial" && <span className="d2">sisa {formatMoney(o.pay.open, "IDR")}</span>}
+                          </span>
+                        ) : (
+                          <span className="dash">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}

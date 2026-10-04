@@ -14,7 +14,14 @@ import { useToast } from "@/components/ui/toast";
 import { InvoiceActions } from "@/components/sales/invoice-actions";
 import { InvoiceAdvancePicker, InvoiceNotePicker } from "@/components/sales/invoice-pickers";
 import { createInvoiceAction, updateInvoiceAction } from "@/app/actions/sales-invoice";
-import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, type InvoiceAbilities } from "@/lib/erp/sales-invoice-workflow";
+import {
+  INVOICE_PAY_BADGE,
+  INVOICE_PAY_TEXT,
+  INVOICE_STATUS_BADGE,
+  INVOICE_STATUS_TEXT,
+  type InvoiceAbilities,
+  type InvoicePayState,
+} from "@/lib/erp/sales-invoice-workflow";
 import type { InvoiceHeaderInput, InvoiceOptions, InvoicePreview, InvoiceView, InvoiceNoteLine, InvoiceOrderOption } from "@/lib/erp/sales-invoice";
 import { computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine, type PriceMode } from "@/lib/erp/sales-tax";
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso } from "@/lib/format";
@@ -81,6 +88,8 @@ export function InvoiceForm({
   can,
   preview = null,
   presetOrderId = null,
+  pay = null,
+  payments = [],
 }: {
   mode: InvoiceMode;
   invoice: InvoiceView | null;
@@ -88,6 +97,10 @@ export function InvoiceForm({
   can: InvoiceAbilities;
   preview?: InvoicePreview | null;
   presetOrderId?: number | null;
+  /** A posted Faktur's standing, from its Invoice AR item (U26). */
+  pay?: { state: InvoicePayState; open: number; overdue: boolean } | null;
+  /** The receipts that name it. */
+  payments?: { id: number; txNo: string; date: string; status: string; settled: number }[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -353,6 +366,27 @@ export function InvoiceForm({
                 <Field label="No. Faktur Pajak" span={4}>
                   {invoice?.taxInvoiceNo ? ro(<span className="mono">{invoice.taxInvoiceNo}</span>) : nil("belum diisi")}
                 </Field>
+                {posted && pay && (
+                  <Field label="Pembayaran" span={12}>
+                    {ro(
+                      <>
+                        <span className={`bdg ${INVOICE_PAY_BADGE[pay.state]}`}>
+                          {pay.state === "Partial" ? `Sebagian · sisa ${money(pay.open)}` : INVOICE_PAY_TEXT[pay.state]}
+                        </span>
+                        {pay.overdue && <span className="bdg t-bad">Lewat jatuh tempo</span>}
+                        {payments.map((p) => (
+                          <span key={p.id}>
+                            <span className="rx">·</span>
+                            <Link className="drl" href={`/finance/cash-bank/receipt/${p.id}`}>
+                              <span className="mono">{p.txNo}</span>
+                            </Link>
+                            <span className="rx">{p.status === "Posted" ? money(p.settled) : p.status === "Draft" ? "draft" : "dibatalkan"}</span>
+                          </span>
+                        ))}
+                      </>
+                    )}
+                  </Field>
+                )}
               </>
             )}
             <Field label="Catatan" span={12}>

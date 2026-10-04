@@ -14,7 +14,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const receipt = await getCashReceipt(Number(id));
   if (!receipt) notFound();
   if (!cashBankTxIsEditable(receipt.status)) redirect(`/finance/cash-bank/receipt/${receipt.id}`);
-  const options = await cashReceiptOptions({ id: receipt.id, docIds: receipt.lines.map((l) => l.docId) });
+  const options = await cashReceiptOptions({ id: receipt.id, docs: receipt.lines.map((l) => ({ kind: l.kind, id: l.docId })) });
   return (
     <>
       <CashReceiptForm mode="edit" receipt={receipt} options={options} can={cashReceiptAbilities(actor.permissions)} />

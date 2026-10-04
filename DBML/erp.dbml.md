@@ -63,9 +63,10 @@ migration updates this file in the same change (Claude-ERP.md §9).
   Customer Order (`customer_order_id`) and numbered `ARA/…`. It posts nothing
   and stores no paid or used amount; that is left to the open items (C22).
 - `fin_cash_bank_tx` (P66–P70) — Penerimaan and Pengeluaran Kas & Bank in one
-  table (`BKM/…`, `BKK/…`). Its purpose is a key of the catalogue in code.
-  `fin_cash_bank_tx_line` names each settled document by the weak
-  `(doc_type_id, doc_id)` pair and stores its DPP / PPN parts;
+  table (`BKM/…`, `BKK/…`). Its purpose is a key of the catalogue in code
+  (`customer_receipt` since P98). `fin_cash_bank_tx_line` names each settled
+  document — an advance bill (`sal_advance`) or a Faktur (`sal_invoice`) — by
+  the weak `(doc_type_id, doc_id)` pair and stores its DPP / PPN parts;
   `fin_cash_bank_tx_line_wht` holds its PPh per Jenis PPh — the unit one
   Bukti Potong is made from. Posting writes the journal and the Cash Bank Book.
 - `fin_ar_item` and `fin_ar_ledger` (P71–P75) — AR items (Uang Muka and
@@ -1320,7 +1321,7 @@ Table fin_cash_bank_tx {
   id int [pk, increment, not null]
   tx_no varchar [unique, not null, note: 'BKM/YYYY/MM/NNNN or BKK/…']
   direction FlowDirection [not null]
-  purpose varchar [not null, note: 'key of the purpose catalogue in code']
+  purpose varchar [not null, note: 'key of the purpose catalogue in code: customer_receipt']
   tx_date date [not null]
   status CashBankTxStatus [not null, default: 'Draft']
   partner_id int [not null]
@@ -1348,7 +1349,7 @@ Table fin_cash_bank_tx_line {
   id int [pk, increment, not null]
   tx_id int [not null]
   line_no int [not null]
-  doc_type_id int [not null, note: 'weak reference to the settled document']
+  doc_type_id int [not null, note: 'weak reference to the settled document: sal_advance or sal_invoice']
   doc_id int [not null]
   settled_amount decimal(18, 2) [not null, note: 'what the line cleared of the document: the cash received for it + its PPh (P76)']
   withhold boolean [not null, default: true]

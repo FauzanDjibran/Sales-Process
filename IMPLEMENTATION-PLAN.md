@@ -216,8 +216,10 @@ Uang Muka; (2) **the Faktur itself — done 04/10/2026** (P97): Sales › Faktur
 Penjualan, `INV/…`, whole lines of one Customer Order's posted Delivery Notes,
 the order's Uang Muka picked and its DPP typed, posting Dr Piutang · Dr Uang
 Muka / Cr Penjualan · Cr PPN and the Invoice AR item, with the Customer Order
-closing itself once fully delivered; (3) *Penerimaan dari Customer* (P83) —
-next.
+closing itself once fully delivered; (3) **Penerimaan dari Customer — done
+04/10/2026** (P98): one receipt pays advance bills and Fakturs, a Faktur line
+clearing Piutang Usaha and recording Pembayaran on its Invoice item, with the
+Faktur showing Belum Dibayar / Sebagian / Lunas.
 
 Built one step at a time, **in the order the user gives**. For each step:
 

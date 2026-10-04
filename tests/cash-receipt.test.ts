@@ -119,7 +119,7 @@ async function issuedBill(orderId: number) {
 }
 
 const input = (over: Partial<CashReceiptInput> = {}): CashReceiptInput => ({
-  purpose: "sales_advance",
+  purpose: "customer_receipt",
   tx_date: today,
   partner_id: f.customer,
   cash_bank_id: f.bank,

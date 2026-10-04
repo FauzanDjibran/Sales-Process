@@ -12,7 +12,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const actor = await requirePermission("CASH_RECEIPT_VIEW", "/finance/cash-bank/receipt");
   const receipt = await getCashReceipt(Number(id));
   if (!receipt) notFound();
-  const options = await cashReceiptOptions({ id: receipt.id, docIds: receipt.lines.map((l) => l.docId) });
+  const options = await cashReceiptOptions({ id: receipt.id, docs: receipt.lines.map((l) => ({ kind: l.kind, id: l.docId })) });
   return (
     <>
       <CashReceiptForm mode="view" receipt={receipt} options={options} can={cashReceiptAbilities(actor.permissions)} />

@@ -2,7 +2,8 @@ import { notFound } from "next/navigation";
 import { InvoiceForm } from "@/components/sales/invoice-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
-import { getInvoice, invoiceOptions, invoicePreview } from "@/lib/erp/sales-invoice";
+import { getInvoice, invoiceOptions, invoicePayStates, invoicePreview } from "@/lib/erp/sales-invoice";
+import { settlementsOfDocument } from "@/lib/erp/cash-bank-tx";
 import { invoiceAbilities } from "@/lib/erp/sales-invoice-workflow";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const invoice = await getInvoice(Number(id));
   if (!invoice) notFound();
   const can = invoiceAbilities(actor.permissions);
-  const [options, preview] = await Promise.all([
+  const [options, preview, pay, payments] = await Promise.all([
     invoiceOptions({
       id: invoice.id,
       orderId: Number(invoice.header.customer_order_id),
@@ -22,10 +23,13 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     }),
     // The journal Posting would write, for its confirmation — only for a Draft this user may post.
     invoice.status === "Draft" && can.post ? invoicePreview(invoice.id) : Promise.resolve(null),
+    // Where it stands, and the receipts that paid it — composed here (U26).
+    invoice.status === "Posted" ? invoicePayStates([invoice.id]).then((m) => m[invoice.id] ?? null) : Promise.resolve(null),
+    invoice.status === "Posted" ? settlementsOfDocument("sal_invoice", invoice.id) : Promise.resolve([]),
   ]);
   return (
     <>
-      <InvoiceForm mode="view" invoice={invoice} options={options} can={can} preview={preview} />
+      <InvoiceForm mode="view" invoice={invoice} options={options} can={can} preview={preview} pay={pay} payments={payments} />
       <RecordHistoryCard entityKey="sal_invoice" rowId={invoice.id} />
     </>
   );

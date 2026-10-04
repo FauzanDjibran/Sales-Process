@@ -7,14 +7,16 @@ import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate } from "./fiscal";
 import { postJournal, type JournalLineInput } from "./journal";
 import { recordCashBankEntry } from "./cash-bank";
-import { createArItem } from "./ar-item";
+import { ArItemOverdrawn, arItemBalances, createArItem, lockArItems, settleArItem } from "./ar-item";
 import { checkAccountIsLeaf } from "./records";
-import { lockSalesAdvances, settlementAdvances, type SettlementAdvance } from "./sales-advance";
+import { lockSalesAdvances, settlementAdvances } from "./sales-advance";
+import { settlementInvoices } from "./sales-invoice";
 import {
   cashToClear,
   ppnChain,
   receivedProblem,
   settleBillFromCash,
+  type PpnRates,
   type SettlementLine,
 } from "./sales-tax";
 import { postingAccounts } from "./system-settings";
@@ -24,6 +26,8 @@ import {
   purposesFor,
   type CashBankDirection,
   type CashBankPurpose,
+  billKey,
+  type SettledDocKind,
 } from "./cash-bank-purposes";
 import {
   CASH_RECEIPT_TRANSITIONS,
@@ -58,9 +62,16 @@ import { formatMoney } from "@/lib/format";
  * in one transaction, with every settled bill's row locked and its open amount
  * read again, so two receipts cannot both clear the last of one bill.
  *
+ * One customer purpose settles advance bills and Fakturs together (P83, §7.8):
+ * an advance-bill line posts Cr Uang Muka Penjualan (its DPP part) and Cr PPN
+ * Keluaran and creates an Uang Muka AR item; a Faktur line posts Cr Piutang
+ * Usaha for all it settles and records *Pembayaran* on the Faktur's Invoice
+ * AR item, whose balance is what the Faktur still asks for (U23).
+ *
  * Dependencies point one way (§3.1): this module reads the advance through
- * `sales-advance.ts`; the advance learns what was paid through
- * `settledByDocuments` here, composed by the action or page that needs both.
+ * `sales-advance.ts` and the Faktur through `sales-invoice.ts`; the advance
+ * learns what was paid through `settledByDocuments` here, composed by the
+ * action or page that needs both.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -68,6 +79,8 @@ type Db = Prisma.TransactionClient | typeof prisma;
 // ------------------------------------------------------------------ input
 
 export type CashReceiptLineInput = {
+  /** What the line settles; an advance bill when left out (receipts saved before P83). */
+  doc_type?: SettledDocKind;
   doc_id: number | null;
   /** What the customer actually paid for this bill (P76). */
   cash: number;
@@ -166,24 +179,103 @@ export async function settledDocumentRefusal(
     : null;
 }
 
-/** An open bill as the form offers it: the bill, and what is left of it. */
-export type OpenBill = SettlementAdvance & {
-  /** Settled by posted receipts, this one excepted. */
+/**
+ * An open document as the form offers it — an advance bill or a Faktur — with
+ * what is left of it. Both settle by the same rule (§7.3); they differ in what
+ * is open and in how they post (§7.8).
+ */
+export type OpenBill = {
+  kind: SettledDocKind;
+  /** `kind:id`, unique across both kinds. */
+  key: string;
+  id: number;
+  no: string;
+  date: string;
+  dueDate: string;
+  /** The advance bill's or the Faktur's own status. */
+  status: string;
+  customerId: number;
+  orderId: number;
+  orderNo: string;
+  /** What it asks for, PPN included. */
+  total: number;
+  dpp: number;
+  ppn: number;
+  /** The advance bill's PPN snapshot, for its Faktur Pajak Uang Muka; null for a Faktur. */
+  rates: PpnRates | null;
+  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  /** A Faktur's Invoice AR item. */
+  arItemId: number | null;
+  /** Settled before this receipt. */
   paid: number;
   open: number;
 };
 
+
 async function openBills(
   db: Db,
-  filter: { ids?: number[]; issuedOnly?: boolean },
+  filter: { advanceIds?: number[]; invoiceIds?: number[]; openOnly?: boolean },
   exceptTx: number | null
 ): Promise<OpenBill[]> {
-  const bills = await settlementAdvances(filter, db);
-  const paid = await settledByDocuments("sal_advance", bills.map((b) => b.id), db, exceptTx);
-  return bills.map((b) => {
-    const p = paid.get(b.id) ?? 0;
-    return { ...b, paid: p, open: b.total - p };
-  });
+  const wantAdvances = filter.openOnly || (filter.advanceIds?.length ?? 0) > 0;
+  const wantInvoices = filter.openOnly || (filter.invoiceIds?.length ?? 0) > 0;
+  const [advances, invoices] = await Promise.all([
+    wantAdvances ? settlementAdvances(filter.openOnly ? { issuedOnly: true } : { ids: filter.advanceIds }, db) : Promise.resolve([]),
+    wantInvoices ? settlementInvoices(filter.openOnly ? { postedOnly: true } : { ids: filter.invoiceIds }, db) : Promise.resolve([]),
+  ]);
+  const paid = await settledByDocuments("sal_advance", advances.map((b) => b.id), db, exceptTx);
+  // A Faktur's open amount is its Invoice item's balance — the book (U23).
+  const balances = await arItemBalances(invoices.flatMap((i) => (i.arItemId ? [i.arItemId] : [])), db);
+  const out: OpenBill[] = [
+    ...advances.map((b) => {
+      const p = paid.get(b.id) ?? 0;
+      return {
+        kind: "sal_advance" as const,
+        key: billKey("sal_advance", b.id),
+        id: b.id,
+        no: b.advanceNo,
+        date: b.advanceDate,
+        dueDate: b.dueDate,
+        status: b.status,
+        customerId: b.customerId,
+        orderId: b.orderId,
+        orderNo: b.orderNo,
+        total: b.total,
+        dpp: b.dpp,
+        ppn: b.ppn,
+        rates: b.rates,
+        withholdings: b.withholdings,
+        arItemId: null,
+        paid: p,
+        open: b.total - p,
+      };
+    }),
+    ...invoices.map((i) => {
+      const open = i.arItemId ? (balances.get(i.arItemId) ?? 0) : 0;
+      return {
+        kind: "sal_invoice" as const,
+        key: billKey("sal_invoice", i.id),
+        id: i.id,
+        no: i.invoiceNo,
+        date: i.invoiceDate,
+        dueDate: i.dueDate,
+        status: i.status,
+        customerId: i.customerId,
+        orderId: i.orderId,
+        orderNo: i.orderNo,
+        total: i.total,
+        dpp: i.dpp,
+        ppn: i.ppn,
+        rates: null,
+        withholdings: i.withholdings,
+        arItemId: i.arItemId,
+        paid: i.total - open,
+        open,
+      };
+    }),
+  ];
+  // Oldest due first: the order the picker lists them and Bagikan Dana spends in.
+  return out.sort((a, b) => (a.dueDate === b.dueDate ? (a.date === b.date ? a.id - b.id : a.date < b.date ? -1 : 1) : a.dueDate < b.dueDate ? -1 : 1));
 }
 
 // ---------------------------------------------------------------- options
@@ -206,7 +298,9 @@ export type CashReceiptOptions = {
  * bills are always included, open or not, so the form still shows what it
  * holds, and its own lines never count against the bills.
  */
-export async function cashReceiptOptions(current: { id: number; docIds: number[] } | null = null): Promise<CashReceiptOptions> {
+export async function cashReceiptOptions(
+  current: { id: number; docs: { kind: SettledDocKind; id: number }[] } | null = null
+): Promise<CashReceiptOptions> {
   const purposes = [...purposesFor("In")];
   const [partners, cashBanks, taxes] = await Promise.all([
     prisma.mPartner.findMany({
@@ -220,9 +314,18 @@ export async function cashReceiptOptions(current: { id: number; docIds: number[]
     }),
     prisma.refWithholdingTax.findMany({ select: { id: true, wht_label: true } }),
   ]);
-  const issued = await openBills(prisma, { issuedOnly: true }, current?.id ?? null);
-  const own = current?.docIds.length
-    ? await openBills(prisma, { ids: current.docIds.filter((id) => !issued.some((b) => b.id === id)) }, current.id)
+  const issued = await openBills(prisma, { openOnly: true }, current?.id ?? null);
+  const mine = new Set((current?.docs ?? []).map((d) => billKey(d.kind, d.id)));
+  const missing = (current?.docs ?? []).filter((d) => !issued.some((b) => b.key === billKey(d.kind, d.id)));
+  const own = missing.length
+    ? await openBills(
+        prisma,
+        {
+          advanceIds: missing.filter((d) => d.kind === "sal_advance").map((d) => d.id),
+          invoiceIds: missing.filter((d) => d.kind === "sal_invoice").map((d) => d.id),
+        },
+        current!.id
+      )
     : [];
   return {
     purposes,
@@ -240,7 +343,7 @@ export async function cashReceiptOptions(current: { id: number; docIds: number[]
       active: c.status === "Active",
       type: c.cash_bank_type,
     })),
-    bills: [...issued.filter((b) => b.open > 0 || current?.docIds.includes(b.id)), ...own],
+    bills: [...issued.filter((b) => b.open > 0 || mine.has(b.key)), ...own],
     withholdingLabels: Object.fromEntries(taxes.map((t) => [String(t.id), t.wht_label])),
   };
 }
@@ -254,7 +357,7 @@ export async function cashReceiptOptions(current: { id: number; docIds: number[]
  */
 export type ReceiptTotals = { received: number; bankCharge: number; cash: number; settled: number; pph: number };
 
-type CheckedLine = SettlementLine & { docId: number; withhold: boolean; bill: OpenBill };
+type CheckedLine = SettlementLine & { kind: SettledDocKind; docId: number; withhold: boolean; bill: OpenBill };
 
 type Checked = {
   data: {
@@ -322,31 +425,43 @@ export async function checkCashReceipt(
   const raw = Array.isArray(input.lines) ? input.lines : [];
   const lines: CheckedLine[] = [];
   if (!raw.length) errors._lines = "Pilih minimal satu tagihan yang dibayar.";
-  const ids = raw.map((l) => Number(l.doc_id)).filter(Boolean);
-  const bills = new Map((await openBills(db, { ids }, selfId)).map((b) => [b.id, b]));
-  const seen = new Set<number>();
+  const kindOf = (l: CashReceiptLineInput): SettledDocKind => (l.doc_type === "sal_invoice" ? "sal_invoice" : "sal_advance");
+  const idsOf = (kind: SettledDocKind) => raw.filter((l) => kindOf(l) === kind).map((l) => Number(l.doc_id)).filter(Boolean);
+  const bills = new Map(
+    (await openBills(db, { advanceIds: idsOf("sal_advance"), invoiceIds: idsOf("sal_invoice") }, selfId)).map((b) => [b.key, b])
+  );
+  const seen = new Set<string>();
   for (const [i, l] of raw.entries()) {
+    const kind = kindOf(l);
     const id = Number(l.doc_id);
-    const bill = bills.get(id);
+    const bill = bills.get(billKey(kind, id));
     if (!bill) {
       errors[lineKey(i, "doc_id")] = "Tagihan tidak ditemukan.";
       continue;
     }
-    if (seen.has(id)) {
-      errors[lineKey(i, "doc_id")] = `${bill.advanceNo} dipilih lebih dari sekali.`;
+    if (purpose && !purpose.settles.includes(kind)) {
+      errors[lineKey(i, "doc_id")] = `${bill.no} tidak dapat dilunasi dengan tujuan ini.`;
       continue;
     }
-    seen.add(id);
+    if (seen.has(bill.key)) {
+      errors[lineKey(i, "doc_id")] = `${bill.no} dipilih lebih dari sekali.`;
+      continue;
+    }
+    seen.add(bill.key);
     if (partnerId && bill.customerId !== partnerId) {
-      errors[lineKey(i, "doc_id")] = `${bill.advanceNo} bukan tagihan partner ini.`;
+      errors[lineKey(i, "doc_id")] = `${bill.no} bukan tagihan partner ini.`;
       continue;
     }
-    if (bill.status !== "Issued") {
-      errors[lineKey(i, "doc_id")] = `${bill.advanceNo} tidak berstatus Diterbitkan.`;
+    if (kind === "sal_advance" && bill.status !== "Issued") {
+      errors[lineKey(i, "doc_id")] = `${bill.no} tidak berstatus Diterbitkan.`;
       continue;
     }
-    if (DAY.test(date) && date < bill.advanceDate) {
-      errors[lineKey(i, "doc_id")] = `Tanggal terima sebelum tanggal ${bill.advanceNo}.`;
+    if (kind === "sal_invoice" && (bill.status !== "Posted" || !bill.arItemId)) {
+      errors[lineKey(i, "doc_id")] = `${bill.no} belum diposting atau tidak menyisakan piutang.`;
+      continue;
+    }
+    if (DAY.test(date) && date < bill.date) {
+      errors[lineKey(i, "doc_id")] = `Tanggal terima sebelum tanggal ${bill.no}.`;
       continue;
     }
     const received = Number(l.cash);
@@ -354,7 +469,7 @@ export async function checkCashReceipt(
     const max = cashToClear(bill, bill.paid, withhold);
     const problem = receivedProblem(received, max);
     if (problem) {
-      errors[lineKey(i, "cash")] = problem === "Melebihi sisa tagihan." ? `Melebihi yang melunasi ${bill.advanceNo} (${money(max)}).` : problem;
+      errors[lineKey(i, "cash")] = problem === "Melebihi sisa tagihan." ? `Melebihi yang melunasi ${bill.no} (${money(max)}).` : problem;
       continue;
     }
     const settled = settleBillFromCash({ bill, before: bill.paid, cash: received, withhold });
@@ -364,7 +479,7 @@ export async function checkCashReceipt(
       errors[lineKey(i, "cash")] = `Nilai ini tidak dapat dibagi tepat dengan PPh-nya; ubah Rp1 (mis. ${money(settled.cash)}).`;
       continue;
     }
-    lines.push({ ...settled, docId: id, withhold, bill });
+    lines.push({ ...settled, kind, docId: id, withhold, bill });
   }
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) {
     errors._lines = "Ada tagihan yang perlu diperbaiki.";
@@ -423,10 +538,15 @@ async function audit(db: Db, id: number, action: "TAMBAH" | "UPDATE", event: str
   await db.auditLog.create({ data: { entity_key: "fin_cash_bank_tx", row_id: id, action, event, by } });
 }
 
-function lineRows(typeId: number, lines: CheckedLine[], actorId: number) {
+/** The doc type ids lines are stored with, by kind. */
+async function kindTypeIds(db: Db): Promise<Record<SettledDocKind, number>> {
+  return { sal_advance: await docTypeId(db, "sal_advance"), sal_invoice: await docTypeId(db, "sal_invoice") };
+}
+
+function lineRows(typeIds: Record<SettledDocKind, number>, lines: CheckedLine[], actorId: number) {
   return lines.map((l, i) => ({
     line_no: i + 1,
-    doc_type_id: typeId,
+    doc_type_id: typeIds[l.kind],
     doc_id: l.docId,
     settled_amount: l.settled,
     withhold: l.withhold,
@@ -457,6 +577,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
     return await run();
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
+    if (e instanceof ArItemOverdrawn) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
     throw e;
   }
 }
@@ -465,13 +586,13 @@ export async function createCashReceipt(input: CashReceiptInput, actorId: number
   const r = await checkCashReceipt(prisma, input, null);
   if (!r.ok) return r;
   const made = await prisma.$transaction(async (tx) => {
-    const typeId = await docTypeId(tx, "sal_advance");
+    const typeIds = await kindTypeIds(tx);
     const row = await tx.finCashBankTx.create({
       data: {
         ...r.c.data,
         tx_no: await nextTxNo(tx, r.c.data.direction, r.c.data.tx_date),
         created_by: actorId,
-        lines: { create: lineRows(typeId, r.c.lines, actorId) },
+        lines: { create: lineRows(typeIds, r.c.lines, actorId) },
       },
     });
     await audit(tx, row.id, "TAMBAH", "create", actorId);
@@ -493,7 +614,7 @@ export async function updateCashReceipt(id: number, input: CashReceiptInput, act
   if (!r.ok) return r;
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
-      const typeId = await docTypeId(tx, "sal_advance");
+      const typeIds = await kindTypeIds(tx);
       const done = await tx.finCashBankTx.updateMany({
         where: { id, status: "Draft" },
         data: { ...r.c.data, updated_by: actorId },
@@ -501,7 +622,7 @@ export async function updateCashReceipt(id: number, input: CashReceiptInput, act
       if (done.count !== 1) throw new Refused({ _form: "Penerimaan berubah saat diproses. Muat ulang halaman." });
       // A Draft's lines are nobody's reference yet, so they are replaced whole.
       await tx.finCashBankTxLine.deleteMany({ where: { tx_id: id } });
-      for (const line of lineRows(typeId, r.c.lines, actorId)) {
+      for (const line of lineRows(typeIds, r.c.lines, actorId)) {
         await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
       }
       await audit(tx, id, "UPDATE", "update", actorId);
@@ -511,7 +632,10 @@ export async function updateCashReceipt(id: number, input: CashReceiptInput, act
 }
 
 /** A stored receipt, back in the shape `checkCashReceipt` reads. */
-function asInput(t: Prisma.FinCashBankTxGetPayload<{ include: { lines: true } }>): CashReceiptInput {
+type StoredReceipt = Prisma.FinCashBankTxGetPayload<{ include: { lines: { include: { doc_type: { select: { doc_table: true } } } } } }>;
+const WITH_LINES = { lines: { include: { doc_type: { select: { doc_table: true } } } } } as const;
+
+function asInput(t: StoredReceipt): CashReceiptInput {
   return {
     purpose: t.purpose,
     tx_date: isoDay(t.tx_date),
@@ -522,7 +646,12 @@ function asInput(t: Prisma.FinCashBankTxGetPayload<{ include: { lines: true } }>
     bank_charge: t.bank_charge.toNumber(),
     lines: [...t.lines]
       .sort((a, b) => a.line_no - b.line_no)
-      .map((l) => ({ doc_id: l.doc_id, cash: l.settled_amount.minus(l.pph_amount).toNumber(), withhold: l.withhold })),
+      .map((l) => ({
+        doc_type: l.doc_type.doc_table as SettledDocKind,
+        doc_id: l.doc_id,
+        cash: l.settled_amount.minus(l.pph_amount).toNumber(),
+        withhold: l.withhold,
+      })),
   };
 }
 
@@ -542,25 +671,30 @@ export type PostingLine = {
 type Posting = { ok: true; description: string; lines: PostingLine[] } | { ok: false; message: string };
 
 /**
- * The journal a checked receipt writes (P66, `tax_concept.md` §9):
+ * The journal a checked receipt writes (P66, `tax_concept.md` §9, §7.8):
  *
  *   Dr Kas & Bank           dana diterima
  *   Dr Beban Bank           biaya bank
  *   Dr PPh Dibayar Dimuka   per Jenis PPh
- *      Cr Uang Muka Penjualan   per bill, its DPP part, naming the customer
- *      Cr PPN Keluaran          the bills' PPN parts
+ *      Cr Uang Muka Penjualan   per advance bill, its DPP part, naming the customer
+ *      Cr PPN Keluaran          the advance bills' PPN parts
+ *      Cr Piutang Usaha         per Faktur, all it settles, naming the customer
  *
  * Every account is resolved against the master; a missing or unusable one
  * refuses the posting by name, never falls back.
  */
 async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Posting> {
   const needCharge = c.data.bank_charge > 0;
-  // Beban Bank is asked for only when there is a charge: a setting blocks only
-  // where it is used.
-  const keys = needCharge
-    ? (["sales_advance_account", "output_vat_account", "bank_charge_account"] as const)
-    : (["sales_advance_account", "output_vat_account"] as const);
-  const mapped = await postingAccounts<"sales_advance_account" | "output_vat_account" | "bank_charge_account">(keys);
+  const advances = c.lines.filter((l) => l.kind === "sal_advance");
+  const invoices = c.lines.filter((l) => l.kind === "sal_invoice");
+  // An account is asked for only where it is used: a setting blocks only there.
+  type Key = "sales_advance_account" | "output_vat_account" | "bank_charge_account" | "receivable_account";
+  const keys: Key[] = [
+    ...(advances.length ? (["sales_advance_account", "output_vat_account"] as const) : []),
+    ...(invoices.length ? (["receivable_account"] as const) : []),
+    ...(needCharge ? (["bank_charge_account"] as const) : []),
+  ];
+  const mapped = await postingAccounts<Key>(keys);
   const missing: string[] = mapped.ok ? [] : [...mapped.missing];
 
   // PPh accounts sit on each Jenis PPh (P44).
@@ -580,16 +714,17 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
       message: `Belum bisa diposting — account belum diatur atau tidak dapat dipakai: ${missing.join("; ")}. Atur di Accounting › Pengaturan › Account Mapping atau pada master terkait.`,
     };
   }
-  const ids = mapped.ids;
-  const advanceAcc = ids.sales_advance_account;
-  const vatAcc = ids.output_vat_account;
+  const ids = mapped.ids as Partial<Record<Key, number>>;
+  const advanceAcc = ids.sales_advance_account ?? 0;
+  const vatAcc = ids.output_vat_account ?? 0;
+  const arAcc = ids.receivable_account ?? 0;
 
   const accounts = new Map(
     (
       await db.accAccount.findMany({
         where: {
           id: {
-            in: [c.cashBankAccountId, advanceAcc, vatAcc, ids.bank_charge_account, ...[...taxes.values()].map((t) => t.prepaid_account_id)].filter(
+            in: [c.cashBankAccountId, advanceAcc, vatAcc, arAcc, ids.bank_charge_account, ...[...taxes.values()].map((t) => t.prepaid_account_id)].filter(
               (x): x is number => Boolean(x)
             ),
           },
@@ -598,9 +733,11 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
       })
     ).map((a) => [a.id, a])
   );
-  const adv = accounts.get(advanceAcc)!;
-  if (adv.partner_category && adv.partner_category.category_label !== "Customer") {
-    return { ok: false, message: `Account ${adv.account_label} mewajibkan partner ${adv.partner_category.category_label}, bukan Customer.` };
+  for (const accId of [advanceAcc, arAcc]) {
+    const a = accounts.get(accId);
+    if (a?.partner_category && a.partner_category.category_label !== "Customer") {
+      return { ok: false, message: `Account ${a.account_label} mewajibkan partner ${a.partner_category.category_label}, bukan Customer.` };
+    }
   }
   const line = (accountId: number, debit: number, credit: number, description: string, partnerId: number | null = null): PostingLine => {
     const a = accounts.get(accountId)!;
@@ -619,7 +756,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
   const ref = c.data.bank_ref ? ` · ref ${c.data.bank_ref}` : "";
   const out: PostingLine[] = [line(c.cashBankAccountId, c.data.cash_amount, 0, `Dana diterima dari ${partnerName}${ref}`)];
   if (needCharge) {
-    out.push(line(ids.bank_charge_account, c.data.bank_charge, 0, "Biaya transfer dipotong bank"));
+    out.push(line(ids.bank_charge_account!, c.data.bank_charge, 0, "Biaya transfer dipotong bank"));
   }
   const pphByType = new Map<number, { amount: number; rate: number }>();
   for (const l of c.lines) {
@@ -634,15 +771,19 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
     const t = taxes.get(k)!;
     out.push(line(t.prepaid_account_id!, g.amount, 0, `${t.wht_label} dipotong ${partnerName} — bukti potong menunggu`, c.data.partner_id));
   }
-  for (const l of c.lines) {
-    if (l.dppPart > 0) out.push(line(advanceAcc, 0, l.dppPart, `Uang muka ${l.bill.advanceNo} (${l.bill.orderNo})`, c.data.partner_id));
+  for (const l of advances) {
+    if (l.dppPart > 0) out.push(line(advanceAcc, 0, l.dppPart, `Uang muka ${l.bill.no} (${l.bill.orderNo})`, c.data.partner_id));
   }
-  const ppn = c.lines.reduce((a, l) => a + l.ppnPart, 0);
-  if (ppn > 0) out.push(line(vatAcc, 0, ppn, `PPN uang muka terutang saat diterima — ${c.lines.filter((l) => l.ppnPart > 0).map((l) => l.bill.advanceNo).join(", ")}`));
+  const ppn = advances.reduce((a, l) => a + l.ppnPart, 0);
+  if (ppn > 0) out.push(line(vatAcc, 0, ppn, `PPN uang muka terutang saat diterima — ${advances.filter((l) => l.ppnPart > 0).map((l) => l.bill.no).join(", ")}`));
+  // A Faktur's PPN was booked at the Faktur: all it settles clears Piutang (U25).
+  for (const l of invoices) {
+    out.push(line(arAcc, 0, l.settled, `Pelunasan ${l.bill.no}${l.settled < l.bill.open ? " (sebagian)" : ""} (${l.bill.orderNo})`, c.data.partner_id));
+  }
 
   return {
     ok: true,
-    description: `Penerimaan uang muka ${c.lines.map((l) => l.bill.advanceNo).join(", ")} — ${partnerName}`,
+    description: `Penerimaan ${c.lines.map((l) => l.bill.no).join(", ")} — ${partnerName}`,
     lines: out,
   };
 }
@@ -661,7 +802,7 @@ async function accountProblem(db: Db, id: number): Promise<string | null> {
  * before anything is committed (design convention: consequences first).
  */
 export async function previewCashReceiptPosting(id: number): Promise<Posting> {
-  const t = await prisma.finCashBankTx.findUnique({ where: { id }, include: { lines: true, partner: true } });
+  const t = await prisma.finCashBankTx.findUnique({ where: { id }, include: { ...WITH_LINES, partner: true } });
   if (!t) return { ok: false, message: "Penerimaan tidak ditemukan." };
   const r = await checkCashReceipt(prisma, asInput(t), id);
   if (!r.ok) return { ok: false, message: Object.values(r.errors)[0] };
@@ -683,7 +824,7 @@ export async function transitionCashReceipt(
   actorId: number,
   reason?: string
 ): Promise<CashReceiptTransitionResult> {
-  const t = await prisma.finCashBankTx.findUnique({ where: { id }, include: { lines: true, partner: true } });
+  const t = await prisma.finCashBankTx.findUnique({ where: { id }, include: { ...WITH_LINES, partner: true } });
   if (!t || t.direction !== "In") return { ok: false, errors: { _form: "Penerimaan tidak ditemukan." } };
   const step = CASH_RECEIPT_TRANSITIONS[action];
   if (!cashReceiptTransitionAllowed(action, t.status as CashBankTxStatus)) {
@@ -711,8 +852,15 @@ export async function transitionCashReceipt(
 
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
-      await lockSalesAdvances(tx, t.lines.map((l) => l.doc_id));
-      const r = await checkCashReceipt(tx, asInput(t), id);
+      // Every document the receipt settles is locked before it is read again:
+      // the advance bills, and the Fakturs' Invoice items (U28).
+      const stored = asInput(t);
+      await lockSalesAdvances(tx, stored.lines.filter((l) => l.doc_type !== "sal_invoice").map((l) => Number(l.doc_id)));
+      const invoiceIds = stored.lines.filter((l) => l.doc_type === "sal_invoice").map((l) => Number(l.doc_id));
+      if (invoiceIds.length) {
+        await lockArItems(tx, (await settlementInvoices({ ids: invoiceIds }, tx)).flatMap((i) => (i.arItemId ? [i.arItemId] : [])));
+      }
+      const r = await checkCashReceipt(tx, stored, id);
       if (!r.ok) throw new Refused({ _form: `Belum bisa diposting: ${Object.values(r.errors)[0]}` });
       const posting = await buildPosting(tx, r.c, t.partner.partner_name);
       if (!posting.ok) throw new Refused({ _form: posting.message });
@@ -764,9 +912,9 @@ export async function transitionCashReceipt(
 
       // The settled figures are restated as posted: another receipt may have
       // settled part of a bill since this Draft was saved.
-      const saleTypeId = await docTypeId(tx, "sal_advance");
+      const typeIds = await kindTypeIds(tx);
       await tx.finCashBankTxLine.deleteMany({ where: { tx_id: id } });
-      for (const line of lineRows(saleTypeId, r.c.lines, actorId)) {
+      for (const line of lineRows(typeIds, r.c.lines, actorId)) {
         await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
       }
       // Each bill paid is an Uang Muka the customer now holds (P73): one AR
@@ -775,18 +923,31 @@ export async function transitionCashReceipt(
       // bill and carries its Faktur Pajak Uang Muka (U1, U9); the receipt is
       // named by its Create entry.
       for (const l of r.c.lines) {
-        if (!(l.dppPart > 0)) continue;
+        if (l.kind !== "sal_advance" || !(l.dppPart > 0)) continue;
         await createArItem(tx, {
           type: "Advance",
           partnerId: t.partner_id,
           currencyId: baseCurrency.id,
           date: isoDay(t.tx_date),
-          source: { docTypeId: saleTypeId, docId: l.docId, no: l.bill.advanceNo },
+          source: { docTypeId: typeIds.sal_advance, docId: l.docId, no: l.bill.no },
           createdBy: { docTypeId: typeId, docId: id, no: t.tx_no },
           orderId: l.bill.orderId,
           amount: l.dppPart,
           tax: l.bill.rates ? { dpp: l.dppPart, dppOther: ppnChain(l.dppPart, l.bill.rates).dppOther, ppn: l.ppnPart } : null,
-          note: `Uang muka ${l.bill.advanceNo} diterima`,
+          note: `Uang muka ${l.bill.no} diterima`,
+          actorId,
+        });
+      }
+      // Each Faktur paid lowers its Invoice item by all it settles (P72).
+      for (const l of r.c.lines) {
+        if (l.kind !== "sal_invoice" || !l.bill.arItemId) continue;
+        await settleArItem(tx, {
+          itemId: l.bill.arItemId,
+          event: "Payment",
+          amount: l.settled,
+          date: isoDay(t.tx_date),
+          doc: { docTypeId: typeId, docId: id, no: t.tx_no },
+          note: l.pph ? `Diterima ${money(l.cash)} + PPh ${money(l.pph)}` : `Diterima ${money(l.cash)}`,
           actorId,
         });
       }
@@ -819,10 +980,14 @@ export async function listCashReceipts(): Promise<CashReceiptListRow[]> {
   const rows = await prisma.finCashBankTx.findMany({
     where: { direction: "In" },
     orderBy: [{ tx_date: "desc" }, { id: "desc" }],
-    include: { partner: true, cash_bank: true, lines: { select: { doc_id: true } } },
+    include: { partner: true, cash_bank: true, lines: { select: { doc_id: true, doc_type: { select: { doc_table: true } } } } },
   });
-  const docIds = [...new Set(rows.flatMap((r) => r.lines.map((l) => l.doc_id)))];
-  const bills = new Map((await settlementAdvances({ ids: docIds })).map((b) => [b.id, b.advanceNo]));
+  const idsOf = (kind: SettledDocKind) => [
+    ...new Set(rows.flatMap((r) => r.lines.filter((l) => l.doc_type.doc_table === kind).map((l) => l.doc_id))),
+  ];
+  const bills = new Map(
+    (await openBills(prisma, { advanceIds: idsOf("sal_advance"), invoiceIds: idsOf("sal_invoice") }, null)).map((b) => [b.key, b.no])
+  );
   return rows.map((r) => ({
     id: r.id,
     txNo: r.tx_no,
@@ -837,11 +1002,12 @@ export async function listCashReceipts(): Promise<CashReceiptListRow[]> {
     settled: r.settled_amount.toNumber(),
     pph: r.pph_amount.toNumber(),
     lines: r.lines.length,
-    docs: r.lines.map((l) => bills.get(l.doc_id) ?? "?"),
+    docs: r.lines.map((l) => bills.get(billKey(l.doc_type.doc_table as SettledDocKind, l.doc_id)) ?? "?"),
   }));
 }
 
 export type CashReceiptLineView = {
+  kind: SettledDocKind;
   docId: number;
   settled: number;
   withhold: boolean;
@@ -873,7 +1039,7 @@ export async function getCashReceipt(id: number): Promise<CashReceiptView | null
       partner: true,
       cash_bank: true,
       journal: { select: { id: true, journal_no: true } },
-      lines: { include: { whts: true }, orderBy: { line_no: "asc" } },
+      lines: { include: { whts: true, doc_type: { select: { doc_table: true } } }, orderBy: { line_no: "asc" } },
     },
   });
   if (!t || t.direction !== "In") return null;
@@ -889,6 +1055,7 @@ export async function getCashReceipt(id: number): Promise<CashReceiptView | null
     cancelReason: t.cancel_reason,
     journal: t.journal ? { id: t.journal.id, journalNo: t.journal.journal_no } : null,
     lines: t.lines.map((l) => ({
+      kind: l.doc_type.doc_table as SettledDocKind,
       docId: l.doc_id,
       settled: l.settled_amount.toNumber(),
       withhold: l.withhold,

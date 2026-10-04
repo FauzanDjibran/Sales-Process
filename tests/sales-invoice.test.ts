@@ -6,11 +6,13 @@ import { createSalesOrder, transitionSalesOrder } from "../src/lib/erp/sales-ord
 import { createDeliveryOrder, transitionDeliveryOrder } from "../src/lib/erp/delivery-order";
 import { createDeliveryNote, transitionDeliveryNote } from "../src/lib/erp/delivery-note";
 import { createSalesAdvance, transitionSalesAdvance } from "../src/lib/erp/sales-advance";
-import { createCashReceipt, transitionCashReceipt } from "../src/lib/erp/cash-bank-tx";
+import { cashReceiptOptions, checkCashReceipt, createCashReceipt, transitionCashReceipt } from "../src/lib/erp/cash-bank-tx";
 import { setItemCost } from "../src/lib/erp/inventory";
 import {
   checkInvoice,
   createInvoice,
+  invoicePayStates,
+  settlementInvoices,
   deliveryNoteBilling,
   getInvoice,
   invoiceOptions,
@@ -20,7 +22,7 @@ import {
   type InvoiceDeductionInput,
   type InvoiceHeaderInput,
 } from "../src/lib/erp/sales-invoice";
-import { computeInvoice, invoiceLineAmount } from "../src/lib/erp/sales-tax";
+import { cashToClear, computeInvoice, invoiceLineAmount, settleBillFromCash } from "../src/lib/erp/sales-tax";
 import { availableInvoiceActions, invoiceAbilities } from "../src/lib/erp/sales-invoice-workflow";
 import {
   FIXTURE_PREFIX,
@@ -194,13 +196,22 @@ before(async () => {
   ids.adv.push(adv.id);
   await transitionSalesAdvance(adv.id, "issue", actor);
   const rc = await createCashReceipt(
-    { purpose: "sales_advance", tx_date: today, partner_id: f.customer, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_id: adv.id, cash: 333_000, withhold: false }] },
+    { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_id: adv.id, cash: 333_000, withhold: false }] },
     actor
   );
   assert.ok(rc.ok, JSON.stringify(rc));
   ids.rc.push(rc.id);
   assert.deepEqual(await transitionCashReceipt(rc.id, "post", actor), { ok: true });
   advanceItem = (await prisma.finArItem.findFirstOrThrow({ where: { customer_order_id: co.id, item_type: "Advance" } })).id;
+  // A second bill, issued and left unpaid, for the mixed receipt (§7.8).
+  const adv2 = await createSalesAdvance(
+    { order_id: co.id, advance_date: today, due_date: today, cash_bank_id: f.bank, description: "UM 2", note: "", amount_type: "Amount", amount_value: 100_000 },
+    actor
+  );
+  assert.ok(adv2.ok, JSON.stringify(adv2));
+  ids.adv.push(adv2.id);
+  f.bill2 = adv2.id;
+  await transitionSalesAdvance(adv2.id, "issue", actor);
 
   await setItemCost(f.a, "40000", actor);
   await setItemCost(f.b, "20000", actor);
@@ -440,3 +451,96 @@ describe("the order is finished when its delivery is; billing comes after (U21)"
     assert.equal((await deliveryNoteBilling(notes.secondLines))[notes.secondLines[0]].status, "Posted");
   });
 });
+
+// -------------------------------------------- paying it (§7.8, U23–U28)
+
+describe("Penerimaan dari Customer pays Fakturs and advance bills together", () => {
+  const receipt = (lines: { doc_type: "sal_advance" | "sal_invoice"; doc_id: number; cash: number; withhold: boolean }[]) => ({
+    purpose: "customer_receipt",
+    tx_date: today,
+    partner_id: f.customer,
+    cash_bank_id: f.bank,
+    bank_ref: "TRF",
+    note: "",
+    bank_charge: 0,
+    lines,
+  });
+  const inv = () => ({ first: ids.inv[0], second: ids.inv[ids.inv.length - 1] });
+
+  test("the form offers the customer's posted Fakturs beside its issued bills, each open by its Invoice item", async () => {
+    const o = await cashReceiptOptions();
+    const mine = o.bills.filter((b) => b.customerId === f.customer);
+    assert.ok(mine.some((b) => b.kind === "sal_advance" && b.id === f.bill2));
+    const first = mine.find((b) => b.kind === "sal_invoice" && b.id === inv().first)!;
+    assert.deepEqual([first.total, first.paid, first.open], [550_560, 0, 550_560]);
+    // PPh on the net DPP, after the Uang Muka (U24): 1,5 % × 329.557.
+    assert.deepEqual(first.withholdings.map((w) => [w.base, w.amount]), [[329_557, 4_943]]);
+    assert.deepEqual(o.purposes.map((p) => p.key), ["customer_receipt"]);
+  });
+
+  test("a part payment clears Piutang by cash + its PPh share, and records Pembayaran on the Invoice item", async () => {
+    const [bill] = await settlementInvoices({ ids: [inv().first] });
+    const expected = settleBillFromCash({ bill, before: 0, cash: 300_000, withhold: true });
+    const r = await createCashReceipt(receipt([{ doc_type: "sal_invoice", doc_id: inv().first, cash: 300_000, withhold: true }]), actor);
+    assert.ok(r.ok, JSON.stringify(r));
+    ids.rc.push(r.id);
+    assert.deepEqual(await transitionCashReceipt(r.id, "post", actor), { ok: true });
+    const t = await prisma.finCashBankTx.findUniqueOrThrow({ where: { id: r.id } });
+    const jl = await prisma.accJournalLine.findMany({ where: { journal_id: t.journal_id! }, orderBy: { sequence_no: "asc" } });
+    assert.deepEqual(
+      jl.map((l) => [l.account_id, l.partner_id, l.debit_amount.toNumber(), l.kredit_amount.toNumber()]),
+      [
+        [jl[0].account_id, null, 300_000, 0],
+        [f.pphAcc, null, expected.pph, 0],
+        [f.arAcc, f.customer, 0, expected.settled],
+      ]
+    );
+    const item = await prisma.finArItem.findUniqueOrThrow({ where: { id: bill.arItemId! }, include: { entries: { orderBy: { id: "asc" } } } });
+    assert.deepEqual(item.entries.map((e) => [e.event, e.movement.toNumber(), e.doc_no]), [
+      ["Create", 550_560, (await getInvoice(inv().first))!.invoiceNo],
+      ["Payment", -expected.settled, t.tx_no],
+    ]);
+    assert.equal(await prisma.finArItem.count({ where: { entries: { some: { event: "Create", doc_id: r.id, doc_type: { doc_table: "fin_cash_bank_tx" } } } } }), 0, "no AR item is created by paying a Faktur");
+    const state = (await invoicePayStates([inv().first]))[inv().first];
+    assert.deepEqual([state.state, state.open], ["Partial", 550_560 - expected.settled]);
+  });
+
+  test("one transfer clears both Fakturs and an advance bill, each posting by its kind", async () => {
+    const [a, b] = await settlementInvoices({ ids: [inv().first, inv().second] });
+    const open = async (id: number) => (await prisma.finArItem.findUniqueOrThrow({ where: { id } })).current_balance.toNumber();
+    const before = a.total - (await open(a.arItemId!));
+    const clearA = cashToClear(a, before, true);
+    const clearB = cashToClear(b, 0, true);
+    const r = await createCashReceipt(
+      receipt([
+        { doc_type: "sal_invoice", doc_id: a.id, cash: clearA, withhold: true },
+        { doc_type: "sal_invoice", doc_id: b.id, cash: clearB, withhold: true },
+        { doc_type: "sal_advance", doc_id: f.bill2, cash: 111_000, withhold: false },
+      ]),
+      actor
+    );
+    assert.ok(r.ok, JSON.stringify(r));
+    ids.rc.push(r.id);
+    assert.deepEqual(await transitionCashReceipt(r.id, "post", actor), { ok: true });
+    assert.deepEqual([await open(a.arItemId!), await open(b.arItemId!)], [0, 0]);
+    const states = await invoicePayStates([a.id, b.id]);
+    assert.deepEqual([states[a.id].state, states[b.id].state], ["Paid", "Paid"]);
+    const t = await prisma.finCashBankTx.findUniqueOrThrow({ where: { id: r.id } });
+    const jl = await prisma.accJournalLine.findMany({ where: { journal_id: t.journal_id! }, orderBy: { sequence_no: "asc" } });
+    const credit = (acc: number) => jl.filter((l) => l.account_id === acc).reduce((s, l) => s + l.kredit_amount.toNumber(), 0);
+    assert.equal(credit(f.arAcc), (a.total - before) + b.total, "Piutang cleared by all each Faktur still owed");
+    assert.deepEqual([credit(f.advAcc), credit(f.vatAcc)], [100_000, 11_000], "the bill posts as an advance");
+    const debit = jl.reduce((s, l) => s + l.debit_amount.toNumber(), 0);
+    assert.equal(debit, jl.reduce((s, l) => s + l.kredit_amount.toNumber(), 0));
+    const newAdvance = await prisma.finArItem.findFirst({ where: { item_type: "Advance", source_doc_id: f.bill2 } });
+    assert.equal(newAdvance?.current_balance.toNumber(), 100_000);
+  });
+
+  test("a Faktur paid in full is offered no more, and takes no overpayment", async () => {
+    const o = await cashReceiptOptions();
+    assert.ok(!o.bills.some((b) => b.kind === "sal_invoice" && b.customerId === f.customer));
+    const over = await checkCashReceipt(prisma, receipt([{ doc_type: "sal_invoice", doc_id: inv().first, cash: 1, withhold: true }]), null);
+    assert.ok(!over.ok && /Melebihi/.test(over.errors["lines.0.cash"]));
+  });
+});
+

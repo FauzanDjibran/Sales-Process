@@ -563,8 +563,8 @@ held is the AR item's job.
 One table for **every movement of money**, shown as two menus (Penerimaan
 `BKM/…`, Pengeluaran `BKK/…`). Its **tujuan** (purpose, a catalogue in code)
 decides which documents it settles and how it posts. Built today: **Penerimaan
-Uang Muka Penjualan** (`sales_advance`). One receipt may settle several bills of
-one customer.
+dari Customer** (`customer_receipt`, P98), which settles advance bills and
+Fakturs (§7.8). One receipt may settle several documents of one customer.
 
 ### 7.2 How the user builds it
 
@@ -647,7 +647,7 @@ amount. One row = one future Bukti Potong.
 | Expected Bukti Potong | Each PPh row of a posted receipt |
 | Checks | line settled = dpp_part + ppn_part; line pph = Σ its PPh rows; header settled / pph = Σ lines; cash_amount = settled − pph − bank_charge; a posted receipt has a journal, a Draft has none |
 
-### 7.8 Penerimaan dari Customer — paying invoices too  [Planned] (P83; U23–U28)
+### 7.8 Penerimaan dari Customer — paying invoices too  [Built] (P83, P98; U23–U28)
 
 The next step after the Faktur (§9, step 3). **One customer purpose settles
 every kind of open customer document** (P83): *Penerimaan Uang Muka
@@ -709,12 +709,12 @@ AR: *Pembayaran* 2.220.000 on the Invoice item; a new Uang Muka item of
 | U27 | **Purpose key and data:** the catalogue key becomes `customer_receipt`; a migration rewrites existing rows' `purpose`, so reports and the register read one purpose. The receipt line keeps its weak `(doc_type_id, doc_id)` pair, now `sal_advance` or `sal_invoice`. |
 | U28 | **Locks:** posting locks each advance bill (as today) and each Invoice item (`settleArItem` already locks and refuses an overdraw), so two receipts cannot both clear the same invoice. Drafts reserve nothing, as today. |
 
-**Open — to decide before building**
+**Decided 04/10/2026**
 
-| # | Question | Recommendation |
+| # | Question | Decision |
 | --- | --- | --- |
-| Q1 | PPh base on a Faktur | **Net DPP after the Uang Muka** (U24): the customer already withheld on the advance's DPP when paying it; withholding on the full DPP would take PPh twice |
-| Q2 | Menu name | Keep the menu *Penerimaan* under Finance › Kas & Bank; only the purpose is renamed |
+| Q1 | PPh base on a Faktur | **Decided:** net DPP after the Uang Muka (U24) |
+| Q2 | Menu name | **Decided:** the menu stays *Penerimaan*; only the purpose is renamed |
 
 ---
 
@@ -1199,11 +1199,11 @@ Muka, the receipt from its Terbentuk entry [Built] (P96).
 | Item | State |
 | --- | --- |
 | Revised AR item shape (`ar_item_no`, source = what it is about, `ref_*` dropped) | [Built] — U1, P96 |
-| Faktur Penjualan, Invoice items, Dipakai Invoice | [Built] — §9, P97. Pembayaran on an Invoice item comes with *Penerimaan dari Customer* |
+| Faktur Penjualan, Invoice items, Dipakai Invoice, Pembayaran | [Built] — §9, P97; §7.8, P98 |
 | Tax columns on `fin_ar_item` (U9) | [Built] — P96; `tax_invoice_no` has no entry screen yet |
 | Whether Coretax accepts one Faktur Pajak Uang Muka referenced by two Faktur Pelunasan (partial use) | To verify with a tax consultant |
 | A settlement PPN 1 rupiah off "full PPN − advance PPN" after odd partial receipts | Accepted: the chain on the net DPP wins (it is what the Faktur Pajak Pelunasan carries) |
-| *Penerimaan dari Customer* (bills and invoices in one receipt) | [Planned] — §7.8, U23–U28 |
+| *Penerimaan dari Customer* (bills and invoices in one receipt) | [Built] — §7.8, P98 |
 | Faktur Pajak Uang Muka and Bukti Potong as records | [Planned] Pajak menu; figures already stored |
 | Pengembalian Uang Muka (refund) | [Planned] Pengeluaran purpose |
 | Closing a bill / invoice remainder by its owner (write-off) | [Planned] with the close action |
