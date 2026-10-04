@@ -544,6 +544,12 @@ export type SettlementAdvance = {
   withholdings: { key: string; rate: number; base: number; amount: number }[];
 };
 
+/** Every issued bill's total, ids only — so a receipt can find the unpaid ones before reading any in full. */
+export async function issuedAdvanceTotals(db: Db = prisma): Promise<{ id: number; total: number }[]> {
+  const rows = await db.salAdvance.findMany({ where: { status: "Issued" }, select: { id: true, total_amount: true } });
+  return rows.map((r) => ({ id: r.id, total: r.total_amount.toNumber() }));
+}
+
 export async function settlementAdvances(
   filter: { ids?: number[]; issuedOnly?: boolean },
   db: Db = prisma

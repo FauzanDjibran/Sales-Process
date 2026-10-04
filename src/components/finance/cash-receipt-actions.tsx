@@ -160,7 +160,7 @@ export function CashReceiptActions({
                 <tbody>
                   {preview.map((l, i) => (
                     <tr key={i}>
-                      <td>
+                      <td className="wrapok">
                         <span className="dstack">
                           <span className="d1">
                             <span className="lab">{l.accountNo}</span> {l.accountName}

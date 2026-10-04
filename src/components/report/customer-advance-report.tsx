@@ -38,7 +38,8 @@ export function CustomerAdvanceReport({
       </div>
     );
   }
-  const partners = [...new Map(rows.map((r) => [r.partnerId, r])).values()];
+  // One group per customer, in label order — not in the order their first item happens to be read.
+  const partners = [...new Map(rows.map((r) => [r.partnerId, r])).values()].sort((a, b) => a.partnerLabel.localeCompare(b.partnerLabel));
   const grand = rows.reduce((a, r) => a + r.open, 0);
   const glGrand = gl.ok ? partners.reduce((a, p) => a + (gl.byPartner[p.partnerId] ?? 0), 0) : 0;
 

@@ -252,7 +252,7 @@ export function InvoiceAdvancePicker({
                     <td>
                       <span className="lab">{a.sourceNo}</span> <span className="mut">· {a.createdByNo}</span>
                     </td>
-                    <td>{a.taxInvoiceNo ? <span className="mono">{a.taxInvoiceNo}</span> : <span className="dash">belum diisi</span>}</td>
+                    <td>{a.taxInvoiceNo ? <span className="mono">{a.taxInvoiceNo}</span> : <span className="dash">{a.taxPpn ? "belum diisi" : "tidak kena PPN"}</span>}</td>
                     <td className="num">
                       <span className="mny">{money(a.balance)}</span>
                     </td>

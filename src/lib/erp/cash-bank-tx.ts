@@ -7,10 +7,10 @@ import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate } from "./fiscal";
 import { postJournal, type JournalLineInput } from "./journal";
 import { recordCashBankEntry } from "./cash-bank";
-import { ArItemOverdrawn, arItemBalances, createArItem, lockArItems, settleArItem } from "./ar-item";
+import { ArItemOverdrawn, arItemBalances, createArItem, lockArItems, openInvoiceItemIds, settleArItem } from "./ar-item";
 import { checkAccountIsLeaf } from "./records";
-import { lockSalesAdvances, settlementAdvances } from "./sales-advance";
-import { settlementInvoices } from "./sales-invoice";
+import { issuedAdvanceTotals, lockSalesAdvances, salesAdvanceNumbersByIds, settlementAdvances } from "./sales-advance";
+import { invoiceNumbersByIds, settlementInvoices } from "./sales-invoice";
 import {
   cashToClear,
   ppnChain,
@@ -212,6 +212,13 @@ export type OpenBill = {
 };
 
 
+/** Issued advance bills that posted receipts (other than `exceptTx`) have not paid in full. */
+async function unpaidAdvanceIds(db: Db, exceptTx: number | null): Promise<number[]> {
+  const totals = await issuedAdvanceTotals(db);
+  const paid = await settledByDocuments("sal_advance", totals.map((t) => t.id), db, exceptTx);
+  return totals.filter((t) => (paid.get(t.id) ?? 0) < t.total).map((t) => t.id);
+}
+
 async function openBills(
   db: Db,
   filter: { advanceIds?: number[]; invoiceIds?: number[]; openOnly?: boolean },
@@ -220,8 +227,18 @@ async function openBills(
   const wantAdvances = filter.openOnly || (filter.advanceIds?.length ?? 0) > 0;
   const wantInvoices = filter.openOnly || (filter.invoiceIds?.length ?? 0) > 0;
   const [advances, invoices] = await Promise.all([
-    wantAdvances ? settlementAdvances(filter.openOnly ? { issuedOnly: true } : { ids: filter.advanceIds }, db) : Promise.resolve([]),
-    wantInvoices ? settlementInvoices(filter.openOnly ? { postedOnly: true } : { ids: filter.invoiceIds }, db) : Promise.resolve([]),
+    // Only bills not yet paid in full, found from totals and the receipt lines before any is read whole.
+    wantAdvances
+      ? filter.openOnly
+        ? unpaidAdvanceIds(db, exceptTx).then((ids) => settlementAdvances({ ids }, db))
+        : settlementAdvances({ ids: filter.advanceIds }, db)
+      : Promise.resolve([]),
+    // Only Invoices whose item still has a balance: a paid one is never offered, so it is never read.
+    wantInvoices
+      ? filter.openOnly
+        ? openInvoiceItemIds(db).then((arItemIds) => settlementInvoices({ postedOnly: true, arItemIds }, db))
+        : settlementInvoices({ ids: filter.invoiceIds }, db)
+      : Promise.resolve([]),
   ]);
   const paid = await settledByDocuments("sal_advance", advances.map((b) => b.id), db, exceptTx);
   // An Invoice's open amount is its Invoice item's balance — the book (U23).
@@ -992,9 +1009,12 @@ export async function listCashReceipts(): Promise<CashReceiptListRow[]> {
   const idsOf = (kind: SettledDocKind) => [
     ...new Set(rows.flatMap((r) => r.lines.filter((l) => l.doc_type.doc_table === kind).map((l) => l.doc_id))),
   ];
-  const bills = new Map(
-    (await openBills(prisma, { advanceIds: idsOf("sal_advance"), invoiceIds: idsOf("sal_invoice") }, null)).map((b) => [b.key, b.no])
-  );
+  // Numbers only: the list shows which documents a receipt settled, not their standing.
+  const [advanceNos, invoiceNos] = await Promise.all([salesAdvanceNumbersByIds(idsOf("sal_advance")), invoiceNumbersByIds(idsOf("sal_invoice"))]);
+  const bills = new Map([
+    ...[...advanceNos].map(([id, no]) => [billKey("sal_advance", id), no] as const),
+    ...[...invoiceNos].map(([id, no]) => [billKey("sal_invoice", id), no] as const),
+  ]);
   return rows.map((r) => ({
     id: r.id,
     txNo: r.tx_no,

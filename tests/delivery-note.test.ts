@@ -366,7 +366,16 @@ describe("orders close themselves once fully delivered (U14)", () => {
       [dOrder.status, dOrder.status_reason, sOrder.status, sOrder.status_reason, cOrder.status, cOrder.status_reason],
       ["Closed", null, "Closed", null, "Closed", null]
     );
-    const events = await prisma.auditLog.findMany({ where: { entity_key: { in: ["sal_delivery_order", "sal_order"] }, row_id: { in: [order.doId, order.soId] }, event: "fulfil" } });
+    // Each table with its own id: across two tables an id alone can belong to another record.
+    const events = await prisma.auditLog.findMany({
+      where: {
+        event: "fulfil",
+        OR: [
+          { entity_key: "sal_delivery_order", row_id: order.doId },
+          { entity_key: "sal_order", row_id: order.soId },
+        ],
+      },
+    });
     assert.equal(events.length, 2);
     assert.ok(!(await deliveryNoteOptions()).orders.some((o) => o.id === order.doId), "a closed order takes no new note");
   });

@@ -360,13 +360,14 @@ export function DeliveryNoteForm({
           const expiry = p.expiry ?? names.get(p.lotId)?.expiry ?? null;
           return (
             <span key={p.lotId} className="dstack">
-              <span className="d1">
-                <span className="lab">{p.lotNo}</span>{" "}
-                <span className="mny">
-                  {qtyText(p.qty)} {d.uomLabel}
-                </span>
+              <span className="lab" title={p.lotNo}>
+                {p.lotNo}
               </span>
-              {expiry && <span className="d2">ED {formatDate(expiry)}</span>}
+              {/* The quantity goes under the lot, so a long lot number never hides it. */}
+              <span className="d2">
+                {qtyText(p.qty)} {d.uomLabel}
+                {expiry ? ` · ED ${formatDate(expiry)}` : ""}
+              </span>
             </span>
           );
         })}
@@ -416,14 +417,14 @@ export function DeliveryNoteForm({
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: posted ? (billing ? 1100 : 980) : 900 }}>
+          <table className="grid ltab" style={{ minWidth: posted ? (billing ? 1000 : 900) : 900 }}>
             <thead>
               <tr>
                 <th style={{ width: 40 }}>No</th>
-                <th style={{ width: 150 }}>Sales Order</th>
+                <th style={{ width: 130 }}>Sales Order</th>
                 <th>Barang</th>
                 <th style={{ width: editing ? 220 : 110 }}>Qty</th>
-                <th style={{ width: editing ? 170 : 180 }}>Lot</th>
+                <th style={{ width: editing ? 170 : 190 }}>Lot</th>
                 {posted && (
                   <>
                     <th className="num" style={{ width: 120 }}>
@@ -432,7 +433,7 @@ export function DeliveryNoteForm({
                     <th className="num" style={{ width: 130 }}>
                       HPP
                     </th>
-                    {billing && <th style={{ width: 150 }}>Ditagih</th>}
+                    {billing && <th style={{ width: 140 }}>Ditagih</th>}
                   </>
                 )}
                 {editing && <th style={{ width: 40 }} />}

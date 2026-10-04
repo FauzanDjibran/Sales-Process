@@ -9,11 +9,13 @@
  * What it creates, taken from `Initialization/actual-simulation-v2.html`:
  *   Gudang (Satuan, Termin and currencies come from the system seed, P62)
  *   the accounts the sales flow posts to, under the seeded chart skeleton
- *   Account Mapping (Selisih Kurs, Laba/Rugi) and the Jenis PPh accounts
+ *   Account Mapping (Selisih Kurs, Laba/Rugi, Uang Muka, PPN, Beban Bank,
+ *   HPP, Persediaan, Piutang Usaha, Penjualan) and the Jenis PPh accounts
  *   two rupiah bank accounts (Cash & Bank, each with its book)
  *   the current calendar year as an Open Fiscal Year with its twelve periods
  *   the simulation's customers, with tax identity, addresses and contacts
  *   the simulation's finished goods, with their box conversions
+ *   a Harga Pokok (Sementara) per item and two lots per item per warehouse
  *
  * Not created: opening balances (they start empty, P27), documents, and the
  * perizinan services (set aside).
@@ -87,6 +89,10 @@ const MAPPINGS: [setting: string, account: string][] = [
   ["sales_advance_account", "advance"],
   ["output_vat_account", "vat"],
   ["bank_charge_account", "bankFee"],
+  ["cogs_account", "cogs"],
+  ["inventory_account", "inventory"],
+  ["receivable_account", "ar"],
+  ["sales_revenue_account", "sales"],
 ];
 
 /** Jenis PPh label → its PPh Dibayar Dimuka account (only when unset). */
@@ -223,6 +229,17 @@ const ITEMS: [label: string, name: string, base: string, conversions: [string, n
   ["FG-007", "Body Lotion Brightening 200 ml", "PCS", [["BOX", 12]]],
   ["FG-008", "Paket Perawatan Kulit Klinik (1 set)", "SET", []],
 ];
+
+/**
+ * The stand-in inventory (P94, P95): a Harga Pokok (Sementara) per item, per
+ * base unit, and two lots per item in each warehouse, so a Delivery Note can
+ * be picked and posted straight away.
+ */
+const ITEM_COSTS: Record<string, number> = {
+  "FG-001": 38_000, "FG-002": 42_000, "FG-003": 18_500, "FG-004": 9_000,
+  "FG-005": 27_500, "FG-006": 51_000, "FG-007": 31_000, "FG-008": 240_000,
+};
+const LOTS: [suffix: string, monthsToExpiry: number][] = [["A", 14], ["B", 26]];
 
 // ---------------------------------------------------------------- helpers
 
@@ -490,6 +507,32 @@ async function main() {
     });
     await audit("m_item", row.id);
     tally("items");
+  }
+
+  // ---- the stand-in inventory: Harga Pokok (Sementara) and lots
+  const warehouses = await prisma.refWarehouse.findMany({ where: { warehouse_label: { in: WAREHOUSES.map(([l]) => l) } }, orderBy: { id: "asc" } });
+  const now = new Date();
+  for (const [label, cost] of Object.entries(ITEM_COSTS)) {
+    const item = await prisma.mItem.findFirst({ where: { item_label: label } });
+    if (!item) continue;
+    if (!(await prisma.tmpItemCost.findFirst({ where: { item_id: item.id } }))) {
+      const row = await prisma.tmpItemCost.create({ data: { item_id: item.id, unit_cost: cost, created_by: actor } });
+      await audit("tmp_item_cost", row.id);
+      tally("harga pokok (sementara)");
+    }
+    if (!item.track_stock) continue;
+    for (const w of warehouses) {
+      for (const [suffix, months] of LOTS) {
+        const lotNo = `${label}-${w.warehouse_label}-${now.getUTCFullYear()}${suffix}`;
+        if (await prisma.tmpStockLot.findFirst({ where: { item_id: item.id, warehouse_id: w.id, lot_no: lotNo } })) continue;
+        const expiry = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + months, 1));
+        const row = await prisma.tmpStockLot.create({
+          data: { item_id: item.id, warehouse_id: w.id, lot_no: lotNo, expiry_date: item.has_expiry ? expiry : null, created_by: actor },
+        });
+        await audit("tmp_stock_lot", row.id);
+        tally("lot (sementara)");
+      }
+    }
   }
 
   // ---- report

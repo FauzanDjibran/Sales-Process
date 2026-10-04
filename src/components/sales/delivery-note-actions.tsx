@@ -200,7 +200,7 @@ export function DeliveryNoteActions({
                 <tbody>
                   {journal.map((l, i) => (
                     <tr key={i}>
-                      <td>
+                      <td className="wrapok">
                         <span className="dstack">
                           <span className="d1">
                             {l.account ? (

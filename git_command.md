@@ -87,7 +87,7 @@ node --env-file-if-exists=.env --conditions=react-server --import tsx --test tes
 | `npm run db:tax-backfill` | Makes the Faktur Pajak and Bukti Potong of receipts and Invoices posted before the Pajak menu existed (P100). Idempotent | ✅ Safe |
 | `npx prisma generate` | Rebuilds the database client code. `npm run build` does it for you; run it by hand only if an error mentions `@/generated/prisma` or *"Cannot read properties of undefined (reading 'findMany')"* | ✅ Safe |
 | `npx prisma studio` | Opens a browser table viewer of the database (<http://localhost:5555>) | ✅ Look only; edits there skip the app's rules and audit |
-| `npm run db:truncate-transactions` | Shows what it would delete; add `-- --confirm` to really delete. Empties **journals, the Cash Bank Book, Penerimaan Kas & Bank, AR items with Buku Piutang, Sales Orders, Customer Orders and Uang Muka Penjualan bills** (and their audit rows), keeping all master data (partners, items, references), the chart of accounts, the fiscal calendar and the settings. Cash & Bank opening balances are lost; document numbers restart at 0001 | ⚠️ Deletes transactions |
+| `npm run db:truncate-transactions` | Shows what it would delete; add `-- --confirm` to really delete. Empties **journals, the Cash Bank Book, Penerimaan Kas & Bank, AR items with Buku Piutang, Faktur Pajak and Bukti Potong, Invoices, Delivery Notes (and the stand-in stock log), Delivery Orders, Sales Orders, Customer Orders and Uang Muka Penjualan bills** (and their audit rows), keeping all master data (partners, items, references), the chart of accounts, the fiscal calendar and the settings. Cash & Bank opening balances are lost; document numbers restart at 0001 | ⚠️ Deletes transactions |
 | `npm run db:reset` | **Drops the whole database**, re-applies every migration, then runs `db:seed`. You get system data only (admin, regions, settings…) and nothing you entered | ⛔ Destroys all data |
 | `npm run db:fresh` | `db:reset` **plus** `db:seed-showcase`: a clean database already filled with the demo data. The quickest way to start testing from zero | ⛔ Destroys all data |
 | `npx prisma migrate dev --name <name>` | Creates a **new** migration from a schema change. Developer command; Claude runs it, you normally never do | ⚠️ Can offer to reset in some states |
@@ -120,12 +120,13 @@ paste the whole snippet into `.env.neon`, and add a line
 | --- | --- |
 | Master › Entitas | Gudang GD-CKR, GD-SBY (Satuan, Termin and Currency already come from `db:seed`) |
 | Chart of Accounts | 18 postable accounts under the seeded skeleton: Bank BCA / Mandiri, Piutang Usaha, Persediaan, PPh 22 / 23 Dibayar Dimuka, PPN Keluaran, Uang Muka Penjualan, Modal, Laba/Rugi (both), Penjualan, Retur, Pendapatan Lain-lain, Selisih Kurs, HPP, Beban Bank, Beban Umum |
-| Account Mapping | Selisih Kurs, both Laba/Rugi accounts, and the receipt's Uang Muka Penjualan, PPN Keluaran and Beban Bank (only where still empty) |
+| Account Mapping | Selisih Kurs, both Laba/Rugi accounts, the receipt's Uang Muka Penjualan, PPN Keluaran and Beban Bank, the Delivery Note's HPP and Persediaan, and the Invoice's Piutang Usaha and Penjualan (only where still empty) |
 | Jenis PPh | PPh Dibayar Dimuka accounts on PPH22, PPH23, PPH23-15 (only where still empty) |
 | Cash & Bank | BCA and MANDIRI, rupiah, with their book at zero |
 | Fiscal Year | The current year, Open, with 12 periods |
 | Partner | The simulation's 10 customers: tax identity, sales defaults, addresses on real kelurahan, contacts (PT Dermaskin inactive) |
 | Item | The simulation's 8 finished goods, with their BOX conversions |
+| Master › Sementara | A Harga Pokok (Sementara) per item and two lots per item in each Gudang, so a Delivery Note can be picked and posted straight away |
 
 Not created: opening balances, Customer Orders or other documents, and the
 perizinan services.

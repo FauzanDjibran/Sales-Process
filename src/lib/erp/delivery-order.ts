@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 import { formatNumber } from "@/lib/format";
-import { lockCustomerOrder } from "./customer-order";
+import { customerOrderNumbersByIds, lockCustomerOrder } from "./customer-order";
 import {
   deliveryOrderSources,
   recordSalesOrderDelivery,
@@ -142,13 +142,10 @@ async function sourceOptions(
 export async function deliveryOrderOptions(
   current: { id: number; customerOrderId: number; lineIds: number[]; warehouseId: number | null } | null = null
 ): Promise<DeliveryOrderOptions> {
-  const orders = await sourceOptions(prisma, { openOnly: true }, current?.id ?? null);
-  if (current) {
-    const own = await sourceOptions(prisma, { ids: [current.customerOrderId], withLineIds: current.lineIds }, current.id);
-    const at = orders.findIndex((o) => o.id === current.customerOrderId);
-    if (at >= 0) orders[at] = own[0];
-    else orders.push(...own);
-  }
+  // A saved Delivery Order's Customer Order is locked: its page needs only that one.
+  const orders = current
+    ? await sourceOptions(prisma, { ids: [current.customerOrderId], withLineIds: current.lineIds }, current.id)
+    : await sourceOptions(prisma, { openOnly: true }, null);
   const warehouses = await prisma.refWarehouse.findMany({
     where: { OR: [{ status: "Active" }, ...(current?.warehouseId ? [{ id: current.warehouseId }] : [])] },
     orderBy: { warehouse_label: "asc" },
@@ -513,9 +510,8 @@ export async function listDeliveryOrders(): Promise<DeliveryOrderListRow[]> {
     orderBy: [{ do_date: "desc" }, { id: "desc" }],
     include: { customer: true, warehouse: true, _count: { select: { lines: true } } },
   });
-  const sources = new Map(
-    (await deliveryOrderSources({ ids: [...new Set(rows.map((r) => r.customer_order_id))] })).map((s) => [s.id, s])
-  );
+  // Numbers only: a list shows which Customer Order, not the order itself.
+  const orderNos = await customerOrderNumbersByIds([...new Set(rows.map((r) => r.customer_order_id))]);
   return rows.map((r) => ({
     id: r.id,
     doNo: r.do_no,
@@ -523,7 +519,7 @@ export async function listDeliveryOrders(): Promise<DeliveryOrderListRow[]> {
     deliveryDate: isoDay(r.delivery_date),
     status: r.status as DeliveryOrderStatus,
     customerOrderId: r.customer_order_id,
-    customerOrderNo: sources.get(r.customer_order_id)?.orderNo ?? "",
+    customerOrderNo: orderNos.get(r.customer_order_id) ?? "",
     customerLabel: r.customer.partner_label,
     customerName: r.customer.partner_name,
     warehouseLabel: r.warehouse.warehouse_label,

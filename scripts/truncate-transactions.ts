@@ -12,11 +12,16 @@
  * are untouched.
  *
  * WHAT IT DELETES
+ *   tax_faktur(_line, _ref), tax_withholding_slip  Faktur Pajak and Bukti Potong
  *   fin_ar_ledger, fin_ar_item                     Buku Piutang and its AR items
  *   fin_cash_bank_tx(_line, _line_wht)             Penerimaan / Pengeluaran Kas & Bank
+ *   sal_invoice(_line, _advance_deduction)         Invoice Penjualan
+ *   sal_delivery_note(_line, _pick)                Delivery Notes
+ *   tmp_stock_movement                             the stand-in inventory's issue log
  *   acc_journal_line, acc_journal                  the books' journals
  *   cash_bank_ledger                               the Cash Bank Book
  *   sal_advance                                    Uang Muka Penjualan bills
+ *   sal_delivery_order_line, sal_delivery_order    Delivery Orders
  *   sal_order_line, sal_order                      Sales Orders
  *   sal_customer_order_line, sal_customer_order    Customer Orders
  *   audit_log rows belonging to those documents
@@ -24,6 +29,7 @@
  * WHAT IT KEEPS
  *   every sys_* table and every ref_* master (currency, satuan, termin, gudang,
  *   Jenis PPh), m_partner with its addresses and contacts, m_item, m_cash_bank,
+ *   the stand-in Harga Pokok and lot list (tmp_item_cost, tmp_stock_lot),
  *   the whole chart of accounts, acc_fiscal_year / acc_fiscal_period, the
  *   settings (System Default, Account Mapping), and the master records' own
  *   audit history.
@@ -69,21 +75,45 @@ import "dotenv/config";
 import { prisma } from "@/lib/prisma";
 
 /** Audit rows follow the documents they describe; master history stays. */
-const DOCUMENT_ENTITY_KEYS = ["acc_journal", "sal_order", "sal_customer_order", "sal_advance", "fin_cash_bank_tx"];
+const DOCUMENT_ENTITY_KEYS = [
+  "acc_journal",
+  "sal_customer_order",
+  "sal_order",
+  "sal_delivery_order",
+  "sal_delivery_note",
+  "sal_invoice",
+  "sal_advance",
+  "fin_cash_bank_tx",
+  "tax_faktur",
+  "tax_withholding_slip",
+];
 
 async function main() {
   const confirmed = process.argv.includes("--confirm");
 
   const counts = {
+    tax_faktur_ref: await prisma.taxFakturRef.count(),
+    tax_faktur_line: await prisma.taxFakturLine.count(),
+    tax_faktur: await prisma.taxFaktur.count(),
+    tax_withholding_slip: await prisma.taxWithholdingSlip.count(),
     fin_ar_ledger: await prisma.finArLedger.count(),
     fin_ar_item: await prisma.finArItem.count(),
     fin_cash_bank_tx_line_wht: await prisma.finCashBankTxLineWht.count(),
     fin_cash_bank_tx_line: await prisma.finCashBankTxLine.count(),
     fin_cash_bank_tx: await prisma.finCashBankTx.count(),
+    sal_invoice_advance_deduction: await prisma.salInvoiceAdvanceDeduction.count(),
+    sal_invoice_line: await prisma.salInvoiceLine.count(),
+    sal_invoice: await prisma.salInvoice.count(),
+    sal_delivery_note_pick: await prisma.salDeliveryNotePick.count(),
+    sal_delivery_note_line: await prisma.salDeliveryNoteLine.count(),
+    sal_delivery_note: await prisma.salDeliveryNote.count(),
+    tmp_stock_movement: await prisma.tmpStockMovement.count(),
     acc_journal_line: await prisma.accJournalLine.count(),
     acc_journal: await prisma.accJournal.count(),
     cash_bank_ledger: await prisma.cashBankLedger.count(),
     sal_advance: await prisma.salAdvance.count(),
+    sal_delivery_order_line: await prisma.salDeliveryOrderLine.count(),
+    sal_delivery_order: await prisma.salDeliveryOrder.count(),
     sal_order_line: await prisma.salOrderLine.count(),
     sal_order: await prisma.salOrder.count(),
     sal_customer_order_line: await prisma.salCustomerOrderLine.count(),
@@ -119,7 +149,13 @@ async function main() {
   }
 
   await prisma.$transaction(async (tx) => {
-    // Buku Piutang and its AR items first: they record what the receipts and
+    // The tax documents first: they only describe the postings below.
+    await tx.taxFakturRef.deleteMany();
+    await tx.taxFakturLine.deleteMany();
+    await tx.taxFaktur.deleteMany();
+    await tx.taxWithholdingSlip.deleteMany();
+
+    // Buku Piutang and its AR items next: they record what the receipts and
     // invoices below created.
     await tx.finArLedger.deleteMany();
     await tx.finArItem.deleteMany();
@@ -127,6 +163,16 @@ async function main() {
     // Receipts next: each names the journal it posted. Their lines and PPh
     // rows cascade.
     await tx.finCashBankTx.deleteMany();
+
+    // Invoices and Delivery Notes name their journals, so they go before them;
+    // the stand-in inventory's issue log goes with the notes that wrote it.
+    await tx.salInvoiceAdvanceDeduction.deleteMany();
+    await tx.salInvoiceLine.deleteMany();
+    await tx.salInvoice.deleteMany();
+    await tx.salDeliveryNotePick.deleteMany();
+    await tx.salDeliveryNoteLine.deleteMany();
+    await tx.salDeliveryNote.deleteMany();
+    await tx.tmpStockMovement.deleteMany();
 
     // Order follows the foreign keys: lines before their documents.
     await tx.accJournalLine.deleteMany();
@@ -137,6 +183,8 @@ async function main() {
     // Sales documents, children before what they name: an advance bill and a
     // Sales Order name their Customer Order, a line its order.
     await tx.salAdvance.deleteMany();
+    await tx.salDeliveryOrderLine.deleteMany();
+    await tx.salDeliveryOrder.deleteMany();
     await tx.salOrderLine.deleteMany();
     await tx.salOrder.deleteMany();
     await tx.salCustomerOrderLine.deleteMany();

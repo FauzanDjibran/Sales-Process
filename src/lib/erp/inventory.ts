@@ -115,30 +115,32 @@ export async function lotTrackedItems(itemIds: number[], db: Db = prisma): Promi
 export type LotOption = { id: number; lotNo: string; expiry: string | null; active: boolean };
 
 /**
- * The lots a picker may choose for each item in one warehouse, earliest expiry
+ * The lots a picker may choose for each item, per warehouse, earliest expiry
  * first (FEFO), a lot without expiry last. `withIds` also brings in lots a
  * stored document already names, whatever their status, so it keeps reading.
  */
 export async function lotOptions(
   itemIds: number[],
-  warehouseId: number,
+  warehouseIds: number[],
   db: Db = prisma,
   withIds: number[] = []
-): Promise<Map<number, LotOption[]>> {
-  const out = new Map<number, LotOption[]>();
-  if (!itemIds.length) return out;
+): Promise<Map<number, Map<number, LotOption[]>>> {
+  const out = new Map<number, Map<number, LotOption[]>>();
+  if (!itemIds.length || !warehouseIds.length) return out;
   const rows = await db.tmpStockLot.findMany({
     where: {
       item_id: { in: itemIds },
-      warehouse_id: warehouseId,
+      warehouse_id: { in: warehouseIds },
       OR: [{ status: "Active" }, ...(withIds.length ? [{ id: { in: withIds } }] : [])],
     },
     orderBy: [{ expiry_date: { sort: "asc", nulls: "last" } }, { lot_no: "asc" }],
   });
   for (const r of rows) {
-    const list = out.get(r.item_id) ?? [];
+    const byItem = out.get(r.warehouse_id) ?? new Map<number, LotOption[]>();
+    const list = byItem.get(r.item_id) ?? [];
     list.push({ id: r.id, lotNo: r.lot_no, expiry: r.expiry_date ? r.expiry_date.toISOString().slice(0, 10) : null, active: r.status === "Active" });
-    out.set(r.item_id, list);
+    byItem.set(r.item_id, list);
+    out.set(r.warehouse_id, byItem);
   }
   return out;
 }

@@ -7,8 +7,9 @@ import { formatNumber } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate } from "./fiscal";
 import { journalNumbersByIds, postJournal } from "./journal";
-import { lockCustomerOrder } from "./customer-order";
+import { customerOrderNumbersByIds, lockCustomerOrder } from "./customer-order";
 import {
+  deliveryOrderNumbersByIds,
   deliveryNoteSources,
   recordDeliveryOrderDelivery,
   type DeliveryNoteSource,
@@ -131,10 +132,17 @@ async function sourceOptions(
   const sources = await deliveryNoteSources(filter, db);
   const held = await heldByLines(db, sources.flatMap((s) => s.lines.map((l) => l.id)), exceptId);
   const tracked = await lotTrackedItems([...new Set(sources.flatMap((s) => s.lines.map((l) => l.itemId)))], db);
+  // Every source's lots in one read, keyed by warehouse, instead of one per source.
+  const lotsByWarehouse = await lotOptions(
+    [...new Set(sources.flatMap((s) => s.lines.map((l) => l.itemId)).filter((id) => tracked.has(id)))],
+    [...new Set(sources.map((s) => s.warehouseId))],
+    db,
+    withLotIds
+  );
   const out: DnSourceOption[] = [];
   for (const s of sources) {
-    const lotItems = [...new Set(s.lines.map((l) => l.itemId).filter((id) => tracked.has(id)))];
-    const lots = await lotOptions(lotItems, s.warehouseId, db, withLotIds);
+    const lotItems = new Set(s.lines.map((l) => l.itemId).filter((id) => tracked.has(id)));
+    const lots = new Map([...(lotsByWarehouse.get(s.warehouseId) ?? new Map<number, LotOption[]>()).entries()].filter(([item]) => lotItems.has(item)));
     out.push({
       ...s,
       lines: s.lines.map((l) => ({ ...l, held: held.get(l.id) ?? 0, lotTracked: tracked.has(l.itemId) })),
@@ -153,10 +161,9 @@ async function sourceOptions(
 export async function deliveryNoteOptions(
   current: { id: number; deliveryOrderId: number; lotIds?: number[] } | null = null
 ): Promise<DeliveryNoteOptions> {
-  const issued = (await sourceOptions(prisma, { issuedOnly: true }, current?.id ?? null)).filter(
-    (o) => o.id !== current?.deliveryOrderId && o.lines.some((l) => units(l.qty) > units(l.held))
-  );
-  if (current) issued.push(...(await sourceOptions(prisma, { ids: [current.deliveryOrderId] }, current.id, current.lotIds ?? [])));
+  // A saved note's Delivery Order is locked: its page needs only that one.
+  if (current) return { orders: await sourceOptions(prisma, { ids: [current.deliveryOrderId] }, current.id, current.lotIds ?? []) };
+  const issued = (await sourceOptions(prisma, { issuedOnly: true }, null)).filter((o) => o.lines.some((l) => units(l.qty) > units(l.held)));
   return { orders: issued };
 }
 
@@ -721,17 +728,19 @@ export async function listDeliveryNotes(): Promise<DeliveryNoteListRow[]> {
     orderBy: [{ dn_date: "desc" }, { id: "desc" }],
     include: { customer: true, warehouse: true, _count: { select: { lines: true } } },
   });
-  const sources = new Map(
-    (await deliveryNoteSources({ ids: [...new Set(rows.map((r) => r.delivery_order_id))] })).map((s) => [s.id, s])
-  );
+  // Numbers only: a list shows which orders, not the orders themselves.
+  const [doNos, orderNos] = await Promise.all([
+    deliveryOrderNumbersByIds([...new Set(rows.map((r) => r.delivery_order_id))]),
+    customerOrderNumbersByIds([...new Set(rows.map((r) => r.customer_order_id))]),
+  ]);
   return rows.map((r) => ({
     id: r.id,
     dnNo: r.dn_no,
     dnDate: isoDay(r.dn_date),
     status: r.status as DeliveryNoteStatus,
     deliveryOrderId: r.delivery_order_id,
-    deliveryOrderNo: sources.get(r.delivery_order_id)?.doNo ?? "",
-    customerOrderNo: sources.get(r.delivery_order_id)?.customerOrderNo ?? "",
+    deliveryOrderNo: doNos.get(r.delivery_order_id) ?? "",
+    customerOrderNo: orderNos.get(r.customer_order_id) ?? "",
     customerLabel: r.customer.partner_label,
     customerName: r.customer.partner_name,
     warehouseLabel: r.warehouse.warehouse_label,
@@ -849,6 +858,19 @@ export type InvoiceSourceLine = {
  * Lines of posted notes — of the orders named, or every order — or the lines
  * named, whatever their note's status, for a stored Invoice.
  */
+/**
+ * Every posted note line, as ids only, with its Customer Order — cheap enough
+ * to read whole, so the Invoice form can find the orders that still have
+ * something to bill before it loads any order in full.
+ */
+export async function postedNoteLineIds(db: Db = prisma): Promise<{ id: number; customerOrderId: number }[]> {
+  const rows = await db.salDeliveryNoteLine.findMany({
+    where: { delivery_note: { status: "Posted" } },
+    select: { id: true, delivery_note: { select: { customer_order_id: true } } },
+  });
+  return rows.map((r) => ({ id: r.id, customerOrderId: r.delivery_note.customer_order_id }));
+}
+
 export async function invoiceSourceLines(
   filter: { customerOrderIds?: number[]; lineIds?: number[] },
   db: Db = prisma

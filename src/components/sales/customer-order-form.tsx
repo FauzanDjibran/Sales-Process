@@ -310,9 +310,7 @@ export function CustomerOrderForm({
         customer.isPkp ? "PKP" : "Non-PKP",
         customer.vatCollector ? "Pemungut PPN" : null,
         customer.collectsPph22 ? "Pemungut PPh 22" : null,
-      ]
-        .filter(Boolean)
-        .join(" · ")
+      ].filter((x): x is string => Boolean(x))
     : null;
 
   const headerCard = (
@@ -348,7 +346,18 @@ export function CustomerOrderForm({
               {customer?.taxId ? ro(<span className="mono">{formatTaxId(customer.taxId)}</span>) : nil("menunggu Customer")}
             </Field>
             <Field label="Status Pajak" span={3}>
-              {taxStatus ? ro(<span className="bdg t-slate">{taxStatus}</span>) : nil("menunggu Customer")}
+              {/* One badge each, free to wrap, so three statuses never run out of a 3-column field. */}
+              {taxStatus ? (
+                <div className="ro" style={{ flexWrap: "wrap", rowGap: 4 }}>
+                  {taxStatus.map((t) => (
+                    <span key={t} className="bdg t-slate">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                nil("menunggu Customer")
+              )}
             </Field>
             {editing && customer && customer.problems.length > 0 && (
               <div className="fld f-12 full">

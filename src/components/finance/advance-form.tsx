@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
@@ -207,9 +207,9 @@ export function AdvanceForm({
   const waitOrder = "menunggu Customer Order";
 
   const taxStatus = order
-    ? [order.isPkp ? "PKP" : "Non-PKP", order.basis.vatCollector ? "Pemungut PPN" : null, order.collectsPph22 ? "Pemungut PPh 22" : null]
-        .filter(Boolean)
-        .join(" · ")
+    ? [order.isPkp ? "PKP" : "Non-PKP", order.basis.vatCollector ? "Pemungut PPN" : null, order.collectsPph22 ? "Pemungut PPh 22" : null].filter(
+        (x): x is string => Boolean(x)
+      )
     : null;
   /** A value that follows from the order, or a wait while none is chosen. */
   const fromOrder = (node: (o: NonNullable<typeof order>) => React.ReactNode, empty = "tidak diisi") =>
@@ -240,7 +240,16 @@ export function AdvanceForm({
               {fromOrder((o) => (o.taxId ? ro(<span className="mono">{formatTaxId(o.taxId)}</span>) : null))}
             </Field>
             <Field label="Status Pajak" span={3}>
-              {fromOrder(() => ro(<span className="bdg t-slate">{taxStatus}</span>))}
+              {/* One badge each, free to wrap, so three statuses never run out of a 3-column field. */}
+              {fromOrder(() => (
+                <div className="ro" style={{ flexWrap: "wrap", rowGap: 4 }}>
+                  {taxStatus!.map((t) => (
+                    <span key={t} className="bdg t-slate">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              ))}
             </Field>
             <Field label="Alamat" span={12} help={editing && order ? "dari Customer Order" : undefined}>
               {fromOrder((o) => ro(<span>{o.addressText}</span>))}
@@ -388,7 +397,8 @@ export function AdvanceForm({
                           );
                         })()}
                         {payments.map((p) => (
-                          <span key={p.id}>
+                          // A fragment, not a span: the row's flex gap spaces each part.
+                          <Fragment key={p.id}>
                             <span className="rx">·</span>
                             <Link className="drl" href={`/finance/cash-bank/receipt/${p.id}`}>
                               <span className="mono">{p.txNo}</span>
@@ -396,7 +406,7 @@ export function AdvanceForm({
                             <span className="rx">
                               {p.status === "Posted" ? money(p.settled) : p.status === "Draft" ? "draft" : "dibatalkan"}
                             </span>
-                          </span>
+                          </Fragment>
                         ))}
                       </>
                     )

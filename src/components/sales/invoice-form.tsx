@@ -659,7 +659,14 @@ export function InvoiceForm({
                         </span>
                       </span>
                     </td>
-                    <td>{a?.taxInvoiceNo ? <span className="mono">{a.taxInvoiceNo}</span> : <span className="dash">belum diisi</span>}</td>
+                    <td>
+                      {a?.taxInvoiceNo ? (
+                        <span className="mono">{a.taxInvoiceNo}</span>
+                      ) : (
+                        // An advance without PPN has no faktur pajak at all.
+                        <span className="dash">{a && !a.taxPpn ? "tidak kena PPN" : "belum diisi"}</span>
+                      )}
+                    </td>
                     {editing && (
                       <td className="num">
                         <span className="mny">{money(free)}</span>

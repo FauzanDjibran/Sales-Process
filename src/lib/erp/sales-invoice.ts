@@ -9,8 +9,8 @@ import { checkTransactionDate } from "./fiscal";
 import { journalNumbersByIds, postJournal } from "./journal";
 import { checkAccountIsLeaf } from "./records";
 import { formatAddress } from "./partner-shape";
-import { invoiceSourceOrders, lockCustomerOrder, type InvoiceSourceOrder } from "./customer-order";
-import { invoiceSourceLines, type InvoiceSourceLine } from "./delivery-note";
+import { customerOrderNumbersByIds, invoiceSourceOrders, lockCustomerOrder, type InvoiceSourceOrder } from "./customer-order";
+import { invoiceSourceLines, postedNoteLineIds, type InvoiceSourceLine } from "./delivery-note";
 import {
   ArItemOverdrawn,
   advanceItemsForInvoice,
@@ -214,6 +214,18 @@ async function orderOptions(
 }
 
 /**
+ * The Customer Orders with a posted note line no live Invoice bills — found
+ * from ids alone, so a new Invoice's form loads only those orders in full
+ * rather than every order the company ever billed. Their status is checked by
+ * `invoiceSourceOrders` and the form's own filter.
+ */
+async function ordersWithUnbilledLines(): Promise<number[]> {
+  const posted = await postedNoteLineIds();
+  const billed = await billedNoteLines(prisma, posted.map((l) => l.id), null);
+  return [...new Set(posted.filter((l) => !billed.has(l.id)).map((l) => l.customerOrderId))];
+}
+
+/**
  * What the form offers: every Open or Closed Customer Order with a posted,
  * unbilled Delivery Note line, and the rupiah banks to print. `current` is the
  * Invoice being edited or shown — its own order is always included, and its own
@@ -223,18 +235,18 @@ export async function invoiceOptions(
   current: { id: number; orderId: number; lineIds: number[]; itemIds: number[] } | null = null
 ): Promise<InvoiceOptions> {
   const [all, banks] = await Promise.all([
-    invoiceSourceOrders({}),
+    current ? Promise.resolve([]) : invoiceSourceOrders({ ids: await ordersWithUnbilledLines() }),
     prisma.mCashBank.findMany({
       where: { cash_bank_type: "Bank", currency: { currency_label: BASE_CURRENCY_LABEL } },
       orderBy: { cash_bank_label: "asc" },
     }),
   ]);
-  const others = await orderOptions(prisma, all.filter((o) => o.id !== current?.orderId), current?.id ?? null);
-  const orders = others.filter((o) => o.noteLines.some((l) => !l.billedBy));
-  if (current) {
-    const mine = await invoiceSourceOrders({ ids: [current.orderId] });
-    orders.unshift(...(await orderOptions(prisma, mine, current.id, { lineIds: current.lineIds, itemIds: current.itemIds })));
-  }
+  // A saved Invoice's Customer Order is locked: its page needs only that one.
+  const orders = current
+    ? await orderOptions(prisma, await invoiceSourceOrders({ ids: [current.orderId] }), current.id, { lineIds: current.lineIds, itemIds: current.itemIds })
+    : (await orderOptions(prisma, all.filter((o) => o.status === "Open" || o.status === "Closed"), null)).filter((o) =>
+        o.noteLines.some((l) => !l.billedBy)
+      );
   return {
     orders,
     banks: banks.map((b) => ({ id: b.id, label: b.cash_bank_label, name: b.cash_bank_name, active: b.status === "Active" })),
@@ -812,10 +824,11 @@ export async function listInvoices(): Promise<InvoiceListRow[]> {
     orderBy: [{ invoice_date: "desc" }, { id: "desc" }],
     include: { customer: true, _count: { select: { lines: true } } },
   });
-  const orders = new Map(
-    (await invoiceSourceOrders({ ids: [...new Set(rows.map((r) => r.customer_order_id))] })).map((o) => [o.id, o.orderNo])
-  );
-  const pay = await invoicePayStates(rows.filter((r) => r.status === "Posted").map((r) => r.id));
+  // Numbers only: a list shows which Customer Order, not the order itself.
+  const [orders, pay] = await Promise.all([
+    customerOrderNumbersByIds([...new Set(rows.map((r) => r.customer_order_id))]),
+    invoicePayStates(rows.filter((r) => r.status === "Posted").map((r) => r.id)),
+  ]);
   return rows.map((r) => ({
     id: r.id,
     pay: pay[r.id] ?? null,
@@ -919,6 +932,18 @@ export async function deliveryNoteBilling(lineIds: number[]): Promise<Record<num
   );
 }
 
+/**
+ * How many posted Delivery Note lines of a Customer Order no live Invoice bills
+ * yet — what a new Invoice could take, so its page offers *Invoice Baru* only
+ * while there is something to bill.
+ */
+export async function customerOrderUnbilledLines(customerOrderId: number): Promise<number> {
+  const sources = await invoiceSourceOrders({ ids: [customerOrderId] });
+  if (!sources.length) return 0;
+  const [order] = await orderOptions(prisma, sources, null);
+  return order ? order.noteLines.filter((l) => !l.billedBy).length : 0;
+}
+
 /** A Customer Order's Invoices, for its page. */
 export async function customerOrderInvoices(
   customerOrderId: number
@@ -961,12 +986,21 @@ export type SettlementInvoice = {
   arItemId: number | null;
 };
 
-/** Posted Invoices that leave something to pay (with `postedOnly`), or the ones named, whatever their state. */
-export async function settlementInvoices(filter: { ids?: number[]; postedOnly?: boolean }, db: Db = prisma): Promise<SettlementInvoice[]> {
+/**
+ * Posted Invoices that leave something to pay (with `postedOnly`), or the ones
+ * named, whatever their state. `arItemIds` narrows to the Invoices of those
+ * items — the caller passes the open ones, so a fully paid Invoice is never read.
+ */
+export async function settlementInvoices(
+  filter: { ids?: number[]; postedOnly?: boolean; arItemIds?: number[] },
+  db: Db = prisma
+): Promise<SettlementInvoice[]> {
   const rows = await db.salInvoice.findMany({
     where: {
       ...(filter.ids ? { id: { in: filter.ids } } : {}),
       ...(filter.postedOnly ? { status: "Posted", ar_item_id: { not: null } } : {}),
+      // After `postedOnly`, whose own `ar_item_id` test it narrows.
+      ...(filter.arItemIds ? { ar_item_id: { in: filter.arItemIds } } : {}),
     },
     include: { lines: true },
     orderBy: [{ due_date: "asc" }, { id: "asc" }],

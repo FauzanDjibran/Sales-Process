@@ -39,6 +39,11 @@
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
+  // Nested `include`s load in one SQL statement (LATERAL joins) instead of one
+  // query per relation level. On the deployed Neon database every query is a
+  // network round trip, so this is what keeps a document page from paying for
+  // an address's kelurahan → kecamatan → kota → provinsi one by one.
+  previewFeatures = ["relationJoins"]
 }
 
 datasource db {

@@ -471,6 +471,12 @@ export async function advanceItemsForInvoice(
 
 // ------------------------------------------------------- for the receipt
 
+/** The Invoice items with something still to pay — the open receivables, as ids. */
+export async function openInvoiceItemIds(db: Db = prisma): Promise<number[]> {
+  const rows = await db.finArItem.findMany({ where: { item_type: "Invoice", current_balance: { gt: 0 } }, select: { id: true } });
+  return rows.map((r) => r.id);
+}
+
 /** Items' balances now, by id — what is still open on each. */
 export async function arItemBalances(ids: number[], db: Db = prisma): Promise<Map<number, number>> {
   if (!ids.length) return new Map();

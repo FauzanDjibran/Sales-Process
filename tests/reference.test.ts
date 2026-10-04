@@ -70,13 +70,12 @@ describe("Jenis PPh carries a real rate", () => {
 
   test("the common types are seeded, and stay editable user data", async () => {
     const rows = await prisma.refWithholdingTax.findMany({
-      where: { wht_code: { in: ["wht.0001", "wht.0002", "wht.0003", "wht.0004"] } },
+      where: { wht_label: { in: ["PPH22", "PPH23", "PPH23-15"] } },
       orderBy: { wht_code: "asc" },
     });
-    assert.equal(rows.length, 4, "four starting types");
-    // Seeded by code, not by label, so a user's rename is not undone.
-    const byCode = Object.fromEntries(rows.map((r) => [r.wht_code, r.rate.toNumber()]));
-    assert.ok(byCode["wht.0001"] > 0 && byCode["wht.0002"] > 0);
+    // Three since P60 dropped PPH42-SEWA (P62): PPH22, PPH23, PPH23-15.
+    assert.equal(rows.length, 3, "three starting types");
+    assert.ok(rows.every((r) => r.rate.toNumber() > 0), "each with a real rate");
     const entity = ENTITIES.find((e) => e.key === "ref_withholding_tax")!;
     assert.ok(entityPermissions(entity.key).create, "users may add their own");
     assert.ok(!entity.fields.find((f) => f.name === "rate")?.locked, "and edit the rate");

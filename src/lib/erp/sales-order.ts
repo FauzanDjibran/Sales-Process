@@ -5,7 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 import { formatAddress } from "./partner-shape";
 import { formatNumber } from "@/lib/format";
-import { lockCustomerOrder, recordCustomerOrderDelivery, salesOrderSources, type SalesOrderSource } from "./customer-order";
+import { customerOrderNumbersByIds, lockCustomerOrder, recordCustomerOrderDelivery, salesOrderSources, type SalesOrderSource } from "./customer-order";
 import {
   SALES_ORDER_HOLDS_QTY,
   SALES_ORDER_LIVE,
@@ -170,11 +170,10 @@ async function sourceOptions(
 export async function salesOrderOptions(
   current: { id: number; customerOrderId: number } | null = null
 ): Promise<SalesOrderOptions> {
-  const open = await sourceOptions(prisma, { openOnly: true }, current?.id ?? null);
-  if (current && !open.some((o) => o.id === current.customerOrderId)) {
-    open.push(...(await sourceOptions(prisma, { ids: [current.customerOrderId] }, current.id)));
-  }
-  return { orders: open };
+  // A saved Sales Order's Customer Order is locked, so its page needs only that
+  // one — loading every Open order for a view or edit page grows with the books.
+  if (current) return { orders: await sourceOptions(prisma, { ids: [current.customerOrderId] }, current.id) };
+  return { orders: await sourceOptions(prisma, { openOnly: true }, null) };
 }
 
 // ------------------------------------------------------------- validation
@@ -508,9 +507,8 @@ export async function listSalesOrders(): Promise<SalesOrderListRow[]> {
     orderBy: [{ order_date: "desc" }, { id: "desc" }],
     include: { customer: true, _count: { select: { lines: true } } },
   });
-  const sources = new Map(
-    (await salesOrderSources({ ids: [...new Set(rows.map((r) => r.customer_order_id))] })).map((s) => [s.id, s])
-  );
+  // Numbers only: a list shows which Customer Order, not the order itself.
+  const orderNos = await customerOrderNumbersByIds([...new Set(rows.map((r) => r.customer_order_id))]);
   return rows.map((r) => ({
     id: r.id,
     orderNo: r.order_no,
@@ -518,7 +516,7 @@ export async function listSalesOrders(): Promise<SalesOrderListRow[]> {
     deliveryDate: isoDay(r.delivery_date),
     status: r.status as SalesOrderStatus,
     customerOrderId: r.customer_order_id,
-    customerOrderNo: sources.get(r.customer_order_id)?.orderNo ?? "",
+    customerOrderNo: orderNos.get(r.customer_order_id) ?? "",
     customerLabel: r.customer.partner_label,
     customerName: r.customer.partner_name,
     lines: r._count.lines,
