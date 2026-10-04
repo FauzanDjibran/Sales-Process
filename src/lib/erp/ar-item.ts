@@ -503,6 +503,6 @@ export async function advanceItemsCreatedBy(
 }
 
 /** Records the Coretax number of an item's own tax document (U9). */
-export async function setArItemTaxInvoiceNo(db: Db, id: number, no: string): Promise<void> {
+export async function setArItemTaxInvoiceNo(db: Db, id: number, no: string | null): Promise<void> {
   await db.finArItem.update({ where: { id }, data: { tax_invoice_no: no } });
 }

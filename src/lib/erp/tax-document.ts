@@ -14,7 +14,6 @@ import {
   slipExpected,
   uploadDeadline,
   type TaxFakturKind,
-  type TaxFakturStatus,
   type TaxDocRefs,
   type TaxSlipStatus,
 } from "./tax-document-workflow";
@@ -274,37 +273,45 @@ export async function backfillTaxDocuments(actorId: number): Promise<{ receipts:
 export type TaxResult = { ok: true } | { ok: false; errors: Record<string, string> };
 
 /**
- * Records a faktur's upload to Coretax (`tax_concept.md` §5.2): its NSFP and
- * the upload date. The faktur is then *Dilaporkan* and final. The NSFP is also
- * written where the sales process reads it — the Uang Muka item a faktur
- * pelunasan deducts, the Invoice (U9, U10).
+ * Fills in, corrects or clears a faktur's NSFP — the number Coretax gave it —
+ * and, optionally, the day it was uploaded (P101). The faktur is an internal
+ * record, complete without it; the NSFP is the reference that ties it to
+ * Coretax, so a mistyped one is corrected here and the change is in its
+ * history. Its figures never change. The NSFP is also written where the sales
+ * process reads it — the Uang Muka item a faktur pelunasan deducts, the
+ * Invoice (U9, U10). An empty NSFP clears it.
  */
-export async function recordFakturUpload(id: number, input: { nsfp: string; date: string }, actorId: number): Promise<TaxResult> {
+export async function setFakturNsfp(id: number, input: { nsfp: string; date: string }, actorId: number): Promise<TaxResult> {
   const f = await prisma.taxFaktur.findUnique({ where: { id } });
   if (!f) return { ok: false, errors: { _form: "Faktur pajak tidak ditemukan." } };
-  if (f.status !== "Awaiting") return { ok: false, errors: { _form: "Faktur ini sudah dilaporkan." } };
   const errors: Record<string, string> = {};
-  const nsfp = normalizeNsfp(input.nsfp);
-  if (!nsfp) errors.nsfp = "NSFP wajib diisi.";
-  else if (nsfp.length !== 17) errors.nsfp = "NSFP Coretax terdiri dari 17 digit.";
-  else if (await prisma.taxFaktur.findFirst({ where: { nsfp, id: { not: id } }, select: { faktur_no: true } })) {
-    errors.nsfp = "NSFP ini sudah dipakai faktur lain.";
-  }
+  const nsfp = normalizeNsfp(input.nsfp) || null;
   const date = String(input.date ?? "").trim();
-  if (!DAY.test(date)) errors.date = "Tanggal upload wajib diisi.";
-  else if (date < isoDay(f.tax_date)) errors.date = "Tidak boleh sebelum tanggal faktur.";
+  if (nsfp) {
+    if (nsfp.length !== 17) errors.nsfp = "NSFP Coretax terdiri dari 17 digit.";
+    else if (await prisma.taxFaktur.findFirst({ where: { nsfp, id: { not: id } }, select: { id: true } })) {
+      errors.nsfp = "NSFP ini sudah dipakai faktur lain.";
+    }
+    if (date && !DAY.test(date)) errors.date = "Tanggal tidak valid.";
+    else if (date && date < isoDay(f.tax_date)) errors.date = "Tidak boleh sebelum tanggal faktur.";
+  } else if (!f.nsfp) {
+    errors.nsfp = "NSFP wajib diisi.";
+  }
   if (Object.keys(errors).length) return { ok: false, errors };
+  const nextDate = nsfp && date ? date : null;
+  if (nsfp === f.nsfp && nextDate === (f.nsfp_date ? isoDay(f.nsfp_date) : null)) return { ok: true };
 
   const invoiceType = await docTypeId(prisma, "sal_invoice");
   await prisma.$transaction(async (tx) => {
-    const done = await tx.taxFaktur.updateMany({
-      where: { id, status: "Awaiting" },
-      data: { status: "Reported", nsfp, reported_date: asDate(date), reported_by: actorId },
+    await tx.taxFaktur.update({
+      where: { id },
+      data: { nsfp, nsfp_date: nextDate ? asDate(nextDate) : null, nsfp_by: nsfp ? actorId : null },
     });
-    if (done.count !== 1) throw new Error("Faktur berubah saat diproses. Muat ulang halaman.");
-    if (f.ar_item_id) await setArItemTaxInvoiceNo(tx, f.ar_item_id, nsfp);
-    if (f.source_doc_type_id === invoiceType) await setInvoiceTaxInvoiceNo(tx, f.source_doc_id, nsfp);
-    await audit(tx, "tax_faktur", id, "UPDATE", "report", actorId);
+    if (nsfp !== f.nsfp) {
+      if (f.ar_item_id) await setArItemTaxInvoiceNo(tx, f.ar_item_id, nsfp);
+      if (f.source_doc_type_id === invoiceType) await setInvoiceTaxInvoiceNo(tx, f.source_doc_id, nsfp);
+    }
+    await audit(tx, "tax_faktur", id, "UPDATE", !nsfp ? "nsfp_clear" : f.nsfp ? "nsfp_change" : "nsfp", actorId);
   });
   return { ok: true };
 }
@@ -312,12 +319,12 @@ export async function recordFakturUpload(id: number, input: { nsfp: string; date
 /**
  * Records the customer's bukti potong (BPPU) as received (`tax_concept.md`
  * §6.2): its number and date. The PPh can then be credited. It is assumed to
- * show the amount recorded (Q21).
+ * show the amount recorded (Q21). A slip already received may have its number
+ * and date corrected; it stays received (P101).
  */
 export async function recordSlipReceived(id: number, input: { number: string; date: string }, actorId: number): Promise<TaxResult> {
   const s = await prisma.taxWithholdingSlip.findUnique({ where: { id } });
   if (!s) return { ok: false, errors: { _form: "Bukti potong tidak ditemukan." } };
-  if (s.status !== "Awaiting") return { ok: false, errors: { _form: "Bukti potong ini sudah dicatat diterima." } };
   const errors: Record<string, string> = {};
   const number = String(input.number ?? "").trim().toUpperCase();
   if (!number) errors.number = "Nomor bukti potong wajib diisi.";
@@ -325,13 +332,15 @@ export async function recordSlipReceived(id: number, input: { number: string; da
   if (!DAY.test(date)) errors.date = "Tanggal bukti potong wajib diisi.";
   else if (date < isoDay(s.withheld_date)) errors.date = "Tidak boleh sebelum tanggal pembayaran.";
   if (Object.keys(errors).length) return { ok: false, errors };
+  const correcting = s.status === "Received";
+  if (correcting && number === s.slip_number && date === isoDay(s.slip_date)) return { ok: true };
   await prisma.$transaction(async (tx) => {
     const done = await tx.taxWithholdingSlip.updateMany({
-      where: { id, status: "Awaiting" },
-      data: { status: "Received", slip_number: number, slip_date: asDate(date), received_by: actorId },
+      where: { id, status: s.status },
+      data: { status: "Received", slip_number: number, slip_date: asDate(date), ...(correcting ? {} : { received_by: actorId }) },
     });
     if (done.count !== 1) throw new Error("Bukti potong berubah saat diproses. Muat ulang halaman.");
-    await audit(tx, "tax_withholding_slip", id, "UPDATE", "receive", actorId);
+    await audit(tx, "tax_withholding_slip", id, "UPDATE", correcting ? "correct" : "receive", actorId);
   });
   return { ok: true };
 }
@@ -342,7 +351,6 @@ export type FakturListRow = {
   id: number;
   fakturNo: string;
   kind: TaxFakturKind;
-  status: TaxFakturStatus;
   taxDate: string;
   deadline: string;
   customerLabel: string;
@@ -367,7 +375,6 @@ export async function listFakturs(): Promise<FakturListRow[]> {
     id: r.id,
     fakturNo: r.faktur_no,
     kind: r.kind as TaxFakturKind,
-    status: r.status as TaxFakturStatus,
     taxDate: isoDay(r.tax_date),
     deadline: isoDay(r.deadline),
     customerLabel: r.customer.partner_label,
@@ -390,7 +397,7 @@ export type FakturView = FakturListRow & {
   grossDpp: number;
   advanceDpp: number;
   dppOther: number;
-  reportedDate: string | null;
+  nsfpDate: string | null;
   lines: {
     lineNo: number;
     description: string;
@@ -426,7 +433,6 @@ export async function getFaktur(id: number): Promise<FakturView | null> {
     id: r.id,
     fakturNo: r.faktur_no,
     kind: r.kind as TaxFakturKind,
-    status: r.status as TaxFakturStatus,
     taxDate: isoDay(r.tax_date),
     deadline: isoDay(r.deadline),
     customerLabel: r.customer.partner_label,
@@ -445,7 +451,7 @@ export async function getFaktur(id: number): Promise<FakturView | null> {
     grossDpp: r.gross_dpp.toNumber(),
     advanceDpp: r.advance_dpp.toNumber(),
     dppOther: r.dpp_other.toNumber(),
-    reportedDate: r.reported_date ? isoDay(r.reported_date) : null,
+    nsfpDate: r.nsfp_date ? isoDay(r.nsfp_date) : null,
     lines: r.lines.map((l) => ({
       lineNo: l.line_no,
       description: l.description,

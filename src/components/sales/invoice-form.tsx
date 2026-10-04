@@ -375,7 +375,7 @@ export function InvoiceForm({
                             <Link className="drl" href={`/tax/faktur/${f.id}`}>
                               <span className="mono">{f.fakturNo}</span>
                             </Link>
-                            <span className="rx">{f.nsfp ? `NSFP ${f.nsfp}` : "belum diupload"}</span>
+                            <span className="rx">{f.nsfp ? `NSFP ${f.nsfp}` : "NSFP belum diisi"}</span>
                           </Fragment>
                         ))
                       )

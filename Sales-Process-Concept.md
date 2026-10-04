@@ -1206,7 +1206,7 @@ Muka, the receipt from its Terbentuk entry [Built] (P96).
 | Whether Coretax accepts one Faktur Pajak Uang Muka referenced by two Faktur Pelunasan (partial use) | To verify with a tax consultant |
 | A settlement PPN 1 rupiah off "full PPN − advance PPN" after odd partial receipts | Accepted: the chain on the net DPP wins (it is what the Faktur Pajak Pelunasan carries) |
 | *Penerimaan dari Customer* (bills and invoices in one receipt) | [Built] — §7.8, P98 |
-| Faktur Pajak (Uang Muka, Pelunasan, Normal) and Bukti Potong as records | [Built] — Pajak menu, P100: made by posting, NSFP / BPPU recorded by the user |
+| Faktur Pajak (Uang Muka, Pelunasan, Normal) and Bukti Potong as records | [Built] — Pajak menu, P100: made by posting, internal records, NSFP an optional correctable reference, BPPU recorded by the user (P101) |
 | Coretax XML export, faktur pengganti / pembatalan, Perlu Pembetulan | [Planned] |
 | Pengembalian Uang Muka (refund) | [Planned] Pengeluaran purpose |
 | Closing a bill / invoice remainder by its owner (write-off) | [Planned] with the close action |

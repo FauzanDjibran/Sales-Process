@@ -62,8 +62,11 @@ migration updates this file in the same change (Claude-ERP.md §9).
   Invoice (Faktur Pelunasan / Normal, its lines, and `tax_faktur_ref` naming
   each Faktur Uang Muka it deducts). The source is the weak
   `(source_doc_type_id, source_doc_id)` pair; `ar_item_id` ties a Faktur Uang
-  Muka to its Uang Muka AR item without a foreign key. The user records only
-  the NSFP and upload date, or the BPPU's number and date.
+  Muka to its Uang Muka AR item without a foreign key. They are internal
+  records, one per event (P101): a faktur has no lifecycle and its NSFP and
+  upload date are an optional reference the user fills in and may correct; a
+  slip is Awaiting until the BPPU's number and date are recorded, which may be
+  corrected afterwards.
 - `tmp_item_cost`, `tmp_stock_lot` and `tmp_stock_movement` (P94, P95) —
   **temporary**: the stand-in inventory's Harga Pokok per item, its lots per
   item and warehouse, and its issue log (one row per lot issued), named only by
@@ -1475,11 +1478,6 @@ Enum TaxFakturKind {
   Normal
 }
 
-Enum TaxFakturStatus {
-  Awaiting [note: 'Menunggu Upload']
-  Reported [note: 'Dilaporkan']
-}
-
 Enum TaxSlipStatus {
   Awaiting [note: 'Menunggu Bukti Potong']
   Received [note: 'Diterima']
@@ -1489,7 +1487,6 @@ Table tax_faktur {
   id int [pk, increment, not null]
   faktur_no varchar [unique, not null, note: 'FPK/YYYY/MM/NNNN']
   kind TaxFakturKind [not null]
-  status TaxFakturStatus [not null, default: 'Awaiting']
   tax_date date [not null, note: 'receipt date (advance); latest Tanggal Kirim (goods)']
   deadline date [not null, note: '15th of the next month']
   customer_id int [not null]
@@ -1514,15 +1511,15 @@ Table tax_faktur {
   dpp decimal(18, 2) [not null]
   dpp_other decimal(18, 2) [not null]
   ppn decimal(18, 2) [not null]
-  nsfp varchar [unique, null, note: '17 digits from Coretax, recorded by the user']
-  reported_date date [null]
-  reported_by int [null]
+  nsfp varchar [unique, null, note: '17 digits from Coretax: an optional reference, filled in and corrected by the user (P101)']
+  nsfp_date date [null, note: 'upload date, optional']
+  nsfp_by int [null]
   created_by int [not null]
   created_at timestamptz [not null, default: `now()`]
   updated_at timestamptz [not null, default: `now()`]
 
   indexes {
-    (status, tax_date)
+    tax_date
     (source_doc_type_id, source_doc_id)
     ar_item_id
   }

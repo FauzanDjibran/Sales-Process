@@ -2273,13 +2273,6 @@ enum TaxFakturKind {
   Normal
 }
 
-enum TaxFakturStatus {
-  /// Menunggu Upload — the to-do state; past its deadline it is late.
-  Awaiting
-  /// Dilaporkan — its NSFP and upload date are recorded.
-  Reported
-}
-
 /// One Faktur Pajak Keluaran. Its source is the posting that made the tax point:
 /// a receipt line for an advance (with the bill it paid), an Invoice Penjualan
 /// for goods. Buyer identity is snapshotted as it stood then.
@@ -2288,7 +2281,6 @@ model TaxFaktur {
   /// `FPK/YYYY/MM/NNNN`, in the month of `tax_date` — the internal number.
   faktur_no String          @unique
   kind      TaxFakturKind
-  status    TaxFakturStatus @default(Awaiting)
   /// The tax point: the receipt date for an advance, the latest Tanggal Kirim for goods.
   tax_date  DateTime        @db.Date
   /// Upload by the 15th of the following month.
@@ -2325,10 +2317,12 @@ model TaxFaktur {
   dpp_other     Decimal @db.Decimal(18, 2)
   ppn           Decimal @db.Decimal(18, 2)
 
-  /// Nomor Seri Faktur Pajak, from Coretax, recorded by the user.
-  nsfp          String?   @unique
-  reported_date DateTime? @db.Date
-  reported_by   Int?
+  /// Nomor Seri Faktur Pajak from Coretax — an optional reference the user
+  /// fills in and may correct (P101); the faktur is a complete record without it.
+  nsfp      String?   @unique
+  /// The day it was uploaded to Coretax, when the user records it.
+  nsfp_date DateTime? @db.Date
+  nsfp_by   Int?
 
   created_by Int
   created_at DateTime @default(now()) @db.Timestamptz(6)
@@ -2339,7 +2333,7 @@ model TaxFaktur {
   refs     TaxFakturRef[]  @relation("FakturRefs")
   used_by  TaxFakturRef[]  @relation("FakturUsedBy")
 
-  @@index([status, tax_date])
+  @@index([tax_date])
   @@index([source_doc_type_id, source_doc_id])
   @@index([ar_item_id])
   @@map("tax_faktur")

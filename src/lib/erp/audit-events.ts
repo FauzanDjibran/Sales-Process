@@ -163,11 +163,18 @@ const SALES_ADVANCE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(SALES_ADVANCE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
-/** Faktur Pajak Keluaran: made by a posting, then reported (P100). */
+/**
+ * Faktur Pajak Keluaran: made by a posting; its NSFP is a reference filled in
+ * and corrected afterwards (P100, P101). `report` is the step P100 named, kept
+ * so the history of a faktur recorded then still reads.
+ */
 const TAX_FAKTUR_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   create: { label: "Dibuat otomatis dari posting", icon: "tags", tone: "neutral", systemDriven: true },
-  report: { label: "Upload dicatat — dilaporkan", icon: "check", tone: "primary" },
+  report: { label: "NSFP diisi", icon: "check", tone: "primary" },
+  nsfp: { label: "NSFP diisi", icon: "check", tone: "primary" },
+  nsfp_change: { label: "NSFP diubah", icon: "pen", tone: "neutral" },
+  nsfp_clear: { label: "NSFP dihapus", icon: "pen", tone: "neutral" },
 };
 
 /** Bukti Potong PPh: made by a posted receipt, then received from the customer (P100). */
@@ -175,6 +182,7 @@ const TAX_SLIP_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   create: { label: "Dibuat otomatis dari penerimaan", icon: "scale", tone: "neutral", systemDriven: true },
   receive: { label: "Bukti potong diterima", icon: "check", tone: "primary" },
+  correct: { label: "Nomor / tanggal bukti potong dikoreksi", icon: "pen", tone: "neutral" },
 };
 
 /**

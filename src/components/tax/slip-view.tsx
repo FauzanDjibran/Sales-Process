@@ -24,7 +24,7 @@ const DOC_TEXT: Record<string, string> = { sal_invoice: "Invoice Penjualan", sal
  * from one document on one receipt, under one Jenis PPh (P69). The amount was
  * fixed when the receipt posted; what a user records is the customer's BPPU —
  * its number and date — with *Catat Bukti Potong*, after which the PPh can be
- * credited.
+ * credited, and *Ubah Bukti Potong* corrects them later (P101).
  */
 export function SlipView({ slip: s, can, today }: { slip: Slip; can: TaxAbilities; today: string }) {
   const [recording, setRecording] = useState(false);
@@ -143,9 +143,9 @@ export function SlipView({ slip: s, can, today }: { slip: Slip; can: TaxAbilitie
             <span className="lockchip">
               <Icon name="lock" size={13} /> Dibuat otomatis dari Penerimaan
             </span>
-            {s.status === "Awaiting" && can.receive && (
-              <button className="btn primary" onClick={() => setRecording(true)}>
-                <Icon name="check" size={15} /> Catat Bukti Potong
+            {can.receive && (
+              <button className={s.status === "Awaiting" ? "btn primary" : "btn"} onClick={() => setRecording(true)}>
+                <Icon name={s.status === "Awaiting" ? "check" : "pen"} size={15} /> {s.status === "Awaiting" ? "Catat Bukti Potong" : "Ubah Bukti Potong"}
               </button>
             )}
           </div>
@@ -161,11 +161,12 @@ export function SlipView({ slip: s, can, today }: { slip: Slip; can: TaxAbilitie
   );
 }
 
-/** *Catat Bukti Potong*: the BPPU's number and date. */
+/** *Catat Bukti Potong* / *Ubah Bukti Potong*: the BPPU's number and date. */
 function ReceiveDialog({ slip: s, today, onClose }: { slip: Slip; today: string; onClose: () => void }) {
   const toast = useToast();
-  const [number, setNumber] = useState("");
-  const [date, setDate] = useState(today);
+  const correcting = s.status === "Received";
+  const [number, setNumber] = useState(s.slipNumber ?? "");
+  const [date, setDate] = useState(s.slipDate ?? today);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
 
@@ -178,15 +179,15 @@ function ReceiveDialog({ slip: s, today, onClose }: { slip: Slip; today: string;
       setErrors(result.errors);
       return;
     }
-    toast("Bukti potong dicatat diterima", s.slipNo, "ok");
+    toast(correcting ? "Bukti potong dikoreksi" : "Bukti potong dicatat diterima", s.slipNo, "ok");
     onClose();
   };
 
   return (
     <Dialog
       open
-      icon="check"
-      title="Catat Bukti Potong Diterima"
+      icon={correcting ? "pen" : "check"}
+      title={correcting ? "Ubah Bukti Potong" : "Catat Bukti Potong Diterima"}
       subtitle={`${s.slipNo} · ${s.whtLabel} ${money(s.amount)} · ${s.customerName}`}
       width={560}
       onClose={onClose}

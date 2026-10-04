@@ -25,7 +25,7 @@ import {
 import { cashToClear, computeInvoice, invoiceLineAmount, settleBillFromCash } from "../src/lib/erp/sales-tax";
 import { availableInvoiceActions, invoiceAbilities } from "../src/lib/erp/sales-invoice-workflow";
 import { fakturLate, normalizeNsfp, slipExpected, slipLate, uploadDeadline } from "../src/lib/erp/tax-document-workflow";
-import { createTaxDocsForInvoice, createTaxDocsForReceipt, recordFakturUpload, recordSlipReceived, taxDocsOf } from "../src/lib/erp/tax-document";
+import { createTaxDocsForInvoice, createTaxDocsForReceipt, recordSlipReceived, setFakturNsfp, taxDocsOf } from "../src/lib/erp/tax-document";
 import {
   FIXTURE_PREFIX,
   cleanupFiscalYear,
@@ -562,8 +562,8 @@ describe("the tax documents' deadlines (tax_concept.md §5.2, §6.2)", () => {
     assert.equal(uploadDeadline("2026-10-31"), "2026-11-15");
     assert.equal(uploadDeadline("2026-12-01"), "2027-01-15");
     assert.equal(slipExpected("2026-12-31"), "2027-01-20");
-    assert.equal(fakturLate({ status: "Awaiting", deadline: "2026-11-15" }, "2026-11-16"), true);
-    assert.equal(fakturLate({ status: "Reported", deadline: "2026-11-15" }, "2026-11-16"), false);
+    assert.equal(fakturLate({ nsfp: null, deadline: "2026-11-15" }, "2026-11-16"), true);
+    assert.equal(fakturLate({ nsfp: "04002600000012345", deadline: "2026-11-15" }, "2026-11-16"), false, "a reminder only while the NSFP is missing");
     assert.equal(slipLate({ status: "Awaiting", expected: "2026-11-20" }, "2026-11-20"), false);
     assert.equal(normalizeNsfp("010.000-26.12345678"), "0100002612345678");
   });
@@ -582,8 +582,8 @@ describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
     const fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: list[0].id }, include: { lines: true } });
     assert.match(fk.faktur_no, /^FPK\/\d{4}\/\d{2}\/\d{4}$/);
     assert.deepEqual(
-      [fk.kind, fk.status, fk.dpp.toNumber(), fk.dpp_other.toNumber(), fk.ppn.toNumber(), fk.ar_item_id, fk.ref_doc_id, fk.buyer_tax_id, fk.buyer_name],
-      ["Advance", "Awaiting", 300_000, 275_000, 33_000, advanceItem, ids.adv[0], "0987654321098765", "PT FIXTURE"]
+      [fk.kind, fk.nsfp, fk.dpp.toNumber(), fk.dpp_other.toNumber(), fk.ppn.toNumber(), fk.ar_item_id, fk.ref_doc_id, fk.buyer_tax_id, fk.buyer_name],
+      ["Advance", null, 300_000, 275_000, 33_000, advanceItem, ids.adv[0], "0987654321098765", "PT FIXTURE"]
     );
     assert.equal(fk.tax_date.toISOString().slice(0, 10), today);
     assert.equal(fk.lines.length, 1);
@@ -632,31 +632,47 @@ describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
     assert.deepEqual([docs.fakturs.length, fk.ref_doc_id, fk.dpp.toNumber(), fk.ppn.toNumber()], [1, f.bill2, 100_000, 11_000]);
   });
 
-  test("Catat Upload: 17 digits, unique, not before the faktur; the NSFP reaches the Uang Muka item and the Invoice", async () => {
+  test("Isi NSFP: an optional reference — 17 digits, unique, correctable and clearable, written to the Uang Muka item and the Invoice", async () => {
     const advance = (await fakturOf("fin_cash_bank_tx", ids.rc[0]))[0].id;
     const settlement = (await fakturOf("sal_invoice", ids.inv[0]))[0].id;
-    assert.deepEqual(await recordFakturUpload(advance, { nsfp: "123", date: today }, actor), { ok: false, errors: { nsfp: "NSFP Coretax terdiri dari 17 digit." } });
-    assert.ok(!(await recordFakturUpload(advance, { nsfp: nsfp(0), date: "2000-01-01" }, actor)).ok);
+    assert.deepEqual(await setFakturNsfp(advance, { nsfp: "123", date: "" }, actor), { ok: false, errors: { nsfp: "NSFP Coretax terdiri dari 17 digit." } });
+    assert.deepEqual(await setFakturNsfp(advance, { nsfp: "", date: "" }, actor), { ok: false, errors: { nsfp: "NSFP wajib diisi." } });
+    assert.ok(!(await setFakturNsfp(advance, { nsfp: nsfp(0), date: "2000-01-01" }, actor)).ok, "an upload date before the faktur is refused");
     const n1 = nsfp(0);
-    assert.deepEqual(await recordFakturUpload(advance, { nsfp: `${n1.slice(0, 3)}.${n1.slice(3)}`, date: today }, actor), { ok: true });
-    const fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: advance } });
-    assert.deepEqual([fk.status, fk.nsfp], ["Reported", n1]);
+    // The upload date is optional.
+    assert.deepEqual(await setFakturNsfp(advance, { nsfp: `${n1.slice(0, 3)}.${n1.slice(3)}`, date: "" }, actor), { ok: true });
+    let fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: advance } });
+    assert.deepEqual([fk.nsfp, fk.nsfp_date], [n1, null]);
     assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: advanceItem } })).tax_invoice_no, n1);
-    assert.ok(!(await recordFakturUpload(advance, { nsfp: nsfp(1), date: today }, actor)).ok, "a reported faktur is final");
-    assert.deepEqual(await recordFakturUpload(settlement, { nsfp: n1, date: today }, actor), { ok: false, errors: { nsfp: "NSFP ini sudah dipakai faktur lain." } });
+    assert.deepEqual(await setFakturNsfp(settlement, { nsfp: n1, date: today }, actor), { ok: false, errors: { nsfp: "NSFP ini sudah dipakai faktur lain." } });
+    // A mistyped NSFP is corrected; the figures never move.
     const n2 = nsfp(1);
-    assert.deepEqual(await recordFakturUpload(settlement, { nsfp: n2, date: today }, actor), { ok: true });
-    assert.equal((await getInvoice(ids.inv[0]))!.taxInvoiceNo, n2);
-    assert.ok(await prisma.auditLog.findFirst({ where: { entity_key: "tax_faktur", row_id: settlement, event: "report" } }));
+    assert.deepEqual(await setFakturNsfp(advance, { nsfp: n2, date: today }, actor), { ok: true });
+    fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: advance } });
+    assert.deepEqual([fk.nsfp, fk.nsfp_date?.toISOString().slice(0, 10), fk.ppn.toNumber()], [n2, today, 33_000]);
+    assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: advanceItem } })).tax_invoice_no, n2);
+    // n1 is free again for the faktur it belonged to.
+    assert.deepEqual(await setFakturNsfp(settlement, { nsfp: n1, date: today }, actor), { ok: true });
+    assert.equal((await getInvoice(ids.inv[0]))!.taxInvoiceNo, n1);
+    // Emptying it clears it, here and on the Invoice.
+    assert.deepEqual(await setFakturNsfp(settlement, { nsfp: "", date: "" }, actor), { ok: true });
+    assert.equal((await prisma.taxFaktur.findUniqueOrThrow({ where: { id: settlement } })).nsfp, null);
+    assert.equal((await getInvoice(ids.inv[0]))!.taxInvoiceNo, null);
+    const events = await prisma.auditLog.findMany({ where: { entity_key: "tax_faktur", row_id: { in: [advance, settlement] }, action: "UPDATE" }, orderBy: { id: "asc" } });
+    assert.deepEqual(events.map((e) => e.event), ["nsfp", "nsfp_change", "nsfp", "nsfp_clear"]);
   });
 
-  test("Catat Bukti Potong: number and date required, not before the payment; then final", async () => {
+  test("Catat Bukti Potong: number and date required, not before the payment; correctable once received", async () => {
     const slip = (await prisma.taxWithholdingSlip.findFirstOrThrow({ where: { receipt_id: ids.rc[1] } })).id;
     const blank = await recordSlipReceived(slip, { number: " ", date: "" }, actor);
     assert.ok(!blank.ok && blank.errors.number && blank.errors.date);
     assert.deepEqual(await recordSlipReceived(slip, { number: "bp-001", date: today }, actor), { ok: true });
     const s = await prisma.taxWithholdingSlip.findUniqueOrThrow({ where: { id: slip } });
     assert.deepEqual([s.status, s.slip_number], ["Received", "BP-001"]);
-    assert.ok(!(await recordSlipReceived(slip, { number: "BP-002", date: today }, actor)).ok);
+    assert.deepEqual(await recordSlipReceived(slip, { number: "BP-002", date: today }, actor), { ok: true });
+    const fixed = await prisma.taxWithholdingSlip.findUniqueOrThrow({ where: { id: slip } });
+    assert.deepEqual([fixed.status, fixed.slip_number, fixed.amount.toNumber()], ["Received", "BP-002", s.amount.toNumber()]);
+    const events = await prisma.auditLog.findMany({ where: { entity_key: "tax_withholding_slip", row_id: slip, action: "UPDATE" }, orderBy: { id: "asc" } });
+    assert.deepEqual(events.map((e) => e.event), ["receive", "correct"]);
   });
 });

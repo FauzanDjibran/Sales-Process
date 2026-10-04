@@ -242,12 +242,12 @@ export const PERMISSIONS = [
   { code: "REPORT_CUSTOMER_ADVANCE_VIEW", name: "Lihat Uang Muka Customer", module: "finance", description: "Uang muka diterima yang belum dipakai invoice." },
 
   // ---------------------------------------------------------------- settings
-  // Pajak — the tax documents the sales process gives rise to (P100).
+  // Pajak — the tax documents the sales process gives rise to, kept as internal records (P100, P101).
   { code: "MENU_TAX_ACCESS", name: "Akses menu Pajak", module: "tax" },
-  { code: "TAX_FAKTUR_VIEW", name: "Lihat Faktur Pajak Keluaran", module: "tax", description: "Faktur pajak yang terbentuk otomatis dari penerimaan uang muka dan invoice penjualan." },
-  { code: "TAX_FAKTUR_UPLOAD", name: "Catat Upload Faktur Pajak", module: "tax", description: "Mencatat NSFP dan tanggal upload ke Coretax. Tidak membentuk journal." },
+  { code: "TAX_FAKTUR_VIEW", name: "Lihat Faktur Pajak Keluaran", module: "tax", description: "Catatan faktur pajak yang terbentuk otomatis dari penerimaan uang muka dan invoice penjualan." },
+  { code: "TAX_FAKTUR_EDIT", name: "Isi / Ubah NSFP Faktur Pajak", module: "tax", description: "Mengisi atau mengoreksi NSFP Coretax dan tanggal upload sebagai referensi. Angka faktur tidak berubah; tidak membentuk journal." },
   { code: "TAX_SLIP_VIEW", name: "Lihat Bukti Potong PPh", module: "tax", description: "PPh yang dipotong customer dari pembayarannya." },
-  { code: "TAX_SLIP_RECEIVE", name: "Catat Bukti Potong Diterima", module: "tax", description: "Mencatat nomor dan tanggal bukti potong (BPPU) dari customer. Tidak membentuk journal." },
+  { code: "TAX_SLIP_RECEIVE", name: "Catat Bukti Potong Diterima", module: "tax", description: "Mencatat atau mengoreksi nomor dan tanggal bukti potong (BPPU) dari customer. Tidak membentuk journal." },
 
   { code: "MENU_SETTINGS_ACCESS", name: "Akses menu Pengaturan", module: "settings" },
   { code: "MENU_USER_ACCESS", name: "Akses menu User", module: "settings" },

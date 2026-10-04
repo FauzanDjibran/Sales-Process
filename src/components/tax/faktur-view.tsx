@@ -7,17 +7,10 @@ import { DateInput } from "@/components/ui/date-input";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
-import { recordFakturUploadAction } from "@/app/actions/tax";
+import { setFakturNsfpAction } from "@/app/actions/tax";
 import { documentHref } from "@/lib/erp/document-links";
 import type { FakturView as Faktur } from "@/lib/erp/tax-document";
-import {
-  FAKTUR_KIND_TEXT,
-  FAKTUR_STATUS_BADGE,
-  FAKTUR_STATUS_TEXT,
-  fakturLate,
-  normalizeNsfp,
-  type TaxAbilities,
-} from "@/lib/erp/tax-document-workflow";
+import { FAKTUR_KIND_TEXT, fakturLate, normalizeNsfp, type TaxAbilities } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatNumber, formatPct } from "@/lib/format";
 
 const money = (n: number) => formatMoney(n, "IDR");
@@ -47,9 +40,9 @@ function DocLink({ table, id, no }: { table: string; id: number; no: string }) {
 /**
  * One Faktur Pajak Keluaran (P100, `tax_concept.md` §5). Everything on it was
  * derived from the posting that made it — buyer, lines, DPP, DPP Nilai Lain,
- * PPN — so the page is read-only. The one thing a user records is the upload
- * to Coretax: *Catat Upload* takes the NSFP Coretax gave and the upload date,
- * and the faktur is then *Dilaporkan* and final.
+ * PPN — so the page is read-only and the record is complete as it stands
+ * (P101). The NSFP Coretax gave is a reference: *Isi NSFP* fills it in, with
+ * the upload date if known, and *Ubah NSFP* corrects it.
  */
 export function FakturView({
   faktur: f,
@@ -77,19 +70,19 @@ export function FakturView({
             <Field label="Tanggal Faktur" span={4} help="tanggal terutang PPN">
               {ro(formatDate(f.taxDate))}
             </Field>
-            <Field label="Batas Upload" span={4} help="tanggal 15 bulan berikutnya">
+            <Field label="Batas Upload Coretax" span={4} help="pengingat · tanggal 15 bulan berikutnya">
               {ro(
                 <>
                   {formatDate(f.deadline)}
-                  {late && <span className="bdg t-bad">Terlambat</span>}
+                  {late && <span className="bdg t-bad">Lewat, NSFP belum diisi</span>}
                 </>
               )}
             </Field>
-            <Field label="Nomor Seri Faktur Pajak" span={4} help={f.nsfp ? undefined : "diisi saat upload dicatat"}>
-              {f.nsfp ? ro(<span className="mono">{f.nsfp}</span>) : nil("belum diupload")}
+            <Field label="Nomor Seri Faktur Pajak" span={4} help="referensi Coretax">
+              {f.nsfp ? ro(<span className="mono">{f.nsfp}</span>) : nil("belum diisi")}
             </Field>
             <Field label="Tanggal Upload" span={4}>
-              {f.reportedDate ? ro(formatDate(f.reportedDate)) : nil("belum diupload")}
+              {f.nsfpDate ? ro(formatDate(f.nsfpDate)) : nil()}
             </Field>
             <Field label="Dokumen Sumber" span={4}>
               {ro(
@@ -310,16 +303,16 @@ export function FakturView({
               <Icon name="tags" size={16} />
             </span>
             <span className="docno">{f.fakturNo}</span>
-            <span className={`bdg ${FAKTUR_STATUS_BADGE[f.status]}`}>{FAKTUR_STATUS_TEXT[f.status]}</span>
-            {late && <span className="bdg t-bad">Terlambat</span>}
+            <span className="bdg s-ok">Tercatat</span>
+            {!f.nsfp && <span className="bdg t-warn">NSFP belum diisi</span>}
           </h1>
           <div className="ph-act">
             <span className="lockchip">
               <Icon name="lock" size={13} /> Dibuat otomatis dari {SOURCE_TEXT[f.sourceTable] ?? "posting"}
             </span>
-            {f.status === "Awaiting" && can.upload && (
-              <button className="btn primary" onClick={() => setRecording(true)}>
-                <Icon name="send" size={15} /> Catat Upload
+            {can.nsfp && (
+              <button className={f.nsfp ? "btn" : "btn primary"} onClick={() => setRecording(true)}>
+                <Icon name={f.nsfp ? "pen" : "send"} size={15} /> {f.nsfp ? "Ubah NSFP" : "Isi NSFP"}
               </button>
             )}
           </div>
@@ -333,44 +326,48 @@ export function FakturView({
         </div>
       </div>
 
-      {recording && <UploadDialog faktur={f} today={today} onClose={() => setRecording(false)} />}
+      {recording && <NsfpDialog faktur={f} today={today} onClose={() => setRecording(false)} />}
     </>
   );
 }
 
-/** *Catat Upload*: the NSFP from Coretax and the upload date. */
-function UploadDialog({ faktur: f, today, onClose }: { faktur: Faktur; today: string; onClose: () => void }) {
+/**
+ * *Isi NSFP* / *Ubah NSFP*: the Coretax reference and, optionally, the upload
+ * date. Emptying the NSFP of a faktur that has one clears it.
+ */
+function NsfpDialog({ faktur: f, today, onClose }: { faktur: Faktur; today: string; onClose: () => void }) {
   const toast = useToast();
-  const [nsfp, setNsfp] = useState("");
-  const [date, setDate] = useState(today);
+  const editing = Boolean(f.nsfp);
+  const [nsfp, setNsfp] = useState(f.nsfp ?? "");
+  const [date, setDate] = useState(editing ? (f.nsfpDate ?? "") : today);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const digits = normalizeNsfp(nsfp).length;
 
   const save = async () => {
     setBusy(true);
-    const result = await recordFakturUploadAction(f.id, { nsfp, date });
+    const result = await setFakturNsfpAction(f.id, { nsfp, date });
     setBusy(false);
     if (!result.ok) {
       if (result.errors._form) toast("Tidak dapat disimpan", result.errors._form, "err");
       setErrors(result.errors);
       return;
     }
-    toast("Upload dicatat — faktur dilaporkan", f.fakturNo, "ok");
+    toast(!normalizeNsfp(nsfp) ? "NSFP dihapus" : editing ? "NSFP diubah" : "NSFP diisi", f.fakturNo, "ok");
     onClose();
   };
 
   return (
     <Dialog
       open
-      icon="send"
-      title="Catat Upload Coretax"
+      icon={editing ? "pen" : "send"}
+      title={editing ? "Ubah NSFP" : "Isi NSFP"}
       subtitle={`${f.fakturNo} · ${FAKTUR_KIND_TEXT[f.kind]} · PPN ${money(f.ppn)}`}
       width={560}
       onClose={onClose}
       foot={
         <>
-          <span className="fnote">Setelah dicatat, faktur menjadi Dilaporkan dan tidak dapat diubah.</span>
+          <span className="fnote">Angka faktur tidak berubah. NSFP ikut tampil di Invoice dan Uang Muka; perubahan tercatat di riwayat.</span>
           <button className="btn" onClick={onClose} disabled={busy}>
             Batal
           </button>
@@ -381,7 +378,11 @@ function UploadDialog({ faktur: f, today, onClose }: { faktur: Faktur; today: st
       }
     >
       <FormRow>
-        <Field label="Nomor Seri Faktur Pajak" span={8} required help={`${digits}/17 digit`} error={errors.nsfp} htmlFor="nsfp">
+        <Field
+          label="Nomor Seri Faktur Pajak"
+          span={8}
+          required={!editing}
+          help={editing && !digits ? "kosong = hapus NSFP" : `${digits}/17 digit`} error={errors.nsfp} htmlFor="nsfp">
           <input
             id="nsfp"
             className={`inp idf${errors.nsfp ? " bad" : ""}`}
@@ -391,7 +392,7 @@ function UploadDialog({ faktur: f, today, onClose }: { faktur: Faktur; today: st
             onChange={(e) => setNsfp(e.target.value)}
           />
         </Field>
-        <Field label="Tanggal Upload" span={4} required error={errors.date}>
+        <Field label="Tanggal Upload" span={4} help="opsional" error={errors.date}>
           <DateInput value={date} invalid={Boolean(errors.date)} onChange={setDate} />
         </Field>
       </FormRow>

@@ -1,35 +1,33 @@
 /**
- * The tax documents' states and deadlines, written once and read by both sides
- * (P100, `tax_concept.md` §5.2, §6.2).
+ * The tax documents' states and reminders, written once and read by both sides
+ * (P100, P101, `tax_concept.md` §5.2, §6.2).
  *
- *   Faktur Pajak Keluaran   Menunggu Upload ──Catat Upload (NSFP, tanggal)──> Dilaporkan
- *   Bukti Potong PPh        Menunggu Bukti Potong ──Catat Diterima (nomor, tanggal)──> Diterima
+ * They are **internal records**, one per event: what PPN a transaction gave
+ * rise to, what PPh a customer withheld. Coretax is where they are reported,
+ * not what they are for.
+ *
+ *   Faktur Pajak Keluaran   no lifecycle — complete from the posting; the
+ *                           NSFP is an optional reference, filled in or
+ *                           corrected with *Isi NSFP*
+ *   Bukti Potong PPh        Menunggu Bukti Potong ──Catat (nomor, tanggal)──> Diterima
+ *                           (the PPh may be credited only once the slip is in
+ *                           hand; its number can be corrected afterwards)
  *
  * Neither ever posts a journal: the receipt and the Invoice already booked the
- * PPN and the PPh. A faktur past the 15th of the month after its tax point, or
- * a slip past the 20th, is flagged late — a flag, not a state.
+ * PPN and the PPh. A faktur still without an NSFP past the 15th of the month
+ * after its tax point, or a slip past the 20th, is flagged — a reminder, not a
+ * state.
  *
  * Client-safe on purpose — no `server-only`, no database import.
  */
 
 export type TaxFakturKind = "Advance" | "Settlement" | "Normal";
-export type TaxFakturStatus = "Awaiting" | "Reported";
 export type TaxSlipStatus = "Awaiting" | "Received";
 
 export const FAKTUR_KIND_TEXT: Record<TaxFakturKind, string> = {
   Advance: "Faktur Uang Muka",
   Settlement: "Faktur Pelunasan",
   Normal: "Faktur Normal",
-};
-
-export const FAKTUR_STATUS_TEXT: Record<TaxFakturStatus, string> = {
-  Awaiting: "Menunggu Upload",
-  Reported: "Dilaporkan",
-};
-
-export const FAKTUR_STATUS_BADGE: Record<TaxFakturStatus, string> = {
-  Awaiting: "s-warn",
-  Reported: "s-ok",
 };
 
 export const SLIP_STATUS_TEXT: Record<TaxSlipStatus, string> = {
@@ -56,8 +54,8 @@ export const uploadDeadline = (taxDate: string) => nextMonthDay(taxDate, 15);
 /** The withholder reports by the 20th of the following month; the BPPU is normally there after that. */
 export const slipExpected = (withheldDate: string) => nextMonthDay(withheldDate, 20);
 
-export const fakturLate = (f: { status: TaxFakturStatus; deadline: string }, today: string) =>
-  f.status === "Awaiting" && today > f.deadline;
+/** No NSFP yet and past the upload date — a reminder that Coretax may still be owed this one. */
+export const fakturLate = (f: { nsfp: string | null; deadline: string }, today: string) => !f.nsfp && today > f.deadline;
 
 export const slipLate = (s: { status: TaxSlipStatus; expected: string }, today: string) =>
   s.status === "Awaiting" && today > s.expected;
@@ -73,9 +71,9 @@ export type TaxDocRefs = {
   slips: { id: number; slipNo: string }[];
 };
 
-export type TaxAbilities = { upload: boolean; receive: boolean };
+export type TaxAbilities = { nsfp: boolean; receive: boolean };
 
 export function taxAbilities(permissions: Iterable<string>): TaxAbilities {
   const held = permissions instanceof Set ? permissions : new Set(permissions);
-  return { upload: held.has("TAX_FAKTUR_UPLOAD"), receive: held.has("TAX_SLIP_RECEIVE") };
+  return { nsfp: held.has("TAX_FAKTUR_EDIT"), receive: held.has("TAX_SLIP_RECEIVE") };
 }

@@ -9,25 +9,26 @@ import { SearchField } from "@/components/ui/search-field";
 import { Select } from "@/components/ui/select";
 import { documentHref } from "@/lib/erp/document-links";
 import type { FakturListRow } from "@/lib/erp/tax-document";
-import {
-  FAKTUR_KIND_TEXT,
-  FAKTUR_STATUS_BADGE,
-  FAKTUR_STATUS_TEXT,
-  fakturLate,
-  type TaxFakturKind,
-} from "@/lib/erp/tax-document-workflow";
+import { FAKTUR_KIND_TEXT, fakturLate, type TaxFakturKind } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney } from "@/lib/format";
 
 const money = (n: number) => formatMoney(n, "IDR");
 
-/** The status filter, with *Terlambat* as its own view though it is a flag, not a state. */
-type View = "" | "Awaiting" | "Late" | "Reported";
+/** The NSFP filter; *Late* is a reminder (no NSFP past the 15th), not a state. */
+type View = "" | "NoNsfp" | "Late" | "Nsfp";
+
+const matches = (f: FakturListRow, v: View, today: string) =>
+  !v || (v === "Late" ? fakturLate(f, today) : v === "NoNsfp" ? !f.nsfp : Boolean(f.nsfp));
+
+const KIND_BADGE: Record<TaxFakturKind, string> = { Advance: "t-vio", Settlement: "t-info", Normal: "t-slate" };
 
 /**
- * The Faktur Pajak Keluaran register (P100). Every faktur here was made by a
- * posting — a receipt's faktur uang muka, an Invoice's faktur pelunasan or
- * normal — so there is no *Baru* button. Awaiting ones sort first, earliest
- * deadline first; the tiles count what still has to be uploaded to Coretax.
+ * The Faktur Pajak Keluaran register (P100, P101): the internal record of the
+ * PPN Keluaran each transaction gave rise to, one document per event. Every
+ * faktur here was made by a posting — a receipt's faktur uang muka, an
+ * Invoice's faktur pelunasan or normal — so there is no *Baru* button. Newest
+ * first, like every document register; the NSFP is shown as the reference to
+ * Coretax, and the tiles only filter.
  */
 export function FakturList({ rows: all, today }: { rows: FakturListRow[]; today: string }) {
   const router = useRouter();
@@ -35,16 +36,14 @@ export function FakturList({ rows: all, today }: { rows: FakturListRow[]; today:
   const [view, setView] = useState<View>("");
   const [kind, setKind] = useState("");
 
-  const awaiting = all.filter((f) => f.status === "Awaiting");
-  const late = awaiting.filter((f) => fakturLate(f, today));
-  const reported = all.filter((f) => f.status === "Reported");
+  const noNsfp = all.filter((f) => !f.nsfp);
+  const late = noNsfp.filter((f) => fakturLate(f, today));
 
   const q = query.trim().toLowerCase();
   const rows = useMemo(() => {
     const out = all.filter(
       (f) =>
-        (!view ||
-          (view === "Late" ? fakturLate(f, today) : f.status === view)) &&
+        matches(f, view, today) &&
         (!kind || f.kind === kind) &&
         (!q ||
           f.fakturNo.toLowerCase().includes(q) ||
@@ -53,17 +52,12 @@ export function FakturList({ rows: all, today }: { rows: FakturListRow[]; today:
           f.customerLabel.toLowerCase().includes(q) ||
           f.customerName.toLowerCase().includes(q))
     );
-    return out.sort((a, b) => {
-      const wa = a.status === "Awaiting";
-      const wb = b.status === "Awaiting";
-      if (wa !== wb) return wa ? -1 : 1;
-      return wa ? a.deadline.localeCompare(b.deadline) : 0;
-    });
+    return out;
   }, [all, q, view, kind, today]);
   const paging = usePaging(rows, `${q}|${view}|${kind}`);
   const filtered = Boolean(q || view || kind);
 
-  const tile = (v: View, icon: "clock" | "warn" | "check", tone: string, label: string, value: number, detail: string) => (
+  const tile = (v: View, icon: "clock" | "warn" | "tags", tone: string, label: string, value: number, detail: string) => (
     <button className="kpi" style={{ textAlign: "left", font: "inherit" }} onClick={() => setView(view === v ? "" : v)} aria-pressed={view === v}>
       <div className="h">
         <span className={`i ${tone}`}>
@@ -93,15 +87,15 @@ export function FakturList({ rows: all, today }: { rows: FakturListRow[]; today:
           </h1>
         </div>
         <p className="ph-sub">
-          Dibuat otomatis saat posting: faktur uang muka dari Penerimaan, faktur pelunasan atau normal dari Invoice Penjualan.
-          Upload ke Coretax paling lambat tanggal 15 bulan berikutnya, lalu catat NSFP-nya di sini.
+          Catatan PPN Keluaran per kejadian, dibuat otomatis saat posting: faktur uang muka dari Penerimaan, faktur pelunasan
+          atau normal dari Invoice Penjualan. NSFP dari Coretax diisi sebagai referensi.
         </p>
       </div>
 
       <div className="kpis bud">
-        {tile("Awaiting", "clock", "t-warn", "Menunggu Upload", awaiting.length, `PPN ${money(awaiting.reduce((a, f) => a + f.ppn, 0))}`)}
-        {tile("Late", "warn", "t-bad", "Terlambat", late.length, "melewati batas upload tanggal 15")}
-        {tile("Reported", "check", "t-ok", "Dilaporkan", reported.length, "sudah punya NSFP")}
+        {tile("", "tags", "t-info", "Faktur Tercatat", all.length, `PPN ${money(all.reduce((a, f) => a + f.ppn, 0))}`)}
+        {tile("NoNsfp", "clock", "t-warn", "NSFP Belum Diisi", noNsfp.length, `PPN ${money(noNsfp.reduce((a, f) => a + f.ppn, 0))}`)}
+        {tile("Late", "warn", "t-bad", "Lewat Tanggal 15", late.length, "belum ada NSFP setelah batas upload")}
       </div>
 
       <div className="card">
@@ -112,10 +106,10 @@ export function FakturList({ rows: all, today }: { rows: FakturListRow[]; today:
             value={view}
             set={Boolean(view)}
             options={[
-              { value: "", label: "Status: semua" },
-              { value: "Awaiting", label: FAKTUR_STATUS_TEXT.Awaiting },
-              { value: "Late", label: "Terlambat" },
-              { value: "Reported", label: FAKTUR_STATUS_TEXT.Reported },
+              { value: "", label: "NSFP: semua" },
+              { value: "NoNsfp", label: "NSFP belum diisi" },
+              { value: "Late", label: "Lewat tanggal 15" },
+              { value: "Nsfp", label: "NSFP sudah diisi" },
             ]}
             onChange={(v) => setView(v as View)}
           />
@@ -142,12 +136,12 @@ export function FakturList({ rows: all, today }: { rows: FakturListRow[]; today:
                 <thead>
                   <tr>
                     <th style={{ width: 150 }}>Nomor</th>
-                    <th style={{ width: 136 }}>Status</th>
+                    <th style={{ width: 150 }}>Jenis</th>
                     <th style={{ width: 106 }}>Tanggal</th>
                     <th>Customer · Sumber</th>
                     <th className="num" style={{ width: 130 }}>DPP</th>
                     <th className="num" style={{ width: 130 }}>PPN</th>
-                    <th style={{ width: 170 }}>NSFP · Batas Upload</th>
+                    <th style={{ width: 170 }}>NSFP</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -157,15 +151,12 @@ export function FakturList({ rows: all, today }: { rows: FakturListRow[]; today:
                     return (
                       <tr key={f.id} onClick={() => router.push(`/tax/faktur/${f.id}`)}>
                         <td>
-                          <span className="dstack">
-                            <Link className="lab" href={`/tax/faktur/${f.id}`}>
-                              {f.fakturNo}
-                            </Link>
-                            <span className="d2">{FAKTUR_KIND_TEXT[f.kind]}</span>
-                          </span>
+                          <Link className="lab" href={`/tax/faktur/${f.id}`}>
+                            {f.fakturNo}
+                          </Link>
                         </td>
                         <td>
-                          <span className={`bdg ${FAKTUR_STATUS_BADGE[f.status]}`}>{FAKTUR_STATUS_TEXT[f.status]}</span>
+                          <span className={`bdg ${KIND_BADGE[f.kind]}`}>{FAKTUR_KIND_TEXT[f.kind]}</span>
                         </td>
                         <td>{formatDate(f.taxDate)}</td>
                         <td>
@@ -196,8 +187,8 @@ export function FakturList({ rows: all, today }: { rows: FakturListRow[]; today:
                             <span className="mono">{f.nsfp}</span>
                           ) : (
                             <span className="dstack">
-                              <span>batas {formatDate(f.deadline)}</span>
-                              {isLate && <span className="bdg t-bad">Terlambat</span>}
+                              <span className="dash">belum diisi</span>
+                              {isLate && <span className="bdg t-bad">Lewat {formatDate(f.deadline)}</span>}
                             </span>
                           )}
                         </td>

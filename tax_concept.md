@@ -286,23 +286,25 @@ cash received + bank charges + PPh withheld (+ PPN kept by a VAT collector, late
 
 ### 5.2 Lifecycle
 
+The tax invoice record is an **internal record**, one per event: the PPN
+Keluaran a transaction gave rise to, with its figures, buyer and source. It is
+complete the moment the transaction posts. Coretax is where it is reported,
+not what the record is for (decided 04/10/2026, P101 of the ERP).
+
 ```text
-Awaiting upload ──upload recorded (number, date)──> Reported
-      │                                                │
-      └─ corrected at source / voided                  ├─ replaced ──> Replaced
-         (still unreported)                            └─ cancelled ─> Cancelled
+Recorded ──NSFP filled in / corrected / cleared──> Recorded
 ```
 
 - It is **created automatically** by the transaction at the tax point, never
   by hand, and only for a taxable transaction.
-- **Awaiting upload** is the to-do state. Past its deadline it is flagged
-  **late**.
-- An upload the tax authority rejects stays *awaiting upload*. There is no
-  separate rejected state.
-- **Reported** means the user has recorded the tax invoice number and upload
-  date.
-- A correction is a new record in *awaiting upload*. The original's state
-  changes only when the correction is reported.
+- It has **no upload lifecycle**. The **NSFP** the tax authority gives, and the
+  upload date, are an optional reference the user fills in; a mistyped one is
+  corrected, and every change is in the record's history. The figures never
+  change.
+- A record still without an NSFP past its deadline is flagged as a
+  **reminder**, not a state.
+- A correction (replacement, cancellation) is a new record; how it relates to
+  the original is decided when corrections are built.
 
 ---
 
@@ -341,7 +343,8 @@ Needs correction <────────────────────�
   decided later.
 - **Received** means the slip is in hand, so the prepaid tax can be credited.
   For now the slip is assumed to show the amount recorded. A slip that
-  differs is handled later.
+  differs is handled later. A mistyped slip number or date is corrected on
+  the record, which stays received; the change is in its history.
 - **Needs correction** is set when a refund, a return or a cancellation
   reduces the transaction after the PPh was withheld. The payer must then
   issue a corrected slip.
@@ -470,7 +473,7 @@ A read-only report per tax period (month) that helps prepare the monthly
 returns. It never files anything:
 
 - output VAT: the tax invoices of the period, and their totals;
-- tax invoices *awaiting upload*, and those *late*;
+- tax invoices still without an NSFP, and those past their deadline;
 - withholding slips *awaiting*, *late* and *needs correction*, with the
   prepaid PPh they hold.
 

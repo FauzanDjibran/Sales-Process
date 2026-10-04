@@ -1113,6 +1113,6 @@ export async function invoiceTaxBasis(db: Db, id: number): Promise<InvoiceTaxBas
 }
 
 /** Records the NSFP of the Invoice's faktur pajak (U10), written by the tax module when it is reported. */
-export async function setInvoiceTaxInvoiceNo(db: Db, id: number, no: string): Promise<void> {
+export async function setInvoiceTaxInvoiceNo(db: Db, id: number, no: string | null): Promise<void> {
   await db.salInvoice.update({ where: { id }, data: { tax_invoice_no: no } });
 }
