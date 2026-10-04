@@ -185,6 +185,7 @@ export function DeliveryNoteForm({
                     .filter((o) => o.status === "Issued")
                     .map((o) => ({ id: o.id, label: o.doNo, name: o.customerName, active: true }))}
                   placeholder="Pilih Delivery Order…"
+                  emptyText="Belum ada Delivery Order yang diterbitkan."
                   invalid={Boolean(errors.delivery_order_id)}
                   onChange={pickOrder}
                 />

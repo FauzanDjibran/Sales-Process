@@ -38,6 +38,7 @@ export function Combobox({
   invalid,
   disabled,
   waitingFor,
+  emptyText,
   keepOpen,
   onChange,
 }: {
@@ -65,6 +66,13 @@ export function Combobox({
    * order. The same shape the segment input's "menunggu induk" prefix uses.
    */
   waitingFor?: string | null;
+  /**
+   * Why the list is empty when nothing has been typed — for a caller that
+   * narrowed it to nothing on purpose and can say so (a source picker that
+   * offers only documents still able to produce one). A search that matches
+   * nothing still reads "Tidak ada pilihan yang cocok". From SIBA `98e064e`.
+   */
+  emptyText?: string | null;
   /**
    * Stay open after a pick, with the query cleared — for `MultiSelect`, where
    * each pick adds one chip and the next is usually wanted straight away.
@@ -246,7 +254,7 @@ export function Combobox({
               </div>
             ))
           ) : (
-            <div className="cbe">Tidak ada pilihan yang cocok.</div>
+            <div className="cbe">{!query && emptyText ? emptyText : "Tidak ada pilihan yang cocok."}</div>
           )}
         </div>
       </AnchoredPopup>

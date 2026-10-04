@@ -28,7 +28,7 @@ in **Note** to stay on an older version on purpose.
 | engineering/code-conventions | 2.1 | core | — | §4, §7; P102 harvested |
 | engineering/data-conventions | 1.0 | doc-numbering=prefix-yyyy-mm-seq | — | §9, P15 |
 | engineering/security-rbac | 1.0 | core | — | §11 |
-| accounting/books-and-posting | 2.0 | core | — | P25 → P71; positions kept by accounting/open-items |
+| accounting/books-and-posting | 2.1 | core | — | P25 → P71; positions kept by accounting/open-items. **Known gap:** §6 reconcile command not built yet (KB SYNC-PLAN 2A.7) |
 | accounting/chart-of-accounts | 1.1 | control-account=user-set | — | P14, P16 |
 | accounting/fiscal-periods-and-statements | 1.0 | core | — | P23, P27, P35 |
 | accounting/multi-currency | 1.1 | core | knowledge/multi_currency_concept.md | P13, P37 (moving average = core pool) |

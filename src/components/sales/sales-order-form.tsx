@@ -185,6 +185,7 @@ export function SalesOrderForm({
                     .filter((o) => o.status === "Open")
                     .map((o) => ({ id: o.id, label: o.orderNo, name: o.customerName, active: true }))}
                   placeholder="Pilih Customer Order…"
+                  emptyText="Belum ada Customer Order berstatus Open."
                   invalid={Boolean(errors.customer_order_id)}
                   onChange={pickOrder}
                 />

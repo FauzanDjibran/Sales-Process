@@ -483,7 +483,8 @@ describe("a resource can never hold less than nothing", () => {
           amount: 500_001,
           actorId: actor,
         }),
-      /Saldo Cash & Bank tidak mencukupi/
+      // The figures read as money, grouped the app's way (SIBA 15d9933).
+      /Saldo Cash & Bank tidak mencukupi: tersedia 500\.000, dibutuhkan 500\.001\./
     );
   });
 

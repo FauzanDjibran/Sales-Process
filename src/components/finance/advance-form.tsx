@@ -274,6 +274,7 @@ export function AdvanceForm({
                     .filter((o) => o.left > 0)
                     .map((o) => ({ id: o.id, label: o.orderNo, name: o.customerName, active: true }))}
                   placeholder="Pilih Customer Order…"
+                  emptyText="Belum ada Customer Order berstatus Open yang masih punya sisa nilai."
                   invalid={Boolean(errors.order_id)}
                   onChange={pickOrder}
                 />

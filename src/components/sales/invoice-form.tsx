@@ -255,6 +255,7 @@ export function InvoiceForm({
                   value={header.customer_order_id}
                   options={options.orders.map((o) => ({ id: o.id, label: o.orderNo, name: o.customerName, active: true }))}
                   placeholder="Pilih Customer Order…"
+                  emptyText="Belum ada Customer Order dengan Delivery Note yang belum ditagih."
                   invalid={Boolean(errors.customer_order_id)}
                   onChange={pickOrder}
                 />

@@ -210,6 +210,7 @@ export function DeliveryOrderForm({
                     .filter((o) => o.status === "Open" && o.salesOrders.some((s) => s.status === "Open"))
                     .map((o) => ({ id: o.id, label: o.orderNo, name: o.customerName, active: true }))}
                   placeholder="Pilih Customer Order…"
+                  emptyText="Belum ada Customer Order yang punya Sales Order berstatus Open."
                   invalid={Boolean(errors.customer_order_id)}
                   onChange={pickOrder}
                 />
