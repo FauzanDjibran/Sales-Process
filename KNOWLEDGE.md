@@ -24,8 +24,8 @@ in **Note** to stay on an older version on purpose.
 | --- | --- | --- | --- | --- |
 | foundations/working-method | 1.0 | guideline-file=named-import | — | Claude-ERP.md §1–§19 |
 | foundations/document-lifecycle | 1.0 | core | — | §2, §9 |
-| engineering/app-architecture | 1.0 | tenancy=one-company | — | §3, P9 |
-| engineering/code-conventions | 2.0 | core | — | §4, §7 |
+| engineering/app-architecture | 1.1 | tenancy=one-company | — | §3, P9; P94, P100 harvested |
+| engineering/code-conventions | 2.1 | core | — | §4, §7; P102 harvested |
 | engineering/data-conventions | 1.0 | doc-numbering=prefix-yyyy-mm-seq | — | §9, P15 |
 | engineering/security-rbac | 1.0 | core | — | §11 |
 | accounting/books-and-posting | 2.0 | core | — | P25 → P71; positions kept by accounting/open-items |
@@ -34,7 +34,7 @@ in **Note** to stay on an older version on purpose.
 | accounting/multi-currency | 1.1 | core | knowledge/multi_currency_concept.md | P13, P37 (moving average = core pool) |
 | accounting/open-items | 1.0 | settlement=in-posting | knowledge/ar_ap_open_item_concept.md | P71–P74, P96; R4 waits for this project |
 | accounting/tax-indonesia | 2.0 | core | tax_concept.md | **Living copy**: ERP edits it first, then harvests |
-| sales/order-to-cash | 1.0 | core | — | Reference implementation: Sales-Process-Concept.md |
+| sales/order-to-cash | 2.0 | core | — | Reference implementation: Sales-Process-Concept.md; P93–P99 harvested |
 | ui/design-convention | 1.1 | form-layout=header-tabs | knowledge/design-convention.md | P3, P38 |
 | ui/benchmark-study | 1.0 | reference | knowledge/Core_UI_Reference.md | |
 
@@ -53,11 +53,10 @@ Project decisions that look reusable and are waiting to be folded into the KB
 
 | Project decision | Target concept | Proposed change | Status |
 | --- | --- | --- | --- |
-| P93, P94, P97, P99 | sales/order-to-cash §2, §5 | The release chain is agreement → release order → delivery order (warehouse instruction; one warehouse and address; posts nothing) → delivery note (posts HPP / Persediaan; stores delivered quantity on the order lines; orders close themselves when fully delivered; closing by hand releases what never left) → invoice made of **whole lines of several posted delivery notes of one agreement**, where the bill completing a line takes what is left of its amount. Tax date = latest delivery date. The sales invoice is named *Invoice Penjualan*, so *Faktur* alone means the tax document. | Awaiting user |
-| P98 | sales/order-to-cash §4 | One customer receipt purpose settles advance bills and invoices. An invoice's open amount is its AR item balance. PPh is on the net DPP after advances. | Awaiting user |
-| P94 | engineering/app-architecture | **Stand-in module**: a module not built yet (stock) is replaced by a stand-in behind the contract the real one will keep (`issueStock(...)`), with temporary tables only it names, so the real module replaces it without touching callers. | Awaiting user |
-| P94 | engineering/app-architecture §2 | A downstream fact that an upstream module needs (delivered quantity) is **stored on the upstream lines and written through the upstream module's own function**, never read from the downstream tables. | Awaiting user |
-| P100 | engineering/app-architecture §2 | An `afterPost` hook that the Server Action fills keeps a dependent module (tax) one-way from the module it hooks into. | Awaiting user |
-| P100 | accounting/tax-indonesia | The party's tax identity is copied onto the tax record at posting. Every figure is copied and never edited. | Awaiting user |
-| P102 | engineering/code-conventions | Remote database performance: run functions in the database's region; load nested includes in one statement (`relationJoins`); a saved document's page loads only its own source; pickers and lists read ids or numbers before whole documents. | Awaiting user |
-| P95 | (new) inventory | Lot picking with FEFO and expiry flags, as a candidate for an inventory concept once real stock is built. | Later |
+| P95 | (new) inventory | Lot picking with FEFO and expiry flags, as a candidate for an inventory concept once real stock is built | Later |
+
+Processed 04/10/2026: P93, P94, P97, P98, P99 → `sales/order-to-cash` 2.0;
+P94, P100 → `engineering/app-architecture` 1.1 (stand-in module, `afterPost`
+hook, delivered quantity on upstream lines); P102 → `engineering/code-conventions`
+2.1. The P100 "tax identity copied" item was dropped: `tax_concept.md` §1.6
+and §5.1 already say it.
