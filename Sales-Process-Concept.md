@@ -793,13 +793,14 @@ Uang Muka items of the CO  ──► deduction rows (DPP used, typed)
 | Field | Rules |
 | --- | --- |
 | Customer Order | An Open or **Closed** order with a posted, unbilled Delivery Note line — a closed order is still billed for what it sent (U21); chosen once, locked. Customer, PO, Termin, Mode Harga, Kena PPN shown read-only |
-| Tanggal Faktur | **The latest Tanggal Kirim of the notes picked** (U19), shown, never typed; it is also the faktur pajak's date. One Faktur and one faktur pajak may cover many Delivery Notes |
-| Jatuh Tempo | Tanggal Faktur + the order's Termin days; shown, not typed |
+| Tanggal Faktur | **Typed** — the Faktur's own date and its journal date; not before the latest Tanggal Kirim of the notes picked (U19) |
+| Tanggal Pajak | **The latest Tanggal Kirim of the notes picked** (U19), shown — the faktur pajak's date. One Faktur and one faktur pajak may cover many Delivery Notes |
+| Jatuh Tempo | **The latest Tanggal Kirim + the order's Termin days** (U19); shown, not typed |
 | Alamat Penagihan | Any of the customer's addresses, starting on one flagged Penagihan, else the order's address |
 | Rekening Pembayaran | A rupiah Bank, printed on the bill (as on the advance bill) |
 | Catatan | Free text |
 | Lines | **Pilih Surat Jalan** opens the order's posted, unbilled lines grouped by Delivery Note (SJ no, Tanggal Kirim, item, qty) — tick a whole note or single lines. Nothing to type on a line: quantity, price and discount come from the note and the order |
-| Uang Muka | **Pilih Uang Muka** lists the order's open Uang Muka items (ARI no, receipt date, bill, balance, faktur pajak no); the user ticks and types the **DPP used** from each, up to its balance and in total up to the Faktur's DPP (U8). Nothing pre-filled |
+| Uang Muka | **Pilih Uang Muka** opens a dialog, as *Tambah Item* does (P81): the order's open Uang Muka items with ARI no, receipt date, bill, balance and faktur pajak no, ticked and applied with *Terapkan*. Each picked item becomes a row on the page where the user types the **DPP used**, up to its balance and in total up to the Faktur's DPP (U8); nothing pre-filled, a blank row refused, an unticked one leaves |
 
 ### 9.3 A line's figures
 
@@ -846,7 +847,7 @@ Numbered **`INV/YYYY/MM/NNNN`** (the simulation's prefix). Permissions
 1. Recheck: every line still on a posted Delivery Note and not on another live
    Faktur; each Uang Muka item still has the DPP used; Σ used ≤ DPP; period
    open; accounts mapped.
-2. **Journal**, dated Tanggal Faktur (the latest note's Tanggal Kirim, U19):
+2. **Journal**, dated Tanggal Faktur (U19):
 
 | Account | Debit | Credit | Partner |
 | --- | ---: | ---: | --- |
@@ -893,8 +894,9 @@ CO/2026/10/0001: 10.000 PCS × 1.000, Exclude, Kena PPN. Uang Muka paid: one
 item ARI/2026/10/0001, DPP 2.000.000. Sent: SJ/…0001 1.000 PCS (15/10),
 SJ/…0002 2.000 PCS (17/10).
 
-INV/2026/10/0001 bills both notes, so it is dated 17/10 (U19), using 1.000.000
-of the advance:
+INV/2026/10/0001, dated 20/10, bills both notes, using 1.000.000 of the advance.
+Its tax date is 17/10, the latest Tanggal Kirim, and with Termin NET30 it falls
+due 16/11 (U19):
 
 | Figure | Amount |
 | --- | ---: |
@@ -924,7 +926,7 @@ Faktur.
 
 | # | Rule |
 | --- | --- |
-| **U19** | **One Faktur — and its one faktur pajak — may cover many Delivery Notes; it is dated the latest one's Tanggal Kirim.** Tanggal Faktur, the tax date and the journal date all follow from the notes picked; posting is refused when that date's period is closed. |
+| **U19** | **One Faktur — and its one faktur pajak — may cover many Delivery Notes.** The Faktur has **its own Tanggal Faktur**, typed and not before the latest note's Tanggal Kirim, which dates its journal. The **faktur pajak's date** and the **due date** follow from the **latest Tanggal Kirim**: tax date = that day; Jatuh Tempo = that day + the order's Termin days. |
 | **U20** | **PPN at the Customer Order's snapshot** (rate and DPP Nilai Lain factor frozen at Ajukan), as the advance uses, so the order, its advances and its Fakturs share one arithmetic. |
 | **U21** | **The Customer Order is finished when its delivery is finished; billing comes after.** It closes itself (no reason, event *Ditutup — seluruhnya terkirim*) once every line is fully delivered by posted Delivery Notes, as the Sales Order and Delivery Order do (U14); Tutup Pesanan by hand stays. A closed Customer Order still takes Fakturs for its posted, unbilled lines, and nothing about billing holds it open. |
 | **U22** | **Penjualan and Piutang Usaha come from Account Mapping**, one each, until the Kategori Item mapping (C25), as HPP / Persediaan (U12). |
@@ -1165,7 +1167,7 @@ Agreed with the user on 02/10/2026; to be recorded in §12 when built.
 | **U16** | **One Faktur Penjualan bills one Customer Order** (04/10/2026), chosen once and locked; its customer, Termin, prices and tax settings come from it. |
 | **U17** | **A Faktur's lines are Delivery Note lines the user picks, each whole** (04/10/2026): only posted notes of that order, each line billed once — so only what was actually sent is billed. |
 | **U18** | **The Faktur's Include / Exclude PPN and Kena PPN are the Customer Order's** (04/10/2026), shown and never chosen. |
-| **U19** | **One Faktur and its faktur pajak may cover many Delivery Notes, dated the latest one's Tanggal Kirim** (04/10/2026). |
+| **U19** | **One Faktur and its faktur pajak may cover many Delivery Notes** (04/10/2026). The Faktur has its own typed Tanggal Faktur (journal date, not before the latest note); the faktur pajak's date and the due date (+ Termin) follow from the latest Tanggal Kirim. |
 | **U20** | **The Faktur uses the Customer Order's PPN snapshot** (04/10/2026). |
 | **U21** | **The Customer Order is finished when its delivery is finished** (04/10/2026): it closes itself once every line is fully delivered; billing comes after and a closed order is still billed. |
 | **U22** | **Penjualan and Piutang Usaha come from Account Mapping**, one each, until C25 (04/10/2026). |
