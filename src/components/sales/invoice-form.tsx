@@ -22,7 +22,7 @@ import {
   type InvoiceAbilities,
   type InvoicePayState,
 } from "@/lib/erp/sales-invoice-workflow";
-import type { InvoiceHeaderInput, InvoiceOptions, InvoicePreview, InvoiceView, InvoiceNoteLine, InvoiceOrderOption } from "@/lib/erp/sales-invoice";
+import type { InvoiceHeaderInput, InvoiceOptions, InvoiceView, InvoiceNoteLine, InvoiceOrderOption } from "@/lib/erp/sales-invoice";
 import { computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine, type PriceMode } from "@/lib/erp/sales-tax";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso } from "@/lib/format";
@@ -87,7 +87,6 @@ export function InvoiceForm({
   invoice,
   options,
   can,
-  preview = null,
   presetOrderId = null,
   pay = null,
   payments = [],
@@ -97,7 +96,6 @@ export function InvoiceForm({
   invoice: InvoiceView | null;
   options: InvoiceOptions;
   can: InvoiceAbilities;
-  preview?: InvoicePreview | null;
   presetOrderId?: number | null;
   /** A posted Invoice's standing, from its Invoice AR item (U26). */
   pay?: { state: InvoicePayState; open: number; overdue: boolean } | null;
@@ -839,7 +837,7 @@ export function InvoiceForm({
                 </button>
               </>
             ) : (
-              <InvoiceActions id={invoice!.id} subject={invoice!.invoiceNo} status={status} can={can} preview={preview} />
+              <InvoiceActions id={invoice!.id} subject={invoice!.invoiceNo} status={status} can={can} />
             )}
           </div>
         </div>

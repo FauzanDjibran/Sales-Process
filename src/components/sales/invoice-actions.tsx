@@ -4,9 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { JournalPreview } from "@/components/ui/journal-preview";
 import { Field } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
-import { transitionInvoiceAction } from "@/app/actions/sales-invoice";
+import { previewInvoicePostingAction, transitionInvoiceAction } from "@/app/actions/sales-invoice";
 import { headerButtonClass, orderForHeader, type ActionTone } from "@/lib/erp/header-actions";
 import {
   INVOICE_TRANSITIONS,
@@ -16,8 +17,6 @@ import {
   type InvoiceAction,
   type InvoiceStatus,
 } from "@/lib/erp/sales-invoice-workflow";
-import type { InvoicePreview } from "@/lib/erp/sales-invoice";
-import { formatMoney } from "@/lib/format";
 
 /** Why a final note offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<InvoiceStatus, string>> = {
@@ -25,34 +24,31 @@ const LOCK_TEXT: Partial<Record<InvoiceStatus, string>> = {
   Cancelled: "Invoice dibatalkan",
 };
 
-const money = (n: number) => formatMoney(n, "IDR");
-
 /**
  * An Invoice's lifecycle as buttons in the page header: Ubah (Draft only),
- * Batalkan and Posting. Posting's confirmation states the journal it will
- * write — Piutang and the Uang Muka used debited, Penjualan and PPN Keluaran
- * credited — and refuses up front when the Invoice cannot post (a line billed
- * since, an Uang Muka used since, a missing mapping or a closed period).
+ * Batalkan and Posting. Posting's confirmation shows the journal it will write
+ * — Piutang and the Uang Muka used debited, Penjualan and PPN Keluaran credited
+ * — from the posting itself run as a dry run and rolled back (P103). An Invoice
+ * that cannot post (a line billed since, an Uang Muka used since, a missing
+ * mapping, a closed period) says why there, with *Ya, Posting* disabled.
  */
 export function InvoiceActions({
   id,
   subject,
   status,
   can,
-  preview,
 }: {
   id: number;
   subject: string;
   status: InvoiceStatus;
   can: InvoiceAbilities;
-  /** What Posting would write; null once the Invoice is final. */
-  preview: InvoicePreview | null;
 }) {
   const toast = useToast();
   const [confirm, setConfirm] = useState<InvoiceAction | null>(null);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [postable, setPostable] = useState(false);
 
   const run = async (action: InvoiceAction) => {
     if (INVOICE_TRANSITIONS[action].reason && !reason.trim()) {
@@ -105,6 +101,7 @@ export function InvoiceActions({
               onClick={() => {
                 setReason("");
                 setReasonError("");
+                setPostable(false);
                 setConfirm(a);
               }}
             >
@@ -118,10 +115,6 @@ export function InvoiceActions({
   );
 
   const t = confirm ? INVOICE_TRANSITIONS[confirm] : null;
-  // Posting cannot succeed while the preview found a reason; say so before the button.
-  const blocked = confirm === "post" && preview ? preview.blocked : [];
-  const journal = preview?.lines ?? [];
-  const total = journal.reduce((a, l) => a + l.debit, 0);
 
   return (
     <>
@@ -145,70 +138,11 @@ export function InvoiceActions({
           confirmLabel={t.confirmLabel}
           confirmTone={t.tone === "danger" ? "solid-danger" : "primary"}
           busy={busy}
-          confirmDisabled={blocked.length > 0}
+          confirmDisabled={confirm === "post" && !postable}
           onConfirm={() => run(confirm)}
           onCancel={() => setConfirm(null)}
         >
-          {confirm === "post" && blocked.length > 0 && (
-            <div className="nbox bad slim">
-              <Icon name="warn" size={15} className="ni" />
-              <div>
-                {blocked.map((b) => (
-                  <b key={b} style={{ display: "block" }}>
-                    {b}
-                  </b>
-                ))}
-              </div>
-            </div>
-          )}
-          {confirm === "post" && journal.length > 0 && (
-            <div className="tw">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th>Account</th>
-                    <th className="num" style={{ width: 130 }}>
-                      Debit
-                    </th>
-                    <th className="num" style={{ width: 130 }}>
-                      Kredit
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {journal.map((l, i) => (
-                    <tr key={i}>
-                      <td className="wrapok">
-                        <span className="dstack">
-                          <span className="d1">
-                            <span className="lab">{l.accountNo}</span> {l.accountName}
-                          </span>
-                          <span className="d2">{l.description}</span>
-                        </span>
-                      </td>
-                      <td className="num">
-                        <span className="mny">{l.debit ? money(l.debit) : ""}</span>
-                      </td>
-                      <td className="num">
-                        <span className="mny">{l.credit ? money(l.credit) : ""}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="totrow">
-                    <td style={{ textAlign: "right" }}>Total</td>
-                    <td className="num">
-                      <span className="mny">{money(total)}</span>
-                    </td>
-                    <td className="num">
-                      <span className="mny">{money(total)}</span>
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
+          {confirm === "post" && <JournalPreview load={() => previewInvoicePostingAction(id)} onReady={setPostable} />}
           {t.reason && (
             <Field label="Alasan" span={12} required error={reasonError}>
               <textarea

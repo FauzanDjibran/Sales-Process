@@ -304,10 +304,15 @@ describe("posting a receipt of two bills (P66)", () => {
     assert.match(r.txNo, /^BKM\/\d{4}\/\d{2}\/\d{4}$/);
     assert.equal((await settledByDocuments("sal_advance", [f.bill2])).get(f.bill2) ?? 0, 0, "a Draft settles nothing");
 
-    const preview = await previewCashReceiptPosting(r.id);
-    assert.ok(preview.ok, !preview.ok ? preview.message : "");
-
+    // The Posting dialog's journal is Posting itself run as a dry run and rolled back (P103).
     const journals = await prisma.accJournal.count();
+    const bookRows = await prisma.cashBankLedger.count({ where: { cash_bank_id: f.bank } });
+    const preview = await previewCashReceiptPosting(r.id, actor);
+    assert.ok(preview.ok, !preview.ok ? JSON.stringify(preview.errors) : "");
+    assert.equal(await prisma.accJournal.count(), journals, "a dry run writes no journal");
+    assert.equal(await prisma.cashBankLedger.count({ where: { cash_bank_id: f.bank } }), bookRows, "nor a Cash Bank Book entry");
+    assert.equal((await getCashReceipt(r.id))!.status, "Draft", "and leaves the receipt a Draft");
+
     assert.deepEqual(await transitionCashReceipt(r.id, "post", actor), { ok: true });
     assert.equal(await prisma.accJournal.count(), journals + 1);
 
@@ -318,6 +323,11 @@ describe("posting a receipt of two bills (P66)", () => {
     const debit = lines.reduce((a, l) => a + l.debit_amount.toNumber(), 0);
     const credit = lines.reduce((a, l) => a + l.kredit_amount.toNumber(), 0);
     assert.equal(debit, credit);
+    assert.deepEqual(
+      preview.lines.map((l) => [l.debit, l.credit, l.description]),
+      lines.map((l) => [l.debit_amount.toNumber(), l.kredit_amount.toNumber(), l.description]),
+      "the dialog showed the journal Posting wrote"
+    );
     const on = (acc: number, side: "debit_amount" | "kredit_amount") =>
       lines.filter((l) => l.account_id === acc).reduce((a, l) => a + l[side].toNumber(), 0);
     assert.equal(on(f.bankAcc, "debit_amount"), 1_483_000);

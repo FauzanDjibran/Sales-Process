@@ -5,7 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate } from "./fiscal";
-import { postJournal, type JournalLineInput } from "./journal";
+import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { recordCashBankEntry } from "./cash-bank";
 import { ArItemOverdrawn, arItemBalances, createArItem, lockArItems, openInvoiceItemIds, settleArItem } from "./ar-item";
 import { checkAccountIsLeaf } from "./records";
@@ -595,6 +595,8 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
     if (e instanceof ArItemOverdrawn) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
+    // A dry run reached the end of the posting: its journal, with every write rolled back (P103).
+    if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;
     throw e;
   }
 }
@@ -815,18 +817,31 @@ async function accountProblem(db: Db, id: number): Promise<string | null> {
 }
 
 /**
- * The journal lines posting would write now — what the Posting dialog shows
- * before anything is committed (design convention: consequences first).
+ * The journal Posting would write now, for the Posting dialog (P103):
+ * `transitionCashReceipt` run as a **dry run** — the same locks, rechecks,
+ * Cash Bank Book entry, AR items and journal, and the same `afterPost` hook the
+ * action passes — then rolled back. What the dialog shows is the journal, and
+ * a receipt that cannot post says why in Posting's own words.
  */
-export async function previewCashReceiptPosting(id: number): Promise<Posting> {
-  const t = await prisma.finCashBankTx.findUnique({ where: { id }, include: { ...WITH_LINES, partner: true } });
-  if (!t) return { ok: false, message: "Penerimaan tidak ditemukan." };
-  const r = await checkCashReceipt(prisma, asInput(t), id);
-  if (!r.ok) return { ok: false, message: Object.values(r.errors)[0] };
-  return buildPosting(prisma, r.c, t.partner.partner_name);
+export async function previewCashReceiptPosting(
+  id: number,
+  actorId: number,
+  afterPost?: (tx: Prisma.TransactionClient) => Promise<void>
+): Promise<JournalPreviewResult> {
+  try {
+    const r = await transitionCashReceipt(id, "post", actorId, undefined, afterPost, { dryRun: true });
+    if (!r.ok) return r;
+    return { ok: true, lines: await describeJournalLines(r.journal ?? []) };
+  } catch (e) {
+    // Whatever would make Posting fail is the dialog's reason not to offer it.
+    if (e instanceof Error) return { ok: false, errors: { _form: e.message } };
+    throw e;
+  }
 }
 
-export type CashReceiptTransitionResult = { ok: true } | { ok: false; errors: Record<string, string> };
+export type CashReceiptTransitionResult =
+  | { ok: true; /** Only on a dry run: the journal Posting would write. */ journal?: JournalLineInput[] }
+  | { ok: false; errors: Record<string, string> };
 
 /**
  * Runs one lifecycle step. **Posting** re-checks the stored receipt with every
@@ -845,7 +860,9 @@ export async function transitionCashReceipt(
    * tax module make the receipt's faktur pajak and bukti potong (P100) without
    * this module depending on it (§3.1).
    */
-  afterPost?: (tx: Prisma.TransactionClient) => Promise<void>
+  afterPost?: (tx: Prisma.TransactionClient) => Promise<void>,
+  /** Run the whole posting, then roll it back and return its journal (P103). */
+  options: { dryRun?: boolean } = {}
 ): Promise<CashReceiptTransitionResult> {
   const t = await prisma.finCashBankTx.findUnique({ where: { id }, include: { ...WITH_LINES, partner: true } });
   if (!t || t.direction !== "In") return { ok: false, errors: { _form: "Penerimaan tidak ditemukan." } };
@@ -901,23 +918,24 @@ export async function transitionCashReceipt(
       if (done.count !== 1) throw new Refused({ _form: "Penerimaan berubah saat diproses. Muat ulang halaman." });
 
       const typeId = await docTypeId(tx, "fin_cash_bank_tx");
+      const journalLines = posting.lines.map(
+        (l): JournalLineInput => ({
+          accountId: l.accountId,
+          partnerId: l.partnerId,
+          currencyId: baseCurrency.id,
+          rate: 1,
+          debit: l.debit,
+          credit: l.credit,
+          description: l.description,
+        })
+      );
       const journal = await postJournal(tx, {
         description: `${t.tx_no} · ${posting.description}`,
         sourceDocTypeId: typeId,
         sourceDocId: id,
         postingDate: t.tx_date,
         actorId,
-        lines: posting.lines.map(
-          (l): JournalLineInput => ({
-            accountId: l.accountId,
-            partnerId: l.partnerId,
-            currencyId: baseCurrency.id,
-            rate: 1,
-            debit: l.debit,
-            credit: l.credit,
-            description: l.description,
-          })
-        ),
+        lines: journalLines,
       });
       await recordCashBankEntry(tx, {
         cashBankId: t.cash_bank_id,
@@ -976,6 +994,7 @@ export async function transitionCashReceipt(
       }
       await audit(tx, id, "UPDATE", "post", actorId);
       if (afterPost) await afterPost(tx);
+      if (options.dryRun) throw new PostingDryRun(journalLines);
     });
     return { ok: true as const };
   });

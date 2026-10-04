@@ -291,6 +291,79 @@ export async function postJournal(
  * being entered does not, and refusing to save it would mean the balance rule
  * was enforced at the wrong moment.
  */
+// ---------------------------------------------------------- posting preview
+
+/**
+ * Carries a dry run's journal out of the posting transaction it rolls back
+ * (P103).
+ *
+ * A document's posting function, asked for a dry run, runs the whole posting
+ * — every recheck, lock, stock issue, book entry and the journal itself — and
+ * throws this at the very end instead of committing. The rollback undoes every
+ * write, and the caller turns the throw back into the journal lines. So a Post
+ * confirmation shows the journal Post writes, never a second calculation of
+ * it, and a posting that would be refused says why with Post's own words.
+ * SIBA's pattern (`JournalPreview`, SIBA `c8aca61`), and the shared design
+ * convention's §9.1.
+ */
+export class PostingDryRun extends Error {
+  constructor(readonly lines: JournalLineInput[]) {
+    super("Pratinjau posting");
+    this.name = "PostingDryRun";
+  }
+}
+
+/** One journal line as a reader recognises it, for a Post confirmation. */
+export type JournalPreviewLine = {
+  accountLabel: string;
+  accountName: string;
+  partnerLabel: string | null;
+  partnerName: string | null;
+  description: string;
+  /** Base currency, valued exactly as `postJournal` values it. */
+  debit: number;
+  credit: number;
+};
+
+/** What a Post confirmation loads: the journal, or the refusal Post would give. */
+export type JournalPreviewResult =
+  | { ok: true; lines: JournalPreviewLine[] }
+  | { ok: false; errors: Record<string, string> };
+
+/**
+ * The journal lines a dry run computed, resolved to account and Partner names
+ * and valued in base as `postJournal` values them. Writes nothing.
+ */
+export async function describeJournalLines(lines: JournalLineInput[]): Promise<JournalPreviewLine[]> {
+  const partnerIds = [...new Set(lines.flatMap((l) => (l.partnerId ? [l.partnerId] : [])))];
+  const [accounts, partners] = await Promise.all([
+    prisma.accAccount.findMany({
+      where: { id: { in: [...new Set(lines.map((l) => l.accountId))] } },
+      select: { id: true, account_label: true, account_name: true },
+    }),
+    partnerIds.length
+      ? prisma.mPartner.findMany({ where: { id: { in: partnerIds } }, select: { id: true, partner_label: true, partner_name: true } })
+      : Promise.resolve([]),
+  ]);
+  const accountOf = new Map(accounts.map((a) => [a.id, a]));
+  const partnerOf = new Map(partners.map((p) => [p.id, p]));
+  return lines.map((l) => {
+    const onDebit = cents(l.debit) > 0;
+    const base = l.baseAmount ?? roundBase((onDebit ? l.debit : l.credit) * l.rate);
+    const account = accountOf.get(l.accountId);
+    const partner = l.partnerId ? partnerOf.get(l.partnerId) : undefined;
+    return {
+      accountLabel: account?.account_label ?? "—",
+      accountName: account?.account_name ?? "",
+      partnerLabel: partner?.partner_label ?? null,
+      partnerName: partner?.partner_name ?? null,
+      description: l.description,
+      debit: onDebit ? base : 0,
+      credit: onDebit ? 0 : base,
+    };
+  });
+}
+
 export type DraftJournalInput = {
   /** `YYYY-MM-DD`, already checked by the caller (`checkTransactionDate`). */
   date: string;

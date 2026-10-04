@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import { InvoiceForm } from "@/components/sales/invoice-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
-import { getInvoice, invoiceOptions, invoicePayStates, invoicePreview } from "@/lib/erp/sales-invoice";
+import { getInvoice, invoiceOptions, invoicePayStates } from "@/lib/erp/sales-invoice";
 import { settlementsOfDocument } from "@/lib/erp/cash-bank-tx";
 import { invoiceAbilities } from "@/lib/erp/sales-invoice-workflow";
 import { taxDocsOf } from "@/lib/erp/tax-document";
@@ -15,15 +15,15 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const invoice = await getInvoice(Number(id));
   if (!invoice) notFound();
   const can = invoiceAbilities(actor.permissions);
-  const [options, preview, pay, payments, taxDocs] = await Promise.all([
+  // The journal Posting would write is not read here: the Posting dialog asks
+  // for it as a dry run when it opens (P103).
+  const [options, pay, payments, taxDocs] = await Promise.all([
     invoiceOptions({
       id: invoice.id,
       orderId: Number(invoice.header.customer_order_id),
       lineIds: invoice.lines.map((l) => Number(l.delivery_note_line_id)),
       itemIds: invoice.deductions.map((d) => d.ar_item_id),
     }),
-    // The journal Posting would write, for its confirmation — only for a Draft this user may post.
-    invoice.status === "Draft" && can.post ? invoicePreview(invoice.id) : Promise.resolve(null),
     // Where it stands, and the receipts that paid it — composed here (U26).
     invoice.status === "Posted" ? invoicePayStates([invoice.id]).then((m) => m[invoice.id] ?? null) : Promise.resolve(null),
     invoice.status === "Posted" ? settlementsOfDocument("sal_invoice", invoice.id) : Promise.resolve([]),
@@ -32,7 +32,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   ]);
   return (
     <>
-      <InvoiceForm mode="view" invoice={invoice} options={options} can={can} preview={preview} pay={pay} payments={payments} taxDocs={taxDocs} />
+      <InvoiceForm mode="view" invoice={invoice} options={options} can={can} pay={pay} payments={payments} taxDocs={taxDocs} />
       <RecordHistoryCard entityKey="sal_invoice" rowId={invoice.id} />
     </>
   );

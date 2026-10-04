@@ -11,8 +11,8 @@ import {
   updateCashReceipt,
   type CashReceiptInput,
   type CashReceiptResult,
-  type PostingLine,
 } from "@/lib/erp/cash-bank-tx";
+import type { JournalPreviewResult } from "@/lib/erp/journal";
 import { createTaxDocsForReceipt } from "@/lib/erp/tax-document";
 import { CASH_RECEIPT_TRANSITIONS, type CashBankTxAction } from "@/lib/erp/cash-bank-tx-workflow";
 
@@ -63,14 +63,16 @@ export async function updateCashReceiptAction(id: number, input: CashReceiptInpu
   return result;
 }
 
-/** The journal Posting would write, for the confirmation dialog. */
-export async function previewCashReceiptPostingAction(
-  id: number
-): Promise<{ ok: true; description: string; lines: PostingLine[] } | { ok: false; errors: Record<string, string> }> {
+/**
+ * The journal Posting would write, for the confirmation dialog: Posting run as
+ * a dry run and rolled back, with the same tax hook the real Posting gets
+ * (P103).
+ */
+export async function previewCashReceiptPostingAction(id: number): Promise<JournalPreviewResult> {
   const g = await authorize("CASH_RECEIPT_POST");
   if (!g.ok) return g.denial;
-  const p = await previewCashReceiptPosting(id);
-  return p.ok ? p : { ok: false, errors: { _form: p.message } };
+  const actorId = g.actor.user.id;
+  return previewCashReceiptPosting(id, actorId, (tx) => createTaxDocsForReceipt(tx, id, actorId));
 }
 
 export type CashReceiptTransitionActionResult =

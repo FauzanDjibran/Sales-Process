@@ -22,7 +22,6 @@ import {
 import type {
   DeliveryNoteHeaderInput,
   DeliveryNoteOptions,
-  DeliveryNotePreview,
   DeliveryNoteView,
   DnSourceLine,
 } from "@/lib/erp/delivery-note";
@@ -53,7 +52,6 @@ export function DeliveryNoteForm({
   note,
   options,
   can,
-  preview = null,
   presetDeliveryOrderId = null,
   billing = null,
 }: {
@@ -61,8 +59,6 @@ export function DeliveryNoteForm({
   note: DeliveryNoteView | null;
   options: DeliveryNoteOptions;
   can: DeliveryNoteAbilities;
-  /** What Posting would write — for a Draft shown in view mode. */
-  preview?: DeliveryNotePreview | null;
   /** `?do=<id>` — started from a Delivery Order's page: its open lines start ticked. */
   presetDeliveryOrderId?: number | null;
   /** For a posted note: the live Invoice billing each line, by line id (U17). */
@@ -619,7 +615,7 @@ export function DeliveryNoteForm({
                 </button>
               </>
             ) : (
-              <DeliveryNoteActions id={note!.id} subject={note!.dnNo} status={status} can={can} preview={preview} />
+              <DeliveryNoteActions id={note!.id} subject={note!.dnNo} status={status} can={can} />
             )}
           </div>
         </div>

@@ -6,7 +6,7 @@ import { nextDocumentNumber } from "./document-number";
 import { formatNumber } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate } from "./fiscal";
-import { journalNumbersByIds, postJournal } from "./journal";
+import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { checkAccountIsLeaf } from "./records";
 import { formatAddress } from "./partner-shape";
 import { customerOrderNumbersByIds, invoiceSourceOrders, lockCustomerOrder, type InvoiceSourceOrder } from "./customer-order";
@@ -513,6 +513,8 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
     if (e instanceof ArItemOverdrawn) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
+    // A dry run reached the end of the posting: its journal, with every write rolled back (P103).
+    if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;
     throw e;
   }
 }
@@ -666,26 +668,32 @@ async function accountProblem(db: Db, id: number): Promise<string | null> {
   return checkAccountIsLeaf(id);
 }
 
-export type InvoicePreview = {
-  lines: InvoicePostingLine[];
-  /** Why posting would be refused now, each said once. */
-  blocked: string[];
-};
-
-/** What Posting would write, read before it runs (consequences before commitment). */
-export async function invoicePreview(id: number): Promise<InvoicePreview | null> {
-  const n = await prisma.salInvoice.findUnique({ where: { id }, include: WITH_ROWS });
-  if (!n) return null;
-  const input = asInput(n);
-  const r = await checkInvoice(prisma, input.header, input.lines, input.deductions, id, input.keep);
-  if (!r.ok) return { lines: [], blocked: [...new Set(Object.entries(r.errors).filter(([k]) => !k.startsWith("_") || k === "_form").map(([, v]) => v))] };
-  const p = await buildPosting(prisma, n.invoice_no, r.c);
-  if (!p.ok) return { lines: [], blocked: [`Account Mapping belum lengkap: ${p.missing.join(", ")}.`] };
-  const period = await checkTransactionDate(isoDay(n.invoice_date));
-  return { lines: p.lines, blocked: period.ok ? [] : [period.message] };
+/**
+ * The journal Posting would write now, for the Posting dialog (P103):
+ * `transitionInvoice` run as a **dry run** — the order lock, the recheck, the
+ * journal, the Invoice AR item, the Uang Muka used and the `afterPost` hook the
+ * action passes (the faktur pajak) — then rolled back. An Invoice that cannot
+ * post says why in Posting's own words.
+ */
+export async function invoicePreview(
+  id: number,
+  actorId: number,
+  afterPost?: (tx: Prisma.TransactionClient) => Promise<void>
+): Promise<JournalPreviewResult> {
+  try {
+    const r = await transitionInvoice(id, "post", actorId, undefined, afterPost, { dryRun: true });
+    if (!r.ok) return r;
+    return { ok: true, lines: await describeJournalLines(r.journal ?? []) };
+  } catch (e) {
+    // Whatever would make Posting fail is the dialog's reason not to offer it.
+    if (e instanceof Error) return { ok: false, errors: { _form: e.message } };
+    throw e;
+  }
 }
 
-export type InvoiceTransitionResult = { ok: true } | { ok: false; errors: Record<string, string> };
+export type InvoiceTransitionResult =
+  | { ok: true; /** Only on a dry run: the journal Posting would write. */ journal?: JournalLineInput[] }
+  | { ok: false; errors: Record<string, string> };
 
 /**
  * Runs one lifecycle step. **Posting**, in one transaction with the order
@@ -701,7 +709,9 @@ export async function transitionInvoice(
   actorId: number,
   reason?: string,
   /** Run inside the posting transaction, last — the tax module's faktur pajak (P100), composed by the action layer. */
-  afterPost?: (tx: Prisma.TransactionClient) => Promise<void>
+  afterPost?: (tx: Prisma.TransactionClient) => Promise<void>,
+  /** Run the whole posting, then roll it back and return its journal (P103). */
+  options: { dryRun?: boolean } = {}
 ): Promise<InvoiceTransitionResult> {
   const n = await prisma.salInvoice.findUnique({ where: { id }, include: WITH_ROWS });
   if (!n) return { ok: false, errors: { _form: "Invoice Penjualan tidak ditemukan." } };
@@ -744,13 +754,8 @@ export async function transitionInvoice(
       await writeRows(tx, id, r.c);
 
       const typeId = await docTypeId(tx, "sal_invoice");
-      const journal = await postJournal(tx, {
-        description: p.description,
-        sourceDocTypeId: typeId,
-        sourceDocId: id,
-        postingDate: r.c.data.invoice_date,
-        actorId,
-        lines: p.lines.map((l) => ({
+      const journalLines = p.lines.map(
+        (l): JournalLineInput => ({
           accountId: l.accountId,
           partnerId: l.partnerId,
           currencyId: baseCurrency.id,
@@ -758,7 +763,15 @@ export async function transitionInvoice(
           debit: l.debit,
           credit: l.credit,
           description: l.description,
-        })),
+        })
+      );
+      const journal = await postJournal(tx, {
+        description: p.description,
+        sourceDocTypeId: typeId,
+        sourceDocId: id,
+        postingDate: r.c.data.invoice_date,
+        actorId,
+        lines: journalLines,
       });
 
       // The Invoice item at net Piutang, about this Invoice (U1), then each Uang
@@ -796,6 +809,7 @@ export async function transitionInvoice(
       await tx.salInvoice.update({ where: { id }, data: { journal_id: journal.id, ar_item_id: itemId } });
       await audit(tx, id, "UPDATE", "post", actorId);
       if (afterPost) await afterPost(tx);
+      if (options.dryRun) throw new PostingDryRun(journalLines);
     });
     return { ok: true as const };
   });

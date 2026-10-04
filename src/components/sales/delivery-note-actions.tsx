@@ -4,9 +4,10 @@ import { useState } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { JournalPreview } from "@/components/ui/journal-preview";
 import { Field } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
-import { transitionDeliveryNoteAction } from "@/app/actions/delivery-note";
+import { previewDeliveryNotePostingAction, transitionDeliveryNoteAction } from "@/app/actions/delivery-note";
 import { headerButtonClass, orderForHeader, type ActionTone } from "@/lib/erp/header-actions";
 import {
   DELIVERY_NOTE_TRANSITIONS,
@@ -16,8 +17,6 @@ import {
   type DeliveryNoteAction,
   type DeliveryNoteStatus,
 } from "@/lib/erp/delivery-note-workflow";
-import type { DeliveryNotePreview } from "@/lib/erp/delivery-note";
-import { formatMoney, formatNumber } from "@/lib/format";
 
 /** Why a final note offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<DeliveryNoteStatus, string>> = {
@@ -25,35 +24,31 @@ const LOCK_TEXT: Partial<Record<DeliveryNoteStatus, string>> = {
   Cancelled: "Delivery Note dibatalkan",
 };
 
-const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
-const money = (n: number) => formatMoney(n, "IDR");
-
 /**
  * A Delivery Note's lifecycle as buttons in the page header: Ubah (Draft only),
- * Batalkan and Posting. Posting's confirmation states the journal it will write
- * — HPP debited, Persediaan credited, per item at its Harga Pokok — and refuses
- * up front when an item has no Harga Pokok, a lot-kept line is not fully picked
- * or Account Mapping is incomplete.
+ * Batalkan and Posting. Posting's confirmation shows the journal it will write
+ * — HPP debited, Persediaan credited, per item at the cost the inventory module
+ * returns — from the posting itself run as a dry run and rolled back (P103). A
+ * note that cannot post (no Harga Pokok, lots not picked in full, Account
+ * Mapping incomplete) says why there, with *Ya, Posting* disabled.
  */
 export function DeliveryNoteActions({
   id,
   subject,
   status,
   can,
-  preview,
 }: {
   id: number;
   subject: string;
   status: DeliveryNoteStatus;
   can: DeliveryNoteAbilities;
-  /** What Posting would write; null once the note is final. */
-  preview: DeliveryNotePreview | null;
 }) {
   const toast = useToast();
   const [confirm, setConfirm] = useState<DeliveryNoteAction | null>(null);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [postable, setPostable] = useState(false);
 
   const run = async (action: DeliveryNoteAction) => {
     if (DELIVERY_NOTE_TRANSITIONS[action].reason && !reason.trim()) {
@@ -106,6 +101,7 @@ export function DeliveryNoteActions({
               onClick={() => {
                 setReason("");
                 setReasonError("");
+                setPostable(false);
                 setConfirm(a);
               }}
             >
@@ -119,32 +115,6 @@ export function DeliveryNoteActions({
   );
 
   const t = confirm ? DELIVERY_NOTE_TRANSITIONS[confirm] : null;
-  // Posting cannot succeed without a Harga Pokok for every item and both
-  // accounts mapped; say so before the button, not after it.
-  const blocked =
-    confirm === "post" && preview
-      ? [
-          ...(preview.missingCost.length
-            ? [`Harga Pokok belum diisi untuk ${preview.missingCost.join(", ")} (Master › Harga Pokok (Sementara)).`]
-            : []),
-          ...(preview.unpicked.length ? [`Lot belum dipilih penuh — ${preview.unpicked.join("; ")}. Ubah Delivery Note dan pilih lotnya.`] : []),
-          ...(preview.accounts.missing.length ? [`Account Mapping belum lengkap: ${preview.accounts.missing.join(", ")}.`] : []),
-        ]
-      : [];
-
-  // The journal Posting writes, in the order the posting writes it: per item,
-  // HPP debited and Persediaan credited at its Harga Pokok.
-  const journal = (preview?.lines ?? []).flatMap((l) => {
-    const lots = l.picks.length ? ` · lot ${l.picks.map((p) => p.lotNo).join(", ")}` : "";
-    const what = `${l.itemLabel} · ${qtyText(l.qty)} ${l.uomLabel}${lots}`;
-    const amount = l.unitCost === null ? "—" : money(l.cost);
-    const at = l.unitCost === null ? "Harga Pokok belum diisi" : `× ${money(l.unitCost)} per satuan dasar`;
-    return [
-      { side: "debit" as const, account: preview!.accounts.cogs, description: `HPP ${what} ${at}`, amount },
-      { side: "credit" as const, account: preview!.accounts.inventory, description: `Keluar gudang · ${what}`, amount },
-    ];
-  });
-
   return (
     <>
       {buttons.length ? (
@@ -167,76 +137,11 @@ export function DeliveryNoteActions({
           confirmLabel={t.confirmLabel}
           confirmTone={t.tone === "danger" ? "solid-danger" : "primary"}
           busy={busy}
-          confirmDisabled={blocked.length > 0}
+          confirmDisabled={confirm === "post" && !postable}
           onConfirm={() => run(confirm)}
           onCancel={() => setConfirm(null)}
         >
-          {confirm === "post" && blocked.length > 0 && (
-            <div className="nbox bad slim">
-              <Icon name="warn" size={15} className="ni" />
-              <div>
-                {blocked.map((b) => (
-                  <b key={b} style={{ display: "block" }}>
-                    {b}
-                  </b>
-                ))}
-              </div>
-            </div>
-          )}
-          {confirm === "post" && preview && (
-            <div className="tw">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th>Account</th>
-                    <th className="num" style={{ width: 130 }}>
-                      Debit
-                    </th>
-                    <th className="num" style={{ width: 130 }}>
-                      Kredit
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {journal.map((l, i) => (
-                    <tr key={i}>
-                      <td className="wrapok">
-                        <span className="dstack">
-                          <span className="d1">
-                            {l.account ? (
-                              <>
-                                <span className="lab">{l.account.code}</span> {l.account.name}
-                              </>
-                            ) : (
-                              <span className="dash">{l.side === "debit" ? "Account HPP" : "Account Persediaan"} belum dipetakan</span>
-                            )}
-                          </span>
-                          <span className="d2">{l.description}</span>
-                        </span>
-                      </td>
-                      <td className="num">
-                        <span className="mny">{l.side === "debit" ? l.amount : ""}</span>
-                      </td>
-                      <td className="num">
-                        <span className="mny">{l.side === "credit" ? l.amount : ""}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="totrow">
-                    <td style={{ textAlign: "right" }}>Total</td>
-                    <td className="num">
-                      <span className="mny">{money(preview.total)}</span>
-                    </td>
-                    <td className="num">
-                      <span className="mny">{money(preview.total)}</span>
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
+          {confirm === "post" && <JournalPreview load={() => previewDeliveryNotePostingAction(id)} onReady={setPostable} />}
           {t.reason && (
             <Field label="Alasan" span={12} required error={reasonError}>
               <textarea

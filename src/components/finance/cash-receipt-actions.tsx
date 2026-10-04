@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { JournalPreview } from "@/components/ui/journal-preview";
 import { Field } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
 import { previewCashReceiptPostingAction, transitionCashReceiptAction } from "@/app/actions/cash-receipt";
@@ -16,16 +17,14 @@ import {
   type CashBankTxStatus,
   type CashReceiptAbilities,
 } from "@/lib/erp/cash-bank-tx-workflow";
-import type { PostingLine } from "@/lib/erp/cash-bank-tx";
-import { formatMoney } from "@/lib/format";
 
 /**
  * A receipt's lifecycle as header buttons: Ubah (Draft only), Posting and
- * Batalkan. **Posting shows the journal it will write before writing it** —
- * the lines come from the same function the posting runs, so what the dialog
- * shows is what the book gets (design convention: consequences before
- * commitment). A receipt that cannot post says why instead of offering the
- * button's dialog.
+ * Batalkan. **Posting shows the journal it will write before writing it**: the
+ * posting itself run as a dry run and rolled back (P103), so what the dialog
+ * shows is what the book gets, and a receipt that cannot post says why there
+ * with *Ya, Posting* disabled (design convention: consequences before
+ * commitment).
  */
 export function CashReceiptActions({
   id,
@@ -40,24 +39,15 @@ export function CashReceiptActions({
 }) {
   const toast = useToast();
   const [confirm, setConfirm] = useState<CashBankTxAction | null>(null);
-  const [preview, setPreview] = useState<PostingLine[] | null>(null);
+  const [postable, setPostable] = useState(false);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const open = async (action: CashBankTxAction) => {
+  const open = (action: CashBankTxAction) => {
     setReason("");
     setReasonError("");
-    if (action === "post") {
-      setBusy(true);
-      const p = await previewCashReceiptPostingAction(id);
-      setBusy(false);
-      if (!p.ok) {
-        toast("Belum bisa diposting", p.errors._form, "err");
-        return;
-      }
-      setPreview(p.lines);
-    }
+    setPostable(false);
     setConfirm(action);
   };
 
@@ -114,8 +104,6 @@ export function CashReceiptActions({
   );
 
   const t = confirm ? CASH_RECEIPT_TRANSITIONS[confirm] : null;
-  const money = (n: number) => (n ? formatMoney(n, "IDR") : "");
-  const totalDebit = (preview ?? []).reduce((a, l) => a + l.debit, 0);
 
   return (
     <>
@@ -144,53 +132,11 @@ export function CashReceiptActions({
           confirmLabel={t.confirmLabel}
           confirmTone={t.tone === "danger" ? "solid-danger" : "primary"}
           busy={busy}
+          confirmDisabled={confirm === "post" && !postable}
           onConfirm={() => run(confirm)}
           onCancel={() => setConfirm(null)}
         >
-          {confirm === "post" && preview && (
-            <div className="tw">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th>Account</th>
-                    <th className="num" style={{ width: 130 }}>Debit</th>
-                    <th className="num" style={{ width: 130 }}>Kredit</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {preview.map((l, i) => (
-                    <tr key={i}>
-                      <td className="wrapok">
-                        <span className="dstack">
-                          <span className="d1">
-                            <span className="lab">{l.accountNo}</span> {l.accountName}
-                          </span>
-                          <span className="d2">{l.description}</span>
-                        </span>
-                      </td>
-                      <td className="num">
-                        <span className="mny">{money(l.debit)}</span>
-                      </td>
-                      <td className="num">
-                        <span className="mny">{money(l.credit)}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="totrow">
-                    <td style={{ textAlign: "right" }}>Total</td>
-                    <td className="num">
-                      <span className="mny">{formatMoney(totalDebit, "IDR")}</span>
-                    </td>
-                    <td className="num">
-                      <span className="mny">{formatMoney(totalDebit, "IDR")}</span>
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
-            </div>
-          )}
+          {confirm === "post" && <JournalPreview load={() => previewCashReceiptPostingAction(id)} onReady={setPostable} />}
           {t.needsReason && (
             <Field label="Alasan" span={12} required error={reasonError}>
               <textarea

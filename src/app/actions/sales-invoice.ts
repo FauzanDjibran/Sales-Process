@@ -6,6 +6,7 @@ import { authorizeAction } from "@/lib/erp/auth";
 import { isAccessDenied } from "@/lib/erp/auth-errors";
 import {
   createInvoice,
+  invoicePreview,
   transitionInvoice,
   updateInvoice,
   type InvoiceDeductionInput,
@@ -15,6 +16,7 @@ import {
 } from "@/lib/erp/sales-invoice";
 import { createTaxDocsForInvoice } from "@/lib/erp/tax-document";
 import { INVOICE_TRANSITIONS, type InvoiceAction } from "@/lib/erp/sales-invoice-workflow";
+import type { JournalPreviewResult } from "@/lib/erp/journal";
 
 /**
  * The Invoice Penjualan's write path. The permission is checked here; every
@@ -70,6 +72,18 @@ export async function updateInvoiceAction(
   const result = await updateInvoice(id, header, lines, deductions, g.actor.user.id);
   if (result.ok) revalidate(id);
   return result;
+}
+
+/**
+ * The journal Posting would write, for the confirmation dialog: Posting run as
+ * a dry run and rolled back, with the same faktur pajak hook the real Posting
+ * gets (P103). Asked for only when the dialog opens.
+ */
+export async function previewInvoicePostingAction(id: number): Promise<JournalPreviewResult> {
+  const g = await authorize(INVOICE_TRANSITIONS.post.permission);
+  if (!g.ok) return g.denial;
+  const actorId = g.actor.user.id;
+  return invoicePreview(id, actorId, (tx) => createTaxDocsForInvoice(tx, id, actorId));
 }
 
 export async function transitionInvoiceAction(

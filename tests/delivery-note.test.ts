@@ -284,8 +284,8 @@ describe("Delivery Notes split a Delivery Order", () => {
 describe("Posting issues the goods and books HPP only", () => {
   test("refused while an item has no Harga Pokok, naming it", async () => {
     const [first] = ids.dn;
-    const preview = (await deliveryNotePreview(first))!;
-    assert.equal(preview.missingCost.length, 1);
+    const preview = await deliveryNotePreview(first, actor);
+    assert.ok(!preview.ok && /belum punya Harga Pokok/.test(preview.errors._form), "the dialog refuses in Posting's own words");
     const refused = await transitionDeliveryNote(first, "post", actor);
     assert.ok(!refused.ok && /belum punya Harga Pokok/.test(refused.errors._form));
     assert.equal((await getDeliveryNote(first))!.status, "Draft", "nothing was written");
@@ -301,8 +301,12 @@ describe("Posting issues the goods and books HPP only", () => {
 
   test("40 BOX = 480 PCS × 2.500: Dr HPP 1.200.000 / Cr Persediaan 1.200.000, dated Tanggal Kirim", async () => {
     const [first] = ids.dn;
-    const preview = (await deliveryNotePreview(first))!;
-    assert.deepEqual([preview.total, preview.missingCost], [1_200_000, []]);
+    const movesBefore = await prisma.tmpStockMovement.count();
+    const preview = await deliveryNotePreview(first, actor);
+    assert.ok(preview.ok, !preview.ok ? JSON.stringify(preview.errors) : "");
+    assert.deepEqual(preview.lines.map((l) => [l.debit, l.credit]), [[1_200_000, 0], [0, 1_200_000]]);
+    assert.equal(await prisma.tmpStockMovement.count(), movesBefore, "a dry run issues no stock");
+    assert.equal((await getDeliveryNote(first))!.status, "Draft", "and leaves the note a Draft");
     const arCount = await prisma.finArItem.count();
     const r = await transitionDeliveryNote(first, "post", actor);
     assert.ok(r.ok, JSON.stringify(r));
@@ -317,6 +321,11 @@ describe("Posting issues the goods and books HPP only", () => {
         [f.cogsAcc, 1_200_000, 0],
         [f.invAcc, 0, 1_200_000],
       ]
+    );
+    assert.deepEqual(
+      preview.lines.map((l) => [l.debit, l.credit, l.description]),
+      journalLines.map((l) => [l.debit_amount.toNumber(), l.kredit_amount.toNumber(), l.description]),
+      "the dialog showed the journal Posting wrote"
     );
     const journal = await prisma.accJournal.findUniqueOrThrow({ where: { id: note.journalId! } });
     assert.equal(journal.posting_date?.toISOString().slice(0, 10), today);
@@ -471,9 +480,8 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
     assert.ok(r.ok, JSON.stringify(r));
     assert.deepEqual((await getDeliveryNote(r.id))!.lines[0].pickedLots.map((p) => [p.lotId, p.qty, p.expiry]), [[lot.early, 10, "2030-06-30"]]);
     await setItemCost(f.lotted, "1500", actor);
-    const preview = (await deliveryNotePreview(r.id))!;
-    assert.equal(preview.unpicked.length, 1);
-    assert.match(preview.unpicked[0], /10 dari 30/);
+    const preview = await deliveryNotePreview(r.id, actor);
+    assert.ok(!preview.ok && /Pilih lot sampai penuh/.test(preview.errors._form), "the dialog refuses in Posting's own words");
     const refused = await transitionDeliveryNote(r.id, "post", actor);
     assert.ok(!refused.ok && /Pilih lot sampai penuh/.test(refused.errors._form));
     assert.equal((await getDeliveryNote(r.id))!.status, "Draft");
@@ -482,8 +490,9 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
   test("picked in full, each lot leaves as its own stock movement and the line costs what its picks cost", async () => {
     const id = ids.dn[ids.dn.length - 1];
     assert.ok((await updateDeliveryNote(id, lotHeader(), [pick(30, [[lot.early, 20], [lot.late, 10]])], actor)).ok);
-    const preview = (await deliveryNotePreview(id))!;
-    assert.deepEqual([preview.unpicked, preview.total], [[], 45_000]);
+    const preview = await deliveryNotePreview(id, actor);
+    assert.ok(preview.ok, !preview.ok ? JSON.stringify(preview.errors) : "");
+    assert.equal(preview.lines.reduce((t, l) => t + l.debit, 0), 45_000, "costed pick by pick, as Posting costs it");
     const r = await transitionDeliveryNote(id, "post", actor);
     assert.ok(r.ok, JSON.stringify(r));
     const note = (await getDeliveryNote(id))!;

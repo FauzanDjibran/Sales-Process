@@ -6,7 +6,7 @@ import { nextDocumentNumber } from "./document-number";
 import { formatNumber } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate } from "./fiscal";
-import { journalNumbersByIds, postJournal } from "./journal";
+import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { customerOrderNumbersByIds, lockCustomerOrder } from "./customer-order";
 import {
   deliveryOrderNumbersByIds,
@@ -15,7 +15,7 @@ import {
   type DeliveryNoteSource,
   type DeliveryNoteSourceLine,
 } from "./delivery-order";
-import { InventoryRefusal, issueStock, issueValuation, lotOptions, lotTrackedItems, type LotOption } from "./inventory";
+import { InventoryRefusal, issueStock, lotOptions, lotTrackedItems, type LotOption } from "./inventory";
 import { postingAccounts } from "./system-settings";
 import {
   DELIVERY_NOTE_HOLDS_QTY,
@@ -364,6 +364,8 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
     if (e instanceof InventoryRefusal) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
+    // A dry run reached the end of the posting: its journal, with every write rolled back (P103).
+    if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;
     throw e;
   }
 }
@@ -468,93 +470,32 @@ function asInput(n: StoredNote): {
 
 // --------------------------------------------------------------- posting
 
-export type DeliveryNotePreviewLine = {
-  itemLabel: string;
-  itemName: string;
-  qty: number;
-  uomLabel: string;
-  baseQty: number;
-  unitCost: number | null;
-  cost: number;
-  /** The lots the line leaves from, for a lot-tracked item. */
-  picks: { lotNo: string; qty: number }[];
-};
-
 /**
- * What Posting would write, read before it runs so the confirmation can show
- * the journal (design convention: consequences before commitment). Posting
- * computes it again inside its transaction.
+ * The journal Posting would write now, for the Posting dialog (P103):
+ * `transitionDeliveryNote` run as a **dry run** — the Customer Order lock, the
+ * recheck, every stock issue through the inventory module and the journal —
+ * then rolled back. So the costs shown are what the inventory module returns
+ * at posting, and a note that cannot post (no Harga Pokok, lots not picked in
+ * full, Account Mapping incomplete, a closed period) says why in Posting's own
+ * words.
  */
-type PreviewAccount = { code: string; name: string };
-
-export type DeliveryNotePreview = {
-  lines: DeliveryNotePreviewLine[];
-  total: number;
-  /** Items the inventory cannot issue yet — no Harga Pokok. */
-  missingCost: string[];
-  /** Lot-tracked lines not yet picked in full (U15), as "ITEM: 4 dari 10 PCS". */
-  unpicked: string[];
-  accounts: { cogs: PreviewAccount | null; inventory: PreviewAccount | null; missing: string[] };
-};
-
-export async function deliveryNotePreview(id: number): Promise<DeliveryNotePreview | null> {
-  const n = await prisma.salDeliveryNote.findUnique({ where: { id }, include: WITH_PICKS });
-  if (!n) return null;
-  const [source] = await deliveryNoteSources({ ids: [n.delivery_order_id] });
-  const tracked = await lotTrackedItems((source?.lines ?? []).map((l) => l.itemId));
-  const unpicked: string[] = [];
-  const byId = new Map((source?.lines ?? []).map((l) => [l.id, l]));
-  const docLines = [...n.lines].sort((a, b) => a.line_no - b.line_no);
-  const valuation = await issueValuation([...new Set(docLines.map((l) => byId.get(l.delivery_order_line_id)?.itemId ?? 0))]);
-  const lines = docLines.map((l) => {
-    const d = byId.get(l.delivery_order_line_id);
-    const qty = l.qty.toNumber();
-    const baseQty = fromUnits(units(qty * (d?.uomFactor ?? 1)));
-    const unitCost = valuation.get(d?.itemId ?? 0) ?? null;
-    const lotTracked = tracked.has(d?.itemId ?? 0);
-    const picks = l.picks.map((p) => ({ lotNo: p.lot_no, qty: p.qty.toNumber() }));
-    const picked = picks.reduce((s, p) => s + units(p.qty), 0);
-    if (lotTracked && picked !== units(qty)) {
-      unpicked.push(`${d?.itemLabel ?? ""}: ${qtyText(fromUnits(picked))} dari ${qtyText(qty)} ${d?.uomLabel ?? ""}`);
-    }
-    // Posting issues each pick on its own, rounding each to whole rupiah.
-    const parts = lotTracked && picks.length ? picks.map((p) => fromUnits(units(p.qty * (d?.uomFactor ?? 1)))) : [baseQty];
-    return {
-      itemLabel: d?.itemLabel ?? "",
-      itemName: d?.itemName ?? "",
-      qty,
-      uomLabel: d?.uomLabel ?? "",
-      baseQty,
-      unitCost,
-      cost: unitCost === null ? 0 : parts.reduce((s, b) => s + Math.round(b * unitCost), 0),
-      picks: lotTracked ? picks : [],
-    };
-  });
-  const mapped = await postingAccounts(["cogs_account", "inventory_account"] as const);
-  let accounts: DeliveryNotePreview["accounts"] = { cogs: null, inventory: null, missing: [] };
-  if (mapped.ok) {
-    const accs = await prisma.accAccount.findMany({
-      where: { id: { in: [mapped.ids.cogs_account, mapped.ids.inventory_account] } },
-      select: { id: true, account_code: true, account_name: true },
-    });
-    const name = (accId: number) => {
-      const a = accs.find((x) => x.id === accId);
-      return a ? { code: a.account_code, name: a.account_name } : null;
-    };
-    accounts = { cogs: name(mapped.ids.cogs_account), inventory: name(mapped.ids.inventory_account), missing: [] };
-  } else accounts.missing = mapped.missing;
-  return {
-    lines,
-    total: lines.reduce((s, l) => s + l.cost, 0),
-    missingCost: lines.filter((l) => l.unitCost === null).map((l) => l.itemLabel),
-    unpicked,
-    accounts,
-  };
+export async function deliveryNotePreview(id: number, actorId: number): Promise<JournalPreviewResult> {
+  try {
+    const r = await transitionDeliveryNote(id, "post", actorId, undefined, { dryRun: true });
+    if (!r.ok) return r;
+    return { ok: true, lines: await describeJournalLines(r.journal ?? []) };
+  } catch (e) {
+    // Whatever would make Posting fail is the dialog's reason not to offer it.
+    if (e instanceof Error) return { ok: false, errors: { _form: e.message } };
+    throw e;
+  }
 }
 
 // --------------------------------------------------------------- lifecycle
 
-export type DeliveryNoteTransitionResult = { ok: true; closed?: string[] } | { ok: false; errors: Record<string, string> };
+export type DeliveryNoteTransitionResult =
+  | { ok: true; closed?: string[]; /** Only on a dry run: the journal Posting would write. */ journal?: JournalLineInput[] }
+  | { ok: false; errors: Record<string, string> };
 
 /**
  * Runs one lifecycle step.
@@ -571,7 +512,9 @@ export async function transitionDeliveryNote(
   id: number,
   action: DeliveryNoteAction,
   actorId: number,
-  reason?: string
+  reason?: string,
+  /** Run the whole posting, then roll it back and return its journal (P103). */
+  options: { dryRun?: boolean } = {}
 ): Promise<DeliveryNoteTransitionResult> {
   const note = await prisma.salDeliveryNote.findUnique({ where: { id }, include: WITH_PICKS });
   if (!note) return { ok: false, errors: { _form: "Delivery Note tidak ditemukan." } };
@@ -684,7 +627,9 @@ export async function transitionDeliveryNote(
       });
       await tx.salDeliveryNote.update({ where: { id }, data: { journal_id: journal.id, cost_amount: total } });
       await audit(tx, id, "UPDATE", "post", actorId);
-      return recordDeliveryOrderDelivery(tx, note.delivery_order_id, sent, actorId);
+      const closed = await recordDeliveryOrderDelivery(tx, note.delivery_order_id, sent, actorId);
+      if (options.dryRun) throw new PostingDryRun(journalLines);
+      return closed;
     });
     return { ok: true as const, closed };
   });

@@ -6,6 +6,7 @@ import { authorizeAction } from "@/lib/erp/auth";
 import { isAccessDenied } from "@/lib/erp/auth-errors";
 import {
   createDeliveryNote,
+  deliveryNotePreview,
   transitionDeliveryNote,
   updateDeliveryNote,
   type DeliveryNoteHeaderInput,
@@ -13,6 +14,7 @@ import {
   type DeliveryNoteResult,
 } from "@/lib/erp/delivery-note";
 import { DELIVERY_NOTE_TRANSITIONS, type DeliveryNoteAction } from "@/lib/erp/delivery-note-workflow";
+import type { JournalPreviewResult } from "@/lib/erp/journal";
 
 /**
  * The Delivery Note's write path. The permission is checked here; every rule
@@ -64,6 +66,17 @@ export async function updateDeliveryNoteAction(
   const result = await updateDeliveryNote(id, header, lines, g.actor.user.id);
   if (result.ok) revalidate(id);
   return result;
+}
+
+/**
+ * The journal Posting would write, for the confirmation dialog: Posting run as
+ * a dry run and rolled back (P103). Asked for only when the dialog opens, so a
+ * Draft's page pays nothing for it.
+ */
+export async function previewDeliveryNotePostingAction(id: number): Promise<JournalPreviewResult> {
+  const g = await authorize(DELIVERY_NOTE_TRANSITIONS.post.permission);
+  if (!g.ok) return g.denial;
+  return deliveryNotePreview(id, g.actor.user.id);
 }
 
 export type DeliveryNoteTransitionActionResult =

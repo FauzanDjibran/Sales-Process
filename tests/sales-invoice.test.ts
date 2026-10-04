@@ -376,16 +376,17 @@ describe("a Draft holds its lines and reserves its Uang Muka", () => {
 describe("Posting recognises Piutang, revenue and PPN once", () => {
   test("refused while Account Mapping lacks Piutang Usaha, and the preview says so", async () => {
     await setMapping("receivable_account", null);
-    const preview = (await invoicePreview(ids.inv[0]))!;
+    const preview = await invoicePreview(ids.inv[0], actor);
     const refused = await transitionInvoice(ids.inv[0], "post", actor);
     await setMapping("receivable_account", String(f.arAcc));
-    assert.ok(preview.blocked.some((b) => /Account Mapping/.test(b)));
+    assert.ok(!preview.ok && /Account Mapping/.test(preview.errors._form), "the dialog refuses in Posting's own words");
     assert.ok(!refused.ok && /Account Mapping/.test(refused.errors._form));
   });
 
   test("Dr Piutang 550.560 · Dr Uang Muka 100.000 / Cr Penjualan 596.000 · Cr PPN 54.560", async () => {
-    const preview = (await invoicePreview(ids.inv[0]))!;
-    assert.deepEqual(preview.blocked, []);
+    const preview = await invoicePreview(ids.inv[0], actor);
+    assert.ok(preview.ok, !preview.ok ? JSON.stringify(preview.errors) : "");
+    assert.equal((await getInvoice(ids.inv[0]))!.status, "Draft", "a dry run leaves the Invoice a Draft");
     const r = await transitionInvoice(ids.inv[0], "post", actor);
     assert.ok(r.ok, JSON.stringify(r));
     const v = (await getInvoice(ids.inv[0]))!;
@@ -400,7 +401,11 @@ describe("Posting recognises Piutang, revenue and PPN once", () => {
         [f.vatAcc, null, 0, 54_560],
       ]
     );
-    assert.deepEqual(preview.lines.map((l) => [l.debit, l.credit]), jl.map((l) => [l.debit_amount.toNumber(), l.kredit_amount.toNumber()]));
+    assert.deepEqual(
+      preview.lines.map((l) => [l.debit, l.credit, l.description]),
+      jl.map((l) => [l.debit_amount.toNumber(), l.kredit_amount.toNumber(), l.description]),
+      "the dialog showed the journal Posting wrote"
+    );
   });
 
   test("the Invoice item at net Piutang, due from the Termin; the Uang Muka item used, naming it", async () => {
