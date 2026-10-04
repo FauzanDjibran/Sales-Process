@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
@@ -24,6 +24,7 @@ import {
 } from "@/lib/erp/sales-invoice-workflow";
 import type { InvoiceHeaderInput, InvoiceOptions, InvoicePreview, InvoiceView, InvoiceNoteLine, InvoiceOrderOption } from "@/lib/erp/sales-invoice";
 import { computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine, type PriceMode } from "@/lib/erp/sales-tax";
+import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso } from "@/lib/format";
 
 /**
@@ -90,6 +91,7 @@ export function InvoiceForm({
   presetOrderId = null,
   pay = null,
   payments = [],
+  taxDocs = null,
 }: {
   mode: InvoiceMode;
   invoice: InvoiceView | null;
@@ -101,6 +103,8 @@ export function InvoiceForm({
   pay?: { state: InvoicePayState; open: number; overdue: boolean } | null;
   /** The receipts that name it. */
   payments?: { id: number; txNo: string; date: string; status: string; settled: number }[];
+  /** Its faktur pajak and the bukti potong of its payments (P100). */
+  taxDocs?: TaxDocRefs | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -363,8 +367,21 @@ export function InvoiceForm({
                       )
                     : nil(posted ? "tidak ada" : "saat posting")}
                 </Field>
-                <Field label="No. Faktur Pajak" span={4}>
-                  {invoice?.taxInvoiceNo ? ro(<span className="mono">{invoice.taxInvoiceNo}</span>) : nil("belum diisi")}
+                <Field label="Faktur Pajak" span={4}>
+                  {taxDocs?.fakturs.length
+                    ? ro(
+                        taxDocs.fakturs.map((f) => (
+                          <Fragment key={f.id}>
+                            <Link className="drl" href={`/tax/faktur/${f.id}`}>
+                              <span className="mono">{f.fakturNo}</span>
+                            </Link>
+                            <span className="rx">{f.nsfp ? `NSFP ${f.nsfp}` : "belum diupload"}</span>
+                          </Fragment>
+                        ))
+                      )
+                    : invoice?.taxInvoiceNo
+                      ? ro(<span className="mono">{invoice.taxInvoiceNo}</span>)
+                      : nil(posted ? (order && !order.taxable ? "tidak kena PPN" : "tidak ada") : "saat posting")}
                 </Field>
                 {posted && pay && (
                   <Field label="Pembayaran" span={12}>
@@ -375,13 +392,21 @@ export function InvoiceForm({
                         </span>
                         {pay.overdue && <span className="bdg t-bad">Lewat jatuh tempo</span>}
                         {payments.map((p) => (
-                          <span key={p.id}>
+                          <Fragment key={p.id}>
                             <span className="rx">·</span>
                             <Link className="drl" href={`/finance/cash-bank/receipt/${p.id}`}>
                               <span className="mono">{p.txNo}</span>
                             </Link>
                             <span className="rx">{p.status === "Posted" ? money(p.settled) : p.status === "Draft" ? "draft" : "dibatalkan"}</span>
-                          </span>
+                          </Fragment>
+                        ))}
+                        {taxDocs?.slips.map((x) => (
+                          <Fragment key={`s${x.id}`}>
+                            <span className="rx">· Bukti Potong</span>
+                            <Link className="drl" href={`/tax/withholding-slip/${x.id}`}>
+                              <span className="mono">{x.slipNo}</span>
+                            </Link>
+                          </Fragment>
                         ))}
                       </>
                     )}

@@ -14,6 +14,7 @@ import { salesOrderNumbersByIds } from "./sales-order";
 import { deliveryOrderNumbersByIds } from "./delivery-order";
 import { deliveryNoteNumbersByIds } from "./delivery-note";
 import { invoiceNumbersByIds } from "./sales-invoice";
+import { fakturNumbersByIds, slipNumbersByIds } from "./tax-document";
 import { userLabels, roleLabels } from "./users";
 
 /**
@@ -81,6 +82,8 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   tmp_stock_lot: { label: "Lot (Sementara)", resolve: null },
   sal_advance: { label: "Uang Muka Penjualan", resolve: salesAdvanceNumbersByIds },
   fin_cash_bank_tx: { label: "Transaksi Kas & Bank", resolve: cashBankTxNumbersByIds },
+  tax_faktur: { label: "Faktur Pajak Keluaran", resolve: fakturNumbersByIds },
+  tax_withholding_slip: { label: "Bukti Potong PPh", resolve: slipNumbersByIds },
   acc_opening_balance: {
     label: "Opening Balance",
     resolve: openingBalanceNumbersByIds,

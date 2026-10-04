@@ -23,6 +23,7 @@ export type PermissionModule =
   | "sales"
   | "accounting"
   | "finance"
+  | "tax"
   | "settings";
 
 export type PermissionDef = {
@@ -241,6 +242,13 @@ export const PERMISSIONS = [
   { code: "REPORT_CUSTOMER_ADVANCE_VIEW", name: "Lihat Uang Muka Customer", module: "finance", description: "Uang muka diterima yang belum dipakai invoice." },
 
   // ---------------------------------------------------------------- settings
+  // Pajak — the tax documents the sales process gives rise to (P100).
+  { code: "MENU_TAX_ACCESS", name: "Akses menu Pajak", module: "tax" },
+  { code: "TAX_FAKTUR_VIEW", name: "Lihat Faktur Pajak Keluaran", module: "tax", description: "Faktur pajak yang terbentuk otomatis dari penerimaan uang muka dan invoice penjualan." },
+  { code: "TAX_FAKTUR_UPLOAD", name: "Catat Upload Faktur Pajak", module: "tax", description: "Mencatat NSFP dan tanggal upload ke Coretax. Tidak membentuk journal." },
+  { code: "TAX_SLIP_VIEW", name: "Lihat Bukti Potong PPh", module: "tax", description: "PPh yang dipotong customer dari pembayarannya." },
+  { code: "TAX_SLIP_RECEIVE", name: "Catat Bukti Potong Diterima", module: "tax", description: "Mencatat nomor dan tanggal bukti potong (BPPU) dari customer. Tidak membentuk journal." },
+
   { code: "MENU_SETTINGS_ACCESS", name: "Akses menu Pengaturan", module: "settings" },
   { code: "MENU_USER_ACCESS", name: "Akses menu User", module: "settings" },
   { code: "MENU_ROLE_ACCESS", name: "Akses menu Role", module: "settings" },
@@ -307,6 +315,7 @@ export const MODULE_LABELS: Record<PermissionModule, string> = {
   sales: "Penjualan",
   accounting: "Accounting",
   finance: "Finance",
+  tax: "Pajak",
   settings: "Pengaturan",
 };
 
@@ -317,6 +326,7 @@ export const MODULE_ORDER: PermissionModule[] = [
   "sales",
   "accounting",
   "finance",
+  "tax",
   "settings",
 ];
 

@@ -163,6 +163,20 @@ const SALES_ADVANCE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(SALES_ADVANCE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
+/** Faktur Pajak Keluaran: made by a posting, then reported (P100). */
+const TAX_FAKTUR_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Dibuat otomatis dari posting", icon: "tags", tone: "neutral", systemDriven: true },
+  report: { label: "Upload dicatat — dilaporkan", icon: "check", tone: "primary" },
+};
+
+/** Bukti Potong PPh: made by a posted receipt, then received from the customer (P100). */
+const TAX_SLIP_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Dibuat otomatis dari penerimaan", icon: "scale", tone: "neutral", systemDriven: true },
+  receive: { label: "Bukti potong diterima", icon: "check", tone: "primary" },
+};
+
 /**
  * Fiscal Year: Draft → Open → Closed.
  *
@@ -219,6 +233,8 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   sal_invoice: INVOICE_EVENTS,
   sal_advance: SALES_ADVANCE_EVENTS,
   fin_cash_bank_tx: CASH_BANK_TX_EVENTS,
+  tax_faktur: TAX_FAKTUR_EVENTS,
+  tax_withholding_slip: TAX_SLIP_EVENTS,
   sys_user: USER_EVENTS,
   sys_role: ROLE_EVENTS,
 };

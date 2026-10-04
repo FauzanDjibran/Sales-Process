@@ -642,6 +642,7 @@ model RefWithholdingTax {
   customer_order_lines SalCustomerOrderLine[]
   cash_bank_tx_whts    FinCashBankTxLineWht[]
   invoice_lines        SalInvoiceLine[]
+  tax_slips            TaxWithholdingSlip[]
 
   @@index([prepaid_account_id])
   @@map("ref_withholding_tax")
@@ -699,6 +700,8 @@ model MPartner {
   sales_orders    SalOrder[]
   delivery_orders SalDeliveryOrder[]
   delivery_notes  SalDeliveryNote[]
+  tax_fakturs     TaxFaktur[]
+  tax_slips       TaxWithholdingSlip[]
   invoices        SalInvoice[]
   sales_advances  SalAdvance[]
   cash_bank_txs   FinCashBankTx[]
@@ -2251,4 +2254,188 @@ model FinArLedger {
   @@index([item_id, entry_date])
   @@index([doc_type_id, doc_id])
   @@map("fin_ar_ledger")
+}
+
+// ---------------------------------------------------------------- tax (P100)
+//
+// The tax documents the sales process gives rise to (`tax_concept.md` §5, §6).
+// They never post a journal: the receipt and the Invoice already booked the PPN
+// and the PPh. Each is created automatically, inside the posting of the
+// transaction at its tax point, with its figures copied from that source and
+// never edited (Q16). Named only by `lib/erp/tax-document.ts`.
+
+enum TaxFakturKind {
+  /// Faktur uang muka — an advance received before delivery.
+  Advance
+  /// Faktur pelunasan — goods delivered after advances, net of them.
+  Settlement
+  /// Faktur normal — goods delivered with no advance deducted.
+  Normal
+}
+
+enum TaxFakturStatus {
+  /// Menunggu Upload — the to-do state; past its deadline it is late.
+  Awaiting
+  /// Dilaporkan — its NSFP and upload date are recorded.
+  Reported
+}
+
+/// One Faktur Pajak Keluaran. Its source is the posting that made the tax point:
+/// a receipt line for an advance (with the bill it paid), an Invoice Penjualan
+/// for goods. Buyer identity is snapshotted as it stood then.
+model TaxFaktur {
+  id        Int             @id @default(autoincrement())
+  /// `FPK/YYYY/MM/NNNN`, in the month of `tax_date` — the internal number.
+  faktur_no String          @unique
+  kind      TaxFakturKind
+  status    TaxFakturStatus @default(Awaiting)
+  /// The tax point: the receipt date for an advance, the latest Tanggal Kirim for goods.
+  tax_date  DateTime        @db.Date
+  /// Upload by the 15th of the following month.
+  deadline  DateTime        @db.Date
+
+  customer_id     Int
+  buyer_tax_type  String?
+  buyer_tax_id    String?
+  buyer_name      String
+  buyer_address   String
+
+  /// What made it: the receipt (advance) or the Invoice (goods).
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  /// What it is about beside that: the advance bill paid (advance only).
+  ref_doc_type_id    Int?
+  ref_doc_id         Int?
+  ref_no             String?
+  /// The Uang Muka AR item the advance created (advance only), so a later
+  /// faktur pelunasan finds this faktur from the deduction.
+  ar_item_id         Int?
+  customer_order_id  Int
+
+  description String?
+  ppn_rate                  Decimal @db.Decimal(9, 4)
+  ppn_dpp_other_numerator   Int
+  ppn_dpp_other_denominator Int
+  /// DPP of everything delivered (settlement / normal); equals `dpp` for an advance.
+  gross_dpp     Decimal @db.Decimal(18, 2)
+  /// The advances' DPP it deducts (settlement only).
+  advance_dpp   Decimal @default(0) @db.Decimal(18, 2)
+  dpp           Decimal @db.Decimal(18, 2)
+  dpp_other     Decimal @db.Decimal(18, 2)
+  ppn           Decimal @db.Decimal(18, 2)
+
+  /// Nomor Seri Faktur Pajak, from Coretax, recorded by the user.
+  nsfp          String?   @unique
+  reported_date DateTime? @db.Date
+  reported_by   Int?
+
+  created_by Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  customer MPartner        @relation(fields: [customer_id], references: [id])
+  lines    TaxFakturLine[]
+  refs     TaxFakturRef[]  @relation("FakturRefs")
+  used_by  TaxFakturRef[]  @relation("FakturUsedBy")
+
+  @@index([status, tax_date])
+  @@index([source_doc_type_id, source_doc_id])
+  @@index([ar_item_id])
+  @@map("tax_faktur")
+}
+
+/// One line of a faktur pajak, as it is reported: the advance as one line, or
+/// each Invoice line with its share of the advances deducted.
+model TaxFakturLine {
+  id          Int     @id @default(autoincrement())
+  faktur_id   Int
+  line_no     Int
+  description String
+  item_label  String?
+  qty         Decimal? @db.Decimal(18, 4)
+  uom_label   String?
+  price       Decimal? @db.Decimal(18, 2)
+  gross_dpp   Decimal @db.Decimal(18, 2)
+  advance_dpp Decimal @default(0) @db.Decimal(18, 2)
+  dpp         Decimal @db.Decimal(18, 2)
+  dpp_other   Decimal @db.Decimal(18, 2)
+  ppn         Decimal @db.Decimal(18, 2)
+
+  faktur TaxFaktur @relation(fields: [faktur_id], references: [id])
+
+  @@unique([faktur_id, line_no])
+  @@map("tax_faktur_line")
+}
+
+/// A faktur uang muka a faktur pelunasan deducts, and the DPP it takes from it.
+model TaxFakturRef {
+  id            Int     @id @default(autoincrement())
+  faktur_id     Int
+  ref_faktur_id Int
+  dpp_deducted  Decimal @db.Decimal(18, 2)
+
+  faktur     TaxFaktur @relation("FakturRefs", fields: [faktur_id], references: [id])
+  ref_faktur TaxFaktur @relation("FakturUsedBy", fields: [ref_faktur_id], references: [id])
+
+  @@unique([faktur_id, ref_faktur_id])
+  @@map("tax_faktur_ref")
+}
+
+enum TaxSlipStatus {
+  /// Menunggu Bukti Potong — late after its expected date.
+  Awaiting
+  /// Diterima — the customer's BPPU is in hand; the PPh can be credited.
+  Received
+}
+
+/// One Bukti Potong PPh: one per settled document, per payment, per Jenis PPh
+/// (P69, Q19), made when the receipt that recognised the withholding posts.
+model TaxWithholdingSlip {
+  id      Int           @id @default(autoincrement())
+  /// `BPU/YYYY/MM/NNNN`, in the month of the payment — the internal number.
+  slip_no String        @unique
+  status  TaxSlipStatus @default(Awaiting)
+
+  withheld_date DateTime @db.Date
+  /// `YYYY-MM`, the payment's month.
+  tax_period    String
+  /// The withholder reports by the 20th of the following month.
+  expected_date DateTime @db.Date
+
+  customer_id          Int
+  withholder_tax_type  String?
+  withholder_tax_id    String?
+  withholder_name      String
+
+  /// The receipt line's withholding row it comes from — one slip each.
+  receipt_line_wht_id Int    @unique
+  receipt_id          Int
+  receipt_no          String
+  /// The document the payment settled: an advance bill or an Invoice.
+  doc_type_id         Int
+  doc_id              Int
+  doc_no              String
+
+  withholding_tax_id Int
+  rate               Decimal @db.Decimal(9, 4)
+  base_amount        Decimal @db.Decimal(18, 2)
+  amount             Decimal @db.Decimal(18, 2)
+
+  /// The customer's slip (BPPU), recorded when it arrives.
+  slip_number   String?
+  slip_date     DateTime? @db.Date
+  received_by   Int?
+
+  created_by Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  customer        MPartner          @relation(fields: [customer_id], references: [id])
+  withholding_tax RefWithholdingTax @relation(fields: [withholding_tax_id], references: [id])
+
+  @@index([status, withheld_date])
+  @@index([receipt_id])
+  @@index([doc_type_id, doc_id])
+  @@map("tax_withholding_slip")
 }

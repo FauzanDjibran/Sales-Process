@@ -24,6 +24,8 @@ import {
 } from "../src/lib/erp/sales-invoice";
 import { cashToClear, computeInvoice, invoiceLineAmount, settleBillFromCash } from "../src/lib/erp/sales-tax";
 import { availableInvoiceActions, invoiceAbilities } from "../src/lib/erp/sales-invoice-workflow";
+import { fakturLate, normalizeNsfp, slipExpected, slipLate, uploadDeadline } from "../src/lib/erp/tax-document-workflow";
+import { createTaxDocsForInvoice, createTaxDocsForReceipt, recordFakturUpload, recordSlipReceived, taxDocsOf } from "../src/lib/erp/tax-document";
 import {
   FIXTURE_PREFIX,
   cleanupFiscalYear,
@@ -231,6 +233,13 @@ before(async () => {
 });
 
 after(async () => {
+  const fakturIds = (await prisma.taxFaktur.findMany({ where: { customer_id: f.customer }, select: { id: true } })).map((r) => r.id);
+  const slipIds = (await prisma.taxWithholdingSlip.findMany({ where: { customer_id: f.customer }, select: { id: true } })).map((r) => r.id);
+  await prisma.taxFakturRef.deleteMany({ where: { faktur_id: { in: fakturIds } } });
+  await prisma.taxFakturLine.deleteMany({ where: { faktur_id: { in: fakturIds } } });
+  await prisma.taxFaktur.deleteMany({ where: { id: { in: fakturIds } } });
+  await prisma.taxWithholdingSlip.deleteMany({ where: { id: { in: slipIds } } });
+  await prisma.auditLog.deleteMany({ where: { OR: [{ entity_key: "tax_faktur", row_id: { in: fakturIds } }, { entity_key: "tax_withholding_slip", row_id: { in: slipIds } }] } });
   await prisma.salInvoiceLine.deleteMany({ where: { invoice_id: { in: ids.inv } } });
   await prisma.salInvoiceAdvanceDeduction.deleteMany({ where: { invoice_id: { in: ids.inv } } });
   await prisma.salInvoice.deleteMany({ where: { id: { in: ids.inv } } });
@@ -521,7 +530,8 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
     );
     assert.ok(r.ok, JSON.stringify(r));
     ids.rc.push(r.id);
-    assert.deepEqual(await transitionCashReceipt(r.id, "post", actor), { ok: true });
+    // Posted as the action posts it: the tax documents in the same transaction (P100).
+    assert.deepEqual(await transitionCashReceipt(r.id, "post", actor, undefined, (tx) => createTaxDocsForReceipt(tx, r.id, actor)), { ok: true });
     assert.deepEqual([await open(a.arItemId!), await open(b.arItemId!)], [0, 0]);
     const states = await invoicePayStates([a.id, b.id]);
     assert.deepEqual([states[a.id].state, states[b.id].state], ["Paid", "Paid"]);
@@ -544,3 +554,109 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
   });
 });
 
+
+// ------------------------------------------------ the tax documents (P100)
+
+describe("the tax documents' deadlines (tax_concept.md §5.2, §6.2)", () => {
+  test("upload by the 15th of the next month, the slip expected by the 20th, across a year end", () => {
+    assert.equal(uploadDeadline("2026-10-31"), "2026-11-15");
+    assert.equal(uploadDeadline("2026-12-01"), "2027-01-15");
+    assert.equal(slipExpected("2026-12-31"), "2027-01-20");
+    assert.equal(fakturLate({ status: "Awaiting", deadline: "2026-11-15" }, "2026-11-16"), true);
+    assert.equal(fakturLate({ status: "Reported", deadline: "2026-11-15" }, "2026-11-16"), false);
+    assert.equal(slipLate({ status: "Awaiting", expected: "2026-11-20" }, "2026-11-20"), false);
+    assert.equal(normalizeNsfp("010.000-26.12345678"), "0100002612345678");
+  });
+});
+
+describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
+  const nsfp = (n: number) => `9${String(Date.now() + n).padStart(16, "0").slice(-16)}`;
+  const fakturOf = (table: "fin_cash_bank_tx" | "sal_invoice", id: number) => taxDocsOf(table, id).then((d) => d.fakturs);
+  const tx = <T,>(run: (db: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<T>) => prisma.$transaction(run);
+
+  test("the advance receipt: one faktur uang muka at the bill's DPP, dated the receipt, naming its Uang Muka item; idempotent", async () => {
+    await tx((db) => createTaxDocsForReceipt(db, ids.rc[0], actor));
+    await tx((db) => createTaxDocsForReceipt(db, ids.rc[0], actor));
+    const list = await fakturOf("fin_cash_bank_tx", ids.rc[0]);
+    assert.equal(list.length, 1);
+    const fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: list[0].id }, include: { lines: true } });
+    assert.match(fk.faktur_no, /^FPK\/\d{4}\/\d{2}\/\d{4}$/);
+    assert.deepEqual(
+      [fk.kind, fk.status, fk.dpp.toNumber(), fk.dpp_other.toNumber(), fk.ppn.toNumber(), fk.ar_item_id, fk.ref_doc_id, fk.buyer_tax_id, fk.buyer_name],
+      ["Advance", "Awaiting", 300_000, 275_000, 33_000, advanceItem, ids.adv[0], "0987654321098765", "PT FIXTURE"]
+    );
+    assert.equal(fk.tax_date.toISOString().slice(0, 10), today);
+    assert.equal(fk.lines.length, 1);
+    assert.equal(await prisma.taxWithholdingSlip.count({ where: { receipt_id: ids.rc[0] } }), 0, "no PPh, no slip");
+  });
+
+  test("an Invoice that used Uang Muka: a faktur pelunasan net of it, per line, naming the faktur uang muka", async () => {
+    for (const id of [ids.inv[0], ids.inv[ids.inv.length - 1]]) await tx((db) => createTaxDocsForInvoice(db, id, actor));
+    const advance = (await fakturOf("fin_cash_bank_tx", ids.rc[0]))[0].id;
+    const first = (await fakturOf("sal_invoice", ids.inv[0]))[0];
+    const fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: first.id }, include: { lines: { orderBy: { line_no: "asc" } }, refs: true } });
+    const v = (await getInvoice(ids.inv[0]))!;
+    assert.deepEqual(
+      [fk.kind, fk.gross_dpp.toNumber(), fk.advance_dpp.toNumber(), fk.dpp.toNumber(), fk.ppn.toNumber()],
+      ["Settlement", 596_000, 100_000, 496_000, 54_560]
+    );
+    assert.equal(fk.tax_date.toISOString().slice(0, 10), v.taxDate);
+    assert.deepEqual(fk.lines.map((l) => l.ppn.toNumber()), v.stored.lines.map((l) => l.ppn));
+    assert.equal(fk.lines.reduce((a, l) => a + l.ppn.toNumber(), 0), fk.ppn.toNumber(), "the faktur is the sum of its lines");
+    assert.deepEqual(fk.refs.map((r) => [r.ref_faktur_id, r.dpp_deducted.toNumber()]), [[advance, 100_000]]);
+    const second = (await fakturOf("sal_invoice", ids.inv[ids.inv.length - 1]))[0];
+    const refs = await prisma.taxFakturRef.findMany({ where: { faktur_id: second.id } });
+    assert.deepEqual(refs.map((r) => [r.ref_faktur_id, r.dpp_deducted.toNumber()]), [[advance, 200_000]]);
+    await tx((db) => createTaxDocsForInvoice(db, ids.inv[0], actor));
+    assert.equal((await fakturOf("sal_invoice", ids.inv[0])).length, 1, "idempotent");
+  });
+
+  test("a receipt that withheld PPh: one bukti potong per document per Jenis PPh, at the receipt's figures", async () => {
+    await tx((db) => createTaxDocsForReceipt(db, ids.rc[1], actor));
+    const whts = await prisma.finCashBankTxLineWht.findMany({ where: { line: { tx_id: ids.rc[1] } } });
+    const slips = await prisma.taxWithholdingSlip.findMany({ where: { receipt_id: ids.rc[1] } });
+    assert.deepEqual(
+      slips.map((x) => [x.doc_id, x.withholding_tax_id, x.base_amount.toNumber(), x.amount.toNumber(), x.status, x.tax_period]),
+      whts.map((w) => [ids.inv[0], f.wht, w.base_amount.toNumber(), w.amount.toNumber(), "Awaiting", today.slice(0, 7)])
+    );
+    assert.equal((await fakturOf("fin_cash_bank_tx", ids.rc[1])).length, 0, "paying an Invoice makes no faktur");
+  });
+
+  test("the mixed receipt, posted through the hook: a slip per Invoice and a faktur uang muka for the bill", async () => {
+    const rc = ids.rc[2];
+    const docs = await taxDocsOf("fin_cash_bank_tx", rc);
+    const slips = await prisma.taxWithholdingSlip.findMany({ where: { receipt_id: rc }, orderBy: { id: "asc" } });
+    assert.deepEqual(slips.map((x) => x.doc_id), [ids.inv[0], ids.inv[ids.inv.length - 1]]);
+    assert.equal(docs.slips.length, 2);
+    const fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: docs.fakturs[0].id } });
+    assert.deepEqual([docs.fakturs.length, fk.ref_doc_id, fk.dpp.toNumber(), fk.ppn.toNumber()], [1, f.bill2, 100_000, 11_000]);
+  });
+
+  test("Catat Upload: 17 digits, unique, not before the faktur; the NSFP reaches the Uang Muka item and the Invoice", async () => {
+    const advance = (await fakturOf("fin_cash_bank_tx", ids.rc[0]))[0].id;
+    const settlement = (await fakturOf("sal_invoice", ids.inv[0]))[0].id;
+    assert.deepEqual(await recordFakturUpload(advance, { nsfp: "123", date: today }, actor), { ok: false, errors: { nsfp: "NSFP Coretax terdiri dari 17 digit." } });
+    assert.ok(!(await recordFakturUpload(advance, { nsfp: nsfp(0), date: "2000-01-01" }, actor)).ok);
+    const n1 = nsfp(0);
+    assert.deepEqual(await recordFakturUpload(advance, { nsfp: `${n1.slice(0, 3)}.${n1.slice(3)}`, date: today }, actor), { ok: true });
+    const fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: advance } });
+    assert.deepEqual([fk.status, fk.nsfp], ["Reported", n1]);
+    assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: advanceItem } })).tax_invoice_no, n1);
+    assert.ok(!(await recordFakturUpload(advance, { nsfp: nsfp(1), date: today }, actor)).ok, "a reported faktur is final");
+    assert.deepEqual(await recordFakturUpload(settlement, { nsfp: n1, date: today }, actor), { ok: false, errors: { nsfp: "NSFP ini sudah dipakai faktur lain." } });
+    const n2 = nsfp(1);
+    assert.deepEqual(await recordFakturUpload(settlement, { nsfp: n2, date: today }, actor), { ok: true });
+    assert.equal((await getInvoice(ids.inv[0]))!.taxInvoiceNo, n2);
+    assert.ok(await prisma.auditLog.findFirst({ where: { entity_key: "tax_faktur", row_id: settlement, event: "report" } }));
+  });
+
+  test("Catat Bukti Potong: number and date required, not before the payment; then final", async () => {
+    const slip = (await prisma.taxWithholdingSlip.findFirstOrThrow({ where: { receipt_id: ids.rc[1] } })).id;
+    const blank = await recordSlipReceived(slip, { number: " ", date: "" }, actor);
+    assert.ok(!blank.ok && blank.errors.number && blank.errors.date);
+    assert.deepEqual(await recordSlipReceived(slip, { number: "bp-001", date: today }, actor), { ok: true });
+    const s = await prisma.taxWithholdingSlip.findUniqueOrThrow({ where: { id: slip } });
+    assert.deepEqual([s.status, s.slip_number], ["Received", "BP-001"]);
+    assert.ok(!(await recordSlipReceived(slip, { number: "BP-002", date: today }, actor)).ok);
+  });
+});

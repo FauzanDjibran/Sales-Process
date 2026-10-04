@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/erp/auth";
 import { getInvoice, invoiceOptions, invoicePayStates, invoicePreview } from "@/lib/erp/sales-invoice";
 import { settlementsOfDocument } from "@/lib/erp/cash-bank-tx";
 import { invoiceAbilities } from "@/lib/erp/sales-invoice-workflow";
+import { taxDocsOf } from "@/lib/erp/tax-document";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const invoice = await getInvoice(Number(id));
   if (!invoice) notFound();
   const can = invoiceAbilities(actor.permissions);
-  const [options, preview, pay, payments] = await Promise.all([
+  const [options, preview, pay, payments, taxDocs] = await Promise.all([
     invoiceOptions({
       id: invoice.id,
       orderId: Number(invoice.header.customer_order_id),
@@ -26,10 +27,12 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
     // Where it stands, and the receipts that paid it — composed here (U26).
     invoice.status === "Posted" ? invoicePayStates([invoice.id]).then((m) => m[invoice.id] ?? null) : Promise.resolve(null),
     invoice.status === "Posted" ? settlementsOfDocument("sal_invoice", invoice.id) : Promise.resolve([]),
+    // Its faktur pajak and the bukti potong of its payments (P100).
+    invoice.status === "Posted" ? taxDocsOf("sal_invoice", invoice.id) : Promise.resolve(null),
   ]);
   return (
     <>
-      <InvoiceForm mode="view" invoice={invoice} options={options} can={can} preview={preview} pay={pay} payments={payments} />
+      <InvoiceForm mode="view" invoice={invoice} options={options} can={can} preview={preview} pay={pay} payments={payments} taxDocs={taxDocs} />
       <RecordHistoryCard entityKey="sal_invoice" rowId={invoice.id} />
     </>
   );

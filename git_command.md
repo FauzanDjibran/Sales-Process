@@ -84,6 +84,7 @@ node --env-file-if-exists=.env --conditions=react-server --import tsx --test tes
 | `npx prisma migrate deploy` | Applies new migrations (schema changes) that came with a pull | ✅ Safe, never deletes data |
 | `npm run db:seed` | Adds missing **system** data: permissions, admin role and user, the chart-of-accounts skeleton, document types, partner categories, **all Indonesian regions** (38 provinsi, 514 kota/kabupaten, 7.285 kecamatan, 83.762 kelurahan with kode pos), Kategori Item, the PPN settings, and the **starter references**: Currency IDR + USD; Satuan PCS, UNIT, SET, PAK, BOX, LSN, KRT, BTL, GR, KG, ML, L; Termin TUNAI, NET7, NET14, NET30, NET45, NET60; Jenis PPh PPH22, PPH23, PPH23-15. A starter row is added only when no row has that label. Never overwrites your edits, never deletes | ✅ Safe, run it after every pull |
 | `npm run db:seed-showcase` | Adds **demo data** from the simulation so you can test straight away (see below). Development only. Additive: matched on label / name, never duplicates, never overwrites | ✅ Safe on a dev database |
+| `npm run db:tax-backfill` | Makes the Faktur Pajak and Bukti Potong of receipts and Invoices posted before the Pajak menu existed (P100). Idempotent | ✅ Safe |
 | `npx prisma generate` | Rebuilds the database client code. `npm run build` does it for you; run it by hand only if an error mentions `@/generated/prisma` or *"Cannot read properties of undefined (reading 'findMany')"* | ✅ Safe |
 | `npx prisma studio` | Opens a browser table viewer of the database (<http://localhost:5555>) | ✅ Look only; edits there skip the app's rules and audit |
 | `npm run db:truncate-transactions` | Shows what it would delete; add `-- --confirm` to really delete. Empties **journals, the Cash Bank Book, Penerimaan Kas & Bank, AR items with Buku Piutang, Sales Orders, Customer Orders and Uang Muka Penjualan bills** (and their audit rows), keeping all master data (partners, items, references), the chart of accounts, the fiscal calendar and the settings. Cash & Bank opening balances are lost; document numbers restart at 0001 | ⚠️ Deletes transactions |
@@ -110,6 +111,7 @@ paste the whole snippet into `.env.neon`, and add a line
 | `npm run db:neon-migrate` | Applies new migrations to the deployed database. Run it after every push that adds a migration | ✅ Safe, never deletes data |
 | `npm run db:neon-seed` | `db:seed` on the deployed database. Refuses without `ERP_ADMIN_PASSWORD` in `.env.neon` | ✅ Safe |
 | `npm run db:neon-seed-showcase` | The demo data on the deployed database. Only for a demo deployment | ✅ Additive |
+| `npm run db:neon-tax-backfill` | Makes the Faktur Pajak and Bukti Potong of everything posted before the Pajak menu existed (P100). Run once after `db:neon-migrate` | ✅ Safe, idempotent |
 | `npm run db:neon-reset` | Shows what it would destroy; add `-- --confirm` to really drop and re-migrate the deployed database. Seeds nothing: run `db:neon-seed` after it | ⛔ Destroys all deployed data |
 
 ### What the showcase data contains (`db:seed-showcase`)

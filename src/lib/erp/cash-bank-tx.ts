@@ -822,7 +822,13 @@ export async function transitionCashReceipt(
   id: number,
   action: CashBankTxAction,
   actorId: number,
-  reason?: string
+  reason?: string,
+  /**
+   * Run inside the posting transaction, last — how the action layer has the
+   * tax module make the receipt's faktur pajak and bukti potong (P100) without
+   * this module depending on it (§3.1).
+   */
+  afterPost?: (tx: Prisma.TransactionClient) => Promise<void>
 ): Promise<CashReceiptTransitionResult> {
   const t = await prisma.finCashBankTx.findUnique({ where: { id }, include: { ...WITH_LINES, partner: true } });
   if (!t || t.direction !== "In") return { ok: false, errors: { _form: "Penerimaan tidak ditemukan." } };
@@ -952,6 +958,7 @@ export async function transitionCashReceipt(
         });
       }
       await audit(tx, id, "UPDATE", "post", actorId);
+      if (afterPost) await afterPost(tx);
     });
     return { ok: true as const };
   });
@@ -1076,4 +1083,84 @@ export async function getCashReceipt(id: number): Promise<CashReceiptView | null
 export async function cashBankTxNumbersByIds(ids: number[]): Promise<Map<number, string>> {
   const rows = await prisma.finCashBankTx.findMany({ where: { id: { in: ids } }, select: { id: true, tx_no: true } });
   return new Map(rows.map((r) => [r.id, r.tx_no]));
+}
+
+// ------------------------------------------------------- for the tax module
+
+/**
+ * A posted receipt as the tax module reads it (P100): per line, the document it
+ * settled, the DPP / PPN parts it booked and the PPh rows withheld — the
+ * figures a Faktur Pajak Uang Muka and each Bukti Potong are made from. The tax
+ * module takes this rather than reading `fin_cash_bank_tx` itself.
+ */
+export type ReceiptTaxBasis = {
+  id: number;
+  txNo: string;
+  date: string;
+  status: CashBankTxStatus;
+  partnerId: number;
+  lines: {
+    kind: SettledDocKind;
+    docId: number;
+    docNo: string;
+    docTypeId: number;
+    orderId: number;
+    dppPart: number;
+    ppnPart: number;
+    /** The advance bill's Uraian and PPN snapshot (advance only). */
+    description: string;
+    rates: PpnRates | null;
+    whts: { id: number; withholdingTaxId: number; rate: number; base: number; amount: number }[];
+  }[];
+};
+
+/** Every posted Penerimaan, oldest first — for the tax backfill (P100). */
+export async function postedReceiptIds(): Promise<number[]> {
+  const rows = await prisma.finCashBankTx.findMany({ where: { status: "Posted", direction: "In" }, select: { id: true }, orderBy: { id: "asc" } });
+  return rows.map((r) => r.id);
+}
+
+export async function receiptTaxBasis(db: Db, id: number): Promise<ReceiptTaxBasis | null> {
+  const t = await db.finCashBankTx.findUnique({
+    where: { id },
+    include: { lines: { include: { whts: true, doc_type: { select: { doc_table: true } } }, orderBy: { line_no: "asc" } } },
+  });
+  if (!t) return null;
+  const idsOf = (kind: SettledDocKind) => t.lines.filter((l) => l.doc_type.doc_table === kind).map((l) => l.doc_id);
+  const [advances, bills] = await Promise.all([
+    settlementAdvances({ ids: idsOf("sal_advance") }, db),
+    openBills(db, { advanceIds: idsOf("sal_advance"), invoiceIds: idsOf("sal_invoice") }, null),
+  ]);
+  const advanceById = new Map(advances.map((a) => [a.id, a]));
+  const billByKey = new Map(bills.map((b) => [b.key, b]));
+  return {
+    id: t.id,
+    txNo: t.tx_no,
+    date: isoDay(t.tx_date),
+    status: t.status as CashBankTxStatus,
+    partnerId: t.partner_id,
+    lines: t.lines.map((l) => {
+      const kind = l.doc_type.doc_table as SettledDocKind;
+      const bill = billByKey.get(billKey(kind, l.doc_id));
+      const adv = kind === "sal_advance" ? advanceById.get(l.doc_id) : undefined;
+      return {
+        kind,
+        docId: l.doc_id,
+        docNo: bill?.no ?? "",
+        docTypeId: l.doc_type_id,
+        orderId: bill?.orderId ?? 0,
+        dppPart: l.dpp_part.toNumber(),
+        ppnPart: l.ppn_part.toNumber(),
+        description: adv?.description ?? "",
+        rates: adv?.rates ?? null,
+        whts: l.whts.map((w) => ({
+          id: w.id,
+          withholdingTaxId: w.withholding_tax_id,
+          rate: w.rate.toNumber(),
+          base: w.base_amount.toNumber(),
+          amount: w.amount.toNumber(),
+        })),
+      };
+    }),
+  };
 }

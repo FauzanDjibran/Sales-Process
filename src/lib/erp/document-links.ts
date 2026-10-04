@@ -19,6 +19,8 @@ const ROUTES: Record<string, string> = {
   sal_delivery_order: "/sales/delivery-order",
   sal_delivery_note: "/sales/delivery-note",
   sal_invoice: "/sales/invoice",
+  tax_faktur: "/tax/faktur",
+  tax_withholding_slip: "/tax/withholding-slip",
 };
 
 /** The page a source document is read on, or null when it has none. */

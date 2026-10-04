@@ -1202,11 +1202,12 @@ Muka, the receipt from its Terbentuk entry [Built] (P96).
 | --- | --- |
 | Revised AR item shape (`ar_item_no`, source = what it is about, `ref_*` dropped) | [Built] — U1, P96 |
 | Faktur Penjualan, Invoice items, Dipakai Invoice, Pembayaran | [Built] — §9, P97; §7.8, P98 |
-| Tax columns on `fin_ar_item` (U9) | [Built] — P96; `tax_invoice_no` has no entry screen yet |
+| Tax columns on `fin_ar_item` (U9) | [Built] — P96; `tax_invoice_no` is written when the Faktur Uang Muka's upload is recorded (P100) |
 | Whether Coretax accepts one Faktur Pajak Uang Muka referenced by two Faktur Pelunasan (partial use) | To verify with a tax consultant |
 | A settlement PPN 1 rupiah off "full PPN − advance PPN" after odd partial receipts | Accepted: the chain on the net DPP wins (it is what the Faktur Pajak Pelunasan carries) |
 | *Penerimaan dari Customer* (bills and invoices in one receipt) | [Built] — §7.8, P98 |
-| Faktur Pajak Uang Muka and Bukti Potong as records | [Planned] Pajak menu; figures already stored |
+| Faktur Pajak (Uang Muka, Pelunasan, Normal) and Bukti Potong as records | [Built] — Pajak menu, P100: made by posting, NSFP / BPPU recorded by the user |
+| Coretax XML export, faktur pengganti / pembatalan, Perlu Pembetulan | [Planned] |
 | Pengembalian Uang Muka (refund) | [Planned] Pengeluaran purpose |
 | Closing a bill / invoice remainder by its owner (write-off) | [Planned] with the close action |
 | *Penerimaan Belum Teridentifikasi* and how it is cleared | [Planned]; clearing is open (C31) |

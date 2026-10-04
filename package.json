@@ -11,6 +11,8 @@
     "db:seed": "node --env-file-if-exists=.env --conditions=react-server --import tsx prisma/seed.ts",
     "db:neon-migrate": "node scripts/with-remote.mjs npx prisma migrate deploy",
     "db:neon-seed": "node scripts/with-remote.mjs node --conditions=react-server --import tsx prisma/seed.ts",
+    "db:tax-backfill": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/tax-backfill.ts",
+    "db:neon-tax-backfill": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/tax-backfill.ts",
     "db:truncate-transactions": "node --env-file-if-exists=.env --import tsx scripts/truncate-transactions.ts",
     "db:seed-showcase": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/seed-showcase.ts",
     "db:neon-seed-showcase": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-showcase.ts",

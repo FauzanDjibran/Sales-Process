@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
@@ -22,6 +22,7 @@ import {
   type CashReceiptAbilities,
 } from "@/lib/erp/cash-bank-tx-workflow";
 import type { CashReceiptOptions, CashReceiptView, OpenBill } from "@/lib/erp/cash-bank-tx";
+import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
 
 /**
@@ -67,11 +68,14 @@ export function CashReceiptForm({
   receipt,
   options,
   can,
+  taxDocs = null,
 }: {
   mode: CashReceiptMode;
   receipt: CashReceiptView | null;
   options: CashReceiptOptions;
   can: CashReceiptAbilities;
+  /** The faktur uang muka and bukti potong its posting made (P100). */
+  taxDocs?: TaxDocRefs | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -371,6 +375,22 @@ export function CashReceiptForm({
                     <Link className="drl" href={`/accounting/journal/${receipt.journal.id}`}>
                       <span className="mono">{receipt.journal.journalNo}</span>
                     </Link>
+                    {taxDocs?.fakturs.map((f) => (
+                      <Fragment key={`f${f.id}`}>
+                        <span className="rx">· Faktur Pajak</span>
+                        <Link className="drl" href={`/tax/faktur/${f.id}`}>
+                          <span className="mono">{f.fakturNo}</span>
+                        </Link>
+                      </Fragment>
+                    ))}
+                    {taxDocs?.slips.map((x) => (
+                      <Fragment key={`s${x.id}`}>
+                        <span className="rx">· Bukti Potong</span>
+                        <Link className="drl" href={`/tax/withholding-slip/${x.id}`}>
+                          <span className="mono">{x.slipNo}</span>
+                        </Link>
+                      </Fragment>
+                    ))}
                   </>
                 )}
               </Field>
@@ -386,7 +406,7 @@ export function CashReceiptForm({
           <p className="fnote">
             {receipt?.status === "Draft"
               ? "Penerimaan masih Draft — belum membentuk journal, belum masuk Buku Kas & Bank, dan belum mengurangi tagihan."
-              : "Diposting: dana tercatat di Buku Kas & Bank. Untuk uang muka, journal membukukan kewajiban uang muka dan PPN Keluaran; untuk faktur, piutang usaha berkurang. PPh yang dipotong customer dicatat pada tanggal terima, dan bukti potong serta faktur pajak uang muka dibuat dari angka baris ini saat menu Pajak tersedia."}
+              : "Diposting: dana tercatat di Buku Kas & Bank. Untuk uang muka, journal membukukan kewajiban uang muka dan PPN Keluaran; untuk faktur, piutang usaha berkurang. PPh yang dipotong customer dicatat pada tanggal terima; faktur pajak uang muka dan bukti potong PPh dibuat otomatis di menu Pajak."}
           </p>
         )}
       </FormBody>

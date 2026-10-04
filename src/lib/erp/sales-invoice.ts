@@ -687,7 +687,9 @@ export async function transitionInvoice(
   id: number,
   action: InvoiceAction,
   actorId: number,
-  reason?: string
+  reason?: string,
+  /** Run inside the posting transaction, last — the tax module's faktur pajak (P100), composed by the action layer. */
+  afterPost?: (tx: Prisma.TransactionClient) => Promise<void>
 ): Promise<InvoiceTransitionResult> {
   const n = await prisma.salInvoice.findUnique({ where: { id }, include: WITH_ROWS });
   if (!n) return { ok: false, errors: { _form: "Invoice Penjualan tidak ditemukan." } };
@@ -781,6 +783,7 @@ export async function transitionInvoice(
       }
       await tx.salInvoice.update({ where: { id }, data: { journal_id: journal.id, ar_item_id: itemId } });
       await audit(tx, id, "UPDATE", "post", actorId);
+      if (afterPost) await afterPost(tx);
     });
     return { ok: true as const };
   });
@@ -1017,4 +1020,99 @@ export async function invoicePayStates(
       return [r.id, { state, open, overdue: open > 0 && isoDay(r.due_date) < today }];
     })
   );
+}
+
+// ------------------------------------------------------- for the tax module
+
+/**
+ * A posted Invoice as its faktur pajak reads it (P100): the tax point, the
+ * buyer, the order's PPN snapshot, the figures — full, the advances deducted
+ * and net, per line — and the Uang Muka items it used. The tax module takes
+ * this rather than reading `sal_invoice` itself.
+ */
+export type InvoiceTaxBasis = {
+  id: number;
+  invoiceNo: string;
+  status: InvoiceStatus;
+  taxDate: string;
+  customerId: number;
+  addressId: number;
+  orderId: number;
+  orderNo: string;
+  poNo: string | null;
+  taxable: boolean;
+  rates: { rate: number; otherNum: number; otherDen: number } | null;
+  dpp: number;
+  advanceUsed: number;
+  netDpp: number;
+  dppOther: number;
+  ppn: number;
+  lines: {
+    itemLabel: string;
+    itemName: string;
+    qty: number;
+    uomLabel: string;
+    price: number;
+    dpp: number;
+    advanceDpp: number;
+    netDpp: number;
+    dppOther: number;
+    ppn: number;
+  }[];
+  deductions: { arItemId: number; arItemNo: string; dppUsed: number }[];
+};
+
+/** Every posted Invoice Penjualan, oldest first — for the tax backfill (P100). */
+export async function postedInvoiceIds(): Promise<number[]> {
+  const rows = await prisma.salInvoice.findMany({ where: { status: "Posted" }, select: { id: true }, orderBy: { id: "asc" } });
+  return rows.map((r) => r.id);
+}
+
+export async function invoiceTaxBasis(db: Db, id: number): Promise<InvoiceTaxBasis | null> {
+  const n = await db.salInvoice.findUnique({ where: { id }, include: WITH_ROWS });
+  if (!n) return null;
+  const [order] = await invoiceSourceOrders({ ids: [n.customer_order_id] }, db);
+  const orderLine = new Map((order?.lines ?? []).map((l) => [l.id, l]));
+  return {
+    id: n.id,
+    invoiceNo: n.invoice_no,
+    status: n.status as InvoiceStatus,
+    taxDate: isoDay(n.tax_date),
+    customerId: n.customer_id,
+    addressId: n.address_id,
+    orderId: n.customer_order_id,
+    orderNo: order?.orderNo ?? "",
+    poNo: order?.poNo ?? null,
+    taxable: n.is_taxable,
+    rates:
+      n.is_taxable && n.ppn_rate && n.ppn_dpp_other_numerator && n.ppn_dpp_other_denominator
+        ? { rate: n.ppn_rate.toNumber(), otherNum: n.ppn_dpp_other_numerator, otherDen: n.ppn_dpp_other_denominator }
+        : null,
+    dpp: n.dpp_amount.toNumber(),
+    advanceUsed: n.advance_dpp_amount.toNumber(),
+    netDpp: n.net_dpp_amount.toNumber(),
+    dppOther: n.dpp_other_amount.toNumber(),
+    ppn: n.ppn_amount.toNumber(),
+    lines: n.lines.map((l) => {
+      const o = orderLine.get(l.customer_order_line_id);
+      return {
+        itemLabel: o?.itemLabel ?? "",
+        itemName: o?.itemName ?? "",
+        qty: l.qty.toNumber(),
+        uomLabel: o?.uomLabel ?? "",
+        price: l.price.toNumber(),
+        dpp: l.dpp_amount.toNumber(),
+        advanceDpp: l.advance_dpp_amount.toNumber(),
+        netDpp: l.net_dpp_amount.toNumber(),
+        dppOther: l.dpp_other_amount.toNumber(),
+        ppn: l.ppn_amount.toNumber(),
+      };
+    }),
+    deductions: n.deductions.map((d) => ({ arItemId: d.ar_item_id, arItemNo: d.ar_item_no, dppUsed: d.dpp_used.toNumber() })),
+  };
+}
+
+/** Records the NSFP of the Invoice's faktur pajak (U10), written by the tax module when it is reported. */
+export async function setInvoiceTaxInvoiceNo(db: Db, id: number, no: string): Promise<void> {
+  await db.salInvoice.update({ where: { id }, data: { tax_invoice_no: no } });
 }

@@ -487,3 +487,22 @@ export async function lockArItems(tx: Prisma.TransactionClient, ids: number[]): 
     await tx.$queryRaw`SELECT id FROM fin_ar_item WHERE id = ${id} FOR UPDATE`;
   }
 }
+
+// ------------------------------------------------------- for the tax module
+
+/** The Uang Muka items a posting created, with the bill each is about. */
+export async function advanceItemsCreatedBy(
+  db: Db,
+  createdBy: { docTypeId: number; docId: number }
+): Promise<{ id: number; arItemNo: string; sourceDocId: number }[]> {
+  const rows = await db.finArItem.findMany({
+    where: { item_type: "Advance", entries: { some: { event: "Create", doc_type_id: createdBy.docTypeId, doc_id: createdBy.docId } } },
+    select: { id: true, ar_item_no: true, source_doc_id: true },
+  });
+  return rows.map((r) => ({ id: r.id, arItemNo: r.ar_item_no, sourceDocId: r.source_doc_id }));
+}
+
+/** Records the Coretax number of an item's own tax document (U9). */
+export async function setArItemTaxInvoiceNo(db: Db, id: number, no: string): Promise<void> {
+  await db.finArItem.update({ where: { id }, data: { tax_invoice_no: no } });
+}

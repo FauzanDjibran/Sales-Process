@@ -13,6 +13,7 @@ import {
   type CashReceiptResult,
   type PostingLine,
 } from "@/lib/erp/cash-bank-tx";
+import { createTaxDocsForReceipt } from "@/lib/erp/tax-document";
 import { CASH_RECEIPT_TRANSITIONS, type CashBankTxAction } from "@/lib/erp/cash-bank-tx-workflow";
 
 /**
@@ -43,6 +44,7 @@ function revalidate(id?: number) {
   // An Invoice paid shows its new standing; the AR reports move (U26).
   revalidatePath("/sales/invoice", "layout");
   revalidatePath("/finance/report", "layout");
+  revalidatePath("/tax", "layout");
 }
 
 export async function createCashReceiptAction(input: CashReceiptInput): Promise<CashReceiptResult> {
@@ -85,7 +87,10 @@ export async function transitionCashReceiptAction(
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
   try {
-    const result = await transitionCashReceipt(id, action, g.actor.user.id, reason);
+    // Posting raises the Faktur Pajak Uang Muka and the Bukti Potong in the
+    // same transaction (P100); the receipt module never names the tax tables.
+    const actorId = g.actor.user.id;
+    const result = await transitionCashReceipt(id, action, actorId, reason, (tx) => createTaxDocsForReceipt(tx, id, actorId));
     if (!result.ok) return result;
   } catch (error) {
     return { ok: false, errors: { _form: error instanceof Error ? error.message : "Gagal diproses." } };

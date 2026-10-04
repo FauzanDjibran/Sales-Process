@@ -55,6 +55,15 @@ migration updates this file in the same change (Claude-ERP.md §9).
   Kirim. Posting writes the journal and the Invoice AR item (`ar_item_id`).
   `delivered_qty` on `sal_customer_order_line` (P97) is what its Sales Order
   lines delivered; the order closes itself once all is delivered.
+- `tax_faktur`, `tax_faktur_line`, `tax_faktur_ref` and `tax_withholding_slip`
+  (P100) — the tax documents, never a journal, made inside the posting of a
+  receipt (Faktur Uang Muka per advance bill paid with PPN; a Bukti Potong per
+  `fin_cash_bank_tx_line_wht` row, `receipt_line_wht_id` unique) or of an
+  Invoice (Faktur Pelunasan / Normal, its lines, and `tax_faktur_ref` naming
+  each Faktur Uang Muka it deducts). The source is the weak
+  `(source_doc_type_id, source_doc_id)` pair; `ar_item_id` ties a Faktur Uang
+  Muka to its Uang Muka AR item without a foreign key. The user records only
+  the NSFP and upload date, or the BPPU's number and date.
 - `tmp_item_cost`, `tmp_stock_lot` and `tmp_stock_movement` (P94, P95) —
   **temporary**: the stand-in inventory's Harga Pokok per item, its lots per
   item and warehouse, and its issue log (one row per lot issued), named only by
@@ -1459,4 +1468,136 @@ Ref: fin_ar_item.source_doc_type_id > sys_doc_type.id
 Ref: fin_ar_ledger.item_id > fin_ar_item.id
 Ref: fin_ar_ledger.counter_item_id > fin_ar_item.id
 Ref: fin_ar_ledger.doc_type_id > sys_doc_type.id
+
+Enum TaxFakturKind {
+  Advance [note: 'Faktur Uang Muka']
+  Settlement [note: 'Faktur Pelunasan']
+  Normal
+}
+
+Enum TaxFakturStatus {
+  Awaiting [note: 'Menunggu Upload']
+  Reported [note: 'Dilaporkan']
+}
+
+Enum TaxSlipStatus {
+  Awaiting [note: 'Menunggu Bukti Potong']
+  Received [note: 'Diterima']
+}
+
+Table tax_faktur {
+  id int [pk, increment, not null]
+  faktur_no varchar [unique, not null, note: 'FPK/YYYY/MM/NNNN']
+  kind TaxFakturKind [not null]
+  status TaxFakturStatus [not null, default: 'Awaiting']
+  tax_date date [not null, note: 'receipt date (advance); latest Tanggal Kirim (goods)']
+  deadline date [not null, note: '15th of the next month']
+  customer_id int [not null]
+  buyer_tax_type varchar [null, note: 'NPWP / NIK, copied at posting']
+  buyer_tax_id varchar [null]
+  buyer_name varchar [not null]
+  buyer_address varchar [not null]
+  source_doc_type_id int [not null, note: 'the receipt or the Invoice']
+  source_doc_id int [not null]
+  source_no varchar [not null]
+  ref_doc_type_id int [null, note: 'the advance bill paid (advance only)']
+  ref_doc_id int [null]
+  ref_no varchar [null]
+  ar_item_id int [null, note: 'the Uang Muka AR item (advance only), no FK']
+  customer_order_id int [not null]
+  description varchar [null]
+  ppn_rate decimal(9, 4) [not null]
+  ppn_dpp_other_numerator int [not null]
+  ppn_dpp_other_denominator int [not null]
+  gross_dpp decimal(18, 2) [not null]
+  advance_dpp decimal(18, 2) [not null, default: 0]
+  dpp decimal(18, 2) [not null]
+  dpp_other decimal(18, 2) [not null]
+  ppn decimal(18, 2) [not null]
+  nsfp varchar [unique, null, note: '17 digits from Coretax, recorded by the user']
+  reported_date date [null]
+  reported_by int [null]
+  created_by int [not null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, tax_date)
+    (source_doc_type_id, source_doc_id)
+    ar_item_id
+  }
+}
+
+Table tax_faktur_line {
+  id int [pk, increment, not null]
+  faktur_id int [not null]
+  line_no int [not null]
+  description varchar [not null]
+  item_label varchar [null]
+  qty decimal(18, 4) [null]
+  uom_label varchar [null]
+  price decimal(18, 2) [null]
+  gross_dpp decimal(18, 2) [not null]
+  advance_dpp decimal(18, 2) [not null, default: 0]
+  dpp decimal(18, 2) [not null]
+  dpp_other decimal(18, 2) [not null]
+  ppn decimal(18, 2) [not null]
+
+  indexes {
+    (faktur_id, line_no) [unique]
+  }
+}
+
+Table tax_faktur_ref {
+  id int [pk, increment, not null]
+  faktur_id int [not null, note: 'the Faktur Pelunasan']
+  ref_faktur_id int [not null, note: 'the Faktur Uang Muka it deducts']
+  dpp_deducted decimal(18, 2) [not null]
+
+  indexes {
+    (faktur_id, ref_faktur_id) [unique]
+  }
+}
+
+Table tax_withholding_slip {
+  id int [pk, increment, not null]
+  slip_no varchar [unique, not null, note: 'BPU/YYYY/MM/NNNN']
+  status TaxSlipStatus [not null, default: 'Awaiting']
+  withheld_date date [not null]
+  tax_period varchar [not null, note: 'YYYY-MM']
+  expected_date date [not null, note: '20th of the next month']
+  customer_id int [not null]
+  withholder_tax_type varchar [null]
+  withholder_tax_id varchar [null]
+  withholder_name varchar [not null]
+  receipt_line_wht_id int [unique, not null, note: 'fin_cash_bank_tx_line_wht.id, no FK']
+  receipt_id int [not null]
+  receipt_no varchar [not null]
+  doc_type_id int [not null, note: 'the document the payment settled']
+  doc_id int [not null]
+  doc_no varchar [not null]
+  withholding_tax_id int [not null]
+  rate decimal(9, 4) [not null]
+  base_amount decimal(18, 2) [not null]
+  amount decimal(18, 2) [not null]
+  slip_number varchar [null, note: 'the BPPU, recorded when it arrives']
+  slip_date date [null]
+  received_by int [null]
+  created_by int [not null]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, withheld_date)
+    receipt_id
+    (doc_type_id, doc_id)
+  }
+}
+
+Ref: tax_faktur.customer_id > m_partner.id
+Ref: tax_faktur_line.faktur_id > tax_faktur.id
+Ref: tax_faktur_ref.faktur_id > tax_faktur.id
+Ref: tax_faktur_ref.ref_faktur_id > tax_faktur.id
+Ref: tax_withholding_slip.customer_id > m_partner.id
+Ref: tax_withholding_slip.withholding_tax_id > ref_withholding_tax.id
 ```

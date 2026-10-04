@@ -418,6 +418,37 @@ export const MODULES: NavModule[] = [
     ],
   },
   {
+    key: "tax",
+    name: "Pajak",
+    icon: "scale",
+    desc: "Faktur pajak keluaran dan bukti potong PPh yang terbentuk otomatis dari penerimaan dan invoice.",
+    permission: "MENU_TAX_ACCESS",
+    groups: [
+      {
+        key: "document",
+        name: "Dokumen Pajak",
+        entities: [
+          {
+            key: "tax_faktur",
+            slug: "faktur",
+            name: "Faktur Pajak Keluaran",
+            icon: "tags",
+            desc: "Faktur pajak dari penerimaan uang muka ber-PPN dan invoice penjualan. Diupload ke Coretax paling lambat tanggal 15 bulan berikutnya.",
+            permission: "TAX_FAKTUR_VIEW",
+          },
+          {
+            key: "tax_withholding_slip",
+            slug: "withholding-slip",
+            name: "Bukti Potong PPh",
+            icon: "scale",
+            desc: "PPh yang dipotong customer dari pembayarannya, menunggu bukti potong (BPPU). Tanpa bukti potong, PPh tidak dapat dikreditkan.",
+            permission: "TAX_SLIP_VIEW",
+          },
+        ],
+      },
+    ],
+  },
+  {
     key: "settings",
     name: "Pengaturan",
     icon: "gear",

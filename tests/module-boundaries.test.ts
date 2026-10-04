@@ -109,6 +109,12 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // documents call (P71–P72).
   finArItem: ["src/lib/erp/ar-item.ts"],
   finArLedger: ["src/lib/erp/ar-item.ts"],
+  // Tax documents: made by the postings through hooks, recorded through the
+  // tax module (P100).
+  taxFaktur: ["src/lib/erp/tax-document.ts"],
+  taxFakturLine: ["src/lib/erp/tax-document.ts"],
+  taxFakturRef: ["src/lib/erp/tax-document.ts"],
+  taxWithholdingSlip: ["src/lib/erp/tax-document.ts"],
 };
 
 /**

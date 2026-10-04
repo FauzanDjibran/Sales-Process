@@ -13,6 +13,7 @@ import {
   type InvoiceLineInput,
   type InvoiceResult,
 } from "@/lib/erp/sales-invoice";
+import { createTaxDocsForInvoice } from "@/lib/erp/tax-document";
 import { INVOICE_TRANSITIONS, type InvoiceAction } from "@/lib/erp/sales-invoice-workflow";
 
 /**
@@ -43,6 +44,7 @@ function revalidate(id?: number) {
   revalidatePath("/sales/delivery-note", "layout");
   revalidatePath("/sales/customer-order", "layout");
   revalidatePath("/finance/report", "layout");
+  revalidatePath("/tax", "layout");
 }
 
 export async function createInvoiceAction(
@@ -80,7 +82,9 @@ export async function transitionInvoiceAction(
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
   try {
-    const result = await transitionInvoice(id, action, g.actor.user.id, reason);
+    // Posting raises the Faktur Pajak Pelunasan / Normal in the same transaction (P100).
+    const actorId = g.actor.user.id;
+    const result = await transitionInvoice(id, action, actorId, reason, (tx) => createTaxDocsForInvoice(tx, id, actorId));
     if (!result.ok) return result;
   } catch (error) {
     return { ok: false, errors: { _form: error instanceof Error ? error.message : "Gagal diproses." } };
