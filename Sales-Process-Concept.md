@@ -94,7 +94,7 @@ Three lanes, never mixed:
 | Uang Muka Penjualan (bill) | `ARA/YYYY/MM/NNNN` | Finance › Uang Muka | `sal_advance` | No | No | [Built] |
 | Penerimaan Kas & Bank | `BKM/YYYY/MM/NNNN` | Finance › Kas & Bank › Penerimaan | `fin_cash_bank_tx`, `_line`, `_line_wht` | Yes, at Post | No | [Built] |
 | AR item + Buku Piutang | `ARI/YYYY/MM/NNNN` | (no menu; seen in reports) | `fin_ar_item`, `fin_ar_ledger` | Never | **Yes** | [Built], revised shape [Agreed, not built] |
-| Faktur Penjualan | prefix not decided | Sales | `sal_invoice…` | Yes | No | [Planned] |
+| Faktur Penjualan | `INV/…` | Sales | `sal_invoice(_line, _advance_deduction)` | Yes | Invoice item | [Planned] (§9) |
 
 ---
 
@@ -767,48 +767,165 @@ adjustment.
 
 ---
 
-## 9. Faktur Penjualan — where it touches the above  [Planned]
+## 9. Faktur Penjualan — the bill for what was sent  [Planned] (U16–U18; open: §9.9)
 
-Only what is already fixed:
+The document that **bills goods already sent**. It is where Piutang, revenue
+and output PPN are born (P71), where the order's paid Uang Muka is deducted,
+and where the Invoice AR item is created. It bills **only what left on a posted
+Delivery Note**, never an ordered or planned quantity.
 
-- Drawn from the Customer Order's delivered goods; **Piutang is born at the
-  Faktur** (shipment posts only HPP / Persediaan at a placeholder cost).
-- **Deducts its own Customer Order's Uang Muka** (never another order's; same
-  currency only), so PPN is acknowledged once:
-  Dr Piutang Usaha (net) · Dr Uang Muka Penjualan (advance DPP used) / Cr
-  Penjualan (full DPP) · Cr PPN Keluaran (net).
-- **The user picks the Uang Muka the Faktur uses** (*Pilih Uang Muka*: the
-  order's open items with number, receipt date, balance and faktur pajak
-  number) **and types the DPP used from each**, up to its balance; the total
-  never exceeds the Faktur's own DPP. Nothing is pre-filled; an item may be
-  used in part and the rest by a later Faktur (U8).
-- Each pick is a row of `sal_invoice_advance_deduction` (invoice, AR item,
-  dpp_used) — the Faktur's own record of what it deducted (U10).
-- Creates the **Invoice item** at net Piutang, with due date from the Termin,
-  and writes **Dipakai Invoice** on each Uang Muka item used.
-- **The Faktur never reads payment history** (U7). Everything it needs is in
-  the AR items of its own Customer Order:
-  - the advance DPP available = the open Uang Muka items' balances;
-  - net DPP = full DPP − Uang Muka Dipakai; PPN = the chain on the net DPP
-    (never "full PPN − advance PPN"); net Piutang = net DPP + PPN;
-  - the printed invoice shows Total DPP − Uang Muka Dipakai = net DPP, then
-    PPN and total, so the advance's PPN is never needed.
-- **The Faktur stores its own tax** (U10): full DPP / DPP Nilai Lain / PPN,
-  advance DPP used, net DPP / DPP Nilai Lain / PPN, tax date (the delivery
-  date) and `tax_invoice_no`. These are its Faktur Pajak Pelunasan (or Normal,
-  when nothing is deducted). The Faktur Pajak Uang Muka it references are its
-  deduction rows' items, read by key (`ar_item_id` → `tax_invoice_no`).
-- **No Pajak menu is needed** for the sales process to calculate and keep its
-  tax: the Uang Muka items and the Fakturs hold every output-tax figure, and
-  the receipt's PPh rows hold the withholding.
-- A Faktur fully covered by its advances (net Piutang 0) is **[Open]**:
-  recommended to allow it without an Invoice item.
-- Paid through the receipt by the purpose **Penerimaan dari Customer**, which
-  lists advance bills and invoices together; each line posts by its document's
-  kind (invoice: Cr Piutang Usaha, **Pembayaran** on the Invoice item).
-- A leftover advance is refunded (Pengembalian Uang Muka, a Pengeluaran
-  purpose), never moved. An unpaid remainder is written off only by the
-  document's owner closing it, never by the cashier.
+```
+CO (price, mode, PPN, PPh) ──► Faktur header (one CO)
+SJ line (posted, whole)    ──► Faktur line  ──posts──► Dr Piutang · Dr Uang Muka / Cr Penjualan · Cr PPN Keluaran
+Uang Muka items of the CO  ──► deduction rows (DPP used, typed)
+```
+
+### 9.1 What is agreed
+
+| # | Rule |
+| --- | --- |
+| **U16** | **One Faktur bills one Customer Order.** Chosen once and locked; customer, Termin, mode harga, Kena PPN, PO and the line prices come from it. |
+| **U17** | **Its lines are Delivery Note lines, picked by the user, each taken whole** (U14): only lines of **posted** Delivery Notes of that order, each billed once. So a Faktur can bill only what was actually sent. |
+| **U18** | **Include / Exclude PPN and Kena PPN are the Customer Order's**, shown, never chosen. An order without PPN bills without PPN and makes no faktur pajak. |
+
+### 9.2 What the user fills in
+
+| Field | Rules |
+| --- | --- |
+| Customer Order | An Open or Closed order with a posted, unbilled Delivery Note line; chosen once, locked. Customer, PO, Termin, Mode Harga, Kena PPN shown read-only |
+| Tanggal Faktur | Required; see U19 for how it relates to the Delivery Notes' dates |
+| Jatuh Tempo | Tanggal Faktur + the order's Termin days; shown, not typed |
+| Alamat Penagihan | Any of the customer's addresses, starting on one flagged Penagihan, else the order's address |
+| Rekening Pembayaran | A rupiah Bank, printed on the bill (as on the advance bill) |
+| Catatan | Free text |
+| Lines | **Pilih Surat Jalan** opens the order's posted, unbilled lines grouped by Delivery Note (SJ no, Tanggal Kirim, item, qty) — tick a whole note or single lines. Nothing to type on a line: quantity, price and discount come from the note and the order |
+| Uang Muka | **Pilih Uang Muka** lists the order's open Uang Muka items (ARI no, receipt date, bill, balance, faktur pajak no); the user ticks and types the **DPP used** from each, up to its balance and in total up to the Faktur's DPP (U8). Nothing pre-filled |
+
+### 9.3 A line's figures
+
+A Faktur line = one Delivery Note line: its quantity (in the Customer Order
+line's unit) × the order line's price, less the discount:
+
+- **Percent discount**: the same percent on the billed quantity.
+- **Nominal discount**: shared by quantity — `round(discount × qty billed ÷
+  qty ordered)` — and **the bill that completes the order line takes the
+  remainder**, so the Fakturs of a line add up exactly to the order line's
+  amount. The same remainder rule holds for the amount itself.
+- DPP, DPP Nilai Lain and PPN per line by `sales-tax.ts` (P60): Exclude → the
+  amount is the DPP; Include → the inclusive split of the amount. PPN at the
+  rates the order snapshotted (U20).
+- Jenis PPh and its rate are the order line's, carried for the expected
+  withholding (*Estimasi Penerimaan*), as on the order.
+
+### 9.4 The totals and the advance
+
+| Figure | How |
+| --- | --- |
+| DPP (full) | Σ line DPP |
+| Uang Muka Dipakai | Σ DPP used typed on the deduction rows |
+| DPP setelah Uang Muka (net DPP) | DPP − Uang Muka Dipakai |
+| DPP Nilai Lain, PPN | The chain on the **net** DPP (U7; never "full PPN − advance PPN") |
+| Total Tagihan = net Piutang | Net DPP + PPN |
+| Estimasi PPh | Net DPP shared over the lines (largest absorbs), × each line's Jenis PPh rate, per Jenis PPh — information, as on the order |
+
+A Faktur fully covered by its advances (net DPP 0) posts revenue and clears
+the Uang Muka, but carries no new PPN and makes no Faktur Pajak Pelunasan.
+
+### 9.5 Lifecycle and posting
+
+```
+Draft ──Posting──► Posted (final; corrected later by Nota Retur / Faktur Pengganti)
+  └──Batalkan (reason)──► Dibatalkan (final; its lines are billable again)
+```
+
+Numbered **`INV/YYYY/MM/NNNN`** (the simulation's prefix). Permissions
+`SALES_INVOICE_VIEW / _CREATE / _EDIT / _POST / _CANCEL`.
+
+**Posting, one transaction under the Customer Order's lock:**
+
+1. Recheck: every line still on a posted Delivery Note and not on another live
+   Faktur; each Uang Muka item still has the DPP used; Σ used ≤ DPP; period
+   open; accounts mapped.
+2. **Journal**, dated Tanggal Faktur:
+
+| Account | Debit | Credit | Partner |
+| --- | ---: | ---: | --- |
+| Piutang Usaha | net Piutang | | customer |
+| Uang Muka Penjualan | Uang Muka Dipakai | | customer |
+| Penjualan | | full DPP | |
+| PPN Keluaran | | PPN (on net DPP) | |
+
+   Balanced: net DPP + PPN + used = full DPP + PPN. Revenue is net of
+   discount (no separate discount account). Piutang Usaha and Penjualan are
+   new Account Mapping entries; Uang Muka Penjualan and PPN Keluaran exist.
+3. **AR items:** create the **Invoice item** at net Piutang with the due date
+   (Terbentuk); write **Dipakai Invoice** on each Uang Muka item used, naming
+   the Invoice item. A Faktur with net Piutang 0 creates no Invoice item.
+4. Store its own tax (U10): full and net DPP / DPP Nilai Lain / PPN, Uang
+   Muka Dipakai, tax date, `tax_invoice_no` empty until typed after Coretax.
+5. The billed Delivery Note lines read **Ditagih** from then on (shown on the
+   Delivery Note, read from the Faktur lines, never stored there).
+
+### 9.6 Tables (proposed)
+
+`sal_invoice`: invoice_no, invoice_date, due_date, status, customer_order_id,
+customer_id, address_id, bank_id, price_mode, is_taxable, ppn_rate,
+dpp_other numerator / denominator (from the order), dpp_amount,
+advance_dpp_used, net_dpp_amount, net_dpp_other_amount, ppn_amount,
+total_amount (net Piutang), tax_date, tax_invoice_no, journal_id,
+ar_item_id, note, cancel_reason.
+
+`sal_invoice_line`: invoice_id, line_no, **delivery_note_line_id** (unique
+among live Fakturs, checked under the order's lock), customer_order_line_id,
+qty, price, discount_amount, amount, dpp_amount, dpp_other_amount,
+ppn_amount, withholding_tax_id, withholding_rate.
+
+`sal_invoice_advance_deduction`: invoice_id, **ar_item_id**, dpp_used. Unique
+(invoice, item).
+
+The Faktur module reads Delivery Note lines through the Delivery Note
+module's functions and moves AR items through the AR book (§3.1), as the
+Delivery Note does with the Delivery Order.
+
+### 9.7 Worked example
+
+CO/2026/10/0001: 10.000 PCS × 1.000, Exclude, Kena PPN. Uang Muka paid: one
+item ARI/2026/10/0001, DPP 2.000.000. Sent: SJ/…0001 1.000 PCS (15/10),
+SJ/…0002 2.000 PCS (17/10).
+
+INV/2026/10/0001 dated 17/10 bills both notes, using 1.000.000 of the advance:
+
+| Figure | Amount |
+| --- | ---: |
+| DPP (3.000 × 1.000) | 3.000.000 |
+| Uang Muka Dipakai | 1.000.000 |
+| Net DPP | 2.000.000 |
+| DPP Nilai Lain (11/12) | 1.833.333 |
+| PPN 12 % | 220.000 |
+| Total Tagihan | 2.220.000 |
+
+Journal: Dr Piutang 2.220.000 · Dr Uang Muka Penjualan 1.000.000 / Cr
+Penjualan 3.000.000 · Cr PPN Keluaran 220.000. Invoice item ARI/…0002 at
+2.220.000; ARI/…0001 falls to 1.000.000 (*Dipakai Invoice*), left for the next
+Faktur.
+
+### 9.8 Build order
+
+1. **AR item shape U1 + tax columns U9** (agreed, not built) — the Faktur
+   writes the revised shape, so it goes first.
+2. **Faktur Penjualan** as above, with the Ditagih state on the Delivery Note
+   and the Faktur list on the Customer Order.
+3. **Penerimaan dari Customer** (P83): advance bills and invoices in one
+   receipt; the *Pembayaran* event on the Invoice item.
+
+### 9.9 Open — to decide before building
+
+| # | Question | Recommendation |
+| --- | --- | --- |
+| U19 | **Which date the Faktur and its faktur pajak carry when its notes left on different days.** The faktur pajak is due at delivery (the tax point) | One Faktur takes notes of **one calendar month** only; Tanggal Faktur is on or after the latest note's Tanggal Kirim and in that month. This is the *faktur pajak gabungan* the law allows for several deliveries to one buyer in a month; the tax date = Tanggal Faktur |
+| U20 | **Which PPN rate and DPP Nilai Lain factor.** The order snapshotted them at Ajukan; the setting may change later | The order's snapshot, as the advance uses — the order, its advance and its Fakturs then share one arithmetic. Revisit only if the law changes mid-order |
+| U21 | **When the Customer Order closes.** Today only by hand | It **closes itself** once every order line is fully billed (Σ billed = ordered, or = what its closed Sales Orders delivered). Tutup Pesanan by hand is refused while a posted Delivery Note line is unbilled or a Faktur is Draft |
+| U22 | **Penjualan and Piutang Usaha accounts** | One each in Account Mapping (*Penjualan*, *Piutang Usaha*) until the Kategori Item mapping (C25), as HPP / Persediaan (U12) |
 
 ---
 
@@ -1003,7 +1120,7 @@ Muka, the receipt from its Terbentuk entry [Agreed, not built].
 | Item | State |
 | --- | --- |
 | Revised AR item shape (`ar_item_no`, source = what it is about, `ref_*` dropped) | [Agreed, not built] — U1 |
-| Faktur Penjualan, Invoice items, Dipakai Invoice, Pembayaran | [Planned] |
+| Faktur Penjualan, Invoice items, Dipakai Invoice, Pembayaran | [Planned] — §9 (U16–U18 agreed; U19–U22 open) |
 | Tax columns on `fin_ar_item` (U9) | [Agreed, not built] — with the U1 migration |
 | Whether Coretax accepts one Faktur Pajak Uang Muka referenced by two Faktur Pelunasan (partial use) | To verify with a tax consultant |
 | A settlement PPN 1 rupiah off "full PPN − advance PPN" after odd partial receipts | Accepted: the chain on the net DPP wins (it is what the Faktur Pajak Pelunasan carries) |
@@ -1013,7 +1130,7 @@ Muka, the receipt from its Terbentuk entry [Agreed, not built].
 | Closing a bill / invoice remainder by its owner (write-off) | [Planned] with the close action |
 | *Penerimaan Belum Teridentifikasi* and how it is cleared | [Planned]; clearing is open (C31) |
 | Delivery Note, closing SO / DO when delivered, releasing undelivered quantity on a hand-closed SO / DO | [Built] (P94) |
-| Auto-closing the Customer Order once delivered (and invoiced) | With the Faktur |
+| Auto-closing the Customer Order once delivered (and invoiced) | Open — U21 |
 | Printing the advance bill | Needs Company Setting and bank account details |
 | Multi-currency columns and behaviour | Later (U6) |
 | Whether manual revaluation includes Uang Muka items | **Open** (recommended: no) |
@@ -1043,6 +1160,9 @@ Agreed with the user on 02/10/2026; to be recorded in §12 when built.
 | **U13** | **The Delivery Note is numbered `SJ/YYYY/MM/NNNN`** (03/10/2026). |
 | **U14** | **Delivery Orders and Sales Orders close themselves when fully delivered** (03/10/2026); closing one by hand releases the undelivered quantity. The Customer Order stays closed by hand until the Faktur. A Faktur takes Delivery Note lines **whole**, never part of a line; the Delivery Note recognises HPP only, never Piutang. |
 | **U15** | **The Delivery Note picks stock by lot** (04/10/2026). Every Barang with Kelola Stok leaves by lot: the line holds picks (lot, quantity, lot number and expiry as printed), never more than the line and exactly it to post; a Draft may be picked in part. The lots come from the inventory module — today a stand-in lot list (`tmp_stock_lot`, no quantity, earliest expiry first, kept in *Lot (Sementara)*); each pick is its own stock movement and carries its own cost. Lot-less items take no pick. |
+| **U16** | **One Faktur Penjualan bills one Customer Order** (04/10/2026), chosen once and locked; its customer, Termin, prices and tax settings come from it. |
+| **U17** | **A Faktur's lines are Delivery Note lines the user picks, each whole** (04/10/2026): only posted notes of that order, each line billed once — so only what was actually sent is billed. |
+| **U18** | **The Faktur's Include / Exclude PPN and Kena PPN are the Customer Order's** (04/10/2026), shown and never chosen. |
 | **U10** | **The sales process keeps its tax without a Pajak menu** (03/10/2026). The Faktur stores its full, deducted and net figures, its tax date and Coretax number, and its deduction rows (`sal_invoice_advance_deduction`: AR item, dpp_used). Every output-tax figure is on a Uang Muka item or a Faktur; a Pajak menu, if ever built, reads them and owns nothing. Mirrors Accurate / SAP B1 / Odoo, where the down-payment record carries its tax and the final invoice records its own deduction; differs only in the advance's tax point being the receipt, as the law sets it (as SAP S/4HANA does). |
 
 ---
