@@ -2,8 +2,8 @@ import { notFound } from "next/navigation";
 import { AdvanceForm } from "@/components/finance/advance-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
-import { getSalesAdvance, salesAdvanceOptions } from "@/lib/erp/sales-advance";
-import { salesAdvanceAbilities } from "@/lib/erp/sales-advance-workflow";
+import { getSalesAdvance, salesAdvanceOptions } from "@/lib/erp/ar-advance";
+import { salesAdvanceAbilities } from "@/lib/erp/ar-advance-workflow";
 import { settlementsOfDocument } from "@/lib/erp/cash-bank-tx";
 
 export const dynamic = "force-dynamic";
@@ -21,9 +21,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         advance={advance}
         options={options}
         can={salesAdvanceAbilities(actor.permissions)}
-        payments={await settlementsOfDocument("sal_advance", advance.id)}
+        payments={await settlementsOfDocument("fin_ar_advance", advance.id)}
       />
-      <RecordHistoryCard entityKey="sal_advance" rowId={advance.id} />
+      <RecordHistoryCard entityKey="fin_ar_advance" rowId={advance.id} />
     </>
   );
 }

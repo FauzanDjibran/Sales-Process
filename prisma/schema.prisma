@@ -649,7 +649,7 @@ model RefWithholdingTax {
 
   customer_order_lines SalCustomerOrderLine[]
   cash_bank_tx_whts    FinCashBankTxLineWht[]
-  invoice_lines        SalInvoiceLine[]
+  invoice_lines        FinArInvoiceLine[]
   tax_slips            TaxWithholdingSlip[]
 
   @@index([prepaid_account_id])
@@ -710,8 +710,8 @@ model MPartner {
   delivery_notes  LogDeliveryNote[]
   tax_fakturs     TaxFaktur[]
   tax_slips       TaxWithholdingSlip[]
-  invoices        SalInvoice[]
-  sales_advances  SalAdvance[]
+  invoices        FinArInvoice[]
+  sales_advances  FinArAdvance[]
   cash_bank_txs   FinCashBankTx[]
   ar_items        FinArItem[]
 
@@ -760,7 +760,7 @@ model MPartnerAddress {
   sales_orders    SalOrder[]
   delivery_orders SalDeliveryOrder[]
   delivery_notes  LogDeliveryNote[]
-  invoices        SalInvoice[]
+  invoices        FinArInvoice[]
 
   @@index([partner_id])
   @@index([village_id])
@@ -875,8 +875,8 @@ model MCashBank {
   transactions FinCashBankTx[]
 
   /// Advance bills that print this account as where to pay (P56).
-  sales_advances SalAdvance[]
-  sales_invoices SalInvoice[]
+  sales_advances FinArAdvance[]
+  sales_invoices FinArInvoice[]
 
   @@map("m_cash_bank")
 }
@@ -1468,12 +1468,10 @@ model SalCustomerOrder {
   copied_from     SalCustomerOrder?      @relation("CustomerOrderCopy", fields: [copied_from_id], references: [id])
   copies          SalCustomerOrder[]     @relation("CustomerOrderCopy")
   lines           SalCustomerOrderLine[]
-  advances        SalAdvance[]
   /// The Sales Orders that release this order's quantity to PPIC (P79).
   sales_orders    SalOrder[]
   /// The Delivery Orders that send this order's goods, and the notes they leave on.
   delivery_orders SalDeliveryOrder[]
-  invoices        SalInvoice[]
 
   @@index([customer_id])
   @@index([status, order_date])
@@ -1524,7 +1522,6 @@ model SalCustomerOrderLine {
   uom               RefUom             @relation(fields: [uom_id], references: [id])
   withholding_tax   RefWithholdingTax? @relation(fields: [withholding_tax_id], references: [id])
   sales_order_lines SalOrderLine[]
-  invoice_lines     SalInvoiceLine[]
 
   @@unique([order_id, line_no])
   @@index([item_id])
@@ -1802,7 +1799,7 @@ enum InvoiceStatus {
 /// that order's posted Delivery Notes. Posting writes Piutang, revenue and
 /// PPN, uses the order's Uang Muka the user picked, and creates the Invoice
 /// AR item.
-model SalInvoice {
+model FinArInvoice {
   id           Int           @id @default(autoincrement())
   invoice_no   String        @unique
   /// Typed; the journal's date. Not before `tax_date`.
@@ -1852,22 +1849,21 @@ model SalInvoice {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  customer_order SalCustomerOrder             @relation(fields: [customer_order_id], references: [id])
-  customer       MPartner                     @relation(fields: [customer_id], references: [id])
-  address        MPartnerAddress              @relation(fields: [address_id], references: [id])
-  cash_bank      MCashBank                    @relation(fields: [cash_bank_id], references: [id])
-  lines          SalInvoiceLine[]
-  deductions     SalInvoiceAdvanceDeduction[]
+  customer   MPartner                       @relation(fields: [customer_id], references: [id])
+  address    MPartnerAddress                @relation(fields: [address_id], references: [id])
+  cash_bank  MCashBank                      @relation(fields: [cash_bank_id], references: [id])
+  lines      FinArInvoiceLine[]
+  deductions FinArInvoiceAdvanceDeduction[]
 
   @@index([customer_order_id])
   @@index([status, invoice_date])
-  @@map("sal_invoice")
+  @@map("fin_ar_invoice")
 }
 
 /// One Faktur line: one Delivery Note line, whole (U17), priced from its
 /// Customer Order line. A Delivery Note line is billed by at most one live
 /// Faktur, checked under the order's lock.
-model SalInvoiceLine {
+model FinArInvoiceLine {
   id                     Int      @id @default(autoincrement())
   invoice_id             Int
   line_no                Int
@@ -1887,31 +1883,30 @@ model SalInvoiceLine {
   withholding_tax_id     Int?
   withholding_rate       Decimal? @db.Decimal(9, 4)
 
-  invoice             SalInvoice           @relation(fields: [invoice_id], references: [id])
-  customer_order_line SalCustomerOrderLine @relation(fields: [customer_order_line_id], references: [id])
-  withholding_tax     RefWithholdingTax?   @relation(fields: [withholding_tax_id], references: [id])
+  invoice         FinArInvoice       @relation(fields: [invoice_id], references: [id])
+  withholding_tax RefWithholdingTax? @relation(fields: [withholding_tax_id], references: [id])
 
   @@unique([invoice_id, line_no])
   @@unique([invoice_id, delivery_note_line_id])
   @@index([delivery_note_line_id])
   @@index([customer_order_line_id])
-  @@map("sal_invoice_line")
+  @@map("fin_ar_invoice_line")
 }
 
 /// An Uang Muka the Faktur uses (U8, U10): the AR item, by id — the AR items
 /// are a book — and the DPP typed from it.
-model SalInvoiceAdvanceDeduction {
+model FinArInvoiceAdvanceDeduction {
   id         Int     @id @default(autoincrement())
   invoice_id Int
   ar_item_id Int
   ar_item_no String
   dpp_used   Decimal @db.Decimal(18, 2)
 
-  invoice SalInvoice @relation(fields: [invoice_id], references: [id])
+  invoice FinArInvoice @relation(fields: [invoice_id], references: [id])
 
   @@unique([invoice_id, ar_item_id])
   @@index([ar_item_id])
-  @@map("sal_invoice_advance_deduction")
+  @@map("fin_ar_invoice_advance_deduction")
 }
 
 /// TEMPORARY (U15). The stand-in inventory's lots: what a picker chooses from,
@@ -1992,7 +1987,7 @@ model TmpStockMovement {
 /// Always drawn from one Open Customer Order (P78), whose customer, address, price
 /// mode and Kena PPN it follows. Its figures are stored as the tax module
 /// computed them at the last save.
-model SalAdvance {
+model FinArAdvance {
   id           Int           @id @default(autoincrement())
   /// `ARA/YYYY/MM/NNNN`, in the series of the bill's own month.
   advance_no   String        @unique
@@ -2041,14 +2036,13 @@ model SalAdvance {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  customer_order SalCustomerOrder @relation(fields: [customer_order_id], references: [id])
-  customer       MPartner         @relation(fields: [customer_id], references: [id])
-  cash_bank      MCashBank        @relation(fields: [cash_bank_id], references: [id])
+  customer  MPartner  @relation(fields: [customer_id], references: [id])
+  cash_bank MCashBank @relation(fields: [cash_bank_id], references: [id])
 
   @@index([customer_order_id])
   @@index([customer_id])
   @@index([status, advance_date])
-  @@map("sal_advance")
+  @@map("fin_ar_advance")
 }
 
 // ------------------------------------------------------ cash bank transaction

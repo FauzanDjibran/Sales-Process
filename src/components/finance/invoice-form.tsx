@@ -11,9 +11,9 @@ import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
-import { InvoiceActions } from "@/components/sales/invoice-actions";
-import { InvoiceAdvancePicker, InvoiceNotePicker } from "@/components/sales/invoice-pickers";
-import { createInvoiceAction, updateInvoiceAction } from "@/app/actions/sales-invoice";
+import { InvoiceActions } from "@/components/finance/invoice-actions";
+import { InvoiceAdvancePicker, InvoiceNotePicker } from "@/components/finance/invoice-pickers";
+import { createInvoiceAction, updateInvoiceAction } from "@/app/actions/ar-invoice";
 import {
   INVOICE_PAY_BADGE,
   INVOICE_PAY_TEXT,
@@ -21,8 +21,8 @@ import {
   INVOICE_STATUS_TEXT,
   type InvoiceAbilities,
   type InvoicePayState,
-} from "@/lib/erp/sales-invoice-workflow";
-import type { InvoiceHeaderInput, InvoiceOptions, InvoiceView, InvoiceNoteLine, InvoiceOrderOption } from "@/lib/erp/sales-invoice";
+} from "@/lib/erp/ar-invoice-workflow";
+import type { InvoiceHeaderInput, InvoiceOptions, InvoiceView, InvoiceNoteLine, InvoiceOrderOption } from "@/lib/erp/ar-invoice";
 import { computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine, type PriceMode } from "@/lib/erp/sales-tax";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso } from "@/lib/format";
@@ -225,11 +225,11 @@ export function InvoiceForm({
     }
     setDirty(false);
     toast("Invoice disimpan", `${result.invoiceNo} · Draft`, "ok");
-    router.push(`/sales/invoice/${result.id}`);
+    router.push(`/finance/invoice/sales/${result.id}`);
   }
 
   const status = invoice?.status ?? "Draft";
-  const backHref = invoice ? `/sales/invoice/${invoice.id}` : "/sales/invoice";
+  const backHref = invoice ? `/finance/invoice/sales/${invoice.id}` : "/finance/invoice/sales";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
   const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
   const waitOrder = "menunggu Customer Order";
@@ -803,9 +803,9 @@ export function InvoiceForm({
     <>
       <div className="ph">
         <div className="crumb">
-          <span>Penjualan</span>
+          <span>Finance</span>
           <span>/</span>
-          <Link href="/sales/invoice">Invoice Penjualan</Link>
+          <Link href="/finance/invoice/sales">Invoice Penjualan</Link>
           <span>/</span>
           <span className="cur">{invoice ? invoice.invoiceNo : "Baru"}</span>
         </div>

@@ -91,10 +91,10 @@ Three lanes, never mixed:
 | Delivery Order | `DO/YYYY/MM/NNNN` | Sales › Delivery Order | `sal_delivery_order`, `_line` | No | No | [Built] |
 | Delivery Note | `SJ/YYYY/MM/NNNN` | Logistik › Delivery Note (standalone, purpose `sales_delivery`, P106) | `log_delivery_note`, `_line`, `_lot` | HPP / Persediaan | No | [Built] (P94, P106) |
 | Harga Pokok (Sementara), Lot (Sementara) | — | Master › Sementara | `tmp_item_cost`, `tmp_stock_lot`, `tmp_stock_movement` (temporary) | No | No | [Built] stand-in (U11, U15) |
-| Uang Muka Penjualan (bill) | `ARA/YYYY/MM/NNNN` | Finance › Uang Muka | `sal_advance` | No | No | [Built] |
+| Uang Muka Penjualan (bill) | `ARA/YYYY/MM/NNNN` | Finance › Uang Muka | `fin_ar_advance` (was `sal_advance`, P107) | No | No | [Built] |
 | Penerimaan Kas & Bank | `BKM/YYYY/MM/NNNN` | Finance › Kas & Bank › Penerimaan | `fin_cash_bank_tx`, `_line`, `_line_wht` | Yes, at Post | No | [Built] |
 | AR item + Buku Piutang | `ARI/YYYY/MM/NNNN` | (no menu; seen in reports) | `fin_ar_item`, `fin_ar_ledger` | Never | **Yes** | [Built] (revised shape U1, U9: P96) |
-| Faktur Penjualan | `INV/…` | Sales | `sal_invoice(_line, _advance_deduction)` | Yes | Invoice item | [Built] (§9, P97) |
+| Invoice Penjualan | `INV/…` | Finance › Invoice (P107) | `fin_ar_invoice(_line, _advance_deduction)` (was `sal_invoice…`) | Yes | Invoice item | [Built] (§9, P97, P107) |
 
 ---
 

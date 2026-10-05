@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
-import { advanceSourceOrders, lockCustomerOrder, type AdvanceSourceOrder } from "./customer-order";
+import { advanceSourceOrders, customerOrderNumbersByIds, lockCustomerOrder, type AdvanceSourceOrder } from "./customer-order";
 import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
 import {
   advanceAmountProblem,
@@ -20,11 +20,11 @@ import {
   advanceTransitionAllowed,
   type AdvanceAction,
   type AdvanceStatus,
-} from "./sales-advance-workflow";
+} from "./ar-advance-workflow";
 
 /**
  * Uang Muka Penjualan — the AR advance bill (Claude-ERP.md P54–P58). Its table
- * is `sal_advance`, and nothing else names it.
+ * is `fin_ar_advance`, and nothing else names it.
  *
  * A bill, not a transaction: it posts nothing at any step. It is drawn from one
  * Open Customer Order, whose customer, address, price mode and Kena PPN it
@@ -65,7 +65,7 @@ const isoDay = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
 
 /** What other live bills have drawn from an order, in its price mode. */
 async function drawnByOthers(db: Db, orderId: number, exceptId: number | null): Promise<number> {
-  const r = await db.salAdvance.aggregate({
+  const r = await db.finArAdvance.aggregate({
     where: { customer_order_id: orderId, status: { not: "Cancelled" }, ...(exceptId ? { id: { not: exceptId } } : {}) },
     _sum: { amount: true },
   });
@@ -74,7 +74,7 @@ async function drawnByOthers(db: Db, orderId: number, exceptId: number | null): 
 
 /** Drawn by live bills, per order. */
 async function drawnByOrder(orderIds: number[]): Promise<Map<number, number>> {
-  const rows = await prisma.salAdvance.groupBy({
+  const rows = await prisma.finArAdvance.groupBy({
     by: ["customer_order_id"],
     where: { customer_order_id: { in: orderIds }, status: { not: "Cancelled" } },
     _sum: { amount: true },
@@ -116,7 +116,7 @@ export async function salesAdvanceOptions(current: { id: number; orderId: number
   ]);
   const drawn = await drawnByOrder(orders.map((o) => o.id));
   const own = current
-    ? (await prisma.salAdvance.findUnique({ where: { id: current.id }, select: { amount: true, status: true } })) ?? null
+    ? (await prisma.finArAdvance.findUnique({ where: { id: current.id }, select: { amount: true, status: true } })) ?? null
     : null;
   return {
     orders: orders.map((o) => {
@@ -237,7 +237,7 @@ export async function checkSalesAdvance(
 
 async function nextAdvanceNo(db: Db, date: Date): Promise<string> {
   return nextDocumentNumber("ARA", date, async (series) => {
-    const row = await db.salAdvance.findFirst({
+    const row = await db.finArAdvance.findFirst({
       where: { advance_no: { startsWith: series } },
       orderBy: { id: "desc" },
       select: { advance_no: true },
@@ -265,7 +265,7 @@ function figureData(f: AdvanceFigures) {
 }
 
 async function audit(db: Db, id: number, action: "TAMBAH" | "UPDATE", event: string, by: number) {
-  await db.auditLog.create({ data: { entity_key: "sal_advance", row_id: id, action, event, by } });
+  await db.auditLog.create({ data: { entity_key: "fin_ar_advance", row_id: id, action, event, by } });
 }
 
 /** Rules failing inside a transaction roll it back and come out as errors. */
@@ -291,7 +291,7 @@ export async function createSalesAdvance(input: SalesAdvanceInput, actorId: numb
       if (orderId) await lockCustomerOrder(tx, orderId);
       const r = await checkSalesAdvance(tx, input, null);
       if (!r.ok) throw new Refused(r.errors);
-      const row = await tx.salAdvance.create({
+      const row = await tx.finArAdvance.create({
         data: {
           ...r.c.data,
           ...figureData(r.c.figures),
@@ -312,7 +312,7 @@ export async function updateSalesAdvance(
   input: SalesAdvanceInput,
   actorId: number
 ): Promise<SalesAdvanceResult> {
-  const current = await prisma.salAdvance.findUnique({
+  const current = await prisma.finArAdvance.findUnique({
     where: { id },
     select: { status: true, advance_no: true, customer_order_id: true },
   });
@@ -329,7 +329,7 @@ export async function updateSalesAdvance(
       await lockCustomerOrder(tx, current.customer_order_id);
       const r = await checkSalesAdvance(tx, input, id);
       if (!r.ok) throw new Refused(r.errors);
-      const done = await tx.salAdvance.updateMany({
+      const done = await tx.finArAdvance.updateMany({
         where: { id, status: "Draft" },
         data: { ...r.c.data, ...figureData(r.c.figures),
           ...rateData(r.c.rates), updated_by: actorId },
@@ -383,7 +383,7 @@ export async function transitionSalesAdvance(
    */
   cancelGuard?: (tx: Prisma.TransactionClient, id: number) => Promise<string | null>
 ): Promise<SalesAdvanceTransitionResult> {
-  const bill = await prisma.salAdvance.findUnique({ where: { id } });
+  const bill = await prisma.finArAdvance.findUnique({ where: { id } });
   if (!bill) return { ok: false, errors: { _form: "Tagihan uang muka tidak ditemukan." } };
   const t = SALES_ADVANCE_TRANSITIONS[action];
   if (!advanceTransitionAllowed(action, bill.status as AdvanceStatus)) {
@@ -398,7 +398,7 @@ export async function transitionSalesAdvance(
         await lockSalesAdvances(tx, [id]);
         const blocked = cancelGuard ? await cancelGuard(tx, id) : null;
         if (blocked) throw new Refused({ _form: blocked });
-        const done = await tx.salAdvance.updateMany({
+        const done = await tx.finArAdvance.updateMany({
           where: { id, status: bill.status },
           data: { status: "Cancelled", cancel_reason: why, updated_by: actorId },
         });
@@ -417,7 +417,7 @@ export async function transitionSalesAdvance(
         const first = Object.values(r.errors)[0];
         throw new Refused({ _form: `Belum bisa diterbitkan: ${first}` });
       }
-      const done = await tx.salAdvance.updateMany({
+      const done = await tx.finArAdvance.updateMany({
         where: { id, status: "Draft" },
         data: { status: "Issued", ...figureData(r.c.figures),
           ...rateData(r.c.rates), updated_by: actorId },
@@ -448,10 +448,12 @@ export type SalesAdvanceListRow = {
 };
 
 export async function listSalesAdvances(): Promise<SalesAdvanceListRow[]> {
-  const rows = await prisma.salAdvance.findMany({
+  const rows = await prisma.finArAdvance.findMany({
     orderBy: [{ advance_date: "desc" }, { id: "desc" }],
-    include: { customer: true, customer_order: { select: { order_no: true } } },
+    include: { customer: true },
   });
+  // The Customer Order is another module's document (P107): its number is asked for.
+  const orderNos = await customerOrderNumbersByIds([...new Set(rows.map((r) => r.customer_order_id))]);
   return rows.map((r) => ({
     id: r.id,
     advanceNo: r.advance_no,
@@ -460,7 +462,7 @@ export async function listSalesAdvances(): Promise<SalesAdvanceListRow[]> {
     status: r.status as AdvanceStatus,
     customerLabel: r.customer.partner_label,
     customerName: r.customer.partner_name,
-    orderNo: r.customer_order.order_no,
+    orderNo: orderNos.get(r.customer_order_id) ?? "",
     priceMode: r.price_mode,
     isTaxable: r.is_taxable,
     dpp: r.dpp_amount.toNumber(),
@@ -484,7 +486,7 @@ export type SalesAdvanceView = {
 };
 
 export async function getSalesAdvance(id: number): Promise<SalesAdvanceView | null> {
-  const a = await prisma.salAdvance.findUnique({ where: { id }, include: { cash_bank: true } });
+  const a = await prisma.finArAdvance.findUnique({ where: { id }, include: { cash_bank: true } });
   if (!a) return null;
   return {
     id: a.id,
@@ -510,7 +512,7 @@ export async function getSalesAdvance(id: number): Promise<SalesAdvanceView | nu
 
 /** Bill numbers by id, for the audit panel. */
 export async function salesAdvanceNumbersByIds(ids: number[]): Promise<Map<number, string>> {
-  const rows = await prisma.salAdvance.findMany({
+  const rows = await prisma.finArAdvance.findMany({
     where: { id: { in: ids } },
     select: { id: true, advance_no: true },
   });
@@ -524,7 +526,7 @@ export async function salesAdvanceNumbersByIds(ids: number[]): Promise<Map<numbe
  * for, and — per Jenis PPh — what the customer is expected to withhold, as
  * `computeAdvance` works it out from the order the bill is drawn from and the
  * rate the bill carries. The payment module takes this rather than reading
- * `sal_advance` itself; what has been *paid* is the payment's own record.
+ * `fin_ar_advance` itself; what has been *paid* is the payment's own record.
  */
 export type SettlementAdvance = {
   id: number;
@@ -546,7 +548,7 @@ export type SettlementAdvance = {
 
 /** Every issued bill's total, ids only — so a receipt can find the unpaid ones before reading any in full. */
 export async function issuedAdvanceTotals(db: Db = prisma): Promise<{ id: number; total: number }[]> {
-  const rows = await db.salAdvance.findMany({ where: { status: "Issued" }, select: { id: true, total_amount: true } });
+  const rows = await db.finArAdvance.findMany({ where: { status: "Issued" }, select: { id: true, total_amount: true } });
   return rows.map((r) => ({ id: r.id, total: r.total_amount.toNumber() }));
 }
 
@@ -554,7 +556,7 @@ export async function settlementAdvances(
   filter: { ids?: number[]; issuedOnly?: boolean },
   db: Db = prisma
 ): Promise<SettlementAdvance[]> {
-  const rows = await db.salAdvance.findMany({
+  const rows = await db.finArAdvance.findMany({
     where: {
       ...(filter.ids ? { id: { in: filter.ids } } : {}),
       ...(filter.issuedOnly ? { status: "Issued" } : {}),
@@ -603,6 +605,6 @@ export async function settlementAdvances(
  */
 export async function lockSalesAdvances(tx: Prisma.TransactionClient, ids: number[]): Promise<void> {
   for (const id of [...new Set(ids)].sort((a, b) => a - b)) {
-    await tx.$queryRaw`SELECT id FROM sal_advance WHERE id = ${id} FOR UPDATE`;
+    await tx.$queryRaw`SELECT id FROM fin_ar_advance WHERE id = ${id} FOR UPDATE`;
   }
 }

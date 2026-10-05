@@ -506,7 +506,7 @@ export function DeliveryNoteForm({
                         {billing && (
                           <td>
                             {stored && billing[stored.id] ? (
-                              <Link className="lab" href={`/sales/invoice/${billing[stored.id].id}`}>
+                              <Link className="lab" href={`/finance/invoice/sales/${billing[stored.id].id}`}>
                                 {billing[stored.id].no}
                               </Link>
                             ) : (

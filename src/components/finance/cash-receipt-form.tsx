@@ -61,7 +61,7 @@ type LiveLine = { bill: OpenBill; input: Line; withhold: boolean; max: number; l
 const money = (n: number) => formatMoney(n, "IDR");
 
 /** Where a settled document opens. */
-const billHref = (b: OpenBill) => (b.kind === "sal_invoice" ? `/sales/invoice/${b.id}` : `/finance/advance/sales/${b.id}`);
+const billHref = (b: OpenBill) => (b.kind === "fin_ar_invoice" ? `/finance/invoice/sales/${b.id}` : `/finance/advance/sales/${b.id}`);
 
 export function CashReceiptForm({
   mode,
@@ -108,7 +108,7 @@ export function CashReceiptForm({
   });
   const [picked, setPicked] = useState<Line[]>(() =>
     (receipt?.input.lines ?? []).map((l) => {
-      const kind = l.doc_type ?? "sal_advance";
+      const kind = l.doc_type ?? "fin_ar_advance";
       return { key: billKey(kind, Number(l.doc_id)), kind, docId: Number(l.doc_id), cash: String(l.cash), withhold: l.withhold };
     })
   );
@@ -512,7 +512,7 @@ export function CashReceiptForm({
                     <td>
                       <span className="dstack">
                         <span className="d1">
-                          <span className={`bdg ${b.kind === "sal_invoice" ? "t-info" : "t-vio"}`}>{SETTLED_DOC_TEXT[b.kind]}</span>{" "}
+                          <span className={`bdg ${b.kind === "fin_ar_invoice" ? "t-info" : "t-vio"}`}>{SETTLED_DOC_TEXT[b.kind]}</span>{" "}
                           <Link className="drl" href={billHref(b)} target="_blank">
                             <span className="mono">{b.no}</span>
                           </Link>
@@ -630,7 +630,7 @@ export function CashReceiptForm({
           <div className="impact">
             <div className="ttl">Bagian yang Dibukukan</div>
             {shown.map((x) =>
-              x.bill.kind === "sal_invoice" ? (
+              x.bill.kind === "fin_ar_invoice" ? (
                 // An Invoice's PPN was booked at the Invoice: what it settles clears Piutang (U25).
                 <div className="ir" key={x.bill.key}>
                   <span>{x.bill.no} · Piutang Usaha</span>

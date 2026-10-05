@@ -17,7 +17,7 @@ const money = (n: number) => formatMoney(n, "IDR");
 const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
 const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
 
-const DOC_TEXT: Record<string, string> = { sal_invoice: "Invoice Penjualan", sal_advance: "Uang Muka Penjualan" };
+const DOC_TEXT: Record<string, string> = { fin_ar_invoice: "Invoice Penjualan", fin_ar_advance: "Uang Muka Penjualan" };
 
 /**
  * One Bukti Potong PPh (P100, `tax_concept.md` §6): the PPh a customer withheld

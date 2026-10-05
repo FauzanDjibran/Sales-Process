@@ -42,7 +42,7 @@ function revalidate(id?: number) {
   // A posted receipt changes the bills' paid state.
   revalidatePath("/finance/advance/sales");
   // An Invoice paid shows its new standing; the AR reports move (U26).
-  revalidatePath("/sales/invoice", "layout");
+  revalidatePath("/finance/invoice/sales", "layout");
   revalidatePath("/finance/report", "layout");
   revalidatePath("/tax", "layout");
 }

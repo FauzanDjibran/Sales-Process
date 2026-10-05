@@ -6,7 +6,7 @@ import { Icon } from "@/components/icon";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
-import { transitionSalesAdvanceAction } from "@/app/actions/sales-advance";
+import { transitionSalesAdvanceAction } from "@/app/actions/ar-advance";
 import { headerButtonClass, orderForHeader, type ActionTone } from "@/lib/erp/header-actions";
 import {
   SALES_ADVANCE_TRANSITIONS,
@@ -15,7 +15,7 @@ import {
   type AdvanceAbilities,
   type AdvanceAction,
   type AdvanceStatus,
-} from "@/lib/erp/sales-advance-workflow";
+} from "@/lib/erp/ar-advance-workflow";
 import { formatMoney } from "@/lib/format";
 
 /**

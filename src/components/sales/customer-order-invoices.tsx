@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Icon } from "@/components/icon";
-import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, type InvoiceStatus } from "@/lib/erp/sales-invoice-workflow";
+import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, type InvoiceStatus } from "@/lib/erp/ar-invoice-workflow";
 import { formatDate } from "@/lib/format";
 
 /**
@@ -28,7 +28,7 @@ export function CustomerOrderInvoicesCard({
           <p>Tagihan atas barang Customer Order ini yang sudah dikirim.</p>
         </div>
         {canCreate && (
-          <Link className="btn sm primary" href={`/sales/invoice/new?co=${customerOrderId}`}>
+          <Link className="btn sm primary" href={`/finance/invoice/sales/new?co=${customerOrderId}`}>
             <Icon name="plus" size={14} /> Invoice Baru
           </Link>
         )}
@@ -47,7 +47,7 @@ export function CustomerOrderInvoicesCard({
               {invoices.map((i) => (
                 <tr key={i.id} style={{ cursor: "default" }}>
                   <td>
-                    <Link className="lab" href={`/sales/invoice/${i.id}`}>
+                    <Link className="lab" href={`/finance/invoice/sales/${i.id}`}>
                       {i.invoiceNo}
                     </Link>
                   </td>

@@ -75,9 +75,9 @@ export const CHECKS: Check[] = [
           WHERE (n.status = 'Posted' AND n.cost_amount > 0 AND (j.id IS NULL OR j.status <> 'Posted' OR j.source_doc_type_id <> ${docType("log_delivery_note")} OR j.source_doc_id <> n.id))
              OR (n.status <> 'Posted' AND n.journal_id IS NOT NULL)
           UNION ALL
-          SELECT 'invoice', v.invoice_no, v.status::text, v.journal_id FROM sal_invoice v
+          SELECT 'invoice', v.invoice_no, v.status::text, v.journal_id FROM fin_ar_invoice v
             LEFT JOIN acc_journal j ON j.id = v.journal_id
-          WHERE (v.status = 'Posted' AND (j.id IS NULL OR j.status <> 'Posted' OR j.source_doc_type_id <> ${docType("sal_invoice")} OR j.source_doc_id <> v.id))
+          WHERE (v.status = 'Posted' AND (j.id IS NULL OR j.status <> 'Posted' OR j.source_doc_type_id <> ${docType("fin_ar_invoice")} OR j.source_doc_id <> v.id))
              OR (v.status <> 'Posted' AND v.journal_id IS NOT NULL)`,
   },
   {
@@ -92,7 +92,7 @@ export const CHECKS: Check[] = [
           WHERE n.status = 'Posted' GROUP BY n.id HAVING SUM(l.debit_amount) <> n.cost_amount
           UNION ALL
           SELECT 'invoice', v.invoice_no, v.dpp_amount + v.ppn_amount, SUM(l.kredit_amount)
-          FROM sal_invoice v JOIN acc_journal_line l ON l.journal_id = v.journal_id
+          FROM fin_ar_invoice v JOIN acc_journal_line l ON l.journal_id = v.journal_id
           WHERE v.status = 'Posted' GROUP BY v.id HAVING SUM(l.kredit_amount) <> v.dpp_amount + v.ppn_amount`,
   },
   // ---------------------------------------------------------------- cash
@@ -155,7 +155,7 @@ export const CHECKS: Check[] = [
     area: "ar",
     name: "each posted receipt's advance line made one Uang Muka item at its DPP part",
     sql: `SELECT t.tx_no, l.doc_id AS bill_id, l.dpp_part, COUNT(e.id) AS items, SUM(e.amount) AS amount
-          FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id = ${docType("sal_advance")}
+          FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id = ${docType("fin_ar_advance")}
           LEFT JOIN fin_ar_ledger e ON e.event = 'Create' AND e.doc_type_id = ${docType("fin_cash_bank_tx")} AND e.doc_id = t.id
           LEFT JOIN fin_ar_item i ON i.id = e.item_id AND i.item_type = 'Advance' AND i.source_doc_type_id = l.doc_type_id AND i.source_doc_id = l.doc_id
           WHERE t.status = 'Posted' AND l.dpp_part > 0 AND (i.id IS NOT NULL OR e.id IS NULL)
@@ -165,8 +165,8 @@ export const CHECKS: Check[] = [
     area: "ar",
     name: "each posted receipt's invoice line wrote one Pembayaran on the invoice's item",
     sql: `SELECT t.tx_no, v.invoice_no, l.settled_amount, COUNT(e.id) AS entries, SUM(e.amount) AS paid
-          FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id = ${docType("sal_invoice")}
-          JOIN sal_invoice v ON v.id = l.doc_id
+          FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id = ${docType("fin_ar_invoice")}
+          JOIN fin_ar_invoice v ON v.id = l.doc_id
           LEFT JOIN fin_ar_ledger e ON e.item_id = v.ar_item_id AND e.event = 'Payment' AND e.doc_type_id = ${docType("fin_cash_bank_tx")} AND e.doc_id = t.id
           WHERE t.status = 'Posted' GROUP BY t.id, l.id, v.invoice_no HAVING COUNT(e.id) <> 1 OR SUM(e.amount) <> l.settled_amount`,
   },
@@ -174,19 +174,19 @@ export const CHECKS: Check[] = [
     area: "ar",
     name: "each posted invoice has its Invoice item at net Piutang (none when nothing is left to pay)",
     sql: `SELECT v.invoice_no, v.total_amount, i.ar_item_no, i.item_type::text, e.amount AS created
-          FROM sal_invoice v
+          FROM fin_ar_invoice v
           LEFT JOIN fin_ar_item i ON i.id = v.ar_item_id
           LEFT JOIN fin_ar_ledger e ON e.item_id = i.id AND e.event = 'Create'
           WHERE v.status = 'Posted' AND (
-            (v.total_amount > 0 AND (i.id IS NULL OR i.item_type <> 'Invoice' OR i.source_doc_type_id <> ${docType("sal_invoice")} OR i.source_doc_id <> v.id OR e.amount <> v.total_amount))
+            (v.total_amount > 0 AND (i.id IS NULL OR i.item_type <> 'Invoice' OR i.source_doc_type_id <> ${docType("fin_ar_invoice")} OR i.source_doc_id <> v.id OR e.amount <> v.total_amount))
             OR (v.total_amount = 0 AND v.ar_item_id IS NOT NULL))`,
   },
   {
     area: "ar",
     name: "each posted invoice's deduction wrote one Dipakai Invoice on its Uang Muka item",
     sql: `SELECT v.invoice_no, d.ar_item_no, d.dpp_used, COUNT(e.id) AS entries, SUM(e.amount) AS used
-          FROM sal_invoice v JOIN sal_invoice_advance_deduction d ON d.invoice_id = v.id
-          LEFT JOIN fin_ar_ledger e ON e.item_id = d.ar_item_id AND e.event = 'AdvanceUsed' AND e.doc_type_id = ${docType("sal_invoice")} AND e.doc_id = v.id
+          FROM fin_ar_invoice v JOIN fin_ar_invoice_advance_deduction d ON d.invoice_id = v.id
+          LEFT JOIN fin_ar_ledger e ON e.item_id = d.ar_item_id AND e.event = 'AdvanceUsed' AND e.doc_type_id = ${docType("fin_ar_invoice")} AND e.doc_id = v.id
             AND e.counter_item_id IS NOT DISTINCT FROM v.ar_item_id
           WHERE v.status = 'Posted' GROUP BY v.id, d.id HAVING COUNT(e.id) <> 1 OR SUM(e.amount) <> d.dpp_used`,
   },
@@ -195,7 +195,7 @@ export const CHECKS: Check[] = [
     name: "no AR entry comes from a receipt or invoice that is not posted",
     sql: `SELECT e.id, e.doc_no, e.event::text FROM fin_ar_ledger e
           LEFT JOIN fin_cash_bank_tx t ON e.doc_type_id = ${docType("fin_cash_bank_tx")} AND t.id = e.doc_id
-          LEFT JOIN sal_invoice v ON e.doc_type_id = ${docType("sal_invoice")} AND v.id = e.doc_id
+          LEFT JOIN fin_ar_invoice v ON e.doc_type_id = ${docType("fin_ar_invoice")} AND v.id = e.doc_id
           WHERE (t.id IS NOT NULL AND t.status <> 'Posted') OR (v.id IS NOT NULL AND v.status <> 'Posted')`,
   },
   // --------------------------------------------------------------- goods
@@ -270,13 +270,13 @@ export const CHECKS: Check[] = [
   {
     area: "billing",
     name: "a note line is billed by at most one live invoice, of its own order, once the note is posted",
-    sql: `SELECT nl.id AS note_line, COUNT(*) AS invoices, MIN(v.invoice_no) AS first FROM sal_invoice_line il
-          JOIN sal_invoice v ON v.id = il.invoice_id AND v.status <> 'Cancelled'
+    sql: `SELECT nl.id AS note_line, COUNT(*) AS invoices, MIN(v.invoice_no) AS first FROM fin_ar_invoice_line il
+          JOIN fin_ar_invoice v ON v.id = il.invoice_id AND v.status <> 'Cancelled'
           JOIN log_delivery_note_line nl ON nl.id = il.delivery_note_line_id
           GROUP BY nl.id HAVING COUNT(*) > 1
           UNION ALL
-          SELECT nl.id, 0, v.invoice_no FROM sal_invoice_line il
-          JOIN sal_invoice v ON v.id = il.invoice_id AND v.status <> 'Cancelled'
+          SELECT nl.id, 0, v.invoice_no FROM fin_ar_invoice_line il
+          JOIN fin_ar_invoice v ON v.id = il.invoice_id AND v.status <> 'Cancelled'
           JOIN log_delivery_note_line nl ON nl.id = il.delivery_note_line_id
           JOIN log_delivery_note n ON n.id = nl.delivery_note_id
           LEFT JOIN sal_delivery_order d ON d.id = n.source_doc_id AND n.purpose = 'sales_delivery'
@@ -286,18 +286,18 @@ export const CHECKS: Check[] = [
     area: "billing",
     name: "an invoice equals its lines and its deductions",
     sql: `SELECT v.invoice_no, v.dpp_amount, SUM(l.dpp_amount) AS lines_dpp, v.ppn_amount, SUM(l.ppn_amount) AS lines_ppn, v.total_amount
-          FROM sal_invoice v JOIN sal_invoice_line l ON l.invoice_id = v.id
+          FROM fin_ar_invoice v JOIN fin_ar_invoice_line l ON l.invoice_id = v.id
           WHERE v.status <> 'Cancelled'
           GROUP BY v.id HAVING v.dpp_amount <> SUM(l.dpp_amount) OR v.ppn_amount <> SUM(l.ppn_amount)
             OR v.advance_dpp_amount <> SUM(l.advance_dpp_amount) OR v.net_dpp_amount <> SUM(l.net_dpp_amount)
             OR v.dpp_other_amount <> SUM(l.dpp_other_amount) OR v.total_amount <> v.net_dpp_amount + v.ppn_amount
-            OR v.advance_dpp_amount <> COALESCE((SELECT SUM(dpp_used) FROM sal_invoice_advance_deduction d WHERE d.invoice_id = v.id), 0)`,
+            OR v.advance_dpp_amount <> COALESCE((SELECT SUM(dpp_used) FROM fin_ar_invoice_advance_deduction d WHERE d.invoice_id = v.id), 0)`,
   },
   {
     area: "billing",
     name: "an invoice uses only its own order's Uang Muka",
     sql: `SELECT v.invoice_no, d.ar_item_no, i.customer_order_id AS item_order, v.customer_order_id AS invoice_order
-          FROM sal_invoice v JOIN sal_invoice_advance_deduction d ON d.invoice_id = v.id
+          FROM fin_ar_invoice v JOIN fin_ar_invoice_advance_deduction d ON d.invoice_id = v.id
           JOIN fin_ar_item i ON i.id = d.ar_item_id
           WHERE v.status <> 'Cancelled' AND (i.item_type <> 'Advance' OR i.customer_order_id IS DISTINCT FROM v.customer_order_id OR i.partner_id <> v.customer_id)`,
   },
@@ -305,8 +305,8 @@ export const CHECKS: Check[] = [
     area: "billing",
     name: "a fully billed order line is billed at exactly its amount",
     sql: `SELECT col.id AS order_line, col.amount, SUM(il.amount) AS billed FROM sal_customer_order_line col
-          JOIN sal_invoice_line il ON il.customer_order_line_id = col.id
-          JOIN sal_invoice v ON v.id = il.invoice_id AND v.status = 'Posted'
+          JOIN fin_ar_invoice_line il ON il.customer_order_line_id = col.id
+          JOIN fin_ar_invoice v ON v.id = il.invoice_id AND v.status = 'Posted'
           GROUP BY col.id HAVING SUM(il.qty) = col.qty AND SUM(il.amount) <> col.amount`,
   },
   // ----------------------------------------------------------------- tax
@@ -314,7 +314,7 @@ export const CHECKS: Check[] = [
     area: "tax",
     name: "each posted advance line with PPN made one Faktur Uang Muka at its DPP and PPN",
     sql: `SELECT t.tx_no, l.doc_id AS bill_id, l.dpp_part, l.ppn_part, COUNT(f.id) AS fakturs, MIN(f.dpp) AS dpp, MIN(f.ppn) AS ppn
-          FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id = ${docType("sal_advance")}
+          FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id = ${docType("fin_ar_advance")}
           LEFT JOIN tax_faktur f ON f.kind = 'Advance' AND f.source_doc_type_id = ${docType("fin_cash_bank_tx")} AND f.source_doc_id = t.id
             AND f.ref_doc_type_id = l.doc_type_id AND f.ref_doc_id = l.doc_id
           WHERE t.status = 'Posted' AND l.ppn_part > 0
@@ -325,15 +325,15 @@ export const CHECKS: Check[] = [
     name: "each posted taxable invoice made one faktur at its net DPP and PPN, deducting its advances' fakturs",
     sql: `SELECT v.invoice_no, v.net_dpp_amount, v.ppn_amount, COUNT(f.id) AS fakturs, MIN(f.kind::text) AS kind, MIN(f.dpp) AS dpp, MIN(f.ppn) AS ppn,
                  (SELECT SUM(r.dpp_deducted) FROM tax_faktur_ref r JOIN tax_faktur ff ON ff.id = r.faktur_id
-                  WHERE ff.source_doc_type_id = ${docType("sal_invoice")} AND ff.source_doc_id = v.id) AS deducted
-          FROM sal_invoice v
-          LEFT JOIN tax_faktur f ON f.source_doc_type_id = ${docType("sal_invoice")} AND f.source_doc_id = v.id
+                  WHERE ff.source_doc_type_id = ${docType("fin_ar_invoice")} AND ff.source_doc_id = v.id) AS deducted
+          FROM fin_ar_invoice v
+          LEFT JOIN tax_faktur f ON f.source_doc_type_id = ${docType("fin_ar_invoice")} AND f.source_doc_id = v.id
           WHERE v.status = 'Posted' AND v.is_taxable AND v.net_dpp_amount > 0
           GROUP BY v.id
           HAVING COUNT(f.id) <> 1 OR MIN(f.dpp) <> v.net_dpp_amount OR MIN(f.ppn) <> v.ppn_amount
              OR MIN(f.kind::text) <> CASE WHEN v.advance_dpp_amount > 0 THEN 'Settlement' ELSE 'Normal' END
              OR COALESCE((SELECT SUM(r.dpp_deducted) FROM tax_faktur_ref r JOIN tax_faktur ff ON ff.id = r.faktur_id
-                          WHERE ff.source_doc_type_id = ${docType("sal_invoice")} AND ff.source_doc_id = v.id), 0) <> v.advance_dpp_amount`,
+                          WHERE ff.source_doc_type_id = ${docType("fin_ar_invoice")} AND ff.source_doc_id = v.id), 0) <> v.advance_dpp_amount`,
   },
   {
     area: "tax",
@@ -371,7 +371,7 @@ export const CHECKS: Check[] = [
     area: "advance",
     name: "no bill is paid beyond its total; a cancelled or unissued bill has no payment",
     sql: `SELECT a.advance_no, a.status::text, a.total_amount, SUM(l.settled_amount) AS paid
-          FROM sal_advance a JOIN fin_cash_bank_tx_line l ON l.doc_type_id = ${docType("sal_advance")} AND l.doc_id = a.id
+          FROM fin_ar_advance a JOIN fin_cash_bank_tx_line l ON l.doc_type_id = ${docType("fin_ar_advance")} AND l.doc_id = a.id
           JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
           GROUP BY a.id HAVING SUM(l.settled_amount) > a.total_amount OR a.status <> 'Issued'`,
   },

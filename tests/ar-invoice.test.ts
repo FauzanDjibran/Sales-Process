@@ -5,7 +5,7 @@ import { createCustomerOrder, transitionCustomerOrder } from "../src/lib/erp/cus
 import { createSalesOrder, transitionSalesOrder } from "../src/lib/erp/sales-order";
 import { createDeliveryOrder, transitionDeliveryOrder } from "../src/lib/erp/delivery-order";
 import { createDeliveryNote, transitionDeliveryNote } from "../src/lib/erp/delivery-note";
-import { createSalesAdvance, transitionSalesAdvance } from "../src/lib/erp/sales-advance";
+import { createSalesAdvance, transitionSalesAdvance } from "../src/lib/erp/ar-advance";
 import { cashReceiptOptions, checkCashReceipt, createCashReceipt, transitionCashReceipt } from "../src/lib/erp/cash-bank-tx";
 import { setItemCost } from "../src/lib/erp/inventory";
 import {
@@ -21,9 +21,9 @@ import {
   updateInvoice,
   type InvoiceDeductionInput,
   type InvoiceHeaderInput,
-} from "../src/lib/erp/sales-invoice";
+} from "../src/lib/erp/ar-invoice";
 import { cashToClear, computeInvoice, invoiceLineAmount, settleBillFromCash } from "../src/lib/erp/sales-tax";
-import { availableInvoiceActions, invoiceAbilities } from "../src/lib/erp/sales-invoice-workflow";
+import { availableInvoiceActions, invoiceAbilities } from "../src/lib/erp/ar-invoice-workflow";
 import { fakturLate, normalizeNsfp, slipExpected, slipLate, uploadDeadline } from "../src/lib/erp/tax-document-workflow";
 import { createTaxDocsForInvoice, createTaxDocsForReceipt, recordSlipReceived, setFakturNsfp, taxDocsOf } from "../src/lib/erp/tax-document";
 import {
@@ -240,14 +240,14 @@ after(async () => {
   await prisma.taxFaktur.deleteMany({ where: { id: { in: fakturIds } } });
   await prisma.taxWithholdingSlip.deleteMany({ where: { id: { in: slipIds } } });
   await prisma.auditLog.deleteMany({ where: { OR: [{ entity_key: "tax_faktur", row_id: { in: fakturIds } }, { entity_key: "tax_withholding_slip", row_id: { in: slipIds } }] } });
-  await prisma.salInvoiceLine.deleteMany({ where: { invoice_id: { in: ids.inv } } });
-  await prisma.salInvoiceAdvanceDeduction.deleteMany({ where: { invoice_id: { in: ids.inv } } });
-  await prisma.salInvoice.deleteMany({ where: { id: { in: ids.inv } } });
+  await prisma.finArInvoiceLine.deleteMany({ where: { invoice_id: { in: ids.inv } } });
+  await prisma.finArInvoiceAdvanceDeduction.deleteMany({ where: { invoice_id: { in: ids.inv } } });
+  await prisma.finArInvoice.deleteMany({ where: { id: { in: ids.inv } } });
   const items = await prisma.finArItem.findMany({ where: { customer_order_id: { in: ids.co } }, select: { id: true } });
   await prisma.finArLedger.deleteMany({ where: { OR: [{ item_id: { in: items.map((i) => i.id) } }, { counter_item_id: { in: items.map((i) => i.id) } }] } });
   await prisma.finArItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
   await prisma.finCashBankTx.deleteMany({ where: { id: { in: ids.rc } } });
-  await prisma.salAdvance.deleteMany({ where: { id: { in: ids.adv } } });
+  await prisma.finArAdvance.deleteMany({ where: { id: { in: ids.adv } } });
   await prisma.logDeliveryNoteLot.deleteMany({ where: { line: { delivery_note_id: { in: ids.dn } } } });
   await prisma.logDeliveryNoteLine.deleteMany({ where: { delivery_note_id: { in: ids.dn } } });
   await prisma.logDeliveryNote.deleteMany({ where: { id: { in: ids.dn } } });
@@ -258,9 +258,9 @@ after(async () => {
   await prisma.salCustomerOrderLine.deleteMany({ where: { order_id: { in: ids.co } } });
   await prisma.salCustomerOrder.deleteMany({ where: { id: { in: ids.co } } });
   for (const [k, list] of Object.entries({
-    sal_invoice: ids.inv,
+    fin_ar_invoice: ids.inv,
     fin_cash_bank_tx: ids.rc,
-    sal_advance: ids.adv,
+    fin_ar_advance: ids.adv,
     log_delivery_note: ids.dn,
     sal_delivery_order: ids.do,
     sal_order: ids.so,
@@ -469,7 +469,7 @@ describe("the order is finished when its delivery is; billing comes after (U21)"
 // -------------------------------------------- paying it (§7.8, U23–U28)
 
 describe("Penerimaan dari Customer pays Invoices and advance bills together", () => {
-  const receipt = (lines: { doc_type: "sal_advance" | "sal_invoice"; doc_id: number; cash: number; withhold: boolean }[]) => ({
+  const receipt = (lines: { doc_type: "fin_ar_advance" | "fin_ar_invoice"; doc_id: number; cash: number; withhold: boolean }[]) => ({
     purpose: "customer_receipt",
     tx_date: today,
     partner_id: f.customer,
@@ -484,8 +484,8 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
   test("the form offers the customer's posted Invoices beside its issued bills, each open by its Invoice item", async () => {
     const o = await cashReceiptOptions();
     const mine = o.bills.filter((b) => b.customerId === f.customer);
-    assert.ok(mine.some((b) => b.kind === "sal_advance" && b.id === f.bill2));
-    const first = mine.find((b) => b.kind === "sal_invoice" && b.id === inv().first)!;
+    assert.ok(mine.some((b) => b.kind === "fin_ar_advance" && b.id === f.bill2));
+    const first = mine.find((b) => b.kind === "fin_ar_invoice" && b.id === inv().first)!;
     assert.deepEqual([first.total, first.paid, first.open], [550_560, 0, 550_560]);
     // PPh on the net DPP, after the Uang Muka (U24): 1,5 % × 329.557.
     assert.deepEqual(first.withholdings.map((w) => [w.base, w.amount]), [[329_557, 4_943]]);
@@ -495,7 +495,7 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
   test("a part payment clears Piutang by cash + its PPh share, and records Pembayaran on the Invoice item", async () => {
     const [bill] = await settlementInvoices({ ids: [inv().first] });
     const expected = settleBillFromCash({ bill, before: 0, cash: 300_000, withhold: true });
-    const r = await createCashReceipt(receipt([{ doc_type: "sal_invoice", doc_id: inv().first, cash: 300_000, withhold: true }]), actor);
+    const r = await createCashReceipt(receipt([{ doc_type: "fin_ar_invoice", doc_id: inv().first, cash: 300_000, withhold: true }]), actor);
     assert.ok(r.ok, JSON.stringify(r));
     ids.rc.push(r.id);
     assert.deepEqual(await transitionCashReceipt(r.id, "post", actor), { ok: true });
@@ -527,9 +527,9 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
     const clearB = cashToClear(b, 0, true);
     const r = await createCashReceipt(
       receipt([
-        { doc_type: "sal_invoice", doc_id: a.id, cash: clearA, withhold: true },
-        { doc_type: "sal_invoice", doc_id: b.id, cash: clearB, withhold: true },
-        { doc_type: "sal_advance", doc_id: f.bill2, cash: 111_000, withhold: false },
+        { doc_type: "fin_ar_invoice", doc_id: a.id, cash: clearA, withhold: true },
+        { doc_type: "fin_ar_invoice", doc_id: b.id, cash: clearB, withhold: true },
+        { doc_type: "fin_ar_advance", doc_id: f.bill2, cash: 111_000, withhold: false },
       ]),
       actor
     );
@@ -553,8 +553,8 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
 
   test("an Invoice paid in full is offered no more, and takes no overpayment", async () => {
     const o = await cashReceiptOptions();
-    assert.ok(!o.bills.some((b) => b.kind === "sal_invoice" && b.customerId === f.customer));
-    const over = await checkCashReceipt(prisma, receipt([{ doc_type: "sal_invoice", doc_id: inv().first, cash: 1, withhold: true }]), null);
+    assert.ok(!o.bills.some((b) => b.kind === "fin_ar_invoice" && b.customerId === f.customer));
+    const over = await checkCashReceipt(prisma, receipt([{ doc_type: "fin_ar_invoice", doc_id: inv().first, cash: 1, withhold: true }]), null);
     assert.ok(!over.ok && /Melebihi/.test(over.errors["lines.0.cash"]));
   });
 });
@@ -576,7 +576,7 @@ describe("the tax documents' deadlines (tax_concept.md §5.2, §6.2)", () => {
 
 describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
   const nsfp = (n: number) => `9${String(Date.now() + n).padStart(16, "0").slice(-16)}`;
-  const fakturOf = (table: "fin_cash_bank_tx" | "sal_invoice", id: number) => taxDocsOf(table, id).then((d) => d.fakturs);
+  const fakturOf = (table: "fin_cash_bank_tx" | "fin_ar_invoice", id: number) => taxDocsOf(table, id).then((d) => d.fakturs);
   const tx = <T,>(run: (db: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<T>) => prisma.$transaction(run);
 
   test("the advance receipt: one faktur uang muka at the bill's DPP, dated the receipt, naming its Uang Muka item; idempotent", async () => {
@@ -598,7 +598,7 @@ describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
   test("an Invoice that used Uang Muka: a faktur pelunasan net of it, per line, naming the faktur uang muka", async () => {
     for (const id of [ids.inv[0], ids.inv[ids.inv.length - 1]]) await tx((db) => createTaxDocsForInvoice(db, id, actor));
     const advance = (await fakturOf("fin_cash_bank_tx", ids.rc[0]))[0].id;
-    const first = (await fakturOf("sal_invoice", ids.inv[0]))[0];
+    const first = (await fakturOf("fin_ar_invoice", ids.inv[0]))[0];
     const fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: first.id }, include: { lines: { orderBy: { line_no: "asc" } }, refs: true } });
     const v = (await getInvoice(ids.inv[0]))!;
     assert.deepEqual(
@@ -609,11 +609,11 @@ describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
     assert.deepEqual(fk.lines.map((l) => l.ppn.toNumber()), v.stored.lines.map((l) => l.ppn));
     assert.equal(fk.lines.reduce((a, l) => a + l.ppn.toNumber(), 0), fk.ppn.toNumber(), "the faktur is the sum of its lines");
     assert.deepEqual(fk.refs.map((r) => [r.ref_faktur_id, r.dpp_deducted.toNumber()]), [[advance, 100_000]]);
-    const second = (await fakturOf("sal_invoice", ids.inv[ids.inv.length - 1]))[0];
+    const second = (await fakturOf("fin_ar_invoice", ids.inv[ids.inv.length - 1]))[0];
     const refs = await prisma.taxFakturRef.findMany({ where: { faktur_id: second.id } });
     assert.deepEqual(refs.map((r) => [r.ref_faktur_id, r.dpp_deducted.toNumber()]), [[advance, 200_000]]);
     await tx((db) => createTaxDocsForInvoice(db, ids.inv[0], actor));
-    assert.equal((await fakturOf("sal_invoice", ids.inv[0])).length, 1, "idempotent");
+    assert.equal((await fakturOf("fin_ar_invoice", ids.inv[0])).length, 1, "idempotent");
   });
 
   test("a receipt that withheld PPh: one bukti potong per document per Jenis PPh, at the receipt's figures", async () => {
@@ -639,7 +639,7 @@ describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
 
   test("Isi NSFP: an optional reference — 17 digits, unique, correctable and clearable, written to the Uang Muka item and the Invoice", async () => {
     const advance = (await fakturOf("fin_cash_bank_tx", ids.rc[0]))[0].id;
-    const settlement = (await fakturOf("sal_invoice", ids.inv[0]))[0].id;
+    const settlement = (await fakturOf("fin_ar_invoice", ids.inv[0]))[0].id;
     assert.deepEqual(await setFakturNsfp(advance, { nsfp: "123", date: "" }, actor), { ok: false, errors: { nsfp: "NSFP Coretax terdiri dari 17 digit." } });
     assert.deepEqual(await setFakturNsfp(advance, { nsfp: "", date: "" }, actor), { ok: false, errors: { nsfp: "NSFP wajib diisi." } });
     assert.ok(!(await setFakturNsfp(advance, { nsfp: nsfp(0), date: "2000-01-01" }, actor)).ok, "an upload date before the faktur is refused");

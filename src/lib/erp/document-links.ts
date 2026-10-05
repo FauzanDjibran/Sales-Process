@@ -13,12 +13,12 @@ const ROUTES: Record<string, string> = {
   acc_opening_balance: "/accounting/opening-balance",
   // Only Penerimaan exists yet; Pengeluaran will need the direction to route.
   fin_cash_bank_tx: "/finance/cash-bank/receipt",
-  sal_advance: "/finance/advance/sales",
+  fin_ar_advance: "/finance/advance/sales",
   sal_customer_order: "/sales/customer-order",
   sal_order: "/sales/order",
   sal_delivery_order: "/sales/delivery-order",
   log_delivery_note: "/logistics/delivery-note",
-  sal_invoice: "/sales/invoice",
+  fin_ar_invoice: "/finance/invoice/sales",
   tax_faktur: "/tax/faktur",
   tax_withholding_slip: "/tax/withholding-slip",
 };

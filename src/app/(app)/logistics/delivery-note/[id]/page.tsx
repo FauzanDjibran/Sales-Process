@@ -4,7 +4,7 @@ import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { deliveryNoteOptions, getDeliveryNote } from "@/lib/erp/delivery-note";
 import { deliveryNoteAbilities } from "@/lib/erp/delivery-note-workflow";
-import { deliveryNoteBilling } from "@/lib/erp/sales-invoice";
+import { deliveryNoteBilling } from "@/lib/erp/ar-invoice";
 
 export const dynamic = "force-dynamic";
 

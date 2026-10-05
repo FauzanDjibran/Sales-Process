@@ -7,7 +7,7 @@ import { getCustomerOrder, customerOrderOptions } from "@/lib/erp/customer-order
 import { customerOrderAbilities } from "@/lib/erp/customer-order-workflow";
 import { customerOrderSchedule } from "@/lib/erp/sales-order";
 import { CustomerOrderInvoicesCard } from "@/components/sales/customer-order-invoices";
-import { customerOrderInvoices, customerOrderUnbilledLines } from "@/lib/erp/sales-invoice";
+import { customerOrderInvoices, customerOrderUnbilledLines } from "@/lib/erp/ar-invoice";
 
 export const dynamic = "force-dynamic";
 

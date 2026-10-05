@@ -1,13 +1,13 @@
-import { InvoiceForm } from "@/components/sales/invoice-form";
+import { InvoiceForm } from "@/components/finance/invoice-form";
 import { requirePermission } from "@/lib/erp/auth";
-import { invoiceOptions } from "@/lib/erp/sales-invoice";
-import { invoiceAbilities } from "@/lib/erp/sales-invoice-workflow";
+import { invoiceOptions } from "@/lib/erp/ar-invoice";
+import { invoiceAbilities } from "@/lib/erp/ar-invoice-workflow";
 
 export const dynamic = "force-dynamic";
 
 /** A new Invoice — with `?co=<id>`, started from that Customer Order's page. */
 export default async function Page({ searchParams }: { searchParams: Promise<{ co?: string }> }) {
-  const actor = await requirePermission("SALES_INVOICE_CREATE", "/sales/invoice/new");
+  const actor = await requirePermission("SALES_INVOICE_CREATE", "/finance/invoice/sales/new");
   const { co } = await searchParams;
   return (
     <InvoiceForm

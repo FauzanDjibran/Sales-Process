@@ -21,8 +21,8 @@ const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
 /** What the source document was, in words. */
 const SOURCE_TEXT: Record<string, string> = {
   fin_cash_bank_tx: "Penerimaan",
-  sal_invoice: "Invoice Penjualan",
-  sal_advance: "Uang Muka Penjualan",
+  fin_ar_invoice: "Invoice Penjualan",
+  fin_ar_advance: "Uang Muka Penjualan",
 };
 
 /** A link to a document named by its table and id, or its number alone. */

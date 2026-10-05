@@ -30,7 +30,7 @@ async function authorize(code: string): Promise<Guard> {
 function revalidate() {
   revalidatePath("/tax", "layout");
   // The NSFP is shown on the Invoice and in the Uang Muka picker.
-  revalidatePath("/sales/invoice", "layout");
+  revalidatePath("/finance/invoice/sales", "layout");
 }
 
 /** *Isi NSFP* / *Ubah NSFP*: the Coretax reference of a faktur, and optionally its upload date. */

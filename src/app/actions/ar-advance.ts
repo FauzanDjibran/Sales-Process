@@ -10,13 +10,13 @@ import {
   updateSalesAdvance,
   type SalesAdvanceInput,
   type SalesAdvanceResult,
-} from "@/lib/erp/sales-advance";
-import { SALES_ADVANCE_TRANSITIONS, type AdvanceAction } from "@/lib/erp/sales-advance-workflow";
+} from "@/lib/erp/ar-advance";
+import { SALES_ADVANCE_TRANSITIONS, type AdvanceAction } from "@/lib/erp/ar-advance-workflow";
 import { settledDocumentRefusal } from "@/lib/erp/cash-bank-tx";
 
 /**
  * The AR advance bill's write path. The permission is checked here; every rule
- * is in `lib/erp/sales-advance.ts`, where the tests can reach it.
+ * is in `lib/erp/ar-advance.ts`, where the tests can reach it.
  */
 
 type Guard =
@@ -73,7 +73,7 @@ export async function transitionSalesAdvanceAction(
     // module answers that; composed here so neither module imports the other
     // both ways.
     const result = await transitionSalesAdvance(id, action, g.actor.user.id, reason, (tx, billId) =>
-      settledDocumentRefusal("sal_advance", tx, billId)
+      settledDocumentRefusal("fin_ar_advance", tx, billId)
     );
     if (!result.ok) return result;
   } catch (error) {

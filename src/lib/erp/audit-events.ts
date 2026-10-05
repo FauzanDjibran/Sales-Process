@@ -23,12 +23,12 @@ import type { IconName } from "@/components/icon";
 import { FISCAL_YEAR_TRANSITIONS } from "./fiscal-workflow";
 import type { ActionTone } from "./header-actions";
 import { JOURNAL_TRANSITIONS } from "./journal-workflow";
-import { SALES_ADVANCE_TRANSITIONS } from "./sales-advance-workflow";
+import { SALES_ADVANCE_TRANSITIONS } from "./ar-advance-workflow";
 import { CUSTOMER_ORDER_TRANSITIONS } from "./customer-order-workflow";
 import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
 import { DELIVERY_ORDER_TRANSITIONS } from "./delivery-order-workflow";
 import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
-import { INVOICE_TRANSITIONS } from "./sales-invoice-workflow";
+import { INVOICE_TRANSITIONS } from "./ar-invoice-workflow";
 import { CASH_RECEIPT_TRANSITIONS } from "./cash-bank-tx-workflow";
 
 /** How an entry is drawn: its words, its icon, and its weight. */
@@ -238,8 +238,8 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   sal_order: SALES_ORDER_EVENTS,
   sal_delivery_order: DELIVERY_ORDER_EVENTS,
   log_delivery_note: DELIVERY_NOTE_EVENTS,
-  sal_invoice: INVOICE_EVENTS,
-  sal_advance: SALES_ADVANCE_EVENTS,
+  fin_ar_invoice: INVOICE_EVENTS,
+  fin_ar_advance: SALES_ADVANCE_EVENTS,
   fin_cash_bank_tx: CASH_BANK_TX_EVENTS,
   tax_faktur: TAX_FAKTUR_EVENTS,
   tax_withholding_slip: TAX_SLIP_EVENTS,

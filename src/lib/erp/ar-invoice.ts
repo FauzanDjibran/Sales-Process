@@ -29,12 +29,12 @@ import {
   type InvoiceAction,
   type InvoicePayState,
   type InvoiceStatus,
-} from "./sales-invoice-workflow";
+} from "./ar-invoice-workflow";
 
 /**
  * The Invoice Penjualan module (`Sales-Process-Concept.md` §9, U16–U22): its
- * tables are `sal_invoice`, `sal_invoice_line` and
- * `sal_invoice_advance_deduction`, and nothing else names them.
+ * tables are `fin_ar_invoice`, `fin_ar_invoice_line` and
+ * `fin_ar_invoice_advance_deduction`, and nothing else names them.
  *
  * An Invoice bills **one Customer Order** (U16) for goods already sent: its lines
  * are whole lines of that order's posted Delivery Notes (U17), each billed by
@@ -94,7 +94,7 @@ async function docTypeId(db: Db, table: string): Promise<number> {
 /** Delivery Note lines other live Invoices bill — by line, the Invoice that does. */
 async function billedNoteLines(db: Db, lineIds: number[], exceptId: number | null): Promise<Map<number, { id: number; no: string }>> {
   if (!lineIds.length) return new Map();
-  const rows = await db.salInvoiceLine.findMany({
+  const rows = await db.finArInvoiceLine.findMany({
     where: {
       delivery_note_line_id: { in: lineIds },
       invoice: { status: { in: INVOICE_HOLDS }, ...(exceptId ? { id: { not: exceptId } } : {}) },
@@ -107,7 +107,7 @@ async function billedNoteLines(db: Db, lineIds: number[], exceptId: number | nul
 /** What other live Invoices bill of each Customer Order line: quantity and amount. */
 async function billedOrderLines(db: Db, lineIds: number[], exceptId: number | null): Promise<Map<number, { qty: number; amount: number }>> {
   if (!lineIds.length) return new Map();
-  const rows = await db.salInvoiceLine.groupBy({
+  const rows = await db.finArInvoiceLine.groupBy({
     by: ["customer_order_line_id"],
     where: {
       customer_order_line_id: { in: lineIds },
@@ -123,7 +123,7 @@ async function billedOrderLines(db: Db, lineIds: number[], exceptId: number | nu
 /** What other Draft Invoices reserve of each Uang Muka item; a posted one has already lowered its balance. */
 async function reservedAdvances(db: Db, itemIds: number[], exceptId: number | null): Promise<Map<number, number>> {
   if (!itemIds.length) return new Map();
-  const rows = await db.salInvoiceAdvanceDeduction.groupBy({
+  const rows = await db.finArInvoiceAdvanceDeduction.groupBy({
     by: ["ar_item_id"],
     where: { ar_item_id: { in: itemIds }, invoice: { status: "Draft", ...(exceptId ? { id: { not: exceptId } } : {}) } },
     _sum: { dpp_used: true },
@@ -488,7 +488,7 @@ export async function checkInvoice(
 
 async function nextInvoiceNo(db: Db, date: Date): Promise<string> {
   return nextDocumentNumber("INV", date, async (series) => {
-    const row = await db.salInvoice.findFirst({
+    const row = await db.finArInvoice.findFirst({
       where: { invoice_no: { startsWith: series } },
       orderBy: { id: "desc" },
       select: { invoice_no: true },
@@ -498,7 +498,7 @@ async function nextInvoiceNo(db: Db, date: Date): Promise<string> {
 }
 
 async function audit(db: Db, id: number, action: "TAMBAH" | "UPDATE", event: string, by: number) {
-  await db.auditLog.create({ data: { entity_key: "sal_invoice", row_id: id, action, event, by } });
+  await db.auditLog.create({ data: { entity_key: "fin_ar_invoice", row_id: id, action, event, by } });
 }
 
 class Refused extends Error {
@@ -520,10 +520,10 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
 }
 
 async function writeRows(tx: Prisma.TransactionClient, id: number, c: CheckedInvoice) {
-  await tx.salInvoiceLine.deleteMany({ where: { invoice_id: id } });
-  await tx.salInvoiceAdvanceDeduction.deleteMany({ where: { invoice_id: id } });
-  for (const l of c.lines) await tx.salInvoiceLine.create({ data: { ...l, invoice_id: id } });
-  for (const d of c.deductions) await tx.salInvoiceAdvanceDeduction.create({ data: { ...d, invoice_id: id } });
+  await tx.finArInvoiceLine.deleteMany({ where: { invoice_id: id } });
+  await tx.finArInvoiceAdvanceDeduction.deleteMany({ where: { invoice_id: id } });
+  for (const l of c.lines) await tx.finArInvoiceLine.create({ data: { ...l, invoice_id: id } });
+  for (const d of c.deductions) await tx.finArInvoiceAdvanceDeduction.create({ data: { ...d, invoice_id: id } });
 }
 
 export async function createInvoice(
@@ -538,7 +538,7 @@ export async function createInvoice(
       if (orderId) await lockCustomerOrder(tx, orderId);
       const r = await checkInvoice(tx, header, lines, deductions, null);
       if (!r.ok) throw new Refused(r.errors);
-      const row = await tx.salInvoice.create({
+      const row = await tx.finArInvoice.create({
         data: { ...r.c.data, invoice_no: await nextInvoiceNo(tx, r.c.data.invoice_date), created_by: actorId },
       });
       await writeRows(tx, row.id, r.c);
@@ -556,7 +556,7 @@ export async function updateInvoice(
   deductions: InvoiceDeductionInput[],
   actorId: number
 ): Promise<InvoiceResult> {
-  const current = await prisma.salInvoice.findUnique({
+  const current = await prisma.finArInvoice.findUnique({
     where: { id },
     select: { status: true, invoice_no: true, customer_order_id: true, lines: { select: { delivery_note_line_id: true } }, deductions: { select: { ar_item_id: true } } },
   });
@@ -573,7 +573,7 @@ export async function updateInvoice(
       await lockCustomerOrder(tx, current.customer_order_id);
       const r = await checkInvoice(tx, header, lines, deductions, id, keep);
       if (!r.ok) throw new Refused(r.errors);
-      const done = await tx.salInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, updated_by: actorId } });
+      const done = await tx.finArInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: "Invoice berubah saat diproses. Muat ulang halaman." });
       await writeRows(tx, id, r.c);
       await audit(tx, id, "UPDATE", "update", actorId);
@@ -582,7 +582,7 @@ export async function updateInvoice(
   });
 }
 
-type StoredInvoice = Prisma.SalInvoiceGetPayload<{ include: { lines: true; deductions: true } }>;
+type StoredInvoice = Prisma.FinArInvoiceGetPayload<{ include: { lines: true; deductions: true } }>;
 const WITH_ROWS = { lines: { orderBy: { line_no: "asc" as const } }, deductions: { orderBy: { id: "asc" as const } } };
 
 function asInput(n: StoredInvoice) {
@@ -713,7 +713,7 @@ export async function transitionInvoice(
   /** Run the whole posting, then roll it back and return its journal (P103). */
   options: { dryRun?: boolean } = {}
 ): Promise<InvoiceTransitionResult> {
-  const n = await prisma.salInvoice.findUnique({ where: { id }, include: WITH_ROWS });
+  const n = await prisma.finArInvoice.findUnique({ where: { id }, include: WITH_ROWS });
   if (!n) return { ok: false, errors: { _form: "Invoice Penjualan tidak ditemukan." } };
   const t = INVOICE_TRANSITIONS[action];
   if (!invoiceTransitionAllowed(action, n.status as InvoiceStatus)) {
@@ -725,7 +725,7 @@ export async function transitionInvoice(
     const why = String(reason ?? "").trim();
     if (!why) return { ok: false, errors: { reason: "Alasan wajib diisi." } };
     await prisma.$transaction(async (tx) => {
-      const done = await tx.salInvoice.updateMany({ where: { id, status: "Draft" }, data: { status: "Cancelled", cancel_reason: why, updated_by: actorId } });
+      const done = await tx.finArInvoice.updateMany({ where: { id, status: "Draft" }, data: { status: "Cancelled", cancel_reason: why, updated_by: actorId } });
       if (done.count !== 1) throw new Error(moved);
       await audit(tx, id, "UPDATE", "cancel", actorId);
     });
@@ -749,11 +749,11 @@ export async function transitionInvoice(
       const p = await buildPosting(tx, n.invoice_no, r.c);
       if (!p.ok) throw new Refused({ _form: `Lengkapi Account Mapping dulu: ${p.missing.join(", ")}.` });
 
-      const done = await tx.salInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, status: "Posted", updated_by: actorId } });
+      const done = await tx.finArInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, status: "Posted", updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: moved });
       await writeRows(tx, id, r.c);
 
-      const typeId = await docTypeId(tx, "sal_invoice");
+      const typeId = await docTypeId(tx, "fin_ar_invoice");
       const journalLines = p.lines.map(
         (l): JournalLineInput => ({
           accountId: l.accountId,
@@ -806,7 +806,7 @@ export async function transitionInvoice(
           actorId,
         });
       }
-      await tx.salInvoice.update({ where: { id }, data: { journal_id: journal.id, ar_item_id: itemId } });
+      await tx.finArInvoice.update({ where: { id }, data: { journal_id: journal.id, ar_item_id: itemId } });
       await audit(tx, id, "UPDATE", "post", actorId);
       if (afterPost) await afterPost(tx);
       if (options.dryRun) throw new PostingDryRun(journalLines);
@@ -834,7 +834,7 @@ export type InvoiceListRow = {
 };
 
 export async function listInvoices(): Promise<InvoiceListRow[]> {
-  const rows = await prisma.salInvoice.findMany({
+  const rows = await prisma.finArInvoice.findMany({
     orderBy: [{ invoice_date: "desc" }, { id: "desc" }],
     include: { customer: true, _count: { select: { lines: true } } },
   });
@@ -887,7 +887,7 @@ export type InvoiceView = {
 };
 
 export async function getInvoice(id: number): Promise<InvoiceView | null> {
-  const n = await prisma.salInvoice.findUnique({ where: { id }, include: WITH_ROWS });
+  const n = await prisma.finArInvoice.findUnique({ where: { id }, include: WITH_ROWS });
   if (!n) return null;
   const input = asInput(n);
   const journalNo = n.journal_id ? ((await journalNumbersByIds([n.journal_id])).get(n.journal_id) ?? null) : null;
@@ -927,7 +927,7 @@ export async function getInvoice(id: number): Promise<InvoiceView | null> {
 
 /** Invoice numbers by id, for the audit panel. */
 export async function invoiceNumbersByIds(ids: number[]): Promise<Map<number, string>> {
-  const rows = await prisma.salInvoice.findMany({ where: { id: { in: ids } }, select: { id: true, invoice_no: true } });
+  const rows = await prisma.finArInvoice.findMany({ where: { id: { in: ids } }, select: { id: true, invoice_no: true } });
   return new Map(rows.map((r) => [r.id, r.invoice_no]));
 }
 
@@ -937,7 +937,7 @@ export async function invoiceNumbersByIds(ids: number[]): Promise<Map<number, st
  */
 export async function deliveryNoteBilling(lineIds: number[]): Promise<Record<number, { id: number; no: string; status: InvoiceStatus }>> {
   if (!lineIds.length) return {};
-  const rows = await prisma.salInvoiceLine.findMany({
+  const rows = await prisma.finArInvoiceLine.findMany({
     where: { delivery_note_line_id: { in: lineIds }, invoice: { status: { in: INVOICE_HOLDS } } },
     select: { delivery_note_line_id: true, invoice: { select: { id: true, invoice_no: true, status: true } } },
   });
@@ -962,7 +962,7 @@ export async function customerOrderUnbilledLines(customerOrderId: number): Promi
 export async function customerOrderInvoices(
   customerOrderId: number
 ): Promise<{ id: number; invoiceNo: string; invoiceDate: string; status: InvoiceStatus; total: number }[]> {
-  const rows = await prisma.salInvoice.findMany({
+  const rows = await prisma.finArInvoice.findMany({
     where: { customer_order_id: customerOrderId },
     orderBy: [{ invoice_date: "asc" }, { id: "asc" }],
   });
@@ -982,7 +982,7 @@ export async function customerOrderInvoices(
  * (net Piutang), its PPN, the PPh the customer may withhold — per Jenis PPh on
  * its net DPP, after the Uang Muka (U24) — and its Invoice AR item, whose
  * balance is what is still open. The receipt module takes this rather than
- * reading `sal_invoice` itself.
+ * reading `fin_ar_invoice` itself.
  */
 export type SettlementInvoice = {
   id: number;
@@ -1009,7 +1009,7 @@ export async function settlementInvoices(
   filter: { ids?: number[]; postedOnly?: boolean; arItemIds?: number[] },
   db: Db = prisma
 ): Promise<SettlementInvoice[]> {
-  const rows = await db.salInvoice.findMany({
+  const rows = await db.finArInvoice.findMany({
     where: {
       ...(filter.ids ? { id: { in: filter.ids } } : {}),
       ...(filter.postedOnly ? { status: "Posted", ar_item_id: { not: null } } : {}),
@@ -1054,7 +1054,7 @@ export async function invoicePayStates(
   ids: number[]
 ): Promise<Record<number, { state: InvoicePayState; open: number; overdue: boolean }>> {
   if (!ids.length) return {};
-  const rows = await prisma.salInvoice.findMany({
+  const rows = await prisma.finArInvoice.findMany({
     where: { id: { in: ids }, status: "Posted" },
     select: { id: true, total_amount: true, ar_item_id: true, due_date: true },
   });
@@ -1076,7 +1076,7 @@ export async function invoicePayStates(
  * A posted Invoice as its faktur pajak reads it (P100): the tax point, the
  * buyer, the order's PPN snapshot, the figures — full, the advances deducted
  * and net, per line — and the Uang Muka items it used. The tax module takes
- * this rather than reading `sal_invoice` itself.
+ * this rather than reading `fin_ar_invoice` itself.
  */
 export type InvoiceTaxBasis = {
   id: number;
@@ -1112,12 +1112,12 @@ export type InvoiceTaxBasis = {
 
 /** Every posted Invoice Penjualan, oldest first — for the tax backfill (P100). */
 export async function postedInvoiceIds(): Promise<number[]> {
-  const rows = await prisma.salInvoice.findMany({ where: { status: "Posted" }, select: { id: true }, orderBy: { id: "asc" } });
+  const rows = await prisma.finArInvoice.findMany({ where: { status: "Posted" }, select: { id: true }, orderBy: { id: "asc" } });
   return rows.map((r) => r.id);
 }
 
 export async function invoiceTaxBasis(db: Db, id: number): Promise<InvoiceTaxBasis | null> {
-  const n = await db.salInvoice.findUnique({ where: { id }, include: WITH_ROWS });
+  const n = await db.finArInvoice.findUnique({ where: { id }, include: WITH_ROWS });
   if (!n) return null;
   const [order] = await invoiceSourceOrders({ ids: [n.customer_order_id] }, db);
   const orderLine = new Map((order?.lines ?? []).map((l) => [l.id, l]));
@@ -1162,5 +1162,5 @@ export async function invoiceTaxBasis(db: Db, id: number): Promise<InvoiceTaxBas
 
 /** Records the NSFP of the Invoice's faktur pajak (U10), written by the tax module when it is reported. */
 export async function setInvoiceTaxInvoiceNo(db: Db, id: number, no: string | null): Promise<void> {
-  await db.salInvoice.update({ where: { id }, data: { tax_invoice_no: no } });
+  await db.finArInvoice.update({ where: { id }, data: { tax_invoice_no: no } });
 }

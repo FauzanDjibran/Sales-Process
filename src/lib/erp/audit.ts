@@ -7,13 +7,13 @@ import { recordTitle } from "./record-title";
 import { fiscalClosingLabels } from "./fiscal";
 import { journalNumbersByIds } from "./journal";
 import { openingBalanceNumbersByIds } from "./opening-balance";
-import { salesAdvanceNumbersByIds } from "./sales-advance";
+import { salesAdvanceNumbersByIds } from "./ar-advance";
 import { cashBankTxNumbersByIds } from "./cash-bank-tx";
 import { customerOrderNumbersByIds } from "./customer-order";
 import { salesOrderNumbersByIds } from "./sales-order";
 import { deliveryOrderNumbersByIds } from "./delivery-order";
 import { deliveryNoteNumbersByIds } from "./delivery-note";
-import { invoiceNumbersByIds } from "./sales-invoice";
+import { invoiceNumbersByIds } from "./ar-invoice";
 import { fakturNumbersByIds, slipNumbersByIds } from "./tax-document";
 import { userLabels, roleLabels } from "./users";
 
@@ -77,10 +77,10 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   sal_order: { label: "Sales Order", resolve: salesOrderNumbersByIds },
   sal_delivery_order: { label: "Delivery Order", resolve: deliveryOrderNumbersByIds },
   log_delivery_note: { label: "Delivery Note", resolve: deliveryNoteNumbersByIds },
-  sal_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },
+  fin_ar_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },
   tmp_item_cost: { label: "Harga Pokok (Sementara)", resolve: null },
   tmp_stock_lot: { label: "Lot (Sementara)", resolve: null },
-  sal_advance: { label: "Uang Muka Penjualan", resolve: salesAdvanceNumbersByIds },
+  fin_ar_advance: { label: "Uang Muka Penjualan", resolve: salesAdvanceNumbersByIds },
   fin_cash_bank_tx: { label: "Transaksi Kas & Bank", resolve: cashBankTxNumbersByIds },
   tax_faktur: { label: "Faktur Pajak Keluaran", resolve: fakturNumbersByIds },
   tax_withholding_slip: { label: "Bukti Potong PPh", resolve: slipNumbersByIds },

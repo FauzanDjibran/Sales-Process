@@ -9,9 +9,9 @@ import {
   transitionSalesAdvance,
   updateSalesAdvance,
   type SalesAdvanceInput,
-} from "../src/lib/erp/sales-advance";
+} from "../src/lib/erp/ar-advance";
 import { createCustomerOrder, transitionCustomerOrder, type CustomerOrderLineInput } from "../src/lib/erp/customer-order";
-import { availableAdvanceActions, salesAdvanceAbilities } from "../src/lib/erp/sales-advance-workflow";
+import { availableAdvanceActions, salesAdvanceAbilities } from "../src/lib/erp/ar-advance-workflow";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import { computeAdvance } from "../src/lib/erp/sales-tax";
 import {
@@ -151,8 +151,8 @@ before(async () => {
 });
 
 after(async () => {
-  await prisma.salAdvance.deleteMany({ where: { id: { in: advances } } });
-  await prisma.auditLog.deleteMany({ where: { entity_key: "sal_advance", row_id: { in: advances } } });
+  await prisma.finArAdvance.deleteMany({ where: { id: { in: advances } } });
+  await prisma.auditLog.deleteMany({ where: { entity_key: "fin_ar_advance", row_id: { in: advances } } });
   await prisma.salCustomerOrderLine.deleteMany({ where: { order_id: { in: orders } } });
   await prisma.salCustomerOrder.deleteMany({ where: { id: { in: orders } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "sal_customer_order", row_id: { in: orders } } });
@@ -267,7 +267,7 @@ describe("a bill's life", () => {
     assert.equal(await prisma.accJournal.count(), journals, "a bill posts nothing");
 
     const events = (
-      await prisma.auditLog.findMany({ where: { entity_key: "sal_advance", row_id: r.id }, orderBy: { id: "asc" } })
+      await prisma.auditLog.findMany({ where: { entity_key: "fin_ar_advance", row_id: r.id }, orderBy: { id: "asc" } })
     ).map((x) => x.event);
     assert.deepEqual(events, ["create", "update", "issue"]);
 

@@ -102,7 +102,11 @@ const TABLE_OWNERS: Record<string, string[]> = {
   tmpItemCost: ["src/lib/erp/inventory.ts"],
   tmpStockLot: ["src/lib/erp/inventory.ts"],
   tmpStockMovement: ["src/lib/erp/inventory.ts"],
-  salAdvance: ["src/lib/erp/sales-advance.ts"],
+  // Billing documents: Finance owns them since P107; Sales holds only orders.
+  finArAdvance: ["src/lib/erp/ar-advance.ts"],
+  finArInvoice: ["src/lib/erp/ar-invoice.ts"],
+  finArInvoiceLine: ["src/lib/erp/ar-invoice.ts"],
+  finArInvoiceAdvanceDeduction: ["src/lib/erp/ar-invoice.ts"],
   finCashBankTx: ["src/lib/erp/cash-bank-tx.ts"],
   finCashBankTxLine: ["src/lib/erp/cash-bank-tx.ts"],
   finCashBankTxLineWht: ["src/lib/erp/cash-bank-tx.ts"],

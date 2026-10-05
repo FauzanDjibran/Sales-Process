@@ -8,13 +8,13 @@ import { Pager, usePaging } from "@/components/ui/pager";
 import { SearchField } from "@/components/ui/search-field";
 import { Select } from "@/components/ui/select";
 import { formatDate, formatMoney, todayIso } from "@/lib/format";
-import type { SalesAdvanceListRow } from "@/lib/erp/sales-advance";
+import type { SalesAdvanceListRow } from "@/lib/erp/ar-advance";
 import {
   ADVANCE_STATUS_BADGE,
   ADVANCE_STATUS_TEXT,
   type AdvanceAbilities,
   type AdvanceStatus,
-} from "@/lib/erp/sales-advance-workflow";
+} from "@/lib/erp/ar-advance-workflow";
 
 /**
  * The Uang Muka Penjualan register. Drafts sort first, then newest first. An

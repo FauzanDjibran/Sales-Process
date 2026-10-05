@@ -8,7 +8,7 @@ import { Pager, usePaging } from "@/components/ui/pager";
 import { SearchField } from "@/components/ui/search-field";
 import { Select } from "@/components/ui/select";
 import { formatDate, formatMoney } from "@/lib/format";
-import type { InvoiceListRow } from "@/lib/erp/sales-invoice";
+import type { InvoiceListRow } from "@/lib/erp/ar-invoice";
 import {
   INVOICE_PAY_BADGE,
   INVOICE_PAY_TEXT,
@@ -16,7 +16,7 @@ import {
   INVOICE_STATUS_TEXT,
   type InvoiceAbilities,
   type InvoiceStatus,
-} from "@/lib/erp/sales-invoice-workflow";
+} from "@/lib/erp/ar-invoice-workflow";
 
 /**
  * The Invoice Penjualan register (§9). Drafts sort first — goods not yet
@@ -47,7 +47,7 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
     <>
       <div className="ph">
         <div className="crumb">
-          <span>Penjualan</span>
+          <span>Finance</span>
           <span>/</span>
           <span className="cur">Invoice Penjualan</span>
         </div>
@@ -60,7 +60,7 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
           </h1>
           <div className="ph-act">
             {can.create && (
-              <Link className="btn primary" href="/sales/invoice/new">
+              <Link className="btn primary" href="/finance/invoice/sales/new">
                 <Icon name="plus" size={15} /> Invoice Baru
               </Link>
             )}
@@ -112,9 +112,9 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
                 </thead>
                 <tbody>
                   {paging.pageRows.map((o) => (
-                    <tr key={o.id} onClick={() => router.push(`/sales/invoice/${o.id}`)}>
+                    <tr key={o.id} onClick={() => router.push(`/finance/invoice/sales/${o.id}`)}>
                       <td>
-                        <Link className="lab" href={`/sales/invoice/${o.id}`}>
+                        <Link className="lab" href={`/finance/invoice/sales/${o.id}`}>
                           {o.invoiceNo}
                         </Link>
                       </td>
@@ -190,7 +190,7 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
             ) : (
               can.create && (
                 <div className="cta">
-                  <Link className="btn primary" href="/sales/invoice/new">
+                  <Link className="btn primary" href="/finance/invoice/sales/new">
                     <Icon name="plus" size={15} /> Invoice Baru
                   </Link>
                 </div>

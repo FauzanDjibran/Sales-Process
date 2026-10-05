@@ -12,7 +12,7 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { PercentInput } from "@/components/ui/percent-input";
 import { useToast } from "@/components/ui/toast";
 import { AdvanceActions } from "@/components/finance/advance-actions";
-import { createSalesAdvanceAction, updateSalesAdvanceAction } from "@/app/actions/sales-advance";
+import { createSalesAdvanceAction, updateSalesAdvanceAction } from "@/app/actions/ar-advance";
 import {
   advanceAmountProblem,
   computeAdvance,
@@ -23,8 +23,8 @@ import {
   ADVANCE_STATUS_BADGE,
   ADVANCE_STATUS_TEXT,
   type AdvanceAbilities,
-} from "@/lib/erp/sales-advance-workflow";
-import type { SalesAdvanceOptions, SalesAdvanceView } from "@/lib/erp/sales-advance";
+} from "@/lib/erp/ar-advance-workflow";
+import type { SalesAdvanceOptions, SalesAdvanceView } from "@/lib/erp/ar-advance";
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
 

@@ -962,14 +962,14 @@ table fin_cash_bank_tx {
   }
 }
 
-// one settled document — an advance bill (sal_advance) or an Invoice (sal_invoice) — by the weak pair (P98)
+// one settled document — an advance bill (fin_ar_advance) or an Invoice (fin_ar_invoice) — by the weak pair (P98)
 table fin_cash_bank_tx_line {
   id                          int [pk, increment, not null]
 
   tx_id                       int [not null, ref : > fin_cash_bank_tx.id] // deleted with its parent
   line_no                     int [not null]
 
-  doc_type_id                 int [not null, ref : > sys_doc_type.id] // weak reference to the settled document: sal_advance or sal_invoice
+  doc_type_id                 int [not null, ref : > sys_doc_type.id] // weak reference to the settled document: fin_ar_advance or fin_ar_invoice
   doc_id                      int [not null]
 
   settled_amount              decimal(18,2) [not null] // what the line cleared of the document: the cash received for it + its PPh (P76)
@@ -1072,6 +1072,145 @@ table fin_ar_ledger {
   }
 }
 
+// Uang Muka Penjualan, ARA/… (P54–P58; Finance since P107): a bill drawn from one Open Customer Order
+// posts nothing and stores no paid or used amount
+table fin_ar_advance {
+  id                          int [pk, increment, not null]
+
+  advance_no                  varchar [not null, unique]
+  advance_date                date [not null]
+  due_date                    date [not null]
+  status                      enum('Draft', 'Issued', 'Cancelled') [not null, default: 'Draft']
+
+  customer_order_id           int [not null] // weak: a Customer Order (P107)
+  customer_id                 int [not null, ref : > m_partner.id]
+  cash_bank_id                int [not null, ref : > m_cash_bank.id]
+
+  description                 varchar [not null]
+  note                        varchar
+  price_mode                  enum('Exclude', 'Include') [not null]
+  is_taxable                  boolean [not null]
+  ppn_rate                    decimal(9,4)
+  ppn_dpp_other_numerator     int
+  ppn_dpp_other_denominator   int
+  amount_type                 enum('Percent', 'Amount') [not null]
+  amount_value                decimal(18,4) [not null]
+  amount                      decimal(18,2) [not null]
+  dpp_amount                  decimal(18,2) [not null]
+  dpp_other_amount            decimal(18,2) [not null]
+  ppn_amount                  decimal(18,2) [not null]
+  total_amount                decimal(18,2) [not null]
+
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    customer_order_id
+    customer_id
+    (status, advance_date)
+  }
+}
+
+// Invoice Penjualan, INV/… (P97, P99; Finance since P107): bills one Customer Order
+// posting writes the journal and the Invoice AR item
+table fin_ar_invoice {
+  id                          int [pk, increment, not null]
+
+  invoice_no                  varchar [not null, unique] // INV/YYYY/MM/NNNN
+  invoice_date                date [not null] // typed; the journal date
+  tax_date                    date [not null] // latest Tanggal Kirim billed; the faktur pajak date
+  due_date                    date [not null] // tax_date + Termin days
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+
+  customer_order_id           int [not null] // weak: a Customer Order (P107)
+  customer_id                 int [not null, ref : > m_partner.id]
+  address_id                  int [not null, ref : > m_partner_address.id] // billing address, any of the customer
+  cash_bank_id                int [not null, ref : > m_cash_bank.id] // printed: where to pay
+
+  price_mode                  enum('Exclude', 'Include') [not null] // the order, copied
+  is_taxable                  boolean [not null]
+  ppn_rate                    decimal(9,4)
+  ppn_dpp_other_numerator     int
+  ppn_dpp_other_denominator   int
+  amount                      decimal(18,2) [not null, default: 0]
+  dpp_amount                  decimal(18,2) [not null, default: 0] // DPP of the goods billed
+  advance_dpp_amount          decimal(18,2) [not null, default: 0] // Uang Muka used
+  net_dpp_amount              decimal(18,2) [not null, default: 0]
+  dpp_other_amount            decimal(18,2) [not null, default: 0]
+  ppn_amount                  decimal(18,2) [not null, default: 0] // on the net DPP, per line
+  total_amount                decimal(18,2) [not null, default: 0] // net Piutang
+  tax_invoice_no              varchar // Coretax number, typed after upload
+
+  journal_id                  int
+  ar_item_id                  int // the Invoice AR item; none when nothing is left to pay
+
+  note                        varchar
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    customer_order_id
+    (status, invoice_date)
+  }
+}
+
+// one whole posted Delivery Note line, billed by at most one live Invoice, priced from its order line
+table fin_ar_invoice_line {
+  id                          int [pk, increment, not null]
+
+  invoice_id                  int [not null, ref : > fin_ar_invoice.id]
+  line_no                     int [not null]
+
+  delivery_note_line_id       int [not null] // weak: a log_delivery_note_line, taken whole (U17, P106)
+  customer_order_line_id      int [not null] // weak: a Customer Order line (P107)
+
+  qty                         decimal(18,4) [not null]
+  price                       decimal(18,2) [not null]
+  amount                      decimal(18,2) [not null]
+  dpp_amount                  decimal(18,2) [not null]
+  advance_dpp_amount          decimal(18,2) [not null, default: 0] // its share of the Uang Muka used
+  net_dpp_amount              decimal(18,2) [not null]
+  dpp_other_amount            decimal(18,2) [not null, default: 0]
+  ppn_amount                  decimal(18,2) [not null, default: 0]
+
+  withholding_tax_id          int [ref : > ref_withholding_tax.id]
+
+  withholding_rate            decimal(9,4)
+
+  indexes {
+    (invoice_id, line_no) [unique]
+    (invoice_id, delivery_note_line_id) [unique]
+    delivery_note_line_id
+    customer_order_line_id
+  }
+}
+
+// an Uang Muka AR item used, by id without a foreign key (AR items are a book), and the DPP used
+table fin_ar_invoice_advance_deduction {
+  id                          int [pk, increment, not null]
+
+  invoice_id                  int [not null, ref : > fin_ar_invoice.id]
+  ar_item_id                  int [not null] // weak: an Uang Muka AR item of the same order
+
+  ar_item_no                  varchar [not null]
+  dpp_used                    decimal(18,2) [not null]
+
+  indexes {
+    (invoice_id, ar_item_id) [unique]
+    ar_item_id
+  }
+}
+
 //////////////////////////////////
 //
 // Sales
@@ -1154,50 +1293,6 @@ table sal_customer_order_line {
   indexes {
     (order_id, line_no) [unique]
     item_id
-  }
-}
-
-// Uang Muka Penjualan, ARA/… (P54–P58): a bill drawn from one Open Customer Order
-// posts nothing and stores no paid or used amount
-table sal_advance {
-  id                          int [pk, increment, not null]
-
-  advance_no                  varchar [not null, unique]
-  advance_date                date [not null]
-  due_date                    date [not null]
-  status                      enum('Draft', 'Issued', 'Cancelled') [not null, default: 'Draft']
-
-  customer_order_id           int [not null, ref : > sal_customer_order.id]
-  customer_id                 int [not null, ref : > m_partner.id]
-  cash_bank_id                int [not null, ref : > m_cash_bank.id]
-
-  description                 varchar [not null]
-  note                        varchar
-  price_mode                  enum('Exclude', 'Include') [not null]
-  is_taxable                  boolean [not null]
-  ppn_rate                    decimal(9,4)
-  ppn_dpp_other_numerator     int
-  ppn_dpp_other_denominator   int
-  amount_type                 enum('Percent', 'Amount') [not null]
-  amount_value                decimal(18,4) [not null]
-  amount                      decimal(18,2) [not null]
-  dpp_amount                  decimal(18,2) [not null]
-  dpp_other_amount            decimal(18,2) [not null]
-  ppn_amount                  decimal(18,2) [not null]
-  total_amount                decimal(18,2) [not null]
-
-  cancel_reason               varchar
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    customer_order_id
-    customer_id
-    (status, advance_date)
   }
 }
 
@@ -1299,101 +1394,6 @@ table sal_delivery_order_line {
     (delivery_order_id, line_no) [unique]
     (delivery_order_id, sales_order_line_id) [unique]
     sales_order_line_id
-  }
-}
-
-// Invoice Penjualan, INV/… (P97, P99): bills one Customer Order
-// posting writes the journal and the Invoice AR item
-table sal_invoice {
-  id                          int [pk, increment, not null]
-
-  invoice_no                  varchar [not null, unique] // INV/YYYY/MM/NNNN
-  invoice_date                date [not null] // typed; the journal date
-  tax_date                    date [not null] // latest Tanggal Kirim billed; the faktur pajak date
-  due_date                    date [not null] // tax_date + Termin days
-  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
-
-  customer_order_id           int [not null, ref : > sal_customer_order.id]
-  customer_id                 int [not null, ref : > m_partner.id]
-  address_id                  int [not null, ref : > m_partner_address.id] // billing address, any of the customer
-  cash_bank_id                int [not null, ref : > m_cash_bank.id] // printed: where to pay
-
-  price_mode                  enum('Exclude', 'Include') [not null] // the order, copied
-  is_taxable                  boolean [not null]
-  ppn_rate                    decimal(9,4)
-  ppn_dpp_other_numerator     int
-  ppn_dpp_other_denominator   int
-  amount                      decimal(18,2) [not null, default: 0]
-  dpp_amount                  decimal(18,2) [not null, default: 0] // DPP of the goods billed
-  advance_dpp_amount          decimal(18,2) [not null, default: 0] // Uang Muka used
-  net_dpp_amount              decimal(18,2) [not null, default: 0]
-  dpp_other_amount            decimal(18,2) [not null, default: 0]
-  ppn_amount                  decimal(18,2) [not null, default: 0] // on the net DPP, per line
-  total_amount                decimal(18,2) [not null, default: 0] // net Piutang
-  tax_invoice_no              varchar // Coretax number, typed after upload
-
-  journal_id                  int
-  ar_item_id                  int // the Invoice AR item; none when nothing is left to pay
-
-  note                        varchar
-  cancel_reason               varchar
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    customer_order_id
-    (status, invoice_date)
-  }
-}
-
-// one whole posted Delivery Note line, billed by at most one live Invoice, priced from its order line
-table sal_invoice_line {
-  id                          int [pk, increment, not null]
-
-  invoice_id                  int [not null, ref : > sal_invoice.id]
-  line_no                     int [not null]
-
-  delivery_note_line_id       int [not null] // weak: a log_delivery_note_line, taken whole (U17, P106)
-  customer_order_line_id      int [not null, ref : > sal_customer_order_line.id]
-
-  qty                         decimal(18,4) [not null]
-  price                       decimal(18,2) [not null]
-  amount                      decimal(18,2) [not null]
-  dpp_amount                  decimal(18,2) [not null]
-  advance_dpp_amount          decimal(18,2) [not null, default: 0] // its share of the Uang Muka used
-  net_dpp_amount              decimal(18,2) [not null]
-  dpp_other_amount            decimal(18,2) [not null, default: 0]
-  ppn_amount                  decimal(18,2) [not null, default: 0]
-
-  withholding_tax_id          int [ref : > ref_withholding_tax.id]
-
-  withholding_rate            decimal(9,4)
-
-  indexes {
-    (invoice_id, line_no) [unique]
-    (invoice_id, delivery_note_line_id) [unique]
-    delivery_note_line_id
-    customer_order_line_id
-  }
-}
-
-// an Uang Muka AR item used, by id without a foreign key (AR items are a book), and the DPP used
-table sal_invoice_advance_deduction {
-  id                          int [pk, increment, not null]
-
-  invoice_id                  int [not null, ref : > sal_invoice.id]
-  ar_item_id                  int [not null] // weak: an Uang Muka AR item of the same order
-
-  ar_item_no                  varchar [not null]
-  dpp_used                    decimal(18,2) [not null]
-
-  indexes {
-    (invoice_id, ar_item_id) [unique]
-    ar_item_id
   }
 }
 

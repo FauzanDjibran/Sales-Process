@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/icon";
 import { Dialog } from "@/components/ui/dialog";
-import type { InvoiceAdvance, InvoiceNoteLine } from "@/lib/erp/sales-invoice";
+import type { InvoiceAdvance, InvoiceNoteLine } from "@/lib/erp/ar-invoice";
 import { formatDate, formatMoney, formatNumber } from "@/lib/format";
 
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);

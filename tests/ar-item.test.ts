@@ -33,7 +33,7 @@ before(async () => {
   f.customer = await makePartner({ categoryLabel: "Customer" });
   f.idr = (await prisma.refCurrency.findFirstOrThrow({ where: { currency_label: "IDR" } })).id;
   f.receiptType = await docType("fin_cash_bank_tx");
-  f.billType = await docType("sal_advance");
+  f.billType = await docType("fin_ar_advance");
   // A document id no real row carries; the book only records the reference.
   f.doc = 900_000_000 + (Date.now() % 100_000);
 });

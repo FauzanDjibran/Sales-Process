@@ -2,8 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import { AdvanceForm } from "@/components/finance/advance-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
-import { getSalesAdvance, salesAdvanceOptions } from "@/lib/erp/sales-advance";
-import { advanceIsEditable, salesAdvanceAbilities } from "@/lib/erp/sales-advance-workflow";
+import { getSalesAdvance, salesAdvanceOptions } from "@/lib/erp/ar-advance";
+import { advanceIsEditable, salesAdvanceAbilities } from "@/lib/erp/ar-advance-workflow";
 
 export const dynamic = "force-dynamic";
 
@@ -18,7 +18,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   return (
     <>
       <AdvanceForm mode="edit" advance={advance} options={options} can={salesAdvanceAbilities(actor.permissions)} />
-      <RecordHistoryCard entityKey="sal_advance" rowId={advance.id} />
+      <RecordHistoryCard entityKey="fin_ar_advance" rowId={advance.id} />
     </>
   );
 }

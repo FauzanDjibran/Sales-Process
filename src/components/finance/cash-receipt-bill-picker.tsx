@@ -139,7 +139,7 @@ export function BillPicker({
                   <td>
                     <span className="dstack">
                       <span className="d1">
-                        <span className={`bdg ${b.kind === "sal_invoice" ? "t-info" : "t-vio"}`}>{SETTLED_DOC_TEXT[b.kind]}</span>{" "}
+                        <span className={`bdg ${b.kind === "fin_ar_invoice" ? "t-info" : "t-vio"}`}>{SETTLED_DOC_TEXT[b.kind]}</span>{" "}
                         <span className="mono">{b.no}</span>
                       </span>
                       <span className="d2">{b.orderNo}</span>

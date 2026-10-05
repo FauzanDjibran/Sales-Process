@@ -116,7 +116,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   // the migration renamed this row in place.
   ["Customer Order", "sal_customer_order"],
   // Pembayaran will name the advance bill it settles the same way.
-  ["Uang Muka Penjualan", "sal_advance"],
+  ["Uang Muka Penjualan", "fin_ar_advance"],
   // A posted Penerimaan / Pengeluaran names itself on its journal and its
   // Cash Bank Book entry.
   ["Transaksi Kas & Bank", "fin_cash_bank_tx"],
@@ -129,7 +129,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   // The note the goods leave on; its journal and stock issues name it. A
   // standalone logistics document since P106 (was `sal_delivery_note`).
   ["Delivery Note", "log_delivery_note"],
-  ["Invoice Penjualan", "sal_invoice"],
+  ["Invoice Penjualan", "fin_ar_invoice"],
 ];
 
 /**

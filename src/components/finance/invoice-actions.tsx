@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { JournalPreview } from "@/components/ui/journal-preview";
 import { Field } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
-import { previewInvoicePostingAction, transitionInvoiceAction } from "@/app/actions/sales-invoice";
+import { previewInvoicePostingAction, transitionInvoiceAction } from "@/app/actions/ar-invoice";
 import { headerButtonClass, orderForHeader, type ActionTone } from "@/lib/erp/header-actions";
 import {
   INVOICE_TRANSITIONS,
@@ -16,7 +16,7 @@ import {
   type InvoiceAbilities,
   type InvoiceAction,
   type InvoiceStatus,
-} from "@/lib/erp/sales-invoice-workflow";
+} from "@/lib/erp/ar-invoice-workflow";
 
 /** Why a final note offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<InvoiceStatus, string>> = {
@@ -81,7 +81,7 @@ export function InvoiceActions({
               key: "edit",
               tone: "neutral" as ActionTone,
               node: (
-                <Link key="edit" className="btn" href={`/sales/invoice/${id}/edit`}>
+                <Link key="edit" className="btn" href={`/finance/invoice/sales/${id}/edit`}>
                   <Icon name="pen" size={15} /> Ubah
                 </Link>
               ),

@@ -15,12 +15,12 @@
  *   tax_faktur(_line, _ref), tax_withholding_slip  Faktur Pajak and Bukti Potong
  *   fin_ar_ledger, fin_ar_item                     Buku Piutang and its AR items
  *   fin_cash_bank_tx(_line, _line_wht)             Penerimaan / Pengeluaran Kas & Bank
- *   sal_invoice(_line, _advance_deduction)         Invoice Penjualan
+ *   fin_ar_invoice(_line, _advance_deduction)         Invoice Penjualan
  *   log_delivery_note(_line, _lot)                 Delivery Notes
  *   tmp_stock_movement                             the stand-in inventory's issue log
  *   acc_journal_line, acc_journal                  the books' journals
  *   cash_bank_ledger                               the Cash Bank Book
- *   sal_advance                                    Uang Muka Penjualan bills
+ *   fin_ar_advance                                    Uang Muka Penjualan bills
  *   sal_delivery_order_line, sal_delivery_order    Delivery Orders
  *   sal_order_line, sal_order                      Sales Orders
  *   sal_customer_order_line, sal_customer_order    Customer Orders
@@ -81,8 +81,8 @@ const DOCUMENT_ENTITY_KEYS = [
   "sal_order",
   "sal_delivery_order",
   "log_delivery_note",
-  "sal_invoice",
-  "sal_advance",
+  "fin_ar_invoice",
+  "fin_ar_advance",
   "fin_cash_bank_tx",
   "tax_faktur",
   "tax_withholding_slip",
@@ -101,9 +101,9 @@ async function main() {
     fin_cash_bank_tx_line_wht: await prisma.finCashBankTxLineWht.count(),
     fin_cash_bank_tx_line: await prisma.finCashBankTxLine.count(),
     fin_cash_bank_tx: await prisma.finCashBankTx.count(),
-    sal_invoice_advance_deduction: await prisma.salInvoiceAdvanceDeduction.count(),
-    sal_invoice_line: await prisma.salInvoiceLine.count(),
-    sal_invoice: await prisma.salInvoice.count(),
+    fin_ar_invoice_advance_deduction: await prisma.finArInvoiceAdvanceDeduction.count(),
+    fin_ar_invoice_line: await prisma.finArInvoiceLine.count(),
+    fin_ar_invoice: await prisma.finArInvoice.count(),
     log_delivery_note_lot: await prisma.logDeliveryNoteLot.count(),
     log_delivery_note_line: await prisma.logDeliveryNoteLine.count(),
     log_delivery_note: await prisma.logDeliveryNote.count(),
@@ -111,7 +111,7 @@ async function main() {
     acc_journal_line: await prisma.accJournalLine.count(),
     acc_journal: await prisma.accJournal.count(),
     cash_bank_ledger: await prisma.cashBankLedger.count(),
-    sal_advance: await prisma.salAdvance.count(),
+    fin_ar_advance: await prisma.finArAdvance.count(),
     sal_delivery_order_line: await prisma.salDeliveryOrderLine.count(),
     sal_delivery_order: await prisma.salDeliveryOrder.count(),
     sal_order_line: await prisma.salOrderLine.count(),
@@ -166,9 +166,9 @@ async function main() {
 
     // Invoices and Delivery Notes name their journals, so they go before them;
     // the stand-in inventory's issue log goes with the notes that wrote it.
-    await tx.salInvoiceAdvanceDeduction.deleteMany();
-    await tx.salInvoiceLine.deleteMany();
-    await tx.salInvoice.deleteMany();
+    await tx.finArInvoiceAdvanceDeduction.deleteMany();
+    await tx.finArInvoiceLine.deleteMany();
+    await tx.finArInvoice.deleteMany();
     await tx.logDeliveryNoteLot.deleteMany();
     await tx.logDeliveryNoteLine.deleteMany();
     await tx.logDeliveryNote.deleteMany();
@@ -182,7 +182,7 @@ async function main() {
 
     // Sales documents, children before what they name: an advance bill and a
     // Sales Order name their Customer Order, a line its order.
-    await tx.salAdvance.deleteMany();
+    await tx.finArAdvance.deleteMany();
     await tx.salDeliveryOrderLine.deleteMany();
     await tx.salDeliveryOrder.deleteMany();
     await tx.salOrderLine.deleteMany();

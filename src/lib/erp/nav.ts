@@ -192,14 +192,6 @@ export const MODULES: NavModule[] = [
             desc: "Perintah kirim ke gudang: barang dari Sales Order Open satu Customer Order, ke satu alamat. Tidak memposting apa pun.",
             permission: "DELIVERY_ORDER_VIEW",
           },
-          {
-            key: "sal_invoice",
-            slug: "invoice",
-            name: "Invoice Penjualan",
-            icon: "file",
-            desc: "Tagihan atas barang yang sudah dikirim: baris Delivery Note yang diposting, dipotong uang muka. Posting mengakui piutang, penjualan dan PPN.",
-            permission: "SALES_INVOICE_VIEW",
-          },
         ],
       },
     ],
@@ -251,11 +243,26 @@ export const MODULES: NavModule[] = [
         ],
       },
       {
+        // What bills the customer belongs to Finance; Sales holds only orders (P107).
+        key: "invoice",
+        name: "Invoice",
+        entities: [
+          {
+            key: "fin_ar_invoice",
+            slug: "invoice/sales",
+            name: "Invoice Penjualan",
+            icon: "file",
+            desc: "Tagihan atas barang yang sudah dikirim: baris Delivery Note yang diposting, dipotong uang muka. Posting mengakui piutang, penjualan dan PPN.",
+            permission: "SALES_INVOICE_VIEW",
+          },
+        ],
+      },
+      {
         key: "advance",
         name: "Uang Muka",
         entities: [
           {
-            key: "sal_advance",
+            key: "fin_ar_advance",
             slug: "advance/sales",
             name: "Uang Muka Penjualan",
             icon: "wallet",

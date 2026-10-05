@@ -13,7 +13,7 @@ import {
   updateCashReceipt,
   type CashReceiptInput,
 } from "../src/lib/erp/cash-bank-tx";
-import { createSalesAdvance, transitionSalesAdvance } from "../src/lib/erp/sales-advance";
+import { createSalesAdvance, transitionSalesAdvance } from "../src/lib/erp/ar-advance";
 import { createCustomerOrder, transitionCustomerOrder, type CustomerOrderLineInput } from "../src/lib/erp/customer-order";
 import { availableCashReceiptActions, cashReceiptAbilities } from "../src/lib/erp/cash-bank-tx-workflow";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
@@ -201,8 +201,8 @@ after(async () => {
     await prisma.finCashBankTx.deleteMany({ where: { id: { in: receipts } } });
   }
   await prisma.auditLog.deleteMany({ where: { entity_key: "fin_cash_bank_tx", row_id: { in: receipts } } });
-  await prisma.salAdvance.deleteMany({ where: { id: { in: advances } } });
-  await prisma.auditLog.deleteMany({ where: { entity_key: "sal_advance", row_id: { in: advances } } });
+  await prisma.finArAdvance.deleteMany({ where: { id: { in: advances } } });
+  await prisma.auditLog.deleteMany({ where: { entity_key: "fin_ar_advance", row_id: { in: advances } } });
   await prisma.salCustomerOrderLine.deleteMany({ where: { order_id: { in: orders } } });
   await prisma.salCustomerOrder.deleteMany({ where: { id: { in: orders } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "sal_customer_order", row_id: { in: orders } } });
@@ -302,7 +302,7 @@ describe("posting a receipt of two bills (P66)", () => {
     const r = await create(i);
     assert.ok(r.ok, JSON.stringify(r));
     assert.match(r.txNo, /^BKM\/\d{4}\/\d{2}\/\d{4}$/);
-    assert.equal((await settledByDocuments("sal_advance", [f.bill2])).get(f.bill2) ?? 0, 0, "a Draft settles nothing");
+    assert.equal((await settledByDocuments("fin_ar_advance", [f.bill2])).get(f.bill2) ?? 0, 0, "a Draft settles nothing");
 
     // The Posting dialog's journal is Posting itself run as a dry run and rolled back (P103).
     const journals = await prisma.accJournal.count();
@@ -343,7 +343,7 @@ describe("posting a receipt of two bills (P66)", () => {
     assert.equal(book[0].amount.toNumber(), 1_483_000);
     assert.equal(book[0].direction, "In");
 
-    const paid = await settledByDocuments("sal_advance", [f.bill2, f.bill3]);
+    const paid = await settledByDocuments("fin_ar_advance", [f.bill2, f.bill3]);
     assert.equal(paid.get(f.bill2), 999_000);
     assert.equal(paid.get(f.bill3), 499_500);
 
@@ -389,7 +389,7 @@ describe("posting a receipt of two bills (P66)", () => {
     assert.ok(!(await transitionCashReceipt(id, "cancel", actor, "x")).ok);
     assert.ok(!(await updateCashReceipt(id, input(), actor)).ok);
     const cancel = await transitionSalesAdvance(f.bill3, "cancel", actor, "batal", (tx, billId) =>
-      settledDocumentRefusal("sal_advance", tx, billId)
+      settledDocumentRefusal("fin_ar_advance", tx, billId)
     );
     assert.ok(!cancel.ok && /sudah dibayar/.test(cancel.errors._form));
   });

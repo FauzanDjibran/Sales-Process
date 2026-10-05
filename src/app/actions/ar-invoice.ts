@@ -13,14 +13,14 @@ import {
   type InvoiceHeaderInput,
   type InvoiceLineInput,
   type InvoiceResult,
-} from "@/lib/erp/sales-invoice";
+} from "@/lib/erp/ar-invoice";
 import { createTaxDocsForInvoice } from "@/lib/erp/tax-document";
-import { INVOICE_TRANSITIONS, type InvoiceAction } from "@/lib/erp/sales-invoice-workflow";
+import { INVOICE_TRANSITIONS, type InvoiceAction } from "@/lib/erp/ar-invoice-workflow";
 import type { JournalPreviewResult } from "@/lib/erp/journal";
 
 /**
  * The Invoice Penjualan's write path. The permission is checked here; every
- * rule is in `lib/erp/sales-invoice.ts`, where the tests can reach it.
+ * rule is in `lib/erp/ar-invoice.ts`, where the tests can reach it.
  */
 
 type Guard =
@@ -39,8 +39,8 @@ async function authorize(code: string): Promise<Guard> {
 }
 
 function revalidate(id?: number) {
-  revalidatePath("/sales/invoice");
-  if (id) revalidatePath(`/sales/invoice/${id}`);
+  revalidatePath("/finance/invoice/sales");
+  if (id) revalidatePath(`/finance/invoice/sales/${id}`);
   // The Delivery Note shows what is billed, the Customer Order its Invoices,
   // and posting moves the AR reports.
   revalidatePath("/logistics/delivery-note", "layout");

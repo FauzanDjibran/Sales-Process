@@ -1,7 +1,7 @@
 import { AdvanceForm } from "@/components/finance/advance-form";
 import { requirePermission } from "@/lib/erp/auth";
-import { salesAdvanceOptions } from "@/lib/erp/sales-advance";
-import { salesAdvanceAbilities } from "@/lib/erp/sales-advance-workflow";
+import { salesAdvanceOptions } from "@/lib/erp/ar-advance";
+import { salesAdvanceAbilities } from "@/lib/erp/ar-advance-workflow";
 
 export const dynamic = "force-dynamic";
 

@@ -8,7 +8,7 @@ import { ppnChain } from "./sales-tax";
 import { advanceItemsCreatedBy, setArItemTaxInvoiceNo } from "./ar-item";
 import { postedReceiptIds, receiptTaxBasis } from "./cash-bank-tx";
 import { invoiceSourceOrders } from "./customer-order";
-import { invoiceTaxBasis, postedInvoiceIds, setInvoiceTaxInvoiceNo } from "./sales-invoice";
+import { invoiceTaxBasis, postedInvoiceIds, setInvoiceTaxInvoiceNo } from "./ar-invoice";
 import {
   normalizeNsfp,
   slipExpected,
@@ -110,7 +110,7 @@ export async function createTaxDocsForReceipt(db: Db, receiptId: number, actorId
   const date = asDate(r.date);
 
   // ---- faktur uang muka, one per advance bill paid with PPN
-  const advanceLines = r.lines.filter((l) => l.kind === "sal_advance" && l.ppnPart > 0 && l.rates);
+  const advanceLines = r.lines.filter((l) => l.kind === "fin_ar_advance" && l.ppnPart > 0 && l.rates);
   if (advanceLines.length) {
     const items = await advanceItemsCreatedBy(db, { docTypeId: receiptType, docId: r.id });
     const orders = new Map((await invoiceSourceOrders({ ids: [...new Set(advanceLines.map((l) => l.orderId))] }, db)).map((o) => [o.id, o]));
@@ -200,7 +200,7 @@ export async function createTaxDocsForReceipt(db: Db, receiptId: number, actorId
 export async function createTaxDocsForInvoice(db: Db, invoiceId: number, actorId: number): Promise<void> {
   const v = await invoiceTaxBasis(db, invoiceId);
   if (!v || v.status !== "Posted" || !v.taxable || !v.rates || !(v.netDpp > 0)) return;
-  const invoiceType = await docTypeId(db, "sal_invoice");
+  const invoiceType = await docTypeId(db, "fin_ar_invoice");
   if (await db.taxFaktur.findFirst({ where: { source_doc_type_id: invoiceType, source_doc_id: v.id }, select: { id: true } })) return;
 
   const refs = v.deductions.length
@@ -301,7 +301,7 @@ export async function setFakturNsfp(id: number, input: { nsfp: string; date: str
   const nextDate = nsfp && date ? date : null;
   if (nsfp === f.nsfp && nextDate === (f.nsfp_date ? isoDay(f.nsfp_date) : null)) return { ok: true };
 
-  const invoiceType = await docTypeId(prisma, "sal_invoice");
+  const invoiceType = await docTypeId(prisma, "fin_ar_invoice");
   await prisma.$transaction(async (tx) => {
     await tx.taxFaktur.update({
       where: { id },
@@ -556,13 +556,13 @@ export async function slipNumbersByIds(ids: number[]): Promise<Map<number, strin
  * the fakturs it made, and the slips of a receipt or of a settled document.
  */
 export async function taxDocsOf(
-  table: "fin_cash_bank_tx" | "sal_invoice" | "sal_advance",
+  table: "fin_cash_bank_tx" | "fin_ar_invoice" | "fin_ar_advance",
   id: number
 ): Promise<TaxDocRefs> {
   const typeId = await docTypeId(prisma, table);
   const [fakturs, slips] = await Promise.all([
     prisma.taxFaktur.findMany({
-      where: table === "sal_advance" ? { ref_doc_type_id: typeId, ref_doc_id: id } : { source_doc_type_id: typeId, source_doc_id: id },
+      where: table === "fin_ar_advance" ? { ref_doc_type_id: typeId, ref_doc_id: id } : { source_doc_type_id: typeId, source_doc_id: id },
       select: { id: true, faktur_no: true, nsfp: true },
       orderBy: { id: "asc" },
     }),
