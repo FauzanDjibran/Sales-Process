@@ -25,7 +25,7 @@ import {
 import type { InvoiceHeaderInput, InvoiceOptions, InvoiceView, InvoiceNoteLine, InvoiceOrderOption } from "@/lib/erp/ar-invoice";
 import { computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine, type PriceMode } from "@/lib/erp/sales-tax";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
-import { formatDate, formatMoney, formatNumber, formatPct, todayIso } from "@/lib/format";
+import { formatDate, formatMoney, formatNumber, formatPct, todayIso, formatPrice } from "@/lib/format";
 
 /**
  * An Invoice Penjualan in all three modes: `new`, `edit` (Draft only) and `view`
@@ -57,28 +57,26 @@ function addDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** The lines as the tax module prices them — the same walk the server does. */
+/** The lines as the tax module prices them — the same cumulative walk the server does (P112). */
 function pricedLines(order: InvoiceOrderOption, picked: InvoiceNoteLine[]): TaxLine[] {
-  const running = new Map(Object.entries(order.billedBefore).map(([k, v]) => [Number(k), { ...v }]));
+  const running = new Map(Object.entries(order.billedBefore).map(([k, v]) => [Number(k), v.qty]));
   const byId = new Map(order.lines.map((l) => [l.id, l]));
   return picked.map((n) => {
     const o = byId.get(n.customerOrderLineId)!;
-    const b = running.get(o.id) ?? { qty: 0, amount: 0 };
-    const input: TaxLine = {
+    const before = running.get(o.id) ?? 0;
+    running.set(o.id, before + n.qty);
+    return {
       qty: n.qty,
       orderQty: o.qty,
-      orderAmount: o.amount,
+      orderGross: o.amount + o.discountAmount,
+      orderDiscount: o.discountAmount,
       price: o.price,
       discountType: o.discountType,
       discountValue: o.discountValue,
-      billedQtyBefore: b.qty,
-      billedAmountBefore: b.amount,
+      billedQtyBefore: before,
       withholdingRate: o.withholdingRate,
       withholdingKey: o.withholdingTaxId ? String(o.withholdingTaxId) : null,
     };
-    const amount = computeInvoice({ lines: [input], mode: order.mode, taxable: order.taxable, rates: order.rates, advanceUsed: 0 }).amount;
-    running.set(o.id, { qty: b.qty + n.qty, amount: b.amount + amount });
-    return input;
   });
 }
 
@@ -163,8 +161,19 @@ export function InvoiceForm({
     return {
       lines: picked.map((n) => {
         const l = byLine.get(n.id);
-        return { amount: l?.amount ?? 0, dpp: l?.dpp ?? 0, advanceDpp: l?.advanceDpp ?? 0, netDpp: l?.netDpp ?? 0, dppOther: 0, ppn: l?.ppn ?? 0 };
+        return {
+          gross: l?.gross ?? 0,
+          discount: l?.discount ?? 0,
+          amount: l?.amount ?? 0,
+          dpp: l?.dpp ?? 0,
+          advanceDpp: l?.advanceDpp ?? 0,
+          netDpp: l?.netDpp ?? 0,
+          dppOther: 0,
+          ppn: l?.ppn ?? 0,
+        };
       }),
+      gross: s.gross,
+      discount: s.discount,
       amount: s.amount,
       dpp: s.dpp,
       advanceUsed: s.advanceUsed,
@@ -485,6 +494,9 @@ export function InvoiceForm({
                 <th className="num" style={{ width: 120 }}>
                   Harga
                 </th>
+                <th className="num" style={{ width: 120 }}>
+                  Diskon
+                </th>
                 <th className="num" style={{ width: 130 }}>
                   Jumlah
                 </th>
@@ -525,12 +537,15 @@ export function InvoiceForm({
                       </span>
                     </td>
                     <td className="num">
-                      <span className="mny">{money(o?.price ?? 0)}</span>
+                      <span className="mny">{formatPrice(o?.price ?? 0)}</span>
                       {o?.discountType && (
                         <span className="fulltag">
                           diskon {o.discountType === "Percent" ? formatPct(o.discountValue ?? 0) : `${money(o.discountValue ?? 0)} / ${qtyText(o.qty)}`}
                         </span>
                       )}
+                    </td>
+                    <td className="num">
+                      {f && f.discount > 0 ? <span className="mny">−{money(f.discount)}</span> : <span className="dash">—</span>}
                     </td>
                     <td className="num">
                       <span className="mny">{money(f?.amount ?? 0)}</span>
@@ -751,6 +766,18 @@ export function InvoiceForm({
           )}
           <div className="impact">
             <div className="ttl">Nilai Invoice · {order.taxable ? MODE_TEXT[order.mode] : "Tidak Kena PPN"}</div>
+            {figures.discount > 0 && (
+              <>
+                <div className="ir">
+                  <span>Jumlah bruto</span>
+                  <b>{money(figures.gross)}</b>
+                </div>
+                <div className="ir">
+                  <span>Diskon</span>
+                  <b>−{money(figures.discount)}</b>
+                </div>
+              </>
+            )}
             <div className="ir">
               <span>DPP barang ditagih</span>
               <b>{money(figures.dpp)}</b>

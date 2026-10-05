@@ -1143,6 +1143,8 @@ table fin_ar_invoice {
   ppn_rate                    decimal(9,4)
   ppn_dpp_other_numerator     int
   ppn_dpp_other_denominator   int
+  gross_amount                decimal(18,2) [not null, default: 0] // Σ lines (P111)
+  discount_amount             decimal(18,2) [not null, default: 0] // Σ lines; amount = gross − discount
   amount                      decimal(18,2) [not null, default: 0]
   dpp_amount                  decimal(18,2) [not null, default: 0] // DPP of the goods billed
   advance_dpp_amount          decimal(18,2) [not null, default: 0] // Uang Muka used
@@ -1181,8 +1183,12 @@ table fin_ar_invoice_line {
   customer_order_line_id      int [not null] // weak: a Customer Order line (P107)
 
   qty                         decimal(18,4) [not null]
-  price                       decimal(18,2) [not null]
-  amount                      decimal(18,2) [not null]
+  price                       decimal(18,6) [not null] // the order line's, unrounded (P111)
+  gross_amount                decimal(18,2) [not null, default: 0] // cumulative share of the order line's gross (P112, §7.5)
+  discount_type               enum('Percent', 'Amount') // the order line's
+  discount_value              decimal(18,4)
+  discount_amount             decimal(18,2) [not null, default: 0] // cumulative share of the order line's discount (P112)
+  amount                      decimal(18,2) [not null] // gross − discount
   dpp_amount                  decimal(18,2) [not null]
   advance_dpp_amount          decimal(18,2) [not null, default: 0] // its share of the Uang Muka used
   net_dpp_amount              decimal(18,2) [not null]
@@ -1280,7 +1286,7 @@ table sal_customer_order_line {
 
   uom_factor                  decimal(18,4) [not null]
   qty                         decimal(18,4) [not null]
-  price                       decimal(18,2) [not null]
+  price                       decimal(18,6) [not null] // unrounded unit price (P111); amounts round to whole rupiah
   discount_type               enum('Percent', 'Amount')
   discount_value              decimal(18,4)
   discount_amount             decimal(18,2) [not null, default: 0]
@@ -1570,7 +1576,7 @@ table tax_faktur_line {
   item_label                  varchar
   qty                         decimal(18,4)
   uom_label                   varchar
-  price                       decimal(18,2)
+  price                       decimal(18,6)
   gross_dpp                   decimal(18,2) [not null]
   advance_dpp                 decimal(18,2) [not null, default: 0]
   dpp                         decimal(18,2) [not null]

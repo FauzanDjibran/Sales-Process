@@ -104,20 +104,19 @@ async function billedNoteLines(db: Db, lineIds: number[], exceptId: number | nul
   return new Map(rows.map((r) => [r.delivery_note_line_id, { id: r.invoice.id, no: r.invoice.invoice_no }]));
 }
 
-/** What other live Invoices bill of each Customer Order line: quantity and amount. */
-async function billedOrderLines(db: Db, lineIds: number[], exceptId: number | null): Promise<Map<number, { qty: number; amount: number }>> {
+/**
+ * What posted Invoices billed of each Customer Order line. The cumulative split
+ * (P112) counts in posting order, so only posted Invoices are "before": a
+ * Draft's figures are provisional and are worked out again when it posts.
+ */
+async function billedOrderLines(db: Db, lineIds: number[]): Promise<Map<number, { qty: number }>> {
   if (!lineIds.length) return new Map();
   const rows = await db.finArInvoiceLine.groupBy({
     by: ["customer_order_line_id"],
-    where: {
-      customer_order_line_id: { in: lineIds },
-      invoice: { status: { in: INVOICE_HOLDS }, ...(exceptId ? { id: { not: exceptId } } : {}) },
-    },
-    _sum: { qty: true, amount: true },
+    where: { customer_order_line_id: { in: lineIds }, invoice: { status: "Posted" } },
+    _sum: { qty: true },
   });
-  return new Map(
-    rows.map((r) => [r.customer_order_line_id, { qty: r._sum?.qty?.toNumber() ?? 0, amount: r._sum?.amount?.toNumber() ?? 0 }])
-  );
+  return new Map(rows.map((r) => [r.customer_order_line_id, { qty: r._sum?.qty?.toNumber() ?? 0 }]));
 }
 
 /** What other Draft Invoices reserve of each Uang Muka item; a posted one has already lowered its balance. */
@@ -147,8 +146,8 @@ export type InvoiceOrderOption = InvoiceSourceOrder & {
   addresses: { id: number; text: string; isBilling: boolean }[];
   noteLines: InvoiceNoteLine[];
   advances: InvoiceAdvance[];
-  /** Per Customer Order line, what other live Invoices bill — for the completing-bill rule. */
-  billedBefore: Record<number, { qty: number; amount: number }>;
+  /** Per Customer Order line, what posted Invoices billed — where the cumulative split continues from (P112). */
+  billedBefore: Record<number, { qty: number }>;
 };
 
 export type InvoiceBankOption = { id: number; label: string; name: string; active: boolean };
@@ -201,7 +200,7 @@ async function orderOptions(
   const items = [...open, ...keptItems.filter((k) => !open.some((o) => o.id === k.id))];
   const [billed, before, reserved] = await Promise.all([
     billedNoteLines(db, lines.map((l) => l.id), exceptId),
-    billedOrderLines(db, orders.flatMap((o) => o.lines.map((l) => l.id)), exceptId),
+    billedOrderLines(db, orders.flatMap((o) => o.lines.map((l) => l.id))),
     reservedAdvances(db, items.map((i) => i.id), exceptId),
   ]);
   return orders.map((o) => ({
@@ -209,7 +208,7 @@ async function orderOptions(
     addresses: addresses.get(o.customerId) ?? [],
     noteLines: lines.filter((l) => l.customerOrderId === o.id).map((l) => ({ ...l, billedBy: billed.get(l.id) ?? null })),
     advances: items.filter((i) => i.orderId === o.id).map((i) => ({ ...i, reserved: reserved.get(i.id) ?? 0 })),
-    billedBefore: Object.fromEntries(o.lines.map((l) => [l.id, before.get(l.id) ?? { qty: 0, amount: 0 }])),
+    billedBefore: Object.fromEntries(o.lines.map((l) => [l.id, before.get(l.id) ?? { qty: 0 }])),
   }));
 }
 
@@ -261,6 +260,10 @@ type CheckedLine = {
   customer_order_line_id: number;
   qty: number;
   price: number;
+  gross_amount: number;
+  discount_type: "Percent" | "Amount" | null;
+  discount_value: number | null;
+  discount_amount: number;
   amount: number;
   dpp_amount: number;
   advance_dpp_amount: number;
@@ -289,6 +292,8 @@ export type CheckedInvoice = {
     ppn_rate: number | null;
     ppn_dpp_other_numerator: number | null;
     ppn_dpp_other_denominator: number | null;
+    gross_amount: number;
+    discount_amount: number;
     amount: number;
     dpp_amount: number;
     advance_dpp_amount: number;
@@ -368,32 +373,27 @@ export async function checkInvoice(
     else if (b.status !== "Active") errors.cash_bank_id = "Rekening tersebut sudah nonaktif.";
   }
 
-  // ---- figures: each line priced from its order line, a later line of the
-  // same order line counting what an earlier one billed (§9.3)
-  const running = new Map(Object.entries(order?.billedBefore ?? {}).map(([k, v]) => [Number(k), { ...v }]));
+  // ---- figures: each line priced from its order line, its gross and discount
+  // the cumulative share after what posted Invoices and this one's earlier
+  // lines billed of the same order line (P112)
+  const running = new Map(Object.entries(order?.billedBefore ?? {}).map(([k, v]) => [Number(k), v.qty]));
   const priced: TaxLine[] = [];
-  const pricedLine = (n: InvoiceNoteLine): TaxLine => {
+  for (const n of picked) {
     const o = orderLine.get(n.customerOrderLineId)!;
-    const b = running.get(o.id) ?? { qty: 0, amount: 0 };
-    return {
+    const before = running.get(o.id) ?? 0;
+    priced.push({
       qty: n.qty,
       orderQty: o.qty,
-      orderAmount: o.amount,
+      orderGross: o.amount + o.discountAmount,
+      orderDiscount: o.discountAmount,
       price: o.price,
       discountType: o.discountType,
       discountValue: o.discountValue,
-      billedQtyBefore: b.qty,
-      billedAmountBefore: b.amount,
+      billedQtyBefore: before,
       withholdingRate: o.withholdingRate,
       withholdingKey: o.withholdingTaxId ? String(o.withholdingTaxId) : null,
-    };
-  };
-  for (const n of picked) {
-    const input = pricedLine(n);
-    priced.push(input);
-    const amount = computeInvoice({ lines: [input], mode: order!.mode, taxable: order!.taxable, rates: order!.rates, advanceUsed: 0 }).amount;
-    const b = running.get(n.customerOrderLineId) ?? { qty: 0, amount: 0 };
-    running.set(n.customerOrderLineId, { qty: b.qty + n.qty, amount: b.amount + amount });
+    });
+    running.set(o.id, before + n.qty);
   }
   const before = computeInvoice({ lines: priced, mode: order?.mode ?? "Exclude", taxable: order?.taxable ?? false, rates: order?.rates ?? null, advanceUsed: 0 });
 
@@ -450,6 +450,8 @@ export async function checkInvoice(
         ppn_rate: order.rates?.rate ?? null,
         ppn_dpp_other_numerator: order.rates?.otherNum ?? null,
         ppn_dpp_other_denominator: order.rates?.otherDen ?? null,
+        gross_amount: figures.gross,
+        discount_amount: figures.discount,
         amount: figures.amount,
         dpp_amount: figures.dpp,
         advance_dpp_amount: figures.advanceUsed,
@@ -468,6 +470,10 @@ export async function checkInvoice(
           customer_order_line_id: o.id,
           qty: n.qty,
           price: o.price,
+          gross_amount: f.gross,
+          discount_type: o.discountType,
+          discount_value: o.discountValue,
+          discount_amount: f.discount,
           amount: f.amount,
           dpp_amount: f.dpp,
           advance_dpp_amount: f.advanceDpp,
@@ -870,7 +876,9 @@ export type InvoiceView = {
   dueDate: string;
   /** As stored: what was computed at the last save, or at Posting. */
   stored: {
-    lines: { delivery_note_line_id: number; amount: number; dpp: number; advanceDpp: number; netDpp: number; ppn: number }[];
+    lines: { delivery_note_line_id: number; gross: number; discount: number; amount: number; dpp: number; advanceDpp: number; netDpp: number; ppn: number }[];
+    gross: number;
+    discount: number;
     amount: number;
     dpp: number;
     advanceUsed: number;
@@ -903,12 +911,16 @@ export async function getInvoice(id: number): Promise<InvoiceView | null> {
     stored: {
       lines: n.lines.map((l) => ({
         delivery_note_line_id: l.delivery_note_line_id,
+        gross: l.gross_amount.toNumber(),
+        discount: l.discount_amount.toNumber(),
         amount: l.amount.toNumber(),
         dpp: l.dpp_amount.toNumber(),
         advanceDpp: l.advance_dpp_amount.toNumber(),
         netDpp: l.net_dpp_amount.toNumber(),
         ppn: l.ppn_amount.toNumber(),
       })),
+      gross: n.gross_amount.toNumber(),
+      discount: n.discount_amount.toNumber(),
       amount: n.amount.toNumber(),
       dpp: n.dpp_amount.toNumber(),
       advanceUsed: n.advance_dpp_amount.toNumber(),

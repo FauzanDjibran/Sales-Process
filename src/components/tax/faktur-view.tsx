@@ -11,7 +11,7 @@ import { setFakturNsfpAction } from "@/app/actions/tax";
 import { documentHref } from "@/lib/erp/document-links";
 import type { FakturView as Faktur } from "@/lib/erp/tax-document";
 import { FAKTUR_KIND_TEXT, fakturLate, normalizeNsfp, type TaxAbilities } from "@/lib/erp/tax-document-workflow";
-import { formatDate, formatMoney, formatNumber, formatPct } from "@/lib/format";
+import { formatDate, formatMoney, formatNumber, formatPct, formatPrice } from "@/lib/format";
 
 const money = (n: number) => formatMoney(n, "IDR");
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
@@ -224,7 +224,7 @@ export function FakturView({
                     <span className="dash">—</span>
                   )}
                 </td>
-                <td className="num">{l.price != null ? <span className="mny">{money(l.price)}</span> : <span className="dash">—</span>}</td>
+                <td className="num">{l.price != null ? <span className="mny">{formatPrice(l.price)}</span> : <span className="dash">—</span>}</td>
                 {settlement && (
                   <>
                     <td className="num">

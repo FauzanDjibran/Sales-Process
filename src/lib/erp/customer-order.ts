@@ -958,6 +958,8 @@ export type InvoiceSourceOrder = {
     price: number;
     discountType: "Percent" | "Amount" | null;
     discountValue: number | null;
+    /** The line's discount as stored; gross = amount + discountAmount. */
+    discountAmount: number;
     amount: number;
     withholdingTaxId: number | null;
     withholdingRate: number | null;
@@ -1004,6 +1006,7 @@ export async function invoiceSourceOrders(filter: { ids?: number[] }, db: Db = p
       price: l.price.toNumber(),
       discountType: (l.discount_type as "Percent" | "Amount" | null) ?? null,
       discountValue: l.discount_value?.toNumber() ?? null,
+      discountAmount: l.discount_amount.toNumber(),
       amount: l.amount.toNumber(),
       withholdingTaxId: l.withholding_tax_id,
       withholdingRate: l.withholding_rate?.toNumber() ?? null,

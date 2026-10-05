@@ -454,10 +454,12 @@ export function receivedProblem(cash: number, max: number): string | null {
  * The Invoice Penjualan's arithmetic (`Sales-Process-Concept.md` §9).
  *
  * An Invoice line bills one Delivery Note line: a quantity of one Customer Order
- * line at that line's price and discount. A percent discount applies to the
- * quantity billed; a nominal one is shared by quantity. **The bill that
- * completes the order line takes what is left of its amount**, so the Invoices
- * on a line always add up to the order line exactly.
+ * line at that line's unrounded unit price and its discount. **Gross and
+ * discount are split cumulatively** (P112, `tax_concept.md` §7.5): a line takes
+ * the order line's figure for everything billed up to and including it, rounded
+ * once, less what was billed before it. So the Invoices on an order line never
+ * drift by more than Rp1 at any point, add up to the order line exactly when
+ * it is complete, and an order closed short is billed exactly what it sent.
  *
  * The Uang Muka used is a DPP typed by the user (U8). It is shared over the
  * lines by their DPP, the largest absorbing the rounding, and each line's PPN
@@ -469,21 +471,25 @@ export function receivedProblem(cash: number, max: number): string | null {
 export type InvoiceLineInput = {
   /** What this Invoice bills, in the order line's unit. */
   qty: number;
-  /** The Customer Order line. */
+  /** The Customer Order line: its quantity, gross and discount as stored. */
   orderQty: number;
-  orderAmount: number;
+  orderGross: number;
+  orderDiscount: number;
+  /** Unrounded unit price (P111). */
   price: number;
   discountType: DiscountType | null;
   discountValue: number | null;
-  /** What other live Invoices bill of the same order line. */
+  /** What was billed of the same order line before this one: posted Invoices, then earlier lines of this one. */
   billedQtyBefore: number;
-  billedAmountBefore: number;
   withholdingRate: number | null;
   withholdingKey: string | null;
 };
 
 export type InvoiceLineResult = {
-  /** qty × price − its share of the discount, in the price mode. */
+  /** Its cumulative share of the order line's gross and discount (P112). */
+  gross: number;
+  discount: number;
+  /** gross − discount, in the price mode. */
   amount: number;
   /** DPP of the goods billed. */
   dpp: number;
@@ -497,6 +503,8 @@ export type InvoiceLineResult = {
 
 export type InvoiceFigures = {
   lines: InvoiceLineResult[];
+  gross: number;
+  discount: number;
   amount: number;
   dpp: number;
   advanceUsed: number;
@@ -512,19 +520,35 @@ export type InvoiceFigures = {
 
 const Q = 10_000;
 
-/** What one Invoice line bills, with the completing bill taking the remainder. */
-export function invoiceLineAmount(l: InvoiceLineInput): number {
-  const qty = Math.round((Number(l.qty) || 0) * Q);
-  const before = Math.round((Number(l.billedQtyBefore) || 0) * Q);
+/**
+ * The order line's gross and discount for its first `q` units (in
+ * ten-thousandths), each rounded once: the whole line's stored figures once
+ * `q` reaches it, so the last part lands on them exactly.
+ */
+function orderLineUpTo(l: InvoiceLineInput, q: number): { gross: number; discount: number } {
   const ordered = Math.round((Number(l.orderQty) || 0) * Q);
-  if (qty <= 0) return 0;
-  if (ordered > 0 && before + qty >= ordered) return Math.round(l.orderAmount - l.billedAmountBefore);
-  if (l.discountType === "Amount") {
-    const raw = (qty / Q) * (Number(l.price) || 0);
-    const off = ordered > 0 ? ((Number(l.discountValue) || 0) * qty) / ordered : 0;
-    return Math.round(raw - off);
-  }
-  return lineAmount({ qty: qty / Q, price: l.price, discountType: l.discountType, discountValue: l.discountValue }).amount;
+  if (q <= 0) return { gross: 0, discount: 0 };
+  if (ordered > 0 && q >= ordered) return { gross: Math.round(l.orderGross), discount: Math.round(l.orderDiscount) };
+  const raw = (q / Q) * (Number(l.price) || 0);
+  const gross = Math.round(raw);
+  const v = Number(l.discountValue) || 0;
+  const off = l.discountType === "Percent" ? (raw * v) / 100 : l.discountType === "Amount" && ordered > 0 ? (v * q) / ordered : 0;
+  return { gross, discount: gross - Math.round(raw - off) };
+}
+
+/**
+ * What one Invoice line bills (P112, `tax_concept.md` §7.5): the order line's
+ * figures up to and including it, less those up to what was billed before.
+ */
+export function invoiceLineFigures(l: InvoiceLineInput): { gross: number; discount: number; amount: number } {
+  const qty = Math.round((Number(l.qty) || 0) * Q);
+  if (qty <= 0) return { gross: 0, discount: 0, amount: 0 };
+  const before = Math.round((Number(l.billedQtyBefore) || 0) * Q);
+  const upTo = orderLineUpTo(l, before + qty);
+  const was = orderLineUpTo(l, before);
+  const gross = upTo.gross - was.gross;
+  const discount = upTo.discount - was.discount;
+  return { gross, discount, amount: gross - discount };
 }
 
 export function computeInvoice(input: {
@@ -535,7 +559,8 @@ export function computeInvoice(input: {
   /** Σ DPP used of the Uang Muka picked. */
   advanceUsed: number;
 }): InvoiceFigures {
-  const amounts = input.lines.map(invoiceLineAmount);
+  const parts = input.lines.map(invoiceLineFigures);
+  const amounts = parts.map((p) => p.amount);
   const full = amounts.map((a) => taxOf(a, input.mode, input.taxable, input.rates).dpp);
   const dpp = full.reduce((a, b) => a + b, 0);
   const advanceUsed = Math.max(0, Math.min(Math.round(input.advanceUsed) || 0, dpp));
@@ -543,7 +568,7 @@ export function computeInvoice(input: {
   const lines: InvoiceLineResult[] = amounts.map((amount, i) => {
     const netDpp = full[i] - shares[i];
     const tax = input.taxable && input.rates ? ppnChain(netDpp, input.rates) : { dppOther: 0, ppn: 0 };
-    return { amount, dpp: full[i], advanceDpp: shares[i], netDpp, ...tax };
+    return { gross: parts[i].gross, discount: parts[i].discount, amount, dpp: full[i], advanceDpp: shares[i], netDpp, ...tax };
   });
   const sum = (f: (l: InvoiceLineResult) => number) => lines.reduce((a, l) => a + f(l), 0);
   const netDpp = sum((l) => l.netDpp);
@@ -554,6 +579,8 @@ export function computeInvoice(input: {
   const withholdingTotal = withholdings.reduce((a, w) => a + w.amount, 0);
   return {
     lines,
+    gross: sum((l) => l.gross),
+    discount: sum((l) => l.discount),
     amount: sum((l) => l.amount),
     dpp,
     advanceUsed,

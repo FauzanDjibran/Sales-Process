@@ -182,6 +182,21 @@ export function formatMoney(
   return prefix + formatNumber(value, currencyLabel === "IDR" ? 0 : 2);
 }
 
+/**
+ * A unit price: `Rp 12.500`, `Rp 12.345,678912`. Unit prices are stored
+ * unrounded at six decimals (P111) and every digit is the price, so the
+ * decimals shown are the decimals it has; the amounts made from it are what
+ * round to whole rupiah, through `formatMoney`.
+ */
+export function formatPrice(
+  value: number | string | { toString(): string } | null | undefined,
+  currencyLabel = "IDR"
+): string {
+  const n = Number(value ?? 0);
+  const prefix = currencyLabel === "IDR" ? "Rp " : `${currencyLabel} `;
+  return prefix + n.toLocaleString("id-ID", { minimumFractionDigits: currencyLabel === "IDR" ? 0 : 2, maximumFractionDigits: 6 });
+}
+
 /** One currency's share of a figure. Totals are kept per currency, never summed. */
 export type MoneyTotal = {
   currencyId: number;

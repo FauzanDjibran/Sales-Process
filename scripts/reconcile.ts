@@ -291,6 +291,8 @@ export const CHECKS: Check[] = [
           GROUP BY v.id HAVING v.dpp_amount <> SUM(l.dpp_amount) OR v.ppn_amount <> SUM(l.ppn_amount)
             OR v.advance_dpp_amount <> SUM(l.advance_dpp_amount) OR v.net_dpp_amount <> SUM(l.net_dpp_amount)
             OR v.dpp_other_amount <> SUM(l.dpp_other_amount) OR v.total_amount <> v.net_dpp_amount + v.ppn_amount
+            OR v.gross_amount <> SUM(l.gross_amount) OR v.discount_amount <> SUM(l.discount_amount)
+            OR v.amount <> v.gross_amount - v.discount_amount OR SUM(l.amount) <> SUM(l.gross_amount) - SUM(l.discount_amount)
             OR v.advance_dpp_amount <> COALESCE((SELECT SUM(dpp_used) FROM fin_ar_invoice_advance_deduction d WHERE d.invoice_id = v.id), 0)`,
   },
   {
@@ -303,11 +305,13 @@ export const CHECKS: Check[] = [
   },
   {
     area: "billing",
-    name: "a fully billed order line is billed at exactly its amount",
-    sql: `SELECT col.id AS order_line, col.amount, SUM(il.amount) AS billed FROM sal_customer_order_line col
+    name: "a fully billed order line is billed at exactly its amount, gross and discount (P112)",
+    sql: `SELECT col.id AS order_line, col.amount, SUM(il.amount) AS billed, col.discount_amount, SUM(il.discount_amount) AS billed_discount
+          FROM sal_customer_order_line col
           JOIN fin_ar_invoice_line il ON il.customer_order_line_id = col.id
           JOIN fin_ar_invoice v ON v.id = il.invoice_id AND v.status = 'Posted'
-          GROUP BY col.id HAVING SUM(il.qty) = col.qty AND SUM(il.amount) <> col.amount`,
+          GROUP BY col.id HAVING SUM(il.qty) = col.qty AND (SUM(il.amount) <> col.amount
+            OR SUM(il.discount_amount) <> col.discount_amount OR SUM(il.gross_amount) <> col.amount + col.discount_amount)`,
   },
   // ----------------------------------------------------------------- tax
   {

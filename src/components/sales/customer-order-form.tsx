@@ -27,7 +27,7 @@ import type {
   CustomerOrderView,
 } from "@/lib/erp/customer-order";
 import { formatTaxId } from "@/lib/erp/partner-shape";
-import { formatDate, formatMoney, formatNumber, formatPct, todayIso } from "@/lib/format";
+import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso } from "@/lib/format";
 
 /**
  * The Customer Order, in all three modes: `new` (also a Salin), `edit` (Draft
@@ -715,11 +715,12 @@ export function CustomerOrderForm({
                         <MoneyInput
                           size="sm"
                           value={l.price}
+                          decimals={6}
                           ariaLabel="Harga"
                           onChange={(v) => setLine(l.key, { price: v })}
                         />
                       ) : (
-                        <span className="mny">{money(Number(l.price))}</span>
+                        <span className="mny">{formatPrice(Number(l.price))}</span>
                       )}
                     </td>
                     <td>

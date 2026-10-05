@@ -22,7 +22,7 @@ import {
   type InvoiceDeductionInput,
   type InvoiceHeaderInput,
 } from "../src/lib/erp/ar-invoice";
-import { cashToClear, computeInvoice, invoiceLineAmount, settleBillFromCash } from "../src/lib/erp/sales-tax";
+import { cashToClear, computeInvoice, invoiceLineFigures, settleBillFromCash } from "../src/lib/erp/sales-tax";
 import { availableInvoiceActions, invoiceAbilities } from "../src/lib/erp/ar-invoice-workflow";
 import { fakturLate, normalizeNsfp, slipExpected, slipLate, uploadDeadline } from "../src/lib/erp/tax-document-workflow";
 import { createTaxDocsForInvoice, createTaxDocsForReceipt, recordSlipReceived, setFakturNsfp, taxDocsOf } from "../src/lib/erp/tax-document";
@@ -280,19 +280,42 @@ after(async () => {
 
 // -------------------------------------------------------------- arithmetic
 
-describe("an Invoice line's amount (§9.3)", () => {
-  const base = { orderQty: 10, orderAmount: 990_000, price: 100_000, discountType: "Amount" as const, discountValue: 10_000, withholdingRate: null, withholdingKey: null };
-  test("a nominal discount is shared by quantity; the completing bill takes what is left", () => {
-    assert.equal(invoiceLineAmount({ ...base, qty: 4, billedQtyBefore: 0, billedAmountBefore: 0 }), 396_000);
-    assert.equal(invoiceLineAmount({ ...base, qty: 3, billedQtyBefore: 4, billedAmountBefore: 396_000 }), 297_000);
-    assert.equal(invoiceLineAmount({ ...base, qty: 3, billedQtyBefore: 7, billedAmountBefore: 693_000 }), 297_000, "990.000 − 693.000");
+describe("an Invoice line's gross and discount: the cumulative split (P112, tax_concept §7.5)", () => {
+  const base = { orderQty: 10, orderGross: 1_000_000, orderDiscount: 10_000, price: 100_000, discountType: "Amount" as const, discountValue: 10_000, withholdingRate: null, withholdingKey: null };
+  const part = (over: Partial<Parameters<typeof invoiceLineFigures>[0]>) => invoiceLineFigures({ ...base, qty: 0, billedQtyBefore: 0, ...over });
+
+  test("a nominal discount: each part is the share up to it, less what came before", () => {
+    assert.deepEqual(part({ qty: 4 }), { gross: 400_000, discount: 4_000, amount: 396_000 });
+    assert.deepEqual(part({ qty: 3, billedQtyBefore: 4 }), { gross: 300_000, discount: 3_000, amount: 297_000 });
+    assert.deepEqual(part({ qty: 3, billedQtyBefore: 7 }), { gross: 300_000, discount: 3_000, amount: 297_000 });
+  });
+
+  test("Rp 100.000 off 3 units, billed one at a time: never drifts, lands on the line exactly", () => {
+    const line = { ...base, orderQty: 3, orderGross: 300_000, orderDiscount: 100_000, discountValue: 100_000 };
+    const parts = [0, 1, 2].map((before) => invoiceLineFigures({ ...line, qty: 1, billedQtyBefore: before }));
+    assert.deepEqual(parts.map((x) => x.discount), [33_333, 33_334, 33_333]);
+    assert.equal(parts.reduce((a, x) => a + x.discount, 0), 100_000);
+    assert.equal(parts.reduce((a, x) => a + x.amount, 0), 200_000);
+  });
+
+  test("an unrounded unit price: gross rounds once per running total", () => {
+    const line = { ...base, orderQty: 3, price: 12_345.678912, orderGross: 37_037, orderDiscount: 0, discountType: null, discountValue: null };
+    const gross = [0, 1, 2].map((before) => invoiceLineFigures({ ...line, qty: 1, billedQtyBefore: before }).gross);
+    assert.deepEqual(gross, [12_346, 12_345, 12_346]);
+    assert.equal(gross.reduce((a, g) => a + g, 0), 37_037);
+  });
+
+  test("a percent discount follows the same split, and an order closed short is billed exactly its share", () => {
+    const line = { ...base, orderQty: 3, price: 33_333, orderGross: 99_999, orderDiscount: 10_000, discountType: "Percent" as const, discountValue: 10 };
+    const first = invoiceLineFigures({ ...line, qty: 2, billedQtyBefore: 0 });
+    assert.deepEqual(first, { gross: 66_666, discount: 6_667, amount: 59_999 });
   });
 
   test("the advance is shared over the lines; PPN is the chain on each line's net DPP", () => {
     const f = computeInvoice({
       lines: [
-        { ...base, qty: 4, billedQtyBefore: 0, billedAmountBefore: 0, withholdingRate: 1.5, withholdingKey: "w" },
-        { orderQty: 4, orderAmount: 200_000, price: 50_000, discountType: null, discountValue: null, qty: 4, billedQtyBefore: 0, billedAmountBefore: 0, withholdingRate: null, withholdingKey: null },
+        { ...base, qty: 4, billedQtyBefore: 0, withholdingRate: 1.5, withholdingKey: "w" },
+        { orderQty: 4, orderGross: 200_000, orderDiscount: 0, price: 50_000, discountType: null, discountValue: null, qty: 4, billedQtyBefore: 0, withholdingRate: null, withholdingKey: null },
       ],
       mode: "Exclude",
       taxable: true,
@@ -426,6 +449,19 @@ describe("Posting recognises Piutang, revenue and PPN once", () => {
     assert.match(posted[0].ledger_no, /^BP\/\d{4}\/\d{2}\/\d{4}$/);
     assert.deepEqual(posted.map((e) => e.line_no).sort(), [1, 2]);
     assert.notEqual(adv.entries[0].ledger_no, posted[0].ledger_no);
+  });
+
+  test("it stores its own gross and discount, line and header, with the order line's discount type (P111)", async () => {
+    const v = await prisma.finArInvoice.findUniqueOrThrow({ where: { id: ids.inv[0] }, include: { lines: true } });
+    for (const l of v.lines) {
+      assert.equal(l.gross_amount.toNumber() - l.discount_amount.toNumber(), l.amount.toNumber());
+      const o = await prisma.salCustomerOrderLine.findUniqueOrThrow({ where: { id: l.customer_order_line_id } });
+      assert.equal(l.discount_type, o.discount_type);
+    }
+    const sum = (f: (l: (typeof v.lines)[number]) => number) => v.lines.reduce((a, l) => a + f(l), 0);
+    assert.equal(v.gross_amount.toNumber(), sum((l) => l.gross_amount.toNumber()));
+    assert.equal(v.discount_amount.toNumber(), sum((l) => l.discount_amount.toNumber()));
+    assert.equal(v.gross_amount.toNumber() - v.discount_amount.toNumber(), v.amount.toNumber());
   });
 
   test("a posted Invoice is final", async () => {
