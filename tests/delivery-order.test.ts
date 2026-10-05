@@ -248,7 +248,7 @@ describe("what a Delivery Order must satisfy", () => {
     const zero = await checkDeliveryOrder(prisma, header(), [line("")], null);
     assert.ok(!zero.ok && zero.errors["lines.0.qty"], "a blank quantity is refused on its row");
     const tooMuch = await checkDeliveryOrder(prisma, header(), [line(2_000.0001)], null);
-    assert.ok(!tooMuch.ok && /Melebihi sisa SO\//.test(tooMuch.errors["lines.0.qty"]));
+    assert.ok(!tooMuch.ok && /Melebihi sisa SO-NP\//.test(tooMuch.errors["lines.0.qty"]));
     const none = await checkDeliveryOrder(prisma, header(), [], null);
     assert.ok(!none.ok && none.errors._lines);
     assert.ok((await checkDeliveryOrder(prisma, header(), [line("2000"), line(100, so.other)], null)).ok, "exactly what is left");
@@ -258,12 +258,12 @@ describe("what a Delivery Order must satisfy", () => {
 // ------------------------------------------------------------ the quantity
 
 describe("Delivery Orders split a Sales Order", () => {
-  test("each takes part of the line, numbered DO/YYYY/MM/NNNN, and posts nothing", async () => {
+  test("each takes part of the line, numbered DO-NP/YYYY/MM/NNNN for an order without PPN (P109), and posts nothing", async () => {
     const journals = await prisma.accJournal.count();
     for (const m of ["10", "11"]) {
       const r = await create(header({ do_date: `2026-${m}-01`, delivery_date: `2026-${m}-02` }), [line(500)]);
       assert.ok(r.ok, JSON.stringify(r));
-      assert.match(r.doNo, new RegExp(`^DO/2026/${m}/\\d{4}$`));
+      assert.match(r.doNo, new RegExp(`^DO-NP/2026/${m}/\\d{4}$`));
     }
     assert.equal(await prisma.accJournal.count(), journals);
     const d = await salesOrderDeliveries(so.id, co.id);

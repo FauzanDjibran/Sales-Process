@@ -241,6 +241,19 @@ describe("an order's life", () => {
     assert.equal(Number(b.orderNo.slice(-4)), Number(a.orderNo.slice(-4)) + 1);
   });
 
+  test("an order without PPN is numbered CO-NP; a Draft that changes Kena PPN changes series (P109)", async () => {
+    const np = await create(header({ is_taxable: false }));
+    assert.ok(np.ok);
+    assert.match(np.orderNo, /^CO-NP\/2026\/09\/\d{4}$/);
+    const flipped = await updateCustomerOrder(np.id, header({ is_taxable: true }), [soLine()], actor);
+    assert.ok(flipped.ok);
+    assert.match(flipped.orderNo, /^CO\/2026\/09\/\d{4}$/, "it moved to the PPN series");
+    assert.equal((await getCustomerOrder(np.id))!.orderNo, flipped.orderNo);
+    const same = await updateCustomerOrder(np.id, header({ is_taxable: true, note: "x" }), [soLine()], actor);
+    assert.ok(same.ok);
+    assert.equal(same.orderNo, flipped.orderNo, "an edit that keeps Kena PPN keeps the number");
+  });
+
   test("a Draft is edited; Ajukan locks it; Setujui opens it; posting nothing", async () => {
     const journals = await prisma.accJournal.count();
     const r = await create();

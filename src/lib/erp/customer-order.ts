@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { nextDocumentNumber } from "./document-number";
+import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { formatAddress } from "./partner-shape";
 import { CUSTOMER_CATEGORY } from "./entities";
 import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
@@ -427,8 +427,8 @@ export async function checkCustomerOrder(
 
 // ------------------------------------------------------------------ writes
 
-async function nextOrderNo(db: Db, date: Date): Promise<string> {
-  return nextDocumentNumber("CO", date, async (series) => {
+async function nextOrderNo(db: Db, date: Date, isTaxable: boolean): Promise<string> {
+  return nextDocumentNumber(taxSeriesPrefix("CO", isTaxable), date, async (series) => {
     const row = await db.salCustomerOrder.findFirst({
       where: { order_no: { startsWith: series } },
       orderBy: { id: "desc" },
@@ -498,7 +498,7 @@ export async function createCustomerOrder(
         ...c.header,
         ...totalsData(c.totals),
         ...rateData(c.rates),
-        order_no: await nextOrderNo(tx, c.header.order_date),
+        order_no: await nextOrderNo(tx, c.header.order_date, c.header.is_taxable),
         copied_from_id: copiedFromId,
         created_by: actorId,
         lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i)) },
@@ -516,7 +516,7 @@ export async function updateCustomerOrder(
   lines: CustomerOrderLineInput[],
   actorId: number
 ): Promise<CustomerOrderResult> {
-  const current = await prisma.salCustomerOrder.findUnique({ where: { id }, select: { status: true, order_no: true } });
+  const current = await prisma.salCustomerOrder.findUnique({ where: { id }, select: { status: true, order_no: true, is_taxable: true } });
   if (!current) return { ok: false, errors: { _form: "Customer Order tidak ditemukan." } };
   if (!customerOrderIsEditable(current.status as CustomerOrderStatus)) {
     return { ok: false, errors: { _form: "Hanya Customer Order berstatus Draft yang dapat diubah." } };
@@ -525,7 +525,11 @@ export async function updateCustomerOrder(
   const c = await checkCustomerOrder(header, lines);
   if (!c.ok) return c;
 
-  await prisma.$transaction(async (tx) => {
+  const orderNo = await prisma.$transaction(async (tx) => {
+    // A Draft whose Kena PPN changed moves to the other series (P109); nothing
+    // names a Draft's number yet.
+    const renumbered =
+      c.header.is_taxable !== current.is_taxable ? await nextOrderNo(tx, c.header.order_date, c.header.is_taxable) : null;
     // A Draft's lines are nobody's reference yet, so they are replaced whole.
     await tx.salCustomerOrderLine.deleteMany({ where: { order_id: id } });
     await tx.salCustomerOrder.update({
@@ -534,13 +538,15 @@ export async function updateCustomerOrder(
         ...c.header,
         ...totalsData(c.totals),
         ...rateData(c.rates),
+        ...(renumbered ? { order_no: renumbered } : {}),
         updated_by: actorId,
         lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i)) },
       },
     });
     await audit(tx, id, "UPDATE", "update", actorId);
+    return renumbered ?? current.order_no;
   });
-  return { ok: true, id, orderNo: current.order_no };
+  return { ok: true, id, orderNo };
 }
 
 /** A stored order, back in the shape `checkCustomerOrder` reads. */
@@ -1068,6 +1074,8 @@ export type SalesOrderSource = {
   customerLabel: string;
   customerName: string;
   customerActive: boolean;
+  /** Kena PPN — which number series the documents drawn from it take (P109). */
+  isTaxable: boolean;
   /** The Customer Order's own address — where a Sales Order delivers unless told otherwise. */
   addressId: number;
   poNo: string | null;
@@ -1110,6 +1118,7 @@ export async function salesOrderSources(
     customerLabel: o.customer.partner_label,
     customerName: o.customer.partner_name,
     customerActive: o.customer.status === "Active",
+    isTaxable: o.is_taxable,
     addressId: o.address_id,
     poNo: o.po_no,
     lines: o.lines.map((l) => ({

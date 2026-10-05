@@ -3,7 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { BASE_CURRENCY_LABEL } from "./currency";
-import { nextDocumentNumber } from "./document-number";
+import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { advanceSourceOrders, customerOrderNumbersByIds, lockCustomerOrder, type AdvanceSourceOrder } from "./customer-order";
 import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
 import {
@@ -235,8 +235,8 @@ export async function checkSalesAdvance(
 
 // ------------------------------------------------------------------ writes
 
-async function nextAdvanceNo(db: Db, date: Date): Promise<string> {
-  return nextDocumentNumber("ARA", date, async (series) => {
+async function nextAdvanceNo(db: Db, date: Date, isTaxable: boolean): Promise<string> {
+  return nextDocumentNumber(taxSeriesPrefix("ARA", isTaxable), date, async (series) => {
     const row = await db.finArAdvance.findFirst({
       where: { advance_no: { startsWith: series } },
       orderBy: { id: "desc" },
@@ -296,7 +296,7 @@ export async function createSalesAdvance(input: SalesAdvanceInput, actorId: numb
           ...r.c.data,
           ...figureData(r.c.figures),
           ...rateData(r.c.rates),
-          advance_no: await nextAdvanceNo(tx, r.c.data.advance_date),
+          advance_no: await nextAdvanceNo(tx, r.c.data.advance_date, r.c.data.is_taxable),
           created_by: actorId,
         },
       });

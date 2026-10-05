@@ -258,11 +258,11 @@ describe("what a Delivery Note must satisfy", () => {
 // ------------------------------------------------------------ the quantity
 
 describe("Delivery Notes split a Delivery Order", () => {
-  test("a Draft reserves its quantity, numbered SJ/YYYY/MM/NNNN, and writes no journal", async () => {
+  test("a Draft reserves its quantity, numbered SJ-NP/YYYY/MM/NNNN for an order without PPN (P109), and writes no journal", async () => {
     const journals = await prisma.accJournal.count();
     const r = await create(header(), [line(40)]);
     assert.ok(r.ok, JSON.stringify(r));
-    assert.match(r.dnNo, /^SJ\/\d{4}\/\d{2}\/\d{4}$/);
+    assert.match(r.dnNo, /^SJ-NP\/\d{4}\/\d{2}\/\d{4}$/);
     assert.equal(await prisma.accJournal.count(), journals);
     const over = await create(header(), [line(61)]);
     assert.ok(!over.ok && /Melebihi sisa Delivery Order \(60/.test(over.errors["lines.0.qty"]), "the Draft holds 40 of 100");

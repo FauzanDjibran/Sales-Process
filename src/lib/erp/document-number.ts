@@ -33,6 +33,16 @@ export function documentSeries(prefix: string, date: Date | string): string {
   return `${prefix}/${year}/${month}/`;
 }
 
+/**
+ * A document without PPN is numbered in its own series, its prefix marked
+ * `-NP` (P109): `CO` -> `CO-NP/2026/10/0001`. The Customer Order decides it
+ * and every document that follows its tax status takes the same side. The two
+ * series never meet: `CO/2026/10/` is not a prefix of `CO-NP/2026/10/`.
+ */
+export function taxSeriesPrefix(prefix: string, isTaxable: boolean): string {
+  return isTaxable ? prefix : `${prefix}-NP`;
+}
+
 /** `JV`, 2026-09-15, 1 -> `JV/2026/09/0001`. Padded to four, longer beyond. */
 export function formatDocumentNumber(
   prefix: string,

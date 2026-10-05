@@ -5,6 +5,7 @@ import {
   documentSequence,
   formatDocumentNumber,
   nextDocumentNumber,
+  taxSeriesPrefix,
 } from "../src/lib/erp/document-number";
 
 /**
@@ -27,6 +28,12 @@ describe("document numbers read PREFIX/YYYY/MM/NNNN", () => {
 
   test("the series a reader filters on is the number without its tail", () => {
     assert.equal(documentSeries("SOB", "2026-12-31"), "SOB/2026/12/");
+  });
+
+  test("a document without PPN takes the -NP series, which never meets the other (P109)", () => {
+    assert.equal(taxSeriesPrefix("CO", true), "CO");
+    assert.equal(formatDocumentNumber(taxSeriesPrefix("CO", false), "2026-10-05", 1), "CO-NP/2026/10/0001");
+    assert.ok(!documentSeries(taxSeriesPrefix("INV", false), "2026-10-05").startsWith(documentSeries("INV", "2026-10-05")));
   });
 
   test("the tail is read after the last slash, whatever the prefix", () => {

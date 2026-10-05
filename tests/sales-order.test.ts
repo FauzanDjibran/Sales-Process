@@ -217,12 +217,12 @@ describe("what a Sales Order must satisfy", () => {
 // ----------------------------------------------------------- the schedule
 
 describe("Sales Orders split a Customer Order (10.000 as 2.000 a month)", () => {
-  test("each takes part of the line, numbered SO/YYYY/MM/NNNN, and posts nothing", async () => {
+  test("each takes part of the line, numbered SO-NP/YYYY/MM/NNNN for an order without PPN (P109), and posts nothing", async () => {
     const journals = await prisma.accJournal.count();
     for (const [m, d] of [["10", "15"], ["11", "15"]]) {
       const r = await create(header({ order_date: `2026-${m}-01`, delivery_date: `2026-${m}-${d}` }), [line(2_000)]);
       assert.ok(r.ok, JSON.stringify(r));
-      assert.match(r.orderNo, new RegExp(`^SO/2026/${m}/\\d{4}$`));
+      assert.match(r.orderNo, new RegExp(`^SO-NP/2026/${m}/\\d{4}$`));
     }
     assert.equal(await prisma.accJournal.count(), journals);
     const s = await customerOrderSchedule(co.id);

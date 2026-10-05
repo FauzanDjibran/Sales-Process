@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { nextDocumentNumber } from "./document-number";
+import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { formatNumber } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate } from "./fiscal";
@@ -486,8 +486,8 @@ export async function checkInvoice(
 
 // ------------------------------------------------------------------ writes
 
-async function nextInvoiceNo(db: Db, date: Date): Promise<string> {
-  return nextDocumentNumber("INV", date, async (series) => {
+async function nextInvoiceNo(db: Db, date: Date, isTaxable: boolean): Promise<string> {
+  return nextDocumentNumber(taxSeriesPrefix("INV", isTaxable), date, async (series) => {
     const row = await db.finArInvoice.findFirst({
       where: { invoice_no: { startsWith: series } },
       orderBy: { id: "desc" },
@@ -539,7 +539,7 @@ export async function createInvoice(
       const r = await checkInvoice(tx, header, lines, deductions, null);
       if (!r.ok) throw new Refused(r.errors);
       const row = await tx.finArInvoice.create({
-        data: { ...r.c.data, invoice_no: await nextInvoiceNo(tx, r.c.data.invoice_date), created_by: actorId },
+        data: { ...r.c.data, invoice_no: await nextInvoiceNo(tx, r.c.data.invoice_date, r.c.data.is_taxable), created_by: actorId },
       });
       await writeRows(tx, row.id, r.c);
       await audit(tx, row.id, "TAMBAH", "create", actorId);

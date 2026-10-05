@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { nextDocumentNumber } from "./document-number";
+import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { formatAddress } from "./partner-shape";
 import { formatNumber } from "@/lib/format";
 import { customerOrderNumbersByIds, lockCustomerOrder, recordCustomerOrderDelivery, salesOrderSources, type SalesOrderSource } from "./customer-order";
@@ -189,6 +189,8 @@ type Checked = {
     address_id: number;
     note: string | null;
   };
+  /** The Customer Order's Kena PPN: the number series (P109). */
+  taxable: boolean;
   lines: CheckedLine[];
 };
 
@@ -277,6 +279,7 @@ export async function checkSalesOrder(
         address_id: addressId!,
         note: String(header.note ?? "").trim() || null,
       },
+      taxable: source.isTaxable,
       lines: out,
     },
   };
@@ -284,8 +287,8 @@ export async function checkSalesOrder(
 
 // ------------------------------------------------------------------ writes
 
-async function nextOrderNo(db: Db, date: Date): Promise<string> {
-  return nextDocumentNumber("SO", date, async (series) => {
+async function nextOrderNo(db: Db, date: Date, isTaxable: boolean): Promise<string> {
+  return nextDocumentNumber(taxSeriesPrefix("SO", isTaxable), date, async (series) => {
     const row = await db.salOrder.findFirst({
       where: { order_no: { startsWith: series } },
       orderBy: { id: "desc" },
@@ -329,7 +332,7 @@ export async function createSalesOrder(
       const row = await tx.salOrder.create({
         data: {
           ...r.c.data,
-          order_no: await nextOrderNo(tx, r.c.data.order_date),
+          order_no: await nextOrderNo(tx, r.c.data.order_date, r.c.taxable),
           created_by: actorId,
           lines: { create: r.c.lines },
         },

@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { nextDocumentNumber } from "./document-number";
+import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { formatNumber } from "@/lib/format";
 import { customerOrderNumbersByIds, lockCustomerOrder } from "./customer-order";
 import {
@@ -175,6 +175,8 @@ type Checked = {
     address_id: number;
     note: string | null;
   };
+  /** The Customer Order's Kena PPN: the number series (P109). */
+  taxable: boolean;
   lines: CheckedLine[];
 };
 
@@ -279,6 +281,7 @@ export async function checkDeliveryOrder(
         address_id: addressId!,
         note: String(header.note ?? "").trim() || null,
       },
+      taxable: source.isTaxable,
       lines: out,
     },
   };
@@ -286,8 +289,8 @@ export async function checkDeliveryOrder(
 
 // ------------------------------------------------------------------ writes
 
-async function nextDoNo(db: Db, date: Date): Promise<string> {
-  return nextDocumentNumber("DO", date, async (series) => {
+async function nextDoNo(db: Db, date: Date, isTaxable: boolean): Promise<string> {
+  return nextDocumentNumber(taxSeriesPrefix("DO", isTaxable), date, async (series) => {
     const row = await db.salDeliveryOrder.findFirst({
       where: { do_no: { startsWith: series } },
       orderBy: { id: "desc" },
@@ -331,7 +334,7 @@ export async function createDeliveryOrder(
       const row = await tx.salDeliveryOrder.create({
         data: {
           ...r.c.data,
-          do_no: await nextDoNo(tx, r.c.data.do_date),
+          do_no: await nextDoNo(tx, r.c.data.do_date, r.c.taxable),
           created_by: actorId,
           lines: { create: r.c.lines },
         },
@@ -646,6 +649,8 @@ export type DeliveryNoteSource = {
   status: DeliveryOrderStatus;
   customerOrderId: number;
   customerOrderNo: string;
+  /** The Customer Order's Kena PPN: the Delivery Note's number series (P109). */
+  isTaxable: boolean;
   poNo: string | null;
   customerId: number;
   customerLabel: string;
@@ -689,6 +694,7 @@ export async function deliveryNoteSources(
       status: r.status as DeliveryOrderStatus,
       customerOrderId: r.customer_order_id,
       customerOrderNo: co?.orderNo ?? "",
+      isTaxable: co?.isTaxable ?? true,
       poNo: co?.poNo ?? null,
       customerId: r.customer_id,
       customerLabel: r.customer.partner_label,

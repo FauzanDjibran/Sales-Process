@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { nextDocumentNumber } from "./document-number";
+import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { formatNumber } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate } from "./fiscal";
@@ -374,8 +374,8 @@ function checkPicks(
 
 // ------------------------------------------------------------------ writes
 
-async function nextDnNo(db: Db, date: Date): Promise<string> {
-  return nextDocumentNumber("SJ", date, async (series) => {
+async function nextDnNo(db: Db, date: Date, isTaxable: boolean): Promise<string> {
+  return nextDocumentNumber(taxSeriesPrefix("SJ", isTaxable), date, async (series) => {
     const row = await db.logDeliveryNote.findFirst({
       where: { dn_no: { startsWith: series } },
       orderBy: { id: "desc" },
@@ -422,7 +422,8 @@ export async function createDeliveryNote(
       const row = await tx.logDeliveryNote.create({
         data: {
           ...r.c.data,
-          dn_no: await nextDnNo(tx, r.c.data.dn_date),
+          // A sale's note follows its Customer Order's series (P109).
+          dn_no: await nextDnNo(tx, r.c.data.dn_date, r.c.source.isTaxable),
           created_by: actorId,
           lines: { create: r.c.lines.map(({ picks, ...l }) => ({ ...l, lots: { create: picks } })) },
         },
