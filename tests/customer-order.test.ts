@@ -74,7 +74,7 @@ const header = (over: Partial<CustomerOrderHeaderInput> = {}): CustomerOrderHead
 
 const soLine = (over: Partial<CustomerOrderLineInput> = {}): CustomerOrderLineInput => ({
   item_id: f.goods,
-  uom_id: f.box,
+  uom_id: f.pcs,
   qty: 2,
   price: 1_000_000,
   discount_type: null,
@@ -161,7 +161,8 @@ describe("what the form offers", () => {
     assert.ok(!ids.includes(f.service), "no Jasa on a Customer Order (Barang) (P49)");
     assert.ok(!ids.includes(f.unsellable), "only Dapat Dijual");
     const goods = o.items.find((i) => i.id === f.goods)!;
-    assert.deepEqual(goods.uoms.map((u) => [u.id, u.factor]), [[f.pcs, 1], [f.box, 12]]);
+    // Sales sells in the base unit (P108): the BOX conversion serves buying only.
+    assert.deepEqual(goods.uoms.map((u) => [u.id, u.factor]), [[f.pcs, 1]]);
   });
 });
 
@@ -173,7 +174,7 @@ describe("what may be saved", () => {
     assert.ok(c.ok);
     assert.equal(c.totals.dpp, 2_000_000);
     assert.equal(c.totals.ppn, 220_000);
-    assert.equal(c.lines[0].uom_factor, 12, "the factor is copied onto the line");
+    assert.equal(c.lines[0].uom_factor, 1, "a sales line is in the base unit (P108)");
   });
 
   test("the header's required choices and dates", async () => {
@@ -205,17 +206,19 @@ describe("what may be saved", () => {
     assert.ok(!b.ok && b.errors.address_id);
   });
 
-  test("a line must be a sellable Barang in one of its own units", async () => {
+  test("a line must be a sellable Barang in its base unit (P108)", async () => {
     const c = await checkCustomerOrder(header(), [
       soLine({ item_id: f.service }),
       soLine({ item_id: f.unsellable }),
       soLine({ uom_id: f.ctn }),
       soLine({ qty: 0 }),
+      soLine({ uom_id: f.box }),
     ]);
     assert.ok(!c.ok);
     assert.ok(c.errors["lines.0.item_id"] && c.errors["lines.1.item_id"]);
     assert.ok(c.errors["lines.2.uom_id"]);
     assert.ok(c.errors["lines.3.amount"]);
+    assert.equal(c.errors["lines.4.uom_id"], "Penjualan memakai satuan dasar barang.", "even a unit the item converts to");
     assert.ok(c.errors._lines);
   });
 

@@ -149,7 +149,7 @@ export async function customerOrderOptions(): Promise<CustomerOrderOptions> {
     prisma.mItem.findMany({
       where: { item_type: "Barang", can_sell: true },
       orderBy: { item_label: "asc" },
-      include: { base_uom: true, uoms: { include: { uom: true }, orderBy: [{ sort_order: "asc" }, { id: "asc" }] } },
+      include: { base_uom: true },
     }),
     prisma.refPaymentTerm.findMany({ orderBy: { due_days: "asc" } }),
     prisma.refWithholdingTax.findMany({ orderBy: { wht_label: "asc" } }),
@@ -192,10 +192,9 @@ export async function customerOrderOptions(): Promise<CustomerOrderOptions> {
       label: i.item_label,
       name: i.item_name,
       active: i.status === "Active",
-      uoms: [
-        { id: i.base_uom.id, label: i.base_uom.uom_label, name: i.base_uom.uom_name, factor: 1 },
-        ...i.uoms.map((u) => ({ id: u.uom.id, label: u.uom.uom_label, name: u.uom.uom_name, factor: u.factor.toNumber() })),
-      ],
+      // Sales sells in the item's base unit (P108): the line offers no other.
+      // The Item's conversions serve buying.
+      uoms: [{ id: i.base_uom.id, label: i.base_uom.uom_label, name: i.base_uom.uom_name, factor: 1 }],
     })),
     terms: terms.map((t) => ({ id: t.id, label: t.term_label, name: t.term_name, active: t.status === "Active" })),
     withholdingTaxes: taxes.map((t) => ({
@@ -315,7 +314,6 @@ export async function checkCustomerOrder(
     (
       await prisma.mItem.findMany({
         where: { id: { in: itemIds } },
-        include: { uoms: true },
       })
     ).map((i) => [i.id, i])
   );
@@ -339,13 +337,13 @@ export async function checkCustomerOrder(
       continue;
     }
 
-    const uomId = Number(l.uom_id);
-    const factor =
-      uomId === item.base_uom_id ? 1 : item.uoms.find((u) => u.uom_id === uomId)?.factor.toNumber();
-    if (!factor) {
-      errors[lineKey(i, "uom_id")] = "Satuan ini tidak berlaku untuk barang tersebut.";
+    // Sales sells in the item's base unit (P108); a line names it or nothing.
+    const uomId = Number(l.uom_id) || item.base_uom_id;
+    if (uomId !== item.base_uom_id) {
+      errors[lineKey(i, "uom_id")] = "Penjualan memakai satuan dasar barang.";
       continue;
     }
+    const factor = 1;
 
     const discountType =
       l.discount_type === "Percent" || l.discount_type === "Amount" ? (l.discount_type as DiscountType) : null;

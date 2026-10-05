@@ -71,13 +71,13 @@ async function fixtureCustomer() {
 }
 
 /**
- * An Open Customer Order — 100 BOX of GOODS (1 BOX = 12 PCS) and 50 PCS of
- * OTHER — one Open Sales Order for all of it, and one issued Delivery Order
+ * An Open Customer Order — 100 PCS of GOODS and 50 PCS of OTHER, each in its
+ * base unit, as sales sells (P108) — one Open Sales Order for all of it, and one issued Delivery Order
  * for all of that. Returns the Delivery Order and its line ids.
  */
 async function issuedDeliveryOrder(
   items: [item: number, uom: number, qty: number][] = [
-    [f.goods, f.box, 100],
+    [f.goods, f.pcs, 100],
     [f.other, f.pcs, 50],
   ]
 ) {
@@ -230,7 +230,7 @@ describe("what the form offers", () => {
     assert.deepEqual(
       mine.lines.map((l) => [l.qty, l.uomFactor, l.held]),
       [
-        [100, 12, 0],
+        [100, 1, 0],
         [50, 1, 0],
       ]
     );
@@ -292,14 +292,14 @@ describe("Posting issues the goods and books HPP only", () => {
   });
 
   test("refused while Account Mapping lacks HPP or Persediaan", async () => {
-    assert.deepEqual(await setItemCost(f.goods, "2500", actor), { ok: true });
+    assert.deepEqual(await setItemCost(f.goods, "30000", actor), { ok: true });
     await setMapping("cogs_account", null);
     const refused = await transitionDeliveryNote(ids.dn[0], "post", actor);
     await setMapping("cogs_account", String(f.cogsAcc));
     assert.ok(!refused.ok && /Account Mapping/.test(refused.errors._form));
   });
 
-  test("40 BOX = 480 PCS × 2.500: Dr HPP 1.200.000 / Cr Persediaan 1.200.000, dated Tanggal Kirim", async () => {
+  test("40 PCS × 30.000: Dr HPP 1.200.000 / Cr Persediaan 1.200.000, dated Tanggal Kirim", async () => {
     const [first] = ids.dn;
     const movesBefore = await prisma.tmpStockMovement.count();
     const preview = await deliveryNotePreview(first, actor);
@@ -312,7 +312,7 @@ describe("Posting issues the goods and books HPP only", () => {
     assert.ok(r.ok, JSON.stringify(r));
     const note = (await getDeliveryNote(first))!;
     assert.equal(note.status, "Posted");
-    assert.deepEqual(note.lines.map((l) => [l.qty, l.baseQty, l.unitCost, l.cost]), [[40, 480, 2_500, 1_200_000]]);
+    assert.deepEqual(note.lines.map((l) => [l.qty, l.baseQty, l.unitCost, l.cost]), [[40, 40, 30_000, 1_200_000]]);
     assert.equal(note.cost, 1_200_000);
     const journalLines = await prisma.accJournalLine.findMany({ where: { journal_id: note.journalId! }, orderBy: { sequence_no: "asc" } });
     assert.deepEqual(
@@ -331,15 +331,15 @@ describe("Posting issues the goods and books HPP only", () => {
     assert.equal(journal.posting_date?.toISOString().slice(0, 10), today);
     assert.equal(await prisma.finArItem.count(), arCount, "no Piutang: the Invoice recognises it");
     const moves = await prisma.tmpStockMovement.findMany({ where: { source_doc_id: first, item_id: f.goods } });
-    assert.deepEqual(moves.map((m) => [m.warehouse_id, m.base_qty_out.toNumber(), m.cost_amount.toNumber()]), [[f.warehouse, 480, 1_200_000]]);
+    assert.deepEqual(moves.map((m) => [m.warehouse_id, m.base_qty_out.toNumber(), m.cost_amount.toNumber()]), [[f.warehouse, 40, 1_200_000]]);
   });
 
   test("a posted note is final, and keeps its cost when the Harga Pokok changes", async () => {
     const [first] = ids.dn;
     assert.ok(!(await updateDeliveryNote(first, header(), [line(1)], actor)).ok);
     assert.ok(!(await transitionDeliveryNote(first, "cancel", actor, "x")).ok);
-    await setItemCost(f.goods, "3000", actor);
-    assert.equal((await getDeliveryNote(first))!.lines[0].unitCost, 2_500);
+    await setItemCost(f.goods, "36000", actor);
+    assert.equal((await getDeliveryNote(first))!.lines[0].unitCost, 30_000);
   });
 
   test("posting records what left on the Delivery Order and the Sales Order", async () => {
@@ -366,7 +366,7 @@ describe("orders close themselves once fully delivered (U14)", () => {
     const r = await transitionDeliveryNote(last, "post", actor);
     assert.ok(r.ok, JSON.stringify(r));
     assert.equal(r.ok && r.closed?.length, 3, "the Delivery Order, the Sales Order and the Customer Order (U21) named");
-    // 60 BOX × 12 × 3.000 + 50 PCS × 1.000
+    // 60 PCS × 36.000 + 50 PCS × 1.000
     assert.equal((await getDeliveryNote(last))!.cost, 2_210_000);
     const dOrder = await prisma.salDeliveryOrder.findUniqueOrThrow({ where: { id: order.doId } });
     const sOrder = await prisma.salOrder.findUniqueOrThrow({ where: { id: order.soId } });
@@ -395,7 +395,7 @@ describe("orders close themselves once fully delivered (U14)", () => {
     assert.ok(r.ok);
     assert.ok((await transitionDeliveryNote(r.id, "post", actor)).ok);
     assert.deepEqual(await transitionDeliveryOrder(second.doId, "close", actor, "sisa tidak dikirim", liveDeliveryNoteRefusal), { ok: true });
-    // The Sales Order line held 100 BOX by this Delivery Order; now only the 30 that left.
+    // The Sales Order line held 100 PCS by this Delivery Order; now only the 30 that left.
     assert.deepEqual((await salesOrderDeliveries(second.soId, second.coId)).lines.map((l) => l.held), [30, 0]);
     assert.deepEqual(await transitionSalesOrder(second.soId, "close", actor, "selesai", liveDeliveryOrderRefusal), { ok: true });
     // And the Customer Order line now holds only the 30 the Sales Order delivered.
