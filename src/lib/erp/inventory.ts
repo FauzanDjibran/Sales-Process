@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
+import { nextDocumentNumber } from "./document-number";
 
 /**
  * The inventory module — today a **stand-in** (Sales-Process-Concept.md U11).
@@ -83,6 +84,7 @@ export async function issueStock(tx: Prisma.TransactionClient, issue: StockIssue
   const cost = rupiah(issue.baseQty * unitCost);
   await tx.tmpStockMovement.create({
     data: {
+      ...(await ledgerPosition(tx, issue.date, issue.source.docTypeId, issue.source.docId)),
       item_id: issue.itemId,
       warehouse_id: issue.warehouseId,
       movement_date: issue.date,
@@ -98,6 +100,35 @@ export async function issueStock(tx: Prisma.TransactionClient, issue: StockIssue
     },
   });
   return { unitCost, cost };
+}
+
+/**
+ * The ledger number and line a movement takes (P110): `MS/2026/10/0001`, one
+ * per posting — the lots and lines one document issues share it, a line each;
+ * the first takes the next number in the series of its month, read from
+ * line-1 rows, whose id order is their number order.
+ */
+async function ledgerPosition(
+  tx: Prisma.TransactionClient,
+  date: Date,
+  docTypeId: number,
+  docId: number
+): Promise<{ ledger_no: string; line_no: number }> {
+  const last = await tx.tmpStockMovement.findFirst({
+    where: { source_doc_type_id: docTypeId, source_doc_id: docId },
+    orderBy: { line_no: "desc" },
+    select: { ledger_no: true, line_no: true },
+  });
+  if (last) return { ledger_no: last.ledger_no, line_no: last.line_no + 1 };
+  const ledger_no = await nextDocumentNumber("MS", date, async (series) => {
+    const row = await tx.tmpStockMovement.findFirst({
+      where: { ledger_no: { startsWith: series }, line_no: 1 },
+      orderBy: { id: "desc" },
+      select: { ledger_no: true },
+    });
+    return row?.ledger_no ?? null;
+  });
+  return { ledger_no, line_no: 1 };
 }
 
 // ------------------------------------------------------------------- lots

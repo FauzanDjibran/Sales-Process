@@ -907,7 +907,10 @@ enum CashBankEntryType {
 
 model CashBankLedger {
   id           Int               @id @default(autoincrement())
-  entry_no     String            @unique
+  /// `CBL/YYYY/MM/NNNN`, one per posting: the entries one document writes share
+  /// it, a `line_no` each (P110).
+  ledger_no    String
+  line_no      Int
   cash_bank_id Int
   entry_date   DateTime          @db.Date
   entry_type   CashBankEntryType
@@ -966,6 +969,7 @@ model CashBankLedger {
   cash_bank       MCashBank   @relation(fields: [cash_bank_id], references: [id])
   source_doc_type SysDocType? @relation(fields: [source_doc_type_id], references: [id])
 
+  @@unique([ledger_no, line_no])
   @@index([cash_bank_id, entry_date])
   @@index([source_doc_type_id, source_doc_id])
   @@map("cash_bank_ledger")
@@ -1954,6 +1958,10 @@ model TmpItemCost {
 /// Written only by `lib/erp/inventory.ts`; replaced by the real inventory ledger.
 model TmpStockMovement {
   id                 Int      @id @default(autoincrement())
+  /// `MS/YYYY/MM/NNNN`, one per posting: the movements one document makes
+  /// share it, a `line_no` each (P110).
+  ledger_no          String
+  line_no            Int
   item_id            Int
   warehouse_id       Int
   movement_date      DateTime @db.Date
@@ -1973,6 +1981,7 @@ model TmpStockMovement {
   item      MItem        @relation(fields: [item_id], references: [id])
   warehouse RefWarehouse @relation(fields: [warehouse_id], references: [id])
 
+  @@unique([ledger_no, line_no])
   @@index([item_id, warehouse_id, movement_date])
   @@index([source_doc_type_id, source_doc_id])
   @@map("tmp_stock_movement")
@@ -2238,6 +2247,11 @@ model FinArItem {
 /// is never edited or deleted (P72).
 model FinArLedger {
   id            Int      @id @default(autoincrement())
+  /// `BP/YYYY/MM/NNNN`, one per posting: the entries one document writes —
+  /// a receipt's items, an Invoice's item and the advances it used — share it,
+  /// a `line_no` each (P110).
+  ledger_no     String
+  line_no       Int
   item_id       Int
   event         ArEvent
   entry_date    DateTime @db.Date
@@ -2261,6 +2275,7 @@ model FinArLedger {
   counter_item FinArItem? @relation("ArItemCounter", fields: [counter_item_id], references: [id])
   doc_type     SysDocType @relation(fields: [doc_type_id], references: [id])
 
+  @@unique([ledger_no, line_no])
   @@index([item_id, entry_date])
   @@index([doc_type_id, doc_id])
   @@map("fin_ar_ledger")

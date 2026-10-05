@@ -879,7 +879,8 @@ table acc_opening_balance_line {
 table cash_bank_ledger {
   id                          int [pk, increment, not null]
 
-  entry_no                    varchar [not null, unique]
+  ledger_no                   varchar [not null] // CBL/YYYY/MM/NNNN, one per posting, shared by its entries (P110)
+  line_no                     int [not null]
 
   cash_bank_id                int [not null, ref : > m_cash_bank.id]
 
@@ -904,6 +905,7 @@ table cash_bank_ledger {
   created_at                  timestamptz [not null, default: `now()`]
 
   indexes {
+    (ledger_no, line_no) [unique]
     (cash_bank_id, entry_date)
     (source_doc_type_id, source_doc_id)
   }
@@ -1047,6 +1049,9 @@ table fin_ar_item {
 table fin_ar_ledger {
   id                          int [pk, increment, not null] // Buku Piutang — append-only
 
+  ledger_no                   varchar [not null] // BP/YYYY/MM/NNNN, one per posting, shared by its entries (P110)
+  line_no                     int [not null]
+
   item_id                     int [not null, ref : > fin_ar_item.id]
 
   event                       enum('Create', 'Payment', 'AdvanceUsed') [not null]
@@ -1067,6 +1072,7 @@ table fin_ar_ledger {
   created_at                  timestamptz [not null, default: `now()`]
 
   indexes {
+    (ledger_no, line_no) [unique]
     (item_id, entry_date)
     (doc_type_id, doc_id)
   }
@@ -1650,6 +1656,9 @@ table tax_withholding_slip {
 table tmp_item_cost {
   id                          int [pk, increment, not null] // TEMPORARY until inventory is built
 
+  ledger_no                   varchar [not null] // MS/YYYY/MM/NNNN, one per posting, shared by its movements (P110)
+  line_no                     int [not null]
+
   item_id                     int [not null, unique, ref : - m_item.id]
 
   unit_cost                   decimal(18,2) [not null] // Harga Pokok per base unit
@@ -1709,6 +1718,7 @@ table tmp_stock_movement {
   created_at                  timestamptz [not null, default: `now()`]
 
   indexes {
+    (ledger_no, line_no) [unique]
     (item_id, warehouse_id, movement_date)
     (source_doc_type_id, source_doc_id)
   }

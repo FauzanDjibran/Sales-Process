@@ -67,7 +67,12 @@ export function ArLedgerReportBody({
               {report.entries.map((e, i) => {
                 return (
                   <tr key={e.id} style={{ cursor: "default" }}>
-                    <td className="mono mut" style={{ fontSize: "11.5px" }}>{formatDate(e.date)}</td>
+                    <td className="mono mut" style={{ fontSize: "11.5px" }}>
+                      <span className="dstack">
+                        <span>{formatDate(e.date)}</span>
+                        <span className="d2">{e.ledgerNo}</span>
+                      </span>
+                    </td>
                     <td>
                       <DocLink table={e.docTable} id={e.docId} no={e.docNo} />
                     </td>

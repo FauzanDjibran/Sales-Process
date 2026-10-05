@@ -375,6 +375,31 @@ export const CHECKS: Check[] = [
           JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
           GROUP BY a.id HAVING SUM(l.settled_amount) > a.total_amount OR a.status <> 'Issued'`,
   },
+  // --------------------------------------------------------------- books
+  {
+    area: "books",
+    name: "each posting has one ledger number per book, numbering its entries 1..n, and each number one posting (P110)",
+    sql: `SELECT 'buku piutang' AS book, MIN(ledger_no) AS ledger_no, COUNT(DISTINCT ledger_no) AS numbers, COUNT(*) AS entries, MAX(line_no) AS last_line
+          FROM fin_ar_ledger GROUP BY doc_type_id, doc_id
+          HAVING COUNT(DISTINCT ledger_no) <> 1 OR MAX(line_no) <> COUNT(*) OR MIN(line_no) <> 1
+          UNION ALL
+          SELECT 'cash bank book', MIN(ledger_no), COUNT(DISTINCT ledger_no), COUNT(*), MAX(line_no)
+          FROM cash_bank_ledger WHERE source_doc_id IS NOT NULL GROUP BY source_doc_type_id, source_doc_id
+          HAVING COUNT(DISTINCT ledger_no) <> 1 OR MAX(line_no) <> COUNT(*) OR MIN(line_no) <> 1
+          UNION ALL
+          SELECT 'stock movement', MIN(ledger_no), COUNT(DISTINCT ledger_no), COUNT(*), MAX(line_no)
+          FROM tmp_stock_movement GROUP BY source_doc_type_id, source_doc_id
+          HAVING COUNT(DISTINCT ledger_no) <> 1 OR MAX(line_no) <> COUNT(*) OR MIN(line_no) <> 1
+          UNION ALL
+          SELECT 'buku piutang', ledger_no, COUNT(DISTINCT (doc_type_id, doc_id)), COUNT(*), MAX(line_no)
+          FROM fin_ar_ledger GROUP BY ledger_no HAVING COUNT(DISTINCT (doc_type_id, doc_id)) > 1
+          UNION ALL
+          SELECT 'cash bank book', ledger_no, COUNT(DISTINCT (source_doc_type_id, source_doc_id)), COUNT(*), MAX(line_no)
+          FROM cash_bank_ledger GROUP BY ledger_no HAVING COUNT(DISTINCT (source_doc_type_id, source_doc_id)) > 1
+          UNION ALL
+          SELECT 'stock movement', ledger_no, COUNT(DISTINCT (source_doc_type_id, source_doc_id)), COUNT(*), MAX(line_no)
+          FROM tmp_stock_movement GROUP BY ledger_no HAVING COUNT(DISTINCT (source_doc_type_id, source_doc_id)) > 1`,
+  },
 ];
 
 export type CheckResult = { area: string; name: string; rows: Record<string, unknown>[] };

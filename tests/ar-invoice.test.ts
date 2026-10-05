@@ -419,6 +419,13 @@ describe("Posting recognises Piutang, revenue and PPN once", () => {
       ["Create", 300_000, null],
       ["AdvanceUsed", -100_000, inv.id],
     ]);
+    // The Invoice's posting writes two Buku Piutang entries; they share one
+    // ledger number, a line each — not the receipt's (P110).
+    const posted = [inv.entries[0], adv.entries[1]];
+    assert.equal(posted[0].ledger_no, posted[1].ledger_no);
+    assert.match(posted[0].ledger_no, /^BP\/\d{4}\/\d{2}\/\d{4}$/);
+    assert.deepEqual(posted.map((e) => e.line_no).sort(), [1, 2]);
+    assert.notEqual(adv.entries[0].ledger_no, posted[0].ledger_no);
   });
 
   test("a posted Invoice is final", async () => {
@@ -549,6 +556,12 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
     assert.equal(debit, jl.reduce((s, l) => s + l.kredit_amount.toNumber(), 0));
     const newAdvance = await prisma.finArItem.findFirst({ where: { item_type: "Advance", source_doc_id: f.bill2 } });
     assert.equal(newAdvance?.current_balance.toNumber(), 100_000);
+    // One receipt, one Buku Piutang number: two Pembayaran and a new Uang Muka,
+    // a line each (P110).
+    const entries = await prisma.finArLedger.findMany({ where: { doc_id: r.id, doc_no: t.tx_no }, orderBy: { line_no: "asc" } });
+    assert.equal(entries.length, 3);
+    assert.equal(new Set(entries.map((e) => e.ledger_no)).size, 1);
+    assert.deepEqual(entries.map((e) => e.line_no), [1, 2, 3]);
   });
 
   test("an Invoice paid in full is offered no more, and takes no overpayment", async () => {

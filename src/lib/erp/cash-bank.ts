@@ -82,18 +82,35 @@ export class InsufficientFunds extends Error {
 }
 
 /**
- * Next book entry number, `CBL/2026/09/0001`, in the series of the entry's own
- * month. The format lives in `document-number.ts`.
+ * The ledger number and line an entry takes (P110): `CBL/2026/09/0001`, one
+ * per posting. A document posts once, so the entries naming the same source
+ * belong to one posting and share its number, a line each; the first takes the
+ * next number in the series of its month. An opening balance has no source and
+ * stands alone. The next number is read from line-1 rows, whose id order is
+ * their number order. The format lives in `document-number.ts`.
  */
-async function nextEntryNo(db: Db, date: string): Promise<string> {
-  return nextDocumentNumber("CBL", date, async (series) => {
-    const row = await db.cashBankLedger.findFirst({
-      where: { entry_no: { startsWith: series } },
-      orderBy: { id: "desc" },
-      select: { entry_no: true },
+async function ledgerPosition(
+  db: Db,
+  date: string,
+  source: { typeId: number; id: number } | null
+): Promise<{ ledger_no: string; line_no: number }> {
+  if (source) {
+    const last = await db.cashBankLedger.findFirst({
+      where: { source_doc_type_id: source.typeId, source_doc_id: source.id },
+      orderBy: { line_no: "desc" },
+      select: { ledger_no: true, line_no: true },
     });
-    return row?.entry_no ?? null;
+    if (last) return { ledger_no: last.ledger_no, line_no: last.line_no + 1 };
+  }
+  const ledger_no = await nextDocumentNumber("CBL", date, async (series) => {
+    const row = await db.cashBankLedger.findFirst({
+      where: { ledger_no: { startsWith: series }, line_no: 1 },
+      orderBy: { id: "desc" },
+      select: { ledger_no: true },
+    });
+    return row?.ledger_no ?? null;
   });
+  return { ledger_no, line_no: 1 };
 }
 
 /**
@@ -169,7 +186,11 @@ export async function recordCashBankEntry(db: Db, entry: NewEntry) {
 
   const created = await db.cashBankLedger.create({
     data: {
-      entry_no: await nextEntryNo(db, entry.date),
+      ...(await ledgerPosition(
+        db,
+        entry.date,
+        entry.sourceDocTypeId && entry.sourceDocId ? { typeId: entry.sourceDocTypeId, id: entry.sourceDocId } : null
+      )),
       cash_bank_id: entry.cashBankId,
       entry_date: asDate(entry.date),
       entry_type: entry.type,
@@ -452,7 +473,9 @@ const startOf = (d: string) => new Date(`${d}T00:00:00Z`);
 
 export type LedgerEntryRow = {
   id: number;
+  /** The posting's ledger number (P110), shared by its entries. */
   entryNo: string;
+  lineNo: number;
   date: string;
   type: string;
   direction: string;
@@ -581,7 +604,8 @@ export async function cashBankLedgerReport(
 
   const entries: LedgerEntryRow[] = rows.map((r) => ({
     id: r.id,
-    entryNo: r.entry_no,
+    entryNo: r.ledger_no,
+    lineNo: r.line_no,
     date: r.entry_date.toISOString().slice(0, 10),
     type: r.entry_type,
     direction: r.direction,

@@ -509,6 +509,10 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
         [lot.late, 10, 15_000],
       ]
     );
+    // One posting, one ledger number: its movements share it, a line each (P110).
+    assert.equal(new Set(moves.map((m) => m.ledger_no)).size, 1);
+    assert.match(moves[0].ledger_no, /^MS\/\d{4}\/\d{2}\/\d{4}$/);
+    assert.deepEqual(moves.map((m) => m.line_no), [1, 2]);
     const journalLines = await prisma.accJournalLine.findMany({ where: { journal_id: note.journalId! }, orderBy: { sequence_no: "asc" } });
     assert.deepEqual(journalLines.map((l) => [l.debit_amount.toNumber(), l.kredit_amount.toNumber()]), [
       [45_000, 0],

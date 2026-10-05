@@ -83,6 +83,32 @@ export type NewArItem = {
   actorId: number;
 };
 
+/**
+ * The ledger number and line an entry takes (P110): `BP/2026/10/0001`, one per
+ * posting. A document posts once, so the entries naming the same document —
+ * a receipt's items, an Invoice's item and the advances it used — belong to
+ * one posting and share its number, a line each; the first takes the next
+ * number in the series of its month, read from line-1 rows, whose id order is
+ * their number order.
+ */
+async function ledgerPosition(db: Db, date: Date, docTypeId: number, docId: number): Promise<{ ledger_no: string; line_no: number }> {
+  const last = await db.finArLedger.findFirst({
+    where: { doc_type_id: docTypeId, doc_id: docId },
+    orderBy: { line_no: "desc" },
+    select: { ledger_no: true, line_no: true },
+  });
+  if (last) return { ledger_no: last.ledger_no, line_no: last.line_no + 1 };
+  const ledger_no = await nextDocumentNumber("BP", date, async (series) => {
+    const row = await db.finArLedger.findFirst({
+      where: { ledger_no: { startsWith: series }, line_no: 1 },
+      orderBy: { id: "desc" },
+      select: { ledger_no: true },
+    });
+    return row?.ledger_no ?? null;
+  });
+  return { ledger_no, line_no: 1 };
+}
+
 /** Creates an item and its Create entry, inside the caller's transaction. */
 export async function createArItem(db: Db, item: NewArItem): Promise<number> {
   if (!(item.amount > 0)) {
@@ -120,6 +146,7 @@ export async function createArItem(db: Db, item: NewArItem): Promise<number> {
   });
   await db.finArLedger.create({
     data: {
+      ...(await ledgerPosition(db, date, item.createdBy.docTypeId, item.createdBy.docId)),
       item_id: row.id,
       event: "Create",
       entry_date: date,
@@ -173,6 +200,7 @@ export async function settleArItem(
   await db.finArItem.update({ where: { id: move.itemId }, data: { current_balance: after } });
   await db.finArLedger.create({
     data: {
+      ...(await ledgerPosition(db, asDate(move.date), move.doc.docTypeId, move.doc.docId)),
       item_id: move.itemId,
       event: move.event,
       entry_date: asDate(move.date),
@@ -282,6 +310,8 @@ export type ArLedgerEntryRow = {
   itemId: number;
   type: ArItemType;
   event: ArEvent;
+  /** The posting's Buku Piutang number (P110), shared by its entries. */
+  ledgerNo: string;
   docNo: string;
   docTable: string;
   docId: number;
@@ -357,6 +387,7 @@ export async function arLedgerReport(
       itemId: r.item_id,
       type: r.item.item_type as ArItemType,
       event: r.event as ArEvent,
+      ledgerNo: r.ledger_no,
       docNo: r.doc_no,
       docTable: r.doc_type.doc_table,
       docId: r.doc_id,

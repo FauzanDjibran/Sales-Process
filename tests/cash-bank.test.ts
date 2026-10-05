@@ -101,7 +101,8 @@ describe("a resource always has a book", () => {
     assert.equal(entries[0].direction, "In");
     assert.equal(entries[0].movement.toNumber(), 5_000_000);
     assert.equal(entries[0].balance_after.toNumber(), 5_000_000);
-    assert.match(entries[0].entry_no, /^CBL\/\d{4}\/\d{2}\/\d{4}$/);
+    assert.equal(entries[0].line_no, 1);
+    assert.match(entries[0].ledger_no, /^CBL\/\d{4}\/\d{2}\/\d{4}$/);
 
     const balances = await cashBankBalanceMap();
     assert.equal(balances.get(id), 5_000_000);
