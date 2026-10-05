@@ -33,7 +33,7 @@ in **Note** to stay on an older version on purpose.
 | accounting/fiscal-periods-and-statements | 1.0 | core | — | P23, P27, P35 |
 | accounting/multi-currency | 1.1 | core | knowledge/multi_currency_concept.md | P13, P37 (moving average = core pool) |
 | accounting/open-items | 1.0 | settlement=in-posting | knowledge/ar_ap_open_item_concept.md | P71–P74, P96; R4 waits for this project |
-| accounting/tax-indonesia | 2.0 | core | tax_concept.md | **Living copy**: ERP edits it first, then harvests |
+| accounting/tax-indonesia | 2.1 | settlement-ppn=full-less-advance | tax_concept.md | **Living copy**: ERP edits it first, then harvests. P113: full PPN less the advances' PPN, assuming 12 % and 11/12 do not change (refused if they differ) |
 | sales/order-to-cash | 2.0 | core | — | Reference implementation: Sales-Process-Concept.md; P93–P99 harvested |
 | ui/design-convention | 1.1 | form-layout=header-tabs | knowledge/design-convention.md | P3, P38 |
 | ui/benchmark-study | 1.0 | reference | knowledge/Core_UI_Reference.md | |

@@ -510,6 +510,30 @@ export async function getSalesAdvance(id: number): Promise<SalesAdvanceView | nu
   };
 }
 
+/**
+ * The PPN snapshot each bill was issued with — what its faktur pajak uang muka
+ * carries. The Invoice compares it with its own (P113): full PPN less the
+ * advance's PPN only holds while the rate and the factor are the same.
+ */
+export async function advanceRatesByIds(
+  ids: number[],
+  db: Db = prisma
+): Promise<Map<number, { rate: number; otherNum: number; otherDen: number } | null>> {
+  if (!ids.length) return new Map();
+  const rows = await db.finArAdvance.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, is_taxable: true, ppn_rate: true, ppn_dpp_other_numerator: true, ppn_dpp_other_denominator: true },
+  });
+  return new Map(
+    rows.map((a) => [
+      a.id,
+      a.is_taxable && a.ppn_rate && a.ppn_dpp_other_numerator && a.ppn_dpp_other_denominator
+        ? { rate: a.ppn_rate.toNumber(), otherNum: a.ppn_dpp_other_numerator, otherDen: a.ppn_dpp_other_denominator }
+        : null,
+    ])
+  );
+}
+
 /** Bill numbers by id, for the audit panel. */
 export async function salesAdvanceNumbersByIds(ids: number[]): Promise<Map<number, string>> {
   const rows = await prisma.finArAdvance.findMany({

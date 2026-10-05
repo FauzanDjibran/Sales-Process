@@ -121,7 +121,7 @@ export function FakturView({
                       <Link className="drl" href={`/tax/faktur/${d.id}`}>
                         <span className="mono">{d.fakturNo}</span>
                       </Link>
-                      <span className="rx">DPP {money(d.dpp)}</span>
+                      <span className="rx">DPP {money(d.dpp)}{d.ppn > 0 ? ` · PPN ${money(d.ppn)}` : ""}</span>
                     </Fragment>
                   ))}
                 </>
@@ -252,7 +252,38 @@ export function FakturView({
       <div className="cardfoot multi">
         <div className="impact">
           <div className="ttl">Perhitungan PPN</div>
-          {settlement && (
+          {settlement && f.advancePpn > 0 ? (
+            // Full less the advance (P113): lines at their full DPP and PPN, the
+            // advances' DPP and PPN deducted once.
+            <>
+              <div className="ir">
+                <span>DPP barang</span>
+                <b>{money(f.grossDpp)}</b>
+              </div>
+              <div className="ir">
+                <span>
+                  DPP Nilai Lain ({f.rates.otherNum}/{f.rates.otherDen}, per baris)
+                </span>
+                <b>{money(f.dppOther)}</b>
+              </div>
+              <div className="ir">
+                <span>PPN {formatPct(f.rates.rate)} × DPP Nilai Lain</span>
+                <b>{money(f.ppn + f.advancePpn)}</b>
+              </div>
+              <div className="ir">
+                <span>Dikurangi DPP uang muka</span>
+                <b>−{money(f.advanceDpp)}</b>
+              </div>
+              <div className="ir">
+                <span>Dikurangi PPN uang muka</span>
+                <b>−{money(f.advancePpn)}</b>
+              </div>
+              <div className="ir">
+                <span>DPP setelah uang muka</span>
+                <b>{money(f.dpp)}</b>
+              </div>
+            </>
+          ) : settlement && (
             <>
               <div className="ir">
                 <span>DPP barang</span>
@@ -264,20 +295,24 @@ export function FakturView({
               </div>
             </>
           )}
-          <div className="ir">
-            <span>DPP</span>
-            <b>{money(f.dpp)}</b>
-          </div>
-          <div className="ir">
-            <span>
-              DPP Nilai Lain ({f.rates.otherNum}/{f.rates.otherDen}, per baris)
-            </span>
-            <b>{money(f.dppOther)}</b>
-          </div>
-          <div className="ir">
-            <span>PPN {formatPct(f.rates.rate)} × DPP Nilai Lain</span>
-            <b>{money(f.ppn)}</b>
-          </div>
+          {!(settlement && f.advancePpn > 0) && (
+            <>
+              <div className="ir">
+                <span>DPP</span>
+                <b>{money(f.dpp)}</b>
+              </div>
+              <div className="ir">
+                <span>
+                  DPP Nilai Lain ({f.rates.otherNum}/{f.rates.otherDen}, per baris)
+                </span>
+                <b>{money(f.dppOther)}</b>
+              </div>
+              <div className="ir">
+                <span>PPN {formatPct(f.rates.rate)} × DPP Nilai Lain</span>
+                <b>{money(f.ppn)}</b>
+              </div>
+            </>
+          )}
           <div className="ir tot">
             <span>PPN Keluaran</span>
             <b>{money(f.ppn)}</b>

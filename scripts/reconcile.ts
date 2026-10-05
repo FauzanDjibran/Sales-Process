@@ -288,12 +288,13 @@ export const CHECKS: Check[] = [
     sql: `SELECT v.invoice_no, v.dpp_amount, SUM(l.dpp_amount) AS lines_dpp, v.ppn_amount, SUM(l.ppn_amount) AS lines_ppn, v.total_amount
           FROM fin_ar_invoice v JOIN fin_ar_invoice_line l ON l.invoice_id = v.id
           WHERE v.status <> 'Cancelled'
-          GROUP BY v.id HAVING v.dpp_amount <> SUM(l.dpp_amount) OR v.ppn_amount <> SUM(l.ppn_amount)
+          GROUP BY v.id HAVING v.dpp_amount <> SUM(l.dpp_amount) OR v.ppn_amount <> SUM(l.ppn_amount) - v.advance_ppn_amount
             OR v.advance_dpp_amount <> SUM(l.advance_dpp_amount) OR v.net_dpp_amount <> SUM(l.net_dpp_amount)
             OR v.dpp_other_amount <> SUM(l.dpp_other_amount) OR v.total_amount <> v.net_dpp_amount + v.ppn_amount
             OR v.gross_amount <> SUM(l.gross_amount) OR v.discount_amount <> SUM(l.discount_amount)
             OR v.amount <> v.gross_amount - v.discount_amount OR SUM(l.amount) <> SUM(l.gross_amount) - SUM(l.discount_amount)
-            OR v.advance_dpp_amount <> COALESCE((SELECT SUM(dpp_used) FROM fin_ar_invoice_advance_deduction d WHERE d.invoice_id = v.id), 0)`,
+            OR v.advance_dpp_amount <> COALESCE((SELECT SUM(dpp_used) FROM fin_ar_invoice_advance_deduction d WHERE d.invoice_id = v.id), 0)
+            OR v.advance_ppn_amount <> COALESCE((SELECT SUM(ppn_used) FROM fin_ar_invoice_advance_deduction d WHERE d.invoice_id = v.id), 0)`,
   },
   {
     area: "billing",
@@ -337,7 +338,10 @@ export const CHECKS: Check[] = [
           HAVING COUNT(f.id) <> 1 OR MIN(f.dpp) <> v.net_dpp_amount OR MIN(f.ppn) <> v.ppn_amount
              OR MIN(f.kind::text) <> CASE WHEN v.advance_dpp_amount > 0 THEN 'Settlement' ELSE 'Normal' END
              OR COALESCE((SELECT SUM(r.dpp_deducted) FROM tax_faktur_ref r JOIN tax_faktur ff ON ff.id = r.faktur_id
-                          WHERE ff.source_doc_type_id = ${docType("fin_ar_invoice")} AND ff.source_doc_id = v.id), 0) <> v.advance_dpp_amount`,
+                          WHERE ff.source_doc_type_id = ${docType("fin_ar_invoice")} AND ff.source_doc_id = v.id), 0) <> v.advance_dpp_amount
+             OR MIN(f.advance_ppn) <> v.advance_ppn_amount
+             OR COALESCE((SELECT SUM(r.ppn_deducted) FROM tax_faktur_ref r JOIN tax_faktur ff ON ff.id = r.faktur_id
+                          WHERE ff.source_doc_type_id = ${docType("fin_ar_invoice")} AND ff.source_doc_id = v.id), 0) <> v.advance_ppn_amount`,
   },
   {
     area: "tax",
@@ -378,6 +382,15 @@ export const CHECKS: Check[] = [
           FROM fin_ar_advance a JOIN fin_cash_bank_tx_line l ON l.doc_type_id = ${docType("fin_ar_advance")} AND l.doc_id = a.id
           JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
           GROUP BY a.id HAVING SUM(l.settled_amount) > a.total_amount OR a.status <> 'Issued'`,
+  },
+  {
+    area: "tax",
+    name: "no Uang Muka's PPN is deducted by Invoices beyond what its faktur uang muka carries (P113)",
+    sql: `SELECT i.ar_item_no, i.tax_ppn, SUM(d.ppn_used) AS deducted
+          FROM fin_ar_item i JOIN fin_ar_invoice_advance_deduction d ON d.ar_item_id = i.id
+          JOIN fin_ar_invoice v ON v.id = d.invoice_id AND v.status = 'Posted'
+          WHERE i.item_type = 'Advance'
+          GROUP BY i.id HAVING SUM(d.ppn_used) > COALESCE(i.tax_ppn, 0)`,
   },
   // --------------------------------------------------------------- books
   {

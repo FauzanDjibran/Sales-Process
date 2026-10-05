@@ -1148,9 +1148,10 @@ table fin_ar_invoice {
   amount                      decimal(18,2) [not null, default: 0]
   dpp_amount                  decimal(18,2) [not null, default: 0] // DPP of the goods billed
   advance_dpp_amount          decimal(18,2) [not null, default: 0] // Uang Muka used
+  advance_ppn_amount          decimal(18,2) [not null, default: 0] // the PPN of the Uang Muka used, deducted once (P113)
   net_dpp_amount              decimal(18,2) [not null, default: 0]
-  dpp_other_amount            decimal(18,2) [not null, default: 0]
-  ppn_amount                  decimal(18,2) [not null, default: 0] // on the net DPP, per line
+  dpp_other_amount            decimal(18,2) [not null, default: 0] // Σ lines, on the full DPP
+  ppn_amount                  decimal(18,2) [not null, default: 0] // Σ lines' full PPN − advance_ppn_amount (P113)
   total_amount                decimal(18,2) [not null, default: 0] // net Piutang
   tax_invoice_no              varchar // Coretax number, typed after upload
 
@@ -1216,6 +1217,7 @@ table fin_ar_invoice_advance_deduction {
 
   ar_item_no                  varchar [not null]
   dpp_used                    decimal(18,2) [not null]
+  ppn_used                    decimal(18,2) [not null, default: 0] // cumulative share of the item's tax_ppn (P113, §7.5)
 
   indexes {
     (invoice_id, ar_item_id) [unique]
@@ -1547,6 +1549,7 @@ table tax_faktur {
   ppn_dpp_other_denominator   int [not null]
   gross_dpp                   decimal(18,2) [not null]
   advance_dpp                 decimal(18,2) [not null, default: 0]
+  advance_ppn                 decimal(18,2) [not null, default: 0] // the advances' PPN deducted at header level (P113)
   dpp                         decimal(18,2) [not null]
   dpp_other                   decimal(18,2) [not null]
   ppn                         decimal(18,2) [not null]
@@ -1596,6 +1599,7 @@ table tax_faktur_ref {
   ref_faktur_id               int [not null, ref : > tax_faktur.id] // the Faktur Uang Muka it deducts
 
   dpp_deducted                decimal(18,2) [not null]
+  ppn_deducted                decimal(18,2) [not null, default: 0] // P113
 
   indexes {
     (faktur_id, ref_faktur_id) [unique]

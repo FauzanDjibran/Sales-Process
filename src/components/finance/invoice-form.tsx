@@ -23,7 +23,7 @@ import {
   type InvoicePayState,
 } from "@/lib/erp/ar-invoice-workflow";
 import type { InvoiceHeaderInput, InvoiceOptions, InvoiceView, InvoiceNoteLine, InvoiceOrderOption } from "@/lib/erp/ar-invoice";
-import { computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine, type PriceMode } from "@/lib/erp/sales-tax";
+import { advancePpnUsed, computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine, type PriceMode } from "@/lib/erp/sales-tax";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso, formatPrice } from "@/lib/format";
 
@@ -143,11 +143,20 @@ export function InvoiceForm({
   const dueDate = editing ? (taxDate && order ? addDays(taxDate, order.termDays) : "") : (invoice?.dueDate ?? "");
   const used = deds.reduce((a, d) => a + (Number(d.dpp_used) || 0), 0);
 
+  // The PPN of each Uang Muka used (P113): worked out live while editing, as
+  // stored once saved — the same cumulative share the server takes.
+  const dedPpn = (d: DedState): number => {
+    if (!editing) return invoice?.deductions.find((x) => x.ar_item_id === d.ar_item_id)?.ppn_used ?? 0;
+    const a = advanceById.get(d.ar_item_id);
+    return a ? advancePpnUsed({ taxDpp: a.taxDpp, taxPpn: a.taxPpn, usedBefore: a.original - a.balance, used: Number(d.dpp_used) || 0 }) : 0;
+  };
+  const advancePpn = deds.reduce((a, d) => a + dedPpn(d), 0);
+
   // Editing: worked out live. View: as stored — what was saved or posted.
   const figures: InvoiceFigures | null = useMemo(() => {
     if (!order) return null;
     if (editing) {
-      return computeInvoice({ lines: pricedLines(order, picked), mode: order.mode, taxable: order.taxable, rates: order.rates, advanceUsed: used });
+      return computeInvoice({ lines: pricedLines(order, picked), mode: order.mode, taxable: order.taxable, rates: order.rates, advanceUsed: used, advancePpn });
     }
     const s = invoice!.stored;
     const byLine = new Map(s.lines.map((l) => [l.delivery_note_line_id, l]));
@@ -179,13 +188,15 @@ export function InvoiceForm({
       advanceUsed: s.advanceUsed,
       netDpp: s.netDpp,
       dppOther: s.dppOther,
+      fullPpn: s.fullPpn,
+      advancePpn: s.advancePpn,
       ppn: s.ppn,
       total: s.total,
       withholdings,
       withholdingTotal,
       expectedReceipt: s.total - withholdingTotal,
     };
-  }, [order, editing, picked, used, invoice, orderLineById]);
+  }, [order, editing, picked, used, advancePpn, invoice, orderLineById]);
 
   const touch = (...names: string[]) => {
     setDirty(true);
@@ -649,6 +660,11 @@ export function InvoiceForm({
                 <th className={editing ? undefined : "num"} style={{ width: 200 }}>
                   DPP Dipakai
                 </th>
+                {order?.taxable && (
+                  <th className="num" style={{ width: 130 }}>
+                    PPN Dipakai
+                  </th>
+                )}
                 {editing && <th style={{ width: 40 }} />}
               </tr>
             </thead>
@@ -705,6 +721,11 @@ export function InvoiceForm({
                         <span className="mny">{money(Number(d.dpp_used))}</span>
                       )}
                     </td>
+                    {order?.taxable && (
+                      <td className="num">
+                        <span className="mny">{money(dedPpn(d))}</span>
+                      </td>
+                    )}
                     {editing && (
                       <td>
                         <button
@@ -782,19 +803,9 @@ export function InvoiceForm({
               <span>DPP barang ditagih</span>
               <b>{money(figures.dpp)}</b>
             </div>
-            {figures.advanceUsed > 0 && (
-              <>
-                <div className="ir">
-                  <span>Uang Muka Dipakai</span>
-                  <b>−{money(figures.advanceUsed)}</b>
-                </div>
-                <div className="ir">
-                  <span>DPP setelah Uang Muka</span>
-                  <b>{money(figures.netDpp)}</b>
-                </div>
-              </>
-            )}
-            {order.taxable ? (
+            {/* An Invoice posted before P113 used Uang Muka without deducting its PPN:
+                its PPN was the chain on the net DPP, shown after the deduction. */}
+            {order.taxable && !(figures.advanceUsed > 0 && figures.advancePpn === 0) ? (
               <>
                 {editing && (
                   <div className="ir">
@@ -806,10 +817,42 @@ export function InvoiceForm({
                 )}
                 <div className="ir">
                   <span>PPN {order.rates ? formatPct(order.rates.rate) : "—"} × DPP Nilai Lain</span>
-                  <b>{money(figures.ppn)}</b>
+                  <b>{money(figures.fullPpn)}</b>
                 </div>
               </>
-            ) : (
+            ) : null}
+            {/* Full less the advance (P113): the Uang Muka's DPP and its PPN, deducted once. */}
+            {figures.advanceUsed > 0 && (
+              <>
+                <div className="ir">
+                  <span>Uang Muka Dipakai (DPP)</span>
+                  <b>−{money(figures.advanceUsed)}</b>
+                </div>
+                {order.taxable && figures.advancePpn > 0 && (
+                  <div className="ir">
+                    <span>PPN Uang Muka</span>
+                    <b>−{money(figures.advancePpn)}</b>
+                  </div>
+                )}
+                <div className="ir">
+                  <span>DPP setelah Uang Muka</span>
+                  <b>{money(figures.netDpp)}</b>
+                </div>
+                {order.taxable && figures.advancePpn > 0 && (
+                  <div className="ir">
+                    <span>PPN setelah Uang Muka</span>
+                    <b>{money(figures.ppn)}</b>
+                  </div>
+                )}
+                {order.taxable && figures.advancePpn === 0 && (
+                  <div className="ir">
+                    <span>PPN {order.rates ? formatPct(order.rates.rate) : "—"} × DPP Nilai Lain</span>
+                    <b>{money(figures.ppn)}</b>
+                  </div>
+                )}
+              </>
+            )}
+            {order.taxable ? null : (
               <div className="ir">
                 <span>PPN</span>
                 <b>Tidak Kena PPN</b>

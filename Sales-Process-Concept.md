@@ -846,6 +846,12 @@ adjustment.
 
 ## 9. Faktur Penjualan — the bill for what was sent  [Built] (P97; U16–U22)
 
+> **Changed 05/10/2026.** The Invoice now stores its gross and discount (P111),
+> splits partial bills cumulatively (P112), and works out its PPN as **full PPN
+> less the advances' PPN**, deducted once at header level (P113; KB choice point
+> `settlement-ppn = full-less-advance`, replacing U7 for this ERP). Where this
+> section says the PPN is the chain on the net DPP per line, read P113.
+
 > **Named *Invoice Penjualan* in the application since P99**, so that *Faktur* alone means the faktur pajak. This section keeps its original wording.
 
 The document that **bills goods already sent**. It is where Piutang, revenue

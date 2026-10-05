@@ -22,7 +22,7 @@ import {
   type InvoiceDeductionInput,
   type InvoiceHeaderInput,
 } from "../src/lib/erp/ar-invoice";
-import { cashToClear, computeInvoice, invoiceLineFigures, settleBillFromCash } from "../src/lib/erp/sales-tax";
+import { advancePpnUsed, cashToClear, computeInvoice, invoiceLineFigures, settleBillFromCash } from "../src/lib/erp/sales-tax";
 import { availableInvoiceActions, invoiceAbilities } from "../src/lib/erp/ar-invoice-workflow";
 import { fakturLate, normalizeNsfp, slipExpected, slipLate, uploadDeadline } from "../src/lib/erp/tax-document-workflow";
 import { createTaxDocsForInvoice, createTaxDocsForReceipt, recordSlipReceived, setFakturNsfp, taxDocsOf } from "../src/lib/erp/tax-document";
@@ -311,7 +311,7 @@ describe("an Invoice line's gross and discount: the cumulative split (P112, tax_
     assert.deepEqual(first, { gross: 66_666, discount: 6_667, amount: 59_999 });
   });
 
-  test("the advance is shared over the lines; PPN is the chain on each line's net DPP", () => {
+  test("full less the advance (P113): line PPN on the full DPP, the advance's DPP and PPN deducted once", () => {
     const f = computeInvoice({
       lines: [
         { ...base, qty: 4, billedQtyBefore: 0, withholdingRate: 1.5, withholdingKey: "w" },
@@ -321,13 +321,30 @@ describe("an Invoice line's gross and discount: the cumulative split (P112, tax_
       taxable: true,
       rates: { rate: 12, otherNum: 11, otherDen: 12 },
       advanceUsed: 100_000,
+      advancePpn: 11_000,
     });
+    // The advance's DPP is still shared over the lines — for the PPh base only.
     assert.deepEqual(f.lines.map((l) => [l.dpp, l.advanceDpp, l.netDpp, l.dppOther, l.ppn]), [
-      [396_000, 66_443, 329_557, 302_094, 36_251],
-      [200_000, 33_557, 166_443, 152_573, 18_309],
+      [396_000, 66_443, 329_557, 363_000, 43_560],
+      [200_000, 33_557, 166_443, 183_333, 22_000],
     ]);
-    assert.deepEqual([f.dpp, f.advanceUsed, f.netDpp, f.ppn, f.total], [596_000, 100_000, 496_000, 54_560, 550_560]);
+    assert.deepEqual(
+      [f.dpp, f.advanceUsed, f.netDpp, f.fullPpn, f.advancePpn, f.ppn, f.total],
+      [596_000, 100_000, 496_000, 65_560, 11_000, 54_560, 550_560]
+    );
     assert.deepEqual(f.withholdings.map((w) => [w.base, w.amount]), [[329_557, 4_943]]);
+  });
+
+  test("an advance's PPN is deducted cumulatively: its uses add up to its faktur's PPN exactly", () => {
+    const item = { taxDpp: 300_000, taxPpn: 33_000 };
+    assert.equal(advancePpnUsed({ ...item, usedBefore: 0, used: 100_000 }), 11_000);
+    assert.equal(advancePpnUsed({ ...item, usedBefore: 100_000, used: 200_000 }), 22_000);
+    // Odd parts: 33.333 + 33.333 + the rest — never more or less than 33.000 PPN in all.
+    const odd = { taxDpp: 100_000, taxPpn: 11_000 };
+    const parts = [0, 33_333, 66_666].map((before, i) => advancePpnUsed({ ...odd, usedBefore: before, used: i < 2 ? 33_333 : 33_334 }));
+    assert.deepEqual(parts, [3_667, 3_666, 3_667]);
+    assert.equal(parts.reduce((a, x) => a + x, 0), 11_000);
+    assert.equal(advancePpnUsed({ taxDpp: null, taxPpn: null, usedBefore: 0, used: 50_000 }), 0, "an advance without PPN deducts none");
   });
 });
 
@@ -357,6 +374,19 @@ describe("what an Invoice may bill (U16, U17)", () => {
     assert.ok(!over.ok && /Melebihi sisa uang muka/.test(over.errors["deductions.0.dpp_used"]));
     const tooMuch = await checkInvoice(prisma, header(), lines([notes.firstLines[1]]), use(200_001), null);
     assert.ok(!tooMuch.ok && /melebihi DPP invoice/.test(tooMuch.errors._deductions));
+  });
+
+  test("refused while the Uang Muka's PPN rate differs from the Invoice's: full less the advance assumes the same (P113)", async () => {
+    const bill = await prisma.finArAdvance.findUniqueOrThrow({ where: { id: ids.adv[0] }, select: { ppn_rate: true } });
+    await prisma.finArAdvance.update({ where: { id: ids.adv[0] }, data: { ppn_rate: 11 } });
+    try {
+      const r = await checkInvoice(prisma, header(), lines(notes.firstLines), use(100_000), null);
+      assert.ok(!r.ok && /berbeda dengan invoice/.test(r.errors["deductions.0.ar_item_id"]), JSON.stringify(r));
+    } finally {
+      await prisma.finArAdvance.update({ where: { id: ids.adv[0] }, data: { ppn_rate: bill.ppn_rate } });
+    }
+    const same = await checkInvoice(prisma, header(), lines(notes.firstLines), use(100_000), null);
+    assert.ok(same.ok, "the same rate passes");
   });
 });
 
@@ -644,23 +674,29 @@ describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
     assert.equal(await prisma.taxWithholdingSlip.count({ where: { receipt_id: ids.rc[0] } }), 0, "no PPh, no slip");
   });
 
-  test("an Invoice that used Uang Muka: a faktur pelunasan net of it, per line, naming the faktur uang muka", async () => {
+  test("an Invoice that used Uang Muka: a faktur pelunasan, lines at full, the advance's DPP and PPN deducted once (P113)", async () => {
     for (const id of [ids.inv[0], ids.inv[ids.inv.length - 1]]) await tx((db) => createTaxDocsForInvoice(db, id, actor));
     const advance = (await fakturOf("fin_cash_bank_tx", ids.rc[0]))[0].id;
     const first = (await fakturOf("fin_ar_invoice", ids.inv[0]))[0];
     const fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: first.id }, include: { lines: { orderBy: { line_no: "asc" } }, refs: true } });
     const v = (await getInvoice(ids.inv[0]))!;
     assert.deepEqual(
-      [fk.kind, fk.gross_dpp.toNumber(), fk.advance_dpp.toNumber(), fk.dpp.toNumber(), fk.ppn.toNumber()],
-      ["Settlement", 596_000, 100_000, 496_000, 54_560]
+      [fk.kind, fk.gross_dpp.toNumber(), fk.advance_dpp.toNumber(), fk.advance_ppn.toNumber(), fk.dpp.toNumber(), fk.ppn.toNumber()],
+      ["Settlement", 596_000, 100_000, 11_000, 496_000, 54_560]
     );
     assert.equal(fk.tax_date.toISOString().slice(0, 10), v.taxDate);
     assert.deepEqual(fk.lines.map((l) => l.ppn.toNumber()), v.stored.lines.map((l) => l.ppn));
-    assert.equal(fk.lines.reduce((a, l) => a + l.ppn.toNumber(), 0), fk.ppn.toNumber(), "the faktur is the sum of its lines");
-    assert.deepEqual(fk.refs.map((r) => [r.ref_faktur_id, r.dpp_deducted.toNumber()]), [[advance, 100_000]]);
+    assert.deepEqual(fk.lines.map((l) => l.advance_dpp.toNumber()), [0, 0], "lines keep their full DPP");
+    assert.equal(
+      fk.lines.reduce((a, l) => a + l.ppn.toNumber(), 0) - fk.advance_ppn.toNumber(),
+      fk.ppn.toNumber(),
+      "the lines' full PPN less the advance's"
+    );
+    assert.deepEqual(fk.refs.map((r) => [r.ref_faktur_id, r.dpp_deducted.toNumber(), r.ppn_deducted.toNumber()]), [[advance, 100_000, 11_000]]);
     const second = (await fakturOf("fin_ar_invoice", ids.inv[ids.inv.length - 1]))[0];
     const refs = await prisma.taxFakturRef.findMany({ where: { faktur_id: second.id } });
-    assert.deepEqual(refs.map((r) => [r.ref_faktur_id, r.dpp_deducted.toNumber()]), [[advance, 200_000]]);
+    // The rest of the advance takes the rest of its PPN: 11.000 + 22.000 = the 33.000 its faktur carries.
+    assert.deepEqual(refs.map((r) => [r.ref_faktur_id, r.dpp_deducted.toNumber(), r.ppn_deducted.toNumber()]), [[advance, 200_000, 22_000]]);
     await tx((db) => createTaxDocsForInvoice(db, ids.inv[0], actor));
     assert.equal((await fakturOf("fin_ar_invoice", ids.inv[0])).length, 1, "idempotent");
   });

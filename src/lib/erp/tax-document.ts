@@ -193,9 +193,11 @@ export async function createTaxDocsForReceipt(db: Db, receiptId: number, actorId
 
 /**
  * The faktur of a posted Invoice Penjualan: pelunasan when it deducted Uang
- * Muka, normal otherwise; dated the latest Tanggal Kirim; net of the advances,
- * naming the faktur uang muka it deducts. None when it is not taxable or its
- * Uang Muka covered it whole. Idempotent.
+ * Muka, normal otherwise; dated the latest Tanggal Kirim. Under
+ * `settlement-ppn = full-less-advance` (P113) its lines carry the full DPP and
+ * PPN, and the header deducts once the advances' DPP and PPN, naming each
+ * faktur uang muka with what it deducts of both. None when it is not taxable or
+ * its Uang Muka covered it whole. Idempotent.
  */
 export async function createTaxDocsForInvoice(db: Db, invoiceId: number, actorId: number): Promise<void> {
   const v = await invoiceTaxBasis(db, invoiceId);
@@ -225,6 +227,7 @@ export async function createTaxDocsForInvoice(db: Db, invoiceId: number, actorId
       ppn_dpp_other_denominator: v.rates.otherDen,
       gross_dpp: v.dpp,
       advance_dpp: v.advanceUsed,
+      advance_ppn: v.advancePpn,
       dpp: v.netDpp,
       dpp_other: v.dppOther,
       ppn: v.ppn,
@@ -237,9 +240,11 @@ export async function createTaxDocsForInvoice(db: Db, invoiceId: number, actorId
           qty: l.qty,
           uom_label: l.uomLabel,
           price: l.price,
+          // Header-level deduction (P113): a line keeps its full DPP; an Invoice
+          // posted under net-dpp (advance PPN 0) still shows its own split.
           gross_dpp: l.dpp,
-          advance_dpp: l.advanceDpp,
-          dpp: l.netDpp,
+          advance_dpp: v.advancePpn > 0 ? 0 : l.advanceDpp,
+          dpp: v.advancePpn > 0 ? l.dpp : l.netDpp,
           dpp_other: l.dppOther,
           ppn: l.ppn,
         })),
@@ -247,7 +252,7 @@ export async function createTaxDocsForInvoice(db: Db, invoiceId: number, actorId
       refs: {
         create: v.deductions.flatMap((d) => {
           const ref = refs.find((x) => x.ar_item_id === d.arItemId);
-          return ref ? [{ ref_faktur_id: ref.id, dpp_deducted: d.dppUsed }] : [];
+          return ref ? [{ ref_faktur_id: ref.id, dpp_deducted: d.dppUsed, ppn_deducted: d.ppnUsed }] : [];
         }),
       },
     },
@@ -396,6 +401,8 @@ export type FakturView = FakturListRow & {
   rates: { rate: number; otherNum: number; otherDen: number };
   grossDpp: number;
   advanceDpp: number;
+  /** The advances' PPN deducted at header level (settlement, full-less-advance P113); 0 under net-dpp. */
+  advancePpn: number;
   dppOther: number;
   nsfpDate: string | null;
   lines: {
@@ -412,9 +419,9 @@ export type FakturView = FakturListRow & {
     ppn: number;
   }[];
   /** The faktur uang muka it deducts (pelunasan). */
-  deducts: { id: number; fakturNo: string; nsfp: string | null; dpp: number }[];
+  deducts: { id: number; fakturNo: string; nsfp: string | null; dpp: number; ppn: number }[];
   /** The faktur pelunasan that deduct it (uang muka). */
-  deductedBy: { id: number; fakturNo: string; nsfp: string | null; dpp: number }[];
+  deductedBy: { id: number; fakturNo: string; nsfp: string | null; dpp: number; ppn: number }[];
 };
 
 export async function getFaktur(id: number): Promise<FakturView | null> {
@@ -450,6 +457,7 @@ export async function getFaktur(id: number): Promise<FakturView | null> {
     rates: { rate: r.ppn_rate.toNumber(), otherNum: r.ppn_dpp_other_numerator, otherDen: r.ppn_dpp_other_denominator },
     grossDpp: r.gross_dpp.toNumber(),
     advanceDpp: r.advance_dpp.toNumber(),
+    advancePpn: r.advance_ppn.toNumber(),
     dppOther: r.dpp_other.toNumber(),
     nsfpDate: r.nsfp_date ? isoDay(r.nsfp_date) : null,
     lines: r.lines.map((l) => ({
@@ -465,8 +473,8 @@ export async function getFaktur(id: number): Promise<FakturView | null> {
       dppOther: l.dpp_other.toNumber(),
       ppn: l.ppn.toNumber(),
     })),
-    deducts: r.refs.map((x) => ({ id: x.ref_faktur.id, fakturNo: x.ref_faktur.faktur_no, nsfp: x.ref_faktur.nsfp, dpp: x.dpp_deducted.toNumber() })),
-    deductedBy: r.used_by.map((x) => ({ id: x.faktur.id, fakturNo: x.faktur.faktur_no, nsfp: x.faktur.nsfp, dpp: x.dpp_deducted.toNumber() })),
+    deducts: r.refs.map((x) => ({ id: x.ref_faktur.id, fakturNo: x.ref_faktur.faktur_no, nsfp: x.ref_faktur.nsfp, dpp: x.dpp_deducted.toNumber(), ppn: x.ppn_deducted.toNumber() })),
+    deductedBy: r.used_by.map((x) => ({ id: x.faktur.id, fakturNo: x.faktur.faktur_no, nsfp: x.faktur.nsfp, dpp: x.dpp_deducted.toNumber(), ppn: x.ppn_deducted.toNumber() })),
   };
 }
 

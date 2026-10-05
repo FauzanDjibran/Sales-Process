@@ -461,11 +461,15 @@ export function receivedProblem(cash: number, max: number): string | null {
  * drift by more than Rp1 at any point, add up to the order line exactly when
  * it is complete, and an order closed short is billed exactly what it sent.
  *
- * The Uang Muka used is a DPP typed by the user (U8). It is shared over the
- * lines by their DPP, the largest absorbing the rounding, and each line's PPN
- * is the chain on its DPP after the advance — so the document is still the sum
- * of its lines (P60) and its PPN is on the net DPP, never "full PPN − the
- * advance's PPN" (U7). Piutang = net DPP + PPN.
+ * **Settlement PPN is `full-less-advance`** (P113, `tax_concept.md` §3.5
+ * choice point `settlement-ppn`; replaces U7's net-DPP rule for this ERP).
+ * Each line's PPN is the chain on its **full** DPP. The Uang Muka used — a DPP
+ * the user types per item (U8) — and the PPN of the part of each item used
+ * (`advancePpnUsed`) are deducted once, from the document. The advance's DPP is
+ * still shared over the lines by DPP (§7.4), but only for the PPh, which is on
+ * the DPP after the advances per Jenis PPh (§4.4). Piutang = net DPP + (full
+ * PPN − the advances' PPN). It assumes the PPN rate and the DPP Nilai Lain
+ * factor did not change since the advance; the Invoice refuses one that did.
  */
 
 export type InvoiceLineInput = {
@@ -485,6 +489,23 @@ export type InvoiceLineInput = {
   withholdingKey: string | null;
 };
 
+/**
+ * The PPN of the part of an Uang Muka a document uses (P113): that part's share
+ * of the PPN its faktur pajak uang muka carries, taken **cumulatively**
+ * (`tax_concept.md` §7.5) — the PPN up to everything used so far, rounded once,
+ * less the PPN up to what was used before. So the parts of one advance add up
+ * to exactly its PPN, the use that empties it taking whatever is left.
+ */
+export function advancePpnUsed(a: { taxDpp: number | null; taxPpn: number | null; usedBefore: number; used: number }): number {
+  const dpp = Math.round(Number(a.taxDpp) || 0);
+  const ppn = Math.round(Number(a.taxPpn) || 0);
+  if (dpp <= 0 || ppn <= 0) return 0;
+  const before = Math.max(0, Math.round(a.usedBefore));
+  const after = Math.min(dpp, before + Math.max(0, Math.round(a.used)));
+  const upTo = (u: number) => (u >= dpp ? ppn : Math.round((ppn * u) / dpp));
+  return upTo(after) - upTo(before);
+}
+
 export type InvoiceLineResult = {
   /** Its cumulative share of the order line's gross and discount (P112). */
   gross: number;
@@ -495,8 +516,9 @@ export type InvoiceLineResult = {
   dpp: number;
   /** The share of the Uang Muka used that this line carries. */
   advanceDpp: number;
-  /** DPP after the advance; DPP Nilai Lain and PPN are on it. */
+  /** DPP after its share of the advance — the PPh base (§4.4). */
   netDpp: number;
+  /** DPP Nilai Lain and PPN on the line's full DPP (P113). */
   dppOther: number;
   ppn: number;
 };
@@ -509,7 +531,13 @@ export type InvoiceFigures = {
   dpp: number;
   advanceUsed: number;
   netDpp: number;
+  /** Σ lines, on the full DPP. */
   dppOther: number;
+  /** Σ lines: the PPN on the full DPP. */
+  fullPpn: number;
+  /** The PPN of the Uang Muka used, deducted once (P113). */
+  advancePpn: number;
+  /** fullPpn − advancePpn: what PPN Keluaran is credited with. */
   ppn: number;
   /** Net Piutang: net DPP + PPN. */
   total: number;
@@ -558,6 +586,8 @@ export function computeInvoice(input: {
   rates: PpnRates | null;
   /** Σ DPP used of the Uang Muka picked. */
   advanceUsed: number;
+  /** Σ PPN of the Uang Muka used (`advancePpnUsed` per item). */
+  advancePpn?: number;
 }): InvoiceFigures {
   const parts = input.lines.map(invoiceLineFigures);
   const amounts = parts.map((p) => p.amount);
@@ -567,12 +597,14 @@ export function computeInvoice(input: {
   const shares = advanceUsed > 0 ? allocate(advanceUsed, full) : full.map(() => 0);
   const lines: InvoiceLineResult[] = amounts.map((amount, i) => {
     const netDpp = full[i] - shares[i];
-    const tax = input.taxable && input.rates ? ppnChain(netDpp, input.rates) : { dppOther: 0, ppn: 0 };
+    const tax = input.taxable && input.rates ? ppnChain(full[i], input.rates) : { dppOther: 0, ppn: 0 };
     return { gross: parts[i].gross, discount: parts[i].discount, amount, dpp: full[i], advanceDpp: shares[i], netDpp, ...tax };
   });
   const sum = (f: (l: InvoiceLineResult) => number) => lines.reduce((a, l) => a + f(l), 0);
   const netDpp = sum((l) => l.netDpp);
-  const ppn = sum((l) => l.ppn);
+  const fullPpn = sum((l) => l.ppn);
+  const advancePpn = advanceUsed > 0 ? Math.min(fullPpn, Math.max(0, Math.round(input.advancePpn ?? 0))) : 0;
+  const ppn = fullPpn - advancePpn;
   const withholdings = withholdingsOf(
     input.lines.map((l, i) => ({ key: l.withholdingKey, rate: l.withholdingRate, dpp: lines[i].netDpp }))
   );
@@ -586,6 +618,8 @@ export function computeInvoice(input: {
     advanceUsed,
     netDpp,
     dppOther: sum((l) => l.dppOther),
+    fullPpn,
+    advancePpn,
     ppn,
     total: netDpp + ppn,
     withholdings,

@@ -19,7 +19,8 @@ import {
   settleArItem,
   type AdvanceItemForInvoice,
 } from "./ar-item";
-import { computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine } from "./sales-tax";
+import { advancePpnUsed, computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine } from "./sales-tax";
+import { advanceRatesByIds } from "./ar-advance";
 import { postingAccounts } from "./system-settings";
 import {
   INVOICE_HOLDS,
@@ -274,7 +275,7 @@ type CheckedLine = {
   withholding_rate: number | null;
 };
 
-type CheckedDeduction = { ar_item_id: number; ar_item_no: string; dpp_used: number };
+type CheckedDeduction = { ar_item_id: number; ar_item_no: string; dpp_used: number; ppn_used: number };
 
 export type CheckedInvoice = {
   order: InvoiceOrderOption;
@@ -297,6 +298,7 @@ export type CheckedInvoice = {
     amount: number;
     dpp_amount: number;
     advance_dpp_amount: number;
+    advance_ppn_amount: number;
     net_dpp_amount: number;
     dpp_other_amount: number;
     ppn_amount: number;
@@ -401,6 +403,7 @@ export async function checkInvoice(
   const rawDeds = Array.isArray(deductions) ? deductions : [];
   const itemById = new Map((order?.advances ?? []).map((a) => [a.id, a]));
   const checkedDeds: CheckedDeduction[] = [];
+  const dedIndex: number[] = [];
   const seenItems = new Set<number>();
   for (const [i, d] of rawDeds.entries()) {
     const id = Number(d.ar_item_id) || null;
@@ -420,7 +423,26 @@ export async function checkInvoice(
     if (!Number.isFinite(used) || !(used > 0)) errors[key] = "Isi DPP yang dipakai lebih dari 0.";
     else if (used !== Math.round(used)) errors[key] = "DPP dipakai harus dalam rupiah penuh.";
     else if (used > free) errors[key] = `Melebihi sisa uang muka (${money(free)}${item.reserved ? `; ${money(item.reserved)} dicadangkan Invoice Draft lain` : ""}).`;
-    else checkedDeds.push({ ar_item_id: id, ar_item_no: item.arItemNo, dpp_used: used });
+    else {
+      // Its share of the item's PPN, cumulatively after what posted Invoices used (P113, §7.5).
+      const ppnUsed = advancePpnUsed({ taxDpp: item.taxDpp, taxPpn: item.taxPpn, usedBefore: item.original - item.balance, used });
+      checkedDeds.push({ ar_item_id: id, ar_item_no: item.arItemNo, dpp_used: used, ppn_used: ppnUsed });
+      dedIndex.push(i);
+    }
+  }
+  // Full PPN less the advance's PPN holds only while the rate and the DPP Nilai
+  // Lain factor are the ones the advance's faktur used (P113): refused otherwise.
+  if (order?.taxable && order.rates && checkedDeds.length) {
+    const billOf = new Map((order.advances ?? []).filter((a) => a.sourceTable === "fin_ar_advance").map((a) => [a.id, a.sourceId]));
+    const rates = await advanceRatesByIds([...new Set(checkedDeds.map((d) => billOf.get(d.ar_item_id) ?? 0))], db);
+    const r = order.rates;
+    checkedDeds.forEach((d, k) => {
+      const b = rates.get(billOf.get(d.ar_item_id) ?? 0);
+      if (b && (b.rate !== r.rate || b.otherNum !== r.otherNum || b.otherDen !== r.otherDen)) {
+        errors[`deductions.${dedIndex[k]}.ar_item_id`] =
+          `Tarif PPN ${d.ar_item_no} (${b.rate}% × ${b.otherNum}/${b.otherDen}) berbeda dengan invoice (${r.rate}% × ${r.otherNum}/${r.otherDen}): PPN penuh dikurangi PPN uang muka hanya berlaku bila tarifnya sama.`;
+      }
+    });
   }
   const used = checkedDeds.reduce((a, d) => a + d.dpp_used, 0);
   if (used > before.dpp) errors._deductions = `Uang muka dipakai (${money(used)}) melebihi DPP invoice (${money(before.dpp)}).`;
@@ -431,7 +453,14 @@ export async function checkInvoice(
 
   if (Object.keys(errors).length || !order) return { ok: false, errors };
 
-  const figures = computeInvoice({ lines: priced, mode: order.mode, taxable: order.taxable, rates: order.rates, advanceUsed: used });
+  const figures = computeInvoice({
+    lines: priced,
+    mode: order.mode,
+    taxable: order.taxable,
+    rates: order.rates,
+    advanceUsed: used,
+    advancePpn: checkedDeds.reduce((a, d) => a + d.ppn_used, 0),
+  });
   return {
     ok: true,
     c: {
@@ -455,6 +484,7 @@ export async function checkInvoice(
         amount: figures.amount,
         dpp_amount: figures.dpp,
         advance_dpp_amount: figures.advanceUsed,
+        advance_ppn_amount: figures.advancePpn,
         net_dpp_amount: figures.netDpp,
         dpp_other_amount: figures.dppOther,
         ppn_amount: figures.ppn,
@@ -659,7 +689,7 @@ async function buildPosting(db: Db, invoiceNo: string, c: CheckedInvoice): Promi
   out.push(line(ids.sales_revenue_account, 0, f.dpp, `Penjualan barang ${notes} (${c.order.orderNo})`));
   if (f.ppn > 0) {
     out.push(
-      line(ids.output_vat_account, 0, f.ppn, f.advanceUsed > 0 ? `PPN atas DPP setelah uang muka — ${invoiceNo}` : `PPN atas penyerahan — ${invoiceNo}`)
+      line(ids.output_vat_account, 0, f.ppn, f.advanceUsed > 0 ? `PPN penuh dikurangi PPN uang muka — ${invoiceNo}` : `PPN atas penyerahan — ${invoiceNo}`)
     );
   }
   return { ok: true, description: `${invoiceNo} · Invoice Penjualan ${c.order.orderNo} — ${c.order.customerName}`, lines: out };
@@ -871,7 +901,7 @@ export type InvoiceView = {
   status: InvoiceStatus;
   header: InvoiceHeaderInput;
   lines: InvoiceLineInput[];
-  deductions: { ar_item_id: number; dpp_used: number }[];
+  deductions: { ar_item_id: number; dpp_used: number; ppn_used: number }[];
   taxDate: string;
   dueDate: string;
   /** As stored: what was computed at the last save, or at Posting. */
@@ -884,6 +914,8 @@ export type InvoiceView = {
     advanceUsed: number;
     netDpp: number;
     dppOther: number;
+    fullPpn: number;
+    advancePpn: number;
     ppn: number;
     total: number;
   };
@@ -905,7 +937,7 @@ export async function getInvoice(id: number): Promise<InvoiceView | null> {
     status: n.status as InvoiceStatus,
     header: input.header,
     lines: input.lines,
-    deductions: input.deductions.map((d) => ({ ar_item_id: d.ar_item_id, dpp_used: Number(d.dpp_used) })),
+    deductions: n.deductions.map((d) => ({ ar_item_id: d.ar_item_id, dpp_used: d.dpp_used.toNumber(), ppn_used: d.ppn_used.toNumber() })),
     taxDate: isoDay(n.tax_date),
     dueDate: isoDay(n.due_date),
     stored: {
@@ -926,6 +958,8 @@ export async function getInvoice(id: number): Promise<InvoiceView | null> {
       advanceUsed: n.advance_dpp_amount.toNumber(),
       netDpp: n.net_dpp_amount.toNumber(),
       dppOther: n.dpp_other_amount.toNumber(),
+      fullPpn: n.ppn_amount.toNumber() + n.advance_ppn_amount.toNumber(),
+      advancePpn: n.advance_ppn_amount.toNumber(),
       ppn: n.ppn_amount.toNumber(),
       total: n.total_amount.toNumber(),
     },
@@ -1104,6 +1138,8 @@ export type InvoiceTaxBasis = {
   rates: { rate: number; otherNum: number; otherDen: number } | null;
   dpp: number;
   advanceUsed: number;
+  /** The PPN of the Uang Muka used, deducted once (P113). */
+  advancePpn: number;
   netDpp: number;
   dppOther: number;
   ppn: number;
@@ -1119,7 +1155,7 @@ export type InvoiceTaxBasis = {
     dppOther: number;
     ppn: number;
   }[];
-  deductions: { arItemId: number; arItemNo: string; dppUsed: number }[];
+  deductions: { arItemId: number; arItemNo: string; dppUsed: number; ppnUsed: number }[];
 };
 
 /** Every posted Invoice Penjualan, oldest first — for the tax backfill (P100). */
@@ -1150,6 +1186,7 @@ export async function invoiceTaxBasis(db: Db, id: number): Promise<InvoiceTaxBas
         : null,
     dpp: n.dpp_amount.toNumber(),
     advanceUsed: n.advance_dpp_amount.toNumber(),
+    advancePpn: n.advance_ppn_amount.toNumber(),
     netDpp: n.net_dpp_amount.toNumber(),
     dppOther: n.dpp_other_amount.toNumber(),
     ppn: n.ppn_amount.toNumber(),
@@ -1168,7 +1205,7 @@ export async function invoiceTaxBasis(db: Db, id: number): Promise<InvoiceTaxBas
         ppn: l.ppn_amount.toNumber(),
       };
     }),
-    deductions: n.deductions.map((d) => ({ arItemId: d.ar_item_id, arItemNo: d.ar_item_no, dppUsed: d.dpp_used.toNumber() })),
+    deductions: n.deductions.map((d) => ({ arItemId: d.ar_item_id, arItemNo: d.ar_item_no, dppUsed: d.dpp_used.toNumber(), ppnUsed: d.ppn_used.toNumber() })),
   };
 }
 

@@ -161,6 +161,19 @@ PPN falls due at the **earlier** of:
 - A bill for an advance is not a tax point. Its PPN is an estimate until the
   money arrives.
 
+- **Choice point `settlement-ppn`** — how the settlement tax invoice's PPN is
+  worked out when it deducts advances:
+
+  | Option | Rule | Used by |
+  | --- | --- | --- |
+  | `net-dpp` (main path) | The PPN is the chain on what remains: each line's DPP less its share of the advances' DPP (shared by DPP, §7.4), PPN per line on that net DPP. Holds even when the rate or the DPP Nilai Lain factor changed between the advance and the delivery. | — |
+  | `full-less-advance` | Each line carries the PPN on its **full** DPP; the document then deducts, once, the advances' DPP and the PPN of the part of each advance used — that part's share of the advance's PPN, taken **cumulatively** (§7.5), so an advance used over several invoices deducts exactly the PPN its tax invoice carries. It **assumes the rate and the factor did not change** between the advance and the delivery: a settlement whose rate or factor differs from an advance it deducts is refused. | ERP (P113) |
+
+  Because the PPN chain is not linear, the two options can differ by about Rp1
+  on the same figures. Under either option, withholding is on the DPP after
+  the advances, per withholding type (§4.4), so the advances' DPP is still
+  shared over the lines for that purpose.
+
 ### 3.6 VAT collectors (WAPU)
 
 **Later.** The company trades mainly with the private sector, so the basic

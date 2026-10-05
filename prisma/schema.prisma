@@ -1837,6 +1837,9 @@ model FinArInvoice {
   dpp_amount         Decimal @default(0) @db.Decimal(18, 2)
   /// Uang Muka used, in DPP (U8).
   advance_dpp_amount Decimal @default(0) @db.Decimal(18, 2)
+  /// The PPN of the Uang Muka used, deducted once from the full PPN (P113,
+  /// settlement-ppn = full-less-advance); ppn_amount = Σ lines − this.
+  advance_ppn_amount Decimal @default(0) @db.Decimal(18, 2)
   net_dpp_amount     Decimal @default(0) @db.Decimal(18, 2)
   dpp_other_amount   Decimal @default(0) @db.Decimal(18, 2)
   ppn_amount         Decimal @default(0) @db.Decimal(18, 2)
@@ -1915,6 +1918,8 @@ model FinArInvoiceAdvanceDeduction {
   ar_item_id Int
   ar_item_no String
   dpp_used   Decimal @db.Decimal(18, 2)
+  /// Its cumulative share of the item's PPN (tax_ppn), P113 / tax_concept §7.5.
+  ppn_used   Decimal @default(0) @db.Decimal(18, 2)
 
   invoice FinArInvoice @relation(fields: [invoice_id], references: [id])
 
@@ -2348,6 +2353,8 @@ model TaxFaktur {
   gross_dpp                 Decimal @db.Decimal(18, 2)
   /// The advances' DPP it deducts (settlement only).
   advance_dpp               Decimal @default(0) @db.Decimal(18, 2)
+  /// The advances' PPN it deducts (settlement, full-less-advance P113).
+  advance_ppn               Decimal @default(0) @db.Decimal(18, 2)
   dpp                       Decimal @db.Decimal(18, 2)
   dpp_other                 Decimal @db.Decimal(18, 2)
   ppn                       Decimal @db.Decimal(18, 2)
@@ -2403,6 +2410,7 @@ model TaxFakturRef {
   faktur_id     Int
   ref_faktur_id Int
   dpp_deducted  Decimal @db.Decimal(18, 2)
+  ppn_deducted  Decimal @default(0) @db.Decimal(18, 2)
 
   faktur     TaxFaktur @relation("FakturRefs", fields: [faktur_id], references: [id])
   ref_faktur TaxFaktur @relation("FakturUsedBy", fields: [ref_faktur_id], references: [id])
