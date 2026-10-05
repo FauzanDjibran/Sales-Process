@@ -622,7 +622,6 @@ export async function transitionDeliveryNote(
               where: { delivery_note_line_id_pick_no: { delivery_note_line_id: stored.id, pick_no: p.pick_no } },
               data: { base_qty: pickBase, unit_cost: out.unitCost, cost_amount: out.cost },
             });
-            issued.unitCost = out.unitCost;
             issued.cost += out.cost;
           }
         } else {
@@ -631,7 +630,10 @@ export async function transitionDeliveryNote(
             await issueStock(tx, { itemId: d.itemId, warehouseId: r.c.source.warehouseId, baseQty, date: r.c.data.dn_date, source, actorId })
           );
         }
-        await tx.logDeliveryNoteLine.update({ where, data: { base_qty: baseQty, unit_cost: issued.unitCost, cost_amount: issued.cost } });
+        // The line's unit cost describes what it left at — its value ÷ its base
+        // quantity, at six decimals — and is never read back into a calculation (P114).
+        const unitCost = baseQty > 0 ? Math.round((issued.cost / baseQty) * 1_000_000) / 1_000_000 : 0;
+        await tx.logDeliveryNoteLine.update({ where, data: { base_qty: baseQty, unit_cost: unitCost, cost_amount: issued.cost } });
         sent.set(line.source_doc_line_id, line.qty);
         total += issued.cost;
         if (issued.cost > 0) {

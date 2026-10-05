@@ -11,7 +11,7 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { setItemCostAction } from "@/app/actions/item-cost";
 import type { ItemCostRow } from "@/lib/erp/inventory";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate, formatMoney, formatPrice } from "@/lib/format";
 
 /**
  * Harga Pokok (Sementara) — one cost per Barang, per base unit, which the
@@ -144,7 +144,7 @@ export function ItemCostList({ rows, canEdit }: { rows: ItemCostRow[]; canEdit: 
                         {r.unitCost === null ? (
                           <span className="bdg s-warn">Belum diisi</span>
                         ) : (
-                          <span className="mny">{formatMoney(r.unitCost, "IDR")}</span>
+                          <span className="mny">{formatPrice(r.unitCost)}</span>
                         )}
                       </td>
                       <td>{r.updatedAt ? formatDate(r.updatedAt.slice(0, 10)) : <span className="dash">—</span>}</td>
@@ -204,7 +204,7 @@ export function ItemCostList({ rows, canEdit }: { rows: ItemCostRow[]; canEdit: 
               <Field label={`Harga Pokok per ${editing.baseUomLabel}`} span={12} required help="berlaku untuk pengiriman berikutnya" error={error}>
                 <MoneyInput
                   value={value}
-                  decimals={2}
+                  decimals={6}
                   invalid={Boolean(error)}
                   onChange={(v) => {
                     setValue(v);

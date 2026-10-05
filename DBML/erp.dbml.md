@@ -1472,7 +1472,7 @@ table log_delivery_note_line {
 
   qty                         decimal(18,4) [not null] // in uom_id
   base_qty                    decimal(18,4) [not null, default: 0] // qty x uom_factor
-  unit_cost                   decimal(18,2) [not null, default: 0] // what the inventory issued at
+  unit_cost                   decimal(18,6) [not null, default: 0] // what the inventory issued at (a description, P114)
   cost_amount                 decimal(18,2) [not null, default: 0]
 
   note                        varchar
@@ -1500,7 +1500,7 @@ table log_delivery_note_lot {
   expiry_date                 date
   qty                         decimal(18,4) [not null] // in the line unit
   base_qty                    decimal(18,4) [not null, default: 0] // set at Posting
-  unit_cost                   decimal(18,2) [not null, default: 0]
+  unit_cost                   decimal(18,6) [not null, default: 0] // a description of the movement, never an input (P114)
   cost_amount                 decimal(18,2) [not null, default: 0]
 
   indexes {
@@ -1671,7 +1671,7 @@ table tmp_item_cost {
 
   item_id                     int [not null, unique, ref : - m_item.id]
 
-  unit_cost                   decimal(18,2) [not null] // Harga Pokok per base unit
+  unit_cost                   decimal(18,6) [not null] // Harga Pokok per base unit (a description, P114)
 
   created_by                  int [not null]
   updated_by                  int
@@ -1716,7 +1716,7 @@ table tmp_stock_movement {
 
   lot_no                      varchar
   base_qty_out                decimal(18,4) [not null]
-  unit_cost                   decimal(18,2) [not null]
+  unit_cost                   decimal(18,6) [not null] // a description of the movement, never an input (P114)
   cost_amount                 decimal(18,2) [not null]
 
   source_doc_type_id          int [not null]

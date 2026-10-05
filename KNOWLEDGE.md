@@ -58,6 +58,7 @@ Project decisions that look reusable and are waiting to be folded into the KB
 | P109 | engineering/data-conventions | Separate number series for documents with and without PPN (`-NP` marker), inherited downstream | Queued 05/10/2026 |
 | P110 | accounting/books-and-posting | A ledger number per posting per book, shared by its movements | Queued 05/10/2026 |
 | P95 | (new) inventory | Lot picking with FEFO and expiry flags, as a candidate for an inventory concept once real stock is built | Later |
+| P114 | (new) inventory | Moving-average valuation kept as quantity and value: release round(V × q / Q), the emptying issue takes V, no negative stock, the average derived and never multiplied, returns at the value they left at | Later, with P95 |
 
 Processed 04/10/2026: P93, P94, P97, P98, P99 → `sales/order-to-cash` 2.0;
 P94, P100 → `engineering/app-architecture` 1.1 (stand-in module, `afterPost`

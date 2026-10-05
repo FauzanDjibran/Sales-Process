@@ -1,7 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@/generated/prisma/client";
+import { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 
 /**
@@ -37,9 +37,6 @@ export type StockIssue = {
   source: { docTypeId: number; docId: number; no: string };
   actorId: number;
 };
-
-/** Whole rupiah, half up — what a cost is booked at. */
-const rupiah = (n: number) => Math.round(n);
 
 /**
  * The unit cost each item would be issued at now, or null for an item that
@@ -80,8 +77,10 @@ export async function issueStock(tx: Prisma.TransactionClient, issue: StockIssue
   } else if (issue.lotId) {
     throw new InventoryRefusal(`${row.item.item_label} tidak dikelola per lot.`);
   }
+  // In exact decimals, rounded once to whole rupiah (P114): a Harga Pokok per
+  // gram times thousands of grams must not pick up binary-float error.
   const unitCost = row.unit_cost.toNumber();
-  const cost = rupiah(issue.baseQty * unitCost);
+  const cost = new Prisma.Decimal(issue.baseQty).mul(row.unit_cost).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP).toNumber();
   await tx.tmpStockMovement.create({
     data: {
       ...(await ledgerPosition(tx, issue.date, issue.source.docTypeId, issue.source.docId)),
@@ -309,7 +308,7 @@ export type ItemCostResult = { ok: true } | { ok: false; errors: Record<string, 
 export async function setItemCost(itemId: number, raw: number | string, actorId: number): Promise<ItemCostResult> {
   const value = Number(String(raw ?? "").replace(",", "."));
   if (!Number.isFinite(value) || !(value > 0)) return { ok: false, errors: { unit_cost: "Isi Harga Pokok lebih dari 0." } };
-  if (Math.round(value * 100) !== value * 100) return { ok: false, errors: { unit_cost: "Paling banyak 2 angka desimal." } };
+  if (!/^\d+(\.\d{1,6})?$/.test(String(raw).trim().replace(",", "."))) return { ok: false, errors: { unit_cost: "Paling banyak 6 angka desimal." } };
   const item = await prisma.mItem.findUnique({ where: { id: itemId }, select: { item_type: true } });
   if (!item) return { ok: false, errors: { _form: "Barang tidak ditemukan." } };
   if (item.item_type !== "Barang") return { ok: false, errors: { _form: "Harga Pokok hanya untuk barang." } };

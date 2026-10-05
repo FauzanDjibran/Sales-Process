@@ -1748,7 +1748,7 @@ model LogDeliveryNoteLine {
   qty                Decimal @db.Decimal(18, 4)
   /// qty × uom_factor.
   base_qty           Decimal @default(0) @db.Decimal(18, 4)
-  unit_cost          Decimal @default(0) @db.Decimal(18, 2)
+  unit_cost          Decimal @default(0) @db.Decimal(18, 6)
   cost_amount        Decimal @default(0) @db.Decimal(18, 2)
   note               String?
 
@@ -1781,7 +1781,7 @@ model LogDeliveryNoteLot {
   /// In the line's unit.
   qty                   Decimal   @db.Decimal(18, 4)
   base_qty              Decimal   @default(0) @db.Decimal(18, 4)
-  unit_cost             Decimal   @default(0) @db.Decimal(18, 2)
+  unit_cost             Decimal   @default(0) @db.Decimal(18, 6)
   cost_amount           Decimal   @default(0) @db.Decimal(18, 2)
 
   line LogDeliveryNoteLine @relation(fields: [delivery_note_line_id], references: [id])
@@ -1958,7 +1958,7 @@ model TmpStockLot {
 model TmpItemCost {
   id         Int      @id @default(autoincrement())
   item_id    Int      @unique
-  unit_cost  Decimal  @db.Decimal(18, 2)
+  unit_cost  Decimal  @db.Decimal(18, 6)
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
@@ -1982,7 +1982,7 @@ model TmpStockMovement {
   movement_date      DateTime @db.Date
   /// What left the warehouse, in the item's base unit.
   base_qty_out       Decimal  @db.Decimal(18, 4)
-  unit_cost          Decimal  @db.Decimal(18, 2)
+  unit_cost          Decimal  @db.Decimal(18, 6)
   cost_amount        Decimal  @db.Decimal(18, 2)
   source_doc_type_id Int
   source_doc_id      Int

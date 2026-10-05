@@ -520,6 +520,26 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
     ]);
   });
 
+  test("a Harga Pokok at six decimals: each lot rounds once; the line's unit cost is derived from its value (P114)", async () => {
+    assert.ok(!(await setItemCost(f.lotted, "1234.5678912", actor)).ok, "seven decimals are refused");
+    assert.deepEqual(await setItemCost(f.lotted, "1234.567891", actor), { ok: true });
+    try {
+      const again = await issuedDeliveryOrder([[f.lotted, f.pcs, 7]]);
+      const r = await create(header({ source_doc_id: again.doId }), [
+        { source_doc_line_id: again.goods, qty: 7, note: "", picks: [{ lot_id: lot.early, qty: 4 }, { lot_id: lot.late, qty: 3 }] },
+      ]);
+      assert.ok(r.ok, JSON.stringify(r));
+      assert.ok((await transitionDeliveryNote(r.id, "post", actor)).ok);
+      const note = (await getDeliveryNote(r.id))!;
+      // 4 × 1.234,567891 = 4.938,27 → 4.938; 3 × … = 3.703,70 → 3.704.
+      assert.deepEqual(note.lines[0].pickedLots.map((p) => p.cost), [4_938, 3_704]);
+      assert.equal(note.lines[0].cost, 8_642, "the line is the sum of its lots");
+      assert.equal(note.lines[0].unitCost, 1_234.571429, "8.642 ÷ 7, a description — not the Harga Pokok");
+    } finally {
+      await setItemCost(f.lotted, "1500", actor);
+    }
+  });
+
   test("a lot deactivated after it was picked stops the Draft from posting", async () => {
     const again = await issuedDeliveryOrder([[f.lotted, f.pcs, 5]]);
     const r = await create(header({ source_doc_id: again.doId }), [

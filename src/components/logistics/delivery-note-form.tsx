@@ -26,7 +26,7 @@ import type {
   DeliveryNoteView,
   DnSourceLine,
 } from "@/lib/erp/delivery-note";
-import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
+import { formatDate, formatMoney, formatNumber, formatPrice, todayIso } from "@/lib/format";
 
 /**
  * A Delivery Note in all three modes: `new`, `edit` (Draft only) and `view`
@@ -498,7 +498,7 @@ export function DeliveryNoteForm({
                     {posted && (
                       <>
                         <td className="num">
-                          <span className="mny">{money(stored?.unitCost ?? 0)}</span>
+                          <span className="mny">{formatPrice(stored?.unitCost ?? 0)}</span>
                         </td>
                         <td className="num">
                           <span className="mny">{money(stored?.cost ?? 0)}</span>
