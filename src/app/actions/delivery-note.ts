@@ -37,8 +37,8 @@ async function authorize(code: string): Promise<Guard> {
 }
 
 function revalidate(id?: number) {
-  revalidatePath("/sales/delivery-note");
-  if (id) revalidatePath(`/sales/delivery-note/${id}`);
+  revalidatePath("/logistics/delivery-note");
+  if (id) revalidatePath(`/logistics/delivery-note/${id}`);
   // Posting records what left on the Delivery Order and its Sales Orders, and
   // may close them; both pages show it.
   revalidatePath("/sales/delivery-order", "layout");

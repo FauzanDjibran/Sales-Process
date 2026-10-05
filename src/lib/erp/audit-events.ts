@@ -237,7 +237,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   sal_customer_order: CUSTOMER_ORDER_EVENTS,
   sal_order: SALES_ORDER_EVENTS,
   sal_delivery_order: DELIVERY_ORDER_EVENTS,
-  sal_delivery_note: DELIVERY_NOTE_EVENTS,
+  log_delivery_note: DELIVERY_NOTE_EVENTS,
   sal_invoice: INVOICE_EVENTS,
   sal_advance: SALES_ADVANCE_EVENTS,
   fin_cash_bank_tx: CASH_BANK_TX_EVENTS,

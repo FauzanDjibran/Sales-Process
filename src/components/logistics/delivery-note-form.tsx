@@ -10,9 +10,10 @@ import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
-import { DeliveryNoteActions } from "@/components/sales/delivery-note-actions";
-import { DeliveryNoteLinePicker } from "@/components/sales/delivery-note-line-picker";
-import { DeliveryNoteLotPicker, type LotPick } from "@/components/sales/delivery-note-lot-picker";
+import { DEFAULT_DELIVERY_NOTE_PURPOSE, deliveryNotePurpose } from "@/lib/erp/delivery-note-purposes";
+import { DeliveryNoteActions } from "@/components/logistics/delivery-note-actions";
+import { DeliveryNoteLinePicker } from "@/components/logistics/delivery-note-line-picker";
+import { DeliveryNoteLotPicker, type LotPick } from "@/components/logistics/delivery-note-lot-picker";
 import { createDeliveryNoteAction, updateDeliveryNoteAction } from "@/app/actions/delivery-note";
 import {
   DELIVERY_NOTE_STATUS_BADGE,
@@ -40,7 +41,7 @@ import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
 
 export type DeliveryNoteMode = "new" | "edit" | "view";
 
-type LineState = { key: string; delivery_order_line_id: number | null; qty: string; picks: LotPick[] };
+type LineState = { key: string; source_doc_line_id: number | null; qty: string; picks: LotPick[] };
 
 let seq = 0;
 const newKey = () => `l${Date.now().toString(36)}${seq++}`;
@@ -73,20 +74,20 @@ export function DeliveryNoteForm({
   const [header, setHeader] = useState<DeliveryNoteHeaderInput>(() =>
     note
       ? { ...note.header }
-      : { delivery_order_id: preset?.id ?? null, dn_date: todayIso(), vehicle_no: "", driver_name: "", note: "" }
+      : { purpose: DEFAULT_DELIVERY_NOTE_PURPOSE, source_doc_id: preset?.id ?? null, dn_date: todayIso(), vehicle_no: "", driver_name: "", note: "" }
   );
   const [lines, setLines] = useState<LineState[]>(() => {
     if (note) {
       return note.lines.map((l) => ({
         key: newKey(),
-        delivery_order_line_id: Number(l.delivery_order_line_id),
+        source_doc_line_id: Number(l.source_doc_line_id),
         qty: String(l.qty),
         picks: (l.picks ?? []).map((p) => ({ lot_id: Number(p.lot_id), qty: String(p.qty) })),
       }));
     }
     return (preset?.lines ?? [])
       .filter((l) => l.qty - l.held > 0)
-      .map((l) => ({ key: newKey(), delivery_order_line_id: l.id, qty: "", picks: [] }));
+      .map((l) => ({ key: newKey(), source_doc_line_id: l.id, qty: "", picks: [] }));
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
@@ -94,7 +95,7 @@ export function DeliveryNoteForm({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [lotsFor, setLotsFor] = useState<string | null>(null);
 
-  const source = header.delivery_order_id ? orderById.get(header.delivery_order_id) : undefined;
+  const source = header.source_doc_id ? orderById.get(header.source_doc_id) : undefined;
   const doLineById = useMemo(() => new Map((source?.lines ?? []).map((l) => [l.id, l])), [source]);
   const posted = note?.status === "Posted";
 
@@ -115,14 +116,14 @@ export function DeliveryNoteForm({
     touch("_lines");
   };
   const pickOrder = (id: number | null) => {
-    setHeader((x) => ({ ...x, delivery_order_id: id }));
+    setHeader((x) => ({ ...x, source_doc_id: id }));
     setLines([]);
-    touch("delivery_order_id", "_lines");
+    touch("source_doc_id", "_lines");
   };
   /** The picker's ticks become the lines: kept ones keep their quantity, new ones start blank. */
   const applyPicked = (ids: number[]) => {
     setLines((ls) =>
-      ids.map((id) => ls.find((l) => l.delivery_order_line_id === id) ?? { key: newKey(), delivery_order_line_id: id, qty: "", picks: [] })
+      ids.map((id) => ls.find((l) => l.source_doc_line_id === id) ?? { key: newKey(), source_doc_line_id: id, qty: "", picks: [] })
     );
     touch("_lines");
     setPickerOpen(false);
@@ -133,7 +134,7 @@ export function DeliveryNoteForm({
     // Every line was picked on purpose, so a blank quantity is sent and refused
     // on its row rather than quietly dropped.
     const sent = lines;
-    const payload = sent.map((l) => ({ delivery_order_line_id: l.delivery_order_line_id, qty: l.qty, note: "", picks: l.picks }));
+    const payload = sent.map((l) => ({ source_doc_line_id: l.source_doc_line_id, qty: l.qty, note: "", picks: l.picks }));
     const result =
       mode === "edit" ? await updateDeliveryNoteAction(note!.id, header, payload) : await createDeliveryNoteAction(header, payload);
     setSaving(false);
@@ -154,11 +155,11 @@ export function DeliveryNoteForm({
     }
     setDirty(false);
     toast("Delivery Note disimpan", `${result.dnNo} · Draft`, "ok");
-    router.push(`/sales/delivery-note/${result.id}`);
+    router.push(`/logistics/delivery-note/${result.id}`);
   }
 
   const status = note?.status ?? "Draft";
-  const backHref = note ? `/sales/delivery-note/${note.id}` : "/sales/delivery-note";
+  const backHref = note ? `/logistics/delivery-note/${note.id}` : "/logistics/delivery-note";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
   const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
   const waitOrder = "menunggu Delivery Order";
@@ -170,23 +171,28 @@ export function DeliveryNoteForm({
       <FormBody>
         <FormSection title="Delivery Order">
           <FormRow>
+            <Field label="Tujuan" span={4} locked={mode !== "view"} help={mode !== "view" ? "menentukan sumber dan jurnalnya" : undefined}>
+              {ro(deliveryNotePurpose(header.purpose ?? DEFAULT_DELIVERY_NOTE_PURPOSE)?.name ?? header.purpose)}
+            </Field>
+          </FormRow>
+          <FormRow>
             <Field
               label="Delivery Order"
               span={4}
               required={mode === "new"}
               locked={mode === "edit"}
               help={mode === "new" ? "yang sudah diterbitkan" : undefined}
-              error={errors.delivery_order_id}
+              error={errors.source_doc_id}
             >
               {mode === "new" ? (
                 <Combobox
-                  value={header.delivery_order_id}
+                  value={header.source_doc_id}
                   options={options.orders
                     .filter((o) => o.status === "Issued")
                     .map((o) => ({ id: o.id, label: o.doNo, name: o.customerName, active: true }))}
                   placeholder="Pilih Delivery Order…"
                   emptyText="Belum ada Delivery Order yang diterbitkan."
-                  invalid={Boolean(errors.delivery_order_id)}
+                  invalid={Boolean(errors.source_doc_id)}
                   onChange={pickOrder}
                 />
               ) : source ? (
@@ -438,11 +444,11 @@ export function DeliveryNoteForm({
             </thead>
             <tbody>
               {lines.map((l, i) => {
-                const d = l.delivery_order_line_id ? doLineById.get(l.delivery_order_line_id) : undefined;
+                const d = l.source_doc_line_id ? doLineById.get(l.source_doc_line_id) : undefined;
                 const left = d ? d.qty - d.held : 0;
                 const typed = Number(l.qty) || 0;
                 const over = Boolean(d && typed > left + 1e-9);
-                const lineError = lineErr(l.key, "delivery_order_line_id") ?? lineErr(l.key, "qty") ?? lineErr(l.key, "picks");
+                const lineError = lineErr(l.key, "source_doc_line_id") ?? lineErr(l.key, "qty") ?? lineErr(l.key, "picks");
                 const stored = viewLines[i];
                 return (
                   <tr key={l.key} className={lineError || over ? "overrow" : undefined}>
@@ -546,7 +552,7 @@ export function DeliveryNoteForm({
       )}
       {lotsFor && source && (() => {
         const l = lines.find((x) => x.key === lotsFor);
-        const d = l?.delivery_order_line_id ? doLineById.get(l.delivery_order_line_id) : undefined;
+        const d = l?.source_doc_line_id ? doLineById.get(l.source_doc_line_id) : undefined;
         if (!l || !d) return null;
         return (
           <DeliveryNoteLotPicker
@@ -567,7 +573,7 @@ export function DeliveryNoteForm({
       {pickerOpen && source && (
         <DeliveryNoteLinePicker
           lines={source.lines}
-          current={lines.flatMap((l) => (l.delivery_order_line_id ? [l.delivery_order_line_id] : []))}
+          current={lines.flatMap((l) => (l.source_doc_line_id ? [l.source_doc_line_id] : []))}
           orderNo={source.doNo}
           onApply={applyPicked}
           onClose={() => setPickerOpen(false)}
@@ -581,9 +587,9 @@ export function DeliveryNoteForm({
     <>
       <div className="ph">
         <div className="crumb">
-          <span>Penjualan</span>
+          <span>Logistik</span>
           <span>/</span>
-          <Link href="/sales/delivery-note">Delivery Note</Link>
+          <Link href="/logistics/delivery-note">Delivery Note</Link>
           <span>/</span>
           <span className="cur">{note ? note.dnNo : "Baru"}</span>
         </div>

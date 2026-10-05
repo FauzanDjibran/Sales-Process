@@ -603,6 +603,7 @@ export type DeliverySourceLine = {
   itemId: number;
   itemLabel: string;
   itemName: string;
+  uomId: number;
   uomLabel: string;
   uomFactor: number;
   qty: number;
@@ -672,6 +673,7 @@ export async function deliveryOrderSources(
             itemId: c?.itemId ?? 0,
             itemLabel: c?.itemLabel ?? "",
             itemName: c?.itemName ?? "",
+            uomId: c?.uomId ?? 0,
             uomLabel: c?.uomLabel ?? "",
             uomFactor: c?.uomFactor ?? 1,
             qty: l.qty.toNumber(),

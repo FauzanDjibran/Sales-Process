@@ -70,9 +70,9 @@ export const CHECKS: Check[] = [
           WHERE (t.status = 'Posted' AND (j.id IS NULL OR j.status <> 'Posted' OR j.source_doc_type_id <> ${docType("fin_cash_bank_tx")} OR j.source_doc_id <> t.id))
              OR (t.status <> 'Posted' AND t.journal_id IS NOT NULL)
           UNION ALL
-          SELECT 'delivery note', n.dn_no, n.status::text, n.journal_id FROM sal_delivery_note n
+          SELECT 'delivery note', n.dn_no, n.status::text, n.journal_id FROM log_delivery_note n
             LEFT JOIN acc_journal j ON j.id = n.journal_id
-          WHERE (n.status = 'Posted' AND n.cost_amount > 0 AND (j.id IS NULL OR j.status <> 'Posted' OR j.source_doc_type_id <> ${docType("sal_delivery_note")} OR j.source_doc_id <> n.id))
+          WHERE (n.status = 'Posted' AND n.cost_amount > 0 AND (j.id IS NULL OR j.status <> 'Posted' OR j.source_doc_type_id <> ${docType("log_delivery_note")} OR j.source_doc_id <> n.id))
              OR (n.status <> 'Posted' AND n.journal_id IS NOT NULL)
           UNION ALL
           SELECT 'invoice', v.invoice_no, v.status::text, v.journal_id FROM sal_invoice v
@@ -88,7 +88,7 @@ export const CHECKS: Check[] = [
           WHERE t.status = 'Posted' GROUP BY t.id HAVING SUM(l.debit_amount) <> t.settled_amount
           UNION ALL
           SELECT 'delivery note', n.dn_no, n.cost_amount, SUM(l.debit_amount)
-          FROM sal_delivery_note n JOIN acc_journal_line l ON l.journal_id = n.journal_id
+          FROM log_delivery_note n JOIN acc_journal_line l ON l.journal_id = n.journal_id
           WHERE n.status = 'Posted' GROUP BY n.id HAVING SUM(l.debit_amount) <> n.cost_amount
           UNION ALL
           SELECT 'invoice', v.invoice_no, v.dpp_amount + v.ppn_amount, SUM(l.kredit_amount)
@@ -203,8 +203,8 @@ export const CHECKS: Check[] = [
     area: "goods",
     name: "delivered quantity on every order line equals what posted notes took, level by level",
     sql: `SELECT 'delivery order line' AS level, dol.id, dol.delivered_qty AS stored, COALESCE(SUM(nl.qty) FILTER (WHERE n.status = 'Posted'), 0) AS from_children
-          FROM sal_delivery_order_line dol LEFT JOIN sal_delivery_note_line nl ON nl.delivery_order_line_id = dol.id
-          LEFT JOIN sal_delivery_note n ON n.id = nl.delivery_note_id
+          FROM sal_delivery_order_line dol LEFT JOIN (log_delivery_note_line nl JOIN log_delivery_note n ON n.id = nl.delivery_note_id AND n.purpose = 'sales_delivery')
+            ON nl.source_doc_line_id = dol.id
           GROUP BY dol.id HAVING dol.delivered_qty <> COALESCE(SUM(nl.qty) FILTER (WHERE n.status = 'Posted'), 0)
           UNION ALL
           SELECT 'sales order line', sol.id, sol.delivered_qty, COALESCE(SUM(dol.delivered_qty), 0)
@@ -229,8 +229,8 @@ export const CHECKS: Check[] = [
           GROUP BY sol.id HAVING SUM(CASE WHEN d.status = 'Closed' THEN dol.delivered_qty ELSE dol.qty END) > sol.qty
           UNION ALL
           SELECT 'delivery notes on delivery order line', dol.id, dol.qty, SUM(nl.qty)
-          FROM sal_delivery_order_line dol JOIN sal_delivery_note_line nl ON nl.delivery_order_line_id = dol.id
-          JOIN sal_delivery_note n ON n.id = nl.delivery_note_id AND n.status <> 'Cancelled'
+          FROM sal_delivery_order_line dol JOIN log_delivery_note_line nl ON nl.source_doc_line_id = dol.id
+          JOIN log_delivery_note n ON n.id = nl.delivery_note_id AND n.purpose = 'sales_delivery' AND n.status <> 'Cancelled'
           GROUP BY dol.id HAVING SUM(nl.qty) > dol.qty`,
   },
   {
@@ -248,26 +248,23 @@ export const CHECKS: Check[] = [
   {
     area: "goods",
     name: "a posted note's cost equals its lines, its picks and its stock issues",
-    sql: `SELECT n.dn_no, n.cost_amount, (SELECT SUM(cost_amount) FROM sal_delivery_note_line WHERE delivery_note_id = n.id) AS lines,
-                 (SELECT SUM(cost_amount) FROM tmp_stock_movement WHERE source_doc_type_id = ${docType("sal_delivery_note")} AND source_doc_id = n.id) AS issued
-          FROM sal_delivery_note n WHERE n.status = 'Posted' AND (
-            n.cost_amount <> COALESCE((SELECT SUM(cost_amount) FROM sal_delivery_note_line WHERE delivery_note_id = n.id), 0)
-            OR n.cost_amount <> COALESCE((SELECT SUM(cost_amount) FROM tmp_stock_movement WHERE source_doc_type_id = ${docType("sal_delivery_note")} AND source_doc_id = n.id), 0))
+    sql: `SELECT n.dn_no, n.cost_amount, (SELECT SUM(cost_amount) FROM log_delivery_note_line WHERE delivery_note_id = n.id) AS lines,
+                 (SELECT SUM(cost_amount) FROM tmp_stock_movement WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id) AS issued
+          FROM log_delivery_note n WHERE n.status = 'Posted' AND (
+            n.cost_amount <> COALESCE((SELECT SUM(cost_amount) FROM log_delivery_note_line WHERE delivery_note_id = n.id), 0)
+            OR n.cost_amount <> COALESCE((SELECT SUM(cost_amount) FROM tmp_stock_movement WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id), 0))
           UNION ALL
           SELECT n.dn_no, l.cost_amount, SUM(p.cost_amount), SUM(p.qty) - l.qty
-          FROM sal_delivery_note n JOIN sal_delivery_note_line l ON l.delivery_note_id = n.id JOIN sal_delivery_note_pick p ON p.delivery_note_line_id = l.id
+          FROM log_delivery_note n JOIN log_delivery_note_line l ON l.delivery_note_id = n.id JOIN log_delivery_note_lot p ON p.delivery_note_line_id = l.id
           WHERE n.status = 'Posted' GROUP BY n.dn_no, l.id HAVING l.cost_amount <> SUM(p.cost_amount) OR SUM(p.qty) <> l.qty`,
   },
   {
     area: "goods",
     name: "a posted note's lot-controlled lines left by lot",
-    sql: `SELECT n.dn_no, l.id AS line, m.item_label FROM sal_delivery_note n
-          JOIN sal_delivery_note_line l ON l.delivery_note_id = n.id
-          JOIN sal_delivery_order_line dol ON dol.id = l.delivery_order_line_id
-          JOIN sal_order_line sol ON sol.id = dol.sales_order_line_id
-          JOIN sal_customer_order_line col ON col.id = sol.customer_order_line_id
-          JOIN m_item m ON m.id = col.item_id AND m.item_type = 'Barang' AND m.track_stock = true
-          WHERE n.status = 'Posted' AND NOT EXISTS (SELECT 1 FROM sal_delivery_note_pick p WHERE p.delivery_note_line_id = l.id)`,
+    sql: `SELECT n.dn_no, l.id AS line, m.item_label FROM log_delivery_note n
+          JOIN log_delivery_note_line l ON l.delivery_note_id = n.id
+          JOIN m_item m ON m.id = l.item_id AND m.item_type = 'Barang' AND m.track_stock = true
+          WHERE n.status = 'Posted' AND NOT EXISTS (SELECT 1 FROM log_delivery_note_lot p WHERE p.delivery_note_line_id = l.id)`,
   },
   // ------------------------------------------------------------- billing
   {
@@ -275,14 +272,15 @@ export const CHECKS: Check[] = [
     name: "a note line is billed by at most one live invoice, of its own order, once the note is posted",
     sql: `SELECT nl.id AS note_line, COUNT(*) AS invoices, MIN(v.invoice_no) AS first FROM sal_invoice_line il
           JOIN sal_invoice v ON v.id = il.invoice_id AND v.status <> 'Cancelled'
-          JOIN sal_delivery_note_line nl ON nl.id = il.delivery_note_line_id
+          JOIN log_delivery_note_line nl ON nl.id = il.delivery_note_line_id
           GROUP BY nl.id HAVING COUNT(*) > 1
           UNION ALL
           SELECT nl.id, 0, v.invoice_no FROM sal_invoice_line il
           JOIN sal_invoice v ON v.id = il.invoice_id AND v.status <> 'Cancelled'
-          JOIN sal_delivery_note_line nl ON nl.id = il.delivery_note_line_id
-          JOIN sal_delivery_note n ON n.id = nl.delivery_note_id
-          WHERE n.status <> 'Posted' OR n.customer_order_id <> v.customer_order_id OR il.qty <> nl.qty`,
+          JOIN log_delivery_note_line nl ON nl.id = il.delivery_note_line_id
+          JOIN log_delivery_note n ON n.id = nl.delivery_note_id
+          LEFT JOIN sal_delivery_order d ON d.id = n.source_doc_id AND n.purpose = 'sales_delivery'
+          WHERE n.status <> 'Posted' OR d.customer_order_id IS DISTINCT FROM v.customer_order_id OR il.qty <> nl.qty`,
   },
   {
     area: "billing",

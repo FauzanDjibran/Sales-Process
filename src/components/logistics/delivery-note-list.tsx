@@ -33,7 +33,7 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
         (!status || o.status === status) &&
         (!q ||
           o.dnNo.toLowerCase().includes(q) ||
-          o.deliveryOrderNo.toLowerCase().includes(q) ||
+          o.sourceNo.toLowerCase().includes(q) ||
           o.customerOrderNo.toLowerCase().includes(q) ||
           o.customerLabel.toLowerCase().includes(q) ||
           o.customerName.toLowerCase().includes(q) ||
@@ -47,7 +47,7 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
     <>
       <div className="ph">
         <div className="crumb">
-          <span>Penjualan</span>
+          <span>Logistik</span>
           <span>/</span>
           <span className="cur">Delivery Note</span>
         </div>
@@ -60,7 +60,7 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
           </h1>
           <div className="ph-act">
             {can.create && (
-              <Link className="btn primary" href="/sales/delivery-note/new">
+              <Link className="btn primary" href="/logistics/delivery-note/new">
                 <Icon name="plus" size={15} /> Delivery Note Baru
               </Link>
             )}
@@ -112,9 +112,9 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
                 </thead>
                 <tbody>
                   {paging.pageRows.map((o) => (
-                    <tr key={o.id} onClick={() => router.push(`/sales/delivery-note/${o.id}`)}>
+                    <tr key={o.id} onClick={() => router.push(`/logistics/delivery-note/${o.id}`)}>
                       <td>
-                        <Link className="lab" href={`/sales/delivery-note/${o.id}`}>
+                        <Link className="lab" href={`/logistics/delivery-note/${o.id}`}>
                           {o.dnNo}
                         </Link>
                       </td>
@@ -128,8 +128,8 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
                         <span className="lab">{o.warehouseLabel}</span>
                       </td>
                       <td>
-                        <Link className="lab" href={`/sales/delivery-order/${o.deliveryOrderId}`} onClick={(e) => e.stopPropagation()}>
-                          {o.deliveryOrderNo}
+                        <Link className="lab" href={`/sales/delivery-order/${o.sourceId}`} onClick={(e) => e.stopPropagation()}>
+                          {o.sourceNo}
                         </Link>
                       </td>
                       <td>
@@ -182,7 +182,7 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
             ) : (
               can.create && (
                 <div className="cta">
-                  <Link className="btn primary" href="/sales/delivery-note/new">
+                  <Link className="btn primary" href="/logistics/delivery-note/new">
                     <Icon name="plus" size={15} /> Delivery Note Baru
                   </Link>
                 </div>

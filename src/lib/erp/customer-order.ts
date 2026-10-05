@@ -1079,6 +1079,7 @@ export type SalesOrderSource = {
     itemId: number;
     itemLabel: string;
     itemName: string;
+    uomId: number;
     uomLabel: string;
     /** Base units in one of the line's unit — what a delivery issues stock in. */
     uomFactor: number;
@@ -1119,6 +1120,7 @@ export async function salesOrderSources(
       itemId: l.item_id,
       itemLabel: l.item.item_label,
       itemName: l.item.item_name,
+      uomId: l.uom_id,
       uomLabel: l.uom.uom_label,
       uomFactor: l.uom_factor.toNumber(),
       qty: l.qty.toNumber(),

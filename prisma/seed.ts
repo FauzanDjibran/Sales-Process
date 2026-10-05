@@ -126,8 +126,9 @@ const DOC_TYPES: [label: string, table: string][] = [
   // The warehouse instruction drawn from Open Sales Orders (P93); the Delivery
   // Note will name it.
   ["Delivery Order", "sal_delivery_order"],
-  // The note the goods leave on; its journal and stock issues name it.
-  ["Delivery Note", "sal_delivery_note"],
+  // The note the goods leave on; its journal and stock issues name it. A
+  // standalone logistics document since P106 (was `sal_delivery_note`).
+  ["Delivery Note", "log_delivery_note"],
   ["Invoice Penjualan", "sal_invoice"],
 ];
 

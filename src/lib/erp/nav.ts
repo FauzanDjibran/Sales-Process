@@ -193,20 +193,36 @@ export const MODULES: NavModule[] = [
             permission: "DELIVERY_ORDER_VIEW",
           },
           {
-            key: "sal_delivery_note",
-            slug: "delivery-note",
-            name: "Delivery Note",
-            icon: "truck",
-            desc: "Surat jalan: barang keluar dari gudang berdasarkan Delivery Order. Posting mengakui HPP; piutang diakui di Invoice.",
-            permission: "DELIVERY_NOTE_VIEW",
-          },
-          {
             key: "sal_invoice",
             slug: "invoice",
             name: "Invoice Penjualan",
             icon: "file",
             desc: "Tagihan atas barang yang sudah dikirim: baris Delivery Note yang diposting, dipotong uang muka. Posting mengakui piutang, penjualan dan PPN.",
             permission: "SALES_INVOICE_VIEW",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    // Standalone goods documents serving more than one flow, chosen by purpose (P106).
+    key: "logistics",
+    name: "Logistik",
+    icon: "truck",
+    desc: "Dokumen barang yang dipakai lebih dari satu proses, dipilih menurut tujuannya.",
+    permission: "MENU_LOGISTICS_ACCESS",
+    groups: [
+      {
+        key: "document",
+        name: "Dokumen",
+        entities: [
+          {
+            key: "log_delivery_note",
+            slug: "delivery-note",
+            name: "Delivery Note",
+            icon: "truck",
+            desc: "Surat jalan: barang keluar dari gudang menurut tujuannya — untuk penjualan, dari Delivery Order. Posting mengakui HPP; piutang diakui di Invoice.",
+            permission: "DELIVERY_NOTE_VIEW",
           },
         ],
       },

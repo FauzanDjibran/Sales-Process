@@ -21,6 +21,7 @@ export type PermissionModule =
   | "dashboard"
   | "master"
   | "sales"
+  | "logistics"
   | "accounting"
   | "finance"
   | "tax"
@@ -123,11 +124,6 @@ export const PERMISSIONS = [
   { code: "DELIVERY_ORDER_ISSUE", name: "Terbitkan Delivery Order", module: "sales", description: "Mengunci Draft dan mengirimnya ke gudang sebagai perintah kirim." },
   { code: "DELIVERY_ORDER_CANCEL", name: "Batalkan Delivery Order", module: "sales", description: "Hanya Draft, dengan alasan." },
   { code: "DELIVERY_ORDER_CLOSE", name: "Tutup Delivery Order", module: "sales", description: "Menutup Delivery Order yang sudah diterbitkan, dengan alasan, bila tidak ada Delivery Note Draft." },
-  { code: "DELIVERY_NOTE_VIEW", name: "Lihat Delivery Note", module: "sales", description: "Termasuk yang masih Draft dan yang dibatalkan." },
-  { code: "DELIVERY_NOTE_CREATE", name: "Buat Delivery Note", module: "sales", description: "Membuat Draft dari Delivery Order yang sudah diterbitkan." },
-  { code: "DELIVERY_NOTE_EDIT", name: "Ubah Delivery Note", module: "sales", description: "Hanya selama masih Draft." },
-  { code: "DELIVERY_NOTE_POST", name: "Posting Delivery Note", module: "sales", description: "Mencatat barang keluar dan menjurnal HPP / Persediaan." },
-  { code: "DELIVERY_NOTE_CANCEL", name: "Batalkan Delivery Note", module: "sales", description: "Hanya Draft, dengan alasan." },
   { code: "SALES_INVOICE_VIEW", name: "Lihat Invoice Penjualan", module: "sales", description: "Termasuk yang masih Draft dan yang dibatalkan." },
   { code: "SALES_INVOICE_CREATE", name: "Buat Invoice Penjualan", module: "sales", description: "Membuat Draft dari barang Delivery Note yang sudah diposting." },
   { code: "SALES_INVOICE_EDIT", name: "Ubah Invoice Penjualan", module: "sales", description: "Hanya Draft." },
@@ -206,6 +202,15 @@ export const PERMISSIONS = [
     module: "accounting",
     description: "Menentukan account tujuan posting, seperti selisih kurs dan laba/rugi ekuitas.",
   },
+
+  // -------------------------------------------------------------- logistics
+  // Standalone goods documents, chosen by purpose (P106).
+  { code: "MENU_LOGISTICS_ACCESS", name: "Akses menu Logistik", module: "logistics" },
+  { code: "DELIVERY_NOTE_VIEW", name: "Lihat Delivery Note", module: "logistics", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "DELIVERY_NOTE_CREATE", name: "Buat Delivery Note", module: "logistics", description: "Membuat Draft dari dokumen sumber tujuannya — untuk penjualan, Delivery Order yang sudah diterbitkan." },
+  { code: "DELIVERY_NOTE_EDIT", name: "Ubah Delivery Note", module: "logistics", description: "Hanya selama masih Draft." },
+  { code: "DELIVERY_NOTE_POST", name: "Posting Delivery Note", module: "logistics", description: "Mencatat barang keluar dan menjurnal HPP / Persediaan." },
+  { code: "DELIVERY_NOTE_CANCEL", name: "Batalkan Delivery Note", module: "logistics", description: "Hanya Draft, dengan alasan." },
 
   // ---------------------------------------------------------------- finance
   { code: "MENU_FINANCE_ACCESS", name: "Akses menu Finance", module: "finance" },
@@ -313,6 +318,7 @@ export const MODULE_LABELS: Record<PermissionModule, string> = {
   dashboard: "Dashboard",
   master: "Master",
   sales: "Penjualan",
+  logistics: "Logistik",
   accounting: "Accounting",
   finance: "Finance",
   tax: "Pajak",
@@ -324,6 +330,7 @@ export const MODULE_ORDER: PermissionModule[] = [
   "dashboard",
   "master",
   "sales",
+  "logistics",
   "accounting",
   "finance",
   "tax",

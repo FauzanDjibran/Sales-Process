@@ -94,9 +94,10 @@ const TABLE_OWNERS: Record<string, string[]> = {
   salOrderLine: ["src/lib/erp/sales-order.ts"],
   salDeliveryOrder: ["src/lib/erp/delivery-order.ts"],
   salDeliveryOrderLine: ["src/lib/erp/delivery-order.ts"],
-  salDeliveryNote: ["src/lib/erp/delivery-note.ts"],
-  salDeliveryNoteLine: ["src/lib/erp/delivery-note.ts"],
-  salDeliveryNotePick: ["src/lib/erp/delivery-note.ts"],
+  // The standalone Delivery Note (P106): a logistics document, not a sales one.
+  logDeliveryNote: ["src/lib/erp/delivery-note.ts"],
+  logDeliveryNoteLine: ["src/lib/erp/delivery-note.ts"],
+  logDeliveryNoteLot: ["src/lib/erp/delivery-note.ts"],
   // The stand-in inventory's temporary tables (U11): only it may name them.
   tmpItemCost: ["src/lib/erp/inventory.ts"],
   tmpStockLot: ["src/lib/erp/inventory.ts"],

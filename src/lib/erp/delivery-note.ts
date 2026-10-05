@@ -7,14 +7,17 @@ import { formatNumber } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
-import { customerOrderNumbersByIds, lockCustomerOrder } from "./customer-order";
+import { customerOrderNumbersByIds } from "./customer-order";
 import {
-  deliveryOrderNumbersByIds,
+  customerOrderIdsOfDeliveryOrders,
+  deliveryOrderIdsOfCustomerOrders,
   deliveryNoteSources,
+  lockDeliveryOrderScope,
   recordDeliveryOrderDelivery,
   type DeliveryNoteSource,
   type DeliveryNoteSourceLine,
 } from "./delivery-order";
+import { DEFAULT_DELIVERY_NOTE_PURPOSE, deliveryNotePurpose } from "./delivery-note-purposes";
 import { InventoryRefusal, issueStock, lotOptions, lotTrackedItems, type LotOption } from "./inventory";
 import { postingAccounts } from "./system-settings";
 import {
@@ -27,9 +30,16 @@ import {
 } from "./delivery-note-workflow";
 
 /**
- * The Delivery Note module (C28, U11–U15): its tables are `sal_delivery_note`,
- * `sal_delivery_note_line` and `sal_delivery_note_pick`, and nothing else names
- * them.
+ * The Delivery Note module (P106; C28, U11–U15): its tables are
+ * `log_delivery_note`, `log_delivery_note_line` and `log_delivery_note_lot`,
+ * and nothing else names them.
+ *
+ * **Standalone** (P106): the note belongs to no business module. Its purpose
+ * (`delivery-note-purposes.ts`) says what its source is; the source is named by
+ * the weak pair `source_doc_type_id` / `source_doc_id`, each line by
+ * `source_doc_line_id`, and each line carries its own item, unit and factor.
+ * Quantity and stock cost only — never a price or tax. The one purpose so far is
+ * `sales_delivery`, described below; a purchase return will be the next.
  *
  * A Delivery Note is the document the goods leave on. It is made from one
  * issued Delivery Order — whose Customer Order, customer, warehouse and address
@@ -42,16 +52,22 @@ import {
  * is born at the Invoice, which will take this note's lines whole.
  *
  * The Delivery Order is read through `deliveryNoteSources` and told what left
- * through `recordDeliveryOrderDelivery`; the Customer Order is locked through
- * `lockCustomerOrder`, the same lock every document on the order takes.
+ * through `recordDeliveryOrderDelivery`; its Customer Order is locked through
+ * `lockDeliveryOrderScope`, the same lock every document on the order takes.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
+/** The purpose this module serves today (P106). */
+const SALES_DELIVERY = "sales_delivery";
+
 // ------------------------------------------------------------------ input
 
 export type DeliveryNoteHeaderInput = {
-  delivery_order_id: number | null;
+  /** The purpose's key (P106); `sales_delivery` when omitted. */
+  purpose?: string;
+  /** The source document: for `sales_delivery` a Delivery Order. */
+  source_doc_id: number | null;
   dn_date: string;
   vehicle_no: string;
   driver_name: string;
@@ -62,7 +78,8 @@ export type DeliveryNoteHeaderInput = {
 export type DeliveryNotePickInput = { lot_id: number | null; qty: number | string };
 
 export type DeliveryNoteLineInput = {
-  delivery_order_line_id: number | null;
+  /** The source line: for `sales_delivery` a Delivery Order line. */
+  source_doc_line_id: number | null;
   qty: number | string;
   note: string;
   /** Only for an item with Kelola Stok; empty for any other. */
@@ -91,18 +108,22 @@ async function docTypeId(db: Db, table: string): Promise<number> {
 
 // ------------------------------------------------------------- quantities
 
-/** What other notes — Draft or Posted, but not `exceptId` — hold of each Delivery Order line. */
-async function heldByLines(db: Db, lineIds: number[], exceptId: number | null): Promise<Map<number, number>> {
+/**
+ * What other notes of the purpose — Draft or Posted, but not `exceptId` — hold
+ * of each source line. Source line ids are only unique within a purpose's
+ * source table, so the purpose is part of the question.
+ */
+async function heldByLines(db: Db, purpose: string, lineIds: number[], exceptId: number | null): Promise<Map<number, number>> {
   if (!lineIds.length) return new Map();
-  const rows = await db.salDeliveryNoteLine.groupBy({
-    by: ["delivery_order_line_id"],
+  const rows = await db.logDeliveryNoteLine.groupBy({
+    by: ["source_doc_line_id"],
     where: {
-      delivery_order_line_id: { in: lineIds },
-      delivery_note: { status: { in: DELIVERY_NOTE_HOLDS_QTY }, ...(exceptId ? { id: { not: exceptId } } : {}) },
+      source_doc_line_id: { in: lineIds },
+      delivery_note: { purpose, status: { in: DELIVERY_NOTE_HOLDS_QTY }, ...(exceptId ? { id: { not: exceptId } } : {}) },
     },
     _sum: { qty: true },
   });
-  return new Map(rows.map((r) => [r.delivery_order_line_id, r._sum?.qty?.toNumber() ?? 0]));
+  return new Map(rows.map((r) => [r.source_doc_line_id, r._sum?.qty?.toNumber() ?? 0]));
 }
 
 // ---------------------------------------------------------------- options
@@ -130,7 +151,7 @@ async function sourceOptions(
   withLotIds: number[] = []
 ): Promise<DnSourceOption[]> {
   const sources = await deliveryNoteSources(filter, db);
-  const held = await heldByLines(db, sources.flatMap((s) => s.lines.map((l) => l.id)), exceptId);
+  const held = await heldByLines(db, SALES_DELIVERY, sources.flatMap((s) => s.lines.map((l) => l.id)), exceptId);
   const tracked = await lotTrackedItems([...new Set(sources.flatMap((s) => s.lines.map((l) => l.itemId)))], db);
   // Every source's lots in one read, keyed by warehouse, instead of one per source.
   const lotsByWarehouse = await lotOptions(
@@ -159,10 +180,10 @@ async function sourceOptions(
  * the room.
  */
 export async function deliveryNoteOptions(
-  current: { id: number; deliveryOrderId: number; lotIds?: number[] } | null = null
+  current: { id: number; sourceId: number; lotIds?: number[] } | null = null
 ): Promise<DeliveryNoteOptions> {
   // A saved note's Delivery Order is locked: its page needs only that one.
-  if (current) return { orders: await sourceOptions(prisma, { ids: [current.deliveryOrderId] }, current.id, current.lotIds ?? []) };
+  if (current) return { orders: await sourceOptions(prisma, { ids: [current.sourceId] }, current.id, current.lotIds ?? []) };
   const issued = (await sourceOptions(prisma, { issuedOnly: true }, null)).filter((o) => o.lines.some((l) => units(l.qty) > units(l.held)));
   return { orders: issued };
 }
@@ -173,8 +194,12 @@ type CheckedPick = { pick_no: number; lot_id: number; lot_no: string; expiry_dat
 
 type CheckedLine = {
   line_no: number;
-  delivery_order_line_id: number;
+  source_doc_line_id: number;
+  item_id: number;
+  uom_id: number;
+  uom_factor: number;
   qty: number;
+  base_qty: number;
   note: string | null;
   picks: CheckedPick[];
 };
@@ -182,9 +207,11 @@ type CheckedLine = {
 type Checked = {
   source: DnSourceOption;
   data: {
-    delivery_order_id: number;
-    customer_order_id: number;
-    customer_id: number;
+    purpose: string;
+    source_doc_type_id: number;
+    source_doc_id: number;
+    source_no: string;
+    partner_id: number;
     warehouse_id: number;
     address_id: number;
     dn_date: Date;
@@ -210,12 +237,16 @@ export async function checkDeliveryNote(
 ): Promise<{ ok: true; c: Checked } | { ok: false; errors: Record<string, string> }> {
   const errors: Record<string, string> = {};
 
-  const doId = Number(header.delivery_order_id) || null;
+  // The only purpose so far; a second one brings its own source reader here.
+  const purpose = deliveryNotePurpose(header.purpose ?? DEFAULT_DELIVERY_NOTE_PURPOSE);
+  if (purpose?.key !== SALES_DELIVERY) return { ok: false, errors: { purpose: "Tujuan Delivery Note tidak dikenal." } };
+
+  const doId = Number(header.source_doc_id) || null;
   const source = doId ? (await sourceOptions(db, { ids: [doId] }, selfId))[0] : undefined;
-  if (!doId) errors.delivery_order_id = "Pilih Delivery Order.";
-  else if (!source) errors.delivery_order_id = "Delivery Order tidak ditemukan.";
-  else if (source.status !== "Issued") errors.delivery_order_id = "Delivery Order harus berstatus Diterbitkan.";
-  else if (!source.customerActive) errors.delivery_order_id = "Customer pada Delivery Order ini sudah nonaktif.";
+  if (!doId) errors.source_doc_id = "Pilih Delivery Order.";
+  else if (!source) errors.source_doc_id = "Delivery Order tidak ditemukan.";
+  else if (source.status !== "Issued") errors.source_doc_id = "Delivery Order harus berstatus Diterbitkan.";
+  else if (!source.customerActive) errors.source_doc_id = "Customer pada Delivery Order ini sudah nonaktif.";
 
   const dnDate = String(header.dn_date ?? "").trim();
   if (!DAY.test(dnDate)) errors.dn_date = "Tanggal kirim wajib diisi.";
@@ -227,18 +258,18 @@ export async function checkDeliveryNote(
   const byId = new Map((source?.lines ?? []).map((l) => [l.id, l]));
   const seen = new Set<number>();
   for (const [i, l] of raw.entries()) {
-    const lineId = Number(l.delivery_order_line_id) || null;
+    const lineId = Number(l.source_doc_line_id) || null;
     const doLine = lineId ? byId.get(lineId) : undefined;
     if (!lineId) {
-      errors[lineKey(i, "delivery_order_line_id")] = "Pilih barang.";
+      errors[lineKey(i, "source_doc_line_id")] = "Pilih barang.";
       continue;
     }
     if (!doLine) {
-      if (source) errors[lineKey(i, "delivery_order_line_id")] = "Barang bukan bagian Delivery Order ini.";
+      if (source) errors[lineKey(i, "source_doc_line_id")] = "Barang bukan bagian Delivery Order ini.";
       continue;
     }
     if (seen.has(lineId)) {
-      errors[lineKey(i, "delivery_order_line_id")] = `${doLine.itemLabel} dipilih lebih dari sekali.`;
+      errors[lineKey(i, "source_doc_line_id")] = `${doLine.itemLabel} dipilih lebih dari sekali.`;
       continue;
     }
     seen.add(lineId);
@@ -254,10 +285,15 @@ export async function checkDeliveryNote(
         errors[lineKey(i, "picks")] = picks.error;
         continue;
       }
+      // The line carries its own item, unit and factor (P106), copied from the source.
       out.push({
         line_no: out.length + 1,
-        delivery_order_line_id: lineId,
+        source_doc_line_id: lineId,
+        item_id: doLine.itemId,
+        uom_id: doLine.uomId,
+        uom_factor: doLine.uomFactor,
         qty: fromUnits(units(qty)),
+        base_qty: fromUnits(units(qty * doLine.uomFactor)),
         note: text(l.note),
         picks: picks.picks,
       });
@@ -273,9 +309,11 @@ export async function checkDeliveryNote(
     c: {
       source,
       data: {
-        delivery_order_id: source.id,
-        customer_order_id: source.customerOrderId,
-        customer_id: source.customerId,
+        purpose: purpose.key,
+        source_doc_type_id: await docTypeId(db, purpose.sourceTable),
+        source_doc_id: source.id,
+        source_no: source.doNo,
+        partner_id: source.customerId,
         warehouse_id: source.warehouseId,
         address_id: source.addressId,
         dn_date: asDate(dnDate),
@@ -338,7 +376,7 @@ function checkPicks(
 
 async function nextDnNo(db: Db, date: Date): Promise<string> {
   return nextDocumentNumber("SJ", date, async (series) => {
-    const row = await db.salDeliveryNote.findFirst({
+    const row = await db.logDeliveryNote.findFirst({
       where: { dn_no: { startsWith: series } },
       orderBy: { id: "desc" },
       select: { dn_no: true },
@@ -348,7 +386,7 @@ async function nextDnNo(db: Db, date: Date): Promise<string> {
 }
 
 async function audit(db: Db, id: number, action: "TAMBAH" | "UPDATE", event: string, by: number) {
-  await db.auditLog.create({ data: { entity_key: "sal_delivery_note", row_id: id, action, event, by } });
+  await db.auditLog.create({ data: { entity_key: "log_delivery_note", row_id: id, action, event, by } });
 }
 
 /** Rules failing inside a transaction roll it back and come out as errors. */
@@ -370,30 +408,23 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
   }
 }
 
-/** The Customer Order a Delivery Order belongs to, so its lock can be taken first. */
-async function customerOrderOf(deliveryOrderId: number | null): Promise<number | null> {
-  if (!deliveryOrderId) return null;
-  const [source] = await deliveryNoteSources({ ids: [deliveryOrderId] });
-  return source?.customerOrderId ?? null;
-}
-
 export async function createDeliveryNote(
   header: DeliveryNoteHeaderInput,
   lines: DeliveryNoteLineInput[],
   actorId: number
 ): Promise<DeliveryNoteResult> {
-  const coId = await customerOrderOf(Number(header.delivery_order_id) || null);
+  const sourceId = Number(header.source_doc_id) || null;
   return refusable(async () => {
     const made = await prisma.$transaction(async (tx) => {
-      if (coId) await lockCustomerOrder(tx, coId);
+      if (sourceId) await lockDeliveryOrderScope(tx, sourceId);
       const r = await checkDeliveryNote(tx, header, lines, null);
       if (!r.ok) throw new Refused(r.errors);
-      const row = await tx.salDeliveryNote.create({
+      const row = await tx.logDeliveryNote.create({
         data: {
           ...r.c.data,
           dn_no: await nextDnNo(tx, r.c.data.dn_date),
           created_by: actorId,
-          lines: { create: r.c.lines.map(({ picks, ...l }) => ({ ...l, picks: { create: picks } })) },
+          lines: { create: r.c.lines.map(({ picks, ...l }) => ({ ...l, lots: { create: picks } })) },
         },
       });
       await audit(tx, row.id, "TAMBAH", "create", actorId);
@@ -409,32 +440,32 @@ export async function updateDeliveryNote(
   lines: DeliveryNoteLineInput[],
   actorId: number
 ): Promise<DeliveryNoteResult> {
-  const current = await prisma.salDeliveryNote.findUnique({
+  const current = await prisma.logDeliveryNote.findUnique({
     where: { id },
-    select: { status: true, dn_no: true, delivery_order_id: true, customer_order_id: true },
+    select: { status: true, dn_no: true, purpose: true, source_doc_id: true },
   });
   if (!current) return { ok: false, errors: { _form: "Delivery Note tidak ditemukan." } };
   if (!deliveryNoteIsEditable(current.status as DeliveryNoteStatus)) {
     return { ok: false, errors: { _form: "Delivery Note yang sudah diposting atau dibatalkan tidak dapat diubah." } };
   }
-  if (Number(header.delivery_order_id) !== current.delivery_order_id) {
+  if (Number(header.source_doc_id) !== current.source_doc_id || (header.purpose ?? current.purpose) !== current.purpose) {
     return {
       ok: false,
-      errors: { delivery_order_id: "Delivery Order tidak dapat diganti. Buat Delivery Note baru untuk Delivery Order lain." },
+      errors: { source_doc_id: "Delivery Order tidak dapat diganti. Buat Delivery Note baru untuk Delivery Order lain." },
     };
   }
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
-      await lockCustomerOrder(tx, current.customer_order_id);
-      const r = await checkDeliveryNote(tx, header, lines, id);
+      await lockDeliveryOrderScope(tx, current.source_doc_id);
+      const r = await checkDeliveryNote(tx, { ...header, purpose: current.purpose }, lines, id);
       if (!r.ok) throw new Refused(r.errors);
-      const done = await tx.salDeliveryNote.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, updated_by: actorId } });
+      const done = await tx.logDeliveryNote.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: "Delivery Note berubah saat diproses. Muat ulang halaman." });
       // A Draft's lines and picks are rewritten whole: nothing names them yet.
-      await tx.salDeliveryNotePick.deleteMany({ where: { line: { delivery_note_id: id } } });
-      await tx.salDeliveryNoteLine.deleteMany({ where: { delivery_note_id: id } });
+      await tx.logDeliveryNoteLot.deleteMany({ where: { line: { delivery_note_id: id } } });
+      await tx.logDeliveryNoteLine.deleteMany({ where: { delivery_note_id: id } });
       for (const { picks, ...l } of r.c.lines) {
-        await tx.salDeliveryNoteLine.create({ data: { ...l, delivery_note_id: id, picks: { create: picks } } });
+        await tx.logDeliveryNoteLine.create({ data: { ...l, delivery_note_id: id, lots: { create: picks } } });
       }
       await audit(tx, id, "UPDATE", "update", actorId);
     });
@@ -442,8 +473,8 @@ export async function updateDeliveryNote(
   });
 }
 
-type StoredNote = Prisma.SalDeliveryNoteGetPayload<{ include: { lines: { include: { picks: true } } } }>;
-const WITH_PICKS = { lines: { include: { picks: { orderBy: { pick_no: "asc" as const } } } } };
+type StoredNote = Prisma.LogDeliveryNoteGetPayload<{ include: { lines: { include: { lots: true } } } }>;
+const WITH_PICKS = { lines: { include: { lots: { orderBy: { pick_no: "asc" as const } } } } };
 
 function asInput(n: StoredNote): {
   header: DeliveryNoteHeaderInput;
@@ -451,7 +482,8 @@ function asInput(n: StoredNote): {
 } {
   return {
     header: {
-      delivery_order_id: n.delivery_order_id,
+      purpose: n.purpose,
+      source_doc_id: n.source_doc_id,
       dn_date: isoDay(n.dn_date),
       vehicle_no: n.vehicle_no ?? "",
       driver_name: n.driver_name ?? "",
@@ -460,10 +492,10 @@ function asInput(n: StoredNote): {
     lines: [...n.lines]
       .sort((a, b) => a.line_no - b.line_no)
       .map((l) => ({
-        delivery_order_line_id: l.delivery_order_line_id,
+        source_doc_line_id: l.source_doc_line_id,
         qty: l.qty.toNumber(),
         note: l.note ?? "",
-        picks: l.picks.map((p) => ({ lot_id: p.lot_id, qty: p.qty.toNumber() })),
+        picks: l.lots.map((p) => ({ lot_id: p.lot_id, qty: p.qty.toNumber() })),
       })),
   };
 }
@@ -516,7 +548,7 @@ export async function transitionDeliveryNote(
   /** Run the whole posting, then roll it back and return its journal (P103). */
   options: { dryRun?: boolean } = {}
 ): Promise<DeliveryNoteTransitionResult> {
-  const note = await prisma.salDeliveryNote.findUnique({ where: { id }, include: WITH_PICKS });
+  const note = await prisma.logDeliveryNote.findUnique({ where: { id }, include: WITH_PICKS });
   if (!note) return { ok: false, errors: { _form: "Delivery Note tidak ditemukan." } };
   const t = DELIVERY_NOTE_TRANSITIONS[action];
   if (!deliveryNoteTransitionAllowed(action, note.status as DeliveryNoteStatus)) {
@@ -528,7 +560,7 @@ export async function transitionDeliveryNote(
     const why = String(reason ?? "").trim();
     if (!why) return { ok: false, errors: { reason: "Alasan wajib diisi." } };
     await prisma.$transaction(async (tx) => {
-      const done = await tx.salDeliveryNote.updateMany({
+      const done = await tx.logDeliveryNote.updateMany({
         where: { id, status: "Draft" },
         data: { status: "Cancelled", cancel_reason: why, updated_by: actorId },
       });
@@ -549,33 +581,33 @@ export async function transitionDeliveryNote(
 
   return refusable(async () => {
     const closed = await prisma.$transaction(async (tx) => {
-      await lockCustomerOrder(tx, note.customer_order_id);
+      await lockDeliveryOrderScope(tx, note.source_doc_id);
       const input = asInput(note);
       const r = await checkDeliveryNote(tx, input.header, input.lines, id, true);
       if (!r.ok) {
         const first = Object.entries(r.errors).find(([k]) => k !== "_lines")?.[1] ?? r.errors._lines;
         throw new Refused({ _form: `Belum bisa diposting: ${first}` });
       }
-      const done = await tx.salDeliveryNote.updateMany({ where: { id, status: "Draft" }, data: { status: "Posted", updated_by: actorId } });
+      const done = await tx.logDeliveryNote.updateMany({ where: { id, status: "Draft" }, data: { status: "Posted", updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: moved });
 
-      const typeId = await docTypeId(tx, "sal_delivery_note");
+      const typeId = await docTypeId(tx, "log_delivery_note");
       const byId = new Map(r.c.source.lines.map((l) => [l.id, l]));
       const journalLines: Parameters<typeof postJournal>[1]["lines"] = [];
       const sent = new Map<number, number>();
       let total = 0;
       for (const line of r.c.lines) {
-        const d = byId.get(line.delivery_order_line_id)!;
-        const baseQty = fromUnits(units(line.qty * d.uomFactor));
-        const where = { delivery_note_id_delivery_order_line_id: { delivery_note_id: id, delivery_order_line_id: line.delivery_order_line_id } };
+        const d = byId.get(line.source_doc_line_id)!;
+        const baseQty = line.base_qty;
+        const where = { delivery_note_id_source_doc_line_id: { delivery_note_id: id, source_doc_line_id: line.source_doc_line_id } };
         const source = { docTypeId: typeId, docId: id, no: note.dn_no };
         // A picked line leaves lot by lot, one stock movement per pick (U15);
         // the line's cost is what its picks cost.
         const issued = { unitCost: 0, cost: 0 };
         if (line.picks.length) {
-          const stored = await tx.salDeliveryNoteLine.findUniqueOrThrow({ where, select: { id: true } });
+          const stored = await tx.logDeliveryNoteLine.findUniqueOrThrow({ where, select: { id: true } });
           for (const p of line.picks) {
-            const pickBase = fromUnits(units(p.qty * d.uomFactor));
+            const pickBase = fromUnits(units(p.qty * line.uom_factor));
             const out = await issueStock(tx, {
               itemId: d.itemId,
               warehouseId: r.c.source.warehouseId,
@@ -585,7 +617,7 @@ export async function transitionDeliveryNote(
               source,
               actorId,
             });
-            await tx.salDeliveryNotePick.update({
+            await tx.logDeliveryNoteLot.update({
               where: { delivery_note_line_id_pick_no: { delivery_note_line_id: stored.id, pick_no: p.pick_no } },
               data: { base_qty: pickBase, unit_cost: out.unitCost, cost_amount: out.cost },
             });
@@ -598,8 +630,8 @@ export async function transitionDeliveryNote(
             await issueStock(tx, { itemId: d.itemId, warehouseId: r.c.source.warehouseId, baseQty, date: r.c.data.dn_date, source, actorId })
           );
         }
-        await tx.salDeliveryNoteLine.update({ where, data: { base_qty: baseQty, unit_cost: issued.unitCost, cost_amount: issued.cost } });
-        sent.set(line.delivery_order_line_id, line.qty);
+        await tx.logDeliveryNoteLine.update({ where, data: { base_qty: baseQty, unit_cost: issued.unitCost, cost_amount: issued.cost } });
+        sent.set(line.source_doc_line_id, line.qty);
         total += issued.cost;
         if (issued.cost > 0) {
           const what = `${d.itemLabel} · ${qtyText(line.qty)} ${d.uomLabel}`;
@@ -625,9 +657,10 @@ export async function transitionDeliveryNote(
         actorId,
         lines: journalLines,
       });
-      await tx.salDeliveryNote.update({ where: { id }, data: { journal_id: journal.id, cost_amount: total } });
+      await tx.logDeliveryNote.update({ where: { id }, data: { journal_id: journal.id, cost_amount: total } });
       await audit(tx, id, "UPDATE", "post", actorId);
-      const closed = await recordDeliveryOrderDelivery(tx, note.delivery_order_id, sent, actorId);
+      // What the purpose writes back to its source (P106): for a sale, what left.
+      const closed = await recordDeliveryOrderDelivery(tx, note.source_doc_id, sent, actorId);
       if (options.dryRun) throw new PostingDryRun(journalLines);
       return closed;
     });
@@ -641,8 +674,8 @@ export async function transitionDeliveryNote(
  * the two, so neither module reads the other's tables.
  */
 export async function liveDeliveryNoteRefusal(tx: Prisma.TransactionClient, deliveryOrderId: number): Promise<string | null> {
-  const live = await tx.salDeliveryNote.findMany({
-    where: { delivery_order_id: deliveryOrderId, status: "Draft" },
+  const live = await tx.logDeliveryNote.findMany({
+    where: { purpose: SALES_DELIVERY, source_doc_id: deliveryOrderId, status: "Draft" },
     orderBy: { id: "asc" },
     select: { dn_no: true },
   });
@@ -658,8 +691,9 @@ export type DeliveryNoteListRow = {
   dnNo: string;
   dnDate: string;
   status: DeliveryNoteStatus;
-  deliveryOrderId: number;
-  deliveryOrderNo: string;
+  purpose: string;
+  sourceId: number;
+  sourceNo: string;
   customerOrderNo: string;
   customerLabel: string;
   customerName: string;
@@ -669,25 +703,27 @@ export type DeliveryNoteListRow = {
 };
 
 export async function listDeliveryNotes(): Promise<DeliveryNoteListRow[]> {
-  const rows = await prisma.salDeliveryNote.findMany({
+  const rows = await prisma.logDeliveryNote.findMany({
     orderBy: [{ dn_date: "desc" }, { id: "desc" }],
-    include: { customer: true, warehouse: true, _count: { select: { lines: true } } },
+    include: { partner: true, warehouse: true, _count: { select: { lines: true } } },
   });
-  // Numbers only: a list shows which orders, not the orders themselves.
-  const [doNos, orderNos] = await Promise.all([
-    deliveryOrderNumbersByIds([...new Set(rows.map((r) => r.delivery_order_id))]),
-    customerOrderNumbersByIds([...new Set(rows.map((r) => r.customer_order_id))]),
+  // Numbers only: a list shows which orders, not the orders themselves. A note
+  // names its Delivery Order; the Customer Order behind it is asked for (P106).
+  const coOf = await customerOrderIdsOfDeliveryOrders([
+    ...new Set(rows.filter((r) => r.purpose === SALES_DELIVERY).map((r) => r.source_doc_id)),
   ]);
+  const orderNos = await customerOrderNumbersByIds([...new Set(coOf.values())]);
   return rows.map((r) => ({
     id: r.id,
     dnNo: r.dn_no,
     dnDate: isoDay(r.dn_date),
     status: r.status as DeliveryNoteStatus,
-    deliveryOrderId: r.delivery_order_id,
-    deliveryOrderNo: doNos.get(r.delivery_order_id) ?? "",
-    customerOrderNo: orderNos.get(r.customer_order_id) ?? "",
-    customerLabel: r.customer.partner_label,
-    customerName: r.customer.partner_name,
+    purpose: r.purpose,
+    sourceId: r.source_doc_id,
+    sourceNo: r.source_no,
+    customerOrderNo: orderNos.get(coOf.get(r.source_doc_id) ?? 0) ?? "",
+    customerLabel: r.partner.partner_label,
+    customerName: r.partner.partner_name,
     warehouseLabel: r.warehouse.warehouse_label,
     lines: r._count.lines,
     cost: r.cost_amount.toNumber(),
@@ -715,7 +751,7 @@ export type DeliveryNoteView = {
 };
 
 export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | null> {
-  const n = await prisma.salDeliveryNote.findUnique({ where: { id }, include: WITH_PICKS });
+  const n = await prisma.logDeliveryNote.findUnique({ where: { id }, include: WITH_PICKS });
   if (!n) return null;
   const input = asInput(n);
   const sorted = [...n.lines].sort((a, b) => a.line_no - b.line_no);
@@ -731,7 +767,7 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
       baseQty: sorted[i].base_qty.toNumber(),
       unitCost: sorted[i].unit_cost.toNumber(),
       cost: sorted[i].cost_amount.toNumber(),
-      pickedLots: sorted[i].picks.map((p) => ({
+      pickedLots: sorted[i].lots.map((p) => ({
         lotId: p.lot_id,
         lotNo: p.lot_no,
         expiry: p.expiry_date ? isoDay(p.expiry_date) : null,
@@ -748,7 +784,7 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
 
 /** Delivery Note numbers by id, for the audit panel. */
 export async function deliveryNoteNumbersByIds(ids: number[]): Promise<Map<number, string>> {
-  const rows = await prisma.salDeliveryNote.findMany({ where: { id: { in: ids } }, select: { id: true, dn_no: true } });
+  const rows = await prisma.logDeliveryNote.findMany({ where: { id: { in: ids } }, select: { id: true, dn_no: true } });
   return new Map(rows.map((r) => [r.id, r.dn_no]));
 }
 
@@ -764,7 +800,10 @@ export type DeliveryOrderNotes = {
 
 export async function deliveryOrderNotes(deliveryOrderId: number): Promise<DeliveryOrderNotes> {
   const [rows, [source]] = await Promise.all([
-    prisma.salDeliveryNote.findMany({ where: { delivery_order_id: deliveryOrderId }, orderBy: [{ dn_date: "asc" }, { id: "asc" }] }),
+    prisma.logDeliveryNote.findMany({
+      where: { purpose: SALES_DELIVERY, source_doc_id: deliveryOrderId },
+      orderBy: [{ dn_date: "asc" }, { id: "asc" }],
+    }),
     sourceOptions(prisma, { ids: [deliveryOrderId] }, null),
   ]);
   return {
@@ -809,46 +848,50 @@ export type InvoiceSourceLine = {
  * something to bill before it loads any order in full.
  */
 export async function postedNoteLineIds(db: Db = prisma): Promise<{ id: number; customerOrderId: number }[]> {
-  const rows = await db.salDeliveryNoteLine.findMany({
-    where: { delivery_note: { status: "Posted" } },
-    select: { id: true, delivery_note: { select: { customer_order_id: true } } },
+  const rows = await db.logDeliveryNoteLine.findMany({
+    where: { delivery_note: { purpose: SALES_DELIVERY, status: "Posted" } },
+    select: { id: true, delivery_note: { select: { source_doc_id: true } } },
   });
-  return rows.map((r) => ({ id: r.id, customerOrderId: r.delivery_note.customer_order_id }));
+  const coOf = await customerOrderIdsOfDeliveryOrders([...new Set(rows.map((r) => r.delivery_note.source_doc_id))], db);
+  return rows.map((r) => ({ id: r.id, customerOrderId: coOf.get(r.delivery_note.source_doc_id) ?? 0 }));
 }
 
 export async function invoiceSourceLines(
   filter: { customerOrderIds?: number[]; lineIds?: number[] },
   db: Db = prisma
 ): Promise<InvoiceSourceLine[]> {
-  const notes = await db.salDeliveryNote.findMany({
+  // A sale's notes name their Delivery Order; the orders' Delivery Orders are asked for (P106).
+  const doIds = filter.customerOrderIds ? await deliveryOrderIdsOfCustomerOrders(filter.customerOrderIds, db) : null;
+  const notes = await db.logDeliveryNote.findMany({
     where: filter.lineIds
-      ? { lines: { some: { id: { in: filter.lineIds } } } }
-      : { status: "Posted", ...(filter.customerOrderIds ? { customer_order_id: { in: filter.customerOrderIds } } : {}) },
+      ? { purpose: SALES_DELIVERY, lines: { some: { id: { in: filter.lineIds } } } }
+      : { purpose: SALES_DELIVERY, status: "Posted", ...(doIds ? { source_doc_id: { in: doIds } } : {}) },
     orderBy: [{ dn_date: "asc" }, { id: "asc" }],
-    include: { lines: { include: { picks: { orderBy: { pick_no: "asc" } } }, orderBy: { line_no: "asc" } } },
+    include: { lines: { include: { lots: { orderBy: { pick_no: "asc" } } }, orderBy: { line_no: "asc" } } },
   });
   if (!notes.length) return [];
-  const sources = await deliveryNoteSources({ ids: [...new Set(notes.map((n) => n.delivery_order_id))] }, db);
+  const sources = await deliveryNoteSources({ ids: [...new Set(notes.map((n) => n.source_doc_id))] }, db);
+  const coOf = new Map(sources.map((s) => [s.id, s.customerOrderId]));
   const doLine = new Map(sources.flatMap((s) => s.lines.map((l) => [l.id, l] as const)));
   return notes.flatMap((n) =>
     n.lines
       .filter((l) => !filter.lineIds || filter.lineIds.includes(l.id))
       .map((l) => {
-        const d = doLine.get(l.delivery_order_line_id);
+        const d = doLine.get(l.source_doc_line_id);
         return {
           id: l.id,
           deliveryNoteId: n.id,
           dnNo: n.dn_no,
           dnDate: isoDay(n.dn_date),
           status: n.status as DeliveryNoteStatus,
-          customerOrderId: n.customer_order_id,
+          customerOrderId: coOf.get(n.source_doc_id) ?? 0,
           customerOrderLineId: d?.customerOrderLineId ?? 0,
           salesOrderNo: d?.salesOrderNo ?? "",
           itemLabel: d?.itemLabel ?? "",
           itemName: d?.itemName ?? "",
           uomLabel: d?.uomLabel ?? "",
           qty: l.qty.toNumber(),
-          lots: l.picks.map((p) => p.lot_no),
+          lots: l.lots.map((p) => p.lot_no),
         };
       })
   );

@@ -53,6 +53,10 @@ Project decisions that look reusable and are waiting to be folded into the KB
 
 | Project decision | Target concept | Proposed change | Status |
 | --- | --- | --- | --- |
+| P106 | engineering/app-architecture | Documents serving several flows (delivery note, receipt note, payment) are standalone: purpose catalogue in code + weak source pair; lines carry their own item / unit / quantity; logistics documents hold quantity and cost, never price or tax | Queued 05/10/2026 |
+| P107 | sales/order-to-cash | The sales module owns only orders; advance bill and invoice belong to finance | Queued 05/10/2026 |
+| P109 | engineering/data-conventions | Separate number series for documents with and without PPN (`-NP` marker), inherited downstream | Queued 05/10/2026 |
+| P110 | accounting/books-and-posting | A ledger number per posting per book, shared by its movements | Queued 05/10/2026 |
 | P95 | (new) inventory | Lot picking with FEFO and expiry flags, as a candidate for an inventory concept once real stock is built | Later |
 
 Processed 04/10/2026: P93, P94, P97, P98, P99 → `sales/order-to-cash` 2.0;

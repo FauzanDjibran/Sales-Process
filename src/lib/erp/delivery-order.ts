@@ -557,6 +557,33 @@ export async function deliveryOrderNumbersByIds(ids: number[]): Promise<Map<numb
 }
 
 /**
+ * The Customer Order of each Delivery Order named. A Delivery Note names only
+ * its Delivery Order (P106); whoever needs the order behind it asks here.
+ */
+export async function customerOrderIdsOfDeliveryOrders(ids: number[], db: Db = prisma): Promise<Map<number, number>> {
+  if (!ids.length) return new Map();
+  const rows = await db.salDeliveryOrder.findMany({ where: { id: { in: ids } }, select: { id: true, customer_order_id: true } });
+  return new Map(rows.map((r) => [r.id, r.customer_order_id]));
+}
+
+/** Every Delivery Order of the Customer Orders named, any status. */
+export async function deliveryOrderIdsOfCustomerOrders(customerOrderIds: number[], db: Db = prisma): Promise<number[]> {
+  if (!customerOrderIds.length) return [];
+  const rows = await db.salDeliveryOrder.findMany({ where: { customer_order_id: { in: customerOrderIds } }, select: { id: true } });
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Takes the lock every document on this Delivery Order's Customer Order takes,
+ * for a Delivery Note's save and posting. A Delivery Order's Customer Order
+ * never changes, so reading it before the lock is safe.
+ */
+export async function lockDeliveryOrderScope(tx: Prisma.TransactionClient, deliveryOrderId: number): Promise<void> {
+  const row = await tx.salDeliveryOrder.findUnique({ where: { id: deliveryOrderId }, select: { customer_order_id: true } });
+  if (row) await lockCustomerOrder(tx, row.customer_order_id);
+}
+
+/**
  * A Sales Order's shipping state, for its own page (P93): the Delivery Orders
  * drawing on it, and how much of each of its lines they hold. The Sales Order's
  * page composes this with its own record; the Sales Order module never reads it.
@@ -604,6 +631,7 @@ export type DeliveryNoteSourceLine = {
   itemId: number;
   itemLabel: string;
   itemName: string;
+  uomId: number;
   uomLabel: string;
   uomFactor: number;
   qty: number;
@@ -682,6 +710,7 @@ export async function deliveryNoteSources(
           itemId: so?.itemId ?? 0,
           itemLabel: so?.itemLabel ?? "",
           itemName: so?.itemName ?? "",
+          uomId: so?.uomId ?? 0,
           uomLabel: so?.uomLabel ?? "",
           uomFactor: so?.uomFactor ?? 1,
           qty: l.qty.toNumber(),

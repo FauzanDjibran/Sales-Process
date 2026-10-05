@@ -16,7 +16,7 @@
  *   fin_ar_ledger, fin_ar_item                     Buku Piutang and its AR items
  *   fin_cash_bank_tx(_line, _line_wht)             Penerimaan / Pengeluaran Kas & Bank
  *   sal_invoice(_line, _advance_deduction)         Invoice Penjualan
- *   sal_delivery_note(_line, _pick)                Delivery Notes
+ *   log_delivery_note(_line, _lot)                 Delivery Notes
  *   tmp_stock_movement                             the stand-in inventory's issue log
  *   acc_journal_line, acc_journal                  the books' journals
  *   cash_bank_ledger                               the Cash Bank Book
@@ -80,7 +80,7 @@ const DOCUMENT_ENTITY_KEYS = [
   "sal_customer_order",
   "sal_order",
   "sal_delivery_order",
-  "sal_delivery_note",
+  "log_delivery_note",
   "sal_invoice",
   "sal_advance",
   "fin_cash_bank_tx",
@@ -104,9 +104,9 @@ async function main() {
     sal_invoice_advance_deduction: await prisma.salInvoiceAdvanceDeduction.count(),
     sal_invoice_line: await prisma.salInvoiceLine.count(),
     sal_invoice: await prisma.salInvoice.count(),
-    sal_delivery_note_pick: await prisma.salDeliveryNotePick.count(),
-    sal_delivery_note_line: await prisma.salDeliveryNoteLine.count(),
-    sal_delivery_note: await prisma.salDeliveryNote.count(),
+    log_delivery_note_lot: await prisma.logDeliveryNoteLot.count(),
+    log_delivery_note_line: await prisma.logDeliveryNoteLine.count(),
+    log_delivery_note: await prisma.logDeliveryNote.count(),
     tmp_stock_movement: await prisma.tmpStockMovement.count(),
     acc_journal_line: await prisma.accJournalLine.count(),
     acc_journal: await prisma.accJournal.count(),
@@ -169,9 +169,9 @@ async function main() {
     await tx.salInvoiceAdvanceDeduction.deleteMany();
     await tx.salInvoiceLine.deleteMany();
     await tx.salInvoice.deleteMany();
-    await tx.salDeliveryNotePick.deleteMany();
-    await tx.salDeliveryNoteLine.deleteMany();
-    await tx.salDeliveryNote.deleteMany();
+    await tx.logDeliveryNoteLot.deleteMany();
+    await tx.logDeliveryNoteLine.deleteMany();
+    await tx.logDeliveryNote.deleteMany();
     await tx.tmpStockMovement.deleteMany();
 
     // Order follows the foreign keys: lines before their documents.

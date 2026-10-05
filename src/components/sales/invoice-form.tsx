@@ -505,7 +505,7 @@ export function InvoiceForm({
                     <td className="no">{i + 1}</td>
                     <td>
                       <span className="dstack">
-                        <Link className="lab" href={`/sales/delivery-note/${n.deliveryNoteId}`}>
+                        <Link className="lab" href={`/logistics/delivery-note/${n.deliveryNoteId}`}>
                           {n.dnNo}
                         </Link>
                         <span className="d2">{formatDate(n.dnDate)}</span>

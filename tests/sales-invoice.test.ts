@@ -91,15 +91,15 @@ async function create(h: InvoiceHeaderInput, l: number[], d: InvoiceDeductionInp
 
 async function postedNote(doLineQty: [number, number][]) {
   const r = await createDeliveryNote(
-    { delivery_order_id: f.do, dn_date: today, vehicle_no: "", driver_name: "", note: "" },
-    doLineQty.map(([id, qty]) => ({ delivery_order_line_id: id, qty, note: "" })),
+    { source_doc_id: f.do, dn_date: today, vehicle_no: "", driver_name: "", note: "" },
+    doLineQty.map(([id, qty]) => ({ source_doc_line_id: id, qty, note: "" })),
     actor
   );
   assert.ok(r.ok, JSON.stringify(r));
   ids.dn.push(r.id);
   const p = await transitionDeliveryNote(r.id, "post", actor);
   assert.ok(p.ok, JSON.stringify(p));
-  const dnLines = await prisma.salDeliveryNoteLine.findMany({ where: { delivery_note_id: r.id }, orderBy: { line_no: "asc" } });
+  const dnLines = await prisma.logDeliveryNoteLine.findMany({ where: { delivery_note_id: r.id }, orderBy: { line_no: "asc" } });
   return { id: r.id, lines: dnLines.map((l) => l.id) };
 }
 
@@ -248,9 +248,9 @@ after(async () => {
   await prisma.finArItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
   await prisma.finCashBankTx.deleteMany({ where: { id: { in: ids.rc } } });
   await prisma.salAdvance.deleteMany({ where: { id: { in: ids.adv } } });
-  await prisma.salDeliveryNotePick.deleteMany({ where: { line: { delivery_note_id: { in: ids.dn } } } });
-  await prisma.salDeliveryNoteLine.deleteMany({ where: { delivery_note_id: { in: ids.dn } } });
-  await prisma.salDeliveryNote.deleteMany({ where: { id: { in: ids.dn } } });
+  await prisma.logDeliveryNoteLot.deleteMany({ where: { line: { delivery_note_id: { in: ids.dn } } } });
+  await prisma.logDeliveryNoteLine.deleteMany({ where: { delivery_note_id: { in: ids.dn } } });
+  await prisma.logDeliveryNote.deleteMany({ where: { id: { in: ids.dn } } });
   await prisma.salDeliveryOrderLine.deleteMany({ where: { delivery_order_id: { in: ids.do } } });
   await prisma.salDeliveryOrder.deleteMany({ where: { id: { in: ids.do } } });
   await prisma.salOrderLine.deleteMany({ where: { order_id: { in: ids.so } } });
@@ -261,7 +261,7 @@ after(async () => {
     sal_invoice: ids.inv,
     fin_cash_bank_tx: ids.rc,
     sal_advance: ids.adv,
-    sal_delivery_note: ids.dn,
+    log_delivery_note: ids.dn,
     sal_delivery_order: ids.do,
     sal_order: ids.so,
     sal_customer_order: ids.co,

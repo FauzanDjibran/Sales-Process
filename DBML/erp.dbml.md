@@ -8,7 +8,7 @@ migration updates this file in the same change (Claude-ERP.md §9).
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout:** tables are grouped in sections by prefix — System (`sys_`),
   Master Referensi (`ref_`), Master Data (`m_`), Accounting (`acc_`), Finance
-  (`fin_`, the Cash Bank Book), Sales (`sal_`), Pajak (`tax_`) and Sementara
+  (`fin_`, the Cash Bank Book), Sales (`sal_`), Logistik (`log_`), Pajak (`tax_`) and Sementara
   (`tmp_`). What a table is for is the `//` comment above it; what a column
   holds, the `//` comment after it.
 - **References are inline** (`ref : > table.id`, `ref : -` for one-to-one).
@@ -1302,91 +1302,6 @@ table sal_delivery_order_line {
   }
 }
 
-// Delivery Note, SJ/… (P94): the goods leaving, from one issued Delivery Order
-// posting writes Dr HPP / Cr Persediaan
-table sal_delivery_note {
-  id                          int [pk, increment, not null]
-
-  dn_no                       varchar [not null, unique] // SJ/YYYY/MM/NNNN
-  dn_date                     date [not null] // the day the goods leave; the journal date
-  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
-
-  delivery_order_id           int [not null, ref : > sal_delivery_order.id]
-  customer_order_id           int [not null, ref : > sal_customer_order.id] // copied from the Delivery Order
-  customer_id                 int [not null, ref : > m_partner.id]
-  warehouse_id                int [not null, ref : > ref_warehouse.id]
-  address_id                  int [not null, ref : > m_partner_address.id]
-
-  vehicle_no                  varchar
-  driver_name                 varchar
-  note                        varchar
-  cost_amount                 decimal(18,2) [not null, default: 0] // sum of the lines, set at Posting
-
-  journal_id                  int // Dr HPP / Cr Persediaan
-
-  cancel_reason               varchar
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    delivery_order_id
-    customer_order_id
-    (status, dn_date)
-  }
-}
-
-// base quantity, unit cost and cost are set at Posting
-table sal_delivery_note_line {
-  id                          int [pk, increment, not null]
-
-  delivery_note_id            int [not null, ref : > sal_delivery_note.id]
-  line_no                     int [not null]
-
-  delivery_order_line_id      int [not null, ref : > sal_delivery_order_line.id]
-
-  qty                         decimal(18,4) [not null] // in the Customer Order line unit
-  base_qty                    decimal(18,4) [not null, default: 0] // qty x unit factor, set at Posting
-  unit_cost                   decimal(18,2) [not null, default: 0] // what the inventory issued at
-  cost_amount                 decimal(18,2) [not null, default: 0]
-
-  note                        varchar
-
-  indexes {
-    (delivery_note_id, line_no) [unique]
-    (delivery_note_id, delivery_order_line_id) [unique]
-    delivery_order_line_id
-  }
-}
-
-// stock picking by lot for a Barang with Kelola Stok, one row per lot (P95)
-// lot_id names the stand-in lot without a foreign key
-table sal_delivery_note_pick {
-  id                          int [pk, increment, not null]
-
-  delivery_note_line_id       int [not null, ref : > sal_delivery_note_line.id]
-
-  pick_no                     int [not null]
-
-  lot_id                      int [not null] // the inventory lot; no FK (stand-in today)
-
-  lot_no                      varchar [not null] // as printed on the note
-  expiry_date                 date
-  qty                         decimal(18,4) [not null] // in the line unit
-  base_qty                    decimal(18,4) [not null, default: 0] // set at Posting
-  unit_cost                   decimal(18,2) [not null, default: 0]
-  cost_amount                 decimal(18,2) [not null, default: 0]
-
-  indexes {
-    (delivery_note_line_id, pick_no) [unique]
-    (delivery_note_line_id, lot_id) [unique]
-    lot_id
-  }
-}
-
 // Invoice Penjualan, INV/… (P97, P99): bills one Customer Order
 // posting writes the journal and the Invoice AR item
 table sal_invoice {
@@ -1442,7 +1357,7 @@ table sal_invoice_line {
   invoice_id                  int [not null, ref : > sal_invoice.id]
   line_no                     int [not null]
 
-  delivery_note_line_id       int [not null, ref : > sal_delivery_note_line.id] // taken whole (U17)
+  delivery_note_line_id       int [not null] // weak: a log_delivery_note_line, taken whole (U17, P106)
   customer_order_line_id      int [not null, ref : > sal_customer_order_line.id]
 
   qty                         decimal(18,4) [not null]
@@ -1479,6 +1394,105 @@ table sal_invoice_advance_deduction {
   indexes {
     (invoice_id, ar_item_id) [unique]
     ar_item_id
+  }
+}
+
+//////////////////////////////////
+//
+// Logistik
+//
+/////////////////////////////////
+
+// Delivery Note, SJ/… (P106; P94, P95): goods leaving the warehouse to a partner
+// standalone: purpose (catalogue in code) + weak source pair; quantity and stock cost only
+// sales_delivery: from an issued Delivery Order; posting writes Dr HPP / Cr Persediaan
+table log_delivery_note {
+  id                          int [pk, increment, not null]
+
+  dn_no                       varchar [not null, unique] // SJ/YYYY/MM/NNNN
+  dn_date                     date [not null] // the day the goods leave; the journal date
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+
+  purpose                     varchar [not null] // sales_delivery; later purchase_return
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // weak source: a Delivery Order
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+  partner_id                  int [not null, ref : > m_partner.id]
+  warehouse_id                int [not null, ref : > ref_warehouse.id]
+  address_id                  int [not null, ref : > m_partner_address.id]
+
+  vehicle_no                  varchar
+  driver_name                 varchar
+  note                        varchar
+  cost_amount                 decimal(18,2) [not null, default: 0] // sum of the lines, set at Posting
+
+  journal_id                  int // Dr HPP / Cr Persediaan
+
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (source_doc_type_id, source_doc_id)
+    (purpose, status)
+    (status, dn_date)
+  }
+}
+
+// one quantity of one source line; carries its own item, unit and factor (P106)
+// unit cost and cost are set at Posting
+table log_delivery_note_line {
+  id                          int [pk, increment, not null]
+
+  delivery_note_id            int [not null, ref : > log_delivery_note.id]
+  line_no                     int [not null]
+
+  source_doc_line_id          int [not null] // weak: a Delivery Order line
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id]
+  uom_factor                  decimal(18,4) [not null, default: 1]
+
+  qty                         decimal(18,4) [not null] // in uom_id
+  base_qty                    decimal(18,4) [not null, default: 0] // qty x uom_factor
+  unit_cost                   decimal(18,2) [not null, default: 0] // what the inventory issued at
+  cost_amount                 decimal(18,2) [not null, default: 0]
+
+  note                        varchar
+
+  indexes {
+    (delivery_note_id, line_no) [unique]
+    (delivery_note_id, source_doc_line_id) [unique]
+    source_doc_line_id
+    item_id
+  }
+}
+
+// stock picking by lot for a Barang with Kelola Stok, one row per lot (P95)
+// lot_id names the stand-in lot without a foreign key
+table log_delivery_note_lot {
+  id                          int [pk, increment, not null]
+
+  delivery_note_line_id       int [not null, ref : > log_delivery_note_line.id]
+
+  pick_no                     int [not null]
+
+  lot_id                      int [not null] // the inventory lot; no FK (stand-in today)
+
+  lot_no                      varchar [not null] // as printed on the note
+  expiry_date                 date
+  qty                         decimal(18,4) [not null] // in the line unit
+  base_qty                    decimal(18,4) [not null, default: 0] // set at Posting
+  unit_cost                   decimal(18,2) [not null, default: 0]
+  cost_amount                 decimal(18,2) [not null, default: 0]
+
+  indexes {
+    (delivery_note_line_id, pick_no) [unique]
+    (delivery_note_line_id, lot_id) [unique]
+    lot_id
   }
 }
 

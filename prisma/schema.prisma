@@ -37,8 +37,8 @@
 //   acc_journal_line rather than stored.
 
 generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
   // Nested `include`s load in one SQL statement (LATERAL joins) instead of one
   // query per relation level. On the deployed Neon database every query is a
   // network round trip, so this is what keeps a document page from paying for
@@ -413,6 +413,7 @@ model SysDocType {
   cash_bank_tx_lines FinCashBankTxLine[]
   ar_item_sources    FinArItem[]         @relation("ArItemSource")
   ar_ledger_entries  FinArLedger[]
+  delivery_notes     LogDeliveryNote[]   @relation("DeliveryNoteSource")
 
   @@map("sys_doc_type")
 }
@@ -478,6 +479,7 @@ model RefUom {
   item_uoms  MItemUom[]
 
   customer_order_lines SalCustomerOrderLine[]
+  delivery_note_lines  LogDeliveryNoteLine[]
 
   @@map("ref_uom")
 }
@@ -543,6 +545,7 @@ model MItem {
   tmp_cost             TmpItemCost?
   tmp_movements        TmpStockMovement[]
   tmp_lots             TmpStockLot[]
+  delivery_note_lines  LogDeliveryNoteLine[]
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -611,7 +614,7 @@ model RefWarehouse {
 
   /// The Delivery Orders that send goods out of this warehouse.
   delivery_orders SalDeliveryOrder[]
-  delivery_notes  SalDeliveryNote[]
+  delivery_notes  LogDeliveryNote[]
   tmp_movements   TmpStockMovement[]
   tmp_lots        TmpStockLot[]
 
@@ -704,7 +707,7 @@ model MPartner {
   customer_orders SalCustomerOrder[]
   sales_orders    SalOrder[]
   delivery_orders SalDeliveryOrder[]
-  delivery_notes  SalDeliveryNote[]
+  delivery_notes  LogDeliveryNote[]
   tax_fakturs     TaxFaktur[]
   tax_slips       TaxWithholdingSlip[]
   invoices        SalInvoice[]
@@ -756,7 +759,7 @@ model MPartnerAddress {
   customer_orders SalCustomerOrder[]
   sales_orders    SalOrder[]
   delivery_orders SalDeliveryOrder[]
-  delivery_notes  SalDeliveryNote[]
+  delivery_notes  LogDeliveryNote[]
   invoices        SalInvoice[]
 
   @@index([partner_id])
@@ -1470,7 +1473,6 @@ model SalCustomerOrder {
   sales_orders    SalOrder[]
   /// The Delivery Orders that send this order's goods, and the notes they leave on.
   delivery_orders SalDeliveryOrder[]
-  delivery_notes  SalDeliveryNote[]
   invoices        SalInvoice[]
 
   @@index([customer_id])
@@ -1640,7 +1642,6 @@ model SalDeliveryOrder {
   warehouse      RefWarehouse           @relation(fields: [warehouse_id], references: [id])
   address        MPartnerAddress        @relation(fields: [address_id], references: [id])
   lines          SalDeliveryOrderLine[]
-  delivery_notes SalDeliveryNote[]
 
   @@index([customer_order_id])
   @@index([status, delivery_date])
@@ -1662,9 +1663,8 @@ model SalDeliveryOrderLine {
   delivered_qty       Decimal @default(0) @db.Decimal(18, 4)
   note                String?
 
-  delivery_order   SalDeliveryOrder      @relation(fields: [delivery_order_id], references: [id])
-  sales_order_line SalOrderLine          @relation(fields: [sales_order_line_id], references: [id])
-  note_lines       SalDeliveryNoteLine[]
+  delivery_order   SalDeliveryOrder @relation(fields: [delivery_order_id], references: [id])
+  sales_order_line SalOrderLine     @relation(fields: [sales_order_line_id], references: [id])
 
   @@unique([delivery_order_id, line_no])
   @@unique([delivery_order_id, sales_order_line_id])
@@ -1678,24 +1678,31 @@ enum DeliveryNoteStatus {
   Cancelled
 }
 
-/// A Delivery Note (C28, U11–U14): the document the goods leave on, made from
-/// one issued Delivery Order and numbered `SJ/YYYY/MM/NNNN`. Posting issues the
-/// goods through the inventory module and writes one journal, Dr HPP / Cr
-/// Persediaan — cost of goods only; Piutang is born at the Faktur. Its line is
-/// the unit the Faktur takes whole.
-model SalDeliveryNote {
+/// A Delivery Note (P106; C28, P94, P95): the document goods leave the
+/// company's warehouse on, to a partner. **Standalone** — it belongs to no
+/// business module: its `purpose` (a catalogue in code,
+/// `lib/erp/delivery-note-purposes.ts`) says what its source is, how it posts
+/// and what it writes back; its source is named by the weak pair. Quantity and
+/// stock cost only — never a selling price or tax. Numbered `SJ/YYYY/MM/NNNN`.
+/// Purpose `sales_delivery`: from an issued Delivery Order; Posting issues the
+/// goods through the inventory module and writes Dr HPP / Cr Persediaan.
+model LogDeliveryNote {
   id      Int                @id @default(autoincrement())
   dn_no   String             @unique
-  /// The day the goods leave — the journal's date and, later, the tax point.
+  /// The day the goods leave — the journal's date and, for a sale, the tax point.
   dn_date DateTime           @db.Date
   status  DeliveryNoteStatus @default(Draft)
 
-  delivery_order_id Int
-  /// Copied from the Delivery Order, for lists, printing and the Faktur.
-  customer_order_id Int
-  customer_id       Int
-  warehouse_id      Int
-  address_id        Int
+  /// The purpose's key, e.g. `sales_delivery`.
+  purpose            String
+  /// The source document, weak (§3.1): for `sales_delivery` a Delivery Order.
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  /// Copied from the source, for lists and printing.
+  partner_id         Int
+  warehouse_id       Int
+  address_id         Int
 
   vehicle_no  String?
   driver_name String?
@@ -1711,46 +1718,51 @@ model SalDeliveryNote {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  delivery_order SalDeliveryOrder      @relation(fields: [delivery_order_id], references: [id])
-  customer_order SalCustomerOrder      @relation(fields: [customer_order_id], references: [id])
-  customer       MPartner              @relation(fields: [customer_id], references: [id])
-  warehouse      RefWarehouse          @relation(fields: [warehouse_id], references: [id])
-  address        MPartnerAddress       @relation(fields: [address_id], references: [id])
-  lines          SalDeliveryNoteLine[]
+  source_doc_type SysDocType            @relation("DeliveryNoteSource", fields: [source_doc_type_id], references: [id])
+  partner         MPartner              @relation(fields: [partner_id], references: [id])
+  warehouse       RefWarehouse          @relation(fields: [warehouse_id], references: [id])
+  address         MPartnerAddress       @relation(fields: [address_id], references: [id])
+  lines           LogDeliveryNoteLine[]
 
-  @@index([delivery_order_id])
-  @@index([customer_order_id])
+  @@index([source_doc_type_id, source_doc_id])
+  @@index([purpose, status])
   @@index([status, dn_date])
-  @@map("sal_delivery_note")
+  @@map("log_delivery_note")
 }
 
-/// One line of a Delivery Note: a quantity of one Delivery Order line, in the
-/// Customer Order line's unit. Its cost is fixed at Posting from what the
-/// inventory module returned.
-model SalDeliveryNoteLine {
-  id                     Int     @id @default(autoincrement())
-  delivery_note_id       Int
-  line_no                Int
-  delivery_order_line_id Int
-  qty                    Decimal @db.Decimal(18, 4)
-  /// qty × the Customer Order line's unit factor, set at Posting.
-  base_qty               Decimal @default(0) @db.Decimal(18, 4)
-  unit_cost              Decimal @default(0) @db.Decimal(18, 2)
-  cost_amount            Decimal @default(0) @db.Decimal(18, 2)
-  note                   String?
+/// One line of a Delivery Note: a quantity of one source line, weak. It
+/// carries its own item, unit and factor, because a line of another purpose has
+/// another source. Its cost is fixed at Posting from what the inventory module
+/// returned.
+model LogDeliveryNoteLine {
+  id                 Int     @id @default(autoincrement())
+  delivery_note_id   Int
+  line_no            Int
+  /// The source line, weak: for `sales_delivery` a Delivery Order line.
+  source_doc_line_id Int
+  item_id            Int
+  uom_id             Int
+  /// Base units in one `uom_id`, copied from the source at save.
+  uom_factor         Decimal @default(1) @db.Decimal(18, 4)
+  qty                Decimal @db.Decimal(18, 4)
+  /// qty × uom_factor.
+  base_qty           Decimal @default(0) @db.Decimal(18, 4)
+  unit_cost          Decimal @default(0) @db.Decimal(18, 2)
+  cost_amount        Decimal @default(0) @db.Decimal(18, 2)
+  note               String?
 
-  delivery_note       SalDeliveryNote       @relation(fields: [delivery_note_id], references: [id])
-  delivery_order_line SalDeliveryOrderLine  @relation(fields: [delivery_order_line_id], references: [id])
+  delivery_note LogDeliveryNote      @relation(fields: [delivery_note_id], references: [id])
+  item          MItem                @relation(fields: [item_id], references: [id])
+  uom           RefUom               @relation(fields: [uom_id], references: [id])
   /// For an item with Kelola Stok: which lots the line's quantity is taken
   /// from (U15). Their quantities add up to the line's at Posting.
-  picks               SalDeliveryNotePick[]
-  /// The Faktur line that bills it, at most one live (U17).
-  invoice_lines       SalInvoiceLine[]
+  lots          LogDeliveryNoteLot[]
 
   @@unique([delivery_note_id, line_no])
-  @@unique([delivery_note_id, delivery_order_line_id])
-  @@index([delivery_order_line_id])
-  @@map("sal_delivery_note_line")
+  @@unique([delivery_note_id, source_doc_line_id])
+  @@index([source_doc_line_id])
+  @@index([item_id])
+  @@map("log_delivery_note_line")
 }
 
 /// One lot a Delivery Note line takes goods from (U15) — the stock picking.
@@ -1758,7 +1770,7 @@ model SalDeliveryNoteLine {
 /// on its own and stores what it cost. The lot is the inventory's, named by id
 /// without a foreign key (the inventory behind it is a stand-in today), with
 /// its number and expiry copied as printed on the note.
-model SalDeliveryNotePick {
+model LogDeliveryNoteLot {
   id                    Int       @id @default(autoincrement())
   delivery_note_line_id Int
   pick_no               Int
@@ -1771,12 +1783,12 @@ model SalDeliveryNotePick {
   unit_cost             Decimal   @default(0) @db.Decimal(18, 2)
   cost_amount           Decimal   @default(0) @db.Decimal(18, 2)
 
-  line SalDeliveryNoteLine @relation(fields: [delivery_note_line_id], references: [id])
+  line LogDeliveryNoteLine @relation(fields: [delivery_note_line_id], references: [id])
 
   @@unique([delivery_note_line_id, pick_no])
   @@unique([delivery_note_line_id, lot_id])
   @@index([lot_id])
-  @@map("sal_delivery_note_pick")
+  @@map("log_delivery_note_lot")
 }
 
 enum InvoiceStatus {
@@ -1811,7 +1823,7 @@ model SalInvoice {
   /// The order's, copied (U18, U20).
   price_mode                PriceMode
   is_taxable                Boolean
-  ppn_rate                  Decimal? @db.Decimal(9, 4)
+  ppn_rate                  Decimal?  @db.Decimal(9, 4)
   ppn_dpp_other_numerator   Int?
   ppn_dpp_other_denominator Int?
 
@@ -1840,10 +1852,10 @@ model SalInvoice {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  customer_order SalCustomerOrder              @relation(fields: [customer_order_id], references: [id])
-  customer       MPartner                      @relation(fields: [customer_id], references: [id])
-  address        MPartnerAddress               @relation(fields: [address_id], references: [id])
-  cash_bank      MCashBank                     @relation(fields: [cash_bank_id], references: [id])
+  customer_order SalCustomerOrder             @relation(fields: [customer_order_id], references: [id])
+  customer       MPartner                     @relation(fields: [customer_id], references: [id])
+  address        MPartnerAddress              @relation(fields: [address_id], references: [id])
+  cash_bank      MCashBank                    @relation(fields: [cash_bank_id], references: [id])
   lines          SalInvoiceLine[]
   deductions     SalInvoiceAdvanceDeduction[]
 
@@ -1856,27 +1868,26 @@ model SalInvoice {
 /// Customer Order line. A Delivery Note line is billed by at most one live
 /// Faktur, checked under the order's lock.
 model SalInvoiceLine {
-  id                     Int     @id @default(autoincrement())
+  id                     Int      @id @default(autoincrement())
   invoice_id             Int
   line_no                Int
   delivery_note_line_id  Int
   customer_order_line_id Int
   /// The Delivery Note line's, in the order line's unit.
-  qty                    Decimal @db.Decimal(18, 4)
-  price                  Decimal @db.Decimal(18, 2)
-  amount                 Decimal @db.Decimal(18, 2)
-  dpp_amount             Decimal @db.Decimal(18, 2)
+  qty                    Decimal  @db.Decimal(18, 4)
+  price                  Decimal  @db.Decimal(18, 2)
+  amount                 Decimal  @db.Decimal(18, 2)
+  dpp_amount             Decimal  @db.Decimal(18, 2)
   /// Its share of the Uang Muka used.
-  advance_dpp_amount     Decimal @default(0) @db.Decimal(18, 2)
-  net_dpp_amount         Decimal @db.Decimal(18, 2)
-  dpp_other_amount       Decimal @default(0) @db.Decimal(18, 2)
-  ppn_amount             Decimal @default(0) @db.Decimal(18, 2)
+  advance_dpp_amount     Decimal  @default(0) @db.Decimal(18, 2)
+  net_dpp_amount         Decimal  @db.Decimal(18, 2)
+  dpp_other_amount       Decimal  @default(0) @db.Decimal(18, 2)
+  ppn_amount             Decimal  @default(0) @db.Decimal(18, 2)
   /// The order line's, carried for the PPh the receipt will expect.
   withholding_tax_id     Int?
   withholding_rate       Decimal? @db.Decimal(9, 4)
 
   invoice             SalInvoice           @relation(fields: [invoice_id], references: [id])
-  delivery_note_line  SalDeliveryNoteLine  @relation(fields: [delivery_note_line_id], references: [id])
   customer_order_line SalCustomerOrderLine @relation(fields: [customer_order_line_id], references: [id])
   withholding_tax     RefWithholdingTax?   @relation(fields: [withholding_tax_id], references: [id])
 
@@ -2282,20 +2293,20 @@ enum TaxFakturKind {
 /// a receipt line for an advance (with the bill it paid), an Invoice Penjualan
 /// for goods. Buyer identity is snapshotted as it stood then.
 model TaxFaktur {
-  id        Int             @id @default(autoincrement())
+  id        Int           @id @default(autoincrement())
   /// `FPK/YYYY/MM/NNNN`, in the month of `tax_date` — the internal number.
-  faktur_no String          @unique
+  faktur_no String        @unique
   kind      TaxFakturKind
   /// The tax point: the receipt date for an advance, the latest Tanggal Kirim for goods.
-  tax_date  DateTime        @db.Date
+  tax_date  DateTime      @db.Date
   /// Upload by the 15th of the following month.
-  deadline  DateTime        @db.Date
+  deadline  DateTime      @db.Date
 
-  customer_id     Int
-  buyer_tax_type  String?
-  buyer_tax_id    String?
-  buyer_name      String
-  buyer_address   String
+  customer_id    Int
+  buyer_tax_type String?
+  buyer_tax_id   String?
+  buyer_name     String
+  buyer_address  String
 
   /// What made it: the receipt (advance) or the Invoice (goods).
   source_doc_type_id Int
@@ -2310,17 +2321,17 @@ model TaxFaktur {
   ar_item_id         Int?
   customer_order_id  Int
 
-  description String?
+  description               String?
   ppn_rate                  Decimal @db.Decimal(9, 4)
   ppn_dpp_other_numerator   Int
   ppn_dpp_other_denominator Int
   /// DPP of everything delivered (settlement / normal); equals `dpp` for an advance.
-  gross_dpp     Decimal @db.Decimal(18, 2)
+  gross_dpp                 Decimal @db.Decimal(18, 2)
   /// The advances' DPP it deducts (settlement only).
-  advance_dpp   Decimal @default(0) @db.Decimal(18, 2)
-  dpp           Decimal @db.Decimal(18, 2)
-  dpp_other     Decimal @db.Decimal(18, 2)
-  ppn           Decimal @db.Decimal(18, 2)
+  advance_dpp               Decimal @default(0) @db.Decimal(18, 2)
+  dpp                       Decimal @db.Decimal(18, 2)
+  dpp_other                 Decimal @db.Decimal(18, 2)
+  ppn                       Decimal @db.Decimal(18, 2)
 
   /// Nomor Seri Faktur Pajak from Coretax — an optional reference the user
   /// fills in and may correct (P101); the faktur is a complete record without it.
@@ -2347,7 +2358,7 @@ model TaxFaktur {
 /// One line of a faktur pajak, as it is reported: the advance as one line, or
 /// each Invoice line with its share of the advances deducted.
 model TaxFakturLine {
-  id          Int     @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   faktur_id   Int
   line_no     Int
   description String
@@ -2355,11 +2366,11 @@ model TaxFakturLine {
   qty         Decimal? @db.Decimal(18, 4)
   uom_label   String?
   price       Decimal? @db.Decimal(18, 2)
-  gross_dpp   Decimal @db.Decimal(18, 2)
-  advance_dpp Decimal @default(0) @db.Decimal(18, 2)
-  dpp         Decimal @db.Decimal(18, 2)
-  dpp_other   Decimal @db.Decimal(18, 2)
-  ppn         Decimal @db.Decimal(18, 2)
+  gross_dpp   Decimal  @db.Decimal(18, 2)
+  advance_dpp Decimal  @default(0) @db.Decimal(18, 2)
+  dpp         Decimal  @db.Decimal(18, 2)
+  dpp_other   Decimal  @db.Decimal(18, 2)
+  ppn         Decimal  @db.Decimal(18, 2)
 
   faktur TaxFaktur @relation(fields: [faktur_id], references: [id])
 
@@ -2402,10 +2413,10 @@ model TaxWithholdingSlip {
   /// The withholder reports by the 20th of the following month.
   expected_date DateTime @db.Date
 
-  customer_id          Int
-  withholder_tax_type  String?
-  withholder_tax_id    String?
-  withholder_name      String
+  customer_id         Int
+  withholder_tax_type String?
+  withholder_tax_id   String?
+  withholder_name     String
 
   /// The receipt line's withholding row it comes from — one slip each.
   receipt_line_wht_id Int    @unique
@@ -2422,9 +2433,9 @@ model TaxWithholdingSlip {
   amount             Decimal @db.Decimal(18, 2)
 
   /// The customer's slip (BPPU), recorded when it arrives.
-  slip_number   String?
-  slip_date     DateTime? @db.Date
-  received_by   Int?
+  slip_number String?
+  slip_date   DateTime? @db.Date
+  received_by Int?
 
   created_by Int
   created_at DateTime @default(now()) @db.Timestamptz(6)

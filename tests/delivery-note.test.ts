@@ -139,14 +139,14 @@ async function issuedDeliveryOrder(
 let order = {} as Awaited<ReturnType<typeof issuedDeliveryOrder>>;
 
 const header = (over: Partial<DeliveryNoteHeaderInput> = {}): DeliveryNoteHeaderInput => ({
-  delivery_order_id: order.doId,
+  source_doc_id: order.doId,
   dn_date: today,
   vehicle_no: "B 1234 XYZ",
   driver_name: "Slamet",
   note: "",
   ...over,
 });
-const line = (qty: number | string, lineId = order.goods): DeliveryNoteLineInput => ({ delivery_order_line_id: lineId, qty, note: "" });
+const line = (qty: number | string, lineId = order.goods): DeliveryNoteLineInput => ({ source_doc_line_id: lineId, qty, note: "" });
 
 async function create(h = header(), lines = [line(40)]) {
   const r = await createDeliveryNote(h, lines, actor);
@@ -197,16 +197,16 @@ before(async () => {
 });
 
 after(async () => {
-  await prisma.salDeliveryNotePick.deleteMany({ where: { line: { delivery_note_id: { in: ids.dn } } } });
-  await prisma.salDeliveryNoteLine.deleteMany({ where: { delivery_note_id: { in: ids.dn } } });
-  await prisma.salDeliveryNote.deleteMany({ where: { id: { in: ids.dn } } });
+  await prisma.logDeliveryNoteLot.deleteMany({ where: { line: { delivery_note_id: { in: ids.dn } } } });
+  await prisma.logDeliveryNoteLine.deleteMany({ where: { delivery_note_id: { in: ids.dn } } });
+  await prisma.logDeliveryNote.deleteMany({ where: { id: { in: ids.dn } } });
   await prisma.salDeliveryOrderLine.deleteMany({ where: { delivery_order_id: { in: ids.do } } });
   await prisma.salDeliveryOrder.deleteMany({ where: { id: { in: ids.do } } });
   await prisma.salOrderLine.deleteMany({ where: { order_id: { in: ids.so } } });
   await prisma.salOrder.deleteMany({ where: { id: { in: ids.so } } });
   await prisma.salCustomerOrderLine.deleteMany({ where: { order_id: { in: ids.co } } });
   await prisma.salCustomerOrder.deleteMany({ where: { id: { in: ids.co } } });
-  for (const [k, list] of Object.entries({ sal_delivery_note: ids.dn, sal_delivery_order: ids.do, sal_order: ids.so, sal_customer_order: ids.co })) {
+  for (const [k, list] of Object.entries({ log_delivery_note: ids.dn, sal_delivery_order: ids.do, sal_order: ids.so, sal_customer_order: ids.co })) {
     await prisma.auditLog.deleteMany({ where: { entity_key: k, row_id: { in: list } } });
   }
   const costIds = (await prisma.tmpItemCost.findMany({ where: { item_id: { in: [f.goods, f.other, f.lotted] } }, select: { id: true } })).map((r) => r.id);
@@ -244,7 +244,7 @@ describe("what a Delivery Note must satisfy", () => {
     const early = await checkDeliveryNote(prisma, header({ dn_date: "2020-01-01" }), [line(1)], null);
     assert.ok(!early.ok && /sebelum tanggal Delivery Order/.test(early.errors.dn_date));
     const twice = await checkDeliveryNote(prisma, header(), [line(1), line(2)], null);
-    assert.ok(!twice.ok && /lebih dari sekali/.test(twice.errors["lines.1.delivery_order_line_id"]));
+    assert.ok(!twice.ok && /lebih dari sekali/.test(twice.errors["lines.1.source_doc_line_id"]));
     const blank = await checkDeliveryNote(prisma, header(), [line("")], null);
     assert.ok(!blank.ok && blank.errors["lines.0.qty"], "a blank quantity is refused on its row");
     const tooMuch = await checkDeliveryNote(prisma, header(), [line(100.0001)], null);
@@ -391,7 +391,7 @@ describe("orders close themselves once fully delivered (U14)", () => {
 
   test("closing by hand after a partial delivery releases what never left", async () => {
     const second = await issuedDeliveryOrder();
-    const r = await create(header({ delivery_order_id: second.doId }), [line(30, second.goods)]);
+    const r = await create(header({ source_doc_id: second.doId }), [line(30, second.goods)]);
     assert.ok(r.ok);
     assert.ok((await transitionDeliveryNote(r.id, "post", actor)).ok);
     assert.deepEqual(await transitionDeliveryOrder(second.doId, "close", actor, "sisa tidak dikirim", liveDeliveryNoteRefusal), { ok: true });
@@ -418,12 +418,12 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
   const lot = {} as Record<string, number>;
   let lotted = {} as Awaited<ReturnType<typeof issuedDeliveryOrder>>;
   const pick = (qty: number, picks: [lot: number, qty: number | string][]): DeliveryNoteLineInput => ({
-    delivery_order_line_id: lotted.goods,
+    source_doc_line_id: lotted.goods,
     qty,
     note: "",
     picks: picks.map(([lot_id, q]) => ({ lot_id, qty: q })),
   });
-  const lotHeader = () => header({ delivery_order_id: lotted.doId });
+  const lotHeader = () => header({ source_doc_id: lotted.doId });
 
   test("a lot belongs to a Barang with Kelola Stok, in one warehouse, with its expiry when the item has one", async () => {
     const add = (item: number, lotNo: string, expiry = "") =>
@@ -468,8 +468,8 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
     const plain = await issuedDeliveryOrder([[f.other, f.pcs, 1]]);
     const onPlain = await checkDeliveryNote(
       prisma,
-      header({ delivery_order_id: plain.doId }),
-      [{ delivery_order_line_id: plain.goods, qty: 1, note: "", picks: [{ lot_id: lot.early, qty: 1 }] }],
+      header({ source_doc_id: plain.doId }),
+      [{ source_doc_line_id: plain.goods, qty: 1, note: "", picks: [{ lot_id: lot.early, qty: 1 }] }],
       null
     );
     assert.ok(!onPlain.ok && /tidak dikelola per lot/.test(onPlain.errors["lines.0.picks"]));
@@ -518,15 +518,15 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
 
   test("a lot deactivated after it was picked stops the Draft from posting", async () => {
     const again = await issuedDeliveryOrder([[f.lotted, f.pcs, 5]]);
-    const r = await create(header({ delivery_order_id: again.doId }), [
-      { delivery_order_line_id: again.goods, qty: 5, note: "", picks: [{ lot_id: lot.late, qty: 5 }] },
+    const r = await create(header({ source_doc_id: again.doId }), [
+      { source_doc_line_id: again.goods, qty: 5, note: "", picks: [{ lot_id: lot.late, qty: 5 }] },
     ]);
     assert.ok(r.ok, JSON.stringify(r));
     await setStockLotActive(lot.late, false, actor);
     const refused = await transitionDeliveryNote(r.id, "post", actor);
     await setStockLotActive(lot.late, true, actor);
     assert.ok(!refused.ok && /Lot tidak ada/.test(refused.errors._form));
-    const shown = (await deliveryNoteOptions({ id: r.id, deliveryOrderId: again.doId, lotIds: [lot.late] })).orders.find((o) => o.id === again.doId)!;
+    const shown = (await deliveryNoteOptions({ id: r.id, sourceId: again.doId, lotIds: [lot.late] })).orders.find((o) => o.id === again.doId)!;
     assert.ok(shown.lots[f.lotted].some((l) => l.id === lot.late), "the stored note still reads its lot");
   });
 });
