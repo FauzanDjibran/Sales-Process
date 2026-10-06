@@ -5,134 +5,53 @@ import { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 
 /**
- * The inventory module — today a **stand-in** (Sales-Process-Concept.md U11).
+ * The inventory module — the stock books (P120), built on the moving-average
+ * design agreed in P114.
  *
- * A document that sends goods out asks this module to `issueStock`, exactly as
- * it will once real stock exists, and gets back what the goods cost. It never
- * learns that the answer comes from a stand-in: there is no stock check (stock
- * is always sufficient, P5), and every item is valued at the one Harga Pokok
- * the user keeps for it in *Harga Pokok (Sementara)*.
+ * Two books, each a ledger with its balance, written side by side in the
+ * posting transaction of the document that moves the goods:
  *
- * Its tables are temporary and its own — `tmp_item_cost` (the Harga Pokok),
- * `tmp_stock_lot` (the lots a picker chooses from, U15) and `tmp_stock_movement`
- * (one row per issue, as a stock card would show it) — and nothing else names
- * them. An item with Kelola Stok is **lot-tracked**: it leaves from a named lot. When inventory is built, `issueStock`
- * keeps its contract, the temporary tables are dropped, and the documents that
- * call it do not change.
+ * - **Quantity** — `log_stock_ledger` / `log_stock_balance`: how much of which
+ *   lot is in which warehouse, in which status. One bucket per warehouse, lot
+ *   and status; never negative.
+ * - **Value** — `log_stock_valuation_ledger` / `log_stock_valuation_balance`:
+ *   one moving-average pool per item (one company, one valuation area), kept
+ *   as quantity Q and value V in whole rupiah. A receipt adds its own value;
+ *   an issue of q releases round(V × q ÷ Q), and the issue that empties the
+ *   pool releases V whole, so a pool always ends at 0 / 0. The average V ÷ Q is
+ *   cached for reading and never multiplied by anything.
+ *
+ * Every quantity row has exactly one valuation row with the same value change,
+ * so Σ value over either ledger is the same figure.
+ *
+ * **Only an item with Kelola Stok enters the books**, and it is always held by
+ * lot (`log_stock_tracking`, unique per item). An item without Kelola Stok is
+ * an expense when acquired and is never received or issued here; the user
+ * confirmed such a Barang is not sold, so `issueStock` refuses one as a guard.
+ *
+ * A book: it imports only the shared kernel and is called by the documents,
+ * never the reverse (§3.1). Its tables are named only here and by
+ * `stock-report.ts`, which reads them.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
+type Tx = Prisma.TransactionClient;
+const D = Prisma.Decimal;
+type Dec = Prisma.Decimal;
 
-/** An issue refused by the inventory — today only an item without a Harga Pokok. */
+/** A movement the inventory refuses — short stock, an unknown lot, an item not kept in stock. */
 export class InventoryRefusal extends Error {}
 
-export type StockIssue = {
-  itemId: number;
-  warehouseId: number;
-  /** The lot it leaves from — required for a lot-tracked item, refused for any other. */
-  lotId?: number | null;
-  /** In the item's base unit. */
-  baseQty: number;
-  date: Date;
-  source: { docTypeId: number; docId: number; no: string };
-  actorId: number;
-};
+export type StockSource = { docTypeId: number; docId: number; no: string };
 
-/**
- * The unit cost each item would be issued at now, or null for an item that
- * cannot be issued. Lets a document show the journal it will write before it
- * posts; `issueStock` decides again inside the posting.
- */
-export async function issueValuation(itemIds: number[], db: Db = prisma): Promise<Map<number, number | null>> {
-  const rows = itemIds.length
-    ? await db.tmpItemCost.findMany({ where: { item_id: { in: itemIds } }, select: { item_id: true, unit_cost: true } })
-    : [];
-  const byItem = new Map(rows.map((r) => [r.item_id, r.unit_cost.toNumber()]));
-  return new Map(itemIds.map((id) => [id, byItem.has(id) ? byItem.get(id)! : null]));
-}
+/** The status goods are received into and issued from today. */
+export const AVAILABLE_STATUS = "TERSEDIA";
 
-/**
- * Takes goods out of a warehouse and says what they cost. Called inside the
- * issuing document's posting transaction, so a refusal rolls the posting back.
- */
-export async function issueStock(tx: Prisma.TransactionClient, issue: StockIssue): Promise<{ unitCost: number; cost: number }> {
-  if (!(issue.baseQty > 0)) throw new InventoryRefusal("Jumlah yang dikeluarkan harus lebih dari 0.");
-  const row = await tx.tmpItemCost.findUnique({
-    where: { item_id: issue.itemId },
-    select: { unit_cost: true, item: { select: { item_label: true } } },
-  });
-  if (!row) {
-    const item = await tx.mItem.findUnique({ where: { id: issue.itemId }, select: { item_label: true } });
-    throw new InventoryRefusal(`${item?.item_label ?? "Barang"} belum punya Harga Pokok. Isi di Master › Harga Pokok (Sementara).`);
-  }
-  const tracked = (await lotTrackedItems([issue.itemId], tx)).has(issue.itemId);
-  let lot: { id: number; lot_no: string } | null = null;
-  if (tracked) {
-    if (!issue.lotId) throw new InventoryRefusal(`${row.item.item_label} dikelola per lot: pilih lotnya.`);
-    lot = await tx.tmpStockLot.findFirst({
-      where: { id: issue.lotId, item_id: issue.itemId, warehouse_id: issue.warehouseId, status: "Active" },
-      select: { id: true, lot_no: true },
-    });
-    if (!lot) throw new InventoryRefusal(`Lot ${row.item.item_label} tidak ada atau nonaktif di gudang ini.`);
-  } else if (issue.lotId) {
-    throw new InventoryRefusal(`${row.item.item_label} tidak dikelola per lot.`);
-  }
-  // In exact decimals, rounded once to whole rupiah (P114): a Harga Pokok per
-  // gram times thousands of grams must not pick up binary-float error.
-  const unitCost = row.unit_cost.toNumber();
-  const cost = new Prisma.Decimal(issue.baseQty).mul(row.unit_cost).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP).toNumber();
-  await tx.tmpStockMovement.create({
-    data: {
-      ...(await ledgerPosition(tx, issue.date, issue.source.docTypeId, issue.source.docId)),
-      item_id: issue.itemId,
-      warehouse_id: issue.warehouseId,
-      movement_date: issue.date,
-      base_qty_out: issue.baseQty,
-      unit_cost: unitCost,
-      cost_amount: cost,
-      source_doc_type_id: issue.source.docTypeId,
-      source_doc_id: issue.source.docId,
-      source_no: issue.source.no,
-      lot_id: lot?.id ?? null,
-      lot_no: lot?.lot_no ?? null,
-      created_by: issue.actorId,
-    },
-  });
-  return { unitCost, cost };
-}
+const qtyText = (d: Dec) => d.toDecimalPlaces(4).toString().replace(".", ",");
 
-/**
- * The ledger number and line a movement takes (P110): `MS/2026/10/0001`, one
- * per posting — the lots and lines one document issues share it, a line each;
- * the first takes the next number in the series of its month, read from
- * line-1 rows, whose id order is their number order.
- */
-async function ledgerPosition(
-  tx: Prisma.TransactionClient,
-  date: Date,
-  docTypeId: number,
-  docId: number
-): Promise<{ ledger_no: string; line_no: number }> {
-  const last = await tx.tmpStockMovement.findFirst({
-    where: { source_doc_type_id: docTypeId, source_doc_id: docId },
-    orderBy: { line_no: "desc" },
-    select: { ledger_no: true, line_no: true },
-  });
-  if (last) return { ledger_no: last.ledger_no, line_no: last.line_no + 1 };
-  const ledger_no = await nextDocumentNumber("MS", date, async (series) => {
-    const row = await tx.tmpStockMovement.findFirst({
-      where: { ledger_no: { startsWith: series }, line_no: 1 },
-      orderBy: { id: "desc" },
-      select: { ledger_no: true },
-    });
-    return row?.ledger_no ?? null;
-  });
-  return { ledger_no, line_no: 1 };
-}
+// ------------------------------------------------------------------ reads
 
-// ------------------------------------------------------------------- lots
-
-/** The items that leave by lot: Barang with Kelola Stok (U15). */
+/** The items that enter the stock books: Barang with Kelola Stok. Each is held by lot. */
 export async function lotTrackedItems(itemIds: number[], db: Db = prisma): Promise<Set<number>> {
   if (!itemIds.length) return new Set();
   const rows = await db.mItem.findMany({
@@ -142,12 +61,21 @@ export async function lotTrackedItems(itemIds: number[], db: Db = prisma): Promi
   return new Set(rows.map((r) => r.id));
 }
 
-export type LotOption = { id: number; lotNo: string; expiry: string | null; active: boolean };
+export type LotOption = {
+  id: number;
+  lotNo: string;
+  expiry: string | null;
+  /** Quantity available (Tersedia) in the warehouse, in the item's base unit. */
+  available: number;
+  /** Offered to a picker: something is available. */
+  active: boolean;
+};
 
 /**
- * The lots a picker may choose for each item, per warehouse, earliest expiry
- * first (FEFO), a lot without expiry last. `withIds` also brings in lots a
- * stored document already names, whatever their status, so it keeps reading.
+ * The lots a picker may choose for each item, per warehouse — those with
+ * available stock — earliest expiry first (FEFO), a lot without expiry last.
+ * `withIds` also brings in lots a stored document already names, whatever
+ * they hold now, so it keeps reading.
  */
 export async function lotOptions(
   itemIds: number[],
@@ -157,169 +85,412 @@ export async function lotOptions(
 ): Promise<Map<number, Map<number, LotOption[]>>> {
   const out = new Map<number, Map<number, LotOption[]>>();
   if (!itemIds.length || !warehouseIds.length) return out;
-  const rows = await db.tmpStockLot.findMany({
-    where: {
-      item_id: { in: itemIds },
-      warehouse_id: { in: warehouseIds },
-      OR: [{ status: "Active" }, ...(withIds.length ? [{ id: { in: withIds } }] : [])],
-    },
-    orderBy: [{ expiry_date: { sort: "asc", nulls: "last" } }, { lot_no: "asc" }],
+  const status = await statusId(db);
+  const balances = await db.logStockBalance.findMany({
+    where: { item_id: { in: itemIds }, warehouse_id: { in: warehouseIds }, stock_status_id: status },
+    select: { warehouse_id: true, tracking_id: true, qty_balance: true },
   });
-  for (const r of rows) {
-    const byItem = out.get(r.warehouse_id) ?? new Map<number, LotOption[]>();
-    const list = byItem.get(r.item_id) ?? [];
-    list.push({ id: r.id, lotNo: r.lot_no, expiry: r.expiry_date ? r.expiry_date.toISOString().slice(0, 10) : null, active: r.status === "Active" });
-    byItem.set(r.item_id, list);
-    out.set(r.warehouse_id, byItem);
+  const held = new Map(balances.map((b) => [`${b.warehouse_id}:${b.tracking_id}`, b.qty_balance.toNumber()]));
+  const trackingIds = [...new Set([...balances.filter((b) => b.qty_balance.gt(0)).map((b) => b.tracking_id), ...withIds])];
+  if (!trackingIds.length) return out;
+  const lots = await db.logStockTracking.findMany({
+    where: { id: { in: trackingIds }, item_id: { in: itemIds } },
+    orderBy: [{ expiry_date: { sort: "asc", nulls: "last" } }, { tracking_no: "asc" }],
+  });
+  for (const w of warehouseIds) {
+    for (const t of lots) {
+      const available = held.get(`${w}:${t.id}`) ?? 0;
+      if (!(available > 0) && !withIds.includes(t.id)) continue;
+      const byItem = out.get(w) ?? new Map<number, LotOption[]>();
+      const list = byItem.get(t.item_id) ?? [];
+      list.push({
+        id: t.id,
+        lotNo: t.tracking_no,
+        expiry: t.expiry_date ? t.expiry_date.toISOString().slice(0, 10) : null,
+        available,
+        active: available > 0,
+      });
+      byItem.set(t.item_id, list);
+      out.set(w, byItem);
+    }
   }
   return out;
 }
 
-// --------------------------------------------------------- Lot (Sementara)
+async function statusId(db: Db, label = AVAILABLE_STATUS): Promise<number> {
+  const row = await db.sysStockStatus.findUnique({ where: { status_label: label }, select: { id: true } });
+  if (!row) throw new InventoryRefusal(`Status stok ${label} belum ada. Jalankan seed.`);
+  return row.id;
+}
 
-export type StockLotRow = {
-  id: number;
+async function stockItem(tx: Tx, itemId: number) {
+  const item = await tx.mItem.findUnique({
+    where: { id: itemId },
+    select: { item_label: true, item_type: true, track_stock: true, has_expiry: true, base_uom_id: true },
+  });
+  if (!item) throw new InventoryRefusal("Barang tidak ditemukan.");
+  if (item.item_type !== "Barang" || !item.track_stock) {
+    throw new InventoryRefusal(`${item.item_label} tidak dikelola stok (Kelola Stok tidak aktif), jadi tidak bisa masuk atau keluar dari persediaan.`);
+  }
+  return item;
+}
+
+// ------------------------------------------------------------ locking
+
+type Pool = { id: number; qty: Dec; value: Dec };
+type Bucket = { id: number; qty: Dec };
+
+/** The item's pool, created empty if it has none, and locked for this posting. */
+async function lockPool(tx: Tx, itemId: number, uomId: number, actorId: number): Promise<Pool> {
+  await tx.$executeRaw`
+    INSERT INTO "log_stock_valuation_balance" ("item_id", "uom_id", "qty_balance", "value_balance", "avg_unit_cost", "created_by")
+    VALUES (${itemId}, ${uomId}, 0, 0, 0, ${actorId})
+    ON CONFLICT ("item_id") DO NOTHING`;
+  const [row] = await tx.$queryRaw<{ id: number; qty_balance: Dec; value_balance: Dec }[]>`
+    SELECT "id", "qty_balance", "value_balance" FROM "log_stock_valuation_balance" WHERE "item_id" = ${itemId} FOR UPDATE`;
+  return { id: row.id, qty: new D(row.qty_balance), value: new D(row.value_balance) };
+}
+
+/** One warehouse / lot / status bucket, created empty if missing when `create`, and locked. */
+async function lockBucket(
+  tx: Tx,
+  k: { warehouseId: number; trackingId: number; statusId: number; itemId: number; uomId: number },
+  actorId: number,
+  create: boolean
+): Promise<Bucket | null> {
+  if (create) {
+    await tx.$executeRaw`
+      INSERT INTO "log_stock_balance" ("warehouse_id", "tracking_id", "item_id", "uom_id", "stock_status_id", "qty_balance", "created_by")
+      VALUES (${k.warehouseId}, ${k.trackingId}, ${k.itemId}, ${k.uomId}, ${k.statusId}, 0, ${actorId})
+      ON CONFLICT ("warehouse_id", "tracking_id", "stock_status_id") DO NOTHING`;
+  }
+  const [row] = await tx.$queryRaw<{ id: number; qty_balance: Dec }[]>`
+    SELECT "id", "qty_balance" FROM "log_stock_balance"
+    WHERE "warehouse_id" = ${k.warehouseId} AND "tracking_id" = ${k.trackingId} AND "stock_status_id" = ${k.statusId}
+    FOR UPDATE`;
+  return row ? { id: row.id, qty: new D(row.qty_balance) } : null;
+}
+
+// ------------------------------------------------------------ positions
+
+/**
+ * The ledger number and line a row takes (P110): one number per posting per
+ * book — the rows one document writes share it, a line each; the first takes
+ * the next number in its month's series, read from line-1 rows.
+ */
+async function stockPosition(tx: Tx, date: Date, s: StockSource) {
+  const last = await tx.logStockLedger.findFirst({
+    where: { source_doc_type_id: s.docTypeId, source_doc_id: s.docId },
+    orderBy: { line_no: "desc" },
+    select: { ledger_no: true, line_no: true },
+  });
+  if (last) return { ledger_no: last.ledger_no, line_no: last.line_no + 1 };
+  const ledger_no = await nextDocumentNumber("MS", date, async (series) => {
+    const row = await tx.logStockLedger.findFirst({
+      where: { ledger_no: { startsWith: series }, line_no: 1 },
+      orderBy: { id: "desc" },
+      select: { ledger_no: true },
+    });
+    return row?.ledger_no ?? null;
+  });
+  return { ledger_no, line_no: 1 };
+}
+
+async function valuationPosition(tx: Tx, date: Date, s: StockSource) {
+  const last = await tx.logStockValuationLedger.findFirst({
+    where: { source_doc_type_id: s.docTypeId, source_doc_id: s.docId },
+    orderBy: { line_no: "desc" },
+    select: { ledger_no: true, line_no: true },
+  });
+  if (last) return { ledger_no: last.ledger_no, line_no: last.line_no + 1 };
+  const ledger_no = await nextDocumentNumber("MN", date, async (series) => {
+    const row = await tx.logStockValuationLedger.findFirst({
+      where: { ledger_no: { startsWith: series }, line_no: 1 },
+      orderBy: { id: "desc" },
+      select: { ledger_no: true },
+    });
+    return row?.ledger_no ?? null;
+  });
+  return { ledger_no, line_no: 1 };
+}
+
+// ------------------------------------------------------------- writing
+
+/** |value ÷ qty| at six decimals — a description of a movement, never read back (P114). */
+const describe = (value: Dec, qty: Dec) => (qty.isZero() ? new D(0) : value.abs().div(qty.abs()).toDecimalPlaces(6, D.ROUND_HALF_UP));
+const average = (value: Dec, qty: Dec) => (qty.gt(0) ? value.div(qty).toDecimalPlaces(6, D.ROUND_HALF_UP) : new D(0));
+
+/** Writes one movement to both books: the bucket and its row, the pool and its row. */
+async function move(
+  tx: Tx,
+  m: {
+    pool: Pool;
+    bucket: Bucket;
+    qty: Dec;
+    value: Dec;
+    itemId: number;
+    uomId: number;
+    warehouseId: number;
+    trackingId: number;
+    statusId: number;
+    date: Date;
+    source: StockSource;
+    actorId: number;
+  }
+) {
+  const bucketAfter = m.bucket.qty.add(m.qty);
+  const poolQty = m.pool.qty.add(m.qty);
+  const poolValue = m.pool.value.add(m.value);
+  if (bucketAfter.lt(0) || poolQty.lt(0) || poolValue.lt(0)) throw new InventoryRefusal("Stok tidak boleh negatif.");
+  const unitCost = describe(m.value, m.qty);
+  const src = { source_doc_type_id: m.source.docTypeId, source_doc_id: m.source.docId, source_no: m.source.no };
+
+  await tx.logStockBalance.update({ where: { id: m.bucket.id }, data: { qty_balance: bucketAfter, updated_by: m.actorId } });
+  await tx.logStockLedger.create({
+    data: {
+      ...(await stockPosition(tx, m.date, m.source)),
+      posting_date: m.date,
+      ...src,
+      warehouse_id: m.warehouseId,
+      tracking_id: m.trackingId,
+      item_id: m.itemId,
+      uom_id: m.uomId,
+      stock_status_id: m.statusId,
+      qty_change: m.qty,
+      qty_balance: bucketAfter,
+      unit_cost: unitCost,
+      value_change: m.value,
+      created_by: m.actorId,
+    },
+  });
+
+  const avg = average(poolValue, poolQty);
+  await tx.logStockValuationBalance.update({
+    where: { id: m.pool.id },
+    data: { qty_balance: poolQty, value_balance: poolValue, avg_unit_cost: avg, updated_by: m.actorId },
+  });
+  await tx.logStockValuationLedger.create({
+    data: {
+      ...(await valuationPosition(tx, m.date, m.source)),
+      posting_date: m.date,
+      ...src,
+      item_id: m.itemId,
+      uom_id: m.uomId,
+      qty_change: m.qty,
+      qty_balance: poolQty,
+      unit_cost: unitCost,
+      value_change: m.value,
+      value_balance: poolValue,
+      avg_unit_cost: avg,
+      created_by: m.actorId,
+    },
+  });
+  m.pool.qty = poolQty;
+  m.pool.value = poolValue;
+  m.bucket.qty = bucketAfter;
+  return unitCost;
+}
+
+export type StockReceipt = {
   itemId: number;
-  itemLabel: string;
-  itemName: string;
-  hasExpiry: boolean;
   warehouseId: number;
-  warehouseLabel: string;
-  warehouseName: string;
+  /** The lot it comes in as; a lot the item already has is added to. */
   lotNo: string;
-  expiry: string | null;
-  active: boolean;
+  /** Required for an item with Memiliki Kadaluarsa; must match a lot already known. */
+  expiry: Date | null;
+  /** In the item's base unit. */
+  baseQty: number | string | Dec;
+  /** What it is worth, whole rupiah — its own value from its source (P114). */
+  value: number | string | Dec;
+  date: Date;
+  source: StockSource;
+  /** The supplier, when the receipt names one. */
+  partnerId?: number | null;
+  actorId: number;
 };
 
-export async function listStockLots(): Promise<StockLotRow[]> {
-  const rows = await prisma.tmpStockLot.findMany({
-    include: { item: true, warehouse: true },
-    orderBy: [{ item: { item_label: "asc" } }, { expiry_date: { sort: "asc", nulls: "last" } }, { lot_no: "asc" }],
-  });
-  return rows.map((r) => ({
-    id: r.id,
-    itemId: r.item_id,
-    itemLabel: r.item.item_label,
-    itemName: r.item.item_name,
-    hasExpiry: r.item.has_expiry,
-    warehouseId: r.warehouse_id,
-    warehouseLabel: r.warehouse.warehouse_label,
-    warehouseName: r.warehouse.warehouse_name,
-    lotNo: r.lot_no,
-    expiry: r.expiry_date ? r.expiry_date.toISOString().slice(0, 10) : null,
-    active: r.status === "Active",
-  }));
-}
+/**
+ * Brings goods into a warehouse at their own value. Called inside the
+ * receiving document's posting transaction, so a refusal rolls it back.
+ */
+export async function receiveStock(tx: Tx, r: StockReceipt): Promise<{ trackingId: number; trackingNo: string; unitCost: number }> {
+  const qty = new D(r.baseQty);
+  const value = new D(r.value);
+  if (!qty.gt(0)) throw new InventoryRefusal("Jumlah yang diterima harus lebih dari 0.");
+  if (value.lt(0) || !value.isInteger()) throw new InventoryRefusal("Nilai persediaan harus rupiah utuh, tidak negatif.");
+  if (qty.decimalPlaces() > 6) throw new InventoryRefusal("Jumlah paling banyak 6 angka desimal.");
+  const item = await stockItem(tx, r.itemId);
+  const lotNo = String(r.lotNo ?? "").trim().toUpperCase();
+  if (!lotNo) throw new InventoryRefusal(`${item.item_label} dikelola per lot: isi No. Lot.`);
+  const expiryIso = r.expiry ? r.expiry.toISOString().slice(0, 10) : null;
+  if (item.has_expiry && !expiryIso) throw new InventoryRefusal(`${item.item_label} memiliki kadaluarsa: isi tanggal kadaluarsa lot ${lotNo}.`);
+  const warehouse = await tx.refWarehouse.findUnique({ where: { id: r.warehouseId }, select: { id: true } });
+  if (!warehouse) throw new InventoryRefusal("Gudang tidak ditemukan.");
 
-/** What the lot form offers: lot-tracked items and active warehouses. */
-export async function stockLotFormOptions(): Promise<{
-  items: { id: number; label: string; name: string; hasExpiry: boolean }[];
-  warehouses: { id: number; label: string; name: string }[];
-}> {
-  const [items, warehouses] = await Promise.all([
-    prisma.mItem.findMany({ where: { item_type: "Barang", track_stock: true, status: "Active" }, orderBy: { item_label: "asc" } }),
-    prisma.refWarehouse.findMany({ where: { status: "Active" }, orderBy: { warehouse_label: "asc" } }),
-  ]);
-  return {
-    items: items.map((i) => ({ id: i.id, label: i.item_label, name: i.item_name, hasExpiry: i.has_expiry })),
-    warehouses: warehouses.map((w) => ({ id: w.id, label: w.warehouse_label, name: w.warehouse_name })),
-  };
-}
-
-export type StockLotInput = { item_id: number | null; warehouse_id: number | null; lot_no: string; expiry_date: string };
-
-/** Registers one lot of a lot-tracked item in a warehouse; an item with Memiliki Kadaluarsa needs its expiry. */
-export async function createStockLot(input: StockLotInput, actorId: number): Promise<ItemCostResult> {
-  const errors: Record<string, string> = {};
-  const itemId = Number(input.item_id) || null;
-  const warehouseId = Number(input.warehouse_id) || null;
-  const lotNo = String(input.lot_no ?? "").trim().toUpperCase();
-  const expiry = String(input.expiry_date ?? "").trim();
-  const item = itemId ? await prisma.mItem.findUnique({ where: { id: itemId } }) : null;
-  if (!itemId) errors.item_id = "Pilih barang.";
-  else if (!item || item.item_type !== "Barang" || !item.track_stock) errors.item_id = "Hanya barang dengan Kelola Stok yang punya lot.";
-  if (!warehouseId) errors.warehouse_id = "Pilih gudang.";
-  if (!lotNo) errors.lot_no = "No. Lot wajib diisi.";
-  if (expiry && !/^\d{4}-\d{2}-\d{2}$/.test(expiry)) errors.expiry_date = "Tanggal tidak valid.";
-  else if (!expiry && item?.has_expiry) errors.expiry_date = "Barang ini memiliki kadaluarsa: isi tanggalnya.";
-  if (!errors.lot_no && itemId && warehouseId) {
-    const dup = await prisma.tmpStockLot.findFirst({ where: { item_id: itemId, warehouse_id: warehouseId, lot_no: lotNo } });
-    if (dup) errors.lot_no = "Lot ini sudah ada untuk barang dan gudang tersebut.";
-  }
-  if (Object.keys(errors).length) return { ok: false, errors };
-  await prisma.$transaction(async (tx) => {
-    const row = await tx.tmpStockLot.create({
+  let tracking = await tx.logStockTracking.findUnique({ where: { item_id_tracking_no: { item_id: r.itemId, tracking_no: lotNo } } });
+  if (tracking) {
+    const known = tracking.expiry_date ? tracking.expiry_date.toISOString().slice(0, 10) : null;
+    if (expiryIso && known !== expiryIso) {
+      throw new InventoryRefusal(`Lot ${lotNo} ${item.item_label} sudah tercatat dengan kadaluarsa ${known ?? "kosong"}.`);
+    }
+  } else {
+    tracking = await tx.logStockTracking.create({
       data: {
-        item_id: itemId!,
-        warehouse_id: warehouseId!,
-        lot_no: lotNo,
-        expiry_date: expiry ? new Date(`${expiry}T00:00:00Z`) : null,
-        created_by: actorId,
+        tracking_no: lotNo,
+        tracking_date: r.date,
+        item_id: r.itemId,
+        source_doc_type_id: r.source.docTypeId,
+        source_doc_id: r.source.docId,
+        source_no: r.source.no,
+        source_partner_id: r.partnerId ?? null,
+        expiry_date: r.expiry,
+        created_by: r.actorId,
       },
     });
-    await tx.auditLog.create({ data: { entity_key: "tmp_stock_lot", row_id: row.id, action: "TAMBAH", event: "create", by: actorId } });
+  }
+
+  const status = await statusId(tx);
+  const pool = await lockPool(tx, r.itemId, item.base_uom_id, r.actorId);
+  const bucket = (await lockBucket(
+    tx,
+    { warehouseId: r.warehouseId, trackingId: tracking.id, statusId: status, itemId: r.itemId, uomId: item.base_uom_id },
+    r.actorId,
+    true
+  ))!;
+  const unitCost = await move(tx, {
+    pool,
+    bucket,
+    qty,
+    value,
+    itemId: r.itemId,
+    uomId: item.base_uom_id,
+    warehouseId: r.warehouseId,
+    trackingId: tracking.id,
+    statusId: status,
+    date: r.date,
+    source: r.source,
+    actorId: r.actorId,
   });
-  return { ok: true };
+  return { trackingId: tracking.id, trackingNo: tracking.tracking_no, unitCost: unitCost.toNumber() };
 }
 
-/** Deactivates or reactivates a lot; an inactive lot is no longer offered to a picker. */
-export async function setStockLotActive(id: number, active: boolean, actorId: number): Promise<ItemCostResult> {
-  const done = await prisma.tmpStockLot.updateMany({ where: { id }, data: { status: active ? "Active" : "Inactive", updated_by: actorId } });
-  if (done.count !== 1) return { ok: false, errors: { _form: "Lot tidak ditemukan." } };
-  await prisma.auditLog.create({ data: { entity_key: "tmp_stock_lot", row_id: id, action: "UPDATE", event: active ? "activate" : "deactivate", by: actorId } });
-  return { ok: true };
-}
-
-// ------------------------------------------------- Harga Pokok (Sementara)
-
-export type ItemCostRow = {
+export type StockIssue = {
   itemId: number;
-  itemLabel: string;
-  itemName: string;
-  categoryName: string;
-  baseUomLabel: string;
-  active: boolean;
-  unitCost: number | null;
-  updatedAt: string | null;
+  warehouseId: number;
+  /** The lot it leaves from. */
+  lotId: number | null | undefined;
+  /** In the item's base unit. */
+  baseQty: number;
+  date: Date;
+  source: StockSource;
+  actorId: number;
 };
 
-/** Every Barang, with its Harga Pokok or none. */
-export async function listItemCosts(): Promise<ItemCostRow[]> {
-  const items = await prisma.mItem.findMany({
-    where: { item_type: "Barang" },
-    orderBy: { item_label: "asc" },
-    include: { base_uom: true, category: true, tmp_cost: true },
+/**
+ * Takes goods out of a warehouse and says what they cost: the pool releases
+ * round(V × q ÷ Q), or V whole when q empties it. Refuses short stock — no
+ * negative stock (P114). Called inside the issuing document's posting
+ * transaction, so a refusal rolls the posting back.
+ */
+export async function issueStock(tx: Tx, issue: StockIssue): Promise<{ unitCost: number; cost: number }> {
+  const qty = new D(issue.baseQty);
+  if (!qty.gt(0)) throw new InventoryRefusal("Jumlah yang dikeluarkan harus lebih dari 0.");
+  const item = await stockItem(tx, issue.itemId);
+  if (!issue.lotId) throw new InventoryRefusal(`${item.item_label} dikelola per lot: pilih lotnya.`);
+  const tracking = await tx.logStockTracking.findFirst({ where: { id: issue.lotId, item_id: issue.itemId } });
+  if (!tracking) throw new InventoryRefusal(`Lot ${item.item_label} tidak ditemukan. Pilih ulang lotnya.`);
+  const warehouse = await tx.refWarehouse.findUnique({ where: { id: issue.warehouseId }, select: { warehouse_label: true } });
+  if (!warehouse) throw new InventoryRefusal("Gudang tidak ditemukan.");
+
+  const status = await statusId(tx);
+  // Pool before bucket, as receiveStock does, so two postings never lock in opposite orders.
+  const pool = await lockPool(tx, issue.itemId, item.base_uom_id, issue.actorId);
+  const bucket = await lockBucket(
+    tx,
+    { warehouseId: issue.warehouseId, trackingId: tracking.id, statusId: status, itemId: issue.itemId, uomId: item.base_uom_id },
+    issue.actorId,
+    false
+  );
+  const available = bucket?.qty ?? new D(0);
+  if (!bucket || available.lt(qty)) {
+    throw new InventoryRefusal(
+      `Stok ${item.item_label} lot ${tracking.tracking_no} di gudang ${warehouse.warehouse_label} tidak cukup: tersedia ${qtyText(available)}, diminta ${qtyText(qty)}.`
+    );
+  }
+  // The pool counts every warehouse and status, so it holds at least the bucket.
+  const release = qty.eq(pool.qty) ? pool.value : pool.value.mul(qty).div(pool.qty).toDecimalPlaces(0, D.ROUND_HALF_UP);
+  const unitCost = await move(tx, {
+    pool,
+    bucket,
+    qty: qty.neg(),
+    value: release.neg(),
+    itemId: issue.itemId,
+    uomId: item.base_uom_id,
+    warehouseId: issue.warehouseId,
+    trackingId: tracking.id,
+    statusId: status,
+    date: issue.date,
+    source: issue.source,
+    actorId: issue.actorId,
   });
-  return items.map((i) => ({
-    itemId: i.id,
-    itemLabel: i.item_label,
-    itemName: i.item_name,
-    categoryName: i.category.category_name,
-    baseUomLabel: i.base_uom.uom_label,
-    active: i.status === "Active",
-    unitCost: i.tmp_cost ? i.tmp_cost.unit_cost.toNumber() : null,
-    updatedAt: i.tmp_cost ? i.tmp_cost.updated_at.toISOString() : null,
-  }));
+  return { unitCost: unitCost.toNumber(), cost: release.toNumber() };
 }
 
-export type ItemCostResult = { ok: true } | { ok: false; errors: Record<string, string> };
+// ------------------------------------------------------------ injection
 
-/** Sets one item's Harga Pokok. Only later issues use it; what was issued keeps its cost. */
-export async function setItemCost(itemId: number, raw: number | string, actorId: number): Promise<ItemCostResult> {
-  const value = Number(String(raw ?? "").replace(",", "."));
-  if (!Number.isFinite(value) || !(value > 0)) return { ok: false, errors: { unit_cost: "Isi Harga Pokok lebih dari 0." } };
-  if (!/^\d+(\.\d{1,6})?$/.test(String(raw).trim().replace(",", "."))) return { ok: false, errors: { unit_cost: "Paling banyak 6 angka desimal." } };
-  const item = await prisma.mItem.findUnique({ where: { id: itemId }, select: { item_type: true } });
-  if (!item) return { ok: false, errors: { _form: "Barang tidak ditemukan." } };
-  if (item.item_type !== "Barang") return { ok: false, errors: { _form: "Harga Pokok hanya untuk barang." } };
-  await prisma.$transaction(async (tx) => {
-    const existing = await tx.tmpItemCost.findUnique({ where: { item_id: itemId }, select: { id: true } });
-    const row = existing
-      ? await tx.tmpItemCost.update({ where: { item_id: itemId }, data: { unit_cost: value, updated_by: actorId } })
-      : await tx.tmpItemCost.create({ data: { item_id: itemId, unit_cost: value, created_by: actorId } });
-    await tx.auditLog.create({
-      data: { entity_key: "tmp_item_cost", row_id: row.id, action: existing ? "UPDATE" : "TAMBAH", event: existing ? "update" : "create", by: actorId },
-    });
-  });
-  return { ok: true };
+export type InjectionRow = {
+  itemId: number;
+  warehouseId: number;
+  lotNo: string;
+  expiry: Date | null;
+  /** Base unit. */
+  qty: string;
+  /** Whole rupiah. */
+  value: string;
+  /** The movement's posting date. */
+  date: Date;
+};
+
+/**
+ * Brings stock in without a document (P120), for `db:stock-inject`: each run
+ * is one source — document type *Injeksi Stok*, numbered `INJ/YYYY/MM/NNNN` by
+ * the day it runs — and every row goes through `receiveStock`, so both books
+ * stay consistent. All or nothing. **It writes no journal**: injected stock
+ * is not in the General Ledger until an opening journal is made for it.
+ */
+export async function injectStock(rows: InjectionRow[], actorId: number, runDate = new Date()): Promise<{ no: string; docId: number; count: number }> {
+  if (!rows.length) throw new InventoryRefusal("Tidak ada baris untuk diinjeksi.");
+  return prisma.$transaction(
+    async (tx) => {
+      // One run at a time, so two never take the same number.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('log_stock_injection'))`;
+      const type = await tx.sysDocType.findFirst({ where: { doc_table: "log_stock_injection" }, select: { id: true } });
+      if (!type) throw new InventoryRefusal("Jenis dokumen Injeksi Stok belum ada. Jalankan seed.");
+      const last = await tx.logStockLedger.findFirst({
+        where: { source_doc_type_id: type.id },
+        orderBy: { source_doc_id: "desc" },
+        select: { source_doc_id: true },
+      });
+      const docId = (last?.source_doc_id ?? 0) + 1;
+      const no = await nextDocumentNumber("INJ", runDate, async (series) => {
+        const row = await tx.logStockLedger.findFirst({
+          where: { source_doc_type_id: type.id, source_no: { startsWith: series } },
+          orderBy: { source_doc_id: "desc" },
+          select: { source_no: true },
+        });
+        return row?.source_no ?? null;
+      });
+      const source = { docTypeId: type.id, docId, no };
+      for (const [i, r] of rows.entries()) {
+        try {
+          await receiveStock(tx, { ...r, baseQty: r.qty, source, actorId });
+        } catch (e) {
+          if (e instanceof InventoryRefusal) throw new InventoryRefusal(`Baris ${i + 1}: ${e.message}`);
+          throw e;
+        }
+      }
+      return { no, docId, count: rows.length };
+    },
+    { timeout: 120_000 }
+  );
 }

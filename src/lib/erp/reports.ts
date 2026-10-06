@@ -36,13 +36,17 @@ export type ReportParams =
   /** An optional customer and the one date the figures stand at (P75). */
   | "ar-asof"
   /** One customer and a date range — a book of that customer (P75). */
-  | "ar-period";
+  | "ar-period"
+  /** One item, optionally a warehouse, and a date range — a stock card (P120). */
+  | "stock-period"
+  /** Optionally an item and a warehouse, and the one date the stock stands at (P120). */
+  | "stock-asof";
 
 export type ReportDef = {
   key: string;
   /** URL segment under the module's `report/` namespace. */
   slug: string;
-  module: "finance" | "accounting";
+  module: "finance" | "accounting" | "inventory";
   name: string;
   /** Singular subject line shown under the title. */
   desc: string;
@@ -122,6 +126,51 @@ const FIXED_REPORTS = [
     icon: "wallet",
     permission: "REPORT_CUSTOMER_ADVANCE_VIEW",
     params: "ar-asof",
+    subjectRequired: false,
+  },
+  {
+    key: "stock_ledger",
+    slug: "stock-ledger",
+    module: "inventory",
+    name: "Kartu Stok",
+    desc: "Setiap mutasi jumlah satu barang pada rentang tanggal, per gudang dan lot, dengan saldo awal dan akhir.",
+    icon: "book",
+    permission: "REPORT_STOCK_LEDGER_VIEW",
+    params: "stock-period",
+    // A card is a card *of* an item.
+    subjectRequired: true,
+  },
+  {
+    key: "stock_balance",
+    slug: "stock-balance",
+    module: "inventory",
+    name: "Saldo Stok",
+    desc: "Jumlah per barang, gudang, lot dan status pada satu tanggal.",
+    icon: "layers",
+    permission: "REPORT_STOCK_BALANCE_VIEW",
+    params: "stock-asof",
+    subjectRequired: false,
+  },
+  {
+    key: "stock_valuation_ledger",
+    slug: "stock-valuation-ledger",
+    module: "inventory",
+    name: "Kartu Nilai Persediaan",
+    desc: "Setiap mutasi jumlah dan nilai satu barang pada rentang tanggal, dengan saldo dan harga rata-rata setelahnya.",
+    icon: "book",
+    permission: "REPORT_STOCK_VALUATION_LEDGER_VIEW",
+    params: "stock-period",
+    subjectRequired: true,
+  },
+  {
+    key: "stock_valuation",
+    slug: "stock-valuation",
+    module: "inventory",
+    name: "Nilai Persediaan",
+    desc: "Jumlah, nilai dan harga rata-rata per barang pada satu tanggal, dicocokkan dengan account Persediaan.",
+    icon: "coin",
+    permission: "REPORT_STOCK_VALUATION_VIEW",
+    params: "stock-asof",
     subjectRequired: false,
   },
   {

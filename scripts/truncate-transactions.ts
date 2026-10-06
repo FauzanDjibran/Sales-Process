@@ -17,7 +17,9 @@
  *   fin_cash_bank_tx(_line, _line_wht)             Penerimaan / Pengeluaran Kas & Bank
  *   fin_ar_invoice(_line, _advance_deduction)         Invoice Penjualan
  *   log_delivery_note(_line, _lot)                 Delivery Notes
- *   tmp_stock_movement                             the stand-in inventory's issue log
+ *   log_stock_ledger, log_stock_balance,          the stock books and their lots (P120);
+ *   log_stock_valuation_ledger / _balance,         stock comes back with
+ *   log_stock_tracking                             `db:stock-inject`
  *   acc_journal_line, acc_journal                  the books' journals
  *   cash_bank_ledger                               the Cash Bank Book
  *   fin_ar_advance                                    Uang Muka Penjualan bills
@@ -29,7 +31,6 @@
  * WHAT IT KEEPS
  *   every sys_* table and every ref_* master (currency, satuan, termin, gudang,
  *   Jenis PPh), m_partner with its addresses and contacts, m_item, m_cash_bank,
- *   the stand-in Harga Pokok and lot list (tmp_item_cost, tmp_stock_lot),
  *   the whole chart of accounts, acc_fiscal_year / acc_fiscal_period, the
  *   settings (System Default, Account Mapping), and the master records' own
  *   audit history.
@@ -107,7 +108,11 @@ async function main() {
     log_delivery_note_lot: await prisma.logDeliveryNoteLot.count(),
     log_delivery_note_line: await prisma.logDeliveryNoteLine.count(),
     log_delivery_note: await prisma.logDeliveryNote.count(),
-    tmp_stock_movement: await prisma.tmpStockMovement.count(),
+    log_stock_ledger: await prisma.logStockLedger.count(),
+    log_stock_balance: await prisma.logStockBalance.count(),
+    log_stock_valuation_ledger: await prisma.logStockValuationLedger.count(),
+    log_stock_valuation_balance: await prisma.logStockValuationBalance.count(),
+    log_stock_tracking: await prisma.logStockTracking.count(),
     acc_journal_line: await prisma.accJournalLine.count(),
     acc_journal: await prisma.accJournal.count(),
     cash_bank_ledger: await prisma.cashBankLedger.count(),
@@ -165,14 +170,18 @@ async function main() {
     await tx.finCashBankTx.deleteMany();
 
     // Invoices and Delivery Notes name their journals, so they go before them;
-    // the stand-in inventory's issue log goes with the notes that wrote it.
+    // the stock books go with the notes and injections that wrote them.
     await tx.finArInvoiceAdvanceDeduction.deleteMany();
     await tx.finArInvoiceLine.deleteMany();
     await tx.finArInvoice.deleteMany();
     await tx.logDeliveryNoteLot.deleteMany();
     await tx.logDeliveryNoteLine.deleteMany();
     await tx.logDeliveryNote.deleteMany();
-    await tx.tmpStockMovement.deleteMany();
+    await tx.logStockLedger.deleteMany();
+    await tx.logStockBalance.deleteMany();
+    await tx.logStockValuationLedger.deleteMany();
+    await tx.logStockValuationBalance.deleteMany();
+    await tx.logStockTracking.deleteMany();
 
     // Order follows the foreign keys: lines before their documents.
     await tx.accJournalLine.deleteMany();

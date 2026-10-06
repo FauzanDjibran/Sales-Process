@@ -130,6 +130,9 @@ const DOC_TYPES: [label: string, table: string][] = [
   // standalone logistics document since P106 (was `sal_delivery_note`).
   ["Delivery Note", "log_delivery_note"],
   ["Invoice Penjualan", "fin_ar_invoice"],
+  // Stock brought in by `db:stock-inject` (P120): each run is one source, its
+  // ledger rows named by the run's INJ/… number.
+  ["Injeksi Stok", "log_stock_injection"],
 ];
 
 /**
@@ -156,6 +159,17 @@ const PARTNER_CATEGORIES: [
  * Type, and an item may only take a category of its own type. Matched on the
  * label, so a later release can add to the list without duplicating it.
  */
+/**
+ * Stock statuses (P120), as SAP's unrestricted / quality inspection / blocked.
+ * Only Tersedia is received into and issued from today. Append only, like the
+ * document types: the code is the index.
+ */
+const STOCK_STATUSES: [label: string, name: string, issuable: boolean][] = [
+  ["TERSEDIA", "Tersedia", true],
+  ["KARANTINA", "Karantina", false],
+  ["DIBLOKIR", "Diblokir", false],
+];
+
 const ITEM_CATEGORIES: [label: string, name: string, type: "Barang" | "Jasa"][] = [
   ["BHN-BAKU", "Bahan Baku", "Barang"],
   ["BHN-KEMAS", "Bahan Kemas", "Barang"],
@@ -650,6 +664,17 @@ async function ensureReferenceData(
   }
 
   await ensureRegions();
+
+  for (const [i, [label, name, issuable]] of STOCK_STATUSES.entries()) {
+    const made = await create(
+      () => prisma.sysStockStatus.findUnique({ where: { status_code: code("stst", i + 1) } }),
+      () =>
+        prisma.sysStockStatus.create({
+          data: { status_code: code("stst", i + 1), status_label: label, status_name: name, is_issuable: issuable, sort_order: i + 1, ...audit },
+        })
+    );
+    tally("stock statuses", made);
+  }
 
   for (const [i, [label, name, itemType]] of ITEM_CATEGORIES.entries()) {
     const made = await create(

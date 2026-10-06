@@ -411,9 +411,12 @@ model SysDocType {
   ledger_entries     CashBankLedger[]
   journals           AccJournal[]
   cash_bank_tx_lines FinCashBankTxLine[]
-  ar_item_sources    FinArItem[]         @relation("ArItemSource")
+  ar_item_sources    FinArItem[]               @relation("ArItemSource")
   ar_ledger_entries  FinArLedger[]
-  delivery_notes     LogDeliveryNote[]   @relation("DeliveryNoteSource")
+  delivery_notes     LogDeliveryNote[]         @relation("DeliveryNoteSource")
+  stock_trackings    LogStockTracking[]        @relation("StockTrackingSource")
+  stock_ledger       LogStockLedger[]          @relation("StockLedgerSource")
+  valuation_ledger   LogStockValuationLedger[] @relation("StockValuationSource")
 
   @@map("sys_doc_type")
 }
@@ -481,6 +484,11 @@ model RefUom {
   customer_order_lines SalCustomerOrderLine[]
   delivery_note_lines  LogDeliveryNoteLine[]
 
+  stock_ledger       LogStockLedger[]           @relation("StockLedgerUom")
+  stock_balances     LogStockBalance[]          @relation("StockBalanceUom")
+  valuation_ledger   LogStockValuationLedger[]  @relation("StockValuationLedgerUom")
+  valuation_balances LogStockValuationBalance[] @relation("StockValuationBalanceUom")
+
   @@map("ref_uom")
 }
 
@@ -541,10 +549,11 @@ model MItem {
   uoms     MItemUom[]
 
   customer_order_lines SalCustomerOrderLine[]
-  /// The stand-in inventory's Harga Pokok and issues (U11) — temporary.
-  tmp_cost             TmpItemCost?
-  tmp_movements        TmpStockMovement[]
-  tmp_lots             TmpStockLot[]
+  stock_trackings      LogStockTracking[]
+  stock_ledger         LogStockLedger[]
+  stock_balances       LogStockBalance[]
+  valuation_ledger     LogStockValuationLedger[]
+  valuation_balance    LogStockValuationBalance?
   delivery_note_lines  LogDeliveryNoteLine[]
 
   @@index([category_id])
@@ -615,8 +624,8 @@ model RefWarehouse {
   /// The Delivery Orders that send goods out of this warehouse.
   delivery_orders SalDeliveryOrder[]
   delivery_notes  LogDeliveryNote[]
-  tmp_movements   TmpStockMovement[]
-  tmp_lots        TmpStockLot[]
+  stock_ledger    LogStockLedger[]
+  stock_balances  LogStockBalance[]
 
   @@map("ref_warehouse")
 }
@@ -708,6 +717,7 @@ model MPartner {
   sales_orders    SalOrder[]
   delivery_orders SalDeliveryOrder[]
   delivery_notes  LogDeliveryNote[]
+  stock_trackings LogStockTracking[]
   tax_fakturs     TaxFaktur[]
   tax_slips       TaxWithholdingSlip[]
   invoices        FinArInvoice[]
@@ -1928,78 +1938,190 @@ model FinArInvoiceAdvanceDeduction {
   @@map("fin_ar_invoice_advance_deduction")
 }
 
-/// TEMPORARY (U15). The stand-in inventory's lots: what a picker chooses from,
-/// per item and warehouse, earliest expiry first. No quantity is kept — stock
-/// is always sufficient until inventory is built. Named only by
-/// `lib/erp/inventory.ts`; dropped with the other temporary tables.
-model TmpStockLot {
-  id           Int          @id @default(autoincrement())
-  item_id      Int
-  warehouse_id Int
-  lot_no       String
-  /// Required when the item has Memiliki Kadaluarsa.
-  expiry_date  DateTime?    @db.Date
-  status       ActiveStatus @default(Active)
-  created_by   Int
-  updated_by   Int?
-  created_at   DateTime     @default(now()) @db.Timestamptz(6)
-  updated_at   DateTime     @default(now()) @updatedAt @db.Timestamptz(6)
+// ------------------------------------------------------------ inventory
 
-  item      MItem        @relation(fields: [item_id], references: [id])
-  warehouse RefWarehouse @relation(fields: [warehouse_id], references: [id])
+/// Stock status — system data, seeded (P120): Tersedia, Karantina, Diblokir,
+/// as SAP's unrestricted / quality inspection / blocked. A quantity is held in
+/// one status; only Tersedia is received into and issued from today.
+model SysStockStatus {
+  id           Int     @id @default(autoincrement())
+  status_code  String  @unique
+  status_label String  @unique
+  status_name  String
+  /// Whether stock in this status may be issued to a customer.
+  is_issuable  Boolean @default(false)
+  sort_order   Int     @default(0)
 
-  @@unique([item_id, warehouse_id, lot_no])
-  @@map("tmp_stock_lot")
-}
-
-/// TEMPORARY (U11). The stand-in inventory's valuation: one Harga Pokok per
-/// item, per base unit, kept by the user until real stock exists. Read only by
-/// `lib/erp/inventory.ts`; dropped when inventory is built.
-model TmpItemCost {
-  id         Int      @id @default(autoincrement())
-  item_id    Int      @unique
-  unit_cost  Decimal  @db.Decimal(18, 6)
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  item MItem @relation(fields: [item_id], references: [id])
+  ledger   LogStockLedger[]
+  balances LogStockBalance[]
 
-  @@map("tmp_item_cost")
+  @@map("sys_stock_status")
 }
 
-/// TEMPORARY (U11). One row per item per issue, as a stock card would show it.
-/// Written only by `lib/erp/inventory.ts`; replaced by the real inventory ledger.
-model TmpStockMovement {
-  id                 Int      @id @default(autoincrement())
-  /// `MS/YYYY/MM/NNNN`, one per posting: the movements one document makes
-  /// share it, a `line_no` each (P110).
-  ledger_no          String
-  line_no            Int
+/// A lot (P120): one tracking per item and number, made by the receipt that
+/// first brings it in. Every item with Kelola Stok is held by lot; an item
+/// without it never enters the stock books. Unique per item, not globally, so
+/// two suppliers' "B001" may coexist; a later receipt of the same number adds
+/// to the same lot. Named only by `lib/erp/inventory.ts`.
+model LogStockTracking {
+  id                 Int       @id @default(autoincrement())
+  tracking_no        String
+  /// The day it was first received.
+  tracking_date      DateTime  @db.Date
   item_id            Int
-  warehouse_id       Int
-  movement_date      DateTime @db.Date
-  /// What left the warehouse, in the item's base unit.
-  base_qty_out       Decimal  @db.Decimal(18, 4)
-  unit_cost          Decimal  @db.Decimal(18, 6)
-  cost_amount        Decimal  @db.Decimal(18, 2)
+  /// The document that first received it, weak (§3.1).
   source_doc_type_id Int
   source_doc_id      Int
   source_no          String
-  /// The lot it left from, for an item with Kelola Stok (U15).
-  lot_id             Int?
-  lot_no             String?
+  /// Who supplied it, when the receipt names one.
+  source_partner_id  Int?
+  /// Required when the item has Memiliki Kadaluarsa.
+  expiry_date        DateTime? @db.Date
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  item            MItem      @relation(fields: [item_id], references: [id])
+  source_doc_type SysDocType @relation("StockTrackingSource", fields: [source_doc_type_id], references: [id])
+  source_partner  MPartner?  @relation(fields: [source_partner_id], references: [id])
+
+  ledger   LogStockLedger[]
+  balances LogStockBalance[]
+
+  @@unique([item_id, tracking_no])
+  @@index([source_doc_type_id, source_doc_id])
+  @@map("log_stock_tracking")
+}
+
+/// The stock ledger (P120): one row per quantity movement of one lot in one
+/// warehouse and status. Append-only. `qty_balance` is that bucket's quantity
+/// after the row, in posting order; `value_change` equals its twin row in the
+/// valuation ledger. `unit_cost` describes the row (|value ÷ qty|) and is never
+/// read back into a calculation (P114). Rows of one posting share `ledger_no`
+/// (`MS/YYYY/MM/NNNN`, P110).
+model LogStockLedger {
+  id                 Int      @id @default(autoincrement())
+  ledger_no          String
+  line_no            Int
+  posting_date       DateTime @db.Date
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  warehouse_id       Int
+  tracking_id        Int
+  item_id            Int
+  /// The item's base unit.
+  uom_id             Int
+  stock_status_id    Int
+  qty_change         Decimal  @db.Decimal(18, 6)
+  qty_balance        Decimal  @db.Decimal(18, 6)
+  unit_cost          Decimal  @db.Decimal(18, 6)
+  /// Whole rupiah (P114).
+  value_change       Decimal  @db.Decimal(18, 2)
   created_by         Int
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
-  item      MItem        @relation(fields: [item_id], references: [id])
-  warehouse RefWarehouse @relation(fields: [warehouse_id], references: [id])
+  source_doc_type SysDocType       @relation("StockLedgerSource", fields: [source_doc_type_id], references: [id])
+  warehouse       RefWarehouse     @relation(fields: [warehouse_id], references: [id])
+  tracking        LogStockTracking @relation(fields: [tracking_id], references: [id])
+  item            MItem            @relation(fields: [item_id], references: [id])
+  uom             RefUom           @relation("StockLedgerUom", fields: [uom_id], references: [id])
+  stock_status    SysStockStatus   @relation(fields: [stock_status_id], references: [id])
 
   @@unique([ledger_no, line_no])
-  @@index([item_id, warehouse_id, movement_date])
+  @@index([item_id, warehouse_id, posting_date])
+  @@index([tracking_id])
   @@index([source_doc_type_id, source_doc_id])
-  @@map("tmp_stock_movement")
+  @@map("log_stock_ledger")
+}
+
+/// The quantity on hand per warehouse, lot and status — the stock ledger's
+/// sum, kept in the same transaction as each row and locked while a posting
+/// moves it. Never negative.
+model LogStockBalance {
+  id              Int      @id @default(autoincrement())
+  warehouse_id    Int
+  tracking_id     Int
+  item_id         Int
+  uom_id          Int
+  stock_status_id Int
+  qty_balance     Decimal  @db.Decimal(18, 6)
+  created_by      Int
+  updated_by      Int?
+  created_at      DateTime @default(now()) @db.Timestamptz(6)
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  warehouse    RefWarehouse     @relation(fields: [warehouse_id], references: [id])
+  tracking     LogStockTracking @relation(fields: [tracking_id], references: [id])
+  item         MItem            @relation(fields: [item_id], references: [id])
+  uom          RefUom           @relation("StockBalanceUom", fields: [uom_id], references: [id])
+  stock_status SysStockStatus   @relation(fields: [stock_status_id], references: [id])
+
+  @@unique([warehouse_id, tracking_id, stock_status_id])
+  @@index([item_id, warehouse_id])
+  @@map("log_stock_balance")
+}
+
+/// The valuation ledger (P114, P120): one row per movement of an item's one
+/// moving-average pool (company-wide: one company, one valuation area). Each
+/// row stores its changes and the pool after them; Σ value_change = the pool's
+/// V. `avg_unit_cost` is V ÷ Q cached for reading, never multiplied. Rows of
+/// one posting share `ledger_no` (`MN/YYYY/MM/NNNN`, P110).
+model LogStockValuationLedger {
+  id                 Int      @id @default(autoincrement())
+  ledger_no          String
+  line_no            Int
+  posting_date       DateTime @db.Date
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  item_id            Int
+  uom_id             Int
+  qty_change         Decimal  @db.Decimal(18, 6)
+  qty_balance        Decimal  @db.Decimal(18, 6)
+  /// |value_change ÷ qty_change| — a description of the row.
+  unit_cost          Decimal? @db.Decimal(18, 6)
+  value_change       Decimal  @db.Decimal(18, 2)
+  value_balance      Decimal  @db.Decimal(18, 2)
+  avg_unit_cost      Decimal  @db.Decimal(18, 6)
+  created_by         Int
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  source_doc_type SysDocType @relation("StockValuationSource", fields: [source_doc_type_id], references: [id])
+  item            MItem      @relation(fields: [item_id], references: [id])
+  uom             RefUom     @relation("StockValuationLedgerUom", fields: [uom_id], references: [id])
+
+  @@unique([ledger_no, line_no])
+  @@index([item_id, posting_date])
+  @@index([source_doc_type_id, source_doc_id])
+  @@map("log_stock_valuation_ledger")
+}
+
+/// An item's moving-average pool (P114): Q and V are the truth, the average is
+/// derived. Locked while a posting moves it.
+model LogStockValuationBalance {
+  id            Int      @id @default(autoincrement())
+  item_id       Int      @unique
+  uom_id        Int
+  qty_balance   Decimal  @db.Decimal(18, 6)
+  value_balance Decimal  @db.Decimal(18, 2)
+  avg_unit_cost Decimal  @db.Decimal(18, 6)
+  created_by    Int
+  updated_by    Int?
+  created_at    DateTime @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  item MItem  @relation(fields: [item_id], references: [id])
+  uom  RefUom @relation("StockValuationBalanceUom", fields: [uom_id], references: [id])
+
+  @@map("log_stock_valuation_balance")
 }
 
 /// An AR advance bill — Uang Muka Penjualan (P54–P58). A bill, not a

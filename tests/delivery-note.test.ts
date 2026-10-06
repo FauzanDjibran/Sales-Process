@@ -17,7 +17,6 @@ import {
   type DeliveryNoteHeaderInput,
   type DeliveryNoteLineInput,
 } from "../src/lib/erp/delivery-note";
-import { createStockLot, setItemCost, setStockLotActive } from "../src/lib/erp/inventory";
 import { availableDeliveryNoteActions, deliveryNoteAbilities } from "../src/lib/erp/delivery-note-workflow";
 import {
   FIXTURE_PREFIX,
@@ -28,6 +27,8 @@ import {
   makePartner,
   openFiscalYear,
   prisma,
+  cleanupStock,
+  stockIn,
   systemUserId,
 } from "./helpers";
 
@@ -35,8 +36,8 @@ import {
  * The Delivery Note (C28, U11–U14): the document the goods leave on, made from
  * one issued Delivery Order. What may be saved; that the notes on a Delivery
  * Order line never take more than the line; that Posting issues the goods
- * through the stand-in inventory and writes Dr HPP / Cr Persediaan at the
- * Harga Pokok, cost of goods only; that it records what left on the Delivery
+ * through the stock books (P120) and writes Dr HPP / Cr Persediaan at the
+ * moving average (P114), cost of goods only, refusing short stock; that it records what left on the Delivery
  * Order and Sales Order, which close themselves once fully delivered; and that
  * closing either by hand releases only what never left. And the stock picking
  * (U15): a Barang with Kelola Stok leaves lot by lot, each pick its own stock
@@ -146,7 +147,13 @@ const header = (over: Partial<DeliveryNoteHeaderInput> = {}): DeliveryNoteHeader
   note: "",
   ...over,
 });
-const line = (qty: number | string, lineId = order.goods): DeliveryNoteLineInput => ({ source_doc_line_id: lineId, qty, note: "" });
+/** A line of the first order, picked whole from its item's lot: GOODS from G1, OTHER from O1. */
+const line = (qty: number | string, lineId = order.goods): DeliveryNoteLineInput => ({
+  source_doc_line_id: lineId,
+  qty,
+  note: "",
+  picks: Number(qty) > 0 ? [{ lot_id: lineId === order.other ? f.lotO1 : f.lotG1, qty }] : [],
+});
 
 async function create(h = header(), lines = [line(40)]) {
   const r = await createDeliveryNote(h, lines, actor);
@@ -169,11 +176,18 @@ before(async () => {
   f.goods = await item("GOODS");
   f.other = await item("OTHER");
   f.lotted = await item("LOTTED");
+  f.plain = await item("PLAIN");
+  // Every sold Barang is kept in stock (P120); PLAIN is the one that is not.
+  await prisma.mItem.updateMany({ where: { id: { in: [f.goods, f.other] } }, data: { track_stock: true } });
   await prisma.mItem.update({ where: { id: f.lotted }, data: { track_stock: true, has_expiry: true } });
   await prisma.mItemUom.create({ data: { item_id: f.goods, uom_id: f.box, factor: 12, created_by: actor } });
   f.term = (await prisma.refPaymentTerm.create({ data: { term_code: `test.${key("T")}`, term_label: key("T"), term_name: "Net 30", due_days: 30, created_by: actor } })).id;
   f.warehouse = (await prisma.refWarehouse.create({ data: { warehouse_code: `test.${key("WH")}`, warehouse_label: key("WH"), warehouse_name: "Gudang Uji", created_by: actor } })).id;
   f.customer = await fixtureCustomer();
+  f.warehouse2 = (await prisma.refWarehouse.create({ data: { warehouse_code: `test.${key("WH2")}`, warehouse_label: key("WH2"), warehouse_name: "Gudang Lain", created_by: actor } })).id;
+  // GOODS starts with only 10 in its lot, so the first posting finds it short.
+  f.lotG1 = await stockIn(f.goods, f.warehouse, key("G1"), 10, 300_000);
+  f.lotO1 = await stockIn(f.other, f.warehouse, key("O1"), 1_000, 1_000_000);
 
   const sub = async (label: string) =>
     (await prisma.accAccountSubcategory.findFirstOrThrow({ where: { subcategory_label: { startsWith: label } }, orderBy: { id: "asc" } })).subcategory_label;
@@ -185,14 +199,12 @@ before(async () => {
   order = await issuedDeliveryOrder();
 
   cleanups.push(
-    () => prisma.tmpStockMovement.deleteMany({ where: { item_id: { in: [f.goods, f.other, f.lotted] } } }),
-    () => prisma.tmpItemCost.deleteMany({ where: { item_id: { in: [f.goods, f.other, f.lotted] } } }),
-    () => prisma.tmpStockLot.deleteMany({ where: { item_id: { in: [f.goods, f.other, f.lotted] } } }),
+    () => cleanupStock([f.goods, f.other, f.lotted, f.plain]),
     () => prisma.mItemUom.deleteMany({ where: { item_id: f.goods } }),
-    () => prisma.mItem.deleteMany({ where: { id: { in: [f.goods, f.other, f.lotted] } } }),
+    () => prisma.mItem.deleteMany({ where: { id: { in: [f.goods, f.other, f.lotted, f.plain] } } }),
     () => prisma.refUom.deleteMany({ where: { id: { in: [f.pcs, f.box] } } }),
     () => prisma.refPaymentTerm.deleteMany({ where: { id: f.term } }),
-    () => prisma.refWarehouse.deleteMany({ where: { id: f.warehouse } })
+    () => prisma.refWarehouse.deleteMany({ where: { id: { in: [f.warehouse, f.warehouse2] } } })
   );
 });
 
@@ -209,10 +221,6 @@ after(async () => {
   for (const [k, list] of Object.entries({ log_delivery_note: ids.dn, sal_delivery_order: ids.do, sal_order: ids.so, sal_customer_order: ids.co })) {
     await prisma.auditLog.deleteMany({ where: { entity_key: k, row_id: { in: list } } });
   }
-  const costIds = (await prisma.tmpItemCost.findMany({ where: { item_id: { in: [f.goods, f.other, f.lotted] } }, select: { id: true } })).map((r) => r.id);
-  await prisma.auditLog.deleteMany({ where: { entity_key: "tmp_item_cost", row_id: { in: costIds } } });
-  const lotIds = (await prisma.tmpStockLot.findMany({ where: { item_id: f.lotted }, select: { id: true } })).map((r) => r.id);
-  await prisma.auditLog.deleteMany({ where: { entity_key: "tmp_stock_lot", row_id: { in: lotIds } } });
   for (const [k, v] of savedSettings) await prisma.sysSetting.update({ where: { setting_key: k }, data: { setting_value: v } });
   await cleanupFixtures();
   for (const c of cleanups) await c();
@@ -282,30 +290,31 @@ describe("Delivery Notes split a Delivery Order", () => {
 // ----------------------------------------------------------------- posting
 
 describe("Posting issues the goods and books HPP only", () => {
-  test("refused while an item has no Harga Pokok, naming it", async () => {
+  test("refused while the lot holds less than it takes, naming the lot and both figures", async () => {
     const [first] = ids.dn;
     const preview = await deliveryNotePreview(first, actor);
-    assert.ok(!preview.ok && /belum punya Harga Pokok/.test(preview.errors._form), "the dialog refuses in Posting's own words");
+    assert.ok(!preview.ok && /tidak cukup: tersedia 10, diminta 40/.test(preview.errors._form), "the dialog refuses in Posting's own words");
     const refused = await transitionDeliveryNote(first, "post", actor);
-    assert.ok(!refused.ok && /belum punya Harga Pokok/.test(refused.errors._form));
+    assert.ok(!refused.ok && /tidak cukup/.test(refused.errors._form));
     assert.equal((await getDeliveryNote(first))!.status, "Draft", "nothing was written");
   });
 
   test("refused while Account Mapping lacks HPP or Persediaan", async () => {
-    assert.deepEqual(await setItemCost(f.goods, "30000", actor), { ok: true });
+    // The rest of the lot arrives: 1.000 PCS worth 30.000.000 in all, 30.000 each.
+    await stockIn(f.goods, f.warehouse, key("G1"), 990, 29_700_000);
     await setMapping("cogs_account", null);
     const refused = await transitionDeliveryNote(ids.dn[0], "post", actor);
     await setMapping("cogs_account", String(f.cogsAcc));
     assert.ok(!refused.ok && /Account Mapping/.test(refused.errors._form));
   });
 
-  test("40 PCS × 30.000: Dr HPP 1.200.000 / Cr Persediaan 1.200.000, dated Tanggal Kirim", async () => {
+  test("40 PCS at an average of 30.000: Dr HPP 1.200.000 / Cr Persediaan 1.200.000, dated Tanggal Kirim", async () => {
     const [first] = ids.dn;
-    const movesBefore = await prisma.tmpStockMovement.count();
+    const movesBefore = await prisma.logStockLedger.count();
     const preview = await deliveryNotePreview(first, actor);
     assert.ok(preview.ok, !preview.ok ? JSON.stringify(preview.errors) : "");
     assert.deepEqual(preview.lines.map((l) => [l.debit, l.credit]), [[1_200_000, 0], [0, 1_200_000]]);
-    assert.equal(await prisma.tmpStockMovement.count(), movesBefore, "a dry run issues no stock");
+    assert.equal(await prisma.logStockLedger.count(), movesBefore, "a dry run issues no stock");
     assert.equal((await getDeliveryNote(first))!.status, "Draft", "and leaves the note a Draft");
     const arCount = await prisma.finArItem.count();
     const r = await transitionDeliveryNote(first, "post", actor);
@@ -330,15 +339,21 @@ describe("Posting issues the goods and books HPP only", () => {
     const journal = await prisma.accJournal.findUniqueOrThrow({ where: { id: note.journalId! } });
     assert.equal(journal.posting_date?.toISOString().slice(0, 10), today);
     assert.equal(await prisma.finArItem.count(), arCount, "no Piutang: the Invoice recognises it");
-    const moves = await prisma.tmpStockMovement.findMany({ where: { source_doc_id: first, item_id: f.goods } });
-    assert.deepEqual(moves.map((m) => [m.warehouse_id, m.base_qty_out.toNumber(), m.cost_amount.toNumber()]), [[f.warehouse, 40, 1_200_000]]);
+    const moves = await prisma.logStockLedger.findMany({ where: { source_doc_id: first, item_id: f.goods, source_doc_type: { doc_table: "log_delivery_note" } } });
+    assert.deepEqual(
+      moves.map((m) => [m.warehouse_id, m.tracking_id, m.qty_change.toNumber(), m.qty_balance.toNumber(), m.value_change.toNumber()]),
+      [[f.warehouse, f.lotG1, -40, 960, -1_200_000]]
+    );
+    const pool = await prisma.logStockValuationBalance.findUniqueOrThrow({ where: { item_id: f.goods } });
+    assert.deepEqual([pool.qty_balance.toNumber(), pool.value_balance.toNumber()], [960, 28_800_000]);
   });
 
-  test("a posted note is final, and keeps its cost when the Harga Pokok changes", async () => {
+  test("a posted note is final, and keeps its cost when the average moves", async () => {
     const [first] = ids.dn;
     assert.ok(!(await updateDeliveryNote(first, header(), [line(1)], actor)).ok);
     assert.ok(!(await transitionDeliveryNote(first, "cancel", actor, "x")).ok);
-    await setItemCost(f.goods, "36000", actor);
+    // 100 more at 42.000 lift the average to 33.000.000 ÷ 1.060.
+    await stockIn(f.goods, f.warehouse, key("G2"), 100, 4_200_000);
     assert.equal((await getDeliveryNote(first))!.lines[0].unitCost, 30_000);
   });
 
@@ -361,13 +376,12 @@ describe("orders close themselves once fully delivered (U14)", () => {
   });
 
   test("the note that sends the rest closes the Delivery Order, the Sales Order and the Customer Order", async () => {
-    await setItemCost(f.other, "1000", actor);
     const last = ids.dn[ids.dn.length - 1];
     const r = await transitionDeliveryNote(last, "post", actor);
     assert.ok(r.ok, JSON.stringify(r));
     assert.equal(r.ok && r.closed?.length, 3, "the Delivery Order, the Sales Order and the Customer Order (U21) named");
-    // 60 PCS × 36.000 + 50 PCS × 1.000
-    assert.equal((await getDeliveryNote(last))!.cost, 2_210_000);
+    // 60 PCS of a pool of 1.060 worth 33.000.000: round(33.000.000 × 60 ÷ 1.060) = 1.867.925; 50 PCS × 1.000.
+    assert.equal((await getDeliveryNote(last))!.cost, 1_867_925 + 50_000);
     const dOrder = await prisma.salDeliveryOrder.findUniqueOrThrow({ where: { id: order.doId } });
     const sOrder = await prisma.salOrder.findUniqueOrThrow({ where: { id: order.soId } });
     const cOrder = await prisma.salCustomerOrder.findUniqueOrThrow({ where: { id: order.coId } });
@@ -391,7 +405,9 @@ describe("orders close themselves once fully delivered (U14)", () => {
 
   test("closing by hand after a partial delivery releases what never left", async () => {
     const second = await issuedDeliveryOrder();
-    const r = await create(header({ source_doc_id: second.doId }), [line(30, second.goods)]);
+    const r = await create(header({ source_doc_id: second.doId }), [
+      { source_doc_line_id: second.goods, qty: 30, note: "", picks: [{ lot_id: f.lotG1, qty: 30 }] },
+    ]);
     assert.ok(r.ok);
     assert.ok((await transitionDeliveryNote(r.id, "post", actor)).ok);
     assert.deepEqual(await transitionDeliveryOrder(second.doId, "close", actor, "sisa tidak dikirim", liveDeliveryNoteRefusal), { ok: true });
@@ -414,7 +430,7 @@ describe("orders close themselves once fully delivered (U14)", () => {
 
 // ------------------------------------------------------------ stock picking
 
-describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
+describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
   const lot = {} as Record<string, number>;
   let lotted = {} as Awaited<ReturnType<typeof issuedDeliveryOrder>>;
   const pick = (qty: number, picks: [lot: number, qty: number | string][]): DeliveryNoteLineInput => ({
@@ -425,47 +441,37 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
   });
   const lotHeader = () => header({ source_doc_id: lotted.doId });
 
-  test("a lot belongs to a Barang with Kelola Stok, in one warehouse, with its expiry when the item has one", async () => {
-    const add = (item: number, lotNo: string, expiry = "") =>
-      createStockLot({ item_id: item, warehouse_id: f.warehouse, lot_no: lotNo, expiry_date: expiry }, actor);
-    const plain = await add(f.goods, key("L0"));
-    assert.ok(!plain.ok && /Kelola Stok/.test(plain.errors.item_id));
-    const noExpiry = await add(f.lotted, key("L0"));
-    assert.ok(!noExpiry.ok && /kadaluarsa/.test(noExpiry.errors.expiry_date));
-    assert.deepEqual(await add(f.lotted, key("late").toLowerCase(), "2031-12-31"), { ok: true });
-    assert.deepEqual(await add(f.lotted, key("early"), "2030-06-30"), { ok: true });
-    assert.deepEqual(await add(f.lotted, key("gone"), "2029-01-31"), { ok: true });
-    const dup = await add(f.lotted, key("early"), "2030-06-30");
-    assert.ok(!dup.ok && /sudah ada/.test(dup.errors.lot_no));
-    const rows = await prisma.tmpStockLot.findMany({ where: { item_id: f.lotted } });
-    for (const r of rows) lot[r.lot_no.slice(FIXTURE_PREFIX.length, -stamp.length).toLowerCase()] = r.id;
-    assert.ok(rows.every((r) => r.lot_no === r.lot_no.toUpperCase()), "lot numbers are kept upper case");
-    assert.deepEqual(await setStockLotActive(lot.gone, false, actor), { ok: true });
-  });
-
-  test("the form offers the active lots, earliest expiry first, and marks the line lot-tracked", async () => {
+  test("the form offers the lots with stock in the order's warehouse, earliest expiry first, with what each holds", async () => {
+    // 100 each at 1.500: a pool of 200 worth 300.000. Lot "away" is only in another warehouse.
+    lot.late = await stockIn(f.lotted, f.warehouse, key("late").toLowerCase(), 100, 150_000, "2031-12-31");
+    lot.early = await stockIn(f.lotted, f.warehouse, key("early"), 100, 150_000, "2030-06-30");
+    lot.away = await stockIn(f.lotted, f.warehouse2, key("away"), 5, 7_500, "2029-01-31");
     lotted = await issuedDeliveryOrder([[f.lotted, f.pcs, 30]]);
     const o = (await deliveryNoteOptions()).orders.find((x) => x.id === lotted.doId)!;
     assert.deepEqual(o.lines.map((l) => l.lotTracked), [true]);
-    assert.deepEqual(o.lots[f.lotted].map((l) => l.id), [lot.early, lot.late], "the inactive lot is not offered");
-    const plain = (await deliveryNoteOptions()).orders.find((x) => x.id === order.doId);
-    assert.ok(!plain || plain.lines.every((l) => !l.lotTracked));
+    assert.deepEqual(
+      o.lots[f.lotted].map((l) => [l.id, l.available, l.expiry]),
+      [
+        [lot.early, 100, "2030-06-30"],
+        [lot.late, 100, "2031-12-31"],
+      ],
+      "the other warehouse's lot is not offered"
+    );
   });
 
-  test("picks are lots of the item, each once, never more than the line; a line without lots takes none", async () => {
-    const other = await prisma.tmpStockLot.create({
-      data: { item_id: f.goods, warehouse_id: f.warehouse, lot_no: key("WRONG"), created_by: actor },
-    });
-    const wrong = await checkDeliveryNote(prisma, lotHeader(), [pick(10, [[other.id, 10]])], null);
-    await prisma.tmpStockLot.delete({ where: { id: other.id } });
-    assert.ok(!wrong.ok && /Lot tidak ada/.test(wrong.errors["lines.0.picks"]));
-    const inactive = await checkDeliveryNote(prisma, lotHeader(), [pick(10, [[lot.gone, 10]])], null);
-    assert.ok(!inactive.ok && /Lot tidak ada/.test(inactive.errors["lines.0.picks"]), "an inactive lot cannot be picked");
+  test("picks are lots of the item, each once, never more than the line", async () => {
+    const wrong = await checkDeliveryNote(prisma, lotHeader(), [pick(10, [[f.lotG1, 10]])], null);
+    assert.ok(!wrong.ok && /Lot tidak ada/.test(wrong.errors["lines.0.picks"]), "another item's lot");
+    const away = await checkDeliveryNote(prisma, lotHeader(), [pick(10, [[lot.away, 10]])], null);
+    assert.ok(!away.ok && /Lot tidak ada/.test(away.errors["lines.0.picks"]), "a lot in another warehouse");
     const twice = await checkDeliveryNote(prisma, lotHeader(), [pick(10, [[lot.early, 5], [lot.early, 5]])], null);
     assert.ok(!twice.ok && /lebih dari sekali/.test(twice.errors["lines.0.picks"]));
     const over = await checkDeliveryNote(prisma, lotHeader(), [pick(10, [[lot.early, 6], [lot.late, 5]])], null);
     assert.ok(!over.ok && /melebihi Qty baris/.test(over.errors["lines.0.picks"]));
-    const plain = await issuedDeliveryOrder([[f.other, f.pcs, 1]]);
+  });
+
+  test("an item without Kelola Stok may sit in a Draft but never posts", async () => {
+    const plain = await issuedDeliveryOrder([[f.plain, f.pcs, 1]]);
     const onPlain = await checkDeliveryNote(
       prisma,
       header({ source_doc_id: plain.doId }),
@@ -473,13 +479,17 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
       null
     );
     assert.ok(!onPlain.ok && /tidak dikelola per lot/.test(onPlain.errors["lines.0.picks"]));
+    const r = await create(header({ source_doc_id: plain.doId }), [{ source_doc_line_id: plain.goods, qty: 1, note: "" }]);
+    assert.ok(r.ok, JSON.stringify(r));
+    const refused = await transitionDeliveryNote(r.id, "post", actor);
+    assert.ok(!refused.ok && /tidak dikelola stok/.test(refused.errors._form));
+    assert.deepEqual(await transitionDeliveryNote(r.id, "cancel", actor, "uji"), { ok: true });
   });
 
   test("a Draft may be picked in part; Posting refuses it, naming the line", async () => {
     const r = await create(lotHeader(), [pick(30, [[lot.early, 10]])]);
     assert.ok(r.ok, JSON.stringify(r));
     assert.deepEqual((await getDeliveryNote(r.id))!.lines[0].pickedLots.map((p) => [p.lotId, p.qty, p.expiry]), [[lot.early, 10, "2030-06-30"]]);
-    await setItemCost(f.lotted, "1500", actor);
     const preview = await deliveryNotePreview(r.id, actor);
     assert.ok(!preview.ok && /Pilih lot sampai penuh/.test(preview.errors._form), "the dialog refuses in Posting's own words");
     const refused = await transitionDeliveryNote(r.id, "post", actor);
@@ -487,7 +497,7 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
     assert.equal((await getDeliveryNote(r.id))!.status, "Draft");
   });
 
-  test("picked in full, each lot leaves as its own stock movement and the line costs what its picks cost", async () => {
+  test("picked in full, each lot leaves as its own movement in both books and the line costs what its picks cost", async () => {
     const id = ids.dn[ids.dn.length - 1];
     assert.ok((await updateDeliveryNote(id, lotHeader(), [pick(30, [[lot.early, 20], [lot.late, 10]])], actor)).ok);
     const preview = await deliveryNotePreview(id, actor);
@@ -501,18 +511,29 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
       [lot.early, 20, 30_000],
       [lot.late, 10, 15_000],
     ]);
-    const moves = await prisma.tmpStockMovement.findMany({ where: { source_doc_id: id, item_id: f.lotted }, orderBy: { id: "asc" } });
+    const src = { source_doc_id: id, item_id: f.lotted, source_doc_type: { doc_table: "log_delivery_note" } };
+    const moves = await prisma.logStockLedger.findMany({ where: src, orderBy: { id: "asc" } });
     assert.deepEqual(
-      moves.map((m) => [m.lot_id, m.base_qty_out.toNumber(), m.cost_amount.toNumber()]),
+      moves.map((m) => [m.tracking_id, m.qty_change.toNumber(), m.qty_balance.toNumber(), m.value_change.toNumber()]),
       [
-        [lot.early, 20, 30_000],
-        [lot.late, 10, 15_000],
+        [lot.early, -20, 80, -30_000],
+        [lot.late, -10, 90, -15_000],
       ]
     );
-    // One posting, one ledger number: its movements share it, a line each (P110).
+    // One posting, one ledger number per book: its movements share it, a line each (P110).
     assert.equal(new Set(moves.map((m) => m.ledger_no)).size, 1);
     assert.match(moves[0].ledger_no, /^MS\/\d{4}\/\d{2}\/\d{4}$/);
     assert.deepEqual(moves.map((m) => m.line_no), [1, 2]);
+    const values = await prisma.logStockValuationLedger.findMany({ where: src, orderBy: { id: "asc" } });
+    assert.match(values[0].ledger_no, /^MN\/\d{4}\/\d{2}\/\d{4}$/);
+    assert.deepEqual(
+      values.map((v) => [v.qty_change.toNumber(), v.value_change.toNumber(), v.qty_balance.toNumber(), v.value_balance.toNumber()]),
+      [
+        [-20, -30_000, 185, 277_500],
+        [-10, -15_000, 175, 262_500],
+      ],
+      "the pool counts the other warehouse's 5 too"
+    );
     const journalLines = await prisma.accJournalLine.findMany({ where: { journal_id: note.journalId! }, orderBy: { sequence_no: "asc" } });
     assert.deepEqual(journalLines.map((l) => [l.debit_amount.toNumber(), l.kredit_amount.toNumber()]), [
       [45_000, 0],
@@ -520,37 +541,35 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15)", () => {
     ]);
   });
 
-  test("a Harga Pokok at six decimals: each lot rounds once; the line's unit cost is derived from its value (P114)", async () => {
-    assert.ok(!(await setItemCost(f.lotted, "1234.5678912", actor)).ok, "seven decimals are refused");
-    assert.deepEqual(await setItemCost(f.lotted, "1234.567891", actor), { ok: true });
-    try {
-      const again = await issuedDeliveryOrder([[f.lotted, f.pcs, 7]]);
-      const r = await create(header({ source_doc_id: again.doId }), [
-        { source_doc_line_id: again.goods, qty: 7, note: "", picks: [{ lot_id: lot.early, qty: 4 }, { lot_id: lot.late, qty: 3 }] },
-      ]);
-      assert.ok(r.ok, JSON.stringify(r));
-      assert.ok((await transitionDeliveryNote(r.id, "post", actor)).ok);
-      const note = (await getDeliveryNote(r.id))!;
-      // 4 × 1.234,567891 = 4.938,27 → 4.938; 3 × … = 3.703,70 → 3.704.
-      assert.deepEqual(note.lines[0].pickedLots.map((p) => p.cost), [4_938, 3_704]);
-      assert.equal(note.lines[0].cost, 8_642, "the line is the sum of its lots");
-      assert.equal(note.lines[0].unitCost, 1_234.571429, "8.642 ÷ 7, a description — not the Harga Pokok");
-    } finally {
-      await setItemCost(f.lotted, "1500", actor);
-    }
-  });
-
-  test("a lot deactivated after it was picked stops the Draft from posting", async () => {
-    const again = await issuedDeliveryOrder([[f.lotted, f.pcs, 5]]);
+  test("an uneven average: each lot rounds once; the line's unit cost is derived from its value (P114)", async () => {
+    // 7 more in a third lot worth 8.642: the pool is 182 worth 271.142.
+    lot.odd = await stockIn(f.lotted, f.warehouse, key("odd"), 7, 8_642, "2032-01-31");
+    const again = await issuedDeliveryOrder([[f.lotted, f.pcs, 7]]);
     const r = await create(header({ source_doc_id: again.doId }), [
-      { source_doc_line_id: again.goods, qty: 5, note: "", picks: [{ lot_id: lot.late, qty: 5 }] },
+      { source_doc_line_id: again.goods, qty: 7, note: "", picks: [{ lot_id: lot.early, qty: 4 }, { lot_id: lot.odd, qty: 3 }] },
     ]);
     assert.ok(r.ok, JSON.stringify(r));
-    await setStockLotActive(lot.late, false, actor);
+    assert.ok((await transitionDeliveryNote(r.id, "post", actor)).ok);
+    const note = (await getDeliveryNote(r.id))!;
+    // round(271.142 × 4 ÷ 182) = 5.959; then round(265.183 × 3 ÷ 178) = 4.469.
+    assert.deepEqual(note.lines[0].pickedLots.map((p) => p.cost), [5_959, 4_469]);
+    assert.equal(note.lines[0].cost, 10_428, "the line is the sum of its lots");
+    assert.equal(note.lines[0].unitCost, 1_489.714286, "10.428 ÷ 7, a description of the line");
+  });
+
+  test("stock taken by another note after a Draft was picked stops the Draft from posting", async () => {
+    const big = await issuedDeliveryOrder([[f.lotted, f.pcs, 90]]);
+    const r = await create(header({ source_doc_id: big.doId }), [
+      { source_doc_line_id: big.goods, qty: 90, note: "", picks: [{ lot_id: lot.late, qty: 90 }] },
+    ]);
+    assert.ok(r.ok, JSON.stringify(r));
+    const small = await issuedDeliveryOrder([[f.lotted, f.pcs, 5]]);
+    const first = await create(header({ source_doc_id: small.doId }), [
+      { source_doc_line_id: small.goods, qty: 5, note: "", picks: [{ lot_id: lot.late, qty: 5 }] },
+    ]);
+    assert.ok(first.ok && (await transitionDeliveryNote(first.id, "post", actor)).ok);
     const refused = await transitionDeliveryNote(r.id, "post", actor);
-    await setStockLotActive(lot.late, true, actor);
-    assert.ok(!refused.ok && /Lot tidak ada/.test(refused.errors._form));
-    const shown = (await deliveryNoteOptions({ id: r.id, sourceId: again.doId, lotIds: [lot.late] })).orders.find((o) => o.id === again.doId)!;
-    assert.ok(shown.lots[f.lotted].some((l) => l.id === lot.late), "the stored note still reads its lot");
+    assert.ok(!refused.ok && /tidak cukup: tersedia 85, diminta 90/.test(refused.errors._form));
+    assert.equal((await getDeliveryNote(r.id))!.status, "Draft");
   });
 });

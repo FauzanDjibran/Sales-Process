@@ -29,7 +29,7 @@ const LOCK_TEXT: Partial<Record<DeliveryNoteStatus, string>> = {
  * Batalkan and Posting. Posting's confirmation shows the journal it will write
  * — HPP debited, Persediaan credited, per item at the cost the inventory module
  * returns — from the posting itself run as a dry run and rolled back (P103). A
- * note that cannot post (no Harga Pokok, lots not picked in full, Account
+ * note that cannot post (short stock, lots not picked in full, Account
  * Mapping incomplete) says why there, with *Ya, Posting* disabled.
  */
 export function DeliveryNoteActions({

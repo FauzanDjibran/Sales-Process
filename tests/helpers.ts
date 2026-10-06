@@ -1,4 +1,5 @@
 import { prisma } from "../src/lib/prisma";
+import { injectStock } from "../src/lib/erp/inventory";
 import { actorFor, type Actor } from "../src/lib/erp/access";
 import { ensureFiscalPeriods } from "../src/lib/erp/fiscal";
 import { hashPassword } from "../src/lib/erp/login";
@@ -444,4 +445,38 @@ export async function cleanupFiscalYear(): Promise<void> {
   await prisma.accFiscalClosing.deleteMany({ where: { fiscal_year_id: id } });
   await prisma.accFiscalPeriod.deleteMany({ where: { fiscal_year_id: id } });
   await prisma.accFiscalYear.deleteMany({ where: { id } });
+}
+
+// ------------------------------------------------------------------ stock
+
+/**
+ * Puts stock of a fixture item in a warehouse (P120), through the inventory
+ * book as `db:stock-inject` does, and returns the lot's id. The item must be
+ * a Barang with Kelola Stok.
+ */
+export async function stockIn(
+  itemId: number,
+  warehouseId: number,
+  lotNo: string,
+  qty: number,
+  value: number,
+  expiry: string | null = null,
+  date = new Date().toISOString().slice(0, 10)
+): Promise<number> {
+  await injectStock(
+    [{ itemId, warehouseId, lotNo, expiry: expiry ? new Date(`${expiry}T00:00:00Z`) : null, qty: String(qty), value: String(value), date: new Date(`${date}T00:00:00Z`) }],
+    await systemUserId()
+  );
+  const lot = await prisma.logStockTracking.findUniqueOrThrow({ where: { item_id_tracking_no: { item_id: itemId, tracking_no: lotNo.toUpperCase() } } });
+  return lot.id;
+}
+
+/** Removes every stock book row of fixture items — a test's own teardown. */
+export async function cleanupStock(itemIds: number[]): Promise<void> {
+  const where = { item_id: { in: itemIds } };
+  await prisma.logStockLedger.deleteMany({ where });
+  await prisma.logStockValuationLedger.deleteMany({ where });
+  await prisma.logStockBalance.deleteMany({ where });
+  await prisma.logStockValuationBalance.deleteMany({ where });
+  await prisma.logStockTracking.deleteMany({ where });
 }

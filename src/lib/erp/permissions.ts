@@ -22,6 +22,7 @@ export type PermissionModule =
   | "master"
   | "sales"
   | "logistics"
+  | "inventory"
   | "accounting"
   | "finance"
   | "tax"
@@ -124,10 +125,6 @@ export const PERMISSIONS = [
   { code: "DELIVERY_ORDER_ISSUE", name: "Terbitkan Delivery Order", module: "sales", description: "Mengunci Draft dan mengirimnya ke gudang sebagai perintah kirim." },
   { code: "DELIVERY_ORDER_CANCEL", name: "Batalkan Delivery Order", module: "sales", description: "Hanya Draft, dengan alasan." },
   { code: "DELIVERY_ORDER_CLOSE", name: "Tutup Delivery Order", module: "sales", description: "Menutup Delivery Order yang sudah diterbitkan, dengan alasan, bila tidak ada Delivery Note Draft." },
-  { code: "ITEM_COST_VIEW", name: "Lihat Harga Pokok (Sementara)", module: "master", description: "Harga pokok per barang yang dipakai Delivery Note selama stok belum dikelola." },
-  { code: "ITEM_COST_EDIT", name: "Ubah Harga Pokok (Sementara)", module: "master", description: "Hanya berlaku untuk pengiriman berikutnya." },
-  { code: "STOCK_LOT_VIEW", name: "Lihat Lot (Sementara)", module: "master", description: "Daftar lot per barang dan gudang yang dipilih Delivery Note selama stok belum dikelola." },
-  { code: "STOCK_LOT_EDIT", name: "Kelola Lot (Sementara)", module: "master", description: "Tambah, nonaktifkan dan aktifkan lot." },
 
   { code: "MENU_ACCOUNTING_ACCESS", name: "Akses menu Accounting", module: "accounting" },
 
@@ -206,6 +203,15 @@ export const PERMISSIONS = [
   { code: "DELIVERY_NOTE_EDIT", name: "Ubah Delivery Note", module: "logistics", description: "Hanya selama masih Draft." },
   { code: "DELIVERY_NOTE_POST", name: "Posting Delivery Note", module: "logistics", description: "Mencatat barang keluar dan menjurnal HPP / Persediaan." },
   { code: "DELIVERY_NOTE_CANCEL", name: "Batalkan Delivery Note", module: "logistics", description: "Hanya Draft, dengan alasan." },
+
+  // -------------------------------------------------------------- inventory
+  // The stock books and their reports (P120). Stock is moved by the documents
+  // that post it, never from this menu.
+  { code: "MENU_INVENTORY_ACCESS", name: "Akses menu Persediaan", module: "inventory" },
+  { code: "REPORT_STOCK_LEDGER_VIEW", name: "Lihat Kartu Stok", module: "inventory", description: "Mutasi jumlah satu barang per gudang dan lot." },
+  { code: "REPORT_STOCK_BALANCE_VIEW", name: "Lihat Saldo Stok", module: "inventory", description: "Jumlah per gudang, lot dan status pada satu tanggal." },
+  { code: "REPORT_STOCK_VALUATION_LEDGER_VIEW", name: "Lihat Kartu Nilai Persediaan", module: "inventory", description: "Mutasi nilai rata-rata bergerak satu barang." },
+  { code: "REPORT_STOCK_VALUATION_VIEW", name: "Lihat Nilai Persediaan", module: "inventory", description: "Jumlah, nilai dan harga rata-rata per barang, dicocokkan dengan account Persediaan." },
 
   // ---------------------------------------------------------------- finance
   { code: "MENU_FINANCE_ACCESS", name: "Akses menu Finance", module: "finance" },
@@ -320,6 +326,7 @@ export const MODULE_LABELS: Record<PermissionModule, string> = {
   master: "Master",
   sales: "Penjualan",
   logistics: "Logistik",
+  inventory: "Persediaan",
   accounting: "Accounting",
   finance: "Finance",
   tax: "Pajak",
@@ -332,6 +339,7 @@ export const MODULE_ORDER: PermissionModule[] = [
   "master",
   "sales",
   "logistics",
+  "inventory",
   "accounting",
   "finance",
   "tax",

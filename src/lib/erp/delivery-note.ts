@@ -340,7 +340,11 @@ function checkPicks(
 ): { ok: true; picks: CheckedPick[] } | { ok: false; error: string } {
   const list = Array.isArray(raw) ? raw : [];
   if (!line.lotTracked) {
-    return list.length ? { ok: false, error: `${line.itemLabel} tidak dikelola per lot.` } : { ok: true, picks: [] };
+    // Only an item with Kelola Stok enters the stock books (P120); one without
+    // it is not sold, so it may sit in a Draft but never leaves by posting.
+    if (list.length) return { ok: false, error: `${line.itemLabel} tidak dikelola per lot.` };
+    if (forPosting) return { ok: false, error: `${line.itemLabel} tidak dikelola stok (Kelola Stok tidak aktif), jadi tidak bisa dikeluarkan.` };
+    return { ok: true, picks: [] };
   }
   const byId = new Map(lots.map((l) => [l.id, l]));
   const seen = new Set<number>();
@@ -508,7 +512,7 @@ function asInput(n: StoredNote): {
  * `transitionDeliveryNote` run as a **dry run** — the Customer Order lock, the
  * recheck, every stock issue through the inventory module and the journal —
  * then rolled back. So the costs shown are what the inventory module returns
- * at posting, and a note that cannot post (no Harga Pokok, lots not picked in
+ * at posting, and a note that cannot post (short stock, lots not picked in
  * full, Account Mapping incomplete, a closed period) says why in Posting's own
  * words.
  */
@@ -602,33 +606,26 @@ export async function transitionDeliveryNote(
         const baseQty = line.base_qty;
         const where = { delivery_note_id_source_doc_line_id: { delivery_note_id: id, source_doc_line_id: line.source_doc_line_id } };
         const source = { docTypeId: typeId, docId: id, no: note.dn_no };
-        // A picked line leaves lot by lot, one stock movement per pick (U15);
+        // Every line leaves lot by lot, one stock movement per pick (U15, P120);
         // the line's cost is what its picks cost.
-        const issued = { unitCost: 0, cost: 0 };
-        if (line.picks.length) {
-          const stored = await tx.logDeliveryNoteLine.findUniqueOrThrow({ where, select: { id: true } });
-          for (const p of line.picks) {
-            const pickBase = fromUnits(units(p.qty * line.uom_factor));
-            const out = await issueStock(tx, {
-              itemId: d.itemId,
-              warehouseId: r.c.source.warehouseId,
-              lotId: p.lot_id,
-              baseQty: pickBase,
-              date: r.c.data.dn_date,
-              source,
-              actorId,
-            });
-            await tx.logDeliveryNoteLot.update({
-              where: { delivery_note_line_id_pick_no: { delivery_note_line_id: stored.id, pick_no: p.pick_no } },
-              data: { base_qty: pickBase, unit_cost: out.unitCost, cost_amount: out.cost },
-            });
-            issued.cost += out.cost;
-          }
-        } else {
-          Object.assign(
-            issued,
-            await issueStock(tx, { itemId: d.itemId, warehouseId: r.c.source.warehouseId, baseQty, date: r.c.data.dn_date, source, actorId })
-          );
+        const issued = { cost: 0 };
+        const stored = await tx.logDeliveryNoteLine.findUniqueOrThrow({ where, select: { id: true } });
+        for (const p of line.picks) {
+          const pickBase = fromUnits(units(p.qty * line.uom_factor));
+          const out = await issueStock(tx, {
+            itemId: d.itemId,
+            warehouseId: r.c.source.warehouseId,
+            lotId: p.lot_id,
+            baseQty: pickBase,
+            date: r.c.data.dn_date,
+            source,
+            actorId,
+          });
+          await tx.logDeliveryNoteLot.update({
+            where: { delivery_note_line_id_pick_no: { delivery_note_line_id: stored.id, pick_no: p.pick_no } },
+            data: { base_qty: pickBase, unit_cost: out.unitCost, cost_amount: out.cost },
+          });
+          issued.cost += out.cost;
         }
         // The line's unit cost describes what it left at — its value ÷ its base
         // quantity, at six decimals — and is never read back into a calculation (P114).
@@ -651,8 +648,8 @@ export async function transitionDeliveryNote(
           );
         }
       }
-      if (!journalLines.length) throw new Refused({ _form: "Belum bisa diposting: harga pokok seluruh barang bernilai 0." });
-      const journal = await postJournal(tx, {
+      // Stock carried at no value leaves with no journal: nothing moves in the books.
+      const journal = !journalLines.length ? null : await postJournal(tx, {
         description: `${note.dn_no} · Pengiriman ${r.c.source.doNo} — ${r.c.source.customerName}`,
         sourceDocTypeId: typeId,
         sourceDocId: id,
@@ -660,7 +657,7 @@ export async function transitionDeliveryNote(
         actorId,
         lines: journalLines,
       });
-      await tx.logDeliveryNote.update({ where: { id }, data: { journal_id: journal.id, cost_amount: total } });
+      await tx.logDeliveryNote.update({ where: { id }, data: { journal_id: journal?.id ?? null, cost_amount: total } });
       await audit(tx, id, "UPDATE", "post", actorId);
       // What the purpose writes back to its source (P106): for a sale, what left.
       const closed = await recordDeliveryOrderDelivery(tx, note.source_doc_id, sent, actorId);

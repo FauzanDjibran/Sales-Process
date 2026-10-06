@@ -7,7 +7,6 @@ import { createDeliveryOrder, transitionDeliveryOrder } from "../src/lib/erp/del
 import { createDeliveryNote, transitionDeliveryNote } from "../src/lib/erp/delivery-note";
 import { createSalesAdvance, transitionSalesAdvance } from "../src/lib/erp/ar-advance";
 import { cashReceiptOptions, checkCashReceipt, createCashReceipt, transitionCashReceipt } from "../src/lib/erp/cash-bank-tx";
-import { setItemCost } from "../src/lib/erp/inventory";
 import {
   checkInvoice,
   createInvoice,
@@ -35,6 +34,8 @@ import {
   makePartner,
   openFiscalYear,
   prisma,
+  cleanupStock,
+  stockIn,
   systemUserId,
 } from "./helpers";
 
@@ -89,10 +90,13 @@ async function create(h: InvoiceHeaderInput, l: number[], d: InvoiceDeductionInp
   return r;
 }
 
+/** The lot each Delivery Order line leaves from: line 1 is item A, line 2 item B (P120). */
+const lotOf = (doLineId: number) => (doLineId === order.doLines[0] ? f.lotA : f.lotB);
+
 async function postedNote(doLineQty: [number, number][]) {
   const r = await createDeliveryNote(
     { source_doc_id: f.do, dn_date: today, vehicle_no: "", driver_name: "", note: "" },
-    doLineQty.map(([id, qty]) => ({ source_doc_line_id: id, qty, note: "" })),
+    doLineQty.map(([id, qty]) => ({ source_doc_line_id: id, qty, note: "", picks: [{ lot_id: lotOf(id), qty }] })),
     actor
   );
   assert.ok(r.ok, JSON.stringify(r));
@@ -109,7 +113,7 @@ before(async () => {
   f.pcs = (await prisma.refUom.create({ data: { uom_code: `test.${key("PCS")}`, uom_label: key("PCS"), uom_name: "Pcs", created_by: actor } })).id;
   const cat = (await prisma.sysItemCategory.findUniqueOrThrow({ where: { category_label: "BRG-JADI" } })).id;
   const item = async (l: string) =>
-    (await prisma.mItem.create({ data: { item_code: `test.${key(l)}`, item_label: key(l), item_name: l, item_type: "Barang", category_id: cat, base_uom_id: f.pcs, can_sell: true, created_by: actor } })).id;
+    (await prisma.mItem.create({ data: { item_code: `test.${key(l)}`, item_label: key(l), item_name: l, item_type: "Barang", category_id: cat, base_uom_id: f.pcs, can_sell: true, track_stock: true, created_by: actor } })).id;
   f.a = await item("A");
   f.b = await item("B");
   f.term = (await prisma.refPaymentTerm.create({ data: { term_code: `test.${key("T")}`, term_label: key("T"), term_name: "Net 30", due_days: 30, created_by: actor } })).id;
@@ -215,15 +219,15 @@ before(async () => {
   f.bill2 = adv2.id;
   await transitionSalesAdvance(adv2.id, "issue", actor);
 
-  await setItemCost(f.a, "40000", actor);
-  await setItemCost(f.b, "20000", actor);
+  // Stock at 40.000 and 20.000 a piece, each item's only lot (P120).
+  f.lotA = await stockIn(f.a, f.warehouse, key("LA"), 1_000, 40_000_000);
+  f.lotB = await stockIn(f.b, f.warehouse, key("LB"), 1_000, 20_000_000);
   const first = await postedNote([[order.doLines[0], 4], [order.doLines[1], 4]]);
   notes.first = first.id;
   notes.firstLines = first.lines;
 
   cleanups.push(
-    () => prisma.tmpStockMovement.deleteMany({ where: { item_id: { in: [f.a, f.b] } } }),
-    () => prisma.tmpItemCost.deleteMany({ where: { item_id: { in: [f.a, f.b] } } }),
+    () => cleanupStock([f.a, f.b]),
     () => prisma.mItem.deleteMany({ where: { id: { in: [f.a, f.b] } } }),
     () => prisma.refUom.deleteMany({ where: { id: f.pcs } }),
     () => prisma.refPaymentTerm.deleteMany({ where: { id: f.term } }),
@@ -268,8 +272,6 @@ after(async () => {
   })) {
     await prisma.auditLog.deleteMany({ where: { entity_key: k, row_id: { in: list } } });
   }
-  const costIds = (await prisma.tmpItemCost.findMany({ where: { item_id: { in: [f.a, f.b] } }, select: { id: true } })).map((r) => r.id);
-  await prisma.auditLog.deleteMany({ where: { entity_key: "tmp_item_cost", row_id: { in: costIds } } });
   for (const [k, v] of savedSettings) await prisma.sysSetting.update({ where: { setting_key: k }, data: { setting_value: v } });
   if (f.wht) await prisma.refWithholdingTax.update({ where: { id: f.wht }, data: { prepaid_account_id: null } });
   await cleanupFixtures();

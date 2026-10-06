@@ -36,7 +36,7 @@ import { formatDate, formatMoney, formatNumber, formatPrice, todayIso } from "@/
  * Customer Order, customer, warehouse and address all come from it and are
  * shown, not chosen. The user sets the day the goods leave, the vehicle and the
  * driver, and picks which of the order's lines leave now and how much — and,
- * for an item kept by lot, which lots they leave from (U15). Once posted, each line shows the Harga Pokok it left at and the HPP it booked.
+ * for an item kept by lot, which lots they leave from (U15). Once posted, each line shows the moving-average cost it left at (P114, P120) and the HPP it booked.
  */
 
 export type DeliveryNoteMode = "new" | "edit" | "view";

@@ -88,32 +88,8 @@ export const MODULES: NavModule[] = [
             slug: "warehouse",
             name: "Gudang",
             icon: "build",
-            desc: "Tempat barang dikirim. Selama stok belum dikelola, gudang hanya menandai asal pengiriman.",
+            desc: "Tempat barang disimpan. Stok dicatat per gudang, lot dan status di Persediaan.",
             permission: "WAREHOUSE_VIEW",
-          },
-        ],
-      },
-      {
-        // Temporary until stock is built (U11): the stand-in inventory's
-        // valuation, kept apart so it is obvious what goes when stock arrives.
-        key: "temporary",
-        name: "Sementara",
-        entities: [
-          {
-            key: "tmp_item_cost",
-            slug: "item-cost",
-            name: "Harga Pokok (Sementara)",
-            icon: "coin",
-            desc: "Harga pokok per barang yang dipakai Delivery Note untuk mengakui HPP selama stok belum dikelola.",
-            permission: "ITEM_COST_VIEW",
-          },
-          {
-            key: "tmp_stock_lot",
-            slug: "stock-lot",
-            name: "Lot (Sementara)",
-            icon: "layers",
-            desc: "Lot per barang dan gudang yang dipilih Delivery Note saat barang keluar, selama stok belum dikelola.",
-            permission: "STOCK_LOT_VIEW",
           },
         ],
       },
@@ -215,6 +191,54 @@ export const MODULES: NavModule[] = [
             icon: "truck",
             desc: "Surat jalan: barang keluar dari gudang menurut tujuannya — untuk penjualan, dari Delivery Order. Posting mengakui HPP; piutang diakui di Invoice.",
             permission: "DELIVERY_NOTE_VIEW",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    // The stock books (P120): what is where, and what it is worth.
+    key: "inventory",
+    name: "Persediaan",
+    icon: "box",
+    desc: "Buku stok per gudang dan lot, dan nilai persediaan rata-rata bergerak per barang.",
+    permission: "MENU_INVENTORY_ACCESS",
+    groups: [
+      {
+        key: "report",
+        name: "Laporan",
+        entities: [
+          {
+            key: "report_stock_ledger",
+            slug: "report/stock-ledger",
+            name: "Kartu Stok",
+            icon: "book",
+            desc: "Mutasi jumlah satu barang per gudang dan lot pada rentang tanggal.",
+            permission: "REPORT_STOCK_LEDGER_VIEW",
+          },
+          {
+            key: "report_stock_balance",
+            slug: "report/stock-balance",
+            name: "Saldo Stok",
+            icon: "layers",
+            desc: "Jumlah per barang, gudang, lot dan status pada satu tanggal.",
+            permission: "REPORT_STOCK_BALANCE_VIEW",
+          },
+          {
+            key: "report_stock_valuation_ledger",
+            slug: "report/stock-valuation-ledger",
+            name: "Kartu Nilai Persediaan",
+            icon: "book",
+            desc: "Mutasi jumlah dan nilai rata-rata bergerak satu barang pada rentang tanggal.",
+            permission: "REPORT_STOCK_VALUATION_LEDGER_VIEW",
+          },
+          {
+            key: "report_stock_valuation",
+            slug: "report/stock-valuation",
+            name: "Nilai Persediaan",
+            icon: "coin",
+            desc: "Jumlah, nilai dan harga rata-rata per barang pada satu tanggal, dicocokkan dengan account Persediaan.",
+            permission: "REPORT_STOCK_VALUATION_VIEW",
           },
         ],
       },

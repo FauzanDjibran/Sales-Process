@@ -245,7 +245,7 @@ instruction decides:
 | 3.2 | Uang Muka Penjualan | nothing |
 | 3.3 | Penerimaan Kas & Bank — Uang Muka (done); Penerimaan / Pengeluaran lain-lain | Cash Bank Book, journal |
 | 3.4 | Faktur Pajak Keluaran (uang muka, pelunasan, normal) and Bukti Potong PPh — **done 04/10/2026 (P100)**: made by the receipt's and the Invoice's posting; kept as internal records, NSFP an optional reference (P101) | nothing — tax documents |
-| 3.5 | Delivery Order (done, P93) and Delivery Note (done, P94) — replacing the Surat Jalan | Delivery Note: HPP / Persediaan at the stand-in's Harga Pokok |
+| 3.5 | Delivery Order (done, P93) and Delivery Note (done, P94) — replacing the Surat Jalan | Delivery Note: HPP / Persediaan at the moving average of the stock books (P120) |
 | 3.6 | Faktur Penjualan with advance deduction; faktur pelunasan / normal | journal, faktur |
 | 3.7 | Pembayaran — Faktur Penjualan (withholding and WAPU by rule) | Cash Bank Book, journal, bukti potong |
 | 3.8 | Pengembalian Uang Muka, Faktur Pengganti / Pembatalan, Perlu Pembetulan | Cash Bank Book, journal, tax corrections |

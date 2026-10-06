@@ -60,6 +60,7 @@ Project decisions that look reusable and are waiting to be folded into the KB
 | P95 | (new) inventory | Lot picking with FEFO and expiry flags, as a candidate for an inventory concept once real stock is built | Later |
 | P116, P117 | accounting/open-items | An open item keeps balances only (original amount + current balance, no tax columns); an invoice item is born at its face and the advance it deducts is applied in its posting as a pair of entries, each naming the other (advance −DPP, invoice −DPP−PPN), with the journal moving Piutang the same way | Queued 06/10/2026 |
 | P114 | (new) inventory | Moving-average valuation kept as quantity and value: release round(V × q / Q), the emptying issue takes V, no negative stock, the average derived and never multiplied, returns at the value they left at | Later, with P95 |
+| P120 | (new) inventory | Two stock books, each a ledger + balance written in the moving document's posting: quantity per warehouse / lot / status, value per item pool, one valuation twin per quantity row; only stock-kept items enter, always by lot (unique per item); pool locked before bucket; balances read from ledgers as of a date; a reconcile per book. With P95 and P114 this is the candidate inventory concept | Queued from cloud 06/10/2026 |
 
 Processed 04/10/2026: P93, P94, P97, P98, P99 → `sales/order-to-cash` 2.0;
 P94, P100 → `engineering/app-architecture` 1.1 (stand-in module, `afterPost`

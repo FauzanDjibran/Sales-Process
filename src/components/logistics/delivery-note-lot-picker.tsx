@@ -15,10 +15,12 @@ const units = (v: string | number) => Math.round((Number(String(v).replace(",", 
 export type LotPick = { lot_id: number; qty: string };
 
 /**
- * The stock picking of one Delivery Note line (U15): the item's lots in the
- * note's warehouse, earliest expiry first, each with the quantity taken from
- * it. Together they may not pass the line's quantity; a Draft may be picked in
- * part, Posting needs it whole. *Isi FEFO* puts the rest on the earliest lot.
+ * The stock picking of one Delivery Note line (U15, P120): the item's lots
+ * with stock in the note's warehouse, earliest expiry first, each with what is
+ * available and the quantity taken from it. Together they may not pass the
+ * line's quantity; a Draft may be picked in part, Posting needs it whole, and
+ * the stock must still be there when it posts. *Isi FEFO* fills the rest lot
+ * by lot from the earliest, up to what each holds.
  */
 export function DeliveryNoteLotPicker({
   line,
@@ -46,12 +48,21 @@ export function DeliveryNoteLotPicker({
   const target = units(lineQty);
   const over = total > target;
   const firstActive = shown.find((l) => l.active);
+  const short = (l: LotOption) => units(qty[l.id] ?? 0) > units(l.available);
 
   const fillFefo = () => {
-    if (!firstActive) return;
-    const rest = target - total;
+    let rest = target - total;
     if (rest <= 0) return;
-    setQty((q) => ({ ...q, [firstActive.id]: String((units(q[firstActive.id] ?? 0) + rest) / SCALE) }));
+    const next = { ...qty };
+    for (const l of shown) {
+      if (rest <= 0) break;
+      const room = units(l.available) - units(next[l.id] ?? 0);
+      if (room <= 0) continue;
+      const take = Math.min(room, rest);
+      next[l.id] = String((units(next[l.id] ?? 0) + take) / SCALE);
+      rest -= take;
+    }
+    setQty(next);
   };
 
   const apply = () =>
@@ -90,8 +101,8 @@ export function DeliveryNoteLotPicker({
           <div className="ic">
             <Icon name="box" size={18} />
           </div>
-          <h4>Belum ada lot</h4>
-          <p>Barang ini belum punya lot aktif di gudang Delivery Order.</p>
+          <h4>Belum ada stok</h4>
+          <p>Barang ini tidak punya stok tersedia di gudang Delivery Order.</p>
         </div>
       ) : (
         <>
@@ -101,11 +112,12 @@ export function DeliveryNoteLotPicker({
             </button>
           </div>
           <div className="tw">
-            <table className="grid ltab" style={{ minWidth: 620 }}>
+            <table className="grid ltab" style={{ minWidth: 700 }}>
               <thead>
                 <tr>
                   <th>No. Lot</th>
-                  <th style={{ width: 170 }}>Kadaluarsa</th>
+                  <th style={{ width: 150 }}>Kadaluarsa</th>
+                  <th className="num" style={{ width: 120 }}>Tersedia</th>
                   <th style={{ width: 220 }}>Qty Diambil</th>
                 </tr>
               </thead>
@@ -116,11 +128,14 @@ export function DeliveryNoteLotPicker({
                     <tr key={l.id}>
                       <td>
                         <span className="lab">{l.lotNo}</span>
-                        {!l.active && <span className="bdg s-mute" style={{ marginLeft: 6 }}>Nonaktif</span>}
+                        {!l.active && <span className="bdg s-mute" style={{ marginLeft: 6 }}>Habis</span>}
                       </td>
                       <td>
                         {l.expiry ? <span className="mono">{formatDate(l.expiry)}</span> : <span className="dash">—</span>}
                         {expired && <span className="overtag">Kadaluarsa sebelum Tanggal Kirim</span>}
+                      </td>
+                      <td className="num">
+                        <span className="mny">{qtyText(l.available)}</span>
                       </td>
                       <td>
                         <div className="qcell">
@@ -128,12 +143,13 @@ export function DeliveryNoteLotPicker({
                             size="sm"
                             decimals={4}
                             value={qty[l.id] ?? ""}
-                            over={over && units(qty[l.id] ?? 0) > 0}
+                            over={(over && units(qty[l.id] ?? 0) > 0) || short(l)}
                             ariaLabel={`Qty lot ${l.lotNo}`}
                             onChange={(v) => setQty((q) => ({ ...q, [l.id]: v }))}
                           />
                           <span className="qu">{line.uomLabel}</span>
                         </div>
+                        {short(l) && <span className="overtag">Melebihi stok tersedia</span>}
                       </td>
                     </tr>
                   );

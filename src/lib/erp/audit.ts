@@ -78,6 +78,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   sal_delivery_order: { label: "Delivery Order", resolve: deliveryOrderNumbersByIds },
   log_delivery_note: { label: "Delivery Note", resolve: deliveryNoteNumbersByIds },
   fin_ar_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },
+  // The stand-in inventory, dropped by P120; kept so its old trail still reads.
   tmp_item_cost: { label: "Harga Pokok (Sementara)", resolve: null },
   tmp_stock_lot: { label: "Lot (Sementara)", resolve: null },
   fin_ar_advance: { label: "Uang Muka Penjualan", resolve: salesAdvanceNumbersByIds },

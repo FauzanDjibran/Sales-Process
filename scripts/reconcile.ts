@@ -23,7 +23,9 @@
  *   goods      delivered quantity on every order line equals what posted notes
  *              took, level by level; no level holds more than its parent; a
  *              fully delivered order is closed; a note's cost equals its lines,
- *              picks and stock issues
+ *              picks and what the stock books released for it
+ *   stock      each bucket and pool equals its ledger, none negative; the two
+ *              stock books move together; lots belong to stock items (P120)
  *   billing    a note line is billed once; an invoice equals its lines and
  *              deductions; a fully billed order line is billed exactly
  *   tax        each posted taxable event made its faktur, each PPh row its slip,
@@ -267,12 +269,13 @@ export const CHECKS: Check[] = [
   },
   {
     area: "goods",
-    name: "a posted note's cost equals its lines, its picks and its stock issues",
+    name: "a posted note's cost equals its lines, its picks and, since P120, what the stock books released for it",
     sql: `SELECT n.dn_no, n.cost_amount, (SELECT SUM(cost_amount) FROM log_delivery_note_line WHERE delivery_note_id = n.id) AS lines,
-                 (SELECT SUM(cost_amount) FROM tmp_stock_movement WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id) AS issued
+                 (SELECT -SUM(value_change) FROM log_stock_valuation_ledger WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id) AS issued
           FROM log_delivery_note n WHERE n.status = 'Posted' AND (
             n.cost_amount <> COALESCE((SELECT SUM(cost_amount) FROM log_delivery_note_line WHERE delivery_note_id = n.id), 0)
-            OR n.cost_amount <> COALESCE((SELECT SUM(cost_amount) FROM tmp_stock_movement WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id), 0))
+            OR (EXISTS (SELECT 1 FROM log_stock_valuation_ledger WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id)
+                AND n.cost_amount <> (SELECT -SUM(value_change) FROM log_stock_valuation_ledger WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id)))
           UNION ALL
           SELECT n.dn_no, l.cost_amount, SUM(p.cost_amount), SUM(p.qty) - l.qty
           FROM log_delivery_note n JOIN log_delivery_note_line l ON l.delivery_note_id = n.id JOIN log_delivery_note_lot p ON p.delivery_note_line_id = l.id
@@ -428,8 +431,12 @@ export const CHECKS: Check[] = [
           FROM cash_bank_ledger WHERE source_doc_id IS NOT NULL GROUP BY source_doc_type_id, source_doc_id
           HAVING COUNT(DISTINCT ledger_no) <> 1 OR MAX(line_no) <> COUNT(*) OR MIN(line_no) <> 1
           UNION ALL
-          SELECT 'stock movement', MIN(ledger_no), COUNT(DISTINCT ledger_no), COUNT(*), MAX(line_no)
-          FROM tmp_stock_movement GROUP BY source_doc_type_id, source_doc_id
+          SELECT 'stock ledger', MIN(ledger_no), COUNT(DISTINCT ledger_no), COUNT(*), MAX(line_no)
+          FROM log_stock_ledger GROUP BY source_doc_type_id, source_doc_id
+          HAVING COUNT(DISTINCT ledger_no) <> 1 OR MAX(line_no) <> COUNT(*) OR MIN(line_no) <> 1
+          UNION ALL
+          SELECT 'stock valuation ledger', MIN(ledger_no), COUNT(DISTINCT ledger_no), COUNT(*), MAX(line_no)
+          FROM log_stock_valuation_ledger GROUP BY source_doc_type_id, source_doc_id
           HAVING COUNT(DISTINCT ledger_no) <> 1 OR MAX(line_no) <> COUNT(*) OR MIN(line_no) <> 1
           UNION ALL
           SELECT 'buku piutang', ledger_no, COUNT(DISTINCT (doc_type_id, doc_id)), COUNT(*), MAX(line_no)
@@ -438,8 +445,60 @@ export const CHECKS: Check[] = [
           SELECT 'cash bank book', ledger_no, COUNT(DISTINCT (source_doc_type_id, source_doc_id)), COUNT(*), MAX(line_no)
           FROM cash_bank_ledger GROUP BY ledger_no HAVING COUNT(DISTINCT (source_doc_type_id, source_doc_id)) > 1
           UNION ALL
-          SELECT 'stock movement', ledger_no, COUNT(DISTINCT (source_doc_type_id, source_doc_id)), COUNT(*), MAX(line_no)
-          FROM tmp_stock_movement GROUP BY ledger_no HAVING COUNT(DISTINCT (source_doc_type_id, source_doc_id)) > 1`,
+          SELECT 'stock ledger', ledger_no, COUNT(DISTINCT (source_doc_type_id, source_doc_id)), COUNT(*), MAX(line_no)
+          FROM log_stock_ledger GROUP BY ledger_no HAVING COUNT(DISTINCT (source_doc_type_id, source_doc_id)) > 1
+          UNION ALL
+          SELECT 'stock valuation ledger', ledger_no, COUNT(DISTINCT (source_doc_type_id, source_doc_id)), COUNT(*), MAX(line_no)
+          FROM log_stock_valuation_ledger GROUP BY ledger_no HAVING COUNT(DISTINCT (source_doc_type_id, source_doc_id)) > 1`,
+  },
+  // --------------------------------------------------------------- stock
+  {
+    area: "stock",
+    name: "each stock bucket's quantity is the sum of its stock ledger rows, and is not negative (P120)",
+    sql: `SELECT b.id, b.warehouse_id, b.tracking_id, b.stock_status_id, b.qty_balance,
+                 COALESCE((SELECT SUM(l.qty_change) FROM log_stock_ledger l
+                   WHERE l.warehouse_id = b.warehouse_id AND l.tracking_id = b.tracking_id AND l.stock_status_id = b.stock_status_id), 0) AS ledger
+          FROM log_stock_balance b
+          WHERE b.qty_balance < 0 OR b.qty_balance <> COALESCE((SELECT SUM(l.qty_change) FROM log_stock_ledger l
+                   WHERE l.warehouse_id = b.warehouse_id AND l.tracking_id = b.tracking_id AND l.stock_status_id = b.stock_status_id), 0)
+          UNION ALL
+          SELECT NULL, l.warehouse_id, l.tracking_id, l.stock_status_id, NULL, SUM(l.qty_change)
+          FROM log_stock_ledger l
+          WHERE NOT EXISTS (SELECT 1 FROM log_stock_balance b WHERE b.warehouse_id = l.warehouse_id AND b.tracking_id = l.tracking_id AND b.stock_status_id = l.stock_status_id)
+          GROUP BY l.warehouse_id, l.tracking_id, l.stock_status_id`,
+  },
+  {
+    area: "stock",
+    name: "each item's pool is the sum of its valuation rows, not negative, empty in value when empty in quantity, its average V ÷ Q (P114)",
+    sql: `SELECT b.item_id, b.qty_balance, b.value_balance, b.avg_unit_cost, l.q, l.v
+          FROM log_stock_valuation_balance b
+          LEFT JOIN (SELECT item_id, SUM(qty_change) AS q, SUM(value_change) AS v FROM log_stock_valuation_ledger GROUP BY item_id) l ON l.item_id = b.item_id
+          WHERE b.qty_balance <> COALESCE(l.q, 0) OR b.value_balance <> COALESCE(l.v, 0)
+             OR b.qty_balance < 0 OR b.value_balance < 0
+             OR (b.qty_balance = 0 AND b.value_balance <> 0)
+             OR b.avg_unit_cost <> CASE WHEN b.qty_balance > 0 THEN ROUND(b.value_balance / b.qty_balance, 6) ELSE 0 END`,
+  },
+  {
+    area: "stock",
+    name: "the two stock books move together: per posting and item, the same quantity and value; and each item's pool holds every bucket",
+    sql: `SELECT 'per posting' AS kind, COALESCE(s.source_doc_type_id, v.source_doc_type_id) AS doc_type, COALESCE(s.source_doc_id, v.source_doc_id) AS doc,
+                 COALESCE(s.item_id, v.item_id) AS item_id, s.q AS stock_qty, v.q AS valuation_qty, s.v AS stock_value, v.v AS valuation_value
+          FROM (SELECT source_doc_type_id, source_doc_id, item_id, SUM(qty_change) q, SUM(value_change) v, COUNT(*) n FROM log_stock_ledger GROUP BY 1, 2, 3) s
+          FULL JOIN (SELECT source_doc_type_id, source_doc_id, item_id, SUM(qty_change) q, SUM(value_change) v, COUNT(*) n FROM log_stock_valuation_ledger GROUP BY 1, 2, 3) v
+            ON v.source_doc_type_id = s.source_doc_type_id AND v.source_doc_id = s.source_doc_id AND v.item_id = s.item_id
+          WHERE s.q IS DISTINCT FROM v.q OR s.v IS DISTINCT FROM v.v OR s.n IS DISTINCT FROM v.n
+          UNION ALL
+          SELECT 'per item', NULL, NULL, p.item_id, b.q, p.qty_balance, NULL, NULL
+          FROM log_stock_valuation_balance p
+          LEFT JOIN (SELECT item_id, SUM(qty_balance) q FROM log_stock_balance GROUP BY item_id) b ON b.item_id = p.item_id
+          WHERE p.qty_balance <> COALESCE(b.q, 0)`,
+  },
+  {
+    area: "stock",
+    name: "every lot belongs to an item kept in stock, and an item with Memiliki Kadaluarsa has its expiry",
+    sql: `SELECT t.id, t.tracking_no, m.item_label, m.track_stock, m.has_expiry, t.expiry_date
+          FROM log_stock_tracking t JOIN m_item m ON m.id = t.item_id
+          WHERE m.item_type <> 'Barang' OR NOT m.track_stock OR (m.has_expiry AND t.expiry_date IS NULL)`,
   },
 ];
 

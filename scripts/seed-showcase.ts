@@ -39,6 +39,7 @@ import { openCashBankBook } from "../src/lib/erp/cash-bank";
 import { ensureFiscalPeriods, fiscalYearShape } from "../src/lib/erp/fiscal";
 import { BASE_CURRENCY_LABEL } from "../src/lib/erp/currency";
 import { CUSTOMER_CATEGORY } from "../src/lib/erp/entities";
+import { injectStock, type InjectionRow } from "../src/lib/erp/inventory";
 
 // ------------------------------------------------------------------- data
 
@@ -231,14 +232,15 @@ const ITEMS: [label: string, name: string, base: string, conversions: [string, n
 ];
 
 /**
- * The stand-in inventory (P94, P95): a Harga Pokok (Sementara) per item, per
- * base unit, and two lots per item in each warehouse, so a Delivery Note can
- * be picked and posted straight away.
+ * Opening stock (P120), injected through the inventory book as `db:stock-inject`
+ * does: two lots per item in each warehouse, at a cost per base unit, so a
+ * Delivery Note can be picked and posted straight away. No journal is written.
  */
 const ITEM_COSTS: Record<string, number> = {
   "FG-001": 38_000, "FG-002": 42_000, "FG-003": 18_500, "FG-004": 9_000,
   "FG-005": 27_500, "FG-006": 51_000, "FG-007": 31_000, "FG-008": 240_000,
 };
+const OPENING_QTY = 500;
 const LOTS: [suffix: string, monthsToExpiry: number][] = [["A", 14], ["B", 26]];
 
 // ---------------------------------------------------------------- helpers
@@ -509,30 +511,34 @@ async function main() {
     tally("items");
   }
 
-  // ---- the stand-in inventory: Harga Pokok (Sementara) and lots
+  // ---- opening stock, injected through the inventory book
   const warehouses = await prisma.refWarehouse.findMany({ where: { warehouse_label: { in: WAREHOUSES.map(([l]) => l) } }, orderBy: { id: "asc" } });
   const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const opening: InjectionRow[] = [];
   for (const [label, cost] of Object.entries(ITEM_COSTS)) {
     const item = await prisma.mItem.findFirst({ where: { item_label: label } });
-    if (!item) continue;
-    if (!(await prisma.tmpItemCost.findFirst({ where: { item_id: item.id } }))) {
-      const row = await prisma.tmpItemCost.create({ data: { item_id: item.id, unit_cost: cost, created_by: actor } });
-      await audit("tmp_item_cost", row.id);
-      tally("harga pokok (sementara)");
-    }
-    if (!item.track_stock) continue;
+    if (!item || !item.track_stock) continue;
     for (const w of warehouses) {
       for (const [suffix, months] of LOTS) {
         const lotNo = `${label}-${w.warehouse_label}-${now.getUTCFullYear()}${suffix}`;
-        if (await prisma.tmpStockLot.findFirst({ where: { item_id: item.id, warehouse_id: w.id, lot_no: lotNo } })) continue;
-        const expiry = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + months, 1));
-        const row = await prisma.tmpStockLot.create({
-          data: { item_id: item.id, warehouse_id: w.id, lot_no: lotNo, expiry_date: item.has_expiry ? expiry : null, created_by: actor },
+        // Additive: a lot already received is left as it is.
+        if (await prisma.logStockTracking.findFirst({ where: { item_id: item.id, tracking_no: lotNo } })) continue;
+        opening.push({
+          itemId: item.id,
+          warehouseId: w.id,
+          lotNo,
+          expiry: item.has_expiry ? new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + months, 1)) : null,
+          qty: String(OPENING_QTY),
+          value: String(OPENING_QTY * cost),
+          date: today,
         });
-        await audit("tmp_stock_lot", row.id);
-        tally("lot (sementara)");
       }
     }
+  }
+  if (opening.length) {
+    const run = await injectStock(opening, actor);
+    made[`stok awal (${run.no})`] = run.count;
   }
 
   // ---- report

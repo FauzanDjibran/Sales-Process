@@ -3,13 +3,13 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20261004220000_tax_faktur_internal_record`
+- **As of migration:** `20261006095709_stock_ledger`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout:** tables are grouped in sections by prefix — System (`sys_`),
   Master Referensi (`ref_`), Master Data (`m_`), Accounting (`acc_`), Finance
-  (`fin_`, the Cash Bank Book), Sales (`sal_`), Logistik (`log_`), Pajak (`tax_`) and Sementara
-  (`tmp_`). What a table is for is the `//` comment above it; what a column
+  (`fin_`, the Cash Bank Book), Sales (`sal_`), Logistik (`log_`, the stock books
+  among them) and Pajak (`tax_`). What a table is for is the `//` comment above it; what a column
   holds, the `//` comment after it.
 - **References are inline** (`ref : > table.id`, `ref : -` for one-to-one).
   A pair `(doc_type_id, doc_id)` or an id with no `ref` is a weak reference
@@ -405,7 +405,7 @@ table ref_withholding_tax {
   }
 }
 
-// Gudang — shown under Master › Entitas; label and name only while stock is ignored (P43, P62)
+// Gudang — shown under Master › Entitas (P43, P62); stock is kept per warehouse in log_stock_balance (P120)
 table ref_warehouse {
   id                          int [pk, increment, not null]
 
@@ -1483,7 +1483,7 @@ table log_delivery_note_line {
 }
 
 // stock picking by lot for a Barang with Kelola Stok, one row per lot (P95)
-// lot_id names the stand-in lot without a foreign key
+// lot_id names a log_stock_tracking lot without a foreign key
 table log_delivery_note_lot {
   id                          int [pk, increment, not null]
 
@@ -1491,7 +1491,7 @@ table log_delivery_note_lot {
 
   pick_no                     int [not null]
 
-  lot_id                      int [not null] // the inventory lot; no FK (stand-in today)
+  lot_id                      int [not null] // the inventory's lot (log_stock_tracking); no FK
 
   lot_no                      varchar [not null] // as printed on the note
   expiry_date                 date
@@ -1505,6 +1505,176 @@ table log_delivery_note_lot {
     (delivery_note_line_id, lot_id) [unique]
     lot_id
   }
+}
+
+//////////////////////////////////
+//
+// Persediaan — the stock books (P120), written only by lib/erp/inventory.ts
+//
+/////////////////////////////////
+
+// stock statuses, seeded (P120): TERSEDIA, KARANTINA, DIBLOKIR; only Tersedia is used today
+table sys_stock_status {
+  id                          int [pk, increment, not null]
+
+  status_code                 varchar [not null, unique]
+
+  status_label                varchar [not null, unique]
+  status_name                 varchar [not null]
+
+  is_issuable                 boolean [not null, default: false]
+  sort_order                  int [not null, default: 0]
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// a lot: one per item and number, made by the receipt that first brings it in
+// only items with Kelola Stok are in the books, and always by lot
+table log_stock_tracking {
+  id                          int [pk, increment, not null]
+
+  tracking_no                 varchar [not null] // unique per item, not globally
+
+  tracking_date               date [not null] // first received
+
+  item_id                     int [not null, ref : > m_item.id]
+
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // the receipt that made it, weak
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+
+  source_partner_id           int [ref : > m_partner.id] // the supplier, when named
+
+  expiry_date                 date // required when the item has Memiliki Kadaluarsa
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (item_id, tracking_no) [unique]
+    (source_doc_type_id, source_doc_id)
+  }
+}
+
+// the stock ledger: one row per quantity movement of a lot in a warehouse and status; append-only
+// MS/YYYY/MM/NNNN, one per posting (P110); each row has one twin in the valuation ledger
+table log_stock_ledger {
+  id                          int [pk, increment, not null]
+
+  ledger_no                   varchar [not null]
+  line_no                     int [not null]
+
+  posting_date                date [not null] // the document's date
+
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id]
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+
+  warehouse_id                int [not null, ref : > ref_warehouse.id]
+  tracking_id                 int [not null, ref : > log_stock_tracking.id]
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
+  stock_status_id             int [not null, ref : > sys_stock_status.id]
+
+  qty_change                  decimal(18,6) [not null]
+  qty_balance                 decimal(18,6) [not null] // the bucket after this row, in posting order
+  unit_cost                   decimal(18,6) [not null] // |value ÷ qty|, a description (P114)
+  value_change                decimal(18,2) [not null] // whole rupiah; equals its valuation twin
+
+  created_by                  int [not null]
+
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (ledger_no, line_no) [unique]
+    (item_id, warehouse_id, posting_date)
+    tracking_id
+    (source_doc_type_id, source_doc_id)
+  }
+}
+
+// quantity on hand per warehouse, lot and status: the stock ledger's sum; never negative (CHECK)
+table log_stock_balance {
+  id                          int [pk, increment, not null]
+
+  warehouse_id                int [not null, ref : > ref_warehouse.id]
+  tracking_id                 int [not null, ref : > log_stock_tracking.id]
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id]
+  stock_status_id             int [not null, ref : > sys_stock_status.id]
+
+  qty_balance                 decimal(18,6) [not null]
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (warehouse_id, tracking_id, stock_status_id) [unique]
+    (item_id, warehouse_id)
+  }
+}
+
+// the valuation ledger: one row per movement of an item's moving-average pool (P114), company-wide
+// MN/YYYY/MM/NNNN, one per posting (P110)
+table log_stock_valuation_ledger {
+  id                          int [pk, increment, not null]
+
+  ledger_no                   varchar [not null]
+  line_no                     int [not null]
+
+  posting_date                date [not null]
+
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id]
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id]
+
+  qty_change                  decimal(18,6) [not null]
+  qty_balance                 decimal(18,6) [not null] // the pool after, every warehouse and status
+  unit_cost                   decimal(18,6) // |value ÷ qty|, a description
+  value_change                decimal(18,2) [not null] // a receipt its own value; an issue round(V × q ÷ Q), the emptying one V
+  value_balance               decimal(18,2) [not null]
+  avg_unit_cost               decimal(18,6) [not null] // V ÷ Q, cached for reading, never multiplied
+
+  created_by                  int [not null]
+
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (ledger_no, line_no) [unique]
+    (item_id, posting_date)
+    (source_doc_type_id, source_doc_id)
+  }
+}
+
+// an item's moving-average pool: Q and V are the truth, the average derived; never negative (CHECK)
+table log_stock_valuation_balance {
+  id                          int [pk, increment, not null]
+
+  item_id                     int [not null, unique, ref : - m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id]
+
+  qty_balance                 decimal(18,6) [not null]
+  value_balance               decimal(18,2) [not null]
+  avg_unit_cost               decimal(18,6) [not null]
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
 }
 
 //////////////////////////////////
@@ -1650,84 +1820,4 @@ table tax_withholding_slip {
   }
 }
 
-//////////////////////////////////
-//
-// Sementara
-//
-/////////////////////////////////
-
-// TEMPORARY — the stand-in inventory, named only by lib/erp/inventory.ts (P94, P95)
-// dropped when inventory is built
-//
-// Harga Pokok (Sementara): one per item per base unit
-table tmp_item_cost {
-  id                          int [pk, increment, not null] // TEMPORARY until inventory is built
-
-  ledger_no                   varchar [not null] // MS/YYYY/MM/NNNN, one per posting, shared by its movements (P110)
-  line_no                     int [not null]
-
-  item_id                     int [not null, unique, ref : - m_item.id]
-
-  unit_cost                   decimal(18,6) [not null] // Harga Pokok per base unit (a description, P114)
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-}
-
-// lots per item and warehouse; no quantity — stock is always sufficient
-table tmp_stock_lot {
-  id                          int [pk, increment, not null] // TEMPORARY until inventory is built
-
-  item_id                     int [not null, ref : > m_item.id]
-  warehouse_id                int [not null, ref : > ref_warehouse.id]
-
-  lot_no                      varchar [not null]
-  expiry_date                 date // required when the item has an expiry
-
-  status                      enum('Active', 'Inactive') [not null, default: 'Active']
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    (item_id, warehouse_id, lot_no) [unique]
-  }
-}
-
-// the issue log, one row per lot issued
-table tmp_stock_movement {
-  id                          int [pk, increment, not null] // TEMPORARY until inventory is built
-
-  item_id                     int [not null, ref : > m_item.id]
-  warehouse_id                int [not null, ref : > ref_warehouse.id]
-
-  movement_date               date [not null]
-
-  lot_id                      int // the lot issued, for an item kept by lot
-
-  lot_no                      varchar
-  base_qty_out                decimal(18,4) [not null]
-  unit_cost                   decimal(18,6) [not null] // a description of the movement, never an input (P114)
-  cost_amount                 decimal(18,2) [not null]
-
-  source_doc_type_id          int [not null]
-  source_doc_id               int [not null]
-  source_no                   varchar [not null]
-
-  created_by                  int [not null]
-
-  created_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    (ledger_no, line_no) [unique]
-    (item_id, warehouse_id, movement_date)
-    (source_doc_type_id, source_doc_id)
-  }
-}
 ```

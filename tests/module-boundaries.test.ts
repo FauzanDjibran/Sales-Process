@@ -98,10 +98,12 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logDeliveryNote: ["src/lib/erp/delivery-note.ts"],
   logDeliveryNoteLine: ["src/lib/erp/delivery-note.ts"],
   logDeliveryNoteLot: ["src/lib/erp/delivery-note.ts"],
-  // The stand-in inventory's temporary tables (U11): only it may name them.
-  tmpItemCost: ["src/lib/erp/inventory.ts"],
-  tmpStockLot: ["src/lib/erp/inventory.ts"],
-  tmpStockMovement: ["src/lib/erp/inventory.ts"],
+  // The stock books (P120): written only by the inventory book, read by its reports.
+  logStockTracking: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
+  logStockLedger: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
+  logStockBalance: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
+  logStockValuationLedger: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
+  logStockValuationBalance: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
   // Billing documents: Finance owns them since P107; Sales holds only orders.
   finArAdvance: ["src/lib/erp/ar-advance.ts"],
   finArInvoice: ["src/lib/erp/ar-invoice.ts"],
@@ -176,7 +178,7 @@ describe("the dependency graph points one way", () => {
       "fx",
       "currency",
     ];
-    const BOOKS = ["cash-bank", "journal", "ar-item"];
+    const BOOKS = ["cash-bank", "journal", "ar-item", "inventory"];
 
     for (const book of BOOKS) {
       const allowed = KERNEL;
