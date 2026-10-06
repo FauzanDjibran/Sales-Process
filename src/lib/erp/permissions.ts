@@ -291,6 +291,9 @@ export const PERMISSIONS = [
   { code: "REPORT_AR_LEDGER_VIEW", name: "Lihat Buku Piutang", module: "finance", description: "Riwayat AR item per customer." },
   { code: "REPORT_AR_AGING_VIEW", name: "Lihat Umur Piutang", module: "finance", description: "Invoice belum lunas menurut umur, per customer." },
   { code: "REPORT_CUSTOMER_ADVANCE_VIEW", name: "Lihat Uang Muka Customer", module: "finance", description: "Uang muka diterima yang belum dipakai invoice." },
+  { code: "REPORT_AP_LEDGER_VIEW", name: "Lihat Buku Hutang", module: "finance", description: "Riwayat AP item per supplier." },
+  { code: "REPORT_AP_AGING_VIEW", name: "Lihat Umur Hutang", module: "finance", description: "Invoice pembelian belum lunas menurut umur, per supplier." },
+  { code: "REPORT_SUPPLIER_ADVANCE_VIEW", name: "Lihat Uang Muka Supplier", module: "finance", description: "Uang muka dibayar yang belum dipakai invoice." },
 
   // ---------------------------------------------------------------- settings
   // Pajak — the tax documents the sales process gives rise to, kept as internal records (P100, P101).

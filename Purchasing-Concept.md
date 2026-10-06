@@ -301,6 +301,8 @@ holds only orders since P107).
 - **B33 — Reports under Finance › Laporan:** **Buku Hutang**, **Umur Hutang**,
   **Uang Muka Supplier** — the three AR reports mirrored (P75, P77).
 
+*Built 06/10/2026: AP items with the Pengeluaran (P127), the reports and the reconcile checks (P129).*
+
 ---
 
 ## 10. Tax law — what the plan relies on

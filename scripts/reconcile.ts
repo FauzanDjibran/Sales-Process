@@ -32,6 +32,9 @@
  *              at the same figures; PPN Keluaran and PPh Dibayar Dimuka in the
  *              GL equal the tax records
  *   advance    no bill is paid beyond its total; a cancelled bill has no payment
+ *   ap         AP items equal their entries and Hutang Usaha / Uang Muka
+ *              Pembelian per supplier; GR/IR equals receipts less invoices; PO
+ *              received quantity equals posted receipts; a receipt line billed once
  *
  * **Left out on purpose:** a Cash & Bank resource's Saldo Awal written at
  * registration is in the Cash Bank Book and the Opening Balance, not a posted
@@ -418,6 +421,60 @@ export const CHECKS: Check[] = [
           WHERE i.item_type = 'Advance' AND i.current_balance = 0
           GROUP BY i.id HAVING MIN(d.ppn_used) > 0
              AND SUM(d.ppn_used) <> ROUND(ROUND(i.original_amount * MIN(v.ppn_dpp_other_numerator) / MIN(v.ppn_dpp_other_denominator), 0) * MIN(v.ppn_rate) / 100, 0)`,
+  },
+  // ----------------------------------------------------------- purchasing
+  {
+    area: "ap",
+    name: "every AP item's balance equals its Buku Hutang entries (P127)",
+    sql: `SELECT i.ap_item_no, i.current_balance, SUM(e.movement) AS entries FROM fin_ap_item i
+            JOIN fin_ap_ledger e ON e.item_id = i.id GROUP BY i.id HAVING i.current_balance <> SUM(e.movement)`,
+  },
+  {
+    area: "ap",
+    name: "Invoice AP items equal the Hutang Usaha account, per supplier (P128)",
+    sql: `SELECT p.partner_label, COALESCE(items.bal, 0) AS items, COALESCE(-gl.bal, 0) AS gl FROM m_partner p
+          LEFT JOIN (SELECT partner_id, SUM(current_balance) AS bal FROM fin_ap_item WHERE item_type = 'Invoice' GROUP BY partner_id) items ON items.partner_id = p.id
+          LEFT JOIN (${glByPartner(acc("payable_account"))}) gl ON gl.partner_id = p.id
+          WHERE COALESCE(items.bal, 0) <> COALESCE(-gl.bal, 0)`,
+  },
+  {
+    area: "ap",
+    name: "Uang Muka AP items equal the Uang Muka Pembelian account, per supplier (P127)",
+    sql: `SELECT p.partner_label, COALESCE(items.bal, 0) AS items, COALESCE(gl.bal, 0) AS gl FROM m_partner p
+          LEFT JOIN (SELECT partner_id, SUM(current_balance) AS bal FROM fin_ap_item WHERE item_type = 'Advance' GROUP BY partner_id) items ON items.partner_id = p.id
+          LEFT JOIN (${glByPartner(acc("purchase_advance_account"))}) gl ON gl.partner_id = p.id
+          WHERE COALESCE(items.bal, 0) <> COALESCE(gl.bal, 0)`,
+  },
+  {
+    area: "ap",
+    name: "Barang Diterima Belum Ditagih equals posted receipts less posted invoices, per supplier (B22)",
+    sql: `SELECT p.partner_label, COALESCE(r.v, 0) - COALESCE(b.v, 0) AS open_receipts, COALESCE(-gl.bal, 0) AS gl FROM m_partner p
+          LEFT JOIN (SELECT n.partner_id, SUM(n.value_amount) AS v FROM log_receipt_note n WHERE n.status = 'Posted' GROUP BY n.partner_id) r ON r.partner_id = p.id
+          LEFT JOIN (SELECT v.supplier_id, SUM(v.dpp_amount) AS v FROM fin_ap_invoice v WHERE v.status = 'Posted' GROUP BY v.supplier_id) b ON b.supplier_id = p.id
+          LEFT JOIN (${glByPartner(acc("goods_received_account"))}) gl ON gl.partner_id = p.id
+          WHERE COALESCE(r.v, 0) - COALESCE(b.v, 0) <> COALESCE(-gl.bal, 0)`,
+  },
+  {
+    area: "ap",
+    name: "received quantity on every PO line equals what posted Receipt Notes took, never more than ordered (P125)",
+    sql: `SELECT o.order_no, l.line_no, l.qty, l.received_qty, COALESCE(r.q, 0) AS receipts FROM pur_order_line l JOIN pur_order o ON o.id = l.order_id
+          LEFT JOIN (SELECT rl.source_doc_line_id, SUM(rl.qty) AS q FROM log_receipt_note_line rl JOIN log_receipt_note n ON n.id = rl.receipt_note_id
+                     WHERE n.status = 'Posted' AND n.purpose = 'purchase_receipt' GROUP BY rl.source_doc_line_id) r ON r.source_doc_line_id = l.id
+          WHERE l.received_qty <> COALESCE(r.q, 0) OR l.received_qty > l.qty`,
+  },
+  {
+    area: "ap",
+    name: "a receipt line is billed by at most one live Invoice Pembelian (P128)",
+    sql: `SELECT l.receipt_note_line_id, COUNT(*) AS invoices FROM fin_ap_invoice_line l JOIN fin_ap_invoice v ON v.id = l.invoice_id AND v.status IN ('Draft', 'Posted')
+          GROUP BY l.receipt_note_line_id HAVING COUNT(*) > 1`,
+  },
+  {
+    area: "ap",
+    name: "no AP advance bill is paid beyond its total; a cancelled or unrecorded bill has no payment (P127)",
+    sql: `SELECT a.advance_no, a.status::text, a.total_amount, SUM(l.settled_amount) AS paid
+          FROM fin_ap_advance a JOIN fin_cash_bank_tx_line l ON l.doc_type_id = ${docType("fin_ap_advance")} AND l.doc_id = a.id
+          JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+          GROUP BY a.id HAVING SUM(l.settled_amount) > a.total_amount OR a.status <> 'Issued'`,
   },
   // --------------------------------------------------------------- books
   {

@@ -15,6 +15,7 @@ import {
   type PurchaseInvoiceHeaderInput,
 } from "../src/lib/erp/ap-invoice";
 import { computePurchaseInvoice } from "../src/lib/erp/ap-invoice-workflow";
+import { apLedgerReport, openApItemsAsOf } from "../src/lib/erp/ap-item";
 import { recordCashBankEntry } from "../src/lib/erp/cash-bank";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import { cleanupFiscalYear, cleanupFixtures, disconnect, makeAccount, openFiscalYear, prisma } from "./helpers";
@@ -194,5 +195,15 @@ describe("the Invoice Pembelian", () => {
       [f.bankAcc, 0, 763_050],
     ]);
     assert.equal((await purchaseInvoicePayStates([f.inv]))[f.inv].state, "Paid");
+  });
+
+  test("Buku Hutang and Umur Hutang read the AP items (B33)", async () => {
+    const book = (await apLedgerReport(w.f.supplier, { from: today, to: today }, { includeAdvance: true }))!;
+    assert.deepEqual(book.entries.map((e) => e.event), ["Create", "Create", "AdvanceUsed", "AdvanceApplied", "Payment"]);
+    assert.equal(book.closing, 0, "everything settled");
+    // The invoice born (1.096.050) and the advance used up (300.000) raise Hutang;
+    // the advance paid, the advance applied and the payment lower it.
+    assert.equal(book.increase, 1_396_050);
+    assert.deepEqual(await openApItemsAsOf("Invoice", today, w.f.supplier), []);
   });
 });

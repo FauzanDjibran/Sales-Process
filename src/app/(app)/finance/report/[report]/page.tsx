@@ -20,6 +20,12 @@ import { arItemsReconcile, arLedgerReport, arPartnerOptions, openArItemsAsOf } f
 import { closingBalances } from "@/lib/erp/ledger";
 import { postingAccounts } from "@/lib/erp/system-settings";
 import { customerOrderNumbersByIds } from "@/lib/erp/customer-order";
+import { ApReportParams } from "@/components/report/ap-report-params";
+import { ApAgingReport } from "@/components/report/ap-aging-report";
+import { ApLedgerReportBody } from "@/components/report/ap-ledger-report";
+import { SupplierAdvanceReport, type SupplierAdvanceReconciliation } from "@/components/report/supplier-advance-report";
+import { apItemsReconcileFor, apLedgerReport, apPartnerOptions, openApItemsAsOf } from "@/lib/erp/ap-item";
+import { purchaseOrderNumbersByIds } from "@/lib/erp/purchase-order";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +49,7 @@ export default async function Page({
   searchParams: Promise<{
     cashBank?: string;
     customer?: string;
+    supplier?: string;
     asOf?: string;
     from?: string;
     to?: string;
@@ -62,6 +69,9 @@ export default async function Page({
 
   if (report.params === "ar-asof" || report.params === "ar-period") {
     return arReport(report, query, range, runAt);
+  }
+  if (report.params === "ap-asof" || report.params === "ap-period") {
+    return apReport(report, query, range, runAt);
   }
 
   const resources = await cashBankOptions();
@@ -312,4 +322,88 @@ async function arReport(
 async function orderNumbers(ids: (number | null)[]): Promise<Record<number, string>> {
   const wanted = [...new Set(ids.filter((id): id is number => id !== null))];
   return wanted.length ? Object.fromEntries(await customerOrderNumbersByIds(wanted)) : {};
+}
+
+// ------------------------------------------------------------ AP reports
+
+/**
+ * Buku Hutang, Umur Hutang and Uang Muka Supplier (B33): the AR reports
+ * mirrored on the AP items. The Uang Muka report is checked against the
+ * Uang Muka Pembelian account in the General Ledger, composed here.
+ */
+async function apReport(
+  report: NonNullable<ReturnType<typeof reportBySlug>>,
+  query: { supplier?: string; asOf?: string; advance?: string },
+  range: PeriodRange,
+  runAt: string
+) {
+  const supplierId = positiveInt(query.supplier);
+  const asOf = isDate(query.asOf) ? query.asOf : new Date().toISOString().slice(0, 10);
+  const includeAdvance = query.advance === "1";
+  const filter = (
+    <ApReportParams
+      slug={report.slug}
+      suppliers={await apPartnerOptions()}
+      supplierId={supplierId}
+      mode={report.params === "ap-asof" ? "asof" : "period"}
+      asOf={asOf}
+      from={range.from}
+      to={range.to}
+      subjectRequired={report.subjectRequired}
+      advance={report.key === "ap_ledger" ? includeAdvance : null}
+    />
+  );
+  const mismatch = (await apItemsReconcileFor(supplierId)) ? null : (
+    <>Ada AP item yang saldonya tidak sama dengan jumlah entri Buku Hutang-nya; angka di atas dibaca dari entri.</>
+  );
+  const poNumbers = async (ids: (number | null)[]) => {
+    const wanted = [...new Set(ids.filter((id): id is number => id !== null))];
+    return wanted.length ? Object.fromEntries(await purchaseOrderNumbersByIds(wanted)) : {};
+  };
+
+  if (report.key === "ap_ledger") {
+    const data = supplierId ? await apLedgerReport(supplierId, range, { includeAdvance }) : null;
+    return (
+      <ReportView
+        report={report}
+        filter={filter}
+        runAt={runAt}
+        footnote={mismatch ?? <>Menambah menaikkan Hutang Usaha ke supplier (invoice); Mengurangi menurunkannya (uang muka dibayar, pembayaran, uang muka diterapkan).</>}
+      >
+        {data ? (
+          <ApLedgerReportBody report={data} orderNos={await poNumbers(data.entries.map((e) => e.orderId))} />
+        ) : (
+          <ReportNeedsSubject icon="book" title="Pilih Supplier terlebih dahulu" body="Buku Hutang selalu milik satu supplier. Pilih supplier dan rentang tanggal di atas, lalu tekan Tampilkan." />
+        )}
+      </ReportView>
+    );
+  }
+
+  const advances = await openApItemsAsOf("Advance", asOf, supplierId);
+  if (report.key === "ap_aging") {
+    const invoices = await openApItemsAsOf("Invoice", asOf, supplierId);
+    return (
+      <ReportView report={report} filter={filter} runAt={runAt} footnote={mismatch ?? <>Umur dihitung dari tanggal jatuh tempo invoice per {formatDate(asOf)}.</>}>
+        <ApAgingReport invoices={invoices} advances={advances} asOf={asOf} />
+      </ReportView>
+    );
+  }
+
+  let gl: SupplierAdvanceReconciliation;
+  const mapped = await postingAccounts(["purchase_advance_account"] as const);
+  if (!mapped.ok) gl = { ok: false, missing: `${mapped.missing.join(", ")} belum diatur di Account Mapping.` };
+  else {
+    const accountId = mapped.ids.purchase_advance_account;
+    const balances = (await closingBalances(asOf)).filter((b) => b.accountId === accountId);
+    const account = await prisma.accAccount.findUnique({ where: { id: accountId }, select: { account_label: true, account_name: true } });
+    const byPartner: Record<number, number> = {};
+    // An asset: a debit balance is what the supplier holds of ours.
+    for (const b of balances) if (b.partnerId) byPartner[b.partnerId] = (byPartner[b.partnerId] ?? 0) + b.balance;
+    gl = { ok: true, accountLabel: account?.account_label ?? "", accountName: account?.account_name ?? "", byPartner };
+  }
+  return (
+    <ReportView report={report} filter={filter} runAt={runAt} footnote={mismatch ?? <>Nilai uang muka adalah bagian DPP-nya — yang tercatat di account Uang Muka Pembelian; PPN-nya sudah dikreditkan sebagai PPN Masukan saat dibayar.</>}>
+      <SupplierAdvanceReport rows={advances} gl={gl} orderNos={await poNumbers(advances.map((a) => a.orderId))} />
+    </ReportView>
+  );
 }

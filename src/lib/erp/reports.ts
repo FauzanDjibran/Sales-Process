@@ -37,6 +37,10 @@ export type ReportParams =
   | "ar-asof"
   /** One customer and a date range — a book of that customer (P75). */
   | "ar-period"
+  /** An optional supplier and the one date the figures stand at (B33). */
+  | "ap-asof"
+  /** One supplier and a date range — a book of that supplier (B33). */
+  | "ap-period"
   /** One item, optionally a warehouse, and a date range — a stock card (P120). */
   | "stock-period"
   /** Optionally an item and a warehouse, and the one date the stock stands at (P120). */
@@ -126,6 +130,39 @@ const FIXED_REPORTS = [
     icon: "wallet",
     permission: "REPORT_CUSTOMER_ADVANCE_VIEW",
     params: "ar-asof",
+    subjectRequired: false,
+  },
+  {
+    key: "ap_ledger",
+    slug: "ap-ledger",
+    module: "finance",
+    name: "Buku Hutang",
+    desc: "Setiap perubahan AP item satu supplier pada rentang tanggal — invoice, uang muka dan pembayarannya — dengan posisi Hutang Usaha awal dan akhir.",
+    icon: "book",
+    permission: "REPORT_AP_LEDGER_VIEW",
+    params: "ap-period",
+    subjectRequired: true,
+  },
+  {
+    key: "ap_aging",
+    slug: "ap-aging",
+    module: "finance",
+    name: "Umur Hutang",
+    desc: "Invoice pembelian yang belum lunas per supplier menurut umur jatuh temponya, beserta uang muka yang sudah dibayar dan posisi bersihnya.",
+    icon: "clock",
+    permission: "REPORT_AP_AGING_VIEW",
+    params: "ap-asof",
+    subjectRequired: false,
+  },
+  {
+    key: "supplier_advance",
+    slug: "supplier-advance",
+    module: "finance",
+    name: "Uang Muka Supplier",
+    desc: "Uang muka yang sudah dibayar ke supplier dan belum dipakai invoice, per supplier dan Purchase Order, dicocokkan dengan account Uang Muka Pembelian.",
+    icon: "wallet",
+    permission: "REPORT_SUPPLIER_ADVANCE_VIEW",
+    params: "ap-asof",
     subjectRequired: false,
   },
   {

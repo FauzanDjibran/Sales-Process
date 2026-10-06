@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
+import type { PeriodRange } from "./period";
 
 /**
  * AP items and Buku Hutang (P127, Purchasing-Concept.md B32) — the AR items
@@ -218,3 +219,222 @@ export async function apItemsReconcile(): Promise<boolean> {
   if (sums.length !== items.size) return false;
   return sums.every((s) => cents(s._sum.movement?.toNumber() ?? 0) === cents(items.get(s.item_id) ?? NaN));
 }
+
+// ------------------------------------------------------------- reports
+// Buku Hutang, Umur Hutang and Uang Muka Supplier (B33): the AR reports' reads mirrored.
+
+export type ApItemRow = {
+  id: number;
+  apItemNo: string;
+  type: ApItemType;
+  partnerId: number;
+  partnerLabel: string;
+  partnerName: string;
+  date: string;
+  dueDate: string | null;
+  /** What the item is about: the advance bill, the Invoice. */
+  sourceNo: string;
+  sourceTable: string;
+  sourceId: number;
+  /** The posting that created it — its Create entry's document. */
+  createdByNo: string;
+  createdByTable: string;
+  createdById: number;
+  /** By id: the order belongs to another module, whose page names it. */
+  orderId: number | null;
+  /** What the item was born at (P116). */
+  original: number;
+  /** What left the item up to the date asked about. */
+  settled: number;
+  /** Open at that date. */
+  open: number;
+};
+
+/**
+ * Every item of a type with a balance at the end of `asOf`, read from Buku
+ * Piutang rather than `current_balance`, so a report for a past date is right
+ * however much has moved since.
+ */
+export async function openApItemsAsOf(
+  type: ApItemType,
+  asOf: string,
+  partnerId: number | null = null
+): Promise<ApItemRow[]> {
+  const items = await prisma.finApItem.findMany({
+    where: { item_type: type, item_date: { lte: asDate(asOf) }, ...(partnerId ? { partner_id: partnerId } : {}) },
+    include: {
+      partner: { select: { partner_label: true, partner_name: true } },
+      source_doc_type: { select: { doc_table: true } },
+      entries: {
+        where: { entry_date: { lte: asDate(asOf) } },
+        select: { event: true, amount: true, movement: true, doc_id: true, doc_no: true, doc_type: { select: { doc_table: true } } },
+        orderBy: { id: "asc" },
+      },
+    },
+    orderBy: [{ item_date: "asc" }, { id: "asc" }],
+  });
+  return items
+    .map((i) => {
+      const created = i.entries.find((e) => e.event === "Create");
+      const original = i.original_amount.toNumber();
+      const open = i.entries.reduce((a, e) => a + e.movement.toNumber(), 0);
+      return {
+        id: i.id,
+        apItemNo: i.ap_item_no,
+        type: i.item_type as ApItemType,
+        partnerId: i.partner_id,
+        partnerLabel: i.partner.partner_label,
+        partnerName: i.partner.partner_name,
+        date: isoDay(i.item_date),
+        dueDate: i.due_date ? isoDay(i.due_date) : null,
+        sourceNo: i.source_no,
+        sourceTable: i.source_doc_type.doc_table,
+        sourceId: i.source_doc_id,
+        createdByNo: created?.doc_no ?? "",
+        createdByTable: created?.doc_type.doc_table ?? "",
+        createdById: created?.doc_id ?? 0,
+        orderId: i.purchase_order_id,
+        original,
+        settled: original - open,
+        open,
+      };
+    })
+    .filter((r) => Math.round(r.open * 100) !== 0);
+}
+
+export type ApLedgerEntryRow = {
+  id: number;
+  date: string;
+  itemId: number;
+  type: ApItemType;
+  event: ApEvent;
+  /** The posting's Buku Hutang number (P110), shared by its entries. */
+  ledgerNo: string;
+  docNo: string;
+  docTable: string;
+  docId: number;
+  /** The item's own identity: its number and what it is about. */
+  itemNo: string;
+  itemSourceNo: string;
+  orderId: number | null;
+  note: string | null;
+  /** Signed on the supplier's Hutang Usaha: + raises it, − lowers it. */
+  exposure: number;
+};
+
+export type ApLedgerReport = {
+  partner: { id: number; label: string; name: string };
+  range: PeriodRange;
+  /** Whether Uang Muka entries are in the book, or only stated beside it (P77). */
+  includeAdvance: boolean;
+  /** Hutang Usaha position at the start: Σ exposure before `range.from`. */
+  opening: number;
+  entries: ApLedgerEntryRow[];
+  increase: number;
+  decrease: number;
+  closing: number;
+  /** What each type holds at the end, as a positive figure. */
+  closingByType: Record<ApItemType, number>;
+};
+
+/**
+ * Buku Hutang of one supplier over a period: every entry on their items,
+ * oldest first, each signed on their Hutang Usaha position, with the position
+ * before and after.
+ *
+ * By default the book holds **Invoice items only** and states the Uang Muka
+ * still held beside it, as mainstream ERPs keep a supplier's down payments out
+ * of the receivables line until they are cleared against an invoice (P77).
+ * `includeAdvance` puts the Uang Muka entries in, netting the position.
+ */
+export async function apLedgerReport(
+  partnerId: number,
+  range: PeriodRange,
+  opts: { includeAdvance?: boolean } = {}
+): Promise<ApLedgerReport | null> {
+  const includeAdvance = Boolean(opts.includeAdvance);
+  const partner = await prisma.mPartner.findUnique({
+    where: { id: partnerId },
+    select: { id: true, partner_label: true, partner_name: true },
+  });
+  if (!partner) return null;
+  const rows = await prisma.finApLedger.findMany({
+    where: { item: { partner_id: partnerId }, entry_date: { lte: asDate(range.to) } },
+    include: {
+      item: { select: { item_type: true, ap_item_no: true, source_no: true, purchase_order_id: true } },
+      doc_type: { select: { doc_table: true } },
+    },
+    orderBy: [{ entry_date: "asc" }, { id: "asc" }],
+  });
+  const exposureOf = (r: (typeof rows)[number]) => r.movement.toNumber() * AP_SIGN[r.item.item_type as ApItemType];
+
+  let opening = 0;
+  const entries: ApLedgerEntryRow[] = [];
+  const closingByType: Record<ApItemType, number> = { Advance: 0, Invoice: 0 };
+  for (const r of rows) {
+    closingByType[r.item.item_type as ApItemType] += r.movement.toNumber();
+    // Uang Muka is shown beside the book, not in it, unless asked for (P77).
+    if (!includeAdvance && r.item.item_type === "Advance") continue;
+    if (isoDay(r.entry_date) < range.from) {
+      opening += exposureOf(r);
+      continue;
+    }
+    entries.push({
+      id: r.id,
+      date: isoDay(r.entry_date),
+      itemId: r.item_id,
+      type: r.item.item_type as ApItemType,
+      event: r.event as ApEvent,
+      ledgerNo: r.ledger_no,
+      docNo: r.doc_no,
+      docTable: r.doc_type.doc_table,
+      docId: r.doc_id,
+      itemNo: r.item.ap_item_no,
+      itemSourceNo: r.item.source_no,
+      orderId: r.item.purchase_order_id,
+      note: r.note,
+      exposure: exposureOf(r),
+    });
+  }
+  const increase = entries.filter((e) => e.exposure > 0).reduce((a, e) => a + e.exposure, 0);
+  // `|| 0` so an empty period reads 0, not −0.
+  const decrease = -entries.filter((e) => e.exposure < 0).reduce((a, e) => a + e.exposure, 0) || 0;
+  return {
+    partner: { id: partner.id, label: partner.partner_label, name: partner.partner_name },
+    range,
+    includeAdvance,
+    opening,
+    entries,
+    increase,
+    decrease,
+    closing: opening + increase - decrease,
+    closingByType,
+  };
+}
+
+/** The suppliers that have ever had an AR item — the report's picker. */
+export async function apPartnerOptions(): Promise<{ id: number; label: string; name: string; active: boolean }[]> {
+  const rows = await prisma.mPartner.findMany({
+    where: { ap_items: { some: {} } },
+    orderBy: { partner_label: "asc" },
+    select: { id: true, partner_label: true, partner_name: true },
+  });
+  return rows.map((r) => ({ id: r.id, label: r.partner_label, name: r.partner_name, active: true }));
+}
+
+/**
+ * Whether every item's stored balance equals the sum of its entries. The
+ * stored figure is a convenience; the entries are the record (P72).
+ */
+export async function apItemsReconcileFor(partnerId: number | null = null): Promise<boolean> {
+  const items = await prisma.finApItem.findMany({
+    where: partnerId ? { partner_id: partnerId } : {},
+    select: { current_balance: true, entries: { select: { movement: true } } },
+  });
+  return items.every(
+    (i) =>
+      Math.round(i.current_balance.toNumber() * 100) ===
+      Math.round(i.entries.reduce((a, e) => a + e.movement.toNumber(), 0) * 100)
+  );
+}
+
