@@ -107,6 +107,9 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // Purchasing documents (P123): each named only by its module.
   purRequest: ["src/lib/erp/purchase-request.ts"],
   purRequestLine: ["src/lib/erp/purchase-request.ts"],
+  purOrder: ["src/lib/erp/purchase-order.ts"],
+  purOrderLine: ["src/lib/erp/purchase-order.ts"],
+  purOrderLineRequest: ["src/lib/erp/purchase-order.ts"],
   // Accounts per Kategori Item (P122): read and written only through its module.
   accItemCategoryAccount: ["src/lib/erp/item-account.ts"],
   // Billing documents: Finance owns them since P107; Sales holds only orders.

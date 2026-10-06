@@ -29,6 +29,7 @@ import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
 import { DELIVERY_ORDER_TRANSITIONS } from "./delivery-order-workflow";
 import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
 import { PURCHASE_REQUEST_TRANSITIONS } from "./purchase-request-workflow";
+import { PURCHASE_ORDER_TRANSITIONS } from "./purchase-order-workflow";
 import { INVOICE_TRANSITIONS } from "./ar-invoice-workflow";
 import { CASH_RECEIPT_TRANSITIONS } from "./cash-bank-tx-workflow";
 
@@ -140,6 +141,19 @@ const PURCHASE_REQUEST_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(PURCHASE_REQUEST_TRANSITIONS.cancel, "Dibatalkan"),
   close: fromTransition(PURCHASE_REQUEST_TRANSITIONS.close, "Ditutup"),
   fulfil: { label: "Ditutup — seluruhnya dipesan", icon: "clip", tone: "primary", systemDriven: true },
+  reopen: { label: "Dibuka kembali — pesanan dikembalikan", icon: "clip", tone: "neutral", systemDriven: true },
+};
+
+/** Purchase Order: Draft → Diajukan → Open → Ditutup, or Dibatalkan / Ditolak (P124). */
+const PURCHASE_ORDER_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Purchase Order dibuat", icon: "clip", tone: "neutral" },
+  submit: fromTransition(PURCHASE_ORDER_TRANSITIONS.submit, "Diajukan"),
+  approve: fromTransition(PURCHASE_ORDER_TRANSITIONS.approve, "Disetujui"),
+  reject: fromTransition(PURCHASE_ORDER_TRANSITIONS.reject, "Ditolak"),
+  cancel: fromTransition(PURCHASE_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
+  close: fromTransition(PURCHASE_ORDER_TRANSITIONS.close, "Ditutup"),
+  fulfil: { label: "Ditutup — seluruhnya diterima", icon: "box", tone: "primary", systemDriven: true },
 };
 
 /** Delivery Note: Draft → Diposting, or Dibatalkan (C28). */
@@ -250,6 +264,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   sal_delivery_order: DELIVERY_ORDER_EVENTS,
   log_delivery_note: DELIVERY_NOTE_EVENTS,
   pur_request: PURCHASE_REQUEST_EVENTS,
+  pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,
   fin_ar_advance: SALES_ADVANCE_EVENTS,
   fin_cash_bank_tx: CASH_BANK_TX_EVENTS,

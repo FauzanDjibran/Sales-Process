@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20261006140000_purchase_request`
+- **As of migration:** `20261006160000_purchase_order`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout:** tables are grouped in sections by prefix — System (`sys_`),
@@ -1488,6 +1488,100 @@ table pur_request_line {
   indexes {
     (request_id, line_no) [unique]
     item_id
+  }
+}
+
+// Purchase Order, PO/… or PO-NP/… (P124, Purchasing-Concept.md B9–B16): one supplier, one kind
+// made only from Open Purchase Requests; the Customer Order's tax arithmetic; posts nothing
+// Draft -> Ajukan -> Diajukan -> Setujui -> Open -> Tutup; Tolak / Batalkan final
+table pur_order {
+  id                          int [pk, increment, not null]
+
+  order_no                    varchar [not null, unique] // PO/YYYY/MM/NNNN, PO-NP/… without PPN
+  order_date                  date [not null]
+  item_type                   enum('Barang', 'Jasa') [not null] // fixed at creation
+  status                      enum('Draft', 'Submitted', 'Open', 'Closed', 'Cancelled', 'Rejected') [not null, default: 'Draft']
+
+  supplier_id                 int [not null, ref : > m_partner.id]
+  term_id                     int [not null, ref : > ref_payment_term.id]
+  delivery_date               date [not null] // Tanggal Kirim Diharapkan
+  warehouse_id                int [ref : > ref_warehouse.id] // Gudang Tujuan; Barang only
+  quotation_no                varchar // the supplier's quotation
+
+  is_taxable                  boolean [not null, default: true] // only for a PKP supplier
+  price_mode                  enum('Exclude', 'Include') [not null]
+  ppn_rate                    decimal(9,4) // snapshot (P60)
+  ppn_dpp_other_numerator     int
+  ppn_dpp_other_denominator   int
+
+  note                        varchar
+
+  gross_amount                decimal(18,2) [not null, default: 0]
+  discount_amount             decimal(18,2) [not null, default: 0]
+  dpp_amount                  decimal(18,2) [not null, default: 0]
+  dpp_other_amount            decimal(18,2) [not null, default: 0]
+  ppn_amount                  decimal(18,2) [not null, default: 0]
+  total_amount                decimal(18,2) [not null, default: 0]
+
+  status_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    supplier_id
+    (item_type, status)
+  }
+}
+
+// request lines of one item and unit become one line (B9); any unit of the item (B14)
+table pur_order_line {
+  id                          int [pk, increment, not null]
+
+  order_id                    int [not null, ref : > pur_order.id]
+  line_no                     int [not null]
+
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id]
+  uom_factor                  decimal(18,4) [not null] // base units in one uom_id, copied at save
+  qty                         decimal(18,4) [not null]
+  price                       decimal(18,6) [not null]
+
+  discount_type               enum('Percent', 'Amount')
+  discount_value              decimal(18,4)
+  discount_amount             decimal(18,2) [not null, default: 0]
+  amount                      decimal(18,2) [not null]
+  dpp_amount                  decimal(18,2) [not null]
+  dpp_other_amount            decimal(18,2) [not null, default: 0]
+  ppn_amount                  decimal(18,2) [not null]
+
+  withholding_tax_id          int [ref : > ref_withholding_tax.id] // a purchase Jenis PPh
+  withholding_rate            decimal(9,4) // the master's, doubled without an NPWP (B12)
+
+  received_qty                decimal(18,4) [not null, default: 0] // in uom_id; written by the Receipt Note
+
+  note                        varchar
+
+  indexes {
+    (order_id, line_no) [unique]
+    item_id
+  }
+}
+
+// the request lines a PO line covers and its share of each, base units, earliest need first (B15)
+table pur_order_line_request {
+  id                          int [pk, increment, not null]
+
+  order_line_id               int [not null, ref : > pur_order_line.id]
+  request_line_id             int [not null, ref : > pur_request_line.id]
+  base_qty                    decimal(18,4) [not null, default: 0] // provisional while Draft; written to the request at Ajukan
+
+  indexes {
+    (order_line_id, request_line_id) [unique]
+    request_line_id
   }
 }
 

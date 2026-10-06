@@ -206,6 +206,13 @@ export const PERMISSIONS = [
   { code: "PURCHASE_REQUEST_SUBMIT", name: "Ajukan Purchase Request", module: "purchasing", description: "Mengunci dan membuka Purchase Request untuk Purchase Order; tanpa persetujuan." },
   { code: "PURCHASE_REQUEST_CANCEL", name: "Batalkan Purchase Request", module: "purchasing", description: "Hanya Draft, dengan alasan." },
   { code: "PURCHASE_REQUEST_CLOSE", name: "Tutup Purchase Request", module: "purchasing", description: "Menutup sisa yang belum dipesan, dengan alasan." },
+  { code: "PURCHASE_ORDER_VIEW", name: "Lihat Purchase Order", module: "purchasing", description: "Barang dan Jasa, termasuk Draft dan yang dibatalkan." },
+  { code: "PURCHASE_ORDER_CREATE", name: "Buat Purchase Order", module: "purchasing", description: "Dari Purchase Request yang Open." },
+  { code: "PURCHASE_ORDER_EDIT", name: "Ubah Purchase Order", module: "purchasing", description: "Hanya selama masih Draft." },
+  { code: "PURCHASE_ORDER_SUBMIT", name: "Ajukan Purchase Order", module: "purchasing", description: "Mengunci pesanan dan mencatat jumlahnya pada Purchase Request." },
+  { code: "PURCHASE_ORDER_APPROVE", name: "Setujui / Tolak Purchase Order", module: "purchasing" },
+  { code: "PURCHASE_ORDER_CANCEL", name: "Batalkan Purchase Order", module: "purchasing", description: "Hanya Draft, dengan alasan." },
+  { code: "PURCHASE_ORDER_CLOSE", name: "Tutup Purchase Order", module: "purchasing", description: "Mengembalikan sisa yang belum diterima ke Purchase Request, dengan alasan." },
 
   // -------------------------------------------------------------- logistics
   // Standalone goods documents, chosen by purpose (P106).

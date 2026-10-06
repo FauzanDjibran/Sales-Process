@@ -374,12 +374,23 @@ export async function recordPurchaseRequestOrdered(
     await tx.purRequestLine.update({ where: { id: lineId }, data: { ordered_qty: { increment: qty } } });
   }
   const requests = await tx.purRequest.findMany({
-    where: { status: "Open", lines: { some: { id: { in: [...ordered.keys()] } } } },
+    where: { status: { in: ["Open", "Closed"] }, lines: { some: { id: { in: [...ordered.keys()] } } } },
     include: { lines: true },
   });
   const closed: string[] = [];
   for (const r of requests) {
-    if (!r.lines.every((l) => units(l.ordered_qty.toNumber()) >= units(l.qty.toNumber()))) continue;
+    const full = r.lines.every((l) => units(l.ordered_qty.toNumber()) >= units(l.qty.toNumber()));
+    // A request that closed itself (no reason) and is given quantity back — a
+    // rejected or short-closed Purchase Order — is open again; one closed by
+    // hand stays closed.
+    if (r.status === "Closed") {
+      if (!full && r.status_reason === null) {
+        const back = await tx.purRequest.updateMany({ where: { id: r.id, status: "Closed" }, data: { status: "Open", updated_by: actorId } });
+        if (back.count === 1) await audit(tx, r.id, "UPDATE", "reopen", actorId);
+      }
+      continue;
+    }
+    if (!full) continue;
     const done = await tx.purRequest.updateMany({ where: { id: r.id, status: "Open" }, data: { status: "Closed", status_reason: null, updated_by: actorId } });
     if (done.count === 1) {
       await audit(tx, r.id, "UPDATE", "fulfil", actorId);
@@ -448,4 +459,65 @@ export async function getPurchaseRequest(id: number): Promise<PurchaseRequestVie
 export async function purchaseRequestNumbersByIds(ids: number[]): Promise<Map<number, string>> {
   const rows = await prisma.purRequest.findMany({ where: { id: { in: ids } }, select: { id: true, request_no: true } });
   return new Map(rows.map((r) => [r.id, r.request_no]));
+}
+
+// ------------------------------------------------------ for the Purchase Order
+
+/**
+ * A request line as a Purchase Order reads it (B13): whose request, its item
+ * in base units, when it is needed and what is left to order. The PO module
+ * takes this rather than reading `pur_request_line` itself.
+ */
+export type PoSourceLine = {
+  id: number;
+  requestId: number;
+  requestNo: string;
+  requestOpen: boolean;
+  itemId: number;
+  itemLabel: string;
+  itemName: string;
+  uomId: number;
+  uomLabel: string;
+  neededDate: string;
+  qty: number;
+  ordered: number;
+};
+
+/** Lines of Open requests of one kind with something left, plus any named. */
+export async function purchaseOrderSourceLines(
+  filter: { itemType?: "Barang" | "Jasa"; ids?: number[] },
+  db: Db = prisma
+): Promise<PoSourceLine[]> {
+  const or: Prisma.PurRequestLineWhereInput[] = [];
+  if (filter.itemType) or.push({ request: { status: "Open", item_type: filter.itemType } });
+  if (filter.ids?.length) or.push({ id: { in: filter.ids } });
+  if (!or.length) return [];
+  const rows = await db.purRequestLine.findMany({
+    where: { OR: or },
+    include: { request: true, item: true, uom: true },
+    orderBy: [{ needed_date: "asc" }, { id: "asc" }],
+  });
+  const named = new Set(filter.ids ?? []);
+  return rows
+    .filter((l) => named.has(l.id) || units(l.ordered_qty.toNumber()) < units(l.qty.toNumber()))
+    .map((l) => ({
+      id: l.id,
+      requestId: l.request_id,
+      requestNo: l.request.request_no,
+      requestOpen: l.request.status === "Open",
+      itemId: l.item_id,
+      itemLabel: l.item.item_label,
+      itemName: l.item.item_name,
+      uomId: l.uom_id,
+      uomLabel: l.uom.uom_label,
+      neededDate: isoDay(l.needed_date),
+      qty: l.qty.toNumber(),
+      ordered: l.ordered_qty.toNumber(),
+    }));
+}
+
+/** Locks the requests of these lines, so two Purchase Orders cannot share out the same remainder at once. */
+export async function lockPurchaseRequestLines(tx: Prisma.TransactionClient, lineIds: number[]): Promise<void> {
+  if (!lineIds.length) return;
+  await tx.$queryRaw`SELECT r.id FROM pur_request r WHERE r.id IN (SELECT request_id FROM pur_request_line WHERE id = ANY(${lineIds})) ORDER BY r.id FOR UPDATE`;
 }

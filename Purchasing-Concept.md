@@ -165,6 +165,8 @@ holds only orders since P107).
   releases what was never received** back to its PR lines (as U14).
   Permissions `PURCHASE_ORDER_*` as the Customer Order's.
 
+*Built 06/10/2026 (P124); closing on full receipt comes with the Receipt Note.*
+
 ---
 
 ## 5. Receipt Note  (`log_receipt_note`, Logistik)

@@ -203,6 +203,28 @@ export const MODULES: NavModule[] = [
           },
         ],
       },
+      {
+        key: "order",
+        name: "Pesanan",
+        entities: [
+          {
+            key: "pur_order_goods",
+            slug: "order/goods",
+            name: "Purchase Order Barang",
+            icon: "clip",
+            desc: "Pesanan barang ke satu supplier, dari Purchase Request yang Open, dengan harga dan pajaknya. Tidak memposting apa pun.",
+            permission: "PURCHASE_ORDER_VIEW",
+          },
+          {
+            key: "pur_order_service",
+            slug: "order/service",
+            name: "Purchase Order Jasa",
+            icon: "clip",
+            desc: "Pesanan jasa ke satu supplier, dari Purchase Request yang Open, dengan harga dan pajaknya. Tidak memposting apa pun.",
+            permission: "PURCHASE_ORDER_VIEW",
+          },
+        ],
+      },
     ],
   },
   {

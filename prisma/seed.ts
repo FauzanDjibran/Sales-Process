@@ -135,6 +135,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Injeksi Stok", "log_stock_injection"],
   // Purchasing (P123): the Purchase Order names it line by line.
   ["Purchase Request", "pur_request"],
+  ["Purchase Order", "pur_order"],
 ];
 
 /**
