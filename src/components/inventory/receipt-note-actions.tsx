@@ -79,7 +79,7 @@ export function ReceiptNoteActions({
               key: "edit",
               tone: "neutral" as ActionTone,
               node: (
-                <Link key="edit" className="btn" href={`/logistics/receipt-note/${id}/edit`}>
+                <Link key="edit" className="btn" href={`/inventory/receipt-note/${id}/edit`}>
                   <Icon name="pen" size={15} /> Ubah
                 </Link>
               ),

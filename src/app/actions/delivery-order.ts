@@ -41,7 +41,7 @@ function revalidate(id?: number) {
   // The Sales Order's page lists the Delivery Orders drawing on it.
   revalidatePath("/sales/order", "layout");
   // A Delivery Note draws on issued Delivery Orders.
-  revalidatePath("/logistics/delivery-note", "layout");
+  revalidatePath("/inventory/delivery-note", "layout");
 }
 
 export async function createDeliveryOrderAction(

@@ -263,7 +263,7 @@ export function PurchaseInvoiceForm({
               {picked.map((l, i) => (
                 <tr key={l.id} className={errors[`lines.${i}.receipt_note_line_id`] ? "overrow" : undefined}>
                   <td>
-                    <Link className="drl" href={`/logistics/receipt-note/${l.receiptNoteId}`}>
+                    <Link className="drl" href={`/inventory/receipt-note/${l.receiptNoteId}`}>
                       <span className="mono">{l.rnNo}</span>
                     </Link>
                     <span className="fulltag">{formatDate(l.rnDate)}</span>

@@ -47,7 +47,7 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
     <>
       <div className="ph">
         <div className="crumb">
-          <span>Logistik</span>
+          <span>Persediaan</span>
           <span>/</span>
           <span className="cur">Delivery Note</span>
         </div>
@@ -60,7 +60,7 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
           </h1>
           <div className="ph-act">
             {can.create && (
-              <Link className="btn primary" href="/logistics/delivery-note/new">
+              <Link className="btn primary" href="/inventory/delivery-note/new">
                 <Icon name="plus" size={15} /> Delivery Note Baru
               </Link>
             )}
@@ -112,9 +112,9 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
                 </thead>
                 <tbody>
                   {paging.pageRows.map((o) => (
-                    <tr key={o.id} onClick={() => router.push(`/logistics/delivery-note/${o.id}`)}>
+                    <tr key={o.id} onClick={() => router.push(`/inventory/delivery-note/${o.id}`)}>
                       <td>
-                        <Link className="lab" href={`/logistics/delivery-note/${o.id}`}>
+                        <Link className="lab" href={`/inventory/delivery-note/${o.id}`}>
                           {o.dnNo}
                         </Link>
                       </td>
@@ -182,7 +182,7 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
             ) : (
               can.create && (
                 <div className="cta">
-                  <Link className="btn primary" href="/logistics/delivery-note/new">
+                  <Link className="btn primary" href="/inventory/delivery-note/new">
                     <Icon name="plus" size={15} /> Delivery Note Baru
                   </Link>
                 </div>

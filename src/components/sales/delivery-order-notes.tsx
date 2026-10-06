@@ -36,7 +36,7 @@ export function DeliveryOrderNotesCard({
           <p>Barang yang sudah keluar dengan Delivery Note, atau disiapkan oleh Delivery Note Draft. Yang dibatalkan tidak dihitung.</p>
         </div>
         {canCreate && open && anyLeft && (
-          <Link className="btn sm primary" href={`/logistics/delivery-note/new?do=${deliveryOrderId}`}>
+          <Link className="btn sm primary" href={`/inventory/delivery-note/new?do=${deliveryOrderId}`}>
             <Icon name="plus" size={14} /> Delivery Note Baru
           </Link>
         )}
@@ -102,7 +102,7 @@ export function DeliveryOrderNotesCard({
               {deliveries.notes.map((o) => (
                 <tr key={o.id} style={{ cursor: "default" }}>
                   <td>
-                    <Link className="lab" href={`/logistics/delivery-note/${o.id}`}>
+                    <Link className="lab" href={`/inventory/delivery-note/${o.id}`}>
                       {o.dnNo}
                     </Link>
                   </td>

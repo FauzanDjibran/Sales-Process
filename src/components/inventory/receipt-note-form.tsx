@@ -10,8 +10,8 @@ import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
-import { ReceiptNoteActions } from "@/components/logistics/receipt-note-actions";
-import { ReceiptNoteLinePicker } from "@/components/logistics/receipt-note-line-picker";
+import { ReceiptNoteActions } from "@/components/inventory/receipt-note-actions";
+import { ReceiptNoteLinePicker } from "@/components/inventory/receipt-note-line-picker";
 import { createReceiptNoteAction, updateReceiptNoteAction } from "@/app/actions/receipt-note";
 import { RECEIPT_NOTE_STATUS_BADGE, RECEIPT_NOTE_STATUS_TEXT, cumulativeShare, type ReceiptNoteAbilities } from "@/lib/erp/receipt-note-workflow";
 import type { ReceiptNoteHeaderInput, ReceiptNoteOptions, ReceiptNoteView } from "@/lib/erp/receipt-note";
@@ -134,7 +134,7 @@ export function ReceiptNoteForm({
     }
     setDirty(false);
     toast("Receipt Note disimpan", `${result.rnNo} · Draft`, "ok");
-    router.push(`/logistics/receipt-note/${result.id}`);
+    router.push(`/inventory/receipt-note/${result.id}`);
   }
 
   const status = note?.status ?? "Draft";
@@ -384,9 +384,9 @@ export function ReceiptNoteForm({
     <>
       <div className="ph">
         <div className="crumb">
-          <span>Logistik</span>
+          <span>Persediaan</span>
           <span>/</span>
-          <Link href="/logistics/receipt-note">Receipt Note</Link>
+          <Link href="/inventory/receipt-note">Receipt Note</Link>
           <span>/</span>
           <span className="cur">{note ? note.rnNo : "Baru"}</span>
         </div>
@@ -413,7 +413,7 @@ export function ReceiptNoteForm({
                     <span className="pulse" /> Belum disimpan
                   </span>
                 )}
-                <CancelButton href={note ? `/logistics/receipt-note/${note.id}` : "/logistics/receipt-note"} dirty={dirty} disabled={saving} />
+                <CancelButton href={note ? `/inventory/receipt-note/${note.id}` : "/inventory/receipt-note"} dirty={dirty} disabled={saving} />
                 <button className="btn primary" onClick={onSave} disabled={saving}>
                   <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
                 </button>

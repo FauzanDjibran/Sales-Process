@@ -37,8 +37,8 @@ async function authorize(code: string): Promise<Guard> {
 }
 
 function revalidate(id?: number) {
-  revalidatePath("/logistics/receipt-note");
-  if (id) revalidatePath(`/logistics/receipt-note/${id}`);
+  revalidatePath("/inventory/receipt-note");
+  if (id) revalidatePath(`/inventory/receipt-note/${id}`);
   // Posting records what came in on the Purchase Order, and may close it.
   revalidatePath("/purchasing/order", "layout");
 }

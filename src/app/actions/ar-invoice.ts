@@ -43,7 +43,7 @@ function revalidate(id?: number) {
   if (id) revalidatePath(`/finance/invoice/sales/${id}`);
   // The Delivery Note shows what is billed, the Customer Order its Invoices,
   // and posting moves the AR reports.
-  revalidatePath("/logistics/delivery-note", "layout");
+  revalidatePath("/inventory/delivery-note", "layout");
   revalidatePath("/sales/customer-order", "layout");
   revalidatePath("/finance/report", "layout");
   revalidatePath("/tax", "layout");

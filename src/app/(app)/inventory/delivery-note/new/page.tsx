@@ -1,4 +1,4 @@
-import { DeliveryNoteForm } from "@/components/logistics/delivery-note-form";
+import { DeliveryNoteForm } from "@/components/inventory/delivery-note-form";
 import { requirePermission } from "@/lib/erp/auth";
 import { deliveryNoteOptions } from "@/lib/erp/delivery-note";
 import { deliveryNoteAbilities } from "@/lib/erp/delivery-note-workflow";
@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 /** A new Delivery Note — with `?do=<id>`, started from that Delivery Order's page. */
 export default async function Page({ searchParams }: { searchParams: Promise<{ do?: string }> }) {
-  const actor = await requirePermission("DELIVERY_NOTE_CREATE", "/logistics/delivery-note/new");
+  const actor = await requirePermission("DELIVERY_NOTE_CREATE", "/inventory/delivery-note/new");
   const { do: doId } = await searchParams;
   return (
     <DeliveryNoteForm

@@ -11,9 +11,9 @@ import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
 import { DEFAULT_DELIVERY_NOTE_PURPOSE, deliveryNotePurpose } from "@/lib/erp/delivery-note-purposes";
-import { DeliveryNoteActions } from "@/components/logistics/delivery-note-actions";
-import { DeliveryNoteLinePicker } from "@/components/logistics/delivery-note-line-picker";
-import { DeliveryNoteLotPicker, type LotPick } from "@/components/logistics/delivery-note-lot-picker";
+import { DeliveryNoteActions } from "@/components/inventory/delivery-note-actions";
+import { DeliveryNoteLinePicker } from "@/components/inventory/delivery-note-line-picker";
+import { DeliveryNoteLotPicker, type LotPick } from "@/components/inventory/delivery-note-lot-picker";
 import { createDeliveryNoteAction, updateDeliveryNoteAction } from "@/app/actions/delivery-note";
 import {
   DELIVERY_NOTE_STATUS_BADGE,
@@ -155,11 +155,11 @@ export function DeliveryNoteForm({
     }
     setDirty(false);
     toast("Delivery Note disimpan", `${result.dnNo} · Draft`, "ok");
-    router.push(`/logistics/delivery-note/${result.id}`);
+    router.push(`/inventory/delivery-note/${result.id}`);
   }
 
   const status = note?.status ?? "Draft";
-  const backHref = note ? `/logistics/delivery-note/${note.id}` : "/logistics/delivery-note";
+  const backHref = note ? `/inventory/delivery-note/${note.id}` : "/inventory/delivery-note";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
   const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
   const waitOrder = "menunggu Delivery Order";
@@ -587,9 +587,9 @@ export function DeliveryNoteForm({
     <>
       <div className="ph">
         <div className="crumb">
-          <span>Logistik</span>
+          <span>Persediaan</span>
           <span>/</span>
-          <Link href="/logistics/delivery-note">Delivery Note</Link>
+          <Link href="/inventory/delivery-note">Delivery Note</Link>
           <span>/</span>
           <span className="cur">{note ? note.dnNo : "Baru"}</span>
         </div>

@@ -22,7 +22,6 @@ export type PermissionModule =
   | "master"
   | "sales"
   | "purchasing"
-  | "logistics"
   | "inventory"
   | "accounting"
   | "finance"
@@ -198,7 +197,7 @@ export const PERMISSIONS = [
 
   // ------------------------------------------------------------- purchasing
   // Purchase Request → Purchase Order (P121); the documents that move goods
-  // or money sit under Logistik and Finance, as on the sales side.
+  // or money sit under Persediaan and Finance, as on the sales side.
   { code: "MENU_PURCHASING_ACCESS", name: "Akses menu Pembelian", module: "purchasing" },
   { code: "PURCHASE_REQUEST_VIEW", name: "Lihat Purchase Request", module: "purchasing", description: "Barang dan Jasa, termasuk Draft dan yang dibatalkan." },
   { code: "PURCHASE_REQUEST_CREATE", name: "Buat Purchase Request", module: "purchasing" },
@@ -214,24 +213,20 @@ export const PERMISSIONS = [
   { code: "PURCHASE_ORDER_CANCEL", name: "Batalkan Purchase Order", module: "purchasing", description: "Hanya Draft, dengan alasan." },
   { code: "PURCHASE_ORDER_CLOSE", name: "Tutup Purchase Order", module: "purchasing", description: "Mengembalikan sisa yang belum diterima ke Purchase Request, dengan alasan." },
 
-  // -------------------------------------------------------------- logistics
-  // Standalone goods documents, chosen by purpose (P106).
-  { code: "MENU_LOGISTICS_ACCESS", name: "Akses menu Logistik", module: "logistics" },
-  { code: "DELIVERY_NOTE_VIEW", name: "Lihat Delivery Note", module: "logistics", description: "Termasuk yang masih Draft dan yang dibatalkan." },
-  { code: "DELIVERY_NOTE_CREATE", name: "Buat Delivery Note", module: "logistics", description: "Membuat Draft dari dokumen sumber tujuannya — untuk penjualan, Delivery Order yang sudah diterbitkan." },
-  { code: "DELIVERY_NOTE_EDIT", name: "Ubah Delivery Note", module: "logistics", description: "Hanya selama masih Draft." },
-  { code: "DELIVERY_NOTE_POST", name: "Posting Delivery Note", module: "logistics", description: "Mencatat barang keluar dan menjurnal HPP / Persediaan." },
-  { code: "DELIVERY_NOTE_CANCEL", name: "Batalkan Delivery Note", module: "logistics", description: "Hanya Draft, dengan alasan." },
-  { code: "RECEIPT_NOTE_VIEW", name: "Lihat Receipt Note", module: "logistics", description: "Termasuk yang masih Draft dan yang dibatalkan." },
-  { code: "RECEIPT_NOTE_CREATE", name: "Buat Receipt Note", module: "logistics", description: "Membuat Draft dari Purchase Order yang Open." },
-  { code: "RECEIPT_NOTE_EDIT", name: "Ubah Receipt Note", module: "logistics", description: "Hanya selama masih Draft." },
-  { code: "RECEIPT_NOTE_POST", name: "Posting Receipt Note", module: "logistics", description: "Mencatat barang masuk per lot atau beban, dan menjurnal ke Barang Diterima Belum Ditagih." },
-  { code: "RECEIPT_NOTE_CANCEL", name: "Batalkan Receipt Note", module: "logistics", description: "Hanya Draft, dengan alasan." },
-
   // -------------------------------------------------------------- inventory
-  // The stock books and their reports (P120). Stock is moved by the documents
-  // that post it, never from this menu.
+  // One module for the goods (P131): the standalone documents that move stock,
+  // chosen by purpose (P106), then the stock books and their reports (P120).
   { code: "MENU_INVENTORY_ACCESS", name: "Akses menu Persediaan", module: "inventory" },
+  { code: "DELIVERY_NOTE_VIEW", name: "Lihat Delivery Note", module: "inventory", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "DELIVERY_NOTE_CREATE", name: "Buat Delivery Note", module: "inventory", description: "Membuat Draft dari dokumen sumber tujuannya — untuk penjualan, Delivery Order yang sudah diterbitkan." },
+  { code: "DELIVERY_NOTE_EDIT", name: "Ubah Delivery Note", module: "inventory", description: "Hanya selama masih Draft." },
+  { code: "DELIVERY_NOTE_POST", name: "Posting Delivery Note", module: "inventory", description: "Mencatat barang keluar dan menjurnal HPP / Persediaan." },
+  { code: "DELIVERY_NOTE_CANCEL", name: "Batalkan Delivery Note", module: "inventory", description: "Hanya Draft, dengan alasan." },
+  { code: "RECEIPT_NOTE_VIEW", name: "Lihat Receipt Note", module: "inventory", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "RECEIPT_NOTE_CREATE", name: "Buat Receipt Note", module: "inventory", description: "Membuat Draft dari Purchase Order yang Open." },
+  { code: "RECEIPT_NOTE_EDIT", name: "Ubah Receipt Note", module: "inventory", description: "Hanya selama masih Draft." },
+  { code: "RECEIPT_NOTE_POST", name: "Posting Receipt Note", module: "inventory", description: "Mencatat barang masuk per lot atau beban, dan menjurnal ke Barang Diterima Belum Ditagih." },
+  { code: "RECEIPT_NOTE_CANCEL", name: "Batalkan Receipt Note", module: "inventory", description: "Hanya Draft, dengan alasan." },
   { code: "REPORT_STOCK_LEDGER_VIEW", name: "Lihat Kartu Stok", module: "inventory", description: "Mutasi jumlah satu barang per gudang dan lot." },
   { code: "REPORT_STOCK_BALANCE_VIEW", name: "Lihat Saldo Stok", module: "inventory", description: "Jumlah per gudang, lot dan status pada satu tanggal." },
   { code: "REPORT_STOCK_VALUATION_LEDGER_VIEW", name: "Lihat Kartu Nilai Persediaan", module: "inventory", description: "Mutasi nilai rata-rata bergerak satu barang." },
@@ -368,7 +363,6 @@ export const MODULE_LABELS: Record<PermissionModule, string> = {
   master: "Master",
   sales: "Penjualan",
   purchasing: "Pembelian",
-  logistics: "Logistik",
   inventory: "Persediaan",
   accounting: "Accounting",
   finance: "Finance",
@@ -379,14 +373,13 @@ export const MODULE_LABELS: Record<PermissionModule, string> = {
 /** Catalogue order, grouped by module — drives the role permission matrix. */
 export const MODULE_ORDER: PermissionModule[] = [
   "dashboard",
-  "master",
   "sales",
   "purchasing",
-  "logistics",
   "inventory",
-  "accounting",
   "finance",
   "tax",
+  "accounting",
+  "master",
   "settings",
 ];
 

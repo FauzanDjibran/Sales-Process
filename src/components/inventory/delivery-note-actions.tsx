@@ -81,7 +81,7 @@ export function DeliveryNoteActions({
               key: "edit",
               tone: "neutral" as ActionTone,
               node: (
-                <Link key="edit" className="btn" href={`/logistics/delivery-note/${id}/edit`}>
+                <Link key="edit" className="btn" href={`/inventory/delivery-note/${id}/edit`}>
                   <Icon name="pen" size={15} /> Ubah
                 </Link>
               ),

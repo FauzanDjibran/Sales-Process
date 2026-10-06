@@ -17,7 +17,7 @@ export function PurchaseOrderReceipts({
 }) {
   if (!receipts.length && !invoices.length) return null;
   const rows = [
-    ...receipts.map((r) => ({ key: `r${r.id}`, href: `/logistics/receipt-note/${r.id}`, no: r.rnNo, date: r.rnDate, badge: RECEIPT_NOTE_STATUS_BADGE[r.status], text: RECEIPT_NOTE_STATUS_TEXT[r.status] })),
+    ...receipts.map((r) => ({ key: `r${r.id}`, href: `/inventory/receipt-note/${r.id}`, no: r.rnNo, date: r.rnDate, badge: RECEIPT_NOTE_STATUS_BADGE[r.status], text: RECEIPT_NOTE_STATUS_TEXT[r.status] })),
     ...invoices.map((r) => ({ key: `i${r.id}`, href: `/finance/invoice/purchase/${r.id}`, no: r.invoiceNo, date: r.invoiceDate, badge: INVOICE_STATUS_BADGE[r.status], text: INVOICE_STATUS_TEXT[r.status] })),
   ];
   return (

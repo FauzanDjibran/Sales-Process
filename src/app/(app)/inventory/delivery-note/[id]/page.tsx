@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { DeliveryNoteForm } from "@/components/logistics/delivery-note-form";
+import { DeliveryNoteForm } from "@/components/inventory/delivery-note-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { deliveryNoteOptions, getDeliveryNote } from "@/lib/erp/delivery-note";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Page({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const actor = await requirePermission("DELIVERY_NOTE_VIEW", "/logistics/delivery-note");
+  const actor = await requirePermission("DELIVERY_NOTE_VIEW", "/inventory/delivery-note");
   const note = await getDeliveryNote(Number(id));
   if (!note) notFound();
   const can = deliveryNoteAbilities(actor.permissions);

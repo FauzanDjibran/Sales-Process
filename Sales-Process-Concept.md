@@ -89,7 +89,7 @@ Three lanes, never mixed:
 | Customer Order | `CO/YYYY/MM/NNNN` | Sales › Customer Order | `sal_customer_order`, `_line` | No | No | [Built] |
 | Sales Order | `SO/YYYY/MM/NNNN` | Sales › Sales Order | `sal_order`, `_line` | No | No | [Built] |
 | Delivery Order | `DO/YYYY/MM/NNNN` | Sales › Delivery Order | `sal_delivery_order`, `_line` | No | No | [Built] |
-| Delivery Note | `SJ/YYYY/MM/NNNN` | Logistik › Delivery Note (standalone, purpose `sales_delivery`, P106) | `log_delivery_note`, `_line`, `_lot` | HPP / Persediaan | No | [Built] (P94, P106) |
+| Delivery Note | `SJ/YYYY/MM/NNNN` | Persediaan › Delivery Note (standalone, purpose `sales_delivery`, P106) | `log_delivery_note`, `_line`, `_lot` | HPP / Persediaan | No | [Built] (P94, P106) |
 | Harga Pokok (Sementara), Lot (Sementara) | — | Master › Sementara | `tmp_item_cost`, `tmp_stock_lot`, `tmp_stock_movement` (temporary) | No | No | [Built] stand-in (U11, U15) |
 | Uang Muka Penjualan (bill) | `ARA/YYYY/MM/NNNN` | Finance › Uang Muka | `fin_ar_advance` (was `sal_advance`, P107) | No | No | [Built] |
 | Penerimaan Kas & Bank | `BKM/YYYY/MM/NNNN` | Finance › Kas & Bank › Penerimaan | `fin_cash_bank_tx`, `_line`, `_line_wht` | Yes, at Post | No | [Built] |
@@ -335,7 +335,7 @@ Order line).
 ### 5.8 Delivery Note — the goods leave  [Built] (P94, P95, P106; C28, U11–U15)
 
 > **Standalone since P106.** The Delivery Note is a logistics document, not a
-> sales one: `log_delivery_note(_line, _lot)`, menu Logistik. Its purpose
+> sales one: `log_delivery_note(_line, _lot)`, menu Logistik (Persediaan since P131). Its purpose
 > `sales_delivery` is what this section describes; it names its Delivery Order by
 > the weak pair `source_doc_type_id` / `source_doc_id`, each line its Delivery
 > Order line by `source_doc_line_id`, and each line carries its own item, unit

@@ -27,7 +27,7 @@ export function ReceiptNoteList({ rows: all, can }: { rows: ReceiptNoteListRow[]
   }, [all, q, status]);
   const paging = usePaging(rows, `${q}|${status}`);
   const newButton = (
-    <Link className="btn primary" href="/logistics/receipt-note/new">
+    <Link className="btn primary" href="/inventory/receipt-note/new">
       <Icon name="plus" size={15} /> Receipt Note Baru
     </Link>
   );
@@ -35,7 +35,7 @@ export function ReceiptNoteList({ rows: all, can }: { rows: ReceiptNoteListRow[]
     <>
       <div className="ph">
         <div className="crumb">
-          <span>Logistik</span>
+          <span>Persediaan</span>
           <span>/</span>
           <span className="cur">Receipt Note</span>
         </div>
@@ -90,9 +90,9 @@ export function ReceiptNoteList({ rows: all, can }: { rows: ReceiptNoteListRow[]
                 </thead>
                 <tbody>
                   {paging.pageRows.map((r) => (
-                    <tr key={r.id} onClick={() => router.push(`/logistics/receipt-note/${r.id}`)}>
+                    <tr key={r.id} onClick={() => router.push(`/inventory/receipt-note/${r.id}`)}>
                       <td>
-                        <Link className="lab" href={`/logistics/receipt-note/${r.id}`}>
+                        <Link className="lab" href={`/inventory/receipt-note/${r.id}`}>
                           {r.rnNo}
                         </Link>
                       </td>

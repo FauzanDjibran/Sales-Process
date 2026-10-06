@@ -42,7 +42,7 @@ Pengeluaran Kas & Bank (Pembayaran ke Supplier)        Dr Hutang Usaha / Cr Bank
 | --- | --- | --- | --- | --- |
 | Purchase Request | Pembelian › Purchase Request Barang / Jasa | `pur_request(_line)` | `PR/…` | nothing |
 | Purchase Order | Pembelian › Purchase Order | `pur_order(_line, _line_request)` | `PO/…`, `PO-NP/…` | nothing |
-| Receipt Note | Logistik › Receipt Note (standalone, P106) | `log_receipt_note(_line, _lot)` | `RN/…`, `RN-NP/…` | stock books + journal |
+| Receipt Note | Persediaan › Receipt Note (standalone, P106) | `log_receipt_note(_line, _lot)` | `RN/…`, `RN-NP/…` | stock books + journal |
 | Uang Muka Pembelian | Finance › Uang Muka | `fin_ap_advance` | `APA/…`, `APA-NP/…` | nothing (bill) |
 | Pengeluaran Kas & Bank | Finance › Kas & Bank › Pengeluaran | `fin_cash_bank_tx` (direction Out) | `BKK/…` (P70) | Cash Bank Book + journal + AP items |
 | Invoice Pembelian | Finance › Invoice | `fin_ap_invoice(_line, _advance_deduction)` | `PI/…`, `PI-NP/…` | journal + AP item |
@@ -169,7 +169,7 @@ holds only orders since P107).
 
 ---
 
-## 5. Receipt Note  (`log_receipt_note`, Logistik)
+## 5. Receipt Note  (`log_receipt_note`, Persediaan)
 
 - **B17 — The standalone document P106 announced**: purpose
   **`purchase_receipt`**, source one **Open PO** by the weak pair, chosen once
