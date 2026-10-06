@@ -78,6 +78,8 @@ export const CHECKS: Check[] = [
           WHERE (n.status = 'Posted' AND n.cost_amount > 0 AND (j.id IS NULL OR j.status <> 'Posted' OR j.source_doc_type_id <> ${docType("log_delivery_note")} OR j.source_doc_id <> n.id))
              OR (n.status <> 'Posted' AND n.journal_id IS NOT NULL)
           UNION ALL
+          -- Under P117 the journal credits the full PPN and the Uang Muka applied against
+          -- Piutang; an invoice posted before credits its net PPN and nothing applied.
           SELECT 'invoice', v.invoice_no, v.status::text, v.journal_id FROM fin_ar_invoice v
             LEFT JOIN acc_journal j ON j.id = v.journal_id
           WHERE (v.status = 'Posted' AND (j.id IS NULL OR j.status <> 'Posted' OR j.source_doc_type_id <> ${docType("fin_ar_invoice")} OR j.source_doc_id <> v.id))
@@ -94,10 +96,10 @@ export const CHECKS: Check[] = [
           FROM log_delivery_note n JOIN acc_journal_line l ON l.journal_id = n.journal_id
           WHERE n.status = 'Posted' GROUP BY n.id HAVING SUM(l.debit_amount) <> n.cost_amount
           UNION ALL
-          SELECT 'invoice', v.invoice_no, v.dpp_amount + v.ppn_amount + v.advance_ppn_amount + ${applied("v")}, SUM(l.kredit_amount)
+          SELECT 'invoice', v.invoice_no, v.dpp_amount + v.ppn_amount + CASE WHEN ${applied("v")} <> 0 THEN v.advance_ppn_amount + ${applied("v")} ELSE 0 END, SUM(l.kredit_amount)
           FROM fin_ar_invoice v JOIN acc_journal_line l ON l.journal_id = v.journal_id
           WHERE v.status = 'Posted' GROUP BY v.id
-          HAVING SUM(l.kredit_amount) <> v.dpp_amount + v.ppn_amount + v.advance_ppn_amount + ${applied("v")}`,
+          HAVING SUM(l.kredit_amount) <> v.dpp_amount + v.ppn_amount + CASE WHEN ${applied("v")} <> 0 THEN v.advance_ppn_amount + ${applied("v")} ELSE 0 END`,
   },
   // ---------------------------------------------------------------- cash
   {
