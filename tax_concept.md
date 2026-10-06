@@ -256,6 +256,27 @@ Each withholding type is master data holding:
 - A payer who withheld a different amount than the rule's figure is not
   modelled. The rule's figure is recorded.
 
+### 4.3b When the company is the withholder
+
+§4.3 is written from the side that is withheld: the payer's withholding is
+learnt only when its money arrives. **When the company withholds** — paying a
+supplier for a service — it knows the figure when it records the supplier's
+invoice, and PPh 23 is due at the end of the month of payment, provision for
+payment (accrual) or due date, **whichever comes first**. So:
+
+- the company's withholding is booked **when the purchase invoice is
+  recorded**, on the DPP after any advance (§4.4), as a liability on the
+  withholding type's payable account; the payable to the supplier is net of
+  it;
+- an advance paid before the invoice is withheld **at its payment**, on the
+  advance's DPP;
+- a supplier without an NPWP (a NIK counts for an individual) is withheld at
+  **100 % higher** than the type's rate (UU PPh Pasal 23 ayat 1a).
+
+This is the mainstream practice (Accurate, Jurnal.id, Odoo's Indonesian
+localization, and SAP / Dynamics withholding set to post at invoice).
+Decided for the ERP 06/10/2026 (`Purchasing-Concept.md` B31, P121).
+
 ### 4.4 Advances and withholding
 
 - A payer that withholds does so on the advance too, on the advance's DPP.
