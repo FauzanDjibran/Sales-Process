@@ -24,6 +24,7 @@ import { FISCAL_YEAR_TRANSITIONS } from "./fiscal-workflow";
 import type { ActionTone } from "./header-actions";
 import { JOURNAL_TRANSITIONS } from "./journal-workflow";
 import { SALES_ADVANCE_TRANSITIONS } from "./ar-advance-workflow";
+import { PURCHASE_ADVANCE_TRANSITIONS } from "./ap-advance-workflow";
 import { CUSTOMER_ORDER_TRANSITIONS } from "./customer-order-workflow";
 import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
 import { DELIVERY_ORDER_TRANSITIONS } from "./delivery-order-workflow";
@@ -197,6 +198,14 @@ const SALES_ADVANCE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(SALES_ADVANCE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
+/** Uang Muka Pembelian: Draft → Dicatat, or Dibatalkan (P126). */
+const PURCHASE_ADVANCE_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Tagihan uang muka supplier dibuat", icon: "wallet", tone: "neutral" },
+  issue: fromTransition(PURCHASE_ADVANCE_TRANSITIONS.issue, "Dicatat"),
+  cancel: fromTransition(PURCHASE_ADVANCE_TRANSITIONS.cancel, "Dibatalkan"),
+};
+
 /**
  * Faktur Pajak Keluaran: made by a posting; its NSFP is a reference filled in
  * and corrected afterwards (P100, P101). `report` is the step P100 named, kept
@@ -277,6 +286,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,
   fin_ar_advance: SALES_ADVANCE_EVENTS,
+  fin_ap_advance: PURCHASE_ADVANCE_EVENTS,
   fin_cash_bank_tx: CASH_BANK_TX_EVENTS,
   tax_faktur: TAX_FAKTUR_EVENTS,
   tax_withholding_slip: TAX_SLIP_EVENTS,

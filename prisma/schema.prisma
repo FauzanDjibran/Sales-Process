@@ -770,6 +770,7 @@ model MPartner {
   addresses       MPartnerAddress[]
   purchase_orders PurOrder[]        @relation("PurOrderSupplier")
   receipt_notes   LogReceiptNote[]  @relation("ReceiptNotePartner")
+  ap_advances     FinApAdvance[]    @relation("ApAdvanceSupplier")
   contacts        MPartnerContact[]
 
   customer_orders SalCustomerOrder[]
@@ -2947,4 +2948,53 @@ model LogReceiptNoteLot {
 
   @@unique([line_id, lot_seq])
   @@map("log_receipt_note_lot")
+}
+
+/// Uang Muka Pembelian (P126, Purchasing-Concept.md B23): the supplier's
+/// request for a down payment, drawn from one Open Purchase Order — the AR
+/// advance bill mirrored (P58). A bill, not a transaction: it posts nothing.
+model FinApAdvance {
+  id           Int           @id @default(autoincrement())
+  /// `APA/YYYY/MM/NNNN`, `APA-NP/…` for a PO without PPN (P109).
+  advance_no   String        @unique
+  advance_date DateTime      @db.Date
+  due_date     DateTime      @db.Date
+  status       AdvanceStatus @default(Draft)
+
+  /// The Purchase Order, weak (another module's document, §3.1).
+  purchase_order_id Int
+  supplier_id       Int
+  /// The supplier's proforma or invoice number for the down payment.
+  supplier_ref_no   String?
+  description       String
+  note              String?
+
+  price_mode                PriceMode
+  is_taxable                Boolean
+  ppn_rate                  Decimal?  @db.Decimal(9, 4)
+  ppn_dpp_other_numerator   Int?
+  ppn_dpp_other_denominator Int?
+
+  amount_type  AdvanceAmountType
+  amount_value Decimal           @db.Decimal(18, 4)
+
+  amount           Decimal @db.Decimal(18, 2)
+  dpp_amount       Decimal @db.Decimal(18, 2)
+  dpp_other_amount Decimal @db.Decimal(18, 2)
+  ppn_amount       Decimal @db.Decimal(18, 2)
+  total_amount     Decimal @db.Decimal(18, 2)
+
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  supplier MPartner @relation("ApAdvanceSupplier", fields: [supplier_id], references: [id])
+
+  @@index([purchase_order_id])
+  @@index([supplier_id])
+  @@index([status, advance_date])
+  @@map("fin_ap_advance")
 }

@@ -14,6 +14,7 @@ const ROUTES: Record<string, string> = {
   // Only Penerimaan exists yet; Pengeluaran will need the direction to route.
   fin_cash_bank_tx: "/finance/cash-bank/receipt",
   fin_ar_advance: "/finance/advance/sales",
+  fin_ap_advance: "/finance/advance/purchase",
   sal_customer_order: "/sales/customer-order",
   sal_order: "/sales/order",
   sal_delivery_order: "/sales/delivery-order",

@@ -137,6 +137,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Purchase Request", "pur_request"],
   ["Purchase Order", "pur_order"],
   ["Receipt Note", "log_receipt_note"],
+  ["Uang Muka Pembelian", "fin_ap_advance"],
 ];
 
 /**

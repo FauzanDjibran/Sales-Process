@@ -5,7 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { SUPPLIER_CATEGORY } from "./entities";
 import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
-import { computeSalesTotals, lineProblem, type DiscountType, type PpnRates, type PriceMode, type SalesTotals } from "./sales-tax";
+import { computeSalesTotals, lineProblem, type AdvanceBasis, type DiscountType, type PpnRates, type PriceMode, type SalesTotals } from "./sales-tax";
 import { lockPurchaseRequestLines, purchaseOrderSourceLines, recordPurchaseRequestOrdered, type PoSourceLine } from "./purchase-request";
 import {
   PURCHASE_ORDER_TRANSITIONS,
@@ -847,4 +847,80 @@ export async function recordPurchaseOrderReceived(tx: Prisma.TransactionClient, 
     }
   }
   return closed;
+}
+
+// ------------------------------------------------- for the Uang Muka Pembelian
+
+/**
+ * A Purchase Order as an AP advance bill reads it (B23, the AR bill's
+ * `advanceSourceOrders` mirrored): whose it is and the basis the advance is
+ * drawn from — DPP, total, mode and, per Jenis PPh, the DPP each covers at the
+ * rate the order froze (doubled without an NPWP, B12).
+ */
+export type PurchaseAdvanceSource = {
+  id: number;
+  orderNo: string;
+  orderDate: string;
+  status: PurchaseOrderStatus;
+  itemType: "Barang" | "Jasa";
+  supplierId: number;
+  supplierLabel: string;
+  supplierName: string;
+  supplierActive: boolean;
+  taxIdType: string | null;
+  taxId: string | null;
+  isPkp: boolean;
+  quotationNo: string | null;
+  termLabel: string;
+  termName: string;
+  lineCount: number;
+  basis: AdvanceBasis;
+  withholdingLabels: Record<string, string>;
+};
+
+export async function purchaseAdvanceSources(filter: { ids?: number[]; openOnly?: boolean }, db: Db = prisma): Promise<PurchaseAdvanceSource[]> {
+  const rows = await db.purOrder.findMany({
+    where: { ...(filter.ids ? { id: { in: filter.ids } } : {}), ...(filter.openOnly ? { status: "Open" } : {}) },
+    orderBy: [{ order_date: "desc" }, { id: "desc" }],
+    include: { supplier: true, term: true, lines: { include: { withholding_tax: true } } },
+  });
+  return rows.map((o) => {
+    const groups = new Map<string, { key: string; rate: number; base: number }>();
+    const labels: Record<string, string> = {};
+    for (const l of o.lines) {
+      if (!l.withholding_tax_id || !l.withholding_rate) continue;
+      const key = String(l.withholding_tax_id);
+      const g = groups.get(key) ?? { key, rate: l.withholding_rate.toNumber(), base: 0 };
+      g.base += l.dpp_amount.toNumber();
+      groups.set(key, g);
+      labels[key] = l.withholding_tax?.wht_label ?? "PPh";
+    }
+    return {
+      id: o.id,
+      orderNo: o.order_no,
+      orderDate: isoDay(o.order_date),
+      status: o.status as PurchaseOrderStatus,
+      itemType: o.item_type,
+      supplierId: o.supplier_id,
+      supplierLabel: o.supplier.partner_label,
+      supplierName: o.supplier.partner_name,
+      supplierActive: o.supplier.status === "Active",
+      taxIdType: o.supplier.tax_id_type,
+      taxId: o.supplier.tax_id,
+      isPkp: o.supplier.is_pkp,
+      quotationNo: o.quotation_no,
+      termLabel: o.term.term_label,
+      termName: o.term.term_name,
+      lineCount: o.lines.length,
+      basis: {
+        mode: o.price_mode as PriceMode,
+        taxable: o.is_taxable,
+        vatCollector: false,
+        dpp: o.dpp_amount.toNumber(),
+        total: o.total_amount.toNumber(),
+        withholdings: [...groups.values()],
+      },
+      withholdingLabels: labels,
+    };
+  });
 }

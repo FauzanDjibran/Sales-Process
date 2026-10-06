@@ -8,6 +8,7 @@ import { fiscalClosingLabels } from "./fiscal";
 import { journalNumbersByIds } from "./journal";
 import { openingBalanceNumbersByIds } from "./opening-balance";
 import { salesAdvanceNumbersByIds } from "./ar-advance";
+import { purchaseAdvanceNumbersByIds } from "./ap-advance";
 import { purchaseRequestNumbersByIds } from "./purchase-request";
 import { purchaseOrderNumbersByIds } from "./purchase-order";
 import { cashBankTxNumbersByIds } from "./cash-bank-tx";
@@ -89,6 +90,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   tmp_item_cost: { label: "Harga Pokok (Sementara)", resolve: null },
   tmp_stock_lot: { label: "Lot (Sementara)", resolve: null },
   fin_ar_advance: { label: "Uang Muka Penjualan", resolve: salesAdvanceNumbersByIds },
+  fin_ap_advance: { label: "Uang Muka Pembelian", resolve: purchaseAdvanceNumbersByIds },
   fin_cash_bank_tx: { label: "Transaksi Kas & Bank", resolve: cashBankTxNumbersByIds },
   tax_faktur: { label: "Faktur Pajak Keluaran", resolve: fakturNumbersByIds },
   tax_withholding_slip: { label: "Bukti Potong PPh", resolve: slipNumbersByIds },

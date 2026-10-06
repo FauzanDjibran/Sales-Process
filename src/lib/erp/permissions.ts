@@ -246,6 +246,11 @@ export const PERMISSIONS = [
   { code: "SALES_ADVANCE_EDIT", name: "Ubah Uang Muka Penjualan", module: "finance", description: "Hanya selama masih Draft." },
   { code: "SALES_ADVANCE_ISSUE", name: "Terbitkan Uang Muka Penjualan", module: "finance", description: "Mengunci tagihan untuk dikirim ke customer. Tidak memposting journal." },
   { code: "SALES_ADVANCE_CANCEL", name: "Batalkan Uang Muka Penjualan", module: "finance", description: "Draft maupun yang sudah diterbitkan, dengan alasan." },
+  { code: "PURCHASE_ADVANCE_VIEW", name: "Lihat Uang Muka Pembelian", module: "finance", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "PURCHASE_ADVANCE_CREATE", name: "Buat Uang Muka Pembelian", module: "finance", description: "Membuat Draft tagihan dari Purchase Order berstatus Open." },
+  { code: "PURCHASE_ADVANCE_EDIT", name: "Ubah Uang Muka Pembelian", module: "finance", description: "Hanya selama masih Draft." },
+  { code: "PURCHASE_ADVANCE_ISSUE", name: "Catat Uang Muka Pembelian", module: "finance", description: "Mengunci tagihan supplier untuk dibayar. Tidak memposting journal." },
+  { code: "PURCHASE_ADVANCE_CANCEL", name: "Batalkan Uang Muka Pembelian", module: "finance", description: "Draft maupun yang sudah dicatat, dengan alasan; ditolak bila sudah dibayar." },
   // Invoice Penjualan — in Finance since P107; codes unchanged (P99).
   { code: "SALES_INVOICE_VIEW", name: "Lihat Invoice Penjualan", module: "finance", description: "Termasuk yang masih Draft dan yang dibatalkan." },
   { code: "SALES_INVOICE_CREATE", name: "Buat Invoice Penjualan", module: "finance", description: "Membuat Draft dari barang Delivery Note yang sudah diposting." },

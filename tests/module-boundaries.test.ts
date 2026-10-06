@@ -117,6 +117,7 @@ const TABLE_OWNERS: Record<string, string[]> = {
   accItemCategoryAccount: ["src/lib/erp/item-account.ts"],
   // Billing documents: Finance owns them since P107; Sales holds only orders.
   finArAdvance: ["src/lib/erp/ar-advance.ts"],
+  finApAdvance: ["src/lib/erp/ap-advance.ts"],
   finArInvoice: ["src/lib/erp/ar-invoice.ts"],
   finArInvoiceLine: ["src/lib/erp/ar-invoice.ts"],
   finArInvoiceAdvanceDeduction: ["src/lib/erp/ar-invoice.ts"],

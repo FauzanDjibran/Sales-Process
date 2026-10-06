@@ -1,0 +1,730 @@
+"use client";
+
+import { Fragment, useMemo, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { Icon } from "@/components/icon";
+import { CancelButton } from "@/components/ui/cancel-button";
+import { Combobox } from "@/components/ui/combobox";
+import { DateInput } from "@/components/ui/date-input";
+import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
+import { MoneyInput } from "@/components/ui/money-input";
+import { PercentInput } from "@/components/ui/percent-input";
+import { useToast } from "@/components/ui/toast";
+import { PurchaseAdvanceActions } from "@/components/finance/purchase-advance-actions";
+import { createPurchaseAdvanceAction, updatePurchaseAdvanceAction } from "@/app/actions/ap-advance";
+import {
+  advanceAmountProblem,
+  computeAdvance,
+  type AdvanceAmountType,
+  type PriceMode,
+} from "@/lib/erp/sales-tax";
+import {
+  ADVANCE_STATUS_BADGE,
+  ADVANCE_STATUS_TEXT,
+  type AdvanceAbilities,
+} from "@/lib/erp/ap-advance-workflow";
+import type { PurchaseAdvanceOptions, PurchaseAdvanceView } from "@/lib/erp/ap-advance";
+import { formatTaxId } from "@/lib/erp/partner-shape";
+import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
+
+/**
+ * Uang Muka Pembelian — the AP advance bill (P126, B23): the AR bill's form
+ * (`advance-form.tsx`) with the other side's words, as P58 says. The Purchase
+ * Order comes first and decides what the bill follows — supplier, mode harga,
+ * Kena PPN — then the bill itself (the supplier's proforma), then its value,
+ * typed as a percent of the order or a flat value. Every figure is
+ * `computeAdvance`, which the Server Action stores from.
+ */
+
+export type AdvanceMode = "new" | "edit" | "view";
+
+type State = {
+  order_id: number | null;
+  advance_date: string;
+  due_date: string;
+  supplier_ref_no: string;
+  description: string;
+  note: string;
+  amount_type: AdvanceAmountType;
+  amount_value: string;
+};
+
+const MODE_TEXT: Record<PriceMode, string> = { Exclude: "Exclude PPN", Include: "Include PPN" };
+const money = (n: number) => formatMoney(n, "IDR");
+const DUE_DAYS = 7;
+
+function addDays(iso: string, days: number): string {
+  const d = new Date(`${iso}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+const descriptionFor = (orderNo: string, quotationNo: string | null) =>
+  `Uang muka atas ${orderNo}${quotationNo ? ` (penawaran ${quotationNo})` : ""}`;
+
+/** A receipt that names this bill, as its page lists them (P66). */
+export type AdvancePayment = { id: number; txNo: string; date: string; status: string; settled: number };
+
+export function PurchaseAdvanceForm({
+  mode,
+  advance,
+  options,
+  can,
+  payments = [],
+}: {
+  mode: AdvanceMode;
+  advance: PurchaseAdvanceView | null;
+  options: PurchaseAdvanceOptions;
+  can: AdvanceAbilities;
+  payments?: AdvancePayment[];
+}) {
+  const router = useRouter();
+  const toast = useToast();
+  const editing = mode !== "view";
+
+  const [s, setS] = useState<State>(() => {
+    if (advance) {
+      const i = advance.input;
+      return {
+        order_id: Number(i.order_id),
+        advance_date: i.advance_date,
+        due_date: i.due_date,
+        supplier_ref_no: i.supplier_ref_no,
+        description: i.description,
+        note: i.note,
+        amount_type: i.amount_type as AdvanceAmountType,
+        amount_value: String(i.amount_value),
+      };
+    }
+    const today = todayIso();
+    return {
+      order_id: null,
+      advance_date: today,
+      due_date: addDays(today, DUE_DAYS),
+      supplier_ref_no: "",
+      description: "",
+      note: "",
+      amount_type: "Percent",
+      amount_value: "",
+    };
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const order = options.orders.find((o) => o.id === s.order_id) ?? null;
+
+  const touch = (...names: string[]) => {
+    setDirty(true);
+    setErrors((e) => {
+      const next = { ...e };
+      for (const n of names) delete next[n];
+      return next;
+    });
+  };
+  const set = <K extends keyof State>(k: K, v: State[K]) => {
+    setS((x) => ({ ...x, [k]: v }));
+    touch(k === "amount_type" ? "amount_value" : k);
+  };
+
+  /** Choosing the order fills what the bill follows from it. */
+  const pickOrder = (id: number | null) => {
+    const o = options.orders.find((x) => x.id === id) ?? null;
+    setS((x) => {
+      const prev = options.orders.find((y) => y.id === x.order_id);
+      const auto = !x.description || (prev && x.description === descriptionFor(prev.orderNo, prev.quotationNo));
+      return {
+        ...x,
+        order_id: id,
+        description: o && auto ? descriptionFor(o.orderNo, o.quotationNo) : x.description,
+        amount_value: "",
+      };
+    });
+    touch("order_id", "description", "amount_value");
+  };
+
+  const typed = Number(s.amount_value) || 0;
+  // A stored bill shows the rate it carries; one being edited previews the
+  // rate in force, which its save will snapshot (P60).
+  const rates = mode === "view" ? (advance?.rates ?? null) : options.ppnRates;
+  const figures = useMemo(
+    () => (order ? computeAdvance({ basis: order.basis, type: s.amount_type, typed, rates }) : null),
+    [order, s.amount_type, typed, rates]
+  );
+  const factor = rates ? `${rates.otherNum}/${rates.otherDen}` : "—";
+  const ratePct = rates ? formatPct(rates.rate) : "—";
+  const over =
+    editing && order && typed > 0
+      ? advanceAmountProblem(s.amount_type, typed, order.value, order.left) !== null
+      : false;
+
+  const fillRest = () => {
+    if (!order) return;
+    setS((x) =>
+      order.drawn === 0
+        ? { ...x, amount_type: "Percent", amount_value: "100" }
+        : { ...x, amount_type: "Amount", amount_value: String(order.left) }
+    );
+    touch("amount_value");
+  };
+
+  async function onSave() {
+    setSaving(true);
+    const input = { ...s, amount_value: typed };
+    const result =
+      mode === "edit" ? await updatePurchaseAdvanceAction(advance!.id, input) : await createPurchaseAdvanceAction(input);
+    setSaving(false);
+    if (!result.ok) {
+      setErrors(result.errors);
+      const n = Object.keys(result.errors).filter((k) => !k.startsWith("_")).length;
+      toast(
+        result.errors._form ? "Tidak diizinkan" : "Belum bisa disimpan",
+        result.errors._form ?? `${n} field perlu diperbaiki.`,
+        "err"
+      );
+      return;
+    }
+    setDirty(false);
+    toast("Tagihan uang muka disimpan", `${result.advanceNo} · Draft`, "ok");
+    router.push(`/finance/advance/purchase/${result.id}`);
+  }
+
+  const status = advance?.status ?? "Draft";
+  const backHref = advance ? `/finance/advance/purchase/${advance.id}` : "/finance/advance/purchase";
+  const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
+  const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
+  const waitOrder = "menunggu Purchase Order";
+
+  const taxStatus = order
+    ? [order.isPkp ? "PKP" : "Non-PKP", !order.taxId ? "Tanpa NPWP · PPh 2×" : null].filter(
+        (x): x is string => Boolean(x)
+      )
+    : null;
+  /** A value that follows from the order, or a wait while none is chosen. */
+  const fromOrder = (node: (o: NonNullable<typeof order>) => React.ReactNode, empty = "tidak diisi") =>
+    order ? node(order) ?? nil(empty) : nil(waitOrder);
+
+  // ======================================================= header card
+  //
+  // The order's side reads as the Purchase Order's own header does —
+  // Supplier, Pesanan, Harga & Pajak, the same fields in the same places — so
+  // a reader who knows one page finds everything on the other (P64). Only
+  // the Tagihan section is the bill's own.
+  const headerCard = (
+    <div className="card">
+      <FormBody>
+        <FormSection title="Supplier">
+          <FormRow>
+            <Field label="Supplier" span={6}>
+              {fromOrder((o) =>
+                ro(
+                  <>
+                    <span className="lab">{o.supplierLabel}</span>
+                    <span>{o.supplierName}</span>
+                  </>
+                )
+              )}
+            </Field>
+            <Field label={order?.taxIdType === "NIK" ? "NIK Supplier" : "NPWP Supplier"} span={3}>
+              {fromOrder((o) => (o.taxId ? ro(<span className="mono">{formatTaxId(o.taxId)}</span>) : null))}
+            </Field>
+            <Field label="Status Pajak" span={3}>
+              {fromOrder(() => (
+                <div className="ro" style={{ flexWrap: "wrap", rowGap: 4 }}>
+                  {taxStatus!.map((t) => (
+                    <span key={t} className="bdg t-slate">
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              ))}
+            </Field>
+          </FormRow>
+        </FormSection>
+
+        <FormSection title="Pesanan">
+          <FormRow>
+            <Field
+              label="Purchase Order"
+              span={3}
+              required={mode === "new"}
+              locked={mode === "edit"}
+              help={mode === "new" ? "hanya PO berstatus Open" : undefined}
+              error={errors.order_id}
+            >
+              {mode === "new" ? (
+                <Combobox
+                  value={s.order_id}
+                  options={options.orders
+                    .filter((o) => o.left > 0)
+                    .map((o) => ({ id: o.id, label: o.orderNo, name: o.supplierName, active: true }))}
+                  placeholder="Pilih Purchase Order…"
+                  emptyText="Belum ada Purchase Order berstatus Open yang masih punya sisa nilai."
+                  invalid={Boolean(errors.order_id)}
+                  onChange={pickOrder}
+                />
+              ) : order ? (
+                ro(
+                  <Link className="drl" href={`${order.itemType === "Jasa" ? "/purchasing/order/service" : "/purchasing/order/goods"}/${order.id}`}>
+                    <span className="mono">{order.orderNo}</span>
+                  </Link>
+                )
+              ) : (
+                nil()
+              )}
+            </Field>
+            <Field label="Tanggal PO" span={3}>
+              {fromOrder((o) => ro(formatDate(o.orderDate)))}
+            </Field>
+            <Field label="No. Penawaran Supplier" span={3}>
+              {fromOrder((o) => (o.quotationNo ? ro(<span className="mono">{o.quotationNo}</span>) : null))}
+            </Field>
+            <Field label="Termin Pembayaran" span={3}>
+              {fromOrder((o) =>
+                ro(
+                  <>
+                    <span className="lab">{o.termLabel}</span>
+                    <span>{o.termName}</span>
+                  </>
+                )
+              )}
+            </Field>
+          </FormRow>
+        </FormSection>
+
+        <FormSection title="Harga & Pajak">
+          <FormRow>
+            <Field label="PPN" span={4}>
+              {fromOrder((o) =>
+                ro(
+                  <span className={`bdg ${o.basis.taxable ? "s-ok" : "s-mute"}`}>
+                    {o.basis.taxable ? "Kena PPN" : "Tidak Kena PPN"}
+                  </span>
+                )
+              )}
+            </Field>
+            {order?.basis.taxable && (
+              <Field label="Mode Harga" span={4}>
+                {ro(<span className="bdg t-slate">{MODE_TEXT[order.basis.mode]}</span>)}
+              </Field>
+            )}
+          </FormRow>
+        </FormSection>
+
+        <FormSection title="Tagihan">
+          <FormRow>
+            <Field label="Tanggal Tagihan" span={3} required={editing} error={errors.advance_date}>
+              {editing ? (
+                <DateInput
+                  value={s.advance_date}
+                  invalid={Boolean(errors.advance_date)}
+                  onChange={(v) => set("advance_date", v)}
+                />
+              ) : (
+                ro(formatDate(s.advance_date))
+              )}
+            </Field>
+            <Field label="Jatuh Tempo" span={3} required={editing} error={errors.due_date}>
+              {editing ? (
+                <DateInput value={s.due_date} invalid={Boolean(errors.due_date)} onChange={(v) => set("due_date", v)} />
+              ) : (
+                ro(
+                  <>
+                    {formatDate(s.due_date)}
+                    {status === "Issued" && s.due_date < todayIso() && (
+                      <span className="bdg t-bad">Lewat jatuh tempo</span>
+                    )}
+                  </>
+                )
+              )}
+            </Field>
+            <Field label="No. Tagihan Supplier" span={6} help={editing ? "proforma atau tagihan uang muka dari supplier" : undefined}>
+              {editing ? (
+                <input className="inp idf" value={s.supplier_ref_no} autoComplete="off" onChange={(e) => set("supplier_ref_no", e.target.value)} />
+              ) : s.supplier_ref_no ? (
+                ro(<span className="mono">{s.supplier_ref_no}</span>)
+              ) : (
+                nil()
+              )}
+            </Field>
+            {!editing && advance?.status === "Issued" && (
+              <Field label="Pembayaran" span={12}>
+                {payments.length
+                  ? ro(
+                      <>
+                        {(() => {
+                          const paid = payments.filter((p) => p.status === "Posted").reduce((a, p) => a + p.settled, 0);
+                          const total = advance.figures.total;
+                          return (
+                            <span className={`bdg ${paid >= total ? "t-ok" : paid > 0 ? "t-info" : "t-warn"}`}>
+                              {paid >= total ? "Lunas" : paid > 0 ? `Sebagian · ${money(paid)}` : "Belum Dibayar"}
+                            </span>
+                          );
+                        })()}
+                        {payments.map((p) => (
+                          // A fragment, not a span: the row's flex gap spaces each part.
+                          <Fragment key={p.id}>
+                            <span className="rx">·</span>
+                            <Link className="drl" href={`/finance/cash-bank/payment/${p.id}`}>
+                              <span className="mono">{p.txNo}</span>
+                            </Link>
+                            <span className="rx">
+                              {p.status === "Posted" ? money(p.settled) : p.status === "Draft" ? "draft" : "dibatalkan"}
+                            </span>
+                          </Fragment>
+                        ))}
+                      </>
+                    )
+                  : nil("belum dibayar")}
+              </Field>
+            )}
+            <Field label="Catatan" span={12}>
+              {editing ? (
+                <textarea
+                  className="ta"
+                  rows={2}
+                  value={s.note}
+                  placeholder="Catatan internal, tidak tercetak…"
+                  onChange={(e) => set("note", e.target.value)}
+                />
+              ) : s.note ? (
+                <div className="ro multi">{s.note}</div>
+              ) : (
+                <div className="ro multi nil">tidak diisi</div>
+              )}
+            </Field>
+          </FormRow>
+        </FormSection>
+        {advance?.status === "Cancelled" && advance.cancelReason && (
+          <p className="fnote">
+            <b>Dibatalkan:</b> {advance.cancelReason}
+          </p>
+        )}
+        {!editing && advance?.status !== "Cancelled" && (
+          <p className="fnote">
+            {advance?.status === "Draft"
+              ? "Tagihan masih Draft dan masih dapat diubah. Mencatat tagihan tidak membentuk journal."
+              : "Tagihan sudah dicatat. Tagihan uang muka bukan transaksi, sehingga tidak membentuk journal: kas, Uang Muka Pembelian dan PPN Masukan dicatat saat dibayar di menu Pengeluaran Kas & Bank."}
+          </p>
+        )}
+      </FormBody>
+    </div>
+  );
+
+  // ======================================================== basis card
+  //
+  // The order as one line — its Uraian, what it is worth and its DPP — then
+  // the one value the bill draws from it (P64), the shape the simulation's
+  // Uang Muka Perizinan gives its pengajuan.
+  const inclusive = Boolean(order?.basis.taxable && order.basis.mode === "Include");
+  const valueLabel = !order
+    ? "Nilai Uang Muka"
+    : !order.basis.taxable
+      ? "Uang Muka Ditarik (tanpa PPN)"
+      : inclusive
+        ? "Uang Muka Ditarik (termasuk PPN)"
+        : "Uang Muka Ditarik (DPP)";
+  const orderValueLabel = !order || !order.basis.taxable ? "nilai pesanan" : inclusive ? "total pesanan" : "DPP pesanan";
+  const roomHelp =
+    editing && order
+      ? `maks ${money(order.left)}${order.drawn ? ` — ${money(order.drawn)} sudah ditagih uang muka lain` : ""}`
+      : undefined;
+
+  const basisCard = (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div className="card-h">
+        <span className="ci">
+          <Icon name="calc" size={15} />
+        </span>
+        <div className="ct">
+          <h3>Dasar Uang Muka</h3>
+          <p>
+            {!order
+              ? "Nilai pesanan dari Purchase Order yang dipilih menjadi dasar uang muka."
+              : !order.basis.taxable
+                ? "Pesanan sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya. Tanpa PPN."
+                : inclusive
+                  ? "Pesanan sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya (sudah termasuk PPN). DPP, DPP Nilai Lain dan PPN dihitung dari nilai itu."
+                  : "Pesanan sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya (sebelum PPN). DPP Nilai Lain dan PPN dihitung dari nilai itu."}
+          </p>
+        </div>
+      </div>
+      {!order ? (
+        <div className="empty sm">
+          <div className="ic">
+            <Icon name="box" size={18} />
+          </div>
+          <h4>Menunggu Purchase Order</h4>
+          <p>Nilai pesanan tampil di sini; uang muka ditarik dari nilai itu.</p>
+        </div>
+      ) : (
+        <>
+          <div className="tw">
+            <table className="grid ltab">
+              <thead>
+                <tr>
+                  <th style={{ width: 34 }}>No</th>
+                  <th>Uraian pada Tagihan</th>
+                  <th className="num" style={{ width: 150 }}>Total Pesanan</th>
+                  <th className="num" style={{ width: 160 }}>DPP (sebelum pajak)</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className={errors.description ? "overrow" : undefined}>
+                  <td className="no">1</td>
+                  <td>
+                    <span className="dstack">
+                      {editing ? (
+                        <input
+                          className={`inp sm${errors.description ? " bad" : ""}`}
+                          value={s.description}
+                          placeholder="mis. Uang muka 30% atas pesanan …"
+                          autoComplete="off"
+                          aria-label="Uraian pada Tagihan"
+                          onChange={(e) => set("description", e.target.value)}
+                        />
+                      ) : (
+                        <span className="d1" title={s.description}>
+                          {s.description}
+                        </span>
+                      )}
+                      <span className="d2">
+                        {order.orderNo}
+                        {order.quotationNo ? ` · penawaran ${order.quotationNo}` : ""} · {order.lineCount} baris
+                      </span>
+                    </span>
+                    {errors.description && <span className="overtag">{errors.description}</span>}
+                  </td>
+                  <td className="num">
+                    <span className="mny">{money(order.basis.total)}</span>
+                  </td>
+                  <td className="num">
+                    <span className="mny">{money(order.basis.dpp)}</span>
+                  </td>
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr className="totrow">
+                  <td colSpan={3} style={{ textAlign: "right" }}>
+                    Total DPP pesanan
+                  </td>
+                  <td className="num">
+                    <span className="mny big">{money(order.basis.dpp)}</span>
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <FormBody>
+            <FormRow>
+              <Field label={valueLabel} span={6} required={editing} help={roomHelp} error={errors.amount_value}>
+                {editing ? (
+                  <div className="dcell">
+                    <span className="dtog" role="group" aria-label="Cara mengisi nilai uang muka">
+                      {(["Percent", "Amount"] as AdvanceAmountType[]).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          className={s.amount_type === t ? "on" : undefined}
+                          onClick={() => {
+                            if (s.amount_type === t) return;
+                            setS((x) => ({ ...x, amount_type: t, amount_value: "" }));
+                            touch("amount_value");
+                          }}
+                        >
+                          {t === "Percent" ? "%" : "Nominal"}
+                        </button>
+                      ))}
+                    </span>
+                    {s.amount_type === "Percent" ? (
+                      <PercentInput
+                        value={s.amount_value}
+                        invalid={Boolean(errors.amount_value) || over}
+                        ariaLabel={valueLabel}
+                        onChange={(v) => set("amount_value", v)}
+                      />
+                    ) : (
+                      <MoneyInput
+                        value={s.amount_value}
+                        invalid={Boolean(errors.amount_value)}
+                        over={over}
+                        ariaLabel={valueLabel}
+                        onChange={(v) => set("amount_value", v)}
+                      />
+                    )}
+                    <button type="button" className="btn sm" onClick={fillRest} disabled={order.left <= 0}>
+                      Sisa
+                    </button>
+                  </div>
+                ) : (
+                  ro(<span className="mny">{s.amount_type === "Percent" ? formatPct(typed) : money(typed)}</span>)
+                )}
+              </Field>
+              <Field label="Nilai Ditarik" span={6}>
+                {figures && figures.amount > 0
+                  ? ro(
+                      <>
+                        <span className="mny">{money(figures.amount)}</span>
+                        <span className="rx">
+                          {formatPct(figures.percent)} dari {orderValueLabel} {money(order.value)}
+                        </span>
+                      </>
+                    )
+                  : nil("belum diisi")}
+              </Field>
+            </FormRow>
+          </FormBody>
+          {figures && (
+            <div className="cardfoot multi">
+              {(figures.withholdingTotal > 0 || figures.collectedPpn > 0) && (
+                <div className="impact">
+                  <div className="ttl">Estimasi Pembayaran</div>
+                  <div className="ir">
+                    <span>Total tagihan uang muka</span>
+                    <b>{money(figures.total)}</b>
+                  </div>
+                  {figures.withholdings.map((w) => (
+                    <div className="ir" key={w.key}>
+                      <span>
+                        {order.withholdingLabels[w.key] ?? "PPh"} {formatPct(w.rate)} × DPP {money(w.base)}
+                      </span>
+                      <b>−{money(w.amount)}</b>
+                    </div>
+                  ))}
+                  <div className="ir tot">
+                    <span>Estimasi dibayar ke supplier</span>
+                    <b>{money(figures.expectedReceipt)}</b>
+                  </div>
+                </div>
+              )}
+              <div className="impact">
+                <div className="ttl">
+                  Perhitungan Uang Muka · {order.basis.taxable ? MODE_TEXT[order.basis.mode] : "Tidak Kena PPN"}
+                </div>
+                <div className="ir">
+                  <span>DPP pesanan</span>
+                  <b>{money(order.basis.dpp)}</b>
+                </div>
+                {order.basis.taxable ? (
+                  <>
+                    {inclusive && (
+                      <div className="ir">
+                        <span>Uang muka ditarik (termasuk PPN)</span>
+                        <b>{money(figures.amount)}</b>
+                      </div>
+                    )}
+                    <div className="ir">
+                      <span>
+                        {inclusive ? "DPP uang muka = nilai − PPN" : "Uang muka ditarik (DPP)"} · {formatPct(figures.percent)}
+                      </span>
+                      <b>{money(figures.dpp)}</b>
+                    </div>
+                    <div className="ir">
+                      <span>DPP Nilai Lain ({factor})</span>
+                      <b>{money(figures.dppOther)}</b>
+                    </div>
+                    <div className="ir">
+                      <span>PPN {ratePct} × DPP Nilai Lain</span>
+                      <b>{money(figures.ppn)}</b>
+                    </div>
+                    {inclusive && figures.total !== figures.amount && (
+                      <div className="ir est">
+                        <span>Pembulatan PPN (diserap DPP)</span>
+                        <b>−{money(figures.amount - figures.total)}</b>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="ir">
+                      <span>Uang muka ditarik · {formatPct(figures.percent)}</span>
+                      <b>{money(figures.dpp)}</b>
+                    </div>
+                    <div className="ir">
+                      <span>PPN</span>
+                      <b>Tidak Kena PPN</b>
+                    </div>
+                  </>
+                )}
+                <div className="ir tot">
+                  <span>Total Tagihan Uang Muka</span>
+                  <b>{money(figures.total)}</b>
+                </div>
+                {!editing && (
+                  <div className="ir est">
+                    <span>Sisa {orderValueLabel} setelah tagihan ini</span>
+                    <b>{money(order.left - (status === "Cancelled" ? 0 : figures.amount))}</b>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+
+  // ============================================================ page
+  return (
+    <>
+      <div className="ph">
+        <div className="crumb">
+          <span>Finance</span>
+          <span>/</span>
+          <span>Uang Muka</span>
+          <span>/</span>
+          <Link href="/finance/advance/purchase">Uang Muka Pembelian</Link>
+          <span>/</span>
+          <span className="cur">{advance ? advance.advanceNo : "Baru"}</span>
+        </div>
+        <div className="ph-row">
+          <h1>
+            <span className="ph-ico">
+              <Icon name="wallet" size={16} />
+            </span>
+            {advance ? (
+              <>
+                <span className="docno">{advance.advanceNo}</span>
+                <span className={`bdg ${ADVANCE_STATUS_BADGE[status]}`}>{ADVANCE_STATUS_TEXT[status]}</span>
+              </>
+            ) : (
+              "Uang Muka Pembelian Baru"
+            )}
+            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
+          </h1>
+          <div className="ph-act">
+            {editing ? (
+              <>
+                {dirty && (
+                  <span className="ph-dirty">
+                    <span className="pulse" /> Belum disimpan
+                  </span>
+                )}
+                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+                <button className="btn primary" onClick={onSave} disabled={saving}>
+                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
+                </button>
+              </>
+            ) : (
+              <PurchaseAdvanceActions
+                id={advance!.id}
+                subject={`${advance!.advanceNo} – ${money(advance!.figures.total)}`}
+                status={status}
+                can={can}
+                figures={advance!.figures}
+              />
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="fgrid solo">
+        <div>
+          {headerCard}
+          {basisCard}
+        </div>
+      </div>
+    </>
+  );
+}

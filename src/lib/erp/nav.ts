@@ -356,6 +356,14 @@ export const MODULES: NavModule[] = [
             desc: "Tagihan uang muka ke customer atas Customer Order. Tidak memposting apa pun; pembayarannya dicatat di Penerimaan Kas & Bank.",
             permission: "SALES_ADVANCE_VIEW",
           },
+          {
+            key: "fin_ap_advance",
+            slug: "advance/purchase",
+            name: "Uang Muka Pembelian",
+            icon: "wallet",
+            desc: "Tagihan uang muka dari supplier atas Purchase Order. Tidak memposting apa pun; pembayarannya dicatat di Pengeluaran Kas & Bank.",
+            permission: "PURCHASE_ADVANCE_VIEW",
+          },
         ],
       },
       {

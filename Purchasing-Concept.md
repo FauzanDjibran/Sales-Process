@@ -217,6 +217,8 @@ holds only orders since P107).
   once paid. **Posts nothing.** The PO's value caps its live bills. It records
   the supplier's proforma / request for a down payment.
 
+*Built 06/10/2026 (P126).*
+
 ---
 
 ## 7. Pengeluaran Kas & Bank — *Pembayaran ke Supplier*

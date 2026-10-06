@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20261006180000_receipt_note`
+- **As of migration:** `20261006200000_ap_advance`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout:** tables are grouped in sections by prefix — System (`sys_`),
@@ -1141,6 +1141,52 @@ table fin_ar_advance {
   indexes {
     customer_order_id
     customer_id
+    (status, advance_date)
+  }
+}
+
+// Uang Muka Pembelian, APA/… or APA-NP/… (P126, Purchasing-Concept.md B23): the supplier's request for a down payment
+// the AR bill mirrored (P58): from one Open Purchase Order; posts nothing; Draft -> Catat -> Diterbitkan; Batalkan final
+table fin_ap_advance {
+  id                          int [pk, increment, not null]
+
+  advance_no                  varchar [not null, unique] // APA/YYYY/MM/NNNN
+  advance_date                date [not null]
+  due_date                    date [not null]
+  status                      enum('Draft', 'Issued', 'Cancelled') [not null, default: 'Draft']
+
+  purchase_order_id           int [not null] // weak: pur_order.id
+  supplier_id                 int [not null, ref : > m_partner.id]
+  supplier_ref_no             varchar // the supplier's proforma / bill number
+  description                 varchar [not null]
+  note                        varchar
+
+  price_mode                  enum('Exclude', 'Include') [not null] // from the PO
+  is_taxable                  boolean [not null]
+  ppn_rate                    decimal(9,4) // snapshot (P60)
+  ppn_dpp_other_numerator     int
+  ppn_dpp_other_denominator   int
+
+  amount_type                 enum('Percent', 'Amount') [not null]
+  amount_value                decimal(18,4) [not null]
+
+  amount                      decimal(18,2) [not null] // drawn, in the PO's price mode
+  dpp_amount                  decimal(18,2) [not null]
+  dpp_other_amount            decimal(18,2) [not null]
+  ppn_amount                  decimal(18,2) [not null]
+  total_amount                decimal(18,2) [not null]
+
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    purchase_order_id
+    supplier_id
     (status, advance_date)
   }
 }
