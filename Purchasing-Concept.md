@@ -244,13 +244,16 @@ holds only orders since P107).
   documents.
 - **B29b — Total Tagihan Supplier** (the user): at the foot of the invoice the
   user types the supplier's invoice total (DPP + PPN, before our PPh), compared
-  with ours. **The difference, of any size, is posted to *Selisih Tagihan
-  Supplier***, and Hutang Usaha is the supplier's total less our PPh. **PPN
-  Masukan and the PPh stay our own figures**: the creditable PPN is the
-  faktur's (UU PPN Pasal 9) and cannot be corrected by us, so the difference
-  account never carries PPN. *Accepted risk, stated to the user:* a large
-  difference is a price dispute booked as a cost, and PPh 23 is withheld on
-  the PO's DPP rather than on what the supplier charged (PMK 141/2015).
+  with ours. **The difference is posted to *Selisih Tagihan Supplier* only
+  within a tolerance** — *Toleransi Selisih Tagihan Supplier*, a System Default
+  in rupiah (default **Rp 100**, changeable in Pengaturan); **beyond it the
+  invoice refuses to post**, naming both totals, because a larger gap is a
+  price or quantity dispute to settle with the supplier or on the PO, not a
+  cost. Within it, Hutang Usaha is the supplier's total less our PPh. Left
+  empty, the total is not compared. **PPN Masukan and the PPh stay our own
+  figures**: the creditable PPN is the faktur's (UU PPN Pasal 9) and cannot be
+  corrected by us, so the difference account never carries PPN; and keeping
+  the gap small keeps the PPh 23 base (PMK 141/2015) what was charged.
 - **B30 — Advance deduction**, the same mechanism as sales and **compliant**:
   the supplier's faktur pelunasan carries the full DPP less the advances' DPP
   (PER-11/PJ/2025, as for sales, P113): *Pilih Uang Muka* lists this PO's open
@@ -312,7 +315,7 @@ Masukan on an advance whose faktur uang muka has not arrived yet.
 | Expense account for non-stock receipts | **Per Kategori Item** (B5a, closes C25) |
 | Jasa through the Receipt Note | **Yes**, as service acceptance (B19) |
 | Invoice price | **Always the PO price × the received quantity**; no invoice without a receipt; no adjustment (B29a) |
-| Supplier's total | **Typed at the foot and compared; the difference of any size posted to *Selisih Tagihan Supplier*** (B29b), PPN and PPh staying ours |
+| Supplier's total | **Typed at the foot and compared; the difference posted to *Selisih Tagihan Supplier* within a tolerance** (System Default, default Rp 100), refused beyond it (B29b), PPN and PPh staying ours |
 | PPN rounding against the supplier's faktur | **No correction** on our documents; the tax module deals with the faktur later |
 | Approval | **PO only** (B16); the PR goes Draft → Open (B8) |
 
