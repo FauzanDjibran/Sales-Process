@@ -152,7 +152,7 @@ export async function customerOrderOptions(): Promise<CustomerOrderOptions> {
       include: { base_uom: true },
     }),
     prisma.refPaymentTerm.findMany({ orderBy: { due_days: "asc" } }),
-    prisma.refWithholdingTax.findMany({ orderBy: { wht_label: "asc" } }),
+    prisma.refWithholdingTax.findMany({ where: { usage: "Sales" }, orderBy: { wht_label: "asc" } }),
     ppnRates(),
   ]);
 
@@ -360,6 +360,11 @@ export async function checkCustomerOrder(
       const t = taxes.get(whtId);
       if (!t || t.status !== "Active") {
         errors[lineKey(i, "withholding_tax_id")] = "Jenis PPh tidak ditemukan atau nonaktif.";
+        continue;
+      }
+      // A sale takes only a sales Jenis PPh (P122).
+      if (t.usage !== "Sales") {
+        errors[lineKey(i, "withholding_tax_id")] = `${t.wht_label} adalah Jenis PPh pembelian.`;
         continue;
       }
       whtRate = t.rate.toNumber();

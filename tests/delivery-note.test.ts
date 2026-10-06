@@ -557,6 +557,31 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
     assert.equal(note.lines[0].unitCost, 1_489.714286, "10.428 ÷ 7, a description of the line");
   });
 
+  test("an item's Kategori Item names its own HPP; Persediaan left empty falls back to Account Mapping (P122)", async () => {
+    const cat = (await prisma.mItem.findUniqueOrThrow({ where: { id: f.lotted } })).category_id;
+    const before = await prisma.accItemCategoryAccount.findUnique({ where: { category_id: cat } });
+    const sub = (await prisma.accAccountSubcategory.findFirstOrThrow({ where: { subcategory_label: { startsWith: "5" } }, orderBy: { id: "asc" } })).subcategory_label;
+    const ownCogs = await makeAccount({ subcategoryLabel: sub });
+    await prisma.accItemCategoryAccount.upsert({
+      where: { category_id: cat },
+      update: { cogs_account_id: ownCogs, inventory_account_id: null },
+      create: { category_id: cat, cogs_account_id: ownCogs, created_by: actor },
+    });
+    try {
+      const again = await issuedDeliveryOrder([[f.lotted, f.pcs, 1]]);
+      const r = await create(header({ source_doc_id: again.doId }), [
+        { source_doc_line_id: again.goods, qty: 1, note: "", picks: [{ lot_id: lot.early, qty: 1 }] },
+      ]);
+      assert.ok(r.ok && (await transitionDeliveryNote(r.id, "post", actor)).ok);
+      const note = (await getDeliveryNote(r.id))!;
+      const lines = await prisma.accJournalLine.findMany({ where: { journal_id: note.journalId! }, orderBy: { sequence_no: "asc" } });
+      assert.deepEqual(lines.map((l) => l.account_id), [ownCogs, f.invAcc]);
+    } finally {
+      if (before) await prisma.accItemCategoryAccount.update({ where: { category_id: cat }, data: { cogs_account_id: before.cogs_account_id, inventory_account_id: before.inventory_account_id } });
+      else await prisma.accItemCategoryAccount.deleteMany({ where: { category_id: cat } });
+    }
+  });
+
   test("stock taken by another note after a Draft was picked stops the Draft from posting", async () => {
     const big = await issuedDeliveryOrder([[f.lotted, f.pcs, 90]]);
     const r = await create(header({ source_doc_id: big.doId }), [

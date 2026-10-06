@@ -130,6 +130,11 @@ export type Field = {
      */
     | "partnerIsCustomer"
     /**
+     * The chosen Partner Category is Supplier: what a new Purchase Order starts
+     * from (P122).
+     */
+    | "partnerIsSupplier"
+    /**
      * The Item is a Barang. Stock and expiry mean nothing for a Jasa, so the
      * flags are not offered and are stored false.
      */
@@ -475,6 +480,27 @@ export const ENTITIES: Entity[] = [
         optionLabels: { Exclude: "Exclude PPN", Include: "Include PPN" },
         help: "harga diketik sebelum PPN atau sudah termasuk PPN",
       },
+
+      // ---- tab Pembelian: what a new Purchase Order starts from (B2, P122).
+      {
+        name: "purchase_term_id",
+        label: "Termin Pembayaran Default",
+        type: "ref",
+        ref: "ref_payment_term",
+        tab: "purchase",
+        visibleWhen: "partnerIsSupplier",
+        help: "diisikan ke Purchase Order baru, tetap dapat diubah",
+      },
+      {
+        name: "purchase_price_mode",
+        label: "Mode Harga Default",
+        type: "select",
+        tab: "purchase",
+        visibleWhen: "partnerIsSupplier",
+        options: ["Exclude", "Include"],
+        optionLabels: { Exclude: "Exclude PPN", Include: "Include PPN" },
+        help: "harga supplier sebelum PPN atau sudah termasuk PPN",
+      },
     ],
     tabs: [
       {
@@ -503,6 +529,13 @@ export const ENTITIES: Entity[] = [
         label: "Penjualan",
         icon: "tags",
         desc: "Nilai awal Customer Order baru untuk customer ini. Semuanya dapat diubah pada Customer Order.",
+        kind: "fields",
+      },
+      {
+        key: "purchase",
+        label: "Pembelian",
+        icon: "box",
+        desc: "Nilai awal Purchase Order baru untuk supplier ini. Semuanya dapat diubah pada Purchase Order.",
         kind: "fields",
       },
     ],
@@ -909,7 +942,7 @@ export const ENTITIES: Entity[] = [
     module: "master",
     name: "Jenis PPh",
     icon: "calc",
-    desc: "PPh yang dipotong atau dipungut customer saat membayar: tarif, objek pajak dan akun PPh dibayar dimuka.",
+    desc: "PPh yang dipotong customer dari perusahaan (Penjualan) atau dipotong perusahaan dari supplier (Pembelian): tarif, objek pajak dan akunnya.",
     codeField: "wht_code",
     codePrefix: "wht",
     labelField: "wht_label",
@@ -935,6 +968,20 @@ export const ENTITIES: Entity[] = [
         help: "nama lengkap",
       },
       {
+        // One record never serves both sides (P122): the two hit opposite
+        // accounts — an asset when the customer withholds, a liability when
+        // the company does — and a document offers only its own side's.
+        name: "usage",
+        label: "Penggunaan",
+        type: "select",
+        required: true,
+        createOnly: true,
+        options: ["Sales", "Purchase"],
+        optionLabels: { Sales: "Penjualan", Purchase: "Pembelian" },
+        defaultValue: "Sales",
+        help: "Penjualan: dipotong customer · Pembelian: dipotong perusahaan",
+      },
+      {
         name: "rate",
         label: "Tarif",
         type: "percent",
@@ -943,13 +990,13 @@ export const ENTITIES: Entity[] = [
         help: "persen dari DPP",
       },
       {
-        name: "prepaid_account_id",
-        label: "Akun PPh Dibayar Dimuka",
+        name: "account_id",
+        label: "Akun PPh",
         type: "ref",
         ref: "acc_account",
         refFilter: "postableAccount",
         span: 8,
-        help: "tempat PPh yang dipotong customer dicatat sampai bukti potong diterima",
+        help: "Penjualan: PPh Dibayar Dimuka (aset) · Pembelian: Hutang PPh (kewajiban)",
       },
       {
         name: "tax_object",
@@ -964,8 +1011,9 @@ export const ENTITIES: Entity[] = [
     columns: [
       { field: "wht_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
       { field: "wht_name", label: "Nama Jenis PPh", primary: true, filter: "text" },
+      { field: "usage", label: "Penggunaan", isTag: true, width: "120px", filter: "enum" },
       { field: "rate", label: "Tarif", isPercent: true, numeric: true, width: "96px" },
-      { field: "prepaid_account_id", label: "Akun Dibayar Dimuka", isRef: true, width: "240px" },
+      { field: "account_id", label: "Akun PPh", isRef: true, width: "240px" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
   },
@@ -1271,6 +1319,9 @@ export function fieldApplies(
   if (field.visibleWhen === "partnerIsCustomer") {
     return refLabelOf?.("category_id", values.category_id) === CUSTOMER_CATEGORY;
   }
+  if (field.visibleWhen === "partnerIsSupplier") {
+    return refLabelOf?.("category_id", values.category_id) === SUPPLIER_CATEGORY;
+  }
   // currencyIsForeign
   const label = refLabelOf?.("currency_id", values.currency_id);
   // Nothing chosen yet is not foreign: the field appears once the answer is
@@ -1280,6 +1331,9 @@ export function fieldApplies(
 
 /** The seeded Partner Category a sale is made to (prisma/seed.ts). */
 export const CUSTOMER_CATEGORY = "Customer";
+
+/** The seeded Partner Category a purchase is made from (prisma/seed.ts). */
+export const SUPPLIER_CATEGORY = "Supplier";
 
 export const STATUS_TEXT: Record<string, string> = {
   Active: "Aktif",

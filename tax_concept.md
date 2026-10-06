@@ -211,9 +211,13 @@ case comes first. For the record:
 
 Each withholding type is master data holding:
 
+- the side it is used on — **sales** (withheld from the company by a
+  customer) or **purchase** (withheld by the company from a supplier) — fixed
+  when it is created; one record never serves both;
 - a rate;
 - a description of its tax object;
-- the account that carries the withheld amount.
+- the account that carries the withheld amount: a **prepaid tax** asset for a
+  sales type, a **tax payable** for a purchase type.
 
 | Type | Typical rate | Object |
 | --- | --- | --- |

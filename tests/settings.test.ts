@@ -100,6 +100,12 @@ describe("the settings catalogue lives in code", () => {
         // The Delivery Note's (U12).
         "cogs_account",
         "inventory_account",
+        // Purchasing's (P122), ahead of the documents that post them.
+        "goods_received_account",
+        "payable_account",
+        "purchase_advance_account",
+        "input_vat_account",
+        "supplier_invoice_diff_account",
         "fx_account",
         "accumulated_pl_account",
         "current_pl_account",

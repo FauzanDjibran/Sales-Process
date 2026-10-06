@@ -205,7 +205,9 @@ export function EntityList({
 
     if (column.isTag) {
       const s = String(value);
-      return <span className={`bdg ${TAG_CLASS[s] ?? "t-slate"}`}>{s}</span>;
+      // An enum stored in English reads in its field's Indonesian label.
+      const text = entity.fields.find((f) => f.name === column.field)?.optionLabels?.[s] ?? s;
+      return <span className={`bdg ${TAG_CLASS[s] ?? "t-slate"}`}>{text}</span>;
     }
 
     if (column.isDate) {

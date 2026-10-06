@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20261006095709_stock_ledger`
+- **As of migration:** `20261006120000_purchasing_masters`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout:** tables are grouped in sections by prefix — System (`sys_`),
@@ -258,6 +258,24 @@ table sys_item_category {
   }
 }
 
+// accounts per Kategori Item (P122, closes C25); an empty one falls back to Account Mapping
+// (Persediaan, HPP) or is refused (Beban); a Jasa category takes Beban only
+table acc_item_category_account {
+  id                          int [pk, increment, not null]
+
+  category_id                 int [not null, unique, ref : - sys_item_category.id]
+
+  inventory_account_id        int [ref : > acc_account.id]
+  cogs_account_id             int [ref : > acc_account.id]
+  expense_account_id          int [ref : > acc_account.id]
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
 // Indonesia's provinsi → kota/kabupaten → kecamatan → kelurahan/desa, seeded from
 // prisma/data/region.tsv.gz; a Partner address stores only its kelurahan (P39, P40)
 table sys_region_province {
@@ -376,7 +394,9 @@ table ref_payment_term {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
-// Jenis PPh, user managed; PPH22, PPH23, PPH23-15 seeded (P44)
+// Jenis PPh, user managed; PPH22, PPH23, PPH23-15 seeded for sales (P44), PPH23-BELI for purchases
+// one side each (P122): a sales one is withheld from the company (prepaid asset),
+// a purchase one by the company (payable)
 table ref_withholding_tax {
   id                          int [pk, increment, not null]
 
@@ -388,7 +408,9 @@ table ref_withholding_tax {
   rate                        decimal(9,4) [not null]
   tax_object                  varchar
 
-  prepaid_account_id          int [ref : > acc_account.id]
+  usage                       enum('Sales', 'Purchase') [not null, default: 'Sales'] // fixed at creation
+
+  account_id                  int [ref : > acc_account.id] // Sales: PPh Dibayar Dimuka · Purchase: Hutang PPh
 
   note                        varchar
 
@@ -401,7 +423,8 @@ table ref_withholding_tax {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
-    prepaid_account_id
+    account_id
+    usage
   }
 }
 
@@ -514,6 +537,9 @@ table m_partner {
   default_term_id             int [ref : > ref_payment_term.id]
 
   default_price_mode          enum('Exclude', 'Include')
+
+  purchase_term_id            int [ref : > ref_payment_term.id] // supplier's purchase defaults (P122)
+  purchase_price_mode         enum('Exclude', 'Include')
 
   created_by                  int [not null]
   updated_by                  int

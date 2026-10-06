@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { authorizeAction } from "@/lib/erp/auth";
 import { isAccessDenied } from "@/lib/erp/auth-errors";
+import { saveItemCategoryAccounts, type ItemCategoryAccountInput, type ItemCategoryAccountResult } from "@/lib/erp/item-account";
 import {
   isSystemDefaultKey,
   numberSettingProblem,
@@ -119,4 +120,21 @@ export async function saveSystemDefaults(
   revalidatePath("/dashboard");
 
   return { ok: true, changed: changed.length };
+}
+
+/**
+ * Accounts per Kategori Item (P122): the same permission as Account Mapping,
+ * because it is the same kind of decision — where a posting lands.
+ */
+export async function saveItemCategoryAccountsAction(input: ItemCategoryAccountInput[]): Promise<ItemCategoryAccountResult> {
+  let actorId: number;
+  try {
+    actorId = (await authorizeAction("ACCOUNT_MAPPING_EDIT")).user.id;
+  } catch (error) {
+    if (isAccessDenied(error)) return { ok: false, errors: { _form: error.message } };
+    throw error;
+  }
+  const result = await saveItemCategoryAccounts(Array.isArray(input) ? input : [], actorId);
+  if (result.ok) revalidatePath("/accounting/item-category-account");
+  return result;
 }

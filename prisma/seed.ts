@@ -151,7 +151,8 @@ const PARTNER_CATEGORIES: [
   status: "Active" | "Inactive",
 ][] = [
   ["Customer", "Pelanggan", "Pihak yang membeli barang atau jasa dari perusahaan.", "Active"],
-  ["Supplier", "Pemasok", "Pihak yang menjual barang atau jasa kepada perusahaan.", "Inactive"],
+  // Active since purchasing (P122; P41 kept it Inactive until then).
+  ["Supplier", "Pemasok", "Pihak yang menjual barang atau jasa kepada perusahaan.", "Active"],
 ];
 
 /**
@@ -721,6 +722,8 @@ async function ensureReferenceData(
     ["ppn_rate", "12"],
     ["ppn_dpp_other_numerator", "11"],
     ["ppn_dpp_other_denominator", "12"],
+    // Purchasing (P121): a supplier's total may differ from the invoice by Rp 100.
+    ["supplier_invoice_tolerance", "100"],
   ] as const) {
     const set = await create(
       () => prisma.sysSetting.findUnique({ where: { setting_key: key } }),
@@ -958,6 +961,21 @@ const STARTER_TERMS: [label: string, name: string, days: number][] = [
   ["NET60", "Net 60 hari", 60],
 ];
 
+/**
+ * The Jenis PPh the company withholds from suppliers (P122): a purchase
+ * Jenis PPh is its own record, never the sales one, because it posts to a
+ * liability rather than a prepaid asset. Matched on its label like the other
+ * starters; no account, which the user picks.
+ */
+const STARTER_PURCHASE_WHT: [label: string, name: string, rate: number, taxObject: string][] = [
+  [
+    "PPH23-BELI",
+    "PPh Pasal 23 — Jasa dan Sewa (dipotong perusahaan)",
+    2,
+    "Imbalan jasa dan sewa yang dibayar perusahaan kepada supplier, selain sewa tanah dan/atau bangunan.",
+  ],
+];
+
 /** The next `<prefix>.NNNN` after the highest code already in `codes`. */
 function nextCodeAfter(prefix: string, codes: string[]): string {
   let max = 0;
@@ -994,6 +1012,15 @@ async function ensureStarterReferences(audit: { created_by: number; updated_by: 
       data: { term_code: nextCodeAfter("term", codes), term_label: label, term_name: name, due_days: days, ...audit },
     });
     tally("termin pembayaran", 1);
+  }
+
+  for (const [label, name, rate, taxObject] of STARTER_PURCHASE_WHT) {
+    if (await prisma.refWithholdingTax.findFirst({ where: { wht_label: { equals: label, mode: "insensitive" } } })) continue;
+    const codes = (await prisma.refWithholdingTax.findMany({ select: { wht_code: true } })).map((r) => r.wht_code);
+    await prisma.refWithholdingTax.create({
+      data: { wht_code: nextCodeAfter("wht", codes), wht_label: label, wht_name: name, rate, tax_object: taxObject, usage: "Purchase", ...audit },
+    });
+    tally("withholding taxes (Jenis PPh pembelian)", 1);
   }
 }
 

@@ -260,6 +260,18 @@ export async function postingAccounts<K extends SystemDefaultKey>(
   return missing.length ? { ok: false, missing } : { ok: true, ids };
 }
 
+/**
+ * The accounts these settings name where usable, null where not — for a
+ * posting that has another source first (a Kategori Item's own account, P122)
+ * and uses the setting only as its fallback.
+ */
+export async function fallbackAccounts<K extends SystemDefaultKey>(keys: readonly K[]): Promise<Record<K, number | null>> {
+  const values = await systemDefaults();
+  const out = {} as Record<K, number | null>;
+  for (const key of keys) out[key] = await usableAccount(values, key);
+  return out;
+}
+
 export type ClosingAccount =
   | { ok: true; accountId: number }
   | { ok: false; missing: string };

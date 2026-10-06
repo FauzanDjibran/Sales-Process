@@ -336,15 +336,20 @@ export async function checkPartnerSalesDefaults(
   values: Record<string, unknown>,
   partnerId: number | null
 ): Promise<Record<string, string>> {
-  const termId = Number(values.default_term_id) || null;
-  if (!termId) return {};
-  const term = await prisma.refPaymentTerm.findUnique({ where: { id: termId }, select: { status: true } });
-  if (!term) return { default_term_id: "Termin tidak ditemukan." };
-  if (term.status === "Active") return {};
+  // The sales term (P51) and the purchase term (P122) follow one rule: an
+  // inactive term may stay where it already was, never be chosen anew.
+  const errors: Record<string, string> = {};
   const current = partnerId
-    ? await prisma.mPartner.findUnique({ where: { id: partnerId }, select: { default_term_id: true } })
+    ? await prisma.mPartner.findUnique({ where: { id: partnerId }, select: { default_term_id: true, purchase_term_id: true } })
     : null;
-  return current?.default_term_id === termId ? {} : { default_term_id: "Termin tersebut sudah nonaktif." };
+  for (const field of ["default_term_id", "purchase_term_id"] as const) {
+    const termId = Number(values[field]) || null;
+    if (!termId) continue;
+    const term = await prisma.refPaymentTerm.findUnique({ where: { id: termId }, select: { status: true } });
+    if (!term) errors[field] = "Termin tidak ditemukan.";
+    else if (term.status !== "Active" && current?.[field] !== termId) errors[field] = "Termin tersebut sudah nonaktif.";
+  }
+  return errors;
 }
 
 // ------------------------------------------------------------------- writes

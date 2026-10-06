@@ -368,8 +368,8 @@ async function main() {
   }
   for (const [whtLabel, account] of WHT_ACCOUNTS) {
     const done = await prisma.refWithholdingTax.updateMany({
-      where: { wht_label: whtLabel, prepaid_account_id: null },
-      data: { prepaid_account_id: accountId.get(account), updated_by: actor },
+      where: { wht_label: whtLabel, account_id: null },
+      data: { account_id: accountId.get(account), updated_by: actor },
     });
     if (done.count) tally("jenis PPh accounts");
   }

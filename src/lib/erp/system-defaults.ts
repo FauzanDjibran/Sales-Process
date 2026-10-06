@@ -36,6 +36,12 @@ export type SystemDefaultKey =
   | "sales_revenue_account"
   | "cogs_account"
   | "inventory_account"
+  | "goods_received_account"
+  | "payable_account"
+  | "purchase_advance_account"
+  | "input_vat_account"
+  | "supplier_invoice_diff_account"
+  | "supplier_invoice_tolerance"
   | "ppn_rate"
   | "ppn_dpp_other_numerator"
   | "ppn_dpp_other_denominator";
@@ -46,7 +52,16 @@ export type SystemDefaultRef = "acc_account";
 /** The page a setting is edited on. */
 export type SettingsPage = "default" | "account";
 
-export type SystemDefaultGroupKey = "application" | "tax" | "receipt" | "invoice" | "delivery" | "fx" | "equity_pl";
+export type SystemDefaultGroupKey =
+  | "application"
+  | "tax"
+  | "purchase_rules"
+  | "receipt"
+  | "invoice"
+  | "delivery"
+  | "purchase"
+  | "fx"
+  | "equity_pl";
 
 export type SystemDefaultGroup = {
   key: SystemDefaultGroupKey;
@@ -78,6 +93,17 @@ export const SYSTEM_DEFAULT_GROUPS = [
     icon: "scale",
   },
   {
+    key: "purchase_rules",
+    page: "default",
+    name: "Pembelian",
+    desc:
+      "Batas selisih antara total tagihan supplier dan total Invoice Pembelian " +
+      "yang dihitung dari Purchase Order. Selisih sampai batas ini dicatat ke " +
+      "Account Selisih Tagihan Supplier; di atasnya Invoice Pembelian tidak dapat " +
+      "diposting.",
+    icon: "box",
+  },
+  {
     key: "receipt",
     page: "account",
     name: "Penerimaan Penjualan",
@@ -104,9 +130,20 @@ export const SYSTEM_DEFAULT_GROUPS = [
     name: "Pengiriman Barang",
     desc:
       "Account yang dipakai saat Delivery Note diposting: harga pokok barang " +
-      "yang keluar dibebankan ke HPP dan mengurangi Persediaan. Berlaku untuk " +
-      "semua barang sampai pemetaan per Kategori Item dibuat.",
+      "yang keluar dibebankan ke HPP dan mengurangi Persediaan. Dipakai untuk " +
+      "barang yang Kategori Item-nya tidak menyebut account sendiri.",
     icon: "truck",
+  },
+  {
+    key: "purchase",
+    page: "account",
+    name: "Pembelian",
+    desc:
+      "Account yang dipakai Receipt Note, Uang Muka Pembelian, Pengeluaran " +
+      "Kas & Bank dan Invoice Pembelian. Persediaan dan Beban mengikuti " +
+      "Kategori Item; PPh yang dipotong perusahaan memakai account pada " +
+      "Jenis PPh pembelian.",
+    icon: "box",
   },
   {
     key: "fx",
@@ -276,6 +313,67 @@ export const SYSTEM_DEFAULTS = [
     help: "persediaan barang yang berkurang saat dikirim",
   },
 
+  // ------------------------------------------------------------ purchase
+  //
+  // Added with the purchasing module (P121, P122), ahead of the documents
+  // that post them, because they are its masters (Purchasing-Concept.md B5).
+  {
+    key: "supplier_invoice_tolerance",
+    name: "Toleransi Selisih Tagihan Supplier (Rp)",
+    icon: "scale",
+    type: "number",
+    decimals: 0,
+    above: -1,
+    atMost: 1_000_000_000,
+    group: "purchase_rules",
+    help: "0 berarti tagihan supplier harus sama persis",
+  },
+  {
+    key: "goods_received_account",
+    name: "Account Barang Diterima Belum Ditagih",
+    icon: "box",
+    type: "ref",
+    ref: "acc_account",
+    group: "purchase",
+    help: "kliring antara Receipt Note dan Invoice Pembelian",
+  },
+  {
+    key: "payable_account",
+    name: "Account Hutang Usaha",
+    icon: "wallet",
+    type: "ref",
+    ref: "acc_account",
+    group: "purchase",
+    help: "hutang ke supplier atas invoice, per supplier",
+  },
+  {
+    key: "purchase_advance_account",
+    name: "Account Uang Muka Pembelian",
+    icon: "wallet",
+    type: "ref",
+    ref: "acc_account",
+    group: "purchase",
+    help: "uang muka yang dibayar ke supplier, per supplier",
+  },
+  {
+    key: "input_vat_account",
+    name: "Account PPN Masukan",
+    icon: "scale",
+    type: "ref",
+    ref: "acc_account",
+    group: "purchase",
+    help: "PPN dari faktur pajak supplier",
+  },
+  {
+    key: "supplier_invoice_diff_account",
+    name: "Account Selisih Tagihan Supplier",
+    icon: "calc",
+    type: "ref",
+    ref: "acc_account",
+    group: "purchase",
+    help: "selisih dalam toleransi antara tagihan supplier dan invoice",
+  },
+
   // ------------------------------------------------------------------ fx
   //
   // One account rather than a gain and a loss. A gain and a loss are the same
@@ -335,6 +433,12 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   sales_revenue_account: null,
   cogs_account: null,
   inventory_account: null,
+  goods_received_account: null,
+  payable_account: null,
+  purchase_advance_account: null,
+  input_vat_account: null,
+  supplier_invoice_diff_account: null,
+  supplier_invoice_tolerance: null,
   ppn_rate: null,
   ppn_dpp_other_numerator: null,
   ppn_dpp_other_denominator: null,

@@ -361,19 +361,19 @@ describe("the customer's tax behaviour belongs to customers", () => {
     for (const name of ["taxpayer_type", "tax_id_type", "tax_id", "tax_name", "is_pkp", ...customerFields.map((f) => f.name)]) {
       assert.ok(tax.includes(name), `${name} is on the Pajak tab`);
     }
-    assert.deepEqual(partner.tabs?.map((t) => t.label), ["Alamat", "Contact Person", "Pajak", "Penjualan"]);
+    assert.deepEqual(partner.tabs?.map((t) => t.label), ["Alamat", "Contact Person", "Pajak", "Penjualan", "Pembelian"]);
   });
 });
 
-describe("Supplier starts switched off", () => {
-  test("the seeded Supplier category is inactive, Customer active", async () => {
+describe("Supplier is switched on for purchasing (P122; was off by P41)", () => {
+  test("the seeded Supplier and Customer categories are both active", async () => {
     const rows = await prisma.sysPartnerCategory.findMany({
       where: { category_label: { in: ["Customer", "Supplier"] } },
       select: { category_label: true, status: true },
     });
     const status = Object.fromEntries(rows.map((r) => [r.category_label, r.status]));
     assert.equal(status.Customer, "Active");
-    assert.equal(status.Supplier, "Inactive");
+    assert.equal(status.Supplier, "Active");
   });
 });
 

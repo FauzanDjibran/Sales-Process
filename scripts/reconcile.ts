@@ -389,12 +389,12 @@ export const CHECKS: Check[] = [
     // Dibayar Dimuka account (PPH23 and PPH23-15 often do).
     name: "PPh Dibayar Dimuka in the General Ledger equals the Bukti Potong, per account",
     sql: `SELECT a.account_label, COALESCE(gl.bal, 0) AS gl, COALESCE(s.amount, 0) AS slips
-          FROM (SELECT DISTINCT prepaid_account_id AS account_id FROM ref_withholding_tax WHERE prepaid_account_id IS NOT NULL) x
+          FROM (SELECT DISTINCT account_id AS account_id FROM ref_withholding_tax WHERE account_id IS NOT NULL) x
           JOIN acc_account a ON a.id = x.account_id
           LEFT JOIN (SELECT l.account_id, SUM(l.debit_amount - l.kredit_amount) AS bal FROM acc_journal_line l
                      JOIN acc_journal j ON j.id = l.journal_id AND j.status = 'Posted' GROUP BY l.account_id) gl ON gl.account_id = x.account_id
-          LEFT JOIN (SELECT w.prepaid_account_id AS account_id, SUM(s.amount) AS amount FROM tax_withholding_slip s
-                     JOIN ref_withholding_tax w ON w.id = s.withholding_tax_id GROUP BY w.prepaid_account_id) s ON s.account_id = x.account_id
+          LEFT JOIN (SELECT w.account_id AS account_id, SUM(s.amount) AS amount FROM tax_withholding_slip s
+                     JOIN ref_withholding_tax w ON w.id = s.withholding_tax_id GROUP BY w.account_id) s ON s.account_id = x.account_id
           WHERE COALESCE(gl.bal, 0) <> COALESCE(s.amount, 0)`,
   },
   // ------------------------------------------------------------- advance

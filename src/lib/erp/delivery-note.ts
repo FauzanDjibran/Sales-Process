@@ -19,7 +19,8 @@ import {
 } from "./delivery-order";
 import { DEFAULT_DELIVERY_NOTE_PURPOSE, deliveryNotePurpose } from "./delivery-note-purposes";
 import { InventoryRefusal, issueStock, lotOptions, lotTrackedItems, type LotOption } from "./inventory";
-import { postingAccounts } from "./system-settings";
+import { fallbackAccounts } from "./system-settings";
+import { accountsForItems } from "./item-account";
 import {
   DELIVERY_NOTE_HOLDS_QTY,
   DELIVERY_NOTE_TRANSITIONS,
@@ -577,9 +578,20 @@ export async function transitionDeliveryNote(
 
   const period = await checkTransactionDate(isoDay(note.dn_date));
   if (!period.ok) return { ok: false, errors: { _form: period.message } };
-  const accounts = await postingAccounts(["cogs_account", "inventory_account"] as const);
-  if (!accounts.ok) {
-    return { ok: false, errors: { _form: `Lengkapi Account Mapping dulu: ${accounts.missing.join(", ")}.` } };
+  // Each item posts to its Kategori Item's HPP and Persediaan, or to Account
+  // Mapping's where the category names none (P122).
+  const fallback = await fallbackAccounts(["cogs_account", "inventory_account"] as const);
+  const byCategory = await accountsForItems([...new Set(note.lines.map((l) => l.item_id))]);
+  const lineAccounts = new Map<number, { cogs: number; inventory: number }>();
+  for (const itemId of byCategory.keys()) {
+    const c = byCategory.get(itemId)!;
+    const cogs = c.cogs ?? fallback.cogs_account;
+    const inventory = c.inventory ?? fallback.inventory_account;
+    if (!cogs || !inventory) {
+      const missing = [!cogs && "Account HPP", !inventory && "Account Persediaan"].filter(Boolean).join(", ");
+      return { ok: false, errors: { _form: `Lengkapi Account Mapping atau Account Kategori Item dulu: ${missing}.` } };
+    }
+    lineAccounts.set(itemId, { cogs, inventory });
   }
   const baseCurrency = await prisma.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
   if (!baseCurrency) return { ok: false, errors: { _form: "Mata uang dasar tidak ditemukan." } };
@@ -636,9 +648,9 @@ export async function transitionDeliveryNote(
         if (issued.cost > 0) {
           const what = `${d.itemLabel} · ${qtyText(line.qty)} ${d.uomLabel}`;
           journalLines.push(
-            { accountId: accounts.ids.cogs_account, currencyId: baseCurrency.id, rate: 1, debit: issued.cost, credit: 0, description: `HPP ${what}` },
+            { accountId: lineAccounts.get(d.itemId)!.cogs, currencyId: baseCurrency.id, rate: 1, debit: issued.cost, credit: 0, description: `HPP ${what}` },
             {
-              accountId: accounts.ids.inventory_account,
+              accountId: lineAccounts.get(d.itemId)!.inventory,
               currencyId: baseCurrency.id,
               rate: 1,
               debit: 0,

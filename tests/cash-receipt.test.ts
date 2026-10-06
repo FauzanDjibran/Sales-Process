@@ -166,7 +166,7 @@ before(async () => {
   f.advAcc = await makeAccount({ subcategoryLabel: await sub("2"), normalBalance: "Kredit", partnerCategoryLabel: "Customer" });
   f.vatAcc = await makeAccount({ subcategoryLabel: await sub("2"), normalBalance: "Kredit" });
   f.feeAcc = await makeAccount({ subcategoryLabel: await sub("5") });
-  f.wht = (await prisma.refWithholdingTax.create({ data: { wht_code: `test.${key("WHT")}`, wht_label: key("WHT"), wht_name: "PPh Uji", rate: 1.5, prepaid_account_id: f.pphAcc, created_by: actor } })).id;
+  f.wht = (await prisma.refWithholdingTax.create({ data: { wht_code: `test.${key("WHT")}`, wht_label: key("WHT"), wht_name: "PPh Uji", rate: 1.5, account_id: f.pphAcc, created_by: actor } })).id;
   await setMapping("sales_advance_account", String(f.advAcc));
   await setMapping("output_vat_account", String(f.vatAcc));
   await setMapping("bank_charge_account", String(f.feeAcc));
@@ -210,7 +210,7 @@ after(async () => {
     await prisma.sysSetting.update({ where: { setting_key: k }, data: { setting_value: v } });
   }
   // Guarded: with the id undefined, `where` would match every Jenis PPh.
-  if (f.wht) await prisma.refWithholdingTax.update({ where: { id: f.wht }, data: { prepaid_account_id: null } });
+  if (f.wht) await prisma.refWithholdingTax.update({ where: { id: f.wht }, data: { account_id: null } });
   await cleanupFixtures();
   for (const c of cleanups) await c();
   await cleanupFiscalYear();

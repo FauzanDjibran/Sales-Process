@@ -723,7 +723,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
   );
   for (const id of whtIds) {
     const t = taxes.get(id);
-    const acc = t?.prepaid_account_id;
+    const acc = t?.account_id;
     if (!acc || (await accountProblem(db, acc))) missing.push(`Account PPh Dibayar Dimuka pada Jenis PPh ${t?.wht_label ?? id}`);
   }
   if (await accountProblem(db, c.cashBankAccountId)) missing.push("Account pada Kas & Bank yang dipilih");
@@ -743,7 +743,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
       await db.accAccount.findMany({
         where: {
           id: {
-            in: [c.cashBankAccountId, advanceAcc, vatAcc, arAcc, ids.bank_charge_account, ...[...taxes.values()].map((t) => t.prepaid_account_id)].filter(
+            in: [c.cashBankAccountId, advanceAcc, vatAcc, arAcc, ids.bank_charge_account, ...[...taxes.values()].map((t) => t.account_id)].filter(
               (x): x is number => Boolean(x)
             ),
           },
@@ -788,7 +788,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
   }
   for (const [k, g] of pphByType) {
     const t = taxes.get(k)!;
-    out.push(line(t.prepaid_account_id!, g.amount, 0, `${t.wht_label} dipotong ${partnerName} — bukti potong menunggu`, c.data.partner_id));
+    out.push(line(t.account_id!, g.amount, 0, `${t.wht_label} dipotong ${partnerName} — bukti potong menunggu`, c.data.partner_id));
   }
   for (const l of advances) {
     if (l.dppPart > 0) out.push(line(advanceAcc, 0, l.dppPart, `Uang muka ${l.bill.no} (${l.bill.orderNo})`, c.data.partner_id));

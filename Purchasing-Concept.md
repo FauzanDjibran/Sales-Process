@@ -63,9 +63,14 @@ holds only orders since P107).
   new PO.
 - **B3 — Items offered** on purchasing documents are those marked **Dapat
   Dibeli**, of the document's type (Barang or Jasa).
-- **B4 — Jenis PPh gains a second account, *Account Hutang PPh*** — the
-  liability for PPh the company withholds from its suppliers (today it holds
-  only *PPh Dibayar Dimuka*, the asset for PPh withheld from the company).
+- **B4 — A Jenis PPh belongs to one side** (the user, confirmed against
+  practice: Odoo's tax *usage* Sales / Purchase, SAP's withholding codes kept
+  apart for customers and vendors, Accurate's sales and purchase taxes). Its
+  **Penggunaan** is *Penjualan* or *Pembelian*, chosen at creation; its one
+  account is *PPh Dibayar Dimuka* (an asset) for a sales one and *Hutang PPh*
+  (a liability) for a purchase one. A document offers only its side's Jenis
+  PPh. The seed adds **PPH23-BELI** (2 %) for purchases. *Built in step 1
+  (P122).*
 - **B5 — Account Mapping gains a *Pembelian* card**: *Barang Diterima Belum
   Ditagih* (GR/IR clearing), *Hutang Usaha*, *Uang Muka Pembelian*, *PPN
   Masukan* and *Selisih Tagihan Supplier* (B29).

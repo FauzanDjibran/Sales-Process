@@ -129,7 +129,7 @@ before(async () => {
   f.cogsAcc = await makeAccount({ subcategoryLabel: await sub("5") });
   f.invAcc = await makeAccount({ subcategoryLabel: await sub("1") });
   f.feeAcc = await makeAccount({ subcategoryLabel: await sub("5") });
-  f.wht = (await prisma.refWithholdingTax.create({ data: { wht_code: `test.${key("WHT")}`, wht_label: key("WHT"), wht_name: "PPh Uji", rate: 1.5, prepaid_account_id: f.pphAcc, created_by: actor } })).id;
+  f.wht = (await prisma.refWithholdingTax.create({ data: { wht_code: `test.${key("WHT")}`, wht_label: key("WHT"), wht_name: "PPh Uji", rate: 1.5, account_id: f.pphAcc, created_by: actor } })).id;
   for (const [k, v] of [
     ["receivable_account", f.arAcc],
     ["sales_revenue_account", f.revAcc],
@@ -273,7 +273,7 @@ after(async () => {
     await prisma.auditLog.deleteMany({ where: { entity_key: k, row_id: { in: list } } });
   }
   for (const [k, v] of savedSettings) await prisma.sysSetting.update({ where: { setting_key: k }, data: { setting_value: v } });
-  if (f.wht) await prisma.refWithholdingTax.update({ where: { id: f.wht }, data: { prepaid_account_id: null } });
+  if (f.wht) await prisma.refWithholdingTax.update({ where: { id: f.wht }, data: { account_id: null } });
   await cleanupFixtures();
   for (const c of cleanups) await c();
   await cleanupFiscalYear();

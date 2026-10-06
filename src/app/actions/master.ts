@@ -29,7 +29,7 @@ import {
 import {
   systemDefaultsUsingAccount,
 } from "@/lib/erp/system-settings";
-import { CUSTOMER_CATEGORY } from "@/lib/erp/entities";
+import { CUSTOMER_CATEGORY, SUPPLIER_CATEGORY } from "@/lib/erp/entities";
 import {
   checkPartnerCollections,
   checkPartnerSalesDefaults,
@@ -45,6 +45,7 @@ import {
 } from "@/lib/erp/item";
 import type { Prisma } from "@/generated/prisma/client";
 import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-rules";
+import { categoriesUsingAccount } from "@/lib/erp/item-account";
 
 /**
  * Every action here is permission-gated before it touches anything, and every
@@ -248,10 +249,10 @@ async function applicableFields(
       if (values.item_type === "Barang") applies.add(field.name);
       continue;
     }
-    if (field.visibleWhen === "partnerIsCustomer") {
+    if (field.visibleWhen === "partnerIsCustomer" || field.visibleWhen === "partnerIsSupplier") {
       const categoryId = refValue(values, "category_id");
       const label = categoryId ? await refLabel("sys_partner_category", categoryId) : null;
-      if (label === CUSTOMER_CATEGORY) applies.add(field.name);
+      if (label === (field.visibleWhen === "partnerIsCustomer" ? CUSTOMER_CATEGORY : SUPPLIER_CATEGORY)) applies.add(field.name);
       continue;
     }
     // currencyIsForeign
@@ -317,14 +318,14 @@ async function validate(
     if (error) errors.rate = error;
     // The picker offers postable accounts only; a crafted request could name
     // a heading account, which no journal line may ever hit.
-    const accountId = refValue(values, "prepaid_account_id");
+    const accountId = refValue(values, "account_id");
     if (accountId) {
       const account = await prisma.accAccount.findUnique({
         where: { id: accountId },
         select: { is_postable: true, is_active: true, _count: { select: { children: true } } },
       });
       if (!account || !account.is_postable || account._count.children > 0 || !account.is_active) {
-        errors.prepaid_account_id = "Pilih account aktif yang dapat diposting.";
+        errors.account_id = "Pilih account aktif yang dapat diposting.";
       }
     }
   }
@@ -336,7 +337,7 @@ async function validate(
       errors[k] ??= v;
     }
   }
-  if (entity.key === "m_partner" && applies.has("default_term_id")) {
+  if (entity.key === "m_partner" && (applies.has("default_term_id") || applies.has("purchase_term_id"))) {
     for (const [k, v] of Object.entries(await checkPartnerSalesDefaults(values, currentId))) {
       errors[k] ??= v;
     }
@@ -718,7 +719,7 @@ export async function toggleStatus(
   // to would leave it pointing at an account it could no longer have chosen.
   if (entity.key === "acc_account" && !nextActive) {
     const taxes = await prisma.refWithholdingTax.findMany({
-      where: { prepaid_account_id: id },
+      where: { account_id: id },
       select: { wht_label: true },
     });
     if (taxes.length) {
@@ -728,6 +729,10 @@ export async function toggleStatus(
           .map((t) => t.wht_label)
           .join(", ")}) dan tidak dapat dinonaktifkan.`,
       };
+    }
+    const categories = await categoriesUsingAccount(id);
+    if (categories.length) {
+      return { ok: false, message: `Account ini dipakai Kategori Item (${categories.join(", ")}) dan tidak dapat dinonaktifkan.` };
     }
     const dependents = await prisma.mCashBank.findMany({
       where: { account_id: id },

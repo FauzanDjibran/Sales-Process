@@ -508,10 +508,36 @@ model SysItemCategory {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  items MItem[]
+  items    MItem[]
+  accounts AccItemCategoryAccount?
 
   @@index([item_type])
   @@map("sys_item_category")
+}
+
+/// The accounts one Kategori Item posts to (P122, closes C25): Persediaan and
+/// HPP for a Barang kept in stock, Beban for what is expensed when received —
+/// a Barang without Kelola Stok, or a Jasa. Each is optional: an empty one
+/// falls back to Account Mapping (Persediaan, HPP), and a posting that finds
+/// neither is refused by name. Named only by `lib/erp/item-account.ts`.
+model AccItemCategoryAccount {
+  id                   Int  @id @default(autoincrement())
+  category_id          Int  @unique
+  inventory_account_id Int?
+  cogs_account_id      Int?
+  expense_account_id   Int?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  category          SysItemCategory @relation(fields: [category_id], references: [id])
+  inventory_account AccAccount?     @relation("CategoryInventory", fields: [inventory_account_id], references: [id])
+  cogs_account      AccAccount?     @relation("CategoryCogs", fields: [cogs_account_id], references: [id])
+  expense_account   AccAccount?     @relation("CategoryExpense", fields: [expense_account_id], references: [id])
+
+  @@map("acc_item_category_account")
 }
 
 /// An Item — a barang or a jasa the company sells (and later buys). It holds no
@@ -600,8 +626,9 @@ model RefPaymentTerm {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  partners        MPartner[]
-  customer_orders SalCustomerOrder[]
+  partners          MPartner[]         @relation("PartnerSalesTerm")
+  purchase_partners MPartner[]         @relation("PartnerPurchaseTerm")
+  customer_orders   SalCustomerOrder[]
 
   @@map("ref_payment_term")
 }
@@ -634,34 +661,46 @@ model RefWarehouse {
 /// PPh 23, PPh 4(2) …): its rate, what it is levied on, and the prepaid-tax
 /// account the withheld amount is booked to until the bukti potong credits it.
 /// The common types are seeded; users edit them and add their own (P44).
+/// The side a Jenis PPh is used on (P122).
+enum WhtUsage {
+  Sales
+  Purchase
+}
+
 model RefWithholdingTax {
-  id                 Int          @id @default(autoincrement())
-  wht_code           String       @unique
-  wht_label          String
-  wht_name           String
+  id         Int          @id @default(autoincrement())
+  wht_code   String       @unique
+  wht_label  String
+  wht_name   String
   /// Percent, e.g. `1.5` for 1,5 %.
-  rate               Decimal      @db.Decimal(9, 4)
+  rate       Decimal      @db.Decimal(9, 4)
   /// What the tax is levied on — the objek pajak, in words.
-  tax_object         String?
-  /// "PPh … Dibayar Dimuka". Optional here because a fresh chart of accounts
-  /// has none yet; the document that books a withholding requires it.
-  prepaid_account_id Int?
-  note               String?
-  status             ActiveStatus @default(Active)
+  tax_object String?
+  /// Which side it is used on (P122): a sales Jenis PPh is withheld *from*
+  /// the company by a customer, a purchase one *by* the company from a
+  /// supplier. Fixed at creation; one record never serves both.
+  usage      WhtUsage     @default(Sales)
+  /// Sales: "PPh … Dibayar Dimuka" (an asset). Purchase: "Hutang PPh …" (a
+  /// liability). Optional here because a fresh chart of accounts has none
+  /// yet; the document that books a withholding requires it.
+  account_id Int?
+  note       String?
+  status     ActiveStatus @default(Active)
 
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  prepaid_account AccAccount? @relation(fields: [prepaid_account_id], references: [id])
+  account AccAccount? @relation(fields: [account_id], references: [id])
 
   customer_order_lines SalCustomerOrderLine[]
   cash_bank_tx_whts    FinCashBankTxLineWht[]
   invoice_lines        FinArInvoiceLine[]
   tax_slips            TaxWithholdingSlip[]
 
-  @@index([prepaid_account_id])
+  @@index([account_id])
+  @@index([usage])
   @@map("ref_withholding_tax")
 }
 
@@ -702,13 +741,19 @@ model MPartner {
   default_term_id    Int?
   default_price_mode PriceMode?
 
+  // ---- Pembelian, supplier side: what a new Purchase Order starts from
+  // (B2, P122). Defaults only; the Purchase Order can change them.
+  purchase_term_id    Int?
+  purchase_price_mode PriceMode?
+
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  category     SysPartnerCategory @relation(fields: [category_id], references: [id])
-  default_term RefPaymentTerm?    @relation(fields: [default_term_id], references: [id])
+  category      SysPartnerCategory @relation(fields: [category_id], references: [id])
+  default_term  RefPaymentTerm?    @relation("PartnerSalesTerm", fields: [default_term_id], references: [id])
+  purchase_term RefPaymentTerm?    @relation("PartnerPurchaseTerm", fields: [purchase_term_id], references: [id])
 
   addresses MPartnerAddress[]
   contacts  MPartnerContact[]
@@ -1096,7 +1141,10 @@ model AccAccount {
 
   opening_balance_lines AccOpeningBalanceLine[]
 
-  withholding_taxes RefWithholdingTax[]
+  withholding_taxes  RefWithholdingTax[]
+  category_inventory AccItemCategoryAccount[] @relation("CategoryInventory")
+  category_cogs      AccItemCategoryAccount[] @relation("CategoryCogs")
+  category_expense   AccItemCategoryAccount[] @relation("CategoryExpense")
 
   @@unique([account_label])
   @@index([account_subcategory_id])
