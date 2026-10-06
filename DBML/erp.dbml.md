@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20261006220000_ap_items`
+- **As of migration:** `20261006240000_ap_invoice`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout:** tables are grouped in sections by prefix — System (`sys_`),
@@ -1250,6 +1250,102 @@ table fin_ap_advance {
     purchase_order_id
     supplier_id
     (status, advance_date)
+  }
+}
+
+// Invoice Pembelian, PI/… or PI-NP/… (P128, Purchasing-Concept.md B28–B31): the supplier's bill for one Purchase Order
+// whole lines of its posted Receipt Notes, always at the PO price (each line's DPP = its receipt's value, so GR/IR clears exactly)
+// posting: Dr Barang Diterima Belum Ditagih · Dr PPN Masukan · Dr/Cr Selisih Tagihan Supplier / Cr Hutang Usaha (face) · Cr Hutang PPh;
+// per Uang Muka: Dr Hutang Usaha / Cr Uang Muka Pembelian · Cr PPN Masukan; the Invoice AP item at its face
+table fin_ap_invoice {
+  id                          int [pk, increment, not null]
+
+  invoice_no                  varchar [not null, unique] // PI/YYYY/MM/NNNN
+  invoice_date                date [not null] // the journal date, not before the latest receipt
+  due_date                    date [not null] // supplier invoice date + the PO's Termin
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+
+  purchase_order_id           int [not null] // weak: pur_order.id
+  supplier_id                 int [not null, ref : > m_partner.id]
+  supplier_invoice_no         varchar [not null] // unique per supplier among live invoices
+  supplier_invoice_date       date [not null]
+  supplier_tax_invoice_no     varchar // reference until the tax module
+
+  price_mode                  enum('Exclude', 'Include') [not null]
+  is_taxable                  boolean [not null]
+  ppn_rate                    decimal(9,4)
+  ppn_dpp_other_numerator     int
+  ppn_dpp_other_denominator   int
+
+  dpp_amount                  decimal(18,2) [not null, default: 0]
+  advance_dpp_amount          decimal(18,2) [not null, default: 0]
+  advance_ppn_amount          decimal(18,2) [not null, default: 0]
+  net_dpp_amount              decimal(18,2) [not null, default: 0]
+  dpp_other_amount            decimal(18,2) [not null, default: 0]
+  ppn_amount                  decimal(18,2) [not null, default: 0] // full PPN − the advances' PPN (P113)
+  total_amount                decimal(18,2) [not null, default: 0] // net DPP + PPN, before PPh
+  pph_amount                  decimal(18,2) [not null, default: 0] // the company's PPh, on the DPP after the advance
+  supplier_total              decimal(18,2) // Total Tagihan Supplier as typed; null = not compared
+  difference_amount           decimal(18,2) [not null, default: 0] // within the tolerance, to Selisih Tagihan Supplier
+  payable_amount              decimal(18,2) [not null, default: 0] // Hutang born at: full DPP + full PPN + difference − PPh
+
+  journal_id                  int
+  ap_item_id                  int
+  note                        varchar
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    purchase_order_id
+    (supplier_id, supplier_invoice_no)
+    (status, invoice_date)
+  }
+}
+
+// a whole posted Receipt Note line, billed by at most one live invoice
+table fin_ap_invoice_line {
+  id                          int [pk, increment, not null]
+
+  invoice_id                  int [not null, ref : > fin_ap_invoice.id]
+  line_no                     int [not null]
+  receipt_note_line_id        int [not null] // weak: log_receipt_note_line.id
+  purchase_order_line_id      int [not null] // weak: pur_order_line.id
+  qty                         decimal(18,4) [not null]
+  price                       decimal(18,6) [not null] // the PO's
+  dpp_amount                  decimal(18,2) [not null] // the receipt's value
+  advance_dpp_amount          decimal(18,2) [not null, default: 0]
+  net_dpp_amount              decimal(18,2) [not null]
+  dpp_other_amount            decimal(18,2) [not null, default: 0]
+  ppn_amount                  decimal(18,2) [not null, default: 0]
+  withholding_tax_id          int // weak: a purchase Jenis PPh
+  withholding_rate            decimal(9,4)
+
+  indexes {
+    (invoice_id, line_no) [unique]
+    (invoice_id, receipt_note_line_id) [unique]
+    receipt_note_line_id
+    purchase_order_line_id
+  }
+}
+
+// the PO's Uang Muka AP items an invoice uses: the DPP typed, its PPN recalculated (P118)
+table fin_ap_invoice_advance_deduction {
+  id                          int [pk, increment, not null]
+
+  invoice_id                  int [not null, ref : > fin_ap_invoice.id]
+  ap_item_id                  int [not null] // weak: fin_ap_item.id
+  ap_item_no                  varchar [not null]
+  dpp_used                    decimal(18,2) [not null]
+  ppn_used                    decimal(18,2) [not null, default: 0]
+
+  indexes {
+    (invoice_id, ap_item_id) [unique]
+    ap_item_id
   }
 }
 

@@ -286,6 +286,8 @@ holds only orders since P107).
   (*Dipakai Invoice* / *Uang Muka Diterapkan*). GR/IR clears exactly because
   the invoice price is the PO price (B29a).
 
+*Built 06/10/2026 (P128): each invoice line's DPP is its receipt's value, so the clearing is exact by construction; the Pengeluaran pays Invoices from the same build.*
+
 ---
 
 ## 9. AP items and Buku Hutang  (`fin_ap_item`, `fin_ap_ledger`)
