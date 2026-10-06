@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20261006200000_ap_advance`
+- **As of migration:** `20261006220000_ap_items`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout:** tables are grouped in sections by prefix — System (`sys_`),
@@ -1092,6 +1092,68 @@ table fin_ar_ledger {
 
   created_by                  int [not null]
 
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (ledger_no, line_no) [unique]
+    (item_id, entry_date)
+    (doc_type_id, doc_id)
+  }
+}
+
+// AP item, API/… (P127, Purchasing-Concept.md B32): the AR item mirrored — what is owed a supplier per document, or paid ahead
+// Uang Muka: born by a posted payment of an AP advance bill, at its DPP; Invoice: by a posted Invoice Pembelian (step 7)
+// a book: kernel imports only; type, direction and event reuse the AR enums
+table fin_ap_item {
+  id                          int [pk, increment, not null]
+
+  ap_item_no                  varchar [not null, unique] // API/YYYY/MM/NNNN
+  item_type                   enum('Advance', 'Invoice') [not null]
+  direction                   enum('Increase', 'Decrease') [not null] // on Hutang Usaha: an Invoice raises it, an Uang Muka lowers it
+  partner_id                  int [not null, ref : > m_partner.id]
+  currency_id                 int [not null, ref : > ref_currency.id]
+  item_date                   date [not null]
+  due_date                    date
+
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // what the item is about
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+  purchase_order_id           int // weak: the settlement scope
+
+  current_balance             decimal(18,2) [not null] // Σ its Buku Hutang entries
+  original_amount             decimal(18,2) [not null, default: 0]
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (partner_id, item_type)
+    purchase_order_id
+    (source_doc_type_id, source_doc_id)
+  }
+}
+
+// Buku Hutang (P127): every change to an AP item's balance, append-only; one BH/… number per posting (P110)
+table fin_ap_ledger {
+  id                          int [pk, increment, not null]
+
+  ledger_no                   varchar [not null] // BH/YYYY/MM/NNNN
+  line_no                     int [not null]
+  item_id                     int [not null, ref : > fin_ap_item.id]
+  event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied') [not null]
+  entry_date                  date [not null]
+  amount                      decimal(18,2) [not null]
+  movement                    decimal(18,2) [not null]
+  balance_after               decimal(18,2) [not null]
+
+  doc_type_id                 int [not null, ref : > sys_doc_type.id]
+  doc_id                      int [not null]
+  doc_no                      varchar [not null]
+  counter_item_id             int [ref : > fin_ap_item.id]
+  note                        varchar
+
+  created_by                  int [not null]
   created_at                  timestamptz [not null, default: `now()`]
 
   indexes {

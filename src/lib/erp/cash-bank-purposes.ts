@@ -18,12 +18,20 @@
 
 export type CashBankDirection = "In" | "Out";
 
-export type CashBankPurposeKey = "customer_receipt";
+export type CashBankPurposeKey = "customer_receipt" | "supplier_payment";
 
 /** The kinds of document a purpose settles, by `sys_doc_type.doc_table`. */
 export type SettledDocKind = "fin_ar_advance" | "fin_ar_invoice";
 
 export const SETTLED_DOC_TEXT: Record<SettledDocKind, string> = { fin_ar_advance: "Uang Muka", fin_ar_invoice: "Invoice" };
+
+/** The kinds of document a payment to a supplier settles (P127). */
+export type PaidDocKind = "fin_ap_advance" | "fin_ap_invoice";
+
+export const PAID_DOC_TEXT: Record<PaidDocKind, string> = { fin_ap_advance: "Uang Muka", fin_ap_invoice: "Invoice" };
+
+/** One paid document's key, unique across both kinds. */
+export const paidKey = (kind: PaidDocKind, id: number) => `${kind}:${id}`;
 
 /** One settled document's key, unique across both kinds. */
 export const billKey = (kind: SettledDocKind, id: number) => `${kind}:${id}`;
@@ -39,7 +47,7 @@ export type CashBankPurpose = {
   /** The partner category the partner is drawn from (P30). */
   partnerCategory: "Customer" | "Supplier";
   /** The `sys_doc_type.doc_table`s of what it settles. */
-  settles: readonly SettledDocKind[];
+  settles: readonly (SettledDocKind | PaidDocKind)[];
   /** What one settled document is called on the form. */
   docNoun: string;
   /** Whether the settled documents carry PPh a partner may withhold. */
@@ -59,6 +67,21 @@ export const CASH_BANK_PURPOSES = [
       "diposting. Uang muka mencatat kewajiban dan PPN Keluaran; invoice melunasi piutang.",
     partnerCategory: "Customer",
     settles: ["fin_ar_advance", "fin_ar_invoice"],
+    docNoun: "Tagihan",
+    withholding: true,
+  },
+  // The supplier side mirrored (P127, B24): one purpose pays advance bills and
+  // Invoices Pembelian together; the PPh is what the company withholds.
+  {
+    key: "supplier_payment",
+    direction: "Out",
+    name: "Pembayaran ke Supplier",
+    short: "Ke Supplier",
+    desc:
+      "Pembayaran ke supplier atas tagihan uang muka yang dicatat dan invoice pembelian yang " +
+      "diposting. Uang muka mencatat Uang Muka Pembelian dan PPN Masukan; invoice melunasi hutang.",
+    partnerCategory: "Supplier",
+    settles: ["fin_ap_advance", "fin_ap_invoice"],
     docNoun: "Tagihan",
     withholding: true,
   },

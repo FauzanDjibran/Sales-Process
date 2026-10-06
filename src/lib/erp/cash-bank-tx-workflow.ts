@@ -108,3 +108,20 @@ export const CASH_BANK_TX_STATUS_BADGE: Record<CashBankTxStatus, string> = {
   Posted: "s-ok",
   Cancelled: "s-mute",
 };
+
+/** Pengeluaran: the same document Out (P127, B24), with its own permissions. */
+export const CASH_PAYMENT_TRANSITIONS: Record<CashBankTxAction, CashBankTxTransition> = {
+  post: { ...CASH_RECEIPT_TRANSITIONS.post, permission: "CASH_PAYMENT_POST", title: "Posting Pengeluaran", done: "Pengeluaran diposting" },
+  cancel: { ...CASH_RECEIPT_TRANSITIONS.cancel, permission: "CASH_PAYMENT_CANCEL", title: "Batalkan Pengeluaran", done: "Pengeluaran dibatalkan" },
+};
+
+export function cashPaymentAbilities(permissions: Iterable<string>): CashPaymentAbilities {
+  const held = permissions instanceof Set ? permissions : new Set(permissions);
+  return {
+    create: held.has("CASH_PAYMENT_CREATE"),
+    edit: held.has("CASH_PAYMENT_EDIT"),
+    post: held.has("CASH_PAYMENT_POST"),
+    cancel: held.has("CASH_PAYMENT_CANCEL"),
+  };
+}
+export type CashPaymentAbilities = CashReceiptAbilities;

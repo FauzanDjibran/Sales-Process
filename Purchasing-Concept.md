@@ -238,6 +238,8 @@ holds only orders since P107).
   *Pembayaran* on the Invoice AP item. Its PPh was booked at the invoice
   (B31), so the payment is cash against the item's balance only.
 
+*Built 06/10/2026 (P127): the AP items and paying advance bills; Invoice lines arrive with step 7.*
+
 ---
 
 ## 8. Invoice Pembelian  (`fin_ap_invoice`, `PI/…`)

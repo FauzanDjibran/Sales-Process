@@ -175,7 +175,7 @@ export async function settledDocumentRefusal(
 ): Promise<string | null> {
   const paid = (await settledByDocuments(table, [id], tx)).get(id) ?? 0;
   return paid > 0
-    ? `Tagihan ini sudah dibayar ${money(paid)} melalui Penerimaan Kas & Bank. Sisa yang tidak terpakai dikembalikan, bukan dibatalkan.`
+    ? `Tagihan ini sudah dibayar ${money(paid)} melalui Kas & Bank. Sisa yang tidak terpakai dikembalikan, bukan dibatalkan.`
     : null;
 }
 

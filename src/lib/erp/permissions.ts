@@ -262,6 +262,11 @@ export const PERMISSIONS = [
   { code: "CASH_RECEIPT_EDIT", name: "Ubah Penerimaan Kas & Bank", module: "finance", description: "Hanya selama masih Draft." },
   { code: "CASH_RECEIPT_POST", name: "Posting Penerimaan Kas & Bank", module: "finance", description: "Membentuk journal dan mencatat dana di Buku Kas & Bank. Tidak dapat dibalik." },
   { code: "CASH_RECEIPT_CANCEL", name: "Batalkan Penerimaan Kas & Bank", module: "finance", description: "Hanya Draft, dengan alasan." },
+  { code: "CASH_PAYMENT_VIEW", name: "Lihat Pengeluaran Kas & Bank", module: "finance", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "CASH_PAYMENT_CREATE", name: "Buat Pengeluaran Kas & Bank", module: "finance", description: "Membuat Draft pengeluaran." },
+  { code: "CASH_PAYMENT_EDIT", name: "Ubah Pengeluaran Kas & Bank", module: "finance", description: "Hanya selama masih Draft." },
+  { code: "CASH_PAYMENT_POST", name: "Posting Pengeluaran Kas & Bank", module: "finance", description: "Membentuk journal dan mengeluarkan dana dari Buku Kas & Bank. Ditolak bila saldo tidak mencukupi." },
+  { code: "CASH_PAYMENT_CANCEL", name: "Batalkan Pengeluaran Kas & Bank", module: "finance", description: "Hanya Draft, dengan alasan." },
 
   // Report Views. `REPORT_` comes first for the same reason `MENU_` does: the
   // prefix says what kind of capability this is before it says which subject.

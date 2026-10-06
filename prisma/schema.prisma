@@ -419,6 +419,9 @@ model SysDocType {
   stock_ledger       LogStockLedger[]          @relation("StockLedgerSource")
   valuation_ledger   LogStockValuationLedger[] @relation("StockValuationSource")
 
+  ap_items          FinApItem[]   @relation("ApItemSource")
+  ap_ledger_entries FinApLedger[] @relation("ApLedgerDocType")
+
   @@map("sys_doc_type")
 }
 
@@ -459,6 +462,8 @@ model RefCurrency {
   cash_banks    MCashBank[]
   journal_lines AccJournalLine[]
   ar_items      FinArItem[]
+
+  ap_items FinApItem[] @relation("ApItemCurrency")
 
   @@map("ref_currency")
 }
@@ -788,6 +793,7 @@ model MPartner {
   journal_lines AccJournalLine[]
 
   opening_balance_lines AccOpeningBalanceLine[]
+  ap_items              FinApItem[]             @relation("ApItemPartner")
 
   @@index([category_id])
   @@map("m_partner")
@@ -2997,4 +3003,79 @@ model FinApAdvance {
   @@index([supplier_id])
   @@index([status, advance_date])
   @@map("fin_ap_advance")
+}
+
+/// AP items (P127, Purchasing-Concept.md B32): the AR items mirrored (P71,
+/// P58) — what the company owes a supplier per document, or has paid ahead.
+/// An Uang Muka is born by a payment of an AP advance bill, an Invoice by a
+/// posted Invoice Pembelian. Item type, direction and event reuse the AR enums:
+/// the same shape on the other side. A book: kernel imports only.
+model FinApItem {
+  id          Int         @id @default(autoincrement())
+  /// `API/YYYY/MM/NNNN`, in the month of `item_date`.
+  ap_item_no  String      @unique
+  item_type   ArItemType
+  /// An Invoice raises Hutang Usaha, an Uang Muka lowers it.
+  direction   ArDirection
+  partner_id  Int
+  currency_id Int
+  item_date   DateTime    @db.Date
+  due_date    DateTime?   @db.Date
+
+  /// The document the item is about — the AP advance bill, the Invoice Pembelian.
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  /// The Purchase Order it is settled within (weak): an invoice uses only its own PO's advances.
+  purchase_order_id  Int?
+
+  current_balance Decimal @db.Decimal(18, 2)
+  original_amount Decimal @default(0) @db.Decimal(18, 2)
+
+  created_by Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  partner         MPartner      @relation("ApItemPartner", fields: [partner_id], references: [id])
+  currency        RefCurrency   @relation("ApItemCurrency", fields: [currency_id], references: [id])
+  source_doc_type SysDocType    @relation("ApItemSource", fields: [source_doc_type_id], references: [id])
+  entries         FinApLedger[] @relation("ApItemEntries")
+  counter_entries FinApLedger[] @relation("ApItemCounter")
+
+  @@index([partner_id, item_type])
+  @@index([purchase_order_id])
+  @@index([source_doc_type_id, source_doc_id])
+  @@map("fin_ap_item")
+}
+
+/// Buku Hutang: every change to an AP item's balance, append-only (P127).
+model FinApLedger {
+  id            Int      @id @default(autoincrement())
+  /// `BH/YYYY/MM/NNNN`, one per posting, a `line_no` each (P110).
+  ledger_no     String
+  line_no       Int
+  item_id       Int
+  event         ArEvent
+  entry_date    DateTime @db.Date
+  amount        Decimal  @db.Decimal(18, 2)
+  movement      Decimal  @db.Decimal(18, 2)
+  balance_after Decimal  @db.Decimal(18, 2)
+
+  doc_type_id     Int
+  doc_id          Int
+  doc_no          String
+  counter_item_id Int?
+  note            String?
+
+  created_by Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  item         FinApItem  @relation("ApItemEntries", fields: [item_id], references: [id])
+  counter_item FinApItem? @relation("ApItemCounter", fields: [counter_item_id], references: [id])
+  doc_type     SysDocType @relation("ApLedgerDocType", fields: [doc_type_id], references: [id])
+
+  @@unique([ledger_no, line_no])
+  @@index([item_id, entry_date])
+  @@index([doc_type_id, doc_id])
+  @@map("fin_ap_ledger")
 }

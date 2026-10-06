@@ -327,6 +327,15 @@ export const MODULES: NavModule[] = [
             desc: "Dana masuk ke kas atau bank. Tujuannya menentukan dokumen yang diselesaikan dan journal yang dibentuk.",
             permission: "CASH_RECEIPT_VIEW",
           },
+          {
+            key: "fin_cash_payment",
+            slug: "cash-bank/payment",
+            name: "Pengeluaran",
+            single: "Pengeluaran Kas & Bank",
+            icon: "send",
+            desc: "Dana keluar dari kas atau bank. Tujuannya menentukan dokumen yang diselesaikan dan journal yang dibentuk.",
+            permission: "CASH_PAYMENT_VIEW",
+          },
         ],
       },
       {

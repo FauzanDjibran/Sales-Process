@@ -121,13 +121,15 @@ const TABLE_OWNERS: Record<string, string[]> = {
   finArInvoice: ["src/lib/erp/ar-invoice.ts"],
   finArInvoiceLine: ["src/lib/erp/ar-invoice.ts"],
   finArInvoiceAdvanceDeduction: ["src/lib/erp/ar-invoice.ts"],
-  finCashBankTx: ["src/lib/erp/cash-bank-tx.ts"],
-  finCashBankTxLine: ["src/lib/erp/cash-bank-tx.ts"],
-  finCashBankTxLineWht: ["src/lib/erp/cash-bank-tx.ts"],
+  finCashBankTx: ["src/lib/erp/cash-bank-tx.ts", "src/lib/erp/cash-payment.ts"],
+  finCashBankTxLine: ["src/lib/erp/cash-bank-tx.ts", "src/lib/erp/cash-payment.ts"],
+  finCashBankTxLineWht: ["src/lib/erp/cash-bank-tx.ts", "src/lib/erp/cash-payment.ts"],
   // AR items and Buku Piutang: written only by their book, which the posting
   // documents call (P71–P72).
   finArItem: ["src/lib/erp/ar-item.ts"],
   finArLedger: ["src/lib/erp/ar-item.ts"],
+  finApItem: ["src/lib/erp/ap-item.ts"],
+  finApLedger: ["src/lib/erp/ap-item.ts"],
   // Tax documents: made by the postings through hooks, recorded through the
   // tax module (P100).
   taxFaktur: ["src/lib/erp/tax-document.ts"],
@@ -190,7 +192,7 @@ describe("the dependency graph points one way", () => {
       "fx",
       "currency",
     ];
-    const BOOKS = ["cash-bank", "journal", "ar-item", "inventory"];
+    const BOOKS = ["cash-bank", "journal", "ar-item", "ap-item", "inventory"];
 
     for (const book of BOOKS) {
       const allowed = KERNEL;

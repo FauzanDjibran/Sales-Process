@@ -1,10 +1,11 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { CashReceiptForm } from "@/components/finance/cash-receipt-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { cashReceiptOptions, getCashReceipt } from "@/lib/erp/cash-bank-tx";
 import { cashReceiptAbilities } from "@/lib/erp/cash-bank-tx-workflow";
 import { taxDocsOf } from "@/lib/erp/tax-document";
+import { getCashPayment } from "@/lib/erp/cash-payment";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,11 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const { id } = await params;
   const actor = await requirePermission("CASH_RECEIPT_VIEW", "/finance/cash-bank/receipt");
   const receipt = await getCashReceipt(Number(id));
-  if (!receipt) notFound();
+  if (!receipt) {
+    // One table, two menus: a link to a Pengeluaran is sent to its own page.
+    if (await getCashPayment(Number(id))) redirect(`/finance/cash-bank/payment/${id}`);
+    notFound();
+  }
   const [options, taxDocs] = await Promise.all([
     cashReceiptOptions({ id: receipt.id, docs: receipt.lines.map((l) => ({ kind: l.kind, id: l.docId })) }),
     // The faktur uang muka and bukti potong its posting made — composed here (P100).
