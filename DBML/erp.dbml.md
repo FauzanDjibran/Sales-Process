@@ -3,12 +3,12 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20261006120000_purchasing_masters`
+- **As of migration:** `20261006140000_purchase_request`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout:** tables are grouped in sections by prefix — System (`sys_`),
   Master Referensi (`ref_`), Master Data (`m_`), Accounting (`acc_`), Finance
-  (`fin_`, the Cash Bank Book), Sales (`sal_`), Logistik (`log_`, the stock books
+  (`fin_`, the Cash Bank Book), Sales (`sal_`), Pembelian (`pur_`), Logistik (`log_`, the stock books
   among them) and Pajak (`tax_`). What a table is for is the `//` comment above it; what a column
   holds, the `//` comment after it.
 - **References are inline** (`ref : > table.id`, `ref : -` for one-to-one).
@@ -1431,6 +1431,63 @@ table sal_delivery_order_line {
     (delivery_order_id, line_no) [unique]
     (delivery_order_id, sales_order_line_id) [unique]
     sales_order_line_id
+  }
+}
+
+//////////////////////////////////
+//
+// Pembelian
+//
+/////////////////////////////////
+
+// Purchase Request, PR/… (P123, Purchasing-Concept.md B6–B8): what is needed, by when
+// Barang or Jasa (one kind per request, two menus); no supplier, price or tax; posts nothing
+// Draft -> Ajukan -> Open -> Tutup; closes itself once every line is fully ordered
+table pur_request {
+  id                          int [pk, increment, not null]
+
+  request_no                  varchar [not null, unique] // PR/YYYY/MM/NNNN
+  request_date                date [not null]
+  item_type                   enum('Barang', 'Jasa') [not null] // fixed at creation
+  status                      enum('Draft', 'Open', 'Closed', 'Cancelled') [not null, default: 'Draft']
+
+  requester                   varchar // free text
+  warehouse_id                int [ref : > ref_warehouse.id] // Gudang Tujuan; Barang only
+  needed_date                 date [not null] // the default for its lines
+
+  note                        varchar
+  status_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (item_type, status)
+  }
+}
+
+// an item marked Dapat Dibeli of the request's type, in its base unit; once per date
+table pur_request_line {
+  id                          int [pk, increment, not null]
+
+  request_id                  int [not null, ref : > pur_request.id]
+  line_no                     int [not null]
+
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
+
+  qty                         decimal(18,4) [not null]
+  needed_date                 date [not null] // not before the request
+  ordered_qty                 decimal(18,4) [not null, default: 0] // written by the Purchase Order module; may exceed qty
+
+  note                        varchar
+
+  indexes {
+    (request_id, line_no) [unique]
+    item_id
   }
 }
 

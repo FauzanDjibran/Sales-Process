@@ -8,6 +8,7 @@ import { fiscalClosingLabels } from "./fiscal";
 import { journalNumbersByIds } from "./journal";
 import { openingBalanceNumbersByIds } from "./opening-balance";
 import { salesAdvanceNumbersByIds } from "./ar-advance";
+import { purchaseRequestNumbersByIds } from "./purchase-request";
 import { cashBankTxNumbersByIds } from "./cash-bank-tx";
 import { customerOrderNumbersByIds } from "./customer-order";
 import { salesOrderNumbersByIds } from "./sales-order";
@@ -77,6 +78,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   sal_order: { label: "Sales Order", resolve: salesOrderNumbersByIds },
   sal_delivery_order: { label: "Delivery Order", resolve: deliveryOrderNumbersByIds },
   log_delivery_note: { label: "Delivery Note", resolve: deliveryNoteNumbersByIds },
+  pur_request: { label: "Purchase Request", resolve: purchaseRequestNumbersByIds },
   fin_ar_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },
   // The stand-in inventory, dropped by P120; kept so its old trail still reads.
   acc_item_category_account: { label: "Account Kategori Item", resolve: null },

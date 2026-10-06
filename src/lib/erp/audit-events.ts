@@ -28,6 +28,7 @@ import { CUSTOMER_ORDER_TRANSITIONS } from "./customer-order-workflow";
 import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
 import { DELIVERY_ORDER_TRANSITIONS } from "./delivery-order-workflow";
 import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
+import { PURCHASE_REQUEST_TRANSITIONS } from "./purchase-request-workflow";
 import { INVOICE_TRANSITIONS } from "./ar-invoice-workflow";
 import { CASH_RECEIPT_TRANSITIONS } from "./cash-bank-tx-workflow";
 
@@ -129,6 +130,16 @@ const DELIVERY_ORDER_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(DELIVERY_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
   close: fromTransition(DELIVERY_ORDER_TRANSITIONS.close, "Ditutup"),
   fulfil: { label: "Ditutup — seluruhnya terkirim", icon: "truck", tone: "primary", systemDriven: true },
+};
+
+/** Purchase Request: Draft → Open → Ditutup, or Dibatalkan (P123). */
+const PURCHASE_REQUEST_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Purchase Request dibuat", icon: "clip", tone: "neutral" },
+  submit: fromTransition(PURCHASE_REQUEST_TRANSITIONS.submit, "Diajukan — Open"),
+  cancel: fromTransition(PURCHASE_REQUEST_TRANSITIONS.cancel, "Dibatalkan"),
+  close: fromTransition(PURCHASE_REQUEST_TRANSITIONS.close, "Ditutup"),
+  fulfil: { label: "Ditutup — seluruhnya dipesan", icon: "clip", tone: "primary", systemDriven: true },
 };
 
 /** Delivery Note: Draft → Diposting, or Dibatalkan (C28). */
@@ -238,6 +249,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   sal_order: SALES_ORDER_EVENTS,
   sal_delivery_order: DELIVERY_ORDER_EVENTS,
   log_delivery_note: DELIVERY_NOTE_EVENTS,
+  pur_request: PURCHASE_REQUEST_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,
   fin_ar_advance: SALES_ADVANCE_EVENTS,
   fin_cash_bank_tx: CASH_BANK_TX_EVENTS,

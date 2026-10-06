@@ -484,10 +484,11 @@ model RefUom {
   customer_order_lines SalCustomerOrderLine[]
   delivery_note_lines  LogDeliveryNoteLine[]
 
-  stock_ledger       LogStockLedger[]           @relation("StockLedgerUom")
-  stock_balances     LogStockBalance[]          @relation("StockBalanceUom")
-  valuation_ledger   LogStockValuationLedger[]  @relation("StockValuationLedgerUom")
-  valuation_balances LogStockValuationBalance[] @relation("StockValuationBalanceUom")
+  purchase_request_lines PurRequestLine[]           @relation("PurRequestLineUom")
+  stock_ledger           LogStockLedger[]           @relation("StockLedgerUom")
+  stock_balances         LogStockBalance[]          @relation("StockBalanceUom")
+  valuation_ledger       LogStockValuationLedger[]  @relation("StockValuationLedgerUom")
+  valuation_balances     LogStockValuationBalance[] @relation("StockValuationBalanceUom")
 
   @@map("ref_uom")
 }
@@ -574,13 +575,14 @@ model MItem {
   base_uom RefUom          @relation("ItemBaseUom", fields: [base_uom_id], references: [id])
   uoms     MItemUom[]
 
-  customer_order_lines SalCustomerOrderLine[]
-  stock_trackings      LogStockTracking[]
-  stock_ledger         LogStockLedger[]
-  stock_balances       LogStockBalance[]
-  valuation_ledger     LogStockValuationLedger[]
-  valuation_balance    LogStockValuationBalance?
-  delivery_note_lines  LogDeliveryNoteLine[]
+  customer_order_lines   SalCustomerOrderLine[]
+  stock_trackings        LogStockTracking[]
+  purchase_request_lines PurRequestLine[]
+  stock_ledger           LogStockLedger[]
+  stock_balances         LogStockBalance[]
+  valuation_ledger       LogStockValuationLedger[]
+  valuation_balance      LogStockValuationBalance?
+  delivery_note_lines    LogDeliveryNoteLine[]
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -649,10 +651,11 @@ model RefWarehouse {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   /// The Delivery Orders that send goods out of this warehouse.
-  delivery_orders SalDeliveryOrder[]
-  delivery_notes  LogDeliveryNote[]
-  stock_ledger    LogStockLedger[]
-  stock_balances  LogStockBalance[]
+  delivery_orders   SalDeliveryOrder[]
+  delivery_notes    LogDeliveryNote[]
+  stock_ledger      LogStockLedger[]
+  stock_balances    LogStockBalance[]
+  purchase_requests PurRequest[]
 
   @@map("ref_warehouse")
 }
@@ -2643,4 +2646,73 @@ model TaxWithholdingSlip {
   @@index([receipt_id])
   @@index([doc_type_id, doc_id])
   @@map("tax_withholding_slip")
+}
+
+// ------------------------------------------------------------ purchasing
+
+/// A Purchase Request's lifecycle (Purchasing-Concept.md B8): no approval —
+/// Ajukan makes it Open; it closes by hand or by itself once fully ordered.
+enum PurchaseRequestStatus {
+  Draft
+  Open
+  Closed
+  Cancelled
+}
+
+/// A Purchase Request (`PR/YYYY/MM/NNNN`, P123): what someone needs bought, in
+/// each item's base unit, by when. Barang or Jasa — one kind per request, shown
+/// as two menus. No supplier, no price, no tax: those belong to the Purchase
+/// Order, which is made only from Open requests. Posts nothing.
+model PurRequest {
+  id           Int                   @id @default(autoincrement())
+  request_no   String                @unique
+  request_date DateTime              @db.Date
+  item_type    ItemType
+  status       PurchaseRequestStatus @default(Draft)
+
+  /// Who asked for it — free text, as the salesperson is (P52).
+  requester     String?
+  /// Barang only: where the goods are wanted, a hint for the receipt.
+  warehouse_id  Int?
+  /// The default each new line's Tanggal Dibutuhkan starts on.
+  needed_date   DateTime @db.Date
+  note          String?
+  /// The reason given for Batalkan or Tutup.
+  status_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  warehouse RefWarehouse?    @relation(fields: [warehouse_id], references: [id])
+  lines     PurRequestLine[]
+
+  @@index([item_type, status])
+  @@map("pur_request")
+}
+
+/// One line of a Purchase Request: an item, its quantity in the base unit and
+/// the date it is needed. `ordered_qty` is what Purchase Orders have taken of
+/// it, written by the PO module through this module's function (as
+/// `delivered_qty`, P94).
+model PurRequestLine {
+  id          Int      @id @default(autoincrement())
+  request_id  Int
+  line_no     Int
+  item_id     Int
+  /// The item's base unit, always (B7).
+  uom_id      Int
+  qty         Decimal  @db.Decimal(18, 4)
+  needed_date DateTime @db.Date
+  ordered_qty Decimal  @default(0) @db.Decimal(18, 4)
+  note        String?
+
+  request PurRequest @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  item    MItem      @relation(fields: [item_id], references: [id])
+  uom     RefUom     @relation("PurRequestLineUom", fields: [uom_id], references: [id])
+
+  @@unique([request_id, line_no])
+  @@index([item_id])
+  @@map("pur_request_line")
 }

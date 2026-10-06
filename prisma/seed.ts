@@ -133,6 +133,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   // Stock brought in by `db:stock-inject` (P120): each run is one source, its
   // ledger rows named by the run's INJ/… number.
   ["Injeksi Stok", "log_stock_injection"],
+  // Purchasing (P123): the Purchase Order names it line by line.
+  ["Purchase Request", "pur_request"],
 ];
 
 /**

@@ -21,6 +21,7 @@ export type PermissionModule =
   | "dashboard"
   | "master"
   | "sales"
+  | "purchasing"
   | "logistics"
   | "inventory"
   | "accounting"
@@ -195,6 +196,17 @@ export const PERMISSIONS = [
     description: "Menentukan account tujuan posting, seperti selisih kurs dan laba/rugi ekuitas.",
   },
 
+  // ------------------------------------------------------------- purchasing
+  // Purchase Request → Purchase Order (P121); the documents that move goods
+  // or money sit under Logistik and Finance, as on the sales side.
+  { code: "MENU_PURCHASING_ACCESS", name: "Akses menu Pembelian", module: "purchasing" },
+  { code: "PURCHASE_REQUEST_VIEW", name: "Lihat Purchase Request", module: "purchasing", description: "Barang dan Jasa, termasuk Draft dan yang dibatalkan." },
+  { code: "PURCHASE_REQUEST_CREATE", name: "Buat Purchase Request", module: "purchasing" },
+  { code: "PURCHASE_REQUEST_EDIT", name: "Ubah Purchase Request", module: "purchasing", description: "Hanya selama masih Draft." },
+  { code: "PURCHASE_REQUEST_SUBMIT", name: "Ajukan Purchase Request", module: "purchasing", description: "Mengunci dan membuka Purchase Request untuk Purchase Order; tanpa persetujuan." },
+  { code: "PURCHASE_REQUEST_CANCEL", name: "Batalkan Purchase Request", module: "purchasing", description: "Hanya Draft, dengan alasan." },
+  { code: "PURCHASE_REQUEST_CLOSE", name: "Tutup Purchase Request", module: "purchasing", description: "Menutup sisa yang belum dipesan, dengan alasan." },
+
   // -------------------------------------------------------------- logistics
   // Standalone goods documents, chosen by purpose (P106).
   { code: "MENU_LOGISTICS_ACCESS", name: "Akses menu Logistik", module: "logistics" },
@@ -325,6 +337,7 @@ export const MODULE_LABELS: Record<PermissionModule, string> = {
   dashboard: "Dashboard",
   master: "Master",
   sales: "Penjualan",
+  purchasing: "Pembelian",
   logistics: "Logistik",
   inventory: "Persediaan",
   accounting: "Accounting",
@@ -338,6 +351,7 @@ export const MODULE_ORDER: PermissionModule[] = [
   "dashboard",
   "master",
   "sales",
+  "purchasing",
   "logistics",
   "inventory",
   "accounting",

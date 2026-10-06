@@ -104,6 +104,9 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logStockBalance: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
   logStockValuationLedger: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
   logStockValuationBalance: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
+  // Purchasing documents (P123): each named only by its module.
+  purRequest: ["src/lib/erp/purchase-request.ts"],
+  purRequestLine: ["src/lib/erp/purchase-request.ts"],
   // Accounts per Kategori Item (P122): read and written only through its module.
   accItemCategoryAccount: ["src/lib/erp/item-account.ts"],
   // Billing documents: Finance owns them since P107; Sales holds only orders.

@@ -102,6 +102,8 @@ holds only orders since P107).
   written by the PO module through a PR function (as `delivered_qty`, P94).
   Permissions `PURCHASE_REQUEST_VIEW / _CREATE / _EDIT / _SUBMIT / _CANCEL / _CLOSE`.
 
+*Built 06/10/2026 (P123).*
+
 ---
 
 ## 4. Purchase Order  (`pur_order`, `PO/…`)

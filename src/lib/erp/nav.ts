@@ -173,6 +173,39 @@ export const MODULES: NavModule[] = [
     ],
   },
   {
+    // Purchase Request → Purchase Order (P121, P123). Goods and money
+    // documents of purchasing sit under Logistik and Finance, as for sales.
+    key: "purchasing",
+    name: "Pembelian",
+    icon: "clip",
+    desc: "Dokumen pembelian, dari permintaan sampai pesanan ke supplier.",
+    permission: "MENU_PURCHASING_ACCESS",
+    groups: [
+      {
+        key: "request",
+        name: "Permintaan",
+        entities: [
+          {
+            key: "pur_request_goods",
+            slug: "request/goods",
+            name: "Purchase Request Barang",
+            icon: "box",
+            desc: "Permintaan barang dalam satuan dasarnya dan tanggal dibutuhkan. Tidak memposting apa pun; menjadi dasar Purchase Order.",
+            permission: "PURCHASE_REQUEST_VIEW",
+          },
+          {
+            key: "pur_request_service",
+            slug: "request/service",
+            name: "Purchase Request Jasa",
+            icon: "tags",
+            desc: "Permintaan jasa dan tanggal dibutuhkan. Tidak memposting apa pun; menjadi dasar Purchase Order.",
+            permission: "PURCHASE_REQUEST_VIEW",
+          },
+        ],
+      },
+    ],
+  },
+  {
     // Standalone goods documents serving more than one flow, chosen by purpose (P106).
     key: "logistics",
     name: "Logistik",
