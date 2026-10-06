@@ -61,6 +61,16 @@ describe("rounding (PER-11/PJ/2025)", () => {
       "no exact split exists: the total is one rupiah under, never over"
     );
   });
+
+  test("Total ÷ (1 + rate × 11/12) is the estimate; the split is then corrected so DPP + PPN never exceeds the price (P115)", () => {
+    // 111.000 ÷ 1,11 = 100.000 exactly, and the chain agrees.
+    assert.deepEqual(inclusiveSplit(111_000, R), { dpp: 100_000, dppOther: 91_667, ppn: 11_000 });
+    // 15 ÷ 1,11 = 13,51 → 14 would overshoot: 14 + PPN 2 = 16. The split takes 13 + PPN 1 = 14.
+    const estimate = Math.round(15 / (1 + (R.rate / 100) * (R.otherNum / R.otherDen)));
+    assert.equal(estimate, 14);
+    assert.equal(estimate + ppnChain(estimate, R).ppn, 16);
+    assert.deepEqual(inclusiveSplit(15, R), { dpp: 13, dppOther: 12, ppn: 1 });
+  });
 });
 
 describe("allocation to shares", () => {

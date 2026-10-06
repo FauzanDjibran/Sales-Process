@@ -5,7 +5,7 @@ import { requirePermission } from "@/lib/erp/auth";
 import { getInvoice, invoiceOptions, invoicePayStates } from "@/lib/erp/ar-invoice";
 import { settlementsOfDocument } from "@/lib/erp/cash-bank-tx";
 import { invoiceAbilities } from "@/lib/erp/ar-invoice-workflow";
-import { taxDocsOf } from "@/lib/erp/tax-document";
+import { fakturNsfpByArItemIds, taxDocsOf } from "@/lib/erp/tax-document";
 
 export const dynamic = "force-dynamic";
 
@@ -32,7 +32,16 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   ]);
   return (
     <>
-      <InvoiceForm mode="view" invoice={invoice} options={options} can={can} pay={pay} payments={payments} taxDocs={taxDocs} />
+      <InvoiceForm
+        mode="view"
+        invoice={invoice}
+        options={options}
+        can={can}
+        pay={pay}
+        payments={payments}
+        taxDocs={taxDocs}
+        advanceNsfp={await fakturNsfpByArItemIds(options.orders.flatMap((o) => o.advances.map((a) => a.id)))}
+      />
       <RecordHistoryCard entityKey="fin_ar_invoice" rowId={invoice.id} />
     </>
   );

@@ -89,6 +89,7 @@ export function InvoiceForm({
   pay = null,
   payments = [],
   taxDocs = null,
+  advanceNsfp = {},
 }: {
   mode: InvoiceMode;
   invoice: InvoiceView | null;
@@ -101,6 +102,8 @@ export function InvoiceForm({
   payments?: { id: number; txNo: string; date: string; status: string; settled: number }[];
   /** Its faktur pajak and the bukti potong of its payments (P100). */
   taxDocs?: TaxDocRefs | null;
+  /** Each Uang Muka item's faktur uang muka NSFP, from the tax module (P116); absent = no PPN. */
+  advanceNsfp?: Record<number, string | null>;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -148,7 +151,7 @@ export function InvoiceForm({
   const dedPpn = (d: DedState): number => {
     if (!editing) return invoice?.deductions.find((x) => x.ar_item_id === d.ar_item_id)?.ppn_used ?? 0;
     const a = advanceById.get(d.ar_item_id);
-    return a ? advancePpnUsed({ taxDpp: a.taxDpp, taxPpn: a.taxPpn, usedBefore: a.original - a.balance, used: Number(d.dpp_used) || 0 }) : 0;
+    return a && order?.taxable ? advancePpnUsed({ rates: order.rates, usedBefore: a.original - a.balance, used: Number(d.dpp_used) || 0 }) : 0;
   };
   const advancePpn = deds.reduce((a, d) => a + dedPpn(d), 0);
 
@@ -690,11 +693,11 @@ export function InvoiceForm({
                       </span>
                     </td>
                     <td>
-                      {a?.taxInvoiceNo ? (
-                        <span className="mono">{a.taxInvoiceNo}</span>
+                      {a && advanceNsfp[a.id] ? (
+                        <span className="mono">{advanceNsfp[a.id]}</span>
                       ) : (
                         // An advance without PPN has no faktur pajak at all.
-                        <span className="dash">{a && !a.taxPpn ? "tidak kena PPN" : "belum diisi"}</span>
+                        <span className="dash">{!order?.taxable ? "tidak kena PPN" : "belum diisi"}</span>
                       )}
                     </td>
                     {editing && (
@@ -750,6 +753,8 @@ export function InvoiceForm({
       {picking === "advances" && order && (
         <InvoiceAdvancePicker
           advances={order.advances}
+          taxable={order.taxable}
+          nsfp={advanceNsfp}
           current={deds.map((d) => d.ar_item_id)}
           orderNo={order.orderNo}
           onApply={(ids) => {

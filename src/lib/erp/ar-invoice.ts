@@ -424,8 +424,9 @@ export async function checkInvoice(
     else if (used !== Math.round(used)) errors[key] = "DPP dipakai harus dalam rupiah penuh.";
     else if (used > free) errors[key] = `Melebihi sisa uang muka (${money(free)}${item.reserved ? `; ${money(item.reserved)} dicadangkan Invoice Draft lain` : ""}).`;
     else {
-      // Its share of the item's PPN, cumulatively after what posted Invoices used (P113, §7.5).
-      const ppnUsed = advancePpnUsed({ taxDpp: item.taxDpp, taxPpn: item.taxPpn, usedBefore: item.original - item.balance, used });
+      // The PPN of the part used, recalculated from the DPP after what posted
+      // Invoices used of the item (P118, §7.5): the item keeps its DPP only.
+      const ppnUsed = order?.taxable ? advancePpnUsed({ rates: order.rates, usedBefore: item.original - item.balance, used }) : 0;
       checkedDeds.push({ ar_item_id: id, ar_item_no: item.arItemNo, dpp_used: used, ppn_used: ppnUsed });
       dedIndex.push(i);
     }
@@ -659,7 +660,7 @@ async function buildPosting(db: Db, invoiceNo: string, c: CheckedInvoice): Promi
     "receivable_account",
     "sales_revenue_account",
     ...(f.advanceUsed > 0 ? (["sales_advance_account"] as const) : []),
-    ...(f.ppn > 0 ? (["output_vat_account"] as const) : []),
+    ...(f.fullPpn > 0 ? (["output_vat_account"] as const) : []),
   ] as const;
   const mapped = await postingAccounts([...keys]);
   if (!mapped.ok) return { ok: false, missing: mapped.missing };
@@ -681,18 +682,26 @@ async function buildPosting(db: Db, invoiceNo: string, c: CheckedInvoice): Promi
   };
   const customer = c.order.customerId;
   const notes = [...new Set(c.noteNos)].join(", ");
+  // The Invoice at its face (P117) — Piutang, revenue and the full PPN — then
+  // each Uang Muka applied: its DPP out of Uang Muka Penjualan and the PPN
+  // already reported on its faktur uang muka out of PPN Keluaran, against
+  // Piutang. Piutang moves exactly as the Invoice item does; every account nets
+  // to what the Invoice owes and reports.
   const out: InvoicePostingLine[] = [];
-  if (f.total > 0) out.push(line(ids.receivable_account, f.total, 0, `Piutang ${invoiceNo} — jatuh tempo ${isoDay(c.data.due_date).split("-").reverse().join("/")}`, customer));
+  out.push(line(ids.receivable_account, invoiceFace(f), 0, `Piutang ${invoiceNo} — jatuh tempo ${isoDay(c.data.due_date).split("-").reverse().join("/")}`, customer));
+  out.push(line(ids.sales_revenue_account, 0, f.dpp, `Penjualan barang ${notes} (${c.order.orderNo})`));
+  if (f.fullPpn > 0) out.push(line(ids.output_vat_account, 0, f.fullPpn, `PPN atas penyerahan — ${invoiceNo}`));
   for (const d of c.deductions) {
     out.push(line(ids.sales_advance_account, d.dpp_used, 0, `Uang muka ${d.ar_item_no} dipakai ${invoiceNo}`, customer));
-  }
-  out.push(line(ids.sales_revenue_account, 0, f.dpp, `Penjualan barang ${notes} (${c.order.orderNo})`));
-  if (f.ppn > 0) {
-    out.push(
-      line(ids.output_vat_account, 0, f.ppn, f.advanceUsed > 0 ? `PPN penuh dikurangi PPN uang muka — ${invoiceNo}` : `PPN atas penyerahan — ${invoiceNo}`)
-    );
+    if (d.ppn_used > 0) out.push(line(ids.output_vat_account, d.ppn_used, 0, `PPN uang muka ${d.ar_item_no} sudah dilaporkan — ${invoiceNo}`));
+    out.push(line(ids.receivable_account, 0, d.dpp_used + d.ppn_used, `Uang muka ${d.ar_item_no} diterapkan ke ${invoiceNo}`, customer));
   }
   return { ok: true, description: `${invoiceNo} · Invoice Penjualan ${c.order.orderNo} — ${c.order.customerName}`, lines: out };
+}
+
+/** What an Invoice is born at in Piutang (P117): its full DPP and full PPN. */
+function invoiceFace(f: InvoiceFigures): number {
+  return f.dpp + f.fullPpn;
 }
 
 /** Why an account may not be posted to, or null. */
@@ -810,26 +819,25 @@ export async function transitionInvoice(
         lines: journalLines,
       });
 
-      // The Invoice item at net Piutang, about this Invoice (U1), then each Uang
-      // Muka used, naming it (P72).
+      // The Invoice item at its face, about this Invoice (U1, P117) — always,
+      // even when its Uang Muka covers it whole — then, per Uang Muka used, the
+      // advance lowered by its DPP and the Invoice lowered by that DPP and the
+      // PPN already reported on it, each naming the other.
       const doc = { docTypeId: typeId, docId: id, no: n.invoice_no };
       const date = isoDay(r.c.data.invoice_date);
-      const itemId =
-        r.c.figures.total > 0
-          ? await createArItem(tx, {
-              type: "Invoice",
-              partnerId: r.c.order.customerId,
-              currencyId: baseCurrency.id,
-              date,
-              dueDate: isoDay(r.c.data.due_date),
-              source: doc,
-              createdBy: doc,
-              orderId: r.c.order.id,
-              amount: r.c.figures.total,
-              note: `Invoice ${n.invoice_no} diposting`,
-              actorId,
-            })
-          : null;
+      const itemId = await createArItem(tx, {
+        type: "Invoice",
+        partnerId: r.c.order.customerId,
+        currencyId: baseCurrency.id,
+        date,
+        dueDate: isoDay(r.c.data.due_date),
+        source: doc,
+        createdBy: doc,
+        orderId: r.c.order.id,
+        amount: invoiceFace(r.c.figures),
+        note: `Invoice ${n.invoice_no} diposting`,
+        actorId,
+      });
       for (const d of r.c.deductions) {
         await settleArItem(tx, {
           itemId: d.ar_item_id,
@@ -839,6 +847,16 @@ export async function transitionInvoice(
           doc,
           counterItemId: itemId,
           note: `Dipakai ${n.invoice_no}`,
+          actorId,
+        });
+        await settleArItem(tx, {
+          itemId,
+          event: "AdvanceApplied",
+          amount: d.dpp_used + d.ppn_used,
+          date,
+          doc,
+          counterItemId: d.ar_item_id,
+          note: `Uang muka ${d.ar_item_no} — DPP ${money(d.dpp_used)}${d.ppn_used ? ` + PPN ${money(d.ppn_used)}` : ""}`,
           actorId,
         });
       }

@@ -728,6 +728,14 @@ AR: *Pembayaran* 2.220.000 on the Invoice item; a new Uang Muka item of
 
 ## 8. AR items and Buku Piutang
 
+> **Changed 06/10/2026 (P116–P119).** An AR item keeps balances only: it stores
+> `original_amount` beside `current_balance` and no tax columns (its tax is its
+> faktur's). An Invoice item is born at its **face** and the Uang Muka applied
+> in its posting (event *Uang Muka Diterapkan*), the Uang Muka item lowered by
+> the DPP used. The advance's PPN is recalculated by the chain; PPh is
+> calculated when a payment needs it. Where this section says otherwise, read
+> those decisions.
+
 [Built] in this shape (U1, U9; P96, 04/10/2026). The Invoice item, the
 *Pembayaran* and *Dipakai Invoice* events in use, come with the Faktur.
 

@@ -974,7 +974,6 @@ export async function transitionCashReceipt(
           createdBy: { docTypeId: typeId, docId: id, no: t.tx_no },
           orderId: l.bill.orderId,
           amount: l.dppPart,
-          tax: l.bill.rates ? { dpp: l.dppPart, dppOther: ppnChain(l.dppPart, l.bill.rates).dppOther, ppn: l.ppnPart } : null,
           note: `Uang muka ${l.bill.no} diterima`,
           actorId,
         });

@@ -5,7 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 import { formatAddress } from "./partner-shape";
 import { ppnChain } from "./sales-tax";
-import { advanceItemsCreatedBy, setArItemTaxInvoiceNo } from "./ar-item";
+import { advanceItemsCreatedBy } from "./ar-item";
 import { postedReceiptIds, receiptTaxBasis } from "./cash-bank-tx";
 import { invoiceSourceOrders } from "./customer-order";
 import { invoiceTaxBasis, postedInvoiceIds, setInvoiceTaxInvoiceNo } from "./ar-invoice";
@@ -313,7 +313,6 @@ export async function setFakturNsfp(id: number, input: { nsfp: string; date: str
       data: { nsfp, nsfp_date: nextDate ? asDate(nextDate) : null, nsfp_by: nsfp ? actorId : null },
     });
     if (nsfp !== f.nsfp) {
-      if (f.ar_item_id) await setArItemTaxInvoiceNo(tx, f.ar_item_id, nsfp);
       if (f.source_doc_type_id === invoiceType) await setInvoiceTaxInvoiceNo(tx, f.source_doc_id, nsfp);
     }
     await audit(tx, "tax_faktur", id, "UPDATE", !nsfp ? "nsfp_clear" : f.nsfp ? "nsfp_change" : "nsfp", actorId);
@@ -423,6 +422,21 @@ export type FakturView = FakturListRow & {
   /** The faktur pelunasan that deduct it (uang muka). */
   deductedBy: { id: number; fakturNo: string; nsfp: string | null; dpp: number; ppn: number }[];
 };
+
+/**
+ * The NSFP of each Uang Muka item's faktur pajak uang muka, by item id (P116):
+ * the AR item keeps balances only, so a page that shows an advance's tax
+ * number asks here. Null where the faktur has no NSFP yet; absent where the
+ * advance had no PPN.
+ */
+export async function fakturNsfpByArItemIds(ids: number[]): Promise<Record<number, string | null>> {
+  if (!ids.length) return {};
+  const rows = await prisma.taxFaktur.findMany({
+    where: { kind: "Advance", ar_item_id: { in: ids } },
+    select: { ar_item_id: true, nsfp: true },
+  });
+  return Object.fromEntries(rows.map((r) => [r.ar_item_id!, r.nsfp]));
+}
 
 export async function getFaktur(id: number): Promise<FakturView | null> {
   const r = await prisma.taxFaktur.findUnique({

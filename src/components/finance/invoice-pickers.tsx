@@ -164,12 +164,18 @@ export function InvoiceNotePicker({
  */
 export function InvoiceAdvancePicker({
   advances,
+  taxable,
+  nsfp,
   current,
   orderNo,
   onApply,
   onClose,
 }: {
   advances: InvoiceAdvance[];
+  /** The order's Kena PPN: an advance without PPN has no faktur pajak. */
+  taxable: boolean;
+  /** Faktur uang muka NSFP by item, from the tax module (P116). */
+  nsfp: Record<number, string | null>;
   current: number[];
   orderNo: string;
   onApply: (ids: number[]) => void;
@@ -252,7 +258,7 @@ export function InvoiceAdvancePicker({
                     <td>
                       <span className="lab">{a.sourceNo}</span> <span className="mut">· {a.createdByNo}</span>
                     </td>
-                    <td>{a.taxInvoiceNo ? <span className="mono">{a.taxInvoiceNo}</span> : <span className="dash">{a.taxPpn ? "belum diisi" : "tidak kena PPN"}</span>}</td>
+                    <td>{nsfp[a.id] ? <span className="mono">{nsfp[a.id]}</span> : <span className="dash">{taxable ? "belum diisi" : "tidak kena PPN"}</span>}</td>
                     <td className="num">
                       <span className="mny">{money(a.balance)}</span>
                     </td>

@@ -39,7 +39,7 @@ import type { PeriodRange } from "./period";
 type Db = Prisma.TransactionClient | typeof prisma;
 
 export type ArItemType = "Advance" | "Invoice";
-export type ArEvent = "Create" | "Payment" | "AdvanceUsed";
+export type ArEvent = "Create" | "Payment" | "AdvanceUsed" | "AdvanceApplied";
 
 export const AR_TYPE_TEXT: Record<ArItemType, string> = {
   Advance: "Uang Muka",
@@ -50,6 +50,7 @@ export const AR_EVENT_TEXT: Record<ArEvent, string> = {
   Create: "Terbentuk",
   Payment: "Pembayaran",
   AdvanceUsed: "Dipakai Invoice",
+  AdvanceApplied: "Uang Muka Diterapkan",
 };
 
 /**
@@ -76,9 +77,8 @@ export type NewArItem = {
   createdBy: { docTypeId: number; docId: number; no: string };
   /** The Customer Order it is settled within (P73, P78). */
   orderId?: number | null;
+  /** What it is born at — also kept as its original amount (P116). */
   amount: number;
-  /** The item's own tax document, when it has one (U9). */
-  tax?: { dpp: number; dppOther: number; ppn: number } | null;
   note?: string | null;
   actorId: number;
 };
@@ -137,9 +137,7 @@ export async function createArItem(db: Db, item: NewArItem): Promise<number> {
       source_no: item.source.no,
       customer_order_id: item.orderId ?? null,
       current_balance: item.amount,
-      tax_dpp: item.tax?.dpp ?? null,
-      tax_dpp_other: item.tax?.dppOther ?? null,
-      tax_ppn: item.tax?.ppn ?? null,
+      original_amount: item.amount,
       created_by: item.actorId,
     },
     select: { id: true },
@@ -238,10 +236,7 @@ export type ArItemRow = {
   createdById: number;
   /** By id: the order belongs to another module, whose page names it. */
   orderId: number | null;
-  taxDpp: number | null;
-  taxPpn: number | null;
-  taxInvoiceNo: string | null;
-  /** The Create entry's amount. */
+  /** What the item was born at (P116). */
   original: number;
   /** What left the item up to the date asked about. */
   settled: number;
@@ -275,7 +270,7 @@ export async function openArItemsAsOf(
   return items
     .map((i) => {
       const created = i.entries.find((e) => e.event === "Create");
-      const original = created?.amount.toNumber() ?? 0;
+      const original = i.original_amount.toNumber();
       const open = i.entries.reduce((a, e) => a + e.movement.toNumber(), 0);
       return {
         id: i.id,
@@ -293,9 +288,6 @@ export async function openArItemsAsOf(
         createdByTable: created?.doc_type.doc_table ?? "",
         createdById: created?.doc_id ?? 0,
         orderId: i.customer_order_id,
-        taxDpp: i.tax_dpp?.toNumber() ?? null,
-        taxPpn: i.tax_ppn?.toNumber() ?? null,
-        taxInvoiceNo: i.tax_invoice_no,
         original,
         settled: original - open,
         open,
@@ -444,8 +436,9 @@ export async function arItemsReconcile(partnerId: number | null = null): Promise
 
 /**
  * An Uang Muka item as an Invoice reads it (U7, U8): the item, what it is about,
- * the receipt that created it, its balance and its own tax document. An Invoice
- * uses only its own Customer Order's items, and never reads the receipts.
+ * the receipt that created it, its original DPP and its balance. Balances only
+ * (P116): the PPN of the part used is recalculated from the DPP (P118), and the
+ * faktur pajak's NSFP is the tax module's, composed by the page.
  */
 export type AdvanceItemForInvoice = {
   id: number;
@@ -460,10 +453,8 @@ export type AdvanceItemForInvoice = {
   /** The receipt, from the Create entry. */
   createdByNo: string;
   balance: number;
+  /** The DPP it was born at; what posted Invoices used of it is original − balance. */
   original: number;
-  taxDpp: number | null;
-  taxPpn: number | null;
-  taxInvoiceNo: string | null;
 };
 
 /** Uang Muka items of the orders named with a balance left, or the items named — whatever their balance. */
@@ -493,10 +484,7 @@ export async function advanceItemsForInvoice(
     sourceId: i.source_doc_id,
     createdByNo: i.entries[0]?.doc_no ?? "",
     balance: i.current_balance.toNumber(),
-    original: i.entries[0]?.amount.toNumber() ?? 0,
-    taxDpp: i.tax_dpp?.toNumber() ?? null,
-    taxPpn: i.tax_ppn?.toNumber() ?? null,
-    taxInvoiceNo: i.tax_invoice_no,
+    original: i.original_amount.toNumber(),
   }));
 }
 
@@ -537,9 +525,4 @@ export async function advanceItemsCreatedBy(
     select: { id: true, ar_item_no: true, source_doc_id: true },
   });
   return rows.map((r) => ({ id: r.id, arItemNo: r.ar_item_no, sourceDocId: r.source_doc_id }));
-}
-
-/** Records the Coretax number of an item's own tax document (U9). */
-export async function setArItemTaxInvoiceNo(db: Db, id: number, no: string | null): Promise<void> {
-  await db.finArItem.update({ where: { id }, data: { tax_invoice_no: no } });
 }

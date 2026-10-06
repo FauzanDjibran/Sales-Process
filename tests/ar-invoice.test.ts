@@ -25,7 +25,7 @@ import {
 import { advancePpnUsed, cashToClear, computeInvoice, invoiceLineFigures, settleBillFromCash } from "../src/lib/erp/sales-tax";
 import { availableInvoiceActions, invoiceAbilities } from "../src/lib/erp/ar-invoice-workflow";
 import { fakturLate, normalizeNsfp, slipExpected, slipLate, uploadDeadline } from "../src/lib/erp/tax-document-workflow";
-import { createTaxDocsForInvoice, createTaxDocsForReceipt, recordSlipReceived, setFakturNsfp, taxDocsOf } from "../src/lib/erp/tax-document";
+import { createTaxDocsForInvoice, createTaxDocsForReceipt, recordSlipReceived, setFakturNsfp, taxDocsOf, fakturNsfpByArItemIds } from "../src/lib/erp/tax-document";
 import {
   FIXTURE_PREFIX,
   cleanupFiscalYear,
@@ -335,16 +335,32 @@ describe("an Invoice line's gross and discount: the cumulative split (P112, tax_
     assert.deepEqual(f.withholdings.map((w) => [w.base, w.amount]), [[329_557, 4_943]]);
   });
 
-  test("an advance's PPN is deducted cumulatively: its uses add up to its faktur's PPN exactly", () => {
-    const item = { taxDpp: 300_000, taxPpn: 33_000 };
-    assert.equal(advancePpnUsed({ ...item, usedBefore: 0, used: 100_000 }), 11_000);
-    assert.equal(advancePpnUsed({ ...item, usedBefore: 100_000, used: 200_000 }), 22_000);
-    // Odd parts: 33.333 + 33.333 + the rest — never more or less than 33.000 PPN in all.
-    const odd = { taxDpp: 100_000, taxPpn: 11_000 };
-    const parts = [0, 33_333, 66_666].map((before, i) => advancePpnUsed({ ...odd, usedBefore: before, used: i < 2 ? 33_333 : 33_334 }));
+  test("an Invoice its Uang Muka covers whole: nothing left to pay, its face exactly the Uang Muka applied (P117)", () => {
+    const rates = { rate: 12, otherNum: 11, otherDen: 12 };
+    const f = computeInvoice({
+      lines: [{ orderQty: 1, orderGross: 100_000, orderDiscount: 0, price: 100_000, discountType: null, discountValue: null, qty: 1, billedQtyBefore: 0, withholdingRate: null, withholdingKey: null }],
+      mode: "Exclude",
+      taxable: true,
+      rates,
+      advanceUsed: 100_000,
+      advancePpn: advancePpnUsed({ rates, usedBefore: 0, used: 100_000 }),
+    });
+    assert.deepEqual([f.dpp + f.fullPpn, f.advanceUsed + f.advancePpn, f.ppn, f.total], [111_000, 111_000, 0, 0]);
+  });
+
+  test("an advance's PPN is recalculated from the DPP used, cumulatively (P118): its uses add up to the chain on its whole DPP", () => {
+    const rates = { rate: 12, otherNum: 11, otherDen: 12 };
+    assert.equal(advancePpnUsed({ rates, usedBefore: 0, used: 100_000 }), 11_000);
+    assert.equal(advancePpnUsed({ rates, usedBefore: 100_000, used: 200_000 }), 22_000, "33.000 in all = the chain on 300.000");
+    // Odd parts: 33.333 + 33.333 + the rest — 11.000 in all, the chain on 100.000.
+    const parts = [0, 33_333, 66_666].map((before, i) => advancePpnUsed({ rates, usedBefore: before, used: i < 2 ? 33_333 : 33_334 }));
     assert.deepEqual(parts, [3_667, 3_666, 3_667]);
     assert.equal(parts.reduce((a, x) => a + x, 0), 11_000);
-    assert.equal(advancePpnUsed({ taxDpp: null, taxPpn: null, usedBefore: 0, used: 50_000 }), 0, "an advance without PPN deducts none");
+    // The accepted limit (P118): an advance received in an instalment of Rp 15
+    // carried PPN 0 on its faktur (its positional share of the bill), but the
+    // chain on DPP 15 is 2 — recalculated, the Invoice deducts 2.
+    assert.equal(advancePpnUsed({ rates, usedBefore: 0, used: 15 }), 2);
+    assert.equal(advancePpnUsed({ rates: null, usedBefore: 0, used: 50_000 }), 0, "an advance without PPN deducts none");
   });
 });
 
@@ -358,7 +374,7 @@ describe("what an Invoice may bill (U16, U17)", () => {
       [notes.firstLines[0], 4, null],
       [notes.firstLines[1], 4, null],
     ]);
-    assert.deepEqual(o.advances.map((a) => [a.id, a.balance, a.taxDpp]), [[advanceItem, 300_000, 300_000]]);
+    assert.deepEqual(o.advances.map((a) => [a.id, a.balance, a.original]), [[advanceItem, 300_000, 300_000]]);
     assert.ok(o.addresses.some((a) => a.id === f.billing && a.isBilling));
     assert.equal(o.mode, "Exclude");
   });
@@ -436,7 +452,7 @@ describe("Posting recognises Piutang, revenue and PPN once", () => {
     assert.ok(!refused.ok && /Account Mapping/.test(refused.errors._form));
   });
 
-  test("Dr Piutang 550.560 · Dr Uang Muka 100.000 / Cr Penjualan 596.000 · Cr PPN 54.560", async () => {
+  test("the face, then the Uang Muka applied (P117): Piutang 661.560 − 111.000, PPN 65.560 − 11.000 — nets as before", async () => {
     const preview = await invoicePreview(ids.inv[0], actor);
     assert.ok(preview.ok, !preview.ok ? JSON.stringify(preview.errors) : "");
     assert.equal((await getInvoice(ids.inv[0]))!.status, "Draft", "a dry run leaves the Invoice a Draft");
@@ -448,12 +464,16 @@ describe("Posting recognises Piutang, revenue and PPN once", () => {
     assert.deepEqual(
       jl.map((l) => [l.account_id, l.partner_id, l.debit_amount.toNumber(), l.kredit_amount.toNumber()]),
       [
-        [f.arAcc, f.customer, 550_560, 0],
-        [f.advAcc, f.customer, 100_000, 0],
+        [f.arAcc, f.customer, 661_560, 0],
         [f.revAcc, null, 0, 596_000],
-        [f.vatAcc, null, 0, 54_560],
+        [f.vatAcc, null, 0, 65_560],
+        [f.advAcc, f.customer, 100_000, 0],
+        [f.vatAcc, null, 11_000, 0],
+        [f.arAcc, f.customer, 0, 111_000],
       ]
     );
+    const net = (acc: number) => jl.filter((l) => l.account_id === acc).reduce((a, l) => a + l.debit_amount.toNumber() - l.kredit_amount.toNumber(), 0);
+    assert.deepEqual([net(f.arAcc), net(f.vatAcc)], [550_560, -54_560], "Piutang and PPN Keluaran net exactly as the Invoice owes and reports");
     assert.deepEqual(
       preview.lines.map((l) => [l.debit, l.credit, l.description]),
       jl.map((l) => [l.debit_amount.toNumber(), l.kredit_amount.toNumber(), l.description]),
@@ -461,10 +481,17 @@ describe("Posting recognises Piutang, revenue and PPN once", () => {
     );
   });
 
-  test("the Invoice item at net Piutang, due from the Termin; the Uang Muka item used, naming it", async () => {
+  test("the Invoice item born at its face, lowered by the Uang Muka applied to its net, due from the Termin; each side naming the other (P117)", async () => {
     const v = (await getInvoice(ids.inv[0]))!;
-    const inv = await prisma.finArItem.findUniqueOrThrow({ where: { id: v.arItemId! }, include: { entries: true } });
-    assert.deepEqual([inv.item_type, inv.current_balance.toNumber(), inv.source_no, inv.customer_order_id], ["Invoice", 550_560, v.invoiceNo, order.co]);
+    const inv = await prisma.finArItem.findUniqueOrThrow({ where: { id: v.arItemId! }, include: { entries: { orderBy: { id: "asc" } } } });
+    assert.deepEqual(
+      [inv.item_type, inv.original_amount.toNumber(), inv.current_balance.toNumber(), inv.source_no, inv.customer_order_id],
+      ["Invoice", 661_560, 550_560, v.invoiceNo, order.co]
+    );
+    assert.deepEqual(inv.entries.map((e) => [e.event, e.movement.toNumber(), e.counter_item_id]), [
+      ["Create", 661_560, null],
+      ["AdvanceApplied", -111_000, advanceItem],
+    ]);
     assert.equal(inv.due_date?.toISOString().slice(0, 10), v.dueDate);
     const adv = await prisma.finArItem.findUniqueOrThrow({ where: { id: advanceItem }, include: { entries: { orderBy: { id: "asc" } } } });
     assert.equal(adv.current_balance.toNumber(), 200_000);
@@ -472,12 +499,12 @@ describe("Posting recognises Piutang, revenue and PPN once", () => {
       ["Create", 300_000, null],
       ["AdvanceUsed", -100_000, inv.id],
     ]);
-    // The Invoice's posting writes two Buku Piutang entries; they share one
+    // The Invoice's posting writes three Buku Piutang entries; they share one
     // ledger number, a line each — not the receipt's (P110).
-    const posted = [inv.entries[0], adv.entries[1]];
-    assert.equal(posted[0].ledger_no, posted[1].ledger_no);
+    const posted = [inv.entries[0], adv.entries[1], inv.entries[1]];
+    assert.equal(new Set(posted.map((e) => e.ledger_no)).size, 1);
     assert.match(posted[0].ledger_no, /^BP\/\d{4}\/\d{2}\/\d{4}$/);
-    assert.deepEqual(posted.map((e) => e.line_no).sort(), [1, 2]);
+    assert.deepEqual(posted.map((e) => e.line_no).sort(), [1, 2, 3]);
     assert.notEqual(adv.entries[0].ledger_no, posted[0].ledger_no);
   });
 
@@ -583,10 +610,16 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
       ]
     );
     const item = await prisma.finArItem.findUniqueOrThrow({ where: { id: bill.arItemId! }, include: { entries: { orderBy: { id: "asc" } } } });
+    const invoiceNo = (await getInvoice(inv().first))!.invoiceNo;
     assert.deepEqual(item.entries.map((e) => [e.event, e.movement.toNumber(), e.doc_no]), [
-      ["Create", 550_560, (await getInvoice(inv().first))!.invoiceNo],
+      ["Create", 661_560, invoiceNo],
+      ["AdvanceApplied", -111_000, invoiceNo],
       ["Payment", -expected.settled, t.tx_no],
     ]);
+    // The receipt settles on the Invoice's net (550.560) from "before" 0: the
+    // Uang Muka applied is not taken for an earlier payment, so the PPh share is
+    // positional on the net DPP (P119).
+    assert.deepEqual([bill.total, (await settlementInvoices({ ids: [inv().first] }))[0].total], [550_560, 550_560]);
     assert.equal(await prisma.finArItem.count({ where: { entries: { some: { event: "Create", doc_id: r.id, doc_type: { doc_table: "fin_cash_bank_tx" } } } } }), 0, "no AR item is created by paying an Invoice");
     const state = (await invoicePayStates([inv().first]))[inv().first];
     assert.deepEqual([state.state, state.open], ["Partial", 550_560 - expected.settled]);
@@ -722,7 +755,7 @@ describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
     assert.deepEqual([docs.fakturs.length, fk.ref_doc_id, fk.dpp.toNumber(), fk.ppn.toNumber()], [1, f.bill2, 100_000, 11_000]);
   });
 
-  test("Isi NSFP: an optional reference — 17 digits, unique, correctable and clearable, written to the Uang Muka item and the Invoice", async () => {
+  test("Isi NSFP: an optional reference — 17 digits, unique, correctable and clearable; read for the Uang Muka item from the tax module (P116), written to the Invoice", async () => {
     const advance = (await fakturOf("fin_cash_bank_tx", ids.rc[0]))[0].id;
     const settlement = (await fakturOf("fin_ar_invoice", ids.inv[0]))[0].id;
     assert.deepEqual(await setFakturNsfp(advance, { nsfp: "123", date: "" }, actor), { ok: false, errors: { nsfp: "NSFP Coretax terdiri dari 17 digit." } });
@@ -733,14 +766,14 @@ describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
     assert.deepEqual(await setFakturNsfp(advance, { nsfp: `${n1.slice(0, 3)}.${n1.slice(3)}`, date: "" }, actor), { ok: true });
     let fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: advance } });
     assert.deepEqual([fk.nsfp, fk.nsfp_date], [n1, null]);
-    assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: advanceItem } })).tax_invoice_no, n1);
+    assert.deepEqual(await fakturNsfpByArItemIds([advanceItem]), { [advanceItem]: n1 });
     assert.deepEqual(await setFakturNsfp(settlement, { nsfp: n1, date: today }, actor), { ok: false, errors: { nsfp: "NSFP ini sudah dipakai faktur lain." } });
     // A mistyped NSFP is corrected; the figures never move.
     const n2 = nsfp(1);
     assert.deepEqual(await setFakturNsfp(advance, { nsfp: n2, date: today }, actor), { ok: true });
     fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: advance } });
     assert.deepEqual([fk.nsfp, fk.nsfp_date?.toISOString().slice(0, 10), fk.ppn.toNumber()], [n2, today, 33_000]);
-    assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: advanceItem } })).tax_invoice_no, n2);
+    assert.deepEqual(await fakturNsfpByArItemIds([advanceItem]), { [advanceItem]: n2 });
     // n1 is free again for the faktur it belonged to.
     assert.deepEqual(await setFakturNsfp(settlement, { nsfp: n1, date: today }, actor), { ok: true });
     assert.equal((await getInvoice(ids.inv[0]))!.taxInvoiceNo, n1);

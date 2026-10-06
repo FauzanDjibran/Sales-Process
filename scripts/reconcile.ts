@@ -44,6 +44,9 @@ import type { Prisma } from "../src/generated/prisma/client";
 type Check = { area: string; name: string; sql: string };
 
 /** Accounts from Account Mapping, by key; `-1` matches nothing when unset. */
+/** The Uang Muka applied to an invoice's item (P117); 0 for one posted before P117. */
+const applied = (v: string) => `COALESCE((SELECT SUM(a.amount) FROM fin_ar_ledger a WHERE a.item_id = ${v}.ar_item_id AND a.event = 'AdvanceApplied'), 0)`;
+
 const acc = (key: string) =>
   `COALESCE((SELECT NULLIF(setting_value, '')::int FROM sys_setting WHERE setting_key = '${key}'), -1)`;
 const docType = (table: string) => `(SELECT id FROM sys_doc_type WHERE doc_table = '${table}')`;
@@ -91,9 +94,10 @@ export const CHECKS: Check[] = [
           FROM log_delivery_note n JOIN acc_journal_line l ON l.journal_id = n.journal_id
           WHERE n.status = 'Posted' GROUP BY n.id HAVING SUM(l.debit_amount) <> n.cost_amount
           UNION ALL
-          SELECT 'invoice', v.invoice_no, v.dpp_amount + v.ppn_amount, SUM(l.kredit_amount)
+          SELECT 'invoice', v.invoice_no, v.dpp_amount + v.ppn_amount + v.advance_ppn_amount + ${applied("v")}, SUM(l.kredit_amount)
           FROM fin_ar_invoice v JOIN acc_journal_line l ON l.journal_id = v.journal_id
-          WHERE v.status = 'Posted' GROUP BY v.id HAVING SUM(l.kredit_amount) <> v.dpp_amount + v.ppn_amount`,
+          WHERE v.status = 'Posted' GROUP BY v.id
+          HAVING SUM(l.kredit_amount) <> v.dpp_amount + v.ppn_amount + v.advance_ppn_amount + ${applied("v")}`,
   },
   // ---------------------------------------------------------------- cash
   {
@@ -172,14 +176,19 @@ export const CHECKS: Check[] = [
   },
   {
     area: "ar",
-    name: "each posted invoice has its Invoice item at net Piutang (none when nothing is left to pay)",
-    sql: `SELECT v.invoice_no, v.total_amount, i.ar_item_no, i.item_type::text, e.amount AS created
+    name: "each posted invoice's Invoice item: born at its face, less the Uang Muka applied, leaving its net Piutang (P117)",
+    // An invoice posted before P117 was born at net with nothing applied, and had
+    // no item when its Uang Muka covered it whole; the identity holds for both.
+    sql: `SELECT v.invoice_no, v.total_amount, i.ar_item_no, i.original_amount, e.amount AS created, ${applied("v")} AS applied
           FROM fin_ar_invoice v
           LEFT JOIN fin_ar_item i ON i.id = v.ar_item_id
           LEFT JOIN fin_ar_ledger e ON e.item_id = i.id AND e.event = 'Create'
           WHERE v.status = 'Posted' AND (
-            (v.total_amount > 0 AND (i.id IS NULL OR i.item_type <> 'Invoice' OR i.source_doc_type_id <> ${docType("fin_ar_invoice")} OR i.source_doc_id <> v.id OR e.amount <> v.total_amount))
-            OR (v.total_amount = 0 AND v.ar_item_id IS NOT NULL))`,
+            (v.ar_item_id IS NULL AND v.total_amount <> 0)
+            OR (v.ar_item_id IS NOT NULL AND (i.item_type <> 'Invoice' OR i.source_doc_type_id <> ${docType("fin_ar_invoice")} OR i.source_doc_id <> v.id
+                OR e.amount <> i.original_amount OR e.amount - ${applied("v")} <> v.total_amount
+                OR (${applied("v")} <> 0 AND (e.amount <> v.dpp_amount + v.ppn_amount + v.advance_ppn_amount
+                                              OR ${applied("v")} <> v.advance_dpp_amount + v.advance_ppn_amount)))))`,
   },
   {
     area: "ar",
@@ -189,6 +198,15 @@ export const CHECKS: Check[] = [
           LEFT JOIN fin_ar_ledger e ON e.item_id = d.ar_item_id AND e.event = 'AdvanceUsed' AND e.doc_type_id = ${docType("fin_ar_invoice")} AND e.doc_id = v.id
             AND e.counter_item_id IS NOT DISTINCT FROM v.ar_item_id
           WHERE v.status = 'Posted' GROUP BY v.id, d.id HAVING COUNT(e.id) <> 1 OR SUM(e.amount) <> d.dpp_used`,
+  },
+  {
+    area: "ar",
+    name: "under P117 each deduction also lowered the Invoice item by its DPP and PPN, naming the Uang Muka item",
+    sql: `SELECT v.invoice_no, d.ar_item_no, d.dpp_used + d.ppn_used AS expected, COUNT(e.id) AS entries, SUM(e.amount) AS applied
+          FROM fin_ar_invoice v JOIN fin_ar_invoice_advance_deduction d ON d.invoice_id = v.id
+          LEFT JOIN fin_ar_ledger e ON e.item_id = v.ar_item_id AND e.event = 'AdvanceApplied' AND e.counter_item_id = d.ar_item_id
+          WHERE v.status = 'Posted' AND ${applied("v")} <> 0
+          GROUP BY v.id, d.id HAVING COUNT(e.id) <> 1 OR SUM(e.amount) <> d.dpp_used + d.ppn_used`,
   },
   {
     area: "ar",
@@ -385,12 +403,16 @@ export const CHECKS: Check[] = [
   },
   {
     area: "tax",
-    name: "no Uang Muka's PPN is deducted by Invoices beyond what its faktur uang muka carries (P113)",
-    sql: `SELECT i.ar_item_no, i.tax_ppn, SUM(d.ppn_used) AS deducted
+    name: "a fully used Uang Muka's PPN deducted by Invoices is the PPN chain on its whole DPP (P118)",
+    // Only items every use of which deducted PPN under P113/P118 (invoices posted
+    // before P113 deducted none). Half up, as the tax module rounds.
+    sql: `SELECT i.ar_item_no, i.original_amount, SUM(d.ppn_used) AS deducted,
+                 ROUND(ROUND(i.original_amount * MIN(v.ppn_dpp_other_numerator) / MIN(v.ppn_dpp_other_denominator), 0) * MIN(v.ppn_rate) / 100, 0) AS chain
           FROM fin_ar_item i JOIN fin_ar_invoice_advance_deduction d ON d.ar_item_id = i.id
-          JOIN fin_ar_invoice v ON v.id = d.invoice_id AND v.status = 'Posted'
-          WHERE i.item_type = 'Advance'
-          GROUP BY i.id HAVING SUM(d.ppn_used) > COALESCE(i.tax_ppn, 0)`,
+          JOIN fin_ar_invoice v ON v.id = d.invoice_id AND v.status = 'Posted' AND v.is_taxable
+          WHERE i.item_type = 'Advance' AND i.current_balance = 0
+          GROUP BY i.id HAVING MIN(d.ppn_used) > 0
+             AND SUM(d.ppn_used) <> ROUND(ROUND(i.original_amount * MIN(v.ppn_dpp_other_numerator) / MIN(v.ppn_dpp_other_denominator), 0) * MIN(v.ppn_rate) / 100, 0)`,
   },
   // --------------------------------------------------------------- books
   {

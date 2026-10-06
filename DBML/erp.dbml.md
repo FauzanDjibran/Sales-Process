@@ -1026,12 +1026,9 @@ table fin_ar_item {
   source_doc_id               int [not null]
   source_no                   varchar [not null]
   customer_order_id           int // weak: an invoice uses only its own Customer Order advances
+  original_amount             decimal(18,2) [not null, default: 0] // what it was born at: an Uang Muka its DPP, an Invoice its face (P116)
 
   current_balance             decimal(18,2) [not null] // sum of its fin_ar_ledger entries
-  tax_dpp                     decimal(18,2) // its own tax document: Faktur Pajak Uang Muka
-  tax_dpp_other               decimal(18,2)
-  tax_ppn                     decimal(18,2)
-  tax_invoice_no              varchar // Coretax number, typed after upload
 
   created_by                  int [not null]
 
@@ -1054,7 +1051,7 @@ table fin_ar_ledger {
 
   item_id                     int [not null, ref : > fin_ar_item.id]
 
-  event                       enum('Create', 'Payment', 'AdvanceUsed') [not null]
+  event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied') [not null]
   entry_date                  date [not null]
   amount                      decimal(18,2) [not null]
   movement                    decimal(18,2) [not null] // signed on the item balance

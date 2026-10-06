@@ -490,19 +490,19 @@ export type InvoiceLineInput = {
 };
 
 /**
- * The PPN of the part of an Uang Muka a document uses (P113): that part's share
- * of the PPN its faktur pajak uang muka carries, taken **cumulatively**
- * (`tax_concept.md` §7.5) — the PPN up to everything used so far, rounded once,
- * less the PPN up to what was used before. So the parts of one advance add up
- * to exactly its PPN, the use that empties it taking whatever is left.
+ * The PPN of the part of an Uang Muka a document uses (P113, P118): an AR item
+ * keeps its DPP only, so the PPN is **recalculated** — the chain on the DPP used
+ * so far, less the chain on what was used before (`tax_concept.md` §7.5). The
+ * uses of one advance add up to the chain on its whole DPP. Where the advance
+ * was paid in instalments, its faktur uang muka's PPN can differ from that by
+ * Rp1 (the receipt splits a bill positionally); the user accepted this (P118).
+ * None without PPN rates.
  */
-export function advancePpnUsed(a: { taxDpp: number | null; taxPpn: number | null; usedBefore: number; used: number }): number {
-  const dpp = Math.round(Number(a.taxDpp) || 0);
-  const ppn = Math.round(Number(a.taxPpn) || 0);
-  if (dpp <= 0 || ppn <= 0) return 0;
+export function advancePpnUsed(a: { rates: PpnRates | null; usedBefore: number; used: number }): number {
+  if (!a.rates) return 0;
   const before = Math.max(0, Math.round(a.usedBefore));
-  const after = Math.min(dpp, before + Math.max(0, Math.round(a.used)));
-  const upTo = (u: number) => (u >= dpp ? ppn : Math.round((ppn * u) / dpp));
+  const after = before + Math.max(0, Math.round(a.used));
+  const upTo = (u: number) => (u > 0 ? ppnChain(u, a.rates!).ppn : 0);
   return upTo(after) - upTo(before);
 }
 

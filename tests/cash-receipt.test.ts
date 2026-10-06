@@ -367,14 +367,8 @@ describe("posting a receipt of two bills (P66)", () => {
     );
     assert.ok(items.every((i) => i.partner_id === f.customer && i.customer_order_id === orders[0] && /^ARI\/\d{4}\/\d{2}\/\d{4}$/.test(i.ar_item_no)));
     assert.ok(
-      items.every(
-        (i) =>
-          i.tax_dpp?.toNumber() === i.current_balance.toNumber() &&
-          i.tax_dpp_other?.toNumber() === Math.round((i.tax_dpp.toNumber() * 11) / 12) &&
-          (i.tax_ppn?.toNumber() ?? 0) > 0 &&
-          i.tax_invoice_no === null
-      ),
-      "each item carries its Faktur Pajak Uang Muka"
+      items.every((i) => i.original_amount.toNumber() === i.current_balance.toNumber()),
+      "each item keeps the DPP it was born at beside its balance (P116); its tax is its faktur's"
     );
     assert.ok(items.every((i) => i.entries.length === 1 && i.entries[0].event === "Create" && i.entries[0].doc_no === r.txNo));
     assert.equal(

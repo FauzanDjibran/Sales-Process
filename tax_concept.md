@@ -131,6 +131,14 @@ DPP + PPN equals the typed price, with the difference **absorbed in the DPP**:
 the DPP is the largest whole-rupiah figure whose DPP + PPN does not exceed the
 typed price.
 
+- **The estimate is DPP ≈ Total ÷ (1 + rate × factor)** — Total ÷ 1,11 at 12 %
+  and 11/12, Total ÷ (1 + rate) where there is no DPP Nilai Lain. It holds for
+  any rate and factor, but it is only the starting point: the chain rounds twice
+  (DPP Nilai Lain, then PPN), so the rounded estimate can overshoot. A typed 15
+  gives 15 ÷ 1,11 = 13,51 → 14, and 14 + PPN 2 = 16, above the price; the split
+  is 13 + PPN 1 = 14. The DPP is therefore **corrected** from the estimate to the
+  largest one whose DPP + chain PPN fits.
+
 - About one typed price in ten has no exact split under the chain. For
   example, a typed 1.004 gives DPP 904 → total 1.003, or DPP 905 → total
   1.005, and nothing in between.
@@ -167,7 +175,7 @@ PPN falls due at the **earlier** of:
   | Option | Rule | Used by |
   | --- | --- | --- |
   | `net-dpp` (main path) | The PPN is the chain on what remains: each line's DPP less its share of the advances' DPP (shared by DPP, §7.4), PPN per line on that net DPP. Holds even when the rate or the DPP Nilai Lain factor changed between the advance and the delivery. | — |
-  | `full-less-advance` | Each line carries the PPN on its **full** DPP; the document then deducts, once, the advances' DPP and the PPN of the part of each advance used — that part's share of the advance's PPN, taken **cumulatively** (§7.5), so an advance used over several invoices deducts exactly the PPN its tax invoice carries. It **assumes the rate and the factor did not change** between the advance and the delivery: a settlement whose rate or factor differs from an advance it deducts is refused. | ERP (P113) |
+  | `full-less-advance` | Each line carries the PPN on its **full** DPP; the document then deducts, once, the advances' DPP and the PPN of the part of each advance used — that part's PPN **recalculated by the chain** on the DPP used, cumulatively (§7.5): the chain on everything used so far less the chain on what was used before, so the uses of one advance add up to the chain on its whole DPP. Where an advance was paid in instalments, its tax invoice's PPN (a positional share of the bill) can differ from that by Rp1; the open item keeps the DPP only and this difference is accepted. It **assumes the rate and the factor did not change** between the advance and the delivery: a settlement whose rate or factor differs from an advance it deducts is refused. | ERP (P113) |
 
   Because the PPN chain is not linear, the two options can differ by about Rp1
   on the same figures. Under either option, withholding is on the DPP after
