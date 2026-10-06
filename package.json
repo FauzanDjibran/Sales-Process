@@ -18,6 +18,8 @@
     "db:stock-inject": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/stock-inject.ts",
     "db:neon-stock-inject": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/stock-inject.ts",
     "db:reconcile": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/reconcile.ts",
+    "db:seed-accounts": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/seed-accounts.ts",
+    "db:neon-seed-accounts": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-accounts.ts",
     "db:seed-showcase": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/seed-showcase.ts",
     "db:neon-seed-showcase": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-showcase.ts",
     "db:reset": "prisma migrate reset --force && npm run db:seed",

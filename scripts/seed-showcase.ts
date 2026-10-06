@@ -8,14 +8,15 @@
  *
  * What it creates, taken from `Initialization/actual-simulation-v2.html`:
  *   Gudang (Satuan, Termin and currencies come from the system seed, P62)
- *   the accounts the sales flow posts to, under the seeded chart skeleton
- *   Account Mapping (Selisih Kurs, Laba/Rugi, Uang Muka, PPN, Beban Bank,
- *   HPP, Persediaan, Piutang Usaha, Penjualan) and the Jenis PPh accounts
+ *   the starter chart with Account Mapping, Kategori Item and Jenis PPh
+ *   accounts (`scripts/lib/starter-accounts.ts`, also `db:seed-accounts`)
  *   two rupiah bank accounts (Cash & Bank, each with its book)
  *   the current calendar year as an Open Fiscal Year with its twelve periods
  *   the simulation's customers, with tax identity, addresses and contacts
  *   the simulation's finished goods, with their box conversions
- *   a Harga Pokok (Sementara) per item and two lots per item per warehouse
+ *   suppliers with purchase defaults, and what the company buys: raw and
+ *   packaging materials by lot, a consumable without stock, two services
+ *   opening stock of the finished goods, two lots per item per warehouse
  *
  * Not created: opening balances (they start empty, P27), documents, and the
  * perizinan services (set aside).
@@ -38,7 +39,8 @@ import { CASH_BANK_SUBCATEGORY, nextCode } from "../src/lib/erp/records";
 import { openCashBankBook } from "../src/lib/erp/cash-bank";
 import { ensureFiscalPeriods, fiscalYearShape } from "../src/lib/erp/fiscal";
 import { BASE_CURRENCY_LABEL } from "../src/lib/erp/currency";
-import { CUSTOMER_CATEGORY } from "../src/lib/erp/entities";
+import { CUSTOMER_CATEGORY, SUPPLIER_CATEGORY } from "../src/lib/erp/entities";
+import { nextAccountLabel, seedStarterAccounts } from "./lib/starter-accounts";
 import { injectStock, type InjectionRow } from "../src/lib/erp/inventory";
 
 // ------------------------------------------------------------------- data
@@ -48,59 +50,10 @@ const WAREHOUSES: [label: string, name: string][] = [
   ["GD-SBY", "Gudang Surabaya"],
 ];
 
-type AccountSpec = {
-  key: string;
-  /** The seeded Account Subcategory the account sits under. */
-  sub: string;
-  name: string;
-  normal: "Debit" | "Kredit";
-  /** Every line names a Partner of this category (P25). */
-  partner?: boolean;
-  /** Posted by documents only; the manual journal refuses it (P16). */
-  control?: boolean;
-  note?: string;
-};
-
-const ACCOUNTS: AccountSpec[] = [
-  { key: "bca", sub: CASH_BANK_SUBCATEGORY, name: "Bank BCA", normal: "Debit", control: true, note: "Rekening penerimaan 123-456-7890" },
-  { key: "mandiri", sub: CASH_BANK_SUBCATEGORY, name: "Bank Mandiri", normal: "Debit", control: true, note: "Rekening penerimaan 070-00-1234567-8" },
-  { key: "ar", sub: "1.1.3", name: "Piutang Usaha", normal: "Debit", partner: true, control: true, note: "Tagihan faktur penjualan yang belum dibayar, per customer" },
-  { key: "inventory", sub: "1.1.5", name: "Persediaan Barang Jadi", normal: "Debit", control: true },
-  { key: "pph23", sub: "1.1.7", name: "PPh 23 Dibayar Dimuka", normal: "Debit", note: "PPh 23 yang dipotong customer — dikreditkan dengan bukti potong" },
-  { key: "pph22", sub: "1.1.7", name: "PPh 22 Dibayar Dimuka", normal: "Debit", note: "PPh 22 yang dipungut pembeli atas barang" },
-  { key: "vat", sub: "2.1.2", name: "PPN Keluaran", normal: "Kredit", control: true, note: "PPN terutang atas penyerahan dan uang muka" },
-  { key: "advance", sub: "2.1.4", name: "Uang Muka Penjualan", normal: "Kredit", partner: true, control: true, note: "Kewajiban menyerahkan barang atas uang muka yang sudah diterima" },
-  { key: "capital", sub: "3.1.1", name: "Modal Disetor", normal: "Kredit" },
-  { key: "plPrior", sub: "3.3.1", name: "Laba/Rugi Tahun Sebelumnya", normal: "Kredit" },
-  { key: "plCurrent", sub: "3.4.1", name: "Laba/Rugi Tahun Berjalan", normal: "Kredit" },
-  { key: "sales", sub: "4.1.1", name: "Penjualan Barang", normal: "Kredit" },
-  { key: "returns", sub: "4.1.8", name: "Retur Penjualan", normal: "Debit" },
-  { key: "otherIncome", sub: "4.9.1", name: "Pendapatan Lain-lain", normal: "Kredit" },
-  { key: "fx", sub: "4.9.1", name: "Laba/Rugi Selisih Kurs", normal: "Kredit" },
-  { key: "cogs", sub: "5.1.1", name: "HPP Barang", normal: "Debit" },
-  { key: "bankFee", sub: "5.3.1", name: "Beban Bank", normal: "Debit" },
-  { key: "admin", sub: "5.3.1", name: "Beban Umum & Administrasi", normal: "Debit" },
-];
-
-/** Account Mapping keys → the account each points at (only when unset). */
-const MAPPINGS: [setting: string, account: string][] = [
-  ["fx_account", "fx"],
-  ["accumulated_pl_account", "plPrior"],
-  ["current_pl_account", "plCurrent"],
-  ["sales_advance_account", "advance"],
-  ["output_vat_account", "vat"],
-  ["bank_charge_account", "bankFee"],
-  ["cogs_account", "cogs"],
-  ["inventory_account", "inventory"],
-  ["receivable_account", "ar"],
-  ["sales_revenue_account", "sales"],
-];
-
-/** Jenis PPh label → its PPh Dibayar Dimuka account (only when unset). */
-const WHT_ACCOUNTS: [whtLabel: string, account: string][] = [
-  ["PPH22", "pph22"],
-  ["PPH23", "pph23"],
-  ["PPH23-15", "pph23"],
+/** The demo bank accounts; every other account comes from the starter chart (P130). */
+const BANK_ACCOUNTS: [key: string, name: string, note: string][] = [
+  ["bca", "Bank BCA", "Rekening penerimaan 123-456-7890"],
+  ["mandiri", "Bank Mandiri", "Rekening penerimaan 070-00-1234567-8"],
 ];
 
 const CASH_BANKS: [label: string, name: string, account: string][] = [
@@ -122,8 +75,10 @@ type CustomerSpec = {
   pph23?: boolean;
   pph22?: boolean;
   government?: boolean;
+  /** Sales defaults for a customer, purchase defaults for a supplier (P51, P122). */
   term: string;
   mode: "Exclude" | "Include";
+  supplier?: boolean;
   addresses: Address[];
   contact?: [name: string, position: string, phone: string, email: string];
 };
@@ -219,6 +174,58 @@ const CUSTOMERS: CustomerSpec[] = [
   },
 ];
 
+/** Suppliers for the purchasing flow (P121): PKP and non-PKP, a company and a person. */
+const SUPPLIERS: CustomerSpec[] = [
+  {
+    label: "S-001", name: "PT Kimia Bahan Kosmetik Indonesia", taxpayer: "Badan", idType: "NPWP", taxId: "0312456789012345",
+    pkp: true, term: "NET30", mode: "Exclude", supplier: true,
+    addresses: [{ city: "Kota Bekasi", district: "Bekasi Timur", street: "Jl. Industri Raya No. 5", note: "Kantor & Gudang", billing: true, shipping: true }],
+    contact: ["Bpk. Rudi Hartono", "Sales", "0812 1100 2233", "rudi.hartono@kimiabahan.example"],
+  },
+  {
+    label: "S-002", name: "PT Kemas Plastik Jaya", taxpayer: "Badan", idType: "NPWP", taxId: "0423567890123456",
+    pkp: true, term: "NET45", mode: "Include", supplier: true,
+    addresses: [{ city: "Kota Surabaya", district: "Rungkut", street: "Jl. Rungkut Industri III No. 22", note: "Pabrik", billing: true, shipping: true }],
+    contact: ["Ibu Dewi Anggraini", "Marketing", "031 870 5566", "dewi.anggraini@kemasplastik.example"],
+  },
+  {
+    label: "S-003", name: "CV Ekspedisi Cepat Sampai", taxpayer: "Badan", idType: "NPWP", taxId: "0534678901234567",
+    pkp: false, term: "NET14", mode: "Exclude", supplier: true,
+    addresses: [{ city: "Kota Administrasi Jakarta Timur", district: "Cakung", street: "Jl. Raya Bekasi Km 18", note: "Pool Cakung", billing: true }],
+    contact: ["Bpk. Agus Salim", "Operasional", "021 460 7788", "agus.salim@cepatsampai.example"],
+  },
+  {
+    label: "S-004", name: "Bengkel Teknik Budi", taxpayer: "OrangPribadi", idType: "NIK", taxId: "3273011203800004",
+    pkp: false, term: "TUNAI", mode: "Exclude", supplier: true,
+    addresses: [{ city: "Kota Bandung", district: "Sumur Bandung", street: "Jl. Braga No. 40", note: "Bengkel", billing: true }],
+    contact: ["Bpk. Budi Prasetyo", "Pemilik", "0813 2200 3344", "budi.prasetyo@bengkelbudi.example"],
+  },
+];
+
+type PurchaseItemSpec = {
+  label: string;
+  name: string;
+  type: "Barang" | "Jasa";
+  category: string;
+  base: string;
+  conversions: [string, number][];
+  stock?: boolean;
+  expiry?: boolean;
+};
+
+/** What the company buys (P121): raw and packaging materials by lot, a consumable without stock, and services. */
+const PURCHASE_ITEMS: PurchaseItemSpec[] = [
+  { label: "BB-001", name: "Niacinamide (Bahan Baku)", type: "Barang", category: "BHN-BAKU", base: "KG", conversions: [], stock: true, expiry: true },
+  { label: "BB-002", name: "Gliserin Murni (Bahan Baku)", type: "Barang", category: "BHN-BAKU", base: "KG", conversions: [], stock: true, expiry: true },
+  { label: "BB-003", name: "Asam Askorbat (Bahan Baku)", type: "Barang", category: "BHN-BAKU", base: "KG", conversions: [], stock: true, expiry: true },
+  { label: "BK-001", name: "Botol Kaca Amber 30 ml", type: "Barang", category: "BHN-KEMAS", base: "PCS", conversions: [["BOX", 100]], stock: true },
+  { label: "BK-002", name: "Tube Plastik 50 ml", type: "Barang", category: "BHN-KEMAS", base: "PCS", conversions: [["BOX", 200]], stock: true },
+  { label: "BK-003", name: "Karton Box Pengiriman", type: "Barang", category: "BHN-KEMAS", base: "PCS", conversions: [["PAK", 25]], stock: true },
+  { label: "BHP-001", name: "Sarung Tangan Nitril", type: "Barang", category: "BRG-HABIS-PAKAI", base: "BOX", conversions: [] },
+  { label: "JS-001", name: "Jasa Pengiriman Ekspedisi", type: "Jasa", category: "JASA-PENGIRIMAN", base: "UNIT", conversions: [] },
+  { label: "JS-002", name: "Jasa Kalibrasi Mesin Produksi", type: "Jasa", category: "JASA-PEMELIHARAAN", base: "UNIT", conversions: [] },
+];
+
 /** Finished goods: label, name, base unit, [unit, factor] conversions. */
 const ITEMS: [label: string, name: string, base: string, conversions: [string, number][]][] = [
   ["FG-001", "Serum Wajah Vitamin C 30 ml", "PCS", [["BOX", 12]]],
@@ -263,21 +270,6 @@ async function audit(entityKey: string, rowId: number) {
   });
 }
 
-/** The next free account number directly under a subcategory: `1.1.3` → `1.1.3.2`. */
-async function nextAccountLabel(sub: string): Promise<string> {
-  const rows = await prisma.accAccount.findMany({
-    where: { account_label: { startsWith: `${sub}.` } },
-    select: { account_label: true },
-  });
-  let max = 0;
-  for (const r of rows) {
-    const rest = r.account_label.slice(sub.length + 1);
-    const n = Number(rest.split(".")[0]);
-    if (Number.isInteger(n) && n > max) max = n;
-  }
-  return `${sub}.${max + 1}`;
-}
-
 /** A kelurahan in the named kecamatan of the named kota / kabupaten. */
 async function villageFor(a: Address): Promise<number> {
   const city = await prisma.sysRegionCity.findFirst({ where: { name: { equals: a.city, mode: "insensitive" } } });
@@ -311,7 +303,7 @@ async function main() {
   // business data, so it is created here.
   const uomId = new Map((await prisma.refUom.findMany()).map((u) => [u.uom_label.toUpperCase(), u.id]));
   const termId = new Map((await prisma.refPaymentTerm.findMany()).map((t) => [t.term_label.toUpperCase(), t.id]));
-  for (const needed of ["PCS", "BOX", "SET"]) {
+  for (const needed of ["PCS", "BOX", "SET", "PAK", "KG", "UNIT"]) {
     if (!uomId.has(needed)) throw new Error(`Satuan ${needed} is missing. Run \`npm run db:seed\` first.`);
   }
 
@@ -324,54 +316,38 @@ async function main() {
     tally("gudang");
   }
 
-  // ---- accounts
+  // ---- the starter chart with its mappings (shared with db:seed-accounts),
+  // then the demo bank accounts beside it
   const customerCategory = await prisma.sysPartnerCategory.findFirstOrThrow({
     where: { category_label: CUSTOMER_CATEGORY },
   });
-  const accountId = new Map<string, number>();
-  for (const a of ACCOUNTS) {
-    let row = await prisma.accAccount.findFirst({ where: { account_name: { equals: a.name, mode: "insensitive" } } });
+  const supplierCategory = await prisma.sysPartnerCategory.findFirstOrThrow({
+    where: { category_label: SUPPLIER_CATEGORY },
+  });
+  const starter = await seedStarterAccounts(actor);
+  for (const [what, n] of Object.entries(starter.made)) made[what] = n;
+  const accountId = starter.accountId;
+  const cashSub = await prisma.accAccountSubcategory.findFirstOrThrow({ where: { subcategory_label: CASH_BANK_SUBCATEGORY } });
+  for (const [key, name, note] of BANK_ACCOUNTS) {
+    let row = await prisma.accAccount.findFirst({ where: { account_name: { equals: name, mode: "insensitive" } } });
     if (!row) {
-      const sub = await prisma.accAccountSubcategory.findFirst({ where: { subcategory_label: a.sub } });
-      if (!sub) throw new Error(`Account subcategory ${a.sub} is missing. Run \`npm run db:seed\` first.`);
       row = await prisma.accAccount.create({
         data: {
           account_code: await nextCode(entity("acc_account")),
-          account_label: await nextAccountLabel(a.sub),
-          account_name: a.name,
-          account_subcategory_id: sub.id,
+          account_label: await nextAccountLabel(CASH_BANK_SUBCATEGORY),
+          account_name: name,
+          account_subcategory_id: cashSub.id,
           is_postable: true,
-          normal_balance: a.normal,
-          is_control_account: Boolean(a.control),
-          require_partner: Boolean(a.partner),
-          partner_category_id: a.partner ? customerCategory.id : null,
-          note: a.note ?? null,
+          normal_balance: "Debit",
+          is_control_account: true,
+          note,
           created_by: actor,
         },
       });
       await audit("acc_account", row.id);
       tally("accounts");
     }
-    accountId.set(a.key, row.id);
-  }
-
-  // ---- Account Mapping and the Jenis PPh accounts — only where still empty.
-  for (const [key, account] of MAPPINGS) {
-    const current = await prisma.sysSetting.findUnique({ where: { setting_key: key } });
-    if (current?.setting_value) continue;
-    await prisma.sysSetting.upsert({
-      where: { setting_key: key },
-      update: { setting_value: String(accountId.get(account)), updated_by: actor },
-      create: { setting_key: key, setting_value: String(accountId.get(account)), updated_by: actor },
-    });
-    tally("account mappings");
-  }
-  for (const [whtLabel, account] of WHT_ACCOUNTS) {
-    const done = await prisma.refWithholdingTax.updateMany({
-      where: { wht_label: whtLabel, account_id: null },
-      data: { account_id: accountId.get(account), updated_by: actor },
-    });
-    if (done.count) tally("jenis PPh accounts");
+    accountId.set(key, row.id);
   }
 
   // ---- Cash & Bank, each with its book
@@ -420,8 +396,8 @@ async function main() {
     tally("fiscal year");
   }
 
-  // ---- customers
-  for (const c of CUSTOMERS) {
+  // ---- customers and suppliers
+  for (const c of [...CUSTOMERS, ...SUPPLIERS]) {
     if (await prisma.mPartner.findFirst({ where: { partner_name: { equals: c.name, mode: "insensitive" } } })) {
       skipped.push(c.name);
       continue;
@@ -433,7 +409,7 @@ async function main() {
         partner_code: code,
         partner_label: c.label,
         partner_name: c.name,
-        category_id: customerCategory.id,
+        category_id: c.supplier ? supplierCategory.id : customerCategory.id,
         status: c.active === false ? "Inactive" : "Active",
         taxpayer_type: c.taxpayer,
         tax_id_type: c.idType,
@@ -443,8 +419,10 @@ async function main() {
         withholds_pph23: Boolean(c.pph23),
         collects_pph22: Boolean(c.pph22),
         vat_collector: c.government ? "Government" : "None",
-        default_term_id: termId.get(c.term) ?? null,
-        default_price_mode: c.mode,
+        default_term_id: c.supplier ? null : termId.get(c.term) ?? null,
+        default_price_mode: c.supplier ? null : c.mode,
+        purchase_term_id: c.supplier ? termId.get(c.term) ?? null : null,
+        purchase_price_mode: c.supplier ? c.mode : null,
         created_by: actor,
         addresses: {
           create: c.addresses.map((a, i) => ({
@@ -474,7 +452,7 @@ async function main() {
       },
     });
     await audit("m_partner", row.id);
-    tally("customers");
+    tally(c.supplier ? "suppliers" : "customers");
   }
 
   // ---- finished goods
@@ -499,6 +477,40 @@ async function main() {
         created_by: actor,
         uoms: {
           create: conversions.map(([uom, factor], i) => ({
+            uom_id: uomId.get(uom)!,
+            factor,
+            sort_order: i,
+            created_by: actor,
+          })),
+        },
+      },
+    });
+    await audit("m_item", row.id);
+    tally("items");
+  }
+
+  // ---- what the company buys
+  for (const it of PURCHASE_ITEMS) {
+    if (await prisma.mItem.findFirst({ where: { item_name: { equals: it.name, mode: "insensitive" } } })) {
+      skipped.push(it.name);
+      continue;
+    }
+    const category = await prisma.sysItemCategory.findFirstOrThrow({ where: { category_label: it.category } });
+    const row = await prisma.mItem.create({
+      data: {
+        item_code: await nextCode(entity("m_item")),
+        item_label: it.label,
+        item_name: it.name,
+        item_type: it.type,
+        category_id: category.id,
+        base_uom_id: uomId.get(it.base)!,
+        can_sell: false,
+        can_buy: true,
+        track_stock: Boolean(it.stock),
+        has_expiry: Boolean(it.expiry),
+        created_by: actor,
+        uoms: {
+          create: it.conversions.map(([uom, factor], i) => ({
             uom_id: uomId.get(uom)!,
             factor,
             sort_order: i,

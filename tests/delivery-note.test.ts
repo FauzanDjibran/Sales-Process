@@ -195,6 +195,18 @@ before(async () => {
   f.invAcc = await makeAccount({ subcategoryLabel: await sub("1") });
   await setMapping("cogs_account", String(f.cogsAcc));
   await setMapping("inventory_account", String(f.invAcc));
+  // The items' category may carry its own accounts (db:seed-accounts fills
+  // them); cleared here so the postings below fall back to Account Mapping.
+  const catAccounts = await prisma.accItemCategoryAccount.findUnique({ where: { category_id: cat } });
+  if (catAccounts) {
+    await prisma.accItemCategoryAccount.update({ where: { category_id: cat }, data: { inventory_account_id: null, cogs_account_id: null } });
+    cleanups.push(() =>
+      prisma.accItemCategoryAccount.update({
+        where: { category_id: cat },
+        data: { inventory_account_id: catAccounts.inventory_account_id, cogs_account_id: catAccounts.cogs_account_id },
+      })
+    );
+  }
 
   order = await issuedDeliveryOrder();
 
