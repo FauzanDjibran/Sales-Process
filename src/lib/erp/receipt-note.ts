@@ -665,3 +665,54 @@ export async function purchaseOrderReceipts(purchaseOrderId: number): Promise<{ 
   });
   return rows.map((r) => ({ id: r.id, rnNo: r.rn_no, rnDate: isoDay(r.rn_date), status: r.status as ReceiptNoteStatus }));
 }
+
+// ---------------------------------------------- for the Invoice Pembelian
+
+/**
+ * A Receipt Note line as an Invoice Pembelian reads it (B28): a quantity of one
+ * PO line received on a posted note, and what it was valued at — the PO's DPP
+ * for that quantity, which the invoice bills (B29a). A posted note never
+ * changes, so what an invoice bills does not move.
+ */
+export type ApInvoiceSourceLine = {
+  id: number;
+  receiptNoteId: number;
+  rnNo: string;
+  rnDate: string;
+  status: ReceiptNoteStatus;
+  purchaseOrderId: number;
+  purchaseOrderLineId: number;
+  qty: number;
+  value: number;
+};
+
+/** Every posted receipt line, ids only, with its PO — to find the POs with something to bill. */
+export async function postedReceiptLineIds(db: Db = prisma): Promise<{ id: number; purchaseOrderId: number }[]> {
+  const rows = await db.logReceiptNoteLine.findMany({
+    where: { receipt_note: { purpose: PURCHASE_RECEIPT, status: "Posted" } },
+    select: { id: true, receipt_note: { select: { source_doc_id: true } } },
+  });
+  return rows.map((r) => ({ id: r.id, purchaseOrderId: r.receipt_note.source_doc_id }));
+}
+
+/** Lines of the POs' posted notes, or the lines named whatever their note's status. */
+export async function apInvoiceSourceLines(filter: { orderIds?: number[]; lineIds?: number[] }, db: Db = prisma): Promise<ApInvoiceSourceLine[]> {
+  const rows = await db.logReceiptNoteLine.findMany({
+    where: filter.lineIds
+      ? { id: { in: filter.lineIds } }
+      : { receipt_note: { purpose: PURCHASE_RECEIPT, status: "Posted", source_doc_id: { in: filter.orderIds ?? [] } } },
+    include: { receipt_note: true },
+    orderBy: [{ receipt_note: { rn_date: "asc" } }, { receipt_note_id: "asc" }, { line_no: "asc" }],
+  });
+  return rows.map((l) => ({
+    id: l.id,
+    receiptNoteId: l.receipt_note_id,
+    rnNo: l.receipt_note.rn_no,
+    rnDate: isoDay(l.receipt_note.rn_date),
+    status: l.receipt_note.status as ReceiptNoteStatus,
+    purchaseOrderId: l.receipt_note.source_doc_id,
+    purchaseOrderLineId: l.source_doc_line_id,
+    qty: l.qty.toNumber(),
+    value: l.value_amount.toNumber(),
+  }));
+}

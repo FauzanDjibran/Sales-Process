@@ -7,7 +7,8 @@ import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate } from "./fiscal";
 import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { InsufficientFunds, recordCashBankEntry } from "./cash-bank";
-import { ApItemOverdrawn, createApItem } from "./ap-item";
+import { ApItemOverdrawn, apItemBalances, createApItem, lockApItems, openApInvoiceItemIds, settleApItem } from "./ap-item";
+import { purchaseInvoiceNumbersByIds, settlementPurchaseInvoices } from "./ap-invoice";
 import { checkAccountIsLeaf } from "./records";
 import { issuedAdvanceTotals, lockPurchaseAdvances, purchaseAdvanceNumbersByIds, settlementAdvances } from "./ap-advance";
 import { settledByDocuments } from "./cash-bank-tx";
@@ -34,7 +35,9 @@ import { formatMoney } from "@/lib/format";
  * Its first purpose is **Pembayaran ke Supplier**. An **advance-bill line**
  * posts Dr Uang Muka Pembelian (its DPP part, naming the supplier) · Dr PPN
  * Masukan / Cr Kas & Bank · Cr Hutang PPh per Jenis PPh, and creates an **AP
- * item Uang Muka** at the DPP paid (B26). Invoices Pembelian join in step 7.
+ * item Uang Muka** at the DPP paid (B26). An **Invoice line** posts Dr Hutang
+ * Usaha / Cr Kas & Bank and records *Pembayaran* on the Invoice AP item; its
+ * PPh was booked at the invoice, so the item's balance is what is paid (B27).
  * Money leaving a resource it does not hold is refused: *Saldo Cash & Bank
  * tidak mencukupi* (P104).
  */
@@ -96,35 +99,74 @@ async function unpaidAdvanceIds(db: Db, exceptTx: number | null): Promise<number
   return totals.filter((t) => (paid.get(t.id) ?? 0) < t.total).map((t) => t.id);
 }
 
-async function openPayables(db: Db, filter: { advanceIds?: number[]; openOnly?: boolean }, exceptTx: number | null): Promise<OpenPayable[]> {
-  const advances = filter.openOnly
-    ? await unpaidAdvanceIds(db, exceptTx).then((ids) => settlementAdvances({ ids }, db))
-    : filter.advanceIds?.length
-      ? await settlementAdvances({ ids: filter.advanceIds }, db)
-      : [];
+async function openPayables(
+  db: Db,
+  filter: { advanceIds?: number[]; invoiceIds?: number[]; openOnly?: boolean },
+  exceptTx: number | null
+): Promise<OpenPayable[]> {
+  const [advances, invoices] = await Promise.all([
+    filter.openOnly
+      ? unpaidAdvanceIds(db, exceptTx).then((ids) => settlementAdvances({ ids }, db))
+      : filter.advanceIds?.length
+        ? settlementAdvances({ ids: filter.advanceIds }, db)
+        : Promise.resolve([]),
+    // Only Invoices whose AP item still has a balance: a paid one is never offered.
+    filter.openOnly
+      ? openApInvoiceItemIds(db).then((apItemIds) => settlementPurchaseInvoices({ apItemIds }, db))
+      : filter.invoiceIds?.length
+        ? settlementPurchaseInvoices({ ids: filter.invoiceIds }, db)
+        : Promise.resolve([]),
+  ]);
   const paid = await settledByDocuments("fin_ap_advance", advances.map((b) => b.id), db, exceptTx);
-  const out: OpenPayable[] = advances.map((b) => {
-    const p = paid.get(b.id) ?? 0;
-    return {
-      kind: "fin_ap_advance",
-      key: paidKey("fin_ap_advance", b.id),
-      id: b.id,
-      no: b.advanceNo,
-      date: b.advanceDate,
-      dueDate: b.dueDate,
-      status: b.status,
-      supplierId: b.supplierId,
-      orderId: b.orderId,
-      orderNo: b.orderNo,
-      total: b.total,
-      dpp: b.dpp,
-      ppn: b.ppn,
-      withholdings: b.withholdings,
-      apItemId: null,
-      paid: p,
-      open: b.total - p,
-    };
-  });
+  const balances = await apItemBalances(invoices.flatMap((i) => (i.apItemId ? [i.apItemId] : [])), db);
+  const out: OpenPayable[] = [
+    ...advances.map((b) => {
+      const p = paid.get(b.id) ?? 0;
+      return {
+        kind: "fin_ap_advance" as const,
+        key: paidKey("fin_ap_advance", b.id),
+        id: b.id,
+        no: b.advanceNo,
+        date: b.advanceDate,
+        dueDate: b.dueDate,
+        status: b.status,
+        supplierId: b.supplierId,
+        orderId: b.orderId,
+        orderNo: b.orderNo,
+        total: b.total,
+        dpp: b.dpp,
+        ppn: b.ppn,
+        withholdings: b.withholdings,
+        apItemId: null,
+        paid: p,
+        open: b.total - p,
+      };
+    }),
+    // An Invoice's open amount is its AP item's balance; its PPh and PPN were
+    // booked at the invoice, so it is paid in cash only (B27).
+    ...invoices.map((i) => {
+      const open = i.apItemId ? (balances.get(i.apItemId) ?? 0) : 0;
+      return {
+        kind: "fin_ap_invoice" as const,
+        key: paidKey("fin_ap_invoice", i.id),
+        id: i.id,
+        no: i.invoiceNo,
+        date: i.invoiceDate,
+        dueDate: i.dueDate,
+        status: i.status,
+        supplierId: i.supplierId,
+        orderId: i.orderId,
+        orderNo: i.orderNo,
+        total: i.owed,
+        dpp: i.owed,
+        ppn: 0,
+        withholdings: [],
+        apItemId: i.apItemId,
+        paid: i.owed - open,
+        open,
+      };
+    }),
+  ];
   return out.sort((a, b) => (a.dueDate === b.dueDate ? a.id - b.id : a.dueDate < b.dueDate ? -1 : 1));
 }
 
@@ -152,7 +194,9 @@ export async function cashPaymentOptions(current: { id: number; docs: { kind: Pa
   const open = await openPayables(prisma, { openOnly: true }, current?.id ?? null);
   const mine = new Set((current?.docs ?? []).map((d) => paidKey(d.kind, d.id)));
   const missing = (current?.docs ?? []).filter((d) => !open.some((b) => b.key === paidKey(d.kind, d.id)));
-  const own = missing.length ? await openPayables(prisma, { advanceIds: missing.filter((d) => d.kind === "fin_ap_advance").map((d) => d.id) }, current!.id) : [];
+  const own = missing.length
+    ? await openPayables(prisma, { advanceIds: missing.filter((d) => d.kind === "fin_ap_advance").map((d) => d.id), invoiceIds: missing.filter((d) => d.kind === "fin_ap_invoice").map((d) => d.id) }, current!.id)
+    : [];
   return {
     purposes,
     partners: partners.map((p) => ({ id: p.id, label: p.partner_label, name: p.partner_name, active: p.status === "Active", category: p.category.category_label })),
@@ -230,7 +274,16 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput, selfId: 
   if (!raw.length) errors._lines = "Pilih minimal satu tagihan yang dibayar.";
   const kindOf = (l: CashPaymentLineInput): PaidDocKind => (l.doc_type === "fin_ap_invoice" ? "fin_ap_invoice" : "fin_ap_advance");
   const bills = new Map(
-    (await openPayables(db, { advanceIds: raw.filter((l) => kindOf(l) === "fin_ap_advance").map((l) => Number(l.doc_id)).filter(Boolean) }, selfId)).map((b) => [b.key, b])
+    (
+      await openPayables(
+        db,
+        {
+          advanceIds: raw.filter((l) => kindOf(l) === "fin_ap_advance").map((l) => Number(l.doc_id)).filter(Boolean),
+          invoiceIds: raw.filter((l) => kindOf(l) === "fin_ap_invoice").map((l) => Number(l.doc_id)).filter(Boolean),
+        },
+        selfId
+      )
+    ).map((b) => [b.key, b])
   );
   const seen = new Set<string>();
   for (const [i, l] of raw.entries()) {
@@ -255,6 +308,10 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput, selfId: 
     }
     if (kind === "fin_ap_advance" && bill.status !== "Issued") {
       errors[lineKey(i, "doc_id")] = `${bill.no} belum dicatat.`;
+      continue;
+    }
+    if (kind === "fin_ap_invoice" && (bill.status !== "Posted" || !bill.apItemId)) {
+      errors[lineKey(i, "doc_id")] = `${bill.no} belum diposting.`;
       continue;
     }
     if (DAY.test(date) && date < bill.date) {
@@ -429,9 +486,11 @@ async function accountProblem(db: Db, id: number): Promise<string | null> {
  */
 async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ ok: true; description: string; lines: JournalLineInput[] } | { ok: false; message: string }> {
   const advances = c.lines.filter((l) => l.kind === "fin_ap_advance");
-  type Key = "purchase_advance_account" | "input_vat_account" | "bank_charge_account";
+  const invoices = c.lines.filter((l) => l.kind === "fin_ap_invoice");
+  type Key = "purchase_advance_account" | "input_vat_account" | "bank_charge_account" | "payable_account";
   const keys: Key[] = [
     ...(advances.length ? (["purchase_advance_account", "input_vat_account"] as const) : []),
+    ...(invoices.length ? (["payable_account"] as const) : []),
     ...(c.data.bank_charge > 0 ? (["bank_charge_account"] as const) : []),
   ];
   const mapped = await postingAccounts<Key>(keys);
@@ -450,7 +509,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ 
   const accounts = new Map(
     (
       await db.accAccount.findMany({
-        where: { id: { in: [c.cashBankAccountId, ids.purchase_advance_account, ids.input_vat_account, ids.bank_charge_account, ...[...taxes.values()].map((t) => t.account_id)].filter((x): x is number => Boolean(x)) } },
+        where: { id: { in: [c.cashBankAccountId, ids.purchase_advance_account, ids.input_vat_account, ids.bank_charge_account, ids.payable_account, ...[...taxes.values()].map((t) => t.account_id)].filter((x): x is number => Boolean(x)) } },
         select: { id: true, require_partner: true },
       })
     ).map((a) => [a.id, a])
@@ -471,6 +530,9 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ 
   }
   const ppn = advances.reduce((a, l) => a + l.ppnPart, 0);
   if (ppn > 0) out.push(line(ids.input_vat_account!, ppn, 0, `PPN Masukan uang muka — ${advances.filter((l) => l.ppnPart > 0).map((l) => l.bill.no).join(", ")}`));
+  for (const l of invoices) {
+    out.push(line(ids.payable_account!, l.settled, 0, `Pelunasan ${l.bill.no}${l.settled < l.bill.open ? " (sebagian)" : ""} (${l.bill.orderNo})`, c.data.partner_id));
+  }
   if (c.data.bank_charge > 0) out.push(line(ids.bank_charge_account!, c.data.bank_charge, 0, "Biaya transfer bank"));
   const ref = c.data.bank_ref ? ` · ref ${c.data.bank_ref}` : "";
   out.push(line(c.cashBankAccountId, 0, c.data.cash_amount, `Dana dibayar ke ${partnerName}${ref}`));
@@ -534,6 +596,8 @@ export async function transitionCashPayment(
     await prisma.$transaction(async (tx) => {
       const stored = asInput(t);
       await lockPurchaseAdvances(tx, stored.lines.filter((l) => l.doc_type === "fin_ap_advance").map((l) => Number(l.doc_id)));
+      const invoiceIds = stored.lines.filter((l) => l.doc_type === "fin_ap_invoice").map((l) => Number(l.doc_id));
+      if (invoiceIds.length) await lockApItems(tx, (await settlementPurchaseInvoices({ ids: invoiceIds }, tx)).flatMap((i) => (i.apItemId ? [i.apItemId] : [])));
       const r = await checkCashPayment(tx, stored, id);
       if (!r.ok) throw new Refused({ _form: `Belum bisa diposting: ${Object.values(r.errors)[0]}` });
       const posting = await buildPosting(tx, r.c, t.partner.partner_name);
@@ -585,6 +649,19 @@ export async function transitionCashPayment(
           actorId,
         });
       }
+      // Each Invoice paid lowers its AP item by all it settles (B27).
+      for (const l of r.c.lines) {
+        if (l.kind !== "fin_ap_invoice" || !l.bill.apItemId) continue;
+        await settleApItem(tx, {
+          itemId: l.bill.apItemId,
+          event: "Payment",
+          amount: l.settled,
+          date: isoDay(t.tx_date),
+          doc: { docTypeId: typeId, docId: id, no: t.tx_no },
+          note: `Dibayar ${money(l.cash)}`,
+          actorId,
+        });
+      }
       await audit(tx, id, "UPDATE", "post", actorId);
       if (options.dryRun) throw new PostingDryRun(posting.lines);
     });
@@ -617,7 +694,8 @@ export async function listCashPayments(): Promise<CashPaymentListRow[]> {
     orderBy: [{ tx_date: "desc" }, { id: "desc" }],
     include: { partner: true, cash_bank: true, lines: { select: { doc_id: true, doc_type: { select: { doc_table: true } } } } },
   });
-  const advanceNos = await purchaseAdvanceNumbersByIds([...new Set(rows.flatMap((r) => r.lines.filter((l) => l.doc_type.doc_table === "fin_ap_advance").map((l) => l.doc_id)))]);
+  const idsOf = (kind: PaidDocKind) => [...new Set(rows.flatMap((r) => r.lines.filter((l) => l.doc_type.doc_table === kind).map((l) => l.doc_id)))];
+  const [advanceNos, invoiceNos] = await Promise.all([purchaseAdvanceNumbersByIds(idsOf("fin_ap_advance")), purchaseInvoiceNumbersByIds(idsOf("fin_ap_invoice"))]);
   return rows.map((r) => ({
     id: r.id,
     txNo: r.tx_no,
@@ -632,7 +710,7 @@ export async function listCashPayments(): Promise<CashPaymentListRow[]> {
     settled: r.settled_amount.toNumber(),
     pph: r.pph_amount.toNumber(),
     lines: r.lines.length,
-    docs: r.lines.map((l) => (l.doc_type.doc_table === "fin_ap_advance" ? (advanceNos.get(l.doc_id) ?? "?") : "?")),
+    docs: r.lines.map((l) => (l.doc_type.doc_table === "fin_ap_advance" ? advanceNos : invoiceNos).get(l.doc_id) ?? "?"),
   }));
 }
 

@@ -924,3 +924,75 @@ export async function purchaseAdvanceSources(filter: { ids?: number[]; openOnly?
     };
   });
 }
+
+// ------------------------------------------------- for the Invoice Pembelian
+
+/**
+ * A Purchase Order as an Invoice Pembelian reads it (B28–B31): whose it is, its
+ * Termin, price mode, Kena PPN and frozen PPN snapshot, and per line the price
+ * and the Jenis PPh the company withholds at the rate the order froze.
+ */
+export type PurchaseInvoiceSource = {
+  id: number;
+  orderNo: string;
+  orderDate: string;
+  status: PurchaseOrderStatus;
+  itemType: "Barang" | "Jasa";
+  supplierId: number;
+  supplierLabel: string;
+  supplierName: string;
+  supplierActive: boolean;
+  termLabel: string;
+  termDays: number;
+  mode: PriceMode;
+  taxable: boolean;
+  rates: PpnRates | null;
+  lines: {
+    id: number;
+    itemLabel: string;
+    itemName: string;
+    uomLabel: string;
+    price: number;
+    withholdingTaxId: number | null;
+    withholdingRate: number | null;
+    withholdingLabel: string | null;
+  }[];
+};
+
+export async function purchaseInvoiceSources(filter: { ids: number[] }, db: Db = prisma): Promise<PurchaseInvoiceSource[]> {
+  if (!filter.ids.length) return [];
+  const rows = await db.purOrder.findMany({
+    where: { id: { in: filter.ids } },
+    orderBy: [{ order_date: "desc" }, { id: "desc" }],
+    include: { supplier: true, term: true, lines: { include: { item: true, uom: true, withholding_tax: true }, orderBy: { line_no: "asc" } } },
+  });
+  return rows.map((o) => ({
+    id: o.id,
+    orderNo: o.order_no,
+    orderDate: isoDay(o.order_date),
+    status: o.status as PurchaseOrderStatus,
+    itemType: o.item_type,
+    supplierId: o.supplier_id,
+    supplierLabel: o.supplier.partner_label,
+    supplierName: o.supplier.partner_name,
+    supplierActive: o.supplier.status === "Active",
+    termLabel: o.term.term_label,
+    termDays: o.term.due_days,
+    mode: o.price_mode as PriceMode,
+    taxable: o.is_taxable,
+    rates:
+      o.is_taxable && o.ppn_rate && o.ppn_dpp_other_numerator && o.ppn_dpp_other_denominator
+        ? { rate: o.ppn_rate.toNumber(), otherNum: o.ppn_dpp_other_numerator, otherDen: o.ppn_dpp_other_denominator }
+        : null,
+    lines: o.lines.map((l) => ({
+      id: l.id,
+      itemLabel: l.item.item_label,
+      itemName: l.item.item_name,
+      uomLabel: l.uom.uom_label,
+      price: l.price.toNumber(),
+      withholdingTaxId: l.withholding_tax_id,
+      withholdingRate: l.withholding_rate?.toNumber() ?? null,
+      withholdingLabel: l.withholding_tax?.wht_label ?? null,
+    })),
+  }));
+}

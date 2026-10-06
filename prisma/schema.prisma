@@ -794,6 +794,7 @@ model MPartner {
 
   opening_balance_lines AccOpeningBalanceLine[]
   ap_items              FinApItem[]             @relation("ApItemPartner")
+  ap_invoices           FinApInvoice[]          @relation("ApInvoiceSupplier")
 
   @@index([category_id])
   @@map("m_partner")
@@ -3078,4 +3079,114 @@ model FinApLedger {
   @@index([item_id, entry_date])
   @@index([doc_type_id, doc_id])
   @@map("fin_ap_ledger")
+}
+
+/// Invoice Pembelian (P128, Purchasing-Concept.md B28–B31): the supplier's bill
+/// for one Purchase Order, made of whole lines of its posted Receipt Notes at
+/// the PO price — each line's DPP is its receipt's value, so Barang Diterima
+/// Belum Ditagih clears exactly. The company's PPh is booked here (§4.3b).
+model FinApInvoice {
+  id           Int           @id @default(autoincrement())
+  /// `PI/YYYY/MM/NNNN`, `PI-NP/…` for a PO without PPN (P109).
+  invoice_no   String        @unique
+  /// Tanggal — the journal date, not before the latest receipt.
+  invoice_date DateTime      @db.Date
+  /// Tanggal Invoice Supplier + the PO's Termin.
+  due_date     DateTime      @db.Date
+  status       InvoiceStatus @default(Draft)
+
+  /// The Purchase Order, weak (another module's document, §3.1).
+  purchase_order_id       Int
+  supplier_id             Int
+  /// The supplier's own invoice: number (unique per supplier among live invoices) and date.
+  supplier_invoice_no     String
+  supplier_invoice_date   DateTime @db.Date
+  /// The supplier's faktur pajak number — a reference until the tax module makes it a record.
+  supplier_tax_invoice_no String?
+
+  price_mode                PriceMode
+  is_taxable                Boolean
+  ppn_rate                  Decimal?  @db.Decimal(9, 4)
+  ppn_dpp_other_numerator   Int?
+  ppn_dpp_other_denominator Int?
+
+  dpp_amount         Decimal  @default(0) @db.Decimal(18, 2)
+  advance_dpp_amount Decimal  @default(0) @db.Decimal(18, 2)
+  advance_ppn_amount Decimal  @default(0) @db.Decimal(18, 2)
+  net_dpp_amount     Decimal  @default(0) @db.Decimal(18, 2)
+  dpp_other_amount   Decimal  @default(0) @db.Decimal(18, 2)
+  /// Full PPN less the advances' PPN (P113).
+  ppn_amount         Decimal  @default(0) @db.Decimal(18, 2)
+  /// Our total: net DPP + PPN, before PPh.
+  total_amount       Decimal  @default(0) @db.Decimal(18, 2)
+  /// The PPh the company withholds, on the DPP after the advance (B31).
+  pph_amount         Decimal  @default(0) @db.Decimal(18, 2)
+  /// Total Tagihan Supplier as typed (B29b); null when not compared.
+  supplier_total     Decimal? @db.Decimal(18, 2)
+  /// Supplier total − ours, posted to Selisih Tagihan Supplier within the tolerance.
+  difference_amount  Decimal  @default(0) @db.Decimal(18, 2)
+  /// What Hutang Usaha is born at: full DPP + full PPN + difference − PPh.
+  payable_amount     Decimal  @default(0) @db.Decimal(18, 2)
+
+  journal_id    Int?
+  ap_item_id    Int?
+  note          String?
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  supplier   MPartner                       @relation("ApInvoiceSupplier", fields: [supplier_id], references: [id])
+  lines      FinApInvoiceLine[]
+  deductions FinApInvoiceAdvanceDeduction[]
+
+  @@index([purchase_order_id])
+  @@index([supplier_id, supplier_invoice_no])
+  @@index([status, invoice_date])
+  @@map("fin_ap_invoice")
+}
+
+model FinApInvoiceLine {
+  id                     Int      @id @default(autoincrement())
+  invoice_id             Int
+  line_no                Int
+  /// A posted Receipt Note line, weak; each billed by at most one live invoice.
+  receipt_note_line_id   Int
+  purchase_order_line_id Int
+  qty                    Decimal  @db.Decimal(18, 4)
+  /// The PO line's price, for the record (B29a).
+  price                  Decimal  @db.Decimal(18, 6)
+  /// The receipt's value — the PO's DPP for this quantity.
+  dpp_amount             Decimal  @db.Decimal(18, 2)
+  advance_dpp_amount     Decimal  @default(0) @db.Decimal(18, 2)
+  net_dpp_amount         Decimal  @db.Decimal(18, 2)
+  dpp_other_amount       Decimal  @default(0) @db.Decimal(18, 2)
+  ppn_amount             Decimal  @default(0) @db.Decimal(18, 2)
+  withholding_tax_id     Int?
+  withholding_rate       Decimal? @db.Decimal(9, 4)
+
+  invoice FinApInvoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+
+  @@unique([invoice_id, line_no])
+  @@unique([invoice_id, receipt_note_line_id])
+  @@index([receipt_note_line_id])
+  @@index([purchase_order_line_id])
+  @@map("fin_ap_invoice_line")
+}
+
+model FinApInvoiceAdvanceDeduction {
+  id         Int     @id @default(autoincrement())
+  invoice_id Int
+  ap_item_id Int
+  ap_item_no String
+  dpp_used   Decimal @db.Decimal(18, 2)
+  ppn_used   Decimal @default(0) @db.Decimal(18, 2)
+
+  invoice FinApInvoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+
+  @@unique([invoice_id, ap_item_id])
+  @@index([ap_item_id])
+  @@map("fin_ap_invoice_advance_deduction")
 }

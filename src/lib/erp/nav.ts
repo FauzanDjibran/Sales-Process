@@ -351,6 +351,14 @@ export const MODULES: NavModule[] = [
             desc: "Tagihan atas barang yang sudah dikirim: baris Delivery Note yang diposting, dipotong uang muka. Posting mengakui piutang, penjualan dan PPN.",
             permission: "SALES_INVOICE_VIEW",
           },
+          {
+            key: "fin_ap_invoice",
+            slug: "invoice/purchase",
+            name: "Invoice Pembelian",
+            icon: "file",
+            desc: "Tagihan supplier atas barang dan jasa yang sudah diterima: baris Receipt Note yang diposting, selalu pada harga PO, dipotong uang muka. Posting mengakui hutang, PPN Masukan dan PPh.",
+            permission: "PURCHASE_INVOICE_VIEW",
+          },
         ],
       },
       {

@@ -318,3 +318,13 @@ export async function settingOptions(
   }
   return out;
 }
+
+/**
+ * Toleransi Selisih Tagihan Supplier (B29b), in rupiah: how far the supplier's
+ * total may differ from an Invoice Pembelian's before it refuses to post.
+ * Seeded at 100; unset reads as 0 (must match exactly).
+ */
+export async function supplierInvoiceTolerance(): Promise<number> {
+  const v = Number((await systemDefaults()).supplier_invoice_tolerance ?? 0);
+  return Number.isFinite(v) && v >= 0 ? Math.round(v) : 0;
+}

@@ -18,6 +18,7 @@ import { deliveryOrderNumbersByIds } from "./delivery-order";
 import { deliveryNoteNumbersByIds } from "./delivery-note";
 import { receiptNoteNumbersByIds } from "./receipt-note";
 import { invoiceNumbersByIds } from "./ar-invoice";
+import { purchaseInvoiceNumbersByIds } from "./ap-invoice";
 import { fakturNumbersByIds, slipNumbersByIds } from "./tax-document";
 import { userLabels, roleLabels } from "./users";
 
@@ -85,6 +86,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   pur_request: { label: "Purchase Request", resolve: purchaseRequestNumbersByIds },
   pur_order: { label: "Purchase Order", resolve: purchaseOrderNumbersByIds },
   fin_ar_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },
+  fin_ap_invoice: { label: "Invoice Pembelian", resolve: purchaseInvoiceNumbersByIds },
   // The stand-in inventory, dropped by P120; kept so its old trail still reads.
   acc_item_category_account: { label: "Account Kategori Item", resolve: null },
   tmp_item_cost: { label: "Harga Pokok (Sementara)", resolve: null },
