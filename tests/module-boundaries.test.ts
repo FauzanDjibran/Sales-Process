@@ -98,6 +98,9 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logDeliveryNote: ["src/lib/erp/delivery-note.ts"],
   logDeliveryNoteLine: ["src/lib/erp/delivery-note.ts"],
   logDeliveryNoteLot: ["src/lib/erp/delivery-note.ts"],
+  logReceiptNote: ["src/lib/erp/receipt-note.ts"],
+  logReceiptNoteLine: ["src/lib/erp/receipt-note.ts"],
+  logReceiptNoteLot: ["src/lib/erp/receipt-note.ts"],
   // The stock books (P120): written only by the inventory book, read by its reports.
   logStockTracking: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
   logStockLedger: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],

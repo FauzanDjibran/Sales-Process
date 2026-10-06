@@ -13,9 +13,11 @@ import {
   type PurchaseOrderResult,
 } from "@/lib/erp/purchase-order";
 import { PURCHASE_ORDER_TRANSITIONS, type PurchaseOrderAction } from "@/lib/erp/purchase-order-workflow";
+import { liveReceiptNoteRefusal } from "@/lib/erp/receipt-note";
 
 /**
- * The Purchase Order's write path. The permission is checked here; every
+ * The Purchase Order's write path. Tutup is handed the Receipt Note module's
+ * check, so a Purchase Order with a Draft receipt stays open. The permission is checked here; every
  * rule is in `lib/erp/purchase-order.ts`, where the tests can reach it.
  */
 
@@ -71,7 +73,7 @@ export async function transitionPurchaseOrderAction(
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
   try {
-    const result = await transitionPurchaseOrder(id, action, g.actor.user.id, reason);
+    const result = await transitionPurchaseOrder(id, action, g.actor.user.id, reason, action === "close" ? liveReceiptNoteRefusal : undefined);
     if (!result.ok) return result;
   } catch (error) {
     return { ok: false, errors: { _form: error instanceof Error ? error.message : "Gagal diproses." } };

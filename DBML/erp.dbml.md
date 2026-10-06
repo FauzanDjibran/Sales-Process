@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20261006160000_purchase_order`
+- **As of migration:** `20261006180000_receipt_note`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout:** tables are grouped in sections by prefix — System (`sys_`),
@@ -1590,6 +1590,84 @@ table pur_order_line_request {
 // Logistik
 //
 /////////////////////////////////
+
+// Receipt Note, RN/… or RN-NP/… (P125, Purchasing-Concept.md B17–B22): goods or a service received
+// standalone (P106): purpose + weak source pair; purchase_receipt: from one Open Purchase Order
+// posting: Kelola Stok lines into the stock books by lot, others expensed; Dr Persediaan / Beban, Cr Barang Diterima Belum Ditagih
+table log_receipt_note {
+  id                          int [pk, increment, not null]
+
+  rn_no                       varchar [not null, unique] // RN/YYYY/MM/NNNN, RN-NP/… for a PO without PPN
+  rn_date                     date [not null] // Tanggal Terima, the journal date
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+
+  purpose                     varchar [not null] // purchase_receipt
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id]
+  source_doc_id               int [not null] // weak: pur_order.id
+  source_no                   varchar [not null]
+  partner_id                  int [not null, ref : > m_partner.id] // the supplier
+  warehouse_id                int [ref : > ref_warehouse.id] // null for a Jasa receipt
+  supplier_dn_no              varchar
+  note                        varchar
+
+  value_amount                decimal(18,2) [not null, default: 0] // Σ lines, set at Posting
+  journal_id                  int // weak
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (source_doc_type_id, source_doc_id)
+    (purpose, status)
+    (status, rn_date)
+  }
+}
+
+// a quantity of one PO line in its unit; never beyond what the PO line has left
+table log_receipt_note_line {
+  id                          int [pk, increment, not null]
+
+  receipt_note_id             int [not null, ref : > log_receipt_note.id]
+  line_no                     int [not null]
+  source_doc_line_id          int [not null] // weak: pur_order_line.id
+
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id]
+  uom_factor                  decimal(18,4) [not null]
+  qty                         decimal(18,4) [not null]
+  base_qty                    decimal(18,4) [not null]
+  is_stock                    boolean [not null, default: false] // Barang with Kelola Stok
+  value_amount                decimal(18,2) [not null, default: 0] // cumulative share of the PO line's DPP (B20)
+  note                        varchar
+
+  indexes {
+    (receipt_note_id, line_no) [unique]
+    (receipt_note_id, source_doc_line_id) [unique]
+    source_doc_line_id
+  }
+}
+
+// the lots a stock line comes in as, made at Posting
+table log_receipt_note_lot {
+  id                          int [pk, increment, not null]
+
+  line_id                     int [not null, ref : > log_receipt_note_line.id]
+  lot_seq                     int [not null]
+  lot_no                      varchar // typed, or generated at Posting
+  expiry_date                 date
+  qty                         decimal(18,4) [not null] // in the line's unit
+  base_qty                    decimal(18,4) [not null, default: 0]
+  value_amount                decimal(18,2) [not null, default: 0] // cumulative share of the line's value
+  tracking_id                 int // weak: log_stock_tracking.id, set at Posting
+
+  indexes {
+    (line_id, lot_seq) [unique]
+  }
+}
 
 // Delivery Note, SJ/… (P106; P94, P95): goods leaving the warehouse to a partner
 // standalone: purpose (catalogue in code) + weak source pair; quantity and stock cost only

@@ -414,6 +414,7 @@ model SysDocType {
   ar_item_sources    FinArItem[]               @relation("ArItemSource")
   ar_ledger_entries  FinArLedger[]
   delivery_notes     LogDeliveryNote[]         @relation("DeliveryNoteSource")
+  receipt_notes      LogReceiptNote[]          @relation("ReceiptNoteSource")
   stock_trackings    LogStockTracking[]        @relation("StockTrackingSource")
   stock_ledger       LogStockLedger[]          @relation("StockLedgerSource")
   valuation_ledger   LogStockValuationLedger[] @relation("StockValuationSource")
@@ -486,6 +487,7 @@ model RefUom {
 
   purchase_request_lines PurRequestLine[]           @relation("PurRequestLineUom")
   purchase_order_lines   PurOrderLine[]             @relation("PurOrderLineUom")
+  receipt_note_lines     LogReceiptNoteLine[]       @relation("ReceiptNoteLineUom")
   stock_ledger           LogStockLedger[]           @relation("StockLedgerUom")
   stock_balances         LogStockBalance[]          @relation("StockBalanceUom")
   valuation_ledger       LogStockValuationLedger[]  @relation("StockValuationLedgerUom")
@@ -580,6 +582,7 @@ model MItem {
   stock_trackings        LogStockTracking[]
   purchase_request_lines PurRequestLine[]
   purchase_order_lines   PurOrderLine[]            @relation("PurOrderLineItem")
+  receipt_note_lines     LogReceiptNoteLine[]      @relation("ReceiptNoteLineItem")
   stock_ledger           LogStockLedger[]
   stock_balances         LogStockBalance[]
   valuation_ledger       LogStockValuationLedger[]
@@ -660,6 +663,7 @@ model RefWarehouse {
   stock_balances    LogStockBalance[]
   purchase_requests PurRequest[]
   purchase_orders   PurOrder[]         @relation("PurOrderWarehouse")
+  receipt_notes     LogReceiptNote[]   @relation("ReceiptNoteWarehouse")
 
   @@map("ref_warehouse")
 }
@@ -765,6 +769,7 @@ model MPartner {
 
   addresses       MPartnerAddress[]
   purchase_orders PurOrder[]        @relation("PurOrderSupplier")
+  receipt_notes   LogReceiptNote[]  @relation("ReceiptNotePartner")
   contacts        MPartnerContact[]
 
   customer_orders SalCustomerOrder[]
@@ -2658,6 +2663,12 @@ model TaxWithholdingSlip {
 
 /// A Purchase Request's lifecycle (Purchasing-Concept.md B8): no approval —
 /// Ajukan makes it Open; it closes by hand or by itself once fully ordered.
+enum ReceiptNoteStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
 enum PurchaseOrderStatus {
   Draft
   Submitted
@@ -2842,4 +2853,98 @@ model PurOrderLineRequest {
   @@unique([order_line_id, request_line_id])
   @@index([request_line_id])
   @@map("pur_order_line_request")
+}
+
+/// The Receipt Note (P125, Purchasing-Concept.md B17–B22): goods or a service
+/// received from a supplier. Standalone (P106): a purpose and a weak source
+/// pair; its one purpose is `purchase_receipt`, from one Open Purchase Order.
+model LogReceiptNote {
+  id      Int               @id @default(autoincrement())
+  /// `RN/YYYY/MM/NNNN`, `RN-NP/…` for a PO without PPN (P109).
+  rn_no   String            @unique
+  /// Tanggal Terima — the journal's date.
+  rn_date DateTime          @db.Date
+  status  ReceiptNoteStatus @default(Draft)
+
+  purpose            String
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  /// The supplier, copied from the source.
+  partner_id         Int
+  /// Where the goods come in; null for a Jasa receipt.
+  warehouse_id       Int?
+  /// The supplier's own delivery note number.
+  supplier_dn_no     String?
+  note               String?
+
+  /// Σ of the lines' value, set at Posting.
+  value_amount  Decimal @default(0) @db.Decimal(18, 2)
+  journal_id    Int?
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  source_doc_type SysDocType           @relation("ReceiptNoteSource", fields: [source_doc_type_id], references: [id])
+  partner         MPartner             @relation("ReceiptNotePartner", fields: [partner_id], references: [id])
+  warehouse       RefWarehouse?        @relation("ReceiptNoteWarehouse", fields: [warehouse_id], references: [id])
+  lines           LogReceiptNoteLine[]
+
+  @@index([source_doc_type_id, source_doc_id])
+  @@index([purpose, status])
+  @@index([status, rn_date])
+  @@map("log_receipt_note")
+}
+
+model LogReceiptNoteLine {
+  id                 Int @id @default(autoincrement())
+  receipt_note_id    Int
+  line_no            Int
+  /// The source line, weak: for `purchase_receipt` a Purchase Order line.
+  source_doc_line_id Int
+
+  item_id      Int
+  uom_id       Int
+  uom_factor   Decimal @db.Decimal(18, 4)
+  qty          Decimal @db.Decimal(18, 4)
+  base_qty     Decimal @db.Decimal(18, 4)
+  /// Enters the stock books (Barang with Kelola Stok); otherwise an expense.
+  is_stock     Boolean @default(false)
+  /// Its share of the source line's DPP, cumulative (B20); set at Posting.
+  value_amount Decimal @default(0) @db.Decimal(18, 2)
+  note         String?
+
+  receipt_note LogReceiptNote      @relation(fields: [receipt_note_id], references: [id], onDelete: Cascade)
+  item         MItem               @relation("ReceiptNoteLineItem", fields: [item_id], references: [id])
+  uom          RefUom              @relation("ReceiptNoteLineUom", fields: [uom_id], references: [id])
+  lots         LogReceiptNoteLot[]
+
+  @@unique([receipt_note_id, line_no])
+  @@unique([receipt_note_id, source_doc_line_id])
+  @@index([source_doc_line_id])
+  @@map("log_receipt_note_line")
+}
+
+/// The lots a stock line comes in as (B19): made here at Posting.
+model LogReceiptNoteLot {
+  id           Int       @id @default(autoincrement())
+  line_id      Int
+  lot_seq      Int
+  /// Typed, or generated at Posting when left empty.
+  lot_no       String?
+  expiry_date  DateTime? @db.Date
+  /// In the line's unit.
+  qty          Decimal   @db.Decimal(18, 4)
+  base_qty     Decimal   @default(0) @db.Decimal(18, 4)
+  value_amount Decimal   @default(0) @db.Decimal(18, 2)
+  /// The stock lot it became, set at Posting (weak: the inventory's table).
+  tracking_id  Int?
+
+  line LogReceiptNoteLine @relation(fields: [line_id], references: [id], onDelete: Cascade)
+
+  @@unique([line_id, lot_seq])
+  @@map("log_receipt_note_lot")
 }

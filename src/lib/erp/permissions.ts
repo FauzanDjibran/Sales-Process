@@ -222,6 +222,11 @@ export const PERMISSIONS = [
   { code: "DELIVERY_NOTE_EDIT", name: "Ubah Delivery Note", module: "logistics", description: "Hanya selama masih Draft." },
   { code: "DELIVERY_NOTE_POST", name: "Posting Delivery Note", module: "logistics", description: "Mencatat barang keluar dan menjurnal HPP / Persediaan." },
   { code: "DELIVERY_NOTE_CANCEL", name: "Batalkan Delivery Note", module: "logistics", description: "Hanya Draft, dengan alasan." },
+  { code: "RECEIPT_NOTE_VIEW", name: "Lihat Receipt Note", module: "logistics", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "RECEIPT_NOTE_CREATE", name: "Buat Receipt Note", module: "logistics", description: "Membuat Draft dari Purchase Order yang Open." },
+  { code: "RECEIPT_NOTE_EDIT", name: "Ubah Receipt Note", module: "logistics", description: "Hanya selama masih Draft." },
+  { code: "RECEIPT_NOTE_POST", name: "Posting Receipt Note", module: "logistics", description: "Mencatat barang masuk per lot atau beban, dan menjurnal ke Barang Diterima Belum Ditagih." },
+  { code: "RECEIPT_NOTE_CANCEL", name: "Batalkan Receipt Note", module: "logistics", description: "Hanya Draft, dengan alasan." },
 
   // -------------------------------------------------------------- inventory
   // The stock books and their reports (P120). Stock is moved by the documents

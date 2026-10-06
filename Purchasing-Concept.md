@@ -204,6 +204,8 @@ holds only orders since P107).
   books the day they arrive at the price agreed; the invoice later clears the
   account. Its balance is exactly *received, not yet invoiced*.
 
+*Built 06/10/2026 (P125).*
+
 ---
 
 ## 6. Uang Muka Pembelian  (`fin_ap_advance`, `APA/…`)

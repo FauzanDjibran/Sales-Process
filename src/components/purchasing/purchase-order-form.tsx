@@ -509,6 +509,7 @@ export function PurchaseOrderForm({
                           <span className="lab">{view?.uomLabel}</span>
                         </span>
                       )}
+                      {!editing && (view?.received ?? 0) > 0 && <span className="fulltag">diterima {qtyText(view!.received)}</span>}
                     </td>
                     <td className="num">
                       {editing ? (

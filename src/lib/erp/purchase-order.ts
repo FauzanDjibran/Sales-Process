@@ -516,7 +516,18 @@ const sumInto = (m: Map<number, number>, id: number, q: number) => m.set(id, (m.
  * **Tutup** gives back what was never received, from the latest need first.
  * Each step is conditional on the status just read.
  */
-export async function transitionPurchaseOrder(id: number, action: PurchaseOrderAction, actorId: number, reason?: string): Promise<PurchaseOrderTransitionResult> {
+export async function transitionPurchaseOrder(
+  id: number,
+  action: PurchaseOrderAction,
+  actorId: number,
+  reason?: string,
+  /**
+   * Run inside the step's transaction with the order's row locked, before it
+   * moves; a message refuses it. Tutup is handed the Receipt Note module's
+   * check by the caller, so this module never reads its tables.
+   */
+  guard?: (tx: Prisma.TransactionClient, id: number) => Promise<string | null>
+): Promise<PurchaseOrderTransitionResult> {
   const order = await prisma.purOrder.findUnique({ where: { id }, include: { lines: { include: { requests: true } } } });
   if (!order) return { ok: false, errors: { _form: "Purchase Order tidak ditemukan." } };
   const t = PURCHASE_ORDER_TRANSITIONS[action];
@@ -562,7 +573,13 @@ export async function transitionPurchaseOrder(id: number, action: PurchaseOrderA
     return refused ? { ok: false, errors: { _form: refused } } : { ok: true };
   }
 
+  let refused: string | null = null;
   await prisma.$transaction(async (tx) => {
+    if (guard) {
+      await lockPurchaseOrder(tx, id);
+      refused = await guard(tx, id);
+      if (refused) return;
+    }
     const done = await tx.purOrder.updateMany({
       where: { id, status: from },
       data: { status: t.to, ...(t.reason ? { status_reason: why } : {}), updated_by: actorId },
@@ -595,7 +612,7 @@ export async function transitionPurchaseOrder(id: number, action: PurchaseOrderA
     }
     await audit(tx, id, "UPDATE", action, actorId);
   });
-  return { ok: true };
+  return refused ? { ok: false, errors: { _form: refused } } : { ok: true };
 }
 
 // ------------------------------------------------------------------- reads
@@ -729,4 +746,105 @@ export async function purchaseOrderNumbersByIds(ids: number[]): Promise<Map<numb
 
 export async function lockPurchaseOrder(tx: Prisma.TransactionClient, id: number): Promise<void> {
   await tx.$queryRaw`SELECT id FROM pur_order WHERE id = ${id} FOR UPDATE`;
+}
+
+// ---------------------------------------------------- for the Receipt Note
+
+/**
+ * A Purchase Order as a Receipt Note reads it (B17–B20): whose it is, its kind,
+ * where it is wanted, and per line the item, unit, quantity, what posted
+ * receipts brought in, the DPP a receipt's value is a share of, and whether the
+ * item enters the stock books. The Receipt Note takes this rather than reading
+ * `pur_order` itself; a submitted order's lines are frozen.
+ */
+export type ReceiptNoteSource = {
+  id: number;
+  orderNo: string;
+  orderDate: string;
+  status: PurchaseOrderStatus;
+  itemType: "Barang" | "Jasa";
+  isTaxable: boolean;
+  supplierId: number;
+  supplierLabel: string;
+  supplierName: string;
+  supplierActive: boolean;
+  warehouseId: number | null;
+  lines: {
+    id: number;
+    lineNo: number;
+    itemId: number;
+    itemLabel: string;
+    itemName: string;
+    uomId: number;
+    uomLabel: string;
+    uomFactor: number;
+    qty: number;
+    received: number;
+    dpp: number;
+    /** Barang with Kelola Stok: it comes in by lot (P120). */
+    isStock: boolean;
+    hasExpiry: boolean;
+  }[];
+};
+
+export async function receiptNoteSources(filter: { ids?: number[]; openOnly?: boolean }, db: Db = prisma): Promise<ReceiptNoteSource[]> {
+  const rows = await db.purOrder.findMany({
+    where: { ...(filter.ids ? { id: { in: filter.ids } } : {}), ...(filter.openOnly ? { status: "Open" } : {}) },
+    orderBy: [{ order_date: "desc" }, { id: "desc" }],
+    include: { supplier: true, lines: { include: { item: true, uom: true }, orderBy: { line_no: "asc" } } },
+  });
+  return rows.map((o) => ({
+    id: o.id,
+    orderNo: o.order_no,
+    orderDate: isoDay(o.order_date),
+    status: o.status as PurchaseOrderStatus,
+    itemType: o.item_type,
+    isTaxable: o.is_taxable,
+    supplierId: o.supplier_id,
+    supplierLabel: o.supplier.partner_label,
+    supplierName: o.supplier.partner_name,
+    supplierActive: o.supplier.status === "Active",
+    warehouseId: o.warehouse_id,
+    lines: o.lines.map((l) => ({
+      id: l.id,
+      lineNo: l.line_no,
+      itemId: l.item_id,
+      itemLabel: l.item.item_label,
+      itemName: l.item.item_name,
+      uomId: l.uom_id,
+      uomLabel: l.uom.uom_label,
+      uomFactor: l.uom_factor.toNumber(),
+      qty: l.qty.toNumber(),
+      received: l.received_qty.toNumber(),
+      dpp: l.dpp_amount.toNumber(),
+      isStock: l.item.item_type === "Barang" && l.item.track_stock,
+      hasExpiry: l.item.has_expiry,
+    })),
+  }));
+}
+
+/**
+ * Records what a posted Receipt Note brought in of each line (in the line's
+ * unit) and closes every Open order now fully received (B16) — billing comes
+ * after, and a closed order is still billed. Returns the numbers it closed.
+ */
+export async function recordPurchaseOrderReceived(tx: Prisma.TransactionClient, received: Map<number, number>, actorId: number): Promise<string[]> {
+  if (!received.size) return [];
+  for (const [lineId, qty] of received) {
+    await tx.purOrderLine.update({ where: { id: lineId }, data: { received_qty: { increment: qty } } });
+  }
+  const orders = await tx.purOrder.findMany({
+    where: { status: "Open", lines: { some: { id: { in: [...received.keys()] } } } },
+    include: { lines: true },
+  });
+  const closed: string[] = [];
+  for (const o of orders) {
+    if (!o.lines.every((l) => units(l.received_qty.toNumber()) >= units(l.qty.toNumber()))) continue;
+    const done = await tx.purOrder.updateMany({ where: { id: o.id, status: "Open" }, data: { status: "Closed", status_reason: null, updated_by: actorId } });
+    if (done.count === 1) {
+      await audit(tx, o.id, "UPDATE", "fulfil", actorId);
+      closed.push(o.order_no);
+    }
+  }
+  return closed;
 }
