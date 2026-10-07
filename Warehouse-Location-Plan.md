@@ -1,6 +1,6 @@
 # Lokasi Gudang — Plan
 
-> Draft 07/10/2026, for the user to agree. Nothing is built until the open
+> Draft 07/10/2026, for the user to agree; L5 and L6 answered 07/10/2026. Nothing is built until the open
 > points (§8) are answered; then it becomes a decision in `Claude-ERP.md` §12.
 
 ## 1. The request
@@ -42,7 +42,14 @@ form as **Gunakan Lokasi** (Ya / Tidak).
 | `warehouse_id` | FK → `ref_warehouse` |
 | `location_code` | system code `loc.NNNN`, generated |
 | `location_label` | e.g. `A-01-03`; **unique within its warehouse** |
-| `location_name` | e.g. *Rak A, baris 1, level 3* (optional) |
+| `location_name` | e.g. *Rak A, baris 1, level 3* — **required** (L6) |
+
+**How a location reads (L6):** its own label is stored short (`A-01-03`), and
+everywhere it is shown — pickers, documents, reports — it reads **`<warehouse
+label>-<location label>`**, e.g. **`GD-CKR-A-01-03`**, with its name beside it
+where there is room. The composed label is built in one place (a client-safe
+`locationDisplayLabel(warehouseLabel, locationLabel)`), never stored, so
+relabelling a warehouse relabels its locations.
 | `status` | Active / Inactive — never deleted (§2 rule 11) |
 | `note`, `created_*`, `updated_*` | as every master |
 
@@ -118,14 +125,22 @@ location warehouse without a location.
 
 ## 6. Reports
 
-- **Saldo Stok** — a lot row in a location warehouse reads **`Lokasi · Lot`**
-  (location label first, as a picker would walk the shelves); a lot spread over
-  two locations is two rows. Position totals per item × warehouse are
-  unchanged.
-- **Kartu Stok** — each movement shows its location as a sub-line under the
-  lot. The running balance stays per item × warehouse (P135).
-- **Grouping per location** (*Per Lokasi* in Kelompok, "what is on this
-  shelf?") is **not** in this step — open point L5.
+**Location is a column inside the grouping (L5)**, not a grouping of its own.
+The blocks and rows stay as P135 built them (item × warehouse cards); the
+location sits on the detail rows, read as `GD-CKR-A-01-03` (§3), and `—` for a
+warehouse without locations.
+
+- **Saldo Stok, Per Barang** — block = item, row = warehouse; the folded rows
+  under a warehouse are its buckets with columns **Lokasi · Lot · Kadaluarsa ·
+  Jumlah**, sorted by location, then expiry. A lot spread over two locations
+  is two rows.
+- **Saldo Stok, Per Gudang** — block = warehouse, row = item; the folded rows
+  under an item carry the same columns, the **Lokasi** column reading
+  *warehouse-then-location* (`GD-CKR-A-01-03`).
+- **Kartu Stok** (both groupings) — each movement gets a **Lokasi** column
+  between Entri and Lot. The running balance stays per item × warehouse
+  (P135).
+- No *Per Lokasi* grouping in Kelompok.
 - Kartu Nilai Persediaan and Nilai Persediaan: unchanged.
 
 ## 7. Order of work
@@ -152,5 +167,5 @@ location tree / zone, capacity, a default putaway location.
 | L2 | Locations **flat per warehouse**, or a tree (zone → rack → bin)? | **Flat** now; the label can carry the structure (`A-01-03`) |
 | L3 | On the Receipt Note, location **per lot row** (a lot may be split) or one per line? | **Per lot row** |
 | L4 | Table name: `ref_warehouse_location` (reference-master prefix, as `ref_warehouse`), or exactly `warehouse_location`? | **`ref_warehouse_location`** |
-| L5 | Add **Per Lokasi** grouping to Saldo Stok now? | **Later** — show the location on lot rows first |
-| L6 | Location name: optional, or required like a warehouse's? | **Optional** — the label is often enough |
+| L5 | Add **Per Lokasi** grouping to Saldo Stok now? | **Decided:** no grouping — Lokasi is a column inside the existing groupings (§6) |
+| L6 | Location name: optional, or required like a warehouse's? | **Decided:** required; the location has its own code, label and name, and reads `<warehouse label>-<location label>` (§3) |
