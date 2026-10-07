@@ -1,8 +1,9 @@
-# Cash Bank Tx — how one line works
+# Cash Bank Tx — how to use it, and how one line works
 
-How a line of a Penerimaan (`fin_cash_bank_tx_line`) gets its outstanding,
-splits what it settles into DPP and PPN, and works out the PPh withheld — with
-the formulas, so the figures can be recomputed or checked from the tables.
+Part A is how to record money in and out in the app. Part B is how a line
+(`fin_cash_bank_tx_line`) gets its outstanding, splits what it settles into
+DPP and PPN, and works out the PPh — with the formulas, so the figures can be
+recomputed or checked from the tables.
 
 Code: `src/lib/erp/cash-bank-tx.ts` (`checkCashReceipt`, `openBills`,
 `buildPosting`) and the arithmetic in `src/lib/erp/sales-tax.ts`
@@ -14,11 +15,115 @@ What a document has been paid so far lives on the document itself, and a
 receipt reads it from there and adds to it when it posts.
 
 The Pengeluaran (`cash-payment.ts`) is the same engine mirrored for
-suppliers; this note uses the receipt.
+suppliers; Part B uses the receipt, and §B9 lists where the Pengeluaran
+differs.
 
 ---
 
-## 1. What is stored
+# Part A — Using it
+
+## A1. Which menu
+
+| You are recording | Menu | Tujuan | Number |
+| --- | --- | --- | --- |
+| Money from a customer, for an advance bill (Uang Muka Penjualan) and / or a posted Invoice Penjualan | Finance › Kas & Bank › **Penerimaan** | *Penerimaan dari Customer* | `BKM/YYYY/MM/NNNN` |
+| Money to a supplier, for an advance bill (Uang Muka Pembelian) and / or a posted Invoice Pembelian | Finance › Kas & Bank › **Pengeluaran** | *Pembayaran ke Supplier* | `BKK/YYYY/MM/NNNN` |
+
+**One transaction = one line on the bank statement.** If the customer sent
+one transfer for three bills, record one Penerimaan with three lines.
+
+What can be paid:
+
+- an **advance bill** once it is *Diterbitkan* (issued); nothing is booked
+  until money comes;
+- an **Invoice** once it is *Posted*.
+
+A document drops out of the list once it is fully paid (*Lunas*).
+
+## A2. Recording a Penerimaan, step by step
+
+1. **Baru.** Fill the header:
+   - **Tujuan** — *Penerimaan dari Customer*.
+   - **Partner** — the customer. Only that customer's documents can be paid.
+   - **Kas & Bank** — the rupiah cash or bank account the money reached.
+   - **Tanggal Terima** — the date on the bank statement. It may not be
+     before the date of any document it pays.
+   - **Referensi Bank** — the transaction number on the statement
+     (optional, printed in the journal).
+   - **Catatan** — optional.
+2. **Pilih Tagihan.** A dialog lists the customer's open documents, oldest
+   due first, with their total, *Dibayar* (paid so far) and *Sisa*. Tick the
+   ones this transfer pays (*Pilih semua* ticks all), then **Terapkan**.
+   - **Bagikan Dana** (optional): type the transfer amount once and it is
+     spread over the ticked documents oldest first, each up to what clears
+     it.
+3. **Per line, type Diterima** — the money the customer sent **for that
+   document**, not the gross bill.
+   - **Potong PPh** (on by default): the customer withheld PPh, so the gap
+     between the money and the bill is PPh and a bukti potong is expected.
+     Turn it off when the customer paid without withholding.
+   - The line shows the PPh and what is left after this payment.
+   - Typing more than clears the document is refused (no overpayment).
+   - A partial payment is fine: the rest stays open on the document.
+4. **Biaya Bank** — the fee the bank kept, if any. It comes off what reached
+   the bank and is the company's expense; the customer's bills are still
+   cleared by what the customer sent.
+   *Dana Masuk ke Bank* = Total Diterima − Biaya Bank: check it matches the
+   statement.
+5. **Simpan.** The transaction is a **Draft**: nothing is booked, no
+   document is paid yet, and a Draft reserves nothing.
+6. **Posting.** The confirmation shows the exact journal it will write (a dry
+   run of the real posting). *Ya, Posting* books everything at once (§A4).
+   If another receipt paid the same document since you saved, Posting
+   re-reads the document and refuses if it no longer has room.
+7. **Batalkan** (with a reason) is only for a Draft. A posted transaction is
+   final; a wrong one is corrected by a new document, not edited.
+
+## A3. Recording a Pengeluaran
+
+The same steps under Finance › Kas & Bank › **Pengeluaran**, with these
+differences:
+
+- **Tujuan** *Pembayaran ke Supplier*, **Partner** the supplier,
+  **Tanggal Bayar**.
+- Per line you type the money **paid** to the supplier.
+  - For an **advance bill**, *Potong PPh* means **the company** withholds
+    PPh 23 from the supplier: the gap is Hutang PPh the company owes the tax
+    office.
+  - For an **Invoice Pembelian**, the PPh was already booked by the Invoice,
+    so the line is paid in cash only, with no PPh.
+- **Biaya Bank** leaves the bank **with** the payment:
+  *Dana Keluar dari Bank* = paid + Biaya Bank.
+- Posting refuses if the cash or bank account would go below zero
+  (*Saldo Cash & Bank tidak mencukupi*).
+
+## A4. What Posting does
+
+All in one database transaction — everything or nothing:
+
+| Written | Penerimaan | Pengeluaran |
+| --- | --- | --- |
+| Journal | §B6 | Dr Uang Muka Pembelian · Dr PPN Masukan · Dr Beban Bank / Cr Kas & Bank · Cr Hutang PPh (advance bill); Dr Hutang Usaha / Cr Kas & Bank (Invoice) |
+| Cash Bank Book | Dana Masuk ke Bank, In | Dana Keluar dari Bank, Out |
+| Each document paid | `paid_amount` += what the line settled | same |
+| Advance bill's item | the bill's **one** Uang Muka item: created by the first payment, raised by each later one (*Uang Muka Diterima*) | same, AP side (*Uang Muka Dibayar*) |
+| Invoice's item | *Pembayaran* on the Invoice item | same, AP side |
+| Tax records | Faktur Pajak Uang Muka per taxable advance line (one per payment); Bukti Potong per PPh row | none yet (the company's own bukti potong is out of scope) |
+
+## A5. Reading where a document stands
+
+- The advance bill and the Invoice show **Belum Dibayar / Sebagian /
+  Lunas** from their own `paid_amount`, and list the receipts that paid them.
+- A paid advance bill can no longer be cancelled; a leftover is to be
+  refunded (Pengembalian Uang Muka, not built yet).
+- Buku Piutang / Buku Hutang, Umur Piutang / Hutang and Uang Muka Customer /
+  Supplier read the items.
+
+---
+
+# Part B — How one line works
+
+## B1. What is stored
 
 ```
 fin_cash_bank_tx                (header — one bank statement line)
@@ -51,7 +156,7 @@ line cash = settled_amount − pph_amount
 The bank charge is not shared to lines (P76): it is one header figure, taken
 off what reached the bank.
 
-### What a line needs
+### B1.1 What a line needs
 
 A line is computed from **one receipt plus one document**, never from other
 receipts. From the document it reads its totals and what it has been paid:
@@ -68,7 +173,7 @@ Everything else comes from the line itself.
 
 ---
 
-## 2. Outstanding (sisa) of the document
+## B2. Outstanding (sisa) of the document
 
 The document carries it. No receipt is summed:
 
@@ -105,7 +210,7 @@ item agree (`total − paid_amount = item balance`).
 
 ---
 
-## 3. Splitting a payment: the positional share
+## B3. Splitting a payment: the positional share
 
 Every tax figure of the document is shared to a payment **cumulatively**
 (`tax_concept.md` §7.5). For any figure `F` of the document (its PPN, a PPh
@@ -146,12 +251,12 @@ stored for the bukti potong, not used to recompute.
 
 ---
 
-## 4. From the cash typed to `S` (P76)
+## B4. From the cash typed to `S` (P76)
 
 The user does not type `S`. They type **Diterima** — the money that came for
 this document. `S` is found from it.
 
-### 4.1 Cash that clears the document
+### B4.1 Cash that clears the document
 
 ```
 cashToClear = open − Σ_k [ W_k − round(W_k × before / T) ]     (withhold on)
@@ -163,7 +268,7 @@ i.e. the remainder less the PPh still to be withheld on it.
 - `Diterima > cashToClear` → refused (*Melebihi sisa tagihan* — no overpayment, P85).
 - `Diterima = cashToClear` → `S = open`; the gap is the PPh; the document is Lunas.
 
-### 4.2 Less money: a partial payment
+### B4.2 Less money: a partial payment
 
 `S` is the smallest part whose cash, after its own positional PPh, is exactly
 the money:
@@ -183,7 +288,7 @@ both step on the same rupiah), the line is refused with *ubah Rp1*.
 
 Withhold off → `S = Diterima`, no PPh.
 
-### 4.3 The header
+### B4.3 The header
 
 ```
 total diterima  = Σ line cash
@@ -196,7 +301,7 @@ Check: `cash_amount + bank_charge + pph_amount = settled_amount`.
 
 ---
 
-## 5. Kena / tidak kena PPN
+## B5. Kena / tidak kena PPN
 
 PPN is **decided on the Customer Order** (`is_taxable`, P52) and copied to the
 advance bill and the Invoice with the PPN rate and the 11/12 factor (P60).
@@ -225,7 +330,7 @@ What `ppn_part` **does** differs by kind:
 
 ---
 
-## 6. The journal one receipt writes
+## B6. The journal one receipt writes
 
 ```
 Dr Kas & Bank                 cash_amount
@@ -244,7 +349,7 @@ a Bukti Potong per wht row.
 
 ---
 
-## 7. Worked example (computed with the code's own functions)
+## B7. Worked example (computed with the code's own functions)
 
 Advance bill, Kena PPN, PPN 12 % × 11/12, PPh 23 2 %:
 
@@ -288,7 +393,7 @@ PPh 200.000 = W, cash 10.900.000. Nothing lost, nothing created.
 
 ---
 
-## 8. Checks that must hold on the stored rows
+## B8. Checks that must hold on the stored rows
 
 ```
 line:    settled_amount = dpp_part + ppn_part
@@ -305,3 +410,21 @@ per document over its posted lines (a reconcile check, not how it is read):
          Σ ppn_part       = P    once fully settled
          Σ wht.amount     = W_k  per Jenis PPh, once fully settled with withhold on every line
 ```
+
+---
+
+## B9. Where the Pengeluaran differs
+
+Same tables (`direction = Out`), same formulas, with these differences
+(`cash-payment.ts`):
+
+| | Penerimaan (customer) | Pengeluaran (supplier) |
+| --- | --- | --- |
+| Documents | `fin_ar_advance`, `fin_ar_invoice` | `fin_ap_advance`, `fin_ap_invoice` |
+| `T` for an Invoice | `total_amount` (net Piutang) | what it owes: `payable_amount − advance_dpp_amount − advance_ppn_amount` |
+| PPh on an Invoice line | withheld by the customer, split per §B3 | none: booked at the Invoice Pembelian, the line is cash only (`P` = 0, no `W_k`) |
+| PPh on an advance line | withheld by the customer → Dr PPh Dibayar Dimuka | withheld **by the company** → Cr Hutang PPh |
+| Bank charge | `cash_amount = Σ cash − bank_charge` | `cash_amount = Σ cash + bank_charge` |
+| Overdraw | — | refused |
+| Advance item event | *Uang Muka Diterima* | *Uang Muka Dibayar* (same `AdvanceReceived` event) |
+
