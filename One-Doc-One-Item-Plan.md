@@ -1,182 +1,225 @@
 # One document, one item — plan
 
-> **Status: proposed, not built.** Recorded as C35 in `Claude-ERP.md` §18.
-> Nothing here is built until the user decides the points in §6.
+> **Status: agreed 07/10/2026, not built.** Recorded as P133 in
+> `Claude-ERP.md`. The user's answers to D1–D6 are in §8; §9 lists the build
+> steps.
 
-## 1. The idea
+## 1. The rule
 
 Every document that creates a position with a customer or supplier has
-**exactly one open item**, for its whole life:
+**exactly one open item** for its whole life. That document also **keeps what
+it has been paid** (`paid_amount`).
 
-| Document | Its one item | Today |
+| Document | Its one item | Keeps `paid_amount` |
 | --- | --- | --- |
-| Invoice Penjualan / Pembelian | one Invoice item | already one per Invoice |
-| Uang Muka Penjualan / Pembelian (the advance bill) | **one Uang Muka item per bill** | **one per bill *per receipt*** (P73, U1) |
+| Uang Muka Penjualan / Pembelian (advance bill) | one **Uang Muka** item per bill | yes (P132, built) |
+| Invoice Penjualan / Pembelian | one **Invoice** item per Invoice (already so) | **yes, new** |
 
-So a reader can always go from a document to its item and back, one to one.
-The only real change is to the **Uang Muka item**. The Invoice side already
-works this way.
+**What each one is for:**
 
-This also fits P132. A receipt reads the document's state and never another
-receipt. The bill keeps `paid_amount`, and the bill's one item keeps what is
-still unused.
+- **A receipt or payment reads the document**, never another receipt and
+  never the item:
+  - `before = paid_amount`;
+  - `open = total − paid_amount` (for an Invoice Pembelian, `owed − paid_amount`).
+- **The item is the book's view**: Buku Piutang / Hutang, Umur, Uang Muka
+  Customer / Supplier, the reconciliation with the General Ledger, and the
+  Uang Muka an Invoice deducts.
+- **Both are written in the same posting**, and `db:reconcile` proves they
+  agree (§6).
 
-## 2. What changes for the Uang Muka item
-
-### 2.1 Today
-
-```
-Bill ARA/…/0001  (DPP 10.000.000)
- ├─ Receipt BKM/…/0001 pays 5.091.743 → item ARI/…/0001  DPP 4.587.156
- └─ Receipt BKM/…/0007 pays 6.008.257 → item ARI/…/0004  DPP 5.412.844
-Invoice deducts → picks ARI/0001 and/or ARI/0004 separately
-```
-
-### 2.2 Proposed
+## 2. The Uang Muka item: one per bill
 
 ```
 Bill ARA/…/0001
- └─ item ARI/…/0001   (one, for the bill)
-      Create            +4.587.156   BKM/…/0001   (first payment)
-      AdvanceReceived   +5.412.844   BKM/…/0007   (each later payment)  ← new event
-      AdvanceUsed       −x           INV/…        (Invoice deducts)
+ └─ item ARI/…/0001
+      Create            +4.587.156   BKM/…/0001   first payment
+      AdvanceReceived   +5.412.844   BKM/…/0007   each later payment   ← new event
+      AdvanceUsed       −x           INV/…        an Invoice deducts it
 ```
 
-- **Born by the first payment**, at the DPP it received. This keeps P116:
-  no item without money, so the item still reconciles with the Uang Muka
-  Penjualan account.
-- **Each later payment raises the same item** with a new Buku Piutang event,
-  `AdvanceReceived` (*Uang Muka Diterima*). The posting finds the bill's item
-  under the bill's lock and creates it only if none exists.
-- **Invoices lower it** with `AdvanceUsed`, as today.
-- **`original_amount` becomes "total received"**: the sum of its Create and
-  AdvanceReceived entries. It is no longer fixed at birth, so P116's "fixed"
-  wording is amended for this item type (decision D3).
-- Scope (`customer_order_id`), number (`ARI/…`), direction (Decrease) and the
-  Uang Muka Customer report are unchanged, except that the report shows one
-  row per bill.
+- **Born by the first posted payment of the bill**, at the DPP part of that
+  payment (D2). No payment, no item: the bill itself creates nothing.
+- **Each later payment changes the balance of that same item** with a new
+  Buku Piutang / Hutang event, **`AdvanceReceived`** (*Uang Muka Diterima*),
+  for its DPP part.
+  - The posting finds the bill's item with the bill locked, and creates it
+    only when there is none.
+  - The item is identified by its source (the bill, `source_doc_type_id` /
+    `source_doc_id`); a unique index on it makes "one per bill" a database
+    rule.
+- **`original_amount` = total received**: the sum of its `Create` and
+  `AdvanceReceived` entries. It grows with each payment (D3), amending P116's
+  "fixed at birth" for this item type. An Invoice item's `original_amount`
+  stays its face, fixed.
+- Invoices lower it with **`AdvanceUsed`**, as today. The item never goes
+  below 0.
+- The AP side mirrors all of this: `fin_ap_item`, Buku Hutang, Uang Muka
+  Pembelian.
 
-The AP side mirrors all of this: `fin_ap_item`, Buku Hutang, Uang Muka
-Pembelian (P127).
+## 3. Tax documents
 
-## 3. The tax consequence — the hard part
+**The Faktur Pajak Uang Muka is still made at each payment, as today (D4):**
+one per bill per receipt, at that receipt line's DPP and PPN, dated the
+receipt. Bukti Potong are unchanged as well: one per document, per payment,
+per Jenis PPh (P69).
 
-Today **one Uang Muka item = one Faktur Pajak Uang Muka** (`tax_faktur.ar_item_id`),
-so when an Invoice deducts from an item, its Faktur Pelunasan names exactly
-that faktur (`tax_faktur_ref`).
+What changes is that **one Uang Muka item now has several Fakturs Uang
+Muka**, one per payment, all pointing at it (`tax_faktur.ar_item_id`). So
+when an Invoice deducts `x` DPP from the item, its Faktur Pelunasan has to
+say which fakturs it draws on.
 
-With one item per bill, **one item has several Fakturs Uang Muka**, one per
-payment. A deduction of `x` DPP from the item must be shared over them.
-
-**Proposed rule:** the item's fakturs are consumed **oldest first** by DPP:
+**The rule: oldest first.** The item's Fakturs Uang Muka are used in order of
+date, then id. Each gives what it has not yet given, up to what is left of
+`x`:
 
 ```
-for each Faktur Uang Muka f of the bill, by date then id:
-  take_f = min(x_left, f.dpp − already deducted from f)
-  tax_faktur_ref(faktur pelunasan, f, dpp_deducted = take_f, ppn_deducted = share)
+x_left = x
+for each Faktur Uang Muka f of the bill, oldest first:
+  free_f = f.dpp − Σ tax_faktur_ref.dpp_deducted of f
+  take_f = min(x_left, free_f)
+  tax_faktur_ref(faktur pelunasan, f, dpp_deducted = take_f, ppn_deducted = …)
+  x_left = x_left − take_f
 ```
 
-The Faktur Pelunasan then names each faktur it draws on, with the DPP taken
-from each.
+`ppn_deducted` per faktur is the positional share (`tax_concept.md` §7.5) of
+the PPN of the part used, by `take_f`. So the refs add up to the Invoice's
+`advance_ppn_amount` exactly.
 
-**PPN of the part used** (P118) is the chain on the item's cumulative DPP
-used, less the chain on what was used before. With one item per bill, that
-cumulative runs over the **whole bill**, not over each payment. For a bill
-paid in instalments the PPN deducted can therefore move by about Rp1
-compared with today. The total over the bill stays the chain on its whole
-DPP. The `ppn_deducted` shares per faktur are cut positionally from that
-figure (`tax_concept.md` §7.5).
+**PPN of the part used** (P118) is still recalculated by the chain. It is now
+cumulative over the **whole bill's** item:
 
-`tax_faktur.ar_item_id` stays. Several fakturs now point at the same item.
+```
+ppn_used = chain(used so far + x) − chain(used so far)
+```
 
-## 4. Invoice: read the document or the item?
+Over every use of the bill, it adds up to the chain on everything received.
+P118's accepted limit stays: when a bill is paid in instalments, the sum of
+its fakturs' PPN (positional shares of the bill) can differ from the chain on
+the total DPP by Rp1.
 
-You asked whether the receipt should read the Invoice itself (a new
-`paid_amount` on `fin_ar_invoice` / `fin_ap_invoice`), like the advance bill
-since P132.
+`fakturNsfpByArItemIds` returns a list of NSFPs per item instead of one.
 
-**This contradicts the adopted open-item concept**
-(`knowledge/ar_ap_open_item_concept.md` §3):
+## 4. The Invoice keeps `paid_amount` (D6 = B)
 
-> The open item is the **settlement unit**, not the source document itself.
-> Source documents should not own their own outstanding balance. Outstanding
-> balance is maintained through the open-item model.
+- `fin_ar_invoice.paid_amount` and `fin_ap_invoice.paid_amount`,
+  `Decimal(18,2)`, default 0.
+- CHECK `0 ≤ paid_amount ≤ total_amount` (AR), `≤ owed` (AP).
+- **Reading:** the receipt reads the Invoice's `paid_amount` as `before`,
+  exactly as it reads an advance bill. It no longer asks the item for the
+  open amount.
+- **Posting an Invoice line**, with the Invoice locked:
+  - adds `settled_amount` to the Invoice's `paid_amount`
+    (`recordSalesInvoicePaid` / `recordPurchaseInvoicePaid`, in the invoice
+    module);
+  - records *Pembayaran* of the same amount on the Invoice item, as today
+    (the book).
+- **The Invoice's standing** (Belum Dibayar / Sebagian / Lunas, Lewat jatuh
+  tempo) reads `paid_amount`.
+- The lock order is **Invoice, then its item**, so a posting never waits on
+  the item while holding nothing.
 
-- **The deviation:** the Invoice would store what was paid, so the Invoice
-  and its item would both hold "what is still owed".
-- **The case for the existing rule:**
-  - with one document = one item, the Invoice item *is* the Invoice's
-    settlement state, read in one step;
-  - a second copy needs a reconcile check to catch drift, and every future
-    event (retur, DN/CN, write-off, refund) would have to update both;
-  - the receipt already does not read other receipts for an Invoice. It
-    reads the one item.
-- **Why the advance bill is different (and why P132 did not break §3):**
-  - the bill is outside the open items, a noted item like SAP's
-    down-payment request (P73, P116);
-  - its item is at DPP and goes down when Invoices use it, so it cannot say
-    how much of the bill's gross total was paid. The bill has to carry that
-    itself.
+**Knowledge base.** D6 = B changes the shared open-item concept for every
+project. §3 of `ar_ap_open_item_concept.md` says source documents should not
+own their outstanding balance. It becomes:
 
-**Recommendation:** the Invoice keeps no `paid_amount`, and the receipt reads
-the Invoice's one item, as today (option **A** below). If you still want it,
-§20 asks you to choose:
+> A source document may keep **what it has been paid** beside its open item,
+> so a payment reads its own document and never another payment. The item
+> stays the settlement unit for the books, reports and allocation. Both are
+> written in the same posting, and the reconcile proves
+> `document total − paid = item balance`.
 
-- **A** — follow the concept: no `paid_amount` on the Invoice.
-- **B** — improve the KB concept for every project: documents may keep a
-  paid figure beside their item, checked by reconcile.
-- **C** — a second concept (a variant).
-- **D** — a local exception for this ERP only.
+This session cannot reach `D:\Claude Code\Knowledge-Base`, so the edit is
+**queued in `KNOWLEDGE.md` → Harvest queue as "Queued from cloud"**. It is
+folded into the KB from the desktop, with a version bump and a changelog
+line. The `knowledge/` copy is updated then, not before.
 
-## 5. Migration of existing data
+## 5. Data: reset, no merge (D5)
 
-1. For each bill (AR and AP) with more than one Uang Muka item, keep the
-   **oldest** item as the bill's item.
-2. Move every Buku Piutang / Buku Hutang entry of the others onto it:
-   - each extra item's `Create` becomes `AdvanceReceived`;
-   - the survivor's balance is recomputed in date order, and `balance_after`
-     is rewritten on every entry.
-3. Repoint whatever names a retired item:
-   - `fin_ar_invoice_advance_deduction.ar_item_id` / `ar_item_no`, merging
-     rows that become duplicates on `(invoice_id, ar_item_id)` by adding
-     their `dpp_used` / `ppn_used`;
-   - `counter_item_id` on ledger entries;
-   - `tax_faktur.ar_item_id`.
-4. Retired items are **deleted**, so the `ARI` numbers they had are no longer
-   used. Their numbers are written into the survivor's ledger notes. This is
-   history-rewriting of a book, so the user must allow it (D5).
-5. Posted Invoices keep their figures. Only the item each deduction points
-   at changes.
-6. `db:reconcile`:
-   - the Uang Muka item checks become one item per bill;
-   - a new check: for each bill, the item's `original_amount` equals the sum
-     of `dpp_part` on the posted lines naming the bill.
+The user consents to a reset, so **no data is merged**.
 
-## 6. Decisions needed
+- The migration is schema-only:
+  - add `paid_amount` to the two Invoice tables;
+  - add the `AdvanceReceived` event;
+  - add the unique index on an Uang Muka item's source.
+- **It refuses to run on data that breaks the new rule.** If any bill
+  already has more than one Uang Muka item, the unique index cannot be
+  built, so `migrate` stops and nothing is half-changed. The way through is
+  a reset.
+- **Local:** `npm run db:fresh` (reset + seed + showcase).
+- **Deployed (Neon):** `npm run db:neon-reset -- --confirm`, then
+  `db:neon-seed` and `db:neon-seed-accounts`. These must run from your
+  machine; this cloud session cannot reach Neon (C33).
+- `db:tax-backfill` is not needed after a reset.
 
-| # | Question | Recommendation |
+## 6. Reconcile checks (`db:reconcile`)
+
+| Check | Change |
+| --- | --- |
+| Uang Muka items equal the Uang Muka account per partner | unchanged |
+| An advance bill's `paid_amount` = Σ its posted lines | unchanged (P132) |
+| **One Uang Muka item per bill**; its `original_amount` = Σ `dpp_part` of the bill's posted lines | **new** (replaces "each posted advance line made one item") |
+| **An Invoice's `paid_amount` = Σ its posted lines**, and `total − paid_amount = item balance` (AR), `owed − paid_amount = item balance` (AP) | **new** |
+| Each posted taxable advance line made one Faktur Uang Muka | unchanged |
+| Σ `tax_faktur_ref.dpp_deducted` from one Faktur Uang Muka ≤ its DPP | **new** |
+| A fully used Uang Muka's PPN deducted = the chain on its whole DPP | unchanged, now over the bill's one item |
+
+## 7. Screens
+
+- **Uang Muka picker on the Invoice:** one row per bill. It shows the bill,
+  the item number, its balance, what other Draft Invoices reserve, and the
+  bill's fakturs' NSFPs (several).
+- **Uang Muka Customer / Supplier report:** one row per bill.
+- **Buku Piutang / Hutang:** the new event reads *Uang Muka Diterima*.
+- **Advance bill and Invoice pages:** the standing reads the document's
+  `paid_amount`.
+
+## 8. Decisions taken (07/10/2026)
+
+| # | Question | Answer |
 | --- | --- | --- |
-| D1 | Replace U1 / P73's **"one Uang Muka item per bill per receipt"** with **one per bill**? It reverses an agreed decision. P87–P92 note that the desktop branch `wip-ar-p87-p92` already did this and was parked for exactly this reason, so it may be worth reviving instead of rewriting | Yes, if you want 1 doc = 1 item; review that branch first |
-| D2 | When is the item born: at the **first payment** (no money, no item), or at **Terbitkan** with balance 0? | First payment (keeps P116 and reconciliation simple) |
-| D3 | For a Uang Muka item, `original_amount` = **total received** and grows with payments. OK to amend P116's "fixed at birth" for this type? | Yes |
-| D4 | Share an Invoice's deduction over the bill's Fakturs Uang Muka **oldest first** (§3)? | Yes |
-| D5 | Migrate existing items by merging and **deleting the extra items** (§5)? The alternative is to keep old items as they are and apply the rule to new bills only, but then two rules live side by side | Merge (development data only) |
-| D6 | `paid_amount` on the Invoice: **A / B / C / D** (§4) | **A** — the receipt reads the Invoice's item |
+| D1 | One Uang Muka item per bill instead of per bill per receipt | **Yes.** Supersedes U1 and P73's "one per bill per receipt" |
+| D2 | When the item is born | **At the first payment**; later payments change its balance |
+| D3 | `original_amount` grows with payments for an Uang Muka item | **Yes** |
+| D4 | Fakturs Uang Muka | **Still made at each payment, as today.** The deduction's share over them is oldest first (§3) |
+| D5 | Existing data | **Reset the database** (consent given); no merge migration |
+| D6 | `paid_amount` on the Invoice, against the open-item concept §3 | **B**: improve the concept for every project (§4) |
 
-## 7. Build steps, once decided
+## 9. Build steps
 
-1. Schema: add `AdvanceReceived` to `ArEvent` (shared by AP); migration
-   (§5); DBML.
-2. `ar-item.ts` / `ap-item.ts`: `receiveAdvance(tx, bill, dpp, …)` — create
-   the item or raise it — under the bill's lock.
-3. `cash-bank-tx.ts` / `cash-payment.ts`: call it instead of `createArItem`
-   / `createApItem` per line.
-4. `ar-invoice.ts` / `ap-invoice.ts`: the Uang Muka picker lists one row per
-   bill; deduction unchanged against the item.
-5. `tax-document.ts`: Faktur Pelunasan refs shared oldest first (§3);
-   `fakturNsfpByArItemIds` returns several NSFPs per item.
-6. Reports: Uang Muka Customer / Supplier, one row per bill; Buku Piutang /
-   Hutang show the new event.
-7. Tests and reconcile checks; record P133 in `Claude-ERP.md`, update
-   `Sales-Process-Concept.md` §8 and `Purchasing-Concept.md`, queue the
-   harvest.
+1. **Schema:**
+   - `paid_amount` and its CHECK on `fin_ar_invoice` / `fin_ap_invoice`;
+   - `AdvanceReceived` in `ArEvent`;
+   - a partial unique index on `fin_ar_item` / `fin_ap_item`
+     `(source_doc_type_id, source_doc_id) WHERE item_type = 'Advance'`;
+   - migration and DBML.
+2. **Books** (`ar-item.ts` / `ap-item.ts`): `receiveAdvance(tx, …)`, which
+   creates the bill's item or raises it with `AdvanceReceived` and adds to
+   `original_amount`.
+3. **Receipt / payment** (`cash-bank-tx.ts` / `cash-payment.ts`):
+   - advance lines call `receiveAdvance`;
+   - Invoice lines read `paid_amount` and call the invoice module's
+     `record…InvoicePaid`, then *Pembayaran* on the item;
+   - lock order: bill / Invoice, then item.
+4. **Invoice modules** (`ar-invoice.ts` / `ap-invoice.ts`):
+   - `recordSalesInvoicePaid` / `recordPurchaseInvoicePaid`;
+   - `settlementInvoices` returns `paid`;
+   - pay state reads `paid_amount`;
+   - the Uang Muka picker lists one row per bill.
+5. **Tax** (`tax-document.ts`):
+   - Faktur Uang Muka per payment, unchanged;
+   - the Faktur Pelunasan's refs shared oldest first with positional
+     `ppn_deducted`;
+   - `fakturNsfpByArItemIds` returns lists.
+6. **Reports:** Uang Muka Customer / Supplier, one row per bill; the new
+   event's label in Buku Piutang / Hutang.
+7. **Tests:**
+   - a bill paid in two receipts has one item raised twice;
+   - an Invoice deducting it names both fakturs, oldest first;
+   - receipts read the Invoice's `paid_amount`;
+   - the reconcile checks hold.
+8. **Docs:**
+   - `Claude-ERP.md`: P133 built, and §10.2 rule 12;
+   - `Sales-Process-Concept.md` §8 and `Purchasing-Concept.md`;
+   - `Cash-Bank-Tx-Line-Logic.md`;
+   - the harvest queue entry.
+9. **Run the reset** locally (`db:fresh`) and tell you to run the Neon reset.
