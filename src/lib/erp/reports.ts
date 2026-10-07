@@ -170,19 +170,19 @@ const FIXED_REPORTS = [
     slug: "stock-ledger",
     module: "inventory",
     name: "Kartu Stok",
-    desc: "Setiap mutasi jumlah satu barang pada rentang tanggal, per gudang dan lot, dengan saldo awal dan akhir.",
+    desc: "Mutasi jumlah per barang per gudang pada rentang tanggal, dengan saldo awal dan akhir — dikelompokkan per barang atau per gudang.",
     icon: "book",
     permission: "REPORT_STOCK_LEDGER_VIEW",
     params: "stock-period",
-    // A card is a card *of* an item.
-    subjectRequired: true,
+    // Each card is one item in one warehouse; none chosen reads every card.
+    subjectRequired: false,
   },
   {
     key: "stock_balance",
     slug: "stock-balance",
     module: "inventory",
     name: "Saldo Stok",
-    desc: "Jumlah per barang, gudang, lot dan status pada satu tanggal.",
+    desc: "Jumlah per barang per gudang, dengan lot di baliknya, pada satu tanggal — dikelompokkan per barang atau per gudang.",
     icon: "layers",
     permission: "REPORT_STOCK_BALANCE_VIEW",
     params: "stock-asof",

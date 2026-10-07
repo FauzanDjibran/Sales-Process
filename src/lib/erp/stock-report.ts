@@ -48,6 +48,44 @@ async function itemHead(itemId: number): Promise<ItemHead | null> {
 
 export type StockSourceRef = { table: string; id: number; no: string; docName: string };
 
+// ------------------------------------------------- the item × warehouse card
+
+/**
+ * Both reports answer two questions — *where is this item?* and *what does
+ * this warehouse hold?* — which are the same data grouped the other way round
+ * (SAP's MMBE / MB52, Odoo's group-by). So the server answers in **cards**, one
+ * item in one warehouse, and the page nests them per item or per warehouse.
+ * Quantities of different items never add up, so nothing here totals across
+ * items.
+ */
+export type StockGroupBy = "item" | "warehouse";
+
+export type StockItemRef = ItemHead;
+export type StockWarehouseRef = { id: number; label: string; name: string };
+
+type Filter = { itemIds: number[]; warehouseIds: number[] };
+
+const filterWhere = ({ itemIds, warehouseIds }: Filter) => ({
+  ...(itemIds.length ? { item_id: { in: itemIds } } : {}),
+  ...(warehouseIds.length ? { warehouse_id: { in: warehouseIds } } : {}),
+});
+
+const cardKey = (itemId: number, warehouseId: number) => `${itemId}:${warehouseId}`;
+
+async function cardSubjects(itemIds: number[], warehouseIds: number[]) {
+  const [items, warehouses] = await Promise.all([
+    prisma.mItem.findMany({ where: { id: { in: itemIds } }, include: { base_uom: true } }),
+    prisma.refWarehouse.findMany({ where: { id: { in: warehouseIds } } }),
+  ]);
+  return {
+    item: new Map<number, StockItemRef>(items.map((i) => [i.id, { id: i.id, label: i.item_label, name: i.item_name, uomLabel: i.base_uom.uom_label }])),
+    warehouse: new Map<number, StockWarehouseRef>(warehouses.map((w) => [w.id, { id: w.id, label: w.warehouse_label, name: w.warehouse_name }])),
+  };
+}
+
+const byCard = <T extends { item: StockItemRef; warehouse: StockWarehouseRef }>(a: T, b: T) =>
+  a.item.label.localeCompare(b.item.label) || a.warehouse.label.localeCompare(b.warehouse.label);
+
 // ---------------------------------------------------------- Kartu Stok
 
 export type StockLedgerEntry = {
@@ -56,151 +94,159 @@ export type StockLedgerEntry = {
   ledgerNo: string;
   lineNo: number;
   source: StockSourceRef;
-  warehouseLabel: string;
   lotNo: string;
   expiry: string | null;
   statusName: string;
   qtyIn: number;
   qtyOut: number;
-  /** The selection's balance after this row, read by date then posting order. */
+  /** The card's balance after this row, read by date then posting order. */
   balance: number;
-  value: number;
 };
 
-export type StockLedgerReport = {
-  item: ItemHead;
-  warehouseLabel: string | null;
-  range: PeriodRange;
+/**
+ * One item in one warehouse over a period. Its running balance is the card's
+ * own — what a warehouse keeper can count — worked out here: the ledger stores
+ * a balance only per bucket (warehouse, lot, status).
+ */
+export type StockCard = {
+  item: StockItemRef;
+  warehouse: StockWarehouseRef;
   opening: number;
   totalIn: number;
   totalOut: number;
   closing: number;
   entries: StockLedgerEntry[];
-  reconciles: boolean;
 };
 
 /**
- * Every quantity movement of one item — in one warehouse or all — over a
- * period, the opening carried in. The running balance is the selection's,
- * accumulated by date and then by posting order, so a backdated movement
- * lands on its date.
+ * Every quantity movement of the chosen items in the chosen warehouses (none
+ * chosen = all) over a period, as cards with their openings carried in. The
+ * running balance is accumulated by date and then by posting order, so a
+ * backdated movement lands on its date. A card with neither an opening nor a
+ * movement is left out.
  */
-export async function stockLedgerReport(itemId: number, warehouseId: number | null, range: PeriodRange): Promise<StockLedgerReport | null> {
-  const item = await itemHead(itemId);
-  if (!item) return null;
-  const where = { item_id: itemId, ...(warehouseId ? { warehouse_id: warehouseId } : {}) };
-  const [before, rows, warehouse] = await Promise.all([
-    prisma.logStockLedger.aggregate({ where: { ...where, posting_date: { lt: day(range.from) } }, _sum: { qty_change: true } }),
+export async function stockLedgerReport(itemIds: number[], warehouseIds: number[], range: PeriodRange): Promise<StockCard[]> {
+  const where = filterWhere({ itemIds, warehouseIds });
+  const [before, rows] = await Promise.all([
+    prisma.logStockLedger.groupBy({
+      by: ["item_id", "warehouse_id"],
+      where: { ...where, posting_date: { lt: day(range.from) } },
+      _sum: { qty_change: true },
+    }),
     prisma.logStockLedger.findMany({
       where: { ...where, posting_date: { gte: day(range.from), lte: day(range.to) } },
       orderBy: [{ posting_date: "asc" }, { id: "asc" }],
-      include: { warehouse: true, tracking: true, stock_status: true, source_doc_type: true },
+      include: { tracking: true, stock_status: true, source_doc_type: true },
     }),
-    warehouseId ? prisma.refWarehouse.findUnique({ where: { id: warehouseId } }) : null,
   ]);
-  let running = new D(before._sum.qty_change ?? 0);
-  const opening = running.toNumber();
-  let totalIn = new D(0);
-  let totalOut = new D(0);
-  const entries = rows.map((r) => {
-    running = running.add(r.qty_change);
-    if (r.qty_change.gt(0)) totalIn = totalIn.add(r.qty_change);
-    else totalOut = totalOut.sub(r.qty_change);
-    return {
+  type Acc = {
+    itemId: number;
+    warehouseId: number;
+    opening: Prisma.Decimal;
+    running: Prisma.Decimal;
+    tin: Prisma.Decimal;
+    tout: Prisma.Decimal;
+    entries: StockLedgerEntry[];
+  };
+  const acc = new Map<string, Acc>();
+  const card = (itemId: number, warehouseId: number, opening = new D(0)) => {
+    const k = cardKey(itemId, warehouseId);
+    let a = acc.get(k);
+    if (!a) acc.set(k, (a = { itemId, warehouseId, opening, running: opening, tin: new D(0), tout: new D(0), entries: [] }));
+    return a;
+  };
+  for (const g of before) {
+    const q = new D(g._sum.qty_change ?? 0);
+    if (!q.isZero()) card(g.item_id, g.warehouse_id, q);
+  }
+  for (const r of rows) {
+    const a = card(r.item_id, r.warehouse_id);
+    a.running = a.running.add(r.qty_change);
+    if (r.qty_change.gt(0)) a.tin = a.tin.add(r.qty_change);
+    else a.tout = a.tout.sub(r.qty_change);
+    a.entries.push({
       id: r.id,
       date: iso(r.posting_date),
       ledgerNo: r.ledger_no,
       lineNo: r.line_no,
       source: { table: r.source_doc_type.doc_table, id: r.source_doc_id, no: r.source_no, docName: r.source_doc_type.doc_name },
-      warehouseLabel: r.warehouse.warehouse_label,
       lotNo: r.tracking.tracking_no,
       expiry: r.tracking.expiry_date ? iso(r.tracking.expiry_date) : null,
       statusName: r.stock_status.status_name,
       qtyIn: r.qty_change.gt(0) ? r.qty_change.toNumber() : 0,
       qtyOut: r.qty_change.lt(0) ? r.qty_change.neg().toNumber() : 0,
-      balance: running.toNumber(),
-      value: r.value_change.toNumber(),
-    };
-  });
-  return {
-    item,
-    warehouseLabel: warehouse?.warehouse_label ?? null,
-    range,
-    opening,
-    totalIn: totalIn.toNumber(),
-    totalOut: totalOut.toNumber(),
-    closing: running.toNumber(),
-    entries,
-    reconciles: await stockBooksReconcile(itemId),
-  };
+      balance: a.running.toNumber(),
+    });
+  }
+  const list = [...acc.values()];
+  if (!list.length) return [];
+  const subj = await cardSubjects([...new Set(list.map((a) => a.itemId))], [...new Set(list.map((a) => a.warehouseId))]);
+  return list
+    .map((a) => ({
+      item: subj.item.get(a.itemId)!,
+      warehouse: subj.warehouse.get(a.warehouseId)!,
+      opening: a.opening.toNumber(),
+      totalIn: a.tin.toNumber(),
+      totalOut: a.tout.toNumber(),
+      closing: a.running.toNumber(),
+      entries: a.entries,
+    }))
+    .sort(byCard);
 }
 
 // ----------------------------------------------------------- Saldo Stok
 
-export type StockBalanceRow = {
-  itemId: number;
-  itemLabel: string;
-  itemName: string;
-  uomLabel: string;
-  warehouseLabel: string;
-  warehouseName: string;
-  lotNo: string;
-  expiry: string | null;
-  statusName: string;
+export type StockLotBalance = { lotNo: string; expiry: string | null; statusName: string; qty: number };
+
+/** What one warehouse holds of one item as of a date, with the lots behind it, earliest expiry first. */
+export type StockPosition = {
+  item: StockItemRef;
+  warehouse: StockWarehouseRef;
   qty: number;
+  lots: StockLotBalance[];
 };
 
 /**
- * What each warehouse holds of each lot, per status, as of a date: the stock
- * ledger summed up to and including it. Buckets at zero are left out.
+ * The chosen items in the chosen warehouses (none chosen = all) as of a date:
+ * the stock ledger summed up to and including it per bucket, then gathered
+ * into item × warehouse positions. Buckets at zero are left out.
  */
-export async function stockBalanceReport(asOf: string, itemId: number | null, warehouseId: number | null): Promise<StockBalanceRow[]> {
+export async function stockBalanceReport(asOf: string, itemIds: number[], warehouseIds: number[]): Promise<StockPosition[]> {
   const groups = await prisma.logStockLedger.groupBy({
     by: ["item_id", "warehouse_id", "tracking_id", "stock_status_id"],
-    where: {
-      posting_date: { lte: day(asOf) },
-      ...(itemId ? { item_id: itemId } : {}),
-      ...(warehouseId ? { warehouse_id: warehouseId } : {}),
-    },
+    where: { ...filterWhere({ itemIds, warehouseIds }), posting_date: { lte: day(asOf) } },
     _sum: { qty_change: true },
   });
   const live = groups.filter((g) => g._sum.qty_change && !g._sum.qty_change.isZero());
   if (!live.length) return [];
-  const [items, warehouses, lots, statuses] = await Promise.all([
-    prisma.mItem.findMany({ where: { id: { in: [...new Set(live.map((g) => g.item_id))] } }, include: { base_uom: true } }),
-    prisma.refWarehouse.findMany({ where: { id: { in: [...new Set(live.map((g) => g.warehouse_id))] } } }),
+  const [subj, lots, statuses] = await Promise.all([
+    cardSubjects([...new Set(live.map((g) => g.item_id))], [...new Set(live.map((g) => g.warehouse_id))]),
     prisma.logStockTracking.findMany({ where: { id: { in: [...new Set(live.map((g) => g.tracking_id))] } } }),
     prisma.sysStockStatus.findMany(),
   ]);
-  const itemBy = new Map(items.map((i) => [i.id, i]));
-  const whBy = new Map(warehouses.map((w) => [w.id, w]));
   const lotBy = new Map(lots.map((l) => [l.id, l]));
   const stBy = new Map(statuses.map((s) => [s.id, s]));
-  return live
-    .map((g) => {
-      const i = itemBy.get(g.item_id)!;
-      const w = whBy.get(g.warehouse_id)!;
-      const l = lotBy.get(g.tracking_id)!;
-      return {
-        itemId: g.item_id,
-        itemLabel: i.item_label,
-        itemName: i.item_name,
-        uomLabel: i.base_uom.uom_label,
-        warehouseLabel: w.warehouse_label,
-        warehouseName: w.warehouse_name,
-        lotNo: l.tracking_no,
-        expiry: l.expiry_date ? iso(l.expiry_date) : null,
-        statusName: stBy.get(g.stock_status_id)?.status_name ?? "",
-        qty: num(g._sum.qty_change),
-      };
-    })
-    .sort(
-      (a, b) =>
-        a.itemLabel.localeCompare(b.itemLabel) ||
-        a.warehouseLabel.localeCompare(b.warehouseLabel) ||
-        (a.expiry ?? "9999").localeCompare(b.expiry ?? "9999") ||
-        a.lotNo.localeCompare(b.lotNo)
-    );
+  const positions = new Map<string, { item: StockItemRef; warehouse: StockWarehouseRef; qty: Prisma.Decimal; lots: StockLotBalance[] }>();
+  for (const g of live) {
+    const k = cardKey(g.item_id, g.warehouse_id);
+    let p = positions.get(k);
+    if (!p) positions.set(k, (p = { item: subj.item.get(g.item_id)!, warehouse: subj.warehouse.get(g.warehouse_id)!, qty: new D(0), lots: [] }));
+    const l = lotBy.get(g.tracking_id)!;
+    p.qty = p.qty.add(g._sum.qty_change!);
+    p.lots.push({
+      lotNo: l.tracking_no,
+      expiry: l.expiry_date ? iso(l.expiry_date) : null,
+      statusName: stBy.get(g.stock_status_id)?.status_name ?? "",
+      qty: num(g._sum.qty_change),
+    });
+  }
+  return [...positions.values()]
+    .map((p) => ({
+      ...p,
+      qty: p.qty.toNumber(),
+      lots: p.lots.sort((a, b) => (a.expiry ?? "9999").localeCompare(b.expiry ?? "9999") || a.lotNo.localeCompare(b.lotNo)),
+    }))
+    .sort(byCard);
 }
 
 // --------------------------------------------- Kartu Nilai Persediaan
@@ -326,13 +372,14 @@ export async function valuationReport(asOf: string, itemId: number | null): Prom
 // ------------------------------------------------------------ reconcile
 
 /**
- * Whether the balance tables equal their ledgers — for one item or all: each
+ * Whether the balance tables equal their ledgers — for some items or all: each
  * bucket's quantity is the sum of its stock ledger rows, and each pool's Q and
  * V the sums of its valuation rows. A report shows its figures from the
  * ledgers either way and warns when this is false.
  */
-export async function stockBooksReconcile(itemId: number | null = null): Promise<boolean> {
-  const item = itemId ? Prisma.sql`AND b."item_id" = ${itemId}` : Prisma.empty;
+export async function stockBooksReconcile(itemIds: number | number[] | null = null): Promise<boolean> {
+  const ids = itemIds == null ? [] : Array.isArray(itemIds) ? itemIds : [itemIds];
+  const item = ids.length ? Prisma.sql`AND b."item_id" IN (${Prisma.join(ids)})` : Prisma.empty;
   const [buckets, pools] = await Promise.all([
     prisma.$queryRaw<{ n: bigint }[]>`
       SELECT COUNT(*) AS n FROM "log_stock_balance" b

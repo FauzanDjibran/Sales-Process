@@ -5,22 +5,37 @@ import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { Select } from "@/components/ui/select";
 import type { RefOption } from "@/lib/erp/records";
 import { reportHref } from "@/lib/erp/reports";
+import type { StockGroupBy } from "@/lib/erp/stock-report";
 import { useReportRun } from "./report-run";
 
+const GROUPS: { value: StockGroupBy; label: string }[] = [
+  { value: "item", label: "Per Barang" },
+  { value: "warehouse", label: "Per Gudang" },
+];
+
 /**
- * The filter for the inventory reports (P120): an item and, where the report
- * is per warehouse, a warehouse; then either a period (`period`, the cards) or
- * one date the stock stands at (`asof`, the balances). In the URL, like every
- * Report View.
+ * The filter for the inventory reports (P120), in the URL like every Report
+ * View. Then either a period (`period`, the cards) or one date the stock stands
+ * at (`asof`, the balances).
+ *
+ * Kartu Stok and Saldo Stok (`grouped`) take several items and several
+ * warehouses as chips — none means all — and a **Kelompok**: per item answers
+ * *where is this item?*, per warehouse *what does this warehouse hold?*. The
+ * valuation reports are one pool per item over every warehouse, so they keep
+ * one item and no warehouse.
  */
 export function StockReportParams({
   slug,
   items,
-  itemId,
   warehouses,
-  warehouseId,
+  grouped,
+  itemIds,
+  warehouseIds,
+  groupBy,
   mode,
   asOf,
   from,
@@ -29,10 +44,12 @@ export function StockReportParams({
 }: {
   slug: string;
   items: RefOption[];
-  itemId: number | null;
-  /** Null hides the warehouse filter (the valuation reports are per item, all warehouses). */
+  /** Null on the valuation reports, which have no warehouse filter. */
   warehouses: RefOption[] | null;
-  warehouseId: number | null;
+  grouped: boolean;
+  itemIds: number[];
+  warehouseIds: number[];
+  groupBy: StockGroupBy;
   mode: "asof" | "period";
   asOf: string;
   from: string;
@@ -41,19 +58,22 @@ export function StockReportParams({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [item, setItem] = useState<number | null>(itemId);
-  const [warehouse, setWarehouse] = useState<number | null>(warehouseId);
+  const [itemSet, setItemSet] = useState<number[]>(itemIds);
+  const [warehouseSet, setWarehouseSet] = useState<number[]>(warehouseIds);
+  const [group, setGroup] = useState<StockGroupBy>(groupBy);
   const [day, setDay] = useState(asOf);
   const [start, setStart] = useState(from);
   const [end, setEnd] = useState(to);
 
   const invalidRange = mode === "period" && Boolean(start && end && start > end);
-  const missing = itemRequired && !item;
+  const missing = itemRequired && itemSet.length === 0;
 
   useReportRun(
     () => {
       if (invalidRange || missing) return;
-      const where = { item, warehouse: warehouses ? warehouse : null };
+      const where = grouped
+        ? { group, items: itemSet.join(","), warehouses: warehouseSet.join(",") }
+        : { item: itemSet[0] ?? null };
       startTransition(() => {
         router.push(reportHref(slug, mode === "asof" ? { ...where, asOf: day } : { ...where, from: start, to: end }));
       });
@@ -67,26 +87,62 @@ export function StockReportParams({
 
   return (
     <>
-      <div className="rrow">
-        <span className="rl">Barang</span>
-        <div className="rf wide">
-          <Combobox
-            value={item}
-            options={items}
-            placeholder={itemRequired ? "Pilih Barang…" : "Semua barang"}
-            emptyText="Belum ada barang dengan Kelola Stok."
-            onChange={setItem}
-          />
-        </div>
-        {warehouses && (
-          <>
-            <span className="rl">Gudang</span>
+      {grouped ? (
+        <>
+          <div className="rrow">
+            <span className="rl">Kelompok</span>
             <div className="rf">
-              <Combobox value={warehouse} options={warehouses} placeholder="Semua gudang" onChange={setWarehouse} />
+              <Select
+                variant="toolbar"
+                value={group}
+                onChange={(v) => setGroup(v as StockGroupBy)}
+                options={GROUPS}
+                ariaLabel="Kelompok"
+                title="Per Barang: di gudang mana barang ada. Per Gudang: barang apa saja di gudang."
+              />
             </div>
-          </>
-        )}
-      </div>
+            <span className="rl">Barang</span>
+            <div className="rf wide">
+              <MultiSelect
+                value={itemSet}
+                options={items}
+                placeholder="Tambah Barang…"
+                emptyPlaceholder="Semua barang"
+                removeTitle="Keluarkan dari laporan"
+                onChange={setItemSet}
+              />
+            </div>
+          </div>
+          {warehouses && (
+            <div className="rrow">
+              <span className="rl">Gudang</span>
+              <div className="rf wide">
+                <MultiSelect
+                  value={warehouseSet}
+                  options={warehouses}
+                  placeholder="Tambah Gudang…"
+                  emptyPlaceholder="Semua gudang"
+                  removeTitle="Keluarkan dari laporan"
+                  onChange={setWarehouseSet}
+                />
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="rrow">
+          <span className="rl">Barang</span>
+          <div className="rf wide">
+            <Combobox
+              value={itemSet[0] ?? null}
+              options={items}
+              placeholder={itemRequired ? "Pilih Barang…" : "Semua barang"}
+              emptyText="Belum ada barang dengan Kelola Stok."
+              onChange={(id) => setItemSet(id ? [id] : [])}
+            />
+          </div>
+        </div>
+      )}
       <div className="rrow">
         {mode === "asof" ? (
           <>

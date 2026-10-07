@@ -1,8 +1,10 @@
 # Kartu Stok and Saldo Stok — Plan
 
-> Draft 07/10/2026, for the user to agree. Nothing here is built until the
-> open points (§6) are answered; then it becomes a decision in
-> `Claude-ERP.md` §12.
+> Agreed and **built 07/10/2026** as `Claude-ERP.md` P135. The user's answers
+> to §6: K1, K4, K5 as recommended; **K2 — no Kategori Item filter yet**; K3 —
+> yes: grouped per warehouse, each warehouse has its own running balance, and
+> the database keeps its running balance only per bucket (warehouse, lot,
+> status), so the report works out each card's.
 
 ## 1. The two questions
 
@@ -62,9 +64,8 @@ Per Barang (Q1)                         Per Gudang (Q2)
 ### 3.1 Saldo Stok — the position on a date
 
 Filter: **Barang** (chips, several or all) · **Gudang** (chips, several or
-all) · **Kelompok** · **Per Tanggal**. Optionally **Kategori Item** (Bahan
-Baku, Bahan Kemas, Barang Jadi, …), because "what raw materials are in this
-warehouse" is the usual form of Q2 — see §6.
+all) · **Kelompok** · **Per Tanggal**. (A Kategori Item filter was offered and
+set aside — K2.)
 
 **Per Barang (Q1)** — one block per item:
 
@@ -80,7 +81,7 @@ warehouse" is the usual form of Q2 — see §6.
 - **Header:** warehouse code, name, *n barang · n lot*. **No quantity total**
   (units differ, §2.3) — the count is the summary.
 - **Body:** one row per item it holds — code, name, quantity with its unit —
-  sorted by Kategori Item, then code; under each item its lots, folded.
+  sorted by code; under each item its lots, folded.
 
 **Both:** blocks start rolled up, with *Buka Semua / Tutup Semua* in the
 result bar; a zero bucket is left out (as today). A warehouse chosen in the

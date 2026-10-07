@@ -178,24 +178,58 @@ describe("injection (db:stock-inject)", () => {
 });
 
 describe("the reports read the ledgers as of a date", () => {
-  test("Kartu Stok: opening, movements in date order with a running balance, closing", async () => {
-    const r = (await stockLedgerReport(f.a, f.w1, { from: "2026-09-16", to: "2026-10-31" }))!;
-    // Opening: the 10 received on 01/09 and the 5 on 15/09, in W1.
-    assert.equal(r.opening, 15);
-    assert.deepEqual(r.entries.map((e) => [e.date, e.qtyIn, e.qtyOut, e.balance]), [
+  test("Kartu Stok: one card per item per warehouse, each with its own running balance", async () => {
+    const cards = await stockLedgerReport([f.a], [], { from: "2026-09-16", to: "2026-10-31" });
+    assert.deepEqual(
+      cards.map((c) => [c.warehouse.label, c.opening, c.totalIn, c.totalOut, c.closing]),
+      [
+        // W1 opens with the 10 received on 01/09 and the 5 on 15/09.
+        [key("W1"), 15, 4, 15, 4],
+        [key("W2"), 20, 0, 20, 0],
+      ]
+    );
+    assert.deepEqual(cards[0].entries.map((e) => [e.date, e.qtyIn, e.qtyOut, e.balance]), [
       ["2026-10-01", 0, 3, 12],
       ["2026-10-01", 0, 12, 0],
       ["2026-10-02", 4, 0, 4],
     ]);
-    assert.equal(r.closing, 4);
+    // W2's running balance is its own, not W1's carried on.
+    assert.deepEqual(cards[1].entries.map((e) => e.balance), [0]);
+    for (const c of cards) assert.equal(c.opening + c.totalIn - c.totalOut, c.closing, "awal + masuk − keluar = akhir");
   });
 
-  test("Saldo Stok and Nilai Persediaan as of a past date", async () => {
-    const past = await stockBalanceReport("2026-09-30", f.a, null);
-    assert.deepEqual(past.map((b) => [b.warehouseLabel, b.lotNo, b.qty]), [
-      [key("W1"), key("A1"), 15],
-      [key("W2"), key("A2"), 20],
+  test("Kartu Stok: a card with an opening but no movement stays; one with neither is left out", async () => {
+    const quiet = await stockLedgerReport([f.a], [f.w1, f.w2], { from: "2026-09-20", to: "2026-09-30" });
+    assert.deepEqual(quiet.map((c) => [c.warehouse.label, c.opening, c.entries.length, c.closing]), [
+      [key("W1"), 15, 0, 15],
+      [key("W2"), 20, 0, 20],
     ]);
+    assert.deepEqual(await stockLedgerReport([f.a], [], { from: "2026-08-01", to: "2026-08-31" }), []);
+  });
+
+  test("Saldo Stok: per item per warehouse with its lots, filtered by sets of items and warehouses", async () => {
+    const past = await stockBalanceReport("2026-09-30", [f.a], []);
+    assert.deepEqual(
+      past.map((p) => [p.warehouse.label, p.qty, p.lots.map((l) => [l.lotNo, l.qty])]),
+      [
+        [key("W1"), 15, [[key("A1"), 15]]],
+        [key("W2"), 20, [[key("A2"), 20]]],
+      ]
+    );
+    // What W1 holds, of both items, once everything is in.
+    const w1 = await stockBalanceReport("2099-12-31", [f.a, f.b], [f.w1]);
+    assert.deepEqual(
+      w1.map((p) => [p.item.label, p.warehouse.label, p.qty]),
+      [
+        [key("A"), key("W1"), 4],
+        [key("B"), key("W1"), 1],
+      ]
+    );
+    assert.deepEqual(await stockBalanceReport("2099-12-31", [f.a], [f.w2]), [], "an emptied warehouse holds nothing");
+    assert.ok(await stockBooksReconcile([f.a, f.b]));
+  });
+
+  test("Nilai Persediaan and Kartu Nilai Persediaan as of a past date", async () => {
     const value = await valuationReport("2026-09-30", f.a);
     assert.deepEqual(value.map((v) => [v.qty, v.value, v.average]), [[35, 410_000, 11_714.285714]]);
     const card = (await valuationLedgerReport(f.a, { from: "2026-10-01", to: "2026-10-01" }))!;

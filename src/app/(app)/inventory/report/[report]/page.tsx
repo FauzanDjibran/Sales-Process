@@ -1,13 +1,8 @@
 import { notFound } from "next/navigation";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
 import { StockReportParams } from "@/components/report/stock-report-params";
-import {
-  StockBalanceBody,
-  StockLedgerBody,
-  ValuationBody,
-  ValuationLedgerBody,
-  type InventoryGl,
-} from "@/components/report/stock-reports";
+import { StockBalanceBody, StockLedgerBody } from "@/components/report/stock-card-reports";
+import { Mismatch, ValuationBody, ValuationLedgerBody, type InventoryGl } from "@/components/report/stock-reports";
 import { requirePermission } from "@/lib/erp/auth";
 import { closingBalances } from "@/lib/erp/ledger";
 import type { PeriodRange } from "@/lib/erp/period";
@@ -20,6 +15,7 @@ import {
   stockWarehouseOptions,
   valuationLedgerReport,
   valuationReport,
+  type StockGroupBy,
 } from "@/lib/erp/stock-report";
 import { postingAccounts } from "@/lib/erp/system-settings";
 import { formatDate } from "@/lib/format";
@@ -31,14 +27,16 @@ export const dynamic = "force-dynamic";
  * Every Report View in the Persediaan module (P120), driven by the catalogue
  * like Finance's and Accounting's: Kartu Stok and Kartu Nilai Persediaan over a
  * period, Saldo Stok and Nilai Persediaan as of a date. Parameters come from
- * the query string; the figures are read from the stock ledgers.
+ * the query string; the figures are read from the stock ledgers. Kartu Stok and
+ * Saldo Stok take sets of items and warehouses (`items=1,4`, `warehouses=2`)
+ * and a grouping (`group=item|warehouse`); the valuation reports one item.
  */
 export default async function Page({
   params,
   searchParams,
 }: {
   params: Promise<{ report: string }>;
-  searchParams: Promise<{ item?: string; warehouse?: string; asOf?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ item?: string; items?: string; warehouses?: string; group?: string; asOf?: string; from?: string; to?: string }>;
 }) {
   const { report: slug } = await params;
   const report = reportBySlug(slug);
@@ -47,21 +45,27 @@ export default async function Page({
 
   const query = await searchParams;
   const itemId = positiveInt(query.item);
-  const warehouseId = positiveInt(query.warehouse);
+  const itemIds = idList(query.items);
+  const warehouseIds = idList(query.warehouses);
+  const groupBy: StockGroupBy = query.group === "warehouse" ? "warehouse" : "item";
   const range = resolveRange(query.from, query.to);
   const asOf = isDate(query.asOf) ? query.asOf : new Date().toISOString().slice(0, 10);
   const runAt = new Date().toISOString();
-  // The valuation pool is the item's, over every warehouse: no warehouse filter.
-  const perWarehouse = report.key === "stock_ledger" || report.key === "stock_balance";
-  const [items, warehouses] = await Promise.all([stockItemOptions(), perWarehouse ? stockWarehouseOptions() : null]);
+  // The valuation pool is the item's, over every warehouse: no warehouse filter and no grouping.
+  const grouped = report.key === "stock_ledger" || report.key === "stock_balance";
+  const [items, warehouses] = await Promise.all([stockItemOptions(), grouped ? stockWarehouseOptions() : null]);
+  // Each run is keyed on its URL, so its blocks start folded afresh.
+  const runKey = JSON.stringify(query);
 
   const filter = (
     <StockReportParams
       slug={slug}
       items={items}
-      itemId={itemId}
       warehouses={warehouses}
-      warehouseId={perWarehouse ? warehouseId : null}
+      grouped={grouped}
+      itemIds={grouped ? itemIds : itemId ? [itemId] : []}
+      warehouseIds={warehouseIds}
+      groupBy={groupBy}
       mode={report.params === "stock-asof" ? "asof" : "period"}
       asOf={asOf}
       from={range.from}
@@ -78,15 +82,21 @@ export default async function Page({
   );
 
   if (report.key === "stock_ledger") {
-    const data = itemId ? await stockLedgerReport(itemId, warehouseId, range) : null;
+    const [cards, reconciles] = await Promise.all([stockLedgerReport(itemIds, warehouseIds, range), stockBooksReconcile(itemIds)]);
     return (
       <ReportView
         report={report}
         filter={filter}
         runAt={runAt}
-        footnote={<>Jumlah dalam satuan dasar barang; saldo dihitung menurut tanggal lalu urutan posting, dari saldo awal sebelum {formatDate(range.from)}.</>}
+        footnote={
+          <>
+            Jumlah dalam satuan dasar barang. Saldo per barang per gudang, menurut tanggal lalu urutan posting, dari saldo awal sebelum{" "}
+            {formatDate(range.from)}.
+          </>
+        }
       >
-        {data ? <StockLedgerBody report={data} /> : needsItem}
+        <StockLedgerBody key={runKey} cards={cards} groupBy={groupBy} range={range} />
+        <Mismatch show={!reconciles} />
       </ReportView>
     );
   }
@@ -105,16 +115,17 @@ export default async function Page({
     );
   }
 
-  const reconciles = await stockBooksReconcile(itemId);
-
   if (report.key === "stock_balance") {
-    const rows = await stockBalanceReport(asOf, itemId, warehouseId);
+    const [positions, reconciles] = await Promise.all([stockBalanceReport(asOf, itemIds, warehouseIds), stockBooksReconcile(itemIds)]);
     return (
       <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Saldo per {formatDate(asOf)} dari Kartu Stok, dalam satuan dasar barang.</>}>
-        <StockBalanceBody rows={rows} reconciles={reconciles} />
+        <StockBalanceBody key={runKey} positions={positions} groupBy={groupBy} asOf={asOf} />
+        <Mismatch show={!reconciles} />
       </ReportView>
     );
   }
+
+  const reconciles = await stockBooksReconcile(itemId);
 
   // Nilai Persediaan, checked against the Persediaan account in the General Ledger.
   const rows = await valuationReport(asOf, itemId);
@@ -153,6 +164,11 @@ function resolveRange(from?: string, to?: string): PeriodRange {
 
 function isDate(value: string | undefined): value is string {
   return Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)));
+}
+
+/** `1,4,9` → [1, 4, 9]; anything that is not a positive whole number is dropped. */
+function idList(value: string | undefined): number[] {
+  return [...new Set((value ?? "").split(",").map(Number).filter((n) => Number.isInteger(n) && n > 0))];
 }
 
 function positiveInt(value: string | undefined): number | null {

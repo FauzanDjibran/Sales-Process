@@ -3,8 +3,6 @@ import { Icon } from "@/components/icon";
 import { ReportSummary } from "@/components/report/report-summary";
 import { documentHref } from "@/lib/erp/document-links";
 import type {
-  StockBalanceRow,
-  StockLedgerReport,
   StockSourceRef,
   ValuationLedgerReport,
   ValuationRow,
@@ -12,10 +10,11 @@ import type {
 import { formatDate, formatMoney, formatNumber, formatPrice } from "@/lib/format";
 
 /**
- * The bodies of the four inventory reports (P120). A card is read like a book
- * — opening carried in, rows oldest first, closing struck at the foot — and a
- * balance like a matrix over its subjects. Quantities are in each item's base
- * unit; value is whole rupiah.
+ * The bodies of the two valuation reports (P120); Kartu Stok and Saldo Stok,
+ * grouped per item or per warehouse, are in `stock-card-reports.tsx`. A card is
+ * read like a book — opening carried in, rows oldest first, closing struck at
+ * the foot — and a balance like a matrix over its subjects. Quantities are in
+ * each item's base unit; value is whole rupiah.
  */
 
 const qty = (n: number) => formatNumber(n, Number.isInteger(n) ? 0 : 4);
@@ -34,7 +33,7 @@ function Source({ s }: { s: StockSourceRef }) {
   );
 }
 
-function Mismatch({ show }: { show: boolean }) {
+export function Mismatch({ show }: { show: boolean }) {
   if (!show) return null;
   return (
     <div className="nbox warn slim">
@@ -46,177 +45,6 @@ function Mismatch({ show }: { show: boolean }) {
         <p>Saldo stok yang tersimpan berbeda dari penjumlahan buku-nya. Angka di atas dibaca dari buku; selisih ini perlu diperiksa.</p>
       </div>
     </div>
-  );
-}
-
-// ---------------------------------------------------------- Kartu Stok
-
-export function StockLedgerBody({ report }: { report: StockLedgerReport }) {
-  const u = report.item.uomLabel;
-  return (
-    <>
-      <div className="cblock">
-        <div className="cbh">
-          <b>{report.item.label}</b>
-          <span className="cbn">
-            {report.item.name} · {report.warehouseLabel ?? "semua gudang"} · {report.entries.length} mutasi · {u}
-          </span>
-          <ReportSummary
-            figures={[
-              { label: "Saldo Awal", value: qty(report.opening), zero: !report.opening },
-              { label: "Masuk", value: qty(report.totalIn), zero: !report.totalIn },
-              { label: "Keluar", value: qty(report.totalOut), zero: !report.totalOut },
-              { label: "Saldo Akhir", value: qty(report.closing), key: true },
-            ]}
-          />
-        </div>
-        <div className="tw">
-          <table className="grid" style={{ minWidth: 980 }}>
-            <thead>
-              <tr>
-                <th style={{ width: 92 }}>Tanggal</th>
-                <th style={{ width: 150 }}>Entri</th>
-                <th style={{ width: 90 }}>Gudang</th>
-                <th>Lot</th>
-                <th style={{ width: 90 }}>Status</th>
-                <th className="num" style={{ width: 100 }}>Masuk</th>
-                <th className="num" style={{ width: 100 }}>Keluar</th>
-                <th className="num" style={{ width: 110 }}>Saldo</th>
-                <th className="num" style={{ width: 130 }}>Nilai</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr className="totrow">
-                <td colSpan={7}>Saldo awal per {formatDate(report.range.from)}</td>
-                <td className="num">{qty(report.opening)}</td>
-                <td />
-              </tr>
-              {report.entries.map((e) => (
-                <tr key={e.id} style={{ cursor: "default" }}>
-                  <td className="mono mut" style={{ fontSize: "11.5px" }}>
-                    {formatDate(e.date)}
-                  </td>
-                  <td>
-                    <span className="lab">
-                      {e.ledgerNo}·{e.lineNo}
-                    </span>
-                    <Source s={e.source} />
-                  </td>
-                  <td>
-                    <span className="lab">{e.warehouseLabel}</span>
-                  </td>
-                  <td>
-                    <span className="lab">{e.lotNo}</span>
-                    {e.expiry && <span className="rsub">ED {formatDate(e.expiry)}</span>}
-                  </td>
-                  <td>{e.statusName}</td>
-                  <td className="num">{e.qtyIn ? <span className="mny in">{qty(e.qtyIn)}</span> : <span className="dash">–</span>}</td>
-                  <td className="num">{e.qtyOut ? <span className="mny">{qty(e.qtyOut)}</span> : <span className="dash">–</span>}</td>
-                  <td className="num">
-                    <span className="mny">{qty(e.balance)}</span>
-                  </td>
-                  <td className="num">
-                    <span className={`mny${e.value > 0 ? " in" : ""}`}>{money(e.value)}</span>
-                  </td>
-                </tr>
-              ))}
-              {report.entries.length === 0 && (
-                <tr>
-                  <td colSpan={9} className="mut" style={{ textAlign: "center" }}>
-                    Tidak ada mutasi pada rentang tanggal ini. Saldo akhir sama dengan saldo awal.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-            <tfoot>
-              <tr className="totrow">
-                <td colSpan={5}>Saldo akhir per {formatDate(report.range.to)}</td>
-                <td className="num">
-                  <span className="mny in">{qty(report.totalIn)}</span>
-                </td>
-                <td className="num">
-                  <span className="mny">{qty(report.totalOut)}</span>
-                </td>
-                <td className="num">
-                  <b>{qty(report.closing)}</b>
-                </td>
-                <td />
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-      </div>
-      <Mismatch show={!report.reconciles} />
-    </>
-  );
-}
-
-// ----------------------------------------------------------- Saldo Stok
-
-export function StockBalanceBody({ rows, reconciles }: { rows: StockBalanceRow[]; reconciles: boolean }) {
-  // One block per item: its buckets, then its total in its unit.
-  const byItem = new Map<number, StockBalanceRow[]>();
-  for (const r of rows) byItem.set(r.itemId, [...(byItem.get(r.itemId) ?? []), r]);
-  if (!rows.length) {
-    return (
-      <div className="empty sm">
-        <div className="ic">
-          <Icon name="layers" size={20} />
-        </div>
-        <h4>Tidak ada stok</h4>
-        <p>Tidak ada barang dengan saldo pada tanggal dan filter ini.</p>
-      </div>
-    );
-  }
-  return (
-    <>
-      {[...byItem.values()].map((list) => {
-        const head = list[0];
-        const total = list.reduce((s, r) => s + r.qty, 0);
-        return (
-          <div className="cblock" key={head.itemId}>
-            <div className="cbh">
-              <b>{head.itemLabel}</b>
-              <span className="cbn">
-                {head.itemName} · {list.length} lot · {head.uomLabel}
-              </span>
-              <ReportSummary figures={[{ label: "Jumlah", value: qty(total), key: true }]} />
-            </div>
-            <div className="tw">
-              <table className="grid" style={{ minWidth: 720 }}>
-                <thead>
-                  <tr>
-                    <th style={{ width: 200 }}>Gudang</th>
-                    <th>Lot</th>
-                    <th style={{ width: 120 }}>Kadaluarsa</th>
-                    <th style={{ width: 110 }}>Status</th>
-                    <th className="num" style={{ width: 130 }}>Jumlah</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {list.map((r, i) => (
-                    <tr key={i} style={{ cursor: "default" }}>
-                      <td>
-                        <span className="lab">{r.warehouseLabel}</span> {r.warehouseName}
-                      </td>
-                      <td>
-                        <span className="lab">{r.lotNo}</span>
-                      </td>
-                      <td>{r.expiry ? <span className="mono">{formatDate(r.expiry)}</span> : <span className="dash">—</span>}</td>
-                      <td>{r.statusName}</td>
-                      <td className="num">
-                        <span className="mny">{qty(r.qty)}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        );
-      })}
-      <Mismatch show={!reconciles} />
-    </>
   );
 }
 
