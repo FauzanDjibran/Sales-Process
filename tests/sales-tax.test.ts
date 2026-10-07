@@ -381,3 +381,28 @@ describe("a figure shared over parts by position (tax_concept.md §7.5, P133)", 
     assert.equal(positionalShare(1_000, 0, 10, 0), 0);
   });
 });
+
+describe("one path for every payment, full or partial (P134)", () => {
+  test("money equal to Uang Pelunas is estimated to the whole Outstanding and clears the bill", () => {
+    const bills = [
+      { total: 3_330_000, ppn: 330_000, withholdings: [{ key: "23", rate: 2, base: 3_000_000, amount: 60_000 }] },
+      { total: 4_662_000, ppn: 462_000, withholdings: [{ key: "23", rate: 2, base: 4_200_000, amount: 84_000 }] },
+      // No PPN, a 30 % withholding: the heaviest PPh the app allows.
+      { total: 1_000_003, ppn: 0, withholdings: [{ key: "x", rate: 30, base: 1_000_003, amount: 300_001 }] },
+    ];
+    for (const bill of bills) {
+      for (const before of [0, 1, Math.floor(bill.total / 3)]) {
+        const open = bill.total - before;
+        const full = settleBillFromCash({ bill, before, cash: cashToClear(bill, before, true), withhold: true });
+        assert.equal(full.settled, open, "the estimate is the Outstanding and its cash checks");
+        assert.equal(full.cash, cashToClear(bill, before, true));
+      }
+    }
+  });
+
+  test("a partial payment goes the same way: estimate, check, move a few rupiah", () => {
+    const bill = { total: 4_662_000, ppn: 462_000, withholdings: [{ key: "23", rate: 2, base: 4_200_000, amount: 84_000 }] };
+    const part = settleBillFromCash({ bill, before: 0, cash: 3_000_000, withhold: true });
+    assert.deepEqual([part.settled, part.pph, part.cash], [3_055_046, 55_046, 3_000_000]);
+  });
+});

@@ -13,6 +13,8 @@ yang ditulis Posting. Logika dan tabelnya dijelaskan di
 P116–P119, P132, P133.
 
 > File ini diperbarui setiap kali simulasi ditambah atau aturan berubah.
+> Sejak P134 semua pembayaran — lunas atau sebagian — melalui satu jalur
+> perhitungan yang sama.
 
 ---
 
@@ -40,12 +42,13 @@ Outstanding PPn      = PPN − round(PPN × Terbayar / Total)
 Outstanding PPh      = PPh − round(PPh × Terbayar / Total)
 Uang Pelunas         = Outstanding − Outstanding PPh
 
-Jika Diterima = Uang Pelunas → lunas:
-  TT                 = Outstanding
-Jika Diterima < Uang Pelunas → sebagian:
+Diterima > Uang Pelunas → ditolak (tidak ada lebih bayar)
+
+Satu jalur untuk semua pembayaran, lunas maupun sebagian (P134):
   TT (estimasi)      = round(Diterima × Outstanding / Uang Pelunas)
-  dicek: Diterima    = TT − PPh Terpotong   (jika meleset, TT digeser ±1..4)
-Jika Diterima > Uang Pelunas → ditolak (tidak ada lebih bayar)
+  dicek: Diterima    = TT − PPh Terpotong   (jika meleset, TT digeser ±1..4,
+                                              diambil TT terkecil yang tepat)
+  Jika Diterima = Uang Pelunas, estimasinya tepat = Outstanding → dokumen lunas.
 
 PPn Terlunasi        = round(PPN × (Terbayar + TT) / Total) − round(PPN × Terbayar / Total)
 DPP Terlunasi        = TT − PPn Terlunasi
@@ -148,11 +151,12 @@ Hitung  Uang Pelunas = 3.330.000 − 60.000
 Hasil   Uang Pelunas = 3.270.000
 ```
 
-### Langkah 2 · Diterima 3.270.000 = Uang Pelunas → lunas
+### Langkah 2 · Diterima 3.270.000 = Uang Pelunas → jalur yang sama, hasilnya lunas
 
 ```
-Rumus   TT = Outstanding
-Hasil   TT = 3.330.000
+Rumus   TT (estimasi) = round(Diterima × Outstanding / Uang Pelunas)
+Hitung  TT = round(3.270.000 × 3.330.000 / 3.270.000) = round(3.330.000)
+Hasil   TT = 3.330.000               (= Outstanding)
 
 Rumus   PPn Terlunasi = round(PPN × (Terbayar + TT) / Total) − round(PPN × Terbayar / Total)
 Hitung  PPn Terlunasi = round(330.000 × 3.330.000 / 3.330.000) − round(330.000 × 0 / 3.330.000)
@@ -312,11 +316,12 @@ Hitung  Uang Pelunas = 1.293.303 − 23.303
 Hasil   Uang Pelunas = 1.270.000
 ```
 
-**Langkah 2 · Diterima 1.270.000 = Uang Pelunas → lunas**
+**Langkah 2 · Diterima 1.270.000 = Uang Pelunas → jalur yang sama, hasilnya lunas**
 
 ```
-Rumus   TT = Outstanding
-Hasil   TT = 1.293.303
+Rumus   TT (estimasi) = round(Diterima × Outstanding / Uang Pelunas)
+Hitung  TT = round(1.270.000 × 1.293.303 / 1.270.000) = round(1.293.303)
+Hasil   TT = 1.293.303               (= Outstanding)
 
 Rumus   PPn Terlunasi = round(PPN × (Terbayar + TT) / Total) − round(PPN × Terbayar / Total)
 Hitung  PPn Terlunasi = round(330.000 × 3.330.000 / 3.330.000) − 201.835 = 330.000 − 201.835
@@ -471,11 +476,12 @@ Hitung  Uang Pelunas = 4.662.000 − 84.000
 Hasil   Uang Pelunas = 4.578.000
 ```
 
-### Langkah 2 · Diterima 4.578.000 = Uang Pelunas → lunas
+### Langkah 2 · Diterima 4.578.000 = Uang Pelunas → jalur yang sama, hasilnya lunas
 
 ```
-Rumus   TT = Outstanding
-Hasil   TT = 4.662.000
+Rumus   TT (estimasi) = round(Diterima × Outstanding / Uang Pelunas)
+Hitung  TT = round(4.578.000 × 4.662.000 / 4.578.000) = round(4.662.000)
+Hasil   TT = 4.662.000               (= Outstanding)
 
 Rumus   PPn Terlunasi = round(PPN × (Terbayar + TT) / Total) − round(PPN × Terbayar / Total)
 Hitung  PPn Terlunasi = round(462.000 × 4.662.000 / 4.662.000) − 0
@@ -626,11 +632,12 @@ Hitung  Uang Pelunas = 1.606.954 − 28.954
 Hasil   Uang Pelunas = 1.578.000
 ```
 
-**Langkah 2 · Diterima 1.578.000 = Uang Pelunas → lunas**
+**Langkah 2 · Diterima 1.578.000 = Uang Pelunas → jalur yang sama, hasilnya lunas**
 
 ```
-Rumus   TT = Outstanding
-Hasil   TT = 1.606.954
+Rumus   TT (estimasi) = round(Diterima × Outstanding / Uang Pelunas)
+Hitung  TT = round(1.578.000 × 1.606.954 / 1.578.000) = round(1.606.954)
+Hasil   TT = 1.606.954               (= Outstanding)
 
 Rumus   PPn Terlunasi = round(PPN × (Terbayar + TT) / Total) − round(PPN × Terbayar / Total)
 Hitung  PPn Terlunasi = 462.000 − 302.752

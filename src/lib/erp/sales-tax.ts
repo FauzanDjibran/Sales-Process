@@ -417,12 +417,17 @@ export function cashToClear(bill: SettlementBill, before: number, withhold: bool
 /**
  * One bill settled from **what the customer actually paid** for it (P76).
  *
- * The user types the money received; the bill is cleared by that money plus
- * the PPh that goes with it. Money that reaches `cashToClear` clears the bill
- * — the gap is the PPh the customer withheld. Less money settles part of the
- * bill: the smallest part whose cash, after its own positional PPh share, is
- * exactly what was received, so the rest of the bill stays open. With the
- * switch off there is no PPh and the part is the money itself.
+ * The user types the money received; the bill is settled by that money plus
+ * the PPh that goes with it: the smallest part whose cash, after its own
+ * positional PPh share, is exactly what was received.
+ *
+ * **One path for every payment, full or partial** (P134). The part is
+ * estimated as Diterima × Outstanding / Uang Pelunas (`cashToClear`), then
+ * checked and moved a few rupiah until its cash is the money. Money equal to
+ * Uang Pelunas estimates exactly the Outstanding, and nothing smaller has the
+ * same cash while the PPh is under half the bill, so the bill is cleared
+ * without a separate "lunas" branch. With the switch off there is no PPh and
+ * the estimate is the money itself.
  */
 export function settleBillFromCash(input: {
   bill: SettlementBill;
@@ -436,20 +441,21 @@ export function settleBillFromCash(input: {
   const cash = Math.max(0, Math.round(input.cash));
   const open = Math.max(0, bill.total - before);
   const at = (settled: number) => settleBill({ bill, before, settled, withhold });
-  if (cash >= cashToClear(bill, before, withhold)) return at(open);
-  if (!withhold || cash === 0) return at(cash);
+  const uangPelunas = cashToClear(bill, before, withhold);
 
-  // cash(s) = s − pph(s) moves by at most one rupiah per rupiah of s, so the
-  // exact part sits a few rupiah from the proportional estimate.
-  const clear = at(open);
-  const estimate = clear.cash > 0 ? mulDivRound(cash, open, clear.cash) : cash;
+  // Tagihan Terlunasi (estimate) = round(Diterima × Outstanding / Uang Pelunas),
+  // never beyond the Outstanding. cash(s) = s − pph(s) moves by at most one
+  // rupiah per rupiah of s, so the exact part sits a few rupiah from it.
+  const estimate = Math.min(open, uangPelunas > 0 ? mulDivRound(cash, open, uangPelunas) : open);
   let best: SettlementLine | null = null;
   for (let s = Math.max(0, estimate - 4); s <= Math.min(open, estimate + 4); s++) {
     const line = at(s);
     if (line.cash === cash) return line;
     if (line.cash < cash && (!best || line.cash > best.cash)) best = line;
   }
-  return best ?? at(cash);
+  // No exact part: the nearest below, which the server refuses ("ubah Rp1"),
+  // or — for more than Uang Pelunas — the whole Outstanding, refused as an overpayment.
+  return best ?? at(estimate);
 }
 
 /** Why a line's Diterima cannot stand, or null. `max` is what clears the bill. */

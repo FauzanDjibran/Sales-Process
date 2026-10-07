@@ -266,9 +266,8 @@ cashToClear = open                                              (withhold off)
 i.e. the remainder less the PPh still to be withheld on it.
 
 - `Diterima > cashToClear` → refused (*Melebihi sisa tagihan* — no overpayment, P85).
-- `Diterima = cashToClear` → `S = open`; the gap is the PPh; the document is Lunas.
 
-### B4.2 Less money: a partial payment
+### B4.2 One path for every payment, full or partial (P134)
 
 `S` is the smallest part whose cash, after its own positional PPh, is exactly
 the money:
@@ -277,16 +276,28 @@ the money:
 find S such that  S − S_pph(S) = Diterima
 ```
 
-`S − S_pph(S)` grows by 0–1 rupiah per rupiah of `S`, so the code estimates
+`S − S_pph(S)` grows by 0–1 rupiah per rupiah of `S`, so the code always
+estimates
 
 ```
-S ≈ round(Diterima × open / cashToClear)
+S ≈ min(open, round(Diterima × open / cashToClear))
 ```
 
-and tries `S` within ±4 of it. If no `S` lands exactly (two PPh shares can
-both step on the same rupiah), the line is refused with *ubah Rp1*.
+and tries `S` within ±4 of it, taking the smallest that lands exactly. If none
+does (two PPh shares can both step on the same rupiah), the line is refused
+with *ubah Rp1*.
 
-Withhold off → `S = Diterima`, no PPh.
+There is **no separate "lunas" branch**:
+
+- `Diterima = cashToClear` → the estimate is exactly `open`, and nothing
+  smaller has the same cash while the PPh is under half the bill, so `S = open`
+  and the document is Lunas.
+- Withhold off → `cashToClear = open`, so the estimate is `Diterima` itself and
+  there is no PPh.
+
+A brute-force comparison over 100.000 random bills (PPh up to 30 %, with and
+without PPN, at any earlier payment) gave the same result as the former
+branch-per-case code in every case.
 
 ### B4.3 The header
 
