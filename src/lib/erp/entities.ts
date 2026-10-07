@@ -198,6 +198,8 @@ export type EntityTab = {
   /** One line under the card title saying what the tab holds. */
   desc: string;
   kind: "fields" | "custom";
+  /** A custom tab shown only while the form's values call for it (`tabApplies`). */
+  shownWhen?: "warehouseUsesLocation";
 };
 
 export type Column = {
@@ -900,7 +902,7 @@ export const ENTITIES: Entity[] = [
     module: "master",
     name: "Gudang",
     icon: "build",
-    desc: "Tempat barang dikirim. Selama stok belum dikelola, gudang hanya menandai asal pengiriman.",
+    desc: "Tempat stok disimpan. Gudang dengan Gunakan Lokasi mencatat stok per lokasi di dalamnya.",
     codeField: "warehouse_code",
     codePrefix: "whse",
     labelField: "warehouse_label",
@@ -925,8 +927,26 @@ export const ENTITIES: Entity[] = [
         placeholder: "Gudang Cikarang",
         help: "nama lengkap",
       },
+      {
+        name: "use_location",
+        label: "Lokasi",
+        type: "bool",
+        span: 4,
+        caption: "Gunakan Lokasi",
+        help: "stok dicatat per lokasi; hanya bisa diubah saat gudang kosong",
+      },
       STATUS_FIELD,
       NOTE_FIELD,
+    ],
+    tabs: [
+      {
+        key: "locations",
+        label: "Lokasi",
+        icon: "layers",
+        desc: "Tempat di dalam gudang — rak, baris, bin — tempat stok disimpan. Ditampilkan sebagai Gudang-Lokasi, mis. GD-CKR-A-01.",
+        kind: "custom",
+        shownWhen: "warehouseUsesLocation",
+      },
     ],
     columns: [
       { field: "warehouse_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
@@ -1299,6 +1319,12 @@ export function waitingClause(missing: Field[]): string | null {
       ? `${names.slice(0, -1).join(", ")} dan ${names[names.length - 1]}`
       : names[0];
   return `Pilih ${list} dulu…`;
+}
+
+/** Whether a tab is in play, given the values currently entered — a Gudang's Lokasi tab only with Gunakan Lokasi. */
+export function tabApplies(tab: EntityTab, values: Record<string, unknown>): boolean {
+  if (tab.shownWhen === "warehouseUsesLocation") return values.use_location === true || values.use_location === "true";
+  return true;
 }
 
 /** Whether a field applies, given the values currently entered. */

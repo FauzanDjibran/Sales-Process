@@ -586,17 +586,21 @@ export const CHECKS: Check[] = [
   {
     area: "stock",
     name: "each stock bucket's quantity is the sum of its stock ledger rows, and is not negative (P120)",
-    sql: `SELECT b.id, b.warehouse_id, b.tracking_id, b.stock_status_id, b.qty_balance,
+    // A bucket is warehouse, location, lot and status; the location is null in a warehouse without locations.
+    sql: `SELECT b.id, b.warehouse_id, b.location_id, b.tracking_id, b.stock_status_id, b.qty_balance,
                  COALESCE((SELECT SUM(l.qty_change) FROM log_stock_ledger l
-                   WHERE l.warehouse_id = b.warehouse_id AND l.tracking_id = b.tracking_id AND l.stock_status_id = b.stock_status_id), 0) AS ledger
+                   WHERE l.warehouse_id = b.warehouse_id AND l.location_id IS NOT DISTINCT FROM b.location_id
+                     AND l.tracking_id = b.tracking_id AND l.stock_status_id = b.stock_status_id), 0) AS ledger
           FROM log_stock_balance b
           WHERE b.qty_balance < 0 OR b.qty_balance <> COALESCE((SELECT SUM(l.qty_change) FROM log_stock_ledger l
-                   WHERE l.warehouse_id = b.warehouse_id AND l.tracking_id = b.tracking_id AND l.stock_status_id = b.stock_status_id), 0)
+                   WHERE l.warehouse_id = b.warehouse_id AND l.location_id IS NOT DISTINCT FROM b.location_id
+                     AND l.tracking_id = b.tracking_id AND l.stock_status_id = b.stock_status_id), 0)
           UNION ALL
-          SELECT NULL, l.warehouse_id, l.tracking_id, l.stock_status_id, NULL, SUM(l.qty_change)
+          SELECT NULL, l.warehouse_id, l.location_id, l.tracking_id, l.stock_status_id, NULL, SUM(l.qty_change)
           FROM log_stock_ledger l
-          WHERE NOT EXISTS (SELECT 1 FROM log_stock_balance b WHERE b.warehouse_id = l.warehouse_id AND b.tracking_id = l.tracking_id AND b.stock_status_id = l.stock_status_id)
-          GROUP BY l.warehouse_id, l.tracking_id, l.stock_status_id`,
+          WHERE NOT EXISTS (SELECT 1 FROM log_stock_balance b WHERE b.warehouse_id = l.warehouse_id AND b.location_id IS NOT DISTINCT FROM l.location_id
+                              AND b.tracking_id = l.tracking_id AND b.stock_status_id = l.stock_status_id)
+          GROUP BY l.warehouse_id, l.location_id, l.tracking_id, l.stock_status_id`,
   },
   {
     area: "stock",
@@ -630,6 +634,19 @@ export const CHECKS: Check[] = [
     sql: `SELECT t.id, t.tracking_no, m.item_label, m.track_stock, m.has_expiry, t.expiry_date
           FROM log_stock_tracking t JOIN m_item m ON m.id = t.item_id
           WHERE m.item_type <> 'Barang' OR NOT m.track_stock OR (m.has_expiry AND t.expiry_date IS NULL)`,
+  },
+  {
+    area: "stock",
+    name: "stock held in a warehouse with Gunakan Lokasi names one of its own locations, and stock elsewhere names none",
+    // Held stock only: a warehouse may switch Gunakan Lokasi on once empty, so its past rows may have none.
+    sql: `SELECT b.id, w.warehouse_label, w.use_location, b.location_id, loc.warehouse_id AS location_warehouse, b.qty_balance
+          FROM log_stock_balance b
+          JOIN ref_warehouse w ON w.id = b.warehouse_id
+          LEFT JOIN ref_warehouse_location loc ON loc.id = b.location_id
+          WHERE b.qty_balance <> 0
+            AND ((w.use_location AND b.location_id IS NULL)
+              OR (NOT w.use_location AND b.location_id IS NOT NULL)
+              OR (b.location_id IS NOT NULL AND loc.warehouse_id <> b.warehouse_id))`,
   },
 ];
 

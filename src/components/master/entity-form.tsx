@@ -31,6 +31,7 @@ import {
   STATUS_TEXT,
   TAG_CLASS,
   fieldApplies,
+  tabApplies,
   isActiveStatus,
   prerequisitesOf,
   waitingClause,
@@ -45,6 +46,7 @@ import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
 import { recordTitle } from "@/lib/erp/record-title";
 import { AddressesTab, ContactsTab } from "@/components/master/partner-tabs";
 import { UomConversionsTab } from "@/components/master/item-tabs";
+import { WarehouseLocationsTab } from "@/components/master/warehouse-tabs";
 import type { CollectionTabProps } from "@/components/master/collection-tab";
 
 /**
@@ -57,6 +59,7 @@ const CUSTOM_TABS: Record<string, (props: CollectionTabProps<any>) => React.Reac
   "m_partner.addresses": AddressesTab,
   "m_partner.contacts": ContactsTab,
   "m_item.uoms": UomConversionsTab,
+  "ref_warehouse.locations": WarehouseLocationsTab,
 };
 
 export type FormMode = "new" | "view" | "edit";
@@ -135,7 +138,7 @@ export function EntityForm({
   // customer-only Penjualan tab on a supplier — is not offered at all.
   const tabs = (entity.tabs ?? []).filter(
     (t) =>
-      t.kind === "custom" ||
+      (t.kind === "custom" && tabApplies(t, values)) ||
       entity.fields.some(
         (f) =>
           f.tab === t.key &&
@@ -262,7 +265,9 @@ export function EntityForm({
   const onSave = async () => {
     setSaving(true);
     const payload: FormValues = { ...values };
-    for (const t of tabs) {
+    // Every collection, shown or not: a hidden tab (a Gudang's Lokasi with
+    // Gunakan Lokasi off) still owns its rows, and sending none would remove them.
+    for (const t of entity.tabs ?? []) {
       if (t.kind === "custom") payload[`_${t.key}`] = JSON.stringify(collections[t.key] ?? []);
     }
     const result =

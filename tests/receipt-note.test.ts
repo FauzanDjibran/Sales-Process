@@ -26,6 +26,8 @@ import { purchasingWorld, type PurchasingWorld } from "./purchasing-helpers";
 const today = new Date().toISOString().slice(0, 10);
 let w: PurchasingWorld;
 const rns: number[] = [];
+/** A warehouse with Gunakan Lokasi and its locations, made by the location test. */
+const located: { warehouse?: number } = {};
 
 const header = (po: number, over: Partial<ReceiptNoteHeaderInput> = {}): ReceiptNoteHeaderInput => ({
   source_doc_id: po,
@@ -58,6 +60,10 @@ after(async () => {
   await prisma.logReceiptNote.deleteMany({ where: { id: { in: rns } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "log_receipt_note", row_id: { in: rns } } });
   await w.teardown();
+  if (located.warehouse) {
+    await prisma.refWarehouseLocation.deleteMany({ where: { warehouse_id: located.warehouse } });
+    await prisma.refWarehouse.deleteMany({ where: { id: located.warehouse } });
+  }
   await cleanupFixtures();
   await cleanupFiscalYear();
   await disconnect();
@@ -140,6 +146,47 @@ describe("receiving goods", () => {
     assert.equal((await prisma.logReceiptNote.findUniqueOrThrow({ where: { id: s.id } })).warehouse_id, null);
     assert.deepEqual(await transitionReceiptNote(s.id, "post", w.actor), { ok: true, closed: [jasa.orderNo] });
     assert.equal((await getReceiptNote(s.id))!.value, 5_000);
+  });
+
+  test("into a warehouse with Gunakan Lokasi each lot row names its location; one lot may be split over two", async () => {
+    const wh = await prisma.refWarehouse.create({
+      data: { warehouse_code: `test.${w.key("LW")}`, warehouse_label: w.key("LW"), warehouse_name: "Gudang Berlokasi", use_location: true, created_by: w.actor },
+    });
+    located.warehouse = wh.id;
+    const loc = async (label: string) =>
+      (await prisma.refWarehouseLocation.create({
+        data: { warehouse_id: wh.id, location_code: `test.${w.key(label)}`, location_label: label, location_name: `Rak ${label}`, created_by: w.actor },
+      })).id;
+    const a01 = await loc("A-01");
+    const a02 = await loc("A-02");
+    const o = await receiptNoteOptions();
+    const offered = o.warehouses.find((x) => x.id === wh.id)!;
+    assert.deepEqual([offered.useLocation, offered.locations.map((l) => l.label)], [true, [`${w.key("LW")}-A-01`, `${w.key("LW")}-A-02`]]);
+
+    const po = await w.openPO([{ item: w.f.stock, qty: 4, price: 1_000 }]);
+    const lots = (a: number | null, b: number | null) => [
+      { lot_no: w.key("LL"), expiry_date: "", location_id: a, qty: 3 },
+      { lot_no: w.key("LL"), expiry_date: "", location_id: b, qty: 1 },
+    ];
+    const line = (l: ReturnType<typeof lots>) => [{ source_doc_line_id: po.lineIds[0], qty: 4, note: "", lots: l }];
+    const twice = await create(header(po.id, { warehouse_id: wh.id }), line(lots(a01, a01)), w.actor);
+    assert.ok(!twice.ok && /diisi lebih dari sekali/.test(twice.errors["lines.0.lots"]), "the same lot in the same location once");
+    const elsewhere = await create(header(po.id, { warehouse_id: w.f.warehouse }), line(lots(a01, a02)), w.actor);
+    assert.ok(!elsewhere.ok && /tidak memakai lokasi/.test(elsewhere.errors["lines.0.lots"]), "a plain warehouse takes no location");
+    const r = await create(header(po.id, { warehouse_id: wh.id }), line(lots(a01, null)), w.actor);
+    assert.ok(r.ok, "a Draft may leave a location empty");
+    const missing = await transitionReceiptNote(r.id, "post", w.actor);
+    assert.ok(!missing.ok && /pilih lokasi setiap lot/.test(missing.errors._form), JSON.stringify(missing));
+
+    await prisma.logReceiptNoteLot.deleteMany({ where: { line: { receipt_note_id: r.id } } });
+    await prisma.logReceiptNoteLine.deleteMany({ where: { receipt_note_id: r.id } });
+    await prisma.logReceiptNote.delete({ where: { id: r.id } });
+    const ok = await create(header(po.id, { warehouse_id: wh.id }), line(lots(a01, a02)), w.actor);
+    assert.ok(ok.ok, JSON.stringify(ok));
+    assert.deepEqual(await transitionReceiptNote(ok.id, "post", w.actor), { ok: true, closed: [po.orderNo] });
+    const buckets = await prisma.logStockBalance.findMany({ where: { warehouse_id: wh.id }, orderBy: { location_id: "asc" } });
+    assert.deepEqual(buckets.map((b) => [b.location_id, b.qty_balance.toNumber()]), [[a01, 3], [a02, 1]]);
+    assert.deepEqual((await getReceiptNote(ok.id))!.lines[0].lots!.map((l) => l.location_id), [a01, a02]);
   });
 
   test("another unit comes into stock in base units", async () => {

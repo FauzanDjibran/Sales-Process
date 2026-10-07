@@ -74,7 +74,16 @@ export function CollectionCard({
   );
 }
 
-export function RowActions({ onEdit, onRemove }: { onEdit: () => void; onRemove: () => void }) {
+export function RowActions({
+  onEdit,
+  onRemove,
+  removeBlocked,
+}: {
+  onEdit: () => void;
+  onRemove: () => void;
+  /** Why the row cannot be removed (a location stock has used) — the button stays, disabled, saying so. */
+  removeBlocked?: string;
+}) {
   return (
     <div className="ract">
       <button
@@ -89,7 +98,8 @@ export function RowActions({ onEdit, onRemove }: { onEdit: () => void; onRemove:
       </button>
       <button
         className="iact del"
-        title="Hapus"
+        title={removeBlocked ?? "Hapus"}
+        disabled={Boolean(removeBlocked)}
         onClick={(e) => {
           e.stopPropagation();
           onRemove();

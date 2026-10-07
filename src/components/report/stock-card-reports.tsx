@@ -129,6 +129,17 @@ function Lot({ lotNo, expiry, statusName, showExpiry }: { lotNo: string; expiry:
   );
 }
 
+/** The Lokasi column: the location's own label (the Gudang has its own column), `—` where the warehouse keeps none. */
+function Location({ label, name }: { label: string | null; name: string | null }) {
+  if (!label) return <span className="dash">—</span>;
+  return (
+    <>
+      <span className="lab">{label}</span>
+      {name && <span className="rsub">{name}</span>}
+    </>
+  );
+}
+
 function Source({ s }: { s: StockSourceRef }) {
   const href = documentHref(s.table, s.id);
   return href ? (
@@ -184,10 +195,14 @@ export function StockBalanceBody({ positions, groupBy, asOf }: { positions: Stoc
             )}
             {open && (
               <div className="tw">
-                <table className="grid stm">
+                {/* A card row names its warehouse (Per Barang) or item (Per Gudang) across the
+                    first four columns; the buckets under it read Gudang · Lokasi · Lot · Kadaluarsa. */}
+                <table className="grid stm" style={{ minWidth: 820 }}>
                   <thead>
                     <tr>
-                      <th>{groupBy === "item" ? "Gudang / Lot" : "Barang / Lot"}</th>
+                      <th style={{ width: 200 }}>{groupBy === "item" ? "Gudang" : "Barang / Gudang"}</th>
+                      <th style={{ width: 200 }}>Lokasi</th>
+                      <th>Lot</th>
                       <th style={{ width: 120 }}>Kadaluarsa</th>
                       <th className="num" style={{ width: 160 }}>
                         Jumlah
@@ -202,7 +217,7 @@ export function StockBalanceBody({ positions, groupBy, asOf }: { positions: Stoc
                       return (
                         <Fragment key={k}>
                           <tr className="st-cat">
-                            <td className="stn">
+                            <td className="stn" colSpan={4}>
                               <div className="stc">
                                 <Toggle open={rowOpen} onClick={() => folds.toggleRow(k)} what="lot" />
                                 <Drill href={ledgerHref(p)} title="Buka Kartu Stok barang ini di gudang ini">
@@ -212,7 +227,6 @@ export function StockBalanceBody({ positions, groupBy, asOf }: { positions: Stoc
                                 <span className="cd">· {p.lots.length} lot</span>
                               </div>
                             </td>
-                            <td />
                             <td className="num">
                               <span className="mny">{qty(p.qty)}</span> <span className="cd">{p.item.uomLabel}</span>
                             </td>
@@ -221,6 +235,12 @@ export function StockBalanceBody({ positions, groupBy, asOf }: { positions: Stoc
                             p.lots.map((l, i) => (
                               <tr key={`${k}-${i}`} className="st-par">
                                 <td className="stn d2">
+                                  <span className="lab">{p.warehouse.label}</span>
+                                </td>
+                                <td>
+                                  <Location label={l.locationLabel} name={l.locationName} />
+                                </td>
+                                <td>
                                   <Lot {...l} />
                                 </td>
                                 <td>{l.expiry ? <span className="mono">{formatDate(l.expiry)}</span> : <span className="dash">—</span>}</td>
@@ -288,12 +308,14 @@ export function StockLedgerBody({ cards, groupBy, range }: { cards: StockCard[];
             )}
             {open && (
               <div className="tw">
-                <table className="grid stm" style={{ minWidth: 860 }}>
+                <table className="grid stm" style={{ minWidth: 1080 }}>
                   <thead>
                     <tr>
-                      <th>{groupBy === "item" ? "Gudang / Tanggal" : "Barang / Tanggal"}</th>
+                      <th style={{ width: 130 }}>{groupBy === "item" ? "Gudang / Tanggal" : "Barang / Tanggal"}</th>
                       <th style={{ width: 170 }}>Entri</th>
-                      <th style={{ width: 170 }}>Lot</th>
+                      <th style={{ width: 110 }}>Gudang</th>
+                      <th style={{ width: 160 }}>Lokasi</th>
+                      <th>Lot</th>
                       <th className="num" style={{ width: 100 }}>
                         Masuk
                       </th>
@@ -314,7 +336,7 @@ export function StockLedgerBody({ cards, groupBy, range }: { cards: StockCard[];
                       return (
                         <Fragment key={k}>
                           <tr className="st-cat">
-                            <td className="stn" colSpan={3}>
+                            <td className="stn" colSpan={5}>
                               <div className="stc">
                                 <Toggle open={rowOpen} onClick={() => folds.toggleRow(k)} what="mutasi" />
                                 <span className="lab">{s.label}</span>
@@ -333,7 +355,7 @@ export function StockLedgerBody({ cards, groupBy, range }: { cards: StockCard[];
                           {rowOpen && (
                             <>
                               <tr className="st-par">
-                                <td className="stn d2" colSpan={3}>
+                                <td className="stn d2" colSpan={5}>
                                   Saldo awal per {formatDate(range.from)}
                                 </td>
                                 <td className="num">
@@ -358,6 +380,12 @@ export function StockLedgerBody({ cards, groupBy, range }: { cards: StockCard[];
                                     <Source s={e.source} />
                                   </td>
                                   <td>
+                                    <span className="lab">{c.warehouse.label}</span>
+                                  </td>
+                                  <td>
+                                    <Location label={e.locationLabel} name={e.locationName} />
+                                  </td>
+                                  <td>
                                     <Lot lotNo={e.lotNo} expiry={e.expiry} statusName={e.statusName} showExpiry />
                                   </td>
                                   <td className="num">{e.qtyIn ? <span className="mny in">{qty(e.qtyIn)}</span> : <span className="dash">–</span>}</td>
@@ -369,7 +397,7 @@ export function StockLedgerBody({ cards, groupBy, range }: { cards: StockCard[];
                               ))}
                               {c.entries.length === 0 && (
                                 <tr className="st-par">
-                                  <td colSpan={6} className="mut" style={{ textAlign: "center" }}>
+                                  <td colSpan={8} className="mut" style={{ textAlign: "center" }}>
                                     Tidak ada mutasi pada rentang tanggal ini. Saldo akhir sama dengan saldo awal.
                                   </td>
                                 </tr>

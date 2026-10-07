@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
+import { locationDisplayLabel, lotKey } from "./warehouse-location";
 
 /**
  * The inventory module — the stock books (P120), built on the moving-average
@@ -12,8 +13,9 @@ import { nextDocumentNumber } from "./document-number";
  * posting transaction of the document that moves the goods:
  *
  * - **Quantity** — `log_stock_ledger` / `log_stock_balance`: how much of which
- *   lot is in which warehouse, in which status. One bucket per warehouse, lot
- *   and status; never negative.
+ *   lot is in which warehouse — and where in it — in which status. One bucket
+ *   per warehouse, location, lot and status; never negative. A warehouse with
+ *   Gunakan Lokasi names a location on every row; any other names none (null).
  * - **Value** — `log_stock_valuation_ledger` / `log_stock_valuation_balance`:
  *   one moving-average pool per item (one company, one valuation area), kept
  *   as quantity Q and value V in whole rupiah. A receipt adds its own value;
@@ -61,21 +63,34 @@ export async function lotTrackedItems(itemIds: number[], db: Db = prisma): Promi
   return new Set(rows.map((r) => r.id));
 }
 
+/**
+ * One place a lot may be picked from: the lot in a location (`locationId`
+ * null in a warehouse without locations). A picker keys it by `key`.
+ */
 export type LotOption = {
+  /** `<lot id>:<location id or 0>` — the bucket, unique within a warehouse. */
+  key: string;
   id: number;
   lotNo: string;
   expiry: string | null;
+  locationId: number | null;
+  /** `<warehouse>-<location>` (`locationDisplayLabel`), null without a location. */
+  locationLabel: string | null;
+  locationName: string | null;
   /** Quantity available (Tersedia) in the warehouse, in the item's base unit. */
   available: number;
   /** Offered to a picker: something is available. */
   active: boolean;
 };
 
+export { lotKey };
+
 /**
- * The lots a picker may choose for each item, per warehouse — those with
- * available stock — earliest expiry first (FEFO), a lot without expiry last.
- * `withIds` also brings in lots a stored document already names, whatever
- * they hold now, so it keeps reading.
+ * The lots a picker may choose for each item, per warehouse — each lot in each
+ * location that holds it available — earliest expiry first (FEFO), a lot
+ * without expiry last, then by location. `withIds` also brings in the buckets
+ * of lots a stored document already names, whatever they hold now, so it
+ * keeps reading.
  */
 export async function lotOptions(
   itemIds: number[],
@@ -88,33 +103,128 @@ export async function lotOptions(
   const status = await statusId(db);
   const balances = await db.logStockBalance.findMany({
     where: { item_id: { in: itemIds }, warehouse_id: { in: warehouseIds }, stock_status_id: status },
-    select: { warehouse_id: true, tracking_id: true, qty_balance: true },
+    select: {
+      warehouse_id: true,
+      location_id: true,
+      tracking_id: true,
+      qty_balance: true,
+      warehouse: { select: { warehouse_label: true } },
+      location: { select: { location_label: true, location_name: true } },
+    },
   });
-  const held = new Map(balances.map((b) => [`${b.warehouse_id}:${b.tracking_id}`, b.qty_balance.toNumber()]));
-  const trackingIds = [...new Set([...balances.filter((b) => b.qty_balance.gt(0)).map((b) => b.tracking_id), ...withIds])];
-  if (!trackingIds.length) return out;
+  const live = balances.filter((b) => b.qty_balance.gt(0) || withIds.includes(b.tracking_id));
+  if (!live.length) return out;
   const lots = await db.logStockTracking.findMany({
-    where: { id: { in: trackingIds }, item_id: { in: itemIds } },
-    orderBy: [{ expiry_date: { sort: "asc", nulls: "last" } }, { tracking_no: "asc" }],
+    where: { id: { in: [...new Set(live.map((b) => b.tracking_id))] }, item_id: { in: itemIds } },
   });
-  for (const w of warehouseIds) {
-    for (const t of lots) {
-      const available = held.get(`${w}:${t.id}`) ?? 0;
-      if (!(available > 0) && !withIds.includes(t.id)) continue;
-      const byItem = out.get(w) ?? new Map<number, LotOption[]>();
-      const list = byItem.get(t.item_id) ?? [];
-      list.push({
-        id: t.id,
-        lotNo: t.tracking_no,
-        expiry: t.expiry_date ? t.expiry_date.toISOString().slice(0, 10) : null,
-        available,
-        active: available > 0,
-      });
-      byItem.set(t.item_id, list);
-      out.set(w, byItem);
+  const lotBy = new Map(lots.map((t) => [t.id, t]));
+  for (const b of live) {
+    const t = lotBy.get(b.tracking_id);
+    if (!t) continue;
+    const available = b.qty_balance.toNumber();
+    const byItem = out.get(b.warehouse_id) ?? new Map<number, LotOption[]>();
+    const list = byItem.get(t.item_id) ?? [];
+    list.push({
+      key: lotKey(t.id, b.location_id),
+      id: t.id,
+      lotNo: t.tracking_no,
+      expiry: t.expiry_date ? t.expiry_date.toISOString().slice(0, 10) : null,
+      locationId: b.location_id,
+      locationLabel: b.location ? locationDisplayLabel(b.warehouse.warehouse_label, b.location.location_label) : null,
+      locationName: b.location?.location_name ?? null,
+      available,
+      active: available > 0,
+    });
+    byItem.set(t.item_id, list);
+    out.set(b.warehouse_id, byItem);
+  }
+  // FEFO: earliest expiry first, a lot without one last; then lot, then location.
+  for (const byItem of out.values()) {
+    for (const list of byItem.values()) {
+      list.sort(
+        (a, b) =>
+          (a.expiry ?? "9999").localeCompare(b.expiry ?? "9999") ||
+          a.lotNo.localeCompare(b.lotNo) ||
+          (a.locationLabel ?? "").localeCompare(b.locationLabel ?? "")
+      );
     }
   }
   return out;
+}
+
+export type WarehouseLocationOption = { id: number; label: string; name: string; active: boolean };
+
+/**
+ * Each warehouse's locations for a picker, by warehouse id, in label order —
+ * inactive ones included, marked, so a stored document still reads its own.
+ * A warehouse without Gunakan Lokasi has none.
+ */
+export async function warehouseLocationOptions(warehouseIds: number[], db: Db = prisma): Promise<Map<number, WarehouseLocationOption[]>> {
+  const out = new Map<number, WarehouseLocationOption[]>();
+  if (!warehouseIds.length) return out;
+  const rows = await db.refWarehouseLocation.findMany({
+    where: { warehouse_id: { in: warehouseIds }, warehouse: { use_location: true } },
+    orderBy: { location_label: "asc" },
+    include: { warehouse: { select: { warehouse_label: true } } },
+  });
+  for (const r of rows) {
+    const list = out.get(r.warehouse_id) ?? [];
+    list.push({ id: r.id, label: locationDisplayLabel(r.warehouse.warehouse_label, r.location_label), name: r.location_name, active: r.status === "Active" });
+    out.set(r.warehouse_id, list);
+  }
+  return out;
+}
+
+/** Whether a warehouse holds any stock now — Gunakan Lokasi may not change while it does. */
+export async function warehouseHoldsStock(warehouseId: number, db: Db = prisma): Promise<boolean> {
+  return (await db.logStockBalance.count({ where: { warehouse_id: warehouseId, qty_balance: { not: 0 } } })) > 0;
+}
+
+/**
+ * Of the locations named, those stock has ever moved through (`moved`) — never
+ * removed, only deactivated — and those holding stock now (`holding`) — not
+ * deactivated either.
+ */
+export async function locationStockUse(ids: number[], db: Db = prisma): Promise<{ moved: Set<number>; holding: Set<number> }> {
+  if (!ids.length) return { moved: new Set(), holding: new Set() };
+  const [moved, holding] = await Promise.all([
+    db.logStockLedger.findMany({ where: { location_id: { in: ids } }, distinct: ["location_id"], select: { location_id: true } }),
+    db.logStockBalance.findMany({ where: { location_id: { in: ids }, qty_balance: { not: 0 } }, distinct: ["location_id"], select: { location_id: true } }),
+  ]);
+  return {
+    moved: new Set(moved.flatMap((r) => (r.location_id ? [r.location_id] : []))),
+    holding: new Set(holding.flatMap((r) => (r.location_id ? [r.location_id] : []))),
+  };
+}
+
+/** `<warehouse>-<location>` per location id, for a stored document that names them. */
+export async function locationLabelsByIds(ids: number[], db: Db = prisma): Promise<Map<number, string>> {
+  if (!ids.length) return new Map();
+  const rows = await db.refWarehouseLocation.findMany({
+    where: { id: { in: [...new Set(ids)] } },
+    include: { warehouse: { select: { warehouse_label: true } } },
+  });
+  return new Map(rows.map((r) => [r.id, locationDisplayLabel(r.warehouse.warehouse_label, r.location_label)]));
+}
+
+/**
+ * The warehouse and location a movement names, checked (Gunakan Lokasi): a
+ * warehouse with locations needs one of its own — active, for goods coming in
+ * — and one without takes none.
+ */
+async function stockPlace(tx: Tx, warehouseId: number, locationId: number | null | undefined, receiving: boolean) {
+  const warehouse = await tx.refWarehouse.findUnique({ where: { id: warehouseId }, select: { warehouse_label: true, use_location: true } });
+  if (!warehouse) throw new InventoryRefusal("Gudang tidak ditemukan.");
+  if (!warehouse.use_location) {
+    if (locationId) throw new InventoryRefusal(`Gudang ${warehouse.warehouse_label} tidak memakai lokasi: kosongkan lokasinya.`);
+    return { locationId: null, where: `gudang ${warehouse.warehouse_label}` };
+  }
+  if (!locationId) throw new InventoryRefusal(`Gudang ${warehouse.warehouse_label} memakai lokasi: pilih lokasinya.`);
+  const location = await tx.refWarehouseLocation.findFirst({ where: { id: locationId, warehouse_id: warehouseId } });
+  if (!location) throw new InventoryRefusal(`Lokasi tidak ada di gudang ${warehouse.warehouse_label}. Pilih ulang lokasinya.`);
+  const label = locationDisplayLabel(warehouse.warehouse_label, location.location_label);
+  if (receiving && location.status !== "Active") throw new InventoryRefusal(`Lokasi ${label} nonaktif.`);
+  return { locationId: location.id, where: `lokasi ${label}` };
 }
 
 async function statusId(db: Db, label = AVAILABLE_STATUS): Promise<number> {
@@ -151,22 +261,27 @@ async function lockPool(tx: Tx, itemId: number, uomId: number, actorId: number):
   return { id: row.id, qty: new D(row.qty_balance), value: new D(row.value_balance) };
 }
 
-/** One warehouse / lot / status bucket, created empty if missing when `create`, and locked. */
+/**
+ * One warehouse / location / lot / status bucket, created empty if missing when
+ * `create`, and locked. The key is unique NULLS NOT DISTINCT, so a warehouse
+ * without locations still has one bucket per lot and status.
+ */
 async function lockBucket(
   tx: Tx,
-  k: { warehouseId: number; trackingId: number; statusId: number; itemId: number; uomId: number },
+  k: { warehouseId: number; locationId: number | null; trackingId: number; statusId: number; itemId: number; uomId: number },
   actorId: number,
   create: boolean
 ): Promise<Bucket | null> {
   if (create) {
     await tx.$executeRaw`
-      INSERT INTO "log_stock_balance" ("warehouse_id", "tracking_id", "item_id", "uom_id", "stock_status_id", "qty_balance", "created_by")
-      VALUES (${k.warehouseId}, ${k.trackingId}, ${k.itemId}, ${k.uomId}, ${k.statusId}, 0, ${actorId})
-      ON CONFLICT ("warehouse_id", "tracking_id", "stock_status_id") DO NOTHING`;
+      INSERT INTO "log_stock_balance" ("warehouse_id", "location_id", "tracking_id", "item_id", "uom_id", "stock_status_id", "qty_balance", "created_by")
+      VALUES (${k.warehouseId}, ${k.locationId}::int, ${k.trackingId}, ${k.itemId}, ${k.uomId}, ${k.statusId}, 0, ${actorId})
+      ON CONFLICT ("warehouse_id", "location_id", "tracking_id", "stock_status_id") DO NOTHING`;
   }
   const [row] = await tx.$queryRaw<{ id: number; qty_balance: Dec }[]>`
     SELECT "id", "qty_balance" FROM "log_stock_balance"
-    WHERE "warehouse_id" = ${k.warehouseId} AND "tracking_id" = ${k.trackingId} AND "stock_status_id" = ${k.statusId}
+    WHERE "warehouse_id" = ${k.warehouseId} AND "location_id" IS NOT DISTINCT FROM ${k.locationId}::int
+      AND "tracking_id" = ${k.trackingId} AND "stock_status_id" = ${k.statusId}
     FOR UPDATE`;
   return row ? { id: row.id, qty: new D(row.qty_balance) } : null;
 }
@@ -231,6 +346,7 @@ async function move(
     itemId: number;
     uomId: number;
     warehouseId: number;
+    locationId: number | null;
     trackingId: number;
     statusId: number;
     date: Date;
@@ -252,6 +368,7 @@ async function move(
       posting_date: m.date,
       ...src,
       warehouse_id: m.warehouseId,
+      location_id: m.locationId,
       tracking_id: m.trackingId,
       item_id: m.itemId,
       uom_id: m.uomId,
@@ -294,6 +411,8 @@ async function move(
 export type StockReceipt = {
   itemId: number;
   warehouseId: number;
+  /** Required in a warehouse with Gunakan Lokasi, null in any other. */
+  locationId?: number | null;
   /** The lot it comes in as; a lot the item already has is added to. */
   lotNo: string;
   /** Required for an item with Memiliki Kadaluarsa; must match a lot already known. */
@@ -324,8 +443,7 @@ export async function receiveStock(tx: Tx, r: StockReceipt): Promise<{ trackingI
   if (!lotNo) throw new InventoryRefusal(`${item.item_label} dikelola per lot: isi No. Lot.`);
   const expiryIso = r.expiry ? r.expiry.toISOString().slice(0, 10) : null;
   if (item.has_expiry && !expiryIso) throw new InventoryRefusal(`${item.item_label} memiliki kadaluarsa: isi tanggal kadaluarsa lot ${lotNo}.`);
-  const warehouse = await tx.refWarehouse.findUnique({ where: { id: r.warehouseId }, select: { id: true } });
-  if (!warehouse) throw new InventoryRefusal("Gudang tidak ditemukan.");
+  const place = await stockPlace(tx, r.warehouseId, r.locationId, true);
 
   let tracking = await tx.logStockTracking.findUnique({ where: { item_id_tracking_no: { item_id: r.itemId, tracking_no: lotNo } } });
   if (tracking) {
@@ -353,7 +471,7 @@ export async function receiveStock(tx: Tx, r: StockReceipt): Promise<{ trackingI
   const pool = await lockPool(tx, r.itemId, item.base_uom_id, r.actorId);
   const bucket = (await lockBucket(
     tx,
-    { warehouseId: r.warehouseId, trackingId: tracking.id, statusId: status, itemId: r.itemId, uomId: item.base_uom_id },
+    { warehouseId: r.warehouseId, locationId: place.locationId, trackingId: tracking.id, statusId: status, itemId: r.itemId, uomId: item.base_uom_id },
     r.actorId,
     true
   ))!;
@@ -365,6 +483,7 @@ export async function receiveStock(tx: Tx, r: StockReceipt): Promise<{ trackingI
     itemId: r.itemId,
     uomId: item.base_uom_id,
     warehouseId: r.warehouseId,
+    locationId: place.locationId,
     trackingId: tracking.id,
     statusId: status,
     date: r.date,
@@ -377,6 +496,8 @@ export async function receiveStock(tx: Tx, r: StockReceipt): Promise<{ trackingI
 export type StockIssue = {
   itemId: number;
   warehouseId: number;
+  /** The location it leaves from: required in a warehouse with Gunakan Lokasi, null in any other. */
+  locationId?: number | null;
   /** The lot it leaves from. */
   lotId: number | null | undefined;
   /** In the item's base unit. */
@@ -399,22 +520,21 @@ export async function issueStock(tx: Tx, issue: StockIssue): Promise<{ unitCost:
   if (!issue.lotId) throw new InventoryRefusal(`${item.item_label} dikelola per lot: pilih lotnya.`);
   const tracking = await tx.logStockTracking.findFirst({ where: { id: issue.lotId, item_id: issue.itemId } });
   if (!tracking) throw new InventoryRefusal(`Lot ${item.item_label} tidak ditemukan. Pilih ulang lotnya.`);
-  const warehouse = await tx.refWarehouse.findUnique({ where: { id: issue.warehouseId }, select: { warehouse_label: true } });
-  if (!warehouse) throw new InventoryRefusal("Gudang tidak ditemukan.");
+  const place = await stockPlace(tx, issue.warehouseId, issue.locationId, false);
 
   const status = await statusId(tx);
   // Pool before bucket, as receiveStock does, so two postings never lock in opposite orders.
   const pool = await lockPool(tx, issue.itemId, item.base_uom_id, issue.actorId);
   const bucket = await lockBucket(
     tx,
-    { warehouseId: issue.warehouseId, trackingId: tracking.id, statusId: status, itemId: issue.itemId, uomId: item.base_uom_id },
+    { warehouseId: issue.warehouseId, locationId: place.locationId, trackingId: tracking.id, statusId: status, itemId: issue.itemId, uomId: item.base_uom_id },
     issue.actorId,
     false
   );
   const available = bucket?.qty ?? new D(0);
   if (!bucket || available.lt(qty)) {
     throw new InventoryRefusal(
-      `Stok ${item.item_label} lot ${tracking.tracking_no} di gudang ${warehouse.warehouse_label} tidak cukup: tersedia ${qtyText(available)}, diminta ${qtyText(qty)}.`
+      `Stok ${item.item_label} lot ${tracking.tracking_no} di ${place.where} tidak cukup: tersedia ${qtyText(available)}, diminta ${qtyText(qty)}.`
     );
   }
   // The pool counts every warehouse and status, so it holds at least the bucket.
@@ -427,6 +547,7 @@ export async function issueStock(tx: Tx, issue: StockIssue): Promise<{ unitCost:
     itemId: issue.itemId,
     uomId: item.base_uom_id,
     warehouseId: issue.warehouseId,
+    locationId: place.locationId,
     trackingId: tracking.id,
     statusId: status,
     date: issue.date,
@@ -441,6 +562,8 @@ export async function issueStock(tx: Tx, issue: StockIssue): Promise<{ unitCost:
 export type InjectionRow = {
   itemId: number;
   warehouseId: number;
+  /** Required in a warehouse with Gunakan Lokasi. */
+  locationId?: number | null;
   lotNo: string;
   expiry: Date | null;
   /** Base unit. */

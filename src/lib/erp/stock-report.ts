@@ -94,6 +94,9 @@ export type StockLedgerEntry = {
   ledgerNo: string;
   lineNo: number;
   source: StockSourceRef;
+  /** The location's own label (the Gudang is its own column), null in a warehouse without locations. */
+  locationLabel: string | null;
+  locationName: string | null;
   lotNo: string;
   expiry: string | null;
   statusName: string;
@@ -136,7 +139,7 @@ export async function stockLedgerReport(itemIds: number[], warehouseIds: number[
     prisma.logStockLedger.findMany({
       where: { ...where, posting_date: { gte: day(range.from), lte: day(range.to) } },
       orderBy: [{ posting_date: "asc" }, { id: "asc" }],
-      include: { tracking: true, stock_status: true, source_doc_type: true },
+      include: { tracking: true, stock_status: true, source_doc_type: true, location: true },
     }),
   ]);
   type Acc = {
@@ -170,6 +173,8 @@ export async function stockLedgerReport(itemIds: number[], warehouseIds: number[
       ledgerNo: r.ledger_no,
       lineNo: r.line_no,
       source: { table: r.source_doc_type.doc_table, id: r.source_doc_id, no: r.source_no, docName: r.source_doc_type.doc_name },
+      locationLabel: r.location?.location_label ?? null,
+      locationName: r.location?.location_name ?? null,
       lotNo: r.tracking.tracking_no,
       expiry: r.tracking.expiry_date ? iso(r.tracking.expiry_date) : null,
       statusName: r.stock_status.status_name,
@@ -196,9 +201,17 @@ export async function stockLedgerReport(itemIds: number[], warehouseIds: number[
 
 // ----------------------------------------------------------- Saldo Stok
 
-export type StockLotBalance = { lotNo: string; expiry: string | null; statusName: string; qty: number };
+/** One bucket behind a position: a lot in a location (the location's own label; null without one). */
+export type StockLotBalance = {
+  locationLabel: string | null;
+  locationName: string | null;
+  lotNo: string;
+  expiry: string | null;
+  statusName: string;
+  qty: number;
+};
 
-/** What one warehouse holds of one item as of a date, with the lots behind it, earliest expiry first. */
+/** What one warehouse holds of one item as of a date, with the buckets behind it by location, then earliest expiry. */
 export type StockPosition = {
   item: StockItemRef;
   warehouse: StockWarehouseRef;
@@ -208,22 +221,26 @@ export type StockPosition = {
 
 /**
  * The chosen items in the chosen warehouses (none chosen = all) as of a date:
- * the stock ledger summed up to and including it per bucket, then gathered
+ * the stock ledger summed up to and including it per bucket (warehouse,
+ * location, lot, status), then gathered
  * into item × warehouse positions. Buckets at zero are left out.
  */
 export async function stockBalanceReport(asOf: string, itemIds: number[], warehouseIds: number[]): Promise<StockPosition[]> {
   const groups = await prisma.logStockLedger.groupBy({
-    by: ["item_id", "warehouse_id", "tracking_id", "stock_status_id"],
+    by: ["item_id", "warehouse_id", "location_id", "tracking_id", "stock_status_id"],
     where: { ...filterWhere({ itemIds, warehouseIds }), posting_date: { lte: day(asOf) } },
     _sum: { qty_change: true },
   });
   const live = groups.filter((g) => g._sum.qty_change && !g._sum.qty_change.isZero());
   if (!live.length) return [];
-  const [subj, lots, statuses] = await Promise.all([
+  const locationIds = [...new Set(live.flatMap((g) => (g.location_id ? [g.location_id] : [])))];
+  const [subj, lots, statuses, locations] = await Promise.all([
     cardSubjects([...new Set(live.map((g) => g.item_id))], [...new Set(live.map((g) => g.warehouse_id))]),
     prisma.logStockTracking.findMany({ where: { id: { in: [...new Set(live.map((g) => g.tracking_id))] } } }),
     prisma.sysStockStatus.findMany(),
+    prisma.refWarehouseLocation.findMany({ where: { id: { in: locationIds } }, select: { id: true, location_label: true, location_name: true } }),
   ]);
+  const locBy = new Map(locations.map((l) => [l.id, l]));
   const lotBy = new Map(lots.map((l) => [l.id, l]));
   const stBy = new Map(statuses.map((s) => [s.id, s]));
   const positions = new Map<string, { item: StockItemRef; warehouse: StockWarehouseRef; qty: Prisma.Decimal; lots: StockLotBalance[] }>();
@@ -233,7 +250,10 @@ export async function stockBalanceReport(asOf: string, itemIds: number[], wareho
     if (!p) positions.set(k, (p = { item: subj.item.get(g.item_id)!, warehouse: subj.warehouse.get(g.warehouse_id)!, qty: new D(0), lots: [] }));
     const l = lotBy.get(g.tracking_id)!;
     p.qty = p.qty.add(g._sum.qty_change!);
+    const loc = g.location_id ? locBy.get(g.location_id) : undefined;
     p.lots.push({
+      locationLabel: loc?.location_label ?? null,
+      locationName: loc?.location_name ?? null,
       lotNo: l.tracking_no,
       expiry: l.expiry_date ? iso(l.expiry_date) : null,
       statusName: stBy.get(g.stock_status_id)?.status_name ?? "",
@@ -244,7 +264,12 @@ export async function stockBalanceReport(asOf: string, itemIds: number[], wareho
     .map((p) => ({
       ...p,
       qty: p.qty.toNumber(),
-      lots: p.lots.sort((a, b) => (a.expiry ?? "9999").localeCompare(b.expiry ?? "9999") || a.lotNo.localeCompare(b.lotNo)),
+      lots: p.lots.sort(
+        (a, b) =>
+          (a.locationLabel ?? "").localeCompare(b.locationLabel ?? "") ||
+          (a.expiry ?? "9999").localeCompare(b.expiry ?? "9999") ||
+          a.lotNo.localeCompare(b.lotNo)
+      ),
     }))
     .sort(byCard);
 }
@@ -384,7 +409,8 @@ export async function stockBooksReconcile(itemIds: number | number[] | null = nu
     prisma.$queryRaw<{ n: bigint }[]>`
       SELECT COUNT(*) AS n FROM "log_stock_balance" b
       WHERE b."qty_balance" <> COALESCE((SELECT SUM(l."qty_change") FROM "log_stock_ledger" l
-        WHERE l."warehouse_id" = b."warehouse_id" AND l."tracking_id" = b."tracking_id" AND l."stock_status_id" = b."stock_status_id"), 0) ${item}`,
+        WHERE l."warehouse_id" = b."warehouse_id" AND l."location_id" IS NOT DISTINCT FROM b."location_id"
+          AND l."tracking_id" = b."tracking_id" AND l."stock_status_id" = b."stock_status_id"), 0) ${item}`,
     prisma.$queryRaw<{ n: bigint }[]>`
       SELECT COUNT(*) AS n FROM "log_stock_valuation_balance" b
       LEFT JOIN (SELECT "item_id", SUM("qty_change") AS q, SUM("value_change") AS v FROM "log_stock_valuation_ledger" GROUP BY "item_id") l

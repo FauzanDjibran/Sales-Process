@@ -27,7 +27,7 @@ import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
  * provisional on a Draft, as stored once posted.
  */
 
-type LotState = { key: string; lot_no: string; expiry_date: string; qty: string };
+type LotState = { key: string; lot_no: string; expiry_date: string; location_id: number | null; qty: string };
 type LineState = { key: string; source_doc_line_id: number; qty: string; note: string; lots: LotState[] };
 
 let seq = 0;
@@ -58,7 +58,7 @@ export function ReceiptNoteForm({
       source_doc_line_id: Number(l.source_doc_line_id),
       qty: String(l.qty),
       note: l.note,
-      lots: (l.lots ?? []).map((p) => ({ key: newKey(), lot_no: p.lot_no, expiry_date: p.expiry_date, qty: String(p.qty) })),
+      lots: (l.lots ?? []).map((p) => ({ key: newKey(), lot_no: p.lot_no, expiry_date: p.expiry_date, location_id: p.location_id ?? null, qty: String(p.qty) })),
     }))
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -69,6 +69,10 @@ export function ReceiptNoteForm({
   const order = options.orders.find((o) => o.id === header.source_doc_id) ?? null;
   const poLine = useMemo(() => new Map((order?.lines ?? []).map((l) => [l.id, l])), [order]);
   const goods = order ? order.itemType === "Barang" : true;
+  // A warehouse with Gunakan Lokasi puts each lot row in one of its locations.
+  const warehouse = options.warehouses.find((w) => w.id === header.warehouse_id) ?? null;
+  const located = goods && Boolean(warehouse?.useLocation);
+  const locationLabel = new Map((warehouse?.locations ?? []).map((x) => [x.id, x.label]));
   const touch = (...names: string[]) => {
     setDirty(true);
     setErrors((e) => {
@@ -80,6 +84,11 @@ export function ReceiptNoteForm({
   const set = <K extends keyof ReceiptNoteHeaderInput>(k: K, v: ReceiptNoteHeaderInput[K]) => {
     setHeader((h) => ({ ...h, [k]: v }));
     touch(k);
+  };
+  /** Another warehouse has other locations, so the lots' locations are cleared. */
+  const pickWarehouse = (id: number | null) => {
+    set("warehouse_id", id);
+    setLines((ls) => ls.map((l) => ({ ...l, lots: l.lots.map((x) => ({ ...x, location_id: null })) })));
   };
   const pickOrder = (id: number | null) => {
     const o = options.orders.find((x) => x.id === id);
@@ -103,7 +112,7 @@ export function ReceiptNoteForm({
       .map((id) => {
         const left = String(leftOf(id));
         const stock = poLine.get(id)?.isStock;
-        return { key: newKey(), source_doc_line_id: id, qty: left, note: "", lots: stock ? [{ key: newKey(), lot_no: "", expiry_date: "", qty: left }] : [] };
+        return { key: newKey(), source_doc_line_id: id, qty: left, note: "", lots: stock ? [{ key: newKey(), lot_no: "", expiry_date: "", location_id: null, qty: left }] : [] };
       });
     setLines([...keep, ...added]);
     setPicking(false);
@@ -123,7 +132,7 @@ export function ReceiptNoteForm({
       source_doc_line_id: l.source_doc_line_id,
       qty: l.qty,
       note: l.note,
-      lots: l.lots.map((p) => ({ lot_no: p.lot_no, expiry_date: p.expiry_date, qty: p.qty })),
+      lots: l.lots.map((p) => ({ lot_no: p.lot_no, expiry_date: p.expiry_date, location_id: p.location_id, qty: p.qty })),
     }));
     const result = mode === "edit" ? await updateReceiptNoteAction(note!.id, header, payload) : await createReceiptNoteAction(header, payload);
     setSaving(false);
@@ -181,7 +190,7 @@ export function ReceiptNoteForm({
             {goods && (
               <Field label="Gudang" span={3} required={editing} error={errors.warehouse_id}>
                 {editing ? (
-                  <Combobox value={header.warehouse_id} options={options.warehouses} placeholder="Pilih Gudang…" invalid={Boolean(errors.warehouse_id)} onChange={(v) => set("warehouse_id", v)} />
+                  <Combobox value={header.warehouse_id} options={options.warehouses} placeholder="Pilih Gudang…" invalid={Boolean(errors.warehouse_id)} onChange={pickWarehouse} />
                 ) : (
                   ro(<span className="lab">{options.warehouses.find((w) => w.id === header.warehouse_id)?.label ?? "—"}</span>)
                 )}
@@ -239,7 +248,10 @@ export function ReceiptNoteForm({
         </span>
         <div className="ct">
           <h3>Diterima</h3>
-          <p>Barang Kelola Stok masuk per lot (No. Lot kosong diberi nomor saat posting); barang lain dan jasa dibebankan.</p>
+          <p>
+            Barang Kelola Stok masuk per lot (No. Lot kosong diberi nomor saat posting){located ? ", tiap lot di satu lokasi gudang" : ""}; barang lain dan jasa
+            dibebankan.
+          </p>
         </div>
         {editing && addButton}
       </div>
@@ -262,13 +274,13 @@ export function ReceiptNoteForm({
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: 940 }}>
+          <table className="grid ltab" style={{ minWidth: located ? 1140 : 940 }}>
             <thead>
               <tr>
                 <th style={{ width: 40 }}>No</th>
                 <th>Barang / Jasa</th>
                 <th style={{ width: 170 }}>Qty</th>
-                <th style={{ width: 380 }}>Lot</th>
+                <th style={{ width: located ? 580 : 380 }}>{located ? "Lot · Lokasi" : "Lot"}</th>
                 <th className="num" style={{ width: 140 }}>Nilai</th>
                 {editing && <th style={{ width: 40 }} />}
               </tr>
@@ -308,7 +320,10 @@ export function ReceiptNoteForm({
                       ) : editing ? (
                         <div style={{ display: "grid", gap: 4 }}>
                           {l.lots.map((lot) => (
-                            <div key={lot.key} style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr 0.9fr 28px", gap: 4 }}>
+                            <div
+                              key={lot.key}
+                              style={{ display: "grid", gridTemplateColumns: located ? "1.2fr 1fr 1.5fr 0.9fr 28px" : "1.2fr 1fr 0.9fr 28px", gap: 4 }}
+                            >
                               <input
                                 className="inp sm idf"
                                 value={lot.lot_no}
@@ -321,6 +336,15 @@ export function ReceiptNoteForm({
                                 placeholder={p?.hasExpiry ? "Kadaluarsa" : "Kadaluarsa (opsional)"}
                                 onChange={(v) => setLine(l.key, { lots: l.lots.map((x) => (x.key === lot.key ? { ...x, expiry_date: v } : x)) })}
                               />
+                              {located && (
+                                <Combobox
+                                  value={lot.location_id}
+                                  options={warehouse!.locations}
+                                  placeholder="Pilih Lokasi…"
+                                  emptyText="Gudang ini belum punya lokasi aktif."
+                                  onChange={(v) => setLine(l.key, { lots: l.lots.map((x) => (x.key === lot.key ? { ...x, location_id: v } : x)) })}
+                                />
+                              )}
                               <MoneyInput
                                 size="sm"
                                 decimals={4}
@@ -339,7 +363,7 @@ export function ReceiptNoteForm({
                             onClick={() => {
                               const used = l.lots.reduce((s, x) => s + (Number(x.qty) || 0), 0);
                               const rest = Math.max(0, (Number(l.qty) || 0) - used);
-                              setLine(l.key, { lots: [...l.lots, { key: newKey(), lot_no: "", expiry_date: "", qty: rest ? String(+rest.toFixed(4)) : "" }] });
+                              setLine(l.key, { lots: [...l.lots, { key: newKey(), lot_no: "", expiry_date: "", location_id: null, qty: rest ? String(+rest.toFixed(4)) : "" }] });
                             }}
                           >
                             <Icon name="plus" size={13} /> Tambah Lot
@@ -347,7 +371,12 @@ export function ReceiptNoteForm({
                         </div>
                       ) : (
                         <span className="fulltag" style={{ whiteSpace: "normal" }}>
-                          {l.lots.map((lot) => `${lot.lot_no || "(otomatis)"}${lot.expiry_date ? ` · exp ${formatDate(lot.expiry_date)}` : ""}: ${qtyText(Number(lot.qty))}`).join(" · ")}
+                          {l.lots
+                            .map(
+                              (lot) =>
+                                `${lot.lot_no || "(otomatis)"}${lot.expiry_date ? ` · exp ${formatDate(lot.expiry_date)}` : ""}${lot.location_id ? ` · ${locationLabel.get(lot.location_id) ?? "lokasi?"}` : ""}: ${qtyText(Number(lot.qty))}`
+                            )
+                            .join(" · ")}
                         </span>
                       )}
                     </td>

@@ -437,6 +437,8 @@ table ref_warehouse {
   warehouse_label             varchar [not null]
   warehouse_name              varchar [not null]
 
+  use_location                boolean [not null, default: false] // Gunakan Lokasi: every stock row here names one of its locations; changed only while empty
+
   note                        varchar
 
   status                      enum('Active', 'Inactive') [not null, default: 'Active']
@@ -446,6 +448,31 @@ table ref_warehouse {
 
   created_at                  timestamptz [not null, default: `now()`]
   updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// a place inside a warehouse with Gunakan Lokasi; shown as <warehouse label>-<location label>; never deleted once used
+table ref_warehouse_location {
+  id                          int [pk, increment, not null]
+
+  warehouse_id                int [not null, ref : > ref_warehouse.id]
+
+  location_code               varchar [not null, unique] // loc.NNNN
+  location_label              varchar [not null]
+  location_name               varchar [not null]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (warehouse_id, location_label) [unique]
+  }
 }
 
 //////////////////////////////////
@@ -1873,6 +1900,7 @@ table log_receipt_note_lot {
   base_qty                    decimal(18,4) [not null, default: 0]
   value_amount                decimal(18,2) [not null, default: 0] // cumulative share of the line's value
   tracking_id                 int // weak: log_stock_tracking.id, set at Posting
+  location_id                 int // weak: ref_warehouse_location.id — where it is put, in a warehouse with Gunakan Lokasi
 
   indexes {
     (line_id, lot_seq) [unique]
@@ -1957,6 +1985,7 @@ table log_delivery_note_lot {
   pick_no                     int [not null]
 
   lot_id                      int [not null] // the inventory's lot (log_stock_tracking); no FK
+  location_id                 int // the location it is taken from, in a warehouse with Gunakan Lokasi; no FK
 
   lot_no                      varchar [not null] // as printed on the note
   expiry_date                 date
@@ -1967,7 +1996,7 @@ table log_delivery_note_lot {
 
   indexes {
     (delivery_note_line_id, pick_no) [unique]
-    (delivery_note_line_id, lot_id) [unique]
+    (delivery_note_line_id, lot_id, location_id) [unique] // NULLS NOT DISTINCT: a pick is a lot in a location
     lot_id
   }
 }
@@ -2043,6 +2072,7 @@ table log_stock_ledger {
   source_no                   varchar [not null]
 
   warehouse_id                int [not null, ref : > ref_warehouse.id]
+  location_id                 int [ref : > ref_warehouse_location.id] // required in a warehouse with Gunakan Lokasi, null otherwise
   tracking_id                 int [not null, ref : > log_stock_tracking.id]
   item_id                     int [not null, ref : > m_item.id]
   uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
@@ -2065,11 +2095,12 @@ table log_stock_ledger {
   }
 }
 
-// quantity on hand per warehouse, lot and status: the stock ledger's sum; never negative (CHECK)
+// quantity on hand per warehouse, location, lot and status: the stock ledger's sum; never negative (CHECK)
 table log_stock_balance {
   id                          int [pk, increment, not null]
 
   warehouse_id                int [not null, ref : > ref_warehouse.id]
+  location_id                 int [ref : > ref_warehouse_location.id] // required in a warehouse with Gunakan Lokasi, null otherwise
   tracking_id                 int [not null, ref : > log_stock_tracking.id]
   item_id                     int [not null, ref : > m_item.id]
   uom_id                      int [not null, ref : > ref_uom.id]
@@ -2084,7 +2115,7 @@ table log_stock_balance {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
-    (warehouse_id, tracking_id, stock_status_id) [unique]
+    (warehouse_id, location_id, tracking_id, stock_status_id) [unique] // NULLS NOT DISTINCT: one bucket per lot where there is no location
     (item_id, warehouse_id)
   }
 }

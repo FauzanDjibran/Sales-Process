@@ -18,6 +18,7 @@ import {
   type DeliveryNoteLineInput,
 } from "../src/lib/erp/delivery-note";
 import { availableDeliveryNoteActions, deliveryNoteAbilities } from "../src/lib/erp/delivery-note-workflow";
+import { injectStock } from "../src/lib/erp/inventory";
 import {
   FIXTURE_PREFIX,
   cleanupFiscalYear,
@@ -49,6 +50,7 @@ let actor = 0;
 const f = {} as Record<string, number>;
 const ids = { co: [] as number[], so: [] as number[], do: [] as number[], dn: [] as number[] };
 const cleanups: (() => Promise<unknown>)[] = [];
+const day = (iso: string) => new Date(`${iso}T00:00:00Z`);
 const savedSettings = new Map<string, string | null>();
 const stamp = String(Date.now() % 100000);
 const key = (s: string) => `${FIXTURE_PREFIX}${s}${stamp}`;
@@ -80,7 +82,8 @@ async function issuedDeliveryOrder(
   items: [item: number, uom: number, qty: number][] = [
     [f.goods, f.pcs, 100],
     [f.other, f.pcs, 50],
-  ]
+  ],
+  warehouseId = f.warehouse
 ) {
   const address = (await prisma.mPartnerAddress.findFirstOrThrow({ where: { partner_id: f.customer } })).id;
   const line = (item: number, uom: number, qty: number) => ({
@@ -126,7 +129,7 @@ async function issuedDeliveryOrder(
   const soLines = await prisma.salOrderLine.findMany({ where: { order_id: so.id }, orderBy: { line_no: "asc" } });
 
   const dOrder = await createDeliveryOrder(
-    { customer_order_id: co.id, do_date: today, delivery_date: today, warehouse_id: f.warehouse, address_id: address, note: "" },
+    { customer_order_id: co.id, do_date: today, delivery_date: today, warehouse_id: warehouseId, address_id: address, note: "" },
     soLines.map((l) => ({ sales_order_line_id: l.id, qty: l.qty.toNumber(), note: "" })),
     actor
   );
@@ -185,6 +188,18 @@ before(async () => {
   f.warehouse = (await prisma.refWarehouse.create({ data: { warehouse_code: `test.${key("WH")}`, warehouse_label: key("WH"), warehouse_name: "Gudang Uji", created_by: actor } })).id;
   f.customer = await fixtureCustomer();
   f.warehouse2 = (await prisma.refWarehouse.create({ data: { warehouse_code: `test.${key("WH2")}`, warehouse_label: key("WH2"), warehouse_name: "Gudang Lain", created_by: actor } })).id;
+  // A warehouse with Gunakan Lokasi, its stock picked by lot and location.
+  f.located = (
+    await prisma.refWarehouse.create({
+      data: { warehouse_code: `test.${key("WHL")}`, warehouse_label: key("WHL"), warehouse_name: "Gudang Berlokasi", use_location: true, created_by: actor },
+    })
+  ).id;
+  const location = async (label: string) =>
+    (await prisma.refWarehouseLocation.create({
+      data: { warehouse_id: f.located, location_code: `test.${key(label)}`, location_label: label, location_name: `Rak ${label}`, created_by: actor },
+    })).id;
+  f.a01 = await location("A-01");
+  f.a02 = await location("A-02");
   // GOODS starts with only 10 in its lot, so the first posting finds it short.
   f.lotG1 = await stockIn(f.goods, f.warehouse, key("G1"), 10, 300_000);
   f.lotO1 = await stockIn(f.other, f.warehouse, key("O1"), 1_000, 1_000_000);
@@ -216,7 +231,8 @@ before(async () => {
     () => prisma.mItem.deleteMany({ where: { id: { in: [f.goods, f.other, f.lotted, f.plain] } } }),
     () => prisma.refUom.deleteMany({ where: { id: { in: [f.pcs, f.box] } } }),
     () => prisma.refPaymentTerm.deleteMany({ where: { id: f.term } }),
-    () => prisma.refWarehouse.deleteMany({ where: { id: { in: [f.warehouse, f.warehouse2] } } })
+    () => prisma.refWarehouseLocation.deleteMany({ where: { warehouse_id: f.located } }),
+    () => prisma.refWarehouse.deleteMany({ where: { id: { in: [f.warehouse, f.warehouse2, f.located] } } })
   );
 });
 
@@ -608,5 +624,62 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
     const refused = await transitionDeliveryNote(r.id, "post", actor);
     assert.ok(!refused.ok && /tidak cukup: tersedia 85, diminta 90/.test(refused.errors._form));
     assert.equal((await getDeliveryNote(r.id))!.status, "Draft");
+  });
+});
+
+describe("picking by location in a warehouse with Gunakan Lokasi", () => {
+  test("a pick is a lot in a location; one lot leaves from two locations, each its own movement", async () => {
+    // OTHER's lot X1 is kept in A-01 (3) and A-02 (4).
+    await injectStock(
+      [
+        { itemId: f.other, warehouseId: f.located, locationId: f.a01, lotNo: key("X1"), expiry: null, qty: "3", value: "3000", date: day(today) },
+        { itemId: f.other, warehouseId: f.located, locationId: f.a02, lotNo: key("X1"), expiry: null, qty: "4", value: "4000", date: day(today) },
+      ],
+      actor
+    );
+    const lotX = (await prisma.logStockTracking.findUniqueOrThrow({ where: { item_id_tracking_no: { item_id: f.other, tracking_no: key("X1") } } })).id;
+    const located = await issuedDeliveryOrder([[f.other, f.pcs, 5]], f.located);
+    const offered = (await deliveryNoteOptions()).orders.find((o) => o.id === located.doId)!;
+    assert.deepEqual(
+      offered.lots[f.other].map((l) => [l.locationLabel, l.available]),
+      [
+        [`${key("WHL")}-A-01`, 3],
+        [`${key("WHL")}-A-02`, 4],
+      ]
+    );
+
+    const lineOf = (picks: { lot_id: number; location_id?: number | null; qty: number }[]) => [
+      { source_doc_line_id: located.goods, qty: 5, note: "", picks },
+    ];
+    const noLocation = await create(header({ source_doc_id: located.doId }), lineOf([{ lot_id: lotX, qty: 5 }]));
+    assert.ok(!noLocation.ok && /Pilih ulang lotnya/.test(noLocation.errors["lines.0.picks"]), "a pick names its location");
+    const twice = await create(
+      header({ source_doc_id: located.doId }),
+      lineOf([
+        { lot_id: lotX, location_id: f.a01, qty: 2 },
+        { lot_id: lotX, location_id: f.a01, qty: 1 },
+      ])
+    );
+    assert.ok(!twice.ok && /dipilih lebih dari sekali/.test(twice.errors["lines.0.picks"]));
+
+    const r = await create(
+      header({ source_doc_id: located.doId }),
+      lineOf([
+        { lot_id: lotX, location_id: f.a01, qty: 3 },
+        { lot_id: lotX, location_id: f.a02, qty: 2 },
+      ])
+    );
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.ok((await transitionDeliveryNote(r.id, "post", actor)).ok);
+    const buckets = await prisma.logStockBalance.findMany({ where: { warehouse_id: f.located }, orderBy: { location_id: "asc" } });
+    assert.deepEqual(buckets.map((b) => [b.location_id, b.qty_balance.toNumber()]), [
+      [f.a01, 0],
+      [f.a02, 2],
+    ]);
+    const view = (await getDeliveryNote(r.id))!;
+    assert.deepEqual(view.lines[0].pickedLots.map((p) => [p.locationLabel, p.qty]), [
+      [`${key("WHL")}-A-01`, 3],
+      [`${key("WHL")}-A-02`, 2],
+    ]);
   });
 });

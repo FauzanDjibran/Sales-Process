@@ -18,7 +18,7 @@ import {
   type DeliveryNoteSourceLine,
 } from "./delivery-order";
 import { DEFAULT_DELIVERY_NOTE_PURPOSE, deliveryNotePurpose } from "./delivery-note-purposes";
-import { InventoryRefusal, issueStock, lotOptions, lotTrackedItems, type LotOption } from "./inventory";
+import { InventoryRefusal, issueStock, locationLabelsByIds, lotKey, lotOptions, lotTrackedItems, type LotOption } from "./inventory";
 import { fallbackAccounts } from "./system-settings";
 import { accountsForItems } from "./item-account";
 import {
@@ -75,8 +75,11 @@ export type DeliveryNoteHeaderInput = {
   note: string;
 };
 
-/** One lot a line takes goods from — the stock picking (U15). */
-export type DeliveryNotePickInput = { lot_id: number | null; qty: number | string };
+/**
+ * One lot a line takes goods from — the stock picking (U15) — and, in a
+ * warehouse with Gunakan Lokasi, the location it is taken from.
+ */
+export type DeliveryNotePickInput = { lot_id: number | null; location_id?: number | null; qty: number | string };
 
 export type DeliveryNoteLineInput = {
   /** The source line: for `sales_delivery` a Delivery Order line. */
@@ -191,7 +194,7 @@ export async function deliveryNoteOptions(
 
 // ------------------------------------------------------------- validation
 
-type CheckedPick = { pick_no: number; lot_id: number; lot_no: string; expiry_date: Date | null; qty: number };
+type CheckedPick = { pick_no: number; lot_id: number; location_id: number | null; lot_no: string; expiry_date: Date | null; qty: number };
 
 type CheckedLine = {
   line_no: number;
@@ -347,15 +350,17 @@ function checkPicks(
     if (forPosting) return { ok: false, error: `${line.itemLabel} tidak dikelola stok (Kelola Stok tidak aktif), jadi tidak bisa dikeluarkan.` };
     return { ok: true, picks: [] };
   }
-  const byId = new Map(lots.map((l) => [l.id, l]));
-  const seen = new Set<number>();
+  // A pick is a lot in a location — a bucket — so a lot kept in two locations is two picks.
+  const byKey = new Map(lots.map((l) => [l.key, l]));
+  const seen = new Set<string>();
   const picks: CheckedPick[] = [];
   let total = 0;
   for (const p of list) {
-    const lot = byId.get(Number(p.lot_id));
-    if (!lot) return { ok: false, error: `Lot tidak ada di gudang ini untuk ${line.itemLabel}.` };
-    if (seen.has(lot.id)) return { ok: false, error: `Lot ${lot.lotNo} dipilih lebih dari sekali.` };
-    seen.add(lot.id);
+    const lot = byKey.get(lotKey(Number(p.lot_id), Number(p.location_id) || null));
+    if (!lot) return { ok: false, error: `Lot tidak ada di gudang ini untuk ${line.itemLabel}. Pilih ulang lotnya.` };
+    const where = lot.locationLabel ? ` di ${lot.locationLabel}` : "";
+    if (seen.has(lot.key)) return { ok: false, error: `Lot ${lot.lotNo}${where} dipilih lebih dari sekali.` };
+    seen.add(lot.key);
     const qty = Number(String(p.qty ?? "").replace(",", "."));
     if (!Number.isFinite(qty) || !(qty > 0)) return { ok: false, error: `Isi jumlah lot ${lot.lotNo} lebih dari 0.` };
     if (Math.abs(qty * QTY_SCALE - units(qty)) > 1e-6) return { ok: false, error: "Jumlah lot paling banyak 4 angka desimal." };
@@ -363,6 +368,7 @@ function checkPicks(
     picks.push({
       pick_no: picks.length + 1,
       lot_id: lot.id,
+      location_id: lot.locationId,
       lot_no: lot.lotNo,
       expiry_date: lot.expiry ? asDate(lot.expiry) : null,
       qty: fromUnits(units(qty)),
@@ -501,7 +507,7 @@ function asInput(n: StoredNote): {
         source_doc_line_id: l.source_doc_line_id,
         qty: l.qty.toNumber(),
         note: l.note ?? "",
-        picks: l.lots.map((p) => ({ lot_id: p.lot_id, qty: p.qty.toNumber() })),
+        picks: l.lots.map((p) => ({ lot_id: p.lot_id, location_id: p.location_id, qty: p.qty.toNumber() })),
       })),
   };
 }
@@ -627,6 +633,7 @@ export async function transitionDeliveryNote(
           const out = await issueStock(tx, {
             itemId: d.itemId,
             warehouseId: r.c.source.warehouseId,
+            locationId: p.location_id,
             lotId: p.lot_id,
             baseQty: pickBase,
             date: r.c.data.dn_date,
@@ -754,7 +761,7 @@ export type DeliveryNoteView = {
     unitCost: number;
     cost: number;
     /** The lots picked, as stored on the note (snapshotted lot no and expiry). */
-    pickedLots: { lotId: number; lotNo: string; expiry: string | null; qty: number; cost: number }[];
+    pickedLots: { lotId: number; locationId: number | null; locationLabel: string | null; lotNo: string; expiry: string | null; qty: number; cost: number }[];
   })[];
   cost: number;
   journalId: number | null;
@@ -768,6 +775,7 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
   const input = asInput(n);
   const sorted = [...n.lines].sort((a, b) => a.line_no - b.line_no);
   const journalNo = n.journal_id ? ((await journalNumbersByIds([n.journal_id])).get(n.journal_id) ?? null) : null;
+  const locations = await locationLabelsByIds(n.lines.flatMap((l) => l.lots.flatMap((p) => (p.location_id ? [p.location_id] : []))));
   return {
     id: n.id,
     dnNo: n.dn_no,
@@ -781,6 +789,8 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
       cost: sorted[i].cost_amount.toNumber(),
       pickedLots: sorted[i].lots.map((p) => ({
         lotId: p.lot_id,
+        locationId: p.location_id,
+        locationLabel: p.location_id ? (locations.get(p.location_id) ?? null) : null,
         lotNo: p.lot_no,
         expiry: p.expiry_date ? isoDay(p.expiry_date) : null,
         qty: p.qty.toNumber(),
@@ -795,6 +805,21 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
 }
 
 /** Delivery Note numbers by id, for the audit panel. */
+/**
+ * For the Gudang master (Gunakan Lokasi): how many Draft Delivery Notes take
+ * goods out of the warehouse, and which of the locations named a pick of any
+ * note takes goods from.
+ */
+export async function deliveryNoteLocationUse(warehouseId: number, locationIds: number[]): Promise<{ drafts: number; named: Set<number> }> {
+  const [drafts, named] = await Promise.all([
+    prisma.logDeliveryNote.count({ where: { warehouse_id: warehouseId, status: "Draft" } }),
+    locationIds.length
+      ? prisma.logDeliveryNoteLot.findMany({ where: { location_id: { in: locationIds } }, distinct: ["location_id"], select: { location_id: true } })
+      : [],
+  ]);
+  return { drafts, named: new Set(named.flatMap((r) => (r.location_id ? [r.location_id] : []))) };
+}
+
 export async function deliveryNoteNumbersByIds(ids: number[]): Promise<Map<number, string>> {
   const rows = await prisma.logDeliveryNote.findMany({ where: { id: { in: ids } }, select: { id: true, dn_no: true } });
   return new Map(rows.map((r) => [r.id, r.dn_no]));

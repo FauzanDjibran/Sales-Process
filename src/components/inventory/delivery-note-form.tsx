@@ -82,7 +82,7 @@ export function DeliveryNoteForm({
         key: newKey(),
         source_doc_line_id: Number(l.source_doc_line_id),
         qty: String(l.qty),
-        picks: (l.picks ?? []).map((p) => ({ lot_id: Number(p.lot_id), qty: String(p.qty) })),
+        picks: (l.picks ?? []).map((p) => ({ lot_id: Number(p.lot_id), location_id: p.location_id ?? null, qty: String(p.qty) })),
       }));
     }
     return (preset?.lines ?? [])
@@ -362,14 +362,15 @@ export function DeliveryNoteForm({
         {lots.map((p) => {
           const expiry = p.expiry ?? names.get(p.lotId)?.expiry ?? null;
           return (
-            <span key={p.lotId} className="dstack">
+            <span key={`${p.lotId}:${p.locationId ?? 0}`} className="dstack">
               <span className="lab" title={p.lotNo}>
                 {p.lotNo}
               </span>
-              {/* The quantity goes under the lot, so a long lot number never hides it. */}
+              {/* The quantity goes under the lot, so a long lot number never hides it; the location after it. */}
               <span className="d2">
                 {qtyText(p.qty)} {d.uomLabel}
                 {expiry ? ` · ED ${formatDate(expiry)}` : ""}
+                {p.locationLabel ? ` · ${p.locationLabel}` : ""}
               </span>
             </span>
           );

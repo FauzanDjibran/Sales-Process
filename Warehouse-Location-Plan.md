@@ -1,7 +1,8 @@
 # Lokasi Gudang — Plan
 
-> Draft 07/10/2026, for the user to agree; L5 and L6 answered 07/10/2026. Nothing is built until the open
-> points (§8) are answered; then it becomes a decision in `Claude-ERP.md` §12.
+> Agreed and **built 07/10/2026** as `Claude-ERP.md` P136. L1–L4 as recommended;
+> L5 and L6 as the user answered (§8); Gudang and Lokasi are separate columns in
+> the reports (§6).
 
 ## 1. The request
 
@@ -126,20 +127,19 @@ location warehouse without a location.
 ## 6. Reports
 
 **Location is a column inside the grouping (L5)**, not a grouping of its own.
-The blocks and rows stay as P135 built them (item × warehouse cards); the
-location sits on the detail rows, read as `GD-CKR-A-01-03` (§3), and `—` for a
-warehouse without locations.
+The blocks and rows stay as P135 built them (item × warehouse cards). **In the
+reports, Gudang and Lokasi are two separate columns** (the user, 07/10/2026):
+the Gudang column shows the warehouse label, the Lokasi column the location's
+own label (`A-01-03`) with its name as a sub-line, and `—` for a warehouse
+without locations. (The composed `GD-CKR-A-01-03` of §3 is for pickers and
+documents, where the location stands alone.)
 
-- **Saldo Stok, Per Barang** — block = item, row = warehouse; the folded rows
-  under a warehouse are its buckets with columns **Lokasi · Lot · Kadaluarsa ·
-  Jumlah**, sorted by location, then expiry. A lot spread over two locations
-  is two rows.
-- **Saldo Stok, Per Gudang** — block = warehouse, row = item; the folded rows
-  under an item carry the same columns, the **Lokasi** column reading
-  *warehouse-then-location* (`GD-CKR-A-01-03`).
-- **Kartu Stok** (both groupings) — each movement gets a **Lokasi** column
-  between Entri and Lot. The running balance stays per item × warehouse
-  (P135).
+- **Saldo Stok** (both groupings) — the folded rows under a card are its
+  buckets with columns **Gudang · Lokasi · Lot · Kadaluarsa · Jumlah**, sorted
+  by location, then expiry. A lot spread over two locations is two rows.
+- **Kartu Stok** (both groupings) — each movement gets **Gudang · Lokasi**
+  columns between Entri and Lot. The running balance stays per item ×
+  warehouse (P135).
 - No *Per Lokasi* grouping in Kelompok.
 - Kartu Nilai Persediaan and Nilai Persediaan: unchanged.
 

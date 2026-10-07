@@ -43,6 +43,7 @@ import {
   checkItemCollections,
   writeItemCollections,
 } from "@/lib/erp/item";
+import { checkWarehouseCollections, writeWarehouseCollections } from "@/lib/erp/warehouse";
 import type { Prisma } from "@/generated/prisma/client";
 import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-rules";
 import { categoriesUsingAccount } from "@/lib/erp/item-account";
@@ -518,7 +519,7 @@ type CollectionWriter = (
 
 /**
  * The collections a record owns and saves with itself — a Partner's addresses
- * and contacts, an Item's unit conversions — checked, with their problems
+ * and contacts, an Item's unit conversions, a Gudang's locations — checked, with their problems
  * added to `errors`. Returns the writer to run inside the save's transaction,
  * or null for an entity that owns none.
  */
@@ -537,6 +538,11 @@ async function ownCollections(
     const checked = await checkItemCollections(values, id);
     Object.assign(errors, checked.errors);
     return (tx, recordId, actorId) => writeItemCollections(tx, recordId, checked.clean, actorId);
+  }
+  if (entity.key === "ref_warehouse") {
+    const checked = await checkWarehouseCollections(values, id);
+    Object.assign(errors, checked.errors);
+    return (tx, recordId, actorId) => writeWarehouseCollections(tx, recordId, checked.clean, actorId);
   }
   return null;
 }

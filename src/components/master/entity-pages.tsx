@@ -20,6 +20,7 @@ import {
 import { cashBankBookSummary } from "@/lib/erp/cash-bank";
 import { partnerCollections } from "@/lib/erp/partner";
 import { itemCollections } from "@/lib/erp/item";
+import { warehouseCollections } from "@/lib/erp/warehouse";
 import { fiscalYearPeriods } from "@/lib/erp/fiscal";
 import { baseCurrencyId } from "@/lib/erp/system-settings";
 import {
@@ -40,7 +41,7 @@ import { EntityList } from "@/components/master/entity-list";
  */
 /**
  * What an entity's `custom` tabs start with: a Partner's addresses and contact
- * persons, an Item's unit conversions — read in the shape the form edits them.
+ * persons, an Item's unit conversions, a Gudang's locations — read in the shape the form edits them.
  */
 async function collectionsOf(
   entity: Entity,
@@ -53,6 +54,10 @@ async function collectionsOf(
   if (entity.key === "m_item") {
     if (id == null) return { uoms: [] };
     return itemCollections(id);
+  }
+  if (entity.key === "ref_warehouse") {
+    if (id == null) return { locations: [] };
+    return warehouseCollections(id);
   }
   return undefined;
 }

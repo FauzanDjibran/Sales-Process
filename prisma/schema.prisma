@@ -653,6 +653,10 @@ model RefWarehouse {
   warehouse_code  String       @unique
   warehouse_label String
   warehouse_name  String
+  /// Gunakan Lokasi: when on, every stock row in this warehouse names one of
+  /// its locations; when off, the location is null. Changed only while the
+  /// warehouse holds no stock and no Draft note names it.
+  use_location    Boolean      @default(false)
   note            String?
   status          ActiveStatus @default(Active)
 
@@ -661,16 +665,42 @@ model RefWarehouse {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
+  locations         RefWarehouseLocation[]
   /// The Delivery Orders that send goods out of this warehouse.
   delivery_orders   SalDeliveryOrder[]
   delivery_notes    LogDeliveryNote[]
   stock_ledger      LogStockLedger[]
   stock_balances    LogStockBalance[]
   purchase_requests PurRequest[]
-  purchase_orders   PurOrder[]         @relation("PurOrderWarehouse")
-  receipt_notes     LogReceiptNote[]   @relation("ReceiptNoteWarehouse")
+  purchase_orders   PurOrder[]             @relation("PurOrderWarehouse")
+  receipt_notes     LogReceiptNote[]       @relation("ReceiptNoteWarehouse")
 
   @@map("ref_warehouse")
+}
+
+/// A place inside a warehouse that keeps stock by location (Gunakan Lokasi).
+/// Its label is unique within its warehouse and shown as
+/// <warehouse label>-<location label>. Never deleted; deactivated instead.
+model RefWarehouseLocation {
+  id             Int          @id @default(autoincrement())
+  warehouse_id   Int
+  location_code  String       @unique
+  location_label String
+  location_name  String
+  note           String?
+  status         ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  warehouse      RefWarehouse      @relation(fields: [warehouse_id], references: [id])
+  stock_ledger   LogStockLedger[]
+  stock_balances LogStockBalance[]
+
+  @@unique([warehouse_id, location_label])
+  @@map("ref_warehouse_location")
 }
 
 /// Jenis PPh — an income tax a customer withholds from what it pays (PPh 22,
@@ -1856,6 +1886,8 @@ model LogDeliveryNoteLot {
   delivery_note_line_id Int
   pick_no               Int
   lot_id                Int
+  /// The location it is taken from, in a warehouse with Gunakan Lokasi.
+  location_id           Int?
   lot_no                String
   expiry_date           DateTime? @db.Date
   /// In the line's unit.
@@ -1867,7 +1899,9 @@ model LogDeliveryNoteLot {
   line LogDeliveryNoteLine @relation(fields: [delivery_note_line_id], references: [id])
 
   @@unique([delivery_note_line_id, pick_no])
-  @@unique([delivery_note_line_id, lot_id])
+  /// A pick is a lot in a location: unique on (line, lot, location) NULLS NOT
+  /// DISTINCT, the NULLS NOT DISTINCT added in the migration by hand.
+  @@unique([delivery_note_line_id, lot_id, location_id], map: "log_delivery_note_lot_pick_key")
   @@index([lot_id])
   @@map("log_delivery_note_lot")
 }
@@ -2088,6 +2122,8 @@ model LogStockLedger {
   source_doc_id      Int
   source_no          String
   warehouse_id       Int
+  /// Required in a warehouse with Gunakan Lokasi, null otherwise.
+  location_id        Int?
   tracking_id        Int
   item_id            Int
   /// The item's base unit.
@@ -2101,12 +2137,13 @@ model LogStockLedger {
   created_by         Int
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
-  source_doc_type SysDocType       @relation("StockLedgerSource", fields: [source_doc_type_id], references: [id])
-  warehouse       RefWarehouse     @relation(fields: [warehouse_id], references: [id])
-  tracking        LogStockTracking @relation(fields: [tracking_id], references: [id])
-  item            MItem            @relation(fields: [item_id], references: [id])
-  uom             RefUom           @relation("StockLedgerUom", fields: [uom_id], references: [id])
-  stock_status    SysStockStatus   @relation(fields: [stock_status_id], references: [id])
+  source_doc_type SysDocType            @relation("StockLedgerSource", fields: [source_doc_type_id], references: [id])
+  warehouse       RefWarehouse          @relation(fields: [warehouse_id], references: [id])
+  location        RefWarehouseLocation? @relation(fields: [location_id], references: [id], onDelete: Restrict)
+  tracking        LogStockTracking      @relation(fields: [tracking_id], references: [id])
+  item            MItem                 @relation(fields: [item_id], references: [id])
+  uom             RefUom                @relation("StockLedgerUom", fields: [uom_id], references: [id])
+  stock_status    SysStockStatus        @relation(fields: [stock_status_id], references: [id])
 
   @@unique([ledger_no, line_no])
   @@index([item_id, warehouse_id, posting_date])
@@ -2121,6 +2158,8 @@ model LogStockLedger {
 model LogStockBalance {
   id              Int      @id @default(autoincrement())
   warehouse_id    Int
+  /// Required in a warehouse with Gunakan Lokasi, null otherwise.
+  location_id     Int?
   tracking_id     Int
   item_id         Int
   uom_id          Int
@@ -2131,13 +2170,17 @@ model LogStockBalance {
   created_at      DateTime @default(now()) @db.Timestamptz(6)
   updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  warehouse    RefWarehouse     @relation(fields: [warehouse_id], references: [id])
-  tracking     LogStockTracking @relation(fields: [tracking_id], references: [id])
-  item         MItem            @relation(fields: [item_id], references: [id])
-  uom          RefUom           @relation("StockBalanceUom", fields: [uom_id], references: [id])
-  stock_status SysStockStatus   @relation(fields: [stock_status_id], references: [id])
+  warehouse    RefWarehouse          @relation(fields: [warehouse_id], references: [id])
+  location     RefWarehouseLocation? @relation(fields: [location_id], references: [id], onDelete: Restrict)
+  tracking     LogStockTracking      @relation(fields: [tracking_id], references: [id])
+  item         MItem                 @relation(fields: [item_id], references: [id])
+  uom          RefUom                @relation("StockBalanceUom", fields: [uom_id], references: [id])
+  stock_status SysStockStatus        @relation(fields: [stock_status_id], references: [id])
 
-  @@unique([warehouse_id, tracking_id, stock_status_id])
+  /// The bucket is unique on (warehouse_id, location_id, tracking_id,
+  /// stock_status_id) NULLS NOT DISTINCT: Prisma declares the key, and the
+  /// migration adds NULLS NOT DISTINCT by hand, which Prisma cannot express.
+  @@unique([warehouse_id, location_id, tracking_id, stock_status_id], map: "log_stock_balance_bucket_key")
   @@index([item_id, warehouse_id])
   @@map("log_stock_balance")
 }
@@ -2959,6 +3002,9 @@ model LogReceiptNoteLot {
   value_amount Decimal   @default(0) @db.Decimal(18, 2)
   /// The stock lot it became, set at Posting (weak: the inventory's table).
   tracking_id  Int?
+  /// Where it is put, in a warehouse with Gunakan Lokasi (weak: a master the
+  /// inventory checks at Posting).
+  location_id  Int?
 
   line LogReceiptNoteLine @relation(fields: [line_id], references: [id], onDelete: Cascade)
 

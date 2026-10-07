@@ -8,7 +8,7 @@ import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { lockPurchaseOrder, receiptNoteSources, recordPurchaseOrderReceived, type ReceiptNoteSource } from "./purchase-order";
-import { InventoryRefusal, receiveStock } from "./inventory";
+import { InventoryRefusal, receiveStock, warehouseLocationOptions, type WarehouseLocationOption } from "./inventory";
 import { fallbackAccounts } from "./system-settings";
 import { accountsForItems } from "./item-account";
 import {
@@ -51,7 +51,8 @@ export type ReceiptNoteHeaderInput = {
   note: string;
 };
 
-export type ReceiptNoteLotInput = { lot_no: string; expiry_date: string; qty: number | string };
+/** One lot a line comes in as — and, in a warehouse with Gunakan Lokasi, where it is put. */
+export type ReceiptNoteLotInput = { lot_no: string; expiry_date: string; location_id?: number | null; qty: number | string };
 
 export type ReceiptNoteLineInput = {
   source_doc_line_id: number | null;
@@ -101,7 +102,15 @@ export type RnSourceOption = Omit<ReceiptNoteSource, "lines"> & { lines: RnSourc
 
 export type ReceiptNoteOptions = {
   orders: RnSourceOption[];
-  warehouses: { id: number; label: string; name: string; active: boolean }[];
+  warehouses: {
+    id: number;
+    label: string;
+    name: string;
+    active: boolean;
+    /** Gunakan Lokasi: each lot row names one of `locations`. */
+    useLocation: boolean;
+    locations: WarehouseLocationOption[];
+  }[];
 };
 
 async function sourceOptions(db: Db, filter: { ids?: number[]; openOnly?: boolean }, exceptId: number | null): Promise<RnSourceOption[]> {
@@ -118,15 +127,26 @@ export async function receiptNoteOptions(current: { id: number; sourceId: number
       : sourceOptions(prisma, { openOnly: true }, null).then((os) => os.filter((o) => o.lines.some((l) => units(l.qty) > units(l.held)))),
     prisma.refWarehouse.findMany({ orderBy: { warehouse_label: "asc" } }),
   ]);
+  const locations = await warehouseLocationOptions(warehouses.filter((w) => w.use_location).map((w) => w.id));
   return {
     orders,
-    warehouses: warehouses.map((w) => ({ id: w.id, label: w.warehouse_label, name: w.warehouse_name, active: w.status === "Active" })),
+    warehouses: warehouses.map((w) => ({
+      id: w.id,
+      label: w.warehouse_label,
+      name: w.warehouse_name,
+      active: w.status === "Active",
+      useLocation: w.use_location,
+      locations: locations.get(w.id) ?? [],
+    })),
   };
 }
 
 // ------------------------------------------------------------- validation
 
-type CheckedLot = { lot_seq: number; lot_no: string | null; expiry_date: Date | null; qty: number };
+type CheckedLot = { lot_seq: number; lot_no: string | null; expiry_date: Date | null; location_id: number | null; qty: number };
+
+/** Where a receipt's lots may be put: nothing to choose, or one of the warehouse's locations. */
+type Place = { useLocation: boolean; locations: Map<number, WarehouseLocationOption> };
 type CheckedLine = {
   line_no: number;
   source_doc_line_id: number;
@@ -181,12 +201,17 @@ export async function checkReceiptNote(
 
   // A Barang receipt names where the goods come in; a Jasa receipt has none.
   let warehouseId: number | null = null;
+  const place: Place = { useLocation: false, locations: new Map() };
   if (source?.itemType === "Barang") {
     warehouseId = Number(header.warehouse_id) || null;
     if (!warehouseId) errors.warehouse_id = "Pilih Gudang.";
     else {
-      const w = await db.refWarehouse.findUnique({ where: { id: warehouseId }, select: { status: true } });
+      const w = await db.refWarehouse.findUnique({ where: { id: warehouseId }, select: { status: true, use_location: true } });
       if (!w || w.status !== "Active") errors.warehouse_id = "Gudang tidak ditemukan atau nonaktif.";
+      else if (w.use_location) {
+        place.useLocation = true;
+        place.locations = new Map((await warehouseLocationOptions([warehouseId], db)).get(warehouseId)?.map((l) => [l.id, l]) ?? []);
+      }
     }
   }
 
@@ -222,7 +247,7 @@ export async function checkReceiptNote(
       errors[lineKey(i, "qty")] = `Melebihi sisa Purchase Order (${qtyText(left)} ${po.uomLabel}).`;
       continue;
     }
-    const lots = checkLots(l.lots, po, fromUnits(units(qty)), forPosting);
+    const lots = checkLots(l.lots, po, fromUnits(units(qty)), place, forPosting);
     if (!lots.ok) {
       errors[lineKey(i, "lots")] = lots.error;
       continue;
@@ -264,13 +289,17 @@ export async function checkReceiptNote(
 
 /**
  * A line's lots (B19). A Kelola Stok line comes in as one or more lots, each
- * once, each more than 0, an expiry where the item has one; together never
- * more than the line, and to be posted exactly the line. Any other line takes none.
+ * more than 0, an expiry where the item has one; together never more than the
+ * line, and to be posted exactly the line. Any other line takes none. In a
+ * warehouse with Gunakan Lokasi each lot row names one of its active locations
+ * (a Draft may leave it empty; posting may not), and one lot may be split over
+ * several locations, once in each.
  */
 function checkLots(
   raw: ReceiptNoteLotInput[] | undefined,
   line: RnSourceLine,
   lineQty: number,
+  place: Place,
   forPosting: boolean
 ): { ok: true; lots: CheckedLot[] } | { ok: false; error: string } {
   const list = Array.isArray(raw) ? raw : [];
@@ -280,8 +309,15 @@ function checkLots(
   let total = 0;
   for (const p of list) {
     const lotNo = String(p.lot_no ?? "").trim().toUpperCase() || null;
-    if (lotNo && seen.has(lotNo)) return { ok: false, error: `Lot ${lotNo} diisi lebih dari sekali.` };
-    if (lotNo) seen.add(lotNo);
+    const locationId = Number(p.location_id) || null;
+    const location = locationId ? place.locations.get(locationId) : undefined;
+    if (!place.useLocation && locationId) return { ok: false, error: "Gudang ini tidak memakai lokasi." };
+    if (locationId && !location) return { ok: false, error: "Lokasi tidak ada di gudang ini. Pilih ulang lokasinya." };
+    if (location && !location.active) return { ok: false, error: `Lokasi ${location.label} nonaktif.` };
+    if (place.useLocation && !locationId && forPosting) return { ok: false, error: `${line.itemLabel}: pilih lokasi setiap lot.` };
+    const key = `${lotNo}:${locationId ?? 0}`;
+    if (lotNo && seen.has(key)) return { ok: false, error: `Lot ${lotNo}${location ? ` di ${location.label}` : ""} diisi lebih dari sekali.` };
+    if (lotNo) seen.add(key);
     const qty = num(p.qty);
     if (!Number.isFinite(qty) || !(qty > 0)) return { ok: false, error: "Isi jumlah setiap lot lebih dari 0." };
     if (Math.abs(qty * QTY_SCALE - units(qty)) > 1e-6) return { ok: false, error: "Jumlah lot paling banyak 4 angka desimal." };
@@ -289,7 +325,7 @@ function checkLots(
     if (expiry && !DAY.test(expiry)) return { ok: false, error: "Tanggal kadaluarsa tidak valid." };
     if (line.hasExpiry && !expiry && forPosting) return { ok: false, error: `${line.itemLabel} memiliki kadaluarsa: isi tanggal kadaluarsa setiap lot.` };
     total += units(qty);
-    lots.push({ lot_seq: lots.length + 1, lot_no: lotNo, expiry_date: expiry ? asDate(expiry) : null, qty: fromUnits(units(qty)) });
+    lots.push({ lot_seq: lots.length + 1, lot_no: lotNo, expiry_date: expiry ? asDate(expiry) : null, location_id: locationId, qty: fromUnits(units(qty)) });
   }
   if (total > units(lineQty)) return { ok: false, error: `Jumlah lot (${qtyText(fromUnits(total))}) melebihi Qty baris (${qtyText(lineQty)} ${line.uomLabel}).` };
   if (forPosting && total !== units(lineQty)) {
@@ -393,7 +429,7 @@ function asInput(n: StoredNote): { header: ReceiptNoteHeaderInput; lines: Receip
         source_doc_line_id: l.source_doc_line_id,
         qty: l.qty.toNumber(),
         note: l.note ?? "",
-        lots: l.lots.map((p) => ({ lot_no: p.lot_no ?? "", expiry_date: isoDay(p.expiry_date), qty: p.qty.toNumber() })),
+        lots: l.lots.map((p) => ({ lot_no: p.lot_no ?? "", expiry_date: isoDay(p.expiry_date), location_id: p.location_id, qty: p.qty.toNumber() })),
       })),
   };
 }
@@ -509,6 +545,7 @@ export async function transitionReceiptNote(
             const inn = await receiveStock(tx, {
               itemId: line.item_id,
               warehouseId: r.c.data.warehouse_id!,
+              locationId: lot.location_id,
               lotNo,
               expiry: lot.expiry_date,
               baseQty,
@@ -650,6 +687,21 @@ export async function getReceiptNote(id: number): Promise<ReceiptNoteView | null
     journalNo,
     cancelReason: n.cancel_reason,
   };
+}
+
+/**
+ * For the Gudang master (Gunakan Lokasi): how many Draft Receipt Notes bring
+ * goods into the warehouse, and which of the locations named a lot row of any
+ * note puts goods in.
+ */
+export async function receiptNoteLocationUse(warehouseId: number, locationIds: number[]): Promise<{ drafts: number; named: Set<number> }> {
+  const [drafts, named] = await Promise.all([
+    prisma.logReceiptNote.count({ where: { warehouse_id: warehouseId, status: "Draft" } }),
+    locationIds.length
+      ? prisma.logReceiptNoteLot.findMany({ where: { location_id: { in: locationIds } }, distinct: ["location_id"], select: { location_id: true } })
+      : [],
+  ]);
+  return { drafts, named: new Set(named.flatMap((r) => (r.location_id ? [r.location_id] : []))) };
 }
 
 export async function receiptNoteNumbersByIds(ids: number[]): Promise<Map<number, string>> {

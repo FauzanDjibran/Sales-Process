@@ -194,6 +194,9 @@ describe("the dependency graph points one way", () => {
       // would not be liftable; a book that imports arithmetic still is.
       "fx",
       "currency",
+      // How a warehouse location reads and the key of a lot in one: pure string
+      // functions, shared by the inventory book and the forms that pick from it.
+      "warehouse-location",
     ];
     const BOOKS = ["cash-bank", "journal", "ar-item", "ap-item", "inventory"];
 

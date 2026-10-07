@@ -6,17 +6,20 @@ import { Dialog } from "@/components/ui/dialog";
 import { MoneyInput } from "@/components/ui/money-input";
 import type { DnSourceLine } from "@/lib/erp/delivery-note";
 import type { LotOption } from "@/lib/erp/inventory";
+import { lotKey } from "@/lib/erp/warehouse-location";
 import { formatDate, formatNumber } from "@/lib/format";
 
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 const SCALE = 10_000;
 const units = (v: string | number) => Math.round((Number(String(v).replace(",", ".")) || 0) * SCALE);
 
-export type LotPick = { lot_id: number; qty: string };
+/** A lot in a location (`location_id` null where the warehouse keeps none). */
+export type LotPick = { lot_id: number; location_id: number | null; qty: string };
 
 /**
  * The stock picking of one Delivery Note line (U15, P120): the item's lots
- * with stock in the note's warehouse, earliest expiry first, each with what is
+ * with stock in the note's warehouse — each lot in each location that holds it,
+ * where the warehouse keeps locations — earliest expiry first, each with what is
  * available and the quantity taken from it. Together they may not pass the
  * line's quantity; a Draft may be picked in part, Posting needs it whole, and
  * the stock must still be there when it posts. *Isi FEFO* fills the rest lot
@@ -40,15 +43,16 @@ export function DeliveryNoteLotPicker({
   onApply: (picks: LotPick[]) => void;
   onClose: () => void;
 }) {
-  const [qty, setQty] = useState<Record<number, string>>(() =>
-    Object.fromEntries(current.map((p) => [p.lot_id, p.qty]))
+  const [qty, setQty] = useState<Record<string, string>>(() =>
+    Object.fromEntries(current.map((p) => [lotKey(p.lot_id, p.location_id), p.qty]))
   );
-  const shown = lots.filter((l) => l.active || qty[l.id] !== undefined);
-  const total = shown.reduce((s, l) => s + units(qty[l.id] ?? 0), 0);
+  const shown = lots.filter((l) => l.active || qty[l.key] !== undefined);
+  const total = shown.reduce((s, l) => s + units(qty[l.key] ?? 0), 0);
   const target = units(lineQty);
   const over = total > target;
   const firstActive = shown.find((l) => l.active);
-  const short = (l: LotOption) => units(qty[l.id] ?? 0) > units(l.available);
+  const located = shown.some((l) => l.locationId);
+  const short = (l: LotOption) => units(qty[l.key] ?? 0) > units(l.available);
 
   const fillFefo = () => {
     let rest = target - total;
@@ -56,10 +60,10 @@ export function DeliveryNoteLotPicker({
     const next = { ...qty };
     for (const l of shown) {
       if (rest <= 0) break;
-      const room = units(l.available) - units(next[l.id] ?? 0);
+      const room = units(l.available) - units(next[l.key] ?? 0);
       if (room <= 0) continue;
       const take = Math.min(room, rest);
-      next[l.id] = String((units(next[l.id] ?? 0) + take) / SCALE);
+      next[l.key] = String((units(next[l.key] ?? 0) + take) / SCALE);
       rest -= take;
     }
     setQty(next);
@@ -67,7 +71,7 @@ export function DeliveryNoteLotPicker({
 
   const apply = () =>
     onApply(
-      shown.flatMap((l) => (units(qty[l.id] ?? 0) > 0 ? [{ lot_id: l.id, qty: String(units(qty[l.id]) / SCALE) }] : []))
+      shown.flatMap((l) => (units(qty[l.key] ?? 0) > 0 ? [{ lot_id: l.id, location_id: l.locationId, qty: String(units(qty[l.key]) / SCALE) }] : []))
     );
 
   return (
@@ -115,6 +119,7 @@ export function DeliveryNoteLotPicker({
             <table className="grid ltab" style={{ minWidth: 700 }}>
               <thead>
                 <tr>
+                  {located && <th style={{ width: 170 }}>Lokasi</th>}
                   <th>No. Lot</th>
                   <th style={{ width: 150 }}>Kadaluarsa</th>
                   <th className="num" style={{ width: 120 }}>Tersedia</th>
@@ -125,7 +130,13 @@ export function DeliveryNoteLotPicker({
                 {shown.map((l) => {
                   const expired = Boolean(l.expiry && shipDate && l.expiry < shipDate);
                   return (
-                    <tr key={l.id}>
+                    <tr key={l.key}>
+                      {located && (
+                        <td>
+                          <span className="lab">{l.locationLabel}</span>
+                          {l.locationName && <span className="rsub">{l.locationName}</span>}
+                        </td>
+                      )}
                       <td>
                         <span className="lab">{l.lotNo}</span>
                         {!l.active && <span className="bdg s-mute" style={{ marginLeft: 6 }}>Habis</span>}
@@ -142,10 +153,10 @@ export function DeliveryNoteLotPicker({
                           <MoneyInput
                             size="sm"
                             decimals={4}
-                            value={qty[l.id] ?? ""}
-                            over={(over && units(qty[l.id] ?? 0) > 0) || short(l)}
-                            ariaLabel={`Qty lot ${l.lotNo}`}
-                            onChange={(v) => setQty((q) => ({ ...q, [l.id]: v }))}
+                            value={qty[l.key] ?? ""}
+                            over={(over && units(qty[l.key] ?? 0) > 0) || short(l)}
+                            ariaLabel={`Qty lot ${l.lotNo}${l.locationLabel ? ` di ${l.locationLabel}` : ""}`}
+                            onChange={(v) => setQty((q) => ({ ...q, [l.key]: v }))}
                           />
                           <span className="qu">{line.uomLabel}</span>
                         </div>

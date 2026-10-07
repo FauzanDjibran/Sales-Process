@@ -13,6 +13,9 @@
  *
  *   item       the item's Label or Kode (must be a Barang with Kelola Stok)
  *   warehouse  the Gudang's Label or Kode
+ *   location   the location's Label or Kode within that Gudang — required for a
+ *              Gudang with Gunakan Lokasi, empty for any other. The column may
+ *              be left out of a file that names no such Gudang.
  *   lot        lot number; an existing lot of the item is added to
  *   expiry     YYYY-MM-DD or DD/MM/YYYY; required for Memiliki Kadaluarsa
  *   qty        in the item's base unit, `.` decimals, up to 6
@@ -59,9 +62,12 @@ async function main() {
   const missing = COLUMNS.filter((c) => at[c] < 0);
   if (missing.length) die(`Kolom tidak ada: ${missing.join(", ")}. Judul yang dibutuhkan: ${COLUMNS.join(sep)}`);
 
-  const [items, warehouses, sistem] = await Promise.all([
+  const locationAt = head.indexOf("location");
+
+  const [items, warehouses, locations, sistem] = await Promise.all([
     prisma.mItem.findMany({ select: { id: true, item_code: true, item_label: true } }),
     prisma.refWarehouse.findMany({ select: { id: true, warehouse_code: true, warehouse_label: true } }),
+    prisma.refWarehouseLocation.findMany({ select: { id: true, warehouse_id: true, location_code: true, location_label: true } }),
     prisma.sysUser.findUnique({ where: { email: "sistem@erp.app" }, select: { id: true } }),
   ]);
   if (!sistem) die("Data sistem belum ada. Jalankan `npm run db:seed` dulu.");
@@ -76,6 +82,15 @@ async function main() {
     whBy.set(w.warehouse_label.toUpperCase(), w.id);
   }
 
+  // A location is named within its warehouse: by its label, its code, or the shown <gudang>-<lokasi>.
+  const locBy = new Map<string, number>();
+  const whLabel = new Map(warehouses.map((w) => [w.id, w.warehouse_label]));
+  for (const l of locations) {
+    for (const k of [l.location_code, l.location_label, `${whLabel.get(l.warehouse_id)}-${l.location_label}`]) {
+      locBy.set(`${l.warehouse_id}:${k.toUpperCase()}`, l.id);
+    }
+  }
+
   const rows: InjectionRow[] = [];
   for (const [n, raw] of lines.slice(1).entries()) {
     const line = n + 2;
@@ -85,13 +100,16 @@ async function main() {
     if (!itemId) die(`Baris ${line}: barang "${get("item")}" tidak ditemukan.`);
     const warehouseId = whBy.get(get("warehouse").toUpperCase());
     if (!warehouseId) die(`Baris ${line}: gudang "${get("warehouse")}" tidak ditemukan.`);
+    const locationText = locationAt >= 0 ? (cell[locationAt] ?? "") : "";
+    const locationId = locationText ? locBy.get(`${warehouseId}:${locationText.toUpperCase()}`) : null;
+    if (locationText && !locationId) die(`Baris ${line}: lokasi "${locationText}" tidak ada di gudang "${get("warehouse")}".`);
     const qty = get("qty");
     const value = get("value");
     if (!/^\d+(\.\d{1,6})?$/.test(qty)) die(`Baris ${line}: qty "${qty}" harus angka, titik desimal, paling banyak 6 desimal.`);
     if (!/^\d+$/.test(value)) die(`Baris ${line}: value "${value}" harus rupiah utuh tanpa pemisah.`);
     const date = parseDate(get("date"), "date", line);
     if (!date) die(`Baris ${line}: date wajib diisi.`);
-    rows.push({ itemId, warehouseId, lotNo: get("lot"), expiry: parseDate(get("expiry"), "expiry", line), qty, value, date });
+    rows.push({ itemId, warehouseId, locationId: locationId ?? null, lotNo: get("lot"), expiry: parseDate(get("expiry"), "expiry", line), qty, value, date });
   }
 
   const total = rows.reduce((s, r) => s + Number(r.value), 0);
