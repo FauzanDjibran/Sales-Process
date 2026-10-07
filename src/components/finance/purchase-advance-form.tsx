@@ -354,7 +354,7 @@ export function PurchaseAdvanceForm({
                   ? ro(
                       <>
                         {(() => {
-                          const paid = payments.filter((p) => p.status === "Posted").reduce((a, p) => a + p.settled, 0);
+                          const paid = advance.paid;
                           const total = advance.figures.total;
                           return (
                             <span className={`bdg ${paid >= total ? "t-ok" : paid > 0 ? "t-info" : "t-warn"}`}>

@@ -9,7 +9,7 @@ import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput
 import { recordCashBankEntry } from "./cash-bank";
 import { ArItemOverdrawn, arItemBalances, createArItem, lockArItems, openInvoiceItemIds, settleArItem } from "./ar-item";
 import { checkAccountIsLeaf } from "./records";
-import { issuedAdvanceTotals, lockSalesAdvances, salesAdvanceNumbersByIds, settlementAdvances } from "./ar-advance";
+import { lockSalesAdvances, recordSalesAdvancePaid, salesAdvanceNumbersByIds, settlementAdvances, unpaidAdvanceIds } from "./ar-advance";
 import { invoiceNumbersByIds, settlementInvoices } from "./ar-invoice";
 import {
   cashToClear,
@@ -68,10 +68,13 @@ import { formatMoney } from "@/lib/format";
  * Usaha for all it settles and records *Pembayaran* on the Invoice's Invoice
  * AR item, whose balance is what the Invoice still asks for (U23).
  *
- * Dependencies point one way (§3.1): this module reads the advance through
- * `ar-advance.ts` and the Invoice through `ar-invoice.ts`; the advance
- * learns what was paid through `settledByDocuments` here, composed by the
- * action or page that needs both.
+ * **A receipt never reads another receipt** (P132). What a bill has been paid
+ * before is the bill's own record — an advance bill's `paid_amount`, an
+ * Invoice's AR item balance — and posting adds to it. So each receipt stands
+ * on its own document's state, not on the receipts before it.
+ *
+ * Dependencies point one way (§3.1): this module reads and writes the advance
+ * through `ar-advance.ts` and the Invoice through `ar-invoice.ts` / `ar-item.ts`.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -117,31 +120,6 @@ async function docTypeId(db: Db, table: string): Promise<number> {
   return row.id;
 }
 
-/**
- * What posted transactions have settled of each document, by id — the one
- * source of a bill's paid state until the open items arrive (C22). `exceptTx`
- * leaves one transaction out, so a Draft being edited does not count itself.
- */
-export async function settledByDocuments(
-  table: string,
-  ids: number[],
-  db: Db = prisma,
-  exceptTx: number | null = null
-): Promise<Map<number, number>> {
-  if (!ids.length) return new Map();
-  const typeId = await docTypeId(db, table);
-  const rows = await db.finCashBankTxLine.groupBy({
-    by: ["doc_id"],
-    where: {
-      doc_type_id: typeId,
-      doc_id: { in: ids },
-      tx: { status: "Posted", ...(exceptTx ? { id: { not: exceptTx } } : {}) },
-    },
-    _sum: { settled_amount: true },
-  });
-  return new Map(rows.map((r) => [r.doc_id, r._sum.settled_amount?.toNumber() ?? 0]));
-}
-
 /** The transactions that name a document, newest first — for its page. */
 export async function settlementsOfDocument(
   table: string,
@@ -161,22 +139,6 @@ export async function settlementsOfDocument(
     settled: r.settled_amount.toNumber(),
     direction: r.tx.direction as CashBankDirection,
   }));
-}
-
-/**
- * Why a document may no longer be cancelled, or null: a posted transaction
- * has settled it, even in part (P66). Handed to the advance's cancellation by
- * the action layer; asked inside its transaction, with the bill locked.
- */
-export async function settledDocumentRefusal(
-  table: string,
-  tx: Prisma.TransactionClient,
-  id: number
-): Promise<string | null> {
-  const paid = (await settledByDocuments(table, [id], tx)).get(id) ?? 0;
-  return paid > 0
-    ? `Tagihan ini sudah dibayar ${money(paid)} melalui Kas & Bank. Sisa yang tidak terpakai dikembalikan, bukan dibatalkan.`
-    : null;
 }
 
 /**
@@ -212,17 +174,9 @@ export type OpenBill = {
 };
 
 
-/** Issued advance bills that posted receipts (other than `exceptTx`) have not paid in full. */
-async function unpaidAdvanceIds(db: Db, exceptTx: number | null): Promise<number[]> {
-  const totals = await issuedAdvanceTotals(db);
-  const paid = await settledByDocuments("fin_ar_advance", totals.map((t) => t.id), db, exceptTx);
-  return totals.filter((t) => (paid.get(t.id) ?? 0) < t.total).map((t) => t.id);
-}
-
 async function openBills(
   db: Db,
-  filter: { advanceIds?: number[]; invoiceIds?: number[]; openOnly?: boolean },
-  exceptTx: number | null
+  filter: { advanceIds?: number[]; invoiceIds?: number[]; openOnly?: boolean }
 ): Promise<OpenBill[]> {
   const wantAdvances = filter.openOnly || (filter.advanceIds?.length ?? 0) > 0;
   const wantInvoices = filter.openOnly || (filter.invoiceIds?.length ?? 0) > 0;
@@ -230,7 +184,7 @@ async function openBills(
     // Only bills not yet paid in full, found from totals and the receipt lines before any is read whole.
     wantAdvances
       ? filter.openOnly
-        ? unpaidAdvanceIds(db, exceptTx).then((ids) => settlementAdvances({ ids }, db))
+        ? unpaidAdvanceIds(db).then((ids) => settlementAdvances({ ids }, db))
         : settlementAdvances({ ids: filter.advanceIds }, db)
       : Promise.resolve([]),
     // Only Invoices whose item still has a balance: a paid one is never offered, so it is never read.
@@ -240,12 +194,12 @@ async function openBills(
         : settlementInvoices({ ids: filter.invoiceIds }, db)
       : Promise.resolve([]),
   ]);
-  const paid = await settledByDocuments("fin_ar_advance", advances.map((b) => b.id), db, exceptTx);
   // An Invoice's open amount is its Invoice item's balance — the book (U23).
   const balances = await arItemBalances(invoices.flatMap((i) => (i.arItemId ? [i.arItemId] : [])), db);
   const out: OpenBill[] = [
+    // An advance bill's open amount is its total less what it records as paid (P132).
     ...advances.map((b) => {
-      const p = paid.get(b.id) ?? 0;
+      const p = b.paid;
       return {
         kind: "fin_ar_advance" as const,
         key: billKey("fin_ar_advance", b.id),
@@ -331,7 +285,7 @@ export async function cashReceiptOptions(
     }),
     prisma.refWithholdingTax.findMany({ select: { id: true, wht_label: true } }),
   ]);
-  const issued = await openBills(prisma, { openOnly: true }, current?.id ?? null);
+  const issued = await openBills(prisma, { openOnly: true });
   const mine = new Set((current?.docs ?? []).map((d) => billKey(d.kind, d.id)));
   const missing = (current?.docs ?? []).filter((d) => !issued.some((b) => b.key === billKey(d.kind, d.id)));
   const own = missing.length
@@ -340,8 +294,7 @@ export async function cashReceiptOptions(
         {
           advanceIds: missing.filter((d) => d.kind === "fin_ar_advance").map((d) => d.id),
           invoiceIds: missing.filter((d) => d.kind === "fin_ar_invoice").map((d) => d.id),
-        },
-        current!.id
+        }
       )
     : [];
   return {
@@ -401,8 +354,7 @@ type Checked = {
  */
 export async function checkCashReceipt(
   db: Db,
-  input: CashReceiptInput,
-  selfId: number | null
+  input: CashReceiptInput
 ): Promise<{ ok: true; c: Checked } | { ok: false; errors: Record<string, string> }> {
   const errors: Record<string, string> = {};
 
@@ -445,7 +397,7 @@ export async function checkCashReceipt(
   const kindOf = (l: CashReceiptLineInput): SettledDocKind => (l.doc_type === "fin_ar_invoice" ? "fin_ar_invoice" : "fin_ar_advance");
   const idsOf = (kind: SettledDocKind) => raw.filter((l) => kindOf(l) === kind).map((l) => Number(l.doc_id)).filter(Boolean);
   const bills = new Map(
-    (await openBills(db, { advanceIds: idsOf("fin_ar_advance"), invoiceIds: idsOf("fin_ar_invoice") }, selfId)).map((b) => [b.key, b])
+    (await openBills(db, { advanceIds: idsOf("fin_ar_advance"), invoiceIds: idsOf("fin_ar_invoice") })).map((b) => [b.key, b])
   );
   const seen = new Set<string>();
   for (const [i, l] of raw.entries()) {
@@ -602,7 +554,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
 }
 
 export async function createCashReceipt(input: CashReceiptInput, actorId: number): Promise<CashReceiptResult> {
-  const r = await checkCashReceipt(prisma, input, null);
+  const r = await checkCashReceipt(prisma, input);
   if (!r.ok) return r;
   const made = await prisma.$transaction(async (tx) => {
     const typeIds = await kindTypeIds(tx);
@@ -629,7 +581,7 @@ export async function updateCashReceipt(id: number, input: CashReceiptInput, act
   if (input.purpose !== current.purpose) {
     return { ok: false, errors: { purpose: "Tujuan tidak dapat diganti. Buat penerimaan baru untuk tujuan lain." } };
   }
-  const r = await checkCashReceipt(prisma, input, id);
+  const r = await checkCashReceipt(prisma, input);
   if (!r.ok) return r;
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
@@ -900,7 +852,7 @@ export async function transitionCashReceipt(
       if (invoiceIds.length) {
         await lockArItems(tx, (await settlementInvoices({ ids: invoiceIds }, tx)).flatMap((i) => (i.arItemId ? [i.arItemId] : [])));
       }
-      const r = await checkCashReceipt(tx, stored, id);
+      const r = await checkCashReceipt(tx, stored);
       if (!r.ok) throw new Refused({ _form: `Belum bisa diposting: ${Object.values(r.errors)[0]}` });
       const posting = await buildPosting(tx, r.c, t.partner.partner_name);
       if (!posting.ok) throw new Refused({ _form: posting.message });
@@ -957,6 +909,11 @@ export async function transitionCashReceipt(
       await tx.finCashBankTxLine.deleteMany({ where: { tx_id: id } });
       for (const line of lineRows(typeIds, r.c.lines, actorId)) {
         await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
+      }
+      // Each advance bill records what this receipt settled of it (P132): the
+      // next receipt reads that as its `before`, not this receipt.
+      for (const l of r.c.lines) {
+        if (l.kind === "fin_ar_advance") await recordSalesAdvancePaid(tx, l.docId, l.settled);
       }
       // Each bill paid is an Uang Muka the customer now holds (P73): one AR
       // item per bill, at the DPP part the Uang Muka account was credited
@@ -1167,7 +1124,7 @@ export async function receiptTaxBasis(db: Db, id: number): Promise<ReceiptTaxBas
   const idsOf = (kind: SettledDocKind) => t.lines.filter((l) => l.doc_type.doc_table === kind).map((l) => l.doc_id);
   const [advances, bills] = await Promise.all([
     settlementAdvances({ ids: idsOf("fin_ar_advance") }, db),
-    openBills(db, { advanceIds: idsOf("fin_ar_advance"), invoiceIds: idsOf("fin_ar_invoice") }, null),
+    openBills(db, { advanceIds: idsOf("fin_ar_advance"), invoiceIds: idsOf("fin_ar_invoice") }),
   ]);
   const advanceById = new Map(advances.map((a) => [a.id, a]));
   const billByKey = new Map(bills.map((b) => [b.key, b]));

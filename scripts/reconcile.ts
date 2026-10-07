@@ -31,7 +31,8 @@
  *   tax        each posted taxable event made its faktur, each PPh row its slip,
  *              at the same figures; PPN Keluaran and PPh Dibayar Dimuka in the
  *              GL equal the tax records
- *   advance    no bill is paid beyond its total; a cancelled bill has no payment
+ *   advance    a bill's paid amount equals its posted lines, within its total;
+ *              a cancelled bill has no payment
  *   ap         AP items equal their entries and Hutang Usaha / Uang Muka
  *              Pembelian per supplier; GR/IR equals receipts less invoices; PO
  *              received quantity equals posted receipts; a receipt line billed once
@@ -403,11 +404,14 @@ export const CHECKS: Check[] = [
   // ------------------------------------------------------------- advance
   {
     area: "advance",
-    name: "no bill is paid beyond its total; a cancelled or unissued bill has no payment",
-    sql: `SELECT a.advance_no, a.status::text, a.total_amount, SUM(l.settled_amount) AS paid
-          FROM fin_ar_advance a JOIN fin_cash_bank_tx_line l ON l.doc_type_id = ${docType("fin_ar_advance")} AND l.doc_id = a.id
-          JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
-          GROUP BY a.id HAVING SUM(l.settled_amount) > a.total_amount OR a.status <> 'Issued'`,
+    name: "each bill's paid amount equals its posted receipt lines, within its total; a cancelled or unissued bill has no payment (P132)",
+    sql: `SELECT a.advance_no, a.status::text, a.total_amount, a.paid_amount, COALESCE(p.paid, 0) AS lines
+          FROM fin_ar_advance a
+          LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid
+                     FROM fin_cash_bank_tx_line l JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+                     WHERE l.doc_type_id = ${docType("fin_ar_advance")} GROUP BY l.doc_id) p ON p.doc_id = a.id
+          WHERE a.paid_amount <> COALESCE(p.paid, 0) OR a.paid_amount > a.total_amount
+             OR (a.paid_amount > 0 AND a.status <> 'Issued')`,
   },
   {
     area: "tax",
@@ -470,11 +474,14 @@ export const CHECKS: Check[] = [
   },
   {
     area: "ap",
-    name: "no AP advance bill is paid beyond its total; a cancelled or unrecorded bill has no payment (P127)",
-    sql: `SELECT a.advance_no, a.status::text, a.total_amount, SUM(l.settled_amount) AS paid
-          FROM fin_ap_advance a JOIN fin_cash_bank_tx_line l ON l.doc_type_id = ${docType("fin_ap_advance")} AND l.doc_id = a.id
-          JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
-          GROUP BY a.id HAVING SUM(l.settled_amount) > a.total_amount OR a.status <> 'Issued'`,
+    name: "each AP advance bill's paid amount equals its posted payment lines, within its total; a cancelled or unrecorded bill has no payment (P127, P132)",
+    sql: `SELECT a.advance_no, a.status::text, a.total_amount, a.paid_amount, COALESCE(p.paid, 0) AS lines
+          FROM fin_ap_advance a
+          LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid
+                     FROM fin_cash_bank_tx_line l JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+                     WHERE l.doc_type_id = ${docType("fin_ap_advance")} GROUP BY l.doc_id) p ON p.doc_id = a.id
+          WHERE a.paid_amount <> COALESCE(p.paid, 0) OR a.paid_amount > a.total_amount
+             OR (a.paid_amount > 0 AND a.status <> 'Issued')`,
   },
   // --------------------------------------------------------------- books
   {

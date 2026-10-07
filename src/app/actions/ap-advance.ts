@@ -12,7 +12,6 @@ import {
   type PurchaseAdvanceResult,
 } from "@/lib/erp/ap-advance";
 import { PURCHASE_ADVANCE_TRANSITIONS, type AdvanceAction } from "@/lib/erp/ap-advance-workflow";
-import { settledDocumentRefusal } from "@/lib/erp/cash-bank-tx";
 
 /**
  * The AR advance bill's write path. The permission is checked here; every rule
@@ -69,12 +68,8 @@ export async function transitionPurchaseAdvanceAction(
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
   try {
-    // A bill a posted payment has settled is not cancelled (P66). The payment
-    // module answers that; composed here so neither module imports the other
-    // both ways.
-    const result = await transitionPurchaseAdvance(id, action, g.actor.user.id, reason, (tx, billId) =>
-      settledDocumentRefusal("fin_ap_advance", tx, billId)
-    );
+    // A paid bill refuses Batalkan by its own record of what was paid (P132).
+    const result = await transitionPurchaseAdvance(id, action, g.actor.user.id, reason);
     if (!result.ok) return result;
   } catch (error) {
     return { ok: false, errors: { _form: error instanceof Error ? error.message : "Gagal diproses." } };

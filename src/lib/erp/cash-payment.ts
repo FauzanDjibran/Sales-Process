@@ -10,8 +10,7 @@ import { InsufficientFunds, recordCashBankEntry } from "./cash-bank";
 import { ApItemOverdrawn, apItemBalances, createApItem, lockApItems, openApInvoiceItemIds, settleApItem } from "./ap-item";
 import { purchaseInvoiceNumbersByIds, settlementPurchaseInvoices } from "./ap-invoice";
 import { checkAccountIsLeaf } from "./records";
-import { issuedAdvanceTotals, lockPurchaseAdvances, purchaseAdvanceNumbersByIds, settlementAdvances } from "./ap-advance";
-import { settledByDocuments } from "./cash-bank-tx";
+import { lockPurchaseAdvances, purchaseAdvanceNumbersByIds, recordPurchaseAdvancePaid, settlementAdvances, unpaidAdvanceIds } from "./ap-advance";
 import { cashToClear, receivedProblem, settleBillFromCash, type SettlementLine } from "./sales-tax";
 import { postingAccounts } from "./system-settings";
 import { CASH_BANK_PREFIX, cashBankPurpose, paidKey, purposesFor, type CashBankPurpose, type PaidDocKind } from "./cash-bank-purposes";
@@ -93,20 +92,13 @@ export type OpenPayable = {
   open: number;
 };
 
-async function unpaidAdvanceIds(db: Db, exceptTx: number | null): Promise<number[]> {
-  const totals = await issuedAdvanceTotals(db);
-  const paid = await settledByDocuments("fin_ap_advance", totals.map((t) => t.id), db, exceptTx);
-  return totals.filter((t) => (paid.get(t.id) ?? 0) < t.total).map((t) => t.id);
-}
-
 async function openPayables(
   db: Db,
-  filter: { advanceIds?: number[]; invoiceIds?: number[]; openOnly?: boolean },
-  exceptTx: number | null
+  filter: { advanceIds?: number[]; invoiceIds?: number[]; openOnly?: boolean }
 ): Promise<OpenPayable[]> {
   const [advances, invoices] = await Promise.all([
     filter.openOnly
-      ? unpaidAdvanceIds(db, exceptTx).then((ids) => settlementAdvances({ ids }, db))
+      ? unpaidAdvanceIds(db).then((ids) => settlementAdvances({ ids }, db))
       : filter.advanceIds?.length
         ? settlementAdvances({ ids: filter.advanceIds }, db)
         : Promise.resolve([]),
@@ -117,11 +109,11 @@ async function openPayables(
         ? settlementPurchaseInvoices({ ids: filter.invoiceIds }, db)
         : Promise.resolve([]),
   ]);
-  const paid = await settledByDocuments("fin_ap_advance", advances.map((b) => b.id), db, exceptTx);
   const balances = await apItemBalances(invoices.flatMap((i) => (i.apItemId ? [i.apItemId] : [])), db);
   const out: OpenPayable[] = [
+    // An advance bill's open amount is its total less what it records as paid (P132).
     ...advances.map((b) => {
-      const p = paid.get(b.id) ?? 0;
+      const p = b.paid;
       return {
         kind: "fin_ap_advance" as const,
         key: paidKey("fin_ap_advance", b.id),
@@ -191,11 +183,11 @@ export async function cashPaymentOptions(current: { id: number; docs: { kind: Pa
     prisma.mCashBank.findMany({ where: { currency: { currency_label: BASE_CURRENCY_LABEL } }, include: { book_balance: true }, orderBy: { cash_bank_label: "asc" } }),
     prisma.refWithholdingTax.findMany({ select: { id: true, wht_label: true } }),
   ]);
-  const open = await openPayables(prisma, { openOnly: true }, current?.id ?? null);
+  const open = await openPayables(prisma, { openOnly: true });
   const mine = new Set((current?.docs ?? []).map((d) => paidKey(d.kind, d.id)));
   const missing = (current?.docs ?? []).filter((d) => !open.some((b) => b.key === paidKey(d.kind, d.id)));
   const own = missing.length
-    ? await openPayables(prisma, { advanceIds: missing.filter((d) => d.kind === "fin_ap_advance").map((d) => d.id), invoiceIds: missing.filter((d) => d.kind === "fin_ap_invoice").map((d) => d.id) }, current!.id)
+    ? await openPayables(prisma, { advanceIds: missing.filter((d) => d.kind === "fin_ap_advance").map((d) => d.id), invoiceIds: missing.filter((d) => d.kind === "fin_ap_invoice").map((d) => d.id) })
     : [];
   return {
     purposes,
@@ -239,7 +231,7 @@ type Checked = {
 };
 
 /** Every rule a payment must satisfy to be saved — and, run again with the bills locked, to be posted. */
-export async function checkCashPayment(db: Db, input: CashPaymentInput, selfId: number | null): Promise<{ ok: true; c: Checked } | { ok: false; errors: Record<string, string> }> {
+export async function checkCashPayment(db: Db, input: CashPaymentInput): Promise<{ ok: true; c: Checked } | { ok: false; errors: Record<string, string> }> {
   const errors: Record<string, string> = {};
   const purpose = cashBankPurpose(String(input.purpose ?? ""));
   if (!purpose || purpose.direction !== "Out") errors.purpose = "Pilih tujuan pengeluaran.";
@@ -280,8 +272,7 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput, selfId: 
         {
           advanceIds: raw.filter((l) => kindOf(l) === "fin_ap_advance").map((l) => Number(l.doc_id)).filter(Boolean),
           invoiceIds: raw.filter((l) => kindOf(l) === "fin_ap_invoice").map((l) => Number(l.doc_id)).filter(Boolean),
-        },
-        selfId
+        }
       )
     ).map((b) => [b.key, b])
   );
@@ -416,7 +407,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
 }
 
 export async function createCashPayment(input: CashPaymentInput, actorId: number): Promise<CashPaymentResult> {
-  const r = await checkCashPayment(prisma, input, null);
+  const r = await checkCashPayment(prisma, input);
   if (!r.ok) return r;
   const made = await prisma.$transaction(async (tx) => {
     const row = await tx.finCashBankTx.create({
@@ -433,7 +424,7 @@ export async function updateCashPayment(id: number, input: CashPaymentInput, act
   if (!current || current.direction !== "Out") return { ok: false, errors: { _form: "Pengeluaran tidak ditemukan." } };
   if (!cashBankTxIsEditable(current.status as CashBankTxStatus)) return { ok: false, errors: { _form: "Hanya pengeluaran berstatus Draft yang dapat diubah." } };
   if (input.purpose !== current.purpose) return { ok: false, errors: { purpose: "Tujuan tidak dapat diganti. Buat pengeluaran baru untuk tujuan lain." } };
-  const r = await checkCashPayment(prisma, input, id);
+  const r = await checkCashPayment(prisma, input);
   if (!r.ok) return r;
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
@@ -598,7 +589,7 @@ export async function transitionCashPayment(
       await lockPurchaseAdvances(tx, stored.lines.filter((l) => l.doc_type === "fin_ap_advance").map((l) => Number(l.doc_id)));
       const invoiceIds = stored.lines.filter((l) => l.doc_type === "fin_ap_invoice").map((l) => Number(l.doc_id));
       if (invoiceIds.length) await lockApItems(tx, (await settlementPurchaseInvoices({ ids: invoiceIds }, tx)).flatMap((i) => (i.apItemId ? [i.apItemId] : [])));
-      const r = await checkCashPayment(tx, stored, id);
+      const r = await checkCashPayment(tx, stored);
       if (!r.ok) throw new Refused({ _form: `Belum bisa diposting: ${Object.values(r.errors)[0]}` });
       const posting = await buildPosting(tx, r.c, t.partner.partner_name);
       if (!posting.ok) throw new Refused({ _form: posting.message });
@@ -631,6 +622,11 @@ export async function transitionCashPayment(
       await tx.finCashBankTx.update({ where: { id }, data: { journal_id: journal.id } });
       await tx.finCashBankTxLine.deleteMany({ where: { tx_id: id } });
       for (const line of await lineRows(tx, r.c.lines, actorId)) await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
+      // Each advance bill records what this payment settled of it (P132): the
+      // next payment reads that as its `before`, not this payment.
+      for (const l of r.c.lines) {
+        if (l.kind === "fin_ap_advance") await recordPurchaseAdvancePaid(tx, l.docId, l.settled);
+      }
       // Each advance bill paid is an Uang Muka the company now holds with the
       // supplier (B26): one AP item per bill per payment, at its DPP part.
       const advanceType = r.c.lines.some((l) => l.kind === "fin_ap_advance") ? await docTypeId(tx, "fin_ap_advance") : 0;

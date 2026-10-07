@@ -7,7 +7,11 @@ the formulas, so the figures can be recomputed or checked from the tables.
 Code: `src/lib/erp/cash-bank-tx.ts` (`checkCashReceipt`, `openBills`,
 `buildPosting`) and the arithmetic in `src/lib/erp/sales-tax.ts`
 (`settleBill`, `settleBillFromCash`, `cashToClear`). Decisions: P66–P69, P76,
-P98, P116–P119; rounding `tax_concept.md` §7.
+P98, P116–P119, P132; rounding `tax_concept.md` §7.
+
+**Each receipt stands alone (P132).** A receipt never reads another receipt.
+What a document has been paid so far lives on the document itself, and a
+receipt reads it from there and adds to it when it posts.
 
 The Pengeluaran (`cash-payment.ts`) is the same engine mirrored for
 suppliers; this note uses the receipt.
@@ -44,62 +48,58 @@ derived:
 line cash = settled_amount − pph_amount
 ```
 
-> The schema comment on `settled_amount` still says "+ its share of the bank
-> charge". That is from before P76: the bank charge is no longer shared to
-> lines. It is one header figure, taken off what reached the bank.
+The bank charge is not shared to lines (P76): it is one header figure, taken
+off what reached the bank.
 
-### Can it be computed from the cash bank tx tables alone?
+### What a line needs
 
-**The outstanding and the "what this payment did" — yes. The split — no, not
-from the tx tables alone.** A line's split is a share of its *document's*
-totals, so you need four figures from the document header:
+A line is computed from **one receipt plus one document**, never from other
+receipts. From the document it reads its totals and what it has been paid:
 
 | Needed | Advance bill (`fin_ar_advance`) | Invoice (`fin_ar_invoice`) |
 | --- | --- | --- |
+| `before` paid so far | `paid_amount` | `total_amount − fin_ar_item.current_balance` |
 | `T` total asked | `total_amount` | `total_amount` (net Piutang, after Uang Muka) |
 | `P` PPN | `ppn_amount` | `ppn_amount` (full PPN − advance PPN, P113) |
 | `B_k` PPh base per Jenis PPh | the bill's DPP shared over the Customer Order lines by Jenis PPh (`computeAdvance`) | Σ `net_dpp_amount` of the Invoice lines with that Jenis PPh |
 | `W_k` PPh per Jenis PPh | `round(B_k × rate_k)` | `round(B_k × rate_k)` |
 
-Everything else comes from `fin_cash_bank_tx_line` itself.
+Everything else comes from the line itself.
 
 ---
 
 ## 2. Outstanding (sisa) of the document
 
-What earlier receipts settled — **posted ones only, Draft and Cancelled never
-count, and the receipt being edited never counts itself**:
+The document carries it. No receipt is summed:
 
 ```
-before = Σ settled_amount
-         FROM fin_cash_bank_tx_line l JOIN fin_cash_bank_tx t ON t.id = l.tx_id
-         WHERE l.doc_type_id = :doc_type AND l.doc_id = :doc
-           AND t.status = 'Posted' AND t.id <> :this_tx
+advance bill:  before = fin_ar_advance.paid_amount
+               open   = total_amount − paid_amount
 
-open   = T − before
+Invoice:       open   = fin_ar_item.current_balance   (its Invoice AR item)
+               before = total_amount − open
 ```
 
 ```sql
-SELECT COALESCE(SUM(l.settled_amount), 0) AS before
-FROM fin_cash_bank_tx_line l
-JOIN fin_cash_bank_tx t ON t.id = l.tx_id
-JOIN sys_doc_type d     ON d.id = l.doc_type_id
-WHERE d.doc_table = 'fin_ar_advance'   -- or 'fin_ar_invoice'
-  AND l.doc_id = :doc_id
-  AND t.status = 'Posted'
-  AND t.id <> :this_tx;                 -- leave out the receipt being edited
+SELECT total_amount, paid_amount, total_amount - paid_amount AS open
+FROM fin_ar_advance WHERE id = :bill_id;
 ```
 
-That is literally how an **advance bill** is read (`settledByDocuments`).
+**Posting keeps it current.** In the same transaction, with the bill locked,
+posting a receipt adds each advance line's `settled_amount` to the bill's
+`paid_amount` (`recordSalesAdvancePaid`), refused if it would pass the total.
+An Invoice line records *Pembayaran* of `settled_amount` on its AR item,
+which lowers its balance. So the next receipt finds the new `before` on the
+document.
 
-For an **Invoice** the code reads the open amount from its AR item instead
-(`fin_ar_item.current_balance`, U23): `open = balance`, `before = T − balance`.
-Both give the same number, because the Invoice item starts at the net total
-(face, then *Uang Muka Diterapkan*, P117) and only a posted receipt lowers it,
-by exactly the line's `settled_amount`.
-
-Because `settled_amount` includes the PPh, **the PPh the customer withheld
-counts as paid**: a bill paid in cash + bukti potong is Lunas.
+- Only posting writes it. A Draft changes nothing, so a Draft never counts
+  itself or another Draft.
+- `settled_amount` includes the PPh, so **the PPh the customer withheld
+  counts as paid**: a bill paid in cash + bukti potong is Lunas.
+- The bill's Belum Dibayar / Sebagian / Lunas and its refusal of Batalkan
+  (`paid_amount > 0`) read the same field.
+- `db:reconcile` proves `paid_amount` = Σ `settled_amount` of the posted lines
+  naming the bill. That sum is a check, not how the app reads it.
 
 ---
 
@@ -250,7 +250,7 @@ DPP 10.000.000 → DPP Nilai Lain round(10.000.000 × 11/12) = 9.166.667
 T = 11.100.000   P = 1.100.000   B = 10.000.000   W = 200.000
 ```
 
-**Receipt 1** — before = 0, customer sends **5.000.000** with Potong PPh on.
+**Receipt 1** — bill's `paid_amount` = 0, customer sends **5.000.000** with Potong PPh on.
 
 ```
 cashToClear = 11.100.000 − 200.000 = 10.900.000   → partial
@@ -264,7 +264,9 @@ pph      = round(200.000 × 5.091.743 / 11.100.000)       = 91.743
 cash     = 5.091.743 − 91.743                            = 5.000.000
 ```
 
-**Receipt 2** — before = 5.091.743, open = 6.008.257.
+After posting, the bill holds `paid_amount` = 5.091.743.
+
+**Receipt 2** — reads `before` = 5.091.743 from the bill, open = 6.008.257.
 
 ```
 cashToClear = 6.008.257 − (200.000 − 91.743) = 5.900.000
@@ -294,8 +296,8 @@ header:  settled_amount = Σ line settled_amount
          pph_amount     = Σ line pph_amount
          cash_amount    = Σ (line settled − line pph) − bank_charge
 
-per document over its posted lines:
-         Σ settled_amount ≤ T
+per document over its posted lines (a reconcile check, not how it is read):
+         Σ settled_amount = paid_amount ≤ T     (advance bill)
          Σ ppn_part       = P    once fully settled
          Σ wht.amount     = W_k  per Jenis PPh, once fully settled with withhold on every line
 ```

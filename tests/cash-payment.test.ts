@@ -4,7 +4,6 @@ import assert from "node:assert/strict";
 import { createCashPayment, cashPaymentOptions, getCashPayment, previewCashPaymentPosting, transitionCashPayment, type CashPaymentInput } from "../src/lib/erp/cash-payment";
 import { createPurchaseAdvance, transitionPurchaseAdvance } from "../src/lib/erp/ap-advance";
 import { recordCashBankEntry } from "../src/lib/erp/cash-bank";
-import { settledDocumentRefusal } from "../src/lib/erp/cash-bank-tx";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import { cleanupFiscalYear, cleanupFixtures, disconnect, makeAccount, openFiscalYear, prisma } from "./helpers";
 import { purchasingWorld, type PurchasingWorld } from "./purchasing-helpers";
@@ -142,7 +141,10 @@ describe("Pembayaran ke Supplier", () => {
     const item = await prisma.finApItem.findFirstOrThrow({ where: { partner_id: w.f.supplier, item_type: "Advance" } });
     assert.deepEqual([item.current_balance.toNumber(), item.purchase_order_id, item.source_doc_id], [300_000, f.po, f.bill]);
     assert.match(item.ap_item_no, /^API\//);
-    assert.match((await settledDocumentRefusal("fin_ap_advance", prisma as never, f.bill)) ?? "", /sudah dibayar/, "a paid bill refuses Batalkan");
+    // The bill records what the payment settled (P132), and refuses Batalkan by it.
+    assert.equal((await prisma.finApAdvance.findUniqueOrThrow({ where: { id: f.bill } })).paid_amount.toNumber(), 333_000);
+    const cancel = await transitionPurchaseAdvance(f.bill, "cancel", w.actor, "batal");
+    assert.ok(!cancel.ok && /sudah dibayar/.test(cancel.errors._form), "a paid bill refuses Batalkan");
     assert.ok(!(await cashPaymentOptions()).bills.some((b) => b.id === f.bill), "a paid bill is no longer offered");
   });
 });

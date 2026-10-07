@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { formatMoney } from "@/lib/format";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { purchaseAdvanceSources, purchaseOrderNumbersByIds, lockPurchaseOrder, type PurchaseAdvanceSource } from "./purchase-order";
@@ -31,7 +32,8 @@ import {
  * whose supplier, price mode and Kena PPN it follows, as one value typed as a
  * percent of the order or a flat value. The figures come from `sales-tax.ts`.
  * The order's room — its value less every live bill on it — is spent with the
- * order's row locked. What is paid is the Pengeluaran's record (step 6).
+ * order's row locked. What is paid is kept here, as `paid_amount`: a posted
+ * Pengeluaran adds what it settled through `recordPurchaseAdvancePaid` (P132).
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -345,14 +347,7 @@ export async function transitionPurchaseAdvance(
   id: number,
   action: AdvanceAction,
   actorId: number,
-  reason?: string,
-  /**
-   * Why the bill may no longer be cancelled, asked inside the transaction with
-   * the bill's row locked. The payment module answers it (a posted receipt
-   * settles the bill); it is passed in from the action layer, so this module
-   * never depends on the payment module that depends on it.
-   */
-  cancelGuard?: (tx: Prisma.TransactionClient, id: number) => Promise<string | null>
+  reason?: string
 ): Promise<PurchaseAdvanceTransitionResult> {
   const bill = await prisma.finApAdvance.findUnique({ where: { id } });
   if (!bill) return { ok: false, errors: { _form: "Tagihan uang muka tidak ditemukan." } };
@@ -367,8 +362,15 @@ export async function transitionPurchaseAdvance(
     return refusable(async () => {
       await prisma.$transaction(async (tx) => {
         await lockPurchaseAdvances(tx, [id]);
-        const blocked = cancelGuard ? await cancelGuard(tx, id) : null;
-        if (blocked) throw new Refused({ _form: blocked });
+        // A bill a posted payment has settled, even in part, is not cancelled
+        // (P66); what was paid is the bill's own record (P132).
+        const held = await tx.finApAdvance.findUnique({ where: { id }, select: { paid_amount: true } });
+        const paid = held?.paid_amount.toNumber() ?? 0;
+        if (paid > 0) {
+          throw new Refused({
+            _form: `Tagihan ini sudah dibayar ${formatMoney(paid)} melalui Kas & Bank. Sisa yang tidak terpakai dikembalikan, bukan dibatalkan.`,
+          });
+        }
         const done = await tx.finApAdvance.updateMany({
           where: { id, status: bill.status },
           data: { status: "Cancelled", cancel_reason: why, updated_by: actorId },
@@ -416,6 +418,8 @@ export type PurchaseAdvanceListRow = {
   dpp: number;
   ppn: number;
   total: number;
+  /** What posted payments settled of it (P132). */
+  paid: number;
 };
 
 export async function listPurchaseAdvances(): Promise<PurchaseAdvanceListRow[]> {
@@ -439,6 +443,7 @@ export async function listPurchaseAdvances(): Promise<PurchaseAdvanceListRow[]> 
     dpp: r.dpp_amount.toNumber(),
     ppn: r.ppn_amount.toNumber(),
     total: r.total_amount.toNumber(),
+    paid: r.paid_amount.toNumber(),
   }));
 }
 
@@ -452,6 +457,8 @@ export type PurchaseAdvanceView = {
   figures: { amount: number; dpp: number; dppOther: number; ppn: number; total: number };
   /** The rate and factor it carries (P60); null when not Kena PPN. */
   rates: PpnRates | null;
+  /** What posted payments settled of it (P132). */
+  paid: number;
 };
 
 export async function getPurchaseAdvance(id: number): Promise<PurchaseAdvanceView | null> {
@@ -474,6 +481,7 @@ export async function getPurchaseAdvance(id: number): Promise<PurchaseAdvanceVie
       a.ppn_rate && a.ppn_dpp_other_numerator && a.ppn_dpp_other_denominator
         ? { rate: a.ppn_rate.toNumber(), otherNum: a.ppn_dpp_other_numerator, otherDen: a.ppn_dpp_other_denominator }
         : null,
+    paid: a.paid_amount.toNumber(),
   };
 }
 
@@ -517,7 +525,8 @@ export async function purchaseAdvanceNumbersByIds(ids: number[]): Promise<Map<nu
  * for, and — per Jenis PPh — what the customer is expected to withhold, as
  * `computeAdvance` works it out from the order the bill is drawn from and the
  * rate the bill carries. The payment module takes this rather than reading
- * `fin_ap_advance` itself; what has been *paid* is the payment's own record.
+ * `fin_ap_advance` itself; what has been *paid* is kept on the bill (`paid_amount`, P132), which the
+ * payment reads as its `before` and adds to when it posts.
  */
 export type SettlementAdvance = {
   id: number;
@@ -535,12 +544,34 @@ export type SettlementAdvance = {
   /** The PPN rate and DPP Nilai Lain factor the bill was issued with; null without PPN. */
   rates: PpnRates | null;
   withholdings: { key: string; rate: number; base: number; amount: number }[];
+  /** What posted payments settled of it before — a payment's `before` (P132). */
+  paid: number;
 };
 
-/** Every issued bill's total, ids only — so a receipt can find the unpaid ones before reading any in full. */
-export async function issuedAdvanceTotals(db: Db = prisma): Promise<{ id: number; total: number }[]> {
-  const rows = await db.finApAdvance.findMany({ where: { status: "Issued" }, select: { id: true, total_amount: true } });
-  return rows.map((r) => ({ id: r.id, total: r.total_amount.toNumber() }));
+/** Issued bills not yet paid in full, ids only — so a payment can offer them before reading any in full. */
+export async function unpaidAdvanceIds(db: Db = prisma): Promise<number[]> {
+  const rows = await db.finApAdvance.findMany({
+    where: { status: "Issued" },
+    select: { id: true, total_amount: true, paid_amount: true },
+  });
+  return rows.filter((r) => r.paid_amount.lt(r.total_amount)).map((r) => r.id);
+}
+
+/**
+ * Adds what one posted payment line settled to the bill (P132), inside that
+ * posting with the bill locked (`lockPurchaseAdvances`). The bill is the one record of
+ * what was paid: the next payment reads it as its `before`, never the
+ * payments before it. Refused beyond the bill's total or on a bill no longer
+ * issued.
+ */
+export async function recordPurchaseAdvancePaid(tx: Prisma.TransactionClient, id: number, settled: number): Promise<void> {
+  const bill = await tx.finApAdvance.findUnique({ where: { id }, select: { advance_no: true, status: true, total_amount: true, paid_amount: true } });
+  if (!bill || bill.status !== "Issued") throw new Error("Tagihan uang muka tidak berstatus Diterbitkan.");
+  const paid = bill.paid_amount.toNumber() + settled;
+  if (settled <= 0 || paid > bill.total_amount.toNumber()) {
+    throw new Error(`Pembayaran melebihi sisa ${bill.advance_no}.`);
+  }
+  await tx.finApAdvance.update({ where: { id }, data: { paid_amount: paid } });
 }
 
 export async function settlementAdvances(
@@ -585,6 +616,7 @@ export async function settlementAdvances(
       ppn: a.ppn_amount.toNumber(),
       rates: a.ppn_amount.toNumber() > 0 ? rates : null,
       withholdings: f.withholdings,
+      paid: a.paid_amount.toNumber(),
     };
   });
 }

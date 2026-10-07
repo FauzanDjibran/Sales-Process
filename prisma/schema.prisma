@@ -2244,6 +2244,10 @@ model FinArAdvance {
   ppn_amount       Decimal @db.Decimal(18, 2)
   /// What the bill asks for: DPP + PPN.
   total_amount     Decimal @db.Decimal(18, 2)
+  /// What posted receipts have settled of it, cash + PPh (P132). Each posting
+  /// reads it as the payment's `before` and adds its line to it, so a receipt
+  /// never reads another receipt.
+  paid_amount      Decimal @default(0) @db.Decimal(18, 2)
 
   cancel_reason String?
 
@@ -2330,8 +2334,8 @@ model FinCashBankTxLine {
   doc_type_id Int
   doc_id      Int
 
-  /// The part of the document this line clears: cash + its share of the
-  /// bank charge + PPh withheld.
+  /// The part of the document this line clears: the cash received for it +
+  /// the PPh withheld (P76; the bank charge is the header's alone).
   settled_amount Decimal @db.Decimal(18, 2)
   /// The Potong PPh switch (P60): off, the partner paid without withholding.
   withhold       Boolean @default(true)
@@ -2990,6 +2994,8 @@ model FinApAdvance {
   dpp_other_amount Decimal @db.Decimal(18, 2)
   ppn_amount       Decimal @db.Decimal(18, 2)
   total_amount     Decimal @db.Decimal(18, 2)
+  /// What posted payments have settled of it, cash + PPh (P132), as on the AR bill.
+  paid_amount      Decimal @default(0) @db.Decimal(18, 2)
 
   cancel_reason String?
 

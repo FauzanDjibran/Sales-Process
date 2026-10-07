@@ -668,7 +668,7 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
   test("an Invoice paid in full is offered no more, and takes no overpayment", async () => {
     const o = await cashReceiptOptions();
     assert.ok(!o.bills.some((b) => b.kind === "fin_ar_invoice" && b.customerId === f.customer));
-    const over = await checkCashReceipt(prisma, receipt([{ doc_type: "fin_ar_invoice", doc_id: inv().first, cash: 1, withhold: true }]), null);
+    const over = await checkCashReceipt(prisma, receipt([{ doc_type: "fin_ar_invoice", doc_id: inv().first, cash: 1, withhold: true }]));
     assert.ok(!over.ok && /Melebihi/.test(over.errors["lines.0.cash"]));
   });
 });

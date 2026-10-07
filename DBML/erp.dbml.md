@@ -1191,6 +1191,7 @@ table fin_ar_advance {
   dpp_other_amount            decimal(18,2) [not null]
   ppn_amount                  decimal(18,2) [not null]
   total_amount                decimal(18,2) [not null]
+  paid_amount                 decimal(18,2) [not null, default: 0] // what posted payments settled (cash + PPh); a payment's `before`, added to at posting; 0 ≤ paid ≤ total (P132)
 
   cancel_reason               varchar
 
@@ -1237,6 +1238,7 @@ table fin_ap_advance {
   dpp_other_amount            decimal(18,2) [not null]
   ppn_amount                  decimal(18,2) [not null]
   total_amount                decimal(18,2) [not null]
+  paid_amount                 decimal(18,2) [not null, default: 0] // what posted payments settled (cash + PPh); a payment's `before`, added to at posting; 0 ≤ paid ≤ total (P132)
 
   cancel_reason               varchar
 
