@@ -13,7 +13,7 @@ import {
   type PpnRates,
   type SalesLineInput,
 } from "../src/lib/erp/sales-tax";
-import { cashToClear, receivedProblem, settleBill, settleBillFromCash } from "../src/lib/erp/sales-tax";
+import { cashToClear, positionalShare, receivedProblem, settleBill, settleBillFromCash } from "../src/lib/erp/sales-tax";
 
 /**
  * The sales tax arithmetic (P59, P60; `tax_concept.md` §3, §7), against figures
@@ -360,5 +360,24 @@ describe("settling from what the customer paid (P76, the simulation's Dana Diter
     assert.equal(receivedProblem(0, 100), "Isi nilai yang diterima.");
     assert.equal(receivedProblem(101, 100), "Melebihi sisa tagihan.");
     assert.equal(receivedProblem(100, 100), null);
+  });
+});
+
+describe("a figure shared over parts by position (tax_concept.md §7.5, P133)", () => {
+  test("the parts add up to the figure, and the last takes what is left", () => {
+    // 22.000 PPN over a 200.000 deduction drawn 50.000 then 150.000 from two fakturs.
+    assert.deepEqual([positionalShare(22_000, 0, 50_000, 200_000), positionalShare(22_000, 50_000, 150_000, 200_000)], [5_500, 16_500]);
+    const parts = [33_333, 33_333, 33_334];
+    let before = 0;
+    const shares = parts.map((p) => {
+      const s = positionalShare(10_001, before, p, 100_000);
+      before += p;
+      return s;
+    });
+    assert.equal(shares.reduce((a, b) => a + b, 0), 10_001);
+  });
+
+  test("nothing to share over is nothing", () => {
+    assert.equal(positionalShare(1_000, 0, 10, 0), 0);
   });
 });

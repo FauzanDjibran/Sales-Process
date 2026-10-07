@@ -1,8 +1,8 @@
 # One document, one item — plan
 
-> **Status: agreed 07/10/2026, not built.** Recorded as P133 in
-> `Claude-ERP.md`. The user's answers to D1–D6 are in §8; §9 lists the build
-> steps.
+> **Status: agreed and built 07/10/2026** (P133 in `Claude-ERP.md`). The
+> user's answers to D1–D6 are in §8; §9 lists the build steps, all done. The
+> deployed (Neon) database still needs its reset before the migration (§5).
 
 ## 1. The rule
 

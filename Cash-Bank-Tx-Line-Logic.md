@@ -58,7 +58,7 @@ receipts. From the document it reads its totals and what it has been paid:
 
 | Needed | Advance bill (`fin_ar_advance`) | Invoice (`fin_ar_invoice`) |
 | --- | --- | --- |
-| `before` paid so far | `paid_amount` | `total_amount − fin_ar_item.current_balance` |
+| `before` paid so far | `paid_amount` | `paid_amount` (P133) |
 | `T` total asked | `total_amount` | `total_amount` (net Piutang, after Uang Muka) |
 | `P` PPN | `ppn_amount` | `ppn_amount` (full PPN − advance PPN, P113) |
 | `B_k` PPh base per Jenis PPh | the bill's DPP shared over the Customer Order lines by Jenis PPh (`computeAdvance`) | Σ `net_dpp_amount` of the Invoice lines with that Jenis PPh |
@@ -76,21 +76,23 @@ The document carries it. No receipt is summed:
 advance bill:  before = fin_ar_advance.paid_amount
                open   = total_amount − paid_amount
 
-Invoice:       open   = fin_ar_item.current_balance   (its Invoice AR item)
-               before = total_amount − open
+Invoice:       before = fin_ar_invoice.paid_amount
+               open   = total_amount − paid_amount
 ```
 
 ```sql
 SELECT total_amount, paid_amount, total_amount - paid_amount AS open
-FROM fin_ar_advance WHERE id = :bill_id;
+FROM fin_ar_advance WHERE id = :bill_id;   -- or fin_ar_invoice
 ```
 
-**Posting keeps it current.** In the same transaction, with the bill locked,
-posting a receipt adds each advance line's `settled_amount` to the bill's
-`paid_amount` (`recordSalesAdvancePaid`), refused if it would pass the total.
-An Invoice line records *Pembayaran* of `settled_amount` on its AR item,
-which lowers its balance. So the next receipt finds the new `before` on the
-document.
+**Posting keeps it current.** In the same transaction, with the document
+locked, posting a receipt adds each line's `settled_amount` to its document's
+`paid_amount` (`recordSalesAdvancePaid` / `recordSalesInvoicePaid`), refused
+if it would pass the total. Beside it the book moves too: an Invoice line
+records *Pembayaran* on the Invoice's AR item, an advance line creates or
+raises the bill's **one** Uang Muka item (P133). So the next receipt finds the
+new `before` on the document, and `db:reconcile` proves the document and its
+item agree (`total − paid_amount = item balance`).
 
 - Only posting writes it. A Draft changes nothing, so a Draft never counts
   itself or another Draft.
@@ -216,7 +218,8 @@ What `ppn_part` **does** differs by kind:
 - **Advance bill** — `ppn_part` is booked: Cr PPN Keluaran at receipt (PPN on
   an advance is due when the money comes in), and it is the figure of the
   Faktur Pajak Uang Muka. `dpp_part` goes to Cr Uang Muka Penjualan and is what
-  the Uang Muka AR item is born at.
+  the bill's one Uang Muka AR item is born at (first payment) or raised by
+  (each later payment, *Uang Muka Diterima*, P133).
 - **Invoice** — PPN was booked by the Invoice. `ppn_part` / `dpp_part` are
   stored **for information only**; the whole `S` is Cr Piutang Usaha (U25).
 
@@ -233,10 +236,11 @@ Dr PPh Dibayar Dimuka (k)     Σ pph_k of type k           per Jenis PPh, naming
    Cr Piutang Usaha           settled_amount              per Invoice line, naming the customer
 ```
 
-Beside it: the Cash Bank Book (`cash_amount` In), an Uang Muka AR item per
-advance line at `dpp_part`, a *Pembayaran* of `settled_amount` on each Invoice
-item, a Faktur Pajak Uang Muka per taxable advance line and a Bukti Potong per
-wht row.
+Beside it: the Cash Bank Book (`cash_amount` In), `paid_amount` raised on each
+document, the bill's one Uang Muka AR item created or raised by `dpp_part`, a
+*Pembayaran* of `settled_amount` on each Invoice item, a Faktur Pajak Uang Muka
+per taxable advance line (one per payment, all naming the bill's one item) and
+a Bukti Potong per wht row.
 
 ---
 
@@ -297,7 +301,7 @@ header:  settled_amount = Σ line settled_amount
          cash_amount    = Σ (line settled − line pph) − bank_charge
 
 per document over its posted lines (a reconcile check, not how it is read):
-         Σ settled_amount = paid_amount ≤ T     (advance bill)
+         Σ settled_amount = paid_amount ≤ T     (advance bill and Invoice)
          Σ ppn_part       = P    once fully settled
          Σ wht.amount     = W_k  per Jenis PPh, once fully settled with withhold on every line
 ```

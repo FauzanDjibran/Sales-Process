@@ -21,8 +21,9 @@ import type { PeriodRange } from "./period";
  *
  * Each item is named `ARI/YYYY/MM/NNNN` and is **about** one document — the
  * advance bill for an Uang Muka, the Invoice for an Invoice; what created it is
- * its Create entry's document (U1). It carries its own tax document's figures
- * where it has one — an Uang Muka its Faktur Pajak Uang Muka (U9).
+ * its Create entry's document (U1). **One document, one item** (P133): an
+ * advance bill's one Uang Muka item is born by its first payment and raised by
+ * each later one (`receiveAdvance`, event *Uang Muka Diterima*).
  *
  * There is no allocation step (P72): a payment moves an Invoice item directly,
  * and an Invoice uses its order's Uang Muka when it is posted. The entry names
@@ -39,7 +40,7 @@ import type { PeriodRange } from "./period";
 type Db = Prisma.TransactionClient | typeof prisma;
 
 export type ArItemType = "Advance" | "Invoice";
-export type ArEvent = "Create" | "Payment" | "AdvanceUsed" | "AdvanceApplied";
+export type ArEvent = "Create" | "Payment" | "AdvanceUsed" | "AdvanceApplied" | "AdvanceReceived";
 
 export const AR_TYPE_TEXT: Record<ArItemType, string> = {
   Advance: "Uang Muka",
@@ -51,6 +52,7 @@ export const AR_EVENT_TEXT: Record<ArEvent, string> = {
   Payment: "Pembayaran",
   AdvanceUsed: "Dipakai Invoice",
   AdvanceApplied: "Uang Muka Diterapkan",
+  AdvanceReceived: "Uang Muka Diterima",
 };
 
 /**
@@ -161,6 +163,45 @@ export async function createArItem(db: Db, item: NewArItem): Promise<number> {
   return row.id;
 }
 
+/**
+ * What one payment of an advance bill brings into the bill's **one** Uang Muka
+ * item (P133): the first payment creates it, each later one raises it with an
+ * `AdvanceReceived` entry and adds to its `original_amount` — the total
+ * received. The item is found by its source (the bill) with its row locked; a
+ * unique index on the source makes "one per bill" a database rule.
+ */
+export async function receiveAdvance(db: Prisma.TransactionClient, item: Omit<NewArItem, "type" | "dueDate">): Promise<number> {
+  if (!(item.amount > 0)) throw new Error(`Nilai uang muka harus lebih besar dari nol (diterima ${item.amount}).`);
+  const found = await db.$queryRaw<{ id: number }[]>`
+    SELECT id FROM fin_ar_item
+    WHERE item_type = 'Advance' AND source_doc_type_id = ${item.source.docTypeId} AND source_doc_id = ${item.source.docId}
+    FOR UPDATE`;
+  if (!found.length) return createArItem(db, { ...item, type: "Advance" });
+  const id = found[0].id;
+  const row = await db.finArItem.findUniqueOrThrow({ where: { id }, select: { current_balance: true, original_amount: true } });
+  const cents = (n: number) => Math.round(n * 100);
+  const after = (cents(row.current_balance.toNumber()) + cents(item.amount)) / 100;
+  const original = (cents(row.original_amount.toNumber()) + cents(item.amount)) / 100;
+  await db.finArItem.update({ where: { id }, data: { current_balance: after, original_amount: original } });
+  await db.finArLedger.create({
+    data: {
+      ...(await ledgerPosition(db, asDate(item.date), item.createdBy.docTypeId, item.createdBy.docId)),
+      item_id: id,
+      event: "AdvanceReceived",
+      entry_date: asDate(item.date),
+      amount: item.amount,
+      movement: item.amount,
+      balance_after: after,
+      doc_type_id: item.createdBy.docTypeId,
+      doc_id: item.createdBy.docId,
+      doc_no: item.createdBy.no,
+      note: item.note ?? null,
+      created_by: item.actorId,
+    },
+  });
+  return id;
+}
+
 /** An item's balance would go below zero — the whole posting is refused. */
 export class ArItemOverdrawn extends Error {
   constructor(readonly itemId: number, readonly balance: number, readonly requested: number) {
@@ -179,7 +220,7 @@ export async function settleArItem(
   db: Prisma.TransactionClient,
   move: {
     itemId: number;
-    event: Exclude<ArEvent, "Create">;
+    event: Exclude<ArEvent, "Create" | "AdvanceReceived">;
     amount: number;
     date: string;
     doc: { docTypeId: number; docId: number; no: string };
@@ -270,7 +311,10 @@ export async function openArItemsAsOf(
   return items
     .map((i) => {
       const created = i.entries.find((e) => e.event === "Create");
-      const original = i.original_amount.toNumber();
+      // As of the date: an Uang Muka item grows with each payment (P133).
+      const original = i.entries
+        .filter((e) => e.event === "Create" || e.event === "AdvanceReceived")
+        .reduce((a, e) => a + e.amount.toNumber(), 0);
       const open = i.entries.reduce((a, e) => a + e.movement.toNumber(), 0);
       return {
         id: i.id,
@@ -490,19 +534,6 @@ export async function advanceItemsForInvoice(
 
 // ------------------------------------------------------- for the receipt
 
-/** The Invoice items with something still to pay — the open receivables, as ids. */
-export async function openInvoiceItemIds(db: Db = prisma): Promise<number[]> {
-  const rows = await db.finArItem.findMany({ where: { item_type: "Invoice", current_balance: { gt: 0 } }, select: { id: true } });
-  return rows.map((r) => r.id);
-}
-
-/** Items' balances now, by id — what is still open on each. */
-export async function arItemBalances(ids: number[], db: Db = prisma): Promise<Map<number, number>> {
-  if (!ids.length) return new Map();
-  const rows = await db.finArItem.findMany({ where: { id: { in: ids } }, select: { id: true, current_balance: true } });
-  return new Map(rows.map((r) => [r.id, r.current_balance.toNumber()]));
-}
-
 /**
  * Locks items' rows for the rest of the transaction, so a posting that reads
  * their balances and then moves them cannot be passed by another (U28).
@@ -515,13 +546,16 @@ export async function lockArItems(tx: Prisma.TransactionClient, ids: number[]): 
 
 // ------------------------------------------------------- for the tax module
 
-/** The Uang Muka items a posting created, with the bill each is about. */
-export async function advanceItemsCreatedBy(
+/** The Uang Muka items a posting created or raised (P133), with the bill each is about. */
+export async function advanceItemsReceivedBy(
   db: Db,
-  createdBy: { docTypeId: number; docId: number }
+  receivedBy: { docTypeId: number; docId: number }
 ): Promise<{ id: number; arItemNo: string; sourceDocId: number }[]> {
   const rows = await db.finArItem.findMany({
-    where: { item_type: "Advance", entries: { some: { event: "Create", doc_type_id: createdBy.docTypeId, doc_id: createdBy.docId } } },
+    where: {
+      item_type: "Advance",
+      entries: { some: { event: { in: ["Create", "AdvanceReceived"] }, doc_type_id: receivedBy.docTypeId, doc_id: receivedBy.docId } },
+    },
     select: { id: true, ar_item_no: true, source_doc_id: true },
   });
   return rows.map((r) => ({ id: r.id, arItemNo: r.ar_item_no, sourceDocId: r.source_doc_id }));

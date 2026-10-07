@@ -4,8 +4,8 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 import { formatAddress } from "./partner-shape";
-import { ppnChain } from "./sales-tax";
-import { advanceItemsCreatedBy } from "./ar-item";
+import { positionalShare, ppnChain } from "./sales-tax";
+import { advanceItemsReceivedBy } from "./ar-item";
 import { postedReceiptIds, receiptTaxBasis } from "./cash-bank-tx";
 import { invoiceSourceOrders } from "./customer-order";
 import { invoiceTaxBasis, postedInvoiceIds, setInvoiceTaxInvoiceNo } from "./ar-invoice";
@@ -109,10 +109,11 @@ export async function createTaxDocsForReceipt(db: Db, receiptId: number, actorId
   const receiptType = await docTypeId(db, "fin_cash_bank_tx");
   const date = asDate(r.date);
 
-  // ---- faktur uang muka, one per advance bill paid with PPN
+  // ---- faktur uang muka, one per advance bill paid with PPN, per payment (P133:
+  // several may name the bill's one Uang Muka item)
   const advanceLines = r.lines.filter((l) => l.kind === "fin_ar_advance" && l.ppnPart > 0 && l.rates);
   if (advanceLines.length) {
-    const items = await advanceItemsCreatedBy(db, { docTypeId: receiptType, docId: r.id });
+    const items = await advanceItemsReceivedBy(db, { docTypeId: receiptType, docId: r.id });
     const orders = new Map((await invoiceSourceOrders({ ids: [...new Set(advanceLines.map((l) => l.orderId))] }, db)).map((o) => [o.id, o]));
     for (const l of advanceLines) {
       const exists = await db.taxFaktur.findFirst({
@@ -205,9 +206,7 @@ export async function createTaxDocsForInvoice(db: Db, invoiceId: number, actorId
   const invoiceType = await docTypeId(db, "fin_ar_invoice");
   if (await db.taxFaktur.findFirst({ where: { source_doc_type_id: invoiceType, source_doc_id: v.id }, select: { id: true } })) return;
 
-  const refs = v.deductions.length
-    ? await db.taxFaktur.findMany({ where: { kind: "Advance", ar_item_id: { in: v.deductions.map((d) => d.arItemId) } }, select: { id: true, ar_item_id: true } })
-    : [];
+  const refs = await deductedFakturs(db, v.deductions);
   const date = asDate(v.taxDate);
   const kind: TaxFakturKind = v.advanceUsed > 0 ? "Settlement" : "Normal";
   const row = await db.taxFaktur.create({
@@ -249,15 +248,41 @@ export async function createTaxDocsForInvoice(db: Db, invoiceId: number, actorId
           ppn: l.ppn,
         })),
       },
-      refs: {
-        create: v.deductions.flatMap((d) => {
-          const ref = refs.find((x) => x.ar_item_id === d.arItemId);
-          return ref ? [{ ref_faktur_id: ref.id, dpp_deducted: d.dppUsed, ppn_deducted: d.ppnUsed }] : [];
-        }),
-      },
+      refs: { create: refs },
     },
   });
   await audit(db, "tax_faktur", row.id, "TAMBAH", "create", actorId);
+}
+
+/**
+ * Which Fakturs Uang Muka an Invoice's deductions draw on (P133). A bill's one
+ * Uang Muka item has a faktur per payment, so the DPP used of the item is taken
+ * from them **oldest first**, each giving what earlier Invoices have not yet
+ * taken of it; the PPN used is shared over those parts positionally, so the
+ * refs of one deduction add up to its DPP and PPN exactly.
+ */
+async function deductedFakturs(
+  db: Db,
+  deductions: { arItemId: number; dppUsed: number; ppnUsed: number }[]
+): Promise<{ ref_faktur_id: number; dpp_deducted: number; ppn_deducted: number }[]> {
+  const out: { ref_faktur_id: number; dpp_deducted: number; ppn_deducted: number }[] = [];
+  for (const d of deductions) {
+    const fakturs = await db.taxFaktur.findMany({
+      where: { kind: "Advance", ar_item_id: d.arItemId },
+      select: { id: true, dpp: true, used_by: { select: { dpp_deducted: true } } },
+      orderBy: [{ tax_date: "asc" }, { id: "asc" }],
+    });
+    let taken = 0;
+    for (const f of fakturs) {
+      if (taken >= d.dppUsed) break;
+      const free = f.dpp.toNumber() - f.used_by.reduce((a, u) => a + u.dpp_deducted.toNumber(), 0);
+      const take = Math.min(free, d.dppUsed - taken);
+      if (!(take > 0)) continue;
+      out.push({ ref_faktur_id: f.id, dpp_deducted: take, ppn_deducted: positionalShare(d.ppnUsed, taken, take, d.dppUsed) });
+      taken += take;
+    }
+  }
+  return out;
 }
 
 /**
@@ -434,8 +459,15 @@ export async function fakturNsfpByArItemIds(ids: number[]): Promise<Record<numbe
   const rows = await prisma.taxFaktur.findMany({
     where: { kind: "Advance", ar_item_id: { in: ids } },
     select: { ar_item_id: true, nsfp: true },
+    orderBy: [{ tax_date: "asc" }, { id: "asc" }],
   });
-  return Object.fromEntries(rows.map((r) => [r.ar_item_id!, r.nsfp]));
+  // A bill's one item has a faktur per payment (P133): its NSFPs, oldest first.
+  const out: Record<number, string | null> = {};
+  for (const r of rows) {
+    if (!r.nsfp) out[r.ar_item_id!] ??= null;
+    else out[r.ar_item_id!] = out[r.ar_item_id!] ? `${out[r.ar_item_id!]}, ${r.nsfp}` : r.nsfp;
+  }
+  return out;
 }
 
 export async function getFaktur(id: number): Promise<FakturView | null> {

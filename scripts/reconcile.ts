@@ -165,13 +165,40 @@ export const CHECKS: Check[] = [
   },
   {
     area: "ar",
-    name: "each posted receipt's advance line made one Uang Muka item at its DPP part",
-    sql: `SELECT t.tx_no, l.doc_id AS bill_id, l.dpp_part, COUNT(e.id) AS items, SUM(e.amount) AS amount
+    name: "each posted receipt's advance line wrote one entry at its DPP part on the bill's one Uang Muka item (P133)",
+    sql: `SELECT t.tx_no, l.doc_id AS bill_id, l.dpp_part, COUNT(e.id) AS entries, SUM(e.amount) AS amount
           FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id = ${docType("fin_ar_advance")}
-          LEFT JOIN fin_ar_ledger e ON e.event = 'Create' AND e.doc_type_id = ${docType("fin_cash_bank_tx")} AND e.doc_id = t.id
-          LEFT JOIN fin_ar_item i ON i.id = e.item_id AND i.item_type = 'Advance' AND i.source_doc_type_id = l.doc_type_id AND i.source_doc_id = l.doc_id
-          WHERE t.status = 'Posted' AND l.dpp_part > 0 AND (i.id IS NOT NULL OR e.id IS NULL)
-          GROUP BY t.id, l.id HAVING COUNT(i.id) <> 1 OR SUM(CASE WHEN i.id IS NOT NULL THEN e.amount END) <> l.dpp_part`,
+          LEFT JOIN fin_ar_item i ON i.item_type = 'Advance' AND i.source_doc_type_id = l.doc_type_id AND i.source_doc_id = l.doc_id
+          LEFT JOIN fin_ar_ledger e ON e.item_id = i.id AND e.event IN ('Create', 'AdvanceReceived')
+            AND e.doc_type_id = ${docType("fin_cash_bank_tx")} AND e.doc_id = t.id
+          WHERE t.status = 'Posted' AND l.dpp_part > 0
+          GROUP BY t.id, l.id HAVING COUNT(e.id) <> 1 OR SUM(e.amount) <> l.dpp_part`,
+  },
+  {
+    area: "ar",
+    name: "one Uang Muka item per bill, its original amount the DPP its posted receipts brought in (P133)",
+    sql: `SELECT i.ar_item_no, i.original_amount, COALESCE(p.dpp, 0) AS received,
+                 (SELECT COUNT(*) FROM fin_ar_item o WHERE o.item_type = 'Advance' AND o.source_doc_type_id = i.source_doc_type_id AND o.source_doc_id = i.source_doc_id) AS items
+          FROM fin_ar_item i
+          LEFT JOIN (SELECT l.doc_id, SUM(l.dpp_part) AS dpp FROM fin_cash_bank_tx_line l
+                     JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+                     WHERE l.doc_type_id = ${docType("fin_ar_advance")} GROUP BY l.doc_id) p ON p.doc_id = i.source_doc_id
+          WHERE i.item_type = 'Advance'
+            AND (i.original_amount <> COALESCE(p.dpp, 0)
+                 OR (SELECT COUNT(*) FROM fin_ar_item o WHERE o.item_type = 'Advance' AND o.source_doc_type_id = i.source_doc_type_id AND o.source_doc_id = i.source_doc_id) <> 1)`,
+  },
+  {
+    area: "ar",
+    name: "each Invoice's paid amount equals its posted receipt lines, and its total less it equals its item's balance (P133)",
+    sql: `SELECT v.invoice_no, v.total_amount, v.paid_amount, COALESCE(p.paid, 0) AS lines, i.current_balance
+          FROM fin_ar_invoice v
+          LEFT JOIN fin_ar_item i ON i.id = v.ar_item_id
+          LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid FROM fin_cash_bank_tx_line l
+                     JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+                     WHERE l.doc_type_id = ${docType("fin_ar_invoice")} GROUP BY l.doc_id) p ON p.doc_id = v.id
+          WHERE v.paid_amount <> COALESCE(p.paid, 0)
+             OR (v.status = 'Posted' AND v.ar_item_id IS NOT NULL AND v.total_amount - v.paid_amount <> i.current_balance)
+             OR (v.status <> 'Posted' AND v.paid_amount <> 0)`,
   },
   {
     area: "ar",
@@ -415,6 +442,20 @@ export const CHECKS: Check[] = [
   },
   {
     area: "tax",
+    name: "no Faktur Uang Muka is deducted beyond its DPP, and the deductions are taken oldest first (P133)",
+    // Oldest first: a faktur is drawn on only once every older faktur of the
+    // same item has been used up.
+    sql: `SELECT f.faktur_no, f.dpp, SUM(r.dpp_deducted) AS deducted FROM tax_faktur f JOIN tax_faktur_ref r ON r.ref_faktur_id = f.id
+          WHERE f.kind = 'Advance' GROUP BY f.id HAVING SUM(r.dpp_deducted) > f.dpp
+          UNION ALL
+          SELECT f.faktur_no, f.dpp, NULL FROM tax_faktur f
+          WHERE f.kind = 'Advance' AND EXISTS (SELECT 1 FROM tax_faktur_ref r WHERE r.ref_faktur_id = f.id)
+            AND EXISTS (SELECT 1 FROM tax_faktur o WHERE o.kind = 'Advance' AND o.ar_item_id = f.ar_item_id
+                          AND (o.tax_date, o.id) < (f.tax_date, f.id)
+                          AND o.dpp > COALESCE((SELECT SUM(r2.dpp_deducted) FROM tax_faktur_ref r2 WHERE r2.ref_faktur_id = o.id), 0))`,
+  },
+  {
+    area: "tax",
     name: "a fully used Uang Muka's PPN deducted by Invoices is the PPN chain on its whole DPP (P118)",
     // Only items every use of which deducted PPN under P113/P118 (invoices posted
     // before P113 deducted none). Half up, as the tax module rounds.
@@ -471,6 +512,32 @@ export const CHECKS: Check[] = [
     name: "a receipt line is billed by at most one live Invoice Pembelian (P128)",
     sql: `SELECT l.receipt_note_line_id, COUNT(*) AS invoices FROM fin_ap_invoice_line l JOIN fin_ap_invoice v ON v.id = l.invoice_id AND v.status IN ('Draft', 'Posted')
           GROUP BY l.receipt_note_line_id HAVING COUNT(*) > 1`,
+  },
+  {
+    area: "ap",
+    name: "one Uang Muka AP item per bill, its original amount the DPP its posted payments paid (P133)",
+    sql: `SELECT i.ap_item_no, i.original_amount, COALESCE(p.dpp, 0) AS paid
+          FROM fin_ap_item i
+          LEFT JOIN (SELECT l.doc_id, SUM(l.dpp_part) AS dpp FROM fin_cash_bank_tx_line l
+                     JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+                     WHERE l.doc_type_id = ${docType("fin_ap_advance")} GROUP BY l.doc_id) p ON p.doc_id = i.source_doc_id
+          WHERE i.item_type = 'Advance'
+            AND (i.original_amount <> COALESCE(p.dpp, 0)
+                 OR (SELECT COUNT(*) FROM fin_ap_item o WHERE o.item_type = 'Advance' AND o.source_doc_type_id = i.source_doc_type_id AND o.source_doc_id = i.source_doc_id) <> 1)`,
+  },
+  {
+    area: "ap",
+    name: "each Invoice Pembelian's paid amount equals its posted payment lines, and what it owes less it equals its item's balance (P133)",
+    sql: `SELECT v.invoice_no, v.paid_amount, COALESCE(p.paid, 0) AS lines, i.current_balance
+          FROM fin_ap_invoice v
+          LEFT JOIN fin_ap_item i ON i.id = v.ap_item_id
+          LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid FROM fin_cash_bank_tx_line l
+                     JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+                     WHERE l.doc_type_id = ${docType("fin_ap_invoice")} GROUP BY l.doc_id) p ON p.doc_id = v.id
+          WHERE v.paid_amount <> COALESCE(p.paid, 0)
+             OR (v.status = 'Posted' AND v.ap_item_id IS NOT NULL
+                 AND v.payable_amount - v.advance_dpp_amount - v.advance_ppn_amount - v.paid_amount <> i.current_balance)
+             OR (v.status <> 'Posted' AND v.paid_amount <> 0)`,
   },
   {
     area: "ap",

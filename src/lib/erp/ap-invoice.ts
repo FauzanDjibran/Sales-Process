@@ -10,7 +10,7 @@ import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, 
 import { checkAccountIsLeaf } from "./records";
 import { lockPurchaseOrder, purchaseInvoiceSources, purchaseOrderNumbersByIds, type PurchaseInvoiceSource } from "./purchase-order";
 import { apInvoiceSourceLines, postedReceiptLineIds, type ApInvoiceSourceLine } from "./receipt-note";
-import { ApItemOverdrawn, apAdvanceItems, apItemBalances, createApItem, settleApItem, type ApAdvanceItem } from "./ap-item";
+import { ApItemOverdrawn, apAdvanceItems, createApItem, settleApItem, type ApAdvanceItem } from "./ap-item";
 import { advancePpnUsed } from "./sales-tax";
 import { advanceRatesByIds } from "./ap-advance";
 import { postingAccounts, supplierInvoiceTolerance } from "./system-settings";
@@ -781,16 +781,18 @@ export async function purchaseInvoiceNumbersByIds(ids: number[]): Promise<Map<nu
   return new Map(rows.map((r) => [r.id, r.invoice_no]));
 }
 
-/** Where each posted invoice stands, from its AP item (U26 mirrored). */
+const owedOf = (r: { payable_amount: { toNumber(): number }; advance_dpp_amount: { toNumber(): number }; advance_ppn_amount: { toNumber(): number } }) =>
+  r.payable_amount.toNumber() - r.advance_dpp_amount.toNumber() - r.advance_ppn_amount.toNumber();
+
+/** Where each posted invoice stands, from what it records as paid (U26 mirrored, P133). */
 export async function purchaseInvoicePayStates(ids: number[]): Promise<Record<number, { state: InvoicePayState; open: number; overdue: boolean }>> {
   if (!ids.length) return {};
-  const rows = await prisma.finApInvoice.findMany({ where: { id: { in: ids }, status: "Posted" }, select: { id: true, ap_item_id: true, due_date: true, payable_amount: true, advance_dpp_amount: true, advance_ppn_amount: true } });
-  const balances = await apItemBalances(rows.flatMap((r) => (r.ap_item_id ? [r.ap_item_id] : [])));
+  const rows = await prisma.finApInvoice.findMany({ where: { id: { in: ids }, status: "Posted" }, select: { id: true, due_date: true, paid_amount: true, payable_amount: true, advance_dpp_amount: true, advance_ppn_amount: true } });
   const today = new Date().toISOString().slice(0, 10);
   return Object.fromEntries(
     rows.map((r) => {
-      const open = r.ap_item_id ? (balances.get(r.ap_item_id) ?? 0) : 0;
-      const owed = r.payable_amount.toNumber() - r.advance_dpp_amount.toNumber() - r.advance_ppn_amount.toNumber();
+      const owed = owedOf(r);
+      const open = owed - r.paid_amount.toNumber();
       const state: InvoicePayState = open <= 0 ? "Paid" : open >= owed ? "Unpaid" : "Partial";
       return [r.id, { state, open, overdue: open > 0 && isoDay(r.due_date) < today }];
     })
@@ -801,8 +803,8 @@ export async function purchaseInvoicePayStates(ids: number[]): Promise<Record<nu
 
 /**
  * A posted invoice as a Pengeluaran pays it (B27): what is owed after the Uang
- * Muka — the AP item's balance is what is still open — with no PPh, which was
- * booked at the invoice. The payment module takes this rather than reading
+ * Muka and what it records as paid (P133), with no PPh, which was booked at
+ * the invoice. The payment module takes this rather than reading
  * `fin_ap_invoice` itself.
  */
 export type SettlementPurchaseInvoice = {
@@ -817,11 +819,39 @@ export type SettlementPurchaseInvoice = {
   /** What the invoice asks to be paid: its face less the Uang Muka applied. */
   owed: number;
   apItemId: number | null;
+  /** What posted payments settled of it — a payment's `before` (P133). */
+  paid: number;
 };
 
-export async function settlementPurchaseInvoices(filter: { ids?: number[]; apItemIds?: number[] }, db: Db = prisma): Promise<SettlementPurchaseInvoice[]> {
+/** Posted invoices not yet paid in full, ids only (P133). */
+export async function unpaidPurchaseInvoiceIds(db: Db = prisma): Promise<number[]> {
   const rows = await db.finApInvoice.findMany({
-    where: { ...(filter.ids ? { id: { in: filter.ids } } : {}), ...(filter.apItemIds ? { status: "Posted", ap_item_id: { in: filter.apItemIds } } : {}) },
+    where: { status: "Posted", ap_item_id: { not: null } },
+    select: { id: true, paid_amount: true, payable_amount: true, advance_dpp_amount: true, advance_ppn_amount: true },
+  });
+  return rows.filter((r) => r.paid_amount.toNumber() < owedOf(r)).map((r) => r.id);
+}
+
+/** Locks invoices' rows, in id order, before a payment reads and pays them (P133). */
+export async function lockPurchaseInvoices(tx: Prisma.TransactionClient, ids: number[]): Promise<void> {
+  for (const id of [...new Set(ids)].sort((a, b) => a - b)) {
+    await tx.$queryRaw`SELECT id FROM fin_ap_invoice WHERE id = ${id} FOR UPDATE`;
+  }
+}
+
+/** Adds what one posted payment line settled to the invoice (P133), with it locked. */
+export async function recordPurchaseInvoicePaid(tx: Prisma.TransactionClient, id: number, settled: number): Promise<void> {
+  const v = await tx.finApInvoice.findUnique({ where: { id }, select: { invoice_no: true, status: true, paid_amount: true, payable_amount: true, advance_dpp_amount: true, advance_ppn_amount: true } });
+  if (!v || v.status !== "Posted") throw new Error("Invoice tidak berstatus Posted.");
+  const cents = (n: number) => Math.round(n * 100);
+  const paid = (cents(v.paid_amount.toNumber()) + cents(settled)) / 100;
+  if (!(settled > 0) || cents(paid) > cents(owedOf(v))) throw new Error(`Pembayaran melebihi sisa ${v.invoice_no}.`);
+  await tx.finApInvoice.update({ where: { id }, data: { paid_amount: paid } });
+}
+
+export async function settlementPurchaseInvoices(filter: { ids?: number[] }, db: Db = prisma): Promise<SettlementPurchaseInvoice[]> {
+  const rows = await db.finApInvoice.findMany({
+    where: filter.ids ? { id: { in: filter.ids } } : {},
     orderBy: [{ due_date: "asc" }, { id: "asc" }],
   });
   const orders = await purchaseOrderNumbersByIds([...new Set(rows.map((r) => r.purchase_order_id))]);
@@ -834,8 +864,9 @@ export async function settlementPurchaseInvoices(filter: { ids?: number[]; apIte
     supplierId: r.supplier_id,
     orderId: r.purchase_order_id,
     orderNo: orders.get(r.purchase_order_id) ?? "",
-    owed: r.payable_amount.toNumber() - r.advance_dpp_amount.toNumber() - r.advance_ppn_amount.toNumber(),
+    owed: owedOf(r),
     apItemId: r.ap_item_id,
+    paid: r.paid_amount.toNumber(),
   }));
 }
 

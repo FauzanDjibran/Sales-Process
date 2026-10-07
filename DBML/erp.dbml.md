@@ -1065,6 +1065,7 @@ table fin_ar_item {
     (partner_id, item_type)
     customer_order_id
     (source_doc_type_id, source_doc_id)
+    // unique where item_type = 'Advance': one Uang Muka item per advance bill (P133, partial index in SQL)
   }
 }
 
@@ -1077,7 +1078,7 @@ table fin_ar_ledger {
 
   item_id                     int [not null, ref : > fin_ar_item.id]
 
-  event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied') [not null]
+  event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied', 'AdvanceReceived') [not null] // AdvanceReceived: a later payment raising a bill's one Uang Muka item (P133)
   entry_date                  date [not null]
   amount                      decimal(18,2) [not null]
   movement                    decimal(18,2) [not null] // signed on the item balance
@@ -1131,6 +1132,7 @@ table fin_ap_item {
     (partner_id, item_type)
     purchase_order_id
     (source_doc_type_id, source_doc_id)
+    // unique where item_type = 'Advance': one Uang Muka item per advance bill (P133, partial index in SQL)
   }
 }
 
@@ -1141,7 +1143,7 @@ table fin_ap_ledger {
   ledger_no                   varchar [not null] // BH/YYYY/MM/NNNN
   line_no                     int [not null]
   item_id                     int [not null, ref : > fin_ap_item.id]
-  event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied') [not null]
+  event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied', 'AdvanceReceived') [not null] // AdvanceReceived: a later payment raising a bill's one Uang Muka item (P133)
   entry_date                  date [not null]
   amount                      decimal(18,2) [not null]
   movement                    decimal(18,2) [not null]
@@ -1290,6 +1292,7 @@ table fin_ap_invoice {
   supplier_total              decimal(18,2) // Total Tagihan Supplier as typed; null = not compared
   difference_amount           decimal(18,2) [not null, default: 0] // within the tolerance, to Selisih Tagihan Supplier
   payable_amount              decimal(18,2) [not null, default: 0] // Hutang born at: full DPP + full PPN + difference − PPh
+  paid_amount                 decimal(18,2) [not null, default: 0] // what posted payments settled; owed − paid = its item's balance (P133)
 
   journal_id                  int
   ap_item_id                  int
@@ -1382,6 +1385,7 @@ table fin_ar_invoice {
   dpp_other_amount            decimal(18,2) [not null, default: 0] // Σ lines, on the full DPP
   ppn_amount                  decimal(18,2) [not null, default: 0] // Σ lines' full PPN − advance_ppn_amount (P113)
   total_amount                decimal(18,2) [not null, default: 0] // net Piutang
+  paid_amount                 decimal(18,2) [not null, default: 0] // what posted receipts settled (cash + PPh); a receipt's `before`; total − paid = its item's balance (P133)
   tax_invoice_no              varchar // Coretax number, typed after upload
 
   journal_id                  int

@@ -193,7 +193,8 @@ before(async () => {
   await transitionDeliveryOrder(dOrder.id, "issue", actor);
   order.doLines = (await prisma.salDeliveryOrderLine.findMany({ where: { delivery_order_id: dOrder.id }, orderBy: { line_no: "asc" } })).map((l) => l.id);
 
-  // The advance: Nominal 300.000 DPP, paid in full without PPh.
+  // The advance: Nominal 300.000 DPP, paid in two halves without PPh — the
+  // bill's one Uang Muka item raised by the second (P133), a faktur each.
   const adv = await createSalesAdvance(
     { order_id: co.id, advance_date: today, due_date: today, cash_bank_id: f.bank, description: "UM", note: "", amount_type: "Amount", amount_value: 300_000 },
     actor
@@ -201,13 +202,17 @@ before(async () => {
   assert.ok(adv.ok, JSON.stringify(adv));
   ids.adv.push(adv.id);
   await transitionSalesAdvance(adv.id, "issue", actor);
-  const rc = await createCashReceipt(
-    { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_id: adv.id, cash: 333_000, withhold: false }] },
-    actor
-  );
-  assert.ok(rc.ok, JSON.stringify(rc));
-  ids.rc.push(rc.id);
-  assert.deepEqual(await transitionCashReceipt(rc.id, "post", actor), { ok: true });
+  for (const half of [0, 1]) {
+    const rc = await createCashReceipt(
+      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_id: adv.id, cash: 166_500, withhold: false }] },
+      actor
+    );
+    assert.ok(rc.ok, JSON.stringify(rc));
+    // The second half stays out of `ids.rc`, whose positions the tests name.
+    if (half === 0) ids.rc.push(rc.id);
+    else f.rcHalf = rc.id;
+    assert.deepEqual(await transitionCashReceipt(rc.id, "post", actor), { ok: true });
+  }
   advanceItem = (await prisma.finArItem.findFirstOrThrow({ where: { customer_order_id: co.id, item_type: "Advance" } })).id;
   // A second bill, issued and left unpaid, for the mixed receipt (§7.8).
   const adv2 = await createSalesAdvance(
@@ -250,7 +255,7 @@ after(async () => {
   const items = await prisma.finArItem.findMany({ where: { customer_order_id: { in: ids.co } }, select: { id: true } });
   await prisma.finArLedger.deleteMany({ where: { OR: [{ item_id: { in: items.map((i) => i.id) } }, { counter_item_id: { in: items.map((i) => i.id) } }] } });
   await prisma.finArItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
-  await prisma.finCashBankTx.deleteMany({ where: { id: { in: ids.rc } } });
+  await prisma.finCashBankTx.deleteMany({ where: { id: { in: [...ids.rc, f.rcHalf] } } });
   await prisma.finArAdvance.deleteMany({ where: { id: { in: ids.adv } } });
   await prisma.logDeliveryNoteLot.deleteMany({ where: { line: { delivery_note_id: { in: ids.dn } } } });
   await prisma.logDeliveryNoteLine.deleteMany({ where: { delivery_note_id: { in: ids.dn } } });
@@ -263,7 +268,7 @@ after(async () => {
   await prisma.salCustomerOrder.deleteMany({ where: { id: { in: ids.co } } });
   for (const [k, list] of Object.entries({
     fin_ar_invoice: ids.inv,
-    fin_cash_bank_tx: ids.rc,
+    fin_cash_bank_tx: [...ids.rc, f.rcHalf],
     fin_ar_advance: ids.adv,
     log_delivery_note: ids.dn,
     sal_delivery_order: ids.do,
@@ -497,13 +502,16 @@ describe("Posting recognises Piutang, revenue and PPN once", () => {
     assert.equal(inv.due_date?.toISOString().slice(0, 10), v.dueDate);
     const adv = await prisma.finArItem.findUniqueOrThrow({ where: { id: advanceItem }, include: { entries: { orderBy: { id: "asc" } } } });
     assert.equal(adv.current_balance.toNumber(), 200_000);
+    // One item for the bill, raised by its second payment (P133).
     assert.deepEqual(adv.entries.map((e) => [e.event, e.movement.toNumber(), e.counter_item_id]), [
-      ["Create", 300_000, null],
+      ["Create", 150_000, null],
+      ["AdvanceReceived", 150_000, null],
       ["AdvanceUsed", -100_000, inv.id],
     ]);
+    assert.equal(adv.original_amount.toNumber(), 300_000, "its original amount is all it received");
     // The Invoice's posting writes three Buku Piutang entries; they share one
     // ledger number, a line each — not the receipt's (P110).
-    const posted = [inv.entries[0], adv.entries[1], inv.entries[1]];
+    const posted = [inv.entries[0], adv.entries[2], inv.entries[1]];
     assert.equal(new Set(posted.map((e) => e.ledger_no)).size, 1);
     assert.match(posted[0].ledger_no, /^BP\/\d{4}\/\d{2}\/\d{4}$/);
     assert.deepEqual(posted.map((e) => e.line_no).sort(), [1, 2, 3]);
@@ -625,6 +633,11 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
     assert.equal(await prisma.finArItem.count({ where: { entries: { some: { event: "Create", doc_id: r.id, doc_type: { doc_table: "fin_cash_bank_tx" } } } } }), 0, "no AR item is created by paying an Invoice");
     const state = (await invoicePayStates([inv().first]))[inv().first];
     assert.deepEqual([state.state, state.open], ["Partial", 550_560 - expected.settled]);
+    // The Invoice records what it was paid (P133): the next receipt reads it,
+    // and it agrees with its item's balance.
+    const after = (await settlementInvoices({ ids: [inv().first] }))[0];
+    assert.equal(after.paid, expected.settled);
+    assert.equal(after.total - after.paid, item.current_balance.toNumber());
   });
 
   test("one transfer clears both Invoices and an advance bill, each posting by its kind", async () => {
@@ -693,16 +706,20 @@ describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
   const fakturOf = (table: "fin_cash_bank_tx" | "fin_ar_invoice", id: number) => taxDocsOf(table, id).then((d) => d.fakturs);
   const tx = <T,>(run: (db: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<T>) => prisma.$transaction(run);
 
-  test("the advance receipt: one faktur uang muka at the bill's DPP, dated the receipt, naming its Uang Muka item; idempotent", async () => {
+  test("each advance receipt: one faktur uang muka at its DPP, dated the receipt, naming the bill's one Uang Muka item; idempotent", async () => {
     await tx((db) => createTaxDocsForReceipt(db, ids.rc[0], actor));
     await tx((db) => createTaxDocsForReceipt(db, ids.rc[0], actor));
+    await tx((db) => createTaxDocsForReceipt(db, f.rcHalf, actor));
+    const half = await fakturOf("fin_cash_bank_tx", f.rcHalf);
+    assert.equal(half.length, 1);
+    assert.equal((await prisma.taxFaktur.findUniqueOrThrow({ where: { id: half[0].id } })).ar_item_id, advanceItem, "both fakturs name the one item (P133)");
     const list = await fakturOf("fin_cash_bank_tx", ids.rc[0]);
     assert.equal(list.length, 1);
     const fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: list[0].id }, include: { lines: true } });
     assert.match(fk.faktur_no, /^FPK\/\d{4}\/\d{2}\/\d{4}$/);
     assert.deepEqual(
       [fk.kind, fk.nsfp, fk.dpp.toNumber(), fk.dpp_other.toNumber(), fk.ppn.toNumber(), fk.ar_item_id, fk.ref_doc_id, fk.buyer_tax_id, fk.buyer_name],
-      ["Advance", null, 300_000, 275_000, 33_000, advanceItem, ids.adv[0], "0987654321098765", "PT FIXTURE"]
+      ["Advance", null, 150_000, 137_500, 16_500, advanceItem, ids.adv[0], "0987654321098765", "PT FIXTURE"]
     );
     assert.equal(fk.tax_date.toISOString().slice(0, 10), today);
     assert.equal(fk.lines.length, 1);
@@ -729,9 +746,15 @@ describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
     );
     assert.deepEqual(fk.refs.map((r) => [r.ref_faktur_id, r.dpp_deducted.toNumber(), r.ppn_deducted.toNumber()]), [[advance, 100_000, 11_000]]);
     const second = (await fakturOf("fin_ar_invoice", ids.inv[ids.inv.length - 1]))[0];
-    const refs = await prisma.taxFakturRef.findMany({ where: { faktur_id: second.id } });
-    // The rest of the advance takes the rest of its PPN: 11.000 + 22.000 = the 33.000 its faktur carries.
-    assert.deepEqual(refs.map((r) => [r.ref_faktur_id, r.dpp_deducted.toNumber(), r.ppn_deducted.toNumber()]), [[advance, 200_000, 22_000]]);
+    const refs = await prisma.taxFakturRef.findMany({ where: { faktur_id: second.id }, orderBy: { id: "asc" } });
+    // Oldest first (P133): the 200.000 takes the 50.000 left of the first faktur,
+    // then 150.000 of the second; its 22.000 PPN shared positionally, so each
+    // faktur gives exactly the 16.500 it carries.
+    const later = (await fakturOf("fin_cash_bank_tx", f.rcHalf))[0].id;
+    assert.deepEqual(refs.map((r) => [r.ref_faktur_id, r.dpp_deducted.toNumber(), r.ppn_deducted.toNumber()]), [
+      [advance, 50_000, 5_500],
+      [later, 150_000, 16_500],
+    ]);
     await tx((db) => createTaxDocsForInvoice(db, ids.inv[0], actor));
     assert.equal((await fakturOf("fin_ar_invoice", ids.inv[0])).length, 1, "idempotent");
   });
@@ -774,7 +797,7 @@ describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
     const n2 = nsfp(1);
     assert.deepEqual(await setFakturNsfp(advance, { nsfp: n2, date: today }, actor), { ok: true });
     fk = await prisma.taxFaktur.findUniqueOrThrow({ where: { id: advance } });
-    assert.deepEqual([fk.nsfp, fk.nsfp_date?.toISOString().slice(0, 10), fk.ppn.toNumber()], [n2, today, 33_000]);
+    assert.deepEqual([fk.nsfp, fk.nsfp_date?.toISOString().slice(0, 10), fk.ppn.toNumber()], [n2, today, 16_500]);
     assert.deepEqual(await fakturNsfpByArItemIds([advanceItem]), { [advanceItem]: n2 });
     // n1 is free again for the faktur it belonged to.
     assert.deepEqual(await setFakturNsfp(settlement, { nsfp: n1, date: today }, actor), { ok: true });

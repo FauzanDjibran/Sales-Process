@@ -7,8 +7,8 @@ import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate } from "./fiscal";
 import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { InsufficientFunds, recordCashBankEntry } from "./cash-bank";
-import { ApItemOverdrawn, apItemBalances, createApItem, lockApItems, openApInvoiceItemIds, settleApItem } from "./ap-item";
-import { purchaseInvoiceNumbersByIds, settlementPurchaseInvoices } from "./ap-invoice";
+import { ApItemOverdrawn, lockApItems, payAdvance, settleApItem } from "./ap-item";
+import { lockPurchaseInvoices, purchaseInvoiceNumbersByIds, recordPurchaseInvoicePaid, settlementPurchaseInvoices, unpaidPurchaseInvoiceIds } from "./ap-invoice";
 import { checkAccountIsLeaf } from "./records";
 import { lockPurchaseAdvances, purchaseAdvanceNumbersByIds, recordPurchaseAdvancePaid, settlementAdvances, unpaidAdvanceIds } from "./ap-advance";
 import { cashToClear, receivedProblem, settleBillFromCash, type SettlementLine } from "./sales-tax";
@@ -102,16 +102,16 @@ async function openPayables(
       : filter.advanceIds?.length
         ? settlementAdvances({ ids: filter.advanceIds }, db)
         : Promise.resolve([]),
-    // Only Invoices whose AP item still has a balance: a paid one is never offered.
+    // Only Invoices not paid in full: a paid one is never offered.
     filter.openOnly
-      ? openApInvoiceItemIds(db).then((apItemIds) => settlementPurchaseInvoices({ apItemIds }, db))
+      ? unpaidPurchaseInvoiceIds(db).then((ids) => settlementPurchaseInvoices({ ids }, db))
       : filter.invoiceIds?.length
         ? settlementPurchaseInvoices({ ids: filter.invoiceIds }, db)
         : Promise.resolve([]),
   ]);
-  const balances = await apItemBalances(invoices.flatMap((i) => (i.apItemId ? [i.apItemId] : [])), db);
+  // A document's open amount is what it asks less what it records as paid
+  // (P132, P133) — never read from other payments.
   const out: OpenPayable[] = [
-    // An advance bill's open amount is its total less what it records as paid (P132).
     ...advances.map((b) => {
       const p = b.paid;
       return {
@@ -134,10 +134,9 @@ async function openPayables(
         open: b.total - p,
       };
     }),
-    // An Invoice's open amount is its AP item's balance; its PPh and PPN were
-    // booked at the invoice, so it is paid in cash only (B27).
+    // An Invoice's PPh and PPN were booked at the invoice, so it is paid in cash only (B27).
     ...invoices.map((i) => {
-      const open = i.apItemId ? (balances.get(i.apItemId) ?? 0) : 0;
+      const open = i.owed - i.paid;
       return {
         kind: "fin_ap_invoice" as const,
         key: paidKey("fin_ap_invoice", i.id),
@@ -154,7 +153,7 @@ async function openPayables(
         ppn: 0,
         withholdings: [],
         apItemId: i.apItemId,
-        paid: i.owed - open,
+        paid: i.paid,
         open,
       };
     }),
@@ -588,6 +587,7 @@ export async function transitionCashPayment(
       const stored = asInput(t);
       await lockPurchaseAdvances(tx, stored.lines.filter((l) => l.doc_type === "fin_ap_advance").map((l) => Number(l.doc_id)));
       const invoiceIds = stored.lines.filter((l) => l.doc_type === "fin_ap_invoice").map((l) => Number(l.doc_id));
+      if (invoiceIds.length) await lockPurchaseInvoices(tx, invoiceIds);
       if (invoiceIds.length) await lockApItems(tx, (await settlementPurchaseInvoices({ ids: invoiceIds }, tx)).flatMap((i) => (i.apItemId ? [i.apItemId] : [])));
       const r = await checkCashPayment(tx, stored);
       if (!r.ok) throw new Refused({ _form: `Belum bisa diposting: ${Object.values(r.errors)[0]}` });
@@ -622,18 +622,18 @@ export async function transitionCashPayment(
       await tx.finCashBankTx.update({ where: { id }, data: { journal_id: journal.id } });
       await tx.finCashBankTxLine.deleteMany({ where: { tx_id: id } });
       for (const line of await lineRows(tx, r.c.lines, actorId)) await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
-      // Each advance bill records what this payment settled of it (P132): the
-      // next payment reads that as its `before`, not this payment.
+      // Each document records what this payment settled of it (P132, P133):
+      // the next payment reads that as its `before`, not this payment.
       for (const l of r.c.lines) {
         if (l.kind === "fin_ap_advance") await recordPurchaseAdvancePaid(tx, l.docId, l.settled);
+        else await recordPurchaseInvoicePaid(tx, l.docId, l.settled);
       }
       // Each advance bill paid is an Uang Muka the company now holds with the
-      // supplier (B26): one AP item per bill per payment, at its DPP part.
+      // supplier, in the bill's one AP item (P133), at its DPP part.
       const advanceType = r.c.lines.some((l) => l.kind === "fin_ap_advance") ? await docTypeId(tx, "fin_ap_advance") : 0;
       for (const l of r.c.lines) {
         if (l.kind !== "fin_ap_advance" || !(l.dppPart > 0)) continue;
-        await createApItem(tx, {
-          type: "Advance",
+        await payAdvance(tx, {
           partnerId: t.partner_id,
           currencyId: currency.id,
           date: isoDay(t.tx_date),

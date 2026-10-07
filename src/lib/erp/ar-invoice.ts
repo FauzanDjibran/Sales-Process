@@ -14,7 +14,6 @@ import { invoiceSourceLines, postedNoteLineIds, type InvoiceSourceLine } from ".
 import {
   ArItemOverdrawn,
   advanceItemsForInvoice,
-  arItemBalances,
   createArItem,
   settleArItem,
   type AdvanceItemForInvoice,
@@ -1044,9 +1043,9 @@ export async function customerOrderInvoices(
 /**
  * A posted Invoice as a receipt reads it (§7.8, U23–U25): what it asks for
  * (net Piutang), its PPN, the PPh the customer may withhold — per Jenis PPh on
- * its net DPP, after the Uang Muka (U24) — and its Invoice AR item, whose
- * balance is what is still open. The receipt module takes this rather than
- * reading `fin_ar_invoice` itself.
+ * its net DPP, after the Uang Muka (U24) — what it records as paid (P133) and
+ * its Invoice AR item. The receipt module takes this rather than reading
+ * `fin_ar_invoice` itself.
  */
 export type SettlementInvoice = {
   id: number;
@@ -1062,23 +1061,19 @@ export type SettlementInvoice = {
   ppn: number;
   withholdings: { key: string; rate: number; base: number; amount: number }[];
   arItemId: number | null;
+  /** What posted receipts settled of it — a receipt's `before` (P133). */
+  paid: number;
 };
 
-/**
- * Posted Invoices that leave something to pay (with `postedOnly`), or the ones
- * named, whatever their state. `arItemIds` narrows to the Invoices of those
- * items — the caller passes the open ones, so a fully paid Invoice is never read.
- */
+/** Posted Invoices (with `postedOnly`), or the ones named, whatever their state. */
 export async function settlementInvoices(
-  filter: { ids?: number[]; postedOnly?: boolean; arItemIds?: number[] },
+  filter: { ids?: number[]; postedOnly?: boolean },
   db: Db = prisma
 ): Promise<SettlementInvoice[]> {
   const rows = await db.finArInvoice.findMany({
     where: {
       ...(filter.ids ? { id: { in: filter.ids } } : {}),
       ...(filter.postedOnly ? { status: "Posted", ar_item_id: { not: null } } : {}),
-      // After `postedOnly`, whose own `ar_item_id` test it narrows.
-      ...(filter.arItemIds ? { ar_item_id: { in: filter.arItemIds } } : {}),
     },
     include: { lines: true },
     orderBy: [{ due_date: "asc" }, { id: "asc" }],
@@ -1106,11 +1101,12 @@ export async function settlementInvoices(
       }))
     ),
     arItemId: r.ar_item_id,
+    paid: r.paid_amount.toNumber(),
   }));
 }
 
 /**
- * Where each posted Invoice stands (U26), read from its Invoice AR item: what
+ * Where each posted Invoice stands (U26), read from what it records as paid (P133): what
  * is still open, Belum Dibayar / Sebagian / Lunas, and whether it is overdue.
  * An Invoice its Uang Muka covered whole has no item and is Lunas.
  */
@@ -1120,18 +1116,50 @@ export async function invoicePayStates(
   if (!ids.length) return {};
   const rows = await prisma.finArInvoice.findMany({
     where: { id: { in: ids }, status: "Posted" },
-    select: { id: true, total_amount: true, ar_item_id: true, due_date: true },
+    select: { id: true, total_amount: true, paid_amount: true, due_date: true },
   });
-  const balances = await arItemBalances(rows.flatMap((r) => (r.ar_item_id ? [r.ar_item_id] : [])));
   const today = new Date().toISOString().slice(0, 10);
   return Object.fromEntries(
     rows.map((r) => {
-      const open = r.ar_item_id ? (balances.get(r.ar_item_id) ?? 0) : 0;
+      // What it was paid is its own record (P133).
       const total = r.total_amount.toNumber();
+      const open = total - r.paid_amount.toNumber();
       const state: InvoicePayState = open <= 0 ? "Paid" : open >= total ? "Unpaid" : "Partial";
       return [r.id, { state, open, overdue: open > 0 && isoDay(r.due_date) < today }];
     })
   );
+}
+
+/** Posted Invoices not yet paid in full, ids only — what a receipt may offer (P133). */
+export async function unpaidSalesInvoiceIds(db: Db = prisma): Promise<number[]> {
+  const rows = await db.finArInvoice.findMany({
+    where: { status: "Posted", ar_item_id: { not: null } },
+    select: { id: true, total_amount: true, paid_amount: true },
+  });
+  return rows.filter((r) => r.paid_amount.lt(r.total_amount)).map((r) => r.id);
+}
+
+/** Locks Invoices' rows, in id order, before a receipt reads and pays them (P133). */
+export async function lockSalesInvoices(tx: Prisma.TransactionClient, ids: number[]): Promise<void> {
+  for (const id of [...new Set(ids)].sort((a, b) => a - b)) {
+    await tx.$queryRaw`SELECT id FROM fin_ar_invoice WHERE id = ${id} FOR UPDATE`;
+  }
+}
+
+/**
+ * Adds what one posted receipt line settled to the Invoice (P133), inside that
+ * posting with the Invoice locked. The Invoice is the record of what it was
+ * paid — the next receipt reads it as its `before`; the receipt also writes
+ * *Pembayaran* on the Invoice item, and `db:reconcile` proves total − paid =
+ * the item's balance.
+ */
+export async function recordSalesInvoicePaid(tx: Prisma.TransactionClient, id: number, settled: number): Promise<void> {
+  const v = await tx.finArInvoice.findUnique({ where: { id }, select: { invoice_no: true, status: true, total_amount: true, paid_amount: true } });
+  if (!v || v.status !== "Posted") throw new Error("Invoice tidak berstatus Posted.");
+  const cents = (n: number) => Math.round(n * 100);
+  const paid = (cents(v.paid_amount.toNumber()) + cents(settled)) / 100;
+  if (!(settled > 0) || cents(paid) > cents(v.total_amount.toNumber())) throw new Error(`Pembayaran melebihi sisa ${v.invoice_no}.`);
+  await tx.finArInvoice.update({ where: { id }, data: { paid_amount: paid } });
 }
 
 // ------------------------------------------------------- for the tax module

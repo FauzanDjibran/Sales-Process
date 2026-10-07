@@ -23,7 +23,7 @@ import type { PeriodRange } from "./period";
 type Db = Prisma.TransactionClient | typeof prisma;
 
 export type ApItemType = "Advance" | "Invoice";
-export type ApEvent = "Create" | "Payment" | "AdvanceUsed" | "AdvanceApplied";
+export type ApEvent = "Create" | "Payment" | "AdvanceUsed" | "AdvanceApplied" | "AdvanceReceived";
 
 export const AP_TYPE_TEXT: Record<ApItemType, string> = { Advance: "Uang Muka", Invoice: "Invoice" };
 export const AP_EVENT_TEXT: Record<ApEvent, string> = {
@@ -31,6 +31,7 @@ export const AP_EVENT_TEXT: Record<ApEvent, string> = {
   Payment: "Pembayaran",
   AdvanceUsed: "Dipakai Invoice",
   AdvanceApplied: "Uang Muka Diterapkan",
+  AdvanceReceived: "Uang Muka Dibayar",
 };
 
 /** Which way an item moves Hutang Usaha: an Invoice raises it, an Uang Muka lowers it. */
@@ -111,6 +112,43 @@ export async function createApItem(db: Db, item: NewApItem): Promise<number> {
   return row.id;
 }
 
+/**
+ * What one payment of an AP advance bill brings into the bill's **one** Uang
+ * Muka item (P133), as `receiveAdvance` on the AR side: the first payment
+ * creates it, each later one raises it (`AdvanceReceived`) and adds to its
+ * `original_amount`.
+ */
+export async function payAdvance(db: Prisma.TransactionClient, item: Omit<NewApItem, "type" | "dueDate">): Promise<number> {
+  if (!(item.amount > 0)) throw new Error(`Nilai uang muka harus lebih besar dari nol (diterima ${item.amount}).`);
+  const found = await db.$queryRaw<{ id: number }[]>`
+    SELECT id FROM fin_ap_item
+    WHERE item_type = 'Advance' AND source_doc_type_id = ${item.source.docTypeId} AND source_doc_id = ${item.source.docId}
+    FOR UPDATE`;
+  if (!found.length) return createApItem(db, { ...item, type: "Advance" });
+  const id = found[0].id;
+  const row = await db.finApItem.findUniqueOrThrow({ where: { id }, select: { current_balance: true, original_amount: true } });
+  const after = (cents(row.current_balance.toNumber()) + cents(item.amount)) / 100;
+  const original = (cents(row.original_amount.toNumber()) + cents(item.amount)) / 100;
+  await db.finApItem.update({ where: { id }, data: { current_balance: after, original_amount: original } });
+  await db.finApLedger.create({
+    data: {
+      ...(await ledgerPosition(db, asDate(item.date), item.createdBy.docTypeId, item.createdBy.docId)),
+      item_id: id,
+      event: "AdvanceReceived",
+      entry_date: asDate(item.date),
+      amount: item.amount,
+      movement: item.amount,
+      balance_after: after,
+      doc_type_id: item.createdBy.docTypeId,
+      doc_id: item.createdBy.docId,
+      doc_no: item.createdBy.no,
+      note: item.note ?? null,
+      created_by: item.actorId,
+    },
+  });
+  return id;
+}
+
 export class ApItemOverdrawn extends Error {
   constructor(readonly itemId: number, readonly balance: number, readonly requested: number) {
     super(`Sisa AP item tidak mencukupi: tersisa ${balance}, diminta ${requested}. Posting dibatalkan.`);
@@ -123,7 +161,7 @@ export async function settleApItem(
   db: Prisma.TransactionClient,
   move: {
     itemId: number;
-    event: Exclude<ApEvent, "Create">;
+    event: Exclude<ApEvent, "Create" | "AdvanceReceived">;
     amount: number;
     date: string;
     doc: { docTypeId: number; docId: number; no: string };
@@ -156,19 +194,6 @@ export async function settleApItem(
       created_by: move.actorId,
     },
   });
-}
-
-/** Items' balances now, by id. */
-export async function apItemBalances(ids: number[], db: Db = prisma): Promise<Map<number, number>> {
-  if (!ids.length) return new Map();
-  const rows = await db.finApItem.findMany({ where: { id: { in: ids } }, select: { id: true, current_balance: true } });
-  return new Map(rows.map((r) => [r.id, r.current_balance.toNumber()]));
-}
-
-/** The Invoice items with something still to pay, as ids. */
-export async function openApInvoiceItemIds(db: Db = prisma): Promise<number[]> {
-  const rows = await db.finApItem.findMany({ where: { item_type: "Invoice", current_balance: { gt: 0 } }, select: { id: true } });
-  return rows.map((r) => r.id);
 }
 
 export async function lockApItems(tx: Prisma.TransactionClient, ids: number[]): Promise<void> {
@@ -276,7 +301,10 @@ export async function openApItemsAsOf(
   return items
     .map((i) => {
       const created = i.entries.find((e) => e.event === "Create");
-      const original = i.original_amount.toNumber();
+      // As of the date: an Uang Muka item grows with each payment (P133).
+      const original = i.entries
+        .filter((e) => e.event === "Create" || e.event === "AdvanceReceived")
+        .reduce((a, e) => a + e.amount.toNumber(), 0);
       const open = i.entries.reduce((a, e) => a + e.movement.toNumber(), 0);
       return {
         id: i.id,

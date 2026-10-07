@@ -760,7 +760,7 @@ posting.
 
 | Type | Source | Created by | Direction | Valued at | Due date |
 | --- | --- | --- | --- | --- | --- |
-| **Uang Muka** | Advance bill | Posted receipt, **one item per bill per receipt** | Lowers Piutang | Receipt line's DPP part = credit to Uang Muka Penjualan | No |
+| **Uang Muka** | Advance bill | First posted receipt; **one item per bill**, raised by each later receipt (*Uang Muka Diterima*, P133; was one per bill per receipt) | Lowers Piutang | Receipt line's DPP part = credit to Uang Muka Penjualan | No |
 | **Invoice** [Planned] | Faktur | The same Faktur | Raises Piutang | Net Piutang after advances = debit to Piutang Usaha | Yes |
 
 A bill paid twice has **two items**, both with the bill as source, told apart
@@ -1250,7 +1250,7 @@ Agreed with the user on 02/10/2026; to be recorded in §12 when built.
 
 | # | Update |
 | --- | --- |
-| **U1** | **AR item shape revised.** An item's source is the document it is **about** (advance bill, Faktur, later Nota Retur…); the posting that created it is recorded only in its Terbentuk entry. `ref_doc_type_id`, `ref_doc_id`, `ref_no` and `customer_order_no` are dropped; `customer_order_id` stays as the settlement scope; every item gets `ar_item_no` `ARI/YYYY/MM/NNNN`. One item per bill per receipt is kept, guaranteed by the posting. Amends P71–P73. |
+| **U1** | **AR item shape revised.** An item's source is the document it is **about** (advance bill, Faktur, later Nota Retur…); the posting that created it is recorded only in its Terbentuk entry. `ref_doc_type_id`, `ref_doc_id`, `ref_no` and `customer_order_no` are dropped; `customer_order_id` stays as the settlement scope; every item gets `ar_item_no` `ARI/YYYY/MM/NNNN`. One item per bill per receipt is kept, guaranteed by the posting. Amends P71–P73. *Superseded by P133: one item per bill.* |
 | **U2** | **Revaluation of foreign AR items is manual**, run by the user, never automatic. |
 | **U3** | **No FX difference when the Faktur uses an advance**: the advanced part of revenue is recognised at the advance's rupiah (inheritance). |
 | **U4** | **Tax uses the document's kurs** for now; a separate Kurs KMK is decided later. |
@@ -1258,7 +1258,7 @@ Agreed with the user on 02/10/2026; to be recorded in §12 when built.
 | **U6** | **Multi-currency base columns on AR items are added later**, when foreign sales are built — not in the U1 migration. |
 | **U7** | **An invoice never searches payment history** (03/10/2026). A receipt is a transaction, not a root document. The Faktur reads only its Customer Order's AR items: their balances give the advance DPP, and its PPN is the chain on the net DPP. The advance's PPN is never needed. |
 | **U8** | **The user picks the Uang Muka a Faktur uses and types the DPP used from each** (03/10/2026), up to each item's balance and in total up to the Faktur's DPP. An item may be used in part. Replaces the earlier "one total drawn oldest first". |
-| **U9** | **An AR item carries its own tax document's figures** (03/10/2026): `tax_dpp`, `tax_dpp_other`, `tax_ppn`, `tax_invoice_no`. A Uang Muka item is its Faktur Pajak Uang Muka. The columns are generic (a later Nota Retur item fills them the same way), so no type adds a column. **One item per bill per receipt stays** (reconfirmed): a bill paid twice has two Faktur Pajak Uang Muka, so two items. |
+| **U9** | **An AR item carries its own tax document's figures** (03/10/2026): `tax_dpp`, `tax_dpp_other`, `tax_ppn`, `tax_invoice_no`. A Uang Muka item is its Faktur Pajak Uang Muka. The columns are generic (a later Nota Retur item fills them the same way), so no type adds a column. **One item per bill per receipt stays** (reconfirmed): a bill paid twice has two Faktur Pajak Uang Muka, so two items. *Superseded by P133 (and the tax columns by P116): one item per bill, its Fakturs Uang Muka still one per payment, drawn oldest first by an Invoice.* |
 | **U11** | **The Delivery Note issues goods through an inventory module; today a stand-in** (03/10/2026). It calls `issue(item, warehouse, base qty, date, document)` and gets the unit cost back, as it will with real stock. The stand-in is backed by temporary tables of its own (`tmp_item_cost`: one Harga Pokok per item kept in a small menu; `tmp_stock_movement`: one row per issue), never named by a sales module; stock is always sufficient. Real inventory later keeps the contract and drops the temporary tables. `m_item` gets no cost column. |
 | **U12** | **HPP and Persediaan come from Account Mapping** (03/10/2026), one each for the company, until the Kategori Item mapping (C25). |
 | **U13** | **The Delivery Note is numbered `SJ/YYYY/MM/NNNN`** (03/10/2026). |

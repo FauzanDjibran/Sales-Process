@@ -409,6 +409,21 @@ describe("posting a receipt of two bills (P66)", () => {
     const parts = await prisma.finCashBankTxLine.findMany({ where: { doc_id: f.bill3, tx: { status: "Posted" } } });
     assert.equal(parts.reduce((a, l) => a + l.ppn_part.toNumber(), 0), 99_000, "the PPN parts add up to the bill's");
     assert.equal(parts.reduce((a, l) => a + l.dpp_part.toNumber(), 0), 900_000);
+
+    // One document, one item (P133): the second payment raised the bill's one
+    // Uang Muka item instead of making another.
+    const items = await prisma.finArItem.findMany({
+      where: { item_type: "Advance", source_doc_id: f.bill3, source_doc_type: { doc_table: "fin_ar_advance" } },
+      include: { entries: { orderBy: { id: "asc" } } },
+    });
+    assert.equal(items.length, 1, "one Uang Muka item per bill");
+    const [item] = items;
+    assert.deepEqual(item.entries.map((e) => [e.event, e.amount.toNumber(), e.balance_after.toNumber()]), [
+      ["Create", 450_000, 450_000],
+      ["AdvanceReceived", 450_000, 900_000],
+    ]);
+    assert.deepEqual([item.original_amount.toNumber(), item.current_balance.toNumber()], [900_000, 900_000], "its original amount is what it received");
+    assert.equal(item.entries[1].doc_id, r.id);
   });
 
   test("two drafts on one bill: the second cannot post once the first has", async () => {

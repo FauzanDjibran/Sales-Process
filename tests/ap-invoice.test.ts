@@ -195,6 +195,10 @@ describe("the Invoice Pembelian", () => {
       [f.bankAcc, 0, 763_050],
     ]);
     assert.equal((await purchaseInvoicePayStates([f.inv]))[f.inv].state, "Paid");
+    // The invoice records what it was paid (P133), agreeing with its item.
+    const v = await prisma.finApInvoice.findUniqueOrThrow({ where: { id: f.inv } });
+    const item = await prisma.finApItem.findUniqueOrThrow({ where: { id: v.ap_item_id! } });
+    assert.deepEqual([v.paid_amount.toNumber(), item.current_balance.toNumber()], [763_050, 0]);
   });
 
   test("Buku Hutang and Umur Hutang read the AP items (B33)", async () => {

@@ -1925,6 +1925,9 @@ model FinArInvoice {
   ppn_amount         Decimal @default(0) @db.Decimal(18, 2)
   /// Net Piutang: net DPP + PPN.
   total_amount       Decimal @default(0) @db.Decimal(18, 2)
+  /// What posted receipts settled of it, cash + PPh (P133): a receipt's
+  /// `before`, added to as it posts; total − paid = its Invoice item's balance.
+  paid_amount        Decimal @default(0) @db.Decimal(18, 2)
 
   /// Coretax number of its faktur pajak, typed after upload (U10).
   tax_invoice_no String?
@@ -2401,6 +2404,8 @@ enum ArEvent {
   AdvanceUsed
   /// An Invoice item lowered by the Uang Muka its Invoice deducts (P117).
   AdvanceApplied
+  /// A later payment of an advance bill raising the bill's one Uang Muka item (P133).
+  AdvanceReceived
 }
 
 model FinArItem {
@@ -3133,6 +3138,8 @@ model FinApInvoice {
   difference_amount  Decimal  @default(0) @db.Decimal(18, 2)
   /// What Hutang Usaha is born at: full DPP + full PPN + difference − PPh.
   payable_amount     Decimal  @default(0) @db.Decimal(18, 2)
+  /// What posted payments settled of it (P133): owed − paid = its AP item's balance.
+  paid_amount        Decimal  @default(0) @db.Decimal(18, 2)
 
   journal_id    Int?
   ap_item_id    Int?

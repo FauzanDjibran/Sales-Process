@@ -82,6 +82,18 @@ export function inclusiveSplit(price: number, r: PpnRates): { dpp: number; dppOt
   return { dpp: d, ...ppnChain(d, r) };
 }
 
+/**
+ * A figure's positional share (`tax_concept.md` §7.5) of the part that takes a
+ * whole from `before` to `before + part`: round(figure × after / total) −
+ * round(figure × before / total), half up. The shares of every part add up to
+ * the figure exactly.
+ */
+export function positionalShare(figure: number, before: number, part: number, total: number): number {
+  if (!(total > 0)) return 0;
+  const upTo = (u: number) => mulDivRound(figure, Math.min(Math.max(0, u), total), total);
+  return upTo(before + part) - upTo(before);
+}
+
 /** Shares `total` by `weights`; the largest weight absorbs what flooring leaves. */
 export function allocate(total: number, weights: number[]): number[] {
   const sum = weights.reduce((a, b) => a + b, 0);

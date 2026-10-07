@@ -7,10 +7,10 @@ import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate } from "./fiscal";
 import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { recordCashBankEntry } from "./cash-bank";
-import { ArItemOverdrawn, arItemBalances, createArItem, lockArItems, openInvoiceItemIds, settleArItem } from "./ar-item";
+import { ArItemOverdrawn, lockArItems, receiveAdvance, settleArItem } from "./ar-item";
 import { checkAccountIsLeaf } from "./records";
 import { lockSalesAdvances, recordSalesAdvancePaid, salesAdvanceNumbersByIds, settlementAdvances, unpaidAdvanceIds } from "./ar-advance";
-import { invoiceNumbersByIds, settlementInvoices } from "./ar-invoice";
+import { invoiceNumbersByIds, lockSalesInvoices, recordSalesInvoicePaid, settlementInvoices, unpaidSalesInvoiceIds } from "./ar-invoice";
 import {
   cashToClear,
   ppnChain,
@@ -187,17 +187,16 @@ async function openBills(
         ? unpaidAdvanceIds(db).then((ids) => settlementAdvances({ ids }, db))
         : settlementAdvances({ ids: filter.advanceIds }, db)
       : Promise.resolve([]),
-    // Only Invoices whose item still has a balance: a paid one is never offered, so it is never read.
+    // Only Invoices not paid in full: a paid one is never offered, so it is never read.
     wantInvoices
       ? filter.openOnly
-        ? openInvoiceItemIds(db).then((arItemIds) => settlementInvoices({ postedOnly: true, arItemIds }, db))
+        ? unpaidSalesInvoiceIds(db).then((ids) => settlementInvoices({ ids }, db))
         : settlementInvoices({ ids: filter.invoiceIds }, db)
       : Promise.resolve([]),
   ]);
-  // An Invoice's open amount is its Invoice item's balance — the book (U23).
-  const balances = await arItemBalances(invoices.flatMap((i) => (i.arItemId ? [i.arItemId] : [])), db);
+  // A document's open amount is its total less what it records as paid
+  // (P132, P133) — never read from other receipts.
   const out: OpenBill[] = [
-    // An advance bill's open amount is its total less what it records as paid (P132).
     ...advances.map((b) => {
       const p = b.paid;
       return {
@@ -222,7 +221,7 @@ async function openBills(
       };
     }),
     ...invoices.map((i) => {
-      const open = i.arItemId ? (balances.get(i.arItemId) ?? 0) : 0;
+      const open = i.total - i.paid;
       return {
         kind: "fin_ar_invoice" as const,
         key: billKey("fin_ar_invoice", i.id),
@@ -240,7 +239,7 @@ async function openBills(
         rates: null,
         withholdings: i.withholdings,
         arItemId: i.arItemId,
-        paid: i.total - open,
+        paid: i.paid,
         open,
       };
     }),
@@ -844,12 +843,13 @@ export async function transitionCashReceipt(
 
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
-      // Every document the receipt settles is locked before it is read again:
-      // the advance bills, and the Invoices' Invoice items (U28).
+      // Every document the receipt settles is locked before it is read again —
+      // the advance bills and the Invoices, then the Invoices' items (U28, P133).
       const stored = asInput(t);
       await lockSalesAdvances(tx, stored.lines.filter((l) => l.doc_type !== "fin_ar_invoice").map((l) => Number(l.doc_id)));
       const invoiceIds = stored.lines.filter((l) => l.doc_type === "fin_ar_invoice").map((l) => Number(l.doc_id));
       if (invoiceIds.length) {
+        await lockSalesInvoices(tx, invoiceIds);
         await lockArItems(tx, (await settlementInvoices({ ids: invoiceIds }, tx)).flatMap((i) => (i.arItemId ? [i.arItemId] : [])));
       }
       const r = await checkCashReceipt(tx, stored);
@@ -910,20 +910,19 @@ export async function transitionCashReceipt(
       for (const line of lineRows(typeIds, r.c.lines, actorId)) {
         await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
       }
-      // Each advance bill records what this receipt settled of it (P132): the
-      // next receipt reads that as its `before`, not this receipt.
+      // Each document records what this receipt settled of it (P132, P133):
+      // the next receipt reads that as its `before`, not this receipt.
       for (const l of r.c.lines) {
         if (l.kind === "fin_ar_advance") await recordSalesAdvancePaid(tx, l.docId, l.settled);
+        else await recordSalesInvoicePaid(tx, l.docId, l.settled);
       }
-      // Each bill paid is an Uang Muka the customer now holds (P73): one AR
-      // item per bill, at the DPP part the Uang Muka account was credited
-      // with, so the items reconcile with that account. The item is about the
-      // bill and carries its Faktur Pajak Uang Muka (U1, U9); the receipt is
-      // named by its Create entry.
+      // Each bill paid is an Uang Muka the customer now holds, in the bill's
+      // one AR item (P133): the first payment creates it, a later one raises
+      // it, at the DPP part the Uang Muka account was credited with, so the
+      // items reconcile with that account.
       for (const l of r.c.lines) {
         if (l.kind !== "fin_ar_advance" || !(l.dppPart > 0)) continue;
-        await createArItem(tx, {
-          type: "Advance",
+        await receiveAdvance(tx, {
           partnerId: t.partner_id,
           currencyId: baseCurrency.id,
           date: isoDay(t.tx_date),
