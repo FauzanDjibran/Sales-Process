@@ -1,11 +1,14 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/generated/prisma/client";
 import { carriedYearsBefore, type ReportableFiscalYear } from "./fiscal";
 import { roundBase } from "./fx";
 import {
   statementBalances,
   statementMovements,
+  trialBalanceReport,
+  type TrialBalanceReport as TrialBalanceFigures,
   type OpeningProvenance,
   type StatementMovement,
 } from "./ledger";
@@ -14,6 +17,7 @@ import { neracaAccounts } from "./system-settings";
 import {
   buildBalanceSheet,
   buildProfitLoss,
+  buildTrialBalance,
   columnRange,
   type StatementAccount,
   type StatementMode,
@@ -302,7 +306,9 @@ export async function balanceSheetReport(
     trailing.set(accounts.accumulatedId, lines);
   }
 
-  const chart = await balanceSheetChart();
+  const chart = await typedChart({
+    account_subcategory: { account_category: { account_type: { section: "BalanceSheet" } } },
+  });
   const pairs = figures.map((f) => f.balances.pairs);
   const partnerIds = [...new Set(pairs.flat().flatMap((p) => (p.partnerId ? [p.partnerId] : [])))];
   const built = buildBalanceSheet(chart, pairs, await partnerNames(partnerIds), placed, trailing);
@@ -333,16 +339,18 @@ export async function balanceSheetReport(
   };
 }
 
-/** Every balance-sheet account in the chart, with its type's side. */
-async function balanceSheetChart(): Promise<StatementAccount[]> {
+/**
+ * Accounts of the chart with their type's side — every balance-sheet
+ * account for the Neraca, every account for the Trial Balance.
+ */
+async function typedChart(
+  where: Prisma.AccAccountWhereInput
+): Promise<(StatementAccount & { active: boolean })[]> {
   const rows = await prisma.accAccount.findMany({
-    where: {
-      account_subcategory: {
-        account_category: { account_type: { section: "BalanceSheet" } },
-      },
-    },
+    where,
     select: {
       id: true,
+      is_active: true,
       account_label: true,
       account_name: true,
       parent_account: true,
@@ -372,6 +380,7 @@ async function balanceSheetChart(): Promise<StatementAccount[]> {
     const type = cat.account_type;
     return {
       id: a.id,
+      active: a.is_active,
       label: a.account_label,
       name: a.account_name,
       parentId: a.parent_account,
@@ -385,6 +394,82 @@ async function balanceSheetChart(): Promise<StatementAccount[]> {
       },
     };
   });
+}
+
+export type TrialBalanceStatement = {
+  range: PeriodRange;
+  /** Saldo Awal, Mutasi Debit, Mutasi Kredit, Saldo Akhir per row. */
+  rows: StatementRow[];
+  /** Whether accounts without a figure were asked for. */
+  includeAll: boolean;
+  totalDebit: number;
+  totalCredit: number;
+  balanced: boolean;
+  unbalanced: TrialBalanceFigures["unbalanced"];
+  openingFrom: OpeningProvenance | null;
+  unplaced: string[];
+};
+
+/**
+ * The Trial Balance laid out on the chart, like the Neraca and the Laba Rugi.
+ *
+ * The figures are `trialBalanceReport`'s, unchanged — the closing checklist
+ * reads the same function, so the check a reader makes here is the one the
+ * close makes. This adds only where each figure sits.
+ *
+ * With `includeAll`, every active account is listed, silent or not; an inactive
+ * account appears only when it carries a figure, since a retired account with
+ * nothing on it has nothing to check.
+ */
+export async function trialBalanceStatement(
+  range: PeriodRange,
+  includeAll: boolean
+): Promise<TrialBalanceStatement> {
+  const [report, chart] = await Promise.all([
+    trialBalanceReport(range),
+    typedChart({}),
+  ]);
+
+  const figures = report.rows.map((r) => ({
+    accountId: r.id,
+    // The flat report signs by the account's own normal balance; the tree
+    // re-signs by the type's, so it takes the raw net.
+    opening: r.normalBalance === "Kredit" ? -r.opening : r.opening,
+    debit: r.debit,
+    credit: r.credit,
+  }));
+
+  const byId = new Map(chart.map((a) => [a.id, a]));
+  const keep = new Set<number>(
+    includeAll ? chart.filter((a) => a.active).map((a) => a.id) : []
+  );
+  for (const f of figures) keep.add(f.accountId);
+  // A kept account's parents stay too, or it would lose its place in the tree.
+  for (const id of [...keep]) {
+    let parent = byId.get(id)?.parentId ?? null;
+    while (parent !== null && !keep.has(parent)) {
+      keep.add(parent);
+      parent = byId.get(parent)?.parentId ?? null;
+    }
+  }
+
+  const built = buildTrialBalance(
+    chart.filter((a) => keep.has(a.id)),
+    figures,
+    includeAll
+  );
+
+  return {
+    range,
+    rows: built.rows,
+    includeAll,
+    totalDebit: report.totalDebit,
+    totalCredit: report.totalCredit,
+    balanced: report.balanced,
+    unbalanced: report.unbalanced,
+    openingFrom: report.openingFrom,
+    unplaced: built.unplaced,
+  };
 }
 
 /** `YYYY-MM-DD`, one day earlier. */

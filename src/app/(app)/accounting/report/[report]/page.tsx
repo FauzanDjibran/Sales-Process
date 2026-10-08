@@ -4,11 +4,8 @@ import { GeneralLedgerReport } from "@/components/report/general-ledger-report";
 import { TrialBalanceReport } from "@/components/report/trial-balance-report";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
 import { requirePermission } from "@/lib/erp/auth";
-import {
-  generalLedgerReport,
-  ledgerAccountOptions,
-  trialBalanceReport,
-} from "@/lib/erp/ledger";
+import { generalLedgerReport, ledgerAccountOptions } from "@/lib/erp/ledger";
+import { TrialBalanceParams } from "@/components/report/trial-balance-params";
 import type { PeriodRange } from "@/lib/erp/period";
 import { reportBySlug, reportHref } from "@/lib/erp/reports";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
@@ -29,6 +26,7 @@ import {
   balanceSheetReport,
   profitLossReport,
   resolveColumn,
+  trialBalanceStatement,
   type StatementColumn,
 } from "@/lib/erp/statements";
 import { formatMoney } from "@/lib/format";
@@ -38,12 +36,14 @@ import type { ReportDef } from "@/lib/erp/reports";
 export const dynamic = "force-dynamic";
 
 /**
- * The Accounting module's Report Views — General Ledger and Trial Balance.
+ * The Accounting module's Report Views — General Ledger, Trial Balance, Laba
+ * Rugi and Neraca.
  *
  * The same shape as the Finance report route (§12): the catalogue resolves the
  * report, the route checks its permission and parses its parameters, the chrome
- * is shared, and only the body differs. This one serves the `account-period`
- * parameter set, whose subject is **several** accounts rather than one.
+ * is shared, and only the body differs. It serves three parameter sets:
+ * `account-period` (several accounts), `period` (the whole chart) and
+ * `fiscal-period` (the statements).
  *
  * Both reports read journal lines, and they are the only things that do — the
  * operational books are written alongside the journal, never from it.
@@ -62,6 +62,7 @@ export default async function Page({
     mode?: string;
     cmpYear?: string;
     cmpPeriod?: string;
+    all?: string;
   }>;
 }) {
   const { report: slug } = await params;
@@ -77,6 +78,11 @@ export default async function Page({
   }
 
   const range = resolveRange(query.from, query.to);
+
+  if (report.params === "period") {
+    return trialBalancePage(report, slug, range, query.all === "1");
+  }
+
   const accountIds = parseIds(query.accounts);
 
   const options = await ledgerAccountOptions();
@@ -94,7 +100,7 @@ export default async function Page({
         label="Account"
         param="accounts"
         addPlaceholder="Tambah account…"
-        allPlaceholder="Semua account yang bergerak"
+        allPlaceholder="Pilih account…"
         missingHint="Pilih minimal satu account terlebih dahulu."
       />
     </>
@@ -133,27 +139,9 @@ export default async function Page({
     );
   }
 
-  // --------------------------------------------------------- trial balance
-
-  const data = await trialBalanceReport(range);
-
-  return (
-    <ReportView
-      report={report}
-      filter={filterBar}
-      runAt={runAt}
-      footnote={
-        <>
-          Seluruh angka dalam mata uang dasar ({BASE_CURRENCY_LABEL}), dan total
-          mutasi debit wajib sama dengan total kredit — selisih di sini berarti
-          ada masalah sistem, bukan kesalahan input
-          {openingSource(data.openingFrom)}.
-        </>
-      }
-    >
-      <TrialBalanceReport report={data} />
-    </ReportView>
-  );
+  // The catalogue's accounting reports are the General Ledger, the Trial
+  // Balance and the two statements; anything else here is a catalogue error.
+  notFound();
 }
 
 /**
@@ -209,6 +197,72 @@ function parseIds(raw?: string): number[] {
     if (Number.isInteger(n) && n > 0 && !out.includes(n)) out.push(n);
   }
   return out;
+}
+
+// -------------------------------------------------------------- trial balance
+
+/**
+ * The `period` report: every account over a free range,
+ * laid out on the chart like the statements, titled like them, with its faults
+ * stated once at the top.
+ */
+async function trialBalancePage(
+  report: ReportDef,
+  slug: string,
+  range: PeriodRange,
+  includeAll: boolean
+) {
+  const runAt = new Date().toISOString();
+  const data = await trialBalanceStatement(range, includeAll);
+  const difference = Math.abs(data.totalDebit - data.totalCredit);
+
+  return (
+    <ReportView
+      report={report}
+      filter={
+        <TrialBalanceParams
+          slug={slug}
+          from={range.from}
+          to={range.to}
+          includeAll={includeAll}
+        />
+      }
+      runAt={runAt}
+      title={
+        <StatementTitle
+          name={report.name}
+          mode={includeAll ? "Semua account" : "Account bersaldo atau bergerak"}
+          columns={[{ range }]}
+          runAt={runAt}
+        />
+      }
+      footnote={
+        <>
+          Seluruh angka dalam mata uang dasar ({BASE_CURRENCY_LABEL}), saldo bertanda
+          menurut normal balance tipe account, dan total mutasi debit wajib sama dengan
+          total kredit{openingSource(data.openingFrom)}.
+        </>
+      }
+    >
+      {!data.balanced && (
+        <Notice tone="bad" title="Total mutasi debit tidak sama dengan total kredit.">
+          Selisih {formatMoney(difference)}. Setiap journal wajib seimbang, jadi selisih
+          ini menandakan masalah sistem, bukan kesalahan input.
+        </Notice>
+      )}
+      {data.unbalanced.length > 0 && (
+        <Notice tone="bad" title={`${data.unbalanced.length} journal tidak seimbang.`}>
+          Journal ditolak bila debit dan kreditnya tidak sama, jadi ada yang menulis
+          tabel journal di luar aplikasi: {data.unbalanced.map((j) => j.journalNo).join(", ")}.
+        </Notice>
+      )}
+      {data.unplaced.length > 0 && <UnplacedNotice names={data.unplaced} />}
+      <TrialBalanceReport
+        key={`${range.from}:${range.to}:${includeAll}`}
+        report={data}
+      />
+    </ReportView>
+  );
 }
 
 // ------------------------------------------------------- financial statements

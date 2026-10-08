@@ -19,7 +19,7 @@ import type { PermissionCode } from "./permissions";
 /**
  * Which parameters a report takes.
  *
- * The sets that exist are listed below. Another arrives
+ * Each set below is one shape of filter. A new one arrives
  * when a report needs different parameters — as an added member here, so the
  * route keeps resolving parameters in one place rather than each report parsing
  * the query string its own way.
@@ -27,6 +27,11 @@ import type { PermissionCode } from "./permissions";
 export type ReportParams =
   | "cash-bank-period"
   | "account-period"
+  /**
+   * A date range, nothing else — the Trial Balance, whose subject is every
+   * account by definition. `?all=1` lists the silent ones too.
+   */
+  | "period"
   /**
    * A fiscal year and a period in it, optionally a second pair to compare
    * against — the financial statements. Always a period viewpoint: a Laba Rugi
@@ -231,11 +236,11 @@ const FIXED_REPORTS = [
     module: "accounting",
     name: "Trial Balance",
     desc:
-      "Saldo awal, mutasi debit, mutasi kredit, dan saldo akhir seluruh account yang " +
-      "bergerak pada rentang tanggal — per currency, dengan uji keseimbangan.",
+      "Saldo awal, mutasi debit, mutasi kredit, dan saldo akhir seluruh account pada " +
+      "rentang tanggal, per tipe dan kelompok — dengan uji keseimbangan debit dan kredit.",
     icon: "calc",
     permission: "REPORT_TRIAL_BALANCE_VIEW",
-    params: "account-period",
+    params: "period",
     // Every account at once is the whole idea of a trial balance.
     subjectRequired: false,
   },

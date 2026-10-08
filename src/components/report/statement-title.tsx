@@ -1,6 +1,9 @@
 import { Fragment } from "react";
 import { formatDate, formatTimestamp } from "@/lib/format";
-import type { StatementColumn } from "@/lib/erp/statements";
+import type { PeriodRange } from "@/lib/erp/period";
+
+/** What the title states of a column: its period, where it has one, and its dates. */
+export type TitleColumn = { periodName?: string; range: PeriodRange };
 
 /**
  * What a statement is, stated on the statement itself.
@@ -22,9 +25,10 @@ export function StatementTitle({
   position,
 }: {
   name: string;
-  /** "s.d. Periode ini", "Periode ini" — or, for a Neraca, "Posisi". */
+  /** "s.d. Periode ini", "Periode ini", for a Neraca "Posisi" — or, on the
+      Trial Balance, which accounts are listed. */
   mode: string;
-  columns: StatementColumn[];
+  columns: TitleColumn[];
   runAt: string;
   /** A Neraca: each column is a position per its last day, not a range. */
   position?: boolean;
@@ -40,7 +44,7 @@ export function StatementTitle({
           <Fragment key={i}>
             {i > 0 && <span className="sep">dibanding</span>}
             <span>
-              {c.periodName} ·{" "}
+              {c.periodName && `${c.periodName} · `}
               {position
                 ? `per ${formatDate(c.range.to)}`
                 : `${formatDate(c.range.from)} – ${formatDate(c.range.to)}`}
