@@ -1,11 +1,10 @@
 import { notFound } from "next/navigation";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
 import { ProductionCostParams } from "@/components/report/production-cost-params";
-import { CostBalanceBody, CostLedgerBody, type CostSourceDoc, type GlBeside } from "@/components/report/production-cost-reports";
+import { CostBalanceBody, CostLedgerBody, type CostSourceDoc } from "@/components/report/production-cost-reports";
 import { requirePermission } from "@/lib/erp/auth";
 import { reportableFiscalYears, type ReportableFiscalYear } from "@/lib/erp/fiscal";
-import { accountMovements } from "@/lib/erp/ledger";
-import { costBalances, costByAccount, costLedgerRows, elementOptions } from "@/lib/erp/production-cost";
+import { costBalances, costLedgerRows, elementOptions } from "@/lib/erp/production-cost";
 import { reportBySlug, reportHref } from "@/lib/erp/reports";
 import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
@@ -15,8 +14,9 @@ export const dynamic = "force-dynamic";
 /**
  * The Produksi module's Report Views (P150 M66): Buku Biaya Produksi and Saldo
  * Biaya Produksi, each read for one month — a fiscal period — and optionally
- * one Elemen Biaya Produksi. The figures are the cost ledger's (M60); the GL
- * is set beside them only as a check (M67).
+ * one Elemen Biaya Produksi. The figures are the cost ledger's alone (M60,
+ * P152): the book stands on its own, as the Cash Bank Book and the stock books
+ * do, and the GL is never read here.
  */
 export default async function Page({
   params,
@@ -78,23 +78,11 @@ export default async function Page({
     );
   }
 
-  // Saldo Biaya Produksi, with the GL beside it per element account.
-  const accounts = [...new Map((elementId ? elements.filter((e) => e.id === elementId) : elements).map((e) => [e.accountId, e])).values()];
-  const accountIds = accounts.map((e) => e.accountId);
-  const [balances, ledgerByAccount, gl] = await Promise.all([costBalances(range, filterIds), costByAccount(range, accountIds), accountMovements(range, accountIds)]);
-  const beside: GlBeside[] = accounts.map((e) => {
-    const m = gl.get(e.accountId);
-    return {
-      accountId: e.accountId,
-      accountLabel: e.accountLabel,
-      accountName: e.accountName,
-      costLedger: ledgerByAccount.get(e.accountId) ?? 0,
-      gl: m ? Math.round((m.debit - m.credit) * 100) / 100 : 0,
-    };
-  });
+  // Saldo Biaya Produksi: the month's cost per element.
+  const balances = await costBalances(range, filterIds);
   return (
     <ReportView report={report} filter={filter} runAt={runAt} footnote={footnote}>
-      <CostBalanceBody balances={balances} elements={elementById} gl={beside} />
+      <CostBalanceBody balances={balances} elements={elementById} />
     </ReportView>
   );
 }

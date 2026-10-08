@@ -20,8 +20,9 @@ import type { PeriodRange } from "./period";
  * that books the cost (the Tagihan Biaya Produksi today), and every posting
  * takes one ledger number `BBP/…` shared by its rows (P110). Nothing checks
  * the Control Account mark (M55): keeping other postings off an element's
- * account is the user's guard, and a difference with the GL is shown as a
- * warning only (M67).
+ * account is the user's guard. The reports read this book alone (P152); a
+ * difference with the GL is a warning in `db:reconcile` only, as for the other
+ * books (M67).
  *
  * A book: it imports only the shared kernel and is called by documents.
  * Named only by this module (`prd_cost_ledger`, `acc_production_cost_element`
@@ -208,16 +209,6 @@ export async function costBalances(range: PeriodRange, elementIds: number[] = []
     out.set(r.element_id, row);
   }
   return [...out.values()];
-}
-
-/** Σ cost rows per account in a range — what the GL is compared with (M67). */
-export async function costByAccount(range: PeriodRange, accountIds: number[] = []): Promise<Map<number, number>> {
-  const rows = await prisma.prdCostLedger.groupBy({
-    by: ["account_id"],
-    where: { posting_date: inRange(range), ...(accountIds.length ? { account_id: { in: accountIds } } : {}) },
-    _sum: { amount: true },
-  });
-  return new Map(rows.map((r) => [r.account_id, r._sum.amount?.toNumber() ?? 0]));
 }
 
 /** A document's own cost rows — for its page and the reconcile. */

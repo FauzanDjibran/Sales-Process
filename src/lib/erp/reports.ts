@@ -292,7 +292,7 @@ const FIXED_REPORTS = [
     slug: "cost-balance",
     module: "production",
     name: "Saldo Biaya Produksi",
-    desc: "Total biaya produksi per Elemen Biaya Produksi dalam satu bulan, dicocokkan dengan GL per account.",
+    desc: "Total biaya produksi per Elemen Biaya Produksi dalam satu bulan: masuk, dibebankan, dibawa dan saldo.",
     icon: "calc",
     permission: "REPORT_PRODUCTION_COST_BALANCE_VIEW",
     params: "production-cost-period",

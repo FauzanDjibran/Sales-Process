@@ -7,9 +7,10 @@ import { formatDate, formatMoney } from "@/lib/format";
 
 /**
  * The bodies of Buku Biaya Produksi and Saldo Biaya Produksi (P150 M66) — the
- * cost ledger read for one month. The cost ledger is the source of truth
- * (M60); the GL is set beside it only as a check, and a difference is a
- * warning, never acted on (M67).
+ * cost ledger read for one month. The cost ledger stands on its own, as the
+ * Cash Bank Book and the stock books do (P152): it is what the month-end
+ * close reads (M60), so the reports show its figures by Elemen Biaya Produksi
+ * and nothing from the GL — no account and no comparison.
  */
 
 const money = (n: number) => formatMoney(n, "IDR");
@@ -76,7 +77,7 @@ export function CostLedgerBody({
             <div className="cbh">
               <b>{e?.label ?? `#${id}`}</b>
               <span className="cbn">
-                {e?.name} · {e?.accountLabel} {e?.accountName} · {list.length} baris
+                {e?.name} · {list.length} baris
               </span>
               <ReportSummary figures={[{ label: "Total", value: money(total), key: true }]} />
             </div>
@@ -128,21 +129,16 @@ export function CostLedgerBody({
 
 // ------------------------------------------------------ Saldo Biaya Produksi
 
-export type GlBeside = { accountId: number; accountLabel: string; accountName: string; costLedger: number; gl: number };
-
 export function CostBalanceBody({
   balances,
   elements,
-  gl,
 }: {
   balances: CostBalanceRow[];
   elements: Map<number, ElementInfo>;
-  gl: GlBeside[];
 }) {
   const rows = [...balances].sort((a, b) => (elements.get(a.elementId)?.label ?? "").localeCompare(elements.get(b.elementId)?.label ?? ""));
   const sum = (f: (r: CostBalanceRow) => number) => rows.reduce((a, r) => a + f(r), 0);
   const carried = (r: CostBalanceRow) => r.byKind.CarriedIn + r.byKind.CarriedOut;
-  const differences = gl.filter((g) => Math.round(g.costLedger * 100) !== Math.round(g.gl * 100));
 
   return (
     <>
@@ -153,11 +149,10 @@ export function CostBalanceBody({
           <ReportSummary figures={[{ label: "Total Biaya", value: money(sum((r) => r.total)), key: true }]} />
         </div>
         <div className="tw">
-          <table className="grid" style={{ minWidth: 860 }}>
+          <table className="grid" style={{ minWidth: 700 }}>
             <thead>
               <tr>
                 <th>Elemen Biaya Produksi</th>
-                <th style={{ width: 230 }}>Account</th>
                 <th className="num" style={{ width: 140 }}>
                   Masuk
                 </th>
@@ -183,12 +178,6 @@ export function CostBalanceBody({
                         <span className="nm">{e?.name}</span>
                       </span>
                     </td>
-                    <td>
-                      <span className="idc">
-                        <span className="lab">{e?.accountLabel}</span>
-                        <span className="nm">{e?.accountName}</span>
-                      </span>
-                    </td>
                     <td className="num">
                       <span className="mny">{money(r.byKind.In)}</span>
                     </td>
@@ -208,14 +197,14 @@ export function CostBalanceBody({
               })}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="mut" style={{ textAlign: "center" }}>
+                  <td colSpan={5} className="mut" style={{ textAlign: "center" }}>
                     Tidak ada biaya produksi pada bulan ini.
                   </td>
                 </tr>
               )}
               {rows.length > 0 && (
                 <tr className="totrow">
-                  <td colSpan={2}>Total</td>
+                  <td>Total</td>
                   <td className="num">{money(sum((r) => r.byKind.In))}</td>
                   <td className="num">{money(sum((r) => r.byKind.Absorbed + r.byKind.ExpensedToPL))}</td>
                   <td className="num">{money(sum(carried))}</td>
@@ -227,77 +216,6 @@ export function CostBalanceBody({
         </div>
       </div>
 
-      <div className="cblock">
-        <div className="cbh">
-          <b>Dicocokkan dengan GL</b>
-          <span className="cbn">Per account elemen: Buku Biaya Produksi di samping mutasi GL bulan ini (debit − kredit). Buku Biaya Produksi yang dipakai.</span>
-        </div>
-        {differences.length > 0 && (
-          <div className="nbox warn slim">
-            <span className="ni">
-              <Icon name="warn" size={14} />
-            </span>
-            <div>
-              <b>
-                {differences.length} account berbeda dengan GL.
-              </b>
-              <p>
-                Ada posting ke account elemen yang tidak lewat Tagihan Biaya Produksi (mis. journal manual), atau sebaliknya.
-                Penutupan biaya tetap memakai Buku Biaya Produksi; selisih ini hanya untuk diperiksa.
-              </p>
-            </div>
-          </div>
-        )}
-        <div className="tw">
-          <table className="grid" style={{ minWidth: 760 }}>
-            <thead>
-              <tr>
-                <th>Account</th>
-                <th className="num" style={{ width: 170 }}>
-                  Buku Biaya Produksi
-                </th>
-                <th className="num" style={{ width: 170 }}>
-                  GL
-                </th>
-                <th className="num" style={{ width: 150 }}>
-                  Selisih
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {gl.map((g) => {
-                const diff = g.costLedger - g.gl;
-                return (
-                  <tr key={g.accountId} style={{ cursor: "default" }}>
-                    <td>
-                      <span className="idc">
-                        <span className="lab">{g.accountLabel}</span>
-                        <span className="nm">{g.accountName}</span>
-                      </span>
-                    </td>
-                    <td className="num">
-                      <span className="mny">{money(g.costLedger)}</span>
-                    </td>
-                    <td className="num">
-                      <span className="mny">{money(g.gl)}</span>
-                    </td>
-                    <td className="num">
-                      {Math.round(diff * 100) ? <span className="mny neg">{money(diff)}</span> : <span className="dash">—</span>}
-                    </td>
-                  </tr>
-                );
-              })}
-              {gl.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="mut" style={{ textAlign: "center" }}>
-                    Belum ada Elemen Biaya Produksi.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
     </>
   );
 }

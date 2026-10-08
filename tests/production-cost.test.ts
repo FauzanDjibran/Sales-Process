@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 
 import { recordCashBankEntry } from "../src/lib/erp/cash-bank";
 import { cashPaymentOptions, costBillPayments, createCashPayment, transitionCashPayment, type CashPaymentInput } from "../src/lib/erp/cash-payment";
-import { accountMovements } from "../src/lib/erp/ledger";
-import { costBalances, costByAccount, costLedgerRows } from "../src/lib/erp/production-cost";
+import { costBalances, costLedgerRows } from "../src/lib/erp/production-cost";
 import {
   costBillPreview,
   createCostBill,
@@ -218,17 +217,15 @@ describe("posting books the cost in its month: journal and cost ledger together 
   });
 });
 
-describe("Buku and Saldo Biaya Produksi read the cost ledger for the month (M66, M67)", () => {
-  test("the month's balance per element sums its rows; per account it matches the GL", async () => {
+describe("Saldo Biaya Produksi reads the cost ledger alone for the month (M66, P152)", () => {
+  test("the month's balance per element sums its rows", async () => {
     const balances = await costBalances(month, [f.eLabour, f.ePower]);
     const by = new Map(balances.map((b) => [b.elementId, b.total]));
     assert.equal(by.get(f.eLabour), 600_000);
     assert.equal(by.get(f.ePower), 650_000);
-    const ledger = await costByAccount(month, [f.labour, f.power]);
-    const gl = await accountMovements(month, [f.labour, f.power]);
-    for (const id of [f.labour, f.power]) {
-      const m = gl.get(id)!;
-      assert.equal(ledger.get(id), m.debit - m.credit, `account ${id}: cost ledger = GL`);
+    const rows = await costLedgerRows(month, [f.eLabour, f.ePower]);
+    for (const id of [f.eLabour, f.ePower]) {
+      assert.equal(rows.filter((r) => r.elementId === id).reduce((a, r) => a + r.amount, 0), by.get(id), `element ${id}: balance = its rows`);
     }
   });
 });
