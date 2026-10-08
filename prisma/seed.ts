@@ -144,7 +144,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Uang Muka Perizinan", "fin_ar_permit_advance"],
   ["Invoice Perizinan", "fin_ar_permit_invoice"],
   // Production cost (P150 M68): the bill that books it, read by the cost ledger and its payment.
-  ["Tagihan Biaya Produksi", "prd_cost_bill"],
+  ["Tagihan Biaya", "prd_cost_bill"],
 ];
 
 /**
@@ -1033,6 +1033,16 @@ async function ensureStarterReferences(audit: { created_by: number; updated_by: 
       data: { wht_code: nextCodeAfter("wht", codes), wht_label: label, wht_name: name, rate, tax_object: taxObject, usage: "Purchase", ...audit },
     });
     tally("withholding taxes (Jenis PPh pembelian)", 1);
+  }
+
+  // The one Cost Center today (P154, M72): production cost is booked to it
+  // and the month-end close spreads its pool. User data from then on.
+  if (!(await prisma.accCostCenter.findFirst({ where: { cost_center_label: { equals: "PRODUKSI", mode: "insensitive" } } }))) {
+    const codes = (await prisma.accCostCenter.findMany({ select: { cost_center_code: true } })).map((r) => r.cost_center_code);
+    await prisma.accCostCenter.create({
+      data: { cost_center_code: nextCodeAfter("cc", codes), cost_center_label: "PRODUKSI", cost_center_name: "Produksi", cost_center_type: "Production", ...audit },
+    });
+    tally("cost centers", 1);
   }
 }
 

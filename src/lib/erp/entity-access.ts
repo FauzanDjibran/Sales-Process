@@ -99,12 +99,19 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "WORKSTATION_ACTIVATE",
     deactivate: "WORKSTATION_DEACTIVATE",
   },
-  acc_production_cost_element: {
-    view: "PRODUCTION_COST_ELEMENT_VIEW",
-    create: "PRODUCTION_COST_ELEMENT_CREATE",
-    edit: "PRODUCTION_COST_ELEMENT_EDIT",
-    activate: "PRODUCTION_COST_ELEMENT_ACTIVATE",
-    deactivate: "PRODUCTION_COST_ELEMENT_DEACTIVATE",
+  acc_cost_center: {
+    view: "COST_CENTER_VIEW",
+    create: "COST_CENTER_CREATE",
+    edit: "COST_CENTER_EDIT",
+    activate: "COST_CENTER_ACTIVATE",
+    deactivate: "COST_CENTER_DEACTIVATE",
+  },
+  acc_cost_type: {
+    view: "COST_TYPE_VIEW",
+    create: "COST_TYPE_CREATE",
+    edit: "COST_TYPE_EDIT",
+    activate: "COST_TYPE_ACTIVATE",
+    deactivate: "COST_TYPE_DEACTIVATE",
   },
   // Where a posting lands, beside Account Mapping and on its permissions (P122).
   acc_item_category_account: {

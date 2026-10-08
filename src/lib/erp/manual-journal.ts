@@ -150,6 +150,8 @@ export async function manualJournalOptions(): Promise<ManualJournalOptions> {
         is_active: true,
         is_postable: true,
         is_control_account: false,
+        // Until a manual line can pick a Cost Center (P154, M88).
+        require_cost_center: false,
         children: { none: {} },
       },
       select: {
@@ -220,6 +222,7 @@ async function refuseAccount(
     is_postable: boolean;
     is_active: boolean;
     is_control_account: boolean;
+    require_cost_center: boolean;
     _count: { children: number };
   }
 ): Promise<string | null> {
@@ -233,6 +236,12 @@ async function refuseAccount(
     return (
       `Account ${account.account_label} adalah control account dan tidak dapat ` +
       "diisi lewat Journal Manual. Catat lewat dokumen yang memposting ke account ini."
+    );
+  }
+  if (account.require_cost_center) {
+    return (
+      `Account ${account.account_label} wajib menyebut Cost Center dan belum dapat ` +
+      "diisi lewat Journal Manual. Catat lewat Tagihan Biaya."
     );
   }
   return null;
@@ -291,6 +300,7 @@ export async function checkManualJournal(
         is_postable: true,
         is_active: true,
         is_control_account: true,
+        require_cost_center: true,
         require_partner: true,
         partner_category_id: true,
         _count: { select: { children: true } },

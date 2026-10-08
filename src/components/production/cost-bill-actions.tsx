@@ -25,7 +25,7 @@ const LOCK_TEXT: Partial<Record<CostBillStatus, string>> = {
 };
 
 /**
- * A Tagihan Biaya Produksi's lifecycle as header buttons: Ubah (Draft only),
+ * A Tagihan Biaya's lifecycle as header buttons: Ubah (Draft only),
  * Batalkan and Posting, whose confirmation shows the journal from a dry run of
  * the posting (P103) — or why it cannot post.
  */

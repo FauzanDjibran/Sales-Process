@@ -8,38 +8,38 @@ import { PeriodPick, type FiscalYearChoice, type Pick } from "./fiscal-period-pa
 import { useReportRun } from "./report-run";
 
 /**
- * The filter for the `production-cost-period` parameter set (P150 M66): a
- * month — a fiscal period — and optionally one Elemen Biaya Produksi.
+ * The filter for the `production-cost-period` parameter set (P154, M90): a
+ * month — a fiscal period — and optionally one Cost Center.
  *
- *   Tahun Buku · Periode · Elemen
+ *   Tahun Buku · Periode · Cost Center
  *
  * A month rather than a free range, because the close spreads one fiscal
- * period's cost: these reports show what that close will read.
+ * period's pool: the report shows what that close will read.
  */
 export function ProductionCostParams({
   slug,
   years,
   value,
-  elements,
-  elementId,
+  costCenters,
+  costCenterId,
 }: {
   slug: string;
   years: FiscalYearChoice[];
   value: Pick;
-  elements: { id: number; label: string; name: string }[];
-  elementId: number | null;
+  costCenters: { id: number; label: string; name: string }[];
+  costCenterId: number | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [pick, setPick] = useState<Pick>(value);
-  const [element, setElement] = useState(elementId ? String(elementId) : "");
+  const [center, setCenter] = useState(costCenterId ? String(costCenterId) : "");
   const blocked = !pick.yearId || !pick.periodId;
 
   useReportRun(
     () => {
       if (blocked) return;
       startTransition(() => {
-        router.push(reportHref(slug, { year: pick.yearId, period: pick.periodId, element: element || null }));
+        router.push(reportHref(slug, { year: pick.yearId, period: pick.periodId, center: center || null }));
       });
     },
     { blocked, hint: "Pilih tahun buku dan periode terlebih dahulu.", pending }
@@ -52,11 +52,11 @@ export function ProductionCostParams({
       <div className="rf">
         <Select
           variant="toolbar"
-          value={element}
-          set={Boolean(element)}
-          onChange={setElement}
-          options={[{ value: "", label: "Elemen: semua" }, ...elements.map((e) => ({ value: String(e.id), label: `${e.label} — ${e.name}` }))]}
-          ariaLabel="Elemen Biaya Produksi"
+          value={center}
+          set={Boolean(center)}
+          onChange={setCenter}
+          options={[{ value: "", label: "Cost Center: semua" }, ...costCenters.map((c) => ({ value: String(c.id), label: `${c.label} — ${c.name}` }))]}
+          ariaLabel="Cost Center"
         />
       </div>
     </div>

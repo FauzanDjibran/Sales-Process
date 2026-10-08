@@ -70,6 +70,11 @@ type Client = typeof prisma | Prisma.TransactionClient;
 export type JournalLineInput = {
   accountId: number;
   partnerId?: number | null;
+  /**
+   * Where the cost was incurred (P154). Required on an account with *Require
+   * Cost Center* and refused on any other — `postJournal` checks it.
+   */
+  costCenterId?: number | null;
   currencyId: number;
   /** Transaction currency to base. Never defaulted — see `lib/erp/currency.ts`. */
   rate: number;
@@ -206,6 +211,7 @@ function lineData(line: ResolvedLine, sequence: number, actorId: number) {
     sequence_no: sequence,
     account_id: line.accountId,
     partner_id: line.partnerId ?? null,
+    cost_center_id: line.costCenterId ?? null,
     // The transaction-currency face of the line: which currency, how much of
     // it, and what it was worth. The General Ledger reads the base columns;
     // this is what lets a reader see that a rupiah figure came from three
@@ -233,6 +239,39 @@ function assertNotAhead(date: Date): void {
   }
 }
 
+/** A posting the Cost Center rule refuses (P154, M88). */
+export class CostCenterRefusal extends Error {}
+
+/**
+ * The Cost Center rule (P154, M88), for every source in one place: a line on
+ * an account with *Require Cost Center* names an active Cost Center, and a
+ * line on any other account names none — as *Require Partner* works for the
+ * Partner. The year-end closing journal is exempt: it zeroes accounts, it
+ * incurs no cost.
+ */
+async function assertCostCenters(tx: Client, lines: JournalLineInput[]): Promise<void> {
+  const accountIds = [...new Set(lines.map((l) => l.accountId))];
+  const accounts = new Map(
+    (await tx.accAccount.findMany({ where: { id: { in: accountIds } }, select: { id: true, account_label: true, require_cost_center: true } })).map((a) => [a.id, a])
+  );
+  const centerIds = [...new Set(lines.map((l) => l.costCenterId).filter((x): x is number => Boolean(x)))];
+  const centers = new Map(
+    (await tx.accCostCenter.findMany({ where: { id: { in: centerIds } }, select: { id: true, cost_center_label: true, status: true } })).map((c) => [c.id, c])
+  );
+  for (const [i, l] of lines.entries()) {
+    const a = accounts.get(l.accountId);
+    if (!a) continue;
+    if (a.require_cost_center) {
+      if (!l.costCenterId) throw new CostCenterRefusal(`Baris journal ${i + 1}: account ${a.account_label} wajib menyebut Cost Center.`);
+      const c = centers.get(l.costCenterId);
+      if (!c) throw new CostCenterRefusal(`Baris journal ${i + 1}: Cost Center tidak ditemukan.`);
+      if (c.status !== "Active") throw new CostCenterRefusal(`Baris journal ${i + 1}: Cost Center ${c.cost_center_label} sudah nonaktif.`);
+    } else if (l.costCenterId) {
+      throw new CostCenterRefusal(`Baris journal ${i + 1}: account ${a.account_label} tidak memakai Cost Center.`);
+    }
+  }
+}
+
 /**
  * Writes one balanced journal, or writes nothing.
  *
@@ -253,6 +292,7 @@ export async function postJournal(
 
   if (input.postingDate && !input.closingEntry) assertNotAhead(input.postingDate);
   const postingDate = input.postingDate ?? postingDateToday();
+  if (!input.closingEntry) await assertCostCenters(tx, input.lines);
 
   const journal = await tx.accJournal.create({
     data: {

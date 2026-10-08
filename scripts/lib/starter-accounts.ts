@@ -27,6 +27,8 @@ type AccountSpec = {
   partner?: typeof CUSTOMER_CATEGORY | typeof SUPPLIER_CATEGORY;
   /** Posted by documents only; the manual journal refuses it (P16). */
   control?: boolean;
+  /** Every line names a Cost Center (P154, M88). */
+  costCenter?: boolean;
   note?: string;
 };
 
@@ -74,12 +76,12 @@ export const STARTER_ACCOUNTS: AccountSpec[] = [
   { key: "permitCost", sub: "5.1.1", name: "Biaya Perizinan", normal: "Debit", note: "Biaya pengurusan perizinan yang dibayar sebesar realisasinya, tanpa pajak" },
   // Elemen Biaya Produksi (P150): Control Accounts, posted only by documents
   // that write the cost ledger, emptied by the Penutupan Biaya Produksi.
-  { key: "costDirectLabor", sub: "5.1.1", name: "Biaya Tenaga Kerja Langsung", normal: "Debit", control: true, note: "Elemen Biaya Produksi" },
-  { key: "costIndirectLabor", sub: "5.1.1", name: "Biaya Tenaga Kerja Tidak Langsung", normal: "Debit", control: true, note: "Elemen Biaya Produksi" },
-  { key: "costUtility", sub: "5.1.1", name: "Biaya Listrik & Utilitas Pabrik", normal: "Debit", control: true, note: "Elemen Biaya Produksi" },
-  { key: "costDepreciation", sub: "5.1.1", name: "Biaya Penyusutan Mesin & Peralatan", normal: "Debit", control: true, note: "Elemen Biaya Produksi" },
-  { key: "costMaintenance", sub: "5.1.1", name: "Biaya Pemeliharaan Mesin", normal: "Debit", control: true, note: "Elemen Biaya Produksi" },
-  { key: "costOverhead", sub: "5.1.1", name: "Biaya Overhead Pabrik Lain-lain", normal: "Debit", control: true, note: "Elemen Biaya Produksi" },
+  { key: "costDirectLabor", sub: "5.1.1", name: "Biaya Tenaga Kerja Langsung", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
+  { key: "costIndirectLabor", sub: "5.1.1", name: "Biaya Tenaga Kerja Tidak Langsung", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
+  { key: "costUtility", sub: "5.1.1", name: "Biaya Listrik & Utilitas Pabrik", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
+  { key: "costDepreciation", sub: "5.1.1", name: "Biaya Penyusutan Mesin & Peralatan", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
+  { key: "costMaintenance", sub: "5.1.1", name: "Biaya Pemeliharaan Mesin", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
+  { key: "costOverhead", sub: "5.1.1", name: "Biaya Overhead Pabrik Lain-lain", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
   { key: "productionScrap", sub: "5.1.9", name: "Beban Pemusnahan Produksi", normal: "Debit", note: "Nilai barang produksi yang dimusnahkan" },
   { key: "freight", sub: "5.2.1", name: "Beban Pengiriman", normal: "Debit" },
   { key: "bankFee", sub: "5.3.1", name: "Beban Bank", normal: "Debit" },
@@ -112,17 +114,21 @@ export const STARTER_MAPPINGS: [setting: string, account: string][] = [
   ["input_vat_account", "inputVat"],
   ["supplier_invoice_diff_account", "invoiceDiff"],
   ["production_scrap_account", "productionScrap"],
-  ["production_cost_payable_account", "productionCostPayable"],
 ];
 
-/** Starter Elemen Biaya Produksi (P150, M53): label, name, and the starter account it posts to. */
-export const STARTER_COST_ELEMENTS: [label: string, name: string, account: string][] = [
-  ["UPAH-LANGSUNG", "Upah Tenaga Kerja Langsung", "costDirectLabor"],
-  ["UPAH-TIDAK-LANGSUNG", "Upah Tenaga Kerja Tidak Langsung", "costIndirectLabor"],
-  ["LISTRIK-PABRIK", "Listrik & Utilitas Pabrik", "costUtility"],
-  ["PENYUSUTAN-MESIN", "Penyusutan Mesin & Peralatan", "costDepreciation"],
-  ["PEMELIHARAAN-MESIN", "Pemeliharaan Mesin", "costMaintenance"],
-  ["OVERHEAD-LAIN", "Overhead Pabrik Lain-lain", "costOverhead"],
+/**
+ * Starter Jenis Biaya (P154, M84): label, name, the expense account it is
+ * booked to, the account it is credited to, and whether that credit is paid
+ * through Pengeluaran. Depreciation is credited to its accumulation and never
+ * paid.
+ */
+export const STARTER_COST_TYPES: [label: string, name: string, expense: string, contra: string, payable: boolean][] = [
+  ["UPAH-LANGSUNG", "Upah Tenaga Kerja Langsung", "costDirectLabor", "wagesPayable", true],
+  ["UPAH-TIDAK-LANGSUNG", "Upah Tenaga Kerja Tidak Langsung", "costIndirectLabor", "wagesPayable", true],
+  ["LISTRIK-PABRIK", "Listrik & Utilitas Pabrik", "costUtility", "productionCostPayable", true],
+  ["PENYUSUTAN-MESIN", "Penyusutan Mesin & Peralatan", "costDepreciation", "accDepMachine", false],
+  ["PEMELIHARAAN-MESIN", "Pemeliharaan Mesin", "costMaintenance", "productionCostPayable", true],
+  ["OVERHEAD-LAIN", "Overhead Pabrik Lain-lain", "costOverhead", "productionCostPayable", true],
 ];
 
 /** Jenis PPh label → its account: PPh Dibayar Dimuka for sales, Hutang PPh for purchases (P122). */
@@ -201,6 +207,7 @@ export async function seedStarterAccounts(actor: number): Promise<StarterAccount
           is_postable: true,
           normal_balance: a.normal,
           is_control_account: Boolean(a.control),
+          require_cost_center: Boolean(a.costCenter),
           require_partner: Boolean(a.partner),
           partner_category_id: partnerCategory ?? null,
           note: a.note ?? null,
@@ -211,6 +218,13 @@ export async function seedStarterAccounts(actor: number): Promise<StarterAccount
         data: { entity_key: "acc_account", row_id: row.id, action: "TAMBAH", event: "create", by: actor },
       });
       tally("accounts");
+    } else if (a.costCenter && !row.require_cost_center) {
+      // An existing cost account takes the rule only while nothing has posted
+      // to it, so its lines stay consistent with the rule (P154).
+      if (!(await prisma.accJournalLine.count({ where: { account_id: row.id } }))) {
+        await prisma.accAccount.update({ where: { id: row.id }, data: { require_cost_center: true, updated_by: actor } });
+        tally("cost center rules");
+      }
     }
     accountId.set(a.key, row.id);
   }
@@ -273,24 +287,34 @@ export async function seedStarterAccounts(actor: number): Promise<StarterAccount
     }
   }
 
-  // ---- Elemen Biaya Produksi — created only when no element has its label
-  // and none already names its account, so an element the user renamed or
-  // made by hand is left alone.
-  const elementEntity = ENTITIES.find((x) => x.key === "acc_production_cost_element");
-  if (!elementEntity) throw new Error("Registry entity acc_production_cost_element not found");
-  for (const [label, name, key] of STARTER_COST_ELEMENTS) {
-    const account = accountId.get(key)!;
-    const taken = await prisma.accProductionCostElement.findFirst({
-      where: { OR: [{ element_label: { equals: label, mode: "insensitive" } }, { account_id: account }] },
-    });
-    if (taken) continue;
-    const row = await prisma.accProductionCostElement.create({
-      data: { element_code: await nextCode(elementEntity), element_label: label, element_name: name, account_id: account, created_by: actor },
+  // ---- Jenis Biaya — created only when none has its label; an existing one
+  // without its Account Lawan (made before P154) gets the starter's.
+  const typeEntity = ENTITIES.find((x) => x.key === "acc_cost_type");
+  if (!typeEntity) throw new Error("Registry entity acc_cost_type not found");
+  for (const [label, name, expense, contra, payable] of STARTER_COST_TYPES) {
+    const taken = await prisma.accCostType.findFirst({ where: { cost_type_label: { equals: label, mode: "insensitive" } } });
+    if (taken) {
+      if (taken.contra_account_id === null) {
+        await prisma.accCostType.update({ where: { id: taken.id }, data: { contra_account_id: accountId.get(contra)!, is_payable: payable, updated_by: actor } });
+        tally("jenis biaya lawan");
+      }
+      continue;
+    }
+    const row = await prisma.accCostType.create({
+      data: {
+        cost_type_code: await nextCode(typeEntity),
+        cost_type_label: label,
+        cost_type_name: name,
+        expense_account_id: accountId.get(expense)!,
+        contra_account_id: accountId.get(contra)!,
+        is_payable: payable,
+        created_by: actor,
+      },
     });
     await prisma.auditLog.create({
-      data: { entity_key: "acc_production_cost_element", row_id: row.id, action: "TAMBAH", event: "create", by: actor },
+      data: { entity_key: "acc_cost_type", row_id: row.id, action: "TAMBAH", event: "create", by: actor },
     });
-    tally("elemen biaya produksi");
+    tally("jenis biaya");
   }
 
   return { accountId, made };

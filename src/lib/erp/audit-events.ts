@@ -198,10 +198,10 @@ const INVOICE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(INVOICE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
-/** Tagihan Biaya Produksi: Draft → Posted, or Dibatalkan (P150 M68). */
+/** Tagihan Biaya: Draft → Posted, or Dibatalkan (P150 M68). */
 const COST_BILL_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
-  create: { label: "Tagihan Biaya Produksi dibuat", icon: "file", tone: "neutral" },
+  create: { label: "Tagihan Biaya dibuat", icon: "file", tone: "neutral" },
   post: fromTransition(COST_BILL_TRANSITIONS.post, "Diposting — biaya dicatat"),
   cancel: fromTransition(COST_BILL_TRANSITIONS.cancel, "Dibatalkan"),
 };

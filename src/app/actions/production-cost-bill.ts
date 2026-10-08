@@ -17,7 +17,7 @@ import { COST_BILL_PATH, COST_BILL_TRANSITIONS, type CostBillAction } from "@/li
 import type { JournalPreviewResult } from "@/lib/erp/journal";
 
 /**
- * The Tagihan Biaya Produksi's write path (P150 M68). The permission is
+ * The Tagihan Biaya's write path (P150 M68). The permission is
  * checked here; every rule is in `lib/erp/production-cost-bill.ts`, where the
  * tests can reach it.
  */

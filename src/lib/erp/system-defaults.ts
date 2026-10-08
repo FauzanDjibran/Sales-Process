@@ -46,7 +46,6 @@ export type SystemDefaultKey =
   | "supplier_invoice_diff_account"
   | "supplier_invoice_tolerance"
   | "production_scrap_account"
-  | "production_cost_payable_account"
   | "ppn_rate"
   | "ppn_dpp_other_numerator"
   | "ppn_dpp_other_denominator";
@@ -168,11 +167,10 @@ export const SYSTEM_DEFAULT_GROUPS = [
     page: "account",
     name: "Produksi",
     desc:
-      "Hutang atas Tagihan Biaya Produksi yang dibayar lewat Pengeluaran, dan " +
-      "beban atas barang yang dimusnahkan dari produksi. WIP tidak memiliki " +
+      "Beban atas barang yang dimusnahkan dari produksi. WIP tidak memiliki " +
       "cadangan di sini: setiap Kategori Item yang masuk produksi harus " +
       "menentukan Account WIP-nya sendiri. Biaya tenaga kerja dan overhead " +
-      "memakai Elemen Biaya Produksi.",
+      "memakai Jenis Biaya, yang menyebut account biaya dan lawannya sendiri.",
     icon: "gear",
   },
   {
@@ -441,15 +439,6 @@ export const SYSTEM_DEFAULTS = [
   // Kategori Item's own, and a document refuses an item whose category names
   // none, rather than send it somewhere generic.
   {
-    key: "production_cost_payable_account",
-    name: "Account Hutang Biaya Produksi",
-    icon: "wallet",
-    type: "ref",
-    ref: "acc_account",
-    group: "production",
-    help: "Tagihan Biaya Produksi dengan lawan ini menunggu Pembayaran Biaya Produksi",
-  },
-  {
     key: "production_scrap_account",
     name: "Account Beban Pemusnahan Produksi",
     icon: "trash",
@@ -528,7 +517,6 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   supplier_invoice_diff_account: null,
   supplier_invoice_tolerance: null,
   production_scrap_account: null,
-  production_cost_payable_account: null,
   ppn_rate: null,
   ppn_dpp_other_numerator: null,
   ppn_dpp_other_denominator: null,

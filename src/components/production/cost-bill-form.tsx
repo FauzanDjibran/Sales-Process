@@ -25,14 +25,14 @@ import type { CostBillInput, CostBillOptions, CostBillView } from "@/lib/erp/pro
 import { formatDate, formatMoney, todayIso } from "@/lib/format";
 
 /**
- * A Tagihan Biaya Produksi in all three modes: `new`, `edit` (Draft only) and
- * `view` (P150 M68). The header says when the cost belongs and which Supplier
- * is owed; the credit side is Account Mapping's *Hutang Biaya Produksi*, shown
- * and never chosen (P151). Each line is an Elemen Biaya Produksi and its
- * amount, posted to the element's own account.
+ * A Tagihan Biaya in all three modes: `new`, `edit` (Draft only) and
+ * `view` (P150 M68, P154). The header says when the cost belongs and, for a
+ * paid bill, which Supplier is owed. Each line picks a Jenis Biaya — never an
+ * account — and a Cost Center the user chooses; the Jenis Biaya decides both
+ * accounts and whether the bill is paid through Pengeluaran.
  */
 
-type LineState = { key: string; element_id: number | null; amount: string; note: string };
+type LineState = { key: string; cost_type_id: number | null; cost_center_id: number | null; amount: string; note: string };
 
 let seq = 0;
 const newKey = () => `l${Date.now().toString(36)}${seq++}`;
@@ -68,17 +68,19 @@ export function CostBillForm({
   );
   const [lines, setLines] = useState<LineState[]>(() =>
     bill
-      ? bill.lines.map((l) => ({ key: newKey(), element_id: l.elementId, amount: String(l.amount), note: l.note ?? "" }))
-      : [{ key: newKey(), element_id: null, amount: "", note: "" }]
+      ? bill.lines.map((l) => ({ key: newKey(), cost_type_id: l.costTypeId, cost_center_id: l.costCenterId, amount: String(l.amount), note: l.note ?? "" }))
+      : [{ key: newKey(), cost_type_id: null, cost_center_id: null, amount: "", note: "" }]
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const elementById = new Map(options.elements.map((e) => [e.id, e]));
+  const typeById = new Map(options.costTypes.map((t) => [t.id, t]));
+  const centerById = new Map(options.costCenters.map((c) => [c.id, c]));
   const status = bill?.status ?? "Draft";
-  // A posted bill shows the payable it was posted on; a Draft today's mapping (P151).
-  const payableAccount = bill?.status === "Posted" ? bill.payableAccount : bill?.status === "Cancelled" ? null : options.payableAccount;
+  // Paid or not follows the lines' Jenis Biaya (M76); a Supplier is asked for
+  // a paid bill, optional otherwise.
+  const paid = editing ? lines.some((l) => (l.cost_type_id ? typeById.get(l.cost_type_id)?.isPayable : false)) : Boolean(bill?.isPayable);
   const total = lines.reduce((a, l) => a + (Number(l.amount) || 0), 0);
 
   const touch = (...names: string[]) => {
@@ -100,7 +102,7 @@ export function CostBillForm({
 
   async function onSave() {
     setSaving(true);
-    const payload = lines.map((l) => ({ element_id: l.element_id, amount: l.amount, note: l.note }));
+    const payload = lines.map((l) => ({ cost_type_id: l.cost_type_id, cost_center_id: l.cost_center_id, amount: l.amount, note: l.note }));
     const result = mode === "edit" ? await updateCostBillAction(bill!.id, header, payload) : await createCostBillAction(header, payload);
     setSaving(false);
     if (!result.ok) {
@@ -115,7 +117,7 @@ export function CostBillForm({
       return;
     }
     setDirty(false);
-    toast("Tagihan Biaya Produksi disimpan", `${result.billNo} · Draft`, "ok");
+    toast("Tagihan Biaya disimpan", `${result.billNo} · Draft`, "ok");
     router.push(`${COST_BILL_PATH}/${result.id}`);
   }
 
@@ -139,7 +141,7 @@ export function CostBillForm({
             <Field label="Tanggal" span={3} required={editing} help={editing ? "bulan biaya ini terjadi" : undefined} error={errors.bill_date}>
               {editing ? <DateInput value={header.bill_date} invalid={Boolean(errors.bill_date)} onChange={(v) => set("bill_date", v)} /> : ro(formatDate(header.bill_date))}
             </Field>
-            <Field label="Supplier" span={4} required={editing} help={editing ? "yang menagih" : undefined} error={errors.partner_id}>
+            <Field label="Supplier" span={5} required={editing && paid} help={editing ? (paid ? "yang menagih" : "opsional") : undefined} error={errors.partner_id}>
               {editing ? (
                 <Combobox
                   value={Number(header.partner_id) || null}
@@ -154,14 +156,8 @@ export function CostBillForm({
                 nil()
               )}
             </Field>
-            <Field label="Account Hutang" span={5} help={status !== "Posted" ? "dari Account Mapping › Produksi" : undefined}>
-              {payableAccount ? (
-                chip(payableAccount.label, payableAccount.name)
-              ) : status === "Draft" ? (
-                <div className="ro nil">belum diatur — atur Hutang Biaya Produksi di Account Mapping sebelum posting</div>
-              ) : (
-                nil("—")
-              )}
+            <Field label="Pembayaran" span={4}>
+              {ro(paid ? "Dibayar lewat Pengeluaran" : lines.some((l) => l.cost_type_id) || bill ? "Tidak dibayar" : "mengikuti Jenis Biaya")}
             </Field>
             <Field label="No. Tagihan Supplier" span={4} help={editing ? "opsional" : undefined}>
               {editing ? (
@@ -214,9 +210,26 @@ export function CostBillForm({
 
   // ======================================================== lines card
   const addLine = () => {
-    setLines((ls) => [...ls, { key: newKey(), element_id: null, amount: "", note: "" }]);
+    setLines((ls) => [...ls, { key: newKey(), cost_type_id: null, cost_center_id: null, amount: "", note: "" }]);
     touch("_lines");
   };
+  // What a line posts to: the Jenis Biaya's two accounts — on a posted bill
+  // the credit account it was posted with, on a Draft the Jenis Biaya's today.
+  const accountsOf = (l: LineState, i: number) => {
+    const posted = !editing ? bill?.lines[i] : undefined;
+    if (posted) {
+      return { debit: [posted.expenseAccountLabel, posted.expenseAccountName], credit: posted.creditAccountLabel ? [posted.creditAccountLabel, posted.creditAccountName ?? ""] : null };
+    }
+    const t = l.cost_type_id ? typeById.get(l.cost_type_id) : undefined;
+    if (!t) return null;
+    return { debit: [t.expenseAccountLabel, t.expenseAccountName], credit: t.contraAccountLabel ? [t.contraAccountLabel, t.contraAccountName ?? ""] : null };
+  };
+  const idc = (label: string, name: string) => (
+    <span className="idc">
+      <span className="lab">{label}</span>
+      <span className="nm">{name}</span>
+    </span>
+  );
   const linesCard = (
     <div className="card" style={{ marginTop: 14 }}>
       <div className="card-h">
@@ -225,7 +238,7 @@ export function CostBillForm({
         </span>
         <div className="ct">
           <h3>Rincian Biaya</h3>
-          <p>Setiap baris diposting ke account Elemen Biaya Produksi-nya dan masuk Buku Biaya Produksi.</p>
+          <p>Setiap baris mendebit account Jenis Biaya-nya dengan Cost Center-nya, dan mengkredit account lawan Jenis Biaya tersebut.</p>
         </div>
         {editing && (
           <button className="btn sm primary" onClick={addLine}>
@@ -242,23 +255,27 @@ export function CostBillForm({
         </div>
       )}
       <div className="tw">
-        <table className="grid ltab" style={{ minWidth: 820 }}>
+        <table className="grid ltab" style={{ minWidth: 1080 }}>
           <thead>
             <tr>
               <th style={{ width: 40 }}>No</th>
-              <th>Elemen Biaya Produksi</th>
-              <th style={{ width: 250 }}>Account</th>
-              <th className="num" style={{ width: 180 }}>
+              <th>Jenis Biaya</th>
+              <th style={{ width: 200 }}>Cost Center</th>
+              <th style={{ width: 230 }}>Debit / Kredit</th>
+              <th className="num" style={{ width: 170 }}>
                 Jumlah
               </th>
-              <th style={{ width: editing ? 220 : undefined }}>Keterangan</th>
+              <th style={{ width: editing ? 200 : 220 }}>Keterangan</th>
               {editing && <th style={{ width: 40 }} />}
             </tr>
           </thead>
           <tbody>
             {lines.map((l, i) => {
-              const e = l.element_id ? elementById.get(l.element_id) : undefined;
-              const lineError = lineErr(l.key, "element_id") ?? lineErr(l.key, "amount");
+              const t = l.cost_type_id ? typeById.get(l.cost_type_id) : undefined;
+              const c = l.cost_center_id ? centerById.get(l.cost_center_id) : undefined;
+              const posted = !editing ? bill?.lines[i] : undefined;
+              const acc = accountsOf(l, i);
+              const lineError = lineErr(l.key, "cost_type_id") ?? lineErr(l.key, "cost_center_id") ?? lineErr(l.key, "amount");
               return (
                 <tr key={l.key} className={lineError ? "overrow" : undefined}>
                   <td className="no">{i + 1}</td>
@@ -266,34 +283,48 @@ export function CostBillForm({
                     {editing ? (
                       <Combobox
                         size="sm"
-                        value={l.element_id}
-                        options={options.elements}
-                        placeholder="Pilih Elemen Biaya…"
-                        emptyText="Belum ada Elemen Biaya Produksi. Buat di Master › Referensi."
-                        invalid={Boolean(lineErr(l.key, "element_id"))}
-                        onChange={(v) => setLine(l.key, { element_id: v })}
+                        value={l.cost_type_id}
+                        options={options.costTypes}
+                        placeholder="Pilih Jenis Biaya…"
+                        emptyText="Belum ada Jenis Biaya. Buat di Master › Referensi."
+                        invalid={Boolean(lineErr(l.key, "cost_type_id"))}
+                        onChange={(v) => setLine(l.key, { cost_type_id: v })}
                       />
-                    ) : (
-                      <span className="idc">
-                        <span className="lab">{e?.label}</span>
-                        <span className="nm">{e?.name}</span>
-                      </span>
-                    )}
+                    ) : posted ? (
+                      idc(posted.costTypeLabel, posted.costTypeName)
+                    ) : null}
                     {lineError && <span className="overtag">{lineError}</span>}
                   </td>
                   <td>
-                    {e ? (
-                      <span className="idc">
-                        <span className="lab">{e.accountLabel}</span>
-                        <span className="nm">{e.accountName}</span>
-                      </span>
+                    {editing ? (
+                      <Combobox
+                        size="sm"
+                        value={l.cost_center_id}
+                        options={options.costCenters}
+                        placeholder="Pilih Cost Center…"
+                        emptyText="Belum ada Cost Center. Buat di Master › Referensi."
+                        invalid={Boolean(lineErr(l.key, "cost_center_id"))}
+                        onChange={(v) => setLine(l.key, { cost_center_id: v })}
+                      />
+                    ) : posted ? (
+                      idc(posted.costCenterLabel, posted.costCenterName)
+                    ) : c ? (
+                      idc(c.label, c.name)
+                    ) : null}
+                  </td>
+                  <td>
+                    {acc ? (
+                      <>
+                        {idc(`Dr ${acc.debit[0]}`, acc.debit[1])}
+                        {acc.credit ? idc(`Cr ${acc.credit[0]}`, acc.credit[1]) : <span className="dash">Cr —</span>}
+                      </>
                     ) : (
                       <span className="dash">—</span>
                     )}
                   </td>
                   <td className="num">
                     {editing ? (
-                      <MoneyInput size="sm" value={l.amount} ariaLabel={`Jumlah ${e?.label ?? ""}`} onChange={(v) => setLine(l.key, { amount: v })} />
+                      <MoneyInput size="sm" value={l.amount} ariaLabel={`Jumlah ${t?.label ?? ""}`} onChange={(v) => setLine(l.key, { amount: v })} />
                     ) : (
                       <span className="mny">{money(Number(l.amount))}</span>
                     )}
@@ -324,7 +355,7 @@ export function CostBillForm({
             })}
             {lines.length === 0 && (
               <tr>
-                <td colSpan={6} className="mut" style={{ textAlign: "center" }}>
+                <td colSpan={7} className="mut" style={{ textAlign: "center" }}>
                   Belum ada biaya. Tambahkan dengan tombol di atas.
                 </td>
               </tr>
@@ -332,7 +363,7 @@ export function CostBillForm({
           </tbody>
           <tfoot>
             <tr>
-              <td colSpan={3} style={{ textAlign: "right" }}>
+              <td colSpan={4} style={{ textAlign: "right" }}>
                 <b>Total</b>
               </td>
               <td className="num">
@@ -357,7 +388,7 @@ export function CostBillForm({
         <div className="crumb">
           <span>Produksi</span>
           <span>/</span>
-          <Link href={COST_BILL_PATH}>Tagihan Biaya Produksi</Link>
+          <Link href={COST_BILL_PATH}>Tagihan Biaya</Link>
           <span>/</span>
           <span className="cur">{bill ? bill.billNo : "Baru"}</span>
         </div>
@@ -373,7 +404,7 @@ export function CostBillForm({
                 {bill.status === "Posted" && bill.isPayable && pay && <span className={`bdg ${COST_BILL_PAYMENT_BADGE[pay]}`}>{COST_BILL_PAYMENT_TEXT[pay]}</span>}
               </>
             ) : (
-              "Tagihan Biaya Produksi Baru"
+              "Tagihan Biaya Baru"
             )}
             {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
           </h1>

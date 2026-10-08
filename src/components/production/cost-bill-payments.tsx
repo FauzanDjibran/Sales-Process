@@ -7,7 +7,7 @@ export type CostBillPaymentLink = { id: number; txNo: string; date: string; stat
 const STATUS: Record<string, string> = { Draft: "Draft", Posted: "Posted" };
 
 /**
- * The Pengeluaran that pay a posted Tagihan Biaya Produksi (P151). The bill is
+ * The Pengeluaran that pay a posted Tagihan Biaya (P151). The bill is
  * what *Pembayaran Biaya Produksi* references; each payment is another
  * module's document, linked and never embedded (S13 / S14) — the page composes
  * them from the payment module.

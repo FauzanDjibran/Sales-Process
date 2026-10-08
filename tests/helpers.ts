@@ -194,6 +194,8 @@ export async function makeAccount(options: {
   controlAccount?: boolean;
   /** Names a Partner on every line, of this category. */
   partnerCategoryLabel?: string | null;
+  /** Names a Cost Center on every line (P154). */
+  requireCostCenter?: boolean;
 }): Promise<number> {
   const key = nextFixture();
   // A fixture account carries a real lineage code: it continues its parent
@@ -220,6 +222,7 @@ export async function makeAccount(options: {
       normal_balance: options.normalBalance ?? "Debit",
       is_control_account: options.controlAccount ?? false,
       require_partner: Boolean(options.partnerCategoryLabel),
+      require_cost_center: Boolean(options.requireCostCenter),
       partner_category_id: options.partnerCategoryLabel
         ? await partnerCategoryId(options.partnerCategoryLabel)
         : null,
@@ -322,10 +325,15 @@ export async function cleanupFixtures(): Promise<void> {
     await prisma.mCashBank.deleteMany({ where: { id: { in: ids } } });
   }
 
-  // An Elemen Biaya Produksi points at its account (P150), so a fixture
-  // element left behind would block the account it names from going.
-  await prisma.accProductionCostElement.deleteMany({
-    where: { account: { account_code: { startsWith: FIXTURE_PREFIX } } },
+  // A Jenis Biaya points at its accounts (P154), so a fixture one left behind
+  // would block the accounts it names from going.
+  await prisma.accCostType.deleteMany({
+    where: {
+      OR: [
+        { expense_account: { account_code: { startsWith: FIXTURE_PREFIX } } },
+        { contra_account: { account_code: { startsWith: FIXTURE_PREFIX } } },
+      ],
+    },
   });
 
   const accounts = await prisma.accAccount.findMany({

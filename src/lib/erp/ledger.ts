@@ -906,28 +906,3 @@ export async function statementBalances(
   };
 }
 
-/**
- * What each of these accounts did between two days, base currency — posted
- * lines only, closing journals left out (they move every Laba Rugi account
- * at year end and are no business event). Read by the production cost reports
- * (P150 M67) to set the GL beside the cost ledger, which stays the source of
- * truth for production cost: a difference is shown, never acted on.
- */
-export async function accountMovements(range: PeriodRange, accountIds: number[]): Promise<Map<number, { debit: number; credit: number }>> {
-  if (!accountIds.length) return new Map();
-  const rows = await prisma.accJournalLine.groupBy({
-    by: ["account_id"],
-    where: {
-      account_id: { in: accountIds },
-      journal: {
-        ...POSTED,
-        posting_date: { gte: new Date(`${range.from}T00:00:00Z`), lte: new Date(`${range.to}T00:00:00Z`) },
-        NOT: { source_doc_type: { is: { doc_table: CLOSING_SOURCE_TABLE } } },
-      },
-    },
-    _sum: { debit_amount: true, kredit_amount: true },
-  });
-  return new Map(
-    rows.map((r) => [r.account_id, { debit: roundBase(r._sum.debit_amount?.toNumber() ?? 0), credit: roundBase(r._sum.kredit_amount?.toNumber() ?? 0) }])
-  );
-}

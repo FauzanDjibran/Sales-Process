@@ -1254,6 +1254,10 @@ model AccAccount {
   /// subject histories never mix. Replaces the DBML's `partner_type`.
   partner_category_id    Int?
   is_control_account     Boolean       @default(false)
+  /// Every journal line on this account names a Cost Center, and a line on an
+  /// account without it never does (P154) — enforced by `postJournal` for
+  /// every source, as `require_partner` is for the Partner.
+  require_cost_center    Boolean       @default(false)
   note                   String?
   is_active              Boolean       @default(true)
 
@@ -1272,43 +1276,77 @@ model AccAccount {
 
   opening_balance_lines AccOpeningBalanceLine[]
 
-  withholding_taxes        RefWithholdingTax[]
-  category_accounts        AccItemCategoryAccount[]   @relation("CategoryAccount")
-  production_cost_elements AccProductionCostElement[]
-  production_cost_rows     PrdCostLedger[]            @relation("CostLedgerAccount")
-  production_cost_bills    PrdCostBill[]              @relation("CostBillPayable")
+  withholding_taxes     RefWithholdingTax[]
+  category_accounts     AccItemCategoryAccount[] @relation("CategoryAccount")
+  cost_types_expense    AccCostType[]            @relation("CostTypeExpense")
+  cost_types_contra     AccCostType[]            @relation("CostTypeContra")
+  production_cost_bills PrdCostBill[]            @relation("CostBillPayable")
+  cost_bill_credits     PrdCostBillLine[]        @relation("CostBillLineCredit")
 
   @@unique([account_label])
   @@index([account_subcategory_id])
   @@map("acc_account")
 }
 
-/// Elemen Biaya Produksi (P150, M53): a kind of production cost the user
-/// names — Upah Harian, Listrik Pabrik — and the account its cost posts to, as
-/// a Jenis PPh or a Cash & Bank names its account. The cost ledger, not the GL,
-/// is the source of truth for production cost (M60); the account is guarded by
-/// the user's Control Account mark only (M55). Several elements may share one
-/// account (M61). The account is fixed once chosen.
-model AccProductionCostElement {
-  id            Int          @id @default(autoincrement())
-  element_code  String       @unique
-  element_label String
-  element_name  String
-  account_id    Int
-  note          String?
-  status        ActiveStatus @default(Active)
+/// Jenis Biaya (P154; was Elemen Biaya Produksi, M53): a cost the user names —
+/// Listrik PLN, Upah Borongan, Penyusutan Mesin — pointing to the expense
+/// account it is booked to and the account it is credited to, so a Tagihan
+/// Biaya picks a Jenis Biaya and never an account (M75, M84). `is_payable`
+/// says only whether that credit is settled through Pengeluaran. Both accounts
+/// are fixed once chosen.
+model AccCostType {
+  id                 Int          @id @default(autoincrement())
+  cost_type_code     String       @unique
+  cost_type_label    String
+  cost_type_name     String
+  expense_account_id Int
+  /// Required by the form; nullable only for rows made before P154 without a
+  /// Hutang Biaya Produksi mapping to fill it from.
+  contra_account_id  Int?
+  is_payable         Boolean      @default(true)
+  note               String?
+  status             ActiveStatus @default(Active)
 
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  account    AccAccount        @relation(fields: [account_id], references: [id])
-  cost_rows  PrdCostLedger[]
-  bill_lines PrdCostBillLine[]
+  expense_account AccAccount        @relation("CostTypeExpense", fields: [expense_account_id], references: [id])
+  contra_account  AccAccount?       @relation("CostTypeContra", fields: [contra_account_id], references: [id])
+  bill_lines      PrdCostBillLine[]
 
-  @@index([account_id])
-  @@map("acc_production_cost_element")
+  @@index([expense_account_id])
+  @@map("acc_cost_type")
+}
+
+/// Cost Center (P154): where a cost was incurred — a tag on the journal line
+/// beside the account (what) and the Partner (who), as SAP's cost center,
+/// Odoo's analytic account or NetSuite's department. *PRODUKSI* is the only
+/// one today; the design allows many.
+model AccCostCenter {
+  id                Int            @id @default(autoincrement())
+  cost_center_code  String         @unique
+  cost_center_label String
+  cost_center_name  String
+  cost_center_type  CostCenterType @default(Production)
+  note              String?
+  status            ActiveStatus   @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  journal_lines AccJournalLine[]
+  bill_lines    PrdCostBillLine[]
+
+  @@map("acc_cost_center")
+}
+
+/// What a Cost Center serves (P154). Production only today.
+enum CostCenterType {
+  Production
 }
 
 model AccFiscalYear {
@@ -1560,8 +1598,10 @@ model AccJournalLine {
   journal_id  Int
   sequence_no Int
 
-  account_id Int
-  partner_id Int?
+  account_id     Int
+  partner_id     Int?
+  /// On an account with `require_cost_center`, and only there (P154).
+  cost_center_id Int?
 
   /// The line's own currency, which need not be the base one — and need not
   /// match the other lines of the same journal. A foreign document paid from a
@@ -1588,13 +1628,15 @@ model AccJournalLine {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  journal  AccJournal  @relation(fields: [journal_id], references: [id])
-  account  AccAccount  @relation(fields: [account_id], references: [id])
-  partner  MPartner?   @relation(fields: [partner_id], references: [id])
-  currency RefCurrency @relation(fields: [currency_id], references: [id])
+  journal     AccJournal     @relation(fields: [journal_id], references: [id])
+  account     AccAccount     @relation(fields: [account_id], references: [id])
+  partner     MPartner?      @relation(fields: [partner_id], references: [id])
+  cost_center AccCostCenter? @relation(fields: [cost_center_id], references: [id])
+  currency    RefCurrency    @relation(fields: [currency_id], references: [id])
 
   @@index([journal_id])
   @@index([account_id])
+  @@index([cost_center_id, account_id])
   @@map("acc_journal_line")
 }
 
@@ -3627,67 +3669,24 @@ model FinApInvoiceAdvanceDeduction {
 
 // ------------------------------------------------------------ production cost
 
-/// What a cost-ledger row is (P150 E4). `In` is a cost booked by a document;
-/// the close's kinds come with the close (Phase 8).
-enum ProductionCostKind {
-  In
-  Absorbed
-  CarriedOut
-  CarriedIn
-  ExpensedToPL
-}
-
-/// The cost ledger (P150 E4, M3, M23, M60): production cost by element, the
-/// source of truth the period close reads — never the GL. Append-only; a row
-/// carries a date and no period: a period is a range of dates. Written only
-/// by `lib/erp/production-cost.ts`, inside the posting of the document that
-/// books the cost. `ledger_no` is one number per posting (P110).
-model PrdCostLedger {
-  id                 Int                @id @default(autoincrement())
-  ledger_no          String
-  line_no            Int
-  posting_date       DateTime           @db.Date
-  /// The document that booked it, weak (§3.1).
-  source_doc_type_id Int
-  source_doc_id      Int
-  source_no          String
-  element_id         Int
-  /// The element's account, copied: the account the journal line hit.
-  account_id         Int
-  kind               ProductionCostKind
-  /// Whole rupiah; + raises the cost, − takes it out.
-  amount             Decimal            @db.Decimal(18, 2)
-  note               String?
-  created_by         Int
-  created_at         DateTime           @default(now()) @db.Timestamptz(6)
-
-  element AccProductionCostElement @relation(fields: [element_id], references: [id])
-  account AccAccount               @relation("CostLedgerAccount", fields: [account_id], references: [id])
-
-  @@unique([ledger_no, line_no])
-  @@index([posting_date])
-  @@index([element_id, posting_date])
-  @@index([source_doc_type_id, source_doc_id])
-  @@map("prd_cost_ledger")
-}
-
-/// Where a Tagihan Biaya Produksi is in its life (P150 §21d).
+/// Where a Tagihan Biaya is in its life (P150 §21d).
 enum ProductionCostBillStatus {
   Draft
   Posted
   Cancelled
 }
 
-/// Tagihan Biaya Produksi (P150 M68, `TBP/…`): a production cost recognised
-/// in the month it belongs to — Dr each line's element account / Cr the lawan —
-/// and written to the cost ledger. A bill whose lawan is Account Mapping's
-/// *Hutang Biaya Produksi* is payable: it keeps what it was paid (P132) and is
-/// paid by the Pengeluaran purpose *Pembayaran Biaya Produksi*.
+/// Tagihan Biaya (P150 M68, renamed P154, `TBP/…`): a cost recognised in the
+/// month it belongs to — Dr each line's Jenis Biaya expense account with its
+/// Cost Center / Cr the Jenis Biaya's credit account. A bill of paid Jenis
+/// Biaya keeps what it was paid (P132) and is paid by the Pengeluaran purpose
+/// *Pembayaran Biaya Produksi*; its lines share one credit account, copied to
+/// `payable_account_id` at posting (M89).
 model PrdCostBill {
   id                 Int                      @id @default(autoincrement())
   bill_no            String                   @unique
   bill_date          DateTime                 @db.Date
-  /// The Supplier owed — required by the form; nullable only for rows made before P151.
+  /// The Supplier owed — required for a paid bill (M76).
   partner_id         Int?
   supplier_ref       String?
   due_date           DateTime?                @db.Date
@@ -3696,9 +3695,8 @@ model PrdCostBill {
   status             ProductionCostBillStatus @default(Draft)
   cancel_reason      String?
   total_amount       Decimal                  @default(0) @db.Decimal(18, 2)
-  /// Account Mapping's Hutang Biaya Produksi, copied at posting (P151); the
-  /// payment debits this account. Null on a Draft, and on a bill posted before
-  /// P151 to another lawan (never payable).
+  /// A paid bill's one credit account, copied at posting (M89); the payment
+  /// debits it. Null on a Draft and on a bill of not-paid Jenis Biaya.
   payable_account_id Int?
   paid_amount        Decimal                  @default(0) @db.Decimal(18, 2)
   journal_id         Int?
@@ -3718,15 +3716,20 @@ model PrdCostBill {
 }
 
 model PrdCostBillLine {
-  id         Int     @id @default(autoincrement())
-  bill_id    Int
-  line_no    Int
-  element_id Int
-  amount     Decimal @db.Decimal(18, 2)
-  note       String?
+  id                Int     @id @default(autoincrement())
+  bill_id           Int
+  line_no           Int
+  cost_type_id      Int
+  cost_center_id    Int
+  amount            Decimal @db.Decimal(18, 2)
+  note              String?
+  /// The Jenis Biaya's credit account, copied at posting (P154).
+  credit_account_id Int?
 
-  bill    PrdCostBill              @relation(fields: [bill_id], references: [id], onDelete: Cascade)
-  element AccProductionCostElement @relation(fields: [element_id], references: [id])
+  bill           PrdCostBill   @relation(fields: [bill_id], references: [id], onDelete: Cascade)
+  cost_type      AccCostType   @relation(fields: [cost_type_id], references: [id])
+  cost_center    AccCostCenter @relation(fields: [cost_center_id], references: [id])
+  credit_account AccAccount?   @relation("CostBillLineCredit", fields: [credit_account_id], references: [id])
 
   @@index([bill_id])
   @@map("prd_cost_bill_line")

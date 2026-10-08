@@ -90,7 +90,7 @@ export type OpenPayable = {
   withholdings: { key: string; rate: number; base: number; amount: number }[];
   /** An Invoice's AP item (step 7). */
   apItemId: number | null;
-  /** A Tagihan Biaya Produksi's payable, the account its payment debits (P151). */
+  /** A Tagihan Biaya's payable, the account its payment debits (P151). */
   payableAccountId?: number;
   paid: number;
   open: number;
@@ -118,7 +118,7 @@ async function openPayables(
       : filter.costIds?.length
         ? permitCostDocs({ ids: filter.costIds }, db)
         : Promise.resolve([]),
-    // A payable Tagihan Biaya Produksi (P150 M68): its total, no tax.
+    // A payable Tagihan Biaya (P150 M68): its total, no tax.
     filter.openOnly ? payableCostBills({ openOnly: true }, db) : filter.billIds?.length ? payableCostBills({ ids: filter.billIds }, db) : Promise.resolve([]),
   ]);
   // A document's open amount is what it asks less what it records as paid
@@ -564,7 +564,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ 
   if (await accountProblem(db, c.cashBankAccountId)) missing.push("Account pada Kas & Bank yang dipilih");
   // A production bill is paid on the payable it was posted on, not today's mapping (P151).
   const billPayables = [...new Set(productionBills.map((l) => l.bill.payableAccountId!))];
-  for (const id of billPayables) if (await accountProblem(db, id)) missing.push("Account Hutang Biaya Produksi pada Tagihan Biaya Produksi");
+  for (const id of billPayables) if (await accountProblem(db, id)) missing.push("Account Hutang Biaya Produksi pada Tagihan Biaya");
   if (missing.length || !mapped.ok) {
     return { ok: false, message: `Belum bisa diposting — account belum diatur atau tidak dapat dipakai: ${missing.join("; ")}. Atur di Accounting › Pengaturan › Account Mapping atau pada master terkait.` };
   }
@@ -600,7 +600,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ 
   for (const l of costs) {
     out.push(line(ids.permit_cost_account!, l.settled, 0, `Biaya perizinan realisasi ${l.bill.no} (${l.bill.orderNo})${l.settled < l.bill.open ? " — sebagian" : ""}`));
   }
-  // Tagihan Biaya Produksi: the cost is already recorded; only the payable clears (M68).
+  // Tagihan Biaya: the cost is already recorded; only the payable clears (M68).
   for (const l of productionBills) {
     out.push(line(l.bill.payableAccountId!, l.settled, 0, `Pembayaran ${l.bill.no} — ${l.bill.orderNo}${l.settled < l.bill.open ? " (sebagian)" : ""}`, c.data.partner_id));
   }
@@ -875,10 +875,10 @@ export async function permitCostPayments(
   return rows.map((r) => ({ id: r.tx.id, txNo: r.tx.tx_no, date: isoDay(r.tx.tx_date), status: r.tx.status, settled: r.settled_amount.toNumber() }));
 }
 
-// ------------------------------------------- for the Tagihan Biaya Produksi
+// ------------------------------------------- for the Tagihan Biaya
 
 /**
- * The live payments (Draft or Posted) naming a Tagihan Biaya Produksi, for its
+ * The live payments (Draft or Posted) naming a Tagihan Biaya, for its
  * page's *Pembayaran* card (P151): the bill is the document a Pembayaran Biaya
  * Produksi references, so the bill shows who paid it, linked, never embedded.
  */

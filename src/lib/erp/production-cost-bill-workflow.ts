@@ -1,5 +1,5 @@
 /**
- * The Tagihan Biaya Produksi's lifecycle, written once and read by both sides
+ * The Tagihan Biaya's lifecycle, written once and read by both sides
  * (P150 M68, production_project.md §21d).
  *
  *   Draft ──post──> Posted
@@ -7,10 +7,10 @@
  *     └──cancel──> Cancelled
  *
  * Posting recognises the cost in the month the bill is dated: Dr each line's
- * element account / Cr Account Mapping's *Hutang Biaya Produksi* (P151), and
- * one cost-ledger row per line. A posted bill is final; a mistake is corrected
- * by another document. Every posted bill is then paid by the Pengeluaran
- * purpose *Pembayaran Biaya Produksi*, which reads and raises its paid amount.
+ * Jenis Biaya expense account with its Cost Center / Cr the Jenis Biaya's own
+ * credit account (P154). A posted bill is final; a mistake is corrected by
+ * another document. A paid bill is then paid by the Pengeluaran purpose
+ * *Pembayaran Biaya Produksi*, which reads and raises its paid amount.
  *
  * Client-safe on purpose — no `server-only`, no database import.
  */
@@ -48,12 +48,12 @@ export const COST_BILL_TRANSITIONS: Record<CostBillAction, CostBillTransition> =
     to: "Posted",
     icon: "send",
     tone: "primary",
-    title: "Posting Tagihan Biaya Produksi",
+    title: "Posting Tagihan Biaya",
     body:
-      "Biaya dicatat pada tanggal tagihan: journal di bawah ditulis dan setiap baris " +
-      "masuk ke Buku Biaya Produksi. Tagihan yang sudah diposting tidak dapat diubah atau dibatalkan.",
+      "Biaya diakui pada tanggal tagihan: journal di bawah ditulis, setiap baris biaya " +
+      "dengan Cost Center-nya. Tagihan yang sudah diposting tidak dapat diubah atau dibatalkan.",
     confirmLabel: "Ya, Posting",
-    done: "Tagihan Biaya Produksi diposting",
+    done: "Tagihan Biaya diposting",
   },
   cancel: {
     label: "Batalkan",
@@ -62,11 +62,11 @@ export const COST_BILL_TRANSITIONS: Record<CostBillAction, CostBillTransition> =
     to: "Cancelled",
     icon: "block",
     tone: "danger",
-    title: "Batalkan Tagihan Biaya Produksi",
+    title: "Batalkan Tagihan Biaya",
     body: "Draft ditandai Dibatalkan dan tidak dapat dipakai lagi. Tidak ada journal yang dibuat. Status ini final.",
     confirmLabel: "Ya, Batalkan",
     reason: "Mengapa tagihan ini dibatalkan…",
-    done: "Tagihan Biaya Produksi dibatalkan",
+    done: "Tagihan Biaya dibatalkan",
   },
 };
 

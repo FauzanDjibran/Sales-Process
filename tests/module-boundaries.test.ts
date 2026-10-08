@@ -74,7 +74,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // The General Ledger is the one thing that may derive from journal lines
   // (CLAUDE.md §10 rule 22) — it reads them and never writes one.
   accJournal: ["src/lib/erp/journal.ts", "src/lib/erp/ledger.ts"],
-  accJournalLine: ["src/lib/erp/journal.ts", "src/lib/erp/ledger.ts"],
+  // Laporan Cost Center reads journal lines as the General Ledger does (P154).
+  accJournalLine: ["src/lib/erp/journal.ts", "src/lib/erp/ledger.ts", "src/lib/erp/cost-center.ts"],
   // The Opening Balance snapshot. Written by a close and read by the register;
   // the figures it is written *from* come from `ledger.ts`, which is the
   // sanctioned reader of journal lines, so this module never names another
@@ -137,10 +138,11 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // documents call (P71–P72).
   finArItem: ["src/lib/erp/ar-item.ts"],
   finArLedger: ["src/lib/erp/ar-item.ts"],
-  // Production cost (P150): the cost ledger is a book; the elements are its
-  // masters, written by the registry; the bill owns its own tables.
-  prdCostLedger: ["src/lib/erp/production-cost.ts"],
-  accProductionCostElement: ["src/lib/erp/production-cost.ts", "src/lib/erp/records.ts"],
+  // Production cost (P154): Jenis Biaya and Cost Center are masters written
+  // by the registry; the journal engine checks a line's Cost Center; the bill
+  // owns its own tables.
+  accCostType: ["src/lib/erp/production-cost.ts", "src/lib/erp/records.ts"],
+  accCostCenter: ["src/lib/erp/cost-center.ts", "src/lib/erp/records.ts", "src/lib/erp/journal.ts"],
   prdCostBill: ["src/lib/erp/production-cost-bill.ts"],
   prdCostBillLine: ["src/lib/erp/production-cost-bill.ts"],
   finApItem: ["src/lib/erp/ap-item.ts"],

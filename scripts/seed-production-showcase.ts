@@ -1,6 +1,6 @@
 /**
  * Development showcase for production cost (P150 Phase 2, P151): three months
- * of Tagihan Biaya Produksi and the Pengeluaran that pay them, so Buku and
+ * of Tagihan Biaya and the Pengeluaran that pay them, so Buku and
  * Saldo Biaya Produksi, the bills' Lunas / Sebagian / Belum Dibayar and the
  * payment flow can be looked at straight away.
  *
@@ -36,10 +36,13 @@
 import { prisma } from "../src/lib/prisma";
 import { createCostBill, transitionCostBill } from "../src/lib/erp/production-cost-bill";
 import { createCashPayment, transitionCashPayment } from "../src/lib/erp/cash-payment";
+import { costCenterOptions } from "../src/lib/erp/cost-center";
+import { costTypeOptions } from "../src/lib/erp/production-cost";
 
 type BillSpec = {
   key: string;
-  supplier: string;
+  /** None for a not-paid Jenis Biaya (depreciation). */
+  supplier?: string;
   date: string;
   due?: string;
   ref: string;
@@ -66,6 +69,9 @@ const BILLS: BillSpec[] = [
   { key: "A-ENV", supplier: "S-008", date: "2026-08-31", due: "2026-09-30", ref: "ENV/2608/045", description: "Pengangkutan & pengolahan limbah B3 Agustus 2026",
     lines: [["OVERHEAD-LAIN", 6_350_000, "Limbah cair dan kemasan terkontaminasi"]] },
 
+  { key: "A-SST", date: "2026-08-31", ref: "SST-2608", description: "Penyusutan mesin produksi Agustus 2026",
+    lines: [["PENYUSUTAN-MESIN", 7_500_000, "Mixer, filling dan labeling — garis lurus"]] },
+
   // ---- September 2026
   { key: "S-PLN", supplier: "S-005", date: "2026-09-30", due: "2026-10-14", ref: "PLN/2609/0071", description: "Listrik pabrik September 2026",
     lines: [["LISTRIK-PABRIK", 44_175_000, "Pemakaian 29.450 kWh + biaya beban"]] },
@@ -80,6 +86,9 @@ const BILLS: BillSpec[] = [
     lines: [["PEMELIHARAAN-MESIN", 4_600_000, "Kalibrasi 4 nozzle dan sensor level"]] },
   { key: "S-ENV", supplier: "S-008", date: "2026-09-30", due: "2026-10-30", ref: "ENV/2609/051", description: "Pengangkutan & pengolahan limbah B3 September 2026",
     lines: [["OVERHEAD-LAIN", 6_900_000, "Limbah cair dan kemasan terkontaminasi"]] },
+
+  { key: "S-SST", date: "2026-09-30", ref: "SST-2609", description: "Penyusutan mesin produksi September 2026",
+    lines: [["PENYUSUTAN-MESIN", 7_500_000, "Mixer, filling dan labeling — garis lurus"]] },
 
   // ---- October 2026, to date
   { key: "O-BTB", supplier: "S-004", date: "2026-10-03", ref: "BTB-1003", description: "Ganti v-belt mesin labeling",
@@ -112,15 +121,18 @@ async function main() {
   const actor = sistem.id;
 
   const supplier = new Map<string, number>();
-  for (const label of new Set([...BILLS.map((b) => b.supplier)])) {
+  for (const label of new Set([...BILLS.flatMap((b) => (b.supplier ? [b.supplier] : []))])) {
     const p = await prisma.mPartner.findFirst({ where: { partner_label: label, category: { category_label: "Supplier" } }, select: { id: true } });
     if (!p) throw new Error(`Supplier ${label} is missing. Run \`npm run db:seed-showcase\` first.`);
     supplier.set(label, p.id);
   }
-  const element = new Map((await prisma.accProductionCostElement.findMany({ select: { id: true, element_label: true } })).map((e) => [e.element_label, e.id]));
+  const costType = new Map((await costTypeOptions()).map((t) => [t.label, t.id]));
   for (const label of new Set(BILLS.flatMap((b) => b.lines.map((l) => l[0])))) {
-    if (!element.has(label)) throw new Error(`Elemen Biaya Produksi ${label} is missing. Run \`npm run db:seed-showcase\` first.`);
+    if (!costType.has(label)) throw new Error(`Jenis Biaya ${label} is missing. Run \`npm run db:seed-showcase\` first.`);
   }
+  // The one Cost Center today, picked on every line as a user would (M83).
+  const center = (await costCenterOptions()).find((c) => c.label === "PRODUKSI");
+  if (!center) throw new Error("Cost Center PRODUKSI is missing. Run `npm run db:seed` first.");
 
   // ---- the bills
   const billId = new Map<string, number>();
@@ -133,8 +145,8 @@ async function main() {
       continue;
     }
     const r = await createCostBill(
-      { bill_date: b.date, partner_id: supplier.get(b.supplier)!, supplier_ref: b.ref, due_date: b.due ?? null, description: b.description, note: null },
-      b.lines.map(([e, amount, note]) => ({ element_id: element.get(e)!, amount, note: note ?? null })),
+      { bill_date: b.date, partner_id: b.supplier ? supplier.get(b.supplier)! : null, supplier_ref: b.ref, due_date: b.due ?? null, description: b.description, note: null },
+      b.lines.map(([t, amount, note]) => ({ cost_type_id: costType.get(t)!, cost_center_id: center.id, amount, note: note ?? null })),
       actor
     );
     if (!r.ok) throw failure(`Tagihan ${b.key}`, r.errors);
@@ -189,8 +201,8 @@ async function main() {
   }
 
   console.log("Production cost showcase created:");
-  console.log(`  ${String(posted).padStart(4)}  Tagihan Biaya Produksi posted`);
-  console.log(`  ${String(drafts).padStart(4)}  Tagihan Biaya Produksi draft`);
+  console.log(`  ${String(posted).padStart(4)}  Tagihan Biaya posted`);
+  console.log(`  ${String(drafts).padStart(4)}  Tagihan Biaya draft`);
   console.log(`  ${String(paid).padStart(4)}  Pembayaran Biaya Produksi posted (from ${bank.cash_bank_label})`);
   console.log(`  ${String(paidDrafts).padStart(4)}  Pembayaran Biaya Produksi draft`);
   console.log("\nDevelopment data only.");

@@ -286,17 +286,45 @@ table acc_item_category_account {
   }
 }
 
-// Elemen Biaya Produksi (P150, M53): a kind of production cost the user names, with the account
-// its cost posts to (as a Jenis PPh names its account); several may share one account (M61); the
-// cost ledger, not the GL, is the source of truth (M60)
-table acc_production_cost_element {
+// Jenis Biaya (P154; was Elemen Biaya Produksi, M53): a cost the user names, pointing to the expense
+// account it is booked to and the account it is credited to; is_payable says only whether that
+// credit is settled through Pengeluaran (M84); both accounts fixed once chosen
+table acc_cost_type {
   id                          int [pk, increment, not null]
 
-  element_code                varchar [not null, unique]
+  cost_type_code              varchar [not null, unique]
 
-  element_label               varchar [not null]
-  element_name                varchar [not null]
-  account_id                  int [not null, ref : > acc_account.id] // fixed once chosen
+  cost_type_label             varchar [not null]
+  cost_type_name              varchar [not null]
+  expense_account_id          int [not null, ref : > acc_account.id] // requires a Cost Center
+  contra_account_id           int [ref : > acc_account.id] // required by the form; null only before P154
+  is_payable                  boolean [not null, default: true]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    expense_account_id
+  }
+}
+
+// Cost Center (P154): where a cost was incurred — a tag on the journal line beside the account and
+// the Partner; PRODUKSI is the one seeded today, the design allows many
+table acc_cost_center {
+  id                          int [pk, increment, not null]
+
+  cost_center_code            varchar [not null, unique]
+
+  cost_center_label           varchar [not null]
+  cost_center_name            varchar [not null]
+  cost_center_type            enum('Production') [not null, default: 'Production']
 
   note                        varchar
 
@@ -806,6 +834,7 @@ table acc_account {
   partner_category_id         int [ref : > sys_partner_category.id]
 
   is_control_account          boolean [not null, default: false]
+  require_cost_center         boolean [not null, default: false] // every line names a Cost Center, no other line does (P154)
   note                        varchar
   is_active                   boolean [not null, default: true]
 
@@ -932,6 +961,7 @@ table acc_journal_line {
 
   account_id                  int [not null, ref : > acc_account.id]
   partner_id                  int [ref : > m_partner.id]
+  cost_center_id              int [ref : > acc_cost_center.id] // only on a Require Cost Center account (P154)
   currency_id                 int [not null, ref : > ref_currency.id]
 
   exchange_rate               decimal(18,6) [not null, default: 1]
@@ -2577,41 +2607,10 @@ table tax_withholding_slip {
 
 // ============================================================ production cost (P150)
 
-// the cost ledger (P150 E4, M3, M23, M60): production cost by element, the source of truth the
-// period close reads — never the GL; append-only, dated, no period column; one ledger number
-// BBP/… per posting (P110); written only by lib/erp/production-cost.ts
-table prd_cost_ledger {
-  id                          int [pk, increment, not null]
-
-  ledger_no                   varchar [not null]
-  line_no                     int [not null]
-  posting_date                date [not null]
-
-  source_doc_type_id          int [not null] // weak (§3.1): the document that booked it
-  source_doc_id               int [not null]
-  source_no                   varchar [not null]
-
-  element_id                  int [not null, ref : > acc_production_cost_element.id]
-  account_id                  int [not null, ref : > acc_account.id] // the element's account, copied
-  kind                        enum('In', 'Absorbed', 'CarriedOut', 'CarriedIn', 'ExpensedToPL') [not null]
-  amount                      decimal(18,2) [not null] // whole rupiah; + raises, − takes out
-  note                        varchar
-
-  created_by                  int [not null]
-  created_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    (ledger_no, line_no) [unique]
-    posting_date
-    (element_id, posting_date)
-    (source_doc_type_id, source_doc_id)
-  }
-}
-
-// Tagihan Biaya Produksi (P150 M68, TBP/…): production cost recognised in the month it belongs to —
-// Dr each line's element account / Cr the lawan — and written to the cost ledger; a bill on
-// Hutang Biaya Produksi is payable, keeps what it was paid (P132) and is paid by the Pengeluaran
-// purpose Pembayaran Biaya Produksi (CHECK 0 <= paid_amount <= total_amount)
+// Tagihan Biaya (P150 M68, renamed P154, TBP/…): a cost recognised in the month it belongs to —
+// Dr each line's Jenis Biaya expense account with its Cost Center / Cr the Jenis Biaya's credit
+// account; a paid bill's lines share one credit account, copied to payable_account_id, it keeps
+// what it was paid (P132) and is paid by Pembayaran Biaya Produksi (CHECK 0 <= paid <= total)
 table prd_cost_bill {
   id                          int [pk, increment, not null]
 
@@ -2628,7 +2627,7 @@ table prd_cost_bill {
   cancel_reason               varchar
 
   total_amount                decimal(18,2) [not null, default: 0]
-  payable_account_id          int [ref : > acc_account.id] // Account Mapping's Hutang Biaya Produksi, copied at posting (P151); the payment debits it
+  payable_account_id          int [ref : > acc_account.id] // a paid bill's one credit account, copied at posting (M89); the payment debits it
   paid_amount                 decimal(18,2) [not null, default: 0]
   journal_id                  int
 
@@ -2649,9 +2648,11 @@ table prd_cost_bill_line {
 
   bill_id                     int [not null, ref : > prd_cost_bill.id]
   line_no                     int [not null]
-  element_id                  int [not null, ref : > acc_production_cost_element.id]
+  cost_type_id                int [not null, ref : > acc_cost_type.id]
+  cost_center_id              int [not null, ref : > acc_cost_center.id] // picked by the user (M83)
   amount                      decimal(18,2) [not null]
   note                        varchar
+  credit_account_id           int [ref : > acc_account.id] // the Jenis Biaya's credit account, copied at posting
 
   indexes {
     bill_id

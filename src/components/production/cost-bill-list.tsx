@@ -21,7 +21,7 @@ import {
 } from "@/lib/erp/production-cost-bill-workflow";
 
 /**
- * The Tagihan Biaya Produksi register (P150 M68). Drafts sort first — somebody
+ * The Tagihan Biaya register (P150 M68). Drafts sort first — somebody
  * still has something to do about them — then newest first. A payable bill
  * shows what it was paid.
  */
@@ -41,7 +41,7 @@ export function CostBillList({ rows: all, can }: { rows: CostBillListRow[]; can:
   const paging = usePaging(rows, `${q}|${status}`);
   const newButton = (
     <Link className="btn primary" href={`${COST_BILL_PATH}/new`}>
-      <Icon name="plus" size={15} /> Tagihan Biaya Produksi Baru
+      <Icon name="plus" size={15} /> Tagihan Biaya Baru
     </Link>
   );
 
@@ -51,20 +51,20 @@ export function CostBillList({ rows: all, can }: { rows: CostBillListRow[]; can:
         <div className="crumb">
           <span>Produksi</span>
           <span>/</span>
-          <span className="cur">Tagihan Biaya Produksi</span>
+          <span className="cur">Tagihan Biaya</span>
         </div>
         <div className="ph-row">
           <h1>
             <span className="ph-ico">
               <Icon name="file" size={16} />
             </span>
-            Tagihan Biaya Produksi
+            Tagihan Biaya
           </h1>
           <div className="ph-act">{can.create && newButton}</div>
         </div>
         <p className="ph-sub">
-          Tagihan supplier atas biaya tenaga kerja dan overhead produksi, dicatat pada bulan terjadinya per Elemen Biaya Produksi
-          ke Hutang Biaya Produksi, lalu dibayar lewat Pengeluaran — Pembayaran Biaya Produksi.
+          Biaya tenaga kerja dan overhead, diakui pada bulan terjadinya per Jenis Biaya dan Cost Center. Yang dibayar dilunasi lewat
+          Pengeluaran — Pembayaran Biaya Produksi; yang tidak dibayar, seperti penyusutan, cukup dicatat.
         </p>
       </div>
 
@@ -150,11 +150,11 @@ export function CostBillList({ rows: all, can }: { rows: CostBillListRow[]; can:
             <div className="ic">
               <Icon name="file" size={20} />
             </div>
-            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada Tagihan Biaya Produksi"}</h4>
+            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada Tagihan Biaya"}</h4>
             <p>
               {q || status
                 ? "Tidak ada tagihan yang sesuai dengan pencarian atau filter."
-                : "Catat biaya produksi bulan ini — upah, listrik pabrik, penyusutan mesin — per Elemen Biaya Produksi."}
+                : "Catat biaya produksi bulan ini — upah, listrik pabrik, penyusutan mesin — per Jenis Biaya dan Cost Center."}
             </p>
             {q || status ? (
               <div className="cta">

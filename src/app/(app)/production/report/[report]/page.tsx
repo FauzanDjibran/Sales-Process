@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
 import { ProductionCostParams } from "@/components/report/production-cost-params";
-import { CostBalanceBody, CostLedgerBody, type CostSourceDoc } from "@/components/report/production-cost-reports";
+import { CostCenterReportBody, type SourceDocName } from "@/components/report/cost-center-report";
 import { requirePermission } from "@/lib/erp/auth";
+import { costCenterOptions, costCenterReport } from "@/lib/erp/cost-center";
 import { reportableFiscalYears, type ReportableFiscalYear } from "@/lib/erp/fiscal";
-import { costBalances, costLedgerRows, elementOptions } from "@/lib/erp/production-cost";
 import { reportBySlug, reportHref } from "@/lib/erp/reports";
 import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
@@ -12,18 +12,17 @@ import { prisma } from "@/lib/prisma";
 export const dynamic = "force-dynamic";
 
 /**
- * The Produksi module's Report Views (P150 M66): Buku Biaya Produksi and Saldo
- * Biaya Produksi, each read for one month — a fiscal period — and optionally
- * one Elemen Biaya Produksi. The figures are the cost ledger's alone (M60,
- * P152): the book stands on its own, as the Cash Bank Book and the stock books
- * do, and the GL is never read here.
+ * The Produksi module's Report View (P154, M90): *Laporan Cost Center*, read
+ * for one month — a fiscal period — and optionally one Cost Center, from
+ * journal lines only. The General Ledger and the other reports are unchanged
+ * (M85).
  */
 export default async function Page({
   params,
   searchParams,
 }: {
   params: Promise<{ report: string }>;
-  searchParams: Promise<{ year?: string; period?: string; element?: string }>;
+  searchParams: Promise<{ year?: string; period?: string; center?: string }>;
 }) {
   const { report: slug } = await params;
   const report = reportBySlug(slug);
@@ -39,50 +38,43 @@ export default async function Page({
         <ReportNeedsSubject
           icon="cal"
           title="Belum ada tahun buku aktif"
-          body="Biaya produksi dibaca per bulan tahun buku. Aktifkan Fiscal Year terlebih dahulu — periode bulanannya dibuat saat itu."
+          body="Biaya per Cost Center dibaca per bulan tahun buku. Aktifkan Fiscal Year terlebih dahulu — periode bulanannya dibuat saat itu."
         />
       </ReportView>
     );
   }
 
   const chosen = pickPeriod(years, Number(query.year) || null, Number(query.period) || null);
-  const elementId = Number(query.element) || null;
-  const elements = await elementOptions();
-  const elementById = new Map(elements.map((e) => [e.id, e]));
-  const filterIds = elementId ? [elementId] : [];
+  const centerId = Number(query.center) || null;
+  const centers = await costCenterOptions();
 
   const filter = (
     <ProductionCostParams
       slug={slug}
       years={years.map((y) => ({ id: y.id, name: y.label, periods: y.periods.map((p) => ({ id: p.id, name: p.name })) }))}
       value={{ yearId: chosen.year.id, periodId: chosen.period.id }}
-      elements={elements.map((e) => ({ id: e.id, label: e.label, name: e.name }))}
-      elementId={elementId}
+      costCenters={centers.map((c) => ({ id: c.id, label: c.label, name: c.name }))}
+      costCenterId={centerId}
     />
   );
   const range = { from: chosen.period.startDate, to: chosen.period.endDate };
-  const footnote = (
-    <>
-      {chosen.period.name} · {formatDate(range.from)} s/d {formatDate(range.to)}. Angka dibaca dari Buku Biaya Produksi, sumber penutupan biaya produksi.
-    </>
-  );
+  const blocks = await costCenterReport({ yearStart: chosen.year.startDate, ...range, costCenterIds: centerId ? [centerId] : [] });
+  const typeIds = [...new Set(blocks.flatMap((b) => b.accounts.flatMap((a) => a.lines.map((l) => l.sourceDocTypeId))).filter((x): x is number => Boolean(x)))];
+  const docTypes = typeIds.length ? await prisma.sysDocType.findMany({ where: { id: { in: typeIds } } }) : [];
+  const docs = new Map<number, SourceDocName>(docTypes.map((d) => [d.id, { table: d.doc_table, name: d.doc_name }]));
 
-  if (report.key === "production_cost_ledger") {
-    const rows = await costLedgerRows(range, filterIds);
-    const docTypes = await prisma.sysDocType.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.source.docTypeId))] } } });
-    const docs = new Map<number, CostSourceDoc>(docTypes.map((d) => [d.id, { table: d.doc_table, name: d.doc_name }]));
-    return (
-      <ReportView report={report} filter={filter} runAt={runAt} footnote={footnote}>
-        <CostLedgerBody rows={rows} elements={elementById} docs={docs} range={range} />
-      </ReportView>
-    );
-  }
-
-  // Saldo Biaya Produksi: the month's cost per element.
-  const balances = await costBalances(range, filterIds);
   return (
-    <ReportView report={report} filter={filter} runAt={runAt} footnote={footnote}>
-      <CostBalanceBody balances={balances} elements={elementById} />
+    <ReportView
+      report={report}
+      filter={filter}
+      runAt={runAt}
+      footnote={
+        <>
+          {chosen.period.name} · {formatDate(range.from)} s/d {formatDate(range.to)}. Saldo awal dihitung sejak awal tahun buku ({formatDate(chosen.year.startDate)}). Angka dibaca dari baris journal yang menyebut Cost Center.
+        </>
+      }
+    >
+      <CostCenterReportBody blocks={blocks} docs={docs} range={range} />
     </ReportView>
   );
 }

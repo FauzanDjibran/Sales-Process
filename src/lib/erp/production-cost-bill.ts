@@ -5,10 +5,10 @@ import type { Prisma } from "@/generated/prisma/client";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate } from "./fiscal";
-import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
-import { CostLedgerRefusal, elementOptions, elementsByIds, recordCost } from "./production-cost";
+import { CostCenterRefusal, PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
+import { costTypeOptions, costTypesByIds } from "./production-cost";
+import { costCenterOptions, costCentersByIds } from "./cost-center";
 import { checkAccountIsLeaf } from "./records";
-import { fallbackAccounts } from "./system-settings";
 import {
   COST_BILL_TRANSITIONS,
   costBillIsEditable,
@@ -18,31 +18,34 @@ import {
 } from "./production-cost-bill-workflow";
 
 /**
- * Tagihan Biaya Produksi (P150 M68, `production_project.md` §21d,
+ * Tagihan Biaya (P150 M68, renamed P154 — `production_project.md` §21e;
  * `prd_cost_bill(_line)`, `TBP/YYYY/MM/NNNN`).
  *
- * A production cost owed to a Supplier, recognised in the month it belongs to —
- * the mainstream two-step (a bill, then its payment): **Posting** writes Dr
- * each line's element account / Cr *Hutang Biaya Produksi*, dated the bill's
- * date, and one row per line in the cost ledger (`production-cost.ts`).
+ * A cost recognised in the month it belongs to — the mainstream two-step (a
+ * bill, then its payment). Each line picks a **Jenis Biaya**, never an account
+ * (M75), and a **Cost Center** the user chooses (M83). **Posting** writes Dr
+ * each line's expense account **with its Cost Center** / Cr each Jenis
+ * Biaya's own credit account (M84), dated the bill's date; production cost
+ * has no book of its own — it is the General Ledger's (M73).
  *
- * **The credit side is never chosen on the bill** (P151): as SAP's vendor
- * reconciliation account, Business Central's vendor posting group and Odoo's
- * partner payable account, it comes from configuration — Account Mapping's
- * *Hutang Biaya Produksi* — so a bill cannot be posted somewhere it would never
- * be paid from. It is copied onto the bill at posting (`payable_account_id`).
- * Every posted bill keeps what it was paid (P132) and is paid by the
- * Pengeluaran purpose *Pembayaran Biaya Produksi*, which debits that same
- * account and writes no cost row — the cost was already recorded. Costs that
- * are never paid to a supplier (depreciation, accrued wages) wait for
- * Pencatatan Biaya Produksi (`production_project.md` §9.6).
+ * **One kind per Tagihan** (M76): all lines paid or none. A paid Tagihan names
+ * its Supplier and its lines share one credit account (M89), copied onto the
+ * bill at posting (`payable_account_id`); it keeps what it was paid (P132)
+ * and is paid by *Pembayaran Biaya Produksi*, which debits that account. It is
+ * never an AP open item. A not-paid one (depreciation) is never offered for
+ * payment.
  *
  * Named only by this module (`prd_cost_bill`, `prd_cost_bill_line`).
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-export type CostBillLineInput = { element_id: number | string | null; amount: number | string | null; note?: string | null };
+export type CostBillLineInput = {
+  cost_type_id: number | string | null;
+  cost_center_id: number | string | null;
+  amount: number | string | null;
+  note?: string | null;
+};
 
 export type CostBillInput = {
   bill_date: string;
@@ -66,35 +69,50 @@ async function docTypeId(db: Db, table: string): Promise<number> {
   return row.id;
 }
 
-/** The Account Mapping account that makes a bill payable, or null when unset. */
-async function payableAccountId(): Promise<number | null> {
-  return (await fallbackAccounts(["production_cost_payable_account"] as const)).production_cost_payable_account;
-}
-
 // ---------------------------------------------------------------- options
 
 export type CostBillOptions = {
   suppliers: { id: number; label: string; name: string; active: boolean }[];
-  elements: { id: number; label: string; name: string; accountLabel: string; accountName: string; active: boolean }[];
-  /** Account Mapping's Hutang Biaya Produksi, shown read-only; null when unset. */
-  payableAccount: { id: number; label: string; name: string } | null;
+  costTypes: {
+    id: number;
+    label: string;
+    name: string;
+    expenseAccountLabel: string;
+    expenseAccountName: string;
+    contraAccountId: number | null;
+    contraAccountLabel: string | null;
+    contraAccountName: string | null;
+    isPayable: boolean;
+    active: boolean;
+  }[];
+  costCenters: { id: number; label: string; name: string; active: boolean }[];
 };
 
 export async function costBillOptions(): Promise<CostBillOptions> {
-  const [suppliers, elements, payable] = await Promise.all([
+  const [suppliers, costTypes, costCenters] = await Promise.all([
     prisma.mPartner.findMany({
       where: { category: { category_label: "Supplier" } },
       select: { id: true, partner_label: true, partner_name: true, status: true },
       orderBy: { partner_label: "asc" },
     }),
-    elementOptions(),
-    payableAccountId(),
+    costTypeOptions(),
+    costCenterOptions(),
   ]);
-  const account = payable ? await prisma.accAccount.findUnique({ where: { id: payable }, select: { id: true, account_label: true, account_name: true } }) : null;
   return {
     suppliers: suppliers.map((p) => ({ id: p.id, label: p.partner_label, name: p.partner_name, active: p.status === "Active" })),
-    elements: elements.map((e) => ({ id: e.id, label: e.label, name: e.name, accountLabel: e.accountLabel, accountName: e.accountName, active: e.active })),
-    payableAccount: account ? { id: account.id, label: account.account_label, name: account.account_name } : null,
+    costTypes: costTypes.map((t) => ({
+      id: t.id,
+      label: t.label,
+      name: t.name,
+      expenseAccountLabel: t.expenseAccountLabel,
+      expenseAccountName: t.expenseAccountName,
+      contraAccountId: t.contraAccountId,
+      contraAccountLabel: t.contraAccountLabel,
+      contraAccountName: t.contraAccountName,
+      isPayable: t.isPayable,
+      active: t.active,
+    })),
+    costCenters,
   };
 }
 
@@ -103,14 +121,25 @@ export async function costBillOptions(): Promise<CostBillOptions> {
 export type CheckedCostBill = {
   data: {
     bill_date: Date;
-    partner_id: number;
+    partner_id: number | null;
     supplier_ref: string | null;
     due_date: Date | null;
     description: string;
     note: string | null;
     total_amount: number;
   };
-  lines: { line_no: number; element_id: number; amount: number; note: string | null }[];
+  /** Paid (settled through Pengeluaran) or not — one kind per bill (M76). */
+  isPayable: boolean;
+  lines: {
+    line_no: number;
+    cost_type_id: number;
+    cost_center_id: number;
+    amount: number;
+    note: string | null;
+    expenseAccountId: number;
+    creditAccountId: number;
+    label: string;
+  }[];
 };
 
 /** Every rule a bill must satisfy to be saved — and, run again, to be posted. */
@@ -125,30 +154,36 @@ export async function checkCostBill(
   const description = String(input.description ?? "").trim();
   if (!description) errors.description = "Uraian wajib diisi.";
 
-  const partnerId = Number(input.partner_id) || null;
-  if (partnerId) {
-    const p = await db.mPartner.findUnique({ where: { id: partnerId }, include: { category: true } });
-    if (!p) errors.partner_id = "Partner tidak ditemukan.";
-    else if (p.category.category_label !== "Supplier") errors.partner_id = "Pilih Supplier.";
-    else if (p.status !== "Active") errors.partner_id = "Supplier tersebut sudah nonaktif.";
-  } else errors.partner_id = "Pilih Supplier yang ditagihkan.";
-
   const due = String(input.due_date ?? "").trim();
   if (due && !DAY.test(due)) errors.due_date = "Tanggal tidak dikenali.";
   else if (due && DAY.test(date) && due < date) errors.due_date = "Jatuh tempo tidak boleh sebelum tanggal tagihan.";
 
   const raw = Array.isArray(lines) ? lines : [];
   if (!raw.length) errors._lines = "Tambahkan minimal satu baris biaya.";
-  const elements = await elementsByIds(raw.map((l) => Number(l.element_id)), db);
+  const types = await costTypesByIds(raw.map((l) => Number(l.cost_type_id)), db);
+  const centers = await costCentersByIds(raw.map((l) => Number(l.cost_center_id)), db);
   const out: CheckedCostBill["lines"] = [];
   for (const [i, l] of raw.entries()) {
-    const e = elements.get(Number(l.element_id));
-    if (!e) {
-      errors[lineKey(i, "element_id")] = "Pilih Elemen Biaya Produksi.";
+    const t = types.get(Number(l.cost_type_id));
+    if (!t) {
+      errors[lineKey(i, "cost_type_id")] = "Pilih Jenis Biaya.";
       continue;
     }
-    if (!e.active) {
-      errors[lineKey(i, "element_id")] = `${e.label} sudah nonaktif.`;
+    if (!t.active) {
+      errors[lineKey(i, "cost_type_id")] = `${t.label} sudah nonaktif.`;
+      continue;
+    }
+    if (!t.contraAccountId) {
+      errors[lineKey(i, "cost_type_id")] = `${t.label} belum memiliki Account Lawan. Lengkapi Jenis Biaya-nya.`;
+      continue;
+    }
+    const c = centers.get(Number(l.cost_center_id));
+    if (!c) {
+      errors[lineKey(i, "cost_center_id")] = "Pilih Cost Center.";
+      continue;
+    }
+    if (!c.active) {
+      errors[lineKey(i, "cost_center_id")] = `Cost Center ${c.label} sudah nonaktif.`;
       continue;
     }
     const amount = Number(l.amount);
@@ -156,8 +191,39 @@ export async function checkCostBill(
       errors[lineKey(i, "amount")] = "Jumlah harus rupiah penuh, lebih dari 0.";
       continue;
     }
-    out.push({ line_no: out.length + 1, element_id: e.id, amount, note: String(l.note ?? "").trim() || null });
+    out.push({
+      line_no: out.length + 1,
+      cost_type_id: t.id,
+      cost_center_id: c.id,
+      amount,
+      note: String(l.note ?? "").trim() || null,
+      expenseAccountId: t.expenseAccountId,
+      creditAccountId: t.contraAccountId,
+      label: t.label,
+    });
   }
+
+  // One kind per bill (M76); a paid bill is paid as a whole, so its lines
+  // share one credit account (M89).
+  const kinds = new Set(out.map((l) => types.get(l.cost_type_id)!.isPayable));
+  const isPayable = kinds.has(true);
+  if (kinds.size > 1) errors._lines = "Satu Tagihan hanya memuat Jenis Biaya yang dibayar, atau hanya yang tidak dibayar.";
+  else if (isPayable && new Set(out.map((l) => l.creditAccountId)).size > 1) {
+    errors._lines = "Jenis Biaya yang dibayar dalam satu Tagihan harus memakai Account Lawan yang sama.";
+  }
+
+  const creditPartner = out.length
+    ? await db.accAccount.findMany({ where: { id: { in: [...new Set(out.map((l) => l.creditAccountId))] }, require_partner: true }, select: { account_label: true } })
+    : [];
+  const partnerId = Number(input.partner_id) || null;
+  if (partnerId) {
+    const p = await db.mPartner.findUnique({ where: { id: partnerId }, include: { category: true } });
+    if (!p) errors.partner_id = "Partner tidak ditemukan.";
+    else if (p.category.category_label !== "Supplier") errors.partner_id = "Pilih Supplier.";
+    else if (p.status !== "Active") errors.partner_id = "Supplier tersebut sudah nonaktif.";
+  } else if (isPayable) errors.partner_id = "Tagihan yang dibayar wajib menyebut Supplier.";
+  else if (creditPartner.length) errors.partner_id = `Account ${creditPartner[0].account_label} wajib menyebut Partner.`;
+
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) errors._lines = "Ada baris yang perlu diperbaiki.";
   if (Object.keys(errors).length) return { ok: false, errors };
 
@@ -166,13 +232,14 @@ export async function checkCostBill(
     c: {
       data: {
         bill_date: asDate(date),
-        partner_id: partnerId!,
+        partner_id: partnerId,
         supplier_ref: String(input.supplier_ref ?? "").trim() || null,
         due_date: due ? asDate(due) : null,
         description,
         note: String(input.note ?? "").trim() || null,
         total_amount: out.reduce((a, l) => a + l.amount, 0),
       },
+      isPayable,
       lines: out,
     },
   };
@@ -193,7 +260,11 @@ async function audit(db: Db, id: number, action: "TAMBAH" | "UPDATE", event: str
 
 async function writeLines(tx: Prisma.TransactionClient, id: number, c: CheckedCostBill) {
   await tx.prdCostBillLine.deleteMany({ where: { bill_id: id } });
-  for (const l of c.lines) await tx.prdCostBillLine.create({ data: { ...l, bill_id: id } });
+  for (const l of c.lines) {
+    await tx.prdCostBillLine.create({
+      data: { bill_id: id, line_no: l.line_no, cost_type_id: l.cost_type_id, cost_center_id: l.cost_center_id, amount: l.amount, note: l.note },
+    });
+  }
 }
 
 export async function createCostBill(input: CostBillInput, lines: CostBillLineInput[], actorId: number): Promise<CostBillResult> {
@@ -232,12 +303,13 @@ class Refused extends Error {
 export type CostBillTransitionResult = { ok: true; journal?: JournalLineInput[] } | { ok: false; errors: Record<string, string> };
 
 /**
- * Runs one lifecycle step. **Posting**, in one transaction: rechecks the bill,
- * writes the journal dated the bill's date — Dr each element's account per
- * line, Cr the Account Lawan for the total — and one cost-ledger row per line.
- * With `dryRun` it throws `PostingDryRun` after all of it, so the confirmation
- * shows exactly the journal Posting writes (P103). **Batalkan** (Draft) asks
- * for a reason.
+ * Runs one lifecycle step. **Posting**, in one transaction: rechecks the bill
+ * and writes the journal dated the bill's date — Dr each line's expense
+ * account with its Cost Center / Cr each credit account for what its lines
+ * hold — and copies each line's credit account onto it (and a paid bill's
+ * onto the header). With `dryRun` it throws `PostingDryRun` after all of it,
+ * so the confirmation shows exactly the journal Posting writes (P103).
+ * **Batalkan** (Draft) asks for a reason.
  */
 export async function transitionCostBill(
   id: number,
@@ -280,69 +352,65 @@ export async function transitionCostBill(
         description: b.description,
         note: b.note,
       };
-      const r = await checkCostBill(tx, input, b.lines.map((l) => ({ element_id: l.element_id, amount: l.amount.toString(), note: l.note })));
+      const r = await checkCostBill(
+        tx,
+        input,
+        b.lines.map((l) => ({ cost_type_id: l.cost_type_id, cost_center_id: l.cost_center_id, amount: l.amount.toString(), note: l.note }))
+      );
       if (!r.ok) {
         const first = Object.entries(r.errors).find(([k]) => !k.startsWith("_"))?.[1] ?? Object.values(r.errors)[0];
         throw new Refused({ _form: `Belum bisa diposting: ${first}` });
       }
-      const elements = await elementsByIds(r.c.lines.map((l) => l.element_id), tx);
-      // The credit side comes from Account Mapping, never the bill (P151).
-      const payable = await payableAccountId();
-      if (!payable) throw new Refused({ _form: "Belum bisa diposting: Account Hutang Biaya Produksi belum diatur di Account Mapping › Produksi." });
-      const contra = await tx.accAccount.findUnique({ where: { id: payable }, select: { is_postable: true, is_active: true, require_partner: true } });
-      if (!contra?.is_postable || !contra.is_active || (await checkAccountIsLeaf(payable))) {
-        throw new Refused({ _form: "Belum bisa diposting: Account Hutang Biaya Produksi di Account Mapping harus aktif dan dapat diposting." });
-      }
-      if (r.c.lines.some((l) => elements.get(l.element_id)?.accountId === payable)) {
-        throw new Refused({ _form: "Belum bisa diposting: account sebuah elemen sama dengan Account Hutang Biaya Produksi." });
+      const accountIds = [...new Set(r.c.lines.flatMap((l) => [l.expenseAccountId, l.creditAccountId]))];
+      const accounts = new Map(
+        (await tx.accAccount.findMany({ where: { id: { in: accountIds } }, select: { id: true, account_label: true, is_postable: true, is_active: true, require_partner: true } })).map((a) => [a.id, a])
+      );
+      for (const id of accountIds) {
+        const a = accounts.get(id);
+        if (!a || !a.is_postable || !a.is_active || (await checkAccountIsLeaf(id))) {
+          throw new Refused({ _form: `Belum bisa diposting: account ${a?.account_label ?? id} pada Jenis Biaya harus aktif dan dapat diposting.` });
+        }
       }
       const done = await tx.prdCostBill.updateMany({
         where: { id, status: "Draft" },
-        data: { ...r.c.data, payable_account_id: payable, status: "Posted", updated_by: actorId },
+        data: { ...r.c.data, payable_account_id: r.c.isPayable ? r.c.lines[0].creditAccountId : null, status: "Posted", updated_by: actorId },
       });
       if (done.count !== 1) throw new Refused({ _form: moved });
-
-      const partnerOn = async (accountId: number) =>
-        (await tx.accAccount.findUnique({ where: { id: accountId }, select: { require_partner: true } }))?.require_partner ? r.c.data.partner_id : null;
-      const debits: JournalLineInput[] = [];
       for (const l of r.c.lines) {
-        const e = elements.get(l.element_id)!;
-        debits.push({
-          accountId: e.accountId,
-          partnerId: await partnerOn(e.accountId),
-          currencyId: currency.id,
-          rate: 1,
-          debit: l.amount,
-          credit: 0,
-          description: `${e.label} — ${l.note ?? r.c.data.description}`,
-        });
+        await tx.prdCostBillLine.updateMany({ where: { bill_id: id, line_no: l.line_no }, data: { credit_account_id: l.creditAccountId } });
       }
+
+      const partnerOn = (accountId: number) => (accounts.get(accountId)?.require_partner ? r.c.data.partner_id : null);
+      const base = { currencyId: currency.id, rate: 1 };
+      const debits: JournalLineInput[] = r.c.lines.map((l) => ({
+        ...base,
+        accountId: l.expenseAccountId,
+        partnerId: partnerOn(l.expenseAccountId),
+        costCenterId: l.cost_center_id,
+        debit: l.amount,
+        credit: 0,
+        description: `${l.label} — ${l.note ?? r.c.data.description}`,
+      }));
+      const credits = new Map<number, number>();
+      for (const l of r.c.lines) credits.set(l.creditAccountId, (credits.get(l.creditAccountId) ?? 0) + l.amount);
       journalLines = [
         ...debits,
-        {
-          accountId: payable,
-          partnerId: contra.require_partner ? r.c.data.partner_id : null,
-          currencyId: currency.id,
-          rate: 1,
+        ...[...credits.entries()].map(([accountId, amount]) => ({
+          ...base,
+          accountId,
+          partnerId: partnerOn(accountId),
           debit: 0,
-          credit: r.c.data.total_amount,
+          credit: amount,
           description: `${b.bill_no} · ${r.c.data.description}`,
-        },
+        })),
       ];
-      const typeId = await docTypeId(tx, "prd_cost_bill");
       const journal = await postJournal(tx, {
-        description: `${b.bill_no} · Tagihan Biaya Produksi — ${r.c.data.description}`,
-        sourceDocTypeId: typeId,
+        description: `${b.bill_no} · Tagihan Biaya — ${r.c.data.description}`,
+        sourceDocTypeId: await docTypeId(tx, "prd_cost_bill"),
         sourceDocId: id,
         postingDate: r.c.data.bill_date,
         actorId,
         lines: journalLines,
-      });
-      await recordCost(tx, {
-        date: r.c.data.bill_date,
-        source: { docTypeId: typeId, docId: id, no: b.bill_no },
-        rows: r.c.lines.map((l) => ({ elementId: l.element_id, amount: l.amount, note: l.note ?? r.c.data.description })),
-        actorId,
       });
       await tx.prdCostBill.update({ where: { id }, data: { journal_id: journal.id } });
       await audit(tx, id, "UPDATE", "post", actorId);
@@ -351,7 +419,7 @@ export async function transitionCostBill(
     return { ok: true, journal: journalLines };
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
-    if (e instanceof CostLedgerRefusal) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
+    if (e instanceof CostCenterRefusal) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines };
     throw e;
   }
@@ -403,12 +471,26 @@ export async function listCostBills(): Promise<CostBillListRow[]> {
   }));
 }
 
+export type CostBillLineView = {
+  costTypeId: number;
+  costTypeLabel: string;
+  costTypeName: string;
+  costCenterId: number;
+  costCenterLabel: string;
+  costCenterName: string;
+  expenseAccountLabel: string;
+  expenseAccountName: string;
+  /** The credit account copied at posting; on a Draft, the Jenis Biaya's today. */
+  creditAccountLabel: string | null;
+  creditAccountName: string | null;
+  amount: number;
+  note: string | null;
+};
+
 export type CostBillView = {
   id: number;
   billNo: string;
   billDate: string;
-  /** The payable it was posted on (P151); null on a Draft or a bill posted before P151 to another lawan. */
-  payableAccount: { label: string; name: string } | null;
   partnerId: number | null;
   partner: { label: string; name: string } | null;
   supplierRef: string | null;
@@ -418,27 +500,35 @@ export type CostBillView = {
   status: CostBillStatus;
   cancelReason: string | null;
   total: number;
+  /** A posted bill: credited to a paid account; a Draft: its Jenis Biaya are paid ones. */
   isPayable: boolean;
   paid: number;
   journalId: number | null;
-  lines: { elementId: number; elementLabel: string; elementName: string; accountLabel: string; accountName: string; amount: number; note: string | null }[];
+  lines: CostBillLineView[];
 };
 
 export async function getCostBill(id: number): Promise<CostBillView | null> {
+  const acc = { select: { account_label: true, account_name: true } } as const;
   const b = await prisma.prdCostBill.findUnique({
     where: { id },
     include: {
-      payable_account: { select: { account_label: true, account_name: true } },
       partner: { select: { partner_label: true, partner_name: true } },
-      lines: { orderBy: { line_no: "asc" }, include: { element: { include: { account: { select: { account_label: true, account_name: true } } } } } },
+      lines: {
+        orderBy: { line_no: "asc" },
+        include: {
+          cost_type: { include: { expense_account: acc, contra_account: acc } },
+          cost_center: { select: { cost_center_label: true, cost_center_name: true } },
+          credit_account: acc,
+        },
+      },
     },
   });
   if (!b) return null;
+  const posted = b.status === "Posted";
   return {
     id: b.id,
     billNo: b.bill_no,
     billDate: isoDay(b.bill_date),
-    payableAccount: b.payable_account ? { label: b.payable_account.account_label, name: b.payable_account.account_name } : null,
     partnerId: b.partner_id,
     partner: b.partner ? { label: b.partner.partner_label, name: b.partner.partner_name } : null,
     supplierRef: b.supplier_ref,
@@ -448,18 +538,26 @@ export async function getCostBill(id: number): Promise<CostBillView | null> {
     status: b.status as CostBillStatus,
     cancelReason: b.cancel_reason,
     total: b.total_amount.toNumber(),
-    isPayable: b.payable_account_id !== null,
+    isPayable: posted ? b.payable_account_id !== null : b.lines.some((l) => l.cost_type.is_payable),
     paid: b.paid_amount.toNumber(),
     journalId: b.journal_id,
-    lines: b.lines.map((l) => ({
-      elementId: l.element_id,
-      elementLabel: l.element.element_label,
-      elementName: l.element.element_name,
-      accountLabel: l.element.account.account_label,
-      accountName: l.element.account.account_name,
-      amount: l.amount.toNumber(),
-      note: l.note,
-    })),
+    lines: b.lines.map((l) => {
+      const credit = posted ? l.credit_account : l.cost_type.contra_account;
+      return {
+        costTypeId: l.cost_type_id,
+        costTypeLabel: l.cost_type.cost_type_label,
+        costTypeName: l.cost_type.cost_type_name,
+        costCenterId: l.cost_center_id,
+        costCenterLabel: l.cost_center.cost_center_label,
+        costCenterName: l.cost_center.cost_center_name,
+        expenseAccountLabel: l.cost_type.expense_account.account_label,
+        expenseAccountName: l.cost_type.expense_account.account_name,
+        creditAccountLabel: credit?.account_label ?? null,
+        creditAccountName: credit?.account_name ?? null,
+        amount: l.amount.toNumber(),
+        note: l.note,
+      };
+    }),
   };
 }
 
@@ -515,7 +613,7 @@ export async function lockCostBills(tx: Prisma.TransactionClient, ids: number[])
 /** Adds a posted payment line to what the bill was paid (P132), under the caller's lock. */
 export async function recordCostBillPaid(tx: Prisma.TransactionClient, id: number, settled: number): Promise<void> {
   const v = await tx.prdCostBill.findUnique({ where: { id }, select: { bill_no: true, status: true, payable_account_id: true, total_amount: true, paid_amount: true } });
-  if (!v || v.status !== "Posted" || v.payable_account_id === null) throw new Error("Tagihan Biaya Produksi tidak dapat dibayar.");
+  if (!v || v.status !== "Posted" || v.payable_account_id === null) throw new Error("Tagihan Biaya tidak dapat dibayar.");
   const cents = (x: number) => Math.round(x * 100);
   const paid = (cents(v.paid_amount.toNumber()) + cents(settled)) / 100;
   if (!(settled > 0) || cents(paid) > cents(v.total_amount.toNumber())) throw new Error(`Pembayaran melebihi sisa ${v.bill_no}.`);

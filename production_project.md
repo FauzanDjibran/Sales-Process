@@ -604,7 +604,7 @@ No `-NP` series (no tax). Journals keep `JV/…`.
 | --- | --- | --- |
 | 1 ✅ reworked 08/10/2026 | **Masters and settings** — Workstation; Elemen Biaya Produksi as a master (M53); Account Kategori Item as a mapping list with WIP (M54); Account Mapping *Produksi*; no Control Account checks (M55); no Satuan Pembebanan Biaya (M57); starter accounts | Screens work in a browser; seed idempotent |
 | 2 ✅ 08/10/2026 | **Cost ledger, Tagihan Biaya Produksi, Pembayaran Biaya Produksi, Buku and Saldo Biaya Produksi** (§21d) | A posted bill shows in the journal and in Buku / Saldo Biaya Produksi with the same figures; a payment clears it without touching the cost ledger; build, tests and reconcile pass locally and on Neon |
-| 2b | **Cost-center rework** (§21e, R1–R6) | The Tagihan posts to the GL with a Pusat Biaya; paid and unpaid Jenis Biaya; no cost ledger; build, tests and reconcile pass |
+| 2b ✅ 08/10/2026 | **Cost-center rework** (§21e, R1–R6; P154) | The Tagihan posts to the GL with a Pusat Biaya; paid and unpaid Jenis Biaya; no cost ledger; build, tests and reconcile pass |
 | 3 | **Production ledger** (E2, E3) with tests | Book tests green |
 | 4 | **Pengeluaran ke Produksi** (§9.3) | Stock out, bucket in, Dr WIP / Cr Persediaan; reconcile 2 |
 | 5 | **Perintah Produksi + Eksekusi Produksi** (§9.1, §9.2, E6) | Execution balanced; batch rule; genealogy |

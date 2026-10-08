@@ -50,7 +50,7 @@ export type ReportParams =
   | "stock-period"
   /** Optionally an item and a warehouse, and the one date the stock stands at (P120). */
   | "stock-asof"
-  /** A fiscal period — the month — and optionally one Elemen Biaya Produksi (P150 M66). */
+  /** A fiscal period — the month — and optionally one Cost Center (P154, M90). */
   | "production-cost-period";
 
 export type ReportDef = {
@@ -274,27 +274,16 @@ const FIXED_REPORTS = [
     params: "fiscal-period",
     subjectRequired: false,
   },
-  // Production cost (P150 M66): read for one month — a fiscal period — because
-  // the close spreads one period's cost; the cost ledger is the source (M60).
+  // Cost per Cost Center (P154, M90): read for one month — a fiscal period —
+  // because the close spreads one period's pool; journal lines are the source.
   {
-    key: "production_cost_ledger",
-    slug: "cost-ledger",
+    key: "cost_center",
+    slug: "cost-center",
     module: "production",
-    name: "Buku Biaya Produksi",
-    desc: "Mutasi biaya produksi dalam satu bulan per Elemen Biaya Produksi — masuk dan keluar berdampingan, dengan dokumen sumbernya.",
+    name: "Laporan Cost Center",
+    desc: "Biaya per Cost Center dan account dalam satu bulan — saldo awal, debit, kredit, saldo akhir — dengan baris journalnya.",
     icon: "book",
-    permission: "REPORT_PRODUCTION_COST_LEDGER_VIEW",
-    params: "production-cost-period",
-    subjectRequired: false,
-  },
-  {
-    key: "production_cost_balance",
-    slug: "cost-balance",
-    module: "production",
-    name: "Saldo Biaya Produksi",
-    desc: "Biaya produksi per Elemen Biaya Produksi dalam satu bulan: saldo awal, masuk, keluar dan saldo akhir.",
-    icon: "calc",
-    permission: "REPORT_PRODUCTION_COST_BALANCE_VIEW",
+    permission: "REPORT_COST_CENTER_VIEW",
     params: "production-cost-period",
     subjectRequired: false,
   },

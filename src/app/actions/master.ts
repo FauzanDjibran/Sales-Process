@@ -47,7 +47,7 @@ import { checkWarehouseCollections, writeWarehouseCollections } from "@/lib/erp/
 import type { Prisma } from "@/generated/prisma/client";
 import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-rules";
 import { categoriesUsingAccount, categoryAccountKindProblem } from "@/lib/erp/item-account";
-import { elementsUsingAccount } from "@/lib/erp/production-cost";
+import { costTypesUsingAccount } from "@/lib/erp/production-cost";
 
 /**
  * Every action here is permission-gated before it touches anything, and every
@@ -312,15 +312,20 @@ async function validate(
   if (entity.key === "acc_account") {
     Object.assign(errors, await validateAccount(values, currentId, errors, applies));
   }
-  // An element and a category row each name one posting account (P150 M53,
-  // M54): a postable leaf, active when chosen. The Control Account mark is
-  // never read (M55) — it is the user's own guard.
-  if ((entity.key === "acc_production_cost_element" || entity.key === "acc_item_category_account") && !errors.account_id) {
+  // A category row names one posting account (P150 M54): a postable leaf,
+  // active when chosen. The Control Account mark is never read (M55).
+  if (entity.key === "acc_item_category_account" && !errors.account_id) {
     const accountId = refValue(values, "account_id");
-    if (accountId && !(currentId && entity.key === "acc_production_cost_element")) {
+    if (accountId) {
       const problem = await postingAccountProblem(accountId);
       if (problem) errors.account_id = problem;
     }
+  }
+  // A Jenis Biaya's two accounts (P154, M84), checked when it is made — both
+  // are locked after. Its cost is booked with a Cost Center, so the expense
+  // account requires one and the credit account takes none (M88).
+  if (entity.key === "acc_cost_type" && !currentId) {
+    Object.assign(errors, await validateCostType(values, errors));
   }
   if (entity.key === "acc_item_category_account" && !currentId && !errors.account_kind) {
     const categoryId = refValue(values, "category_id");
@@ -433,6 +438,30 @@ async function validateCashBank(
   return errors;
 }
 
+async function validateCostType(values: FormValues, existing: Record<string, string>): Promise<Record<string, string>> {
+  const errors: Record<string, string> = {};
+  const expenseId = refValue(values, "expense_account_id");
+  const contraId = refValue(values, "contra_account_id");
+  if (expenseId && contraId && expenseId === contraId) {
+    errors.contra_account_id = "Account Lawan harus berbeda dari Account Biaya.";
+    return errors;
+  }
+  const rules = new Map(
+    (await prisma.accAccount.findMany({ where: { id: { in: [expenseId, contraId].filter((x): x is number => Boolean(x)) } }, select: { id: true, require_cost_center: true } })).map((a) => [a.id, a.require_cost_center])
+  );
+  if (expenseId && !existing.expense_account_id) {
+    const problem = await postingAccountProblem(expenseId);
+    if (problem) errors.expense_account_id = problem;
+    else if (!rules.get(expenseId)) errors.expense_account_id = "Account Biaya harus ditandai Require Cost Center pada Chart of Accounts.";
+  }
+  if (contraId && !existing.contra_account_id) {
+    const problem = await postingAccountProblem(contraId);
+    if (problem) errors.contra_account_id = problem;
+    else if (rules.get(contraId)) errors.contra_account_id = "Account Lawan tidak boleh account yang wajib Cost Center.";
+  }
+  return errors;
+}
+
 async function validateAccount(
   values: FormValues,
   currentId: number | null,
@@ -509,6 +538,25 @@ async function validateAccount(
             "tidak dapat diberi sub-account. Sub-account mencabut hak posting " +
             "account induknya.";
         }
+      }
+    }
+  }
+
+  // The Cost Center rule (P154, M88) stays as the account's lines were
+  // written: it changes only while nothing has posted to the account, and a
+  // Jenis Biaya keeps the side it was chosen for.
+  if (currentId) {
+    const before = await prisma.accAccount.findUnique({ where: { id: currentId }, select: { require_cost_center: true } });
+    const wanted = boolValue(values, "require_cost_center");
+    if (before && before.require_cost_center !== wanted) {
+      const used = await accountUsage(currentId);
+      const types = await costTypesUsingAccount(currentId);
+      if (used.some((u) => u.includes("journal"))) {
+        errors.require_cost_center = "Account ini sudah memiliki journal; aturan Cost Center-nya tidak dapat diubah.";
+      } else if (!wanted && types.asExpense.length) {
+        errors.require_cost_center = `Account ini dipakai sebagai Account Biaya oleh Jenis Biaya (${types.asExpense.join(", ")}).`;
+      } else if (wanted && types.asContra.length) {
+        errors.require_cost_center = `Account ini dipakai sebagai Account Lawan oleh Jenis Biaya (${types.asContra.join(", ")}).`;
       }
     }
   }
@@ -757,9 +805,10 @@ export async function toggleStatus(
   // Deactivating an account that a Cash & Bank resource or a Jenis PPh posts
   // to would leave it pointing at an account it could no longer have chosen.
   if (entity.key === "acc_account" && !nextActive) {
-    const elements = await elementsUsingAccount(id);
-    if (elements.length) {
-      return { ok: false, message: `Account ini dipakai Elemen Biaya Produksi (${elements.join(", ")}) dan tidak dapat dinonaktifkan.` };
+    const types = await costTypesUsingAccount(id);
+    const named = [...types.asExpense, ...types.asContra];
+    if (named.length) {
+      return { ok: false, message: `Account ini dipakai Jenis Biaya (${named.join(", ")}) dan tidak dapat dinonaktifkan.` };
     }
     const taxes = await prisma.refWithholdingTax.findMany({
       where: { account_id: id },

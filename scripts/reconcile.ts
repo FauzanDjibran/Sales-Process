@@ -712,7 +712,7 @@ export const CHECKS: Check[] = [
   // ------------------------------------------------------------ production
   {
     area: "production",
-    name: "every posted Tagihan Biaya Produksi has a posted journal naming it, at its total; no other has one (P150 M68)",
+    name: "every posted Tagihan Biaya has a posted journal naming it, at its total; no other has one (P150 M68)",
     sql: `SELECT b.bill_no, b.status::text, b.total_amount, SUM(l.debit_amount) AS journal_debit
           FROM prd_cost_bill b
           LEFT JOIN acc_journal j ON j.id = b.journal_id
@@ -723,49 +723,50 @@ export const CHECKS: Check[] = [
               OR (b.status <> 'Posted' AND b.journal_id IS NOT NULL)`,
   },
   {
+    // The Cost Center rule (P154, M88), as postJournal enforces it: a line on
+    // an account with Require Cost Center names one, no other line does. The
+    // year-end closing journal is exempt.
     area: "production",
-    name: "each posted Tagihan Biaya Produksi's lines equal its cost-ledger rows; no other bill has rows (P150 M60)",
-    sql: `SELECT b.bill_no, b.status::text, b.total_amount, COALESCE(c.amount, 0) AS cost_rows, COALESCE(c.n, 0) AS rows_count
-          FROM prd_cost_bill b
-          LEFT JOIN (SELECT source_doc_id, SUM(amount) AS amount, COUNT(*) AS n FROM prd_cost_ledger
-                     WHERE source_doc_type_id = ${docType("prd_cost_bill")} GROUP BY source_doc_id) c ON c.source_doc_id = b.id
-          WHERE (b.status = 'Posted' AND (COALESCE(c.amount, 0) <> b.total_amount
-                                         OR COALESCE(c.n, 0) <> (SELECT COUNT(*) FROM prd_cost_bill_line x WHERE x.bill_id = b.id)))
-             OR (b.status <> 'Posted' AND c.n IS NOT NULL)`,
+    name: "every journal line on a Require Cost Center account names a Cost Center, and no other line does (P154 M88)",
+    sql: `SELECT j.journal_no, l.sequence_no, a.account_label, a.require_cost_center, l.cost_center_id
+          FROM acc_journal_line l
+          JOIN acc_journal j ON j.id = l.journal_id
+          JOIN acc_account a ON a.id = l.account_id
+          LEFT JOIN sys_doc_type d ON d.id = j.source_doc_type_id
+          WHERE COALESCE(d.doc_table, '') <> 'acc_fiscal_year'
+            AND ((a.require_cost_center AND l.cost_center_id IS NULL) OR (NOT a.require_cost_center AND l.cost_center_id IS NOT NULL))`,
   },
   {
     area: "production",
-    name: "each cost-ledger row names its element's own account (P150 M53)",
-    sql: `SELECT c.ledger_no, c.line_no, c.account_id, e.account_id AS element_account
-          FROM prd_cost_ledger c JOIN acc_production_cost_element e ON e.id = c.element_id
-          WHERE c.account_id <> e.account_id`,
+    name: "each posted Tagihan Biaya's debit lines equal its lines, per expense account and Cost Center (P154)",
+    sql: `WITH bl AS (SELECT b.id AS bill_id, t.expense_account_id AS account_id, x.cost_center_id, SUM(x.amount) AS amount
+                     FROM prd_cost_bill b JOIN prd_cost_bill_line x ON x.bill_id = b.id JOIN acc_cost_type t ON t.id = x.cost_type_id
+                     WHERE b.status = 'Posted' GROUP BY b.id, t.expense_account_id, x.cost_center_id),
+               jl AS (SELECT b.id AS bill_id, l.account_id, l.cost_center_id, SUM(l.debit_amount) AS amount
+                      FROM prd_cost_bill b JOIN acc_journal_line l ON l.journal_id = b.journal_id
+                      WHERE b.status = 'Posted' AND l.debit_amount > 0 GROUP BY b.id, l.account_id, l.cost_center_id)
+          SELECT COALESCE(bl.bill_id, jl.bill_id) AS bill_id, COALESCE(bl.account_id, jl.account_id) AS account_id,
+                 COALESCE(bl.cost_center_id, jl.cost_center_id) AS cost_center_id, bl.amount AS bill, jl.amount AS journal
+          FROM bl FULL JOIN jl ON jl.bill_id = bl.bill_id AND jl.account_id = bl.account_id AND jl.cost_center_id IS NOT DISTINCT FROM bl.cost_center_id
+          WHERE bl.amount IS DISTINCT FROM jl.amount`,
   },
   {
     area: "production",
-    name: "a Tagihan Biaya Produksi's paid amount equals its posted payment lines; only a bill posted on its payable records one (P132, M68, P151)",
+    name: "a posted paid Tagihan Biaya's lines all carry its payable account; a not-paid one has none (P154 M89)",
+    sql: `SELECT b.bill_no, b.payable_account_id, x.line_no, x.credit_account_id
+          FROM prd_cost_bill b JOIN prd_cost_bill_line x ON x.bill_id = b.id
+          WHERE b.status = 'Posted' AND (x.credit_account_id IS NULL
+             OR (b.payable_account_id IS NOT NULL AND x.credit_account_id <> b.payable_account_id))`,
+  },
+  {
+    area: "production",
+    name: "a Tagihan Biaya's paid amount equals its posted payment lines; only a paid bill records one (P132, M68, P154)",
     sql: `SELECT b.bill_no, b.payable_account_id, b.total_amount, b.paid_amount, COALESCE(p.paid, 0) AS lines
           FROM prd_cost_bill b
           LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid FROM fin_cash_bank_tx_line l
                      JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
                      WHERE l.doc_type_id = ${docType("prd_cost_bill")} GROUP BY l.doc_id) p ON p.doc_id = b.id
           WHERE b.paid_amount <> COALESCE(p.paid, 0) OR b.paid_amount > b.total_amount OR (b.payable_account_id IS NULL AND b.paid_amount <> 0)`,
-  },
-  {
-    // A warning, never acted on (M67): the cost ledger is the source of truth;
-    // a row here means something posted to an element account outside a
-    // Tagihan Biaya Produksi (a manual journal), or the reverse.
-    area: "production",
-    name: "per element account, the cost ledger equals the GL, closing journals aside (warning, P150 M67)",
-    sql: `WITH acc AS (SELECT DISTINCT account_id FROM acc_production_cost_element),
-               cl AS (SELECT account_id, SUM(amount) AS amount FROM prd_cost_ledger GROUP BY account_id),
-               gl AS (SELECT l.account_id, SUM(l.debit_amount - l.kredit_amount) AS amount
-                      FROM acc_journal_line l JOIN acc_journal j ON j.id = l.journal_id AND j.status = 'Posted'
-                      LEFT JOIN sys_doc_type d ON d.id = j.source_doc_type_id
-                      WHERE COALESCE(d.doc_table, '') <> 'acc_fiscal_year' AND l.account_id IN (SELECT account_id FROM acc)
-                      GROUP BY l.account_id)
-          SELECT a.account_id, COALESCE(cl.amount, 0) AS cost_ledger, COALESCE(gl.amount, 0) AS gl
-          FROM acc a LEFT JOIN cl ON cl.account_id = a.account_id LEFT JOIN gl ON gl.account_id = a.account_id
-          WHERE COALESCE(cl.amount, 0) <> COALESCE(gl.amount, 0)`,
   },
 ];
 

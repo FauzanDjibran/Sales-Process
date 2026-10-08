@@ -143,7 +143,7 @@ export const CASH_BANK_PURPOSES = [
     docNoun: "Realisasi",
     withholding: false,
   },
-  // A posted Tagihan Biaya Produksi on Hutang Biaya Produksi (P150 M68): the
+  // A posted Tagihan Biaya on Hutang Biaya Produksi (P150 M68): the
   // cost was recorded by the bill, so paying it only clears the payable and
   // writes no cost row. No tax: the bill carries none.
   {
@@ -152,7 +152,7 @@ export const CASH_BANK_PURPOSES = [
     name: "Pembayaran Biaya Produksi",
     short: "Biaya Produksi",
     desc:
-      "Pembayaran Tagihan Biaya Produksi yang terutang ke supplier — listrik, jasa, upah borongan. " +
+      "Pembayaran Tagihan Biaya yang terutang ke supplier — listrik, jasa, upah borongan. " +
       "Biayanya sudah dicatat oleh tagihan; pembayaran ini hanya melunasi Hutang Biaya Produksi.",
     partnerCategory: "Supplier",
     settles: ["prd_cost_bill"],
