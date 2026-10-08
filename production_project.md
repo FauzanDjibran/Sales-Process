@@ -9,6 +9,12 @@
 > (§2) and, as added context checked against the plan,
 > `D:\Claude Code\production_3.0_makloon_concept.md` (§3).
 
+> **Revised 08/10/2026 by the cost-center review (§21e, M72–M81).** The
+> separate cost ledger and its two reports are dropped; production cost is the
+> GL's, tagged by **Pusat Biaya**; Elemen Biaya Produksi becomes **Jenis
+> Biaya**; Pencatatan Biaya Produksi is dropped. Where an earlier section
+> disagrees with §21e, §21e wins.
+
 **Contents.** 1 Goals · 2 The costing doc · 3 The makloon concept · 4
 Vocabulary · 5 The flow, with a worked example · 6 Engines · 7 Data model · 8
 Masters and settings · 9 Documents · 10 The month-end close · 11 Reports · 12
@@ -363,7 +369,11 @@ and the costing hold; the confirmation shows the journal by dry run (P103);
   WIP** (none when the value is 0). Outside the month-end cost (M21).
 - **Permissions:** `PRODUCTION_SCRAP_VIEW / _CREATE / _EDIT / _POST / _CANCEL`.
 
-### 9.6 Pencatatan Biaya Produksi — `prd_cost_entry`, `BPR/…` (Produksi › Biaya)
+### 9.6 Pencatatan Biaya Produksi — *dropped* (M75)
+
+> Every production cost, paid or not, is a Tagihan Biaya Produksi whose Jenis
+> Biaya says whether it is paid (§21e). The text below is kept for history.
+
 
 - **Header card:** Tanggal, **Account Lawan** (postable, active, not a Control
   Account, not an element), Partner (when that account requires one),
@@ -594,6 +604,7 @@ No `-NP` series (no tax). Journals keep `JV/…`.
 | --- | --- | --- |
 | 1 ✅ reworked 08/10/2026 | **Masters and settings** — Workstation; Elemen Biaya Produksi as a master (M53); Account Kategori Item as a mapping list with WIP (M54); Account Mapping *Produksi*; no Control Account checks (M55); no Satuan Pembebanan Biaya (M57); starter accounts | Screens work in a browser; seed idempotent |
 | 2 ✅ 08/10/2026 | **Cost ledger, Tagihan Biaya Produksi, Pembayaran Biaya Produksi, Buku and Saldo Biaya Produksi** (§21d) | A posted bill shows in the journal and in Buku / Saldo Biaya Produksi with the same figures; a payment clears it without touching the cost ledger; build, tests and reconcile pass locally and on Neon |
+| 2b | **Cost-center rework** (§21e, R1–R6) | The Tagihan posts to the GL with a Pusat Biaya; paid and unpaid Jenis Biaya; no cost ledger; build, tests and reconcile pass |
 | 3 | **Production ledger** (E2, E3) with tests | Book tests green |
 | 4 | **Pengeluaran ke Produksi** (§9.3) | Stock out, bucket in, Dr WIP / Cr Persediaan; reconcile 2 |
 | 5 | **Perintah Produksi + Eksekusi Produksi** (§9.1, §9.2, E6) | Execution balanced; batch rule; genealogy |
@@ -828,6 +839,55 @@ Produksi menu (it is the payment menu); per M64 it could instead start as a
 
 ---
 
+## 21e. Cost-center review (08/10/2026) — decisions and rework plan
+
+**Source:** the user's `cost-center-and-tagihan-biaya.md`, compared with
+Phases 1–2 and this plan against mainstream ERPs (SAP S/4HANA's cost center on
+the universal journal, Odoo's analytic lines, NetSuite's department / class,
+Business Central's dimensions). Its core: a journal line says **what** (the
+account), **where** (the cost center) and **who** (the partner); recognising a
+cost and paying it are separate; the credit side comes from a master.
+
+### Decisions
+
+| # | Decision |
+| --- | --- |
+| M72 | **Pusat Biaya (cost center) is adopted with its calculation**: a master (code, label, name, type, status), a tag on each cost line beside the account and the partner, and a month-end pool **per cost center**. The first implementation has **one cost center, *PRODUKSI*** (type *Production*), so the pool is global as G8 intended. More centers, and Service / Office types, are added later without touching posted data. |
+| M73 | **The cost center lives on the journal line** (`acc_journal_line.cost_center_id`) — the mainstream way. **The separate cost ledger (`prd_cost_ledger`), Buku Biaya Produksi and Saldo Biaya Produksi are dropped.** The month-end pool is the GL: the balance of each account per cost center. Any source that posts a journal — a Tagihan today, a manual journal, payroll or depreciation later — can carry a cost center. Supersedes M3, M23, M60, M66, M67, M70, M71 (P152, P153). |
+| M74 | **An account says whether it requires a cost center** (`acc_account.require_cost_center`, *Wajib Pusat Biaya* on the account form, like *Require Partner*). `postJournal` enforces it for every source: a line on such an account names an active cost center, and a line on any other account names none. The year-end closing journal is exempt. Until the manual journal can pick a cost center, it refuses such an account. |
+| M75 | **Jenis Biaya replaces Elemen Biaya Produksi** (M53): it gives a cost a name and points to the account it is booked to, so a Tagihan line picks a Jenis Biaya and **never an account**. **A Jenis Biaya says whether it is paid**: a *paid* one (Listrik PLN, Upah Borongan) credits Account Mapping's *Hutang Biaya Produksi* (P151); one *not paid* (Penyusutan Mesin) credits its own **Account Lawan** and is never paid. **Pencatatan Biaya Produksi (§9.6) is dropped**: every production cost is a Tagihan. |
+| M76 | **A Tagihan holds lines of one kind**: all paid or all not paid. A paid Tagihan names its Supplier and is paid by *Pembayaran Biaya Produksi*; one not paid has an optional Partner and is never offered for payment. **Neither creates an AP open item**: the Tagihan keeps what it was paid (P132) and the payment references it. |
+| M77 | **Each Tagihan line carries its Pusat Biaya** (today always *PRODUKSI*, pre-filled); one line, one cost center — a shared cost is split into lines before entry. |
+| M78 | **The close (Phase 8) reads the GL per cost center**: the pool of a period = the balance, from the fiscal year's start to the period's end, of every account on lines tagged with a *Production* cost center, closing journals aside. Because the close credits those accounts, **what earlier closes absorbed is already gone and what a period carried simply stays** — no *Carried* rows are needed. With one cost center the rate is the pool ÷ the received finished-goods quantity, i.e. the global spread of §10. **WIP stays material only and month-end cost goes only to finished goods received and what was sold** (G5, M46 unchanged). The close's journal credits each account per cost center. Amends §10.2–§10.3. |
+| M79 | **Correction is a new document, never a reversal; no approval step now** (`Claude-ERP.md` §2 rule 7, C30). **Accrual of an unbilled cost is deferred.** |
+| M80 | **Two issues to production, later:** *Pengeluaran ke Produksi* for **material** (raw and packaging — tracked, enters the production ledger, §9.3) and a separate **issue of consumables** (oil, cleaning agents) that is **expensed at once**: Dr the Jenis Biaya's account with its Pusat Biaya / Cr Persediaan, untracked per use. Added to the later phases. |
+| M81 | **What stays:** actual costing, no standard cost (G1); recognition separate from payment (M68); the credit side from a master (P151); Workstations as they are — a Workstation will link to a cost center when there is more than one. |
+
+### Rework plan (step 2b, before Phase 3)
+
+| # | Step | What changes |
+| --- | --- | --- |
+| R1 | **Schema and migration** | New `acc_cost_center` (+ enum `CostCenterType { Production }`); `acc_account.require_cost_center`; `acc_journal_line.cost_center_id` (FK, nullable, indexed with the account); `acc_production_cost_element` renamed in place to **`acc_cost_type`** (`cost_type_code / _label / _name`, `expense_account_id`, new `is_payable`, `contra_account_id`); `prd_cost_bill_line.element_id` → `cost_type_id` + new `cost_center_id`; **`prd_cost_ledger` and its enum dropped**. Data: *PRODUKSI* created; the accounts the cost types use get `require_cost_center`; posted bills' debit journal lines and every bill line get *PRODUKSI*; existing cost types are paid. Permissions `PRODUCTION_COST_ELEMENT_*` renamed `COST_TYPE_*` (grants kept); `COST_CENTER_*` added; the two report permissions and their grants deleted. DBML in step. |
+| R2 | **Journal engine** | `JournalLineInput.costCenterId`; `postJournal` enforces M74 in one query per journal; the dry-run preview and the journal view / General Ledger show the cost center (as Partner, P147); the manual journal refuses an account that requires one. |
+| R3 | **Masters** | *Pusat Biaya* registry entity (Master › Referensi, `COST_CENTER_*`); *Jenis Biaya* entity replacing the element (Nama, Account Biaya, *Dibayar lewat Pengeluaran*, Account Lawan shown only when not paid); *Wajib Pusat Biaya* on the account form; the seed creates *PRODUKSI* as a starter row (P62 style); the starter chart marks its production cost accounts and names *Akumulasi Penyusutan Mesin* as the lawan of a not-paid *PENYUSUTAN-MESIN*. |
+| R4 | **Tagihan Biaya Produksi** | Lines: Jenis Biaya, Pusat Biaya, Jumlah, Keterangan; one kind per Tagihan (M76); Supplier required only when paid; posting Dr each Jenis Biaya's account **with its cost center** / Cr Hutang Biaya Produksi (paid, copied as today) or each line's Account Lawan (not paid); the Pembayaran offers only paid bills. |
+| R5 | **Remove the cost ledger** | `production-cost.ts` reduced to the Jenis Biaya reads; the two reports, their nav, route, permissions and components removed; reconcile: cost-ledger checks replaced by *every line on a cost-center account names one, and no other line does* and *a posted Tagihan's debit lines = its lines, account and cost center*. |
+| R6 | **Tests, docs, showcase** | `tests/production-cost.test.ts` reworked (paid and not-paid bills, the cost-center rule, manual-journal refusal); `Claude-ERP.md` P154; the existing showcase kept working (one not-paid depreciation bill added), nothing more. |
+
+**Open for the user** (answered before R1):
+
+- Q56 — A paid Jenis Biaya always credits the one global *Hutang Biaya
+  Produksi* (P151), while a not-paid one names its own lawan. *Rec:* yes.
+- Q57 — With Buku / Saldo Biaya Produksi gone, production cost is read in the
+  General Ledger. *Rec:* show the Pusat Biaya on each GL line (as Partner) now;
+  a cost-center report (account × cost center) comes with the close, which
+  shows the pool anyway.
+- Q58 — The document keeps its name *Tagihan Biaya Produksi* while only
+  production cost centers exist. *Rec:* yes; renamed *Tagihan Biaya* when an
+  Office cost center arrives.
+
+---
+
 ## 22. Known limits (go to `Claude-ERP.md` §17 when built)
 
 - FG and COGS carry only material cost between closes; margin looks high until
@@ -839,7 +899,8 @@ Produksi menu (it is the payment menu); per M64 it could instead start as a
 - The Kartu Stok shows no value; the revaluation row appears only on Kartu
   Nilai Persediaan.
 - A close is permanent; a wrong cost entry is corrected in the next period.
-- Payroll and depreciation are entered by hand (Pencatatan Biaya Produksi).
+- Payroll and depreciation are entered by hand as Tagihan with a not-paid
+  Jenis Biaya (M75).
 
 ---
 
