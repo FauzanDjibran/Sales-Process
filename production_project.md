@@ -681,6 +681,10 @@ of a close; mid-month pro-forma margin; multi-currency.
 | M61 | Q51, Q52 | **Elemen Biaya Produksi sits in Master › Referensi** beside Jenis PPh with its own permissions `PRODUCTION_COST_ELEMENT_*`; **several elements may name one account.** |
 | M62 | Phase 1 review 3 | **WIP has no fallback account.** An item whose Kategori Item names no WIP cannot enter production: the document shows it as a warning before posting and Posting is refused, rather than send it to a generic account. Account Mapping's WIP is removed. |
 | M63 | Phase 1 review 3 | **The QC menu is called *QC Inspection*** (Q53) and is **on hold** until the user asks for it. |
+| M64 | Phase 2 brief | **Everything new for production sits in the Produksi module for now** (menus, documents, reports), whatever its later home. |
+| M65 | Phase 2 brief | **No Koreksi in the main cost flow** for now. |
+| M66 | Phase 2 brief | **Two cost reports: Buku Biaya Produksi** (the rows) **and Saldo Biaya Produksi** (totals per element), each filtered by a **month = a fiscal period**. |
+| M67 | Phase 2 brief | **A difference between the cost ledger and the GL is a warning only**; the cost ledger wins (M60). |
 | M51 | §21 B | **The *Dapat Diproduksi* flag is dropped** (amends M8): outputs take any Barang with Kelola Stok, cost receivers are decided by Kategori *Barang Jadi* (M46). More item and production categorisation will come later. |
 
 ---
@@ -727,6 +731,64 @@ of a close; mid-month pro-forma margin; multi-currency.
 ---
 
 - **Q53 — Stock status catalogue and moving between statuses** (from M58; menu named *QC Inspection*, on hold — M63). *Proposal:* statuses **Karantina** (received, awaiting QC — not issuable), **Tersedia** (released) and **Reject**; *Diblokir* stays for a hold. Moving quantity between statuses, or into the reject warehouse, is a stock transfer document (C34) — the QC result. Not part of the production phases; to be planned when you ask.
+
+---
+
+## 21c. Phase 2 — how production cost is captured (Q54, open)
+
+**The user's question:** a dedicated *Pencatatan Biaya Produksi*, a new
+*Pengeluaran* purpose, or a request document settled by *Pengeluaran*?
+
+**What mainstream ERPs do.** None has a special "production cost" document.
+The cost is captured by the **ordinary source documents** — a vendor bill
+without a PO, a payroll run, a depreciation run, a cash expense — and the
+line carries a **cost dimension** (SAP: the GL account is a *cost element*
+and the line names a *cost center*; Dynamics 365 Business Central: a *cost
+type* mapped to G/L accounts plus dimensions; Odoo and NetSuite: an analytic
+account / department on the bill line). The cost ledger is fed from those
+postings. Payment is a separate, later document that only settles the
+liability (SAP FB60 then F-53; Odoo vendor bill then payment; Accurate
+*Pembelian/Biaya* then *Pembayaran*).
+
+**Why it matters here: the cost must land in the month it is incurred**
+(PSAK accrual basis), because the close spreads one fiscal period's cost.
+- Electricity for October is billed and paid in November.
+- Depreciation and accrued wages never pass through cash at all.
+- A cost recorded only when paid (a *Pengeluaran* purpose alone) puts it in
+  the wrong month, and has no place for depreciation.
+
+**Options.**
+- **(a) A new Pengeluaran purpose, *Biaya Produksi*** — Dr element / Cr Kas
+  at payment. Simplest; **cash basis**: wrong month whenever payment lags,
+  and nothing for depreciation or accruals.
+- **(b) A request document (no posting) settled by Pengeluaran** — the
+  approval step is useful, but the cost is still booked at payment, so it is
+  still cash basis.
+- **(c) An expense bill that recognises the cost when incurred, settled
+  later by Pengeluaran** — the mainstream two-step. The document (*Tagihan
+  Biaya Produksi*) is dated when the cost belongs (the bill / usage month),
+  posts **Dr element / Cr its lawan** and writes the cost ledger:
+  - lawan **Hutang Biaya Produksi** (Account Mapping) → the bill stays open
+    with a paid amount (P132) until a new **Pengeluaran purpose *Pembayaran
+    Biaya Produksi*** pays it (Dr Hutang Biaya Produksi / Cr Kas & Bank — no
+    cost ledger row, the cost was already recorded);
+  - any other lawan (**Akumulasi Penyusutan**, **Hutang Gaji & Upah**, …) →
+    nothing to pay through this flow; depreciation and payroll accruals fit.
+  An optional Partner (PLN, a contractor) on the bill.
+- **(d) (c) plus a request/approval step in front** — later, with the
+  approval work deferred in C30.
+
+**Recommendation: (c).** It is what mainstream ERPs do, it puts cost in the
+right month, covers non-cash costs, and answers the user's "request settled
+on Pengeluaran" idea with a document that records the cost instead of only
+asking for money. The Pengeluaran purpose is the one piece outside the
+Produksi menu (it is the payment menu); per M64 it could instead start as a
+*Pembayaran* button on the bill inside Produksi — Q55.
+
+- **Q55 — Where the payment lives.** *Rec:* a new purpose in the existing
+  Pengeluaran menu, because a bank statement line may pay a supplier invoice
+  and a production bill together, and one payment menu keeps the Cash Bank
+  Book in one place (P66, P83).
 
 ---
 
