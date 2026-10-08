@@ -322,6 +322,12 @@ export async function cleanupFixtures(): Promise<void> {
     await prisma.mCashBank.deleteMany({ where: { id: { in: ids } } });
   }
 
+  // An Elemen Biaya Produksi points at its account (P150), so a fixture
+  // element left behind would block the account it names from going.
+  await prisma.accProductionCostElement.deleteMany({
+    where: { account: { account_code: { startsWith: FIXTURE_PREFIX } } },
+  });
+
   const accounts = await prisma.accAccount.findMany({
     // Keyed on the system code, not the label: an account's label is now a
     // lineage code with no room for a fixture marker in it.

@@ -92,6 +92,22 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "PARTNER_CATEGORY_ACTIVATE",
     deactivate: "PARTNER_CATEGORY_DEACTIVATE",
   },
+  ref_workstation: {
+    view: "WORKSTATION_VIEW",
+    create: "WORKSTATION_CREATE",
+    edit: "WORKSTATION_EDIT",
+    activate: "WORKSTATION_ACTIVATE",
+    deactivate: "WORKSTATION_DEACTIVATE",
+  },
+  // A setting of the books, not a master: it sits beside Account Mapping and
+  // shares its permissions, as the Kategori Item accounts do (P122).
+  acc_production_cost_element: {
+    view: "ACCOUNT_MAPPING_VIEW",
+    create: "ACCOUNT_MAPPING_EDIT",
+    edit: "ACCOUNT_MAPPING_EDIT",
+    activate: "ACCOUNT_MAPPING_EDIT",
+    deactivate: "ACCOUNT_MAPPING_EDIT",
+  },
   acc_account: {
     view: "ACCOUNT_VIEW",
     create: "ACCOUNT_CREATE",

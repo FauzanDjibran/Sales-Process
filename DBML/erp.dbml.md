@@ -276,6 +276,27 @@ table acc_item_category_account {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
+// Elemen Biaya Produksi (P150, M9, M39, M40): an expense account that is a Control Account and
+// carries only production cost; gathered in the cost ledger, spread at the period close; one per account
+table acc_production_cost_element {
+  id                          int [pk, increment, not null]
+
+  element_code                varchar [not null, unique]
+
+  account_id                  int [not null, unique, ref : - acc_account.id] // fixed once chosen
+  element_group               enum(DirectLabor, IndirectLabor, Utility, Depreciation, Maintenance, OtherOverhead) [not null]
+
+  note                        varchar
+
+  status                      enum(Active, Inactive) [not null, default: Active]
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
 // Indonesia's provinsi → kota/kabupaten → kecamatan → kelurahan/desa, seeded from
 // prisma/data/region.tsv.gz; a Partner address stores only its kelurahan (P39, P40)
 table sys_region_province {
@@ -465,6 +486,26 @@ table ref_warehouse {
   note                        varchar
 
   status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// Workstation (P150): where production transforms input into output; user master data, no account or cost
+table ref_workstation {
+  id                          int [pk, increment, not null]
+
+  workstation_code            varchar [not null, unique]
+
+  workstation_label           varchar [not null]
+  workstation_name            varchar [not null]
+
+  note                        varchar
+
+  status                      enum(Active, Inactive) [not null, default: Active]
 
   created_by                  int [not null]
   updated_by                  int

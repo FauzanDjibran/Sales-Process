@@ -46,7 +46,8 @@ import {
 import { checkWarehouseCollections, writeWarehouseCollections } from "@/lib/erp/warehouse";
 import type { Prisma } from "@/generated/prisma/client";
 import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-rules";
-import { categoriesUsingAccount } from "@/lib/erp/item-account";
+import { categoriesUsingAccount, categoriesUsingAccountForStock } from "@/lib/erp/item-account";
+import { COST_ELEMENT_REFUSAL, costElementAccountProblem, isCostElementAccount } from "@/lib/erp/production-cost";
 
 /**
  * Every action here is permission-gated before it touches anything, and every
@@ -308,6 +309,20 @@ async function validate(
   }
   if (entity.key === "acc_account") {
     Object.assign(errors, await validateAccount(values, currentId, errors, applies));
+    // An element is posted only by documents that write the cost ledger (P150,
+    // M39); without the Control Account mark the manual journal could reach it.
+    if (currentId && applies.has("is_control_account") && !boolValue(values, "is_control_account") && !errors.is_control_account) {
+      if (await isCostElementAccount(currentId)) {
+        errors.is_control_account = "Account ini adalah Elemen Biaya Produksi dan harus tetap Control Account.";
+      }
+    }
+  }
+  if (entity.key === "acc_production_cost_element" && !currentId && !errors.account_id) {
+    const accountId = refValue(values, "account_id");
+    if (accountId) {
+      const problem = (await costElementAccountProblem(accountId)) ?? (await elementUseProblem(accountId));
+      if (problem) errors.account_id = problem;
+    }
   }
   // A term is a whole number of days; a tax rate is a share of the base.
   if (entity.key === "ref_payment_term" && !errors.due_days) {
@@ -327,6 +342,8 @@ async function validate(
       });
       if (!account || !account.is_postable || account._count.children > 0 || !account.is_active) {
         errors.account_id = "Pilih account aktif yang dapat diposting.";
+      } else if (await isCostElementAccount(accountId)) {
+        errors.account_id = COST_ELEMENT_REFUSAL;
       }
     }
   }
@@ -354,6 +371,24 @@ async function validate(
   }
 
   return errors;
+}
+
+/**
+ * Another posting rule already pointing at an account that is to become an
+ * Elemen Biaya Produksi (P150, M39): its document would post there without
+ * writing the cost ledger. A Kategori Item's Beban is allowed — the Receipt
+ * Note writes the cost ledger for it.
+ */
+async function elementUseProblem(accountId: number): Promise<string | null> {
+  const mappings = await systemDefaultsUsingAccount(accountId);
+  if (mappings.length) return `Account ini dipakai Account Mapping (${mappings.join(", ")}).`;
+  const taxes = await prisma.refWithholdingTax.findMany({ where: { account_id: accountId }, select: { wht_label: true } });
+  if (taxes.length) return `Account ini dipakai Jenis PPh (${taxes.map((t) => t.wht_label).join(", ")}).`;
+  const categories = await categoriesUsingAccountForStock(accountId);
+  if (categories.length) return `Account ini dipakai Kategori Item sebagai Persediaan atau HPP (${categories.join(", ")}).`;
+  const banks = await prisma.mCashBank.findMany({ where: { account_id: accountId }, select: { cash_bank_label: true } });
+  if (banks.length) return `Account ini dipakai Cash & Bank (${banks.map((b) => b.cash_bank_label).join(", ")}).`;
+  return null;
 }
 
 /**
@@ -724,6 +759,9 @@ export async function toggleStatus(
   // Deactivating an account that a Cash & Bank resource or a Jenis PPh posts
   // to would leave it pointing at an account it could no longer have chosen.
   if (entity.key === "acc_account" && !nextActive) {
+    if (await isCostElementAccount(id)) {
+      return { ok: false, message: "Account ini adalah Elemen Biaya Produksi dan tidak dapat dinonaktifkan. Nonaktifkan elemennya." };
+    }
     const taxes = await prisma.refWithholdingTax.findMany({
       where: { account_id: id },
       select: { wht_label: true },

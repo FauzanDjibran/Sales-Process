@@ -28,6 +28,8 @@ const DELEGATES = {
   ref_warehouse: (db: Client) => db.refWarehouse,
   ref_withholding_tax: (db: Client) => db.refWithholdingTax,
   ref_permit_type: (db: Client) => db.refPermitType,
+  ref_workstation: (db: Client) => db.refWorkstation,
+  acc_production_cost_element: (db: Client) => db.accProductionCostElement,
   sys_partner_category: (db: Client) => db.sysPartnerCategory,
   acc_account: (db: Client) => db.accAccount,
   acc_account_subcategory: (db: Client) => db.accAccountSubcategory,
@@ -264,6 +266,11 @@ function accountWhere(filter?: Field["refFilter"]) {
       // of the tree is what makes it true. An account holding both would be a
       // heading somebody could still post to.
       return { is_postable: true, children: { none: {} } };
+    case "productionCostAccount":
+      // The structural half only (P150, M39): a postable Biaya account marked
+      // Control Account. "Never posted" is the Server Action's check — a list
+      // that dropped an element once it was posted could no longer name it.
+      return { is_postable: true, children: { none: {} }, is_control_account: true, account_label: { startsWith: "5." } };
     case "parentAccount":
       // An account already in use cannot be given a sub-account, because that
       // would revoke the posting privilege whatever depends on it relies on.

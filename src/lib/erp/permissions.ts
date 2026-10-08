@@ -88,6 +88,11 @@ export const PERMISSIONS = [
   { code: "WAREHOUSE_EDIT", name: "Ubah Gudang", module: "master" },
   { code: "WAREHOUSE_ACTIVATE", name: "Aktifkan Gudang", module: "master" },
   { code: "WAREHOUSE_DEACTIVATE", name: "Nonaktifkan Gudang", module: "master" },
+  { code: "WORKSTATION_VIEW", name: "Lihat Workstation", module: "master" },
+  { code: "WORKSTATION_CREATE", name: "Tambah Workstation", module: "master" },
+  { code: "WORKSTATION_EDIT", name: "Ubah Workstation", module: "master" },
+  { code: "WORKSTATION_ACTIVATE", name: "Aktifkan Workstation", module: "master" },
+  { code: "WORKSTATION_DEACTIVATE", name: "Nonaktifkan Workstation", module: "master" },
 
   { code: "WITHHOLDING_TAX_VIEW", name: "Lihat Jenis PPh", module: "master" },
   { code: "WITHHOLDING_TAX_CREATE", name: "Tambah Jenis PPh", module: "master" },

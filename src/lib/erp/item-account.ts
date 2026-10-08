@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
+import { COST_ELEMENT_REFUSAL, costElementAccounts } from "./production-cost";
 import { checkAccountIsLeaf } from "./records";
 
 /**
@@ -81,6 +82,7 @@ export async function saveItemCategoryAccounts(input: ItemCategoryAccountInput[]
   const accounts = new Map(
     (await prisma.accAccount.findMany({ where: { id: { in: ids } }, select: { id: true, is_active: true, is_postable: true } })).map((a) => [a.id, a])
   );
+  const elements = await costElementAccounts(ids);
   const leafProblems = new Map<number, string | null>();
   for (const id of ids) leafProblems.set(id, await checkAccountIsLeaf(id));
 
@@ -106,6 +108,9 @@ export async function saveItemCategoryAccounts(input: ItemCategoryAccountInput[]
       else if (!a.is_postable) errors[key] = "Account tersebut bukan account postable.";
       else if (!a.is_active) errors[key] = "Account tersebut non-aktif.";
       else if (leafProblems.get(id)) errors[key] = leafProblems.get(id)!;
+      // Persediaan and HPP are posted by stock documents, which write no cost
+      // ledger; a Beban is posted by the Receipt Note, which does (P150, M39).
+      else if (kind !== "expense" && elements.has(id)) errors[key] = COST_ELEMENT_REFUSAL;
     }
     const data = { inventory_account_id: values.inventory, cogs_account_id: values.cogs, expense_account_id: values.expense };
     const before = c.accounts;
@@ -159,6 +164,15 @@ export async function accountsForItems(itemIds: number[], db: Db = prisma): Prom
 export async function categoriesUsingAccount(accountId: number): Promise<string[]> {
   const rows = await prisma.accItemCategoryAccount.findMany({
     where: { OR: [{ inventory_account_id: accountId }, { cogs_account_id: accountId }, { expense_account_id: accountId }] },
+    select: { category: { select: { category_label: true } } },
+  });
+  return rows.map((r) => r.category.category_label);
+}
+
+/** The categories naming this account as Persediaan or HPP — read before it becomes an Elemen Biaya Produksi. */
+export async function categoriesUsingAccountForStock(accountId: number): Promise<string[]> {
+  const rows = await prisma.accItemCategoryAccount.findMany({
+    where: { OR: [{ inventory_account_id: accountId }, { cogs_account_id: accountId }] },
     select: { category: { select: { category_label: true } } },
   });
   return rows.map((r) => r.category.category_label);

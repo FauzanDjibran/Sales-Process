@@ -45,12 +45,15 @@ export type SystemDefaultKey =
   | "input_vat_account"
   | "supplier_invoice_diff_account"
   | "supplier_invoice_tolerance"
+  | "wip_account"
+  | "production_scrap_account"
+  | "production_cost_uom"
   | "ppn_rate"
   | "ppn_dpp_other_numerator"
   | "ppn_dpp_other_denominator";
 
 /** Which master a `ref` setting points at — a registry entity key. */
-export type SystemDefaultRef = "acc_account";
+export type SystemDefaultRef = "acc_account" | "ref_uom";
 
 /** The page a setting is edited on. */
 export type SettingsPage = "default" | "account";
@@ -59,11 +62,13 @@ export type SystemDefaultGroupKey =
   | "application"
   | "tax"
   | "purchase_rules"
+  | "production_rules"
   | "receipt"
   | "invoice"
   | "permit"
   | "delivery"
   | "purchase"
+  | "production"
   | "fx"
   | "equity_pl";
 
@@ -106,6 +111,16 @@ export const SYSTEM_DEFAULT_GROUPS = [
       "Account Selisih Tagihan Supplier; di atasnya Invoice Pembelian tidak dapat " +
       "diposting.",
     icon: "box",
+  },
+  {
+    key: "production_rules",
+    page: "default",
+    name: "Produksi",
+    desc:
+      "Satuan tempat biaya produksi dibagikan saat Penutupan Biaya Produksi: " +
+      "setiap Barang Jadi yang diterima dari produksi dihitung dalam satuan ini, " +
+      "melalui satuan dasar atau Konversi Satuan barangnya.",
+    icon: "gear",
   },
   {
     key: "receipt",
@@ -159,6 +174,16 @@ export const SYSTEM_DEFAULT_GROUPS = [
       "Kategori Item; PPh yang dipotong perusahaan memakai account pada " +
       "Jenis PPh pembelian.",
     icon: "box",
+  },
+  {
+    key: "production",
+    page: "account",
+    name: "Produksi",
+    desc:
+      "Account yang dipakai saat barang masuk dan keluar produksi: nilai bahan " +
+      "yang sedang di produksi (WIP), dan beban atas barang yang dimusnahkan dari " +
+      "produksi. Biaya tenaga kerja dan overhead memakai Elemen Biaya Produksi.",
+    icon: "gear",
   },
   {
     key: "fx",
@@ -420,6 +445,38 @@ export const SYSTEM_DEFAULTS = [
     help: "selisih dalam toleransi antara tagihan supplier dan invoice",
   },
 
+  // ----------------------------------------------------------- production
+  //
+  // The production module (P150). WIP holds the material inside production at
+  // its own value; the production ledger reconciles with it.
+  {
+    key: "wip_account",
+    name: "Account Persediaan Barang Dalam Proses",
+    icon: "layers",
+    type: "ref",
+    ref: "acc_account",
+    group: "production",
+    help: "nilai bahan yang sedang berada di produksi (WIP)",
+  },
+  {
+    key: "production_scrap_account",
+    name: "Account Beban Pemusnahan Produksi",
+    icon: "trash",
+    type: "ref",
+    ref: "acc_account",
+    group: "production",
+    help: "nilai barang produksi yang dimusnahkan",
+  },
+  {
+    key: "production_cost_uom",
+    name: "Satuan Pembebanan Biaya",
+    icon: "scale",
+    type: "ref",
+    ref: "ref_uom",
+    group: "production_rules",
+    help: "mis. KG; setiap Barang Jadi yang diproduksi harus dapat dikonversi ke satuan ini",
+  },
+
   // ------------------------------------------------------------------ fx
   //
   // One account rather than a gain and a loss. A gain and a loss are the same
@@ -488,6 +545,9 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   input_vat_account: null,
   supplier_invoice_diff_account: null,
   supplier_invoice_tolerance: null,
+  wip_account: null,
+  production_scrap_account: null,
+  production_cost_uom: null,
   ppn_rate: null,
   ppn_dpp_other_numerator: null,
   ppn_dpp_other_denominator: null,

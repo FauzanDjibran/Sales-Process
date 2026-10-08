@@ -18,9 +18,11 @@ export function recordTitle(
   if (entity.titleRefs) {
     const parts = entity.titleRefs
       .map((field) => refs[field]?.find((o) => o.id === Number(row[field])))
-      .filter((o): o is RefOption => Boolean(o))
-      .map((o) => o.label);
-    if (parts.length) return parts.join(" × ");
+      .filter((o): o is RefOption => Boolean(o));
+    // One connected record names the mapping in full; several are joined by
+    // their short labels.
+    if (parts.length === 1) return `${parts[0].label} – ${parts[0].name}`;
+    if (parts.length) return parts.map((o) => o.label).join(" × ");
     return String(row[entity.codeField] ?? entity.name);
   }
 

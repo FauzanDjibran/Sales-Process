@@ -205,6 +205,16 @@ enum AdvanceAmountType {
 /// What an Item is. Decides which Kategori it may take, whether it can be
 /// stock-managed, and — by rule on the transaction — which PPh a withholding
 /// customer applies (Barang → PPh 22, Jasa → PPh 23). `Aset` joins later.
+/// The group a production cost element reports under (P150, M9).
+enum ProductionCostGroup {
+  DirectLabor
+  IndirectLabor
+  Utility
+  Depreciation
+  Maintenance
+  OtherOverhead
+}
+
 enum ItemType {
   Barang
   Jasa
@@ -678,6 +688,26 @@ model RefWarehouse {
   receipt_notes     LogReceiptNote[]       @relation("ReceiptNoteWarehouse")
 
   @@map("ref_warehouse")
+}
+
+/// Workstation — a place where production transforms input into output
+/// (P150). Created by the user, never hard-coded; it carries no account,
+/// capacity or cost, because production cost is global (production_project.md
+/// G8). Never deleted; deactivated instead.
+model RefWorkstation {
+  id                Int          @id @default(autoincrement())
+  workstation_code  String       @unique
+  workstation_label String
+  workstation_name  String
+  note              String?
+  status            ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@map("ref_workstation")
 }
 
 /// A place inside a warehouse that keeps stock by location (Gunakan Lokasi).
@@ -1243,10 +1273,34 @@ model AccAccount {
   category_inventory AccItemCategoryAccount[] @relation("CategoryInventory")
   category_cogs      AccItemCategoryAccount[] @relation("CategoryCogs")
   category_expense   AccItemCategoryAccount[] @relation("CategoryExpense")
+  production_cost_element AccProductionCostElement?
 
   @@unique([account_label])
   @@index([account_subcategory_id])
   @@map("acc_account")
+}
+
+/// Elemen Biaya Produksi (P150, M9, M39, M40): an expense account whose every
+/// line is production cost, gathered in the cost ledger and spread over the
+/// finished goods at the period close. The account must be a Control Account,
+/// so only documents that write the cost ledger post to it. One element per
+/// account; the account is fixed once chosen.
+model AccProductionCostElement {
+  id            Int                 @id @default(autoincrement())
+  element_code  String              @unique
+  account_id    Int                 @unique
+  element_group ProductionCostGroup
+  note          String?
+  status        ActiveStatus        @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  account AccAccount @relation(fields: [account_id], references: [id])
+
+  @@map("acc_production_cost_element")
 }
 
 model AccFiscalYear {

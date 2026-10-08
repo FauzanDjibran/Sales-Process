@@ -42,15 +42,19 @@ export const STARTER_ACCOUNTS: AccountSpec[] = [
   { key: "inventory", sub: "1.1.5", name: "Persediaan Barang Jadi", normal: "Debit", control: true },
   { key: "invTrade", sub: "1.1.5", name: "Persediaan Barang Dagangan", normal: "Debit", control: true },
   { key: "invSupplies", sub: "1.1.5", name: "Persediaan Barang Habis Pakai", normal: "Debit", control: true },
+  { key: "wip", sub: "1.1.5", name: "Persediaan Barang Dalam Proses", normal: "Debit", control: true, note: "Nilai bahan yang sedang berada di produksi (WIP), sebesar buku produksi" },
   { key: "purchaseAdvance", sub: "1.1.6", name: "Uang Muka Pembelian", normal: "Debit", partner: S, control: true, note: "Uang muka yang sudah dibayar ke supplier, per supplier" },
   { key: "pph23", sub: "1.1.7", name: "PPh 23 Dibayar Dimuka", normal: "Debit", note: "PPh 23 yang dipotong customer — dikreditkan dengan bukti potong" },
   { key: "pph22", sub: "1.1.7", name: "PPh 22 Dibayar Dimuka", normal: "Debit", note: "PPh 22 yang dipungut pembeli atas barang" },
   { key: "inputVat", sub: "1.1.7", name: "PPN Masukan", normal: "Debit", control: true, note: "PPN dari faktur pajak supplier" },
+  { key: "accDepMachine", sub: "1.3.9", name: "Akumulasi Penyusutan Mesin & Peralatan", normal: "Kredit", note: "Lawan Biaya Penyusutan Mesin & Peralatan" },
   // ---- liabilities
   { key: "ap", sub: "2.1.1", name: "Hutang Usaha", normal: "Kredit", partner: S, control: true, note: "Tagihan invoice pembelian yang belum dibayar, per supplier" },
   { key: "grir", sub: "2.1.1", name: "Barang Diterima Belum Ditagih", normal: "Kredit", partner: S, control: true, note: "Kliring antara Receipt Note dan Invoice Pembelian, per supplier" },
   { key: "vat", sub: "2.1.2", name: "PPN Keluaran", normal: "Kredit", control: true, note: "PPN terutang atas penyerahan dan uang muka" },
   { key: "pph23Payable", sub: "2.1.2", name: "Hutang PPh 23", normal: "Kredit", note: "PPh 23 yang dipotong dari supplier, disetor ke negara" },
+  { key: "wagesPayable", sub: "2.1.3", name: "Hutang Gaji & Upah", normal: "Kredit", note: "Gaji dan upah yang sudah dibebankan dan belum dibayar" },
+  { key: "productionCostPayable", sub: "2.1.3", name: "Hutang Biaya Produksi", normal: "Kredit", note: "Biaya produksi (listrik, utilitas, jasa) yang sudah dibebankan dan belum dibayar" },
   { key: "advance", sub: "2.1.4", name: "Uang Muka Penjualan", normal: "Kredit", partner: C, control: true, note: "Kewajiban menyerahkan barang atas uang muka yang sudah diterima" },
   { key: "permitAdvance", sub: "2.1.4", name: "Uang Muka Perizinan", normal: "Kredit", partner: C, control: true, note: "Kewajiban mengurus perizinan atas uang muka yang sudah diterima, per customer" },
   // ---- equity
@@ -68,6 +72,15 @@ export const STARTER_ACCOUNTS: AccountSpec[] = [
   { key: "cogsTrade", sub: "5.1.1", name: "HPP Barang Dagangan", normal: "Debit" },
   { key: "toll", sub: "5.1.1", name: "Biaya Jasa Maklon", normal: "Debit" },
   { key: "permitCost", sub: "5.1.1", name: "Biaya Perizinan", normal: "Debit", note: "Biaya pengurusan perizinan yang dibayar sebesar realisasinya, tanpa pajak" },
+  // Elemen Biaya Produksi (P150): Control Accounts, posted only by documents
+  // that write the cost ledger, emptied by the Penutupan Biaya Produksi.
+  { key: "costDirectLabor", sub: "5.1.1", name: "Biaya Tenaga Kerja Langsung", normal: "Debit", control: true, note: "Elemen Biaya Produksi" },
+  { key: "costIndirectLabor", sub: "5.1.1", name: "Biaya Tenaga Kerja Tidak Langsung", normal: "Debit", control: true, note: "Elemen Biaya Produksi" },
+  { key: "costUtility", sub: "5.1.1", name: "Biaya Listrik & Utilitas Pabrik", normal: "Debit", control: true, note: "Elemen Biaya Produksi" },
+  { key: "costDepreciation", sub: "5.1.1", name: "Biaya Penyusutan Mesin & Peralatan", normal: "Debit", control: true, note: "Elemen Biaya Produksi" },
+  { key: "costMaintenance", sub: "5.1.1", name: "Biaya Pemeliharaan Mesin", normal: "Debit", control: true, note: "Elemen Biaya Produksi" },
+  { key: "costOverhead", sub: "5.1.1", name: "Biaya Overhead Pabrik Lain-lain", normal: "Debit", control: true, note: "Elemen Biaya Produksi" },
+  { key: "productionScrap", sub: "5.1.9", name: "Beban Pemusnahan Produksi", normal: "Debit", note: "Nilai barang produksi yang dimusnahkan" },
   { key: "freight", sub: "5.2.1", name: "Beban Pengiriman", normal: "Debit" },
   { key: "bankFee", sub: "5.3.1", name: "Beban Bank", normal: "Debit" },
   { key: "admin", sub: "5.3.1", name: "Beban Umum & Administrasi", normal: "Debit" },
@@ -98,6 +111,18 @@ export const STARTER_MAPPINGS: [setting: string, account: string][] = [
   ["purchase_advance_account", "purchaseAdvance"],
   ["input_vat_account", "inputVat"],
   ["supplier_invoice_diff_account", "invoiceDiff"],
+  ["wip_account", "wip"],
+  ["production_scrap_account", "productionScrap"],
+];
+
+/** Starter account → its Elemen Biaya Produksi group (P150, M9). */
+export const STARTER_COST_ELEMENTS: [account: string, group: "DirectLabor" | "IndirectLabor" | "Utility" | "Depreciation" | "Maintenance" | "OtherOverhead"][] = [
+  ["costDirectLabor", "DirectLabor"],
+  ["costIndirectLabor", "IndirectLabor"],
+  ["costUtility", "Utility"],
+  ["costDepreciation", "Depreciation"],
+  ["costMaintenance", "Maintenance"],
+  ["costOverhead", "OtherOverhead"],
 ];
 
 /** Jenis PPh label → its account: PPh Dibayar Dimuka for sales, Hutang PPh for purchases (P122). */
@@ -242,6 +267,27 @@ export async function seedStarterAccounts(actor: number): Promise<StarterAccount
       data: { entity_key: "acc_item_category_account", row_id: row.id, action: "UPDATE", event: "update", by: actor },
     });
     tally("kategori item accounts");
+  }
+
+  // ---- Elemen Biaya Produksi — an account is registered only while it is
+  // still a Control Account nothing has posted to and no element yet (M39),
+  // so an account the user already uses elsewhere is left alone.
+  const elementEntity = ENTITIES.find((x) => x.key === "acc_production_cost_element");
+  if (!elementEntity) throw new Error("Registry entity acc_production_cost_element not found");
+  for (const [key, group] of STARTER_COST_ELEMENTS) {
+    const id = accountId.get(key)!;
+    const account = await prisma.accAccount.findUnique({
+      where: { id },
+      select: { is_control_account: true, production_cost_element: { select: { id: true } }, _count: { select: { journal_lines: true } } },
+    });
+    if (!account || account.production_cost_element || !account.is_control_account || account._count.journal_lines) continue;
+    const row = await prisma.accProductionCostElement.create({
+      data: { element_code: await nextCode(elementEntity), account_id: id, element_group: group, created_by: actor },
+    });
+    await prisma.auditLog.create({
+      data: { entity_key: "acc_production_cost_element", row_id: row.id, action: "TAMBAH", event: "create", by: actor },
+    });
+    tally("elemen biaya produksi");
   }
 
   return { accountId, made };

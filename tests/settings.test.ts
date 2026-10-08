@@ -110,6 +110,9 @@ describe("the settings catalogue lives in code", () => {
         "purchase_advance_account",
         "input_vat_account",
         "supplier_invoice_diff_account",
+        // Production's (P150).
+        "wip_account",
+        "production_scrap_account",
         "fx_account",
         "accumulated_pl_account",
         "current_pl_account",
@@ -118,7 +121,7 @@ describe("the settings catalogue lives in code", () => {
     for (const d of SYSTEM_DEFAULTS) {
       assert.equal(
         settingPageOf(d.key) === "account",
-        d.type === "ref",
+        d.type === "ref" && d.ref === "acc_account",
         `${d.key}: every account setting is on Account Mapping, and nothing else is`
       );
     }

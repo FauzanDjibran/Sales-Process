@@ -591,7 +591,7 @@ No `-NP` series (no tax). Journals keep `JV/…`.
 
 | # | Step | Done when |
 | --- | --- | --- |
-| 1 | **Masters and settings** — Workstation, Elemen Biaya Produksi, Account Mapping *Produksi*, *Satuan Pembebanan Biaya*, guards (§15.4), starter accounts | Screens work in a browser; guards refuse; seed idempotent |
+| 1 ✅ 08/10/2026 | **Masters and settings** — Workstation, Elemen Biaya Produksi, Account Mapping *Produksi*, *Satuan Pembebanan Biaya*, guards (§15.4), starter accounts | Screens work in a browser; guards refuse; seed idempotent |
 | 2 | **Cost ledger + Pencatatan Biaya Produksi** (E4, §9.6), Receipt Note writing it, *Buku Biaya Produksi* | A cost entry posts journal + cost rows; reconcile check 5 passes |
 | 3 | **Production ledger** (E2, E3) with tests | Book tests green |
 | 4 | **Pengeluaran ke Produksi** (§9.3) | Stock out, bucket in, Dr WIP / Cr Persediaan; reconcile 2 |
