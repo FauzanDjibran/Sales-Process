@@ -593,7 +593,7 @@ No `-NP` series (no tax). Journals keep `JV/…`.
 | # | Step | Done when |
 | --- | --- | --- |
 | 1 ✅ reworked 08/10/2026 | **Masters and settings** — Workstation; Elemen Biaya Produksi as a master (M53); Account Kategori Item as a mapping list with WIP (M54); Account Mapping *Produksi*; no Control Account checks (M55); no Satuan Pembebanan Biaya (M57); starter accounts | Screens work in a browser; seed idempotent |
-| 2 | **Cost ledger + Pencatatan Biaya Produksi** (E4, §9.6) and *Buku Biaya Produksi* — the only writer for now (M52) | A cost entry posts journal + cost rows; reconcile check 5 passes |
+| 2 | **Cost ledger, Tagihan Biaya Produksi, Pembayaran Biaya Produksi, Buku and Saldo Biaya Produksi** (§21d) | A posted bill shows in the journal and in Buku / Saldo Biaya Produksi with the same figures; a payment clears it without touching the cost ledger; build, tests and reconcile pass locally and on Neon |
 | 3 | **Production ledger** (E2, E3) with tests | Book tests green |
 | 4 | **Pengeluaran ke Produksi** (§9.3) | Stock out, bucket in, Dr WIP / Cr Persediaan; reconcile 2 |
 | 5 | **Perintah Produksi + Eksekusi Produksi** (§9.1, §9.2, E6) | Execution balanced; batch rule; genealogy |
@@ -685,6 +685,7 @@ of a close; mid-month pro-forma margin; multi-currency.
 | M65 | Phase 2 brief | **No Koreksi in the main cost flow** for now. |
 | M66 | Phase 2 brief | **Two cost reports: Buku Biaya Produksi** (the rows) **and Saldo Biaya Produksi** (totals per element), each filtered by a **month = a fiscal period**. |
 | M67 | Phase 2 brief | **A difference between the cost ledger and the GL is a warning only**; the cost ledger wins (M60). |
+| M68 | Q54, Q55 | **Production cost is captured by a Tagihan Biaya Produksi and paid by a Pengeluaran purpose** (option c): the bill recognises the cost in the month it belongs to and writes the cost ledger; a bill whose lawan is *Hutang Biaya Produksi* stays open until the new purpose *Pembayaran Biaya Produksi* pays it, which writes no cost row. Both are in Phase 2 so Buku Biaya Produksi can be tested end to end. |
 | M51 | §21 B | **The *Dapat Diproduksi* flag is dropped** (amends M8): outputs take any Barang with Kelola Stok, cost receivers are decided by Kategori *Barang Jadi* (M46). More item and production categorisation will come later. |
 
 ---
@@ -789,6 +790,38 @@ Produksi menu (it is the payment menu); per M64 it could instead start as a
   Pengeluaran menu, because a bank statement line may pay a supplier invoice
   and a production bill together, and one payment menu keeps the Cash Bank
   Book in one place (P66, P83).
+
+---
+
+## 21d. Phase 2 scope (agreed 08/10/2026)
+
+1. **Cost ledger** `prd_cost_ledger` (`production-cost.ts`, a book): append-only,
+   one row per cost — posting date, element, account, amount, kind (`In`
+   now; the close's kinds later), the document that made it, ledger number
+   `BBP/…` (P110). No period column (M23); written only inside a posting.
+2. **Tagihan Biaya Produksi** `prd_cost_bill(_line)`, `TBP/YYYY/MM/NNNN`,
+   Produksi › Biaya. Header: Tanggal (the month the cost belongs to), Account
+   Lawan, Partner (Supplier; required when the lawan is *Hutang Biaya
+   Produksi*), No. Tagihan Supplier (optional), Jatuh Tempo (optional),
+   Uraian, Catatan. Lines: Elemen Biaya Produksi, Jumlah, Keterangan. Draft →
+   *Posting* → Posted (final); *Batalkan* Draft only. Posting: journal Dr each
+   element's account / Cr Account Lawan, one cost-ledger row per line, the
+   journal shown by dry run first (P103). A bill on *Hutang Biaya Produksi*
+   keeps `paid_amount` (P132): Belum Dibayar / Sebagian / Lunas.
+3. **Pembayaran Biaya Produksi** — a new Pengeluaran purpose (Out, `BKK/…`,
+   Supplier): pays open payable bills, in parts if wanted; Dr Hutang Biaya
+   Produksi / Cr Kas & Bank (+ bank charge); the Cash Bank Book Out; no PPh;
+   no cost row.
+4. **Account Mapping › Produksi** gains *Account Hutang Biaya Produksi*.
+5. **Buku Biaya Produksi** and **Saldo Biaya Produksi** (M66): month = fiscal
+   period, element filter; the rows with their document, and totals per
+   element; the GL beside it per account as a warning only (M67).
+6. **Produksi menu** (M64): *Biaya* and *Laporan* groups; permissions
+   `MENU_PRODUCTION_ACCESS`, `PRODUCTION_COST_BILL_VIEW / _CREATE / _EDIT /
+   _POST / _CANCEL`, `REPORT_PRODUCTION_COST_LEDGER_VIEW`,
+   `REPORT_PRODUCTION_COST_BALANCE_VIEW`.
+7. **Reconcile:** a posted bill's lines = its cost rows; paid amount = its
+   posted payment lines; the cost ledger beside the GL per element account.
 
 ---
 
