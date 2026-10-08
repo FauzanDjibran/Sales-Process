@@ -139,6 +139,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Receipt Note", "log_receipt_note"],
   ["Uang Muka Pembelian", "fin_ap_advance"],
   ["Invoice Pembelian", "fin_ap_invoice"],
+  // The Perizinan flow's agreement (P137); its advance, invoice and cost payment name it.
+  ["Pengajuan Perizinan", "sal_permit_request"],
 ];
 
 /**

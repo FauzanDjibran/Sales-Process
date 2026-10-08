@@ -16,6 +16,7 @@ const ROUTES: Record<string, string> = {
   fin_ar_advance: "/finance/advance/sales",
   fin_ap_advance: "/finance/advance/purchase",
   sal_customer_order: "/sales/customer-order",
+  sal_permit_request: "/sales/permit",
   sal_order: "/sales/order",
   sal_delivery_order: "/sales/delivery-order",
   log_delivery_note: "/inventory/delivery-note",

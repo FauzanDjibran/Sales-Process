@@ -85,6 +85,21 @@ export const MODULES: NavModule[] = [
           },
         ],
       },
+      {
+        // The Perizinan flow (P137): its own route, not a Customer Order.
+        key: "permit",
+        name: "Perizinan",
+        entities: [
+          {
+            key: "sal_permit_request",
+            slug: "permit",
+            name: "Pengajuan Perizinan",
+            icon: "clip",
+            desc: "Perizinan yang diurus untuk produk customer maklon: estimasi tiap perizinan, lalu realisasinya. Tidak memposting apa pun; menjadi dasar Uang Muka dan Invoice Perizinan.",
+            permission: "PERMIT_REQUEST_VIEW",
+          },
+        ],
+      },
     ],
   },
   {

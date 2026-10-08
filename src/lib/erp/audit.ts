@@ -13,6 +13,7 @@ import { purchaseRequestNumbersByIds } from "./purchase-request";
 import { purchaseOrderNumbersByIds } from "./purchase-order";
 import { cashBankTxNumbersByIds } from "./cash-bank-tx";
 import { customerOrderNumbersByIds } from "./customer-order";
+import { permitRequestNumbersByIds } from "./permit-request";
 import { salesOrderNumbersByIds } from "./sales-order";
 import { deliveryOrderNumbersByIds } from "./delivery-order";
 import { deliveryNoteNumbersByIds } from "./delivery-note";
@@ -79,6 +80,7 @@ function registrySubject(key: string): Subject | null {
 const EXTRA_SUBJECTS: Record<string, Subject> = {
   acc_journal: { label: "Journal", resolve: journalNumbersByIds },
   sal_customer_order: { label: "Customer Order", resolve: customerOrderNumbersByIds },
+  sal_permit_request: { label: "Pengajuan Perizinan", resolve: permitRequestNumbersByIds },
   sal_order: { label: "Sales Order", resolve: salesOrderNumbersByIds },
   sal_delivery_order: { label: "Delivery Order", resolve: deliveryOrderNumbersByIds },
   log_delivery_note: { label: "Delivery Note", resolve: deliveryNoteNumbersByIds },

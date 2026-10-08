@@ -642,6 +642,7 @@ model RefPaymentTerm {
   purchase_partners MPartner[]         @relation("PartnerPurchaseTerm")
   purchase_orders   PurOrder[]         @relation("PurOrderTerm")
   customer_orders   SalCustomerOrder[]
+  permit_requests   SalPermitRequest[]
 
   @@map("ref_payment_term")
 }
@@ -745,6 +746,7 @@ model RefWithholdingTax {
   invoice_lines        FinArInvoiceLine[]
   tax_slips            TaxWithholdingSlip[]
   purchase_order_lines PurOrderLine[]         @relation("PurOrderLineWht")
+  permit_requests      SalPermitRequest[]
 
   @@index([account_id])
   @@index([usage])
@@ -781,6 +783,8 @@ model RefPermitType {
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  lines SalPermitRequestLine[]
 
   @@map("ref_permit_type")
 }
@@ -843,6 +847,7 @@ model MPartner {
   contacts        MPartnerContact[]
 
   customer_orders SalCustomerOrder[]
+  permit_requests SalPermitRequest[]
   sales_orders    SalOrder[]
   delivery_orders SalDeliveryOrder[]
   delivery_notes  LogDeliveryNote[]
@@ -902,6 +907,7 @@ model MPartnerAddress {
   delivery_orders SalDeliveryOrder[]
   delivery_notes  LogDeliveryNote[]
   invoices        FinArInvoice[]
+  permit_requests SalPermitRequest[]
 
   @@index([partner_id])
   @@index([village_id])
@@ -1674,6 +1680,115 @@ model SalCustomerOrderLine {
   @@unique([order_id, line_no])
   @@index([item_id])
   @@map("sal_customer_order_line")
+}
+
+// ------------------------------------------------------- pengajuan perizinan
+//
+// The Perizinan flow's agreement (P137, Perizinan-Concept.md §5–§6): the
+// internal list of permits arranged for a makloon customer's product, each at
+// its estimate and, once realised on the same document, at its real price.
+// Posts nothing. The customer's documents (Uang Muka and Invoice Perizinan)
+// carry one description line; the permits stay here.
+
+enum PermitRequestStatus {
+  Draft
+  Submitted
+  /// Disetujui: the estimate is locked and may be billed an advance.
+  Open
+  /// Terealisasi: the real prices are locked; it may be invoiced and its cost paid.
+  Realized
+  /// Selesai: its Invoice Perizinan is posted.
+  Done
+  Cancelled
+  Rejected
+}
+
+model SalPermitRequest {
+  id           Int                 @id @default(autoincrement())
+  /// `PRZ/YYYY/MM/NNNN`, `PRZ-NP/…` without PPN (P109).
+  request_no   String              @unique
+  request_date DateTime            @db.Date
+  status       PermitRequestStatus @default(Draft)
+
+  customer_id               Int
+  address_id                Int
+  term_id                   Int
+  is_taxable                Boolean   @default(true)
+  price_mode                PriceMode
+  /// The snapshot (P60): at each save while Draft, frozen at Ajukan.
+  ppn_rate                  Decimal?  @db.Decimal(9, 4)
+  ppn_dpp_other_numerator   Int?
+  ppn_dpp_other_denominator Int?
+  /// One Jenis PPh for the whole Pengajuan (QZ7), of usage Sales; none = not withheld.
+  withholding_tax_id        Int?
+  withholding_rate          Decimal?  @db.Decimal(9, 4)
+
+  po_no        String?
+  po_date      DateTime? @db.Date
+  salesperson  String?
+  /// The makloon product the permits are for, printed on the customer's documents.
+  product_name String
+  note         String?
+
+  // ---- the estimate, PPN once on the total (Z5), whole rupiah.
+  /// Σ the lines' estimates, in the price mode.
+  estimate_amount    Decimal @default(0) @db.Decimal(18, 2)
+  estimate_dpp       Decimal @default(0) @db.Decimal(18, 2)
+  estimate_dpp_other Decimal @default(0) @db.Decimal(18, 2)
+  estimate_ppn       Decimal @default(0) @db.Decimal(18, 2)
+  estimate_total     Decimal @default(0) @db.Decimal(18, 2)
+
+  // ---- the realisation (Z7), on the same document.
+  /// `RLZ/YYYY/MM/NNNN`, given at Realisasikan.
+  realization_no     String?   @unique
+  realization_date   DateTime? @db.Date
+  realization_note   String?
+  realized_amount    Decimal   @default(0) @db.Decimal(18, 2)
+  realized_dpp       Decimal   @default(0) @db.Decimal(18, 2)
+  realized_dpp_other Decimal   @default(0) @db.Decimal(18, 2)
+  realized_ppn       Decimal   @default(0) @db.Decimal(18, 2)
+  realized_total     Decimal   @default(0) @db.Decimal(18, 2)
+  /// What posted Biaya Perizinan payments paid of the realised DPP (Z14, P132).
+  cost_paid_amount   Decimal   @default(0) @db.Decimal(18, 2)
+
+  status_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  customer        MPartner               @relation(fields: [customer_id], references: [id])
+  address         MPartnerAddress        @relation(fields: [address_id], references: [id])
+  term            RefPaymentTerm         @relation(fields: [term_id], references: [id])
+  withholding_tax RefWithholdingTax?     @relation(fields: [withholding_tax_id], references: [id])
+  lines           SalPermitRequestLine[]
+
+  @@index([customer_id])
+  @@index([status, request_date])
+  @@map("sal_permit_request")
+}
+
+/// One permit on a Pengajuan, each Jenis Perizinan once.
+model SalPermitRequestLine {
+  id             Int      @id @default(autoincrement())
+  request_id     Int
+  line_no        Int
+  permit_type_id Int
+  description    String
+  /// In the Pengajuan's price mode; 0 only on a permit added at realisation.
+  estimate_price Decimal  @db.Decimal(18, 2)
+  /// Null until the realisation is entered; 0 = not done.
+  realized_price Decimal? @db.Decimal(18, 2)
+  /// Added at realisation, not estimated.
+  is_added       Boolean  @default(false)
+
+  request     SalPermitRequest @relation(fields: [request_id], references: [id], onDelete: Cascade)
+  permit_type RefPermitType    @relation(fields: [permit_type_id], references: [id])
+
+  @@unique([request_id, line_no])
+  @@unique([request_id, permit_type_id])
+  @@map("sal_permit_request_line")
 }
 
 /// A Sales Order (P79): one dated slice of an Open Customer Order's quantity,

@@ -26,6 +26,7 @@ import { JOURNAL_TRANSITIONS } from "./journal-workflow";
 import { SALES_ADVANCE_TRANSITIONS } from "./ar-advance-workflow";
 import { PURCHASE_ADVANCE_TRANSITIONS } from "./ap-advance-workflow";
 import { CUSTOMER_ORDER_TRANSITIONS } from "./customer-order-workflow";
+import { PERMIT_REQUEST_TRANSITIONS } from "./permit-request-workflow";
 import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
 import { DELIVERY_ORDER_TRANSITIONS } from "./delivery-order-workflow";
 import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
@@ -111,6 +112,19 @@ const CUSTOMER_ORDER_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(CUSTOMER_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
   close: fromTransition(CUSTOMER_ORDER_TRANSITIONS.close, "Ditutup"),
   fulfil: { label: "Ditutup — seluruhnya terkirim", icon: "truck", tone: "primary", systemDriven: true },
+};
+
+/** Pengajuan Perizinan: Draft → Diajukan → Disetujui → Terealisasi → Selesai (P137). */
+const PERMIT_REQUEST_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Pengajuan Perizinan dibuat", icon: "clip", tone: "neutral" },
+  submit: fromTransition(PERMIT_REQUEST_TRANSITIONS.submit, "Diajukan"),
+  approve: fromTransition(PERMIT_REQUEST_TRANSITIONS.approve, "Disetujui"),
+  reject: fromTransition(PERMIT_REQUEST_TRANSITIONS.reject, "Ditolak"),
+  cancel: fromTransition(PERMIT_REQUEST_TRANSITIONS.cancel, "Dibatalkan"),
+  realization: { label: "Realisasi dicatat", icon: "pen", tone: "neutral" },
+  realize: fromTransition(PERMIT_REQUEST_TRANSITIONS.realize, "Direalisasi"),
+  invoiced: { label: "Selesai — realisasi ditagih", icon: "file", tone: "primary", systemDriven: true },
 };
 
 /** Sales Order: Draft → Diajukan → Pra-SO → Open → Ditutup, or Dibatalkan / Ditolak (P79). */
@@ -287,6 +301,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   acc_fiscal_closing: FISCAL_CLOSING_EVENTS,
   acc_journal: JOURNAL_EVENTS,
   sal_customer_order: CUSTOMER_ORDER_EVENTS,
+  sal_permit_request: PERMIT_REQUEST_EVENTS,
   sal_order: SALES_ORDER_EVENTS,
   sal_delivery_order: DELIVERY_ORDER_EVENTS,
   log_delivery_note: DELIVERY_NOTE_EVENTS,

@@ -1593,6 +1593,73 @@ table sal_customer_order_line {
   }
 }
 
+// Pengajuan Perizinan (P137): the internal list of permits for a makloon
+// customer's product, each at its estimate and, once realised on the same
+// document, at its real price. Posts nothing.
+table sal_permit_request {
+  id                          int [pk, increment, not null]
+
+  request_no                  varchar [not null, unique] // PRZ/YYYY/MM/NNNN, PRZ-NP/… without PPN
+  request_date                date [not null]
+  status                      enum('Draft', 'Submitted', 'Open', 'Realized', 'Done', 'Cancelled', 'Rejected') [not null, default: 'Draft']
+
+  customer_id                 int [not null, ref : > m_partner.id]
+  address_id                  int [not null, ref : > m_partner_address.id]
+  term_id                     int [not null, ref : > ref_payment_term.id]
+  is_taxable                  boolean [not null, default: true]
+  price_mode                  enum('Exclude', 'Include') [not null]
+  ppn_rate                    decimal(9,4)
+  ppn_dpp_other_numerator     int
+  ppn_dpp_other_denominator   int
+  withholding_tax_id          int [ref : > ref_withholding_tax.id] // one per Pengajuan, usage Sales
+  withholding_rate            decimal(9,4)
+
+  po_no                       varchar
+  po_date                     date
+  salesperson                 varchar
+  product_name                varchar [not null]
+  note                        varchar
+
+  estimate_amount             decimal(18,2) [not null, default: 0] // PPN once on the total
+  estimate_dpp                decimal(18,2) [not null, default: 0]
+  estimate_dpp_other          decimal(18,2) [not null, default: 0]
+  estimate_ppn                decimal(18,2) [not null, default: 0]
+  estimate_total              decimal(18,2) [not null, default: 0]
+
+  realization_no              varchar [unique] // RLZ/YYYY/MM/NNNN at Realisasikan
+  realization_date            date
+  realization_note            varchar
+  realized_amount             decimal(18,2) [not null, default: 0]
+  realized_dpp                decimal(18,2) [not null, default: 0]
+  realized_dpp_other          decimal(18,2) [not null, default: 0]
+  realized_ppn                decimal(18,2) [not null, default: 0]
+  realized_total              decimal(18,2) [not null, default: 0]
+  cost_paid_amount            decimal(18,2) [not null, default: 0] // posted Biaya Perizinan
+
+  status_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+table sal_permit_request_line {
+  id                          int [pk, increment, not null]
+  request_id                  int [not null, ref : > sal_permit_request.id]
+  line_no                     int [not null]
+  permit_type_id              int [not null, ref : > ref_permit_type.id]
+  description                 varchar [not null]
+  estimate_price              decimal(18,2) [not null] // 0 only on a permit added at realisation
+  realized_price              decimal(18,2) // null until entered; 0 = not done
+  is_added                    boolean [not null, default: false]
+
+  indexes {
+    (request_id, line_no) [unique]
+    (request_id, permit_type_id) [unique]
+  }
+}
+
 // Sales Order, SO/… (P79): a dated part of one Open Customer Order released to PPIC
 // quantity and delivery date only; Draft → Submitted → PreSO → Open → Closed; posts nothing
 table sal_order {

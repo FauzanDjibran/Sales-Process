@@ -195,6 +195,7 @@ export async function checkPartnerCollections(
                 { delivery_orders: { some: {} } },
                 { delivery_notes: { some: {} } },
                 { invoices: { some: {} } },
+                { permit_requests: { some: {} } },
               ],
             },
             select: { id: true },

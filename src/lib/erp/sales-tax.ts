@@ -111,6 +111,40 @@ function taxOf(amount: number, mode: PriceMode, taxable: boolean, rates: PpnRate
   return { dpp: amount, ...ppnChain(amount, rates) };
 }
 
+// ------------------------------------------------------------- perizinan
+
+export type PermitTotals = {
+  /** Σ the prices, in the price mode. */
+  amount: number;
+  dpp: number;
+  dppOther: number;
+  ppn: number;
+  total: number;
+  /** round(DPP × the Jenis PPh rate), or 0 without one. */
+  pph: number;
+  /** total − pph: what the customer is expected to transfer. */
+  expected: number;
+};
+
+/**
+ * A Pengajuan Perizinan's figures, for its estimate or its realisation
+ * (Perizinan-Concept.md Z5). The customer's documents carry one line, so PPN is
+ * computed **once on the total** — the faktur's single line — not per permit.
+ */
+export function computePermitTotals(input: {
+  prices: number[];
+  mode: PriceMode;
+  taxable: boolean;
+  rates: PpnRates | null;
+  withholdingRate: number | null;
+}): PermitTotals {
+  const amount = input.prices.reduce((a, p) => a + Math.round(p || 0), 0);
+  const t = taxOf(amount, input.mode, input.taxable, input.rates);
+  const total = t.dpp + t.ppn;
+  const pph = input.withholdingRate ? percentOf(t.dpp, input.withholdingRate) : 0;
+  return { amount, dpp: t.dpp, dppOther: t.dppOther, ppn: t.ppn, total, pph, expected: total - pph };
+}
+
 // ------------------------------------------------------------------ lines
 
 export type SalesLineInput = {
