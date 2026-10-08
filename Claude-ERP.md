@@ -749,6 +749,13 @@ here. In addition:
 6. Report files changed, what was verified, what was not, and what is open.
 7. Surface conflicts — never resolve them silently (§1.2).
 8. Clean up test data by fixture teardown, never by reseeding or reset.
+9. **`main` is always usable** (the user, 08/10/2026): a session can stop at
+   any moment (a usage limit, a lost container), so nothing reaches `main`
+   unless build, lint and tests pass on it. Large work is split into steps that
+   each leave the app working — schema and code together, never a migration
+   without the code that reads it — and each is pushed as it lands. Work that
+   cannot be finished in one step stays local or on the session branch, and
+   the plan file records where it stopped.
 
 ---
 
