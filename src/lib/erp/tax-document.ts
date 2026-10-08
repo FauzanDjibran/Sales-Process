@@ -8,6 +8,7 @@ import { positionalShare, ppnChain } from "./sales-tax";
 import { advanceItemsReceivedBy } from "./ar-item";
 import { postedReceiptIds, receiptTaxBasis } from "./cash-bank-tx";
 import { invoiceSourceOrders } from "./customer-order";
+import { permitAdvanceSources } from "./permit-request";
 import { invoiceTaxBasis, postedInvoiceIds, setInvoiceTaxInvoiceNo } from "./ar-invoice";
 import {
   normalizeNsfp,
@@ -111,17 +112,22 @@ export async function createTaxDocsForReceipt(db: Db, receiptId: number, actorId
 
   // ---- faktur uang muka, one per advance bill paid with PPN, per payment (P133:
   // several may name the bill's one Uang Muka item)
-  const advanceLines = r.lines.filter((l) => l.kind === "fin_ar_advance" && l.ppnPart > 0 && l.rates);
+  const advanceLines = r.lines.filter((l) => (l.kind === "fin_ar_advance" || l.kind === "fin_ar_permit_advance") && l.ppnPart > 0 && l.rates);
   if (advanceLines.length) {
     const items = await advanceItemsReceivedBy(db, { docTypeId: receiptType, docId: r.id });
-    const orders = new Map((await invoiceSourceOrders({ ids: [...new Set(advanceLines.map((l) => l.orderId))] }, db)).map((o) => [o.id, o]));
+    // The agreement each bill belongs to — a Customer Order or a Pengajuan Perizinan (P137) — for its address and number.
+    const idsIn = (table: string) => [...new Set(advanceLines.filter((l) => l.scopeTable === table).map((l) => l.orderId))];
+    const orders = new Map<string, { orderNo: string; addressId: number }>([
+      ...(await invoiceSourceOrders({ ids: idsIn("sal_customer_order") }, db)).map((o) => [`sal_customer_order:${o.id}`, o] as const),
+      ...(await permitAdvanceSources({ ids: idsIn("sal_permit_request") }, db)).map((o) => [`sal_permit_request:${o.id}`, o] as const),
+    ]);
     for (const l of advanceLines) {
       const exists = await db.taxFaktur.findFirst({
         where: { source_doc_type_id: receiptType, source_doc_id: r.id, ref_doc_type_id: l.docTypeId, ref_doc_id: l.docId },
         select: { id: true },
       });
       if (exists) continue;
-      const order = orders.get(l.orderId);
+      const order = orders.get(`${l.scopeTable}:${l.orderId}`);
       const rates = l.rates!;
       const { dppOther } = ppnChain(l.dppPart, rates);
       const description = l.description || `Uang muka atas pesanan ${order?.orderNo ?? ""}`;
@@ -139,7 +145,7 @@ export async function createTaxDocsForReceipt(db: Db, receiptId: number, actorId
           ref_doc_id: l.docId,
           ref_no: l.docNo,
           ar_item_id: items.find((i) => i.sourceDocId === l.docId)?.id ?? null,
-          scope_doc_type_id: await docTypeId(db, "sal_customer_order"),
+          scope_doc_type_id: await docTypeId(db, l.scopeTable),
           scope_doc_id: l.orderId,
           description,
           ppn_rate: rates.rate,

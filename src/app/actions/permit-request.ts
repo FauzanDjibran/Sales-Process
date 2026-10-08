@@ -15,6 +15,7 @@ import {
   type PermitRequestResult,
 } from "@/lib/erp/permit-request";
 import { PERMIT_REQUEST_TRANSITIONS, type PermitRequestAction } from "@/lib/erp/permit-request-workflow";
+import { liveAdvanceRefusal } from "@/lib/erp/permit-advance";
 
 /**
  * The Pengajuan Perizinan's write path. The permission is checked here; every
@@ -86,7 +87,10 @@ export async function transitionPermitRequestAction(
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
   try {
-    const result = await transitionPermitRequest(id, action, g.actor.user.id, reason);
+    // Batalkan is refused while an Uang Muka Perizinan drawn from it is live (Z6);
+    // the two modules meet here, not in each other.
+    const guard = action === "cancel" ? liveAdvanceRefusal : undefined;
+    const result = await transitionPermitRequest(id, action, g.actor.user.id, reason, guard);
     if (!result.ok) return result;
   } catch (error) {
     return { ok: false, errors: { _form: error instanceof Error ? error.message : "Gagal diproses." } };

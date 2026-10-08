@@ -6,7 +6,7 @@ import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { formatAddress } from "./partner-shape";
 import { CUSTOMER_CATEGORY } from "./entities";
 import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
-import { computePermitTotals, type PermitTotals, type PpnRates, type PriceMode } from "./sales-tax";
+import { computePermitTotals, type AdvanceBasis, type PermitTotals, type PpnRates, type PriceMode } from "./sales-tax";
 import {
   PERMIT_REQUEST_TRANSITIONS,
   permitRequestIsEditable,
@@ -848,4 +848,113 @@ export async function permitRequestNumbersByIds(ids: number[]): Promise<Map<numb
 /** Locks a Pengajuan's row for the rest of the transaction. */
 export async function lockPermitRequest(tx: Prisma.TransactionClient, id: number): Promise<void> {
   await tx.$queryRaw`SELECT id FROM sal_permit_request WHERE id = ${id} FOR UPDATE`;
+}
+
+// ------------------------------------------------------ for the advance bill
+
+/**
+ * A Pengajuan as its Uang Muka Perizinan reads it (Z10, Z11): who it is for,
+ * where it is billed, and the basis the advance is drawn from — the
+ * **estimate**, its price mode and its one Jenis PPh. Shaped like the Customer
+ * Order's `AdvanceSourceOrder` so the advance form reads both alike. The
+ * advance module takes this rather than reading `sal_permit_request` itself.
+ */
+export type PermitAdvanceSource = {
+  id: number;
+  orderNo: string;
+  orderDate: string;
+  status: PermitRequestStatus;
+  customerId: number;
+  customerLabel: string;
+  customerName: string;
+  customerActive: boolean;
+  taxIdType: string | null;
+  taxId: string | null;
+  isPkp: boolean;
+  collectsPph22: boolean;
+  addressId: number;
+  addressText: string;
+  poNo: string | null;
+  poDate: string;
+  termLabel: string;
+  termName: string;
+  termDays: number;
+  salesperson: string | null;
+  productName: string;
+  /** How many permits the Pengajuan lists, for the bill's one-line summary. */
+  lineCount: number;
+  realizationNo: string | null;
+  basis: AdvanceBasis;
+  withholdingTaxId: number | null;
+  withholdingRate: number | null;
+  withholdingLabels: Record<string, string>;
+  rates: PpnRates | null;
+  /** The realisation, once realised: what the Invoice bills and the cost paid. */
+  realized: PermitFigures;
+  costPaid: number;
+};
+
+/** Pengajuan an advance may be drawn from (approved or realised, not yet invoiced), or the ones named. */
+export async function permitAdvanceSources(
+  filter: { ids?: number[]; openOnly?: boolean; realizedOnly?: boolean },
+  db: Db = prisma
+): Promise<PermitAdvanceSource[]> {
+  const rows = await db.salPermitRequest.findMany({
+    where: {
+      ...(filter.ids ? { id: { in: filter.ids } } : {}),
+      ...(filter.openOnly ? { status: { in: ["Open", "Realized"] } } : {}),
+      ...(filter.realizedOnly ? { status: "Realized" } : {}),
+    },
+    orderBy: [{ request_date: "desc" }, { id: "desc" }],
+    include: { customer: true, term: true, withholding_tax: true, address: { include: ADDRESS_INCLUDE }, _count: { select: { lines: true } } },
+  });
+  return rows.map((o) => {
+    const whtKey = o.withholding_tax_id ? String(o.withholding_tax_id) : null;
+    const whtRate = o.withholding_rate?.toNumber() ?? null;
+    return {
+      id: o.id,
+      orderNo: o.request_no,
+      orderDate: isoDay(o.request_date),
+      status: o.status as PermitRequestStatus,
+      customerId: o.customer_id,
+      customerLabel: o.customer.partner_label,
+      customerName: o.customer.partner_name,
+      customerActive: o.customer.status === "Active",
+      taxIdType: o.customer.tax_id_type,
+      taxId: o.customer.tax_id,
+      isPkp: o.customer.is_pkp,
+      collectsPph22: false,
+      addressId: o.address_id,
+      addressText: addressText(o.address),
+      poNo: o.po_no,
+      poDate: isoDay(o.po_date),
+      termLabel: o.term.term_label,
+      termName: o.term.term_name,
+      termDays: o.term.due_days,
+      salesperson: o.salesperson,
+      productName: o.product_name,
+      lineCount: o._count.lines,
+      realizationNo: o.realization_no,
+      basis: {
+        mode: o.price_mode as PriceMode,
+        taxable: o.is_taxable,
+        vatCollector: o.customer.vat_collector === "Government",
+        dpp: o.estimate_dpp.toNumber(),
+        total: o.estimate_total.toNumber(),
+        withholdings: whtKey && whtRate ? [{ key: whtKey, rate: whtRate, base: o.estimate_dpp.toNumber() }] : [],
+      },
+      withholdingTaxId: o.withholding_tax_id,
+      withholdingRate: whtRate,
+      withholdingLabels: whtKey ? { [whtKey]: o.withholding_tax?.wht_label ?? "PPh" } : {},
+      rates: ratesOf(o),
+      realized: {
+        amount: o.realized_amount.toNumber(),
+        dpp: o.realized_dpp.toNumber(),
+        dppOther: o.realized_dpp_other.toNumber(),
+        ppn: o.realized_ppn.toNumber(),
+        total: o.realized_total.toNumber(),
+      },
+      costPaid: o.cost_paid_amount.toNumber(),
+    };
+  });
 }

@@ -10,6 +10,13 @@ import { recordCashBankEntry } from "./cash-bank";
 import { ArItemOverdrawn, lockArItems, receiveAdvance, settleArItem } from "./ar-item";
 import { checkAccountIsLeaf } from "./records";
 import { lockSalesAdvances, recordSalesAdvancePaid, salesAdvanceNumbersByIds, settlementAdvances, unpaidAdvanceIds } from "./ar-advance";
+import {
+  lockPermitAdvances,
+  permitAdvanceNumbersByIds,
+  recordPermitAdvancePaid,
+  settlementPermitAdvances,
+  unpaidPermitAdvanceIds,
+} from "./permit-advance";
 import { invoiceNumbersByIds, lockSalesInvoices, recordSalesInvoicePaid, settlementInvoices, unpaidSalesInvoiceIds } from "./ar-invoice";
 import {
   cashToClear,
@@ -27,6 +34,8 @@ import {
   type CashBankDirection,
   type CashBankPurpose,
   billKey,
+  isAdvanceKind,
+  SCOPE_OF_KIND,
   type SettledDocKind,
 } from "./cash-bank-purposes";
 import {
@@ -157,6 +166,8 @@ export type OpenBill = {
   /** The advance bill's or the Invoice's own status. */
   status: string;
   customerId: number;
+  /** The agreement it belongs to — a Customer Order or a Pengajuan Perizinan (P137). */
+  scopeTable: "sal_customer_order" | "sal_permit_request";
   orderId: number;
   orderNo: string;
   /** What it asks for, PPN included. */
@@ -176,11 +187,12 @@ export type OpenBill = {
 
 async function openBills(
   db: Db,
-  filter: { advanceIds?: number[]; invoiceIds?: number[]; openOnly?: boolean }
+  filter: { advanceIds?: number[]; invoiceIds?: number[]; permitAdvanceIds?: number[]; openOnly?: boolean }
 ): Promise<OpenBill[]> {
   const wantAdvances = filter.openOnly || (filter.advanceIds?.length ?? 0) > 0;
   const wantInvoices = filter.openOnly || (filter.invoiceIds?.length ?? 0) > 0;
-  const [advances, invoices] = await Promise.all([
+  const wantPermitAdvances = filter.openOnly || (filter.permitAdvanceIds?.length ?? 0) > 0;
+  const [advances, invoices, permitAdvances] = await Promise.all([
     // Only bills not yet paid in full, found from totals and the receipt lines before any is read whole.
     wantAdvances
       ? filter.openOnly
@@ -192,6 +204,12 @@ async function openBills(
       ? filter.openOnly
         ? unpaidSalesInvoiceIds(db).then((ids) => settlementInvoices({ ids }, db))
         : settlementInvoices({ ids: filter.invoiceIds }, db)
+      : Promise.resolve([]),
+    // Uang Muka Perizinan (P137): the advance bill of the Perizinan flow, settled alike.
+    wantPermitAdvances
+      ? filter.openOnly
+        ? unpaidPermitAdvanceIds(db).then((ids) => settlementPermitAdvances({ ids }, db))
+        : settlementPermitAdvances({ ids: filter.permitAdvanceIds }, db)
       : Promise.resolve([]),
   ]);
   // A document's open amount is its total less what it records as paid
@@ -208,6 +226,7 @@ async function openBills(
         dueDate: b.dueDate,
         status: b.status,
         customerId: b.customerId,
+        scopeTable: "sal_customer_order" as const,
         orderId: b.orderId,
         orderNo: b.orderNo,
         total: b.total,
@@ -231,6 +250,7 @@ async function openBills(
         dueDate: i.dueDate,
         status: i.status,
         customerId: i.customerId,
+        scopeTable: "sal_customer_order" as const,
         orderId: i.orderId,
         orderNo: i.orderNo,
         total: i.total,
@@ -243,6 +263,27 @@ async function openBills(
         open,
       };
     }),
+    ...permitAdvances.map((b) => ({
+      kind: "fin_ar_permit_advance" as const,
+      key: billKey("fin_ar_permit_advance", b.id),
+      id: b.id,
+      no: b.advanceNo,
+      date: b.advanceDate,
+      dueDate: b.dueDate,
+      status: b.status,
+      customerId: b.customerId,
+      scopeTable: "sal_permit_request" as const,
+      orderId: b.orderId,
+      orderNo: b.orderNo,
+      total: b.total,
+      dpp: b.dpp,
+      ppn: b.ppn,
+      rates: b.rates,
+      withholdings: b.withholdings,
+      arItemId: null,
+      paid: b.paid,
+      open: b.total - b.paid,
+    })),
   ];
   // Oldest due first: the order the picker lists them and Bagikan Dana spends in.
   return out.sort((a, b) => (a.dueDate === b.dueDate ? (a.date === b.date ? a.id - b.id : a.date < b.date ? -1 : 1) : a.dueDate < b.dueDate ? -1 : 1));
@@ -293,6 +334,7 @@ export async function cashReceiptOptions(
         {
           advanceIds: missing.filter((d) => d.kind === "fin_ar_advance").map((d) => d.id),
           invoiceIds: missing.filter((d) => d.kind === "fin_ar_invoice").map((d) => d.id),
+          permitAdvanceIds: missing.filter((d) => d.kind === "fin_ar_permit_advance").map((d) => d.id),
         }
       )
     : [];
@@ -393,10 +435,17 @@ export async function checkCashReceipt(
   const raw = Array.isArray(input.lines) ? input.lines : [];
   const lines: CheckedLine[] = [];
   if (!raw.length) errors._lines = "Pilih minimal satu tagihan yang dibayar.";
-  const kindOf = (l: CashReceiptLineInput): SettledDocKind => (l.doc_type === "fin_ar_invoice" ? "fin_ar_invoice" : "fin_ar_advance");
+  const kindOf = (l: CashReceiptLineInput): SettledDocKind =>
+    l.doc_type === "fin_ar_invoice" || l.doc_type === "fin_ar_permit_advance" ? l.doc_type : "fin_ar_advance";
   const idsOf = (kind: SettledDocKind) => raw.filter((l) => kindOf(l) === kind).map((l) => Number(l.doc_id)).filter(Boolean);
   const bills = new Map(
-    (await openBills(db, { advanceIds: idsOf("fin_ar_advance"), invoiceIds: idsOf("fin_ar_invoice") })).map((b) => [b.key, b])
+    (
+      await openBills(db, {
+        advanceIds: idsOf("fin_ar_advance"),
+        invoiceIds: idsOf("fin_ar_invoice"),
+        permitAdvanceIds: idsOf("fin_ar_permit_advance"),
+      })
+    ).map((b) => [b.key, b])
   );
   const seen = new Set<string>();
   for (const [i, l] of raw.entries()) {
@@ -420,7 +469,7 @@ export async function checkCashReceipt(
       errors[lineKey(i, "doc_id")] = `${bill.no} bukan tagihan partner ini.`;
       continue;
     }
-    if (kind === "fin_ar_advance" && bill.status !== "Issued") {
+    if (isAdvanceKind(kind) && bill.status !== "Issued") {
       errors[lineKey(i, "doc_id")] = `${bill.no} tidak berstatus Diterbitkan.`;
       continue;
     }
@@ -508,7 +557,11 @@ async function audit(db: Db, id: number, action: "TAMBAH" | "UPDATE", event: str
 
 /** The doc type ids lines are stored with, by kind. */
 async function kindTypeIds(db: Db): Promise<Record<SettledDocKind, number>> {
-  return { fin_ar_advance: await docTypeId(db, "fin_ar_advance"), fin_ar_invoice: await docTypeId(db, "fin_ar_invoice") };
+  return {
+    fin_ar_advance: await docTypeId(db, "fin_ar_advance"),
+    fin_ar_invoice: await docTypeId(db, "fin_ar_invoice"),
+    fin_ar_permit_advance: await docTypeId(db, "fin_ar_permit_advance"),
+  };
 }
 
 function lineRows(typeIds: Record<SettledDocKind, number>, lines: CheckedLine[], actorId: number) {
@@ -655,12 +708,16 @@ type Posting = { ok: true; description: string; lines: PostingLine[] } | { ok: f
  */
 async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Posting> {
   const needCharge = c.data.bank_charge > 0;
-  const advances = c.lines.filter((l) => l.kind === "fin_ar_advance");
+  const advances = c.lines.filter((l) => isAdvanceKind(l.kind));
   const invoices = c.lines.filter((l) => l.kind === "fin_ar_invoice");
   // An account is asked for only where it is used: a setting blocks only there.
-  type Key = "sales_advance_account" | "output_vat_account" | "bank_charge_account" | "receivable_account";
+  // Each advance bill sits in its own liability: goods on Uang Muka Penjualan,
+  // Perizinan on Uang Muka Perizinan (P137).
+  type Key = "sales_advance_account" | "permit_advance_account" | "output_vat_account" | "bank_charge_account" | "receivable_account";
   const keys: Key[] = [
-    ...(advances.length ? (["sales_advance_account", "output_vat_account"] as const) : []),
+    ...(advances.some((l) => l.kind === "fin_ar_advance") ? (["sales_advance_account"] as const) : []),
+    ...(advances.some((l) => l.kind === "fin_ar_permit_advance") ? (["permit_advance_account"] as const) : []),
+    ...(advances.length ? (["output_vat_account"] as const) : []),
     ...(invoices.length ? (["receivable_account"] as const) : []),
     ...(needCharge ? (["bank_charge_account"] as const) : []),
   ];
@@ -686,6 +743,8 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
   }
   const ids = mapped.ids as Partial<Record<Key, number>>;
   const advanceAcc = ids.sales_advance_account ?? 0;
+  const permitAdvanceAcc = ids.permit_advance_account ?? 0;
+  const advanceAccOf = (kind: SettledDocKind) => (kind === "fin_ar_permit_advance" ? permitAdvanceAcc : advanceAcc);
   const vatAcc = ids.output_vat_account ?? 0;
   const arAcc = ids.receivable_account ?? 0;
 
@@ -694,7 +753,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
       await db.accAccount.findMany({
         where: {
           id: {
-            in: [c.cashBankAccountId, advanceAcc, vatAcc, arAcc, ids.bank_charge_account, ...[...taxes.values()].map((t) => t.account_id)].filter(
+            in: [c.cashBankAccountId, advanceAcc, permitAdvanceAcc, vatAcc, arAcc, ids.bank_charge_account, ...[...taxes.values()].map((t) => t.account_id)].filter(
               (x): x is number => Boolean(x)
             ),
           },
@@ -703,7 +762,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
       })
     ).map((a) => [a.id, a])
   );
-  for (const accId of [advanceAcc, arAcc]) {
+  for (const accId of [advanceAcc, permitAdvanceAcc, arAcc]) {
     const a = accounts.get(accId);
     if (a?.partner_category && a.partner_category.category_label !== "Customer") {
       return { ok: false, message: `Account ${a.account_label} mewajibkan partner ${a.partner_category.category_label}, bukan Customer.` };
@@ -742,7 +801,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
     out.push(line(t.account_id!, g.amount, 0, `${t.wht_label} dipotong ${partnerName} — bukti potong menunggu`, c.data.partner_id));
   }
   for (const l of advances) {
-    if (l.dppPart > 0) out.push(line(advanceAcc, 0, l.dppPart, `Uang muka ${l.bill.no} (${l.bill.orderNo})`, c.data.partner_id));
+    if (l.dppPart > 0) out.push(line(advanceAccOf(l.kind), 0, l.dppPart, `Uang muka ${l.bill.no} (${l.bill.orderNo})`, c.data.partner_id));
   }
   const ppn = advances.reduce((a, l) => a + l.ppnPart, 0);
   if (ppn > 0) out.push(line(vatAcc, 0, ppn, `PPN uang muka terutang saat diterima — ${advances.filter((l) => l.ppnPart > 0).map((l) => l.bill.no).join(", ")}`));
@@ -846,7 +905,8 @@ export async function transitionCashReceipt(
       // Every document the receipt settles is locked before it is read again —
       // the advance bills and the Invoices, then the Invoices' items (U28, P133).
       const stored = asInput(t);
-      await lockSalesAdvances(tx, stored.lines.filter((l) => l.doc_type !== "fin_ar_invoice").map((l) => Number(l.doc_id)));
+      await lockSalesAdvances(tx, stored.lines.filter((l) => !l.doc_type || l.doc_type === "fin_ar_advance").map((l) => Number(l.doc_id)));
+      await lockPermitAdvances(tx, stored.lines.filter((l) => l.doc_type === "fin_ar_permit_advance").map((l) => Number(l.doc_id)));
       const invoiceIds = stored.lines.filter((l) => l.doc_type === "fin_ar_invoice").map((l) => Number(l.doc_id));
       if (invoiceIds.length) {
         await lockSalesInvoices(tx, invoiceIds);
@@ -914,6 +974,7 @@ export async function transitionCashReceipt(
       // the next receipt reads that as its `before`, not this receipt.
       for (const l of r.c.lines) {
         if (l.kind === "fin_ar_advance") await recordSalesAdvancePaid(tx, l.docId, l.settled);
+        else if (l.kind === "fin_ar_permit_advance") await recordPermitAdvancePaid(tx, l.docId, l.settled);
         else await recordSalesInvoicePaid(tx, l.docId, l.settled);
       }
       // Each bill paid is an Uang Muka the customer now holds, in the bill's
@@ -921,14 +982,14 @@ export async function transitionCashReceipt(
       // it, at the DPP part the Uang Muka account was credited with, so the
       // items reconcile with that account.
       for (const l of r.c.lines) {
-        if (l.kind !== "fin_ar_advance" || !(l.dppPart > 0)) continue;
+        if (!isAdvanceKind(l.kind) || !(l.dppPart > 0)) continue;
         await receiveAdvance(tx, {
           partnerId: t.partner_id,
           currencyId: baseCurrency.id,
           date: isoDay(t.tx_date),
-          source: { docTypeId: typeIds.fin_ar_advance, docId: l.docId, no: l.bill.no },
+          source: { docTypeId: typeIds[l.kind], docId: l.docId, no: l.bill.no },
           createdBy: { docTypeId: typeId, docId: id, no: t.tx_no },
-          scope: { docTypeId: await docTypeId(tx, "sal_customer_order"), docId: l.bill.orderId },
+          scope: { docTypeId: await docTypeId(tx, SCOPE_OF_KIND[l.kind]), docId: l.bill.orderId },
           amount: l.dppPart,
           note: `Uang muka ${l.bill.no} diterima`,
           actorId,
@@ -984,10 +1045,15 @@ export async function listCashReceipts(): Promise<CashReceiptListRow[]> {
     ...new Set(rows.flatMap((r) => r.lines.filter((l) => l.doc_type.doc_table === kind).map((l) => l.doc_id))),
   ];
   // Numbers only: the list shows which documents a receipt settled, not their standing.
-  const [advanceNos, invoiceNos] = await Promise.all([salesAdvanceNumbersByIds(idsOf("fin_ar_advance")), invoiceNumbersByIds(idsOf("fin_ar_invoice"))]);
+  const [advanceNos, invoiceNos, permitAdvanceNos] = await Promise.all([
+    salesAdvanceNumbersByIds(idsOf("fin_ar_advance")),
+    invoiceNumbersByIds(idsOf("fin_ar_invoice")),
+    permitAdvanceNumbersByIds(idsOf("fin_ar_permit_advance")),
+  ]);
   const bills = new Map([
     ...[...advanceNos].map(([id, no]) => [billKey("fin_ar_advance", id), no] as const),
     ...[...invoiceNos].map(([id, no]) => [billKey("fin_ar_invoice", id), no] as const),
+    ...[...permitAdvanceNos].map(([id, no]) => [billKey("fin_ar_permit_advance", id), no] as const),
   ]);
   return rows.map((r) => ({
     id: r.id,
@@ -1098,6 +1164,8 @@ export type ReceiptTaxBasis = {
     docId: number;
     docNo: string;
     docTypeId: number;
+    /** The agreement: a Customer Order or a Pengajuan Perizinan (P137). */
+    scopeTable: "sal_customer_order" | "sal_permit_request";
     orderId: number;
     dppPart: number;
     ppnPart: number;
@@ -1121,11 +1189,15 @@ export async function receiptTaxBasis(db: Db, id: number): Promise<ReceiptTaxBas
   });
   if (!t) return null;
   const idsOf = (kind: SettledDocKind) => t.lines.filter((l) => l.doc_type.doc_table === kind).map((l) => l.doc_id);
-  const [advances, bills] = await Promise.all([
+  const [advances, permitAdvances, bills] = await Promise.all([
     settlementAdvances({ ids: idsOf("fin_ar_advance") }, db),
-    openBills(db, { advanceIds: idsOf("fin_ar_advance"), invoiceIds: idsOf("fin_ar_invoice") }),
+    settlementPermitAdvances({ ids: idsOf("fin_ar_permit_advance") }, db),
+    openBills(db, { advanceIds: idsOf("fin_ar_advance"), invoiceIds: idsOf("fin_ar_invoice"), permitAdvanceIds: idsOf("fin_ar_permit_advance") }),
   ]);
-  const advanceById = new Map(advances.map((a) => [a.id, a]));
+  const advanceByKey = new Map([
+    ...advances.map((a) => [billKey("fin_ar_advance", a.id), a] as const),
+    ...permitAdvances.map((a) => [billKey("fin_ar_permit_advance", a.id), a] as const),
+  ]);
   const billByKey = new Map(bills.map((b) => [b.key, b]));
   return {
     id: t.id,
@@ -1136,12 +1208,13 @@ export async function receiptTaxBasis(db: Db, id: number): Promise<ReceiptTaxBas
     lines: t.lines.map((l) => {
       const kind = l.doc_type.doc_table as SettledDocKind;
       const bill = billByKey.get(billKey(kind, l.doc_id));
-      const adv = kind === "fin_ar_advance" ? advanceById.get(l.doc_id) : undefined;
+      const adv = advanceByKey.get(billKey(kind, l.doc_id));
       return {
         kind,
         docId: l.doc_id,
         docNo: bill?.no ?? "",
         docTypeId: l.doc_type_id,
+        scopeTable: SCOPE_OF_KIND[kind],
         orderId: bill?.orderId ?? 0,
         dppPart: l.dpp_part.toNumber(),
         ppnPart: l.ppn_part.toNumber(),

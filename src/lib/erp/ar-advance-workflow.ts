@@ -113,3 +113,49 @@ export const ADVANCE_STATUS_BADGE: Record<AdvanceStatus, string> = {
   Issued: "s-info",
   Cancelled: "s-mute",
 };
+
+/**
+ * Uang Muka Perizinan (P137, Z12): the same lifecycle as the sales advance
+ * bill, with its own permissions and its own words.
+ */
+export const PERMIT_ADVANCE_TRANSITIONS: Record<AdvanceAction, AdvanceTransition> = {
+  issue: {
+    ...SALES_ADVANCE_TRANSITIONS.issue,
+    permission: "PERMIT_ADVANCE_ISSUE",
+    title: "Terbitkan Uang Muka Perizinan",
+    body:
+      "Tagihan dikunci dan siap dikirim ke customer. Tidak ada journal dan tidak ada " +
+      "faktur pajak: kas, Uang Muka Perizinan dan PPN Keluaran baru dicatat saat " +
+      "pembayarannya diterima di menu Penerimaan Kas & Bank, dan tanggal terima itu menjadi " +
+      "tanggal Faktur Pajak Uang Muka.",
+    done: "Uang Muka Perizinan diterbitkan",
+  },
+  cancel: {
+    ...SALES_ADVANCE_TRANSITIONS.cancel,
+    permission: "PERMIT_ADVANCE_CANCEL",
+    title: "Konfirmasi Batalkan Uang Muka Perizinan",
+    body:
+      "Tagihan ditandai Dibatalkan dan nilainya kembali menjadi sisa estimasi Pengajuan " +
+      "Perizinan yang dapat ditagih. Tidak ada journal atau pajak yang terpengaruh karena " +
+      "tagihan tidak pernah memposting. Status Dibatalkan bersifat final.",
+    done: "Uang Muka Perizinan dibatalkan",
+  },
+};
+
+export function permitAdvanceAbilities(permissions: Iterable<string>): AdvanceAbilities {
+  const held = permissions instanceof Set ? permissions : new Set(permissions);
+  return {
+    create: held.has("PERMIT_ADVANCE_CREATE"),
+    edit: held.has("PERMIT_ADVANCE_EDIT"),
+    issue: held.has("PERMIT_ADVANCE_ISSUE"),
+    cancel: held.has("PERMIT_ADVANCE_CANCEL"),
+  };
+}
+
+/** Which advance bill a screen shows: Uang Muka Penjualan or Uang Muka Perizinan. */
+export type AdvanceVariant = "sales" | "permit";
+
+export const ADVANCE_TRANSITIONS_OF: Record<AdvanceVariant, Record<AdvanceAction, AdvanceTransition>> = {
+  sales: SALES_ADVANCE_TRANSITIONS,
+  permit: PERMIT_ADVANCE_TRANSITIONS,
+};

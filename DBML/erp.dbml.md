@@ -1261,6 +1261,52 @@ table fin_ar_advance {
   }
 }
 
+// Uang Muka Perizinan (P137): the Perizinan flow's advance bill, header-only; mirrors fin_ar_advance
+table fin_ar_permit_advance {
+  id                          int [pk, increment, not null]
+
+  advance_no                  varchar [not null, unique]
+  advance_date                date [not null]
+  due_date                    date [not null]
+  status                      enum('Draft', 'Issued', 'Cancelled') [not null, default: 'Draft']
+
+  permit_request_id           int [not null] // weak: a Pengajuan Perizinan (P137)
+  customer_id                 int [not null, ref : > m_partner.id]
+  cash_bank_id                int [not null, ref : > m_cash_bank.id]
+
+  description                 varchar [not null]
+  note                        varchar
+  price_mode                  enum('Exclude', 'Include') [not null]
+  is_taxable                  boolean [not null]
+  withholding_tax_id          int // the Pengajuan's one Jenis PPh, copied
+  withholding_rate            decimal(9,4)
+  ppn_rate                    decimal(9,4)
+  ppn_dpp_other_numerator     int
+  ppn_dpp_other_denominator   int
+  amount_type                 enum('Percent', 'Amount') [not null]
+  amount_value                decimal(18,4) [not null]
+  amount                      decimal(18,2) [not null]
+  dpp_amount                  decimal(18,2) [not null]
+  dpp_other_amount            decimal(18,2) [not null]
+  ppn_amount                  decimal(18,2) [not null]
+  total_amount                decimal(18,2) [not null]
+  paid_amount                 decimal(18,2) [not null, default: 0] // what posted payments settled (cash + PPh); a payment's `before`, added to at posting; 0 ≤ paid ≤ total (P132)
+
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    permit_request_id
+    customer_id
+    (status, advance_date)
+  }
+}
+
 // Uang Muka Pembelian, APA/… or APA-NP/… (P126, Purchasing-Concept.md B23): the supplier's request for a down payment
 // the AR bill mirrored (P58): from one Open Purchase Order; posts nothing; Draft -> Catat -> Diterbitkan; Batalkan final
 table fin_ap_advance {

@@ -7,9 +7,11 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
 import { transitionSalesAdvanceAction } from "@/app/actions/ar-advance";
+import { transitionPermitAdvanceAction } from "@/app/actions/permit-advance";
 import { headerButtonClass, orderForHeader, type ActionTone } from "@/lib/erp/header-actions";
 import {
-  SALES_ADVANCE_TRANSITIONS,
+  ADVANCE_TRANSITIONS_OF,
+  type AdvanceVariant,
   advanceIsEditable,
   availableAdvanceActions,
   type AdvanceAbilities,
@@ -30,13 +32,18 @@ export function AdvanceActions({
   status,
   can,
   figures,
+  variant = "sales",
 }: {
   id: number;
   subject: string;
   status: AdvanceStatus;
   can: AdvanceAbilities;
   figures: { dpp: number; ppn: number; total: number };
+  /** Uang Muka Penjualan or Uang Muka Perizinan (P137). */
+  variant?: AdvanceVariant;
 }) {
+  const TRANSITIONS = ADVANCE_TRANSITIONS_OF[variant];
+  const base = variant === "permit" ? "/finance/advance/permit" : "/finance/advance/sales";
   const toast = useToast();
   const [confirm, setConfirm] = useState<AdvanceAction | null>(null);
   const [reason, setReason] = useState("");
@@ -44,12 +51,12 @@ export function AdvanceActions({
   const [busy, setBusy] = useState(false);
 
   const run = async (action: AdvanceAction) => {
-    if (SALES_ADVANCE_TRANSITIONS[action].needsReason && !reason.trim()) {
+    if (TRANSITIONS[action].needsReason && !reason.trim()) {
       setReasonError("Alasan pembatalan wajib diisi.");
       return;
     }
     setBusy(true);
-    const result = await transitionSalesAdvanceAction(id, action, reason);
+    const result = await (variant === "permit" ? transitionPermitAdvanceAction : transitionSalesAdvanceAction)(id, action, reason);
     setBusy(false);
     if (!result.ok) {
       if (result.errors.reason) {
@@ -73,7 +80,7 @@ export function AdvanceActions({
               key: "edit",
               tone: "neutral" as ActionTone,
               node: (
-                <Link key="edit" className="btn" href={`/finance/advance/sales/${id}/edit`}>
+                <Link key="edit" className="btn" href={`${base}/${id}/edit`}>
                   <Icon name="pen" size={15} /> Ubah
                 </Link>
               ),
@@ -81,7 +88,7 @@ export function AdvanceActions({
           ]
         : []),
       ...availableAdvanceActions(status, can).map((a) => {
-        const t = SALES_ADVANCE_TRANSITIONS[a];
+        const t = TRANSITIONS[a];
         return {
           key: a,
           tone: t.tone,
@@ -105,7 +112,7 @@ export function AdvanceActions({
     (i) => i.tone
   );
 
-  const t = confirm ? SALES_ADVANCE_TRANSITIONS[confirm] : null;
+  const t = confirm ? TRANSITIONS[confirm] : null;
   const money = (n: number) => formatMoney(n, "IDR");
 
   return (

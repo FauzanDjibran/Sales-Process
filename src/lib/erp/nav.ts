@@ -248,6 +248,14 @@ export const MODULES: NavModule[] = [
             permission: "SALES_ADVANCE_VIEW",
           },
           {
+            key: "fin_ar_permit_advance",
+            slug: "advance/permit",
+            name: "Uang Muka Perizinan",
+            icon: "wallet",
+            desc: "Tagihan uang muka ke customer atas Pengajuan Perizinan, satu baris uraian. Tidak memposting apa pun; pembayarannya dicatat di Penerimaan Kas & Bank.",
+            permission: "PERMIT_ADVANCE_VIEW",
+          },
+          {
             key: "fin_ap_advance",
             slug: "advance/purchase",
             name: "Uang Muka Pembelian",

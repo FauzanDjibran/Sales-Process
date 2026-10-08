@@ -9,6 +9,24 @@ import { SearchField } from "@/components/ui/search-field";
 import { Select } from "@/components/ui/select";
 import { formatDate, formatMoney, todayIso } from "@/lib/format";
 import type { SalesAdvanceListRow } from "@/lib/erp/ar-advance";
+import type { AdvanceVariant } from "@/lib/erp/ar-advance-workflow";
+
+const LIST_TEXT = {
+  sales: {
+    title: "Uang Muka Penjualan",
+    base: "/finance/advance/sales",
+    source: "Customer Order",
+    sub: "Tagihan uang muka ke customer atas Customer Order berstatus Open. Menerbitkan tagihan tidak memposting apa pun; kas, Uang Muka Penjualan dan PPN Keluaran dicatat saat pembayarannya diterima.",
+    empty: "Buat tagihan uang muka dari Customer Order berstatus Open.",
+  },
+  permit: {
+    title: "Uang Muka Perizinan",
+    base: "/finance/advance/permit",
+    source: "Pengajuan",
+    sub: "Tagihan uang muka ke customer atas Pengajuan Perizinan yang disetujui, satu baris uraian. Menerbitkan tagihan tidak memposting apa pun; kas, Uang Muka Perizinan dan PPN Keluaran dicatat saat pembayarannya diterima.",
+    empty: "Buat tagihan uang muka dari Pengajuan Perizinan yang sudah disetujui.",
+  },
+} as const;
 import {
   ADVANCE_STATUS_BADGE,
   ADVANCE_STATUS_TEXT,
@@ -32,12 +50,15 @@ export function AdvanceList({
   rows: all,
   paid,
   can,
+  variant = "sales",
 }: {
   rows: SalesAdvanceListRow[];
   /** Settled by posted receipts, per bill id. */
   paid: Record<number, number>;
   can: AdvanceAbilities;
+  variant?: AdvanceVariant;
 }) {
+  const T = LIST_TEXT[variant];
   const stateOf = (r: SalesAdvanceListRow) => payStateOf(r.total, paid[r.id] ?? 0);
   const isOverdue = (r: SalesAdvanceListRow, today: string) =>
     r.status === "Issued" && r.dueDate < today && stateOf(r) !== "Lunas";
@@ -76,32 +97,31 @@ export function AdvanceList({
           <span>/</span>
           <span>Uang Muka</span>
           <span>/</span>
-          <span className="cur">Uang Muka Penjualan</span>
+          <span className="cur">{T.title}</span>
         </div>
         <div className="ph-row">
           <h1>
             <span className="ph-ico">
               <Icon name="wallet" size={16} />
             </span>
-            Uang Muka Penjualan
+            {T.title}
           </h1>
           <div className="ph-act">
             {can.create && (
-              <Link className="btn primary" href="/finance/advance/sales/new">
+              <Link className="btn primary" href={`${T.base}/new`}>
                 <Icon name="plus" size={15} /> Uang Muka Baru
               </Link>
             )}
           </div>
         </div>
         <p className="ph-sub">
-          Tagihan uang muka ke customer atas Customer Order berstatus Open. Menerbitkan tagihan tidak
-          memposting apa pun; kas, Uang Muka Penjualan dan PPN Keluaran dicatat saat pembayarannya diterima.
+          {T.sub}
         </p>
       </div>
 
       <div className="card">
         <div className="toolbar">
-          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor, Customer Order atau customer…" />
+          <SearchField value={query} onChange={setQuery} placeholder={`Cari nomor, ${T.source} atau customer…`} />
           <Select
             variant="toolbar"
             value={status}
@@ -135,7 +155,7 @@ export function AdvanceList({
                     <th style={{ width: 116 }}>Status</th>
                     <th style={{ width: 100 }}>Tanggal</th>
                     <th style={{ width: 106 }}>Jatuh Tempo</th>
-                    <th>Customer / Customer Order</th>
+                    <th>Customer / {T.source}</th>
                     <th className="num" style={{ width: 140 }}>DPP</th>
                     <th className="num" style={{ width: 120 }}>PPN</th>
                     <th className="num" style={{ width: 150 }}>Total Tagihan</th>
@@ -144,9 +164,9 @@ export function AdvanceList({
                 </thead>
                 <tbody>
                   {paging.pageRows.map((r) => (
-                    <tr key={r.id} onClick={() => router.push(`/finance/advance/sales/${r.id}`)}>
+                    <tr key={r.id} onClick={() => router.push(`${T.base}/${r.id}`)}>
                       <td>
-                        <Link className="lab" href={`/finance/advance/sales/${r.id}`}>
+                        <Link className="lab" href={`${T.base}/${r.id}`}>
                           {r.advanceNo}
                         </Link>
                       </td>
@@ -208,11 +228,11 @@ export function AdvanceList({
             <div className="ic">
               <Icon name="wallet" size={20} />
             </div>
-            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada Uang Muka Penjualan"}</h4>
+            <h4>{q || status ? "Tidak ada yang cocok" : `Belum ada ${T.title}`}</h4>
             <p>
               {q || status
                 ? "Tidak ada tagihan yang sesuai dengan pencarian atau filter."
-                : "Buat tagihan uang muka dari Customer Order berstatus Open."}
+                : T.empty}
             </p>
             {q || status ? (
               <div className="cta">
@@ -229,7 +249,7 @@ export function AdvanceList({
             ) : (
               can.create && (
                 <div className="cta">
-                  <Link className="btn primary" href="/finance/advance/sales/new">
+                  <Link className="btn primary" href={`${T.base}/new`}>
                     <Icon name="plus" size={15} /> Uang Muka Baru
                   </Link>
                 </div>

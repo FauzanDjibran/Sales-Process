@@ -311,6 +311,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   fin_ar_invoice: INVOICE_EVENTS,
   fin_ap_invoice: PURCHASE_INVOICE_EVENTS,
   fin_ar_advance: SALES_ADVANCE_EVENTS,
+  fin_ar_permit_advance: SALES_ADVANCE_EVENTS,
   fin_ap_advance: PURCHASE_ADVANCE_EVENTS,
   fin_cash_bank_tx: CASH_BANK_TX_EVENTS,
   tax_faktur: TAX_FAKTUR_EVENTS,

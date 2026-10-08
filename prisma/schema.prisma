@@ -849,6 +849,7 @@ model MPartner {
 
   customer_orders SalCustomerOrder[]
   permit_requests SalPermitRequest[]
+  permit_advances FinArPermitAdvance[] @relation("PermitAdvanceCustomer")
   sales_orders    SalOrder[]
   delivery_orders SalDeliveryOrder[]
   delivery_notes  LogDeliveryNote[]
@@ -1023,8 +1024,9 @@ model MCashBank {
   transactions FinCashBankTx[]
 
   /// Advance bills that print this account as where to pay (P56).
-  sales_advances FinArAdvance[]
-  sales_invoices FinArInvoice[]
+  sales_advances  FinArAdvance[]
+  permit_advances FinArPermitAdvance[] @relation("PermitAdvanceBank")
+  sales_invoices  FinArInvoice[]
 
   @@map("m_cash_bank")
 }
@@ -2459,6 +2461,76 @@ model FinArAdvance {
   @@index([customer_id])
   @@index([status, advance_date])
   @@map("fin_ar_advance")
+}
+
+/// Uang Muka Perizinan (P137, Perizinan-Concept.md §7): the AR advance bill of
+/// the Perizinan flow, drawn from one Pengajuan Perizinan. Header-only — its one
+/// line is its Uraian. Posts nothing; mirrors `fin_ar_advance` (P58).
+model FinArPermitAdvance {
+  id           Int           @id @default(autoincrement())
+  /// `UMP/YYYY/MM/NNNN` (`UMP-NP/…` without PPN), in its own month.
+  advance_no   String        @unique
+  advance_date DateTime      @db.Date
+  due_date     DateTime      @db.Date
+  status       AdvanceStatus @default(Draft)
+
+  /// The Pengajuan Perizinan it is drawn from (P137, Z10) — another module's
+  /// document, by id.
+  permit_request_id Int
+  /// The order's customer, kept on the bill because the partner is what an
+  /// advance is settled by (C22).
+  customer_id       Int
+  /// A Bank-type Cash & Bank in rupiah, printed on the bill as where to pay.
+  cash_bank_id      Int
+  /// The one line the bill prints.
+  description       String
+  note              String?
+
+  /// Copied from the order, which is locked once confirmed.
+  price_mode                PriceMode
+  is_taxable                Boolean
+  /// The Pengajuan's one Jenis PPh and rate, copied (QZ7).
+  withholding_tax_id        Int?
+  withholding_rate          Decimal?  @db.Decimal(9, 4)
+  /// The bill's own snapshot of the PPN rate and DPP Nilai Lain factor, taken
+  /// at each save while Draft and frozen at Terbitkan (P60). Null when the
+  /// order is not Kena PPN.
+  ppn_rate                  Decimal?  @db.Decimal(9, 4)
+  ppn_dpp_other_numerator   Int?
+  ppn_dpp_other_denominator Int?
+
+  /// As typed: a percent of the order's value, or a flat value (P55).
+  amount_type  AdvanceAmountType
+  amount_value Decimal           @db.Decimal(18, 4)
+
+  // ---- figures, from `lib/erp/sales-tax.ts`, whole rupiah.
+  /// The value drawn, in the order's price mode — what the room is spent in.
+  amount           Decimal @db.Decimal(18, 2)
+  dpp_amount       Decimal @db.Decimal(18, 2)
+  /// DPP Nilai Lain by the snapshotted factor; zero when not Kena PPN.
+  dpp_other_amount Decimal @db.Decimal(18, 2)
+  ppn_amount       Decimal @db.Decimal(18, 2)
+  /// What the bill asks for: DPP + PPN.
+  total_amount     Decimal @db.Decimal(18, 2)
+  /// What posted receipts have settled of it, cash + PPh (P132). Each posting
+  /// reads it as the payment's `before` and adds its line to it, so a receipt
+  /// never reads another receipt.
+  paid_amount      Decimal @default(0) @db.Decimal(18, 2)
+
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  customer  MPartner  @relation("PermitAdvanceCustomer", fields: [customer_id], references: [id])
+  cash_bank MCashBank @relation("PermitAdvanceBank", fields: [cash_bank_id], references: [id])
+
+  @@index([permit_request_id])
+  @@index([customer_id])
+  @@index([status, advance_date])
+  @@map("fin_ar_permit_advance")
 }
 
 // ------------------------------------------------------ cash bank transaction

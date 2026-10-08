@@ -15,7 +15,7 @@ import { CashReceiptActions } from "@/components/finance/cash-receipt-actions";
 import { BillPicker, type PickedLine } from "@/components/finance/cash-receipt-bill-picker";
 import { createCashReceiptAction, updateCashReceiptAction } from "@/app/actions/cash-receipt";
 import { cashToClear, settleBillFromCash, type SettlementLine } from "@/lib/erp/sales-tax";
-import { SETTLED_DOC_TEXT, billKey, cashBankPurpose } from "@/lib/erp/cash-bank-purposes";
+import { SETTLED_DOC_ROUTE, SETTLED_DOC_TEXT, billKey, cashBankPurpose } from "@/lib/erp/cash-bank-purposes";
 import {
   CASH_BANK_TX_STATUS_BADGE,
   CASH_BANK_TX_STATUS_TEXT,
@@ -61,7 +61,7 @@ type LiveLine = { bill: OpenBill; input: Line; withhold: boolean; max: number; l
 const money = (n: number) => formatMoney(n, "IDR");
 
 /** Where a settled document opens. */
-const billHref = (b: OpenBill) => (b.kind === "fin_ar_invoice" ? `/finance/invoice/sales/${b.id}` : `/finance/advance/sales/${b.id}`);
+const billHref = (b: OpenBill) => `${SETTLED_DOC_ROUTE[b.kind]}/${b.id}`;
 
 export function CashReceiptForm({
   mode,

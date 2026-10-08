@@ -13,6 +13,7 @@ import { PercentInput } from "@/components/ui/percent-input";
 import { useToast } from "@/components/ui/toast";
 import { AdvanceActions } from "@/components/finance/advance-actions";
 import { createSalesAdvanceAction, updateSalesAdvanceAction } from "@/app/actions/ar-advance";
+import { createPermitAdvanceAction, updatePermitAdvanceAction } from "@/app/actions/permit-advance";
 import {
   advanceAmountProblem,
   computeAdvance,
@@ -23,8 +24,10 @@ import {
   ADVANCE_STATUS_BADGE,
   ADVANCE_STATUS_TEXT,
   type AdvanceAbilities,
+  type AdvanceVariant,
 } from "@/lib/erp/ar-advance-workflow";
 import type { SalesAdvanceOptions, SalesAdvanceView } from "@/lib/erp/ar-advance";
+import type { PermitAdvanceOptions, PermitAdvanceView } from "@/lib/erp/permit-advance";
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
 
@@ -69,8 +72,41 @@ function addDays(iso: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-const descriptionFor = (orderNo: string, poNo: string | null) =>
-  `Uang muka atas pesanan ${orderNo}${poNo ? ` (PO ${poNo})` : ""}`;
+/**
+ * The words and routes of each advance bill (P137): Uang Muka Penjualan draws
+ * from a Customer Order, Uang Muka Perizinan from a Pengajuan Perizinan's
+ * estimate. Same form, same arithmetic; their own tables and actions.
+ */
+const VARIANT = {
+  sales: {
+    title: "Uang Muka Penjualan",
+    base: "/finance/advance/sales",
+    source: "Customer Order",
+    sourceDate: "Tanggal CO",
+    sourceRoute: "/sales/customer-order",
+    sourceHelp: "hanya CO berstatus Open",
+    sourceEmpty: "Belum ada Customer Order berstatus Open yang masih punya sisa nilai.",
+    section: "Pesanan",
+    noun: "pesanan",
+    lineNoun: "barang",
+    account: "Uang Muka Penjualan",
+    lead: "Uang muka atas pesanan",
+  },
+  permit: {
+    title: "Uang Muka Perizinan",
+    base: "/finance/advance/permit",
+    source: "Pengajuan Perizinan",
+    sourceDate: "Tanggal Pengajuan",
+    sourceRoute: "/sales/permit",
+    sourceHelp: "Disetujui atau Terealisasi, belum ditagih",
+    sourceEmpty: "Belum ada Pengajuan Perizinan yang disetujui dan masih punya sisa estimasi.",
+    section: "Pengajuan",
+    noun: "estimasi",
+    lineNoun: "perizinan",
+    account: "Uang Muka Perizinan",
+    lead: "Uang muka jasa pengurusan perizinan",
+  },
+} as const;
 
 /** A receipt that names this bill, as its page lists them (P66). */
 export type AdvancePayment = { id: number; txNo: string; date: string; status: string; settled: number };
@@ -81,13 +117,19 @@ export function AdvanceForm({
   options,
   can,
   payments = [],
+  variant = "sales",
 }: {
   mode: AdvanceMode;
-  advance: SalesAdvanceView | null;
-  options: SalesAdvanceOptions;
+  advance: SalesAdvanceView | PermitAdvanceView | null;
+  options: SalesAdvanceOptions | PermitAdvanceOptions;
   can: AdvanceAbilities;
   payments?: AdvancePayment[];
+  variant?: AdvanceVariant;
 }) {
+  const V = VARIANT[variant];
+  const descriptionFor = (orderNo: string, poNo: string | null) => `${V.lead} ${orderNo}${poNo ? ` (PO ${poNo})` : ""}`;
+  // Both sources share the fields the form reads (PermitAdvanceSource mirrors AdvanceSourceOrder).
+  const orders = options.orders as SalesAdvanceOptions["orders"];
   const router = useRouter();
   const toast = useToast();
   const editing = mode !== "view";
@@ -123,7 +165,7 @@ export function AdvanceForm({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const order = options.orders.find((o) => o.id === s.order_id) ?? null;
+  const order = orders.find((o) => o.id === s.order_id) ?? null;
 
   const touch = (...names: string[]) => {
     setDirty(true);
@@ -140,15 +182,21 @@ export function AdvanceForm({
 
   /** Choosing the order fills what the bill follows from it. */
   const pickOrder = (id: number | null) => {
-    const o = options.orders.find((x) => x.id === id) ?? null;
+    const o = orders.find((x) => x.id === id) ?? null;
     setS((x) => {
-      const prev = options.orders.find((y) => y.id === x.order_id);
+      const prev = orders.find((y) => y.id === x.order_id);
       const auto = !x.description || (prev && x.description === descriptionFor(prev.orderNo, prev.poNo));
       return {
         ...x,
         order_id: id,
         description: o && auto ? descriptionFor(o.orderNo, o.poNo) : x.description,
-        amount_value: "",
+        // A Perizinan advance is usually billed in full (Z11): it starts on all
+        // that is left of the estimate; a sales one starts empty.
+        ...(variant === "permit" && o && o.left > 0
+          ? o.drawn === 0
+            ? { amount_type: "Percent" as const, amount_value: "100" }
+            : { amount_type: "Amount" as const, amount_value: String(o.left) }
+          : { amount_value: "" }),
       };
     });
     touch("order_id", "description", "amount_value");
@@ -183,7 +231,13 @@ export function AdvanceForm({
     setSaving(true);
     const input = { ...s, amount_value: typed };
     const result =
-      mode === "edit" ? await updateSalesAdvanceAction(advance!.id, input) : await createSalesAdvanceAction(input);
+      variant === "permit"
+        ? mode === "edit"
+          ? await updatePermitAdvanceAction(advance!.id, input)
+          : await createPermitAdvanceAction(input)
+        : mode === "edit"
+          ? await updateSalesAdvanceAction(advance!.id, input)
+          : await createSalesAdvanceAction(input);
     setSaving(false);
     if (!result.ok) {
       setErrors(result.errors);
@@ -197,14 +251,14 @@ export function AdvanceForm({
     }
     setDirty(false);
     toast("Tagihan uang muka disimpan", `${result.advanceNo} · Draft`, "ok");
-    router.push(`/finance/advance/sales/${result.id}`);
+    router.push(`${V.base}/${result.id}`);
   }
 
   const status = advance?.status ?? "Draft";
-  const backHref = advance ? `/finance/advance/sales/${advance.id}` : "/finance/advance/sales";
+  const backHref = advance ? `${V.base}/${advance.id}` : V.base;
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
   const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
-  const waitOrder = "menunggu Customer Order";
+  const waitOrder = `menunggu ${V.source}`;
 
   const taxStatus = order
     ? [order.isPkp ? "PKP" : "Non-PKP", order.basis.vatCollector ? "Pemungut PPN" : null, order.collectsPph22 ? "Pemungut PPh 22" : null].filter(
@@ -251,36 +305,36 @@ export function AdvanceForm({
                 </div>
               ))}
             </Field>
-            <Field label="Alamat" span={12} help={editing && order ? "dari Customer Order" : undefined}>
+            <Field label="Alamat" span={12} help={editing && order ? `dari ${V.source}` : undefined}>
               {fromOrder((o) => ro(<span>{o.addressText}</span>))}
             </Field>
           </FormRow>
         </FormSection>
 
-        <FormSection title="Pesanan">
+        <FormSection title={V.section}>
           <FormRow>
             <Field
-              label="Customer Order"
+              label={V.source}
               span={3}
               required={mode === "new"}
               locked={mode === "edit"}
-              help={mode === "new" ? "hanya CO berstatus Open" : undefined}
+              help={mode === "new" ? V.sourceHelp : undefined}
               error={errors.order_id}
             >
               {mode === "new" ? (
                 <Combobox
                   value={s.order_id}
-                  options={options.orders
+                  options={orders
                     .filter((o) => o.left > 0)
                     .map((o) => ({ id: o.id, label: o.orderNo, name: o.customerName, active: true }))}
-                  placeholder="Pilih Customer Order…"
-                  emptyText="Belum ada Customer Order berstatus Open yang masih punya sisa nilai."
+                  placeholder={`Pilih ${V.source}…`}
+                  emptyText={V.sourceEmpty}
                   invalid={Boolean(errors.order_id)}
                   onChange={pickOrder}
                 />
               ) : order ? (
                 ro(
-                  <Link className="drl" href={`/sales/customer-order/${order.id}`}>
+                  <Link className="drl" href={`${V.sourceRoute}/${order.id}`}>
                     <span className="mono">{order.orderNo}</span>
                   </Link>
                 )
@@ -288,7 +342,7 @@ export function AdvanceForm({
                 nil()
               )}
             </Field>
-            <Field label="Tanggal CO" span={3}>
+            <Field label={V.sourceDate} span={3}>
               {fromOrder((o) => ro(formatDate(o.orderDate)))}
             </Field>
             <Field label="No. PO Customer" span={3}>
@@ -440,7 +494,7 @@ export function AdvanceForm({
           <p className="fnote">
             {advance?.status === "Draft"
               ? "Tagihan masih Draft — belum dikirim ke customer dan masih dapat diubah. Menerbitkan tagihan tidak membentuk journal."
-              : "Tagihan sudah diterbitkan. Tagihan uang muka bukan transaksi, sehingga tidak membentuk journal: kas, Uang Muka Penjualan dan PPN Keluaran dicatat saat pembayarannya diterima di menu Penerimaan Kas & Bank."}
+              : `Tagihan sudah diterbitkan. Tagihan uang muka bukan transaksi, sehingga tidak membentuk journal: kas, ${V.account} dan PPN Keluaran dicatat saat pembayarannya diterima di menu Penerimaan Kas & Bank.`}
           </p>
         )}
       </FormBody>
@@ -460,7 +514,7 @@ export function AdvanceForm({
       : inclusive
         ? "Uang Muka Ditarik (termasuk PPN)"
         : "Uang Muka Ditarik (DPP)";
-  const orderValueLabel = !order || !order.basis.taxable ? "nilai pesanan" : inclusive ? "total pesanan" : "DPP pesanan";
+  const orderValueLabel = !order || !order.basis.taxable ? `nilai ${V.noun}` : inclusive ? `total ${V.noun}` : `DPP ${V.noun}`;
   const roomHelp =
     editing && order
       ? `maks ${money(order.left)}${order.drawn ? ` — ${money(order.drawn)} sudah ditagih uang muka lain` : ""}`
@@ -476,12 +530,12 @@ export function AdvanceForm({
           <h3>Dasar Uang Muka</h3>
           <p>
             {!order
-              ? "Nilai pesanan dari Customer Order yang dipilih menjadi dasar uang muka."
+              ? `Nilai ${V.noun} dari ${V.source} yang dipilih menjadi dasar uang muka.`
               : !order.basis.taxable
-                ? "Pesanan sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya. Tanpa PPN."
+                ? `${V.section} sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya. Tanpa PPN.`
                 : inclusive
-                  ? "Pesanan sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya (sudah termasuk PPN). DPP, DPP Nilai Lain dan PPN dihitung dari nilai itu."
-                  : "Pesanan sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya (sebelum PPN). DPP Nilai Lain dan PPN dihitung dari nilai itu."}
+                  ? `${V.section} sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya (sudah termasuk PPN). DPP, DPP Nilai Lain dan PPN dihitung dari nilai itu.`
+                  : `${V.section} sebagai satu baris, lalu satu nilai uang muka yang ditarik darinya (sebelum PPN). DPP Nilai Lain dan PPN dihitung dari nilai itu.`}
           </p>
         </div>
       </div>
@@ -490,8 +544,8 @@ export function AdvanceForm({
           <div className="ic">
             <Icon name="box" size={18} />
           </div>
-          <h4>Menunggu Customer Order</h4>
-          <p>Nilai pesanan tampil di sini; uang muka ditarik dari nilai itu.</p>
+          <h4>Menunggu {V.source}</h4>
+          <p>Nilai {V.noun} tampil di sini; uang muka ditarik dari nilai itu.</p>
         </div>
       ) : (
         <>
@@ -501,7 +555,7 @@ export function AdvanceForm({
                 <tr>
                   <th style={{ width: 34 }}>No</th>
                   <th>Uraian pada Tagihan</th>
-                  <th className="num" style={{ width: 150 }}>Total Pesanan</th>
+                  <th className="num" style={{ width: 150 }}>Total {V.section}</th>
                   <th className="num" style={{ width: 160 }}>DPP (sebelum pajak)</th>
                 </tr>
               </thead>
@@ -514,7 +568,7 @@ export function AdvanceForm({
                         <input
                           className={`inp sm${errors.description ? " bad" : ""}`}
                           value={s.description}
-                          placeholder="mis. Uang muka 30% atas pesanan …"
+                          placeholder={`mis. ${V.lead} …`}
                           autoComplete="off"
                           aria-label="Uraian pada Tagihan"
                           onChange={(e) => set("description", e.target.value)}
@@ -526,7 +580,7 @@ export function AdvanceForm({
                       )}
                       <span className="d2">
                         {order.orderNo}
-                        {order.poNo ? ` · PO ${order.poNo}` : ""} · {order.lineCount} barang
+                        {order.poNo ? ` · PO ${order.poNo}` : ""} · {order.lineCount} {V.lineNoun}
                       </span>
                     </span>
                     {errors.description && <span className="overtag">{errors.description}</span>}
@@ -542,7 +596,7 @@ export function AdvanceForm({
               <tfoot>
                 <tr className="totrow">
                   <td colSpan={3} style={{ textAlign: "right" }}>
-                    Total DPP pesanan
+                    Total DPP {V.noun}
                   </td>
                   <td className="num">
                     <span className="mny big">{money(order.basis.dpp)}</span>
@@ -644,7 +698,7 @@ export function AdvanceForm({
                   Perhitungan Uang Muka · {order.basis.taxable ? MODE_TEXT[order.basis.mode] : "Tidak Kena PPN"}
                 </div>
                 <div className="ir">
-                  <span>DPP pesanan</span>
+                  <span>DPP {V.noun}</span>
                   <b>{money(order.basis.dpp)}</b>
                 </div>
                 {order.basis.taxable ? (
@@ -715,7 +769,7 @@ export function AdvanceForm({
           <span>/</span>
           <span>Uang Muka</span>
           <span>/</span>
-          <Link href="/finance/advance/sales">Uang Muka Penjualan</Link>
+          <Link href={V.base}>{V.title}</Link>
           <span>/</span>
           <span className="cur">{advance ? advance.advanceNo : "Baru"}</span>
         </div>
@@ -730,7 +784,7 @@ export function AdvanceForm({
                 <span className={`bdg ${ADVANCE_STATUS_BADGE[status]}`}>{ADVANCE_STATUS_TEXT[status]}</span>
               </>
             ) : (
-              "Uang Muka Penjualan Baru"
+              `${V.title} Baru`
             )}
             {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
           </h1>
@@ -754,6 +808,7 @@ export function AdvanceForm({
                 status={status}
                 can={can}
                 figures={advance!.figures}
+                variant={variant}
               />
             )}
           </div>
