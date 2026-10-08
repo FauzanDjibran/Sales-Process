@@ -78,6 +78,13 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "WITHHOLDING_TAX_ACTIVATE",
     deactivate: "WITHHOLDING_TAX_DEACTIVATE",
   },
+  ref_permit_type: {
+    view: "PERMIT_TYPE_VIEW",
+    create: "PERMIT_TYPE_CREATE",
+    edit: "PERMIT_TYPE_EDIT",
+    activate: "PERMIT_TYPE_ACTIVATE",
+    deactivate: "PERMIT_TYPE_DEACTIVATE",
+  },
   sys_partner_category: {
     view: "PARTNER_CATEGORY_VIEW",
     create: "PARTNER_CATEGORY_CREATE",

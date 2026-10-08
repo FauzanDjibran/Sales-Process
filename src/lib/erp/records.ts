@@ -27,6 +27,7 @@ const DELEGATES = {
   ref_payment_term: (db: Client) => db.refPaymentTerm,
   ref_warehouse: (db: Client) => db.refWarehouse,
   ref_withholding_tax: (db: Client) => db.refWithholdingTax,
+  ref_permit_type: (db: Client) => db.refPermitType,
   sys_partner_category: (db: Client) => db.sysPartnerCategory,
   acc_account: (db: Client) => db.accAccount,
   acc_account_subcategory: (db: Client) => db.accAccountSubcategory,

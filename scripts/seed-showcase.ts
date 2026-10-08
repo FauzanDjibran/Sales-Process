@@ -33,6 +33,7 @@
  * signed-in user; the data is fixed, and the arithmetic of the application is
  * not involved.
  */
+import type { PermitCategory } from "../src/generated/prisma/client";
 import { prisma } from "../src/lib/prisma";
 import { ENTITIES } from "../src/lib/erp/entities";
 import { CASH_BANK_SUBCATEGORY, nextCode } from "../src/lib/erp/records";
@@ -44,6 +45,16 @@ import { nextAccountLabel, seedStarterAccounts } from "./lib/starter-accounts";
 import { injectStock, type InjectionRow } from "../src/lib/erp/inventory";
 
 // ------------------------------------------------------------------- data
+
+const PERMIT_TYPES: [label: string, name: string, category: PermitCategory, estimate: number, description: string][] = [
+  ["IZ-001", "Pra-Registrasi", "Regulatory", 500000, "Kajian formula, klaim dan penandaan sebelum notifikasi diajukan"],
+  ["IZ-002", "Registrasi Notifikasi BPOM", "Regulatory", 100000, "Pengajuan notifikasi kosmetik di e-Notifikasi BPOM sampai terbit NA"],
+  ["IZ-003", "Uji Stabilitas", "Laboratory", 200000, "Uji stabilitas dipercepat, termasuk laporan hasil uji"],
+  ["IZ-004", "Uji Mikrobiologi", "Laboratory", 150000, "Uji cemaran mikroba — ALT, kapang-khamir dan patogen"],
+  ["IZ-005", "Uji Logam Berat", "Laboratory", 175000, "Uji cemaran Pb, Hg, As dan Cd"],
+  ["IZ-006", "Sertifikasi Halal", "Certification", 650000, "Pendampingan sertifikasi halal BPJPH sampai terbit sertifikat"],
+  ["IZ-007", "Pendaftaran Merek", "IntellectualProperty", 1800000, "Permohonan merek satu kelas di DJKI"],
+];
 
 const WAREHOUSES: [label: string, name: string][] = [
   ["GD-CKR", "Gudang Cikarang"],
@@ -314,6 +325,24 @@ async function main() {
     });
     await audit("ref_warehouse", row.id);
     tally("gudang");
+  }
+
+  // ---- Jenis Perizinan, the simulation's PERMITS (P137)
+  for (const [label, name, category, estimate, description] of PERMIT_TYPES) {
+    if (await prisma.refPermitType.findFirst({ where: { permit_label: label } })) continue;
+    const row = await prisma.refPermitType.create({
+      data: {
+        permit_code: await nextCode(entity("ref_permit_type")),
+        permit_label: label,
+        permit_name: name,
+        category,
+        standard_estimate: estimate,
+        default_description: description,
+        created_by: actor,
+      },
+    });
+    await audit("ref_permit_type", row.id);
+    tally("jenis perizinan");
   }
 
   // ---- the starter chart with its mappings (shared with db:seed-accounts),

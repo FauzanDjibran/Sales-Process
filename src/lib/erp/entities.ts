@@ -1038,6 +1038,78 @@ export const ENTITIES: Entity[] = [
     ],
   },
 
+  {
+    // Not an Item (Perizinan-Concept.md Z2): a permit has no unit or quantity
+    // and only ever appears on the Pengajuan's internal list.
+    key: "ref_permit_type",
+    slug: "permit-type",
+    module: "master",
+    name: "Jenis Perizinan",
+    icon: "clip",
+    desc: "Perizinan yang diurus untuk produk customer maklon, beserta estimasi harga standarnya. Bukan barang — tanpa satuan maupun stok.",
+    codeField: "permit_code",
+    codePrefix: "izn",
+    labelField: "permit_label",
+    nameField: "permit_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "permit_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "IZ-001",
+        help: identHelp,
+      },
+      {
+        name: "permit_name",
+        label: "Nama Perizinan",
+        type: "text",
+        required: true,
+        placeholder: "Registrasi Notifikasi BPOM",
+      },
+      {
+        name: "category",
+        label: "Kategori",
+        type: "select",
+        required: true,
+        options: ["Regulatory", "Laboratory", "Certification", "IntellectualProperty"],
+        optionLabels: {
+          Regulatory: "Regulatori",
+          Laboratory: "Laboratorium",
+          Certification: "Sertifikasi",
+          IntellectualProperty: "Kekayaan Intelektual",
+        },
+        defaultValue: "Regulatory",
+      },
+      {
+        name: "standard_estimate",
+        label: "Harga Estimasi Standar",
+        type: "money",
+        placeholder: "0",
+        help: "sebelum PPN; awal harga estimasi di Pengajuan, dapat diubah",
+      },
+      {
+        name: "default_description",
+        label: "Uraian Default",
+        type: "textarea",
+        full: true,
+        placeholder: "Uraian yang muncul saat perizinan ini dipilih di Pengajuan…",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "permit_label", label: "Label", isLabel: true, width: "118px", filter: "text" },
+      { field: "permit_name", label: "Nama Perizinan", primary: true, filter: "text" },
+      { field: "category", label: "Kategori", isTag: true, width: "170px", filter: "enum" },
+      { field: "standard_estimate", label: "Harga Estimasi", numeric: true, width: "150px" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+    ],
+  },
+
   // ------------------------------------------------------ pengaturan
 
   {

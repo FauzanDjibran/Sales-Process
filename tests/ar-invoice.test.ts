@@ -82,7 +82,7 @@ const header = (over: Partial<InvoiceHeaderInput> = {}): InvoiceHeaderInput => (
   ...over,
 });
 const lines = (lineIds: number[]) => lineIds.map((id) => ({ delivery_note_line_id: id }));
-const use = (dpp: number | string, item = advanceItem): InvoiceDeductionInput[] => [{ ar_item_id: item, dpp_used: dpp }];
+const deduct = (dpp: number | string, item = advanceItem): InvoiceDeductionInput[] => [{ ar_item_id: item, dpp_used: dpp }];
 
 async function create(h: InvoiceHeaderInput, l: number[], d: InvoiceDeductionInput[] = []) {
   const r = await createInvoice(h, lines(l), d, actor);
@@ -393,9 +393,9 @@ describe("what an Invoice may bill (U16, U17)", () => {
     assert.ok(!wrong.ok && /bukan bagian/.test(wrong.errors["lines.0.delivery_note_line_id"]));
     const early = await checkInvoice(prisma, header({ invoice_date: "2020-01-01" }), lines(notes.firstLines), [], null);
     assert.ok(!early.ok && /Tanggal Kirim terakhir/.test(early.errors.invoice_date));
-    const over = await checkInvoice(prisma, header(), lines(notes.firstLines), use(300_001), null);
+    const over = await checkInvoice(prisma, header(), lines(notes.firstLines), deduct(300_001), null);
     assert.ok(!over.ok && /Melebihi sisa uang muka/.test(over.errors["deductions.0.dpp_used"]));
-    const tooMuch = await checkInvoice(prisma, header(), lines([notes.firstLines[1]]), use(200_001), null);
+    const tooMuch = await checkInvoice(prisma, header(), lines([notes.firstLines[1]]), deduct(200_001), null);
     assert.ok(!tooMuch.ok && /melebihi DPP invoice/.test(tooMuch.errors._deductions));
   });
 
@@ -403,12 +403,12 @@ describe("what an Invoice may bill (U16, U17)", () => {
     const bill = await prisma.finArAdvance.findUniqueOrThrow({ where: { id: ids.adv[0] }, select: { ppn_rate: true } });
     await prisma.finArAdvance.update({ where: { id: ids.adv[0] }, data: { ppn_rate: 11 } });
     try {
-      const r = await checkInvoice(prisma, header(), lines(notes.firstLines), use(100_000), null);
+      const r = await checkInvoice(prisma, header(), lines(notes.firstLines), deduct(100_000), null);
       assert.ok(!r.ok && /berbeda dengan invoice/.test(r.errors["deductions.0.ar_item_id"]), JSON.stringify(r));
     } finally {
       await prisma.finArAdvance.update({ where: { id: ids.adv[0] }, data: { ppn_rate: bill.ppn_rate } });
     }
-    const same = await checkInvoice(prisma, header(), lines(notes.firstLines), use(100_000), null);
+    const same = await checkInvoice(prisma, header(), lines(notes.firstLines), deduct(100_000), null);
     assert.ok(same.ok, "the same rate passes");
   });
 });
@@ -418,7 +418,7 @@ describe("what an Invoice may bill (U16, U17)", () => {
 describe("a Draft holds its lines and reserves its Uang Muka", () => {
   test("saved: numbered INV/…, taxed and due from the latest Tanggal Kirim, no journal", async () => {
     const journals = await prisma.accJournal.count();
-    const r = await create(header({ address_id: f.billing }), notes.firstLines, use(100_000));
+    const r = await create(header({ address_id: f.billing }), notes.firstLines, deduct(100_000));
     assert.ok(r.ok, JSON.stringify(r));
     assert.match(r.invoiceNo, /^INV\/\d{4}\/\d{2}\/\d{4}$/);
     assert.equal(await prisma.accJournal.count(), journals);
@@ -442,7 +442,7 @@ describe("a Draft holds its lines and reserves its Uang Muka", () => {
   });
 
   test("editing a Draft does not count against itself", async () => {
-    const r = await updateInvoice(ids.inv[0], header({ address_id: f.billing, note: "ubah" }), lines(notes.firstLines), use(100_000), actor);
+    const r = await updateInvoice(ids.inv[0], header({ address_id: f.billing, note: "ubah" }), lines(notes.firstLines), deduct(100_000), actor);
     assert.ok(r.ok, JSON.stringify(r));
   });
 });
@@ -554,7 +554,7 @@ describe("the order is finished when its delivery is; billing comes after (U21)"
   });
 
   test("a cancelled Draft frees its lines and its Uang Muka", async () => {
-    const draft = await create(header(), notes.secondLines, use(200_000));
+    const draft = await create(header(), notes.secondLines, deduct(200_000));
     assert.ok(draft.ok, JSON.stringify(draft));
     assert.deepEqual(await transitionInvoice(draft.id, "cancel", actor), { ok: false, errors: { reason: "Alasan wajib diisi." } });
     assert.deepEqual(await transitionInvoice(draft.id, "cancel", actor, "salah pilih"), { ok: true });
@@ -564,7 +564,7 @@ describe("the order is finished when its delivery is; billing comes after (U21)"
   });
 
   test("a closed order is still billed for what it sent; the completing bill takes the remainder", async () => {
-    const r = await create(header(), notes.secondLines, use(200_000));
+    const r = await create(header(), notes.secondLines, deduct(200_000));
     assert.ok(r.ok, JSON.stringify(r));
     const v = (await getInvoice(r.id))!;
     // 990.000 − 396.000 billed before.

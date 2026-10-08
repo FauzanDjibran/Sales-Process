@@ -394,6 +394,29 @@ table ref_payment_term {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
+// Jenis Perizinan (P137): the permits a Pengajuan Perizinan lists; not an Item
+table ref_permit_type {
+  id                          int [pk, increment, not null]
+
+  permit_code                 varchar [not null, unique]
+
+  permit_label                varchar [not null]
+  permit_name                 varchar [not null]
+  category                    enum('Regulatory', 'Laboratory', 'Certification', 'IntellectualProperty') [not null]
+  default_description         varchar
+  standard_estimate           decimal(18,2) // before PPN; a Pengajuan line's starting estimate
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
 // Jenis PPh, user managed; PPH22, PPH23, PPH23-15 seeded for sales (P44), PPH23-BELI for purchases
 // one side each (P122): a sales one is withheld from the company (prepaid asset),
 // a purchase one by the company (payable)

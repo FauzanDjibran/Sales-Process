@@ -751,6 +751,40 @@ model RefWithholdingTax {
   @@map("ref_withholding_tax")
 }
 
+// ------------------------------------------------------------ jenis perizinan
+//
+// The permits the company arranges for a makloon customer's product
+// (Perizinan-Concept.md Z2, P137). Not an Item: no unit, no quantity, never on
+// a goods or purchasing document. The standard estimate is only the starting
+// price of a new Pengajuan line, which the user changes freely.
+
+enum PermitCategory {
+  Regulatory
+  Laboratory
+  Certification
+  IntellectualProperty
+}
+
+model RefPermitType {
+  id                  Int            @id @default(autoincrement())
+  permit_code         String         @unique
+  permit_label        String
+  permit_name         String
+  category            PermitCategory
+  default_description String?
+  /// Before PPN, whole rupiah; the default estimate of a Pengajuan line.
+  standard_estimate   Decimal?       @db.Decimal(18, 2)
+  note                String?
+  status              ActiveStatus   @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@map("ref_permit_type")
+}
+
 // ---------------------------------------------------------------- master
 
 model MPartner {

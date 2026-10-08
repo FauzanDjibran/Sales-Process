@@ -34,6 +34,9 @@ export type SystemDefaultKey =
   | "bank_charge_account"
   | "receivable_account"
   | "sales_revenue_account"
+  | "permit_advance_account"
+  | "permit_revenue_account"
+  | "permit_cost_account"
   | "cogs_account"
   | "inventory_account"
   | "goods_received_account"
@@ -58,6 +61,7 @@ export type SystemDefaultGroupKey =
   | "purchase_rules"
   | "receipt"
   | "invoice"
+  | "permit"
   | "delivery"
   | "purchase"
   | "fx"
@@ -123,6 +127,17 @@ export const SYSTEM_DEFAULT_GROUPS = [
       "atas barang yang ditagih dan penjualannya. Uang Muka Penjualan dan PPN " +
       "Keluaran memakai account pada Penerimaan Penjualan.",
     icon: "file",
+  },
+  {
+    key: "permit",
+    page: "account",
+    name: "Perizinan",
+    desc:
+      "Account yang dipakai alur Perizinan: kewajiban atas Uang Muka Perizinan " +
+      "yang diterima, pendapatan saat Invoice Perizinan diposting, dan biaya " +
+      "perizinan yang dibayar. PPN Keluaran dan Piutang Usaha memakai account " +
+      "pada Penerimaan Penjualan dan Invoice Penjualan.",
+    icon: "clip",
   },
   {
     key: "delivery",
@@ -290,6 +305,37 @@ export const SYSTEM_DEFAULTS = [
     help: "pendapatan atas barang yang ditagih",
   },
 
+  // ------------------------------------------------------------- permit
+  //
+  // The Perizinan flow (P137, Perizinan-Concept.md Z22).
+  {
+    key: "permit_advance_account",
+    name: "Account Uang Muka Perizinan",
+    icon: "wallet",
+    type: "ref",
+    ref: "acc_account",
+    group: "permit",
+    help: "kewajiban atas uang muka perizinan yang diterima, per customer",
+  },
+  {
+    key: "permit_revenue_account",
+    name: "Account Pendapatan Perizinan",
+    icon: "trend",
+    type: "ref",
+    ref: "acc_account",
+    group: "permit",
+    help: "pendapatan jasa pengurusan perizinan saat invoice diposting",
+  },
+  {
+    key: "permit_cost_account",
+    name: "Account Biaya Perizinan",
+    icon: "coin",
+    type: "ref",
+    ref: "acc_account",
+    group: "permit",
+    help: "biaya perizinan yang dibayar sebesar realisasinya",
+  },
+
   // ------------------------------------------------------------ delivery
   //
   // Added with the Delivery Note (U12), one each for the company until the
@@ -431,6 +477,9 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   bank_charge_account: null,
   receivable_account: null,
   sales_revenue_account: null,
+  permit_advance_account: null,
+  permit_revenue_account: null,
+  permit_cost_account: null,
   cogs_account: null,
   inventory_account: null,
   goods_received_account: null,

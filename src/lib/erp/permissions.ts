@@ -94,6 +94,11 @@ export const PERMISSIONS = [
   { code: "WITHHOLDING_TAX_EDIT", name: "Ubah Jenis PPh", module: "master" },
   { code: "WITHHOLDING_TAX_ACTIVATE", name: "Aktifkan Jenis PPh", module: "master" },
   { code: "WITHHOLDING_TAX_DEACTIVATE", name: "Nonaktifkan Jenis PPh", module: "master" },
+  { code: "PERMIT_TYPE_VIEW", name: "Lihat Jenis Perizinan", module: "master" },
+  { code: "PERMIT_TYPE_CREATE", name: "Tambah Jenis Perizinan", module: "master" },
+  { code: "PERMIT_TYPE_EDIT", name: "Ubah Jenis Perizinan", module: "master" },
+  { code: "PERMIT_TYPE_ACTIVATE", name: "Aktifkan Jenis Perizinan", module: "master" },
+  { code: "PERMIT_TYPE_DEACTIVATE", name: "Nonaktifkan Jenis Perizinan", module: "master" },
 
   { code: "PARTNER_CATEGORY_VIEW", name: "Lihat Partner Category", module: "settings" },
   { code: "PARTNER_CATEGORY_CREATE", name: "Tambah Partner Category", module: "settings" },
