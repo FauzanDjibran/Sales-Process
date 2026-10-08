@@ -874,17 +874,40 @@ cost and paying it are separate; the credit side comes from a master.
 | R5 | **Remove the cost ledger** | `production-cost.ts` reduced to the Jenis Biaya reads; the two reports, their nav, route, permissions and components removed; reconcile: cost-ledger checks replaced by *every line on a cost-center account names one, and no other line does* and *a posted Tagihan's debit lines = its lines, account and cost center*. |
 | R6 | **Tests, docs, showcase** | `tests/production-cost.test.ts` reworked (paid and not-paid bills, the cost-center rule, manual-journal refusal); `Claude-ERP.md` P154; the existing showcase kept working (one not-paid depreciation bill added), nothing more. |
 
+### Revision after the user's review (08/10/2026) — supersedes the rows above where they differ
+
+| # | Decision |
+| --- | --- |
+| M82 | **An account's cost-center rule has three states, not a yes / no** — the mainstream shape: Business Central's default dimension *Value Posting* (blank / *Code Mandatory* / *No Code*), Odoo's analytic applicability (*Optional* / *Mandatory* / *Unavailable*); SAP is the strict case, where a cost-element account always needs a cost object and any other account takes none. `acc_account.cost_center_rule`: **Tidak Dipakai** (no line may carry one), **Opsional** (a line may), **Wajib** (every line must). `postJournal` enforces it for every source; the closing journal is exempt; the manual journal refuses *Wajib* accounts until it can pick a cost center. Replaces M74's boolean. Default per account: Q59. |
+| M83 | **Pusat Biaya has its own menu** (list / create / edit / deactivate), designed for many centers: nothing is pre-filled — **the user picks the Pusat Biaya on every Tagihan line**, even while *PRODUKSI* is the only one. Amends M72, M77. |
+| M84 | **Every Jenis Biaya names both its expense account and its own credit account**; *Dibayar lewat Pengeluaran* only says whether that credit can be settled by a payment. Account Mapping's *Hutang Biaya Produksi* is no longer used by the Tagihan (amends P151 / M69, M75). The credit account is copied onto each Tagihan line at posting, and the payment debits the account the bill was credited to. |
+| M85 | **The General Ledger and every existing report stay as they are** until the production concept is final. Production cost is seen in **one new report**, *Laporan Pusat Biaya* (Q61). Replaces R2's GL display and Q57. |
+| M86 | **The document is renamed *Tagihan Biaya* now** (screens, menu, permissions' names, document type); it stays in the Produksi module until it is made general. Code names (`prd_cost_bill`, `PRODUCTION_COST_BILL_*`) and the `TBP/…` prefix stay, as P99 did for the Invoice. Closes Q58. |
+
 **Open for the user** (answered before R1):
 
-- Q56 — A paid Jenis Biaya always credits the one global *Hutang Biaya
-  Produksi* (P151), while a not-paid one names its own lawan. *Rec:* yes.
-- Q57 — With Buku / Saldo Biaya Produksi gone, production cost is read in the
-  General Ledger. *Rec:* show the Pusat Biaya on each GL line (as Partner) now;
-  a cost-center report (account × cost center) comes with the close, which
-  shows the pool anyway.
-- Q58 — The document keeps its name *Tagihan Biaya Produksi* while only
-  production cost centers exist. *Rec:* yes; renamed *Tagihan Biaya* when an
-  Office cost center arrives.
+- **Q59 — default rule of an account.** *Rec:* **Tidak Dipakai** for every
+  account, the starter production cost accounts set to **Wajib** — so the
+  pool is never missing a cost and no balance-sheet line carries a cost
+  center; the user switches any other expense account to *Opsional* when
+  wanted. (Business Central and Odoo default to optional; that suits a
+  company that tags freely, at the price of cost centers on lines where they
+  mean nothing.)
+- **Q60 — a paid Tagihan's credit.** One Tagihan is paid as a whole, so *Rec:*
+  its lines must share **one credit account** (a PLN bill with Listrik and
+  Beban Abonemen both on Hutang Biaya Produksi); lines with different credit
+  accounts go on separate Tagihan. A not-paid Tagihan may mix credit accounts.
+- **Q61 — the report.** *Rec:* **one** Report View, *Laporan Pusat Biaya*,
+  shaped like the Buku Kas & Bank / General Ledger (SAP's cost-center line
+  items KSB1 with its totals S_ALR_87013611, Odoo's analytic report,
+  Business Central's dimension analysis): a period and Pusat Biaya chips; one
+  block per Pusat Biaya with Saldo Awal · Debit · Kredit · Saldo Akhir; inside
+  it a row per account with the same four figures (*Saldo*), each opening into
+  its journal lines with date, document, partner and description (*Buku*).
+  Saldo Awal counts from the fiscal year's start (cost accounts restart each
+  year). Read from journal lines only.
+
+---
 
 ---
 
