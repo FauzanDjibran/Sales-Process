@@ -5,6 +5,7 @@ import { Icon } from "@/components/icon";
 import { ExpandAll } from "@/components/ui/expand-all";
 import { ReportSummary } from "@/components/report/report-summary";
 import { Drill } from "@/components/report/drill";
+import { PartnerCell } from "@/components/ui/partner-cell";
 import { formatDate, formatForeignFace, formatMoney } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import type { GeneralLedgerReport as Report } from "@/lib/erp/ledger";
@@ -22,10 +23,10 @@ import type { GeneralLedgerReport as Report } from "@/lib/erp/ledger";
  * up to anything — that sum is the Trial Balance's job, and it does it per
  * currency and per side.
  *
- * The entry table carries no separate Partner column: a partner belongs with
- * the line it describes. It was a column whose width the description then had
- * to give up, which is what pushed the table into a
- * horizontal scroll.
+ * The entry table carries a **Partner** column, on the user's instruction: the point of reading a line on a Partner-bearing account
+ * is knowing whose it is, and that is a column's worth of fact, not a footnote
+ * under the description. It shows what the journal line recorded, a dash where
+ * it recorded none, and a warning where the line breaks its account's rule.
  */
 export function GeneralLedgerReport({ report }: { report: Report }) {
   // Collapsed keys rather than open ones: an account added to the URL should
@@ -56,12 +57,34 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
     );
   }
 
+  // A line breaking its account's Partner rule is a system fault, and the
+  // accounts start folded — so the fault is counted up here, where it is seen
+  // before any account is opened.
+  const mismatchesOf = (a: Report["accounts"][number]) =>
+    a.entries.filter((e) => e.partnerMismatch).length;
+  const faulty = report.accounts.filter((a) => mismatchesOf(a) > 0);
+  const faultyLines = faulty.reduce((t, a) => t + mismatchesOf(a), 0);
+
   const allOpen = open.size === report.accounts.length;
   const setAll = (o: boolean) =>
     setOpen(o ? new Set(report.accounts.map((a) => a.id)) : new Set());
 
   return (
     <>
+      {faultyLines > 0 && (
+        <div className="nbox warn slim" style={{ margin: "0 0 12px" }}>
+          <Icon name="warn" size={14} />
+          <div>
+            <b>{faultyLines} baris journal tidak sesuai aturan Partner account-nya.</b>
+            <p>
+              Hanya account yang mewajibkan Partner yang boleh mencatat Partner, dan
+              setiap barisnya wajib mencatatnya — selisih ini menandakan masalah
+              sistem: {faulty.map((a) => a.label).join(", ")}.
+            </p>
+          </div>
+        </div>
+      )}
+
       {report.accounts.length > 1 && (
         <div className="rhead">
           <span className="count">
@@ -98,8 +121,14 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
               <span className="cbn">
                 {a.name} · {a.normalBalance} · {a.entries.length} mutasi
                 {a.foreignCurrencies.length > 0 &&
-                  ` · sumber `}
+                  ` · sumber ${a.foreignCurrencies.join(", ")}`}
               </span>
+              {mismatchesOf(a) > 0 && (
+                <span className="rwarn">
+                  <Icon name="warn" size={11} />
+                  {mismatchesOf(a)} baris Partner tidak sesuai
+                </span>
+              )}
               <ReportSummary
                 figures={[
                   { label: "Saldo Awal", value: money(a.opening), zero: !a.opening },
@@ -122,6 +151,7 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
                     <tr>
                       <th style={{ width: 92 }}>Tanggal</th>
                       <th style={{ width: 106 }}>Journal</th>
+                      <th style={{ width: 220 }}>Partner</th>
                       <th>Keterangan</th>
                       <th className="num" style={{ width: 126 }}>
                         Debit
@@ -136,7 +166,7 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
                   </thead>
                   <tbody>
                     <tr className="totrow">
-                      <td colSpan={3}>
+                      <td colSpan={4}>
                         Saldo awal per {formatDate(report.range.from)}
                       </td>
                       <td className="num mut">—</td>
@@ -157,25 +187,21 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
                             <span className="lab">{e.journalNo}</span>
                           </Drill>
                         </td>
+                        <td>
+                          <PartnerCell
+                            label={e.partnerLabel}
+                            name={e.partnerName}
+                            mismatch={e.partnerMismatch}
+                          />
+                        </td>
                         <td className="pri wrapok">
                           {e.description}
-                          {(e.partnerLabel || e.trxCurrencyLabel) && (
+                          {/* What the rupiah figure beside it came from. Only
+                              where the two differ — an IDR line would just be
+                              stating itself twice. */}
+                          {e.trxCurrencyLabel && (
                             <span className="rsub">
-                              {[
-                                e.partnerLabel,
-                                // What the rupiah figure beside it came from.
-                                // Only where the two differ — an IDR line
-                                // would just be stating itself twice.
-                                e.trxCurrencyLabel
-                                  ? formatForeignFace(
-                                      e.trxAmount ?? 0,
-                                      e.trxCurrencyLabel,
-                                      e.rate ?? 0
-                                    )
-                                  : null,
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
+                              {formatForeignFace(e.trxAmount ?? 0, e.trxCurrencyLabel, e.rate ?? 0)}
                             </span>
                           )}
                         </td>
@@ -191,7 +217,7 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
 
                     {a.entries.length === 0 && (
                       <tr>
-                        <td colSpan={6} className="mut" style={{ textAlign: "center" }}>
+                        <td colSpan={7} className="mut" style={{ textAlign: "center" }}>
                           Tidak ada mutasi pada periode ini. Saldo akhir sama
                           dengan saldo awal.
                         </td>
@@ -199,7 +225,7 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
                     )}
 
                     <tr className="totrow">
-                      <td colSpan={3}>
+                      <td colSpan={4}>
                         Saldo akhir per {formatDate(report.range.to)}
                       </td>
                       <td className="num">{money(a.debit)}</td>
