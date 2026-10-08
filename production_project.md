@@ -592,7 +592,7 @@ No `-NP` series (no tax). Journals keep `JV/…`.
 
 | # | Step | Done when |
 | --- | --- | --- |
-| 1 ↺ reopened 08/10/2026 | **Masters and settings** — Workstation; Elemen Biaya Produksi as a master (M53); Account Kategori Item as a mapping list with WIP (M54); Account Mapping *Produksi*; no Control Account checks (M55); no Satuan Pembebanan Biaya (M57); starter accounts | Screens work in a browser; seed idempotent |
+| 1 ✅ reworked 08/10/2026 | **Masters and settings** — Workstation; Elemen Biaya Produksi as a master (M53); Account Kategori Item as a mapping list with WIP (M54); Account Mapping *Produksi*; no Control Account checks (M55); no Satuan Pembebanan Biaya (M57); starter accounts | Screens work in a browser; seed idempotent |
 | 2 | **Cost ledger + Pencatatan Biaya Produksi** (E4, §9.6) and *Buku Biaya Produksi* — the only writer for now (M52) | A cost entry posts journal + cost rows; reconcile check 5 passes |
 | 3 | **Production ledger** (E2, E3) with tests | Book tests green |
 | 4 | **Pengeluaran ke Produksi** (§9.3) | Stock out, bucket in, Dr WIP / Cr Persediaan; reconcile 2 |
@@ -675,6 +675,10 @@ of a close; mid-month pro-forma margin; multi-currency.
 | M55 | Phase 1 review | **No validation in this ERP checks the Control Account mark**; guarding it is the user's. Supersedes M39's Control Account rule. |
 | M56 | Phase 1 review | **Reject output keeps its stock.** 1.000 kg in → 850 kg good + 50 kg reject: susut is 100 kg; the reject is an output with its own lot, **status Reject** and value 0 by default (Bobot Biaya 0), so the 850 kg absorbs the cost; it is later taken out of production for return or disposal. How a reject sits in stock: Q49. |
 | M57 | Phase 1 review | **The spreading basis is not settled now**: *Satuan Pembebanan Biaya* is removed from Phase 1 and decided with the close (Phase 8). Bobot Biaya defaults to the base quantity; Susut is shown only where all lines share one unit. Amends M14, M26, M43. |
+| M58 | Phase 1 review 2 | **Stock status is the quality identity, the warehouse is the place.** A stock bucket (warehouse · location · lot · status) already splits one lot by status: Lot.0001 100 kg, 10 kg found bad → 90 kg *Tersedia* + 10 kg *Reject*, the same lot in two buckets, its value staying in the item's pool (a purchased reject keeps its cost). Only *Tersedia* is issued. A reject warehouse holds rejected goods awaiting return or disposal. The status catalogue and the document that moves quantity between statuses (and to the reject warehouse) are Q53. |
+| M59 | Q49 | **(c): a production reject stays in the production ledger** until a return or disposal document takes it out; it never enters a stock pool at 0. |
+| M60 | Q50 | **The cost ledger is the source of truth** for production cost, as the Cash Bank Book and the stock books are for theirs: the close reads it, never the GL. The only guard on an element's account is the user's Control Account mark; nothing refuses an element's account elsewhere. `db:reconcile` reports a difference with the GL, as it does for the other books. Supersedes the element guards of Phase 1. |
+| M61 | Q51, Q52 | **Elemen Biaya Produksi sits in Master › Referensi** beside Jenis PPh with its own permissions `PRODUCTION_COST_ELEMENT_*`; **several elements may name one account.** |
 | M51 | §21 B | **The *Dapat Diproduksi* flag is dropped** (amends M8): outputs take any Barang with Kelola Stok, cost receivers are decided by Kategori *Barang Jadi* (M46). More item and production categorisation will come later. |
 
 ---
@@ -717,6 +721,10 @@ of a close; mid-month pro-forma margin; multi-currency.
 - **Q52 — May two elements name the same account?** *Rec:* yes, as two Jenis
   PPh may (e.g. *Upah Harian* and *Lembur* both on Biaya Tenaga Kerja
   Langsung); the cost ledger keeps them apart, the GL check sums them.
+
+---
+
+- **Q53 — Stock status catalogue and moving between statuses** (from M58). *Proposal:* statuses **Karantina** (received, awaiting QC — not issuable), **Tersedia** (released) and **Reject**; *Diblokir* stays for a hold. Moving quantity between statuses, or into the reject warehouse, is a stock transfer document (C34) — the QC result. Not part of the production phases; to be planned when you ask.
 
 ---
 

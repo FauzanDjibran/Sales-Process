@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 
 import { ENTITIES, fieldApplies, SUPPLIER_CATEGORY } from "../src/lib/erp/entities";
 import { checkCustomerOrder, customerOrderOptions } from "../src/lib/erp/customer-order";
-import { accountsForItems, categoriesUsingAccount, saveItemCategoryAccounts } from "../src/lib/erp/item-account";
+import { accountsForItems, categoriesUsingAccount, categoryAccountKindProblem } from "../src/lib/erp/item-account";
 import { SYSTEM_DEFAULTS } from "../src/lib/erp/system-defaults";
-import { FIXTURE_PREFIX, cleanupFixtures, disconnect, makeAccount, prisma, systemUserId } from "./helpers";
+import { FIXTURE_PREFIX, cleanupFixtures, disconnect, makeAccount, prisma, systemUserId, setCategoryAccount, snapshotCategoryAccounts } from "./helpers";
 
 /**
  * The masters purchasing stands on (P122, Purchasing-Concept.md B1–B5a): a
@@ -19,15 +19,14 @@ const started = new Date();
 const f = {} as Record<string, number>;
 const stamp = String(Date.now() % 100000);
 const key = (s: string) => `${FIXTURE_PREFIX}${s}${stamp}`;
-const saved = new Map<number, { inventory_account_id: number | null; cogs_account_id: number | null; expense_account_id: number | null } | null>();
+let restoreCategories: () => Promise<void> = async () => {};
 
 before(async () => {
   actor = await systemUserId();
   f.goodsCat = (await prisma.sysItemCategory.findUniqueOrThrow({ where: { category_label: "BRG-JADI" } })).id;
   f.serviceCat = (await prisma.sysItemCategory.findFirstOrThrow({ where: { item_type: "Jasa" } })).id;
   for (const id of [f.goodsCat, f.serviceCat]) {
-    const row = await prisma.accItemCategoryAccount.findUnique({ where: { category_id: id } });
-    saved.set(id, row ? { inventory_account_id: row.inventory_account_id, cogs_account_id: row.cogs_account_id, expense_account_id: row.expense_account_id } : null);
+    void id;
   }
   const sub = async (label: string) =>
     (await prisma.accAccountSubcategory.findFirstOrThrow({ where: { subcategory_label: { startsWith: label } }, orderBy: { id: "asc" } })).subcategory_label;
@@ -43,10 +42,7 @@ before(async () => {
 });
 
 after(async () => {
-  for (const [id, row] of saved) {
-    if (row) await prisma.accItemCategoryAccount.update({ where: { category_id: id }, data: row });
-    else await prisma.accItemCategoryAccount.deleteMany({ where: { category_id: id } });
-  }
+  await restoreCategories();
   await prisma.auditLog.deleteMany({ where: { entity_key: "acc_item_category_account", at: { gte: started } } });
   await prisma.mItem.deleteMany({ where: { id: f.item } });
   await prisma.refUom.deleteMany({ where: { id: f.pcs } });
@@ -107,20 +103,22 @@ describe("the Pembelian settings exist (B5, B29b)", () => {
 });
 
 describe("accounts per Kategori Item (B5a, closes C25)", () => {
-  test("a Jasa category takes only a Beban account; every account must be active and postable", async () => {
-    const jasa = await saveItemCategoryAccounts([{ categoryId: f.serviceCat, inventory: f.inv, cogs: null, expense: null }], actor);
-    assert.ok(!jasa.ok && /hanya memakai Account Beban/.test(jasa.errors[`${f.serviceCat}.inventory`]));
-    await prisma.accAccount.update({ where: { id: f.exp }, data: { is_active: false } });
-    const bad = await saveItemCategoryAccounts([{ categoryId: f.goodsCat, inventory: null, cogs: null, expense: f.exp }], actor);
-    await prisma.accAccount.update({ where: { id: f.exp }, data: { is_active: true } });
-    assert.ok(!bad.ok && /non-aktif/.test(bad.errors[`${f.goodsCat}.expense`]), "an inactive account is refused");
+  test("a Jasa category takes only a Beban account (P150 M54)", () => {
+    assert.match(categoryAccountKindProblem("Jasa", "Inventory") ?? "", /hanya memakai Account Beban/);
+    assert.equal(categoryAccountKindProblem("Jasa", "Expense"), null);
+    assert.equal(categoryAccountKindProblem("Barang", "Wip"), null);
+    assert.match(categoryAccountKindProblem("Barang", "Nothing") ?? "", /tidak dikenali/);
   });
 
-  test("saved accounts resolve per item; an empty one reads null for the caller's fallback", async () => {
-    const r = await saveItemCategoryAccounts([{ categoryId: f.goodsCat, inventory: f.inv, cogs: f.cogs, expense: null }], actor);
-    assert.deepEqual(r, { ok: true, changed: 1 });
-    assert.deepEqual((await accountsForItems([f.item])).get(f.item), { inventory: f.inv, cogs: f.cogs, expense: null });
-    assert.deepEqual(await saveItemCategoryAccounts([{ categoryId: f.goodsCat, inventory: f.inv, cogs: f.cogs, expense: null }], actor), { ok: true, changed: 0 }, "nothing changed, nothing written");
+  test("mapped rows resolve per item; a kind not named, or named in an inactive row, reads null", async () => {
+    restoreCategories = await snapshotCategoryAccounts([f.goodsCat]);
+    await prisma.accItemCategoryAccount.deleteMany({ where: { category_id: f.goodsCat } });
+    await setCategoryAccount(f.goodsCat, "Inventory", f.inv, actor);
+    await setCategoryAccount(f.goodsCat, "Cogs", f.cogs, actor);
+    await setCategoryAccount(f.goodsCat, "Wip", f.exp, actor);
+    assert.deepEqual((await accountsForItems([f.item])).get(f.item), { inventory: f.inv, cogs: f.cogs, expense: null, wip: f.exp });
+    await prisma.accItemCategoryAccount.updateMany({ where: { category_id: f.goodsCat, account_kind: "Wip" }, data: { status: "Inactive" } });
+    assert.equal((await accountsForItems([f.item])).get(f.item)?.wip, null, "an inactive row counts as not named");
   });
 
   test("an account a category uses is named before it is deactivated", async () => {

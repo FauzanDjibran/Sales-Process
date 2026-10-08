@@ -46,8 +46,8 @@ import {
 import { checkWarehouseCollections, writeWarehouseCollections } from "@/lib/erp/warehouse";
 import type { Prisma } from "@/generated/prisma/client";
 import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-rules";
-import { categoriesUsingAccount, categoriesUsingAccountForStock } from "@/lib/erp/item-account";
-import { COST_ELEMENT_REFUSAL, costElementAccountProblem, isCostElementAccount } from "@/lib/erp/production-cost";
+import { categoriesUsingAccount, categoryAccountKindProblem } from "@/lib/erp/item-account";
+import { elementsUsingAccount } from "@/lib/erp/production-cost";
 
 /**
  * Every action here is permission-gated before it touches anything, and every
@@ -290,7 +290,9 @@ async function validate(
         : {};
       const clash = await delegate(entity.key).findFirst({
         where: {
-          [field.name]: { equals: value, mode: "insensitive" },
+          // A choice is an enum, which has no case to ignore (and Prisma
+          // refuses `mode` on one); free text is compared case-insensitively.
+          [field.name]: field.type === "select" ? { equals: value } : { equals: value, mode: "insensitive" },
           ...scope,
           ...(currentId ? { id: { not: currentId } } : {}),
         },
@@ -298,7 +300,7 @@ async function validate(
       });
       if (clash) {
         errors[field.name] = field.uniqueWithin
-          ? `${field.label} "${value}" sudah dipakai pada kelompok yang sama.`
+          ? `${field.label} "${field.optionLabels?.[value] ?? value}" sudah dipakai pada ${entity.fields.find((x) => x.name === field.uniqueWithin)?.label ?? "kelompok"} yang sama.`
           : `${field.label} "${value}" sudah dipakai record lain.`;
       }
     }
@@ -309,19 +311,23 @@ async function validate(
   }
   if (entity.key === "acc_account") {
     Object.assign(errors, await validateAccount(values, currentId, errors, applies));
-    // An element is posted only by documents that write the cost ledger (P150,
-    // M39); without the Control Account mark the manual journal could reach it.
-    if (currentId && applies.has("is_control_account") && !boolValue(values, "is_control_account") && !errors.is_control_account) {
-      if (await isCostElementAccount(currentId)) {
-        errors.is_control_account = "Account ini adalah Elemen Biaya Produksi dan harus tetap Control Account.";
-      }
+  }
+  // An element and a category row each name one posting account (P150 M53,
+  // M54): a postable leaf, active when chosen. The Control Account mark is
+  // never read (M55) — it is the user's own guard.
+  if ((entity.key === "acc_production_cost_element" || entity.key === "acc_item_category_account") && !errors.account_id) {
+    const accountId = refValue(values, "account_id");
+    if (accountId && !(currentId && entity.key === "acc_production_cost_element")) {
+      const problem = await postingAccountProblem(accountId);
+      if (problem) errors.account_id = problem;
     }
   }
-  if (entity.key === "acc_production_cost_element" && !currentId && !errors.account_id) {
-    const accountId = refValue(values, "account_id");
-    if (accountId) {
-      const problem = (await costElementAccountProblem(accountId)) ?? (await elementUseProblem(accountId));
-      if (problem) errors.account_id = problem;
+  if (entity.key === "acc_item_category_account" && !currentId && !errors.account_kind) {
+    const categoryId = refValue(values, "category_id");
+    const category = categoryId ? await prisma.sysItemCategory.findUnique({ where: { id: categoryId }, select: { item_type: true } }) : null;
+    if (category) {
+      const problem = categoryAccountKindProblem(category.item_type, String(values.account_kind ?? ""));
+      if (problem) errors.account_kind = problem;
     }
   }
   // A term is a whole number of days; a tax rate is a share of the base.
@@ -342,8 +348,6 @@ async function validate(
       });
       if (!account || !account.is_postable || account._count.children > 0 || !account.is_active) {
         errors.account_id = "Pilih account aktif yang dapat diposting.";
-      } else if (await isCostElementAccount(accountId)) {
-        errors.account_id = COST_ELEMENT_REFUSAL;
       }
     }
   }
@@ -373,21 +377,15 @@ async function validate(
   return errors;
 }
 
-/**
- * Another posting rule already pointing at an account that is to become an
- * Elemen Biaya Produksi (P150, M39): its document would post there without
- * writing the cost ledger. A Kategori Item's Beban is allowed — the Receipt
- * Note writes the cost ledger for it.
- */
-async function elementUseProblem(accountId: number): Promise<string | null> {
-  const mappings = await systemDefaultsUsingAccount(accountId);
-  if (mappings.length) return `Account ini dipakai Account Mapping (${mappings.join(", ")}).`;
-  const taxes = await prisma.refWithholdingTax.findMany({ where: { account_id: accountId }, select: { wht_label: true } });
-  if (taxes.length) return `Account ini dipakai Jenis PPh (${taxes.map((t) => t.wht_label).join(", ")}).`;
-  const categories = await categoriesUsingAccountForStock(accountId);
-  if (categories.length) return `Account ini dipakai Kategori Item sebagai Persediaan atau HPP (${categories.join(", ")}).`;
-  const banks = await prisma.mCashBank.findMany({ where: { account_id: accountId }, select: { cash_bank_label: true } });
-  if (banks.length) return `Account ini dipakai Cash & Bank (${banks.map((b) => b.cash_bank_label).join(", ")}).`;
+/** An account a posting may land in: postable, a leaf, active. */
+async function postingAccountProblem(accountId: number): Promise<string | null> {
+  const account = await prisma.accAccount.findUnique({
+    where: { id: accountId },
+    select: { is_postable: true, is_active: true, _count: { select: { children: true } } },
+  });
+  if (!account || !account.is_postable || account._count.children > 0 || !account.is_active) {
+    return "Pilih account aktif yang dapat diposting.";
+  }
   return null;
 }
 
@@ -759,8 +757,9 @@ export async function toggleStatus(
   // Deactivating an account that a Cash & Bank resource or a Jenis PPh posts
   // to would leave it pointing at an account it could no longer have chosen.
   if (entity.key === "acc_account" && !nextActive) {
-    if (await isCostElementAccount(id)) {
-      return { ok: false, message: "Account ini adalah Elemen Biaya Produksi dan tidak dapat dinonaktifkan. Nonaktifkan elemennya." };
+    const elements = await elementsUsingAccount(id);
+    if (elements.length) {
+      return { ok: false, message: `Account ini dipakai Elemen Biaya Produksi (${elements.join(", ")}) dan tidak dapat dinonaktifkan.` };
     }
     const taxes = await prisma.refWithholdingTax.findMany({
       where: { account_id: id },

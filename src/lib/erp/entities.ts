@@ -107,8 +107,6 @@ export type Field = {
   refFilter?:
     | "cashBankAccount"
     | "postableAccount"
-    /** A Biaya account that may become an Elemen Biaya Produksi (P150, M39). */
-    | "productionCostAccount"
     | "parentAccount"
     /** Kategori Item of the Tipe the form currently holds (P47). */
     | "itemCategoryByType";
@@ -1003,6 +1001,63 @@ export const ENTITIES: Entity[] = [
   },
 
   {
+    // A kind of production cost the user names, with the account it posts to
+    // (P150, M53) — as a Jenis PPh or a Cash & Bank names its account. Several
+    // elements may share one account (M61); the account is fixed once chosen,
+    // because the cost ledger names the element from its first row.
+    key: "acc_production_cost_element",
+    slug: "production-cost-element",
+    module: "master",
+    name: "Elemen Biaya Produksi",
+    icon: "coin",
+    desc: "Jenis biaya produksi — upah, listrik pabrik, penyusutan mesin — dan account tempat biayanya dicatat. Dikumpulkan di Buku Biaya Produksi dan dibebankan saat Penutupan Biaya Produksi.",
+    codeField: "element_code",
+    codePrefix: "bpe",
+    labelField: "element_label",
+    nameField: "element_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "element_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "UPAH-HARIAN",
+        help: identHelp,
+      },
+      {
+        name: "element_name",
+        label: "Nama Elemen Biaya",
+        type: "text",
+        required: true,
+        placeholder: "Upah Harian Produksi",
+        help: "nama lengkap",
+      },
+      {
+        name: "account_id",
+        label: "Account",
+        type: "ref",
+        ref: "acc_account",
+        refFilter: "postableAccount",
+        required: true,
+        locked: true,
+        span: 8,
+        help: "tempat biaya ini dicatat; tidak dapat diubah setelah disimpan",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "element_label", label: "Label", isLabel: true, width: "150px", filter: "text" },
+      { field: "element_name", label: "Nama Elemen Biaya", primary: true, filter: "text" },
+      { field: "account_id", label: "Account", isRef: true, width: "300px" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+    ],
+  },
+
+  {
     key: "ref_withholding_tax",
     slug: "withholding-tax",
     module: "master",
@@ -1327,59 +1382,63 @@ export const ENTITIES: Entity[] = [
   },
 
   {
-    // An account that carries only production cost (P150, M9, M39, M40). Named
-    // by its account — it has no identity of its own. The account is fixed once
-    // chosen: the cost ledger names it from its first row.
-    key: "acc_production_cost_element",
-    slug: "production-cost-element",
+    // Accounts per Kategori Item (P122), a mapping list since P150 M54: one row
+    // per category and kind of account, so a new kind is a new row, not a new
+    // column. Named by what it connects.
+    key: "acc_item_category_account",
+    slug: "item-category-account",
     module: "accounting",
-    name: "Elemen Biaya Produksi",
-    icon: "coin",
-    desc: "Account biaya yang seluruh isinya biaya produksi — tenaga kerja, listrik pabrik, penyusutan mesin. Dikumpulkan di Buku Biaya Produksi dan dibebankan ke Barang Jadi saat Penutupan Biaya Produksi.",
-    codeField: "element_code",
-    codePrefix: "bpe",
-    titleRefs: ["account_id"],
+    name: "Account Kategori Item",
+    single: "Account Kategori Item",
+    icon: "link",
+    desc: "Account per Kategori Item dan jenisnya — Persediaan, HPP, WIP, Beban. Jenis yang tidak diisi memakai Account Mapping (Persediaan, HPP, WIP); Beban tidak memiliki cadangan.",
+    codeField: "mapping_code",
+    codePrefix: "ica",
+    titleRefs: ["category_id", "account_id"],
     statusModel: ACTIVE_STATUS,
     fields: [
+      {
+        name: "category_id",
+        label: "Kategori Item",
+        type: "ref",
+        ref: "sys_item_category",
+        required: true,
+        locked: true,
+        span: 6,
+      },
+      {
+        name: "account_kind",
+        label: "Jenis Account",
+        type: "select",
+        required: true,
+        locked: true,
+        unique: true,
+        uniqueWithin: "category_id",
+        options: ["Inventory", "Cogs", "Wip", "Expense"],
+        optionLabels: { Inventory: "Persediaan", Cogs: "HPP", Wip: "WIP (Barang Dalam Proses)", Expense: "Beban" },
+        defaultValue: "Inventory",
+        span: 6,
+        help: "kategori Jasa hanya memakai Beban",
+      },
       {
         name: "account_id",
         label: "Account",
         type: "ref",
         ref: "acc_account",
-        refFilter: "productionCostAccount",
+        refFilter: "postableAccount",
         required: true,
-        unique: true,
-        locked: true,
         span: 8,
-        help: "account Biaya (5.x) yang ditandai Control Account dan belum pernah diposting",
-      },
-      {
-        name: "element_group",
-        label: "Kelompok Biaya",
-        type: "select",
-        required: true,
-        options: ["DirectLabor", "IndirectLabor", "Utility", "Depreciation", "Maintenance", "OtherOverhead"],
-        optionLabels: {
-          DirectLabor: "Tenaga Kerja Langsung",
-          IndirectLabor: "Tenaga Kerja Tidak Langsung",
-          Utility: "Listrik & Utilitas",
-          Depreciation: "Penyusutan",
-          Maintenance: "Pemeliharaan",
-          OtherOverhead: "Overhead Lain",
-        },
-        defaultValue: "OtherOverhead",
       },
       STATUS_FIELD,
       NOTE_FIELD,
     ],
     columns: [
-      { field: "element_code", label: "Kode", isLabel: true, width: "118px", filter: "text" },
-      { field: "account_id", label: "Account", isRef: true, primary: true },
-      { field: "element_group", label: "Kelompok Biaya", isTag: true, width: "220px", filter: "enum" },
+      { field: "category_id", label: "Kategori Item", isRef: true, primary: true, width: "260px", filter: "ref" },
+      { field: "account_kind", label: "Jenis Account", isTag: true, width: "200px", filter: "enum" },
+      { field: "account_id", label: "Account", isRef: true },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
   },
-
 
   // ------------------------------------------------ accounting · period control
 

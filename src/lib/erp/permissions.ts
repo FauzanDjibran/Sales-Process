@@ -104,6 +104,11 @@ export const PERMISSIONS = [
   { code: "PERMIT_TYPE_EDIT", name: "Ubah Jenis Perizinan", module: "master" },
   { code: "PERMIT_TYPE_ACTIVATE", name: "Aktifkan Jenis Perizinan", module: "master" },
   { code: "PERMIT_TYPE_DEACTIVATE", name: "Nonaktifkan Jenis Perizinan", module: "master" },
+  { code: "PRODUCTION_COST_ELEMENT_VIEW", name: "Lihat Elemen Biaya Produksi", module: "master" },
+  { code: "PRODUCTION_COST_ELEMENT_CREATE", name: "Tambah Elemen Biaya Produksi", module: "master" },
+  { code: "PRODUCTION_COST_ELEMENT_EDIT", name: "Ubah Elemen Biaya Produksi", module: "master" },
+  { code: "PRODUCTION_COST_ELEMENT_ACTIVATE", name: "Aktifkan Elemen Biaya Produksi", module: "master" },
+  { code: "PRODUCTION_COST_ELEMENT_DEACTIVATE", name: "Nonaktifkan Elemen Biaya Produksi", module: "master" },
 
   { code: "PARTNER_CATEGORY_VIEW", name: "Lihat Partner Category", module: "settings" },
   { code: "PARTNER_CATEGORY_CREATE", name: "Tambah Partner Category", module: "settings" },

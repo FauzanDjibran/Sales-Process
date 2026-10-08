@@ -31,6 +31,8 @@ import {
   cleanupStock,
   stockIn,
   systemUserId,
+  setCategoryAccount,
+  snapshotCategoryAccounts,
 } from "./helpers";
 
 /**
@@ -212,16 +214,10 @@ before(async () => {
   await setMapping("inventory_account", String(f.invAcc));
   // The items' category may carry its own accounts (db:seed-accounts fills
   // them); cleared here so the postings below fall back to Account Mapping.
-  const catAccounts = await prisma.accItemCategoryAccount.findUnique({ where: { category_id: cat } });
-  if (catAccounts) {
-    await prisma.accItemCategoryAccount.update({ where: { category_id: cat }, data: { inventory_account_id: null, cogs_account_id: null } });
-    cleanups.push(() =>
-      prisma.accItemCategoryAccount.update({
-        where: { category_id: cat },
-        data: { inventory_account_id: catAccounts.inventory_account_id, cogs_account_id: catAccounts.cogs_account_id },
-      })
-    );
-  }
+  const restoreCategory = await snapshotCategoryAccounts([cat]);
+  await setCategoryAccount(cat, "Inventory", null, actor);
+  await setCategoryAccount(cat, "Cogs", null, actor);
+  cleanups.push(restoreCategory);
 
   order = await issuedDeliveryOrder();
 
@@ -587,14 +583,11 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
 
   test("an item's Kategori Item names its own HPP; Persediaan left empty falls back to Account Mapping (P122)", async () => {
     const cat = (await prisma.mItem.findUniqueOrThrow({ where: { id: f.lotted } })).category_id;
-    const before = await prisma.accItemCategoryAccount.findUnique({ where: { category_id: cat } });
+    const restore = await snapshotCategoryAccounts([cat]);
     const sub = (await prisma.accAccountSubcategory.findFirstOrThrow({ where: { subcategory_label: { startsWith: "5" } }, orderBy: { id: "asc" } })).subcategory_label;
     const ownCogs = await makeAccount({ subcategoryLabel: sub });
-    await prisma.accItemCategoryAccount.upsert({
-      where: { category_id: cat },
-      update: { cogs_account_id: ownCogs, inventory_account_id: null },
-      create: { category_id: cat, cogs_account_id: ownCogs, created_by: actor },
-    });
+    await setCategoryAccount(cat, "Cogs", ownCogs, actor);
+    await setCategoryAccount(cat, "Inventory", null, actor);
     try {
       const again = await issuedDeliveryOrder([[f.lotted, f.pcs, 1]]);
       const r = await create(header({ source_doc_id: again.doId }), [
@@ -605,8 +598,7 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
       const lines = await prisma.accJournalLine.findMany({ where: { journal_id: note.journalId! }, orderBy: { sequence_no: "asc" } });
       assert.deepEqual(lines.map((l) => l.account_id), [ownCogs, f.invAcc]);
     } finally {
-      if (before) await prisma.accItemCategoryAccount.update({ where: { category_id: cat }, data: { cogs_account_id: before.cogs_account_id, inventory_account_id: before.inventory_account_id } });
-      else await prisma.accItemCategoryAccount.deleteMany({ where: { category_id: cat } });
+      await restore();
     }
   });
 

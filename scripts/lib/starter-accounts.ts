@@ -115,14 +115,14 @@ export const STARTER_MAPPINGS: [setting: string, account: string][] = [
   ["production_scrap_account", "productionScrap"],
 ];
 
-/** Starter account → its Elemen Biaya Produksi group (P150, M9). */
-export const STARTER_COST_ELEMENTS: [account: string, group: "DirectLabor" | "IndirectLabor" | "Utility" | "Depreciation" | "Maintenance" | "OtherOverhead"][] = [
-  ["costDirectLabor", "DirectLabor"],
-  ["costIndirectLabor", "IndirectLabor"],
-  ["costUtility", "Utility"],
-  ["costDepreciation", "Depreciation"],
-  ["costMaintenance", "Maintenance"],
-  ["costOverhead", "OtherOverhead"],
+/** Starter Elemen Biaya Produksi (P150, M53): label, name, and the starter account it posts to. */
+export const STARTER_COST_ELEMENTS: [label: string, name: string, account: string][] = [
+  ["UPAH-LANGSUNG", "Upah Tenaga Kerja Langsung", "costDirectLabor"],
+  ["UPAH-TIDAK-LANGSUNG", "Upah Tenaga Kerja Tidak Langsung", "costIndirectLabor"],
+  ["LISTRIK-PABRIK", "Listrik & Utilitas Pabrik", "costUtility"],
+  ["PENYUSUTAN-MESIN", "Penyusutan Mesin & Peralatan", "costDepreciation"],
+  ["PEMELIHARAAN-MESIN", "Pemeliharaan Mesin", "costMaintenance"],
+  ["OVERHEAD-LAIN", "Overhead Pabrik Lain-lain", "costOverhead"],
 ];
 
 /** Jenis PPh label → its account: PPh Dibayar Dimuka for sales, Hutang PPh for purchases (P122). */
@@ -237,52 +237,55 @@ export async function seedStarterAccounts(actor: number): Promise<StarterAccount
     if (done.count) tally("jenis PPh accounts");
   }
 
-  // ---- Kategori Item accounts — each column only where still empty.
+  // ---- Kategori Item accounts (P150 M54: one row per kind) — a kind only
+  // where the category names none yet. A Barang category kept in stock also
+  // takes WIP.
+  const mappingEntity = ENTITIES.find((x) => x.key === "acc_item_category_account");
+  if (!mappingEntity) throw new Error("Registry entity acc_item_category_account not found");
   for (const [label, inventory, cogs, expense] of STARTER_CATEGORY_ACCOUNTS) {
     const category = await prisma.sysItemCategory.findFirst({ where: { category_label: label } });
     if (!category) continue;
-    const want = {
-      inventory_account_id: inventory ? accountId.get(inventory)! : null,
-      cogs_account_id: cogs ? accountId.get(cogs)! : null,
-      expense_account_id: accountId.get(expense)!,
-    };
-    const current = await prisma.accItemCategoryAccount.findUnique({ where: { category_id: category.id } });
-    const fill = {
-      inventory_account_id: current?.inventory_account_id ?? want.inventory_account_id,
-      cogs_account_id: current?.cogs_account_id ?? want.cogs_account_id,
-      expense_account_id: current?.expense_account_id ?? want.expense_account_id,
-    };
-    if (
-      current &&
-      current.inventory_account_id === fill.inventory_account_id &&
-      current.cogs_account_id === fill.cogs_account_id &&
-      current.expense_account_id === fill.expense_account_id
-    ) continue;
-    const row = await prisma.accItemCategoryAccount.upsert({
-      where: { category_id: category.id },
-      update: { ...fill, updated_by: actor },
-      create: { category_id: category.id, ...fill, created_by: actor },
-    });
-    await prisma.auditLog.create({
-      data: { entity_key: "acc_item_category_account", row_id: row.id, action: "UPDATE", event: "update", by: actor },
-    });
-    tally("kategori item accounts");
+    const want: [kind: "Inventory" | "Cogs" | "Expense" | "Wip", account: string | null][] = [
+      ["Inventory", inventory],
+      ["Cogs", cogs],
+      ["Wip", inventory ? "wip" : null],
+      ["Expense", expense],
+    ];
+    for (const [kind, account] of want) {
+      if (!account) continue;
+      const exists = await prisma.accItemCategoryAccount.findUnique({
+        where: { category_id_account_kind: { category_id: category.id, account_kind: kind } },
+      });
+      if (exists) continue;
+      const row = await prisma.accItemCategoryAccount.create({
+        data: {
+          mapping_code: await nextCode(mappingEntity),
+          category_id: category.id,
+          account_kind: kind,
+          account_id: accountId.get(account)!,
+          created_by: actor,
+        },
+      });
+      await prisma.auditLog.create({
+        data: { entity_key: "acc_item_category_account", row_id: row.id, action: "TAMBAH", event: "create", by: actor },
+      });
+      tally("kategori item accounts");
+    }
   }
 
-  // ---- Elemen Biaya Produksi — an account is registered only while it is
-  // still a Control Account nothing has posted to and no element yet (M39),
-  // so an account the user already uses elsewhere is left alone.
+  // ---- Elemen Biaya Produksi — created only when no element has its label
+  // and none already names its account, so an element the user renamed or
+  // made by hand is left alone.
   const elementEntity = ENTITIES.find((x) => x.key === "acc_production_cost_element");
   if (!elementEntity) throw new Error("Registry entity acc_production_cost_element not found");
-  for (const [key, group] of STARTER_COST_ELEMENTS) {
-    const id = accountId.get(key)!;
-    const account = await prisma.accAccount.findUnique({
-      where: { id },
-      select: { is_control_account: true, production_cost_element: { select: { id: true } }, _count: { select: { journal_lines: true } } },
+  for (const [label, name, key] of STARTER_COST_ELEMENTS) {
+    const account = accountId.get(key)!;
+    const taken = await prisma.accProductionCostElement.findFirst({
+      where: { OR: [{ element_label: { equals: label, mode: "insensitive" } }, { account_id: account }] },
     });
-    if (!account || account.production_cost_element || !account.is_control_account || account._count.journal_lines) continue;
+    if (taken) continue;
     const row = await prisma.accProductionCostElement.create({
-      data: { element_code: await nextCode(elementEntity), account_id: id, element_group: group, created_by: actor },
+      data: { element_code: await nextCode(elementEntity), element_label: label, element_name: name, account_id: account, created_by: actor },
     });
     await prisma.auditLog.create({
       data: { entity_key: "acc_production_cost_element", row_id: row.id, action: "TAMBAH", event: "create", by: actor },

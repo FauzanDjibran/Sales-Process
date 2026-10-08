@@ -486,3 +486,31 @@ export async function cleanupStock(itemIds: number[]): Promise<void> {
   await prisma.logStockValuationBalance.deleteMany({ where });
   await prisma.logStockTracking.deleteMany({ where });
 }
+
+export type CategoryAccountKind = "Inventory" | "Cogs" | "Expense" | "Wip";
+
+/**
+ * Points one Kategori Item account kind at an account, or clears it (null) —
+ * a fixture write of the mapping list (P150 M54). Pair with
+ * `snapshotCategoryAccounts` to put the category back afterwards.
+ */
+export async function setCategoryAccount(categoryId: number, kind: CategoryAccountKind, accountId: number | null, actor: number): Promise<void> {
+  if (accountId == null) {
+    await prisma.accItemCategoryAccount.deleteMany({ where: { category_id: categoryId, account_kind: kind } });
+    return;
+  }
+  await prisma.accItemCategoryAccount.upsert({
+    where: { category_id_account_kind: { category_id: categoryId, account_kind: kind } },
+    update: { account_id: accountId, status: "Active" },
+    create: { mapping_code: `test.${categoryId}.${kind}.${Date.now()}`, category_id: categoryId, account_kind: kind, account_id: accountId, created_by: actor },
+  });
+}
+
+/** The categories' mapping rows as they are now, and how to put them back exactly. */
+export async function snapshotCategoryAccounts(categoryIds: number[]): Promise<() => Promise<void>> {
+  const rows = await prisma.accItemCategoryAccount.findMany({ where: { category_id: { in: categoryIds } } });
+  return async () => {
+    await prisma.accItemCategoryAccount.deleteMany({ where: { category_id: { in: categoryIds } } });
+    for (const r of rows) await prisma.accItemCategoryAccount.create({ data: r });
+  };
+}

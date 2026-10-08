@@ -115,8 +115,9 @@ const TABLE_OWNERS: Record<string, string[]> = {
   purOrder: ["src/lib/erp/purchase-order.ts"],
   purOrderLine: ["src/lib/erp/purchase-order.ts"],
   purOrderLineRequest: ["src/lib/erp/purchase-order.ts"],
-  // Accounts per Kategori Item (P122): read and written only through its module.
-  accItemCategoryAccount: ["src/lib/erp/item-account.ts"],
+  // Accounts per Kategori Item (P122): read through its module; a mapping list
+  // since P150 M54, so the registry (records.ts) writes its rows.
+  accItemCategoryAccount: ["src/lib/erp/item-account.ts", "src/lib/erp/records.ts"],
   // Billing documents: Finance owns them since P107; Sales holds only orders.
   finArAdvance: ["src/lib/erp/ar-advance.ts"],
   finArPermitAdvance: ["src/lib/erp/permit-advance.ts"],

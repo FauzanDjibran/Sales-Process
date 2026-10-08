@@ -99,9 +99,15 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "WORKSTATION_ACTIVATE",
     deactivate: "WORKSTATION_DEACTIVATE",
   },
-  // A setting of the books, not a master: it sits beside Account Mapping and
-  // shares its permissions, as the Kategori Item accounts do (P122).
   acc_production_cost_element: {
+    view: "PRODUCTION_COST_ELEMENT_VIEW",
+    create: "PRODUCTION_COST_ELEMENT_CREATE",
+    edit: "PRODUCTION_COST_ELEMENT_EDIT",
+    activate: "PRODUCTION_COST_ELEMENT_ACTIVATE",
+    deactivate: "PRODUCTION_COST_ELEMENT_DEACTIVATE",
+  },
+  // Where a posting lands, beside Account Mapping and on its permissions (P122).
+  acc_item_category_account: {
     view: "ACCOUNT_MAPPING_VIEW",
     create: "ACCOUNT_MAPPING_EDIT",
     edit: "ACCOUNT_MAPPING_EDIT",

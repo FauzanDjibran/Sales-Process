@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 import { createPurchaseOrder, transitionPurchaseOrder, type PurchaseOrderLineInput } from "../src/lib/erp/purchase-order";
 import { createPurchaseRequest, transitionPurchaseRequest } from "../src/lib/erp/purchase-request";
-import { FIXTURE_PREFIX, cleanupStock, makeAccount, partnerCategoryId, prisma, systemUserId } from "./helpers";
+import { FIXTURE_PREFIX, cleanupStock, makeAccount, partnerCategoryId, prisma, systemUserId, setCategoryAccount, snapshotCategoryAccounts } from "./helpers";
 
 /**
  * A purchasing world for the suites after the Purchase Order (P125 on): items
@@ -32,18 +32,20 @@ export async function purchasingWorld(tag: string): Promise<PurchasingWorld> {
   const f: Record<string, number> = {};
   const ids = { pr: [] as number[], po: [] as number[] };
   const saved = new Map<string, string | null>();
-  const savedCats = new Map<number, { inventory_account_id: number | null; cogs_account_id: number | null; expense_account_id: number | null } | null>();
+  const restoreCats: (() => Promise<void>)[] = [];
+  const touchedCats = new Set<number>();
 
   const setMapping = async (k: string, v: string | null) => {
     if (!saved.has(k)) saved.set(k, (await prisma.sysSetting.findUnique({ where: { setting_key: k } }))?.setting_value ?? null);
     await prisma.sysSetting.upsert({ where: { setting_key: k }, update: { setting_value: v }, create: { setting_key: k, setting_value: v, updated_by: actor } });
   };
   const setCategory = async (categoryId: number, data: { inventory_account_id?: number | null; expense_account_id?: number | null }) => {
-    if (!savedCats.has(categoryId)) {
-      const row = await prisma.accItemCategoryAccount.findUnique({ where: { category_id: categoryId } });
-      savedCats.set(categoryId, row ? { inventory_account_id: row.inventory_account_id, cogs_account_id: row.cogs_account_id, expense_account_id: row.expense_account_id } : null);
+    if (!touchedCats.has(categoryId)) {
+      touchedCats.add(categoryId);
+      restoreCats.push(await snapshotCategoryAccounts([categoryId]));
     }
-    await prisma.accItemCategoryAccount.upsert({ where: { category_id: categoryId }, update: data, create: { category_id: categoryId, ...data, created_by: actor } });
+    if (data.inventory_account_id !== undefined) await setCategoryAccount(categoryId, "Inventory", data.inventory_account_id, actor);
+    if (data.expense_account_id !== undefined) await setCategoryAccount(categoryId, "Expense", data.expense_account_id, actor);
   };
 
   f.pcs = (await prisma.refUom.create({ data: { uom_code: `test.${key("PCS")}`, uom_label: key("PCS"), uom_name: "Pcs", created_by: actor } })).id;
@@ -143,10 +145,7 @@ export async function purchasingWorld(tag: string): Promise<PurchasingWorld> {
     await prisma.purRequestLine.deleteMany({ where: { request_id: { in: ids.pr } } });
     await prisma.purRequest.deleteMany({ where: { id: { in: ids.pr } } });
     for (const [k, v] of saved) await prisma.sysSetting.update({ where: { setting_key: k }, data: { setting_value: v } });
-    for (const [categoryId, row] of savedCats) {
-      if (row) await prisma.accItemCategoryAccount.update({ where: { category_id: categoryId }, data: row });
-      else await prisma.accItemCategoryAccount.delete({ where: { category_id: categoryId } });
-    }
+    for (const restore of restoreCats) await restore();
     const items = [f.stock, f.expiring, f.plain, f.service];
     await cleanupStock(items);
     await prisma.mItemUom.deleteMany({ where: { item_id: { in: items } } });

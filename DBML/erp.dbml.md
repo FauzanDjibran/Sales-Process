@@ -258,37 +258,49 @@ table sys_item_category {
   }
 }
 
-// accounts per Kategori Item (P122, closes C25); an empty one falls back to Account Mapping
-// (Persediaan, HPP) or is refused (Beban); a Jasa category takes Beban only
+// accounts per Kategori Item (P122, closes C25), a mapping list since P150 M54: one row per
+// category and kind; a kind not named (or inactive) falls back to Account Mapping (Persediaan,
+// HPP, WIP) or is refused (Beban); a Jasa category takes Beban only
 table acc_item_category_account {
   id                          int [pk, increment, not null]
 
-  category_id                 int [not null, unique, ref : - sys_item_category.id]
+  mapping_code                varchar [not null, unique]
 
-  inventory_account_id        int [ref : > acc_account.id]
-  cogs_account_id             int [ref : > acc_account.id]
-  expense_account_id          int [ref : > acc_account.id]
+  category_id                 int [not null, ref : > sys_item_category.id]
+  account_kind                enum('Inventory', 'Cogs', 'Expense', 'Wip') [not null] // extendable
+  account_id                  int [not null, ref : > acc_account.id]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
 
   created_by                  int [not null]
   updated_by                  int
 
   created_at                  timestamptz [not null, default: `now()`]
   updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (category_id, account_kind) [unique]
+    account_id
+  }
 }
 
-// Elemen Biaya Produksi (P150, M9, M39, M40): an expense account that is a Control Account and
-// carries only production cost; gathered in the cost ledger, spread at the period close; one per account
+// Elemen Biaya Produksi (P150, M53): a kind of production cost the user names, with the account
+// its cost posts to (as a Jenis PPh names its account); several may share one account (M61); the
+// cost ledger, not the GL, is the source of truth (M60)
 table acc_production_cost_element {
   id                          int [pk, increment, not null]
 
   element_code                varchar [not null, unique]
 
-  account_id                  int [not null, unique, ref : - acc_account.id] // fixed once chosen
-  element_group               enum(DirectLabor, IndirectLabor, Utility, Depreciation, Maintenance, OtherOverhead) [not null]
+  element_label               varchar [not null]
+  element_name                varchar [not null]
+  account_id                  int [not null, ref : > acc_account.id] // fixed once chosen
 
   note                        varchar
 
-  status                      enum(Active, Inactive) [not null, default: Active]
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
 
   created_by                  int [not null]
   updated_by                  int
@@ -505,7 +517,7 @@ table ref_workstation {
 
   note                        varchar
 
-  status                      enum(Active, Inactive) [not null, default: Active]
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
 
   created_by                  int [not null]
   updated_by                  int

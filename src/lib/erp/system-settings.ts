@@ -2,7 +2,6 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { BASE_CURRENCY_LABEL } from "./currency";
-import { COST_ELEMENT_REFUSAL, isCostElementAccount } from "./production-cost";
 import { checkAccountIsLeaf, type RefOption } from "./records";
 import type { PpnRates } from "./sales-tax";
 import {
@@ -143,12 +142,7 @@ export async function checkSystemDefaultValue(
   id: number
 ): Promise<string | null> {
   const def = systemDefaultDef(key);
-  if (def.type !== "ref") return null;
-  if (def.ref === "ref_uom") {
-    const uom = await prisma.refUom.findUnique({ where: { id }, select: { status: true } });
-    if (!uom) return "Satuan tidak ditemukan.";
-    return uom.status === "Active" ? null : "Satuan tersebut non-aktif.";
-  }
+  if (def.type !== "ref" || def.ref !== "acc_account") return null;
 
   const account = await prisma.accAccount.findUnique({
     where: { id },
@@ -157,9 +151,6 @@ export async function checkSystemDefaultValue(
   if (!account) return "Account tidak ditemukan.";
   if (!account.is_postable) return "Account tersebut bukan account postable.";
   if (!account.is_active) return "Account tersebut non-aktif.";
-  // An element is posted only by documents that write the cost ledger (P150,
-  // M39); a mapping would send another posting there behind its back.
-  if (await isCostElementAccount(id)) return COST_ELEMENT_REFUSAL;
   // A parent account is a heading, not a destination — a posting made to one
   // would be money in the chart no leaf accounts for.
   return checkAccountIsLeaf(id);
@@ -314,7 +305,6 @@ export async function settingOptions(
     where: { is_postable: true },
     orderBy: { account_label: "asc" },
   });
-  const uoms = await prisma.refUom.findMany({ orderBy: { uom_label: "asc" } });
   const out = {} as Record<SystemDefaultKey, RefOption[]>;
   for (const def of SYSTEM_DEFAULTS) {
     if (def.type !== "ref") {
@@ -322,12 +312,6 @@ export async function settingOptions(
       continue;
     }
     const chosen = Number(current[def.key] ?? "");
-    if (def.ref === "ref_uom") {
-      out[def.key] = uoms
-        .filter((u) => u.status === "Active" || u.id === chosen)
-        .map((u) => ({ id: u.id, label: u.uom_label, name: u.uom_name, active: u.status === "Active" }));
-      continue;
-    }
     out[def.key] = accounts
       .filter((a) => a.is_active || a.id === chosen)
       .map((a) => ({ id: a.id, label: a.account_label, name: a.account_name, active: a.is_active }));
