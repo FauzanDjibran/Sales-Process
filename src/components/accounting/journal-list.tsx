@@ -214,10 +214,10 @@ export function JournalList({
                         </td>
                         <td className="num">{j.lineCount}</td>
                         <td className="num">
-                          <Amount value={j.debit} />
+                          <Amount value={j.debit} ledger />
                         </td>
                         <td className="num">
-                          <Amount value={j.credit} />
+                          <Amount value={j.credit} ledger />
                           {broken && <span className="overtag">tidak seimbang</span>}
                         </td>
                         <td>

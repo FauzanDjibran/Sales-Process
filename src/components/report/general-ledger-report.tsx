@@ -5,8 +5,9 @@ import { Icon } from "@/components/icon";
 import { ExpandAll } from "@/components/ui/expand-all";
 import { ReportSummary } from "@/components/report/report-summary";
 import { Drill } from "@/components/report/drill";
+import { Amount } from "@/components/ui/amount";
 import { PartnerCell } from "@/components/ui/partner-cell";
-import { formatDate, formatForeignFace, formatMoney } from "@/lib/format";
+import { formatAccounting, formatDate, formatForeignFace } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import type { GeneralLedgerReport as Report } from "@/lib/erp/ledger";
 
@@ -103,10 +104,9 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
 
       {report.accounts.map((a) => {
         const isOpen = open.has(a.id);
-        // Every figure here is base currency, so one formatter serves the whole
-        // table. The transaction-currency face lives on the entries that have
-        // one, beside the description.
-        const money = (n: number) => formatMoney(n, BASE_CURRENCY_LABEL);
+        // Every figure here is base currency, a negative in parentheses. The
+        // transaction-currency face lives beside the description.
+        const money = (n: number) => formatAccounting(n, BASE_CURRENCY_LABEL);
         return (
           <div className="cblock" key={a.id}>
             <div
@@ -169,9 +169,15 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
                       <td colSpan={4}>
                         Saldo awal per {formatDate(report.range.from)}
                       </td>
-                      <td className="num mut">—</td>
-                      <td className="num mut">—</td>
-                      <td className="num">{money(a.opening)}</td>
+                      <td className="num">
+                        <Amount value={0} nil="dash" ledger />
+                      </td>
+                      <td className="num">
+                        <Amount value={0} nil="dash" ledger />
+                      </td>
+                      <td className="num">
+                        <Amount value={a.opening} ledger />
+                      </td>
                     </tr>
 
                     {a.entries.map((e, i) => (
@@ -206,12 +212,14 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
                           )}
                         </td>
                         <td className="num">
-                          {e.debit ? money(e.debit) : <span className="dash">–</span>}
+                          <Amount value={e.debit} nil="dash" ledger />
                         </td>
                         <td className="num">
-                          {e.credit ? money(e.credit) : <span className="dash">–</span>}
+                          <Amount value={e.credit} nil="dash" ledger />
                         </td>
-                        <td className="num">{money(e.balance)}</td>
+                        <td className="num">
+                          <Amount value={e.balance} ledger />
+                        </td>
                       </tr>
                     ))}
 
@@ -228,10 +236,16 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
                       <td colSpan={4}>
                         Saldo akhir per {formatDate(report.range.to)}
                       </td>
-                      <td className="num">{money(a.debit)}</td>
-                      <td className="num">{money(a.credit)}</td>
                       <td className="num">
-                        <b>{money(a.closing)}</b>
+                        <Amount value={a.debit} ledger />
+                      </td>
+                      <td className="num">
+                        <Amount value={a.credit} ledger />
+                      </td>
+                      <td className="num">
+                        <b>
+                          <Amount value={a.closing} ledger />
+                        </b>
                       </td>
                     </tr>
                   </tbody>

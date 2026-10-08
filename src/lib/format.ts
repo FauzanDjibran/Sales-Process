@@ -183,6 +183,22 @@ export function formatMoney(
 }
 
 /**
+ * A figure the accountant's way: `(Rp 1.500.000)` below zero rather than
+ * `Rp -1.500.000`, otherwise exactly `formatMoney`.
+ *
+ * A figure that rounds to nil at the currency's precision is nil, never `(Rp 0)`.
+ */
+export function formatAccounting(
+  value: number | string | { toString(): string } | null | undefined,
+  currencyLabel = "IDR"
+): string {
+  const n = Number(value ?? 0);
+  const decimals = currencyLabel === "IDR" ? 0 : 2;
+  const figure = formatMoney(Math.abs(n), currencyLabel);
+  return Math.round(n * 10 ** decimals) < 0 ? `(${figure})` : figure;
+}
+
+/**
  * A unit price: `Rp 12.500`, `Rp 12.345,678912`. Unit prices are stored
  * unrounded at six decimals (P111) and every digit is the price, so the
  * decimals shown are the decimals it has; the amounts made from it are what

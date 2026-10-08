@@ -638,10 +638,10 @@ export function JournalForm({
                             )}
                           </td>
                           <td className="num">
-                            <Amount value={l.debit} nil="dash" />
+                            <Amount value={l.debit} nil="dash" ledger />
                           </td>
                           <td className="num">
-                            <Amount value={l.credit} nil="dash" />
+                            <Amount value={l.credit} nil="dash" ledger />
                           </td>
                         </tr>
                       ))}
@@ -655,10 +655,10 @@ export function JournalForm({
                       {imbalance && <span className="overtag">{imbalance}</span>}
                     </td>
                     <td className="num">
-                      <Amount value={totalDebit} big />
+                      <Amount value={totalDebit} big ledger />
                     </td>
                     <td className="num">
-                      <Amount value={totalCredit} big />
+                      <Amount value={totalCredit} big ledger />
                     </td>
                     {editing && <td />}
                   </tr>

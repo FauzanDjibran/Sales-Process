@@ -1176,6 +1176,54 @@ test("a journal line's Partner is drawn by one cell, on the Journal and the Gene
   assert.deepEqual(own.map((f) => f.rel), [], "The Partner warning is PartnerCell's alone.");
 });
 
+describe("a Journal and General Ledger figure reads the accountant's way", () => {
+  // The screens where debit and kredit are read: every figure goes through
+  // Amount in its ledger mode — its currency on the figure like every other
+  // amount, a negative in parentheses, an empty side as an em dash.
+  const LEDGER_SCREENS = [
+    "src/components/report/general-ledger-report.tsx",
+    "src/components/accounting/journal-form.tsx",
+    "src/components/accounting/journal-list.tsx",
+  ];
+
+  test("a money header sits over the same edge as its figures", () => {
+    // `table.grid thead th` sets text-align:left and outranks `th.num`.
+    assert.match(css, /table\.grid thead th\.num\s*\{[^}]*text-align:\s*right/);
+  });
+
+  for (const rel of LEDGER_SCREENS) {
+    test(`${rel.split("/").pop()} prints every figure through a ledger Amount`, () => {
+      const text = fileText(rel);
+      assert.doesNotMatch(
+        text,
+        /<td className="num[^"]*">\s*\{[^}<]*(formatMoney|money)\(/,
+        "a figure is formatted straight into a money cell"
+      );
+      assert.doesNotMatch(
+        text,
+        /<td className="num[^"]*">\s*(—|–|<span className="dash">)/,
+        "a money cell writes its own dash; Amount's nil=\"dash\" is the one"
+      );
+      const plain = [...text.matchAll(/<Amount\b[^>]*>/g)]
+        .map((m) => m[0])
+        .filter((tag) => !/\bledger\b/.test(tag));
+      assert.deepEqual(plain, [], "an Amount here is not in its ledger mode");
+    });
+  }
+
+  test("the currency sits on each figure, not in the header", () => {
+    // The user's rule: every amount in the application carries its own
+    // currency, so these screens read like the rest of it.
+    for (const rel of LEDGER_SCREENS) {
+      assert.doesNotMatch(
+        fileText(rel),
+        /<th className="num"[^>]*>\s*(Debit|Kredit|Saldo) \(/,
+        `${rel} names the currency in a header rather than on the figures`
+      );
+    }
+  });
+});
+
 test("a breadcrumb's module segment is never a link", () => {
   // A module has no page of its own (§8), so the first segment is plain text.
   // Linking it to the document's own register made the module and the
