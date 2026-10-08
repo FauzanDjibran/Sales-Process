@@ -545,7 +545,7 @@ export const MODULES: NavModule[] = [
             slug: "item-category-account",
             name: "Account Kategori Item",
             icon: "link",
-            desc: "Account Persediaan, HPP, WIP dan Beban per Kategori Item; yang kosong memakai Account Mapping.",
+            desc: "Account Persediaan, HPP, WIP dan Beban per Kategori Item.",
             permission: "MENU_ACCOUNT_MAPPING_ACCESS",
           },
         ],

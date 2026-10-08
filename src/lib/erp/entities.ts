@@ -1391,7 +1391,7 @@ export const ENTITIES: Entity[] = [
     name: "Account Kategori Item",
     single: "Account Kategori Item",
     icon: "link",
-    desc: "Account per Kategori Item dan jenisnya — Persediaan, HPP, WIP, Beban. Jenis yang tidak diisi memakai Account Mapping (Persediaan, HPP, WIP); Beban tidak memiliki cadangan.",
+    desc: "Account per Kategori Item dan jenisnya — Persediaan, HPP, WIP, Beban. Persediaan dan HPP yang tidak diisi memakai Account Mapping; WIP dan Beban tidak memiliki cadangan — dokumen menolak barang yang kategorinya belum menentukannya.",
     codeField: "mapping_code",
     codePrefix: "ica",
     titleRefs: ["category_id", "account_id"],

@@ -111,7 +111,6 @@ describe("the settings catalogue lives in code", () => {
         "input_vat_account",
         "supplier_invoice_diff_account",
         // Production's (P150).
-        "wip_account",
         "production_scrap_account",
         "fx_account",
         "accumulated_pl_account",

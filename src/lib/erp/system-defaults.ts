@@ -45,7 +45,6 @@ export type SystemDefaultKey =
   | "input_vat_account"
   | "supplier_invoice_diff_account"
   | "supplier_invoice_tolerance"
-  | "wip_account"
   | "production_scrap_account"
   | "ppn_rate"
   | "ppn_dpp_other_numerator"
@@ -168,10 +167,10 @@ export const SYSTEM_DEFAULT_GROUPS = [
     page: "account",
     name: "Produksi",
     desc:
-      "Account yang dipakai saat barang masuk dan keluar produksi: nilai bahan " +
-      "yang sedang di produksi (WIP) bila Kategori Item tidak menentukannya, dan " +
-      "beban atas barang yang dimusnahkan dari produksi. Biaya tenaga kerja dan " +
-      "overhead memakai Elemen Biaya Produksi.",
+      "Beban atas barang yang dimusnahkan dari produksi. WIP tidak memiliki " +
+      "cadangan di sini: setiap Kategori Item yang masuk produksi harus " +
+      "menentukan Account WIP-nya sendiri. Biaya tenaga kerja dan overhead " +
+      "memakai Elemen Biaya Produksi.",
     icon: "gear",
   },
   {
@@ -436,17 +435,9 @@ export const SYSTEM_DEFAULTS = [
 
   // ----------------------------------------------------------- production
   //
-  // The production module (P150). WIP holds the material inside production at
-  // its own value; the production ledger reconciles with it.
-  {
-    key: "wip_account",
-    name: "Account Persediaan Barang Dalam Proses",
-    icon: "layers",
-    type: "ref",
-    ref: "acc_account",
-    group: "production",
-    help: "nilai bahan di produksi (WIP), bila Kategori Item tidak menentukan",
-  },
+  // The production module (P150). WIP has no fallback here (M62): it is the
+  // Kategori Item's own, and a document refuses an item whose category names
+  // none, rather than send it somewhere generic.
   {
     key: "production_scrap_account",
     name: "Account Beban Pemusnahan Produksi",
@@ -525,7 +516,6 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   input_vat_account: null,
   supplier_invoice_diff_account: null,
   supplier_invoice_tolerance: null,
-  wip_account: null,
   production_scrap_account: null,
   ppn_rate: null,
   ppn_dpp_other_numerator: null,

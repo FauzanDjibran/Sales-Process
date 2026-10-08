@@ -90,8 +90,8 @@ describe("Account Kategori Item is a mapping list (M54)", () => {
 });
 
 describe("the Produksi settings (§8, M57)", () => {
-  test("WIP and Beban Pemusnahan are Account Mapping; no Satuan Pembebanan Biaya yet", () => {
-    assert.equal(settingPageOf("wip_account"), "account");
+  test("Beban Pemusnahan is Account Mapping; WIP has no fallback (M62); no Satuan Pembebanan Biaya yet", () => {
+    assert.equal(isSystemDefaultKey("wip_account"), false, "an item's WIP is its category's, or the document refuses");
     assert.equal(settingPageOf("production_scrap_account"), "account");
     assert.equal(isSystemDefaultKey("production_cost_uom"), false, "the spreading basis is decided with the close");
   });

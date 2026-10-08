@@ -223,7 +223,7 @@ created_at / updated_at`, money `Decimal(18,2)` whole rupiah, quantities
 | `ref_workstation` | `workstation_code` (`ws.NNNN`), `workstation_label` (unique), `workstation_name`, `note`, `status` |
 | `acc_production_cost_element` | `element_code`, `element_label` (unique), `element_name`, `account_id` (FK), `note`, `status` (M53) |
 | `acc_item_category_account` (reshaped, M54) | one row per `category_id` × `account_kind` (`Inventory`, `Cogs`, `Expense`, `Wip`, extendable), `account_id`, `status`; unique (`category_id`, `account_kind`) |
-| `sys_setting` keys | Account Mapping `wip_account`, `production_scrap_account` (fallbacks where a category names none) |
+| `sys_setting` keys | Account Mapping `production_scrap_account`; no WIP fallback (M62) |
 | `acc_fiscal_period` + | `costed_at`, `costed_by`, `cost_close_id` |
 | `log_stock_tracking` + | `batch_id Int?`, `batch_no String?` (weak; production's batch) |
 
@@ -278,8 +278,8 @@ updated with every migration.
 | --- | --- | --- |
 | **Workstation** | Master › Entitas, registry entity (as Gudang) | Label unique; deactivated, never removed; one in use by an Open order or holding a bucket cannot be deactivated |
 | **Elemen Biaya Produksi** | Master › Referensi (Q51), registry entity | Label, Nama, Account (postable, active, a Biaya 5.x account), Status, Catatan — like Jenis PPh (M53). No Control Account check (M55). Guards against other postings: Q50 |
-| **Account Kategori Item** | Accounting › Pengaturan, reshaped into a mapping list (M54) | Each row: Kategori Item, Jenis Account (*Persediaan*, *HPP*, *Beban*, *WIP*, more later), Account; one row per kategori and jenis; a Jasa kategori takes *Beban* only; an empty one falls back to Account Mapping where there is a fallback (Persediaan, HPP, WIP) |
-| **Account Mapping › Produksi** | existing screen, new card | *Account Persediaan Barang Dalam Proses (WIP)* (postable, asset), *Account Beban Pemusnahan Produksi* (postable, expense, not an element) |
+| **Account Kategori Item** | Accounting › Pengaturan, reshaped into a mapping list (M54) | Each row: Kategori Item, Jenis Account (*Persediaan*, *HPP*, *Beban*, *WIP*, more later), Account; one row per kategori and jenis; a Jasa kategori takes *Beban* only; an empty Persediaan or HPP falls back to Account Mapping; **WIP and Beban have no fallback** — the document refuses (M62) |
+| **Account Mapping › Produksi** | existing screen, new card | *Account Beban Pemusnahan Produksi* only (M62) |
 | **Item** | existing | **No new flag** (M51): an output takes any Barang with Kelola Stok; month-end cost goes by Kategori *Barang Jadi* (M46). Further item / production categorisation comes later |
 | **Starter accounts** (`db:seed-accounts`, P130) | additive, matched on name | Persediaan Barang Dalam Proses; Beban Pemusnahan Produksi; cost elements as Control Accounts — Biaya Tenaga Kerja Langsung, Biaya Tenaga Kerja Tidak Langsung, Biaya Listrik & Utilitas Pabrik, Biaya Penyusutan Mesin & Pabrik, Biaya Pemeliharaan Mesin, Biaya Overhead Pabrik Lain — registered as elements; contra accounts Hutang Gaji & Upah, Akumulasi Penyusutan Mesin, when missing |
 
@@ -679,6 +679,8 @@ of a close; mid-month pro-forma margin; multi-currency.
 | M59 | Q49 | **(c): a production reject stays in the production ledger** until a return or disposal document takes it out; it never enters a stock pool at 0. |
 | M60 | Q50 | **The cost ledger is the source of truth** for production cost, as the Cash Bank Book and the stock books are for theirs: the close reads it, never the GL. The only guard on an element's account is the user's Control Account mark; nothing refuses an element's account elsewhere. `db:reconcile` reports a difference with the GL, as it does for the other books. Supersedes the element guards of Phase 1. |
 | M61 | Q51, Q52 | **Elemen Biaya Produksi sits in Master › Referensi** beside Jenis PPh with its own permissions `PRODUCTION_COST_ELEMENT_*`; **several elements may name one account.** |
+| M62 | Phase 1 review 3 | **WIP has no fallback account.** An item whose Kategori Item names no WIP cannot enter production: the document shows it as a warning before posting and Posting is refused, rather than send it to a generic account. Account Mapping's WIP is removed. |
+| M63 | Phase 1 review 3 | **The QC menu is called *QC Inspection*** (Q53) and is **on hold** until the user asks for it. |
 | M51 | §21 B | **The *Dapat Diproduksi* flag is dropped** (amends M8): outputs take any Barang with Kelola Stok, cost receivers are decided by Kategori *Barang Jadi* (M46). More item and production categorisation will come later. |
 
 ---
@@ -724,7 +726,7 @@ of a close; mid-month pro-forma margin; multi-currency.
 
 ---
 
-- **Q53 — Stock status catalogue and moving between statuses** (from M58). *Proposal:* statuses **Karantina** (received, awaiting QC — not issuable), **Tersedia** (released) and **Reject**; *Diblokir* stays for a hold. Moving quantity between statuses, or into the reject warehouse, is a stock transfer document (C34) — the QC result. Not part of the production phases; to be planned when you ask.
+- **Q53 — Stock status catalogue and moving between statuses** (from M58; menu named *QC Inspection*, on hold — M63). *Proposal:* statuses **Karantina** (received, awaiting QC — not issuable), **Tersedia** (released) and **Reject**; *Diblokir* stays for a hold. Moving quantity between statuses, or into the reject warehouse, is a stock transfer document (C34) — the QC result. Not part of the production phases; to be planned when you ask.
 
 ---
 

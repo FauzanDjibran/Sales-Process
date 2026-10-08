@@ -20,9 +20,11 @@ import { Prisma } from "@/generated/prisma/client";
  *   Stok, and a Jasa, is an expense when it is received.
  *
  * A kind a category does not name — or names in an inactive row — falls back
- * to Account Mapping where there is a fallback (Persediaan, HPP, WIP), so what
+ * to Account Mapping where there is a fallback (Persediaan, HPP), so what
  * posted before this mapping posts the same today; a posting that finds
- * neither is refused by name.
+ * neither is refused by name. **WIP has no fallback** (P150 M62): an item
+ * entering production whose category names no WIP is refused, so it never
+ * lands in a generic account by default.
  *
  * Named only by this module and the registry (`acc_item_category_account`).
  */

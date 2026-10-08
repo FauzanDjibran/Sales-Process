@@ -111,7 +111,6 @@ export const STARTER_MAPPINGS: [setting: string, account: string][] = [
   ["purchase_advance_account", "purchaseAdvance"],
   ["input_vat_account", "inputVat"],
   ["supplier_invoice_diff_account", "invoiceDiff"],
-  ["wip_account", "wip"],
   ["production_scrap_account", "productionScrap"],
 ];
 
