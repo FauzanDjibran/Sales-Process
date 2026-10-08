@@ -42,7 +42,7 @@ export function CustomerOrderScheduleCard({
         )}
       </div>
       <div className="tw">
-        <table className="grid ltab">
+        <table className="grid ltab" style={{ minWidth: 700 }}>
           <thead>
             <tr>
               <th style={{ minWidth: 240 }}>Barang</th>

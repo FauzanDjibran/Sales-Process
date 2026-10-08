@@ -196,6 +196,20 @@ export function AccountTree({
     );
   };
 
+  // A heading folds and unfolds from the keyboard too, not only by mouse.
+  const toggleProps = (key: string, open: boolean) => ({
+    role: "button" as const,
+    tabIndex: 0,
+    "aria-expanded": open,
+    onClick: () => toggle(key),
+    onKeyDown: (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        toggle(key);
+      }
+    },
+  });
+
   const body = categories
     .map((category) => {
       const subs = category.subcategories
@@ -209,7 +223,7 @@ export function AccountTree({
           const open = isOpen(key);
           return (
             <div className="tgrp" key={sub.id}>
-              <div className="tn k-sub" onClick={() => toggle(key)}>
+              <div className="tn k-sub" {...toggleProps(key, open)}>
                 <span className="tw5">
                   <span className={`chev${open ? " o" : ""}`}>
                     <Icon name="chev" size={12} />
@@ -245,7 +259,7 @@ export function AccountTree({
 
       return (
         <div className="tgrp" key={category.id}>
-          <div className="tn k-cat" onClick={() => toggle(key)}>
+          <div className="tn k-cat" {...toggleProps(key, open)}>
             <span className="tw5">
               <span className={`chev${open ? " o" : ""}`}>
                 <Icon name="chev" size={12} />

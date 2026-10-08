@@ -461,7 +461,7 @@ export function PurchaseAdvanceForm({
       ) : (
         <>
           <div className="tw">
-            <table className="grid ltab">
+            <table className="grid ltab" style={{ minWidth: 570 }}>
               <thead>
                 <tr>
                   <th style={{ width: 34 }}>No</th>

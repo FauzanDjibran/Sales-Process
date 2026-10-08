@@ -45,7 +45,7 @@ export function SalesOrderDeliveriesCard({
         )}
       </div>
       <div className="tw">
-        <table className="grid ltab">
+        <table className="grid ltab" style={{ minWidth: 830 }}>
           <thead>
             <tr>
               <th style={{ minWidth: 240 }}>Barang</th>

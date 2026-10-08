@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
@@ -635,6 +635,7 @@ function FieldControl({
   onChange: (value: string | boolean | null) => void;
 }) {
   const locked = Boolean((field.locked || forceLocked) && exists);
+  const controlId = useId();
   // Three columns by default: a master record's fields are short, and two
   // columns left a date picker in a 500px box. `full` and a textarea still take
   // the whole row, and a field that needs a different share says so in the
@@ -649,6 +650,7 @@ function FieldControl({
     editing && !locked
       ? editableControl({
           field,
+          controlId,
           value,
           error,
           options,
@@ -665,6 +667,9 @@ function FieldControl({
       span={span}
       required={editing && field.required}
       locked={locked && editing}
+      // The shared controls name themselves from the label; the native inputs
+      // `editableControl` writes are tied to it by id instead.
+      htmlFor={editing && !locked ? controlId : undefined}
       help={editing ? field.help : undefined}
       error={error}
     >
@@ -785,6 +790,7 @@ function readOnlyBody({
 
 function editableControl({
   field,
+  controlId,
   value,
   error,
   options,
@@ -794,6 +800,7 @@ function editableControl({
   onChange,
 }: {
   field: Field;
+  controlId: string;
   value: string | boolean | null | undefined;
   error?: string;
   options: RefOption[];
@@ -833,6 +840,7 @@ function editableControl({
           {prefix ? `${prefix}.` : "menunggu induk"}
         </span>
         <input
+          id={controlId}
           value={value == null ? "" : String(value)}
           placeholder={field.placeholder}
           disabled={!prefix}
@@ -925,6 +933,7 @@ function editableControl({
   if (field.type === "textarea") {
     return (
       <textarea
+        id={controlId}
         className={`ta${error ? " bad" : ""}`}
         rows={2}
         value={value == null ? "" : String(value)}
@@ -935,6 +944,7 @@ function editableControl({
   }
   return (
     <input
+      id={controlId}
       className={`inp${field.ident ? " idf" : ""}${error ? " bad" : ""}`}
       type="text"
       inputMode={field.type === "number" ? "numeric" : undefined}

@@ -327,7 +327,7 @@ export function JournalForm({
                     </Field>
                   )}
 
-                  <Field
+                  <Field htmlFor="journal-description"
                     label="Keterangan"
                     span={isManual ? 8 : 12}
                     required={editing}
@@ -335,7 +335,7 @@ export function JournalForm({
                     error={errors.description}
                   >
                     {editing ? (
-                      <input
+                      <input id="journal-description"
                         className={`inp${errors.description ? " bad" : ""}`}
                         type="text"
                         autoComplete="off"
@@ -388,7 +388,7 @@ export function JournalForm({
             </div>
 
             <div className="tw">
-              <table className="grid ltab">
+              <table className="grid ltab" style={{ minWidth: editing ? 1220 : 1060 }}>
                 <thead>
                   {editing ? (
                     <tr>

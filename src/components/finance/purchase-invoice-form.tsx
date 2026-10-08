@@ -326,7 +326,7 @@ export function PurchaseInvoiceForm({
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab">
+          <table className="grid ltab" style={{ minWidth: 710 }}>
             <thead>
               <tr>
                 <th>Uang Muka</th>

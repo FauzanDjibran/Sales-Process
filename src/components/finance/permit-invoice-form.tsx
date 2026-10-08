@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
@@ -115,13 +115,9 @@ export function PermitInvoiceForm({
     const item = source?.advances.find((x) => x.id === d.ar_item_id);
     return a + (item && source?.basis.taxable ? advancePpnUsed({ rates, usedBefore: item.original - item.balance, used: Number(d.dpp_used) || 0 }) : 0);
   }, 0);
-  const figures = useMemo(
-    () =>
-      source
-        ? computeInvoice({ lines: [line(source)], mode: source.basis.mode, taxable: source.basis.taxable, rates: source.rates, advanceUsed, advancePpn })
-        : null,
-    [source, advanceUsed, advancePpn]
-  );
+  const figures = source
+    ? computeInvoice({ lines: [line(source)], mode: source.basis.mode, taxable: source.basis.taxable, rates: source.rates, advanceUsed, advancePpn })
+    : null;
   const shown = mode === "view" && invoice ? invoice.figures : null;
 
   async function onSave() {
@@ -341,7 +337,7 @@ export function PermitInvoiceForm({
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab">
+          <table className="grid ltab" style={{ minWidth: 550 }}>
             <thead>
               <tr>
                 <th style={{ width: 34 }}>No</th>
@@ -409,7 +405,7 @@ export function PermitInvoiceForm({
         </div>
       )}
       <div className="tw">
-        <table className="grid ltab">
+        <table className="grid ltab" style={{ minWidth: 540 }}>
           <thead>
             <tr>
               <th>AR Item</th>

@@ -63,7 +63,7 @@ export function PurchaseInvoicePicker({
       }
     >
       <div className="tw">
-        <table className="grid ltab">
+        <table className="grid ltab" style={{ minWidth: 520 }}>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id} className={r.can ? (on.has(r.id) ? "clk" : "clk unpicked") : "unpicked"} onClick={r.can ? () => toggle(r.id) : undefined}>
