@@ -884,6 +884,7 @@ export type PermitAdvanceSource = {
   /** How many permits the Pengajuan lists, for the bill's one-line summary. */
   lineCount: number;
   realizationNo: string | null;
+  realizationDate: string;
   basis: AdvanceBasis;
   withholdingTaxId: number | null;
   withholdingRate: number | null;
@@ -935,6 +936,7 @@ export async function permitAdvanceSources(
       productName: o.product_name,
       lineCount: o._count.lines,
       realizationNo: o.realization_no,
+      realizationDate: isoDay(o.realization_date),
       basis: {
         mode: o.price_mode as PriceMode,
         taxable: o.is_taxable,
@@ -1015,4 +1017,14 @@ export async function recordPermitCostPaid(tx: Prisma.TransactionClient, id: num
   const paid = o.cost_paid_amount.toNumber() + amount;
   if (amount <= 0 || paid > o.realized_dpp.toNumber()) throw new Error(`Pembayaran melebihi sisa biaya ${o.request_no}.`);
   await tx.salPermitRequest.update({ where: { id }, data: { cost_paid_amount: paid } });
+}
+
+/**
+ * Marks a Pengajuan Selesai once its Invoice Perizinan posts (Z17), inside that
+ * posting; called by the invoice module, which never writes this table.
+ */
+export async function markPermitRequestInvoiced(tx: Prisma.TransactionClient, id: number, actorId: number): Promise<void> {
+  const done = await tx.salPermitRequest.updateMany({ where: { id, status: "Realized" }, data: { status: "Done", updated_by: actorId } });
+  if (done.count !== 1) throw new Error("Pengajuan Perizinan tidak berstatus Terealisasi.");
+  await audit(tx, id, "UPDATE", "invoiced", actorId);
 }

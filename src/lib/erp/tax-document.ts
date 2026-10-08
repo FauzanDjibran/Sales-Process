@@ -9,6 +9,7 @@ import { advanceItemsReceivedBy } from "./ar-item";
 import { postedReceiptIds, receiptTaxBasis } from "./cash-bank-tx";
 import { invoiceSourceOrders } from "./customer-order";
 import { permitAdvanceSources } from "./permit-request";
+import { permitInvoiceTaxBasis } from "./permit-invoice";
 import { invoiceTaxBasis, postedInvoiceIds, setInvoiceTaxInvoiceNo } from "./ar-invoice";
 import {
   normalizeNsfp,
@@ -255,6 +256,52 @@ export async function createTaxDocsForInvoice(db: Db, invoiceId: number, actorId
           dpp_other: l.dppOther,
           ppn: l.ppn,
         })),
+      },
+      refs: { create: refs },
+    },
+  });
+  await audit(db, "tax_faktur", row.id, "TAMBAH", "create", actorId);
+}
+
+/**
+ * The faktur of a posted Invoice Perizinan (P137, Z21): pelunasan when it
+ * deducted Uang Muka Perizinan, normal otherwise, dated the invoice — **one
+ * line, its Uraian, no item, quantity or unit**, the way the Faktur Uang Muka
+ * is built. Header-level deduction as the goods Invoice (P113). None when not
+ * taxable or its Uang Muka covered it whole. Idempotent.
+ */
+export async function createTaxDocsForPermitInvoice(db: Db, invoiceId: number, actorId: number): Promise<void> {
+  const v = await permitInvoiceTaxBasis(db, invoiceId);
+  if (!v || v.status !== "Posted" || !v.taxable || !v.rates || !(v.netDpp > 0)) return;
+  const invoiceType = await docTypeId(db, "fin_ar_permit_invoice");
+  if (await db.taxFaktur.findFirst({ where: { source_doc_type_id: invoiceType, source_doc_id: v.id }, select: { id: true } })) return;
+  const refs = await deductedFakturs(db, v.deductions);
+  const date = asDate(v.taxDate);
+  const row = await db.taxFaktur.create({
+    data: {
+      faktur_no: await nextNo(db, "FPK", date),
+      kind: v.advanceUsed > 0 ? "Settlement" : "Normal",
+      tax_date: date,
+      deadline: asDate(uploadDeadline(v.taxDate)),
+      ...(await buyerOf(db, v.customerId, v.addressId)),
+      source_doc_type_id: invoiceType,
+      source_doc_id: v.id,
+      source_no: v.invoiceNo,
+      scope_doc_type_id: await docTypeId(db, "sal_permit_request"),
+      scope_doc_id: v.requestId,
+      description: v.description,
+      ppn_rate: v.rates.rate,
+      ppn_dpp_other_numerator: v.rates.otherNum,
+      ppn_dpp_other_denominator: v.rates.otherDen,
+      gross_dpp: v.dpp,
+      advance_dpp: v.advanceUsed,
+      advance_ppn: v.advancePpn,
+      dpp: v.netDpp,
+      dpp_other: v.dppOther,
+      ppn: v.ppn,
+      created_by: actorId,
+      lines: {
+        create: [{ line_no: 1, description: v.description, gross_dpp: v.dpp, advance_dpp: 0, dpp: v.dpp, dpp_other: v.dppOther, ppn: v.fullPpn }],
       },
       refs: { create: refs },
     },
@@ -619,13 +666,13 @@ export async function slipNumbersByIds(ids: number[]): Promise<Map<number, strin
  * the fakturs it made, and the slips of a receipt or of a settled document.
  */
 export async function taxDocsOf(
-  table: "fin_cash_bank_tx" | "fin_ar_invoice" | "fin_ar_advance",
+  table: "fin_cash_bank_tx" | "fin_ar_invoice" | "fin_ar_advance" | "fin_ar_permit_advance" | "fin_ar_permit_invoice",
   id: number
 ): Promise<TaxDocRefs> {
   const typeId = await docTypeId(prisma, table);
   const [fakturs, slips] = await Promise.all([
     prisma.taxFaktur.findMany({
-      where: table === "fin_ar_advance" ? { ref_doc_type_id: typeId, ref_doc_id: id } : { source_doc_type_id: typeId, source_doc_id: id },
+      where: table === "fin_ar_advance" || table === "fin_ar_permit_advance" ? { ref_doc_type_id: typeId, ref_doc_id: id } : { source_doc_type_id: typeId, source_doc_id: id },
       select: { id: true, faktur_no: true, nsfp: true },
       orderBy: { id: "asc" },
     }),

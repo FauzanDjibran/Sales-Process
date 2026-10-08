@@ -1307,6 +1307,72 @@ table fin_ar_permit_advance {
   }
 }
 
+// Invoice Perizinan (P137): bills one realised Pengajuan Perizinan, header-only (its Uraian
+// is the one line); deducts the Pengajuan's own Uang Muka items as the goods Invoice does
+table fin_ar_permit_invoice {
+  id                          int [pk, increment, not null]
+
+  invoice_no                  varchar [not null, unique] // INP/YYYY/MM/NNNN, INP-NP/… without PPN
+  invoice_date                date [not null]
+  tax_date                    date [not null] // = invoice_date
+  due_date                    date [not null]
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+
+  permit_request_id           int [not null] // weak: a Pengajuan Perizinan
+  customer_id                 int [not null, ref : > m_partner.id]
+  address_id                  int [not null, ref : > m_partner_address.id]
+  cash_bank_id                int [not null, ref : > m_cash_bank.id]
+  description                 varchar [not null] // the one line the customer sees
+
+  price_mode                  enum('Exclude', 'Include') [not null]
+  is_taxable                  boolean [not null]
+  ppn_rate                    decimal(9,4)
+  ppn_dpp_other_numerator     int
+  ppn_dpp_other_denominator   int
+  withholding_tax_id          int
+  withholding_rate            decimal(9,4)
+
+  amount                      decimal(18,2) [not null, default: 0]
+  dpp_amount                  decimal(18,2) [not null, default: 0]
+  advance_dpp_amount          decimal(18,2) [not null, default: 0]
+  advance_ppn_amount          decimal(18,2) [not null, default: 0]
+  net_dpp_amount              decimal(18,2) [not null, default: 0]
+  dpp_other_amount            decimal(18,2) [not null, default: 0]
+  full_ppn_amount             decimal(18,2) [not null, default: 0]
+  ppn_amount                  decimal(18,2) [not null, default: 0] // full − advance (P113)
+  total_amount                decimal(18,2) [not null, default: 0]
+  paid_amount                 decimal(18,2) [not null, default: 0] // CHECK 0 ≤ paid ≤ total
+
+  journal_id                  int
+  ar_item_id                  int
+  note                        varchar
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    permit_request_id
+    (status, invoice_date)
+  }
+}
+
+table fin_ar_permit_invoice_advance_deduction {
+  id                          int [pk, increment, not null]
+  invoice_id                  int [not null, ref : > fin_ar_permit_invoice.id]
+  ar_item_id                  int [not null] // an Uang Muka item of the Pengajuan, no FK
+  ar_item_no                  varchar [not null]
+  dpp_used                    decimal(18,2) [not null]
+  ppn_used                    decimal(18,2) [not null, default: 0] // recalculated (P118)
+
+  indexes {
+    (invoice_id, ar_item_id) [unique]
+    ar_item_id
+  }
+}
+
 // Uang Muka Pembelian, APA/… or APA-NP/… (P126, Purchasing-Concept.md B23): the supplier's request for a down payment
 // the AR bill mirrored (P58): from one Open Purchase Order; posts nothing; Draft -> Catat -> Diterbitkan; Batalkan final
 table fin_ap_advance {

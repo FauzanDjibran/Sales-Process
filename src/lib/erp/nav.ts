@@ -279,6 +279,14 @@ export const MODULES: NavModule[] = [
             permission: "SALES_INVOICE_VIEW",
           },
           {
+            key: "fin_ar_permit_invoice",
+            slug: "invoice/permit",
+            name: "Invoice Perizinan",
+            icon: "file",
+            desc: "Tagihan atas realisasi Pengajuan Perizinan, satu baris uraian, dipotong Uang Muka Perizinan. Posting mengakui piutang, Pendapatan Perizinan dan PPN.",
+            permission: "PERMIT_INVOICE_VIEW",
+          },
+          {
             key: "fin_ap_invoice",
             slug: "invoice/purchase",
             name: "Invoice Pembelian",

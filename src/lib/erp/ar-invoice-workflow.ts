@@ -124,3 +124,37 @@ export const INVOICE_PAY_BADGE: Record<InvoicePayState, string> = {
   Partial: "t-info",
   Paid: "t-ok",
 };
+
+/** Invoice Perizinan (P137, Z17): the same lifecycle, its own permissions and words. */
+export const PERMIT_INVOICE_TRANSITIONS: Record<InvoiceAction, InvoiceTransition> = {
+  post: {
+    ...INVOICE_TRANSITIONS.post,
+    permission: "PERMIT_INVOICE_POST",
+    title: "Posting Invoice Perizinan",
+    body:
+      "Piutang, Pendapatan Perizinan dan PPN Keluaran diakui dengan journal di bawah ini pada " +
+      "Tanggal Invoice, uang muka yang dipilih dipakai, faktur pajaknya dibuat dengan satu baris, " +
+      "dan Pengajuan Perizinan menjadi Selesai. Invoice yang sudah diposting tidak dapat diubah " +
+      "atau dibatalkan.",
+    done: "Invoice Perizinan diposting",
+  },
+  cancel: {
+    ...INVOICE_TRANSITIONS.cancel,
+    permission: "PERMIT_INVOICE_CANCEL",
+    title: "Batalkan Invoice Perizinan",
+    body:
+      "Draft ditandai Dibatalkan; realisasinya dapat ditagih lagi dan uang mukanya tidak lagi " +
+      "dicadangkan. Tidak ada journal yang dibuat. Status ini final.",
+    done: "Invoice Perizinan dibatalkan",
+  },
+};
+
+export function permitInvoiceAbilities(permissions: Iterable<string>): InvoiceAbilities {
+  const held = permissions instanceof Set ? permissions : new Set(permissions);
+  return {
+    create: held.has("PERMIT_INVOICE_CREATE"),
+    edit: held.has("PERMIT_INVOICE_EDIT"),
+    post: held.has("PERMIT_INVOICE_POST"),
+    cancel: held.has("PERMIT_INVOICE_CANCEL"),
+  };
+}

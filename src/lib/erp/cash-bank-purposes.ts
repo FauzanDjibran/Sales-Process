@@ -21,13 +21,18 @@ export type CashBankDirection = "In" | "Out";
 export type CashBankPurposeKey = "customer_receipt" | "supplier_payment" | "permit_cost";
 
 /** The kinds of document a purpose settles, by `sys_doc_type.doc_table`. */
-export type SettledDocKind = "fin_ar_advance" | "fin_ar_invoice" | "fin_ar_permit_advance";
+export type SettledDocKind = "fin_ar_advance" | "fin_ar_invoice" | "fin_ar_permit_advance" | "fin_ar_permit_invoice";
 
 export const SETTLED_DOC_TEXT: Record<SettledDocKind, string> = {
   fin_ar_advance: "Uang Muka",
   fin_ar_invoice: "Invoice",
   fin_ar_permit_advance: "UM Perizinan",
+  fin_ar_permit_invoice: "Inv. Perizinan",
 };
+
+/** An invoice of either flow — paid against its Invoice AR item (P98, P137). */
+export const isInvoiceKind = (k: SettledDocKind): k is "fin_ar_invoice" | "fin_ar_permit_invoice" =>
+  k === "fin_ar_invoice" || k === "fin_ar_permit_invoice";
 
 /** An advance bill of either flow — paid into an Uang Muka item (P133, P137). */
 export const isAdvanceKind = (k: SettledDocKind): k is "fin_ar_advance" | "fin_ar_permit_advance" =>
@@ -38,6 +43,7 @@ export const SCOPE_OF_KIND: Record<SettledDocKind, "sal_customer_order" | "sal_p
   fin_ar_advance: "sal_customer_order",
   fin_ar_invoice: "sal_customer_order",
   fin_ar_permit_advance: "sal_permit_request",
+  fin_ar_permit_invoice: "sal_permit_request",
 };
 
 /** Where a settled document is read. */
@@ -45,6 +51,7 @@ export const SETTLED_DOC_ROUTE: Record<SettledDocKind, string> = {
   fin_ar_advance: "/finance/advance/sales",
   fin_ar_invoice: "/finance/invoice/sales",
   fin_ar_permit_advance: "/finance/advance/permit",
+  fin_ar_permit_invoice: "/finance/invoice/permit",
 };
 
 /** The kinds of document a payment to a supplier settles (P127). */
@@ -99,7 +106,7 @@ export const CASH_BANK_PURPOSES = [
       "Dana dari customer atas tagihan uang muka yang diterbitkan dan invoice penjualan yang " +
       "diposting. Uang muka mencatat kewajiban dan PPN Keluaran; invoice melunasi piutang.",
     partnerCategory: "Customer",
-    settles: ["fin_ar_advance", "fin_ar_invoice", "fin_ar_permit_advance"],
+    settles: ["fin_ar_advance", "fin_ar_invoice", "fin_ar_permit_advance", "fin_ar_permit_invoice"],
     docNoun: "Tagihan",
     withholding: true,
   },

@@ -142,6 +142,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   // The Perizinan flow's agreement (P137); its advance, invoice and cost payment name it.
   ["Pengajuan Perizinan", "sal_permit_request"],
   ["Uang Muka Perizinan", "fin_ar_permit_advance"],
+  ["Invoice Perizinan", "fin_ar_permit_invoice"],
 ];
 
 /**

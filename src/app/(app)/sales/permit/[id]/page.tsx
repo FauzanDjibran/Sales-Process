@@ -7,6 +7,7 @@ import { getPermitRequest, permitRequestOptions } from "@/lib/erp/permit-request
 import { permitRequestAbilities } from "@/lib/erp/permit-request-workflow";
 import { permitAdvancesOfRequest } from "@/lib/erp/permit-advance";
 import { permitCostPayments } from "@/lib/erp/cash-payment";
+import { permitInvoiceOfRequest } from "@/lib/erp/permit-invoice";
 
 export const dynamic = "force-dynamic";
 
@@ -16,13 +17,18 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const [request, options] = await Promise.all([getPermitRequest(Number(id)), permitRequestOptions()]);
   if (!request) notFound();
   // The flow's other documents belong to other modules; this page composes them.
-  const [advances, costs] = await Promise.all([permitAdvancesOfRequest(request.id), permitCostPayments(request.id)]);
+  const [advances, costs, invoice] = await Promise.all([
+    permitAdvancesOfRequest(request.id),
+    permitCostPayments(request.id),
+    permitInvoiceOfRequest(request.id),
+  ]);
   const links: PermitLink[] = [
     ...advances.map((a) => ({ kind: "advance" as const, id: a.id, no: a.advanceNo, status: a.status, amount: a.total, paid: a.paid })),
     ...costs.map((p) => ({ kind: "cost" as const, id: p.id, no: p.txNo, date: p.date, status: p.status, amount: p.settled })),
+    ...(invoice ? [{ kind: "invoice" as const, id: invoice.id, no: invoice.invoiceNo, date: invoice.date, status: invoice.status, amount: invoice.total, paid: invoice.paid }] : []),
   ];
   // The realisation is fixed once its cost is paid or it is invoiced (Z8).
-  const realizationLocked = costs.length > 0;
+  const realizationLocked = costs.length > 0 || Boolean(invoice);
   return (
     <>
       <PermitRequestForm

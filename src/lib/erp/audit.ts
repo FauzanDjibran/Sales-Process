@@ -9,6 +9,7 @@ import { journalNumbersByIds } from "./journal";
 import { openingBalanceNumbersByIds } from "./opening-balance";
 import { salesAdvanceNumbersByIds } from "./ar-advance";
 import { permitAdvanceNumbersByIds } from "./permit-advance";
+import { permitInvoiceNumbersByIds } from "./permit-invoice";
 import { purchaseAdvanceNumbersByIds } from "./ap-advance";
 import { purchaseRequestNumbersByIds } from "./purchase-request";
 import { purchaseOrderNumbersByIds } from "./purchase-order";
@@ -89,6 +90,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   pur_request: { label: "Purchase Request", resolve: purchaseRequestNumbersByIds },
   pur_order: { label: "Purchase Order", resolve: purchaseOrderNumbersByIds },
   fin_ar_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },
+  fin_ar_permit_invoice: { label: "Invoice Perizinan", resolve: permitInvoiceNumbersByIds },
   fin_ap_invoice: { label: "Invoice Pembelian", resolve: purchaseInvoiceNumbersByIds },
   // The stand-in inventory, dropped by P120; kept so its old trail still reads.
   acc_item_category_account: { label: "Account Kategori Item", resolve: null },

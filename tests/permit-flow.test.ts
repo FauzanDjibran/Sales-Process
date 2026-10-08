@@ -9,7 +9,8 @@ import {
   transitionPermitRequest,
 } from "../src/lib/erp/permit-request";
 import { createPermitAdvance, liveAdvanceRefusal, transitionPermitAdvance } from "../src/lib/erp/permit-advance";
-import { createTaxDocsForReceipt } from "../src/lib/erp/tax-document";
+import { createTaxDocsForPermitInvoice, createTaxDocsForReceipt } from "../src/lib/erp/tax-document";
+import { createPermitInvoice, transitionPermitInvoice } from "../src/lib/erp/permit-invoice";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import {
   FIXTURE_PREFIX,
@@ -35,6 +36,7 @@ const f = {} as Record<string, number>;
 const requests: number[] = [];
 const advances: number[] = [];
 const receipts: number[] = [];
+const invoices: number[] = [];
 const savedSettings = new Map<string, string | null>();
 const stamp = String(Date.now() % 100000);
 const key = (s: string) => `${FIXTURE_PREFIX}${s}${stamp}`;
@@ -94,6 +96,10 @@ before(async () => {
   await setMapping("output_vat_account", String(f.vatAcc));
   f.costAcc = await makeAccount({ subcategoryLabel: await sub("5") });
   await setMapping("permit_cost_account", String(f.costAcc));
+  f.arAcc = await makeAccount({ subcategoryLabel: await sub("1"), partnerCategoryLabel: "Customer" });
+  f.revAcc = await makeAccount({ subcategoryLabel: await sub("4"), normalBalance: "Kredit" });
+  await setMapping("receivable_account", String(f.arAcc));
+  await setMapping("permit_revenue_account", String(f.revAcc));
 
   const currency = (await prisma.refCurrency.findFirstOrThrow({ where: { currency_label: "IDR" } })).id;
   f.bankAcc = await makeAccount({ subcategoryLabel: CASH_BANK_SUBCATEGORY });
@@ -121,6 +127,19 @@ before(async () => {
 });
 
 after(async () => {
+  if (invoices.length) {
+    const invType = (await prisma.sysDocType.findFirstOrThrow({ where: { doc_table: "fin_ar_permit_invoice" } })).id;
+    const fk = await prisma.taxFaktur.findMany({ where: { source_doc_type_id: invType, source_doc_id: { in: invoices } }, select: { id: true } });
+    await prisma.taxFakturRef.deleteMany({ where: { faktur_id: { in: fk.map((x) => x.id) } } });
+    await prisma.taxFakturLine.deleteMany({ where: { faktur_id: { in: fk.map((x) => x.id) } } });
+    await prisma.taxFaktur.deleteMany({ where: { id: { in: fk.map((x) => x.id) } } });
+    const items = await prisma.finArItem.findMany({ where: { source_doc_type_id: invType, source_doc_id: { in: invoices } }, select: { id: true } });
+    const ids = items.map((i) => i.id);
+    await prisma.finArLedger.deleteMany({ where: { OR: [{ item_id: { in: ids } }, { counter_item_id: { in: ids } }, { doc_type_id: invType, doc_id: { in: invoices } }] } });
+    await prisma.finArItem.deleteMany({ where: { id: { in: ids } } });
+    await prisma.finArPermitInvoice.deleteMany({ where: { id: { in: invoices } } });
+    await prisma.auditLog.deleteMany({ where: { entity_key: "fin_ar_permit_invoice", row_id: { in: invoices } } });
+  }
   if (receipts.length) {
     const receiptType = (await prisma.sysDocType.findFirstOrThrow({ where: { doc_table: "fin_cash_bank_tx" } })).id;
     const fk = await prisma.taxFaktur.findMany({ where: { source_doc_type_id: receiptType, source_doc_id: { in: receipts } }, select: { id: true } });
@@ -253,6 +272,82 @@ describe("Uang Muka Perizinan", () => {
       (await permitCostPayments(rid, t)).length ? "dibayar" : null;
     const changed = await saveRealization(id, { realization_date: today, realization_note: "", lines }, actor, guard);
     assert.ok(!changed.ok && changed.errors._form === "dibayar");
+  });
+
+  test("Invoice Perizinan: the simulation's scenario 2 — realised above the estimate, net of the advance, paid (Z15–Z18)", async () => {
+    const id = await approvedRequest();
+    const a = await createPermitAdvance(
+      { order_id: id, advance_date: today, due_date: today, cash_bank_id: f.bank, description: "UM", note: "", amount_type: "Percent", amount_value: 100 },
+      actor
+    );
+    assert.ok(a.ok);
+    advances.push(a.id);
+    await transitionPermitAdvance(a.id, "issue", actor);
+    const rc = await createCashReceipt(
+      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ar_permit_advance", doc_id: a.id, cash: 872_000, withhold: true }] },
+      actor
+    );
+    assert.ok(rc.ok);
+    receipts.push(rc.id);
+    assert.deepEqual(await transitionCashReceipt(rc.id, "post", actor, undefined, (tx) => createTaxDocsForReceipt(tx, rc.id, actor)), { ok: true });
+
+    // 550.000 + 100.000 + 180.000, and a microbiology test added at 150.000 = 980.000.
+    const lines = [
+      { permit_type_id: f.pre, description: "", realized_price: 550_000, is_added: false },
+      { permit_type_id: f.bpom, description: "", realized_price: 100_000, is_added: false },
+      { permit_type_id: f.stab, description: "", realized_price: 180_000, is_added: false },
+      { permit_type_id: f.micro, description: "Uji mikro", realized_price: 150_000, is_added: true },
+    ];
+    assert.ok((await saveRealization(id, { realization_date: today, realization_note: "", lines }, actor)).ok);
+    assert.ok((await transitionPermitRequest(id, "realize", actor)).ok);
+
+    const item = await prisma.finArItem.findFirstOrThrow({ where: { source_doc_type: { doc_table: "fin_ar_permit_advance" }, source_doc_id: a.id } });
+    const inv = await createPermitInvoice(
+      { permit_request_id: id, invoice_date: today, address_id: f.address, cash_bank_id: f.bank, description: "Jasa pengurusan perizinan — Serum Uji", note: "" },
+      [{ ar_item_id: item.id, dpp_used: 800_000 }],
+      actor
+    );
+    assert.ok(inv.ok, JSON.stringify(inv));
+    invoices.push(inv.id);
+    assert.match(inv.invoiceNo, /^INP\/\d{4}\/\d{2}\/\d{4}$/);
+    const second = await createPermitInvoice(
+      { permit_request_id: id, invoice_date: today, address_id: f.address, cash_bank_id: f.bank, description: "x", note: "" },
+      [],
+      actor
+    );
+    assert.ok(!second.ok && second.errors.permit_request_id, "one live invoice per Pengajuan");
+
+    assert.deepEqual(await transitionPermitInvoice(inv.id, "post", actor, undefined, (tx) => createTaxDocsForPermitInvoice(tx, inv.id, actor)), { ok: true });
+    const v = await prisma.finArPermitInvoice.findUniqueOrThrow({ where: { id: inv.id } });
+    // DPP 980.000: full PPN 107.800; the advance's 88.000 deducted; net DPP 180.000.
+    assert.deepEqual(
+      [v.dpp_amount, v.advance_dpp_amount, v.full_ppn_amount, v.advance_ppn_amount, v.ppn_amount, v.total_amount].map((x) => x.toNumber()),
+      [980_000, 800_000, 107_800, 88_000, 19_800, 199_800]
+    );
+    const j = await prisma.accJournal.findUniqueOrThrow({ where: { id: v.journal_id! }, include: { lines: true } });
+    const sum = (acc: number, side: "debit_amount" | "kredit_amount") => j.lines.filter((l) => l.account_id === acc).reduce((x, l) => x + l[side].toNumber(), 0);
+    assert.equal(sum(f.revAcc, "kredit_amount"), 980_000, "Cr Pendapatan Perizinan, the full DPP");
+    assert.equal(sum(f.permitAdvAcc, "debit_amount"), 800_000, "Dr Uang Muka Perizinan");
+    assert.equal(sum(f.arAcc, "debit_amount") - sum(f.arAcc, "kredit_amount"), 199_800, "Piutang nets to the invoice total");
+    assert.equal(sum(f.vatAcc, "kredit_amount") - sum(f.vatAcc, "debit_amount"), 19_800);
+
+    const invItem = await prisma.finArItem.findUniqueOrThrow({ where: { id: v.ar_item_id! }, include: { scope_doc_type: true } });
+    assert.deepEqual([invItem.original_amount.toNumber(), invItem.current_balance.toNumber(), invItem.scope_doc_type?.doc_table], [1_087_800, 199_800, "sal_permit_request"]);
+    assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: item.id } })).current_balance.toNumber(), 0, "the Uang Muka used up");
+    assert.equal((await prisma.salPermitRequest.findUniqueOrThrow({ where: { id } })).status, "Done", "the Pengajuan is Selesai");
+    const faktur = await prisma.taxFaktur.findFirstOrThrow({ where: { source_doc_id: inv.id, kind: { in: ["Settlement", "Normal"] }, scope_doc_id: id }, include: { lines: true, refs: true } });
+    assert.deepEqual([faktur.kind, faktur.lines.length, faktur.lines[0].item_label, faktur.ppn.toNumber(), faktur.refs.length], ["Settlement", 1, null, 19_800, 1]);
+
+    // Paid by the same Penerimaan: 199.800 less PPh 23 2 % × 180.000 = 196.200.
+    const pay = await createCashReceipt(
+      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ar_permit_invoice", doc_id: inv.id, cash: 196_200, withhold: true }] },
+      actor
+    );
+    assert.ok(pay.ok, JSON.stringify(pay));
+    receipts.push(pay.id);
+    assert.deepEqual(await transitionCashReceipt(pay.id, "post", actor, undefined, (tx) => createTaxDocsForReceipt(tx, pay.id, actor)), { ok: true });
+    assert.equal((await prisma.finArPermitInvoice.findUniqueOrThrow({ where: { id: inv.id } })).paid_amount.toNumber(), 199_800);
+    assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: invItem.id } })).current_balance.toNumber(), 0);
   });
 
   test("a realised Pengajuan still takes an advance; a Draft one does not", async () => {

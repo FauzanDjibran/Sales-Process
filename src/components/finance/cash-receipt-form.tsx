@@ -630,7 +630,7 @@ export function CashReceiptForm({
           <div className="impact">
             <div className="ttl">Bagian yang Dibukukan</div>
             {shown.map((x) =>
-              x.bill.kind === "fin_ar_invoice" ? (
+              x.bill.kind === "fin_ar_invoice" || x.bill.kind === "fin_ar_permit_invoice" ? (
                 // An Invoice's PPN was booked at the Invoice: what it settles clears Piutang (U25).
                 <div className="ir" key={x.bill.key}>
                   <span>{x.bill.no} · Piutang Usaha</span>

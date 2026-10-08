@@ -8,9 +8,11 @@ import { JournalPreview } from "@/components/ui/journal-preview";
 import { Field } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
 import { previewInvoicePostingAction, transitionInvoiceAction } from "@/app/actions/ar-invoice";
+import { previewPermitInvoicePostingAction, transitionPermitInvoiceAction } from "@/app/actions/permit-invoice";
 import { headerButtonClass, orderForHeader, type ActionTone } from "@/lib/erp/header-actions";
 import {
   INVOICE_TRANSITIONS,
+  PERMIT_INVOICE_TRANSITIONS,
   availableInvoiceActions,
   invoiceIsEditable,
   type InvoiceAbilities,
@@ -37,12 +39,18 @@ export function InvoiceActions({
   subject,
   status,
   can,
+  variant = "sales",
 }: {
   id: number;
   subject: string;
   status: InvoiceStatus;
   can: InvoiceAbilities;
+  /** Invoice Penjualan or Invoice Perizinan (P137). */
+  variant?: "sales" | "permit";
 }) {
+  const permit = variant === "permit";
+  const TRANSITIONS = permit ? PERMIT_INVOICE_TRANSITIONS : INVOICE_TRANSITIONS;
+  const base = permit ? "/finance/invoice/permit" : "/finance/invoice/sales";
   const toast = useToast();
   const [confirm, setConfirm] = useState<InvoiceAction | null>(null);
   const [reason, setReason] = useState("");
@@ -51,12 +59,12 @@ export function InvoiceActions({
   const [postable, setPostable] = useState(false);
 
   const run = async (action: InvoiceAction) => {
-    if (INVOICE_TRANSITIONS[action].reason && !reason.trim()) {
+    if (TRANSITIONS[action].reason && !reason.trim()) {
       setReasonError("Alasan wajib diisi.");
       return;
     }
     setBusy(true);
-    const result = await transitionInvoiceAction(id, action, reason);
+    const result = await (permit ? transitionPermitInvoiceAction : transitionInvoiceAction)(id, action, reason);
     setBusy(false);
     if (!result.ok) {
       if (result.errors.reason) {
@@ -81,7 +89,7 @@ export function InvoiceActions({
               key: "edit",
               tone: "neutral" as ActionTone,
               node: (
-                <Link key="edit" className="btn" href={`/finance/invoice/sales/${id}/edit`}>
+                <Link key="edit" className="btn" href={`${base}/${id}/edit`}>
                   <Icon name="pen" size={15} /> Ubah
                 </Link>
               ),
@@ -89,7 +97,7 @@ export function InvoiceActions({
           ]
         : []),
       ...actions.map((a) => {
-        const t = INVOICE_TRANSITIONS[a];
+        const t = TRANSITIONS[a];
         return {
           key: a,
           tone: t.tone,
@@ -114,7 +122,7 @@ export function InvoiceActions({
     (i) => i.tone
   );
 
-  const t = confirm ? INVOICE_TRANSITIONS[confirm] : null;
+  const t = confirm ? TRANSITIONS[confirm] : null;
 
   return (
     <>
@@ -142,7 +150,7 @@ export function InvoiceActions({
           onConfirm={() => run(confirm)}
           onCancel={() => setConfirm(null)}
         >
-          {confirm === "post" && <JournalPreview load={() => previewInvoicePostingAction(id)} onReady={setPostable} />}
+          {confirm === "post" && <JournalPreview load={() => (permit ? previewPermitInvoicePostingAction : previewInvoicePostingAction)(id)} onReady={setPostable} />}
           {t.reason && (
             <Field label="Alasan" span={12} required error={reasonError}>
               <textarea

@@ -17,12 +17,15 @@ import {
 import { PERMIT_REQUEST_TRANSITIONS, type PermitRequestAction } from "@/lib/erp/permit-request-workflow";
 import { liveAdvanceRefusal } from "@/lib/erp/permit-advance";
 import { permitCostPayments } from "@/lib/erp/cash-payment";
+import { permitInvoiceOfRequest } from "@/lib/erp/permit-invoice";
 import type { Prisma } from "@/generated/prisma/client";
 
 /** Why the realisation may no longer change (Z8), or null. */
 async function realizationLockRefusal(tx: Prisma.TransactionClient, id: number): Promise<string | null> {
   const paid = await permitCostPayments(id, tx);
-  return paid.length ? `Biaya perizinan sudah dibayar (${paid.map((p) => p.txNo).join(", ")}); realisasi tidak dapat diubah.` : null;
+  if (paid.length) return `Biaya perizinan sudah dibayar (${paid.map((p) => p.txNo).join(", ")}); realisasi tidak dapat diubah.`;
+  const invoice = await permitInvoiceOfRequest(id, tx);
+  return invoice ? `Realisasi sudah ditagih dengan ${invoice.invoiceNo}; realisasi tidak dapat diubah.` : null;
 }
 
 /**

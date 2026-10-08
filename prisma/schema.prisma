@@ -850,6 +850,7 @@ model MPartner {
   customer_orders SalCustomerOrder[]
   permit_requests SalPermitRequest[]
   permit_advances FinArPermitAdvance[] @relation("PermitAdvanceCustomer")
+  permit_invoices FinArPermitInvoice[] @relation("PermitInvoiceCustomer")
   sales_orders    SalOrder[]
   delivery_orders SalDeliveryOrder[]
   delivery_notes  LogDeliveryNote[]
@@ -910,6 +911,7 @@ model MPartnerAddress {
   delivery_notes  LogDeliveryNote[]
   invoices        FinArInvoice[]
   permit_requests SalPermitRequest[]
+  permit_invoices FinArPermitInvoice[] @relation("PermitInvoiceAddress")
 
   @@index([partner_id])
   @@index([village_id])
@@ -1026,6 +1028,7 @@ model MCashBank {
   /// Advance bills that print this account as where to pay (P56).
   sales_advances  FinArAdvance[]
   permit_advances FinArPermitAdvance[] @relation("PermitAdvanceBank")
+  permit_invoices FinArPermitInvoice[] @relation("PermitInvoiceBank")
   sales_invoices  FinArInvoice[]
 
   @@map("m_cash_bank")
@@ -2531,6 +2534,91 @@ model FinArPermitAdvance {
   @@index([customer_id])
   @@index([status, advance_date])
   @@map("fin_ar_permit_advance")
+}
+
+/// Invoice Perizinan (P137, Perizinan-Concept.md §9): bills one realised
+/// Pengajuan Perizinan, header-only — its one line is its Uraian (Z1), its
+/// figures the realisation's, computed by `computeInvoice` over that one line.
+/// Deducts the Pengajuan's own Uang Muka items as the goods Invoice does (P113,
+/// P117, P118). Posting writes the journal, the Invoice AR item and a one-line
+/// faktur pajak, and marks the Pengajuan Selesai.
+model FinArPermitInvoice {
+  id           Int           @id @default(autoincrement())
+  /// `INP/YYYY/MM/NNNN`, `INP-NP/…` without PPN.
+  invoice_no   String        @unique
+  invoice_date DateTime      @db.Date
+  /// = invoice_date: a service's PPN is due when its completion is billed (Z15).
+  tax_date     DateTime      @db.Date
+  due_date     DateTime      @db.Date
+  status       InvoiceStatus @default(Draft)
+
+  /// The Pengajuan it bills — another module's document, by id.
+  permit_request_id Int
+  customer_id       Int
+  address_id        Int
+  cash_bank_id      Int
+  /// The one line the customer sees (Z1).
+  description       String
+
+  price_mode                PriceMode
+  is_taxable                Boolean
+  ppn_rate                  Decimal?  @db.Decimal(9, 4)
+  ppn_dpp_other_numerator   Int?
+  ppn_dpp_other_denominator Int?
+  withholding_tax_id        Int?
+  withholding_rate          Decimal?  @db.Decimal(9, 4)
+
+  // ---- figures, from `computeInvoice` over the one line, whole rupiah.
+  /// The realised amount, in the price mode.
+  amount             Decimal @default(0) @db.Decimal(18, 2)
+  dpp_amount         Decimal @default(0) @db.Decimal(18, 2)
+  advance_dpp_amount Decimal @default(0) @db.Decimal(18, 2)
+  advance_ppn_amount Decimal @default(0) @db.Decimal(18, 2)
+  net_dpp_amount     Decimal @default(0) @db.Decimal(18, 2)
+  dpp_other_amount   Decimal @default(0) @db.Decimal(18, 2)
+  /// PPN on the full DPP; ppn_amount = this − advance_ppn_amount (P113).
+  full_ppn_amount    Decimal @default(0) @db.Decimal(18, 2)
+  ppn_amount         Decimal @default(0) @db.Decimal(18, 2)
+  /// Net Piutang: net DPP + PPN.
+  total_amount       Decimal @default(0) @db.Decimal(18, 2)
+  /// What posted receipts settled of it (P133).
+  paid_amount        Decimal @default(0) @db.Decimal(18, 2)
+
+  journal_id    Int?
+  ar_item_id    Int?
+  note          String?
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  customer   MPartner                             @relation("PermitInvoiceCustomer", fields: [customer_id], references: [id])
+  address    MPartnerAddress                      @relation("PermitInvoiceAddress", fields: [address_id], references: [id])
+  cash_bank  MCashBank                            @relation("PermitInvoiceBank", fields: [cash_bank_id], references: [id])
+  deductions FinArPermitInvoiceAdvanceDeduction[]
+
+  @@index([permit_request_id])
+  @@index([status, invoice_date])
+  @@map("fin_ar_permit_invoice")
+}
+
+/// An Uang Muka item of the Pengajuan the Invoice Perizinan uses, and the DPP typed.
+model FinArPermitInvoiceAdvanceDeduction {
+  id         Int     @id @default(autoincrement())
+  invoice_id Int
+  ar_item_id Int
+  ar_item_no String
+  dpp_used   Decimal @db.Decimal(18, 2)
+  /// Recalculated by the chain (P118).
+  ppn_used   Decimal @default(0) @db.Decimal(18, 2)
+
+  invoice FinArPermitInvoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
+
+  @@unique([invoice_id, ar_item_id])
+  @@index([ar_item_id])
+  @@map("fin_ar_permit_invoice_advance_deduction")
 }
 
 // ------------------------------------------------------ cash bank transaction

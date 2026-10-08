@@ -26,6 +26,7 @@ const ROUTES: Record<string, string> = {
   pur_request: "/purchasing/request/goods",
   pur_order: "/purchasing/order/goods",
   fin_ar_invoice: "/finance/invoice/sales",
+  fin_ar_permit_invoice: "/finance/invoice/permit",
   fin_ap_invoice: "/finance/invoice/purchase",
   tax_faktur: "/tax/faktur",
   tax_withholding_slip: "/tax/withholding-slip",

@@ -5,6 +5,7 @@ import { requirePermission } from "@/lib/erp/auth";
 import { getPermitRequest, permitRequestOptions } from "@/lib/erp/permit-request";
 import { permitRequestAbilities } from "@/lib/erp/permit-request-workflow";
 import { permitCostPayments } from "@/lib/erp/cash-payment";
+import { permitInvoiceOfRequest } from "@/lib/erp/permit-invoice";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   if (!request) notFound();
   if (request.status !== "Open" && request.status !== "Realized") redirect(`/sales/permit/${request.id}`);
   // Fixed once its cost is paid (Z8): Posting would refuse it anyway.
-  if ((await permitCostPayments(request.id)).length) redirect(`/sales/permit/${request.id}`);
+  if ((await permitCostPayments(request.id)).length || (await permitInvoiceOfRequest(request.id))) redirect(`/sales/permit/${request.id}`);
   return (
     <>
       <PermitRequestForm mode="realization" request={request} options={options} can={permitRequestAbilities(actor.permissions)} />

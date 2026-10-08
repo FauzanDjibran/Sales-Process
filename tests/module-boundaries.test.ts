@@ -120,6 +120,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // Billing documents: Finance owns them since P107; Sales holds only orders.
   finArAdvance: ["src/lib/erp/ar-advance.ts"],
   finArPermitAdvance: ["src/lib/erp/permit-advance.ts"],
+  finArPermitInvoice: ["src/lib/erp/permit-invoice.ts"],
+  finArPermitInvoiceAdvanceDeduction: ["src/lib/erp/permit-invoice.ts"],
   finApAdvance: ["src/lib/erp/ap-advance.ts"],
   finArInvoice: ["src/lib/erp/ar-invoice.ts"],
   finArInvoiceLine: ["src/lib/erp/ar-invoice.ts"],
