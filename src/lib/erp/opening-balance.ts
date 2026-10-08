@@ -260,6 +260,7 @@ export type OpeningBalanceLineRow = {
   accountName: string;
   partnerId: number | null;
   partnerLabel: string | null;
+  partnerName: string | null;
   /** Base currency, like every figure in this document. */
   debit: number;
   credit: number;
@@ -334,7 +335,7 @@ export async function getOpeningBalance(
         orderBy: { sequence_no: "asc" },
         include: {
           account: { select: { account_label: true, account_name: true } },
-          partner: { select: { partner_label: true } },
+          partner: { select: { partner_label: true, partner_name: true } },
         },
       },
     },
@@ -358,6 +359,7 @@ export async function getOpeningBalance(
       accountName: l.account.account_name,
       partnerId: l.partner_id,
       partnerLabel: l.partner?.partner_label ?? null,
+      partnerName: l.partner?.partner_name ?? null,
       debit: l.debit_amount.toNumber(),
       credit: l.kredit_amount.toNumber(),
     })),

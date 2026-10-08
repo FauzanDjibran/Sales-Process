@@ -713,6 +713,7 @@ export type JournalLineRow = {
   accountName: string;
   partnerId: number | null;
   partnerLabel: string | null;
+  partnerName: string | null;
   currencyId: number;
   /** The line's transaction currency, which need not be the base currency. */
   currencyLabel: string;
@@ -798,7 +799,7 @@ export async function getJournal(
         orderBy: { sequence_no: "asc" },
         include: {
           account: { select: { account_label: true, account_name: true } },
-          partner: { select: { partner_label: true } },
+          partner: { select: { partner_label: true, partner_name: true } },
           currency: { select: { currency_label: true } },
         },
       },
@@ -826,6 +827,7 @@ export async function getJournal(
       accountName: l.account.account_name,
       partnerId: l.partner_id,
       partnerLabel: l.partner?.partner_label ?? null,
+      partnerName: l.partner?.partner_name ?? null,
       currencyId: l.currency_id,
       currencyLabel: l.currency.currency_label,
       debit: l.debit_amount.toNumber(),

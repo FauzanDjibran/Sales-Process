@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { JournalDetail } from "@/components/accounting/journal-detail";
+import { JournalForm } from "@/components/accounting/journal-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { getJournal } from "@/lib/erp/journal";
@@ -20,7 +20,11 @@ export default async function Page({
 
   return (
     <>
-      <JournalDetail journal={journal} can={journalAbilities(actor.permissions)} />
+      <JournalForm
+        mode="view"
+        journal={journal}
+        can={journalAbilities(actor.permissions)}
+      />
       <RecordHistoryCard entityKey="acc_journal" rowId={journal.id} />
     </>
   );

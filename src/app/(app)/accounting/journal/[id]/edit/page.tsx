@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { JournalForm } from "@/components/accounting/journal-form";
+import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { getJournal } from "@/lib/erp/journal";
 import { journalIsEditable, type JournalStatus } from "@/lib/erp/journal-workflow";
@@ -31,11 +32,14 @@ export default async function Page({
   const options = await manualJournalOptions();
 
   return (
-    <JournalForm
-      mode="edit"
-      journal={journal}
-      options={options}
-      defaultCurrencyId={null}
-    />
+    <>
+      <JournalForm
+        mode="edit"
+        journal={journal}
+        options={options}
+        defaultCurrencyId={null}
+      />
+      <RecordHistoryCard entityKey="acc_journal" rowId={journal.id} />
+    </>
   );
 }
