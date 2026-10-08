@@ -26,10 +26,10 @@ import { formatDate, formatMoney, todayIso } from "@/lib/format";
 
 /**
  * A Tagihan Biaya Produksi in all three modes: `new`, `edit` (Draft only) and
- * `view` (P150 M68). The header says when the cost belongs, what it is
- * credited to (the Account Lawan) and, for a bill to be paid, who is owed;
- * each line is an Elemen Biaya Produksi and its amount, posted to the
- * element's own account.
+ * `view` (P150 M68). The header says when the cost belongs and which Supplier
+ * is owed; the credit side is Account Mapping's *Hutang Biaya Produksi*, shown
+ * and never chosen (P151). Each line is an Elemen Biaya Produksi and its
+ * amount, posted to the element's own account.
  */
 
 type LineState = { key: string; element_id: number | null; amount: string; note: string };
@@ -58,14 +58,13 @@ export function CostBillForm({
     bill
       ? {
           bill_date: bill.billDate,
-          contra_account_id: bill.contraAccountId,
           partner_id: bill.partnerId,
           supplier_ref: bill.supplierRef ?? "",
           due_date: bill.dueDate ?? "",
           description: bill.description,
           note: bill.note ?? "",
         }
-      : { bill_date: today, contra_account_id: options.payableAccountId, partner_id: null, supplier_ref: "", due_date: "", description: "", note: "" }
+      : { bill_date: today, partner_id: null, supplier_ref: "", due_date: "", description: "", note: "" }
   );
   const [lines, setLines] = useState<LineState[]>(() =>
     bill
@@ -77,10 +76,9 @@ export function CostBillForm({
   const [saving, setSaving] = useState(false);
 
   const elementById = new Map(options.elements.map((e) => [e.id, e]));
-  const accountById = new Map(options.accounts.map((a) => [a.id, a]));
   const status = bill?.status ?? "Draft";
-  const contraId = Number(header.contra_account_id) || null;
-  const payable = Boolean(contraId && options.payableAccountId && contraId === options.payableAccountId);
+  // A posted bill shows the payable it was posted on; a Draft today's mapping (P151).
+  const payableAccount = bill?.status === "Posted" ? bill.payableAccount : bill?.status === "Cancelled" ? null : options.payableAccount;
   const total = lines.reduce((a, l) => a + (Number(l.amount) || 0), 0);
 
   const touch = (...names: string[]) => {
@@ -130,7 +128,6 @@ export function CostBillForm({
     </>
   );
   const lineErr = (key: string, f: string) => errors[`lines.${key}.${f}`];
-  const contra = contraId ? accountById.get(contraId) : null;
   const supplier = header.partner_id ? options.suppliers.find((s) => s.id === Number(header.partner_id)) : null;
 
   // ======================================================== header card
@@ -142,28 +139,7 @@ export function CostBillForm({
             <Field label="Tanggal" span={3} required={editing} help={editing ? "bulan biaya ini terjadi" : undefined} error={errors.bill_date}>
               {editing ? <DateInput value={header.bill_date} invalid={Boolean(errors.bill_date)} onChange={(v) => set("bill_date", v)} /> : ro(formatDate(header.bill_date))}
             </Field>
-            <Field
-              label="Account Lawan"
-              span={5}
-              required={editing}
-              help={editing ? (payable ? "dibayar lewat Pengeluaran" : "mis. Akumulasi Penyusutan, Hutang Gaji") : undefined}
-              error={errors.contra_account_id}
-            >
-              {editing ? (
-                <Combobox
-                  value={contraId}
-                  options={options.accounts}
-                  placeholder="Pilih Account Lawan…"
-                  invalid={Boolean(errors.contra_account_id)}
-                  onChange={(v) => set("contra_account_id", v)}
-                />
-              ) : contra ? (
-                chip(contra.label, contra.name)
-              ) : (
-                nil()
-              )}
-            </Field>
-            <Field label="Supplier" span={4} required={editing && payable} help={editing && !payable ? "opsional" : undefined} error={errors.partner_id}>
+            <Field label="Supplier" span={4} required={editing} help={editing ? "yang menagih" : undefined} error={errors.partner_id}>
               {editing ? (
                 <Combobox
                   value={Number(header.partner_id) || null}
@@ -176,6 +152,15 @@ export function CostBillForm({
                 chip(supplier.label, supplier.name)
               ) : (
                 nil()
+              )}
+            </Field>
+            <Field label="Account Hutang" span={5} help={status !== "Posted" ? "dari Account Mapping › Produksi" : undefined}>
+              {payableAccount ? (
+                chip(payableAccount.label, payableAccount.name)
+              ) : status === "Draft" ? (
+                <div className="ro nil">belum diatur — atur Hutang Biaya Produksi di Account Mapping sebelum posting</div>
+              ) : (
+                nil("—")
               )}
             </Field>
             <Field label="No. Tagihan Supplier" span={4} help={editing ? "opsional" : undefined}>

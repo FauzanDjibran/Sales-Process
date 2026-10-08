@@ -96,9 +96,12 @@ export const CHECKS: Check[] = [
   {
     area: "journal",
     name: "each journal carries its document's figure",
-    sql: `SELECT 'receipt' AS kind, t.tx_no AS doc, t.settled_amount AS expected, SUM(l.debit_amount) AS journal_debit
+    // A Penerimaan's debits are what it settled (bank + charge + PPh); a
+    // Pengeluaran's are what it settled plus the bank charge, which leaves
+    // the bank with the payment (P127).
+    sql: `SELECT 'receipt' AS kind, t.tx_no AS doc, t.settled_amount + CASE WHEN t.direction = 'Out' THEN t.bank_charge ELSE 0 END AS expected, SUM(l.debit_amount) AS journal_debit
           FROM fin_cash_bank_tx t JOIN acc_journal_line l ON l.journal_id = t.journal_id
-          WHERE t.status = 'Posted' GROUP BY t.id HAVING SUM(l.debit_amount) <> t.settled_amount
+          WHERE t.status = 'Posted' GROUP BY t.id HAVING SUM(l.debit_amount) <> t.settled_amount + CASE WHEN t.direction = 'Out' THEN t.bank_charge ELSE 0 END
           UNION ALL
           SELECT 'delivery note', n.dn_no, n.cost_amount, SUM(l.debit_amount)
           FROM log_delivery_note n JOIN acc_journal_line l ON l.journal_id = n.journal_id
@@ -739,13 +742,13 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
-    name: "a payable Tagihan Biaya Produksi's paid amount equals its posted payment lines; nothing else records a payment (P132, M68)",
-    sql: `SELECT b.bill_no, b.is_payable, b.total_amount, b.paid_amount, COALESCE(p.paid, 0) AS lines
+    name: "a Tagihan Biaya Produksi's paid amount equals its posted payment lines; only a bill posted on its payable records one (P132, M68, P151)",
+    sql: `SELECT b.bill_no, b.payable_account_id, b.total_amount, b.paid_amount, COALESCE(p.paid, 0) AS lines
           FROM prd_cost_bill b
           LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid FROM fin_cash_bank_tx_line l
                      JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
                      WHERE l.doc_type_id = ${docType("prd_cost_bill")} GROUP BY l.doc_id) p ON p.doc_id = b.id
-          WHERE b.paid_amount <> COALESCE(p.paid, 0) OR b.paid_amount > b.total_amount OR (NOT b.is_payable AND b.paid_amount <> 0)`,
+          WHERE b.paid_amount <> COALESCE(p.paid, 0) OR b.paid_amount > b.total_amount OR (b.payable_account_id IS NULL AND b.paid_amount <> 0)`,
   },
   {
     // A warning, never acted on (M67): the cost ledger is the source of truth;

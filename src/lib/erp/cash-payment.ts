@@ -90,6 +90,8 @@ export type OpenPayable = {
   withholdings: { key: string; rate: number; base: number; amount: number }[];
   /** An Invoice's AP item (step 7). */
   apItemId: number | null;
+  /** A Tagihan Biaya Produksi's payable, the account its payment debits (P151). */
+  payableAccountId?: number;
   paid: number;
   open: number;
 };
@@ -202,6 +204,7 @@ async function openPayables(
       ppn: 0,
       withholdings: [],
       apItemId: null,
+      payableAccountId: b.payableAccountId,
       paid: b.paid,
       open: b.total - b.paid,
     })),
@@ -543,10 +546,9 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ 
   const invoices = c.lines.filter((l) => l.kind === "fin_ap_invoice");
   const costs = c.lines.filter((l) => l.kind === "sal_permit_request");
   const productionBills = c.lines.filter((l) => l.kind === "prd_cost_bill");
-  type Key = "purchase_advance_account" | "input_vat_account" | "bank_charge_account" | "payable_account" | "permit_cost_account" | "production_cost_payable_account";
+  type Key = "purchase_advance_account" | "input_vat_account" | "bank_charge_account" | "payable_account" | "permit_cost_account";
   const keys: Key[] = [
     ...(costs.length ? (["permit_cost_account"] as const) : []),
-    ...(productionBills.length ? (["production_cost_payable_account"] as const) : []),
     ...(advances.length ? (["purchase_advance_account", "input_vat_account"] as const) : []),
     ...(invoices.length ? (["payable_account"] as const) : []),
     ...(c.data.bank_charge > 0 ? (["bank_charge_account"] as const) : []),
@@ -560,6 +562,9 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ 
     if (!t?.account_id || (await accountProblem(db, t.account_id))) missing.push(`Account Hutang PPh pada Jenis PPh ${t?.wht_label ?? id}`);
   }
   if (await accountProblem(db, c.cashBankAccountId)) missing.push("Account pada Kas & Bank yang dipilih");
+  // A production bill is paid on the payable it was posted on, not today's mapping (P151).
+  const billPayables = [...new Set(productionBills.map((l) => l.bill.payableAccountId!))];
+  for (const id of billPayables) if (await accountProblem(db, id)) missing.push("Account Hutang Biaya Produksi pada Tagihan Biaya Produksi");
   if (missing.length || !mapped.ok) {
     return { ok: false, message: `Belum bisa diposting — account belum diatur atau tidak dapat dipakai: ${missing.join("; ")}. Atur di Accounting › Pengaturan › Account Mapping atau pada master terkait.` };
   }
@@ -567,7 +572,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ 
   const accounts = new Map(
     (
       await db.accAccount.findMany({
-        where: { id: { in: [c.cashBankAccountId, ids.purchase_advance_account, ids.input_vat_account, ids.bank_charge_account, ids.payable_account, ids.permit_cost_account, ids.production_cost_payable_account, ...[...taxes.values()].map((t) => t.account_id)].filter((x): x is number => Boolean(x)) } },
+        where: { id: { in: [c.cashBankAccountId, ids.purchase_advance_account, ids.input_vat_account, ids.bank_charge_account, ids.payable_account, ids.permit_cost_account, ...billPayables, ...[...taxes.values()].map((t) => t.account_id)].filter((x): x is number => Boolean(x)) } },
         select: { id: true, require_partner: true },
       })
     ).map((a) => [a.id, a])
@@ -597,7 +602,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ 
   }
   // Tagihan Biaya Produksi: the cost is already recorded; only the payable clears (M68).
   for (const l of productionBills) {
-    out.push(line(ids.production_cost_payable_account!, l.settled, 0, `Pembayaran ${l.bill.no} — ${l.bill.orderNo}${l.settled < l.bill.open ? " (sebagian)" : ""}`, c.data.partner_id));
+    out.push(line(l.bill.payableAccountId!, l.settled, 0, `Pembayaran ${l.bill.no} — ${l.bill.orderNo}${l.settled < l.bill.open ? " (sebagian)" : ""}`, c.data.partner_id));
   }
   if (c.data.bank_charge > 0) out.push(line(ids.bank_charge_account!, c.data.bank_charge, 0, "Biaya transfer bank"));
   const ref = c.data.bank_ref ? ` · ref ${c.data.bank_ref}` : "";
@@ -864,6 +869,26 @@ export async function permitCostPayments(
   const typeId = await docTypeId(db, "sal_permit_request");
   const rows = await db.finCashBankTxLine.findMany({
     where: { doc_type_id: typeId, doc_id: requestId, tx: { status: { not: "Cancelled" } } },
+    include: { tx: true },
+    orderBy: { tx: { tx_date: "asc" } },
+  });
+  return rows.map((r) => ({ id: r.tx.id, txNo: r.tx.tx_no, date: isoDay(r.tx.tx_date), status: r.tx.status, settled: r.settled_amount.toNumber() }));
+}
+
+// ------------------------------------------- for the Tagihan Biaya Produksi
+
+/**
+ * The live payments (Draft or Posted) naming a Tagihan Biaya Produksi, for its
+ * page's *Pembayaran* card (P151): the bill is the document a Pembayaran Biaya
+ * Produksi references, so the bill shows who paid it, linked, never embedded.
+ */
+export async function costBillPayments(
+  billId: number,
+  db: Db = prisma
+): Promise<{ id: number; txNo: string; date: string; status: string; settled: number }[]> {
+  const typeId = await docTypeId(db, "prd_cost_bill");
+  const rows = await db.finCashBankTxLine.findMany({
+    where: { doc_type_id: typeId, doc_id: billId, tx: { status: { not: "Cancelled" } } },
     include: { tx: true },
     orderBy: { tx: { tx_date: "asc" } },
   });

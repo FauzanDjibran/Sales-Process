@@ -7,10 +7,10 @@
  *     └──cancel──> Cancelled
  *
  * Posting recognises the cost in the month the bill is dated: Dr each line's
- * element account / Cr the Account Lawan, and one cost-ledger row per line.
- * A posted bill is final; a mistake is corrected by another document. A bill
- * on *Hutang Biaya Produksi* is then paid by the Pengeluaran purpose
- * *Pembayaran Biaya Produksi*, which reads and raises its paid amount.
+ * element account / Cr Account Mapping's *Hutang Biaya Produksi* (P151), and
+ * one cost-ledger row per line. A posted bill is final; a mistake is corrected
+ * by another document. Every posted bill is then paid by the Pengeluaran
+ * purpose *Pembayaran Biaya Produksi*, which reads and raises its paid amount.
  *
  * Client-safe on purpose — no `server-only`, no database import.
  */

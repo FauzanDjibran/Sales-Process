@@ -174,7 +174,7 @@ export const MODULES: NavModule[] = [
             slug: "cost-bill",
             name: "Tagihan Biaya Produksi",
             icon: "file",
-            desc: "Biaya produksi dicatat pada bulan terjadinya; yang terutang dibayar lewat Pengeluaran — Pembayaran Biaya Produksi.",
+            desc: "Biaya produksi dari supplier, dicatat pada bulan terjadinya ke Hutang Biaya Produksi dan dibayar lewat Pengeluaran — Pembayaran Biaya Produksi.",
             permission: "PRODUCTION_COST_BILL_VIEW",
           },
         ],

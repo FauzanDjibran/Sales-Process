@@ -2618,8 +2618,7 @@ table prd_cost_bill {
   bill_no                     varchar [not null, unique]
   bill_date                   date [not null]
 
-  contra_account_id           int [not null, ref : > acc_account.id]
-  partner_id                  int [ref : > m_partner.id] // the Supplier owed; required when payable
+  partner_id                  int [ref : > m_partner.id] // the Supplier owed; required by the form (null only before P151)
   supplier_ref                varchar
   due_date                    date
   description                 varchar [not null]
@@ -2629,7 +2628,7 @@ table prd_cost_bill {
   cancel_reason               varchar
 
   total_amount                decimal(18,2) [not null, default: 0]
-  is_payable                  boolean [not null, default: false] // set at posting: lawan = Hutang Biaya Produksi
+  payable_account_id          int [ref : > acc_account.id] // Account Mapping's Hutang Biaya Produksi, copied at posting (P151); the payment debits it
   paid_amount                 decimal(18,2) [not null, default: 0]
   journal_id                  int
 

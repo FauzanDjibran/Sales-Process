@@ -2,7 +2,7 @@ import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import { recordCashBankEntry } from "../src/lib/erp/cash-bank";
-import { cashPaymentOptions, createCashPayment, transitionCashPayment, type CashPaymentInput } from "../src/lib/erp/cash-payment";
+import { cashPaymentOptions, costBillPayments, createCashPayment, transitionCashPayment, type CashPaymentInput } from "../src/lib/erp/cash-payment";
 import { accountMovements } from "../src/lib/erp/ledger";
 import { costBalances, costByAccount, costLedgerRows } from "../src/lib/erp/production-cost";
 import {
@@ -34,7 +34,6 @@ let savedMapping: string | null = null;
 
 const header = (over: Partial<CostBillInput> = {}): CostBillInput => ({
   bill_date: today,
-  contra_account_id: f.payable,
   partner_id: f.supplier,
   supplier_ref: "PLN-10",
   due_date: today,
@@ -68,7 +67,7 @@ before(async () => {
   f.labour = await makeAccount({ subcategoryLabel: "5.1.1" });
   f.power = await makeAccount({ subcategoryLabel: "5.1.1" });
   f.payable = await makeAccount({ subcategoryLabel: "2.1.3", normalBalance: "Kredit" });
-  f.accDep = await makeAccount({ subcategoryLabel: "1.3.9", normalBalance: "Kredit" });
+  f.payable2 = await makeAccount({ subcategoryLabel: "2.1.3", normalBalance: "Kredit" });
   f.bankAcc = await makeAccount({ subcategoryLabel: CASH_BANK_SUBCATEGORY });
   const stamp = String(Date.now() % 100000);
   const element = async (label: string, accountId: number) =>
@@ -109,9 +108,9 @@ after(async () => {
 });
 
 describe("a Tagihan Biaya Produksi is checked before it is saved", () => {
-  test("a bill on Hutang Biaya Produksi must name its Supplier", async () => {
+  test("every bill names the Supplier it is owed to", async () => {
     const r = await create(header({ partner_id: null }), [{ element_id: f.eLabour, amount: 100_000 }]);
-    assert.ok(!r.ok && /wajib menyebut Supplier/.test(r.errors.partner_id));
+    assert.ok(!r.ok && /Supplier/.test(r.errors.partner_id));
   });
 
   test("an amount is whole rupiah above 0, and an inactive element is refused", async () => {
@@ -151,7 +150,7 @@ describe("posting books the cost in its month: journal and cost ledger together 
     assert.equal((await costLedgerRows(month, [f.eLabour])).length, 0, "and writes no cost row");
   });
 
-  test("posting writes Dr each element account / Cr the lawan and one cost row per line, under one BBP number", async () => {
+  test("posting writes Dr each element account / Cr Account Mapping's Hutang Biaya Produksi and one cost row per line, under one BBP number", async () => {
     const r = await transitionCostBill(f.bill, "post", actor);
     assert.ok(r.ok, JSON.stringify(r));
   });
@@ -188,13 +187,25 @@ describe("posting books the cost in its month: journal and cost ledger together 
     assert.ok(!again.ok);
   });
 
-  test("a bill on another lawan (Akumulasi Penyusutan) posts the cost and leaves nothing to pay", async () => {
-    const r = await create(header({ contra_account_id: f.accDep, partner_id: null, description: "Penyusutan mesin" }), [{ element_id: f.ePower, amount: 250_000 }]);
+  test("without Hutang Biaya Produksi in Account Mapping a bill saves but does not post (P151)", async () => {
+    const r = await create(header({ description: "Jasa servis mesin" }), [{ element_id: f.ePower, amount: 250_000 }]);
     assert.ok(r.ok, JSON.stringify(r));
-    assert.ok((await transitionCostBill(r.id, "post", actor)).ok);
-    const bill = (await getCostBill(r.id))!;
-    assert.equal(bill.isPayable, false);
-    assert.ok(!(await payableCostBills({ openOnly: true })).some((b) => b.id === r.id));
+    f.bill2 = r.id;
+    await prisma.sysSetting.update({ where: { setting_key: "production_cost_payable_account" }, data: { setting_value: null } });
+    const refused = await transitionCostBill(r.id, "post", actor);
+    assert.ok(!refused.ok && /Account Mapping/.test(refused.errors._form));
+    assert.equal((await getCostBill(r.id))!.status, "Draft");
+  });
+
+  test("the bill keeps the payable it was posted on, whatever the mapping says later (P151)", async () => {
+    await prisma.sysSetting.update({ where: { setting_key: "production_cost_payable_account" }, data: { setting_value: String(f.payable2) } });
+    assert.ok((await transitionCostBill(f.bill2, "post", actor)).ok);
+    await prisma.sysSetting.update({ where: { setting_key: "production_cost_payable_account" }, data: { setting_value: String(f.payable) } });
+    const bill = (await getCostBill(f.bill2))!;
+    assert.equal(bill.isPayable, true);
+    const credit = await prisma.accJournalLine.findFirstOrThrow({ where: { journal_id: bill.journalId!, kredit_amount: { gt: 0 } } });
+    assert.equal(credit.account_id, f.payable2);
+    assert.equal((await payableCostBills({ ids: [f.bill2] }))[0].payableAccountId, f.payable2);
   });
 
   test("Batalkan a Draft asks for a reason", async () => {
@@ -258,5 +269,17 @@ describe("Pembayaran Biaya Produksi pays the bill and writes no cost row (M68)",
     assert.ok((await transitionCashPayment(r.id, "post", actor)).ok);
     assert.equal((await getCostBill(f.bill))!.paid, 1_000_000);
     assert.ok(!(await payableCostBills({ openOnly: true })).some((b) => b.id === f.bill), "a paid bill is no longer offered");
+  });
+
+  test("a bill is paid on the payable it was posted on, not today's mapping (P151)", async () => {
+    const r = await createCashPayment(payment(250_000, { lines: [{ doc_type: "prd_cost_bill", doc_id: f.bill2, cash: 250_000, withhold: false }] }), actor);
+    assert.ok(r.ok, JSON.stringify(r));
+    payments.push(r.id);
+    assert.ok((await transitionCashPayment(r.id, "post", actor)).ok);
+    const tx = await prisma.finCashBankTx.findUniqueOrThrow({ where: { id: r.id } });
+    const debit = await prisma.accJournalLine.findFirstOrThrow({ where: { journal_id: tx.journal_id!, debit_amount: { gt: 0 } } });
+    assert.equal(debit.account_id, f.payable2);
+    const paid = await costBillPayments(f.bill2);
+    assert.deepEqual(paid.map((p) => [p.id, p.settled]), [[r.id, 250_000]]);
   });
 });

@@ -686,6 +686,7 @@ of a close; mid-month pro-forma margin; multi-currency.
 | M66 | Phase 2 brief | **Two cost reports: Buku Biaya Produksi** (the rows) **and Saldo Biaya Produksi** (totals per element), each filtered by a **month = a fiscal period**. |
 | M67 | Phase 2 brief | **A difference between the cost ledger and the GL is a warning only**; the cost ledger wins (M60). |
 | M68 | Q54, Q55 | **Production cost is captured by a Tagihan Biaya Produksi and paid by a Pengeluaran purpose** (option c): the bill recognises the cost in the month it belongs to and writes the cost ledger; a bill whose lawan is *Hutang Biaya Produksi* stays open until the new purpose *Pembayaran Biaya Produksi* pays it, which writes no cost row. Both are in Phase 2 so Buku Biaya Produksi can be tested end to end. |
+| M69 | Phase 2 review | **The Tagihan Biaya Produksi has no Account Lawan** (P151). The user: a lawan chosen by hand meant a wrong choice left a bill nothing could pay. Mainstream ERPs never take the credit side of a vendor bill from the document — SAP from the vendor's reconciliation account, Business Central from the vendor posting group, Odoo from the partner's payable account (company default), NetSuite and Accurate from a default AP account — and none from the expense category, which decides only the debit side. So **one global account, Account Mapping's *Hutang Biaya Produksi***, copied onto the bill at posting (`payable_account_id`); every bill names its Supplier and every posted bill is paid by *Pembayaran Biaya Produksi*, which references the bill and debits the account it was posted on. A per-supplier override can follow if ever needed. Costs not owed to a supplier (depreciation, payroll accruals) wait for Pencatatan Biaya Produksi (§9.6). Amends M68 and §21d item 2. |
 | M51 | §21 B | **The *Dapat Diproduksi* flag is dropped** (amends M8): outputs take any Barang with Kelola Stok, cost receivers are decided by Kategori *Barang Jadi* (M46). More item and production categorisation will come later. |
 
 ---
@@ -800,14 +801,14 @@ Produksi menu (it is the payment menu); per M64 it could instead start as a
    now; the close's kinds later), the document that made it, ledger number
    `BBP/…` (P110). No period column (M23); written only inside a posting.
 2. **Tagihan Biaya Produksi** `prd_cost_bill(_line)`, `TBP/YYYY/MM/NNNN`,
-   Produksi › Biaya. Header: Tanggal (the month the cost belongs to), Account
-   Lawan, Partner (Supplier; required when the lawan is *Hutang Biaya
-   Produksi*), No. Tagihan Supplier (optional), Jatuh Tempo (optional),
+   Produksi › Biaya. Header: Tanggal (the month the cost belongs to),
+   Supplier (required), *Account Hutang* shown from Account Mapping and never
+   chosen (M69), No. Tagihan Supplier (optional), Jatuh Tempo (optional),
    Uraian, Catatan. Lines: Elemen Biaya Produksi, Jumlah, Keterangan. Draft →
    *Posting* → Posted (final); *Batalkan* Draft only. Posting: journal Dr each
-   element's account / Cr Account Lawan, one cost-ledger row per line, the
-   journal shown by dry run first (P103). A bill on *Hutang Biaya Produksi*
-   keeps `paid_amount` (P132): Belum Dibayar / Sebagian / Lunas.
+   element's account / Cr *Hutang Biaya Produksi* (copied to the bill), one
+   cost-ledger row per line, the journal shown by dry run first (P103). Every
+   posted bill keeps `paid_amount` (P132): Belum Dibayar / Sebagian / Lunas.
 3. **Pembayaran Biaya Produksi** — a new Pengeluaran purpose (Out, `BKK/…`,
    Supplier): pays open payable bills, in parts if wanted; Dr Hutang Biaya
    Produksi / Cr Kas & Bank (+ bank charge); the Cash Bank Book Out; no PPh;

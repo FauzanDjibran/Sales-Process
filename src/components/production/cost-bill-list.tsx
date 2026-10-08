@@ -63,8 +63,8 @@ export function CostBillList({ rows: all, can }: { rows: CostBillListRow[]; can:
           <div className="ph-act">{can.create && newButton}</div>
         </div>
         <p className="ph-sub">
-          Biaya tenaga kerja dan overhead produksi, dicatat pada bulan terjadinya per Elemen Biaya Produksi. Yang terutang
-          dibayar lewat Pengeluaran — Pembayaran Biaya Produksi.
+          Tagihan supplier atas biaya tenaga kerja dan overhead produksi, dicatat pada bulan terjadinya per Elemen Biaya Produksi
+          ke Hutang Biaya Produksi, lalu dibayar lewat Pengeluaran — Pembayaran Biaya Produksi.
         </p>
       </div>
 

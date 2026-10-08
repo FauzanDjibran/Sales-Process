@@ -1272,11 +1272,11 @@ model AccAccount {
 
   opening_balance_lines AccOpeningBalanceLine[]
 
-  withholding_taxes  RefWithholdingTax[]
-  category_accounts  AccItemCategoryAccount[] @relation("CategoryAccount")
+  withholding_taxes        RefWithholdingTax[]
+  category_accounts        AccItemCategoryAccount[]   @relation("CategoryAccount")
   production_cost_elements AccProductionCostElement[]
-  production_cost_rows     PrdCostLedger[]          @relation("CostLedgerAccount")
-  production_cost_bills    PrdCostBill[]            @relation("CostBillContra")
+  production_cost_rows     PrdCostLedger[]            @relation("CostLedgerAccount")
+  production_cost_bills    PrdCostBill[]              @relation("CostBillPayable")
 
   @@unique([account_label])
   @@index([account_subcategory_id])
@@ -3684,32 +3684,33 @@ enum ProductionCostBillStatus {
 /// *Hutang Biaya Produksi* is payable: it keeps what it was paid (P132) and is
 /// paid by the Pengeluaran purpose *Pembayaran Biaya Produksi*.
 model PrdCostBill {
-  id                Int                      @id @default(autoincrement())
-  bill_no           String                   @unique
-  bill_date         DateTime                 @db.Date
-  contra_account_id Int
-  /// Who is owed — required when the bill is payable.
-  partner_id        Int?
-  supplier_ref      String?
-  due_date          DateTime?                @db.Date
-  description       String
-  note              String?
-  status            ProductionCostBillStatus @default(Draft)
-  cancel_reason     String?
-  total_amount      Decimal                  @default(0) @db.Decimal(18, 2)
-  /// Set at posting: the lawan was Hutang Biaya Produksi.
-  is_payable        Boolean                  @default(false)
-  paid_amount       Decimal                  @default(0) @db.Decimal(18, 2)
-  journal_id        Int?
+  id                 Int                      @id @default(autoincrement())
+  bill_no            String                   @unique
+  bill_date          DateTime                 @db.Date
+  /// The Supplier owed — required by the form; nullable only for rows made before P151.
+  partner_id         Int?
+  supplier_ref       String?
+  due_date           DateTime?                @db.Date
+  description        String
+  note               String?
+  status             ProductionCostBillStatus @default(Draft)
+  cancel_reason      String?
+  total_amount       Decimal                  @default(0) @db.Decimal(18, 2)
+  /// Account Mapping's Hutang Biaya Produksi, copied at posting (P151); the
+  /// payment debits this account. Null on a Draft, and on a bill posted before
+  /// P151 to another lawan (never payable).
+  payable_account_id Int?
+  paid_amount        Decimal                  @default(0) @db.Decimal(18, 2)
+  journal_id         Int?
 
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  contra_account AccAccount        @relation("CostBillContra", fields: [contra_account_id], references: [id])
-  partner        MPartner?         @relation("CostBillPartner", fields: [partner_id], references: [id])
-  lines          PrdCostBillLine[]
+  payable_account AccAccount?       @relation("CostBillPayable", fields: [payable_account_id], references: [id])
+  partner         MPartner?         @relation("CostBillPartner", fields: [partner_id], references: [id])
+  lines           PrdCostBillLine[]
 
   @@index([status])
   @@index([partner_id])

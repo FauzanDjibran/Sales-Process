@@ -15,7 +15,9 @@
  *   the simulation's customers, with tax identity, addresses and contacts
  *   the simulation's finished goods, with their box conversions
  *   suppliers with purchase defaults, and what the company buys: raw and
- *   packaging materials by lot, a consumable without stock, two services
+ *   packaging materials by lot, a consumable without stock, two services;
+ *   the suppliers that bill production cost (PLN, water, outsourced labour,
+ *   waste) and three workstations (P150)
  *   opening stock of the finished goods, two lots per item per warehouse
  *
  * Not created: opening balances (they start empty, P27), documents, and the
@@ -211,6 +213,38 @@ const SUPPLIERS: CustomerSpec[] = [
     addresses: [{ city: "Kota Bandung", district: "Sumur Bandung", street: "Jl. Braga No. 40", note: "Bengkel", billing: true }],
     contact: ["Bpk. Budi Prasetyo", "Pemilik", "0813 2200 3344", "budi.prasetyo@bengkelbudi.example"],
   },
+  // Who bills production cost (P150 M68): utilities, outsourced labour, waste.
+  {
+    label: "S-005", name: "PT PLN (Persero) UP3 Cikarang", taxpayer: "Badan", idType: "NPWP", taxId: "0100000000092000",
+    pkp: true, term: "NET14", mode: "Include", supplier: true,
+    addresses: [{ city: "Kabupaten Bekasi", district: "Cikarang Utara", street: "Jl. Raya Industri No. 1", note: "UP3 Cikarang", billing: true }],
+    contact: ["Layanan Pelanggan Bisnis", "Account Executive", "021 8990 0123", "bisnis.cikarang@pln.example"],
+  },
+  {
+    label: "S-006", name: "PT Air Industri Cikarang", taxpayer: "Badan", idType: "NPWP", taxId: "0645789012345678",
+    pkp: true, term: "NET14", mode: "Include", supplier: true,
+    addresses: [{ city: "Kabupaten Bekasi", district: "Cikarang Selatan", street: "Kawasan Industri Jababeka Blok A-2", note: "Kantor Pelayanan", billing: true }],
+    contact: ["Ibu Rina Marlina", "Billing", "021 8983 4455", "billing@airindustri.example"],
+  },
+  {
+    label: "S-007", name: "CV Karya Mandiri Outsourcing", taxpayer: "Badan", idType: "NPWP", taxId: "0756890123456789",
+    pkp: false, term: "NET7", mode: "Exclude", supplier: true,
+    addresses: [{ city: "Kabupaten Bekasi", district: "Cikarang Barat", street: "Jl. Imam Bonjol No. 88", note: "Kantor", billing: true }],
+    contact: ["Bpk. Joko Susilo", "Koordinator Lapangan", "0815 7700 8899", "joko.susilo@karyamandiri.example"],
+  },
+  {
+    label: "S-008", name: "PT Envirotama Limbah Industri", taxpayer: "Badan", idType: "NPWP", taxId: "0867901234567890",
+    pkp: true, term: "NET30", mode: "Exclude", supplier: true,
+    addresses: [{ city: "Kabupaten Bekasi", district: "Cikarang Timur", street: "Jl. Raya Serang Km 25", note: "Kantor & TPS B3", billing: true }],
+    contact: ["Bpk. Hendra Wijaya", "Sales", "0817 6600 1122", "hendra.wijaya@envirotama.example"],
+  },
+];
+
+/** Workstations (P150 Phase 1): the production stations of the demo plant. */
+const WORKSTATIONS: [label: string, name: string, note: string][] = [
+  ["WS-MIX", "Mixing", "Pencampuran bahan baku menjadi bulk"],
+  ["WS-FILL", "Filling", "Pengisian bulk ke botol, tube dan jar"],
+  ["WS-PACK", "Packing", "Pelabelan, kemas sekunder dan karton"],
 ];
 
 type PurchaseItemSpec = {
@@ -325,6 +359,16 @@ async function main() {
     });
     await audit("ref_warehouse", row.id);
     tally("gudang");
+  }
+
+  // ---- Workstations (P150)
+  for (const [label, name, note] of WORKSTATIONS) {
+    if (await prisma.refWorkstation.findFirst({ where: { workstation_label: label } })) continue;
+    const row = await prisma.refWorkstation.create({
+      data: { workstation_code: await nextCode(entity("ref_workstation")), workstation_label: label, workstation_name: name, note, created_by: actor },
+    });
+    await audit("ref_workstation", row.id);
+    tally("workstations");
   }
 
   // ---- Jenis Perizinan, the simulation's PERMITS (P137)
