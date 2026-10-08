@@ -250,6 +250,6 @@ instruction decides:
 | 3.7 | Pembayaran — Faktur Penjualan (withholding and WAPU by rule) | Cash Bank Book, journal, bukti potong |
 | 3.8 | Pengembalian Uang Muka, Faktur Pengganti / Pembatalan, Perlu Pembetulan | Cash Bank Book, journal, tax corrections |
 | 3.9 | Nota Retur, Kredit Pelanggan, Pengembalian Kredit Pelanggan | journal, tax |
-| 3.10 | Perizinan: Pengajuan, Uang Muka Perizinan, Realisasi, Biaya Perizinan, Invoice Perizinan | per simulation |
+| 3.10 | Perizinan: Pengajuan, Uang Muka Perizinan, Realisasi, Biaya Perizinan, Invoice Perizinan | **done 08/10/2026** (P137–P144, `Perizinan-Concept.md`) |
 | 3.11 | Opening balances | SIBA's concept, empty unless stated (P27) |
 | 3.12 | Sales dashboard | reads only |

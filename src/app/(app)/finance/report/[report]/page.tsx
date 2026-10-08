@@ -20,6 +20,7 @@ import { arItemsReconcile, arLedgerReport, arPartnerOptions, openArItemsAsOf } f
 import { closingBalances } from "@/lib/erp/ledger";
 import { postingAccounts } from "@/lib/erp/system-settings";
 import { customerOrderNumbersByIds } from "@/lib/erp/customer-order";
+import { permitRequestNumbersByIds } from "@/lib/erp/permit-request";
 import { ApReportParams } from "@/components/report/ap-report-params";
 import { ApAgingReport } from "@/components/report/ap-aging-report";
 import { ApLedgerReportBody } from "@/components/report/ap-ledger-report";
@@ -261,7 +262,7 @@ async function arReport(
         }
       >
         {data ? (
-          <ArLedgerReportBody report={data} orderNos={await orderNumbers(data.entries.map((e) => e.orderId))} />
+          <ArLedgerReportBody report={data} orderNos={await scopeNumbers(data.entries)} />
         ) : (
           <ReportNeedsSubject
             icon="book"
@@ -289,14 +290,17 @@ async function arReport(
     );
   }
 
-  // Uang Muka Customer, checked against the Uang Muka Penjualan account.
+  // Uang Muka Customer, checked against the Uang Muka accounts — Penjualan and,
+  // once a Perizinan advance exists, Perizinan (P137): the items hold both.
   let gl: AdvanceReconciliation;
-  const mapped = await postingAccounts(["sales_advance_account"] as const);
+  const permitHeld = advances.some((a) => a.scopeTable === "sal_permit_request");
+  const mapped = await postingAccounts(permitHeld ? (["sales_advance_account", "permit_advance_account"] as const) : (["sales_advance_account"] as const));
   if (!mapped.ok) {
     gl = { ok: false, missing: `${mapped.missing.join(", ")} belum diatur di Account Mapping.` };
   } else {
-    const accountId = mapped.ids.sales_advance_account;
-    const balances = (await closingBalances(asOf)).filter((b) => b.accountId === accountId);
+    const accountIds = Object.values(mapped.ids as Record<string, number>);
+    const accountId = (mapped.ids as Record<string, number>).sales_advance_account;
+    const balances = (await closingBalances(asOf)).filter((b) => accountIds.includes(b.accountId));
     const account = await prisma.accAccount.findUnique({ where: { id: accountId }, select: { account_label: true, account_name: true } });
     const byPartner: Record<number, number> = {};
     for (const b of balances) if (b.partnerId) byPartner[b.partnerId] = (byPartner[b.partnerId] ?? 0) + b.balance;
@@ -309,7 +313,7 @@ async function arReport(
       runAt={runAt}
       footnote={mismatch ?? <>Nilai uang muka adalah bagian DPP-nya — yang tercatat di account Uang Muka Penjualan; PPN-nya sudah tercatat di PPN Keluaran saat diterima.</>}
     >
-      <CustomerAdvanceReport rows={advances} gl={gl} orderNos={await orderNumbers(advances.map((a) => a.orderId))} />
+      <CustomerAdvanceReport rows={advances} gl={gl} orderNos={await scopeNumbers(advances)} />
     </ReportView>
   );
 }
@@ -319,9 +323,14 @@ async function arReport(
  * Customer Order numbers by id for the AR reports: the AR book names an order
  * by id only, and the page composes the order module's numbers (§3.1).
  */
-async function orderNumbers(ids: (number | null)[]): Promise<Record<number, string>> {
-  const wanted = [...new Set(ids.filter((id): id is number => id !== null))];
-  return wanted.length ? Object.fromEntries(await customerOrderNumbersByIds(wanted)) : {};
+/** Each AR item's agreement number by `table:id`: a Customer Order or a Pengajuan Perizinan (P137). */
+async function scopeNumbers(rows: { scopeTable: string | null; scopeId: number | null }[]): Promise<Record<string, string>> {
+  const ids = (table: string) => [...new Set(rows.filter((r) => r.scopeTable === table && r.scopeId).map((r) => r.scopeId!))];
+  const [orders, permits] = await Promise.all([customerOrderNumbersByIds(ids("sal_customer_order")), permitRequestNumbersByIds(ids("sal_permit_request"))]);
+  return Object.fromEntries([
+    ...[...orders].map(([id, no]) => [`sal_customer_order:${id}`, no] as const),
+    ...[...permits].map(([id, no]) => [`sal_permit_request:${id}`, no] as const),
+  ]);
 }
 
 // ------------------------------------------------------------ AP reports

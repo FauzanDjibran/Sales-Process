@@ -1,6 +1,6 @@
 # Perizinan — Pengajuan to Invoice Perizinan
 
-> **Status: AGREED 08/10/2026, not built.** The plan for the
+> **Status: AGREED and BUILT 08/10/2026** (P138–P144). The plan for the
 > Perizinan sales flow (§10.2 rule 11, IMPLEMENTATION-PLAN 3.10), learnt from
 > the simulation (`Initialization/actual-simulation-v2.html`: `PERMITS`,
 > `przPage`, `applyPrzToAdv`, `applyPrzToInv`, `payCostCard`,

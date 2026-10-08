@@ -56,6 +56,8 @@ const applied = (v: string) => `COALESCE((SELECT SUM(a.amount) FROM fin_ar_ledge
 const acc = (key: string) =>
   `COALESCE((SELECT NULLIF(setting_value, '')::int FROM sys_setting WHERE setting_key = '${key}'), -1)`;
 const docType = (table: string) => `(SELECT id FROM sys_doc_type WHERE doc_table = '${table}')`;
+/** The advance-bill document types: Uang Muka Penjualan and Uang Muka Perizinan (P137). */
+const advanceTypes = `(SELECT id FROM sys_doc_type WHERE doc_table IN ('fin_ar_advance', 'fin_ar_permit_advance'))`;
 /** Σ debit − kredit on one account, per partner, from posted journals. */
 const glByPartner = (account: string) => `
   SELECT l.partner_id, SUM(l.debit_amount - l.kredit_amount) AS bal
@@ -151,8 +153,18 @@ export const CHECKS: Check[] = [
     area: "ar",
     name: "Uang Muka items equal the Uang Muka Penjualan account, per customer",
     sql: `SELECT p.partner_label, COALESCE(items.bal, 0) AS items, COALESCE(-gl.bal, 0) AS gl FROM m_partner p
-          LEFT JOIN (SELECT partner_id, SUM(current_balance) AS bal FROM fin_ar_item WHERE item_type = 'Advance' GROUP BY partner_id) items ON items.partner_id = p.id
+          LEFT JOIN (SELECT partner_id, SUM(current_balance) AS bal FROM fin_ar_item
+                     WHERE item_type = 'Advance' AND source_doc_type_id = ${docType("fin_ar_advance")} GROUP BY partner_id) items ON items.partner_id = p.id
           LEFT JOIN (${glByPartner(acc("sales_advance_account"))}) gl ON gl.partner_id = p.id
+          WHERE COALESCE(items.bal, 0) <> COALESCE(-gl.bal, 0)`,
+  },
+  {
+    area: "ar",
+    name: "Uang Muka Perizinan items equal the Uang Muka Perizinan account, per customer (P137)",
+    sql: `SELECT p.partner_label, COALESCE(items.bal, 0) AS items, COALESCE(-gl.bal, 0) AS gl FROM m_partner p
+          LEFT JOIN (SELECT partner_id, SUM(current_balance) AS bal FROM fin_ar_item
+                     WHERE item_type = 'Advance' AND source_doc_type_id = ${docType("fin_ar_permit_advance")} GROUP BY partner_id) items ON items.partner_id = p.id
+          LEFT JOIN (${glByPartner(acc("permit_advance_account"))}) gl ON gl.partner_id = p.id
           WHERE COALESCE(items.bal, 0) <> COALESCE(-gl.bal, 0)`,
   },
   {
@@ -167,7 +179,7 @@ export const CHECKS: Check[] = [
     area: "ar",
     name: "each posted receipt's advance line wrote one entry at its DPP part on the bill's one Uang Muka item (P133)",
     sql: `SELECT t.tx_no, l.doc_id AS bill_id, l.dpp_part, COUNT(e.id) AS entries, SUM(e.amount) AS amount
-          FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id = ${docType("fin_ar_advance")}
+          FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id IN ${advanceTypes}
           LEFT JOIN fin_ar_item i ON i.item_type = 'Advance' AND i.source_doc_type_id = l.doc_type_id AND i.source_doc_id = l.doc_id
           LEFT JOIN fin_ar_ledger e ON e.item_id = i.id AND e.event IN ('Create', 'AdvanceReceived')
             AND e.doc_type_id = ${docType("fin_cash_bank_tx")} AND e.doc_id = t.id
@@ -180,9 +192,10 @@ export const CHECKS: Check[] = [
     sql: `SELECT i.ar_item_no, i.original_amount, COALESCE(p.dpp, 0) AS received,
                  (SELECT COUNT(*) FROM fin_ar_item o WHERE o.item_type = 'Advance' AND o.source_doc_type_id = i.source_doc_type_id AND o.source_doc_id = i.source_doc_id) AS items
           FROM fin_ar_item i
-          LEFT JOIN (SELECT l.doc_id, SUM(l.dpp_part) AS dpp FROM fin_cash_bank_tx_line l
+          LEFT JOIN (SELECT l.doc_type_id, l.doc_id, SUM(l.dpp_part) AS dpp FROM fin_cash_bank_tx_line l
                      JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
-                     WHERE l.doc_type_id = ${docType("fin_ar_advance")} GROUP BY l.doc_id) p ON p.doc_id = i.source_doc_id
+                     WHERE l.doc_type_id IN ${advanceTypes} GROUP BY l.doc_type_id, l.doc_id) p
+            ON p.doc_type_id = i.source_doc_type_id AND p.doc_id = i.source_doc_id
           WHERE i.item_type = 'Advance'
             AND (i.original_amount <> COALESCE(p.dpp, 0)
                  OR (SELECT COUNT(*) FROM fin_ar_item o WHERE o.item_type = 'Advance' AND o.source_doc_type_id = i.source_doc_type_id AND o.source_doc_id = i.source_doc_id) <> 1)`,
@@ -375,7 +388,7 @@ export const CHECKS: Check[] = [
     area: "tax",
     name: "each posted advance line with PPN made one Faktur Uang Muka at its DPP and PPN",
     sql: `SELECT t.tx_no, l.doc_id AS bill_id, l.dpp_part, l.ppn_part, COUNT(f.id) AS fakturs, MIN(f.dpp) AS dpp, MIN(f.ppn) AS ppn
-          FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id = ${docType("fin_ar_advance")}
+          FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id IN ${advanceTypes}
           LEFT JOIN tax_faktur f ON f.kind = 'Advance' AND f.source_doc_type_id = ${docType("fin_cash_bank_tx")} AND f.source_doc_id = t.id
             AND f.ref_doc_type_id = l.doc_type_id AND f.ref_doc_id = l.doc_id
           WHERE t.status = 'Posted' AND l.ppn_part > 0
@@ -441,6 +454,49 @@ export const CHECKS: Check[] = [
                      WHERE l.doc_type_id = ${docType("fin_ar_advance")} GROUP BY l.doc_id) p ON p.doc_id = a.id
           WHERE a.paid_amount <> COALESCE(p.paid, 0) OR a.paid_amount > a.total_amount
              OR (a.paid_amount > 0 AND a.status <> 'Issued')`,
+  },
+  {
+    area: "advance",
+    name: "each Uang Muka Perizinan's paid amount equals its posted receipt lines, within its total (P137)",
+    sql: `SELECT a.advance_no, a.status::text, a.total_amount, a.paid_amount, COALESCE(p.paid, 0) AS lines
+          FROM fin_ar_permit_advance a
+          LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid
+                     FROM fin_cash_bank_tx_line l JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+                     WHERE l.doc_type_id = ${docType("fin_ar_permit_advance")} GROUP BY l.doc_id) p ON p.doc_id = a.id
+          WHERE a.paid_amount <> COALESCE(p.paid, 0) OR a.paid_amount > a.total_amount
+             OR (a.paid_amount > 0 AND a.status <> 'Issued')`,
+  },
+  {
+    area: "permit",
+    name: "each Invoice Perizinan's paid amount equals its posted receipt lines, and its total less it equals its item's balance (P137)",
+    sql: `SELECT v.invoice_no, v.total_amount, v.paid_amount, COALESCE(p.paid, 0) AS lines, i.current_balance
+          FROM fin_ar_permit_invoice v
+          LEFT JOIN fin_ar_item i ON i.id = v.ar_item_id
+          LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid FROM fin_cash_bank_tx_line l
+                     JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+                     WHERE l.doc_type_id = ${docType("fin_ar_permit_invoice")} GROUP BY l.doc_id) p ON p.doc_id = v.id
+          WHERE v.paid_amount <> COALESCE(p.paid, 0)
+             OR (v.status = 'Posted' AND (v.ar_item_id IS NULL OR v.total_amount - v.paid_amount <> i.current_balance))`,
+  },
+  {
+    area: "permit",
+    name: "each Pengajuan's cost paid equals its posted Biaya Perizinan lines and never exceeds its realised DPP (P137)",
+    sql: `SELECT r.request_no, r.realized_dpp, r.cost_paid_amount, COALESCE(p.paid, 0) AS lines
+          FROM sal_permit_request r
+          LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid FROM fin_cash_bank_tx_line l
+                     JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+                     WHERE l.doc_type_id = ${docType("sal_permit_request")} GROUP BY l.doc_id) p ON p.doc_id = r.id
+          WHERE r.cost_paid_amount <> COALESCE(p.paid, 0) OR r.cost_paid_amount > r.realized_dpp`,
+  },
+  {
+    area: "permit",
+    name: "a Pengajuan is billed by at most one live Invoice Perizinan, and is Selesai exactly when one is posted (P137)",
+    sql: `SELECT r.request_no, r.status::text, COUNT(v.id) FILTER (WHERE v.status <> 'Cancelled') AS live,
+                 COUNT(v.id) FILTER (WHERE v.status = 'Posted') AS posted
+          FROM sal_permit_request r LEFT JOIN fin_ar_permit_invoice v ON v.permit_request_id = r.id
+          GROUP BY r.id
+          HAVING COUNT(v.id) FILTER (WHERE v.status <> 'Cancelled') > 1
+              OR (COUNT(v.id) FILTER (WHERE v.status = 'Posted') = 1) <> (r.status = 'Done')`,
   },
   {
     area: "tax",

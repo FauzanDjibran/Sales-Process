@@ -20,7 +20,7 @@ export function ArLedgerReportBody({
 }: {
   report: ArLedgerReport;
   /** Customer Order numbers by id, composed by the page (the order is another module's). */
-  orderNos: Record<number, string>;
+  orderNos: Record<string, string>;
 }) {
   // The position after each entry, worked out before rendering.
   const positions = report.entries.reduce<number[]>(
@@ -84,7 +84,7 @@ export function ArLedgerReportBody({
                         </span>
                         <span className="d2">
                           {e.itemSourceNo}
-                          {e.orderId && orderNos[e.orderId] ? ` · ${orderNos[e.orderId]}` : ""}
+                          {e.scopeId && orderNos[`${e.scopeTable}:${e.scopeId}`] ? ` · ${orderNos[`${e.scopeTable}:${e.scopeId}`]}` : ""}
                         </span>
                       </span>
                     </td>

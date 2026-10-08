@@ -24,8 +24,11 @@ export function CustomerAdvanceReport({
 }: {
   rows: ArItemRow[];
   gl: AdvanceReconciliation;
-  /** Customer Order numbers by id, composed by the page (the order is another module's). */
-  orderNos: Record<number, string>;
+  /**
+   * The agreement's number by `table:id` — a Customer Order or a Pengajuan
+   * Perizinan (P137) — composed by the page (each is another module's).
+   */
+  orderNos: Record<string, string>;
 }) {
   if (!rows.length) {
     return (
@@ -75,7 +78,7 @@ export function CustomerAdvanceReport({
                     <th style={{ width: 150 }}>AR Item</th>
                     <th style={{ width: 150 }}>Tagihan</th>
                     <th style={{ width: 150 }}>Penerimaan</th>
-                    <th>Customer Order</th>
+                    <th>Customer Order / Pengajuan</th>
                     <th className="num" style={{ width: 130 }}>Diterima (DPP)</th>
                     <th className="num" style={{ width: 130 }}>Terpakai</th>
                     <th className="num" style={{ width: 130 }}>Sisa</th>
@@ -95,7 +98,7 @@ export function CustomerAdvanceReport({
                         <DocLink table={r.createdByTable} id={r.createdById} no={r.createdByNo} />
                       </td>
                       <td>
-                        <DocLink table={r.orderId ? "sal_customer_order" : null} id={r.orderId} no={r.orderId ? (orderNos[r.orderId] ?? null) : null} />
+                        <DocLink table={r.scopeTable} id={r.scopeId} no={r.scopeId ? (orderNos[`${r.scopeTable}:${r.scopeId}`] ?? null) : null} />
                       </td>
                       <td className="num"><span className="mny">{money(r.original)}</span></td>
                       <td className="num">{r.settled ? <span className="mny">{money(r.settled)}</span> : <span className="dash">–</span>}</td>
