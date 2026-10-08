@@ -49,13 +49,15 @@ export type ReportParams =
   /** One item, optionally a warehouse, and a date range — a stock card (P120). */
   | "stock-period"
   /** Optionally an item and a warehouse, and the one date the stock stands at (P120). */
-  | "stock-asof";
+  | "stock-asof"
+  /** A fiscal period — the month — and optionally one Elemen Biaya Produksi (P150 M66). */
+  | "production-cost-period";
 
 export type ReportDef = {
   key: string;
   /** URL segment under the module's `report/` namespace. */
   slug: string;
-  module: "finance" | "accounting" | "inventory";
+  module: "finance" | "accounting" | "inventory" | "production";
   name: string;
   /** Singular subject line shown under the title. */
   desc: string;
@@ -270,6 +272,30 @@ const FIXED_REPORTS = [
     icon: "scale",
     permission: "REPORT_BALANCE_SHEET_VIEW",
     params: "fiscal-period",
+    subjectRequired: false,
+  },
+  // Production cost (P150 M66): read for one month — a fiscal period — because
+  // the close spreads one period's cost; the cost ledger is the source (M60).
+  {
+    key: "production_cost_ledger",
+    slug: "cost-ledger",
+    module: "production",
+    name: "Buku Biaya Produksi",
+    desc: "Setiap biaya produksi dalam satu bulan, per Elemen Biaya Produksi, dengan dokumen yang mencatatnya.",
+    icon: "book",
+    permission: "REPORT_PRODUCTION_COST_LEDGER_VIEW",
+    params: "production-cost-period",
+    subjectRequired: false,
+  },
+  {
+    key: "production_cost_balance",
+    slug: "cost-balance",
+    module: "production",
+    name: "Saldo Biaya Produksi",
+    desc: "Total biaya produksi per Elemen Biaya Produksi dalam satu bulan, dicocokkan dengan GL per account.",
+    icon: "calc",
+    permission: "REPORT_PRODUCTION_COST_BALANCE_VIEW",
+    params: "production-cost-period",
     subjectRequired: false,
   },
 ] as const satisfies readonly ReportDef[];

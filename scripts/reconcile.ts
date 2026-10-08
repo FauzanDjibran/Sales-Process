@@ -706,6 +706,64 @@ export const CHECKS: Check[] = [
               OR (NOT w.use_location AND b.location_id IS NOT NULL)
               OR (b.location_id IS NOT NULL AND loc.warehouse_id <> b.warehouse_id))`,
   },
+  // ------------------------------------------------------------ production
+  {
+    area: "production",
+    name: "every posted Tagihan Biaya Produksi has a posted journal naming it, at its total; no other has one (P150 M68)",
+    sql: `SELECT b.bill_no, b.status::text, b.total_amount, SUM(l.debit_amount) AS journal_debit
+          FROM prd_cost_bill b
+          LEFT JOIN acc_journal j ON j.id = b.journal_id
+          LEFT JOIN acc_journal_line l ON l.journal_id = j.id
+          GROUP BY b.id, j.id
+          HAVING (b.status = 'Posted' AND (j.id IS NULL OR j.status <> 'Posted' OR j.source_doc_type_id <> ${docType("prd_cost_bill")} OR j.source_doc_id <> b.id
+                                          OR COALESCE(SUM(l.debit_amount), 0) <> b.total_amount))
+              OR (b.status <> 'Posted' AND b.journal_id IS NOT NULL)`,
+  },
+  {
+    area: "production",
+    name: "each posted Tagihan Biaya Produksi's lines equal its cost-ledger rows; no other bill has rows (P150 M60)",
+    sql: `SELECT b.bill_no, b.status::text, b.total_amount, COALESCE(c.amount, 0) AS cost_rows, COALESCE(c.n, 0) AS rows_count
+          FROM prd_cost_bill b
+          LEFT JOIN (SELECT source_doc_id, SUM(amount) AS amount, COUNT(*) AS n FROM prd_cost_ledger
+                     WHERE source_doc_type_id = ${docType("prd_cost_bill")} GROUP BY source_doc_id) c ON c.source_doc_id = b.id
+          WHERE (b.status = 'Posted' AND (COALESCE(c.amount, 0) <> b.total_amount
+                                         OR COALESCE(c.n, 0) <> (SELECT COUNT(*) FROM prd_cost_bill_line x WHERE x.bill_id = b.id)))
+             OR (b.status <> 'Posted' AND c.n IS NOT NULL)`,
+  },
+  {
+    area: "production",
+    name: "each cost-ledger row names its element's own account (P150 M53)",
+    sql: `SELECT c.ledger_no, c.line_no, c.account_id, e.account_id AS element_account
+          FROM prd_cost_ledger c JOIN acc_production_cost_element e ON e.id = c.element_id
+          WHERE c.account_id <> e.account_id`,
+  },
+  {
+    area: "production",
+    name: "a payable Tagihan Biaya Produksi's paid amount equals its posted payment lines; nothing else records a payment (P132, M68)",
+    sql: `SELECT b.bill_no, b.is_payable, b.total_amount, b.paid_amount, COALESCE(p.paid, 0) AS lines
+          FROM prd_cost_bill b
+          LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid FROM fin_cash_bank_tx_line l
+                     JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+                     WHERE l.doc_type_id = ${docType("prd_cost_bill")} GROUP BY l.doc_id) p ON p.doc_id = b.id
+          WHERE b.paid_amount <> COALESCE(p.paid, 0) OR b.paid_amount > b.total_amount OR (NOT b.is_payable AND b.paid_amount <> 0)`,
+  },
+  {
+    // A warning, never acted on (M67): the cost ledger is the source of truth;
+    // a row here means something posted to an element account outside a
+    // Tagihan Biaya Produksi (a manual journal), or the reverse.
+    area: "production",
+    name: "per element account, the cost ledger equals the GL, closing journals aside (warning, P150 M67)",
+    sql: `WITH acc AS (SELECT DISTINCT account_id FROM acc_production_cost_element),
+               cl AS (SELECT account_id, SUM(amount) AS amount FROM prd_cost_ledger GROUP BY account_id),
+               gl AS (SELECT l.account_id, SUM(l.debit_amount - l.kredit_amount) AS amount
+                      FROM acc_journal_line l JOIN acc_journal j ON j.id = l.journal_id AND j.status = 'Posted'
+                      LEFT JOIN sys_doc_type d ON d.id = j.source_doc_type_id
+                      WHERE COALESCE(d.doc_table, '') <> 'acc_fiscal_year' AND l.account_id IN (SELECT account_id FROM acc)
+                      GROUP BY l.account_id)
+          SELECT a.account_id, COALESCE(cl.amount, 0) AS cost_ledger, COALESCE(gl.amount, 0) AS gl
+          FROM acc a LEFT JOIN cl ON cl.account_id = a.account_id LEFT JOIN gl ON gl.account_id = a.account_id
+          WHERE COALESCE(cl.amount, 0) <> COALESCE(gl.amount, 0)`,
+  },
 ];
 
 export type CheckResult = { area: string; name: string; rows: Record<string, unknown>[] };

@@ -18,7 +18,7 @@
 
 export type CashBankDirection = "In" | "Out";
 
-export type CashBankPurposeKey = "customer_receipt" | "supplier_payment" | "permit_cost";
+export type CashBankPurposeKey = "customer_receipt" | "supplier_payment" | "permit_cost" | "production_cost_payment";
 
 /** The kinds of document a purpose settles, by `sys_doc_type.doc_table`. */
 export type SettledDocKind = "fin_ar_advance" | "fin_ar_invoice" | "fin_ar_permit_advance" | "fin_ar_permit_invoice";
@@ -55,12 +55,13 @@ export const SETTLED_DOC_ROUTE: Record<SettledDocKind, string> = {
 };
 
 /** The kinds of document a payment to a supplier settles (P127). */
-export type PaidDocKind = "fin_ap_advance" | "fin_ap_invoice" | "sal_permit_request";
+export type PaidDocKind = "fin_ap_advance" | "fin_ap_invoice" | "sal_permit_request" | "prd_cost_bill";
 
 export const PAID_DOC_TEXT: Record<PaidDocKind, string> = {
   fin_ap_advance: "Uang Muka",
   fin_ap_invoice: "Invoice",
   sal_permit_request: "Biaya Perizinan",
+  prd_cost_bill: "Biaya Produksi",
 };
 
 /** Where a paid document is read. */
@@ -68,6 +69,7 @@ export const PAID_DOC_ROUTE: Record<PaidDocKind, string> = {
   fin_ap_advance: "/finance/advance/purchase",
   fin_ap_invoice: "/finance/invoice/purchase",
   sal_permit_request: "/sales/permit",
+  prd_cost_bill: "/production/cost-bill",
 };
 
 /** One paid document's key, unique across both kinds. */
@@ -139,6 +141,22 @@ export const CASH_BANK_PURPOSES = [
     partnerCategory: "Customer",
     settles: ["sal_permit_request"],
     docNoun: "Realisasi",
+    withholding: false,
+  },
+  // A posted Tagihan Biaya Produksi on Hutang Biaya Produksi (P150 M68): the
+  // cost was recorded by the bill, so paying it only clears the payable and
+  // writes no cost row. No tax: the bill carries none.
+  {
+    key: "production_cost_payment",
+    direction: "Out",
+    name: "Pembayaran Biaya Produksi",
+    short: "Biaya Produksi",
+    desc:
+      "Pembayaran Tagihan Biaya Produksi yang terutang ke supplier — listrik, jasa, upah borongan. " +
+      "Biayanya sudah dicatat oleh tagihan; pembayaran ini hanya melunasi Hutang Biaya Produksi.",
+    partnerCategory: "Supplier",
+    settles: ["prd_cost_bill"],
+    docNoun: "Tagihan",
     withholding: false,
   },
 ] as const satisfies readonly CashBankPurpose[];

@@ -158,6 +158,52 @@ export const MODULES: NavModule[] = [
     ],
   },
   {
+    // Production (P150): everything new for it sits here for now (M64).
+    key: "production",
+    name: "Produksi",
+    icon: "gear",
+    desc: "Biaya produksi — tenaga kerja dan overhead — per elemen dan per bulan; kelak juga perintah dan eksekusi produksi per workstation.",
+    permission: "MENU_PRODUCTION_ACCESS",
+    groups: [
+      {
+        key: "cost",
+        name: "Biaya",
+        entities: [
+          {
+            key: "prd_cost_bill",
+            slug: "cost-bill",
+            name: "Tagihan Biaya Produksi",
+            icon: "file",
+            desc: "Biaya produksi dicatat pada bulan terjadinya; yang terutang dibayar lewat Pengeluaran — Pembayaran Biaya Produksi.",
+            permission: "PRODUCTION_COST_BILL_VIEW",
+          },
+        ],
+      },
+      {
+        key: "report",
+        name: "Laporan",
+        entities: [
+          {
+            key: "report_production_cost_ledger",
+            slug: "report/cost-ledger",
+            name: "Buku Biaya Produksi",
+            icon: "book",
+            desc: "Setiap biaya produksi dalam satu bulan, per elemen, dengan dokumennya.",
+            permission: "REPORT_PRODUCTION_COST_LEDGER_VIEW",
+          },
+          {
+            key: "report_production_cost_balance",
+            slug: "report/cost-balance",
+            name: "Saldo Biaya Produksi",
+            icon: "calc",
+            desc: "Total biaya produksi per elemen dalam satu bulan, dicocokkan dengan GL.",
+            permission: "REPORT_PRODUCTION_COST_BALANCE_VIEW",
+          },
+        ],
+      },
+    ],
+  },
+  {
     // One module for the goods (P131): the documents that move stock — standalone,
     // chosen by purpose (P106) — and the stock books they write (P120).
     key: "inventory",

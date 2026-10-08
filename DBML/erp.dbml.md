@@ -2574,3 +2574,87 @@ table tax_withholding_slip {
 }
 
 ```
+
+// ============================================================ production cost (P150)
+
+// the cost ledger (P150 E4, M3, M23, M60): production cost by element, the source of truth the
+// period close reads — never the GL; append-only, dated, no period column; one ledger number
+// BBP/… per posting (P110); written only by lib/erp/production-cost.ts
+table prd_cost_ledger {
+  id                          int [pk, increment, not null]
+
+  ledger_no                   varchar [not null]
+  line_no                     int [not null]
+  posting_date                date [not null]
+
+  source_doc_type_id          int [not null] // weak (§3.1): the document that booked it
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+
+  element_id                  int [not null, ref : > acc_production_cost_element.id]
+  account_id                  int [not null, ref : > acc_account.id] // the element's account, copied
+  kind                        enum('In', 'Absorbed', 'CarriedOut', 'CarriedIn', 'ExpensedToPL') [not null]
+  amount                      decimal(18,2) [not null] // whole rupiah; + raises, − takes out
+  note                        varchar
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (ledger_no, line_no) [unique]
+    posting_date
+    (element_id, posting_date)
+    (source_doc_type_id, source_doc_id)
+  }
+}
+
+// Tagihan Biaya Produksi (P150 M68, TBP/…): production cost recognised in the month it belongs to —
+// Dr each line's element account / Cr the lawan — and written to the cost ledger; a bill on
+// Hutang Biaya Produksi is payable, keeps what it was paid (P132) and is paid by the Pengeluaran
+// purpose Pembayaran Biaya Produksi (CHECK 0 <= paid_amount <= total_amount)
+table prd_cost_bill {
+  id                          int [pk, increment, not null]
+
+  bill_no                     varchar [not null, unique]
+  bill_date                   date [not null]
+
+  contra_account_id           int [not null, ref : > acc_account.id]
+  partner_id                  int [ref : > m_partner.id] // the Supplier owed; required when payable
+  supplier_ref                varchar
+  due_date                    date
+  description                 varchar [not null]
+  note                        varchar
+
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  cancel_reason               varchar
+
+  total_amount                decimal(18,2) [not null, default: 0]
+  is_payable                  boolean [not null, default: false] // set at posting: lawan = Hutang Biaya Produksi
+  paid_amount                 decimal(18,2) [not null, default: 0]
+  journal_id                  int
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    status
+    partner_id
+  }
+}
+
+table prd_cost_bill_line {
+  id                          int [pk, increment, not null]
+
+  bill_id                     int [not null, ref : > prd_cost_bill.id]
+  line_no                     int [not null]
+  element_id                  int [not null, ref : > acc_production_cost_element.id]
+  amount                      decimal(18,2) [not null]
+  note                        varchar
+
+  indexes {
+    bill_id
+  }
+}

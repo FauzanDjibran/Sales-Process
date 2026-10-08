@@ -28,6 +28,7 @@ const ROUTES: Record<string, string> = {
   fin_ar_invoice: "/finance/invoice/sales",
   fin_ar_permit_invoice: "/finance/invoice/permit",
   fin_ap_invoice: "/finance/invoice/purchase",
+  prd_cost_bill: "/production/cost-bill",
   tax_faktur: "/tax/faktur",
   tax_withholding_slip: "/tax/withholding-slip",
 };

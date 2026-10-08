@@ -137,6 +137,12 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // documents call (P71–P72).
   finArItem: ["src/lib/erp/ar-item.ts"],
   finArLedger: ["src/lib/erp/ar-item.ts"],
+  // Production cost (P150): the cost ledger is a book; the elements are its
+  // masters, written by the registry; the bill owns its own tables.
+  prdCostLedger: ["src/lib/erp/production-cost.ts"],
+  accProductionCostElement: ["src/lib/erp/production-cost.ts", "src/lib/erp/records.ts"],
+  prdCostBill: ["src/lib/erp/production-cost-bill.ts"],
+  prdCostBillLine: ["src/lib/erp/production-cost-bill.ts"],
   finApItem: ["src/lib/erp/ap-item.ts"],
   finApLedger: ["src/lib/erp/ap-item.ts"],
   // Tax documents: made by the postings through hooks, recorded through the
@@ -204,7 +210,7 @@ describe("the dependency graph points one way", () => {
       // functions, shared by the inventory book and the forms that pick from it.
       "warehouse-location",
     ];
-    const BOOKS = ["cash-bank", "journal", "ar-item", "ap-item", "inventory"];
+    const BOOKS = ["cash-bank", "journal", "ar-item", "ap-item", "inventory", "production-cost"];
 
     for (const book of BOOKS) {
       const allowed = KERNEL;

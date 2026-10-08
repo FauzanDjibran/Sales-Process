@@ -899,6 +899,7 @@ model MPartner {
   opening_balance_lines AccOpeningBalanceLine[]
   ap_items              FinApItem[]             @relation("ApItemPartner")
   ap_invoices           FinApInvoice[]          @relation("ApInvoiceSupplier")
+  production_cost_bills PrdCostBill[]           @relation("CostBillPartner")
 
   @@index([category_id])
   @@map("m_partner")
@@ -1274,6 +1275,8 @@ model AccAccount {
   withholding_taxes  RefWithholdingTax[]
   category_accounts  AccItemCategoryAccount[] @relation("CategoryAccount")
   production_cost_elements AccProductionCostElement[]
+  production_cost_rows     PrdCostLedger[]          @relation("CostLedgerAccount")
+  production_cost_bills    PrdCostBill[]            @relation("CostBillContra")
 
   @@unique([account_label])
   @@index([account_subcategory_id])
@@ -1300,7 +1303,9 @@ model AccProductionCostElement {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  account AccAccount @relation(fields: [account_id], references: [id])
+  account    AccAccount        @relation(fields: [account_id], references: [id])
+  cost_rows  PrdCostLedger[]
+  bill_lines PrdCostBillLine[]
 
   @@index([account_id])
   @@map("acc_production_cost_element")
@@ -3618,4 +3623,110 @@ model FinApInvoiceAdvanceDeduction {
   @@unique([invoice_id, ap_item_id])
   @@index([ap_item_id])
   @@map("fin_ap_invoice_advance_deduction")
+}
+
+// ------------------------------------------------------------ production cost
+
+/// What a cost-ledger row is (P150 E4). `In` is a cost booked by a document;
+/// the close's kinds come with the close (Phase 8).
+enum ProductionCostKind {
+  In
+  Absorbed
+  CarriedOut
+  CarriedIn
+  ExpensedToPL
+}
+
+/// The cost ledger (P150 E4, M3, M23, M60): production cost by element, the
+/// source of truth the period close reads — never the GL. Append-only; a row
+/// carries a date and no period: a period is a range of dates. Written only
+/// by `lib/erp/production-cost.ts`, inside the posting of the document that
+/// books the cost. `ledger_no` is one number per posting (P110).
+model PrdCostLedger {
+  id                 Int                @id @default(autoincrement())
+  ledger_no          String
+  line_no            Int
+  posting_date       DateTime           @db.Date
+  /// The document that booked it, weak (§3.1).
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  element_id         Int
+  /// The element's account, copied: the account the journal line hit.
+  account_id         Int
+  kind               ProductionCostKind
+  /// Whole rupiah; + raises the cost, − takes it out.
+  amount             Decimal            @db.Decimal(18, 2)
+  note               String?
+  created_by         Int
+  created_at         DateTime           @default(now()) @db.Timestamptz(6)
+
+  element AccProductionCostElement @relation(fields: [element_id], references: [id])
+  account AccAccount               @relation("CostLedgerAccount", fields: [account_id], references: [id])
+
+  @@unique([ledger_no, line_no])
+  @@index([posting_date])
+  @@index([element_id, posting_date])
+  @@index([source_doc_type_id, source_doc_id])
+  @@map("prd_cost_ledger")
+}
+
+/// Where a Tagihan Biaya Produksi is in its life (P150 §21d).
+enum ProductionCostBillStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+/// Tagihan Biaya Produksi (P150 M68, `TBP/…`): a production cost recognised
+/// in the month it belongs to — Dr each line's element account / Cr the lawan —
+/// and written to the cost ledger. A bill whose lawan is Account Mapping's
+/// *Hutang Biaya Produksi* is payable: it keeps what it was paid (P132) and is
+/// paid by the Pengeluaran purpose *Pembayaran Biaya Produksi*.
+model PrdCostBill {
+  id                Int                      @id @default(autoincrement())
+  bill_no           String                   @unique
+  bill_date         DateTime                 @db.Date
+  contra_account_id Int
+  /// Who is owed — required when the bill is payable.
+  partner_id        Int?
+  supplier_ref      String?
+  due_date          DateTime?                @db.Date
+  description       String
+  note              String?
+  status            ProductionCostBillStatus @default(Draft)
+  cancel_reason     String?
+  total_amount      Decimal                  @default(0) @db.Decimal(18, 2)
+  /// Set at posting: the lawan was Hutang Biaya Produksi.
+  is_payable        Boolean                  @default(false)
+  paid_amount       Decimal                  @default(0) @db.Decimal(18, 2)
+  journal_id        Int?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  contra_account AccAccount        @relation("CostBillContra", fields: [contra_account_id], references: [id])
+  partner        MPartner?         @relation("CostBillPartner", fields: [partner_id], references: [id])
+  lines          PrdCostBillLine[]
+
+  @@index([status])
+  @@index([partner_id])
+  @@map("prd_cost_bill")
+}
+
+model PrdCostBillLine {
+  id         Int     @id @default(autoincrement())
+  bill_id    Int
+  line_no    Int
+  element_id Int
+  amount     Decimal @db.Decimal(18, 2)
+  note       String?
+
+  bill    PrdCostBill              @relation(fields: [bill_id], references: [id], onDelete: Cascade)
+  element AccProductionCostElement @relation(fields: [element_id], references: [id])
+
+  @@index([bill_id])
+  @@map("prd_cost_bill_line")
 }

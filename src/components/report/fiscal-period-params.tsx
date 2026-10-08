@@ -13,7 +13,7 @@ export type FiscalYearChoice = {
   periods: { id: number; name: string }[];
 };
 
-type Pick = { yearId: number | null; periodId: number | null };
+export type Pick = { yearId: number | null; periodId: number | null };
 
 /**
  * The filter for the `fiscal-period` parameter set, in the order it is filled
@@ -134,7 +134,7 @@ export function FiscalPeriodParams({
   );
 }
 
-function PeriodPick({
+export function PeriodPick({
   years,
   value,
   onChange,

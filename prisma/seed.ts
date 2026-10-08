@@ -143,6 +143,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Pengajuan Perizinan", "sal_permit_request"],
   ["Uang Muka Perizinan", "fin_ar_permit_advance"],
   ["Invoice Perizinan", "fin_ar_permit_invoice"],
+  // Production cost (P150 M68): the bill that books it, read by the cost ledger and its payment.
+  ["Tagihan Biaya Produksi", "prd_cost_bill"],
 ];
 
 /**

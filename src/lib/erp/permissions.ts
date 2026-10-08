@@ -22,6 +22,7 @@ export type PermissionModule =
   | "master"
   | "sales"
   | "purchasing"
+  | "production"
   | "inventory"
   | "accounting"
   | "finance"
@@ -235,6 +236,17 @@ export const PERMISSIONS = [
   { code: "PURCHASE_ORDER_CANCEL", name: "Batalkan Purchase Order", module: "purchasing", description: "Hanya Draft, dengan alasan." },
   { code: "PURCHASE_ORDER_CLOSE", name: "Tutup Purchase Order", module: "purchasing", description: "Mengembalikan sisa yang belum diterima ke Purchase Request, dengan alasan." },
 
+  // ------------------------------------------------------------- production
+  // Everything new for production sits here for now (P150 M64).
+  { code: "MENU_PRODUCTION_ACCESS", name: "Akses menu Produksi", module: "production" },
+  { code: "PRODUCTION_COST_BILL_VIEW", name: "Lihat Tagihan Biaya Produksi", module: "production", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "PRODUCTION_COST_BILL_CREATE", name: "Buat Tagihan Biaya Produksi", module: "production" },
+  { code: "PRODUCTION_COST_BILL_EDIT", name: "Ubah Tagihan Biaya Produksi", module: "production", description: "Hanya selama masih Draft." },
+  { code: "PRODUCTION_COST_BILL_POST", name: "Posting Tagihan Biaya Produksi", module: "production", description: "Menjurnal biaya ke account elemen dan mencatatnya di Buku Biaya Produksi." },
+  { code: "PRODUCTION_COST_BILL_CANCEL", name: "Batalkan Tagihan Biaya Produksi", module: "production", description: "Hanya Draft, dengan alasan." },
+  { code: "REPORT_PRODUCTION_COST_LEDGER_VIEW", name: "Lihat Buku Biaya Produksi", module: "production", description: "Setiap biaya produksi per bulan dan elemen, dengan dokumennya." },
+  { code: "REPORT_PRODUCTION_COST_BALANCE_VIEW", name: "Lihat Saldo Biaya Produksi", module: "production", description: "Total biaya produksi per elemen dalam satu bulan, dicocokkan dengan GL." },
+
   // -------------------------------------------------------------- inventory
   // One module for the goods (P131): the standalone documents that move stock,
   // chosen by purpose (P106), then the stock books and their reports (P120).
@@ -395,6 +407,7 @@ export const MODULE_LABELS: Record<PermissionModule, string> = {
   master: "Master",
   sales: "Penjualan",
   purchasing: "Pembelian",
+  production: "Produksi",
   inventory: "Persediaan",
   accounting: "Accounting",
   finance: "Finance",
@@ -407,6 +420,7 @@ export const MODULE_ORDER: PermissionModule[] = [
   "dashboard",
   "sales",
   "purchasing",
+  "production",
   "inventory",
   "finance",
   "tax",

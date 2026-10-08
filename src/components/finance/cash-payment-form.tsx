@@ -601,11 +601,12 @@ export function CashPaymentForm({
           <div className="impact">
             <div className="ttl">Bagian yang Dibukukan</div>
             {shown.map((x) =>
-              x.bill.kind === "fin_ap_invoice" || x.bill.kind === "sal_permit_request" ? (
+              x.bill.kind === "fin_ap_invoice" || x.bill.kind === "sal_permit_request" || x.bill.kind === "prd_cost_bill" ? (
                 // An Invoice's PPN was booked at the Invoice: what it settles clears Hutang (B27).
-                // A permit cost is expensed whole, without tax (P137).
+                // A permit cost is expensed whole, without tax (P137). A production
+                // bill's cost was recorded by the bill; paying it clears its payable (M68).
                 <div className="ir" key={x.bill.key}>
-                  <span>{x.bill.no} · {x.bill.kind === "fin_ap_invoice" ? "Hutang Usaha" : "Biaya Perizinan"}</span>
+                  <span>{x.bill.no} · {x.bill.kind === "fin_ap_invoice" ? "Hutang Usaha" : x.bill.kind === "prd_cost_bill" ? "Hutang Biaya Produksi" : "Biaya Perizinan"}</span>
                   <b>{money(x.settled)}</b>
                 </div>
               ) : (

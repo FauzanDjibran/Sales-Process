@@ -112,6 +112,7 @@ export const STARTER_MAPPINGS: [setting: string, account: string][] = [
   ["input_vat_account", "inputVat"],
   ["supplier_invoice_diff_account", "invoiceDiff"],
   ["production_scrap_account", "productionScrap"],
+  ["production_cost_payable_account", "productionCostPayable"],
 ];
 
 /** Starter Elemen Biaya Produksi (P150, M53): label, name, and the starter account it posts to. */
