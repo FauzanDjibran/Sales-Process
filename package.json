@@ -22,6 +22,8 @@
     "db:neon-seed-accounts": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-accounts.ts",
     "db:seed-showcase": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/seed-showcase.ts",
     "db:neon-seed-showcase": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-showcase.ts",
+    "db:seed-cash-bank-showcase": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/seed-cash-bank-showcase.ts",
+    "db:neon-seed-cash-bank-showcase": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-cash-bank-showcase.ts",
     "db:reset": "prisma migrate reset --force && npm run db:seed",
     "db:fresh": "npm run db:reset && npm run db:seed-showcase",
     "db:neon-reset": "node scripts/with-remote.mjs --destructive npx prisma migrate reset --force",
