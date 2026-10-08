@@ -73,7 +73,7 @@ export default async function Page({
     const docs = new Map<number, CostSourceDoc>(docTypes.map((d) => [d.id, { table: d.doc_table, name: d.doc_name }]));
     return (
       <ReportView report={report} filter={filter} runAt={runAt} footnote={footnote}>
-        <CostLedgerBody rows={rows} elements={elementById} docs={docs} />
+        <CostLedgerBody rows={rows} elements={elementById} docs={docs} range={range} />
       </ReportView>
     );
   }

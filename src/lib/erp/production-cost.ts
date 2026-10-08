@@ -142,10 +142,10 @@ export async function recordCost(tx: Tx, input: { date: Date; source: CostSource
 export type CostRowKind = "In" | "Absorbed" | "CarriedOut" | "CarriedIn" | "ExpensedToPL";
 
 export const COST_ROW_KIND_TEXT: Record<CostRowKind, string> = {
-  In: "Masuk",
-  Absorbed: "Dibebankan",
-  CarriedOut: "Dibawa ke periode berikut",
-  CarriedIn: "Dibawa dari periode lalu",
+  In: "Biaya dicatat",
+  Absorbed: "Dibebankan ke produk",
+  CarriedOut: "Dibawa ke bulan berikut",
+  CarriedIn: "Dibawa dari bulan lalu",
   ExpensedToPL: "Dibebankan ke Laba Rugi",
 };
 
