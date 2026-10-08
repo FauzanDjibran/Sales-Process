@@ -958,3 +958,61 @@ export async function permitAdvanceSources(
     };
   });
 }
+
+// ------------------------------------------------------- for the cost payment
+
+/**
+ * A realised Pengajuan as *Biaya Perizinan* pays it (Z12–Z14): its realised
+ * DPP is the cost, paid as one lump — possibly in parts — with no tax; what
+ * posted payments paid is kept here as `cost_paid_amount` (P132). The payment
+ * module takes this rather than reading `sal_permit_request` itself.
+ */
+export type PermitCostDoc = {
+  id: number;
+  requestNo: string;
+  realizationNo: string;
+  realizationDate: string;
+  status: PermitRequestStatus;
+  customerId: number;
+  productName: string;
+  /** The realised DPP. */
+  cost: number;
+  paid: number;
+};
+
+export async function permitCostDocs(filter: { ids?: number[]; openOnly?: boolean }, db: Db = prisma): Promise<PermitCostDoc[]> {
+  const rows = await db.salPermitRequest.findMany({
+    where: {
+      ...(filter.ids ? { id: { in: filter.ids } } : {}),
+      ...(filter.openOnly ? { status: { in: ["Realized", "Done"] } } : {}),
+    },
+    orderBy: [{ realization_date: "asc" }, { id: "asc" }],
+  });
+  return rows
+    .map((o) => ({
+      id: o.id,
+      requestNo: o.request_no,
+      realizationNo: o.realization_no ?? o.request_no,
+      realizationDate: isoDay(o.realization_date ?? o.request_date),
+      status: o.status as PermitRequestStatus,
+      customerId: o.customer_id,
+      productName: o.product_name,
+      cost: o.realized_dpp.toNumber(),
+      paid: o.cost_paid_amount.toNumber(),
+    }))
+    .filter((d) => !filter.openOnly || d.paid < d.cost);
+}
+
+/** Locks Pengajuan rows in id order, so two cost payments cannot both pay the last of one. */
+export async function lockPermitRequests(tx: Prisma.TransactionClient, ids: number[]): Promise<void> {
+  for (const id of [...new Set(ids)].sort((a, b) => a - b)) await lockPermitRequest(tx, id);
+}
+
+/** Adds what one posted cost payment paid (P132), refused beyond the realised DPP. */
+export async function recordPermitCostPaid(tx: Prisma.TransactionClient, id: number, amount: number): Promise<void> {
+  const o = await tx.salPermitRequest.findUnique({ where: { id }, select: { request_no: true, status: true, realized_dpp: true, cost_paid_amount: true } });
+  if (!o || (o.status !== "Realized" && o.status !== "Done")) throw new Error("Pengajuan Perizinan belum direalisasi.");
+  const paid = o.cost_paid_amount.toNumber() + amount;
+  if (amount <= 0 || paid > o.realized_dpp.toNumber()) throw new Error(`Pembayaran melebihi sisa biaya ${o.request_no}.`);
+  await tx.salPermitRequest.update({ where: { id }, data: { cost_paid_amount: paid } });
+}

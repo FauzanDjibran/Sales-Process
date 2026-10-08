@@ -15,7 +15,7 @@ import { CashPaymentActions } from "@/components/finance/cash-payment-actions";
 import { PaymentBillPicker, type PickedPayment } from "@/components/finance/cash-payment-bill-picker";
 import { createCashPaymentAction, updateCashPaymentAction } from "@/app/actions/cash-payment";
 import { cashToClear, settleBillFromCash, type SettlementLine } from "@/lib/erp/sales-tax";
-import { PAID_DOC_TEXT, paidKey, cashBankPurpose } from "@/lib/erp/cash-bank-purposes";
+import { PAID_DOC_ROUTE, PAID_DOC_TEXT, paidKey, cashBankPurpose } from "@/lib/erp/cash-bank-purposes";
 import {
   CASH_BANK_TX_STATUS_BADGE,
   CASH_BANK_TX_STATUS_TEXT,
@@ -51,7 +51,7 @@ type LiveLine = { bill: OpenPayable; input: Line; withhold: boolean; max: number
 const money = (n: number) => formatMoney(n, "IDR");
 
 /** Where a settled document opens. */
-const billHref = (b: OpenPayable) => (b.kind === "fin_ap_invoice" ? `/finance/invoice/purchase/${b.id}` : `/finance/advance/purchase/${b.id}`);
+const billHref = (b: OpenPayable) => `${PAID_DOC_ROUTE[b.kind]}/${b.id}`;
 
 export function CashPaymentForm({
   mode,
@@ -601,10 +601,11 @@ export function CashPaymentForm({
           <div className="impact">
             <div className="ttl">Bagian yang Dibukukan</div>
             {shown.map((x) =>
-              x.bill.kind === "fin_ap_invoice" ? (
+              x.bill.kind === "fin_ap_invoice" || x.bill.kind === "sal_permit_request" ? (
                 // An Invoice's PPN was booked at the Invoice: what it settles clears Hutang (B27).
+                // A permit cost is expensed whole, without tax (P137).
                 <div className="ir" key={x.bill.key}>
-                  <span>{x.bill.no} · Hutang Usaha</span>
+                  <span>{x.bill.no} · {x.bill.kind === "fin_ap_invoice" ? "Hutang Usaha" : "Biaya Perizinan"}</span>
                   <b>{money(x.settled)}</b>
                 </div>
               ) : (

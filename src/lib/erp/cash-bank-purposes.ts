@@ -18,7 +18,7 @@
 
 export type CashBankDirection = "In" | "Out";
 
-export type CashBankPurposeKey = "customer_receipt" | "supplier_payment";
+export type CashBankPurposeKey = "customer_receipt" | "supplier_payment" | "permit_cost";
 
 /** The kinds of document a purpose settles, by `sys_doc_type.doc_table`. */
 export type SettledDocKind = "fin_ar_advance" | "fin_ar_invoice" | "fin_ar_permit_advance";
@@ -48,9 +48,20 @@ export const SETTLED_DOC_ROUTE: Record<SettledDocKind, string> = {
 };
 
 /** The kinds of document a payment to a supplier settles (P127). */
-export type PaidDocKind = "fin_ap_advance" | "fin_ap_invoice";
+export type PaidDocKind = "fin_ap_advance" | "fin_ap_invoice" | "sal_permit_request";
 
-export const PAID_DOC_TEXT: Record<PaidDocKind, string> = { fin_ap_advance: "Uang Muka", fin_ap_invoice: "Invoice" };
+export const PAID_DOC_TEXT: Record<PaidDocKind, string> = {
+  fin_ap_advance: "Uang Muka",
+  fin_ap_invoice: "Invoice",
+  sal_permit_request: "Biaya Perizinan",
+};
+
+/** Where a paid document is read. */
+export const PAID_DOC_ROUTE: Record<PaidDocKind, string> = {
+  fin_ap_advance: "/finance/advance/purchase",
+  fin_ap_invoice: "/finance/invoice/purchase",
+  sal_permit_request: "/sales/permit",
+};
 
 /** One paid document's key, unique across both kinds. */
 export const paidKey = (kind: PaidDocKind, id: number) => `${kind}:${id}`;
@@ -106,6 +117,22 @@ export const CASH_BANK_PURPOSES = [
     settles: ["fin_ap_advance", "fin_ap_invoice"],
     docNoun: "Tagihan",
     withholding: true,
+  },
+  // The permit costs of a realised Pengajuan Perizinan (P137, Z12–Z14), paid
+  // as one lump — possibly in parts — and expensed without tax. The partner is
+  // the customer whose permits they are; the real payee goes in the reference.
+  {
+    key: "permit_cost",
+    direction: "Out",
+    name: "Biaya Perizinan",
+    short: "Biaya Perizinan",
+    desc:
+      "Biaya pengurusan perizinan sebesar realisasinya, dibayar sebagai satu kesatuan — boleh " +
+      "bertahap. Dibebankan langsung ke Biaya Perizinan, tanpa pajak.",
+    partnerCategory: "Customer",
+    settles: ["sal_permit_request"],
+    docNoun: "Realisasi",
+    withholding: false,
   },
 ] as const satisfies readonly CashBankPurpose[];
 

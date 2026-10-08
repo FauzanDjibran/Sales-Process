@@ -16,6 +16,14 @@ import {
 } from "@/lib/erp/permit-request";
 import { PERMIT_REQUEST_TRANSITIONS, type PermitRequestAction } from "@/lib/erp/permit-request-workflow";
 import { liveAdvanceRefusal } from "@/lib/erp/permit-advance";
+import { permitCostPayments } from "@/lib/erp/cash-payment";
+import type { Prisma } from "@/generated/prisma/client";
+
+/** Why the realisation may no longer change (Z8), or null. */
+async function realizationLockRefusal(tx: Prisma.TransactionClient, id: number): Promise<string | null> {
+  const paid = await permitCostPayments(id, tx);
+  return paid.length ? `Biaya perizinan sudah dibayar (${paid.map((p) => p.txNo).join(", ")}); realisasi tidak dapat diubah.` : null;
+}
 
 /**
  * The Pengajuan Perizinan's write path. The permission is checked here; every
@@ -68,7 +76,7 @@ export async function updatePermitRequestAction(
 export async function saveRealizationAction(id: number, input: PermitRealizationInput): Promise<PermitRequestResult> {
   const g = await authorize("PERMIT_REQUEST_REALIZE");
   if (!g.ok) return g.denial;
-  const result = await saveRealization(id, input, g.actor.user.id);
+  const result = await saveRealization(id, input, g.actor.user.id, realizationLockRefusal);
   if (result.ok) revalidate(id);
   return result;
 }

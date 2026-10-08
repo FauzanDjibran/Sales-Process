@@ -2,6 +2,7 @@ import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import { createCashReceipt, transitionCashReceipt, type CashReceiptInput } from "../src/lib/erp/cash-bank-tx";
+import { createCashPayment, permitCostPayments, transitionCashPayment } from "../src/lib/erp/cash-payment";
 import {
   createPermitRequest,
   saveRealization,
@@ -91,6 +92,8 @@ before(async () => {
   f.vatAcc = await makeAccount({ subcategoryLabel: await sub("2"), normalBalance: "Kredit" });
   await setMapping("permit_advance_account", String(f.permitAdvAcc));
   await setMapping("output_vat_account", String(f.vatAcc));
+  f.costAcc = await makeAccount({ subcategoryLabel: await sub("5") });
+  await setMapping("permit_cost_account", String(f.costAcc));
 
   const currency = (await prisma.refCurrency.findFirstOrThrow({ where: { currency_label: "IDR" } })).id;
   f.bankAcc = await makeAccount({ subcategoryLabel: CASH_BANK_SUBCATEGORY });
@@ -203,6 +206,53 @@ describe("Uang Muka Perizinan", () => {
     const faktur = await prisma.taxFaktur.findFirstOrThrow({ where: { ar_item_id: item.id }, include: { lines: true } });
     assert.deepEqual([faktur.kind, faktur.dpp.toNumber(), faktur.ppn.toNumber(), faktur.lines.length, faktur.scope_doc_id], ["Advance", 800_000, 88_000, 1, requestId]);
     assert.equal(faktur.lines[0].item_label, null, "one description line, no item (Z1)");
+  });
+
+  test("Biaya Perizinan: the realised DPP paid as a lump, no tax, and the realisation then fixed (Z12–Z14, Z8)", async () => {
+    const id = await approvedRequest();
+    const lines = [
+      { permit_type_id: f.pre, description: "", realized_price: 400_000, is_added: false },
+      { permit_type_id: f.bpom, description: "", realized_price: 100_000, is_added: false },
+      { permit_type_id: f.stab, description: "", realized_price: 200_000, is_added: false },
+    ];
+    assert.ok((await saveRealization(id, { realization_date: today, realization_note: "", lines }, actor)).ok);
+    const pay = (cash: number) =>
+      createCashPayment(
+        {
+          purpose: "permit_cost",
+          tx_date: today,
+          partner_id: f.customer,
+          cash_bank_id: f.bank,
+          bank_ref: "BPOM",
+          note: "",
+          bank_charge: 0,
+          lines: [{ doc_type: "sal_permit_request", doc_id: id, cash, withhold: false }],
+        },
+        actor
+      );
+    const early = await pay(100_000);
+    assert.ok(!early.ok, "only a realised Pengajuan's cost is paid");
+
+    assert.ok((await transitionPermitRequest(id, "realize", actor)).ok);
+    assert.ok(!(await pay(700_001)).ok, "never beyond the realised DPP");
+    const p = await pay(300_000);
+    assert.ok(p.ok, JSON.stringify(p));
+    receipts.push(p.id);
+    assert.deepEqual(await transitionCashPayment(p.id, "post", actor), { ok: true });
+
+    const tx = await prisma.finCashBankTx.findUniqueOrThrow({ where: { id: p.id }, include: { journal: { include: { lines: true } } } });
+    const lineOf = (acc: number) => tx.journal!.lines.find((l) => l.account_id === acc)!;
+    assert.equal(lineOf(f.costAcc).debit_amount.toNumber(), 300_000, "Dr Biaya Perizinan");
+    assert.equal(lineOf(f.bankAcc).kredit_amount.toNumber(), 300_000);
+    assert.equal(tx.journal!.lines.length, 2, "no tax");
+    const req = await prisma.salPermitRequest.findUniqueOrThrow({ where: { id } });
+    assert.equal(req.cost_paid_amount.toNumber(), 300_000);
+
+    // Paid in part: the realisation is now fixed (Z8).
+    const guard = async (t: Parameters<Parameters<typeof prisma.$transaction>[0]>[0], rid: number) =>
+      (await permitCostPayments(rid, t)).length ? "dibayar" : null;
+    const changed = await saveRealization(id, { realization_date: today, realization_note: "", lines }, actor, guard);
+    assert.ok(!changed.ok && changed.errors._form === "dibayar");
   });
 
   test("a realised Pengajuan still takes an advance; a Draft one does not", async () => {

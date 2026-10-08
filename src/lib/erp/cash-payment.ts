@@ -14,6 +14,7 @@ import { lockPurchaseAdvances, purchaseAdvanceNumbersByIds, recordPurchaseAdvanc
 import { cashToClear, receivedProblem, settleBillFromCash, type SettlementLine } from "./sales-tax";
 import { postingAccounts } from "./system-settings";
 import { CASH_BANK_PREFIX, cashBankPurpose, paidKey, purposesFor, type CashBankPurpose, type PaidDocKind } from "./cash-bank-purposes";
+import { lockPermitRequests, permitCostDocs, permitRequestNumbersByIds, recordPermitCostPaid } from "./permit-request";
 import {
   CASH_PAYMENT_TRANSITIONS,
   cashBankTxIsEditable,
@@ -94,9 +95,9 @@ export type OpenPayable = {
 
 async function openPayables(
   db: Db,
-  filter: { advanceIds?: number[]; invoiceIds?: number[]; openOnly?: boolean }
+  filter: { advanceIds?: number[]; invoiceIds?: number[]; costIds?: number[]; openOnly?: boolean }
 ): Promise<OpenPayable[]> {
-  const [advances, invoices] = await Promise.all([
+  const [advances, invoices, costs] = await Promise.all([
     filter.openOnly
       ? unpaidAdvanceIds(db).then((ids) => settlementAdvances({ ids }, db))
       : filter.advanceIds?.length
@@ -107,6 +108,12 @@ async function openPayables(
       ? unpaidPurchaseInvoiceIds(db).then((ids) => settlementPurchaseInvoices({ ids }, db))
       : filter.invoiceIds?.length
         ? settlementPurchaseInvoices({ ids: filter.invoiceIds }, db)
+        : Promise.resolve([]),
+    // A realised Pengajuan's permit costs (P137): its realised DPP, no tax.
+    filter.openOnly
+      ? permitCostDocs({ openOnly: true }, db)
+      : filter.costIds?.length
+        ? permitCostDocs({ ids: filter.costIds }, db)
         : Promise.resolve([]),
   ]);
   // A document's open amount is what it asks less what it records as paid
@@ -157,6 +164,25 @@ async function openPayables(
         open,
       };
     }),
+    ...costs.map((d) => ({
+      kind: "sal_permit_request" as const,
+      key: paidKey("sal_permit_request", d.id),
+      id: d.id,
+      no: d.realizationNo,
+      date: d.realizationDate,
+      dueDate: d.realizationDate,
+      status: d.status,
+      supplierId: d.customerId,
+      orderId: d.id,
+      orderNo: d.requestNo,
+      total: d.cost,
+      dpp: d.cost,
+      ppn: 0,
+      withholdings: [],
+      apItemId: null,
+      paid: d.paid,
+      open: d.cost - d.paid,
+    })),
   ];
   return out.sort((a, b) => (a.dueDate === b.dueDate ? a.id - b.id : a.dueDate < b.dueDate ? -1 : 1));
 }
@@ -263,7 +289,8 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput): Promise
   const raw = Array.isArray(input.lines) ? input.lines : [];
   const lines: CheckedLine[] = [];
   if (!raw.length) errors._lines = "Pilih minimal satu tagihan yang dibayar.";
-  const kindOf = (l: CashPaymentLineInput): PaidDocKind => (l.doc_type === "fin_ap_invoice" ? "fin_ap_invoice" : "fin_ap_advance");
+  const kindOf = (l: CashPaymentLineInput): PaidDocKind =>
+    l.doc_type === "fin_ap_invoice" || l.doc_type === "sal_permit_request" ? l.doc_type : "fin_ap_advance";
   const bills = new Map(
     (
       await openPayables(
@@ -271,6 +298,7 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput): Promise
         {
           advanceIds: raw.filter((l) => kindOf(l) === "fin_ap_advance").map((l) => Number(l.doc_id)).filter(Boolean),
           invoiceIds: raw.filter((l) => kindOf(l) === "fin_ap_invoice").map((l) => Number(l.doc_id)).filter(Boolean),
+          costIds: raw.filter((l) => kindOf(l) === "sal_permit_request").map((l) => Number(l.doc_id)).filter(Boolean),
         }
       )
     ).map((b) => [b.key, b])
@@ -298,6 +326,10 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput): Promise
     }
     if (kind === "fin_ap_advance" && bill.status !== "Issued") {
       errors[lineKey(i, "doc_id")] = `${bill.no} belum dicatat.`;
+      continue;
+    }
+    if (kind === "sal_permit_request" && bill.status !== "Realized" && bill.status !== "Done") {
+      errors[lineKey(i, "doc_id")] = `${bill.no} belum direalisasi.`;
       continue;
     }
     if (kind === "fin_ap_invoice" && (bill.status !== "Posted" || !bill.apItemId)) {
@@ -477,8 +509,10 @@ async function accountProblem(db: Db, id: number): Promise<string | null> {
 async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ ok: true; description: string; lines: JournalLineInput[] } | { ok: false; message: string }> {
   const advances = c.lines.filter((l) => l.kind === "fin_ap_advance");
   const invoices = c.lines.filter((l) => l.kind === "fin_ap_invoice");
-  type Key = "purchase_advance_account" | "input_vat_account" | "bank_charge_account" | "payable_account";
+  const costs = c.lines.filter((l) => l.kind === "sal_permit_request");
+  type Key = "purchase_advance_account" | "input_vat_account" | "bank_charge_account" | "payable_account" | "permit_cost_account";
   const keys: Key[] = [
+    ...(costs.length ? (["permit_cost_account"] as const) : []),
     ...(advances.length ? (["purchase_advance_account", "input_vat_account"] as const) : []),
     ...(invoices.length ? (["payable_account"] as const) : []),
     ...(c.data.bank_charge > 0 ? (["bank_charge_account"] as const) : []),
@@ -499,7 +533,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ 
   const accounts = new Map(
     (
       await db.accAccount.findMany({
-        where: { id: { in: [c.cashBankAccountId, ids.purchase_advance_account, ids.input_vat_account, ids.bank_charge_account, ids.payable_account, ...[...taxes.values()].map((t) => t.account_id)].filter((x): x is number => Boolean(x)) } },
+        where: { id: { in: [c.cashBankAccountId, ids.purchase_advance_account, ids.input_vat_account, ids.bank_charge_account, ids.payable_account, ids.permit_cost_account, ...[...taxes.values()].map((t) => t.account_id)].filter((x): x is number => Boolean(x)) } },
         select: { id: true, require_partner: true },
       })
     ).map((a) => [a.id, a])
@@ -522,6 +556,10 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ 
   if (ppn > 0) out.push(line(ids.input_vat_account!, ppn, 0, `PPN Masukan uang muka — ${advances.filter((l) => l.ppnPart > 0).map((l) => l.bill.no).join(", ")}`));
   for (const l of invoices) {
     out.push(line(ids.payable_account!, l.settled, 0, `Pelunasan ${l.bill.no}${l.settled < l.bill.open ? " (sebagian)" : ""} (${l.bill.orderNo})`, c.data.partner_id));
+  }
+  // Biaya Perizinan: the realised cost, expensed without tax (Z13).
+  for (const l of costs) {
+    out.push(line(ids.permit_cost_account!, l.settled, 0, `Biaya perizinan realisasi ${l.bill.no} (${l.bill.orderNo})${l.settled < l.bill.open ? " — sebagian" : ""}`));
   }
   if (c.data.bank_charge > 0) out.push(line(ids.bank_charge_account!, c.data.bank_charge, 0, "Biaya transfer bank"));
   const ref = c.data.bank_ref ? ` · ref ${c.data.bank_ref}` : "";
@@ -588,6 +626,7 @@ export async function transitionCashPayment(
       await lockPurchaseAdvances(tx, stored.lines.filter((l) => l.doc_type === "fin_ap_advance").map((l) => Number(l.doc_id)));
       const invoiceIds = stored.lines.filter((l) => l.doc_type === "fin_ap_invoice").map((l) => Number(l.doc_id));
       if (invoiceIds.length) await lockPurchaseInvoices(tx, invoiceIds);
+      await lockPermitRequests(tx, stored.lines.filter((l) => l.doc_type === "sal_permit_request").map((l) => Number(l.doc_id)));
       if (invoiceIds.length) await lockApItems(tx, (await settlementPurchaseInvoices({ ids: invoiceIds }, tx)).flatMap((i) => (i.apItemId ? [i.apItemId] : [])));
       const r = await checkCashPayment(tx, stored);
       if (!r.ok) throw new Refused({ _form: `Belum bisa diposting: ${Object.values(r.errors)[0]}` });
@@ -626,6 +665,7 @@ export async function transitionCashPayment(
       // the next payment reads that as its `before`, not this payment.
       for (const l of r.c.lines) {
         if (l.kind === "fin_ap_advance") await recordPurchaseAdvancePaid(tx, l.docId, l.settled);
+        else if (l.kind === "sal_permit_request") await recordPermitCostPaid(tx, l.docId, l.settled);
         else await recordPurchaseInvoicePaid(tx, l.docId, l.settled);
       }
       // Each advance bill paid is an Uang Muka the company now holds with the
@@ -691,7 +731,11 @@ export async function listCashPayments(): Promise<CashPaymentListRow[]> {
     include: { partner: true, cash_bank: true, lines: { select: { doc_id: true, doc_type: { select: { doc_table: true } } } } },
   });
   const idsOf = (kind: PaidDocKind) => [...new Set(rows.flatMap((r) => r.lines.filter((l) => l.doc_type.doc_table === kind).map((l) => l.doc_id)))];
-  const [advanceNos, invoiceNos] = await Promise.all([purchaseAdvanceNumbersByIds(idsOf("fin_ap_advance")), purchaseInvoiceNumbersByIds(idsOf("fin_ap_invoice"))]);
+  const [advanceNos, invoiceNos, costNos] = await Promise.all([
+    purchaseAdvanceNumbersByIds(idsOf("fin_ap_advance")),
+    purchaseInvoiceNumbersByIds(idsOf("fin_ap_invoice")),
+    permitRequestNumbersByIds(idsOf("sal_permit_request")),
+  ]);
   return rows.map((r) => ({
     id: r.id,
     txNo: r.tx_no,
@@ -706,7 +750,10 @@ export async function listCashPayments(): Promise<CashPaymentListRow[]> {
     settled: r.settled_amount.toNumber(),
     pph: r.pph_amount.toNumber(),
     lines: r.lines.length,
-    docs: r.lines.map((l) => (l.doc_type.doc_table === "fin_ap_advance" ? advanceNos : invoiceNos).get(l.doc_id) ?? "?"),
+    docs: r.lines.map(
+      (l) =>
+        (l.doc_type.doc_table === "fin_ap_advance" ? advanceNos : l.doc_type.doc_table === "sal_permit_request" ? costNos : invoiceNos).get(l.doc_id) ?? "?"
+    ),
   }));
 }
 
@@ -757,4 +804,24 @@ export async function getCashPayment(id: number): Promise<CashPaymentView | null
       withholdings: l.whts.map((w) => ({ key: String(w.withholding_tax_id), rate: w.rate.toNumber(), base: w.base_amount.toNumber(), amount: w.amount.toNumber() })),
     })),
   };
+}
+
+// --------------------------------------------------------- for the Pengajuan
+
+/**
+ * The live Biaya Perizinan payments (Draft or Posted) naming a Pengajuan —
+ * while any exists its realisation is not changed (Z8). The Pengajuan's
+ * action and page ask here rather than reading this module's tables.
+ */
+export async function permitCostPayments(
+  requestId: number,
+  db: Db = prisma
+): Promise<{ id: number; txNo: string; date: string; status: string; settled: number }[]> {
+  const typeId = await docTypeId(db, "sal_permit_request");
+  const rows = await db.finCashBankTxLine.findMany({
+    where: { doc_type_id: typeId, doc_id: requestId, tx: { status: { not: "Cancelled" } } },
+    include: { tx: true },
+    orderBy: { tx: { tx_date: "asc" } },
+  });
+  return rows.map((r) => ({ id: r.tx.id, txNo: r.tx.tx_no, date: isoDay(r.tx.tx_date), status: r.tx.status, settled: r.settled_amount.toNumber() }));
 }
