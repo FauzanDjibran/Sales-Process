@@ -412,6 +412,7 @@ model SysDocType {
   journals           AccJournal[]
   cash_bank_tx_lines FinCashBankTxLine[]
   ar_item_sources    FinArItem[]               @relation("ArItemSource")
+  ar_item_scopes     FinArItem[]               @relation("ArItemScope")
   ar_ledger_entries  FinArLedger[]
   delivery_notes     LogDeliveryNote[]         @relation("DeliveryNoteSource")
   receipt_notes      LogReceiptNote[]          @relation("ReceiptNoteSource")
@@ -2619,10 +2620,11 @@ model FinArItem {
   source_doc_type_id Int
   source_doc_id      Int
   source_no          String
-  /// The Customer Order, by id — the settlement scope: an invoice uses only
-  /// its own order's advances (P73, P78). A weak reference: the order belongs
-  /// to another module.
-  customer_order_id  Int?
+  /// The agreement the item is settled within — a Customer Order or a
+  /// Pengajuan Perizinan (P137, Z20) — by the weak pair: an invoice uses only
+  /// its own agreement's advances (P73, P78). It belongs to another module.
+  scope_doc_type_id  Int?
+  scope_doc_id       Int?
 
   /// What is still open, in the item's own currency: the sum of its Buku
   /// Piutang entries, updated in the same transaction as each (P72).
@@ -2640,11 +2642,12 @@ model FinArItem {
   partner         MPartner      @relation(fields: [partner_id], references: [id])
   currency        RefCurrency   @relation(fields: [currency_id], references: [id])
   source_doc_type SysDocType    @relation("ArItemSource", fields: [source_doc_type_id], references: [id])
+  scope_doc_type  SysDocType?   @relation("ArItemScope", fields: [scope_doc_type_id], references: [id])
   entries         FinArLedger[] @relation("ArItemEntries")
   counter_entries FinArLedger[] @relation("ArItemCounter")
 
   @@index([partner_id, item_type])
-  @@index([customer_order_id])
+  @@index([scope_doc_type_id, scope_doc_id])
   @@index([source_doc_type_id, source_doc_id])
   @@map("fin_ar_item")
 }
@@ -2734,7 +2737,8 @@ model TaxFaktur {
   /// The Uang Muka AR item the advance created (advance only), so a later
   /// faktur pelunasan finds this faktur from the deduction.
   ar_item_id         Int?
-  customer_order_id  Int
+  scope_doc_type_id  Int
+  scope_doc_id       Int
 
   description               String?
   ppn_rate                  Decimal @db.Decimal(9, 4)

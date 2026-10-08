@@ -928,7 +928,7 @@ export async function transitionCashReceipt(
           date: isoDay(t.tx_date),
           source: { docTypeId: typeIds.fin_ar_advance, docId: l.docId, no: l.bill.no },
           createdBy: { docTypeId: typeId, docId: id, no: t.tx_no },
-          orderId: l.bill.orderId,
+          scope: { docTypeId: await docTypeId(tx, "sal_customer_order"), docId: l.bill.orderId },
           amount: l.dppPart,
           note: `Uang muka ${l.bill.no} diterima`,
           actorId,

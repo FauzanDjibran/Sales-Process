@@ -213,7 +213,7 @@ before(async () => {
     else f.rcHalf = rc.id;
     assert.deepEqual(await transitionCashReceipt(rc.id, "post", actor), { ok: true });
   }
-  advanceItem = (await prisma.finArItem.findFirstOrThrow({ where: { customer_order_id: co.id, item_type: "Advance" } })).id;
+  advanceItem = (await prisma.finArItem.findFirstOrThrow({ where: { scope_doc_id: co.id, scope_doc_type: { doc_table: "sal_customer_order" }, item_type: "Advance" } })).id;
   // A second bill, issued and left unpaid, for the mixed receipt (§7.8).
   const adv2 = await createSalesAdvance(
     { order_id: co.id, advance_date: today, due_date: today, cash_bank_id: f.bank, description: "UM 2", note: "", amount_type: "Amount", amount_value: 100_000 },
@@ -252,7 +252,7 @@ after(async () => {
   await prisma.finArInvoiceLine.deleteMany({ where: { invoice_id: { in: ids.inv } } });
   await prisma.finArInvoiceAdvanceDeduction.deleteMany({ where: { invoice_id: { in: ids.inv } } });
   await prisma.finArInvoice.deleteMany({ where: { id: { in: ids.inv } } });
-  const items = await prisma.finArItem.findMany({ where: { customer_order_id: { in: ids.co } }, select: { id: true } });
+  const items = await prisma.finArItem.findMany({ where: { scope_doc_id: { in: ids.co }, scope_doc_type: { doc_table: "sal_customer_order" } }, select: { id: true } });
   await prisma.finArLedger.deleteMany({ where: { OR: [{ item_id: { in: items.map((i) => i.id) } }, { counter_item_id: { in: items.map((i) => i.id) } }] } });
   await prisma.finArItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
   await prisma.finCashBankTx.deleteMany({ where: { id: { in: [...ids.rc, f.rcHalf] } } });
@@ -492,7 +492,7 @@ describe("Posting recognises Piutang, revenue and PPN once", () => {
     const v = (await getInvoice(ids.inv[0]))!;
     const inv = await prisma.finArItem.findUniqueOrThrow({ where: { id: v.arItemId! }, include: { entries: { orderBy: { id: "asc" } } } });
     assert.deepEqual(
-      [inv.item_type, inv.original_amount.toNumber(), inv.current_balance.toNumber(), inv.source_no, inv.customer_order_id],
+      [inv.item_type, inv.original_amount.toNumber(), inv.current_balance.toNumber(), inv.source_no, inv.scope_doc_id],
       ["Invoice", 661_560, 550_560, v.invoiceNo, order.co]
     );
     assert.deepEqual(inv.entries.map((e) => [e.event, e.movement.toNumber(), e.counter_item_id]), [

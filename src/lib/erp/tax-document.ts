@@ -139,7 +139,8 @@ export async function createTaxDocsForReceipt(db: Db, receiptId: number, actorId
           ref_doc_id: l.docId,
           ref_no: l.docNo,
           ar_item_id: items.find((i) => i.sourceDocId === l.docId)?.id ?? null,
-          customer_order_id: l.orderId,
+          scope_doc_type_id: await docTypeId(db, "sal_customer_order"),
+          scope_doc_id: l.orderId,
           description,
           ppn_rate: rates.rate,
           ppn_dpp_other_numerator: rates.otherNum,
@@ -219,7 +220,8 @@ export async function createTaxDocsForInvoice(db: Db, invoiceId: number, actorId
       source_doc_type_id: invoiceType,
       source_doc_id: v.id,
       source_no: v.invoiceNo,
-      customer_order_id: v.orderId,
+      scope_doc_type_id: await docTypeId(db, "sal_customer_order"),
+      scope_doc_id: v.orderId,
       description: `Penjualan barang ${v.orderNo}${v.poNo ? ` (PO ${v.poNo})` : ""}`,
       ppn_rate: v.rates.rate,
       ppn_dpp_other_numerator: v.rates.otherNum,
@@ -420,7 +422,8 @@ export async function listFakturs(): Promise<FakturListRow[]> {
 export type FakturView = FakturListRow & {
   buyer: { taxType: string | null; taxId: string | null; name: string; address: string; label: string };
   ref: { no: string; table: string; id: number } | null;
-  customerOrderId: number;
+  /** The agreement it belongs to: a Customer Order or a Pengajuan Perizinan (Z20). */
+  scope: { table: string; id: number };
   description: string | null;
   rates: { rate: number; otherNum: number; otherDen: number };
   grossDpp: number;
@@ -481,7 +484,7 @@ export async function getFaktur(id: number): Promise<FakturView | null> {
     },
   });
   if (!r) return null;
-  const tables = await tablesById(prisma, [r.source_doc_type_id, ...(r.ref_doc_type_id ? [r.ref_doc_type_id] : [])]);
+  const tables = await tablesById(prisma, [r.source_doc_type_id, r.scope_doc_type_id, ...(r.ref_doc_type_id ? [r.ref_doc_type_id] : [])]);
   return {
     id: r.id,
     fakturNo: r.faktur_no,
@@ -498,7 +501,7 @@ export async function getFaktur(id: number): Promise<FakturView | null> {
     nsfp: r.nsfp,
     buyer: { taxType: r.buyer_tax_type, taxId: r.buyer_tax_id, name: r.buyer_name, address: r.buyer_address, label: r.customer.partner_label },
     ref: r.ref_doc_type_id && r.ref_doc_id ? { no: r.ref_no ?? "", table: tables.get(r.ref_doc_type_id) ?? "", id: r.ref_doc_id } : null,
-    customerOrderId: r.customer_order_id,
+    scope: { table: tables.get(r.scope_doc_type_id) ?? "", id: r.scope_doc_id },
     description: r.description,
     rates: { rate: r.ppn_rate.toNumber(), otherNum: r.ppn_dpp_other_numerator, otherDen: r.ppn_dpp_other_denominator },
     grossDpp: r.gross_dpp.toNumber(),

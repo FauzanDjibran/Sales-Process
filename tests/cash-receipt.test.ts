@@ -379,7 +379,7 @@ describe("posting a receipt of two bills (P66)", () => {
       items.map((i) => [i.item_type, i.direction, i.source_doc_id, i.current_balance.toNumber()]),
       [["Advance", "Decrease", f.bill2, 900_000], ["Advance", "Decrease", f.bill3, 450_000]]
     );
-    assert.ok(items.every((i) => i.partner_id === f.customer && i.customer_order_id === orders[0] && /^ARI\/\d{4}\/\d{2}\/\d{4}$/.test(i.ar_item_no)));
+    assert.ok(items.every((i) => i.partner_id === f.customer && i.scope_doc_id === orders[0] && /^ARI\/\d{4}\/\d{2}\/\d{4}$/.test(i.ar_item_no)));
     assert.ok(
       items.every((i) => i.original_amount.toNumber() === i.current_balance.toNumber()),
       "each item keeps the DPP it was born at beside its balance (P116); its tax is its faktur's"

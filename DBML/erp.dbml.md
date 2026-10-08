@@ -1101,7 +1101,8 @@ table fin_ar_item {
   source_doc_type_id          int [not null, ref : > sys_doc_type.id] // what it is about: the advance bill, the Faktur
   source_doc_id               int [not null]
   source_no                   varchar [not null]
-  customer_order_id           int // weak: an invoice uses only its own Customer Order advances
+  scope_doc_type_id           int [ref : > sys_doc_type.id] // the agreement it is settled within: Customer Order or Pengajuan Perizinan (P137)
+  scope_doc_id                int // weak: an invoice uses only its own agreement's advances
   original_amount             decimal(18,2) [not null, default: 0] // what it was born at: an Uang Muka its DPP, an Invoice its face (P116)
 
   current_balance             decimal(18,2) [not null] // sum of its fin_ar_ledger entries
@@ -1113,7 +1114,7 @@ table fin_ar_item {
 
   indexes {
     (partner_id, item_type)
-    customer_order_id
+    (scope_doc_type_id, scope_doc_id)
     (source_doc_type_id, source_doc_id)
     // unique where item_type = 'Advance': one Uang Muka item per advance bill (P133, partial index in SQL)
   }
@@ -2294,7 +2295,8 @@ table tax_faktur {
   ref_doc_id                  int
   ref_no                      varchar
   ar_item_id                  int // the Uang Muka AR item (advance only), no FK
-  customer_order_id           int [not null]
+  scope_doc_type_id           int [not null] // its agreement: Customer Order or Pengajuan Perizinan (P137)
+  scope_doc_id                int [not null]
 
   description                 varchar
   ppn_rate                    decimal(9,4) [not null]

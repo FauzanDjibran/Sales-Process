@@ -96,7 +96,7 @@ export function FakturView({
               {ro(
                 <>
                   {orderNo && (
-                    <Link className="drl" href={`/sales/customer-order/${f.customerOrderId}`}>
+                    <Link className="drl" href={documentHref(f.scope.table, f.scope.id) ?? "#"}>
                       <span className="mono">{orderNo}</span>
                     </Link>
                   )}

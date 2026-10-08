@@ -353,10 +353,12 @@ export const CHECKS: Check[] = [
   {
     area: "billing",
     name: "an invoice uses only its own order's Uang Muka",
-    sql: `SELECT v.invoice_no, d.ar_item_no, i.customer_order_id AS item_order, v.customer_order_id AS invoice_order
+    sql: `SELECT v.invoice_no, d.ar_item_no, i.scope_doc_id AS item_order, v.customer_order_id AS invoice_order
           FROM fin_ar_invoice v JOIN fin_ar_invoice_advance_deduction d ON d.invoice_id = v.id
           JOIN fin_ar_item i ON i.id = d.ar_item_id
-          WHERE v.status <> 'Cancelled' AND (i.item_type <> 'Advance' OR i.customer_order_id IS DISTINCT FROM v.customer_order_id OR i.partner_id <> v.customer_id)`,
+          LEFT JOIN sys_doc_type st ON st.id = i.scope_doc_type_id
+          WHERE v.status <> 'Cancelled' AND (i.item_type <> 'Advance' OR st.doc_table IS DISTINCT FROM 'sal_customer_order'
+                 OR i.scope_doc_id IS DISTINCT FROM v.customer_order_id OR i.partner_id <> v.customer_id)`,
   },
   {
     area: "billing",

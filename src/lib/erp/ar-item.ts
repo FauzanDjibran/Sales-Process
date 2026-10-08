@@ -64,6 +64,14 @@ export const AR_SIGN: Record<ArItemType, 1 | -1> = { Invoice: 1, Advance: -1 };
 const asDate = (d: string) => new Date(`${d}T00:00:00Z`);
 const isoDay = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
 
+/** An item's scope as its readers see it; `orderId` only for a Customer Order. */
+function scopeOf(i: { scope_doc_id: number | null; scope_doc_type: { doc_table: string } | null }) {
+  const scopeTable = i.scope_doc_type?.doc_table ?? null;
+  const scopeId = i.scope_doc_id;
+  return { scopeTable, scopeId, orderId: scopeTable === "sal_customer_order" ? scopeId : null };
+}
+const SCOPE_SELECT = { select: { doc_table: true } } as const;
+
 // ------------------------------------------------------------------ writes
 
 export type NewArItem = {
@@ -77,8 +85,11 @@ export type NewArItem = {
   source: { docTypeId: number; docId: number; no: string };
   /** The posting that creates it — named by the Create entry only. */
   createdBy: { docTypeId: number; docId: number; no: string };
-  /** The Customer Order it is settled within (P73, P78). */
-  orderId?: number | null;
+  /**
+   * The agreement it is settled within — a Customer Order or a Pengajuan
+   * Perizinan (P73, P78, P137) — by its document type and id.
+   */
+  scope?: { docTypeId: number; docId: number } | null;
   /** What it is born at — also kept as its original amount (P116). */
   amount: number;
   note?: string | null;
@@ -137,7 +148,8 @@ export async function createArItem(db: Db, item: NewArItem): Promise<number> {
       source_doc_type_id: item.source.docTypeId,
       source_doc_id: item.source.docId,
       source_no: item.source.no,
-      customer_order_id: item.orderId ?? null,
+      scope_doc_type_id: item.scope?.docTypeId ?? null,
+      scope_doc_id: item.scope?.docId ?? null,
       current_balance: item.amount,
       original_amount: item.amount,
       created_by: item.actorId,
@@ -277,6 +289,9 @@ export type ArItemRow = {
   createdById: number;
   /** By id: the order belongs to another module, whose page names it. */
   orderId: number | null;
+  /** The agreement it is settled within: `sal_customer_order` or `sal_permit_request`. */
+  scopeTable: string | null;
+  scopeId: number | null;
   /** What the item was born at (P116). */
   original: number;
   /** What left the item up to the date asked about. */
@@ -300,6 +315,7 @@ export async function openArItemsAsOf(
     include: {
       partner: { select: { partner_label: true, partner_name: true } },
       source_doc_type: { select: { doc_table: true } },
+      scope_doc_type: SCOPE_SELECT,
       entries: {
         where: { entry_date: { lte: asDate(asOf) } },
         select: { event: true, amount: true, movement: true, doc_id: true, doc_no: true, doc_type: { select: { doc_table: true } } },
@@ -331,7 +347,7 @@ export async function openArItemsAsOf(
         createdByNo: created?.doc_no ?? "",
         createdByTable: created?.doc_type.doc_table ?? "",
         createdById: created?.doc_id ?? 0,
-        orderId: i.customer_order_id,
+        ...scopeOf(i),
         original,
         settled: original - open,
         open,
@@ -355,6 +371,8 @@ export type ArLedgerEntryRow = {
   itemNo: string;
   itemSourceNo: string;
   orderId: number | null;
+  scopeTable: string | null;
+  scopeId: number | null;
   note: string | null;
   /** Signed on the customer's Piutang Usaha: + raises it, − lowers it. */
   exposure: number;
@@ -399,7 +417,7 @@ export async function arLedgerReport(
   const rows = await prisma.finArLedger.findMany({
     where: { item: { partner_id: partnerId }, entry_date: { lte: asDate(range.to) } },
     include: {
-      item: { select: { item_type: true, ar_item_no: true, source_no: true, customer_order_id: true } },
+      item: { select: { item_type: true, ar_item_no: true, source_no: true, scope_doc_id: true, scope_doc_type: SCOPE_SELECT } },
       doc_type: { select: { doc_table: true } },
     },
     orderBy: [{ entry_date: "asc" }, { id: "asc" }],
@@ -429,7 +447,7 @@ export async function arLedgerReport(
       docId: r.doc_id,
       itemNo: r.item.ar_item_no,
       itemSourceNo: r.item.source_no,
-      orderId: r.item.customer_order_id,
+      ...scopeOf(r.item),
       note: r.note,
       exposure: exposureOf(r),
     });
@@ -490,6 +508,8 @@ export type AdvanceItemForInvoice = {
   date: string;
   partnerId: number;
   orderId: number | null;
+  scopeTable: string | null;
+  scopeId: number | null;
   /** The advance bill. */
   sourceNo: string;
   sourceTable: string;
@@ -503,16 +523,23 @@ export type AdvanceItemForInvoice = {
 
 /** Uang Muka items of the orders named with a balance left, or the items named — whatever their balance. */
 export async function advanceItemsForInvoice(
-  filter: { orderIds?: number[]; ids?: number[] },
+  filter: { orderIds?: number[]; ids?: number[]; scope?: { table: string; ids: number[] } },
   db: Db = prisma
 ): Promise<AdvanceItemForInvoice[]> {
   const rows = await db.finArItem.findMany({
     where: {
       item_type: "Advance",
-      ...(filter.ids ? { id: { in: filter.ids } } : { customer_order_id: { in: filter.orderIds ?? [] }, current_balance: { gt: 0 } }),
+      ...(filter.ids
+        ? { id: { in: filter.ids } }
+        : {
+            scope_doc_type: { doc_table: filter.scope?.table ?? "sal_customer_order" },
+            scope_doc_id: { in: filter.scope?.ids ?? filter.orderIds ?? [] },
+            current_balance: { gt: 0 },
+          }),
     },
     include: {
       source_doc_type: { select: { doc_table: true } },
+      scope_doc_type: SCOPE_SELECT,
       entries: { where: { event: "Create" }, select: { doc_no: true, amount: true } },
     },
     orderBy: [{ item_date: "asc" }, { id: "asc" }],
@@ -522,7 +549,7 @@ export async function advanceItemsForInvoice(
     arItemNo: i.ar_item_no,
     date: isoDay(i.item_date),
     partnerId: i.partner_id,
-    orderId: i.customer_order_id,
+    ...scopeOf(i),
     sourceNo: i.source_no,
     sourceTable: i.source_doc_type.doc_table,
     sourceId: i.source_doc_id,

@@ -3,6 +3,7 @@ import { FakturView } from "@/components/tax/faktur-view";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { customerOrderNumbersByIds } from "@/lib/erp/customer-order";
+import { permitRequestNumbersByIds } from "@/lib/erp/permit-request";
 import { getFaktur } from "@/lib/erp/tax-document";
 import { taxAbilities } from "@/lib/erp/tax-document-workflow";
 import { todayIso } from "@/lib/format";
@@ -14,8 +15,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const actor = await requirePermission("TAX_FAKTUR_VIEW", "/tax/faktur");
   const faktur = await getFaktur(Number(id));
   if (!faktur) notFound();
-  // The Customer Order's number, composed here: the tax module stores only its id.
-  const orderNo = (await customerOrderNumbersByIds([faktur.customerOrderId])).get(faktur.customerOrderId) ?? null;
+  // The agreement's number, composed here: the tax module stores only its id.
+  const lookup = faktur.scope.table === "sal_permit_request" ? permitRequestNumbersByIds : customerOrderNumbersByIds;
+  const orderNo = (await lookup([faktur.scope.id])).get(faktur.scope.id) ?? null;
   return (
     <>
       <FakturView faktur={faktur} orderNo={orderNo} can={taxAbilities(actor.permissions)} today={todayIso()} />

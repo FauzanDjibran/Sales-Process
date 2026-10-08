@@ -56,7 +56,7 @@ async function make(type: "Advance" | "Invoice", date: string, amount: number, d
     dueDate,
     source: { docTypeId: f.receiptType, docId: f.doc, no: `${FIXTURE_PREFIX}/${type}/${items.length}` },
     createdBy: { docTypeId: f.receiptType, docId: f.doc, no: `${FIXTURE_PREFIX}/R/${items.length}` },
-    orderId: 1,
+    scope: { docTypeId: f.receiptType, docId: 1 },
     amount,
     actorId: actor,
   });
@@ -113,7 +113,7 @@ describe("an AR item's balance moves only through Buku Piutang", () => {
     const report = await openArItemsAsOf("Advance", "2026-09-30", f.customer);
     assert.equal(report[0].arItemNo, rows[0].ar_item_no);
     assert.match(report[0].createdByNo, /\/R\//);
-    assert.equal(report[0].orderId, 1);
+    assert.equal(report[0].scopeId, 1);
   });
 
   test("a report for a past date reads the entries, not today's balance", async () => {

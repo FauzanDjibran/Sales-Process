@@ -832,7 +832,7 @@ export async function transitionInvoice(
         dueDate: isoDay(r.c.data.due_date),
         source: doc,
         createdBy: doc,
-        orderId: r.c.order.id,
+        scope: { docTypeId: await docTypeId(tx, "sal_customer_order"), docId: r.c.order.id },
         amount: invoiceFace(r.c.figures),
         note: `Invoice ${n.invoice_no} diposting`,
         actorId,
