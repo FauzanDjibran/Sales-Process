@@ -89,9 +89,9 @@ inventory identity**; genealogy both ways.
 | **Position** | The workstation of a bucket: where it was issued to or produced. Any execution may take from any bucket (M2). |
 | **Batch** | The production identity of one production run, carried on top of lots from the run that starts it to the FG (M22, M41). |
 | **Genealogy** | Edges input bucket → output lot (qty, value) per execution, plus stock lot → production lot and production lot → stock lot. |
-| **Cost element** | A Control Account whose every line is production cost, with its group (M9, M39, M40). |
+| **Cost element** | *Elemen Biaya Produksi*: a master with its own label and name that names the account its cost posts to, as a Jenis PPh or a Cash & Bank does (M53). Every line on that account is production cost (M40). |
 | **Cost ledger** | The append-only book of production cost, one dated row per cost booked or moved (M3, M23). |
-| **Common cost unit** | *Satuan Pembebanan Biaya* (e.g. KG), the unit cost is shared in (M26). |
+| **Spreading basis** | How the close shares cost between FG items — **decided at the end, with the close** (M57). |
 | **Costed period** | A fiscal period whose Penutupan Biaya Produksi is posted; locked for stock, production and cost postings (M32). |
 
 ---
@@ -193,7 +193,7 @@ whole rupiah, largest remainder (M30). Used by the preview and the posting.
 remainder; `susutInCostUnit(inputs, outputs, conversions)`; the batch rule's
 outcome for the form (`batchOutcome(inputBatches, newBatchTicked)`).
 
-### E7 Journal (built) — unchanged. The manual journal already refuses a Control Account, which M39 relies on.
+### E7 Journal (built) — no validation reads the Control Account mark (M55); how an element's account is kept for cost documents only is Q50.
 
 ### E8 Fiscal periods (built; extended)
 
@@ -221,8 +221,9 @@ created_at / updated_at`, money `Decimal(18,2)` whole rupiah, quantities
 | Table | Columns |
 | --- | --- |
 | `ref_workstation` | `workstation_code` (`ws.NNNN`), `workstation_label` (unique), `workstation_name`, `note`, `status` |
-| `acc_production_cost_element` | `account_id` (unique, FK), `element_group` (enum `DirectLabor`, `IndirectLabor`, `Utility`, `Depreciation`, `Maintenance`, `OtherOverhead`), `note`, `status` |
-| `sys_setting` keys | `production.cost_uom_id` (Satuan Pembebanan Biaya); Account Mapping keys `production.wip_account_id`, `production.scrap_expense_account_id` |
+| `acc_production_cost_element` | `element_code`, `element_label` (unique), `element_name`, `account_id` (FK), `note`, `status` (M53) |
+| `acc_item_category_account` (reshaped, M54) | one row per `category_id` × `account_kind` (`Inventory`, `Cogs`, `Expense`, `Wip`, extendable), `account_id`, `status`; unique (`category_id`, `account_kind`) |
+| `sys_setting` keys | Account Mapping `wip_account`, `production_scrap_account` (fallbacks where a category names none) |
 | `acc_fiscal_period` + | `costed_at`, `costed_by`, `cost_close_id` |
 | `log_stock_tracking` + | `batch_id Int?`, `batch_no String?` (weak; production's batch) |
 
@@ -276,9 +277,9 @@ updated with every migration.
 | Thing | Where | Rules |
 | --- | --- | --- |
 | **Workstation** | Master › Entitas, registry entity (as Gudang) | Label unique; deactivated, never removed; one in use by an Open order or holding a bucket cannot be deactivated |
-| **Elemen Biaya Produksi** | Accounting › Pengaturan, list with a panel dialog | Account must be **postable, active, of an expense type, a Control Account** (M39), not used by Account Mapping or a Jenis PPh (§15.4); an account with posted lines not in the cost ledger cannot become one (it would break §12 check 5) |
+| **Elemen Biaya Produksi** | Master › Referensi (Q51), registry entity | Label, Nama, Account (postable, active, a Biaya 5.x account), Status, Catatan — like Jenis PPh (M53). No Control Account check (M55). Guards against other postings: Q50 |
+| **Account Kategori Item** | Accounting › Pengaturan, reshaped into a mapping list (M54) | Each row: Kategori Item, Jenis Account (*Persediaan*, *HPP*, *Beban*, *WIP*, more later), Account; one row per kategori and jenis; a Jasa kategori takes *Beban* only; an empty one falls back to Account Mapping where there is a fallback (Persediaan, HPP, WIP) |
 | **Account Mapping › Produksi** | existing screen, new card | *Account Persediaan Barang Dalam Proses (WIP)* (postable, asset), *Account Beban Pemusnahan Produksi* (postable, expense, not an element) |
-| **System Default › Produksi** | existing screen, new card | *Satuan Pembebanan Biaya* — a Satuan (seed suggests KG, not set) |
 | **Item** | existing | **No new flag** (M51): an output takes any Barang with Kelola Stok; month-end cost goes by Kategori *Barang Jadi* (M46). Further item / production categorisation comes later |
 | **Starter accounts** (`db:seed-accounts`, P130) | additive, matched on name | Persediaan Barang Dalam Proses; Beban Pemusnahan Produksi; cost elements as Control Accounts — Biaya Tenaga Kerja Langsung, Biaya Tenaga Kerja Tidak Langsung, Biaya Listrik & Utilitas Pabrik, Biaya Penyusutan Mesin & Pabrik, Biaya Pemeliharaan Mesin, Biaya Overhead Pabrik Lain — registered as elements; contra accounts Hutang Gaji & Upah, Akumulasi Penyusutan Mesin, when missing |
 
@@ -311,10 +312,10 @@ and the costing hold; the confirmation shows the journal by dry run (P103);
   — lot, item, batch, workstation (position), qty, value, expiry — filterable
   by workstation, item, batch; each picked bucket takes a quantity ≤ its
   balance. Value is shown as an estimate and fixed at posting.
-- **Output side:** rows of item (Barang, Kelola Stok), quantity with unit (the
+- **Output side:** rows of item (Barang, Kelola Stok), **status** (*Tersedia* or *Reject*, M56 — a reject defaults to Bobot Biaya 0), quantity with unit (the
   item's units, P82), lot number (generated `<LHP no>-<n>` at first save,
   editable), expiry (required when the item has one), **Bobot Biaya**
-  (default: quantity in the common cost unit, else base quantity — M43; 0
+  (default: its base quantity — M57; 0
   allowed).
 - **Balance strip:** Total input value · Total output value (equal by
   construction) · input and output in the common unit · **Susut** (M14).
@@ -576,7 +577,7 @@ No `-NP` series (no tax). Journals keep `JV/…`.
   cost ledger (record, guards, costed hold), `revalueStock` (pool, Q = 0
   refusal, reconcile identity).
 - **Documents:** each document's lifecycle, posting journal = dry-run preview
-  (P103), refusals; Receipt Note expense to an element writes the cost ledger.
+  (P103), refusals.
 - **End to end** (`tests/production-flow.test.ts`): §5.1's scenario — issue,
   four executions, receipt, Delivery Note, cost entry, close — checking every
   figure, the trace both ways, and `db:reconcile` clean; a second month with
@@ -591,8 +592,8 @@ No `-NP` series (no tax). Journals keep `JV/…`.
 
 | # | Step | Done when |
 | --- | --- | --- |
-| 1 ✅ 08/10/2026 | **Masters and settings** — Workstation, Elemen Biaya Produksi, Account Mapping *Produksi*, *Satuan Pembebanan Biaya*, guards (§15.4), starter accounts | Screens work in a browser; guards refuse; seed idempotent |
-| 2 | **Cost ledger + Pencatatan Biaya Produksi** (E4, §9.6), Receipt Note writing it, *Buku Biaya Produksi* | A cost entry posts journal + cost rows; reconcile check 5 passes |
+| 1 ↺ reopened 08/10/2026 | **Masters and settings** — Workstation; Elemen Biaya Produksi as a master (M53); Account Kategori Item as a mapping list with WIP (M54); Account Mapping *Produksi*; no Control Account checks (M55); no Satuan Pembebanan Biaya (M57); starter accounts | Screens work in a browser; seed idempotent |
+| 2 | **Cost ledger + Pencatatan Biaya Produksi** (E4, §9.6) and *Buku Biaya Produksi* — the only writer for now (M52) | A cost entry posts journal + cost rows; reconcile check 5 passes |
 | 3 | **Production ledger** (E2, E3) with tests | Book tests green |
 | 4 | **Pengeluaran ke Produksi** (§9.3) | Stock out, bucket in, Dr WIP / Cr Persediaan; reconcile 2 |
 | 5 | **Perintah Produksi + Eksekusi Produksi** (§9.1, §9.2, E6) | Execution balanced; batch rule; genealogy |
@@ -668,6 +669,12 @@ of a close; mid-month pro-forma margin; multi-currency.
 | M48 | Q48 | Brand-owner material out of v1; a batch may name a Customer Order for information. |
 | M49 | Q42 | **Pencatatan Biaya Produksi** books cost to element accounts (Dr element / Cr a contra), writing the cost ledger; the Receipt Note does so for expense lines on an element. |
 | M50 | §21 A | **Deviation check answer A — follow the convention** (`form-layout=header-tabs`, P38): the execution's Input and Output are two tabs after the header card; the screen alternating between them is accepted; the balance strip in the header card shows both totals. No exception recorded. |
+| M52 | Phase 1 review | **The Receipt Note never writes the cost ledger.** Material cost is the stock ledger's (received, then issued to production); a Barang without Kelola Stok or a Jasa bought is an ordinary expense, unrelated to production. Production cost enters only through Pencatatan Biaya Produksi (and, later, payroll or depreciation documents). Amends M49 and §15.3. |
+| M53 | Phase 1 review | **Elemen Biaya Produksi is a master with its own identity** — Label and Nama, then the account it posts to — as Jenis PPh and Cash & Bank are. The fixed group list is dropped. Amends M9. |
+| M54 | Phase 1 review | **Account Kategori Item becomes a mapping list**: the user picks a Kategori Item, a Jenis Account and the account. Jenis Account starts as Persediaan, HPP, Beban and **WIP** (Persediaan Barang Dalam Proses, missing before), and is expected to grow. Amends P122's fixed three columns. |
+| M55 | Phase 1 review | **No validation in this ERP checks the Control Account mark**; guarding it is the user's. Supersedes M39's Control Account rule. |
+| M56 | Phase 1 review | **Reject output keeps its stock.** 1.000 kg in → 850 kg good + 50 kg reject: susut is 100 kg; the reject is an output with its own lot, **status Reject** and value 0 by default (Bobot Biaya 0), so the 850 kg absorbs the cost; it is later taken out of production for return or disposal. How a reject sits in stock: Q49. |
+| M57 | Phase 1 review | **The spreading basis is not settled now**: *Satuan Pembebanan Biaya* is removed from Phase 1 and decided with the close (Phase 8). Bobot Biaya defaults to the base quantity; Susut is shown only where all lines share one unit. Amends M14, M26, M43. |
 | M51 | §21 B | **The *Dapat Diproduksi* flag is dropped** (amends M8): outputs take any Barang with Kelola Stok, cost receivers are decided by Kategori *Barang Jadi* (M46). More item and production categorisation will come later. |
 
 ---
@@ -678,6 +685,38 @@ of a close; mid-month pro-forma margin; multi-currency.
   (P38) was answered **A, follow the convention**: Input and Output are two
   tabs (M50).
 - **The *Dapat Diproduksi* flag** — dropped (M51).
+
+---
+
+## 21b. Phase 1 review — open questions (08/10/2026)
+
+- **Q49 — A reject in stock.** The stock books value **one pool per item** (P114,
+  P120), whatever the status. A reject of the same item entering stock at 0
+  would pull down the average of the good stock, and later carry some of that
+  value away when it is disposed of. Options:
+  - **(a) A separate item** for the reject (e.g. *FG-X Reject*): the pool of the
+    good item is untouched. Mainstream (SAP, Odoo, ERPNext all value per item
+    and treat rejects as a scrap / downgraded item).
+  - **(b) A value pool per item and status** (Tersedia, Reject, …): the same
+    item, kept apart by status. Changes the stock books (P114 / P120) and every
+    later status transfer must move value.
+  - **(c) A reject never enters stock**: it stays in production until a return
+    or disposal document takes it straight out of production.
+  *Rec:* **(c) for now** — it keeps both ledgers clean and needs no stock change;
+  (a) is available any time by declaring the reject as another item on the
+  output side.
+- **Q50 — Keeping an element's account for production cost only**, now that
+  the Control Account mark is not checked (M55). Every line on that account
+  must be in the cost ledger, or the close misses it. *Rec:* by the **element
+  rule itself** (not the mark): the manual journal, Account Mapping, Jenis PPh
+  and every Kategori Item account (Beban included, M52) refuse an account an
+  active element names. Or leave it entirely to the user, with `db:reconcile`
+  reporting any line on an element account that the cost ledger does not have.
+- **Q51 — Where Elemen Biaya Produksi sits.** *Rec:* Master › Referensi beside
+  Jenis PPh, with its own permissions `PRODUCTION_COST_ELEMENT_*`.
+- **Q52 — May two elements name the same account?** *Rec:* yes, as two Jenis
+  PPh may (e.g. *Upah Harian* and *Lembur* both on Biaya Tenaga Kerja
+  Langsung); the cost ledger keeps them apart, the GL check sums them.
 
 ---
 
