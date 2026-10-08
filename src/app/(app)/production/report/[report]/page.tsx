@@ -7,6 +7,7 @@ import { reportableFiscalYears, type ReportableFiscalYear } from "@/lib/erp/fisc
 import { accountMovements } from "@/lib/erp/ledger";
 import { costBalances, costByAccount, costLedgerRows, elementOptions } from "@/lib/erp/production-cost";
 import { reportBySlug, reportHref } from "@/lib/erp/reports";
+import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -62,7 +63,7 @@ export default async function Page({
   const range = { from: chosen.period.startDate, to: chosen.period.endDate };
   const footnote = (
     <>
-      {chosen.period.name} · {range.from} s/d {range.to}. Angka dibaca dari Buku Biaya Produksi, sumber penutupan biaya produksi.
+      {chosen.period.name} · {formatDate(range.from)} s/d {formatDate(range.to)}. Angka dibaca dari Buku Biaya Produksi, sumber penutupan biaya produksi.
     </>
   );
 
