@@ -936,7 +936,7 @@ section records the decisions.
 
 | # | Step |
 | --- | --- |
-| 3 | Production ledger (E2, E3), with a value-only row for the close |
+| 3 ✅ 13/10/2026 | Production ledger (E2, E3), with a value-only row for the close (P157) |
 | 4 | Pengeluaran ke Produksi (§9.3) |
 | 5a | Costing masters: cost-center types, Driver unit, Overhead spread, Workstation → Cost Center, Tarif Standar, Account Mapping *Biaya Produksi Dibebankan* |
 | 5 | Perintah + Eksekusi Produksi with Driver and the standard's journal |

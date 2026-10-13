@@ -752,6 +752,21 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "each production bucket equals its ledger rows, quantity and value (P150 E2)",
+    sql: `SELECT b.id, b.qty_balance, b.value_balance, COALESCE(SUM(l.qty_change), 0) AS qty, COALESCE(SUM(l.value_change), 0) AS value
+          FROM prd_balance b LEFT JOIN prd_ledger l ON l.bucket_id = b.id
+          GROUP BY b.id HAVING b.qty_balance <> COALESCE(SUM(l.qty_change), 0) OR b.value_balance <> COALESCE(SUM(l.value_change), 0)`,
+  },
+  {
+    area: "production",
+    name: "each production ledger row carries its bucket's balance after it (P150 E2)",
+    sql: `SELECT l.ledger_no, l.line_no, l.bucket_id, l.qty_balance, l.value_balance
+          FROM (SELECT l.*, SUM(l.qty_change) OVER w AS run_qty, SUM(l.value_change) OVER w AS run_value
+                FROM prd_ledger l WINDOW w AS (PARTITION BY l.bucket_id ORDER BY l.id)) l
+          WHERE l.qty_balance <> l.run_qty OR l.value_balance <> l.run_value`,
+  },
+  {
+    area: "production",
     name: "a posted Tagihan Biaya credits its payable account for its total (P151, P156)",
     sql: `SELECT b.bill_no, b.payable_account_id, b.total_amount, SUM(l.kredit_amount) AS credited
           FROM prd_cost_bill b LEFT JOIN acc_journal_line l ON l.journal_id = b.journal_id AND l.account_id = b.payable_account_id

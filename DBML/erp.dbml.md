@@ -2655,3 +2655,141 @@ table prd_cost_bill_line {
     bill_id
   }
 }
+
+// ============================================================ production ledger (P150 E2, E3)
+
+// A batch (M22, M41, M42): the production identity of one run, carried on the lots it makes;
+// BT/YYYY/MM/NNNN or typed, unique
+table prd_batch {
+  id                          int [pk, increment, not null]
+
+  batch_no                    varchar [not null, unique]
+  batch_date                  date [not null]
+  source_doc_type_id          int [not null] // the execution that started it, weak
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+  customer_order_id           int // information only (M48), weak
+  customer_order_no           varchar
+  note                        varchar
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (source_doc_type_id, source_doc_id)
+  }
+}
+
+// The batches a Batch Baru merged (M41)
+table prd_batch_parent {
+  id                          int [pk, increment, not null]
+  batch_id                    int [not null, ref : > prd_batch.id]
+  parent_batch_id             int [not null, ref : > prd_batch.id]
+
+  indexes {
+    (batch_id, parent_batch_id) [unique]
+  }
+}
+
+// A lot inside production (M11, M22): a stock lot issued in keeps its number; each execution
+// output is a new one; unique per item
+table prd_lot {
+  id                          int [pk, increment, not null]
+
+  item_id                     int [not null, ref : > m_item.id]
+  lot_no                      varchar [not null]
+  batch_id                    int [ref : > prd_batch.id]
+  expiry_date                 date
+  origin                      enum('Issued', 'Produced') [not null]
+  source_doc_type_id          int [not null] // the document that first made it, weak
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (item_id, lot_no) [unique]
+    batch_id
+  }
+}
+
+// A bucket: one lot at one workstation, Q (base unit) and V (whole rupiah, WIP); never pooled
+// (G12); CHECK qty >= 0, value >= 0, qty = 0 => value = 0
+table prd_balance {
+  id                          int [pk, increment, not null]
+
+  lot_id                      int [not null, ref : > prd_lot.id]
+  workstation_id              int [not null, ref : > ref_workstation.id]
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
+  qty_balance                 decimal(18,6) [not null, default: 0]
+  value_balance               decimal(18,2) [not null, default: 0]
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (lot_id, workstation_id) [unique]
+    workstation_id
+    item_id
+  }
+}
+
+// The production ledger (E2): append-only, one row per bucket movement with the balances after
+// it; MP/YYYY/MM/NNNN per posting (P110); a Revalued row moves value only (M96)
+table prd_ledger {
+  id                          int [pk, increment, not null]
+
+  ledger_no                   varchar [not null]
+  line_no                     int [not null]
+  posting_date                date [not null]
+  source_doc_type_id          int [not null] // weak
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+  movement                    enum('Issued', 'Consumed', 'Produced', 'Released', 'Revalued') [not null]
+  bucket_id                   int [not null, ref : > prd_balance.id]
+  lot_id                      int [not null, ref : > prd_lot.id]
+  workstation_id              int [not null, ref : > ref_workstation.id]
+  item_id                     int [not null, ref : > m_item.id]
+  qty_change                  decimal(18,6) [not null]
+  qty_balance                 decimal(18,6) [not null]
+  value_change                decimal(18,2) [not null]
+  value_balance               decimal(18,2) [not null]
+  unit_cost                   decimal(18,6) [not null] // a description, never read back (P114)
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (ledger_no, line_no) [unique]
+    (bucket_id, posting_date)
+    lot_id
+    (source_doc_type_id, source_doc_id)
+  }
+}
+
+// Genealogy (E3): what each execution took from a bucket into each output lot — the input's
+// quantity and value shared by the output's Bobot Biaya
+table prd_lot_link {
+  id                          int [pk, increment, not null]
+
+  source_doc_type_id          int [not null] // the execution, weak
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+  from_bucket_id              int [not null, ref : > prd_balance.id]
+  from_lot_id                 int [not null, ref : > prd_lot.id]
+  to_lot_id                   int [not null, ref : > prd_lot.id]
+  qty                         decimal(18,6) [not null]
+  value                       decimal(18,2) [not null]
+
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (source_doc_type_id, source_doc_id)
+    from_lot_id
+    to_lot_id
+  }
+}

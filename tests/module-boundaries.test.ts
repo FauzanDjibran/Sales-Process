@@ -144,6 +144,14 @@ const TABLE_OWNERS: Record<string, string[]> = {
   accCostType: ["src/lib/erp/production-cost.ts", "src/lib/erp/records.ts"],
   accCostCenter: ["src/lib/erp/cost-center.ts", "src/lib/erp/records.ts", "src/lib/erp/journal.ts"],
   prdCostBill: ["src/lib/erp/production-cost-bill.ts"],
+  // The production ledger (P150 E2, E3): a book, written only by itself; the
+  // production documents call it.
+  prdBatch: ["src/lib/erp/production-ledger.ts"],
+  prdBatchParent: ["src/lib/erp/production-ledger.ts"],
+  prdLot: ["src/lib/erp/production-ledger.ts"],
+  prdBalance: ["src/lib/erp/production-ledger.ts"],
+  prdLedger: ["src/lib/erp/production-ledger.ts"],
+  prdLotLink: ["src/lib/erp/production-ledger.ts"],
   prdCostBillLine: ["src/lib/erp/production-cost-bill.ts"],
   finApItem: ["src/lib/erp/ap-item.ts"],
   finApLedger: ["src/lib/erp/ap-item.ts"],
@@ -211,8 +219,11 @@ describe("the dependency graph points one way", () => {
       // How a warehouse location reads and the key of a lot in one: pure string
       // functions, shared by the inventory book and the forms that pick from it.
       "warehouse-location",
+      // The execution arithmetic (P150 E6): pure sharing by Bobot Biaya and the
+      // batch rule, shared by the production ledger and the execution form.
+      "production-execution",
     ];
-    const BOOKS = ["cash-bank", "journal", "ar-item", "ap-item", "inventory", "production-cost"];
+    const BOOKS = ["cash-bank", "journal", "ar-item", "ap-item", "inventory", "production-cost", "production-ledger"];
 
     for (const book of BOOKS) {
       const allowed = KERNEL;

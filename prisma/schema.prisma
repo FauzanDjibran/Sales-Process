@@ -498,6 +498,7 @@ model RefUom {
   stock_balances         LogStockBalance[]          @relation("StockBalanceUom")
   valuation_ledger       LogStockValuationLedger[]  @relation("StockValuationLedgerUom")
   valuation_balances     LogStockValuationBalance[] @relation("StockValuationBalanceUom")
+  prd_balances           PrdBalance[]               @relation("PrdBalanceUom")
 
   @@map("ref_uom")
 }
@@ -603,6 +604,9 @@ model MItem {
   receipt_note_lines     LogReceiptNoteLine[]      @relation("ReceiptNoteLineItem")
   stock_ledger           LogStockLedger[]
   stock_balances         LogStockBalance[]
+  prd_lots               PrdLot[]                  @relation("PrdLotItem")
+  prd_balances           PrdBalance[]              @relation("PrdBalanceItem")
+  prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
   valuation_ledger       LogStockValuationLedger[]
   valuation_balance      LogStockValuationBalance?
   delivery_note_lines    LogDeliveryNoteLine[]
@@ -708,6 +712,9 @@ model RefWorkstation {
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  prd_balances PrdBalance[] @relation("PrdBalanceWorkstation")
+  prd_ledger   PrdLedger[]  @relation("PrdLedgerWorkstation")
 
   @@map("ref_workstation")
 }
@@ -3723,4 +3730,190 @@ model PrdCostBillLine {
 
   @@index([bill_id])
   @@map("prd_cost_bill_line")
+}
+
+// ============================================================ production ledger (P150 E2, E3)
+
+/// A production batch (P150 M22, M41, M42): the production identity of one
+/// run, carried on top of lots from the execution that starts it to the
+/// finished goods, so they trace back to their material. `BT/YYYY/MM/NNNN`,
+/// or a number the user typed, unique.
+model PrdBatch {
+  id                 Int      @id @default(autoincrement())
+  batch_no           String   @unique
+  batch_date         DateTime @db.Date
+  /// The execution that started it, weak (`source_doc_*`).
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  /// Information only (M48): the Customer Order it is made for, weak.
+  customer_order_id  Int?
+  customer_order_no  String?
+  note               String?
+  created_by         Int
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  parents  PrdBatchParent[] @relation("BatchChild")
+  children PrdBatchParent[] @relation("BatchParent")
+  lots     PrdLot[]
+
+  @@index([source_doc_type_id, source_doc_id])
+  @@map("prd_batch")
+}
+
+/// The batches a *Batch Baru* merged (M41): a batch whose inputs carried two
+/// or more batches names each of them as a parent.
+model PrdBatchParent {
+  id              Int @id @default(autoincrement())
+  batch_id        Int
+  parent_batch_id Int
+
+  batch  PrdBatch @relation("BatchChild", fields: [batch_id], references: [id], onDelete: Cascade)
+  parent PrdBatch @relation("BatchParent", fields: [parent_batch_id], references: [id])
+
+  @@unique([batch_id, parent_batch_id])
+  @@map("prd_batch_parent")
+}
+
+/// A lot inside production (M11, M22): a stock lot issued in keeps its number;
+/// each execution output is a new one. Unique per item.
+model PrdLot {
+  id                 Int          @id @default(autoincrement())
+  item_id            Int
+  lot_no             String
+  batch_id           Int?
+  expiry_date        DateTime?    @db.Date
+  origin             PrdLotOrigin
+  /// The document that first made it, weak.
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  created_by         Int
+  created_at         DateTime     @default(now()) @db.Timestamptz(6)
+
+  item      MItem        @relation("PrdLotItem", fields: [item_id], references: [id])
+  batch     PrdBatch?    @relation(fields: [batch_id], references: [id])
+  balances  PrdBalance[]
+  ledger    PrdLedger[]
+  links_in  PrdLotLink[] @relation("LinkTo")
+  links_out PrdLotLink[] @relation("LinkFrom")
+
+  @@unique([item_id, lot_no])
+  @@index([batch_id])
+  @@map("prd_lot")
+}
+
+/// How a production lot came to be: issued in from stock, or produced.
+enum PrdLotOrigin {
+  Issued
+  Produced
+}
+
+/// A bucket: one lot at one workstation, holding quantity Q (base unit) and
+/// value V (whole rupiah, WIP). Never pooled with another bucket (G12). Kept
+/// in the same transaction as each ledger row and locked while a posting
+/// moves it. CHECKs: Q ≥ 0, V ≥ 0, Q = 0 ⇒ V = 0.
+model PrdBalance {
+  id             Int     @id @default(autoincrement())
+  lot_id         Int
+  workstation_id Int
+  item_id        Int
+  /// The item's base unit.
+  uom_id         Int
+  qty_balance    Decimal @default(0) @db.Decimal(18, 6)
+  value_balance  Decimal @default(0) @db.Decimal(18, 2)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  lot         PrdLot         @relation(fields: [lot_id], references: [id])
+  workstation RefWorkstation @relation("PrdBalanceWorkstation", fields: [workstation_id], references: [id])
+  item        MItem          @relation("PrdBalanceItem", fields: [item_id], references: [id])
+  uom         RefUom         @relation("PrdBalanceUom", fields: [uom_id], references: [id])
+  ledger      PrdLedger[]
+  links_from  PrdLotLink[]
+
+  @@unique([lot_id, workstation_id])
+  @@index([workstation_id])
+  @@index([item_id])
+  @@map("prd_balance")
+}
+
+/// What moved a bucket.
+enum PrdMovement {
+  /// Issued in from stock (Pengeluaran ke Produksi).
+  Issued
+  /// Taken as an execution's input.
+  Consumed
+  /// Made as an execution's output.
+  Produced
+  /// Taken out of production (Penerimaan Hasil Produksi, Pemusnahan).
+  Released
+  /// Value only, quantity 0 — the month-end close (M96).
+  Revalued
+}
+
+/// The production ledger (E2): append-only, one row per bucket movement, with
+/// the bucket's balances after it. Ledger number `MP/YYYY/MM/NNNN`, one per
+/// posting (P110).
+model PrdLedger {
+  id                 Int         @id @default(autoincrement())
+  ledger_no          String
+  line_no            Int
+  posting_date       DateTime    @db.Date
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  movement           PrdMovement
+  bucket_id          Int
+  lot_id             Int
+  workstation_id     Int
+  item_id            Int
+  qty_change         Decimal     @db.Decimal(18, 6)
+  qty_balance        Decimal     @db.Decimal(18, 6)
+  /// Whole rupiah.
+  value_change       Decimal     @db.Decimal(18, 2)
+  value_balance      Decimal     @db.Decimal(18, 2)
+  /// |value ÷ qty| of this movement — a description, never read back (P114).
+  unit_cost          Decimal     @db.Decimal(18, 6)
+  created_by         Int
+  created_at         DateTime    @default(now()) @db.Timestamptz(6)
+
+  bucket      PrdBalance     @relation(fields: [bucket_id], references: [id])
+  lot         PrdLot         @relation(fields: [lot_id], references: [id])
+  workstation RefWorkstation @relation("PrdLedgerWorkstation", fields: [workstation_id], references: [id])
+  item        MItem          @relation("PrdLedgerItem", fields: [item_id], references: [id])
+
+  @@unique([ledger_no, line_no])
+  @@index([bucket_id, posting_date])
+  @@index([lot_id])
+  @@index([source_doc_type_id, source_doc_id])
+  @@map("prd_ledger")
+}
+
+/// Genealogy inside production (E3): what each execution took from a bucket
+/// into each output lot, quantity and value — the input's share by the
+/// output's Bobot Biaya.
+model PrdLotLink {
+  id                 Int      @id @default(autoincrement())
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  from_bucket_id     Int
+  from_lot_id        Int
+  to_lot_id          Int
+  qty                Decimal  @db.Decimal(18, 6)
+  value              Decimal  @db.Decimal(18, 2)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  from_bucket PrdBalance @relation(fields: [from_bucket_id], references: [id])
+  from_lot    PrdLot     @relation("LinkFrom", fields: [from_lot_id], references: [id])
+  to_lot      PrdLot     @relation("LinkTo", fields: [to_lot_id], references: [id])
+
+  @@index([source_doc_type_id, source_doc_id])
+  @@index([from_lot_id])
+  @@index([to_lot_id])
+  @@map("prd_lot_link")
 }
