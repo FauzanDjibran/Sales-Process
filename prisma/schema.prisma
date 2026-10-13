@@ -490,6 +490,7 @@ model RefUom {
 
   customer_order_lines SalCustomerOrderLine[]
   delivery_note_lines  LogDeliveryNoteLine[]
+  stock_issue_lines    LogStockIssueLine[]
 
   purchase_request_lines PurRequestLine[]           @relation("PurRequestLineUom")
   purchase_order_lines   PurOrderLine[]             @relation("PurOrderLineUom")
@@ -610,6 +611,7 @@ model MItem {
   valuation_ledger       LogStockValuationLedger[]
   valuation_balance      LogStockValuationBalance?
   delivery_note_lines    LogDeliveryNoteLine[]
+  stock_issue_lines      LogStockIssueLine[]
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -687,6 +689,7 @@ model RefWarehouse {
   /// The Delivery Orders that send goods out of this warehouse.
   delivery_orders   SalDeliveryOrder[]
   delivery_notes    LogDeliveryNote[]
+  stock_issues      LogStockIssue[]
   stock_ledger      LogStockLedger[]
   stock_balances    LogStockBalance[]
   purchase_requests PurRequest[]
@@ -713,8 +716,9 @@ model RefWorkstation {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  prd_balances PrdBalance[] @relation("PrdBalanceWorkstation")
-  prd_ledger   PrdLedger[]  @relation("PrdLedgerWorkstation")
+  prd_balances PrdBalance[]    @relation("PrdBalanceWorkstation")
+  prd_ledger   PrdLedger[]     @relation("PrdLedgerWorkstation")
+  stock_issues LogStockIssue[]
 
   @@map("ref_workstation")
 }
@@ -3331,6 +3335,105 @@ model PurOrderLineRequest {
   @@map("pur_order_line_request")
 }
 
+enum StockIssueStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+/// The Stock Issue (P158; `production_project.md` §9.3, *Pengeluaran ke
+/// Produksi*): goods leaving a warehouse for a use inside the company.
+/// Standalone (P106): a purpose decides where they go; its one purpose is
+/// `production_issue` — material into production at a workstation, where each
+/// lot keeps its number (M22). Quantity and stock cost only. `SI/YYYY/MM/NNNN`.
+model LogStockIssue {
+  id             Int              @id @default(autoincrement())
+  issue_no       String           @unique
+  /// The day the goods leave the warehouse — the journal's date.
+  issue_date     DateTime         @db.Date
+  status         StockIssueStatus @default(Draft)
+  /// The purpose's key, e.g. `production_issue`.
+  purpose        String
+  warehouse_id   Int
+  /// Where the goods are placed: required by `production_issue`.
+  workstation_id Int?
+  note           String?
+
+  /// Σ of the lines' cost, set at Posting.
+  cost_amount   Decimal @default(0) @db.Decimal(18, 2)
+  journal_id    Int?
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  warehouse   RefWarehouse        @relation(fields: [warehouse_id], references: [id])
+  workstation RefWorkstation?     @relation(fields: [workstation_id], references: [id])
+  lines       LogStockIssueLine[]
+
+  @@index([purpose, status])
+  @@index([status, issue_date])
+  @@map("log_stock_issue")
+}
+
+/// One line of a Stock Issue: a quantity of one item, in its base unit, each
+/// item once per issue.
+model LogStockIssueLine {
+  id             Int     @id @default(autoincrement())
+  stock_issue_id Int
+  line_no        Int
+  item_id        Int
+  /// The item's base unit, factor 1 (as sales, P108).
+  uom_id         Int
+  uom_factor     Decimal @default(1) @db.Decimal(18, 4)
+  qty            Decimal @db.Decimal(18, 4)
+  base_qty       Decimal @default(0) @db.Decimal(18, 4)
+  unit_cost      Decimal @default(0) @db.Decimal(18, 6)
+  cost_amount    Decimal @default(0) @db.Decimal(18, 2)
+  note           String?
+
+  stock_issue LogStockIssue      @relation(fields: [stock_issue_id], references: [id])
+  item        MItem              @relation(fields: [item_id], references: [id])
+  uom         RefUom             @relation(fields: [uom_id], references: [id])
+  lots        LogStockIssueLot[]
+
+  @@unique([stock_issue_id, line_no])
+  @@unique([stock_issue_id, item_id])
+  @@index([item_id])
+  @@map("log_stock_issue_line")
+}
+
+/// One lot a Stock Issue line takes goods from — picked as on a Delivery Note
+/// (U15, P136). The stock lot is named by id without a foreign key, its number
+/// and expiry copied as printed. At Posting each pick is issued on its own,
+/// stores what it cost, and names the production lot it entered (weak).
+model LogStockIssueLot {
+  id                  Int       @id @default(autoincrement())
+  stock_issue_line_id Int
+  pick_no             Int
+  lot_id              Int
+  location_id         Int?
+  lot_no              String
+  expiry_date         DateTime? @db.Date
+  qty                 Decimal   @db.Decimal(18, 4)
+  base_qty            Decimal   @default(0) @db.Decimal(18, 4)
+  unit_cost           Decimal   @default(0) @db.Decimal(18, 6)
+  cost_amount         Decimal   @default(0) @db.Decimal(18, 2)
+  /// The production lot and bucket it entered, set at Posting (weak).
+  prd_lot_id          Int?
+  prd_bucket_id       Int?
+
+  line LogStockIssueLine @relation(fields: [stock_issue_line_id], references: [id])
+
+  @@unique([stock_issue_line_id, pick_no])
+  /// A pick is a lot in a location: NULLS NOT DISTINCT, added in the migration by hand.
+  @@unique([stock_issue_line_id, lot_id, location_id], map: "log_stock_issue_lot_pick_key")
+  @@index([lot_id])
+  @@map("log_stock_issue_lot")
+}
+
 /// The Receipt Note (P125, Purchasing-Concept.md B17–B22): goods or a service
 /// received from a supplier. Standalone (P106): a purpose and a weak source
 /// pair; its one purpose is `purchase_receipt`, from one Open Purchase Order.
@@ -3734,14 +3837,14 @@ model PrdCostBillLine {
 
 // ============================================================ production ledger (P150 E2, E3)
 
-/// A production batch (P150 M22, M41, M42): the production identity of one
+/// A production job (P150 M22, M41, M42): the production identity of one
 /// run, carried on top of lots from the execution that starts it to the
-/// finished goods, so they trace back to their material. `BT/YYYY/MM/NNNN`,
+/// finished goods, so they trace back to their material. `JOB/YYYY/MM/NNNN`,
 /// or a number the user typed, unique.
-model PrdBatch {
+model PrdJob {
   id                 Int      @id @default(autoincrement())
-  batch_no           String   @unique
-  batch_date         DateTime @db.Date
+  job_no             String   @unique
+  job_date           DateTime @db.Date
   /// The execution that started it, weak (`source_doc_*`).
   source_doc_type_id Int
   source_doc_id      Int
@@ -3753,26 +3856,26 @@ model PrdBatch {
   created_by         Int
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
-  parents  PrdBatchParent[] @relation("BatchChild")
-  children PrdBatchParent[] @relation("BatchParent")
+  parents  PrdJobParent[] @relation("JobChild")
+  children PrdJobParent[] @relation("JobParent")
   lots     PrdLot[]
 
   @@index([source_doc_type_id, source_doc_id])
-  @@map("prd_batch")
+  @@map("prd_job")
 }
 
-/// The batches a *Batch Baru* merged (M41): a batch whose inputs carried two
-/// or more batches names each of them as a parent.
-model PrdBatchParent {
-  id              Int @id @default(autoincrement())
-  batch_id        Int
-  parent_batch_id Int
+/// The jobs a *Job Baru* merged (M41): a job whose inputs carried two
+/// or more jobs names each of them as a parent.
+model PrdJobParent {
+  id            Int @id @default(autoincrement())
+  job_id        Int
+  parent_job_id Int
 
-  batch  PrdBatch @relation("BatchChild", fields: [batch_id], references: [id], onDelete: Cascade)
-  parent PrdBatch @relation("BatchParent", fields: [parent_batch_id], references: [id])
+  job    PrdJob @relation("JobChild", fields: [job_id], references: [id], onDelete: Cascade)
+  parent PrdJob @relation("JobParent", fields: [parent_job_id], references: [id])
 
-  @@unique([batch_id, parent_batch_id])
-  @@map("prd_batch_parent")
+  @@unique([job_id, parent_job_id])
+  @@map("prd_job_parent")
 }
 
 /// A lot inside production (M11, M22): a stock lot issued in keeps its number;
@@ -3781,7 +3884,7 @@ model PrdLot {
   id                 Int          @id @default(autoincrement())
   item_id            Int
   lot_no             String
-  batch_id           Int?
+  job_id             Int?
   expiry_date        DateTime?    @db.Date
   origin             PrdLotOrigin
   /// The document that first made it, weak.
@@ -3792,14 +3895,14 @@ model PrdLot {
   created_at         DateTime     @default(now()) @db.Timestamptz(6)
 
   item      MItem        @relation("PrdLotItem", fields: [item_id], references: [id])
-  batch     PrdBatch?    @relation(fields: [batch_id], references: [id])
+  job       PrdJob?      @relation(fields: [job_id], references: [id])
   balances  PrdBalance[]
   ledger    PrdLedger[]
   links_in  PrdLotLink[] @relation("LinkTo")
   links_out PrdLotLink[] @relation("LinkFrom")
 
   @@unique([item_id, lot_no])
-  @@index([batch_id])
+  @@index([job_id])
   @@map("prd_lot")
 }
 

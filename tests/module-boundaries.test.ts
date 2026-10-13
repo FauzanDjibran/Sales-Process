@@ -102,6 +102,10 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logDeliveryNoteLine: ["src/lib/erp/delivery-note.ts"],
   logDeliveryNoteLot: ["src/lib/erp/delivery-note.ts"],
   logReceiptNote: ["src/lib/erp/receipt-note.ts"],
+  // The Stock Issue (P158): standalone, by purpose.
+  logStockIssue: ["src/lib/erp/stock-issue.ts"],
+  logStockIssueLine: ["src/lib/erp/stock-issue.ts"],
+  logStockIssueLot: ["src/lib/erp/stock-issue.ts"],
   logReceiptNoteLine: ["src/lib/erp/receipt-note.ts"],
   logReceiptNoteLot: ["src/lib/erp/receipt-note.ts"],
   // The stock books (P120): written only by the inventory book, read by its reports.
@@ -146,8 +150,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
   prdCostBill: ["src/lib/erp/production-cost-bill.ts"],
   // The production ledger (P150 E2, E3): a book, written only by itself; the
   // production documents call it.
-  prdBatch: ["src/lib/erp/production-ledger.ts"],
-  prdBatchParent: ["src/lib/erp/production-ledger.ts"],
+  prdJob: ["src/lib/erp/production-ledger.ts"],
+  prdJobParent: ["src/lib/erp/production-ledger.ts"],
   prdLot: ["src/lib/erp/production-ledger.ts"],
   prdBalance: ["src/lib/erp/production-ledger.ts"],
   prdLedger: ["src/lib/erp/production-ledger.ts"],
@@ -220,7 +224,7 @@ describe("the dependency graph points one way", () => {
       // functions, shared by the inventory book and the forms that pick from it.
       "warehouse-location",
       // The execution arithmetic (P150 E6): pure sharing by Bobot Biaya and the
-      // batch rule, shared by the production ledger and the execution form.
+      // job rule, shared by the production ledger and the execution form.
       "production-execution",
     ];
     const BOOKS = ["cash-bank", "journal", "ar-item", "ap-item", "inventory", "production-cost", "production-ledger"];

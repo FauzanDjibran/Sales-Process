@@ -767,6 +767,57 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "a posted Stock Issue's journal debits its cost; only a posted one with a value has one (P158)",
+    sql: `SELECT s.issue_no, s.status::text, s.cost_amount, s.journal_id, SUM(l.debit_amount) AS journal_debit
+          FROM log_stock_issue s
+          LEFT JOIN acc_journal j ON j.id = s.journal_id AND j.status = 'Posted' AND j.source_doc_type_id = ${docType("log_stock_issue")} AND j.source_doc_id = s.id
+          LEFT JOIN acc_journal_line l ON l.journal_id = j.id
+          GROUP BY s.id
+          HAVING (s.status = 'Posted' AND s.cost_amount > 0 AND COALESCE(SUM(l.debit_amount), 0) <> s.cost_amount)
+              OR (s.status <> 'Posted' AND s.journal_id IS NOT NULL)`,
+  },
+  {
+    area: "production",
+    name: "a posted Stock Issue's value left stock and entered production lot by lot, the same lot number (P158, plan §12 control 12)",
+    sql: `WITH pick AS (SELECT s.id AS issue_id, s.issue_no, p.prd_bucket_id, p.lot_no, p.cost_amount
+                       FROM log_stock_issue s JOIN log_stock_issue_line x ON x.stock_issue_id = s.id JOIN log_stock_issue_lot p ON p.stock_issue_line_id = x.id
+                       WHERE s.status = 'Posted'),
+               entered AS (SELECT l.source_doc_id AS issue_id, l.bucket_id, SUM(l.value_change) AS value
+                           FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("log_stock_issue")} AND l.movement = 'Issued'
+                           GROUP BY l.source_doc_id, l.bucket_id),
+               picked AS (SELECT issue_id, prd_bucket_id, SUM(cost_amount) AS value FROM pick GROUP BY issue_id, prd_bucket_id)
+          SELECT COALESCE(picked.issue_id, entered.issue_id) AS issue_id, COALESCE(picked.prd_bucket_id, entered.bucket_id) AS bucket_id,
+                 picked.value AS picked, entered.value AS entered, NULL AS lot_no
+          FROM picked FULL JOIN entered ON entered.issue_id = picked.issue_id AND entered.bucket_id = picked.prd_bucket_id
+          WHERE picked.value IS DISTINCT FROM entered.value
+          UNION ALL
+          SELECT s.id, NULL, s.cost_amount, (SELECT -SUM(v.value_change) FROM log_stock_valuation_ledger v
+                                             WHERE v.source_doc_type_id = ${docType("log_stock_issue")} AND v.source_doc_id = s.id), NULL
+          FROM log_stock_issue s WHERE s.status = 'Posted'
+            AND s.cost_amount <> COALESCE((SELECT -SUM(v.value_change) FROM log_stock_valuation_ledger v
+                                           WHERE v.source_doc_type_id = ${docType("log_stock_issue")} AND v.source_doc_id = s.id), 0)
+          UNION ALL
+          SELECT pick.issue_id, pick.prd_bucket_id, NULL, NULL, pick.lot_no
+          FROM pick LEFT JOIN prd_balance b ON b.id = pick.prd_bucket_id LEFT JOIN prd_lot t ON t.id = b.lot_id
+          WHERE t.id IS NULL OR t.lot_no <> pick.lot_no`,
+  },
+  {
+    area: "production",
+    name: "each WIP account equals the value held in production by the items it is the WIP of (P158, plan §12 control 2)",
+    sql: `WITH held AS (SELECT a.account_id, SUM(b.value_balance) AS v
+                       FROM prd_balance b JOIN m_item i ON i.id = b.item_id
+                       LEFT JOIN acc_item_category_account a ON a.category_id = i.category_id AND a.account_kind = 'Wip' AND a.status = 'Active'
+                       WHERE b.value_balance <> 0 GROUP BY a.account_id),
+               gl AS (SELECT l.account_id, SUM(l.debit_amount - l.kredit_amount) AS bal
+                      FROM acc_journal_line l JOIN acc_journal j ON j.id = l.journal_id AND j.status = 'Posted'
+                      WHERE l.account_id IN (SELECT account_id FROM acc_item_category_account WHERE account_kind = 'Wip')
+                      GROUP BY l.account_id)
+          SELECT COALESCE(held.account_id, gl.account_id) AS account_id, COALESCE(held.v, 0) AS production, COALESCE(gl.bal, 0) AS gl
+          FROM held FULL JOIN gl ON gl.account_id = held.account_id
+          WHERE COALESCE(held.v, 0) <> COALESCE(gl.bal, 0)`,
+  },
+  {
+    area: "production",
     name: "a posted Tagihan Biaya credits its payable account for its total (P151, P156)",
     sql: `SELECT b.bill_no, b.payable_account_id, b.total_amount, SUM(l.kredit_amount) AS credited
           FROM prd_cost_bill b LEFT JOIN acc_journal_line l ON l.journal_id = b.journal_id AND l.account_id = b.payable_account_id

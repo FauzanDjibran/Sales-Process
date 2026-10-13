@@ -2,7 +2,7 @@ import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import { ProductionRefusal, availableBuckets, enterProduction, produce, revalueBucket, takeFromBucket, wipByItem, type Production } from "../src/lib/erp/production-ledger";
-import { batchOutcome, shareByWeight, shareQty } from "../src/lib/erp/production-execution";
+import { jobOutcome, shareByWeight, shareQty } from "../src/lib/erp/production-execution";
 import { FIXTURE_PREFIX, disconnect, prisma, systemUserId } from "./helpers";
 
 /**
@@ -10,7 +10,7 @@ import { FIXTURE_PREFIX, disconnect, prisma, systemUserId } from "./helpers";
  * workstation holding Q and V, never pooled; a take releases round(V × q ÷ Q)
  * and the emptying one V whole; an execution is balanced — Σ input value plus
  * its standard conversion shared over the outputs by Bobot Biaya — and writes
- * the genealogy and the batch (M41, M42); a revaluation moves value only.
+ * the genealogy and the job (M41, M42); a revaluation moves value only.
  */
 
 let actor = 0;
@@ -22,7 +22,7 @@ let docTypeId = 0;
 let docSeq = 800_000 + Number(stamp) * 10;
 const src = () => ({ docTypeId, docId: ++docSeq, no: key(`SRC${docSeq}`) });
 const items: number[] = [];
-const batches = new Set<number>();
+const jobs = new Set<number>();
 
 before(async () => {
   actor = await systemUserId();
@@ -57,27 +57,27 @@ before(async () => {
 });
 
 after(async () => {
-  const lots = (await prisma.prdLot.findMany({ where: { item_id: { in: items } }, select: { id: true, batch_id: true } }));
-  for (const l of lots) if (l.batch_id) batches.add(l.batch_id);
+  const lots = (await prisma.prdLot.findMany({ where: { item_id: { in: items } }, select: { id: true, job_id: true } }));
+  for (const l of lots) if (l.job_id) jobs.add(l.job_id);
   await prisma.prdLotLink.deleteMany({ where: { OR: [{ from_lot_id: { in: lots.map((l) => l.id) } }, { to_lot_id: { in: lots.map((l) => l.id) } }] } });
   await prisma.prdLedger.deleteMany({ where: { item_id: { in: items } } });
   await prisma.prdBalance.deleteMany({ where: { item_id: { in: items } } });
   await prisma.prdLot.deleteMany({ where: { item_id: { in: items } } });
-  await prisma.prdBatchParent.deleteMany({ where: { batch_id: { in: [...batches] } } });
-  await prisma.prdBatch.deleteMany({ where: { id: { in: [...batches] } } });
+  await prisma.prdJobParent.deleteMany({ where: { job_id: { in: [...jobs] } } });
+  await prisma.prdJob.deleteMany({ where: { id: { in: [...jobs] } } });
   await prisma.mItem.deleteMany({ where: { id: { in: items } } });
   await prisma.refWorkstation.deleteMany({ where: { id: { in: [f.ws1, f.ws2, f.wsOff] } } });
   await prisma.refUom.deleteMany({ where: { id: f.kg } });
   await disconnect();
 });
 
-const enter = (itemId: number, lotNo: string, qty: number, value: number, ws = f.ws1, extra: { expiry?: string; batch?: { id: number; no: string } } = {}) =>
+const enter = (itemId: number, lotNo: string, qty: number, value: number, ws = f.ws1, extra: { expiry?: string; job?: { id: number; no: string } } = {}) =>
   prisma.$transaction((tx) =>
     enterProduction(tx, {
       itemId,
       lotNo,
       expiry: extra.expiry ? day(extra.expiry) : null,
-      batch: extra.batch ?? null,
+      job: extra.job ?? null,
       workstationId: ws,
       baseQty: qty,
       value,
@@ -87,8 +87,8 @@ const enter = (itemId: number, lotNo: string, qty: number, value: number, ws = f
     })
   );
 
-const run = (p: Omit<Production, "date" | "source" | "actorId" | "newBatch"> & { newBatch?: boolean }) =>
-  prisma.$transaction((tx) => produce(tx, { newBatch: false, ...p, date: day("2026-10-06"), source: src(), actorId: actor }));
+const run = (p: Omit<Production, "date" | "source" | "actorId" | "newJob"> & { newJob?: boolean }) =>
+  prisma.$transaction((tx) => produce(tx, { newJob: false, ...p, date: day("2026-10-06"), source: src(), actorId: actor }));
 
 const bucket = async (id: number) => {
   const b = await prisma.prdBalance.findUniqueOrThrow({ where: { id } });
@@ -111,14 +111,14 @@ describe("the execution arithmetic is pure (E6)", () => {
     assert.deepEqual(shareQty(5, [2, 0]), [5, 0]);
   });
 
-  test("the batch rule (M41)", () => {
-    const a = { id: 1, no: "BT/A" };
-    const b = { id: 2, no: "BT/B" };
-    assert.deepEqual(batchOutcome([null, null], false), { kind: "new", parents: [] });
-    assert.deepEqual(batchOutcome([a, null, a], false), { kind: "carried", batch: a });
-    assert.deepEqual(batchOutcome([b, a], false), { kind: "mixed", batches: [a, b] });
-    assert.deepEqual(batchOutcome([b, a], true), { kind: "new", parents: [a, b] });
-    assert.deepEqual(batchOutcome([a], true), { kind: "new", parents: [a] });
+  test("the job rule (M41)", () => {
+    const a = { id: 1, no: "JOB/A" };
+    const b = { id: 2, no: "JOB/B" };
+    assert.deepEqual(jobOutcome([null, null], false), { kind: "new", parents: [] });
+    assert.deepEqual(jobOutcome([a, null, a], false), { kind: "carried", job: a });
+    assert.deepEqual(jobOutcome([b, a], false), { kind: "mixed", jobs: [a, b] });
+    assert.deepEqual(jobOutcome([b, a], true), { kind: "new", parents: [a, b] });
+    assert.deepEqual(jobOutcome([a], true), { kind: "new", parents: [a] });
   });
 });
 
@@ -155,7 +155,7 @@ describe("goods enter production at their issue value (§9.3)", () => {
 });
 
 describe("an execution is balanced: cost in = cost out (G3, M12, M13)", () => {
-  test("inputs taken at round(V × q ÷ Q); Σ value shared by Bobot Biaya; a reject at 0 takes none; a new batch starts", async () => {
+  test("inputs taken at round(V × q ÷ Q); Σ value shared by Bobot Biaya; a reject at 0 takes none; a new job starts", async () => {
     const r = await run({
       workstationId: f.ws1,
       inputs: [{ bucketId: f.rmBucket, baseQty: 1_000 }],
@@ -168,21 +168,21 @@ describe("an execution is balanced: cost in = cost out (G3, M12, M13)", () => {
     assert.deepEqual(r.inputs.map((i) => i.value), [10_166_667]);
     assert.deepEqual(r.outputs.map((o) => o.value), [10_166_667, 0]);
     assert.equal(r.total, 10_166_667);
-    assert.equal(r.batchStarted, true);
-    assert.match(r.batch.no, /^BT\/\d{4}\/\d{2}\/\d{4}$/);
-    batches.add(r.batch.id);
+    assert.equal(r.jobStarted, true);
+    assert.match(r.job.no, /^JOB\/\d{4}\/\d{2}\/\d{4}$/);
+    jobs.add(r.job.id);
     assert.deepEqual(await bucket(f.rmBucket), [200, 2_033_333]);
     assert.deepEqual(await bucket(r.outputs[0].bucketId), [850, 10_166_667]);
     f.bulkBucket = r.outputs[0].bucketId;
     f.rejectBucket = r.outputs[1].bucketId;
-    f.batch1 = r.batch.id;
+    f.job1 = r.job.id;
     const links = await prisma.prdLotLink.findMany({ where: { to_lot_id: r.outputs[0].lotId } });
     assert.deepEqual(links.map((l) => [l.qty.toNumber(), l.value.toNumber()]), [[1_000, 10_166_667]], "the reject takes no edge");
     const lot = await prisma.prdLot.findUniqueOrThrow({ where: { id: r.outputs[0].lotId } });
-    assert.deepEqual([lot.origin, lot.batch_id], ["Produced", r.batch.id]);
+    assert.deepEqual([lot.origin, lot.job_id], ["Produced", r.job.id]);
   });
 
-  test("the standard conversion is added to the value out (P155 M92); one batch among the inputs is carried, packaging joining it", async () => {
+  test("the standard conversion is added to the value out (P155 M92); one job among the inputs is carried, packaging joining it", async () => {
     const pk = await enter(f.pk, key("pk-1"), 1_000, 1_500_000, f.ws2);
     const r = await run({
       workstationId: f.ws2,
@@ -197,22 +197,22 @@ describe("an execution is balanced: cost in = cost out (G3, M12, M13)", () => {
     assert.deepEqual(r.inputs.map((i) => i.value), [5_083_334, 750_000]);
     assert.equal(r.total, 5_083_334 + 750_000 + 1_200_000);
     assert.deepEqual(r.outputs.map((o) => o.value), [r.total]);
-    assert.equal(r.batchStarted, false);
-    assert.equal(r.batch.id, f.batch1, "the bulk's batch is carried");
+    assert.equal(r.jobStarted, false);
+    assert.equal(r.job.id, f.job1, "the bulk's job is carried");
     f.fgBucket = r.outputs[0].bucketId;
     const edges = await prisma.prdLotLink.findMany({ where: { to_lot_id: r.outputs[0].lotId } });
     assert.equal(edges.reduce((a, e) => a + e.value.toNumber(), 0), 5_083_334 + 750_000, "edges carry the inputs' value; the conversion has no input");
   });
 
-  test("the emptying take releases what is left; two batches are refused unless Batch Baru, which names both as parents", async () => {
+  test("the emptying take releases what is left; two jobs are refused unless Job Baru, which names both as parents", async () => {
     const other = await run({
       workstationId: f.ws2,
       inputs: [{ bucketId: f.rmBucket2, baseQty: 50 }],
       outputs: [{ itemId: f.bulk, lotNo: key("blk-2"), expiry: null, baseQty: 48, weight: 1 }],
-      batchNo: key("bt-own"),
+      jobNo: key("job-own"),
     });
-    batches.add(other.batch.id);
-    assert.equal(other.batch.no, key("BT-OWN"), "a typed batch number is kept");
+    jobs.add(other.job.id);
+    assert.equal(other.job.no, key("JOB-OWN"), "a typed job number is kept");
     const mixed = {
       workstationId: f.ws2,
       inputs: [
@@ -221,14 +221,14 @@ describe("an execution is balanced: cost in = cost out (G3, M12, M13)", () => {
       ],
       outputs: [{ itemId: f.fg, lotNo: key("fg-2"), expiry: null, baseQty: 470, weight: 1 }],
     };
-    await assert.rejects(run(mixed), /Batch Baru/);
+    await assert.rejects(run(mixed), /Job Baru/);
     assert.deepEqual(await bucket(f.bulkBucket), [425, 5_083_333], "a refused execution writes nothing");
-    const merged = await run({ ...mixed, newBatch: true });
-    batches.add(merged.batch.id);
+    const merged = await run({ ...mixed, newJob: true });
+    jobs.add(merged.job.id);
     assert.equal(merged.inputs[0].value, 5_083_333, "the take that empties the bucket releases V whole");
     assert.deepEqual(await bucket(f.bulkBucket), [0, 0]);
-    const parents = await prisma.prdBatchParent.findMany({ where: { batch_id: merged.batch.id }, orderBy: { parent_batch_id: "asc" } });
-    assert.deepEqual(parents.map((p) => p.parent_batch_id), [f.batch1, other.batch.id].sort((a, b) => a - b));
+    const parents = await prisma.prdJobParent.findMany({ where: { job_id: merged.job.id }, orderBy: { parent_job_id: "asc" } });
+    assert.deepEqual(parents.map((p) => p.parent_job_id), [f.job1, other.job.id].sort((a, b) => a - b));
   });
 
   test("an output lot number is always new (M42); short input, no output, zero weights are refused", async () => {
@@ -245,14 +245,14 @@ describe("an execution is balanced: cost in = cost out (G3, M12, M13)", () => {
 });
 
 describe("goods leave production at their bucket's value; the close revalues by value only", () => {
-  test("a take says what the goods were — lot, batch — and releases its share", async () => {
+  test("a take says what the goods were — lot, job — and releases its share", async () => {
     const t = await prisma.$transaction((tx) => takeFromBucket(tx, { bucketId: f.fgBucket, baseQty: 100, date: day("2026-10-07"), source: src(), actorId: actor }));
     const [qty, value] = await bucket(f.fgBucket);
     assert.equal(qty, 400);
     assert.equal(t.value + value, 7_033_334);
     assert.equal(t.value, Math.round((7_033_334 * 100) / 500));
     assert.equal(t.lotNo, key("FG-1"));
-    assert.equal(t.batch?.id, f.batch1);
+    assert.equal(t.job?.id, f.job1);
   });
 
   test("a revaluation changes value with quantity 0; an empty bucket or a negative result is refused", async () => {

@@ -4,10 +4,10 @@
  *
  * - **Sharing a value by Bobot Biaya** (M13): whole rupiah, largest remainder,
  *   so the parts always add up to the whole; a weight of 0 takes nothing.
- * - **The batch rule** (M41): no batched input starts a new batch; one batch
- *   among the inputs is carried, un-batched inputs (more material, packaging)
- *   joining it; two or more are refused unless *Batch Baru*, whose parents are
- *   all of them; *Batch Baru* is always allowed.
+ * - **The job rule** (M41): no jobed input starts a new job; one job
+ *   among the inputs is carried, un-jobed inputs (more material, packaging)
+ *   joining it; two or more are refused unless *Job Baru*, whose parents are
+ *   all of them; *Job Baru* is always allowed.
  */
 
 /**
@@ -65,22 +65,22 @@ export function shareQty(total: number, weights: number[]): number[] {
   return parts;
 }
 
-export type BatchRef = { id: number; no: string };
+export type JobRef = { id: number; no: string };
 
-export type BatchOutcome =
-  /** No batched input, or *Batch Baru*: a new batch starts; `parents` are the inputs' batches. */
-  | { kind: "new"; parents: BatchRef[] }
-  /** One batch among the inputs: it is carried to the outputs. */
-  | { kind: "carried"; batch: BatchRef }
-  /** Two or more batches without *Batch Baru*. */
-  | { kind: "mixed"; batches: BatchRef[] };
+export type JobOutcome =
+  /** No jobed input, or *Job Baru*: a new job starts; `parents` are the inputs' jobs. */
+  | { kind: "new"; parents: JobRef[] }
+  /** One job among the inputs: it is carried to the outputs. */
+  | { kind: "carried"; job: JobRef }
+  /** Two or more jobs without *Job Baru*. */
+  | { kind: "mixed"; jobs: JobRef[] };
 
-/** The batch rule (M41) over the inputs' batches (null for an un-batched input). */
-export function batchOutcome(inputBatches: (BatchRef | null)[], newBatch: boolean): BatchOutcome {
-  const distinct = new Map<number, BatchRef>();
-  for (const b of inputBatches) if (b) distinct.set(b.id, b);
-  const batches = [...distinct.values()].sort((a, b) => a.id - b.id);
-  if (newBatch || !batches.length) return { kind: "new", parents: batches };
-  if (batches.length === 1) return { kind: "carried", batch: batches[0] };
-  return { kind: "mixed", batches };
+/** The job rule (M41) over the inputs' jobs (null for an un-jobed input). */
+export function jobOutcome(inputJobs: (JobRef | null)[], newJob: boolean): JobOutcome {
+  const distinct = new Map<number, JobRef>();
+  for (const b of inputJobs) if (b) distinct.set(b.id, b);
+  const jobs = [...distinct.values()].sort((a, b) => a.id - b.id);
+  if (newJob || !jobs.length) return { kind: "new", parents: jobs };
+  if (jobs.length === 1) return { kind: "carried", job: jobs[0] };
+  return { kind: "mixed", jobs };
 }

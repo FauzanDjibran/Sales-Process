@@ -22,6 +22,7 @@ const ROUTES: Record<string, string> = {
   sal_delivery_order: "/sales/delivery-order",
   log_delivery_note: "/inventory/delivery-note",
   log_receipt_note: "/inventory/receipt-note",
+  log_stock_issue: "/inventory/stock-issue",
   // One table, two menus: the Barang page reads any request by id (P123).
   pur_request: "/purchasing/request/goods",
   pur_order: "/purchasing/order/goods",

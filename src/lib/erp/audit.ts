@@ -21,6 +21,7 @@ import { salesOrderNumbersByIds } from "./sales-order";
 import { deliveryOrderNumbersByIds } from "./delivery-order";
 import { deliveryNoteNumbersByIds } from "./delivery-note";
 import { receiptNoteNumbersByIds } from "./receipt-note";
+import { stockIssueNumbersByIds } from "./stock-issue";
 import { invoiceNumbersByIds } from "./ar-invoice";
 import { purchaseInvoiceNumbersByIds } from "./ap-invoice";
 import { fakturNumbersByIds, slipNumbersByIds } from "./tax-document";
@@ -88,6 +89,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   sal_delivery_order: { label: "Delivery Order", resolve: deliveryOrderNumbersByIds },
   log_delivery_note: { label: "Delivery Note", resolve: deliveryNoteNumbersByIds },
   log_receipt_note: { label: "Receipt Note", resolve: receiptNoteNumbersByIds },
+  log_stock_issue: { label: "Stock Issue", resolve: stockIssueNumbersByIds },
   pur_request: { label: "Purchase Request", resolve: purchaseRequestNumbersByIds },
   pur_order: { label: "Purchase Order", resolve: purchaseOrderNumbersByIds },
   fin_ar_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },

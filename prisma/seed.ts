@@ -145,6 +145,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Invoice Perizinan", "fin_ar_permit_invoice"],
   // Production cost (P150 M68): the bill that books it, read by the cost ledger and its payment.
   ["Tagihan Biaya", "prd_cost_bill"],
+  // Goods leaving stock for production (P158): the stock and production ledgers and its journal name it.
+  ["Stock Issue", "log_stock_issue"],
 ];
 
 /**

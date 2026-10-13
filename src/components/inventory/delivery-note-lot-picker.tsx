@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Icon } from "@/components/icon";
 import { Dialog } from "@/components/ui/dialog";
 import { MoneyInput } from "@/components/ui/money-input";
-import type { DnSourceLine } from "@/lib/erp/delivery-note";
 import type { LotOption } from "@/lib/erp/inventory";
 import { lotKey } from "@/lib/erp/warehouse-location";
 import { formatDate, formatNumber } from "@/lib/format";
@@ -12,6 +11,9 @@ import { formatDate, formatNumber } from "@/lib/format";
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 const SCALE = 10_000;
 const units = (v: string | number) => Math.round((Number(String(v).replace(",", ".")) || 0) * SCALE);
+
+/** What the picker needs to know of the line it picks for — a Delivery Note's or a Stock Issue's. */
+export type LotPickerLine = { itemLabel: string; itemName: string; uomLabel: string };
 
 /** A lot in a location (`location_id` null where the warehouse keeps none). */
 export type LotPick = { lot_id: number; location_id: number | null; qty: string };
@@ -23,7 +25,8 @@ export type LotPick = { lot_id: number; location_id: number | null; qty: string 
  * available and the quantity taken from it. Together they may not pass the
  * line's quantity; a Draft may be picked in part, Posting needs it whole, and
  * the stock must still be there when it posts. *Isi FEFO* fills the rest lot
- * by lot from the earliest, up to what each holds.
+ * by lot from the earliest, up to what each holds. The Stock Issue picks with
+ * it too (P158), with its own words for the warehouse and the date.
  */
 export function DeliveryNoteLotPicker({
   line,
@@ -31,15 +34,20 @@ export function DeliveryNoteLotPicker({
   lineQty,
   current,
   shipDate,
+  dateLabel = "Tanggal Kirim",
+  emptyText = "Barang ini tidak punya stok tersedia di gudang Delivery Order.",
   onApply,
   onClose,
 }: {
-  line: DnSourceLine;
+  line: LotPickerLine;
   lots: LotOption[];
   lineQty: number;
   current: LotPick[];
   /** Tanggal Kirim, to flag a lot that expires before the goods leave. */
   shipDate: string;
+  /** How the date is named in the expiry flag. */
+  dateLabel?: string;
+  emptyText?: string;
   onApply: (picks: LotPick[]) => void;
   onClose: () => void;
 }) {
@@ -106,7 +114,7 @@ export function DeliveryNoteLotPicker({
             <Icon name="box" size={18} />
           </div>
           <h4>Belum ada stok</h4>
-          <p>Barang ini tidak punya stok tersedia di gudang Delivery Order.</p>
+          <p>{emptyText}</p>
         </div>
       ) : (
         <>
@@ -143,7 +151,7 @@ export function DeliveryNoteLotPicker({
                       </td>
                       <td>
                         {l.expiry ? <span className="mono">{formatDate(l.expiry)}</span> : <span className="dash">—</span>}
-                        {expired && <span className="overtag">Kadaluarsa sebelum Tanggal Kirim</span>}
+                        {expired && <span className="overtag">Kadaluarsa sebelum {dateLabel}</span>}
                       </td>
                       <td className="num">
                         <span className="mny">{qtyText(l.available)}</span>

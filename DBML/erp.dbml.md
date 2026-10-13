@@ -2285,6 +2285,81 @@ table log_delivery_note_lot {
   }
 }
 
+// The Stock Issue (P158; production_project.md §9.3, Pengeluaran ke Produksi): goods leaving
+// a warehouse for a use inside the company; standalone by purpose (P106) — production_issue:
+// material into production at a workstation, each lot keeping its number. SI/YYYY/MM/NNNN
+table log_stock_issue {
+  id                          int [pk, increment, not null]
+
+  issue_no                    varchar [not null, unique]
+  issue_date                  date [not null] // the journal's date
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  purpose                     varchar [not null] // production_issue
+  warehouse_id                int [not null, ref : > ref_warehouse.id]
+  workstation_id              int [ref : > ref_workstation.id] // required by production_issue
+  note                        varchar
+
+  cost_amount                 decimal(18,2) [not null, default: 0] // set at Posting
+  journal_id                  int // Dr WIP / Cr Persediaan
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (purpose, status)
+    (status, issue_date)
+  }
+}
+
+// One item per line, in its base unit (as sales, P108), each item once per issue
+table log_stock_issue_line {
+  id                          int [pk, increment, not null]
+
+  stock_issue_id              int [not null, ref : > log_stock_issue.id]
+  line_no                     int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id] // the base unit
+  uom_factor                  decimal(18,4) [not null, default: 1]
+  qty                         decimal(18,4) [not null]
+  base_qty                    decimal(18,4) [not null, default: 0]
+  unit_cost                   decimal(18,6) [not null, default: 0] // a description, never an input (P114)
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  note                        varchar
+
+  indexes {
+    (stock_issue_id, line_no) [unique]
+    (stock_issue_id, item_id) [unique]
+    item_id
+  }
+}
+
+// One lot a line takes goods from — picked as on a Delivery Note (U15, P136)
+table log_stock_issue_lot {
+  id                          int [pk, increment, not null]
+
+  stock_issue_line_id         int [not null, ref : > log_stock_issue_line.id]
+  pick_no                     int [not null]
+  lot_id                      int [not null] // the stock lot (log_stock_tracking); no FK
+  location_id                 int // in a warehouse with Gunakan Lokasi; no FK
+  lot_no                      varchar [not null] // as printed
+  expiry_date                 date
+  qty                         decimal(18,4) [not null]
+  base_qty                    decimal(18,4) [not null, default: 0]
+  unit_cost                   decimal(18,6) [not null, default: 0]
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  prd_lot_id                  int // the production lot it entered, set at Posting; weak
+  prd_bucket_id               int // the production bucket it entered, set at Posting; weak
+
+  indexes {
+    (stock_issue_line_id, pick_no) [unique]
+    (stock_issue_line_id, lot_id, location_id) [unique] // NULLS NOT DISTINCT
+    lot_id
+  }
+}
+
 //////////////////////////////////
 //
 // Persediaan — the stock books (P120), written only by lib/erp/inventory.ts
@@ -2658,13 +2733,13 @@ table prd_cost_bill_line {
 
 // ============================================================ production ledger (P150 E2, E3)
 
-// A batch (M22, M41, M42): the production identity of one run, carried on the lots it makes;
-// BT/YYYY/MM/NNNN or typed, unique
-table prd_batch {
+// A job — Job No. (M101; M22, M41, M42): the production identity of one run, carried on the lots it makes;
+// JOB/YYYY/MM/NNNN or typed, unique
+table prd_job {
   id                          int [pk, increment, not null]
 
-  batch_no                    varchar [not null, unique]
-  batch_date                  date [not null]
+  job_no                      varchar [not null, unique]
+  job_date                    date [not null]
   source_doc_type_id          int [not null] // the execution that started it, weak
   source_doc_id               int [not null]
   source_no                   varchar [not null]
@@ -2680,14 +2755,14 @@ table prd_batch {
   }
 }
 
-// The batches a Batch Baru merged (M41)
-table prd_batch_parent {
+// The jobs a Job Baru merged (M41)
+table prd_job_parent {
   id                          int [pk, increment, not null]
-  batch_id                    int [not null, ref : > prd_batch.id]
-  parent_batch_id             int [not null, ref : > prd_batch.id]
+  job_id                      int [not null, ref : > prd_job.id]
+  parent_job_id               int [not null, ref : > prd_job.id]
 
   indexes {
-    (batch_id, parent_batch_id) [unique]
+    (job_id, parent_job_id) [unique]
   }
 }
 
@@ -2698,7 +2773,7 @@ table prd_lot {
 
   item_id                     int [not null, ref : > m_item.id]
   lot_no                      varchar [not null]
-  batch_id                    int [ref : > prd_batch.id]
+  job_id                      int [ref : > prd_job.id]
   expiry_date                 date
   origin                      enum('Issued', 'Produced') [not null]
   source_doc_type_id          int [not null] // the document that first made it, weak
@@ -2710,7 +2785,7 @@ table prd_lot {
 
   indexes {
     (item_id, lot_no) [unique]
-    batch_id
+    job_id
   }
 }
 

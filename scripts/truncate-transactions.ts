@@ -17,6 +17,9 @@
  *   fin_cash_bank_tx(_line, _line_wht)             Penerimaan / Pengeluaran Kas & Bank
  *   fin_ar_invoice(_line, _advance_deduction)         Invoice Penjualan
  *   log_delivery_note(_line, _lot)                 Delivery Notes
+ *   log_stock_issue(_line, _lot)                   Stock Issues (P158)
+ *   prd_ledger, prd_balance, prd_lot(_link),       the production ledger (P157)
+ *   prd_job(_parent)
  *   log_stock_ledger, log_stock_balance,          the stock books and their lots (P120);
  *   log_stock_valuation_ledger / _balance,         stock comes back with
  *   log_stock_tracking                             `db:stock-inject`
@@ -82,6 +85,7 @@ const DOCUMENT_ENTITY_KEYS = [
   "sal_order",
   "sal_delivery_order",
   "log_delivery_note",
+  "log_stock_issue",
   "fin_ar_invoice",
   "fin_ar_advance",
   "fin_cash_bank_tx",
@@ -108,6 +112,8 @@ async function main() {
     log_delivery_note_lot: await prisma.logDeliveryNoteLot.count(),
     log_delivery_note_line: await prisma.logDeliveryNoteLine.count(),
     log_delivery_note: await prisma.logDeliveryNote.count(),
+    log_stock_issue: await prisma.logStockIssue.count(),
+    prd_ledger: await prisma.prdLedger.count(),
     log_stock_ledger: await prisma.logStockLedger.count(),
     log_stock_balance: await prisma.logStockBalance.count(),
     log_stock_valuation_ledger: await prisma.logStockValuationLedger.count(),
@@ -177,6 +183,16 @@ async function main() {
     await tx.logDeliveryNoteLot.deleteMany();
     await tx.logDeliveryNoteLine.deleteMany();
     await tx.logDeliveryNote.deleteMany();
+    await tx.logStockIssueLot.deleteMany();
+    await tx.logStockIssueLine.deleteMany();
+    await tx.logStockIssue.deleteMany();
+    // The production ledger goes with the issues that placed goods in it.
+    await tx.prdLotLink.deleteMany();
+    await tx.prdLedger.deleteMany();
+    await tx.prdBalance.deleteMany();
+    await tx.prdLot.deleteMany();
+    await tx.prdJobParent.deleteMany();
+    await tx.prdJob.deleteMany();
     await tx.logStockLedger.deleteMany();
     await tx.logStockBalance.deleteMany();
     await tx.logStockValuationLedger.deleteMany();

@@ -341,7 +341,11 @@ and the costing hold; the confirmation shows the journal by dry run (P103);
   the record history. The strip shows both totals whichever tab is open.
 - **Permissions:** `PRODUCTION_EXECUTION_VIEW / _CREATE / _EDIT / _POST / _CANCEL`.
 
-### 9.3 Pengeluaran ke Produksi — `log_production_issue`, `SI/…` (Persediaan › Operasi Gudang)
+### 9.3 Stock Issue (*Pengeluaran ke Produksi*) — `log_stock_issue`, `SI/…` (Persediaan › Operasi Gudang)
+
+> Built 13/10/2026 (P158). Named **Stock Issue** by the user; standalone by
+> purpose (P106), its first purpose `production_issue`. Lines in the item's
+> base unit. No Job No. is carried from stock yet (stock lots get one in Phase 6).
 
 - **Header card:** Gudang (source), Workstation (where it is placed), Tanggal,
   Catatan.
@@ -494,7 +498,7 @@ Produksi                         (MENU_PRODUCTION_ACCESS; between Pembelian and 
   Penutupan   Penutupan Biaya Produksi
   Laporan     Saldo Produksi · Kartu Lot Produksi · Telusur Produksi · Rekap Produksi · Buku Biaya Produksi
 Persediaan › Operasi Gudang
-  Receipt Note · Pengeluaran ke Produksi · Penerimaan Hasil Produksi · Pemusnahan Produksi · Delivery Note
+  Receipt Note · Stock Issue · Penerimaan Hasil Produksi · Pemusnahan Produksi · Delivery Note
 Master › Entitas      Workstation
 Accounting › Pengaturan   Elemen Biaya Produksi · Account Mapping (card Produksi)
 Pengaturan › Sistem   System Default (card Produksi)
@@ -515,7 +519,7 @@ administrator (§11 of `Claude-ERP.md`).
 | Eksekusi Produksi | `LHP/…` | production ledger `MP/…` |
 | Batch | `BT/…` generated, editable before posting, unique (M42) | — |
 | Output lot | `<LHP no>-<n>`, editable, unique per item (M42) | — |
-| Pengeluaran ke Produksi | `SI/…` | `MS/`, `MN/` (stock), `MP/` |
+| Stock Issue (Pengeluaran ke Produksi) | `SI/…` | `MS/`, `MN/` (stock), `MP/` |
 | Penerimaan Hasil Produksi | `PRD/…` | `MP/`, `MS/`, `MN/` |
 | Pemusnahan Produksi | `WST/…` | `MP/` |
 | Pencatatan Biaya Produksi | `BPR/…` | cost ledger `BBP/…` |
@@ -939,7 +943,7 @@ section records the decisions.
 | # | Step |
 | --- | --- |
 | 3 ✅ 13/10/2026 | Production ledger (E2, E3), with a value-only row for the close (P157) |
-| 4 | Pengeluaran ke Produksi (§9.3) |
+| 4 ✅ 13/10/2026 | Stock Issue — *Pengeluaran ke Produksi* (§9.3), with the Job No. rename (M101) (P158) |
 | 5a | Costing masters: cost-center types, Driver unit, Overhead spread, Workstation → Cost Center, Tarif Standar, Account Mapping *Biaya Produksi Dibebankan* |
 | 5 | Perintah + Eksekusi Produksi with Driver and the standard's journal |
 | 6 | Penerimaan Hasil Produksi + Pemusnahan Produksi |

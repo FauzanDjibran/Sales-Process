@@ -3,7 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
-import { batchOutcome, shareByWeight, shareQty, type BatchRef } from "./production-execution";
+import { jobOutcome, shareByWeight, shareQty, type JobRef } from "./production-execution";
 
 /**
  * The production ledger (P150 E2, E3; `production_project.md` §6, §7.2) — the
@@ -25,8 +25,8 @@ import { batchOutcome, shareByWeight, shareQty, type BatchRef } from "./producti
  *   Bobot Biaya, creates each output lot and its bucket, and writes the
  *   genealogy: what each input gave each output (`prd_lot_link`). Cost in =
  *   cost out (G3).
- * - **The batch** (M41, M42) is carried on the lots: decided by the inputs'
- *   batches, or started by the execution.
+ * - **The job** (M41, M42) is carried on the lots: decided by the inputs'
+ *   jobs, or started by the execution.
  * - **Revaluing** adds a value with quantity 0 — the month-end close (M96).
  *
  * Only a Barang with Kelola Stok enters production (M8). Buckets are locked
@@ -44,7 +44,7 @@ type Tx = Prisma.TransactionClient;
 const D = Prisma.Decimal;
 type Dec = Prisma.Decimal;
 
-/** A movement production refuses — short quantity, an unknown lot, a batch clash. */
+/** A movement production refuses — short quantity, an unknown lot, a job clash. */
 export class ProductionRefusal extends Error {}
 
 export type ProductionSource = { docTypeId: number; docId: number; no: string };
@@ -173,17 +173,17 @@ async function takeLocked(tx: Tx, b: Bucket, qty: Dec, movement: Movement, date:
 
 // --------------------------------------------------------------- lots
 
-async function lotBatch(tx: Tx, lotId: number): Promise<BatchRef | null> {
-  const lot = await tx.prdLot.findUnique({ where: { id: lotId }, select: { batch: { select: { id: true, batch_no: true } } } });
-  return lot?.batch ? { id: lot.batch.id, no: lot.batch.batch_no } : null;
+async function lotJob(tx: Tx, lotId: number): Promise<JobRef | null> {
+  const lot = await tx.prdLot.findUnique({ where: { id: lotId }, select: { job: { select: { id: true, job_no: true } } } });
+  return lot?.job ? { id: lot.job.id, no: lot.job.job_no } : null;
 }
 
 export type ProductionEntry = {
   itemId: number;
   /** The stock lot's number, kept in production (M22). */
   lotNo: string;
-  /** The stock lot's batch, when it carries one (M45). */
-  batch?: BatchRef | null;
+  /** The stock lot's job, when it carries one (M45). */
+  job?: JobRef | null;
   expiry: Date | null;
   workstationId: number;
   /** In the item's base unit. */
@@ -198,7 +198,7 @@ export type ProductionEntry = {
 /**
  * Places goods in production at a workstation (Pengeluaran ke Produksi): finds
  * or creates the production lot of that number, then its bucket there, and
- * adds Q and V. A lot already known keeps its batch and expiry; a different
+ * adds Q and V. A lot already known keeps its job and expiry; a different
  * one is refused.
  */
 export async function enterProduction(tx: Tx, e: ProductionEntry): Promise<{ lotId: number; bucketId: number }> {
@@ -215,9 +215,9 @@ export async function enterProduction(tx: Tx, e: ProductionEntry): Promise<{ lot
 
   let lot = await tx.prdLot.findUnique({ where: { item_id_lot_no: { item_id: e.itemId, lot_no: lotNo } } });
   if (lot) {
-    if ((lot.batch_id ?? null) !== (e.batch?.id ?? null) && e.batch) {
-      if (lot.batch_id) throw new ProductionRefusal(`Lot ${lotNo} ${item.item_label} sudah tercatat dengan batch lain.`);
-      lot = await tx.prdLot.update({ where: { id: lot.id }, data: { batch_id: e.batch.id } });
+    if ((lot.job_id ?? null) !== (e.job?.id ?? null) && e.job) {
+      if (lot.job_id) throw new ProductionRefusal(`Lot ${lotNo} ${item.item_label} sudah tercatat dengan Job No. lain.`);
+      lot = await tx.prdLot.update({ where: { id: lot.id }, data: { job_id: e.job.id } });
     }
     if (e.expiry && iso(lot.expiry_date) !== iso(e.expiry)) {
       throw new ProductionRefusal(`Lot ${lotNo} ${item.item_label} sudah tercatat dengan kadaluarsa ${iso(lot.expiry_date) ?? "kosong"}.`);
@@ -227,7 +227,7 @@ export async function enterProduction(tx: Tx, e: ProductionEntry): Promise<{ lot
       data: {
         item_id: e.itemId,
         lot_no: lotNo,
-        batch_id: e.batch?.id ?? null,
+        job_id: e.job?.id ?? null,
         expiry_date: e.expiry,
         origin: "Issued",
         source_doc_type_id: e.source.docTypeId,
@@ -258,13 +258,13 @@ export type TakenFromProduction = {
   itemId: number;
   workstationId: number;
   expiry: Date | null;
-  batch: BatchRef | null;
+  job: JobRef | null;
 };
 
 /**
  * Takes goods out of production (Penerimaan Hasil Produksi, Pemusnahan): the
  * bucket releases round(V × q ÷ Q), or V whole when q empties it. Refuses
- * short quantity. Says what the goods were — lot, expiry and batch — so the
+ * short quantity. Says what the goods were — lot, expiry and job — so the
  * caller can carry them into stock.
  */
 export async function takeFromBucket(tx: Tx, t: ProductionTake): Promise<TakenFromProduction> {
@@ -279,7 +279,7 @@ export async function takeFromBucket(tx: Tx, t: ProductionTake): Promise<TakenFr
     itemId: b.itemId,
     workstationId: b.workstationId,
     expiry: lot.expiry_date,
-    batch: await lotBatch(tx, b.lotId),
+    job: await lotJob(tx, b.lotId),
   };
 }
 
@@ -303,11 +303,11 @@ export type Production = {
   outputs: ProduceOutput[];
   /** The execution's standard conversion, whole rupiah (P155 M92); 0 without a standard. */
   addedValue?: number;
-  /** *Batch Baru* (M41). */
-  newBatch: boolean;
-  /** The number a new batch takes; generated `BT/YYYY/MM/NNNN` when empty (M42). */
-  batchNo?: string | null;
-  /** Information only (M48), for a batch that starts here. */
+  /** *Job Baru* (M41). */
+  newJob: boolean;
+  /** The number a new job takes; generated `JOB/YYYY/MM/NNNN` when empty (M42). */
+  jobNo?: string | null;
+  /** Information only (M48), for a job that starts here. */
   customerOrder?: { id: number; no: string } | null;
   date: Date;
   source: ProductionSource;
@@ -321,15 +321,15 @@ export type Produced = {
   outputs: { lotId: number; bucketId: number; value: number }[];
   /** Σ input value + added value = Σ output value. */
   total: number;
-  batch: BatchRef;
-  batchStarted: boolean;
+  job: JobRef;
+  jobStarted: boolean;
 };
 
 /**
  * One execution, balanced (M12): takes every input, shares Σ input value plus
  * the added value over the outputs by Bobot Biaya (largest remainder), creates
  * each output lot and its bucket at the execution's workstation, and records
- * the genealogy. The batch follows M41. Called inside the execution's posting.
+ * the genealogy. The job follows M41. Called inside the execution's posting.
  */
 export async function produce(tx: Tx, p: Production): Promise<Produced> {
   if (!p.inputs.length) throw new ProductionRefusal("Eksekusi memerlukan minimal satu input.");
@@ -382,18 +382,18 @@ export async function produce(tx: Tx, p: Production): Promise<Produced> {
     takenQty.push(qty);
   }
 
-  // The batch (M41).
-  const inputBatches = await Promise.all(inputs.map((i) => lotBatch(tx, i.lotId)));
-  const outcome = batchOutcome(inputBatches, p.newBatch);
+  // The job (M41).
+  const inputJobs = await Promise.all(inputs.map((i) => lotJob(tx, i.lotId)));
+  const outcome = jobOutcome(inputJobs, p.newJob);
   if (outcome.kind === "mixed") {
-    throw new ProductionRefusal(`Input berasal dari batch ${outcome.batches.map((b) => b.no).join(" dan ")}; aktifkan Batch Baru untuk menggabungkannya.`);
+    throw new ProductionRefusal(`Input berasal dari Job No. ${outcome.jobs.map((b) => b.no).join(" dan ")}; aktifkan Job Baru untuk menggabungkannya.`);
   }
-  let batch: BatchRef;
-  let batchStarted = false;
-  if (outcome.kind === "carried") batch = outcome.batch;
+  let job: JobRef;
+  let jobStarted = false;
+  if (outcome.kind === "carried") job = outcome.job;
   else {
-    batch = await startBatch(tx, { no: p.batchNo, date: p.date, source: p.source, parents: outcome.parents, customerOrder: p.customerOrder, actorId: p.actorId });
-    batchStarted = true;
+    job = await startJob(tx, { no: p.jobNo, date: p.date, source: p.source, parents: outcome.parents, customerOrder: p.customerOrder, actorId: p.actorId });
+    jobStarted = true;
   }
 
   // The outputs, at Σ input + added, shared by Bobot Biaya.
@@ -405,7 +405,7 @@ export async function produce(tx: Tx, p: Production): Promise<Produced> {
       data: {
         item_id: o.itemId,
         lot_no: o.lotNo,
-        batch_id: batch.id,
+        job_id: job.id,
         expiry_date: o.expiry,
         origin: "Produced",
         source_doc_type_id: p.source.docTypeId,
@@ -439,30 +439,30 @@ export async function produce(tx: Tx, p: Production): Promise<Produced> {
       });
     }
   }
-  return { inputs, outputs, total, batch, batchStarted };
+  return { inputs, outputs, total, job, jobStarted };
 }
 
 /**
- * Starts a batch (E3): the number typed, or the next `BT/YYYY/MM/NNNN`;
- * unique. *Batch Baru* over batched inputs names each of their batches as a
+ * Starts a job (E3): the number typed, or the next `JOB/YYYY/MM/NNNN`;
+ * unique. *Job Baru* over jobed inputs names each of their jobs as a
  * parent (M41).
  */
-async function startBatch(
+async function startJob(
   tx: Tx,
-  s: { no?: string | null; date: Date; source: ProductionSource; parents: BatchRef[]; customerOrder?: { id: number; no: string } | null; actorId: number }
-): Promise<BatchRef> {
+  s: { no?: string | null; date: Date; source: ProductionSource; parents: JobRef[]; customerOrder?: { id: number; no: string } | null; actorId: number }
+): Promise<JobRef> {
   const typed = String(s.no ?? "").trim().toUpperCase();
   const no =
     typed ||
-    (await nextDocumentNumber("BT", s.date, async (series) => {
-      const row = await tx.prdBatch.findFirst({ where: { batch_no: { startsWith: series } }, orderBy: { batch_no: "desc" }, select: { batch_no: true } });
-      return row?.batch_no ?? null;
+    (await nextDocumentNumber("JOB", s.date, async (series) => {
+      const row = await tx.prdJob.findFirst({ where: { job_no: { startsWith: series } }, orderBy: { job_no: "desc" }, select: { job_no: true } });
+      return row?.job_no ?? null;
     }));
-  if (await tx.prdBatch.findUnique({ where: { batch_no: no }, select: { id: true } })) throw new ProductionRefusal(`Nomor batch ${no} sudah dipakai.`);
-  const row = await tx.prdBatch.create({
+  if (await tx.prdJob.findUnique({ where: { job_no: no }, select: { id: true } })) throw new ProductionRefusal(`Job No. ${no} sudah dipakai.`);
+  const row = await tx.prdJob.create({
     data: {
-      batch_no: no,
-      batch_date: s.date,
+      job_no: no,
+      job_date: s.date,
       source_doc_type_id: s.source.docTypeId,
       source_doc_id: s.source.docId,
       source_no: s.source.no,
@@ -471,8 +471,8 @@ async function startBatch(
       created_by: s.actorId,
     },
   });
-  for (const parent of s.parents) await tx.prdBatchParent.create({ data: { batch_id: row.id, parent_batch_id: parent.id } });
-  return { id: row.id, no: row.batch_no };
+  for (const parent of s.parents) await tx.prdJobParent.create({ data: { job_id: row.id, parent_job_id: parent.id } });
+  return { id: row.id, no: row.job_no };
 }
 
 // ------------------------------------------------------------ revaluing
@@ -501,15 +501,15 @@ export type BucketView = {
   itemName: string;
   workstationId: number;
   workstationLabel: string;
-  batchId: number | null;
-  batchNo: string | null;
+  jobId: number | null;
+  jobNo: string | null;
   expiry: string | null;
   qty: number;
   value: number;
 };
 
 const bucketInclude = {
-  lot: { select: { lot_no: true, expiry_date: true, batch: { select: { id: true, batch_no: true } } } },
+  lot: { select: { lot_no: true, expiry_date: true, job: { select: { id: true, job_no: true } } } },
   item: { select: { item_label: true, item_name: true } },
   workstation: { select: { workstation_label: true } },
 } as const;
@@ -525,8 +525,8 @@ const view = (b: BucketRow): BucketView => ({
   itemName: b.item.item_name,
   workstationId: b.workstation_id,
   workstationLabel: b.workstation.workstation_label,
-  batchId: b.lot.batch?.id ?? null,
-  batchNo: b.lot.batch?.batch_no ?? null,
+  jobId: b.lot.job?.id ?? null,
+  jobNo: b.lot.job?.job_no ?? null,
   expiry: iso(b.lot.expiry_date),
   qty: b.qty_balance.toNumber(),
   value: b.value_balance.toNumber(),
@@ -534,12 +534,12 @@ const view = (b: BucketRow): BucketView => ({
 
 /**
  * Every bucket holding quantity, for the pickers of executions, receipts and
- * scrap (pull, M2) — filtered by workstation, item or batch; earliest expiry
+ * scrap (pull, M2) — filtered by workstation, item or job; earliest expiry
  * first, then lot. `withIds` brings in buckets a stored document names,
  * whatever they hold now.
  */
 export async function availableBuckets(
-  filter: { workstationIds?: number[]; itemIds?: number[]; batchIds?: number[]; withIds?: number[] } = {},
+  filter: { workstationIds?: number[]; itemIds?: number[]; jobIds?: number[]; withIds?: number[] } = {},
   db: Db = prisma
 ): Promise<BucketView[]> {
   const rows = await db.prdBalance.findMany({
@@ -549,7 +549,7 @@ export async function availableBuckets(
           qty_balance: { gt: 0 },
           ...(filter.workstationIds?.length ? { workstation_id: { in: filter.workstationIds } } : {}),
           ...(filter.itemIds?.length ? { item_id: { in: filter.itemIds } } : {}),
-          ...(filter.batchIds?.length ? { lot: { batch_id: { in: filter.batchIds } } } : {}),
+          ...(filter.jobIds?.length ? { lot: { job_id: { in: filter.jobIds } } } : {}),
         },
         ...(filter.withIds?.length ? [{ id: { in: filter.withIds } }] : []),
       ],
