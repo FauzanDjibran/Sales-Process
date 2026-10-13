@@ -27,8 +27,8 @@
  *   Karya Mandiri in part, PLN in full, the water bill on a Draft payment),
  *   the rest left open; October's labour bill left a Draft
  *
- * Depreciation and payroll accruals are not here: they are not owed to a
- * supplier, so they wait for Pencatatan Biaya Produksi (§9.6).
+ * Depreciation and payroll accruals are not here: every Tagihan is owed to a
+ * supplier on Hutang Biaya Produksi (P156).
  *
  * **Additive**: a bill is matched on its No. Tagihan Supplier and a payment on
  * its bank reference, so a second run creates only what is missing.
@@ -41,8 +41,7 @@ import { costTypeOptions } from "../src/lib/erp/production-cost";
 
 type BillSpec = {
   key: string;
-  /** None for a not-paid Jenis Biaya (depreciation). */
-  supplier?: string;
+  supplier: string;
   date: string;
   due?: string;
   ref: string;
@@ -69,9 +68,6 @@ const BILLS: BillSpec[] = [
   { key: "A-ENV", supplier: "S-008", date: "2026-08-31", due: "2026-09-30", ref: "ENV/2608/045", description: "Pengangkutan & pengolahan limbah B3 Agustus 2026",
     lines: [["OVERHEAD-LAIN", 6_350_000, "Limbah cair dan kemasan terkontaminasi"]] },
 
-  { key: "A-SST", date: "2026-08-31", ref: "SST-2608", description: "Penyusutan mesin produksi Agustus 2026",
-    lines: [["PENYUSUTAN-MESIN", 7_500_000, "Mixer, filling dan labeling — garis lurus"]] },
-
   // ---- September 2026
   { key: "S-PLN", supplier: "S-005", date: "2026-09-30", due: "2026-10-14", ref: "PLN/2609/0071", description: "Listrik pabrik September 2026",
     lines: [["LISTRIK-PABRIK", 44_175_000, "Pemakaian 29.450 kWh + biaya beban"]] },
@@ -86,9 +82,6 @@ const BILLS: BillSpec[] = [
     lines: [["PEMELIHARAAN-MESIN", 4_600_000, "Kalibrasi 4 nozzle dan sensor level"]] },
   { key: "S-ENV", supplier: "S-008", date: "2026-09-30", due: "2026-10-30", ref: "ENV/2609/051", description: "Pengangkutan & pengolahan limbah B3 September 2026",
     lines: [["OVERHEAD-LAIN", 6_900_000, "Limbah cair dan kemasan terkontaminasi"]] },
-
-  { key: "S-SST", date: "2026-09-30", ref: "SST-2609", description: "Penyusutan mesin produksi September 2026",
-    lines: [["PENYUSUTAN-MESIN", 7_500_000, "Mixer, filling dan labeling — garis lurus"]] },
 
   // ---- October 2026, to date
   { key: "O-BTB", supplier: "S-004", date: "2026-10-03", ref: "BTB-1003", description: "Ganti v-belt mesin labeling",

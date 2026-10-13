@@ -1056,17 +1056,17 @@ export const ENTITIES: Entity[] = [
   },
 
   {
-    // A cost the user names (P154, M75, M84; was Elemen Biaya Produksi): the
-    // expense account it is booked to and the account it is credited to, so a
-    // Tagihan Biaya picks a Jenis Biaya and never an account. *Dibayar lewat
-    // Pengeluaran* says only whether that credit is settled by a payment. Both
-    // accounts are fixed once chosen; several Jenis Biaya may share them.
+    // A cost the user names (P154, M75; was Elemen Biaya Produksi): the
+    // expense account it is booked to, so a Tagihan Biaya picks a Jenis Biaya
+    // and never an account. Its credit side is Account Mapping's Hutang Biaya
+    // Produksi for every Tagihan (P156). The account is fixed once chosen;
+    // several Jenis Biaya may share it.
     key: "acc_cost_type",
     slug: "cost-type",
     module: "master",
     name: "Jenis Biaya",
     icon: "coin",
-    desc: "Nama biaya — listrik pabrik, upah borongan, penyusutan mesin — beserta account biaya dan account lawannya. Tagihan Biaya memilih Jenis Biaya, bukan account.",
+    desc: "Nama biaya — listrik pabrik, upah borongan, pemeliharaan mesin — beserta account biayanya. Tagihan Biaya memilih Jenis Biaya, bukan account; sisi kreditnya selalu Account Hutang Biaya Produksi.",
     codeField: "cost_type_code",
     codePrefix: "jb",
     labelField: "cost_type_label",
@@ -1102,27 +1102,6 @@ export const ENTITIES: Entity[] = [
         span: 6,
         help: "didebit; wajib Require Cost Center",
       },
-      {
-        name: "contra_account_id",
-        label: "Account Lawan",
-        type: "ref",
-        ref: "acc_account",
-        refFilter: "postableAccount",
-        required: true,
-        locked: true,
-        span: 6,
-        help: "dikredit — hutang, akumulasi penyusutan",
-      },
-      {
-        name: "is_payable",
-        label: "Pembayaran",
-        type: "bool",
-        defaultValue: true,
-        locked: true,
-        span: 6,
-        help: "matikan untuk biaya yang tidak dibayar, seperti penyusutan",
-        caption: "Dibayar lewat Pengeluaran",
-      },
       STATUS_FIELD,
       NOTE_FIELD,
     ],
@@ -1130,8 +1109,6 @@ export const ENTITIES: Entity[] = [
       { field: "cost_type_label", label: "Label", isLabel: true, width: "150px", filter: "text" },
       { field: "cost_type_name", label: "Nama Jenis Biaya", primary: true, filter: "text" },
       { field: "expense_account_id", label: "Account Biaya", isRef: true, width: "260px" },
-      { field: "contra_account_id", label: "Account Lawan", isRef: true, width: "260px" },
-      { field: "is_payable", label: "Dibayar", isBool: true, width: "100px", filter: "bool" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
   },

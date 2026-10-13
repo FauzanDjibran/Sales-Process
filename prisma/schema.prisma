@@ -1279,9 +1279,7 @@ model AccAccount {
   withholding_taxes     RefWithholdingTax[]
   category_accounts     AccItemCategoryAccount[] @relation("CategoryAccount")
   cost_types_expense    AccCostType[]            @relation("CostTypeExpense")
-  cost_types_contra     AccCostType[]            @relation("CostTypeContra")
   production_cost_bills PrdCostBill[]            @relation("CostBillPayable")
-  cost_bill_credits     PrdCostBillLine[]        @relation("CostBillLineCredit")
 
   @@unique([account_label])
   @@index([account_subcategory_id])
@@ -1289,21 +1287,16 @@ model AccAccount {
 }
 
 /// Jenis Biaya (P154; was Elemen Biaya Produksi, M53): a cost the user names —
-/// Listrik PLN, Upah Borongan, Penyusutan Mesin — pointing to the expense
-/// account it is booked to and the account it is credited to, so a Tagihan
-/// Biaya picks a Jenis Biaya and never an account (M75, M84). `is_payable`
-/// says only whether that credit is settled through Pengeluaran. Both accounts
-/// are fixed once chosen.
+/// Listrik PLN, Upah Borongan — pointing to the expense account it is booked
+/// to, so a Tagihan Biaya picks a Jenis Biaya and never an account (M75). Its
+/// credit side is not its own: every Tagihan credits Account Mapping's
+/// *Hutang Biaya Produksi* (P156, back to P151). The account is fixed once chosen.
 model AccCostType {
   id                 Int          @id @default(autoincrement())
   cost_type_code     String       @unique
   cost_type_label    String
   cost_type_name     String
   expense_account_id Int
-  /// Required by the form; nullable only for rows made before P154 without a
-  /// Hutang Biaya Produksi mapping to fill it from.
-  contra_account_id  Int?
-  is_payable         Boolean      @default(true)
   note               String?
   status             ActiveStatus @default(Active)
 
@@ -1313,7 +1306,6 @@ model AccCostType {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   expense_account AccAccount        @relation("CostTypeExpense", fields: [expense_account_id], references: [id])
-  contra_account  AccAccount?       @relation("CostTypeContra", fields: [contra_account_id], references: [id])
   bill_lines      PrdCostBillLine[]
 
   @@index([expense_account_id])
@@ -3686,7 +3678,7 @@ model PrdCostBill {
   id                 Int                      @id @default(autoincrement())
   bill_no            String                   @unique
   bill_date          DateTime                 @db.Date
-  /// The Supplier owed — required for a paid bill (M76).
+  /// The Supplier owed — required at saving (P156; null only on bills of P154's not-paid kind).
   partner_id         Int?
   supplier_ref       String?
   due_date           DateTime?                @db.Date
@@ -3695,8 +3687,9 @@ model PrdCostBill {
   status             ProductionCostBillStatus @default(Draft)
   cancel_reason      String?
   total_amount       Decimal                  @default(0) @db.Decimal(18, 2)
-  /// A paid bill's one credit account, copied at posting (M89); the payment
-  /// debits it. Null on a Draft and on a bill of not-paid Jenis Biaya.
+  /// Account Mapping's Hutang Biaya Produksi, copied at posting (P151, P156);
+  /// the payment debits it. Null on a Draft, and on a bill posted under P154
+  /// to a not-paid Jenis Biaya.
   payable_account_id Int?
   paid_amount        Decimal                  @default(0) @db.Decimal(18, 2)
   journal_id         Int?
@@ -3716,20 +3709,17 @@ model PrdCostBill {
 }
 
 model PrdCostBillLine {
-  id                Int     @id @default(autoincrement())
-  bill_id           Int
-  line_no           Int
-  cost_type_id      Int
-  cost_center_id    Int
-  amount            Decimal @db.Decimal(18, 2)
-  note              String?
-  /// The Jenis Biaya's credit account, copied at posting (P154).
-  credit_account_id Int?
+  id             Int     @id @default(autoincrement())
+  bill_id        Int
+  line_no        Int
+  cost_type_id   Int
+  cost_center_id Int
+  amount         Decimal @db.Decimal(18, 2)
+  note           String?
 
-  bill           PrdCostBill   @relation(fields: [bill_id], references: [id], onDelete: Cascade)
-  cost_type      AccCostType   @relation(fields: [cost_type_id], references: [id])
-  cost_center    AccCostCenter @relation(fields: [cost_center_id], references: [id])
-  credit_account AccAccount?   @relation("CostBillLineCredit", fields: [credit_account_id], references: [id])
+  bill        PrdCostBill   @relation(fields: [bill_id], references: [id], onDelete: Cascade)
+  cost_type   AccCostType   @relation(fields: [cost_type_id], references: [id])
+  cost_center AccCostCenter @relation(fields: [cost_center_id], references: [id])
 
   @@index([bill_id])
   @@map("prd_cost_bill_line")

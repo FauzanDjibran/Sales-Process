@@ -9,6 +9,7 @@ import { CostCenterRefusal, PostingDryRun, describeJournalLines, postJournal, ty
 import { costTypeOptions, costTypesByIds } from "./production-cost";
 import { costCenterOptions, costCentersByIds } from "./cost-center";
 import { checkAccountIsLeaf } from "./records";
+import { fallbackAccounts } from "./system-settings";
 import {
   COST_BILL_TRANSITIONS,
   costBillIsEditable,
@@ -24,16 +25,15 @@ import {
  * A cost recognised in the month it belongs to — the mainstream two-step (a
  * bill, then its payment). Each line picks a **Jenis Biaya**, never an account
  * (M75), and a **Cost Center** the user chooses (M83). **Posting** writes Dr
- * each line's expense account **with its Cost Center** / Cr each Jenis
- * Biaya's own credit account (M84), dated the bill's date; production cost
- * has no book of its own — it is the General Ledger's (M73).
+ * each line's expense account **with its Cost Center** / Cr Account Mapping's
+ * *Hutang Biaya Produksi* for the total (P156, back to P151), dated the bill's
+ * date; production cost has no book of its own — it is the General Ledger's
+ * (M73).
  *
- * **One kind per Tagihan** (M76): all lines paid or none. A paid Tagihan names
- * its Supplier and its lines share one credit account (M89), copied onto the
- * bill at posting (`payable_account_id`); it keeps what it was paid (P132)
- * and is paid by *Pembayaran Biaya Produksi*, which debits that account. It is
- * never an AP open item. A not-paid one (depreciation) is never offered for
- * payment.
+ * Every Tagihan names its Supplier and every posted one is payable: the
+ * payable account is copied onto the bill at posting (`payable_account_id`),
+ * the bill keeps what it was paid (P132), and *Pembayaran Biaya Produksi*
+ * debits that account. It is never an AP open item.
  *
  * Named only by this module (`prd_cost_bill`, `prd_cost_bill_line`).
  */
@@ -79,17 +79,25 @@ export type CostBillOptions = {
     name: string;
     expenseAccountLabel: string;
     expenseAccountName: string;
-    contraAccountId: number | null;
-    contraAccountLabel: string | null;
-    contraAccountName: string | null;
-    isPayable: boolean;
     active: boolean;
   }[];
   costCenters: { id: number; label: string; name: string; active: boolean }[];
+  /** Account Mapping's Hutang Biaya Produksi today — the credit of a bill posted now; null when unset. */
+  payableAccount: { label: string; name: string } | null;
 };
 
+/** Account Mapping's Hutang Biaya Produksi (P156), or null when unset. */
+async function mappedPayable(db: Db) {
+  const id = (await fallbackAccounts(["production_cost_payable_account"] as const)).production_cost_payable_account;
+  if (!id) return null;
+  return db.accAccount.findUnique({
+    where: { id },
+    select: { id: true, account_label: true, account_name: true, is_postable: true, is_active: true, require_partner: true, require_cost_center: true },
+  });
+}
+
 export async function costBillOptions(): Promise<CostBillOptions> {
-  const [suppliers, costTypes, costCenters] = await Promise.all([
+  const [suppliers, costTypes, costCenters, payable] = await Promise.all([
     prisma.mPartner.findMany({
       where: { category: { category_label: "Supplier" } },
       select: { id: true, partner_label: true, partner_name: true, status: true },
@@ -97,6 +105,7 @@ export async function costBillOptions(): Promise<CostBillOptions> {
     }),
     costTypeOptions(),
     costCenterOptions(),
+    mappedPayable(prisma),
   ]);
   return {
     suppliers: suppliers.map((p) => ({ id: p.id, label: p.partner_label, name: p.partner_name, active: p.status === "Active" })),
@@ -106,13 +115,10 @@ export async function costBillOptions(): Promise<CostBillOptions> {
       name: t.name,
       expenseAccountLabel: t.expenseAccountLabel,
       expenseAccountName: t.expenseAccountName,
-      contraAccountId: t.contraAccountId,
-      contraAccountLabel: t.contraAccountLabel,
-      contraAccountName: t.contraAccountName,
-      isPayable: t.isPayable,
       active: t.active,
     })),
     costCenters,
+    payableAccount: payable ? { label: payable.account_label, name: payable.account_name } : null,
   };
 }
 
@@ -121,15 +127,13 @@ export async function costBillOptions(): Promise<CostBillOptions> {
 export type CheckedCostBill = {
   data: {
     bill_date: Date;
-    partner_id: number | null;
+    partner_id: number;
     supplier_ref: string | null;
     due_date: Date | null;
     description: string;
     note: string | null;
     total_amount: number;
   };
-  /** Paid (settled through Pengeluaran) or not — one kind per bill (M76). */
-  isPayable: boolean;
   lines: {
     line_no: number;
     cost_type_id: number;
@@ -137,7 +141,6 @@ export type CheckedCostBill = {
     amount: number;
     note: string | null;
     expenseAccountId: number;
-    creditAccountId: number;
     label: string;
   }[];
 };
@@ -173,10 +176,6 @@ export async function checkCostBill(
       errors[lineKey(i, "cost_type_id")] = `${t.label} sudah nonaktif.`;
       continue;
     }
-    if (!t.contraAccountId) {
-      errors[lineKey(i, "cost_type_id")] = `${t.label} belum memiliki Account Lawan. Lengkapi Jenis Biaya-nya.`;
-      continue;
-    }
     const c = centers.get(Number(l.cost_center_id));
     if (!c) {
       errors[lineKey(i, "cost_center_id")] = "Pilih Cost Center.";
@@ -198,31 +197,18 @@ export async function checkCostBill(
       amount,
       note: String(l.note ?? "").trim() || null,
       expenseAccountId: t.expenseAccountId,
-      creditAccountId: t.contraAccountId,
       label: t.label,
     });
   }
 
-  // One kind per bill (M76); a paid bill is paid as a whole, so its lines
-  // share one credit account (M89).
-  const kinds = new Set(out.map((l) => types.get(l.cost_type_id)!.isPayable));
-  const isPayable = kinds.has(true);
-  if (kinds.size > 1) errors._lines = "Satu Tagihan hanya memuat Jenis Biaya yang dibayar, atau hanya yang tidak dibayar.";
-  else if (isPayable && new Set(out.map((l) => l.creditAccountId)).size > 1) {
-    errors._lines = "Jenis Biaya yang dibayar dalam satu Tagihan harus memakai Account Lawan yang sama.";
-  }
-
-  const creditPartner = out.length
-    ? await db.accAccount.findMany({ where: { id: { in: [...new Set(out.map((l) => l.creditAccountId))] }, require_partner: true }, select: { account_label: true } })
-    : [];
+  // Every Tagihan is owed to a Supplier and paid through Pengeluaran (P156).
   const partnerId = Number(input.partner_id) || null;
   if (partnerId) {
     const p = await db.mPartner.findUnique({ where: { id: partnerId }, include: { category: true } });
     if (!p) errors.partner_id = "Partner tidak ditemukan.";
     else if (p.category.category_label !== "Supplier") errors.partner_id = "Pilih Supplier.";
     else if (p.status !== "Active") errors.partner_id = "Supplier tersebut sudah nonaktif.";
-  } else if (isPayable) errors.partner_id = "Tagihan yang dibayar wajib menyebut Supplier.";
-  else if (creditPartner.length) errors.partner_id = `Account ${creditPartner[0].account_label} wajib menyebut Partner.`;
+  } else errors.partner_id = "Pilih Supplier yang menagih.";
 
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) errors._lines = "Ada baris yang perlu diperbaiki.";
   if (Object.keys(errors).length) return { ok: false, errors };
@@ -232,14 +218,13 @@ export async function checkCostBill(
     c: {
       data: {
         bill_date: asDate(date),
-        partner_id: partnerId,
+        partner_id: partnerId!,
         supplier_ref: String(input.supplier_ref ?? "").trim() || null,
         due_date: due ? asDate(due) : null,
         description,
         note: String(input.note ?? "").trim() || null,
         total_amount: out.reduce((a, l) => a + l.amount, 0),
       },
-      isPayable,
       lines: out,
     },
   };
@@ -305,10 +290,10 @@ export type CostBillTransitionResult = { ok: true; journal?: JournalLineInput[] 
 /**
  * Runs one lifecycle step. **Posting**, in one transaction: rechecks the bill
  * and writes the journal dated the bill's date — Dr each line's expense
- * account with its Cost Center / Cr each credit account for what its lines
- * hold — and copies each line's credit account onto it (and a paid bill's
- * onto the header). With `dryRun` it throws `PostingDryRun` after all of it,
- * so the confirmation shows exactly the journal Posting writes (P103).
+ * account with its Cost Center / Cr Account Mapping's Hutang Biaya Produksi
+ * for the total — and copies that account onto the bill (P156). With
+ * `dryRun` it throws `PostingDryRun` after all of it, so the confirmation
+ * shows exactly the journal Posting writes (P103).
  * **Batalkan** (Draft) asks for a reason.
  */
 export async function transitionCostBill(
@@ -361,11 +346,16 @@ export async function transitionCostBill(
         const first = Object.entries(r.errors).find(([k]) => !k.startsWith("_"))?.[1] ?? Object.values(r.errors)[0];
         throw new Refused({ _form: `Belum bisa diposting: ${first}` });
       }
-      const accountIds = [...new Set(r.c.lines.flatMap((l) => [l.expenseAccountId, l.creditAccountId]))];
+      const payable = await mappedPayable(tx);
+      if (!payable) throw new Refused({ _form: "Belum bisa diposting: Account Hutang Biaya Produksi belum diatur di Account Mapping." });
+      if (!payable.is_postable || !payable.is_active || payable.require_cost_center || (await checkAccountIsLeaf(payable.id))) {
+        throw new Refused({ _form: `Belum bisa diposting: Account Hutang Biaya Produksi (${payable.account_label}) harus aktif, dapat diposting dan tidak wajib Cost Center.` });
+      }
+      const expenseIds = [...new Set(r.c.lines.map((l) => l.expenseAccountId))];
       const accounts = new Map(
-        (await tx.accAccount.findMany({ where: { id: { in: accountIds } }, select: { id: true, account_label: true, is_postable: true, is_active: true, require_partner: true } })).map((a) => [a.id, a])
+        (await tx.accAccount.findMany({ where: { id: { in: expenseIds } }, select: { id: true, account_label: true, is_postable: true, is_active: true, require_partner: true } })).map((a) => [a.id, a])
       );
-      for (const id of accountIds) {
+      for (const id of expenseIds) {
         const a = accounts.get(id);
         if (!a || !a.is_postable || !a.is_active || (await checkAccountIsLeaf(id))) {
           throw new Refused({ _form: `Belum bisa diposting: account ${a?.account_label ?? id} pada Jenis Biaya harus aktif dan dapat diposting.` });
@@ -373,36 +363,29 @@ export async function transitionCostBill(
       }
       const done = await tx.prdCostBill.updateMany({
         where: { id, status: "Draft" },
-        data: { ...r.c.data, payable_account_id: r.c.isPayable ? r.c.lines[0].creditAccountId : null, status: "Posted", updated_by: actorId },
+        data: { ...r.c.data, payable_account_id: payable.id, status: "Posted", updated_by: actorId },
       });
       if (done.count !== 1) throw new Refused({ _form: moved });
-      for (const l of r.c.lines) {
-        await tx.prdCostBillLine.updateMany({ where: { bill_id: id, line_no: l.line_no }, data: { credit_account_id: l.creditAccountId } });
-      }
 
-      const partnerOn = (accountId: number) => (accounts.get(accountId)?.require_partner ? r.c.data.partner_id : null);
       const base = { currencyId: currency.id, rate: 1 };
-      const debits: JournalLineInput[] = r.c.lines.map((l) => ({
-        ...base,
-        accountId: l.expenseAccountId,
-        partnerId: partnerOn(l.expenseAccountId),
-        costCenterId: l.cost_center_id,
-        debit: l.amount,
-        credit: 0,
-        description: `${l.label} — ${l.note ?? r.c.data.description}`,
-      }));
-      const credits = new Map<number, number>();
-      for (const l of r.c.lines) credits.set(l.creditAccountId, (credits.get(l.creditAccountId) ?? 0) + l.amount);
       journalLines = [
-        ...debits,
-        ...[...credits.entries()].map(([accountId, amount]) => ({
+        ...r.c.lines.map((l) => ({
           ...base,
-          accountId,
-          partnerId: partnerOn(accountId),
-          debit: 0,
-          credit: amount,
-          description: `${b.bill_no} · ${r.c.data.description}`,
+          accountId: l.expenseAccountId,
+          partnerId: accounts.get(l.expenseAccountId)?.require_partner ? r.c.data.partner_id : null,
+          costCenterId: l.cost_center_id,
+          debit: l.amount,
+          credit: 0,
+          description: `${l.label} — ${l.note ?? r.c.data.description}`,
         })),
+        {
+          ...base,
+          accountId: payable.id,
+          partnerId: payable.require_partner ? r.c.data.partner_id : null,
+          debit: 0,
+          credit: r.c.data.total_amount,
+          description: `${b.bill_no} · ${r.c.data.description}`,
+        },
       ];
       const journal = await postJournal(tx, {
         description: `${b.bill_no} · Tagihan Biaya — ${r.c.data.description}`,
@@ -480,9 +463,6 @@ export type CostBillLineView = {
   costCenterName: string;
   expenseAccountLabel: string;
   expenseAccountName: string;
-  /** The credit account copied at posting; on a Draft, the Jenis Biaya's today. */
-  creditAccountLabel: string | null;
-  creditAccountName: string | null;
   amount: number;
   note: string | null;
 };
@@ -500,8 +480,10 @@ export type CostBillView = {
   status: CostBillStatus;
   cancelReason: string | null;
   total: number;
-  /** A posted bill: credited to a paid account; a Draft: its Jenis Biaya are paid ones. */
+  /** A Draft always; a posted bill when it was credited to a payable (all but P154's not-paid kind). */
   isPayable: boolean;
+  /** The account a posted bill was credited to; null on a Draft, which shows Account Mapping's today. */
+  payableAccount: { label: string; name: string } | null;
   paid: number;
   journalId: number | null;
   lines: CostBillLineView[];
@@ -513,18 +495,17 @@ export async function getCostBill(id: number): Promise<CostBillView | null> {
     where: { id },
     include: {
       partner: { select: { partner_label: true, partner_name: true } },
+      payable_account: acc,
       lines: {
         orderBy: { line_no: "asc" },
         include: {
-          cost_type: { include: { expense_account: acc, contra_account: acc } },
+          cost_type: { include: { expense_account: acc } },
           cost_center: { select: { cost_center_label: true, cost_center_name: true } },
-          credit_account: acc,
         },
       },
     },
   });
   if (!b) return null;
-  const posted = b.status === "Posted";
   return {
     id: b.id,
     billNo: b.bill_no,
@@ -538,26 +519,22 @@ export async function getCostBill(id: number): Promise<CostBillView | null> {
     status: b.status as CostBillStatus,
     cancelReason: b.cancel_reason,
     total: b.total_amount.toNumber(),
-    isPayable: posted ? b.payable_account_id !== null : b.lines.some((l) => l.cost_type.is_payable),
+    isPayable: b.status !== "Posted" || b.payable_account_id !== null,
+    payableAccount: b.payable_account ? { label: b.payable_account.account_label, name: b.payable_account.account_name } : null,
     paid: b.paid_amount.toNumber(),
     journalId: b.journal_id,
-    lines: b.lines.map((l) => {
-      const credit = posted ? l.credit_account : l.cost_type.contra_account;
-      return {
-        costTypeId: l.cost_type_id,
-        costTypeLabel: l.cost_type.cost_type_label,
-        costTypeName: l.cost_type.cost_type_name,
-        costCenterId: l.cost_center_id,
-        costCenterLabel: l.cost_center.cost_center_label,
-        costCenterName: l.cost_center.cost_center_name,
-        expenseAccountLabel: l.cost_type.expense_account.account_label,
-        expenseAccountName: l.cost_type.expense_account.account_name,
-        creditAccountLabel: credit?.account_label ?? null,
-        creditAccountName: credit?.account_name ?? null,
-        amount: l.amount.toNumber(),
-        note: l.note,
-      };
-    }),
+    lines: b.lines.map((l) => ({
+      costTypeId: l.cost_type_id,
+      costTypeLabel: l.cost_type.cost_type_label,
+      costTypeName: l.cost_type.cost_type_name,
+      costCenterId: l.cost_center_id,
+      costCenterLabel: l.cost_center.cost_center_label,
+      costCenterName: l.cost_center.cost_center_name,
+      expenseAccountLabel: l.cost_type.expense_account.account_label,
+      expenseAccountName: l.cost_type.expense_account.account_name,
+      amount: l.amount.toNumber(),
+      note: l.note,
+    })),
   };
 }
 

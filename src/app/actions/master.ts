@@ -441,23 +441,11 @@ async function validateCashBank(
 async function validateCostType(values: FormValues, existing: Record<string, string>): Promise<Record<string, string>> {
   const errors: Record<string, string> = {};
   const expenseId = refValue(values, "expense_account_id");
-  const contraId = refValue(values, "contra_account_id");
-  if (expenseId && contraId && expenseId === contraId) {
-    errors.contra_account_id = "Account Lawan harus berbeda dari Account Biaya.";
-    return errors;
-  }
-  const rules = new Map(
-    (await prisma.accAccount.findMany({ where: { id: { in: [expenseId, contraId].filter((x): x is number => Boolean(x)) } }, select: { id: true, require_cost_center: true } })).map((a) => [a.id, a.require_cost_center])
-  );
   if (expenseId && !existing.expense_account_id) {
     const problem = await postingAccountProblem(expenseId);
+    const rule = await prisma.accAccount.findUnique({ where: { id: expenseId }, select: { require_cost_center: true } });
     if (problem) errors.expense_account_id = problem;
-    else if (!rules.get(expenseId)) errors.expense_account_id = "Account Biaya harus ditandai Require Cost Center pada Chart of Accounts.";
-  }
-  if (contraId && !existing.contra_account_id) {
-    const problem = await postingAccountProblem(contraId);
-    if (problem) errors.contra_account_id = problem;
-    else if (rules.get(contraId)) errors.contra_account_id = "Account Lawan tidak boleh account yang wajib Cost Center.";
+    else if (!rule?.require_cost_center) errors.expense_account_id = "Account Biaya harus ditandai Require Cost Center pada Chart of Accounts.";
   }
   return errors;
 }
@@ -553,10 +541,8 @@ async function validateAccount(
       const types = await costTypesUsingAccount(currentId);
       if (used.some((u) => u.includes("journal"))) {
         errors.require_cost_center = "Account ini sudah memiliki journal; aturan Cost Center-nya tidak dapat diubah.";
-      } else if (!wanted && types.asExpense.length) {
-        errors.require_cost_center = `Account ini dipakai sebagai Account Biaya oleh Jenis Biaya (${types.asExpense.join(", ")}).`;
-      } else if (wanted && types.asContra.length) {
-        errors.require_cost_center = `Account ini dipakai sebagai Account Lawan oleh Jenis Biaya (${types.asContra.join(", ")}).`;
+      } else if (!wanted && types.length) {
+        errors.require_cost_center = `Account ini dipakai sebagai Account Biaya oleh Jenis Biaya (${types.join(", ")}).`;
       }
     }
   }
@@ -805,8 +791,7 @@ export async function toggleStatus(
   // Deactivating an account that a Cash & Bank resource or a Jenis PPh posts
   // to would leave it pointing at an account it could no longer have chosen.
   if (entity.key === "acc_account" && !nextActive) {
-    const types = await costTypesUsingAccount(id);
-    const named = [...types.asExpense, ...types.asContra];
+    const named = await costTypesUsingAccount(id);
     if (named.length) {
       return { ok: false, message: `Account ini dipakai Jenis Biaya (${named.join(", ")}) dan tidak dapat dinonaktifkan.` };
     }

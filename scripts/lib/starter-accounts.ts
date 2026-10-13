@@ -113,22 +113,22 @@ export const STARTER_MAPPINGS: [setting: string, account: string][] = [
   ["purchase_advance_account", "purchaseAdvance"],
   ["input_vat_account", "inputVat"],
   ["supplier_invoice_diff_account", "invoiceDiff"],
+  ["production_cost_payable_account", "productionCostPayable"],
   ["production_scrap_account", "productionScrap"],
 ];
 
 /**
- * Starter Jenis Biaya (P154, M84): label, name, the expense account it is
- * booked to, the account it is credited to, and whether that credit is paid
- * through Pengeluaran. Depreciation is credited to its accumulation and never
- * paid.
+ * Starter Jenis Biaya (P154, P156): label, name and the expense account it is
+ * booked to. Every Tagihan credits Account Mapping's Hutang Biaya Produksi,
+ * so a cost that is never paid to a supplier (depreciation) is not a starter
+ * Jenis Biaya.
  */
-export const STARTER_COST_TYPES: [label: string, name: string, expense: string, contra: string, payable: boolean][] = [
-  ["UPAH-LANGSUNG", "Upah Tenaga Kerja Langsung", "costDirectLabor", "wagesPayable", true],
-  ["UPAH-TIDAK-LANGSUNG", "Upah Tenaga Kerja Tidak Langsung", "costIndirectLabor", "wagesPayable", true],
-  ["LISTRIK-PABRIK", "Listrik & Utilitas Pabrik", "costUtility", "productionCostPayable", true],
-  ["PENYUSUTAN-MESIN", "Penyusutan Mesin & Peralatan", "costDepreciation", "accDepMachine", false],
-  ["PEMELIHARAAN-MESIN", "Pemeliharaan Mesin", "costMaintenance", "productionCostPayable", true],
-  ["OVERHEAD-LAIN", "Overhead Pabrik Lain-lain", "costOverhead", "productionCostPayable", true],
+export const STARTER_COST_TYPES: [label: string, name: string, expense: string][] = [
+  ["UPAH-LANGSUNG", "Upah Tenaga Kerja Langsung", "costDirectLabor"],
+  ["UPAH-TIDAK-LANGSUNG", "Upah Tenaga Kerja Tidak Langsung", "costIndirectLabor"],
+  ["LISTRIK-PABRIK", "Listrik & Utilitas Pabrik", "costUtility"],
+  ["PEMELIHARAAN-MESIN", "Pemeliharaan Mesin", "costMaintenance"],
+  ["OVERHEAD-LAIN", "Overhead Pabrik Lain-lain", "costOverhead"],
 ];
 
 /** Jenis PPh label → its account: PPh Dibayar Dimuka for sales, Hutang PPh for purchases (P122). */
@@ -287,27 +287,18 @@ export async function seedStarterAccounts(actor: number): Promise<StarterAccount
     }
   }
 
-  // ---- Jenis Biaya — created only when none has its label; an existing one
-  // without its Account Lawan (made before P154) gets the starter's.
+  // ---- Jenis Biaya — created only when none has its label.
   const typeEntity = ENTITIES.find((x) => x.key === "acc_cost_type");
   if (!typeEntity) throw new Error("Registry entity acc_cost_type not found");
-  for (const [label, name, expense, contra, payable] of STARTER_COST_TYPES) {
+  for (const [label, name, expense] of STARTER_COST_TYPES) {
     const taken = await prisma.accCostType.findFirst({ where: { cost_type_label: { equals: label, mode: "insensitive" } } });
-    if (taken) {
-      if (taken.contra_account_id === null) {
-        await prisma.accCostType.update({ where: { id: taken.id }, data: { contra_account_id: accountId.get(contra)!, is_payable: payable, updated_by: actor } });
-        tally("jenis biaya lawan");
-      }
-      continue;
-    }
+    if (taken) continue;
     const row = await prisma.accCostType.create({
       data: {
         cost_type_code: await nextCode(typeEntity),
         cost_type_label: label,
         cost_type_name: name,
         expense_account_id: accountId.get(expense)!,
-        contra_account_id: accountId.get(contra)!,
-        is_payable: payable,
         created_by: actor,
       },
     });

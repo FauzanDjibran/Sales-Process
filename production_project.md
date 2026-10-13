@@ -930,6 +930,7 @@ section records the decisions.
 | M97 | **Nothing is carried over: the whole month's cost is absorbed that month.** A cost center with cost but no execution in the month is shared over the month's executions in proportion to what they took from the other cost centers; only a month with no execution at all sends it to HPP (Account Mapping's). Replaces M6. |
 | M98 | **The leftover follows the value to where it is when the close runs**: a stock pool takes it only for the quantity still there, the rest goes to HPP; a WIP bucket already taken by a later execution passes it on to that execution's outputs. Amends M29. |
 | M99 | **The close behaves like the fiscal-year closing**: the oldest period not yet costed, after its last day; a checklist that **blocks** (Drafts dated in the period included; every execution has a Driver; accounts mapped); a dry-run preview of every figure and the journal (P103); one act; irreversible; dated the period's last day; the period locked. Replaces M34; confirms M31–M33. |
+| M100 | **Every Tagihan Biaya credits Account Mapping's *Hutang Biaya Produksi*** (13/10/2026, the user; P156): a Jenis Biaya names only its expense account; every bill names its Supplier and is payable. Supersedes M84, M89; amends M75, M76. |
 
 ### Revised build steps (supersede §18 steps 3–9)
 

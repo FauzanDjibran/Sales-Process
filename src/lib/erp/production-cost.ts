@@ -6,9 +6,9 @@ import { Prisma } from "@/generated/prisma/client";
 /**
  * Jenis Biaya (P154, `production_project.md` §21e M75, M84; was Elemen Biaya
  * Produksi, M53) — the master a Tagihan Biaya line picks instead of an
- * account. Each names the **expense account** its cost is booked to and the
- * **credit account** it is credited to; *Dibayar lewat Pengeluaran* says only
- * whether that credit is settled by a payment.
+ * account. Each names only the **expense account** its cost is booked to; the
+ * credit side of every Tagihan is Account Mapping's *Hutang Biaya Produksi*
+ * (P156).
  *
  * Production cost has no book of its own any more (M73): it is the General
  * Ledger's, tagged by Cost Center on the journal line (`cost-center.ts`).
@@ -26,17 +26,11 @@ export type CostTypeInfo = {
   expenseAccountId: number;
   expenseAccountLabel: string;
   expenseAccountName: string;
-  /** Null only on a row made before P154 without a mapping to fill it from. */
-  contraAccountId: number | null;
-  contraAccountLabel: string | null;
-  contraAccountName: string | null;
-  isPayable: boolean;
   active: boolean;
 };
 
 const include = {
   expense_account: { select: { account_label: true, account_name: true } },
-  contra_account: { select: { account_label: true, account_name: true } },
 } as const;
 
 type Row = Prisma.AccCostTypeGetPayload<{ include: typeof include }>;
@@ -48,14 +42,10 @@ const info = (t: Row): CostTypeInfo => ({
   expenseAccountId: t.expense_account_id,
   expenseAccountLabel: t.expense_account.account_label,
   expenseAccountName: t.expense_account.account_name,
-  contraAccountId: t.contra_account_id,
-  contraAccountLabel: t.contra_account?.account_label ?? null,
-  contraAccountName: t.contra_account?.account_name ?? null,
-  isPayable: t.is_payable,
   active: t.status === "Active",
 });
 
-/** The Jenis Biaya by id, with both accounts. */
+/** The Jenis Biaya by id, with its account. */
 export async function costTypesByIds(ids: number[], db: Db = prisma): Promise<Map<number, CostTypeInfo>> {
   const unique = [...new Set(ids.filter((id) => Number.isInteger(id) && id > 0))];
   if (!unique.length) return new Map();
@@ -69,14 +59,8 @@ export async function costTypeOptions(db: Db = prisma): Promise<CostTypeInfo[]> 
   return rows.map(info);
 }
 
-/** The Jenis Biaya naming this account on either side — read before the account is deactivated or loses its Cost Center rule. */
-export async function costTypesUsingAccount(accountId: number, db: Db = prisma): Promise<{ asExpense: string[]; asContra: string[] }> {
-  const rows = await db.accCostType.findMany({
-    where: { OR: [{ expense_account_id: accountId }, { contra_account_id: accountId }] },
-    select: { cost_type_label: true, expense_account_id: true },
-  });
-  return {
-    asExpense: rows.filter((r) => r.expense_account_id === accountId).map((r) => r.cost_type_label),
-    asContra: rows.filter((r) => r.expense_account_id !== accountId).map((r) => r.cost_type_label),
-  };
+/** The Jenis Biaya booking to this account — read before the account is deactivated or loses its Cost Center rule. */
+export async function costTypesUsingAccount(accountId: number, db: Db = prisma): Promise<string[]> {
+  const rows = await db.accCostType.findMany({ where: { expense_account_id: accountId }, select: { cost_type_label: true } });
+  return rows.map((r) => r.cost_type_label);
 }

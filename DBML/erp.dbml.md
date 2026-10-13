@@ -287,8 +287,8 @@ table acc_item_category_account {
 }
 
 // Jenis Biaya (P154; was Elemen Biaya Produksi, M53): a cost the user names, pointing to the expense
-// account it is booked to and the account it is credited to; is_payable says only whether that
-// credit is settled through Pengeluaran (M84); both accounts fixed once chosen
+// account it is booked to, fixed once chosen; the credit side of every Tagihan is Account
+// Mapping's Hutang Biaya Produksi (P156)
 table acc_cost_type {
   id                          int [pk, increment, not null]
 
@@ -297,8 +297,6 @@ table acc_cost_type {
   cost_type_label             varchar [not null]
   cost_type_name              varchar [not null]
   expense_account_id          int [not null, ref : > acc_account.id] // requires a Cost Center
-  contra_account_id           int [ref : > acc_account.id] // required by the form; null only before P154
-  is_payable                  boolean [not null, default: true]
 
   note                        varchar
 
@@ -2608,9 +2606,9 @@ table tax_withholding_slip {
 // ============================================================ production cost (P150)
 
 // Tagihan Biaya (P150 M68, renamed P154, TBP/…): a cost recognised in the month it belongs to —
-// Dr each line's Jenis Biaya expense account with its Cost Center / Cr the Jenis Biaya's credit
-// account; a paid bill's lines share one credit account, copied to payable_account_id, it keeps
-// what it was paid (P132) and is paid by Pembayaran Biaya Produksi (CHECK 0 <= paid <= total)
+// Dr each line's Jenis Biaya expense account with its Cost Center / Cr Account Mapping's Hutang
+// Biaya Produksi, copied to payable_account_id (P156); it keeps what it was paid (P132) and is
+// paid by Pembayaran Biaya Produksi (CHECK 0 <= paid <= total)
 table prd_cost_bill {
   id                          int [pk, increment, not null]
 
@@ -2627,7 +2625,7 @@ table prd_cost_bill {
   cancel_reason               varchar
 
   total_amount                decimal(18,2) [not null, default: 0]
-  payable_account_id          int [ref : > acc_account.id] // a paid bill's one credit account, copied at posting (M89); the payment debits it
+  payable_account_id          int [ref : > acc_account.id] // Hutang Biaya Produksi, copied at posting (P156); null on a Draft and on P154's not-paid bills
   paid_amount                 decimal(18,2) [not null, default: 0]
   journal_id                  int
 
@@ -2652,7 +2650,6 @@ table prd_cost_bill_line {
   cost_center_id              int [not null, ref : > acc_cost_center.id] // picked by the user (M83)
   amount                      decimal(18,2) [not null]
   note                        varchar
-  credit_account_id           int [ref : > acc_account.id] // the Jenis Biaya's credit account, copied at posting
 
   indexes {
     bill_id

@@ -45,21 +45,19 @@ describe("Workstation is a master the user creates (G9, M7)", () => {
   });
 });
 
-describe("Jenis Biaya names a cost, its expense account and its own credit account (P154, M84)", () => {
-  test("a master under Master › Referensi: label, name, both accounts and the paid flag", () => {
+describe("Jenis Biaya names a cost and its expense account (P154, P156)", () => {
+  test("a master under Master › Referensi: label, name and the expense account", () => {
     const e = ENTITIES.find((x) => x.key === "acc_cost_type");
     assert.equal(e?.module, "master");
-    assert.deepEqual(e!.fields.map((x) => x.name), ["cost_type_label", "cost_type_name", "expense_account_id", "contra_account_id", "is_payable", "status", "note"]);
-    for (const key of ["expense_account_id", "contra_account_id"]) {
-      const account: { required?: boolean; locked?: boolean } | undefined = e!.fields.find((x) => x.name === key);
-      assert.equal(account?.required, true);
-      assert.equal(account?.locked, true, "fixed once chosen");
-    }
+    assert.deepEqual(e!.fields.map((x) => x.name), ["cost_type_label", "cost_type_name", "expense_account_id", "status", "note"]);
+    const account: { required?: boolean; locked?: boolean } | undefined = e!.fields.find((x) => x.name === "expense_account_id");
+    assert.equal(account?.required, true);
+    assert.equal(account?.locked, true, "fixed once chosen");
     assert.equal(entityPermissions("acc_cost_type").view, "COST_TYPE_VIEW");
     assert.equal(navEntity("master", "acc_cost_type")?.permission, "COST_TYPE_VIEW");
   });
 
-  test("two Jenis Biaya may share accounts, and the account names them before it is deactivated", async () => {
+  test("two Jenis Biaya may share an account, and the account names them before it is deactivated", async () => {
     for (const label of ["A", "B"]) {
       await prisma.accCostType.create({
         data: {
@@ -67,13 +65,11 @@ describe("Jenis Biaya names a cost, its expense account and its own credit accou
           cost_type_label: `TEST-${label}-${Date.now()}`,
           cost_type_name: `Uji ${label}`,
           expense_account_id: f.cost,
-          contra_account_id: f.payable,
           created_by: actor,
         },
       });
     }
-    assert.equal((await costTypesUsingAccount(f.cost)).asExpense.length, 2);
-    assert.equal((await costTypesUsingAccount(f.payable)).asContra.length, 2);
+    assert.equal((await costTypesUsingAccount(f.cost)).length, 2);
   });
 });
 
@@ -121,6 +117,7 @@ describe("the Produksi settings (§8, M57)", () => {
   test("Beban Pemusnahan is Account Mapping; WIP has no fallback (M62); no Satuan Pembebanan Biaya yet", () => {
     assert.equal(isSystemDefaultKey("wip_account"), false, "an item's WIP is its category's, or the document refuses");
     assert.equal(settingPageOf("production_scrap_account"), "account");
+    assert.equal(settingPageOf("production_cost_payable_account"), "account", "every Tagihan Biaya credits it (P156)");
     assert.equal(isSystemDefaultKey("production_cost_uom"), false, "the spreading basis is decided with the close");
   });
 });

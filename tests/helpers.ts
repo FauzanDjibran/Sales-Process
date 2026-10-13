@@ -325,16 +325,9 @@ export async function cleanupFixtures(): Promise<void> {
     await prisma.mCashBank.deleteMany({ where: { id: { in: ids } } });
   }
 
-  // A Jenis Biaya points at its accounts (P154), so a fixture one left behind
-  // would block the accounts it names from going.
-  await prisma.accCostType.deleteMany({
-    where: {
-      OR: [
-        { expense_account: { account_code: { startsWith: FIXTURE_PREFIX } } },
-        { contra_account: { account_code: { startsWith: FIXTURE_PREFIX } } },
-      ],
-    },
-  });
+  // A Jenis Biaya points at its account (P154), so a fixture one left behind
+  // would block the account it names from going.
+  await prisma.accCostType.deleteMany({ where: { expense_account: { account_code: { startsWith: FIXTURE_PREFIX } } } });
 
   const accounts = await prisma.accAccount.findMany({
     // Keyed on the system code, not the label: an account's label is now a

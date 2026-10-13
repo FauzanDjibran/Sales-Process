@@ -26,10 +26,10 @@ import { formatDate, formatMoney, todayIso } from "@/lib/format";
 
 /**
  * A Tagihan Biaya in all three modes: `new`, `edit` (Draft only) and
- * `view` (P150 M68, P154). The header says when the cost belongs and, for a
- * paid bill, which Supplier is owed. Each line picks a Jenis Biaya — never an
- * account — and a Cost Center the user chooses; the Jenis Biaya decides both
- * accounts and whether the bill is paid through Pengeluaran.
+ * `view` (P150 M68, P154, P156). The header says when the cost belongs and
+ * which Supplier is owed. Each line picks a Jenis Biaya — never an account —
+ * and a Cost Center the user chooses; the Jenis Biaya decides the debit, and
+ * every bill credits Account Mapping's Hutang Biaya Produksi.
  */
 
 type LineState = { key: string; cost_type_id: number | null; cost_center_id: number | null; amount: string; note: string };
@@ -78,9 +78,8 @@ export function CostBillForm({
   const typeById = new Map(options.costTypes.map((t) => [t.id, t]));
   const centerById = new Map(options.costCenters.map((c) => [c.id, c]));
   const status = bill?.status ?? "Draft";
-  // Paid or not follows the lines' Jenis Biaya (M76); a Supplier is asked for
-  // a paid bill, optional otherwise.
-  const paid = editing ? lines.some((l) => (l.cost_type_id ? typeById.get(l.cost_type_id)?.isPayable : false)) : Boolean(bill?.isPayable);
+  // The credit side: what a posted bill was credited to, else Account Mapping's today.
+  const payable = bill?.status === "Posted" ? bill.payableAccount : options.payableAccount;
   const total = lines.reduce((a, l) => a + (Number(l.amount) || 0), 0);
 
   const touch = (...names: string[]) => {
@@ -141,7 +140,7 @@ export function CostBillForm({
             <Field label="Tanggal" span={3} required={editing} help={editing ? "bulan biaya ini terjadi" : undefined} error={errors.bill_date}>
               {editing ? <DateInput value={header.bill_date} invalid={Boolean(errors.bill_date)} onChange={(v) => set("bill_date", v)} /> : ro(formatDate(header.bill_date))}
             </Field>
-            <Field label="Supplier" span={5} required={editing && paid} help={editing ? (paid ? "yang menagih" : "opsional") : undefined} error={errors.partner_id}>
+            <Field label="Supplier" span={5} required={editing} help={editing ? "yang menagih" : undefined} error={errors.partner_id}>
               {editing ? (
                 <Combobox
                   value={Number(header.partner_id) || null}
@@ -156,8 +155,8 @@ export function CostBillForm({
                 nil()
               )}
             </Field>
-            <Field label="Pembayaran" span={4}>
-              {ro(paid ? "Dibayar lewat Pengeluaran" : lines.some((l) => l.cost_type_id) || bill ? "Tidak dibayar" : "mengikuti Jenis Biaya")}
+            <Field label="Account Hutang" span={4} help={editing ? "dari Account Mapping" : undefined}>
+              {payable ? chip(payable.label, payable.name) : nil(bill?.status === "Posted" ? "tidak dibayar" : "belum diatur di Account Mapping")}
             </Field>
             <Field label="No. Tagihan Supplier" span={4} help={editing ? "opsional" : undefined}>
               {editing ? (
@@ -213,16 +212,13 @@ export function CostBillForm({
     setLines((ls) => [...ls, { key: newKey(), cost_type_id: null, cost_center_id: null, amount: "", note: "" }]);
     touch("_lines");
   };
-  // What a line posts to: the Jenis Biaya's two accounts — on a posted bill
-  // the credit account it was posted with, on a Draft the Jenis Biaya's today.
+  // What a line posts to: Dr its Jenis Biaya's account / Cr the bill's payable.
   const accountsOf = (l: LineState, i: number) => {
     const posted = !editing ? bill?.lines[i] : undefined;
-    if (posted) {
-      return { debit: [posted.expenseAccountLabel, posted.expenseAccountName], credit: posted.creditAccountLabel ? [posted.creditAccountLabel, posted.creditAccountName ?? ""] : null };
-    }
     const t = l.cost_type_id ? typeById.get(l.cost_type_id) : undefined;
-    if (!t) return null;
-    return { debit: [t.expenseAccountLabel, t.expenseAccountName], credit: t.contraAccountLabel ? [t.contraAccountLabel, t.contraAccountName ?? ""] : null };
+    const debit = posted ? [posted.expenseAccountLabel, posted.expenseAccountName] : t ? [t.expenseAccountLabel, t.expenseAccountName] : null;
+    if (!debit) return null;
+    return { debit, credit: payable ? [payable.label, payable.name] : null };
   };
   const idc = (label: string, name: string) => (
     <span className="idc">
@@ -238,7 +234,7 @@ export function CostBillForm({
         </span>
         <div className="ct">
           <h3>Rincian Biaya</h3>
-          <p>Setiap baris mendebit account Jenis Biaya-nya dengan Cost Center-nya, dan mengkredit account lawan Jenis Biaya tersebut.</p>
+          <p>Setiap baris mendebit account Jenis Biaya-nya dengan Cost Center-nya, dan mengkredit Account Hutang Biaya Produksi.</p>
         </div>
         {editing && (
           <button className="btn sm primary" onClick={addLine}>
