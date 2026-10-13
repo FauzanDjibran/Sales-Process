@@ -931,6 +931,8 @@ section records the decisions.
 | M98 | **The leftover follows the value to where it is when the close runs**: a stock pool takes it only for the quantity still there, the rest goes to HPP; a WIP bucket already taken by a later execution passes it on to that execution's outputs. Amends M29. |
 | M99 | **The close behaves like the fiscal-year closing**: the oldest period not yet costed, after its last day; a checklist that **blocks** (Drafts dated in the period included; every execution has a Driver; accounts mapped); a dry-run preview of every figure and the journal (P103); one act; irreversible; dated the period's last day; the period locked. Replaces M34; confirms M31–M33. |
 | M100 | **Every Tagihan Biaya credits Account Mapping's *Hutang Biaya Produksi*** (13/10/2026, the user; P156): a Jenis Biaya names only its expense account; every bill names its Supplier and is payable. Supersedes M84, M89; amends M75, M76. |
+| M101 | **Job No. replaces the name *batch*** (13/10/2026, the user): the production identity traceable from the first execution to the finished goods is the **Job No.** (`JOB/YYYY/MM/NNNN`, or typed, unique); the rule of M41 is unchanged (no job among the inputs → a new Job No.; one → carried; two → refused unless *Job Baru*, whose parents are both). The built `prd_batch` / `batch_no` / `BT/…` (P157) are renamed at the start of Phase 4. Amends M10, M22, M41, M42, M45, M48. |
+| M102 | **The production reports stay in Phase 7, as planned** (13/10/2026, the user): Saldo Produksi, Kartu Lot Produksi, Telusur Produksi — the genealogy of every Job No., backward and forward — and Rekap Produksi. |
 
 ### Revised build steps (supersede §18 steps 3–9)
 
