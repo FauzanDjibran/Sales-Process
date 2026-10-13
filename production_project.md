@@ -9,6 +9,13 @@
 > (§2) and, as added context checked against the plan,
 > `D:\Claude Code\production_3.0_makloon_concept.md` (§3).
 
+> **Revised 13/10/2026 by the standard-cost review (§21f, M91–M99,
+> `Standard-Cost-Plan.md`).** Conversion cost now follows the mainstream
+> way: an optional standard booked at each execution into WIP, and a
+> month-end close that spreads each cost center's leftover to WIP, stock and
+> HPP by Driver, carrying nothing over. Where any earlier section disagrees
+> with §21f, §21f wins.
+
 > **Revised 08/10/2026 by the cost-center review (§21e, M72–M81).** The
 > separate cost ledger and its two reports are dropped; production cost is the
 > GL's, tagged by **Pusat Biaya**; Elemen Biaya Produksi becomes **Jenis
@@ -905,7 +912,44 @@ cost and paying it are separate; the credit side comes from a master.
 | R6 | **Tests, docs, showcase.** The production-cost suite reworked; `Claude-ERP.md` P154; the showcase kept working, with one not-paid depreciation bill. |
 ---
 
+## 21f. Standard-cost review (13/10/2026) — decisions and revised build steps
+
+**Source:** `D:\Claude Code\erp_costing_reference.md`, evaluated in
+`Standard-Cost-Plan.md` (four rounds with the user, 13/10/2026). That file
+holds the model, the close, the worked examples and the data model; this
+section records the decisions.
+
+| # | Decision |
+| --- | --- |
+| M91 | **Standard cost for conversion only, and optional.** Material stays actual (issued at the moving average). A standard rate of 0, or none, gives the same final figures — only the interim ones differ — because the month end always settles to actual. Replaces G1 and §19's *standard cost*. |
+| M92 | **Mainstream WIP.** An Eksekusi Produksi books its standard — round(Driver × rate) — as **Dr WIP / Cr *Biaya Produksi Dibebankan*** with its workstation's cost center; value out = Σ input value + standard, shared by Bobot Biaya. Conversion is then ordinary value: it moves with lots into later executions, stock, HPP and scrap. Replaces G5, M4, M46, X1, X6, and §9.2's *no journal*. |
+| M93 | **Cost center per workstation is the user's choice.** A Workstation picks its Production cost center; all may share one, each may have its own, or any mix. Types **Production · Overhead · Administrative** (Administrative never absorbed). An Overhead cost center names its spread on its master — *Rata* or a *Persentase* per production cost center. **The close runs the same way in every set-up.** Replaces G8; amends M72, M81. |
+| M94 | **Tarif Standar is master data**: production cost center · *Berlaku Mulai* (a fiscal period) · rate per Driver unit. The latest row starting on or before a period applies; none or 0 = no standard. A row cannot start in, or change for, a period that already has an execution posted at that cost center. |
+| M95 | **The basis is *Driver*** — one unit per production cost center, recorded on each execution, behaving like hours; what it measures is decided later. Replaces M26 / M57's common-unit basis. |
+| M96 | **The close.** A production cost center's balance (cost debited, standard credited) is its leftover. Overhead is spread first; then each production cost center's leftover is shared over **the period's executions** at its workstations by Driver, and **followed forward** through the genealogy to where that value is — WIP buckets, stock pools, scrap. In a stock pool it is split sold vs ending by goods available (M27). The journal credits *Biaya Produksi Dibebankan* per cost center (the mainstream; expense accounts keep their figures) and **every Production and Overhead cost center ends at 0**. Replaces §10.2–§10.3, M24, M78. |
+| M97 | **Nothing is carried over: the whole month's cost is absorbed that month.** A cost center with cost but no execution in the month is shared over the month's executions in proportion to what they took from the other cost centers; only a month with no execution at all sends it to HPP (Account Mapping's). Replaces M6. |
+| M98 | **The leftover follows the value to where it is when the close runs**: a stock pool takes it only for the quantity still there, the rest goes to HPP; a WIP bucket already taken by a later execution passes it on to that execution's outputs. Amends M29. |
+| M99 | **The close behaves like the fiscal-year closing**: the oldest period not yet costed, after its last day; a checklist that **blocks** (Drafts dated in the period included; every execution has a Driver; accounts mapped); a dry-run preview of every figure and the journal (P103); one act; irreversible; dated the period's last day; the period locked. Replaces M34; confirms M31–M33. |
+
+### Revised build steps (supersede §18 steps 3–9)
+
+| # | Step |
+| --- | --- |
+| 3 | Production ledger (E2, E3), with a value-only row for the close |
+| 4 | Pengeluaran ke Produksi (§9.3) |
+| 5a | Costing masters: cost-center types, Driver unit, Overhead spread, Workstation → Cost Center, Tarif Standar, Account Mapping *Biaya Produksi Dibebankan* |
+| 5 | Perintah + Eksekusi Produksi with Driver and the standard's journal |
+| 6 | Penerimaan Hasil Produksi + Pemusnahan Produksi |
+| 7 | Production reports + *Tarif & Selisih* (cost, Driver, rate, standard booked, leftover per cost center per month) |
+| 8 | Penutupan Biaya Produksi (M96–M99), tested on the reference's §12 example with and without standard |
+| 9 | Reconcile (every Production / Overhead cost center 0 at each costed period end; WIP = Σ buckets), end-to-end tests, docs, KB harvest |
+
+---
+
 ## 22. Known limits (go to `Claude-ERP.md` §17 when built)
+
+> Revised by M92: WIP now carries its conversion, so the two WIP limits below
+> no longer apply; the others stand.
 
 - FG and COGS carry only material cost between closes; margin looks high until
   the period is costed (M4, doc §7).
