@@ -753,10 +753,10 @@ export const CHECKS: Check[] = [
   {
     area: "production",
     name: "a posted Tagihan Biaya credits its payable account for its total (P151, P156)",
-    sql: `SELECT b.bill_no, b.payable_account_id, b.total_amount, SUM(l.credit_amount) AS credited
+    sql: `SELECT b.bill_no, b.payable_account_id, b.total_amount, SUM(l.kredit_amount) AS credited
           FROM prd_cost_bill b LEFT JOIN acc_journal_line l ON l.journal_id = b.journal_id AND l.account_id = b.payable_account_id
           WHERE b.status = 'Posted' AND b.payable_account_id IS NOT NULL
-          GROUP BY b.id HAVING COALESCE(SUM(l.credit_amount), 0) <> b.total_amount`,
+          GROUP BY b.id HAVING COALESCE(SUM(l.kredit_amount), 0) <> b.total_amount`,
   },
   {
     area: "production",
