@@ -291,3 +291,62 @@ the FG in stock, or HPP for what was already sold, or the Turunan in stock.
 | F8 | **Packaging enters by BSTB Logistik** to the packing station, then the execution uses it | As the Stock Issue today |
 | F9 | **Job Order (target) = N-MK** although the material passes N-NL on the way | The target is the final Nama Jual; intermediate kinds are only outputs |
 | F10 | **Rp/g rises at every loss** (Dry A: 8.184 → 12.592) — the report should show HPP per gram at each station | Rekap Produksi (Phase 7) |
+
+---
+
+## 7. Answers (14/10/2026)
+
+| # | Answer |
+| --- | --- |
+| F1 | **A Perintah Produksi still kick-starts the process**: one per Partai, raised by PPIC before the Logistik BSTB; the stations then execute the Partai without further orders (§8.1) |
+| F2 | **The standard is per gram** (Driver = grams, per Job section) and goes to **every gram**, as the workbook does (Pre Wash 182,86 × each kind's weight, BS included). The split of an execution's value over its outputs uses the **value weight per gram on the item**; BJL takes 0. **The workbook cannot be reverse-engineered for it**: its Penyebaran card types a *total value per output* (BS 2.492.309,88 · G2 15.822.364,12 · PT-1 63.746.476,21 · PT-2 182.786.460,10) and derives Rp/g from it, with no formula or price list behind it. So the value weight is a figure entered on the item — a *temporary rate* until the real figures are known — seeded from the workbook: BS 3.987,70 · G2 6.268,77 · PT-1 7.140,06 · PT-2 6.136,24 |
+| F3 | **A by-product makes a new lot** |
+| F4 | **Barcoding is a change**: N-NL → N-NL-PU is a transformation with a new lot |
+| F6 | **Pass-through weight is flexible for now**: loss and gain both allowed, the difference shown (susut or tambahan); to be narrowed later if needed |
+| F7 | **No standard at a station is fine**: its actual cost is absorbed by the close |
+
+---
+
+## 8. Proposals following the answers (to confirm)
+
+### 8.1 The kick-off Perintah Produksi
+
+| | Proposal |
+| --- | --- |
+| Raised by | PPIC, **one per Partai**, before anything leaves Logistik |
+| Holds | Tanggal produksi · **Job Order** (target, e.g. N-MK) · **Routing** (copied, editable) · the **stock lots planned** for it (item, lot, grams) · Catatan |
+| Lifecycle | Draft → *Buka* → Open → *Tutup* (reason) / closes itself when nothing of its Partai is left in production; *Batalkan* (Draft) |
+| Starts | The **Logistik BSTB** is raised from it (its planned lots pre-filled) — the Stock Issue names the Perintah |
+| Creates the Partai | The **first transformation** of its lots (Grading Halus) creates the **Partai**, linked to the Perintah, with the Job Order copied |
+| Afterwards | No more orders: each station receives the Partai by BSTB and executes it (M114) |
+
+### 8.2 Numbering in the workbook's formats
+
+| Identity | Format (from `walet.md` §3) | Example | Series |
+| --- | --- | --- | --- |
+| **BSTB** (every hand-over, the Logistik one included) | `BSTB_<unit>_<DDMMYY>_<NNNNN>` | `BSTB_LOG_170526_00001` | per sending unit per day |
+| **Eksekusi Produksi** (the workbook's *Nomor Grading*) | `NG_<unit>_<DDMMYY>_<NNNNN>` | `NG_UPY_210526_00001` | per unit per day |
+| **Job** | `<unit>_<DDMMYY>_<NNNNN>` | `UGH_190526_00001` | per unit per day |
+| **Partai** | `P_<DDMMYY>_<NNNNN>` (the legend's form; the rows show `Pt_<DDMMYY>-<HHMMSS>_A_<unit>`) | `P_190526_00001` | per day — **format to confirm** |
+| **Lot from a supplier** (ID Stok) | `<unit>_<supplier>_<kode barang>_<DDMMYY>` | `GS_D0001_MK-1-0-PTH_150526` | one per supplier, item and day |
+| **Lot made in production** | `<unit>_<supplier>_<kode barang>_<DDMMYY>` while one supplier is behind it; `<partai>_<kode barang>` after a mix (the workbook's ID Stok UML) | `UGH_D0001_MK-1-BSA-PK_180526` · `P_190526_00001_N-NL` | a suffix `-2`, `-3` when taken |
+| **Perintah Produksi** | not in the workbook — proposed `PP_<DDMMYY>_<NNNNN>` | `PP_160526_00001` | per day |
+
+This differs from the ERP's numbering rule (P15, the knowledge base's
+`doc-numbering=prefix-yyyy-mm-seq`) — under the deviation check.
+
+### 8.3 Moulding, No. Moulding and the new Job
+
+The workbook's Moulding card: *Hasil Grading* 06/04 mixes the Partai's Jobs
+into one **No. Moulding** (`P_060426_00001_PT-1-PC-G` = Partai + kode barang;
+for a while only it and the Partai exist) → *Persiapan* 07/04 → *Moulding*
+08/04 → *Dry B Grading* (Job Order set) → output a **new Job** `UDB_080426_00001`.
+
+| Option | How | Fits when |
+| --- | --- | --- |
+| **A — one posting** | One execution at UML: inputs are every Job's lots, outputs are the **new Job(s)** (one or more, AD4) with their lots; the **No. Moulding** is recorded on the execution as the mix's identity; parents = every input Job; standard 190,87 × Σ input grams, once | The mixed material does not wait as such between days |
+| **B — two postings** | Execution 1 (the mix, *Hasil Grading*): every Job's lots → **one lot numbered as the No. Moulding, with no Job** (Partai only); execution 2 (*Moulding + Dry B*): that lot → the new Job(s). The standard is charged once, on execution 2 (execution 1 has Driver 0) | The mixed material sits in WIP for days, as 06/04 → 08/04 in the workbook |
+
+The workbook's internal job numbers for *Persiapan* (`UML_070426_00001`) and
+*Moulding* (`UML_080426_00001`) are steps inside one unit; the workstation is
+the smallest unit (M114), so they are not separate Jobs in the ERP.
