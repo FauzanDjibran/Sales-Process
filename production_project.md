@@ -961,6 +961,46 @@ section records the decisions.
 
 ---
 
+## 21g. `main` follows Walet (14/10/2026) — decisions and re-planned phases
+
+**Source:** `walet/walet.md` (AD1–AD22, AP1–AP6), now the
+source for `main` (`Claude-ERP.md` P161). The ERP as it stood at P160 is kept
+on the branch **`before_costing_decision`** as the starting point for another
+company. Where a decision below differs from an earlier M-decision, it wins on
+`main`.
+
+| # | Decision |
+| --- | --- |
+| M111 | **`main` is Walet's ERP**; the pre-Walet state is the branch `before_costing_decision` (the user). |
+| M112 | **Naming follows Walet: Partai · Job · Lot.** The **Partai** (was *Job No.*, M101) is the production identity cost is tracked on: started at the first transformation from stock (Grading Halus output), **never split or merged** (AD1, AD18, so *Job Baru* is not used), carrying its **Job Order** — the target item planned from the start (AD5). A **Job** is one box inside a Partai (Walet's *Nomor Job*, AD19's *Sub Job No.*): a renumbering, a split into boxes and Moulding's mix make **new Jobs linked to their parents**, always inside the same Partai. A **Lot** is the stock identity of a quantity of one item and belongs to a Job (AD8). Amends M41, M101. |
+| M113 | **Push in two steps for every hand-over** (AD9, AD15): the sender posts the hand-over (BSTB), the goods are **in transit** (still WIP), the receiving station **receives it whole or rejects it whole** (sent back). **The Stock Issue is the Logistik BSTB** and the station receives it (the user). A station works only goods it has received. Replaces M2 (pull). |
+| M114 | **An execution is input → output in one posting** (the user): nothing is "received, processed, then output". At a station the worker **picks a Partai it has received** and executes it; one execution per Partai per run, with **a section per Job** (its inputs → its outputs) (AD3, AD20). |
+| M115 | **Pass-through keeps the lot** (§9.4 of the Walet file; amends M42): a station that works the goods without changing the item takes the bucket, adds its inputs and Driver × its Standard Cost, and puts the same lot at the station. A transformation makes new lots. |
+| M116 | **Value weight on the item** (AD6, AD14): *Bobot Nilai per gram*; an output's Bobot Biaya defaults to its quantity × that weight. Amends M57. |
+| M117 | **Output type on the item: Utama · Turunan · BJL** (AD7); **status per output: Tersedia · Reject** from the QC check (AD21). Utama and Turunan share the cost; **BJL and any Reject take 0**. |
+| M118 | **BJL goes to stock at 0** from any station; **a Turunan may leave production at the value it holds then** (AD17, Walet §9.2). |
+| M119 | **The showcase follows Walet**: swiftlet-nest items in grams, the units as workstations, one Partai from the Logistik issue to N-NL and the packing of N-MK (the user). |
+| M120 | **Out of scope for now** (Walet AP1–AP6): item variants (one Item per Kode Barang), Nomor Kati and QR CAIQ, Home Industry makloon, rework approval, QC and CCP records, Fase 1 purchasing. MRP stays parked to the end (demand from Pra-SO and SO). |
+
+### Re-planned phases (supersede §21f's steps 5–9 on `main`)
+
+| # | Step |
+| --- | --- |
+| 3, 4, 5a ✅ | Production ledger, Stock Issue, costing masters (P157, P158, P160) |
+| 5b | **Masters**: Item *Tipe Output* and *Bobot Nilai per gram*; **BoM** (a suggestion, for fixed-output steps such as packing N-MK); **Routing** per Job Order (target item) — workstation steps with their mode. **Showcase rebuilt on Walet** (M119) |
+| 5c | **Partai · Job · Lot** in the production ledger (rename of Job No. → Partai; Job under it with parents; lot → Job); **hand-over with receipt** — the Stock Issue becomes the Logistik BSTB with *Terima* / *Tolak*, and a station-to-station BSTB |
+| 5d | **Eksekusi Produksi** on a received Partai, a section per Job; transformation (outputs free, value weight, BJL / Reject at 0) or pass-through (lot kept); Driver × Standard Cost; journal Dr WIP / Cr WIP / Cr each Standard Cost Item's account with the Cost Center |
+| 6 | **Leaving production**: Penerimaan Hasil Produksi (FG, Turunan at current value, BJL at 0, keeping lot, Job and Partai) and Pemusnahan |
+| 7 | **Reports**: Saldo Produksi by Partai / Job / workstation / transit; Kartu Lot; Telusur through every Job renumbering to the stock lot and supplier; Rekap with susut and HPP per gram |
+| 8 | **Penutupan Biaya Produksi** (M96–M99) |
+| 9 | **MRP** (parked) |
+
+Open before 5c: whether a separate *Perintah Produksi* is still needed once
+the Partai carries its Job Order and routing (§21g note in `Claude-ERP.md`
+P161).
+
+---
+
 ## 22. Known limits (go to `Claude-ERP.md` §17 when built)
 
 > Revised by M92: WIP now carries its conversion, so the two WIP limits below
