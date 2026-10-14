@@ -45,3 +45,6 @@ next-env.d.ts
 
 # Office lock files, created while a workbook in Initialization/ is open
 ~$*
+
+# Client workbooks: kept on disk, never committed
+walet/*.xlsx
