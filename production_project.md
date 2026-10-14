@@ -941,6 +941,10 @@ section records the decisions.
 | M104 | **Driver has no unit** (14/10/2026, the user): a bare number whose meaning the workstation implies. No Satuan on a cost center. Amends M95. |
 | M105 | **Workstations sharing a Cost Center may carry different rates** (14/10/2026, the user, after a simulation of 2 workstations and 2 jobs, one finished and partly sold, one in WIP): the standard part is spread by the rates and only the leftover by Driver, so the whole cost is still absorbed (M97) and only its split between WIP, stock and HPP moves toward what separate cost centers would give. M91's "standard or none ends the same" holds exactly per cost center when its workstations share one rate, and always with one workstation per cost center. |
 | M106 | **A Tagihan Biaya line may name a Cost Center of any type** (14/10/2026, the user): Overhead and Administrative costs are recorded where they belong. Tagihan Biaya is to become general beyond production — a later step. |
+| M107 | **Standard Cost Items, each crediting its own account** (14/10/2026, the user; P160): TKL, BOP Mesin, BOP Pabrik… on Master › Referensi, each naming its *Account Standard Cost* (Require Cost Center) and no Cost Center — the posting takes the workstation's. As SAP's activity types, D365's and NetSuite's cost categories. Replaces M92's one global *Biaya Produksi Dibebankan*. |
+| M108 | **Jenis Biaya names the Standard Cost Item it is absorbed under** (14/10/2026, the user): actual and standard stay separate objects (several actual costs roll into one rate); the link tells the close which item's account takes each leftover per Cost Center — SAP's splitting structure. The close's exact use is settled when Phase 8 is built. |
+| M109 | **Standard Cost per workstation, in Accounting › Pengaturan** (14/10/2026, the user): Workstation · Berlaku Mulai · lines of Standard Cost Item and rate per Driver — NetSuite's manufacturing cost template. One Driver per execution multiplies every item's rate. Replaces M103's single rate. |
+| M110 | **A Cost Center is an entity with a category, Produksi / Non-Produksi; its costing role is a setting** (14/10/2026, the user; as SAP's allocation cycles and NetSuite's allocation schedules): a Workstation names its Produksi pool; System Default names the one overhead, a Produksi Cost Center with no workstation, spread **Rata** over the Produksi Cost Centers that ran executions that month. How the spread is controlled is a later scope. Replaces M93's types and spread. |
 
 ### Revised build steps (supersede §18 steps 3–9)
 
@@ -948,7 +952,7 @@ section records the decisions.
 | --- | --- |
 | 3 ✅ 13/10/2026 | Production ledger (E2, E3), with a value-only row for the close (P157) |
 | 4 ✅ 13/10/2026 | Stock Issue — *Pengeluaran ke Produksi* (§9.3), with the Job No. rename (M101) (P158) |
-| 5a ✅ 14/10/2026 | Costing masters: cost-center types, Overhead spread, Workstation → Cost Center, Tarif Standar per workstation (no Driver unit, M103–M104), Account Mapping *Biaya Produksi Dibebankan* (P159) |
+| 5a ✅ 14/10/2026 | Costing masters (P159, reworked as P160): Cost Center category Produksi / Non-Produksi, the overhead a System Default, Workstation → Cost Center, Standard Cost Items with their own accounts, Standard Cost per workstation, Jenis Biaya → item (M107–M110). The whole setup drawn as one flow: [`production-setup.svg`](production-setup.svg) |
 | 5 | Perintah + Eksekusi Produksi with Driver and the standard's journal |
 | 6 | Penerimaan Hasil Produksi + Pemusnahan Produksi |
 | 7 | Production reports + *Tarif & Selisih* (cost, Driver, rate, standard booked, leftover per cost center per month) |

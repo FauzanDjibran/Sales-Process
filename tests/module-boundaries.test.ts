@@ -147,6 +147,11 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // owns its own tables.
   accCostType: ["src/lib/erp/production-cost.ts", "src/lib/erp/records.ts"],
   accCostCenter: ["src/lib/erp/cost-center.ts", "src/lib/erp/records.ts", "src/lib/erp/journal.ts"],
+  // Standard cost (P160): items and rates are masters the registry writes;
+  // their rules and the rate in force are the standard-cost module's.
+  accStandardCostItem: ["src/lib/erp/standard-cost.ts", "src/lib/erp/records.ts"],
+  accStandardCost: ["src/lib/erp/standard-cost.ts", "src/lib/erp/records.ts"],
+  accStandardCostLine: ["src/lib/erp/standard-cost.ts"],
   prdCostBill: ["src/lib/erp/production-cost-bill.ts"],
   // The production ledger (P150 E2, E3): a book, written only by itself; the
   // production documents call it.

@@ -49,7 +49,7 @@ describe("Jenis Biaya names a cost and its expense account (P154, P156)", () => 
   test("a master under Master › Referensi: label, name and the expense account", () => {
     const e = ENTITIES.find((x) => x.key === "acc_cost_type");
     assert.equal(e?.module, "master");
-    assert.deepEqual(e!.fields.map((x) => x.name), ["cost_type_label", "cost_type_name", "expense_account_id", "status", "note"]);
+    assert.deepEqual(e!.fields.map((x) => x.name), ["cost_type_label", "cost_type_name", "expense_account_id", "standard_cost_item_id", "status", "note"]);
     const account: { required?: boolean; locked?: boolean } | undefined = e!.fields.find((x) => x.name === "expense_account_id");
     assert.equal(account?.required, true);
     assert.equal(account?.locked, true, "fixed once chosen");
@@ -77,7 +77,7 @@ describe("Cost Center is a master the user creates (P154, M83)", () => {
   test("a registry entity under Master › Referensi with its own permissions; the account form asks Require Cost Center", () => {
     const e = ENTITIES.find((x) => x.key === "acc_cost_center");
     assert.equal(e?.module, "master");
-    assert.deepEqual(e!.fields.map((x) => x.name), ["cost_center_label", "cost_center_name", "cost_center_type", "spread_method", "status", "note"]);
+    assert.deepEqual(e!.fields.map((x) => x.name), ["cost_center_label", "cost_center_name", "cost_center_category", "status", "note"]);
     const p = entityPermissions("acc_cost_center");
     for (const code of [p.view, p.create, p.edit, p.activate, p.deactivate]) {
       assert.ok(PERMISSIONS.some((x) => x.code === code), `${code} declared`);

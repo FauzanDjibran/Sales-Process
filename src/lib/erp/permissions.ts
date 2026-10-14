@@ -94,9 +94,6 @@ export const PERMISSIONS = [
   { code: "WORKSTATION_EDIT", name: "Ubah Workstation", module: "master" },
   { code: "WORKSTATION_ACTIVATE", name: "Aktifkan Workstation", module: "master" },
   { code: "WORKSTATION_DEACTIVATE", name: "Nonaktifkan Workstation", module: "master" },
-  { code: "STANDARD_RATE_VIEW", name: "Lihat Tarif Standar", module: "master", description: "Tarif konversi per Driver setiap Workstation." },
-  { code: "STANDARD_RATE_CREATE", name: "Tambah Tarif Standar", module: "master" },
-  { code: "STANDARD_RATE_EDIT", name: "Ubah Tarif Standar", module: "master" },
 
   { code: "WITHHOLDING_TAX_VIEW", name: "Lihat Jenis PPh", module: "master" },
   { code: "WITHHOLDING_TAX_CREATE", name: "Tambah Jenis PPh", module: "master" },
@@ -118,6 +115,11 @@ export const PERMISSIONS = [
   { code: "COST_TYPE_EDIT", name: "Ubah Jenis Biaya", module: "master" },
   { code: "COST_TYPE_ACTIVATE", name: "Aktifkan Jenis Biaya", module: "master" },
   { code: "COST_TYPE_DEACTIVATE", name: "Nonaktifkan Jenis Biaya", module: "master" },
+  { code: "STANDARD_COST_ITEM_VIEW", name: "Lihat Standard Cost Item", module: "master" },
+  { code: "STANDARD_COST_ITEM_CREATE", name: "Tambah Standard Cost Item", module: "master" },
+  { code: "STANDARD_COST_ITEM_EDIT", name: "Ubah Standard Cost Item", module: "master" },
+  { code: "STANDARD_COST_ITEM_ACTIVATE", name: "Aktifkan Standard Cost Item", module: "master" },
+  { code: "STANDARD_COST_ITEM_DEACTIVATE", name: "Nonaktifkan Standard Cost Item", module: "master" },
 
   { code: "PARTNER_CATEGORY_VIEW", name: "Lihat Partner Category", module: "settings" },
   { code: "PARTNER_CATEGORY_CREATE", name: "Tambah Partner Category", module: "settings" },
@@ -219,6 +221,9 @@ export const PERMISSIONS = [
   // routing, and the other way round.
   { code: "MENU_ACCOUNT_MAPPING_ACCESS", name: "Akses menu Account Mapping", module: "accounting" },
   { code: "ACCOUNT_MAPPING_VIEW", name: "Lihat Account Mapping", module: "accounting" },
+  { code: "STANDARD_COST_VIEW", name: "Lihat Standard Cost", module: "accounting", description: "Tarif standar per Driver setiap Workstation per Standard Cost Item." },
+  { code: "STANDARD_COST_CREATE", name: "Tambah Standard Cost", module: "accounting" },
+  { code: "STANDARD_COST_EDIT", name: "Ubah Standard Cost", module: "accounting" },
   {
     code: "ACCOUNT_MAPPING_EDIT",
     name: "Ubah Account Mapping",

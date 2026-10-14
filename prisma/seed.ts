@@ -1042,7 +1042,7 @@ async function ensureStarterReferences(audit: { created_by: number; updated_by: 
   if (!(await prisma.accCostCenter.findFirst({ where: { cost_center_label: { equals: "PRODUKSI", mode: "insensitive" } } }))) {
     const codes = (await prisma.accCostCenter.findMany({ select: { cost_center_code: true } })).map((r) => r.cost_center_code);
     await prisma.accCostCenter.create({
-      data: { cost_center_code: nextCodeAfter("cc", codes), cost_center_label: "PRODUKSI", cost_center_name: "Produksi", cost_center_type: "Production", ...audit },
+      data: { cost_center_code: nextCodeAfter("cc", codes), cost_center_label: "PRODUKSI", cost_center_name: "Produksi", cost_center_category: "Production", ...audit },
     });
     tally("cost centers", 1);
   }

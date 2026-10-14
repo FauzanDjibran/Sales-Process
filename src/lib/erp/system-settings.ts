@@ -146,16 +146,11 @@ export async function checkSystemDefaultValue(
 
   const account = await prisma.accAccount.findUnique({
     where: { id },
-    select: { is_postable: true, is_active: true, require_cost_center: true },
+    select: { is_postable: true, is_active: true },
   });
   if (!account) return "Account tidak ditemukan.";
   if (!account.is_postable) return "Account tersebut bukan account postable.";
   if (!account.is_active) return "Account tersebut non-aktif.";
-  // Absorbed cost is credited per Cost Center, so every Production and
-  // Overhead Cost Center can be brought to 0 by the close (P159, M96).
-  if (key === "production_absorbed_account" && !account.require_cost_center) {
-    return "Account ini harus ditandai Require Cost Center pada Chart of Accounts.";
-  }
   // A parent account is a heading, not a destination — a posting made to one
   // would be money in the chart no leaf accounts for.
   return checkAccountIsLeaf(id);
@@ -312,7 +307,9 @@ export async function settingOptions(
   });
   const out = {} as Record<SystemDefaultKey, RefOption[]>;
   for (const def of SYSTEM_DEFAULTS) {
-    if (def.type !== "ref") {
+    // A setting pointing at another master (the overhead Cost Center, P160)
+    // gets its options from that master's module, composed by the page.
+    if (def.type !== "ref" || def.ref !== "acc_account") {
       out[def.key] = [];
       continue;
     }

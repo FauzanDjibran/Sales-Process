@@ -7,7 +7,8 @@ import { compareCodes } from "./account-code";
 import { cashBankBalanceMap } from "./cash-bank";
 import { journalLineCountForAccount } from "./journal";
 import { type Entity, type Field, entityBySlug } from "./entities";
-import { SPREAD_TARGETS_REF } from "./cost-center-shape";
+import { ITEM_OPTIONS_REF } from "./standard-cost-shape";
+import { standardCostSummaries } from "./standard-cost";
 
 /**
  * Generic record access for registry-driven entities.
@@ -30,7 +31,8 @@ const DELEGATES = {
   ref_withholding_tax: (db: Client) => db.refWithholdingTax,
   ref_permit_type: (db: Client) => db.refPermitType,
   ref_workstation: (db: Client) => db.refWorkstation,
-  ref_workstation_rate: (db: Client) => db.refWorkstationRate,
+  acc_standard_cost_item: (db: Client) => db.accStandardCostItem,
+  acc_standard_cost: (db: Client) => db.accStandardCost,
   acc_cost_center: (db: Client) => db.accCostCenter,
   acc_cost_type: (db: Client) => db.accCostType,
   acc_item_category_account: (db: Client) => db.accItemCategoryAccount,
@@ -130,10 +132,10 @@ export async function refOptions(
     if (field.type !== "ref" || !field.ref) continue;
     result[field.name] = await optionsFor(field.ref, field.refFilter);
   }
-  // An Overhead's Alokasi tab picks Production Cost Centers (P159); the tab
-  // is not a field, so its option set rides under its own key.
-  if (entity.key === "acc_cost_center") {
-    result[SPREAD_TARGETS_REF] = await optionsFor("acc_cost_center", "productionCostCenter");
+  // A Standard Cost.s Item tab picks Standard Cost Items (P160); the tab is
+  // not a field, so its option set rides under its own key.
+  if (entity.key === "acc_standard_cost") {
+    result[ITEM_OPTIONS_REF] = await optionsFor("acc_standard_cost_item");
   }
   return result;
 }
@@ -215,16 +217,25 @@ export async function optionsFor(
         }));
     }
     case "acc_cost_center": {
-      // A Workstation pools only into a Production Cost Center (M93); the
+      // A Workstation pools only into a Produksi Cost Center (M93, P160); the
       // inactive ones stay listed so a record that names one still reads it.
       const rows = await prisma.accCostCenter.findMany({
-        where: filter === "productionCostCenter" ? { cost_center_type: "Production" } : {},
+        where: filter === "productionCostCenter" ? { cost_center_category: "Production" } : {},
         orderBy: { cost_center_label: "asc" },
       });
       return rows.map((r) => ({
         id: r.id,
         label: r.cost_center_label,
         name: r.cost_center_name,
+        active: r.status === "Active",
+      }));
+    }
+    case "acc_standard_cost_item": {
+      const rows = await prisma.accStandardCostItem.findMany({ orderBy: { item_label: "asc" } });
+      return rows.map((r) => ({
+        id: r.id,
+        label: r.item_label,
+        name: r.item_name,
         active: r.status === "Active",
       }));
     }
@@ -525,6 +536,12 @@ export async function computedValues(
         ),
       };
     }
+  }
+
+  // A Standard Cost's rates in one line, so the list says what each sets (P160).
+  if (entity.key === "acc_standard_cost") {
+    const summaries = await standardCostSummaries(rows.map((r) => r.id));
+    for (const r of rows) out[r.id] = { rates: summaries.get(r.id) ?? "" };
   }
 
   if (entity.key === "acc_fiscal_year") {

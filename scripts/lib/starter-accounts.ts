@@ -2,7 +2,8 @@
  * Starter chart of accounts and the account pointers that hang off it
  * (Claude-ERP.md P130): the accounts every posting document needs, under the
  * seeded skeleton, then Account Mapping, the Kategori Item accounts and the
- * Jenis PPh accounts pointed at them.
+ * Jenis PPh accounts pointed at them, and the starter Standard Cost Items and
+ * Jenis Biaya (P154, P160).
  *
  * **Idempotent and additive, never overwriting.** An account is matched on its
  * name (case-insensitive) and created only when missing, with the next free
@@ -82,7 +83,11 @@ export const STARTER_ACCOUNTS: AccountSpec[] = [
   { key: "costDepreciation", sub: "5.1.1", name: "Biaya Penyusutan Mesin & Peralatan", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
   { key: "costMaintenance", sub: "5.1.1", name: "Biaya Pemeliharaan Mesin", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
   { key: "costOverhead", sub: "5.1.1", name: "Biaya Overhead Pabrik Lain-lain", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
-  { key: "costAbsorbed", sub: "5.1.1", name: "Biaya Produksi Dibebankan", normal: "Kredit", control: true, costCenter: true, note: "Biaya konversi yang dibebankan ke produksi (standar dan penutupan bulan), per Cost Center" },
+  // Standard Cost Item accounts (P160): credited when conversion cost is
+  // absorbed into production, with the workstation's Cost Center.
+  { key: "absorbedLabor", sub: "5.1.1", name: "TKL Dibebankan", normal: "Kredit", control: true, costCenter: true, note: "Tenaga kerja langsung yang dibebankan ke produksi (standar dan penutupan bulan)" },
+  { key: "absorbedMachine", sub: "5.1.1", name: "BOP Mesin Dibebankan", normal: "Kredit", control: true, costCenter: true, note: "Overhead mesin yang dibebankan ke produksi (standar dan penutupan bulan)" },
+  { key: "absorbedFactory", sub: "5.1.1", name: "BOP Pabrik Dibebankan", normal: "Kredit", control: true, costCenter: true, note: "Overhead pabrik yang dibebankan ke produksi (standar dan penutupan bulan)" },
   { key: "productionScrap", sub: "5.1.9", name: "Beban Pemusnahan Produksi", normal: "Debit", note: "Nilai barang produksi yang dimusnahkan" },
   { key: "freight", sub: "5.2.1", name: "Beban Pengiriman", normal: "Debit" },
   { key: "bankFee", sub: "5.3.1", name: "Beban Bank", normal: "Debit" },
@@ -115,22 +120,31 @@ export const STARTER_MAPPINGS: [setting: string, account: string][] = [
   ["input_vat_account", "inputVat"],
   ["supplier_invoice_diff_account", "invoiceDiff"],
   ["production_cost_payable_account", "productionCostPayable"],
-  ["production_absorbed_account", "costAbsorbed"],
   ["production_scrap_account", "productionScrap"],
 ];
 
 /**
- * Starter Jenis Biaya (P154, P156): label, name and the expense account it is
- * booked to. Every Tagihan credits Account Mapping's Hutang Biaya Produksi,
- * so a cost that is never paid to a supplier (depreciation) is not a starter
- * Jenis Biaya.
+ * Starter Standard Cost Items (P160, M107): label, name and the account their
+ * absorption credits.
  */
-export const STARTER_COST_TYPES: [label: string, name: string, expense: string][] = [
-  ["UPAH-LANGSUNG", "Upah Tenaga Kerja Langsung", "costDirectLabor"],
-  ["UPAH-TIDAK-LANGSUNG", "Upah Tenaga Kerja Tidak Langsung", "costIndirectLabor"],
-  ["LISTRIK-PABRIK", "Listrik & Utilitas Pabrik", "costUtility"],
-  ["PEMELIHARAAN-MESIN", "Pemeliharaan Mesin", "costMaintenance"],
-  ["OVERHEAD-LAIN", "Overhead Pabrik Lain-lain", "costOverhead"],
+export const STARTER_STANDARD_COST_ITEMS: [label: string, name: string, account: string][] = [
+  ["TKL", "Tenaga Kerja Langsung", "absorbedLabor"],
+  ["BOP-MESIN", "Overhead Mesin", "absorbedMachine"],
+  ["BOP-PABRIK", "Overhead Pabrik", "absorbedFactory"],
+];
+
+/**
+ * Starter Jenis Biaya (P154, P156, P160): label, name, the expense account it
+ * is booked to and the Standard Cost Item it is absorbed under. Every Tagihan
+ * credits Account Mapping's Hutang Biaya Produksi, so a cost that is never
+ * paid to a supplier (depreciation) is not a starter Jenis Biaya.
+ */
+export const STARTER_COST_TYPES: [label: string, name: string, expense: string, item: string][] = [
+  ["UPAH-LANGSUNG", "Upah Tenaga Kerja Langsung", "costDirectLabor", "TKL"],
+  ["UPAH-TIDAK-LANGSUNG", "Upah Tenaga Kerja Tidak Langsung", "costIndirectLabor", "BOP-PABRIK"],
+  ["LISTRIK-PABRIK", "Listrik & Utilitas Pabrik", "costUtility", "BOP-MESIN"],
+  ["PEMELIHARAAN-MESIN", "Pemeliharaan Mesin", "costMaintenance", "BOP-MESIN"],
+  ["OVERHEAD-LAIN", "Overhead Pabrik Lain-lain", "costOverhead", "BOP-PABRIK"],
 ];
 
 /** Jenis PPh label → its account: PPh Dibayar Dimuka for sales, Hutang PPh for purchases (P122). */
@@ -289,18 +303,44 @@ export async function seedStarterAccounts(actor: number): Promise<StarterAccount
     }
   }
 
-  // ---- Jenis Biaya — created only when none has its label.
+  // ---- Standard Cost Items (P160) — created only when none has its label.
+  const itemEntity = ENTITIES.find((x) => x.key === "acc_standard_cost_item");
+  if (!itemEntity) throw new Error("Registry entity acc_standard_cost_item not found");
+  const itemId = new Map<string, number>();
+  for (const [label, name, account] of STARTER_STANDARD_COST_ITEMS) {
+    let row = await prisma.accStandardCostItem.findFirst({ where: { item_label: { equals: label, mode: "insensitive" } } });
+    if (!row) {
+      row = await prisma.accStandardCostItem.create({
+        data: { item_code: await nextCode(itemEntity), item_label: label, item_name: name, account_id: accountId.get(account)!, created_by: actor },
+      });
+      await prisma.auditLog.create({
+        data: { entity_key: "acc_standard_cost_item", row_id: row.id, action: "TAMBAH", event: "create", by: actor },
+      });
+      tally("standard cost items");
+    }
+    itemId.set(label, row.id);
+  }
+
+  // ---- Jenis Biaya — created only when none has its label; an existing one
+  // without a Standard Cost Item (saved before P160) takes the starter's.
   const typeEntity = ENTITIES.find((x) => x.key === "acc_cost_type");
   if (!typeEntity) throw new Error("Registry entity acc_cost_type not found");
-  for (const [label, name, expense] of STARTER_COST_TYPES) {
+  for (const [label, name, expense, item] of STARTER_COST_TYPES) {
     const taken = await prisma.accCostType.findFirst({ where: { cost_type_label: { equals: label, mode: "insensitive" } } });
-    if (taken) continue;
+    if (taken) {
+      if (taken.standard_cost_item_id == null) {
+        await prisma.accCostType.update({ where: { id: taken.id }, data: { standard_cost_item_id: itemId.get(item)!, updated_by: actor } });
+        tally("jenis biaya linked to a standard cost item");
+      }
+      continue;
+    }
     const row = await prisma.accCostType.create({
       data: {
         cost_type_code: await nextCode(typeEntity),
         cost_type_label: label,
         cost_type_name: name,
         expense_account_id: accountId.get(expense)!,
+        standard_cost_item_id: itemId.get(item)!,
         created_by: actor,
       },
     });

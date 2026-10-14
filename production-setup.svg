@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" xml:space="preserve" viewBox="0 0 1280 930" width="1280" height="930" font-family="Plus Jakarta Sans, Segoe UI, Arial, sans-serif">
+  <title>ERP — production setup (showcase, P160)</title>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#475569"/>
+    </marker>
+    <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#15803d"/>
+    </marker>
+    <marker id="v" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#7c3aed"/>
+    </marker>
+    <style>
+      .t { font-size: 13px; fill: #0f172a; }
+      .s { font-size: 11.5px; fill: #334155; }
+      .m { font-size: 11px; fill: #475569; font-family: JetBrains Mono, Consolas, monospace; white-space: pre; }
+      .h { font-size: 12px; font-weight: 700; fill: #0f172a; letter-spacing: .04em; }
+      .b { font-weight: 700; }
+      .band { font-size: 11px; font-weight: 700; fill: #64748b; letter-spacing: .08em; }
+    </style>
+  </defs>
+
+  <rect width="1280" height="930" fill="#ffffff"/>
+  <text x="30" y="38" style="font-size:20px;font-weight:700;fill:#0f172a">Setup Produksi — satu alur, data showcase</text>
+  <text x="30" y="60" class="s">Biaya aktual masuk lewat Tagihan Biaya ke Cost Center; Workstation membebankan standar per Driver; penutupan bulan menyesuaikan ke aktual (P160).</text>
+
+  <!-- ===================== 1. Actual cost ===================== -->
+  <text x="30" y="98" class="band">1 · BIAYA AKTUAL</text>
+  <rect x="30" y="108" width="200" height="120" rx="10" fill="#f8fafc" stroke="#94a3b8"/>
+  <text x="44" y="132" class="h">Tagihan Biaya</text>
+  <text x="44" y="152" class="s">setiap baris memilih</text>
+  <text x="44" y="168" class="s"><tspan class="b">Jenis Biaya</tspan> + <tspan class="b">Cost Center</tspan></text>
+  <text x="44" y="192" class="m">Dr Biaya (Cost Center)</text>
+  <text x="44" y="208" class="m">Cr Hutang Biaya Produksi</text>
+
+  <line x1="230" y1="168" x2="268" y2="168" stroke="#475569" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="270" y="108" width="470" height="120" rx="10" fill="#f8fafc" stroke="#94a3b8"/>
+  <text x="284" y="132" class="h">Jenis Biaya → Standard Cost Item</text>
+  <text x="284" y="154" class="m">UPAH-LANGSUNG        → TKL</text>
+  <text x="284" y="170" class="m">LISTRIK-PABRIK       → BOP-MESIN</text>
+  <text x="284" y="186" class="m">PEMELIHARAAN-MESIN   → BOP-MESIN</text>
+  <text x="284" y="202" class="m">UPAH-TIDAK-LANGSUNG  → BOP-PABRIK</text>
+  <text x="284" y="218" class="m">OVERHEAD-LAIN        → BOP-PABRIK</text>
+  <text x="560" y="154" class="s">biaya aktual setiap Jenis</text>
+  <text x="560" y="170" class="s">Biaya ditutup ke account</text>
+  <text x="560" y="186" class="s">Standard Cost Item-nya</text>
+  <text x="560" y="202" class="s">saat penutupan bulan</text>
+
+  <!-- Standard Cost Items -->
+  <rect x="770" y="108" width="480" height="120" rx="10" fill="#fffbeb" stroke="#d97706"/>
+  <text x="784" y="132" class="h">Standard Cost Item → Account Standard Cost</text>
+  <text x="784" y="156" class="m">TKL          Tenaga Kerja Langsung → TKL Dibebankan</text>
+  <text x="784" y="176" class="m">BOP-MESIN    Overhead Mesin        → BOP Mesin Dibebankan</text>
+  <text x="784" y="196" class="m">BOP-PABRIK   Overhead Pabrik       → BOP Pabrik Dibebankan</text>
+  <text x="784" y="218" class="s">account Kredit, Require Cost Center — item tidak menyebut Cost Center</text>
+
+  <!-- arrow from Tagihan box down to the cost center row -->
+  <path d="M130,228 L130,262 L370,262 L370,296" fill="none" stroke="#475569" stroke-width="1.6" marker-end="url(#a)"/>
+  <text x="140" y="256" class="s">baris Tagihan → Cost Center yang dipilih</text>
+
+  <!-- ===================== 2. Cost Centers ===================== -->
+  <text x="30" y="290" class="band">2 · COST CENTER</text>
+
+  <!-- FOH -->
+  <rect x="30" y="300" width="200" height="104" rx="10" fill="#f5f3ff" stroke="#7c3aed"/>
+  <text x="44" y="324" class="h">FOH · Overhead Pabrik</text>
+  <text x="44" y="344" class="s">Kategori <tspan class="b">Produksi</tspan></text>
+  <text x="44" y="360" class="s">System Default › Produksi ›</text>
+  <text x="44" y="376" class="s"><tspan class="b">Cost Center Overhead</tspan></text>
+  <text x="44" y="394" class="s">tanpa workstation</text>
+
+  <!-- Production cost centers -->
+  <rect x="270" y="300" width="200" height="104" rx="10" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="284" y="324" class="h">CC-MIX · Mixing</text>
+  <text x="284" y="344" class="s">Kategori <tspan class="b">Produksi</tspan></text>
+  <text x="284" y="362" class="s">listrik mixer, operator</text>
+  <text x="284" y="378" class="s">mixing, servis mixer</text>
+
+  <rect x="530" y="300" width="200" height="104" rx="10" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="544" y="324" class="h">CC-FILL · Filling</text>
+  <text x="544" y="344" class="s">Kategori <tspan class="b">Produksi</tspan></text>
+  <text x="544" y="362" class="s">listrik filling, operator</text>
+  <text x="544" y="378" class="s">filling, kalibrasi</text>
+
+  <rect x="790" y="300" width="200" height="104" rx="10" fill="#eff6ff" stroke="#2563eb"/>
+  <text x="804" y="324" class="h">CC-PACK · Packing</text>
+  <text x="804" y="344" class="s">Kategori <tspan class="b">Produksi</tspan></text>
+  <text x="804" y="362" class="s">listrik packing, operator</text>
+  <text x="804" y="378" class="s">packing, conveyor</text>
+
+  <!-- UMUM -->
+  <rect x="1050" y="300" width="200" height="104" rx="10" fill="#f1f5f9" stroke="#94a3b8" stroke-dasharray="5 4"/>
+  <text x="1064" y="324" class="h">UMUM</text>
+  <text x="1064" y="344" class="s">Kategori <tspan class="b">Non-Produksi</tspan></text>
+  <text x="1064" y="362" class="s">tetap beban di Laba Rugi;</text>
+  <text x="1064" y="378" class="s">tidak dibebankan ke produk</text>
+
+  <!-- FOH spread Rata -->
+  <path d="M230,330 L268,330" fill="none" stroke="#7c3aed" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#v)"/>
+  <path d="M130,404 C130,430 500,430 630,406" fill="none" stroke="#7c3aed" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#v)"/>
+  <path d="M130,404 C130,440 760,440 890,406" fill="none" stroke="#7c3aed" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#v)"/>
+  <text x="250" y="468" style="font-size:11.5px;fill:#7c3aed;font-weight:700">penutupan: saldo FOH dialokasikan Rata ke Cost Center Produksi yang berproduksi bulan itu</text>
+
+  <!-- ===================== 3. Workstations ===================== -->
+  <text x="30" y="492" class="band">3 · WORKSTATION · STANDARD COST (Accounting › Pengaturan), Rp per Driver</text>
+
+  <line x1="370" y1="404" x2="370" y2="496" stroke="#2563eb" stroke-width="1.6" marker-end="url(#a)"/>
+  <line x1="630" y1="404" x2="630" y2="496" stroke="#2563eb" stroke-width="1.6" marker-end="url(#a)"/>
+  <line x1="890" y1="404" x2="890" y2="496" stroke="#2563eb" stroke-width="1.6" marker-end="url(#a)"/>
+
+  <rect x="270" y="498" width="200" height="130" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+  <text x="284" y="522" class="h">WS-MIX</text>
+  <text x="284" y="540" class="s">pool: CC-MIX</text>
+  <text x="284" y="562" class="m">TKL          20.000</text>
+  <text x="284" y="578" class="m">BOP-MESIN    15.000</text>
+  <text x="284" y="594" class="m">BOP-PABRIK    5.000</text>
+  <text x="284" y="616" class="s">mulai Januari 2026</text>
+
+  <rect x="530" y="498" width="200" height="130" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+  <text x="544" y="522" class="h">WS-FILL</text>
+  <text x="544" y="540" class="s">pool: CC-FILL</text>
+  <text x="544" y="562" class="m">TKL          25.000</text>
+  <text x="544" y="578" class="m">BOP-MESIN    10.000</text>
+  <text x="544" y="594" class="m">BOP-PABRIK    5.000</text>
+  <text x="544" y="616" class="s">mulai Januari 2026</text>
+
+  <rect x="790" y="498" width="200" height="130" rx="10" fill="#ffffff" stroke="#0f172a" stroke-width="1.4"/>
+  <text x="804" y="522" class="h">WS-PACK</text>
+  <text x="804" y="540" class="s">pool: CC-PACK</text>
+  <text x="804" y="562" class="m">TKL          12.000</text>
+  <text x="804" y="578" class="m">BOP-MESIN     3.000</text>
+  <text x="804" y="594" class="m">BOP-PABRIK    5.000</text>
+  <text x="804" y="616" class="s">mulai Januari 2026</text>
+
+  <!-- ===================== 4. Material flow ===================== -->
+  <rect x="30" y="520" width="200" height="86" rx="10" fill="#f0fdf4" stroke="#15803d"/>
+  <text x="44" y="544" class="h">Gudang</text>
+  <text x="44" y="562" class="s">Stock Issue (per lot)</text>
+  <text x="44" y="580" class="m">Dr WIP</text>
+  <text x="44" y="596" class="m">Cr Persediaan</text>
+
+  <line x1="230" y1="563" x2="268" y2="563" stroke="#15803d" stroke-width="2" marker-end="url(#g)"/>
+  <line x1="470" y1="563" x2="528" y2="563" stroke="#15803d" stroke-width="2" marker-end="url(#g)"/>
+  <text x="478" y="556" style="font-size:10.5px;fill:#15803d;font-weight:700">bulk</text>
+  <line x1="730" y1="563" x2="788" y2="563" stroke="#15803d" stroke-width="2" marker-end="url(#g)"/>
+  <text x="738" y="556" style="font-size:10.5px;fill:#15803d;font-weight:700">isi</text>
+  <line x1="990" y1="563" x2="1048" y2="563" stroke="#15803d" stroke-width="2" marker-end="url(#g)"/>
+
+  <rect x="1050" y="508" width="200" height="110" rx="10" fill="#f0fdf4" stroke="#15803d"/>
+  <text x="1064" y="532" class="h">Barang Jadi</text>
+  <text x="1064" y="550" class="s">Penerimaan Hasil Produksi</text>
+  <text x="1064" y="566" class="s">→ Persediaan (rata-rata)</text>
+  <text x="1064" y="586" class="s">Delivery Note → HPP</text>
+  <text x="1064" y="606" class="s">(Fase 6)</text>
+
+  <text x="270" y="652" class="s">Satu Job No. mengalir WS-MIX → WS-FILL → WS-PACK; nilai lot = bahan + standar yang dibebankan di setiap workstation.</text>
+
+  <!-- ===================== 5. Journals ===================== -->
+  <text x="30" y="694" class="band">4 · JOURNAL</text>
+
+  <rect x="30" y="704" width="600" height="196" rx="10" fill="#fffbeb" stroke="#d97706"/>
+  <text x="46" y="728" class="h">Saat Eksekusi Produksi (Fase 5) — standar</text>
+  <text x="46" y="750" class="s">Driver × tarif setiap item di workstation itu, contoh WS-MIX dengan Driver 10:</text>
+  <text x="46" y="774" class="m">Dr WIP (Kategori Item output)        400.000</text>
+  <text x="46" y="792" class="m">   Cr TKL Dibebankan        · CC-MIX  200.000</text>
+  <text x="46" y="810" class="m">   Cr BOP Mesin Dibebankan  · CC-MIX  150.000</text>
+  <text x="46" y="828" class="m">   Cr BOP Pabrik Dibebankan · CC-MIX   50.000</text>
+  <text x="46" y="852" class="s">Cost Center berasal dari workstation; tanpa Standard Cost atau tarif 0 = tanpa standar</text>
+  <text x="46" y="870" class="s">untuk item itu (penutupan tetap membebankan seluruh biaya aktual).</text>
+
+  <rect x="650" y="704" width="600" height="196" rx="10" fill="#f8fafc" stroke="#475569"/>
+  <text x="666" y="728" class="h">Saat Penutupan Biaya Produksi (Fase 8) — ke aktual</text>
+  <text x="666" y="750" class="s">1. Saldo FOH dialokasikan Rata ke Cost Center Produksi yang berproduksi.</text>
+  <text x="666" y="770" class="s">2. Per Cost Center dan per item: sisa = aktual (Jenis Biaya → item) − standar.</text>
+  <text x="666" y="790" class="s">3. Sisa dibagi ke eksekusi bulan itu menurut Driver dan diikuti</text>
+  <text x="666" y="806" class="s">    ke tempat nilainya sekarang:</text>
+  <text x="666" y="828" class="m">Dr WIP · Persediaan · HPP</text>
+  <text x="666" y="846" class="m">   Cr Account Standard Cost Item · Cost Center</text>
+  <text x="666" y="870" class="s">Hasil: setiap Cost Center Produksi (termasuk FOH) bersaldo 0;</text>
+  <text x="666" y="888" class="s">UMUM (Non-Produksi) tidak disentuh. Tidak ada biaya yang dibawa ke bulan depan.</text>
+</svg>

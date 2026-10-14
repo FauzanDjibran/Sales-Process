@@ -21,7 +21,7 @@ import { cashBankBookSummary } from "@/lib/erp/cash-bank";
 import { partnerCollections } from "@/lib/erp/partner";
 import { itemCollections } from "@/lib/erp/item";
 import { warehouseCollections } from "@/lib/erp/warehouse";
-import { costCenterCollections } from "@/lib/erp/cost-center";
+import { standardCostCollections } from "@/lib/erp/standard-cost";
 import { fiscalYearPeriods } from "@/lib/erp/fiscal";
 import { baseCurrencyId } from "@/lib/erp/system-settings";
 import {
@@ -60,9 +60,9 @@ async function collectionsOf(
     if (id == null) return { locations: [] };
     return warehouseCollections(id);
   }
-  if (entity.key === "acc_cost_center") {
-    if (id == null) return { spreads: [] };
-    return costCenterCollections(id);
+  if (entity.key === "acc_standard_cost") {
+    if (id == null) return { lines: [] };
+    return standardCostCollections(id);
   }
   return undefined;
 }

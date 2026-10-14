@@ -27,10 +27,8 @@ import {
   requireEntity,
 } from "@/lib/erp/records";
 import {
-  systemDefaults,
   systemDefaultsUsingAccount,
 } from "@/lib/erp/system-settings";
-import { refValueOf } from "@/lib/erp/system-defaults";
 import { CUSTOMER_CATEGORY, SUPPLIER_CATEGORY } from "@/lib/erp/entities";
 import {
   checkPartnerCollections,
@@ -51,12 +49,18 @@ import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-
 import { categoriesUsingAccount, categoryAccountKindProblem } from "@/lib/erp/item-account";
 import { costTypesUsingAccount } from "@/lib/erp/production-cost";
 import {
-  checkCostCenter,
-  checkStandardRate,
+  costCenterCategoryProblem,
   costCenterDeactivationRefusal,
   workstationCostCenterProblem,
-  writeCostCenterSpreads,
 } from "@/lib/erp/cost-center";
+import {
+  checkStandardCost,
+  standardCostItemAccountProblem,
+  standardCostItemDeactivationRefusal,
+  standardCostItemProblem,
+  standardCostItemsUsingAccount,
+  writeStandardCostLines,
+} from "@/lib/erp/standard-cost";
 
 /**
  * Every action here is permission-gated before it touches anything, and every
@@ -260,10 +264,6 @@ async function applicableFields(
       if (values.item_type === "Barang") applies.add(field.name);
       continue;
     }
-    if (field.visibleWhen === "costCenterIsOverhead") {
-      if (values.cost_center_type === "Overhead") applies.add(field.name);
-      continue;
-    }
     if (field.visibleWhen === "partnerIsCustomer" || field.visibleWhen === "partnerIsSupplier") {
       const categoryId = refValue(values, "category_id");
       const label = categoryId ? await refLabel("sys_partner_category", categoryId) : null;
@@ -345,8 +345,20 @@ async function validate(
     const problem = await workstationCostCenterProblem(refValue(values, "cost_center_id"));
     if (problem) errors.cost_center_id = problem;
   }
-  if (entity.key === "ref_workstation_rate") {
-    for (const [k, v] of Object.entries(await checkStandardRate(values, currentId))) errors[k] ??= v;
+  // A Cost Center keeps its category once used (P160).
+  if (entity.key === "acc_cost_center" && !errors.cost_center_category) {
+    const problem = await costCenterCategoryProblem(values, currentId);
+    if (problem) errors.cost_center_category = problem;
+  }
+  // A Standard Cost Item credits a Cost Center account, fixed once chosen (M107).
+  if (entity.key === "acc_standard_cost_item" && !currentId && !errors.account_id) {
+    const problem = await standardCostItemAccountProblem(refValue(values, "account_id"));
+    if (problem) errors.account_id = problem;
+  }
+  // A Jenis Biaya is absorbed under an active Standard Cost Item (M108).
+  if (entity.key === "acc_cost_type" && !errors.standard_cost_item_id) {
+    const problem = await standardCostItemProblem(refValue(values, "standard_cost_item_id"));
+    if (problem) errors.standard_cost_item_id = problem;
   }
   if (entity.key === "acc_item_category_account" && !currentId && !errors.account_kind) {
     const categoryId = refValue(values, "category_id");
@@ -560,12 +572,13 @@ async function validateAccount(
     if (before && before.require_cost_center !== wanted) {
       const used = await accountUsage(currentId);
       const types = await costTypesUsingAccount(currentId);
+      const items = await standardCostItemsUsingAccount(currentId);
       if (used.some((u) => u.includes("journal"))) {
         errors.require_cost_center = "Account ini sudah memiliki journal; aturan Cost Center-nya tidak dapat diubah.";
       } else if (!wanted && types.length) {
         errors.require_cost_center = `Account ini dipakai sebagai Account Biaya oleh Jenis Biaya (${types.join(", ")}).`;
-      } else if (!wanted && (await absorbedAccountId()) === currentId) {
-        errors.require_cost_center = "Account ini dipakai Account Mapping sebagai Account Biaya Produksi Dibebankan.";
+      } else if (!wanted && items.length) {
+        errors.require_cost_center = `Account ini dipakai sebagai Account Standard Cost oleh Standard Cost Item (${items.join(", ")}).`;
       }
     }
   }
@@ -634,11 +647,11 @@ async function ownCollections(
     Object.assign(errors, checked.errors);
     return (tx, recordId, actorId) => writeWarehouseCollections(tx, recordId, checked.clean, actorId);
   }
-  // An Overhead Cost Center's spread (P159); any other keeps no rows.
-  if (entity.key === "acc_cost_center") {
-    const checked = await checkCostCenter(values, id);
+  // A Standard Cost.s lines (P160).
+  if (entity.key === "acc_standard_cost") {
+    const checked = await checkStandardCost(values, id);
     for (const [k, v] of Object.entries(checked.errors)) errors[k] ??= v;
-    return (tx, recordId, actorId) => writeCostCenterSpreads(tx, recordId, checked.clean, actorId);
+    return (tx, recordId, actorId) => writeStandardCostLines(tx, recordId, checked.clean, actorId);
   }
   return null;
 }
@@ -823,6 +836,10 @@ export async function toggleStatus(
     const refusal = await costCenterDeactivationRefusal(id);
     if (refusal) return { ok: false, message: refusal };
   }
+  if (entity.key === "acc_standard_cost_item" && !nextActive) {
+    const refusal = await standardCostItemDeactivationRefusal(id);
+    if (refusal) return { ok: false, message: refusal };
+  }
 
   // Deactivating an account that a Cash & Bank resource or a Jenis PPh posts
   // to would leave it pointing at an account it could no longer have chosen.
@@ -830,6 +847,10 @@ export async function toggleStatus(
     const named = await costTypesUsingAccount(id);
     if (named.length) {
       return { ok: false, message: `Account ini dipakai Jenis Biaya (${named.join(", ")}) dan tidak dapat dinonaktifkan.` };
+    }
+    const items = await standardCostItemsUsingAccount(id);
+    if (items.length) {
+      return { ok: false, message: `Account ini dipakai Standard Cost Item (${items.join(", ")}) dan tidak dapat dinonaktifkan.` };
     }
     const taxes = await prisma.refWithholdingTax.findMany({
       where: { account_id: id },
@@ -887,9 +908,4 @@ export async function toggleStatus(
   revalidatePath(`/${entity.module}/${entity.slug}/${id}`);
   revalidatePath("/dashboard");
   return { ok: true, active: nextActive };
-}
-
-/** The account Account Mapping names as Biaya Produksi Dibebankan, or null (P159). */
-async function absorbedAccountId(): Promise<number | null> {
-  return refValueOf(await systemDefaults(), "production_absorbed_account");
 }

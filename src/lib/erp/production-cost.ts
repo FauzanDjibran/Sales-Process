@@ -6,7 +6,8 @@ import { Prisma } from "@/generated/prisma/client";
 /**
  * Jenis Biaya (P154, `production_project.md` §21e M75, M84; was Elemen Biaya
  * Produksi, M53) — the master a Tagihan Biaya line picks instead of an
- * account. Each names only the **expense account** its cost is booked to; the
+ * account. Each names the **expense account** its cost is booked to, and the
+ * Standard Cost Item it is absorbed under at the close (P160, M108); the
  * credit side of every Tagihan is Account Mapping's *Hutang Biaya Produksi*
  * (P156).
  *
@@ -62,5 +63,11 @@ export async function costTypeOptions(db: Db = prisma): Promise<CostTypeInfo[]> 
 /** The Jenis Biaya booking to this account — read before the account is deactivated or loses its Cost Center rule. */
 export async function costTypesUsingAccount(accountId: number, db: Db = prisma): Promise<string[]> {
   const rows = await db.accCostType.findMany({ where: { expense_account_id: accountId }, select: { cost_type_label: true } });
+  return rows.map((r) => r.cost_type_label);
+}
+
+/** The Jenis Biaya absorbed under a Standard Cost Item (P160, M108), by label. */
+export async function costTypesUsingStandardCostItem(itemId: number, db: Db = prisma): Promise<string[]> {
+  const rows = await db.accCostType.findMany({ where: { standard_cost_item_id: itemId, status: "Active" }, select: { cost_type_label: true } });
   return rows.map((r) => r.cost_type_label);
 }

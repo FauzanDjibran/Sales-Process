@@ -16,6 +16,7 @@ import {
   checkSystemDefaultValue,
   writeSystemDefaults,
 } from "@/lib/erp/system-settings";
+import { overheadCostCenterProblem } from "@/lib/erp/cost-center";
 
 /**
  * The one write path for both settings pages (P61): System Default and
@@ -82,7 +83,8 @@ export async function saveSystemDefaults(
     // An account-valued setting is checked here as well as when it is read:
     // it decides which account a posting lands in, so storing one that could
     // not take a posting would be storing a fault.
-    const refused = await checkSystemDefaultValue(key, n);
+    // The overhead is a Cost Center, checked by its own module (P160).
+    const refused = def.ref === "acc_cost_center" ? await overheadCostCenterProblem(n) : await checkSystemDefaultValue(key, n);
     if (refused) {
       errors[key] = refused;
       continue;

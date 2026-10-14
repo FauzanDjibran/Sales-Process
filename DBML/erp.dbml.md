@@ -287,8 +287,9 @@ table acc_item_category_account {
 }
 
 // Jenis Biaya (P154; was Elemen Biaya Produksi, M53): a cost the user names, pointing to the expense
-// account it is booked to, fixed once chosen; the credit side of every Tagihan is Account
-// Mapping's Hutang Biaya Produksi (P156)
+// account it is booked to, fixed once chosen, and the Standard Cost Item it is absorbed under at
+// the close (P160, M108); the credit side of every Tagihan is Account Mapping's Hutang Biaya
+// Produksi (P156)
 table acc_cost_type {
   id                          int [pk, increment, not null]
 
@@ -297,6 +298,7 @@ table acc_cost_type {
   cost_type_label             varchar [not null]
   cost_type_name              varchar [not null]
   expense_account_id          int [not null, ref : > acc_account.id] // requires a Cost Center
+  standard_cost_item_id       int [ref : > acc_standard_cost_item.id] // required by the form; null only before P160
 
   note                        varchar
 
@@ -310,22 +312,21 @@ table acc_cost_type {
 
   indexes {
     expense_account_id
+    standard_cost_item_id
   }
 }
 
-// Cost Center (P154): where a cost was incurred — a tag on the journal line beside the account and
-// the Partner. Its type says what the month-end close does with its balance (P159, M93):
-// Production is a workstation's pool, Overhead is spread over the Production ones, Administrative
-// is never absorbed. The type is fixed once a journal line, workstation or spread names it.
-table acc_cost_center {
+// Standard Cost Item (P160, M107): a conversion cost absorbed into production at a standard rate —
+// TKL, BOP Mesin, BOP Pabrik — and the account its absorption credits (Require Cost Center, fixed
+// once chosen). It names no Cost Center: the posting takes the workstation's.
+table acc_standard_cost_item {
   id                          int [pk, increment, not null]
 
-  cost_center_code            varchar [not null, unique]
+  item_code                   varchar [not null, unique] // sci.NNNN
 
-  cost_center_label           varchar [not null]
-  cost_center_name            varchar [not null]
-  cost_center_type            enum('Production', 'Overhead', 'Administrative') [not null, default: 'Production']
-  spread_method               enum('Even', 'Percent') // Overhead only: Rata, or its acc_cost_center_spread rows
+  item_label                  varchar [not null]
+  item_name                   varchar [not null]
+  account_id                  int [not null, ref : > acc_account.id] // Account Standard Cost
 
   note                        varchar
 
@@ -336,16 +337,24 @@ table acc_cost_center {
 
   created_at                  timestamptz [not null, default: `now()`]
   updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    account_id
+  }
 }
 
-// An Overhead Cost Center spread by Persentase (P159): one row per Production Cost Center it goes
-// to; the rows add up to exactly 100. Saved with the Overhead Cost Center.
-table acc_cost_center_spread {
+// Standard Cost (P160, M109): a workstation's standard rates from a fiscal period on; the entry in
+// force for a period is the latest starting on or before it. Never deleted; a closed period takes
+// no entry. Accounting › Pengaturan.
+table acc_standard_cost {
   id                          int [pk, increment, not null]
 
-  overhead_cost_center_id     int [not null, ref : > acc_cost_center.id]
-  production_cost_center_id   int [not null, ref : > acc_cost_center.id]
-  percent                     decimal(9,4) [not null, note: 'CHECK > 0 AND <= 100']
+  standard_cost_code          varchar [not null, unique] // stc.NNNN
+
+  workstation_id              int [not null, ref : > ref_workstation.id]
+  effective_period_id         int [not null, ref : > acc_fiscal_period.id] // Berlaku Mulai
+
+  note                        varchar
 
   created_by                  int [not null]
   updated_by                  int
@@ -354,9 +363,53 @@ table acc_cost_center_spread {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
-    (overhead_cost_center_id, production_cost_center_id) [unique]
-    production_cost_center_id
+    (workstation_id, effective_period_id) [unique]
+    effective_period_id
   }
+}
+
+// One Standard Cost Item's rate per Driver on a Standard Cost; 0 = no standard for that item
+table acc_standard_cost_line {
+  id                          int [pk, increment, not null]
+
+  standard_cost_id            int [not null, ref : > acc_standard_cost.id]
+  item_id                     int [not null, ref : > acc_standard_cost_item.id]
+  rate                        decimal(18,6) [not null, note: 'Rp per Driver; CHECK >= 0']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (standard_cost_id, item_id) [unique]
+    item_id
+  }
+}
+
+// Cost Center (P154): where a cost was incurred — a tag on the journal line beside the account and
+// the Partner. An entity with a category only (P160, M110): a Produksi one may be a workstation's
+// pool or the overhead System Default names (production_overhead_cost_center, spread Rata); a
+// Non-Produksi one is never absorbed. The category is fixed once something names it.
+table acc_cost_center {
+  id                          int [pk, increment, not null]
+
+  cost_center_code            varchar [not null, unique]
+
+  cost_center_label           varchar [not null]
+  cost_center_name            varchar [not null]
+  cost_center_category        enum('Production', 'NonProduction') [not null, default: 'Production']
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
 }
 
 // Indonesia's provinsi → kota/kabupaten → kecamatan → kelurahan/desa, seeded from
@@ -557,7 +610,8 @@ table ref_warehouse {
 }
 
 // Workstation (P150): where production transforms input into output; user master data. It pools
-// its cost into one Production Cost Center (P159, M93) — one per station, one for all, or any mix
+// its cost into one Produksi Cost Center that is not the overhead (P159, P160) — one per station,
+// one for all, or any mix; its standard rates are acc_standard_cost
 table ref_workstation {
   id                          int [pk, increment, not null]
 
@@ -566,7 +620,7 @@ table ref_workstation {
   workstation_label           varchar [not null]
   workstation_name            varchar [not null]
 
-  cost_center_id              int [not null, ref : > acc_cost_center.id] // an active Production Cost Center
+  cost_center_id              int [not null, ref : > acc_cost_center.id] // an active Produksi Cost Center
 
   note                        varchar
 
@@ -580,32 +634,6 @@ table ref_workstation {
 
   indexes {
     cost_center_id
-  }
-}
-
-// Tarif Standar (P159, M94 amended): a workstation's conversion rate per Driver from a fiscal period
-// on; the latest row on or before a period applies, none or 0 = no standard. Driver is a bare
-// number whose meaning the workstation implies. Never deleted; a closed period takes no row.
-table ref_workstation_rate {
-  id                          int [pk, increment, not null]
-
-  rate_code                   varchar [not null, unique] // tsr.NNNN
-
-  workstation_id              int [not null, ref : > ref_workstation.id]
-  effective_period_id         int [not null, ref : > acc_fiscal_period.id] // Berlaku Mulai
-  rate                        decimal(18,6) [not null, note: 'Rp per Driver; CHECK >= 0']
-
-  note                        varchar
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    (workstation_id, effective_period_id) [unique]
-    effective_period_id
   }
 }
 

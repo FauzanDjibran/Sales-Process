@@ -2,6 +2,8 @@ import { SystemDefaultForm } from "@/components/settings/system-default-form";
 import { actorCan } from "@/lib/erp/access";
 import { requirePermission } from "@/lib/erp/auth";
 import { baseCurrency, settingOptions, systemDefaults } from "@/lib/erp/system-settings";
+import { costCentersByIds, overheadCostCenterOptions } from "@/lib/erp/cost-center";
+import { refValueOf } from "@/lib/erp/system-defaults";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +19,12 @@ export default async function SystemDefaultPage() {
   await requirePermission("MENU_SYSTEM_DEFAULT_ACCESS", "/settings/system-default");
   const actor = await requirePermission("SYSTEM_DEFAULT_VIEW", "/settings/system-default");
   const values = await systemDefaults();
-  const [options, base] = await Promise.all([settingOptions(values), baseCurrency()]);
+  const [options, base, overheadOptions] = await Promise.all([settingOptions(values), baseCurrency(), overheadCostCenterOptions()]);
+  // The overhead Cost Center (P160) is offered from its own module; the one
+  // chosen stays listed even if it no longer qualifies, so the page reads it.
+  const chosen = refValueOf(values, "production_overhead_cost_center");
+  const current = chosen && !overheadOptions.some((o) => o.id === chosen) ? [...(await costCentersByIds([chosen])).values()] : [];
+  options.production_overhead_cost_center = [...overheadOptions, ...current];
   return (
     <SystemDefaultForm
       page="default"

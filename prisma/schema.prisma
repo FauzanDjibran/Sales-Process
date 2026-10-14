@@ -702,7 +702,7 @@ model RefWarehouse {
 /// Workstation — a place where production transforms input into output
 /// (P150). Created by the user, never hard-coded. It names the Production
 /// Cost Center its cost is pooled into (P159, M93) — one per station, one for
-/// all, or any mix — and its standard rate lives on `ref_workstation_rate`.
+/// all, or any mix — and its standard rates live on `acc_standard_cost` (P160).
 /// Never deleted; deactivated instead.
 model RefWorkstation {
   id                Int          @id @default(autoincrement())
@@ -718,41 +718,14 @@ model RefWorkstation {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  cost_center  AccCostCenter        @relation(fields: [cost_center_id], references: [id])
-  prd_balances PrdBalance[]         @relation("PrdBalanceWorkstation")
-  prd_ledger   PrdLedger[]          @relation("PrdLedgerWorkstation")
-  stock_issues LogStockIssue[]
-  rates        RefWorkstationRate[]
+  cost_center    AccCostCenter     @relation(fields: [cost_center_id], references: [id])
+  prd_balances   PrdBalance[]      @relation("PrdBalanceWorkstation")
+  prd_ledger     PrdLedger[]       @relation("PrdLedgerWorkstation")
+  stock_issues   LogStockIssue[]
+  standard_costs AccStandardCost[]
 
   @@index([cost_center_id])
   @@map("ref_workstation")
-}
-
-/// Tarif Standar (P159, M94 amended): a workstation's conversion rate per
-/// Driver from a fiscal period on. The rate of a period is the latest row
-/// starting on or before it; none or 0 means no standard. Driver is a bare
-/// number whose meaning the workstation implies (M95 amended). One row per
-/// workstation per period; never deleted — a later row replaces it, a rate
-/// of 0 stops the standard.
-model RefWorkstationRate {
-  id                  Int     @id @default(autoincrement())
-  rate_code           String  @unique
-  workstation_id      Int
-  effective_period_id Int
-  rate                Decimal @db.Decimal(18, 6)
-  note                String?
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  workstation      RefWorkstation  @relation(fields: [workstation_id], references: [id])
-  effective_period AccFiscalPeriod @relation(fields: [effective_period_id], references: [id])
-
-  @@unique([workstation_id, effective_period_id])
-  @@index([effective_period_id])
-  @@map("ref_workstation_rate")
 }
 
 /// A place inside a warehouse that keeps stock by location (Gunakan Lokasi).
@@ -1322,6 +1295,7 @@ model AccAccount {
   withholding_taxes     RefWithholdingTax[]
   category_accounts     AccItemCategoryAccount[] @relation("CategoryAccount")
   cost_types_expense    AccCostType[]            @relation("CostTypeExpense")
+  standard_cost_items   AccStandardCostItem[]    @relation("StandardCostItemAccount")
   production_cost_bills PrdCostBill[]            @relation("CostBillPayable")
 
   @@unique([account_label])
@@ -1335,43 +1309,118 @@ model AccAccount {
 /// credit side is not its own: every Tagihan credits Account Mapping's
 /// *Hutang Biaya Produksi* (P156, back to P151). The account is fixed once chosen.
 model AccCostType {
-  id                 Int          @id @default(autoincrement())
-  cost_type_code     String       @unique
-  cost_type_label    String
-  cost_type_name     String
-  expense_account_id Int
-  note               String?
-  status             ActiveStatus @default(Active)
+  id                    Int          @id @default(autoincrement())
+  cost_type_code        String       @unique
+  cost_type_label       String
+  cost_type_name        String
+  expense_account_id    Int
+  /// The Standard Cost Item this actual cost is absorbed under (P160, M108):
+  /// the month-end close credits that item's account with its leftover.
+  /// Required by the form; null only on a row saved before P160.
+  standard_cost_item_id Int?
+  note                  String?
+  status                ActiveStatus @default(Active)
 
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  expense_account AccAccount        @relation("CostTypeExpense", fields: [expense_account_id], references: [id])
-  bill_lines      PrdCostBillLine[]
+  expense_account    AccAccount           @relation("CostTypeExpense", fields: [expense_account_id], references: [id])
+  standard_cost_item AccStandardCostItem? @relation(fields: [standard_cost_item_id], references: [id])
+  bill_lines         PrdCostBillLine[]
 
   @@index([expense_account_id])
+  @@index([standard_cost_item_id])
   @@map("acc_cost_type")
+}
+
+/// Standard Cost Item (P160, M107): a conversion cost absorbed into
+/// production at a standard rate — TKL, BOP Mesin, BOP Pabrik — and the
+/// account its absorption credits (a Require Cost Center account, fixed once
+/// chosen). It names no Cost Center: the posting takes the workstation's.
+/// SAP's activity type, D365's and NetSuite's cost category.
+model AccStandardCostItem {
+  id         Int          @id @default(autoincrement())
+  item_code  String       @unique
+  item_label String
+  item_name  String
+  account_id Int
+  note       String?
+  status     ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  account    AccAccount            @relation("StandardCostItemAccount", fields: [account_id], references: [id])
+  cost_types AccCostType[]
+  lines      AccStandardCostLine[]
+
+  @@index([account_id])
+  @@map("acc_standard_cost_item")
+}
+
+/// Standard Cost (P160, M109): a workstation's standard rates from a fiscal
+/// period on — one line per Standard Cost Item, Rp per Driver. The entry in
+/// force for a period is the latest starting on or before it; an item it
+/// does not list, or lists at 0, has no standard there. Never deleted.
+model AccStandardCost {
+  id                  Int     @id @default(autoincrement())
+  standard_cost_code  String  @unique
+  workstation_id      Int
+  effective_period_id Int
+  note                String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  workstation      RefWorkstation        @relation(fields: [workstation_id], references: [id])
+  effective_period AccFiscalPeriod       @relation(fields: [effective_period_id], references: [id])
+  lines            AccStandardCostLine[]
+
+  @@unique([workstation_id, effective_period_id])
+  @@index([effective_period_id])
+  @@map("acc_standard_cost")
+}
+
+/// One Standard Cost Item's rate on a Standard Cost, saved with it.
+model AccStandardCostLine {
+  id               Int     @id @default(autoincrement())
+  standard_cost_id Int
+  item_id          Int
+  rate             Decimal @db.Decimal(18, 6)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  standard_cost AccStandardCost     @relation(fields: [standard_cost_id], references: [id])
+  item          AccStandardCostItem @relation(fields: [item_id], references: [id])
+
+  @@unique([standard_cost_id, item_id])
+  @@index([item_id])
+  @@map("acc_standard_cost_line")
 }
 
 /// Cost Center (P154): where a cost was incurred — a tag on the journal line
 /// beside the account (what) and the Partner (who), as SAP's cost center,
-/// Odoo's analytic account or NetSuite's department. Its type says what the
-/// month-end close does with its balance (P159, M93): a Production one is the
-/// pool its workstations absorb; an Overhead one is spread over the Production
-/// ones by `spread_method`; an Administrative one is never absorbed.
+/// Odoo's analytic account or NetSuite's department. An entity with a
+/// category only (P160, M110): a Produksi one may be a workstation's pool or
+/// the overhead System Default names; a Non-Produksi one is never absorbed.
+/// What role a Cost Center plays in costing is a setting, not its type.
 model AccCostCenter {
-  id                Int                     @id @default(autoincrement())
-  cost_center_code  String                  @unique
-  cost_center_label String
-  cost_center_name  String
-  cost_center_type  CostCenterType          @default(Production)
-  /// Overhead only: Even (Rata — evenly over the active Production cost
-  /// centers at the close) or Percent (its `acc_cost_center_spread` rows).
-  spread_method     CostCenterSpreadMethod?
-  note              String?
-  status            ActiveStatus            @default(Active)
+  id                   Int                @id @default(autoincrement())
+  cost_center_code     String             @unique
+  cost_center_label    String
+  cost_center_name     String
+  cost_center_category CostCenterCategory @default(Production)
+  note                 String?
+  status               ActiveStatus       @default(Active)
 
   created_by Int
   updated_by Int?
@@ -1381,45 +1430,14 @@ model AccCostCenter {
   journal_lines AccJournalLine[]
   bill_lines    PrdCostBillLine[]
   workstations  RefWorkstation[]
-  spreads       AccCostCenterSpread[] @relation("SpreadFrom")
-  spread_into   AccCostCenterSpread[] @relation("SpreadTo")
 
   @@map("acc_cost_center")
 }
 
-/// What a Cost Center serves (P154, P159).
-enum CostCenterType {
+/// Whether a Cost Center's cost belongs to production (P160, M110).
+enum CostCenterCategory {
   Production
-  Overhead
-  Administrative
-}
-
-/// How an Overhead Cost Center is spread over the Production ones (P159).
-enum CostCenterSpreadMethod {
-  Even
-  Percent
-}
-
-/// One share of an Overhead Cost Center spread by Persentase (P159): the
-/// Production Cost Center it goes to and its percent. Saved with the Overhead
-/// Cost Center; its rows add up to exactly 100.
-model AccCostCenterSpread {
-  id                        Int     @id @default(autoincrement())
-  overhead_cost_center_id   Int
-  production_cost_center_id Int
-  percent                   Decimal @db.Decimal(9, 4)
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  overhead   AccCostCenter @relation("SpreadFrom", fields: [overhead_cost_center_id], references: [id])
-  production AccCostCenter @relation("SpreadTo", fields: [production_cost_center_id], references: [id])
-
-  @@unique([overhead_cost_center_id, production_cost_center_id])
-  @@index([production_cost_center_id])
-  @@map("acc_cost_center_spread")
+  NonProduction
 }
 
 model AccFiscalYear {
@@ -1466,8 +1484,8 @@ model AccFiscalPeriod {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  fiscal_year       AccFiscalYear        @relation(fields: [fiscal_year_id], references: [id])
-  workstation_rates RefWorkstationRate[]
+  fiscal_year    AccFiscalYear     @relation(fields: [fiscal_year_id], references: [id])
+  standard_costs AccStandardCost[]
 
   @@index([fiscal_year_id])
   @@map("acc_fiscal_period")

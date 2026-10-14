@@ -47,13 +47,13 @@ export type SystemDefaultKey =
   | "supplier_invoice_tolerance"
   | "production_scrap_account"
   | "production_cost_payable_account"
-  | "production_absorbed_account"
+  | "production_overhead_cost_center"
   | "ppn_rate"
   | "ppn_dpp_other_numerator"
   | "ppn_dpp_other_denominator";
 
 /** Which master a `ref` setting points at — a registry entity key. */
-export type SystemDefaultRef = "acc_account";
+export type SystemDefaultRef = "acc_account" | "acc_cost_center";
 
 /** The page a setting is edited on. */
 export type SettingsPage = "default" | "account";
@@ -62,6 +62,7 @@ export type SystemDefaultGroupKey =
   | "application"
   | "tax"
   | "purchase_rules"
+  | "production_rules"
   | "receipt"
   | "invoice"
   | "permit"
@@ -110,6 +111,16 @@ export const SYSTEM_DEFAULT_GROUPS = [
       "Account Selisih Tagihan Supplier; di atasnya Invoice Pembelian tidak dapat " +
       "diposting.",
     icon: "box",
+  },
+  {
+    key: "production_rules",
+    page: "default",
+    name: "Produksi",
+    desc:
+      "Cost Center yang menampung overhead pabrik — biaya yang melayani seluruh " +
+      "produksi. Saat penutupan bulan saldonya dialokasikan rata ke Cost Center " +
+      "Produksi yang menjalankan Eksekusi Produksi pada bulan itu.",
+    icon: "gear",
   },
   {
     key: "receipt",
@@ -169,9 +180,9 @@ export const SYSTEM_DEFAULT_GROUPS = [
     page: "account",
     name: "Produksi",
     desc:
-      "Hutang atas setiap Tagihan Biaya, lawan biaya yang dibebankan ke " +
-      "produksi per Cost Center, dan beban atas barang yang dimusnahkan. WIP " +
-      "tidak memiliki cadangan di sini: setiap Kategori Item yang masuk " +
+      "Hutang atas setiap Tagihan Biaya dan beban atas barang yang dimusnahkan. " +
+      "Biaya yang dibebankan ke produksi memakai account setiap Standard Cost " +
+      "Item. WIP tidak memiliki cadangan di sini: setiap Kategori Item yang masuk " +
       "produksi harus menentukan Account WIP-nya sendiri.",
     icon: "gear",
   },
@@ -441,6 +452,17 @@ export const SYSTEM_DEFAULTS = [
   // Kategori Item's own, and a document refuses an item whose category names
   // none, rather than send it somewhere generic.
   {
+    // The one overhead (P160, M110): a Produksi Cost Center no workstation
+    // pools into, spread Rata over those that ran executions in the month.
+    key: "production_overhead_cost_center",
+    name: "Cost Center Overhead",
+    icon: "layers",
+    type: "ref",
+    ref: "acc_cost_center",
+    group: "production_rules",
+    help: "Cost Center Produksi tanpa workstation; saldonya dialokasikan rata ke Cost Center Produksi yang berproduksi",
+  },
+  {
     key: "production_cost_payable_account",
     name: "Account Hutang Biaya Produksi",
     icon: "wallet",
@@ -448,17 +470,6 @@ export const SYSTEM_DEFAULTS = [
     ref: "acc_account",
     group: "production",
     help: "sisi kredit setiap Tagihan Biaya; dilunasi oleh Pembayaran Biaya Produksi",
-  },
-  {
-    // The credit side of the standard an Eksekusi Produksi books (P159, M92)
-    // and of the month-end close, per Cost Center: it requires one.
-    key: "production_absorbed_account",
-    name: "Account Biaya Produksi Dibebankan",
-    icon: "layers",
-    type: "ref",
-    ref: "acc_account",
-    group: "production",
-    help: "dikredit saat biaya dibebankan ke produksi, per Cost Center; wajib Require Cost Center",
   },
   {
     key: "production_scrap_account",
@@ -540,7 +551,7 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   supplier_invoice_tolerance: null,
   production_scrap_account: null,
   production_cost_payable_account: null,
-  production_absorbed_account: null,
+  production_overhead_cost_center: null,
   ppn_rate: null,
   ppn_dpp_other_numerator: null,
   ppn_dpp_other_denominator: null,

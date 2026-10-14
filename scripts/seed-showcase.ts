@@ -17,7 +17,7 @@
  *   suppliers with purchase defaults, and what the company buys: raw and
  *   packaging materials by lot, a consumable without stock, two services;
  *   the suppliers that bill production cost (PLN, water, outsourced labour,
- *   waste), three workstations each with its own Cost Center and Tarif
+ *   waste), three workstations each with its own Cost Center and Standard
  *   Standar, and FOH spread over them (P150, P159)
  *   opening stock of the finished goods, two lots per item per warehouse
  *
@@ -244,29 +244,28 @@ const SUPPLIERS: CustomerSpec[] = [
 ];
 
 /**
- * Cost Centers (P159): a Production pool per station — any of them can later
- * be pointed at a shared one — and the factory-wide FOH, spread over them.
+ * Cost Centers (P160): a Produksi pool per station — any of them can later be
+ * pointed at a shared one — FOH, the factory overhead System Default names,
+ * spread Rata over them at the close, and UMUM, never absorbed.
  */
-const COST_CENTERS: [label: string, name: string, type: "Production" | "Overhead"][] = [
+const COST_CENTERS: [label: string, name: string, category: "Production" | "NonProduction"][] = [
   ["CC-MIX", "Mixing", "Production"],
   ["CC-FILL", "Filling", "Production"],
   ["CC-PACK", "Packing", "Production"],
-  ["FOH", "Overhead Pabrik", "Overhead"],
+  ["FOH", "Overhead Pabrik", "Production"],
+  ["UMUM", "Umum & Administrasi", "NonProduction"],
 ];
-const FOH_SPREAD: [costCenter: string, percent: number][] = [
-  ["CC-MIX", 50],
-  ["CC-FILL", 30],
-  ["CC-PACK", 20],
-];
+const OVERHEAD_COST_CENTER = "FOH";
 
 /**
  * Workstations (P150 Phase 1): the production stations of the demo plant,
- * each with its Cost Center and its Tarif Standar per Driver (P159).
+ * each with its Cost Center and its Standard Cost from January, Rp per Driver
+ * per Standard Cost Item (P160).
  */
-const WORKSTATIONS: [label: string, name: string, note: string, costCenter: string, rate: number][] = [
-  ["WS-MIX", "Mixing", "Pencampuran bahan baku menjadi bulk", "CC-MIX", 25_000],
-  ["WS-FILL", "Filling", "Pengisian bulk ke botol, tube dan jar", "CC-FILL", 40_000],
-  ["WS-PACK", "Packing", "Pelabelan, kemas sekunder dan karton", "CC-PACK", 15_000],
+const WORKSTATIONS: [label: string, name: string, note: string, costCenter: string, rates: [item: string, rate: number][]][] = [
+  ["WS-MIX", "Mixing", "Pencampuran bahan baku menjadi bulk", "CC-MIX", [["TKL", 20_000], ["BOP-MESIN", 15_000], ["BOP-PABRIK", 5_000]]],
+  ["WS-FILL", "Filling", "Pengisian bulk ke botol, tube dan jar", "CC-FILL", [["TKL", 25_000], ["BOP-MESIN", 10_000], ["BOP-PABRIK", 5_000]]],
+  ["WS-PACK", "Packing", "Pelabelan, kemas sekunder dan karton", "CC-PACK", [["TKL", 12_000], ["BOP-MESIN", 3_000], ["BOP-PABRIK", 5_000]]],
 ];
 
 type PurchaseItemSpec = {
@@ -383,10 +382,9 @@ async function main() {
     tally("gudang");
   }
 
-  // ---- Cost Centers (P159): one Production pool per station, and FOH
-  // spread over them by Persentase
+  // ---- Cost Centers (P160): one Produksi pool per station, FOH, and UMUM
   const costCenterId = new Map<string, number>();
-  for (const [label, name, type] of COST_CENTERS) {
+  for (const [label, name, category] of COST_CENTERS) {
     let row = await prisma.accCostCenter.findFirst({ where: { cost_center_label: { equals: label, mode: "insensitive" } } });
     if (!row) {
       row = await prisma.accCostCenter.create({
@@ -394,8 +392,7 @@ async function main() {
           cost_center_code: await nextCode(entity("acc_cost_center")),
           cost_center_label: label,
           cost_center_name: name,
-          cost_center_type: type,
-          spread_method: type === "Overhead" ? "Percent" : null,
+          cost_center_category: category,
           created_by: actor,
         },
       });
@@ -404,14 +401,15 @@ async function main() {
     }
     costCenterId.set(label, row.id);
   }
-  const foh = costCenterId.get("FOH")!;
-  if (!(await prisma.accCostCenterSpread.count({ where: { overhead_cost_center_id: foh } }))) {
-    for (const [label, percent] of FOH_SPREAD) {
-      await prisma.accCostCenterSpread.create({
-        data: { overhead_cost_center_id: foh, production_cost_center_id: costCenterId.get(label)!, percent, created_by: actor },
-      });
-    }
-    tally("foh spread");
+  // FOH is the overhead, only where System Default names none yet.
+  const overheadSetting = await prisma.sysSetting.findUnique({ where: { setting_key: "production_overhead_cost_center" } });
+  if (!overheadSetting?.setting_value) {
+    await prisma.sysSetting.upsert({
+      where: { setting_key: "production_overhead_cost_center" },
+      update: { setting_value: String(costCenterId.get(OVERHEAD_COST_CENTER)), updated_by: actor },
+      create: { setting_key: "production_overhead_cost_center", setting_value: String(costCenterId.get(OVERHEAD_COST_CENTER)), updated_by: actor },
+    });
+    tally("overhead cost center setting");
   }
 
   // ---- Workstations (P150), each pooling into its own Cost Center. One the
@@ -541,19 +539,29 @@ async function main() {
     tally("fiscal year");
   }
 
-  // ---- Tarif Standar per workstation from January (P159), once per station
+  // ---- Standard Cost per workstation from January (P160), once per station
   const january = await prisma.accFiscalPeriod.findFirst({
     where: { fiscal_year: { year_label: String(year) }, sequence_no: 1 },
     select: { id: true },
   });
-  for (const [label, , , , rate] of WORKSTATIONS) {
+  const standardItem = new Map((await prisma.accStandardCostItem.findMany({ select: { id: true, item_label: true } })).map((i) => [i.item_label, i.id]));
+  for (const [label, , , , rates] of WORKSTATIONS) {
     const ws = await prisma.refWorkstation.findFirst({ where: { workstation_label: label }, select: { id: true } });
-    if (!ws || !january || (await prisma.refWorkstationRate.findFirst({ where: { workstation_id: ws.id } }))) continue;
-    const row = await prisma.refWorkstationRate.create({
-      data: { rate_code: await nextCode(entity("ref_workstation_rate")), workstation_id: ws.id, effective_period_id: january.id, rate, created_by: actor },
+    if (!ws || !january || (await prisma.accStandardCost.findFirst({ where: { workstation_id: ws.id } }))) continue;
+    for (const [item] of rates) {
+      if (!standardItem.has(item)) throw new Error(`Standard Cost Item ${item} is missing — the starter chart should have made it.`);
+    }
+    const row = await prisma.accStandardCost.create({
+      data: {
+        standard_cost_code: await nextCode(entity("acc_standard_cost")),
+        workstation_id: ws.id,
+        effective_period_id: january.id,
+        created_by: actor,
+        lines: { create: rates.map(([item, rate]) => ({ item_id: standardItem.get(item)!, rate, created_by: actor })) },
+      },
     });
-    await audit("ref_workstation_rate", row.id);
-    tally("tarif standar");
+    await audit("acc_standard_cost", row.id);
+    tally("standard cost");
   }
 
   // ---- customers and suppliers

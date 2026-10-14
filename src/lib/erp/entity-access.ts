@@ -99,12 +99,6 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "WORKSTATION_ACTIVATE",
     deactivate: "WORKSTATION_DEACTIVATE",
   },
-  // A rate row has no status: a later row replaces it, a rate of 0 stops the standard.
-  ref_workstation_rate: {
-    view: "STANDARD_RATE_VIEW",
-    create: "STANDARD_RATE_CREATE",
-    edit: "STANDARD_RATE_EDIT",
-  },
   acc_cost_center: {
     view: "COST_CENTER_VIEW",
     create: "COST_CENTER_CREATE",
@@ -118,6 +112,19 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     edit: "COST_TYPE_EDIT",
     activate: "COST_TYPE_ACTIVATE",
     deactivate: "COST_TYPE_DEACTIVATE",
+  },
+  acc_standard_cost_item: {
+    view: "STANDARD_COST_ITEM_VIEW",
+    create: "STANDARD_COST_ITEM_CREATE",
+    edit: "STANDARD_COST_ITEM_EDIT",
+    activate: "STANDARD_COST_ITEM_ACTIVATE",
+    deactivate: "STANDARD_COST_ITEM_DEACTIVATE",
+  },
+  // A Standard Cost has no status: a later entry replaces it (P160).
+  acc_standard_cost: {
+    view: "STANDARD_COST_VIEW",
+    create: "STANDARD_COST_CREATE",
+    edit: "STANDARD_COST_EDIT",
   },
   // Where a posting lands, beside Account Mapping and on its permissions (P122).
   acc_item_category_account: {

@@ -835,30 +835,45 @@ export const CHECKS: Check[] = [
           WHERE b.paid_amount <> COALESCE(p.paid, 0) OR b.paid_amount > b.total_amount OR (b.payable_account_id IS NULL AND b.paid_amount <> 0)`,
   },
   {
-    // The costing masters (P159, M93): a workstation's pool is a Production
-    // Cost Center, which the close absorbs into what the workstation made.
+    // The costing masters (P160, M93, M110): a workstation pools into a
+    // Produksi Cost Center that is not the overhead, whose cost the close
+    // absorbs into what the workstation made.
     area: "production",
-    name: "every workstation pools into a Production Cost Center (P159 M93)",
-    sql: `SELECT w.workstation_label, c.cost_center_label, c.cost_center_type
+    name: "every workstation pools into a Produksi Cost Center that is not the overhead (P160 M93)",
+    sql: `SELECT w.workstation_label, c.cost_center_label, c.cost_center_category
           FROM ref_workstation w JOIN acc_cost_center c ON c.id = w.cost_center_id
-          WHERE c.cost_center_type <> 'Production'`,
+          LEFT JOIN sys_setting s ON s.setting_key = 'production_overhead_cost_center'
+          WHERE c.cost_center_category <> 'Production' OR s.setting_value = c.id::TEXT`,
   },
   {
-    // An Overhead is spread by Rata or by Persentase rows adding up to 100,
-    // each to a Production Cost Center; no other type spreads (P159).
+    // The overhead System Default names (P160, M110) is a Produksi Cost
+    // Center with no workstation of its own.
     area: "production",
-    name: "an Overhead Cost Center names its spread — Persentase rows to Production Cost Centers adding up to 100 — and no other type spreads (P159)",
-    sql: `SELECT c.cost_center_label, c.cost_center_type, c.spread_method, SUM(s.percent) AS total,
-                 BOOL_OR(t.cost_center_type <> 'Production') AS to_non_production
-          FROM acc_cost_center c
-          LEFT JOIN acc_cost_center_spread s ON s.overhead_cost_center_id = c.id
-          LEFT JOIN acc_cost_center t ON t.id = s.production_cost_center_id
-          GROUP BY c.id
-          HAVING (c.cost_center_type = 'Overhead' AND c.spread_method IS NULL)
-              OR (c.cost_center_type <> 'Overhead' AND (c.spread_method IS NOT NULL OR COUNT(s.id) > 0))
-              OR (c.spread_method = 'Even' AND COUNT(s.id) > 0)
-              OR (c.spread_method = 'Percent' AND COALESCE(SUM(s.percent), 0) <> 100)
-              OR COALESCE(BOOL_OR(t.cost_center_type <> 'Production'), false)`,
+    name: "the overhead System Default names is a Produksi Cost Center no workstation pools into (P160 M110)",
+    sql: `SELECT s.setting_value, c.cost_center_label, c.cost_center_category, COUNT(w.id) AS workstations
+          FROM sys_setting s
+          LEFT JOIN acc_cost_center c ON c.id::TEXT = s.setting_value
+          LEFT JOIN ref_workstation w ON w.cost_center_id = c.id
+          WHERE s.setting_key = 'production_overhead_cost_center' AND COALESCE(s.setting_value, '') <> ''
+          GROUP BY s.setting_value, c.id
+          HAVING c.id IS NULL OR c.cost_center_category <> 'Production' OR COUNT(w.id) > 0`,
+  },
+  {
+    // A Standard Cost Item's absorption is credited with the workstation's
+    // Cost Center, so its account requires one (P160, M107).
+    area: "production",
+    name: "every Standard Cost Item credits an account that requires a Cost Center (P160 M107)",
+    sql: `SELECT i.item_label, a.account_label, a.require_cost_center
+          FROM acc_standard_cost_item i JOIN acc_account a ON a.id = i.account_id
+          WHERE NOT a.require_cost_center`,
+  },
+  {
+    // The close credits each Jenis Biaya's leftover to its item's account
+    // (P160, M108): an active Jenis Biaya names one.
+    area: "production",
+    name: "every active Jenis Biaya names its Standard Cost Item (P160 M108)",
+    sql: `SELECT t.cost_type_label FROM acc_cost_type t
+          WHERE t.status = 'Active' AND t.standard_cost_item_id IS NULL`,
   },
 ];
 

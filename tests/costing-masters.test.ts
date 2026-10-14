@@ -1,68 +1,90 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { ENTITIES, tabApplies } from "../src/lib/erp/entities";
+import { ENTITIES } from "../src/lib/erp/entities";
 import { entityPermissions } from "../src/lib/erp/entity-access";
 import { MODULES } from "../src/lib/erp/nav";
 import { PERMISSIONS } from "../src/lib/erp/permissions";
 import { ensureFiscalPeriods } from "../src/lib/erp/fiscal";
 import {
-  checkCostCenter,
-  checkStandardRate,
+  costCenterCategoryProblem,
   costCenterDeactivationRefusal,
-  standardRateFor,
+  overheadCostCenterProblem,
   workstationCostCenterProblem,
-  writeCostCenterSpreads,
 } from "../src/lib/erp/cost-center";
-import { SPREADS_KEY, spreadRowErrors, spreadTotalProblem } from "../src/lib/erp/cost-center-shape";
-import { checkSystemDefaultValue } from "../src/lib/erp/system-settings";
-import { settingPageOf } from "../src/lib/erp/system-defaults";
+import {
+  checkStandardCost,
+  standardCostFor,
+  standardCostItemAccountProblem,
+  standardCostItemDeactivationRefusal,
+  writeStandardCostLines,
+} from "../src/lib/erp/standard-cost";
+import { LINES_KEY, standardCostLineErrors } from "../src/lib/erp/standard-cost-shape";
+import { isSystemDefaultKey, settingPageOf, systemDefaultDef } from "../src/lib/erp/system-defaults";
 import { FIXTURE_PREFIX, cleanupFixtures, disconnect, makeAccount, prisma, systemUserId } from "./helpers";
 
 /**
- * The costing masters (P159, production Phase 5a): Cost Center types and an
- * Overhead's spread, the Workstation's Production Cost Center, Tarif Standar
- * per workstation, and Account Mapping's Biaya Produksi Dibebankan. Nothing
- * here posts; the execution and the close read it.
+ * The costing masters (P160, production Phase 5a reworked): Cost Center as an
+ * entity with a category, the overhead as a System Default, Standard Cost
+ * Items each crediting their own account, a Standard Cost per workstation, and
+ * Jenis Biaya naming the item it is absorbed under. Nothing here posts; the
+ * execution and the close read it.
  */
 
 let actor = 0;
 const tag = `${FIXTURE_PREFIX}${Date.now() % 100000}`;
 const f = {} as Record<string, number>;
 const YEAR = 2091;
+const OVERHEAD = "production_overhead_cost_center";
+let overheadBefore: string | null | undefined;
 
 const navEntity = (moduleKey: string, key: string) =>
   (MODULES.find((m) => m.key === moduleKey)?.groups ?? []).flatMap((g) => g.entities).find((x) => x.key === key);
 
-async function center(label: string, type: "Production" | "Overhead" | "Administrative", status: "Active" | "Inactive" = "Active") {
+async function center(label: string, category: "Production" | "NonProduction", status: "Active" | "Inactive" = "Active") {
   return (
     await prisma.accCostCenter.create({
-      data: {
-        cost_center_code: `test.${tag}.${label}`,
-        cost_center_label: `${tag}-${label}`,
-        cost_center_name: label,
-        cost_center_type: type,
-        spread_method: type === "Overhead" ? "Even" : null,
-        status,
-        created_by: actor,
-      },
+      data: { cost_center_code: `test.${tag}.${label}`, cost_center_label: `${tag}-${label}`, cost_center_name: label, cost_center_category: category, status, created_by: actor },
     })
   ).id;
 }
 
+async function item(label: string, accountId: number, status: "Active" | "Inactive" = "Active") {
+  return (
+    await prisma.accStandardCostItem.create({
+      data: { item_code: `test.${tag}.${label}`, item_label: `${tag}-${label}`, item_name: label, account_id: accountId, status, created_by: actor },
+    })
+  ).id;
+}
+
+const lines = (list: [number, string][]) => JSON.stringify(list.map(([itemId, rate], i) => ({ key: `k${i}`, itemId, rate })));
+
+async function setOverhead(id: number | null) {
+  await prisma.sysSetting.upsert({
+    where: { setting_key: OVERHEAD },
+    update: { setting_value: id == null ? null : String(id) },
+    create: { setting_key: OVERHEAD, setting_value: id == null ? null : String(id) },
+  });
+}
+
 before(async () => {
   actor = await systemUserId();
+  overheadBefore = (await prisma.sysSetting.findUnique({ where: { setting_key: OVERHEAD } }))?.setting_value;
   f.mix = await center("MIX", "Production");
   f.fill = await center("FILL", "Production");
   f.off = await center("OFF", "Production", "Inactive");
-  f.foh = await center("FOH", "Overhead");
-  f.adm = await center("ADM", "Administrative");
-  f.free = await center("FREE", "Production");
+  f.foh = await center("FOH", "Production");
+  f.adm = await center("ADM", "NonProduction");
   f.ws = (
     await prisma.refWorkstation.create({
       data: { workstation_code: `test.${tag}.WS`, workstation_label: `${tag}-WS`, workstation_name: "Mixing", cost_center_id: f.mix, created_by: actor },
     })
   ).id;
+  f.costAccount = await makeAccount({ subcategoryLabel: "5.1.1", requireCostCenter: true, normalBalance: "Kredit" });
+  f.plainAccount = await makeAccount({ subcategoryLabel: "5.1.1" });
+  f.tkl = await item("TKL", f.costAccount);
+  f.bop = await item("BOP", f.costAccount);
+  f.oldItem = await item("OLD", f.costAccount, "Inactive");
   // A year of its own, far ahead, so a period can be closed without touching real ones.
   f.year = (
     await prisma.accFiscalYear.create({
@@ -83,14 +105,17 @@ before(async () => {
   f.apr = periods[3].id;
   f.dec = periods[11].id;
   await prisma.accFiscalPeriod.update({ where: { id: f.dec }, data: { status: "Closed" } });
-  f.costAccount = await makeAccount({ subcategoryLabel: "5.1.1", requireCostCenter: true });
-  f.plainAccount = await makeAccount({ subcategoryLabel: "5.1.1" });
+  await setOverhead(f.foh);
 });
 
 after(async () => {
-  await prisma.refWorkstationRate.deleteMany({ where: { workstation_id: f.ws } });
+  if (overheadBefore === undefined) await prisma.sysSetting.deleteMany({ where: { setting_key: OVERHEAD } });
+  else await prisma.sysSetting.update({ where: { setting_key: OVERHEAD }, data: { setting_value: overheadBefore } });
+  const costs = await prisma.accStandardCost.findMany({ where: { workstation_id: f.ws }, select: { id: true } });
+  await prisma.accStandardCostLine.deleteMany({ where: { standard_cost_id: { in: costs.map((c) => c.id) } } });
+  await prisma.accStandardCost.deleteMany({ where: { workstation_id: f.ws } });
+  await prisma.accStandardCostItem.deleteMany({ where: { item_code: { startsWith: `test.${tag}.` } } });
   await prisma.refWorkstation.deleteMany({ where: { id: f.ws } });
-  await prisma.accCostCenterSpread.deleteMany({ where: { overhead_cost_center_id: f.foh } });
   await prisma.accCostCenter.deleteMany({ where: { cost_center_code: { startsWith: `test.${tag}.` } } });
   await prisma.accFiscalPeriod.deleteMany({ where: { fiscal_year_id: f.year } });
   await prisma.accFiscalYear.deleteMany({ where: { id: f.year } });
@@ -98,135 +123,128 @@ after(async () => {
   await disconnect();
 });
 
-describe("the registry carries the costing masters (P159)", () => {
-  test("Cost Center has three types, a spread method shown for Overhead, and an Alokasi tab shown for Persentase", () => {
+describe("the registry carries the costing masters (P160)", () => {
+  test("a Cost Center has a category only — Produksi or Non-Produksi — and no spread", () => {
     const e = ENTITIES.find((x) => x.key === "acc_cost_center")!;
-    assert.deepEqual(e.fields.find((x) => x.name === "cost_center_type")?.options, ["Production", "Overhead", "Administrative"]);
-    const method = e.fields.find((x) => x.name === "spread_method")!;
-    assert.deepEqual(method.options, ["Even", "Percent"]);
-    assert.equal(method.visibleWhen, "costCenterIsOverhead");
-    const tab = e.tabs!.find((t) => t.key === "spreads")!;
-    assert.equal(tabApplies(tab, { cost_center_type: "Overhead", spread_method: "Percent" }), true);
-    assert.equal(tabApplies(tab, { cost_center_type: "Overhead", spread_method: "Even" }), false);
-    assert.equal(tabApplies(tab, { cost_center_type: "Production", spread_method: "Percent" }), false);
+    assert.deepEqual(e.fields.find((x) => x.name === "cost_center_category")?.options, ["Production", "NonProduction"]);
+    assert.equal(e.tabs, undefined);
+    assert.ok(!e.fields.some((x) => x.name === "spread_method"));
   });
 
-  test("a Workstation names its Production Cost Center", () => {
-    const e = ENTITIES.find((x) => x.key === "ref_workstation")!;
-    const field = e.fields.find((x) => x.name === "cost_center_id")!;
+  test("a Workstation names its Produksi Cost Center", () => {
+    const field = ENTITIES.find((x) => x.key === "ref_workstation")!.fields.find((x) => x.name === "cost_center_id")!;
     assert.equal(field.required, true);
     assert.equal(field.refFilter, "productionCostCenter");
   });
 
-  test("Tarif Standar is its own master, per workstation from a period, with its own permissions and menu", () => {
-    const e = ENTITIES.find((x) => x.key === "ref_workstation_rate")!;
+  test("Standard Cost Item is a master naming its own account, fixed once chosen; Jenis Biaya names its item", () => {
+    const e = ENTITIES.find((x) => x.key === "acc_standard_cost_item")!;
     assert.equal(e.module, "master");
-    assert.deepEqual(e.fields.map((x) => x.name), ["workstation_id", "effective_period_id", "rate", "note"]);
-    for (const name of ["workstation_id", "effective_period_id"]) assert.equal(e.fields.find((x) => x.name === name)?.locked, true);
-    const p = entityPermissions("ref_workstation_rate");
+    assert.deepEqual(e.fields.map((x) => x.name), ["item_label", "item_name", "account_id", "status", "note"]);
+    assert.equal(e.fields.find((x) => x.name === "account_id")?.locked, true);
+    assert.equal(navEntity("master", "acc_standard_cost_item")?.permission, "STANDARD_COST_ITEM_VIEW");
+    const link = ENTITIES.find((x) => x.key === "acc_cost_type")!.fields.find((x) => x.name === "standard_cost_item_id");
+    assert.equal(link?.ref, "acc_standard_cost_item");
+    assert.equal(link?.required, true);
+  });
+
+  test("Standard Cost sits in Accounting › Pengaturan, per workstation and period, with an Item tab", () => {
+    const e = ENTITIES.find((x) => x.key === "acc_standard_cost")!;
+    assert.equal(e.module, "accounting");
+    assert.deepEqual(e.fields.map((x) => x.name), ["workstation_id", "effective_period_id", "note"]);
+    assert.deepEqual(e.tabs?.map((t) => t.key), ["lines"]);
+    const p = entityPermissions("acc_standard_cost");
     for (const code of [p.view, p.create, p.edit]) assert.ok(PERMISSIONS.some((x) => x.code === code), `${code} declared`);
-    assert.equal(p.activate, undefined, "a rate row has no status");
-    assert.equal(navEntity("master", "ref_workstation_rate")?.permission, "STANDARD_RATE_VIEW");
+    assert.equal(p.activate, undefined, "a Standard Cost has no status");
+    assert.equal(navEntity("accounting", "acc_standard_cost")?.permission, "STANDARD_COST_VIEW");
+    assert.ok(!PERMISSIONS.some((x) => x.code.startsWith("STANDARD_RATE_")));
+  });
+
+  test("the overhead is a System Default naming a Cost Center; the global absorbed account is gone", () => {
+    assert.equal(settingPageOf(OVERHEAD), "default");
+    const def = systemDefaultDef(OVERHEAD);
+    assert.equal(def.type === "ref" && def.ref, "acc_cost_center");
+    assert.equal(isSystemDefaultKey("production_absorbed_account"), false);
   });
 });
 
-describe("an Overhead's spread (P159, M93)", () => {
-  test("the dialog's rules: a Production Cost Center once, a percent above 0 and at most 100", () => {
-    assert.ok(spreadRowErrors({ costCenterId: null, percent: "10" }, []).costCenterId);
-    assert.ok(spreadRowErrors({ costCenterId: 5, percent: "10" }, [5]).costCenterId);
-    assert.ok(spreadRowErrors({ costCenterId: 5, percent: "0" }, []).percent);
-    assert.deepEqual(spreadRowErrors({ costCenterId: 5, percent: "12.5" }, []), {});
-  });
-
-  test("the rows add up to exactly 100, to four decimals", () => {
-    assert.match(spreadTotalProblem([{ percent: "50" }, { percent: "30" }])!, /tepat 100%/);
-    assert.match(spreadTotalProblem([{ percent: "33.3333" }, { percent: "33.3333" }, { percent: "33.3333" }])!, /99,9999/);
-    assert.equal(spreadTotalProblem([{ percent: "33.3334" }, { percent: "33.3333" }, { percent: "33.3333" }]), null);
-    assert.ok(spreadTotalProblem([]));
-  });
-
-  test("an Overhead needs a spread method", async () => {
-    const r = await checkCostCenter({ cost_center_type: "Overhead", spread_method: "" }, f.foh);
-    assert.ok(r.errors.spread_method);
-  });
-
-  test("Persentase rows go only to active Production Cost Centers", async () => {
-    const rows = (list: [number, string][]) => JSON.stringify(list.map(([id, p], i) => ({ key: `k${i}`, costCenterId: id, percent: p })));
-    const toAdmin = await checkCostCenter({ cost_center_type: "Overhead", spread_method: "Percent", [SPREADS_KEY]: rows([[f.mix, "50"], [f.adm, "50"]]) }, f.foh);
-    assert.match(toAdmin.errors[SPREADS_KEY], /bukan Cost Center Produksi/);
-    const toInactive = await checkCostCenter({ cost_center_type: "Overhead", spread_method: "Percent", [SPREADS_KEY]: rows([[f.mix, "50"], [f.off, "50"]]) }, f.foh);
-    assert.match(toInactive.errors[SPREADS_KEY], /nonaktif/);
-    const short = await checkCostCenter({ cost_center_type: "Overhead", spread_method: "Percent", [SPREADS_KEY]: rows([[f.mix, "50"], [f.fill, "40"]]) }, f.foh);
-    assert.match(short.errors[SPREADS_KEY], /tepat 100%/);
-    const ok = await checkCostCenter({ cost_center_type: "Overhead", spread_method: "Percent", [SPREADS_KEY]: rows([[f.mix, "60"], [f.fill, "40"]]) }, f.foh);
-    assert.deepEqual(ok.errors, {});
-    assert.deepEqual(ok.clean.spreads.map((s) => [s.productionCostCenterId, Number(s.percent)]), [[f.mix, 60], [f.fill, 40]]);
-  });
-
-  test("the spread is written with the Overhead, replaced on the next save, and gone when it turns Rata", async () => {
-    await writeCostCenterSpreads(prisma, f.foh, { spreads: [{ productionCostCenterId: f.mix, percent: "60" }, { productionCostCenterId: f.fill, percent: "40" }] }, actor);
-    await writeCostCenterSpreads(prisma, f.foh, { spreads: [{ productionCostCenterId: f.mix, percent: "70" }, { productionCostCenterId: f.free, percent: "30" }] }, actor);
-    const rows = await prisma.accCostCenterSpread.findMany({ where: { overhead_cost_center_id: f.foh }, orderBy: { production_cost_center_id: "asc" } });
-    assert.deepEqual(rows.map((r) => [r.production_cost_center_id, r.percent.toNumber()]).sort((a, b) => a[0] - b[0]), [[f.mix, 70], [f.free, 30]].sort((a, b) => a[0] - b[0]));
-    const even = await checkCostCenter({ cost_center_type: "Overhead", spread_method: "Even" }, f.foh);
-    assert.deepEqual(even.clean.spreads, [], "Rata keeps no rows");
-  });
-
-  test("a Production Cost Center an active Overhead spreads into is not deactivated", async () => {
-    await prisma.accCostCenter.update({ where: { id: f.foh }, data: { spread_method: "Percent" } });
-    assert.match((await costCenterDeactivationRefusal(f.free))!, /alokasi Overhead/);
-    await prisma.accCostCenter.update({ where: { id: f.foh }, data: { spread_method: "Even" } });
-    await writeCostCenterSpreads(prisma, f.foh, { spreads: [] }, actor);
-    assert.equal(await costCenterDeactivationRefusal(f.free), null);
-  });
-});
-
-describe("a Workstation pools into a Production Cost Center (M93)", () => {
-  test("only an active Production one", async () => {
+describe("Cost Center roles are settings, not types (M110)", () => {
+  test("a Workstation pools only into an active Produksi Cost Center that is not the overhead", async () => {
     assert.equal(await workstationCostCenterProblem(f.fill), null);
-    assert.match((await workstationCostCenterProblem(f.foh))!, /bertipe Produksi/);
-    assert.match((await workstationCostCenterProblem(f.adm))!, /bertipe Produksi/);
+    assert.match((await workstationCostCenterProblem(f.adm))!, /berkategori Produksi/);
     assert.match((await workstationCostCenterProblem(f.off))!, /nonaktif/);
+    assert.match((await workstationCostCenterProblem(f.foh))!, /Cost Center Overhead/);
   });
 
-  test("its Cost Center keeps its type and stays active while the workstation pools into it", async () => {
-    const changed = await checkCostCenter({ cost_center_type: "Administrative" }, f.mix);
-    assert.match(changed.errors.cost_center_type, /Workstation/);
+  test("the overhead is an active Produksi Cost Center no workstation pools into", async () => {
+    assert.equal(await overheadCostCenterProblem(f.foh), null);
+    assert.match((await overheadCostCenterProblem(f.adm))!, /berkategori Produksi/);
+    assert.match((await overheadCostCenterProblem(f.mix))!, /Workstation/);
+  });
+
+  test("a used Cost Center keeps its category and stays active", async () => {
+    assert.match((await costCenterCategoryProblem({ cost_center_category: "NonProduction" }, f.mix))!, /Workstation/);
+    assert.match((await costCenterCategoryProblem({ cost_center_category: "NonProduction" }, f.foh))!, /Overhead/);
+    assert.equal(await costCenterCategoryProblem({ cost_center_category: "Production" }, f.adm), null, "an unused one may change");
     assert.match((await costCenterDeactivationRefusal(f.mix))!, /Workstation/);
-    const unused = await checkCostCenter({ cost_center_type: "Administrative" }, f.adm);
-    assert.equal(unused.errors.cost_center_type, undefined, "an unused one may change type");
+    assert.match((await costCenterDeactivationRefusal(f.foh))!, /Overhead/);
+    assert.equal(await costCenterDeactivationRefusal(f.fill), null);
   });
 });
 
-describe("Tarif Standar per workstation (M94 amended)", () => {
-  test("a rate is 0 or more; one row per workstation and period; a closed period takes none", async () => {
-    assert.match((await checkStandardRate({ workstation_id: f.ws, effective_period_id: f.jan, rate: "-1" }, null)).rate, /negatif/);
-    assert.match((await checkStandardRate({ workstation_id: f.ws, effective_period_id: f.dec, rate: "100" }, null)).effective_period_id, /ditutup/);
-    assert.deepEqual(await checkStandardRate({ workstation_id: f.ws, effective_period_id: f.jan, rate: "0" }, null), {});
-    const jan = await prisma.refWorkstationRate.create({
-      data: { rate_code: `test.${tag}.1`, workstation_id: f.ws, effective_period_id: f.jan, rate: 25_000, created_by: actor },
-    });
-    assert.match((await checkStandardRate({ workstation_id: f.ws, effective_period_id: f.jan, rate: "30000" }, null)).effective_period_id, /sudah memiliki/);
-    assert.deepEqual(await checkStandardRate({ rate: "30000" }, jan.id), {}, "its rate may change while the period is open");
+describe("Standard Cost Items and Standard Cost (M107, M109)", () => {
+  test("an item credits a postable account that requires a Cost Center", async () => {
+    assert.equal(await standardCostItemAccountProblem(f.costAccount), null);
+    assert.match((await standardCostItemAccountProblem(f.plainAccount))!, /Require Cost Center/);
   });
 
-  test("the rate of a date is the latest row starting on or before its period; none reads as 0", async () => {
-    await prisma.refWorkstationRate.create({
-      data: { rate_code: `test.${tag}.2`, workstation_id: f.ws, effective_period_id: f.apr, rate: 27_500.5, created_by: actor },
-    });
-    assert.equal((await standardRateFor(f.ws, `${YEAR}-03-31`)).rate, 25_000);
-    const april = await standardRateFor(f.ws, `${YEAR}-04-01`);
-    assert.equal(april.rate, 27_500.5);
-    assert.equal(april.fromPeriod, `April ${YEAR}`);
-    assert.equal((await standardRateFor(f.ws, `${YEAR}-11-15`)).rate, 27_500.5, "until the next row");
-    assert.deepEqual(await standardRateFor(f.ws, `${YEAR - 1}-12-31`), { rate: 0, rateId: null, fromPeriod: null });
+  test("a line names an item once at a rate of 0 or more", () => {
+    assert.ok(standardCostLineErrors({ itemId: null, rate: "1" }, []).itemId);
+    assert.ok(standardCostLineErrors({ itemId: 5, rate: "1" }, [5]).itemId);
+    assert.ok(standardCostLineErrors({ itemId: 5, rate: "-1" }, []).rate);
+    assert.ok(standardCostLineErrors({ itemId: 5, rate: "" }, []).rate);
+    assert.deepEqual(standardCostLineErrors({ itemId: 5, rate: "0" }, []), {});
   });
-});
 
-describe("Account Mapping's Biaya Produksi Dibebankan (M92, M96)", () => {
-  test("an Account Mapping key that requires a Cost Center account", async () => {
-    assert.equal(settingPageOf("production_absorbed_account"), "account");
-    assert.match((await checkSystemDefaultValue("production_absorbed_account", f.plainAccount))!, /Require Cost Center/);
-    assert.equal(await checkSystemDefaultValue("production_absorbed_account", f.costAccount), null);
+  test("an entry needs an item, active items only, and a period that is not closed", async () => {
+    const base = { workstation_id: f.ws, effective_period_id: f.jan };
+    assert.match((await checkStandardCost({ ...base, [LINES_KEY]: "[]" }, null)).errors[LINES_KEY], /minimal satu/);
+    assert.match((await checkStandardCost({ ...base, [LINES_KEY]: lines([[f.oldItem, "100"]]) }, null)).errors[LINES_KEY], /nonaktif/);
+    assert.match((await checkStandardCost({ ...base, [LINES_KEY]: lines([[f.tkl, "1"], [f.tkl, "2"]]) }, null)).errors[LINES_KEY], /sudah ada/);
+    assert.match((await checkStandardCost({ ...base, effective_period_id: f.dec, [LINES_KEY]: lines([[f.tkl, "1"]]) }, null)).errors.effective_period_id, /ditutup/);
+    const ok = await checkStandardCost({ ...base, [LINES_KEY]: lines([[f.tkl, "20000"], [f.bop, "15000.5"]]) }, null);
+    assert.deepEqual(ok.errors, {});
+    assert.deepEqual(ok.clean.lines, [{ itemId: f.tkl, rate: "20000" }, { itemId: f.bop, rate: "15000.5" }]);
+  });
+
+  test("the entry in force is the latest on or before the date's period; a 0 rate is no standard; one entry per workstation and period", async () => {
+    const make = async (periodId: number, list: { itemId: number; rate: string }[]) => {
+      const row = await prisma.accStandardCost.create({
+        data: { standard_cost_code: `test.${tag}.${periodId}`, workstation_id: f.ws, effective_period_id: periodId, created_by: actor },
+      });
+      await writeStandardCostLines(prisma, row.id, { lines: list }, actor);
+      return row.id;
+    };
+    const jan = await make(f.jan, [{ itemId: f.tkl, rate: "20000" }, { itemId: f.bop, rate: "15000" }]);
+    await make(f.apr, [{ itemId: f.tkl, rate: "22500.5" }, { itemId: f.bop, rate: "0" }]);
+
+    const march = await standardCostFor(f.ws, `${YEAR}-03-31`);
+    assert.equal(march.standardCostId, jan);
+    assert.deepEqual(march.rates.map((r) => [r.itemId, r.rate, r.accountId]), [[f.tkl, 20000, f.costAccount], [f.bop, 15000, f.costAccount]]);
+    const nov = await standardCostFor(f.ws, `${YEAR}-11-15`);
+    assert.equal(nov.fromPeriod, `April ${YEAR}`);
+    assert.deepEqual(nov.rates.map((r) => [r.itemId, r.rate]), [[f.tkl, 22500.5]], "BOP at 0 has no standard");
+    assert.deepEqual(await standardCostFor(f.ws, `${YEAR - 1}-12-31`), { standardCostId: null, fromPeriod: null, rates: [] });
+
+    const again = await checkStandardCost({ workstation_id: f.ws, effective_period_id: f.jan, [LINES_KEY]: lines([[f.tkl, "1"]]) }, null);
+    assert.match(again.errors.effective_period_id, /sudah memiliki/);
+    // Rewriting replaces the lines exactly.
+    await writeStandardCostLines(prisma, jan, { lines: [{ itemId: f.bop, rate: "16000" }] }, actor);
+    assert.deepEqual((await standardCostFor(f.ws, `${YEAR}-01-15`)).rates.map((r) => [r.itemId, r.rate]), [[f.bop, 16000]]);
+  });
+
+  test("an item with a rate on a Standard Cost is not deactivated", async () => {
+    assert.match((await standardCostItemDeactivationRefusal(f.tkl))!, /masih bertarif/);
+    assert.equal(await standardCostItemDeactivationRefusal(f.oldItem), null);
   });
 });
