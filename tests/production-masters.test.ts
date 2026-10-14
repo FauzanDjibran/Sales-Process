@@ -36,7 +36,7 @@ describe("Workstation is a master the user creates (G9, M7)", () => {
   test("a registry entity under Master › Entitas with its own permissions", () => {
     const e = ENTITIES.find((x) => x.key === "ref_workstation");
     assert.equal(e?.module, "master");
-    assert.deepEqual(e!.fields.map((x) => x.name), ["workstation_label", "workstation_name", "status", "note"]);
+    assert.deepEqual(e!.fields.map((x) => x.name), ["workstation_label", "workstation_name", "cost_center_id", "status", "note"]);
     const p = entityPermissions("ref_workstation");
     for (const code of [p.view, p.create, p.edit, p.activate, p.deactivate]) {
       assert.ok(PERMISSIONS.some((x) => x.code === code), `${code} declared`);
@@ -77,7 +77,7 @@ describe("Cost Center is a master the user creates (P154, M83)", () => {
   test("a registry entity under Master › Referensi with its own permissions; the account form asks Require Cost Center", () => {
     const e = ENTITIES.find((x) => x.key === "acc_cost_center");
     assert.equal(e?.module, "master");
-    assert.deepEqual(e!.fields.map((x) => x.name), ["cost_center_label", "cost_center_name", "cost_center_type", "status", "note"]);
+    assert.deepEqual(e!.fields.map((x) => x.name), ["cost_center_label", "cost_center_name", "cost_center_type", "spread_method", "status", "note"]);
     const p = entityPermissions("acc_cost_center");
     for (const code of [p.view, p.create, p.edit, p.activate, p.deactivate]) {
       assert.ok(PERMISSIONS.some((x) => x.code === code), `${code} declared`);

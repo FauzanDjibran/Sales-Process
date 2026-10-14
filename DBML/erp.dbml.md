@@ -314,7 +314,9 @@ table acc_cost_type {
 }
 
 // Cost Center (P154): where a cost was incurred — a tag on the journal line beside the account and
-// the Partner; PRODUKSI is the one seeded today, the design allows many
+// the Partner. Its type says what the month-end close does with its balance (P159, M93):
+// Production is a workstation's pool, Overhead is spread over the Production ones, Administrative
+// is never absorbed. The type is fixed once a journal line, workstation or spread names it.
 table acc_cost_center {
   id                          int [pk, increment, not null]
 
@@ -322,7 +324,8 @@ table acc_cost_center {
 
   cost_center_label           varchar [not null]
   cost_center_name            varchar [not null]
-  cost_center_type            enum('Production') [not null, default: 'Production']
+  cost_center_type            enum('Production', 'Overhead', 'Administrative') [not null, default: 'Production']
+  spread_method               enum('Even', 'Percent') // Overhead only: Rata, or its acc_cost_center_spread rows
 
   note                        varchar
 
@@ -333,6 +336,27 @@ table acc_cost_center {
 
   created_at                  timestamptz [not null, default: `now()`]
   updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// An Overhead Cost Center spread by Persentase (P159): one row per Production Cost Center it goes
+// to; the rows add up to exactly 100. Saved with the Overhead Cost Center.
+table acc_cost_center_spread {
+  id                          int [pk, increment, not null]
+
+  overhead_cost_center_id     int [not null, ref : > acc_cost_center.id]
+  production_cost_center_id   int [not null, ref : > acc_cost_center.id]
+  percent                     decimal(9,4) [not null, note: 'CHECK > 0 AND <= 100']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (overhead_cost_center_id, production_cost_center_id) [unique]
+    production_cost_center_id
+  }
 }
 
 // Indonesia's provinsi → kota/kabupaten → kecamatan → kelurahan/desa, seeded from
@@ -532,7 +556,8 @@ table ref_warehouse {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
-// Workstation (P150): where production transforms input into output; user master data, no account or cost
+// Workstation (P150): where production transforms input into output; user master data. It pools
+// its cost into one Production Cost Center (P159, M93) — one per station, one for all, or any mix
 table ref_workstation {
   id                          int [pk, increment, not null]
 
@@ -540,6 +565,8 @@ table ref_workstation {
 
   workstation_label           varchar [not null]
   workstation_name            varchar [not null]
+
+  cost_center_id              int [not null, ref : > acc_cost_center.id] // an active Production Cost Center
 
   note                        varchar
 
@@ -550,6 +577,36 @@ table ref_workstation {
 
   created_at                  timestamptz [not null, default: `now()`]
   updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    cost_center_id
+  }
+}
+
+// Tarif Standar (P159, M94 amended): a workstation's conversion rate per Driver from a fiscal period
+// on; the latest row on or before a period applies, none or 0 = no standard. Driver is a bare
+// number whose meaning the workstation implies. Never deleted; a closed period takes no row.
+table ref_workstation_rate {
+  id                          int [pk, increment, not null]
+
+  rate_code                   varchar [not null, unique] // tsr.NNNN
+
+  workstation_id              int [not null, ref : > ref_workstation.id]
+  effective_period_id         int [not null, ref : > acc_fiscal_period.id] // Berlaku Mulai
+  rate                        decimal(18,6) [not null, note: 'Rp per Driver; CHECK >= 0']
+
+  note                        varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (workstation_id, effective_period_id) [unique]
+    effective_period_id
+  }
 }
 
 // a place inside a warehouse with Gunakan Lokasi; shown as <warehouse label>-<location label>; never deleted once used

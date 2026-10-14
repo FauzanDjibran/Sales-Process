@@ -99,6 +99,12 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "WORKSTATION_ACTIVATE",
     deactivate: "WORKSTATION_DEACTIVATE",
   },
+  // A rate row has no status: a later row replaces it, a rate of 0 stops the standard.
+  ref_workstation_rate: {
+    view: "STANDARD_RATE_VIEW",
+    create: "STANDARD_RATE_CREATE",
+    edit: "STANDARD_RATE_EDIT",
+  },
   acc_cost_center: {
     view: "COST_CENTER_VIEW",
     create: "COST_CENTER_CREATE",

@@ -74,14 +74,15 @@ export const STARTER_ACCOUNTS: AccountSpec[] = [
   { key: "cogsTrade", sub: "5.1.1", name: "HPP Barang Dagangan", normal: "Debit" },
   { key: "toll", sub: "5.1.1", name: "Biaya Jasa Maklon", normal: "Debit" },
   { key: "permitCost", sub: "5.1.1", name: "Biaya Perizinan", normal: "Debit", note: "Biaya pengurusan perizinan yang dibayar sebesar realisasinya, tanpa pajak" },
-  // Elemen Biaya Produksi (P150): Control Accounts, posted only by documents
-  // that write the cost ledger, emptied by the Penutupan Biaya Produksi.
+  // Production cost accounts (P150, P154): Control Accounts, every line with
+  // its Cost Center; brought to 0 per Cost Center by the month-end close.
   { key: "costDirectLabor", sub: "5.1.1", name: "Biaya Tenaga Kerja Langsung", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
   { key: "costIndirectLabor", sub: "5.1.1", name: "Biaya Tenaga Kerja Tidak Langsung", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
   { key: "costUtility", sub: "5.1.1", name: "Biaya Listrik & Utilitas Pabrik", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
   { key: "costDepreciation", sub: "5.1.1", name: "Biaya Penyusutan Mesin & Peralatan", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
   { key: "costMaintenance", sub: "5.1.1", name: "Biaya Pemeliharaan Mesin", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
   { key: "costOverhead", sub: "5.1.1", name: "Biaya Overhead Pabrik Lain-lain", normal: "Debit", control: true, costCenter: true, note: "Elemen Biaya Produksi" },
+  { key: "costAbsorbed", sub: "5.1.1", name: "Biaya Produksi Dibebankan", normal: "Kredit", control: true, costCenter: true, note: "Biaya konversi yang dibebankan ke produksi (standar dan penutupan bulan), per Cost Center" },
   { key: "productionScrap", sub: "5.1.9", name: "Beban Pemusnahan Produksi", normal: "Debit", note: "Nilai barang produksi yang dimusnahkan" },
   { key: "freight", sub: "5.2.1", name: "Beban Pengiriman", normal: "Debit" },
   { key: "bankFee", sub: "5.3.1", name: "Beban Bank", normal: "Debit" },
@@ -114,6 +115,7 @@ export const STARTER_MAPPINGS: [setting: string, account: string][] = [
   ["input_vat_account", "inputVat"],
   ["supplier_invoice_diff_account", "invoiceDiff"],
   ["production_cost_payable_account", "productionCostPayable"],
+  ["production_absorbed_account", "costAbsorbed"],
   ["production_scrap_account", "productionScrap"],
 ];
 

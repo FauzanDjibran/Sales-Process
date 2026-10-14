@@ -7,6 +7,7 @@ import { compareCodes } from "./account-code";
 import { cashBankBalanceMap } from "./cash-bank";
 import { journalLineCountForAccount } from "./journal";
 import { type Entity, type Field, entityBySlug } from "./entities";
+import { SPREAD_TARGETS_REF } from "./cost-center-shape";
 
 /**
  * Generic record access for registry-driven entities.
@@ -29,6 +30,7 @@ const DELEGATES = {
   ref_withholding_tax: (db: Client) => db.refWithholdingTax,
   ref_permit_type: (db: Client) => db.refPermitType,
   ref_workstation: (db: Client) => db.refWorkstation,
+  ref_workstation_rate: (db: Client) => db.refWorkstationRate,
   acc_cost_center: (db: Client) => db.accCostCenter,
   acc_cost_type: (db: Client) => db.accCostType,
   acc_item_category_account: (db: Client) => db.accItemCategoryAccount,
@@ -128,6 +130,11 @@ export async function refOptions(
     if (field.type !== "ref" || !field.ref) continue;
     result[field.name] = await optionsFor(field.ref, field.refFilter);
   }
+  // An Overhead's Alokasi tab picks Production Cost Centers (P159); the tab
+  // is not a field, so its option set rides under its own key.
+  if (entity.key === "acc_cost_center") {
+    result[SPREAD_TARGETS_REF] = await optionsFor("acc_cost_center", "productionCostCenter");
+  }
   return result;
 }
 
@@ -206,6 +213,40 @@ export async function optionsFor(
           name: r.subcategory_name,
           active: r.status === "Active",
         }));
+    }
+    case "acc_cost_center": {
+      // A Workstation pools only into a Production Cost Center (M93); the
+      // inactive ones stay listed so a record that names one still reads it.
+      const rows = await prisma.accCostCenter.findMany({
+        where: filter === "productionCostCenter" ? { cost_center_type: "Production" } : {},
+        orderBy: { cost_center_label: "asc" },
+      });
+      return rows.map((r) => ({
+        id: r.id,
+        label: r.cost_center_label,
+        name: r.cost_center_name,
+        active: r.status === "Active",
+      }));
+    }
+    case "ref_workstation": {
+      const rows = await prisma.refWorkstation.findMany({ orderBy: { workstation_label: "asc" } });
+      return rows.map((r) => ({
+        id: r.id,
+        label: r.workstation_label,
+        name: r.workstation_name,
+        active: r.status === "Active",
+      }));
+    }
+    case "acc_fiscal_period": {
+      // A closed period takes no new Tarif Standar; it stays listed so a row
+      // starting in one still reads its period.
+      const rows = await prisma.accFiscalPeriod.findMany({ orderBy: { start_date: "asc" } });
+      return rows.map((r) => ({
+        id: r.id,
+        label: r.period_label,
+        name: r.period_name,
+        active: r.status !== "Closed",
+      }));
     }
     case "acc_account": {
       const rows = await prisma.accAccount.findMany({ where: accountWhere(filter) });

@@ -700,14 +700,16 @@ model RefWarehouse {
 }
 
 /// Workstation — a place where production transforms input into output
-/// (P150). Created by the user, never hard-coded; it carries no account,
-/// capacity or cost, because production cost is global (production_project.md
-/// G8). Never deleted; deactivated instead.
+/// (P150). Created by the user, never hard-coded. It names the Production
+/// Cost Center its cost is pooled into (P159, M93) — one per station, one for
+/// all, or any mix — and its standard rate lives on `ref_workstation_rate`.
+/// Never deleted; deactivated instead.
 model RefWorkstation {
   id                Int          @id @default(autoincrement())
   workstation_code  String       @unique
   workstation_label String
   workstation_name  String
+  cost_center_id    Int
   note              String?
   status            ActiveStatus @default(Active)
 
@@ -716,11 +718,41 @@ model RefWorkstation {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  prd_balances PrdBalance[]    @relation("PrdBalanceWorkstation")
-  prd_ledger   PrdLedger[]     @relation("PrdLedgerWorkstation")
+  cost_center  AccCostCenter        @relation(fields: [cost_center_id], references: [id])
+  prd_balances PrdBalance[]         @relation("PrdBalanceWorkstation")
+  prd_ledger   PrdLedger[]          @relation("PrdLedgerWorkstation")
   stock_issues LogStockIssue[]
+  rates        RefWorkstationRate[]
 
+  @@index([cost_center_id])
   @@map("ref_workstation")
+}
+
+/// Tarif Standar (P159, M94 amended): a workstation's conversion rate per
+/// Driver from a fiscal period on. The rate of a period is the latest row
+/// starting on or before it; none or 0 means no standard. Driver is a bare
+/// number whose meaning the workstation implies (M95 amended). One row per
+/// workstation per period; never deleted — a later row replaces it, a rate
+/// of 0 stops the standard.
+model RefWorkstationRate {
+  id                  Int     @id @default(autoincrement())
+  rate_code           String  @unique
+  workstation_id      Int
+  effective_period_id Int
+  rate                Decimal @db.Decimal(18, 6)
+  note                String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  workstation      RefWorkstation  @relation(fields: [workstation_id], references: [id])
+  effective_period AccFiscalPeriod @relation(fields: [effective_period_id], references: [id])
+
+  @@unique([workstation_id, effective_period_id])
+  @@index([effective_period_id])
+  @@map("ref_workstation_rate")
 }
 
 /// A place inside a warehouse that keeps stock by location (Gunakan Lokasi).
@@ -1325,16 +1357,21 @@ model AccCostType {
 
 /// Cost Center (P154): where a cost was incurred — a tag on the journal line
 /// beside the account (what) and the Partner (who), as SAP's cost center,
-/// Odoo's analytic account or NetSuite's department. *PRODUKSI* is the only
-/// one today; the design allows many.
+/// Odoo's analytic account or NetSuite's department. Its type says what the
+/// month-end close does with its balance (P159, M93): a Production one is the
+/// pool its workstations absorb; an Overhead one is spread over the Production
+/// ones by `spread_method`; an Administrative one is never absorbed.
 model AccCostCenter {
-  id                Int            @id @default(autoincrement())
-  cost_center_code  String         @unique
+  id                Int                     @id @default(autoincrement())
+  cost_center_code  String                  @unique
   cost_center_label String
   cost_center_name  String
-  cost_center_type  CostCenterType @default(Production)
+  cost_center_type  CostCenterType          @default(Production)
+  /// Overhead only: Even (Rata — evenly over the active Production cost
+  /// centers at the close) or Percent (its `acc_cost_center_spread` rows).
+  spread_method     CostCenterSpreadMethod?
   note              String?
-  status            ActiveStatus   @default(Active)
+  status            ActiveStatus            @default(Active)
 
   created_by Int
   updated_by Int?
@@ -1343,13 +1380,46 @@ model AccCostCenter {
 
   journal_lines AccJournalLine[]
   bill_lines    PrdCostBillLine[]
+  workstations  RefWorkstation[]
+  spreads       AccCostCenterSpread[] @relation("SpreadFrom")
+  spread_into   AccCostCenterSpread[] @relation("SpreadTo")
 
   @@map("acc_cost_center")
 }
 
-/// What a Cost Center serves (P154). Production only today.
+/// What a Cost Center serves (P154, P159).
 enum CostCenterType {
   Production
+  Overhead
+  Administrative
+}
+
+/// How an Overhead Cost Center is spread over the Production ones (P159).
+enum CostCenterSpreadMethod {
+  Even
+  Percent
+}
+
+/// One share of an Overhead Cost Center spread by Persentase (P159): the
+/// Production Cost Center it goes to and its percent. Saved with the Overhead
+/// Cost Center; its rows add up to exactly 100.
+model AccCostCenterSpread {
+  id                        Int     @id @default(autoincrement())
+  overhead_cost_center_id   Int
+  production_cost_center_id Int
+  percent                   Decimal @db.Decimal(9, 4)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  overhead   AccCostCenter @relation("SpreadFrom", fields: [overhead_cost_center_id], references: [id])
+  production AccCostCenter @relation("SpreadTo", fields: [production_cost_center_id], references: [id])
+
+  @@unique([overhead_cost_center_id, production_cost_center_id])
+  @@index([production_cost_center_id])
+  @@map("acc_cost_center_spread")
 }
 
 model AccFiscalYear {
@@ -1396,7 +1466,8 @@ model AccFiscalPeriod {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  fiscal_year AccFiscalYear @relation(fields: [fiscal_year_id], references: [id])
+  fiscal_year       AccFiscalYear        @relation(fields: [fiscal_year_id], references: [id])
+  workstation_rates RefWorkstationRate[]
 
   @@index([fiscal_year_id])
   @@map("acc_fiscal_period")

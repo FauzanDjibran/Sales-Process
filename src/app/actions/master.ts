@@ -27,8 +27,10 @@ import {
   requireEntity,
 } from "@/lib/erp/records";
 import {
+  systemDefaults,
   systemDefaultsUsingAccount,
 } from "@/lib/erp/system-settings";
+import { refValueOf } from "@/lib/erp/system-defaults";
 import { CUSTOMER_CATEGORY, SUPPLIER_CATEGORY } from "@/lib/erp/entities";
 import {
   checkPartnerCollections,
@@ -48,6 +50,13 @@ import type { Prisma } from "@/generated/prisma/client";
 import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-rules";
 import { categoriesUsingAccount, categoryAccountKindProblem } from "@/lib/erp/item-account";
 import { costTypesUsingAccount } from "@/lib/erp/production-cost";
+import {
+  checkCostCenter,
+  checkStandardRate,
+  costCenterDeactivationRefusal,
+  workstationCostCenterProblem,
+  writeCostCenterSpreads,
+} from "@/lib/erp/cost-center";
 
 /**
  * Every action here is permission-gated before it touches anything, and every
@@ -251,6 +260,10 @@ async function applicableFields(
       if (values.item_type === "Barang") applies.add(field.name);
       continue;
     }
+    if (field.visibleWhen === "costCenterIsOverhead") {
+      if (values.cost_center_type === "Overhead") applies.add(field.name);
+      continue;
+    }
     if (field.visibleWhen === "partnerIsCustomer" || field.visibleWhen === "partnerIsSupplier") {
       const categoryId = refValue(values, "category_id");
       const label = categoryId ? await refLabel("sys_partner_category", categoryId) : null;
@@ -326,6 +339,14 @@ async function validate(
   // account requires one and the credit account takes none (M88).
   if (entity.key === "acc_cost_type" && !currentId) {
     Object.assign(errors, await validateCostType(values, errors));
+  }
+  // A Workstation pools into an active Production Cost Center (P159, M93).
+  if (entity.key === "ref_workstation" && !errors.cost_center_id) {
+    const problem = await workstationCostCenterProblem(refValue(values, "cost_center_id"));
+    if (problem) errors.cost_center_id = problem;
+  }
+  if (entity.key === "ref_workstation_rate") {
+    for (const [k, v] of Object.entries(await checkStandardRate(values, currentId))) errors[k] ??= v;
   }
   if (entity.key === "acc_item_category_account" && !currentId && !errors.account_kind) {
     const categoryId = refValue(values, "category_id");
@@ -543,6 +564,8 @@ async function validateAccount(
         errors.require_cost_center = "Account ini sudah memiliki journal; aturan Cost Center-nya tidak dapat diubah.";
       } else if (!wanted && types.length) {
         errors.require_cost_center = `Account ini dipakai sebagai Account Biaya oleh Jenis Biaya (${types.join(", ")}).`;
+      } else if (!wanted && (await absorbedAccountId()) === currentId) {
+        errors.require_cost_center = "Account ini dipakai Account Mapping sebagai Account Biaya Produksi Dibebankan.";
       }
     }
   }
@@ -610,6 +633,12 @@ async function ownCollections(
     const checked = await checkWarehouseCollections(values, id);
     Object.assign(errors, checked.errors);
     return (tx, recordId, actorId) => writeWarehouseCollections(tx, recordId, checked.clean, actorId);
+  }
+  // An Overhead Cost Center's spread (P159); any other keeps no rows.
+  if (entity.key === "acc_cost_center") {
+    const checked = await checkCostCenter(values, id);
+    for (const [k, v] of Object.entries(checked.errors)) errors[k] ??= v;
+    return (tx, recordId, actorId) => writeCostCenterSpreads(tx, recordId, checked.clean, actorId);
   }
   return null;
 }
@@ -788,6 +817,13 @@ export async function toggleStatus(
   if (!guard.ok) return { ok: false, message: guard.denial.errors._form };
   const actor = guard.actor;
 
+  // A Cost Center a workstation pools into, or an Overhead spreads into, is
+  // where the close would send cost (P159).
+  if (entity.key === "acc_cost_center" && !nextActive) {
+    const refusal = await costCenterDeactivationRefusal(id);
+    if (refusal) return { ok: false, message: refusal };
+  }
+
   // Deactivating an account that a Cash & Bank resource or a Jenis PPh posts
   // to would leave it pointing at an account it could no longer have chosen.
   if (entity.key === "acc_account" && !nextActive) {
@@ -851,4 +887,9 @@ export async function toggleStatus(
   revalidatePath(`/${entity.module}/${entity.slug}/${id}`);
   revalidatePath("/dashboard");
   return { ok: true, active: nextActive };
+}
+
+/** The account Account Mapping names as Biaya Produksi Dibebankan, or null (P159). */
+async function absorbedAccountId(): Promise<number | null> {
+  return refValueOf(await systemDefaults(), "production_absorbed_account");
 }

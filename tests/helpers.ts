@@ -147,6 +147,15 @@ export async function systemUserId(): Promise<number> {
   return row.id;
 }
 
+/** The seed's Production Cost Center, PRODUKSI — what a fixture Workstation pools into (P159). */
+export async function productionCostCenterId(): Promise<number> {
+  const row = await prisma.accCostCenter.findFirstOrThrow({
+    where: { cost_center_label: "PRODUKSI" },
+    select: { id: true },
+  });
+  return row.id;
+}
+
 export async function partnerCategoryId(label: string): Promise<number> {
   const row = await prisma.sysPartnerCategory.findFirstOrThrow({
     where: { category_label: label },

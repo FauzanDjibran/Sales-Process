@@ -21,6 +21,7 @@ import {
   makeAccount,
   openFiscalYear,
   prisma,
+  productionCostCenterId,
   setCategoryAccount,
   snapshotCategoryAccounts,
   stockIn,
@@ -101,9 +102,9 @@ before(async () => {
       data: { warehouse_id: f.located, location_code: `test.${key("A01")}`, location_label: "A-01", location_name: "Rak A-01", created_by: actor },
     })
   ).id;
-  f.ws = (await prisma.refWorkstation.create({ data: { workstation_code: `test.${key("WS")}`, workstation_label: key("WS"), workstation_name: "Pengolahan", created_by: actor } })).id;
+  f.ws = (await prisma.refWorkstation.create({ data: { workstation_code: `test.${key("WS")}`, workstation_label: key("WS"), workstation_name: "Pengolahan", cost_center_id: await productionCostCenterId(), created_by: actor } })).id;
   f.wsOff = (
-    await prisma.refWorkstation.create({ data: { workstation_code: `test.${key("WSOFF")}`, workstation_label: key("WSOFF"), workstation_name: "Mati", status: "Inactive", created_by: actor } })
+    await prisma.refWorkstation.create({ data: { workstation_code: `test.${key("WSOFF")}`, workstation_label: key("WSOFF"), workstation_name: "Mati", cost_center_id: await productionCostCenterId(), status: "Inactive", created_by: actor } })
   ).id;
 
   // RM's pool is company-wide (P114): 100 kg at Rp 1.000.000 in R1, 50 kg at

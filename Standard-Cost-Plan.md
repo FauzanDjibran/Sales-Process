@@ -154,6 +154,11 @@ FG-B Rp3,0 jt; two pools + FOH Rp6,917 jt / Rp3,083 jt.
 The production ledger carries no memo and no Driver per lot (round 3's
 `prd_ledger_driver` is not needed).
 
+**As built in Phase 5a (P159, 14/10/2026):** the rate is per workstation, in
+`ref_workstation_rate` (workstation · `effective_period_id` · `rate`), not
+`acc_cost_center_rate`; the Driver has no unit, so there is no
+`driver_uom_id` (`production_project.md` M103–M104).
+
 ---
 
 ## 6. Closed (round 5)

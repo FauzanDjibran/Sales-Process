@@ -47,6 +47,7 @@ import { recordTitle } from "@/lib/erp/record-title";
 import { AddressesTab, ContactsTab } from "@/components/master/partner-tabs";
 import { UomConversionsTab } from "@/components/master/item-tabs";
 import { WarehouseLocationsTab } from "@/components/master/warehouse-tabs";
+import { CostCenterSpreadsTab } from "@/components/master/cost-center-tabs";
 import type { CollectionTabProps } from "@/components/master/collection-tab";
 
 /**
@@ -60,6 +61,7 @@ const CUSTOM_TABS: Record<string, (props: CollectionTabProps<any>) => React.Reac
   "m_partner.contacts": ContactsTab,
   "m_item.uoms": UomConversionsTab,
   "ref_warehouse.locations": WarehouseLocationsTab,
+  "acc_cost_center.spreads": CostCenterSpreadsTab,
 };
 
 export type FormMode = "new" | "view" | "edit";

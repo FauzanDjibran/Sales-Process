@@ -94,6 +94,9 @@ export const PERMISSIONS = [
   { code: "WORKSTATION_EDIT", name: "Ubah Workstation", module: "master" },
   { code: "WORKSTATION_ACTIVATE", name: "Aktifkan Workstation", module: "master" },
   { code: "WORKSTATION_DEACTIVATE", name: "Nonaktifkan Workstation", module: "master" },
+  { code: "STANDARD_RATE_VIEW", name: "Lihat Tarif Standar", module: "master", description: "Tarif konversi per Driver setiap Workstation." },
+  { code: "STANDARD_RATE_CREATE", name: "Tambah Tarif Standar", module: "master" },
+  { code: "STANDARD_RATE_EDIT", name: "Ubah Tarif Standar", module: "master" },
 
   { code: "WITHHOLDING_TAX_VIEW", name: "Lihat Jenis PPh", module: "master" },
   { code: "WITHHOLDING_TAX_CREATE", name: "Tambah Jenis PPh", module: "master" },

@@ -17,7 +17,8 @@
  *   suppliers with purchase defaults, and what the company buys: raw and
  *   packaging materials by lot, a consumable without stock, two services;
  *   the suppliers that bill production cost (PLN, water, outsourced labour,
- *   waste) and three workstations (P150)
+ *   waste), three workstations each with its own Cost Center and Tarif
+ *   Standar, and FOH spread over them (P150, P159)
  *   opening stock of the finished goods, two lots per item per warehouse
  *
  * Not created: opening balances (they start empty, P27), documents, and the
@@ -26,7 +27,9 @@
  * **Idempotent and additive.** Every record is matched on its label or name —
  * the thing a person would recognise — and created only when missing. An
  * existing record is never changed, and a setting or account pointer the user
- * has already filled is left alone. Running it twice creates nothing twice.
+ * has already filled is left alone (one exception: a demo workstation still on
+ * PRODUKSI moves to its own Cost Center, P159). Running it twice creates
+ * nothing twice.
  *
  * It writes the same rows the application's forms would, with generated
  * codes, the Sistem user as author, a `create` audit entry for every master
@@ -240,11 +243,30 @@ const SUPPLIERS: CustomerSpec[] = [
   },
 ];
 
-/** Workstations (P150 Phase 1): the production stations of the demo plant. */
-const WORKSTATIONS: [label: string, name: string, note: string][] = [
-  ["WS-MIX", "Mixing", "Pencampuran bahan baku menjadi bulk"],
-  ["WS-FILL", "Filling", "Pengisian bulk ke botol, tube dan jar"],
-  ["WS-PACK", "Packing", "Pelabelan, kemas sekunder dan karton"],
+/**
+ * Cost Centers (P159): a Production pool per station — any of them can later
+ * be pointed at a shared one — and the factory-wide FOH, spread over them.
+ */
+const COST_CENTERS: [label: string, name: string, type: "Production" | "Overhead"][] = [
+  ["CC-MIX", "Mixing", "Production"],
+  ["CC-FILL", "Filling", "Production"],
+  ["CC-PACK", "Packing", "Production"],
+  ["FOH", "Overhead Pabrik", "Overhead"],
+];
+const FOH_SPREAD: [costCenter: string, percent: number][] = [
+  ["CC-MIX", 50],
+  ["CC-FILL", 30],
+  ["CC-PACK", 20],
+];
+
+/**
+ * Workstations (P150 Phase 1): the production stations of the demo plant,
+ * each with its Cost Center and its Tarif Standar per Driver (P159).
+ */
+const WORKSTATIONS: [label: string, name: string, note: string, costCenter: string, rate: number][] = [
+  ["WS-MIX", "Mixing", "Pencampuran bahan baku menjadi bulk", "CC-MIX", 25_000],
+  ["WS-FILL", "Filling", "Pengisian bulk ke botol, tube dan jar", "CC-FILL", 40_000],
+  ["WS-PACK", "Packing", "Pelabelan, kemas sekunder dan karton", "CC-PACK", 15_000],
 ];
 
 type PurchaseItemSpec = {
@@ -361,11 +383,61 @@ async function main() {
     tally("gudang");
   }
 
-  // ---- Workstations (P150)
-  for (const [label, name, note] of WORKSTATIONS) {
-    if (await prisma.refWorkstation.findFirst({ where: { workstation_label: label } })) continue;
+  // ---- Cost Centers (P159): one Production pool per station, and FOH
+  // spread over them by Persentase
+  const costCenterId = new Map<string, number>();
+  for (const [label, name, type] of COST_CENTERS) {
+    let row = await prisma.accCostCenter.findFirst({ where: { cost_center_label: { equals: label, mode: "insensitive" } } });
+    if (!row) {
+      row = await prisma.accCostCenter.create({
+        data: {
+          cost_center_code: await nextCode(entity("acc_cost_center")),
+          cost_center_label: label,
+          cost_center_name: name,
+          cost_center_type: type,
+          spread_method: type === "Overhead" ? "Percent" : null,
+          created_by: actor,
+        },
+      });
+      await audit("acc_cost_center", row.id);
+      tally("cost centers");
+    }
+    costCenterId.set(label, row.id);
+  }
+  const foh = costCenterId.get("FOH")!;
+  if (!(await prisma.accCostCenterSpread.count({ where: { overhead_cost_center_id: foh } }))) {
+    for (const [label, percent] of FOH_SPREAD) {
+      await prisma.accCostCenterSpread.create({
+        data: { overhead_cost_center_id: foh, production_cost_center_id: costCenterId.get(label)!, percent, created_by: actor },
+      });
+    }
+    tally("foh spread");
+  }
+
+  // ---- Workstations (P150), each pooling into its own Cost Center. One the
+  // costing migration put on PRODUKSI is moved to its own — the one place
+  // this script changes an existing record, so a database migrated before
+  // P159 shows the demo plant as it is meant to be read.
+  const produksi = await prisma.accCostCenter.findFirst({ where: { cost_center_label: "PRODUKSI" }, select: { id: true } });
+  for (const [label, name, note, center] of WORKSTATIONS) {
+    const existing = await prisma.refWorkstation.findFirst({ where: { workstation_label: label } });
+    if (existing) {
+      if (produksi && existing.cost_center_id === produksi.id) {
+        await prisma.refWorkstation.update({ where: { id: existing.id }, data: { cost_center_id: costCenterId.get(center)!, updated_by: actor } });
+        await prisma.auditLog.create({ data: { entity_key: "ref_workstation", row_id: existing.id, action: "UPDATE", event: "update", by: actor } });
+        tally("workstations moved to their cost center");
+      }
+      continue;
+    }
     const row = await prisma.refWorkstation.create({
-      data: { workstation_code: await nextCode(entity("ref_workstation")), workstation_label: label, workstation_name: name, note, created_by: actor },
+      data: {
+        workstation_code: await nextCode(entity("ref_workstation")),
+        workstation_label: label,
+        workstation_name: name,
+        cost_center_id: costCenterId.get(center)!,
+        note,
+        created_by: actor,
+      },
     });
     await audit("ref_workstation", row.id);
     tally("workstations");
@@ -467,6 +539,21 @@ async function main() {
     });
     await audit("acc_fiscal_year", fy.id);
     tally("fiscal year");
+  }
+
+  // ---- Tarif Standar per workstation from January (P159), once per station
+  const january = await prisma.accFiscalPeriod.findFirst({
+    where: { fiscal_year: { year_label: String(year) }, sequence_no: 1 },
+    select: { id: true },
+  });
+  for (const [label, , , , rate] of WORKSTATIONS) {
+    const ws = await prisma.refWorkstation.findFirst({ where: { workstation_label: label }, select: { id: true } });
+    if (!ws || !january || (await prisma.refWorkstationRate.findFirst({ where: { workstation_id: ws.id } }))) continue;
+    const row = await prisma.refWorkstationRate.create({
+      data: { rate_code: await nextCode(entity("ref_workstation_rate")), workstation_id: ws.id, effective_period_id: january.id, rate, created_by: actor },
+    });
+    await audit("ref_workstation_rate", row.id);
+    tally("tarif standar");
   }
 
   // ---- customers and suppliers

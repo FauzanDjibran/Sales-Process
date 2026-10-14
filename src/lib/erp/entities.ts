@@ -109,7 +109,9 @@ export type Field = {
     | "postableAccount"
     | "parentAccount"
     /** Kategori Item of the Tipe the form currently holds (P47). */
-    | "itemCategoryByType";
+    | "itemCategoryByType"
+    /** Active Cost Centers of type Production — a Workstation's pool (P159, M93). */
+    | "productionCostCenter";
   /**
    * Named predicate deciding whether the field applies at all. A field that
    * does not apply is hidden and stored as null — the Server Action evaluates
@@ -138,7 +140,9 @@ export type Field = {
      * The Item is a Barang. Stock and expiry mean nothing for a Jasa, so the
      * flags are not offered and are stored false.
      */
-    | "itemIsGoods";
+    | "itemIsGoods"
+    /** The Cost Center is an Overhead one, so it is spread (P159). */
+    | "costCenterIsOverhead";
   /**
    * `segment` only. The ref fields whose chosen row supplies the code this
    * segment continues, in priority order — the first one filled wins. Chart of
@@ -199,7 +203,7 @@ export type EntityTab = {
   desc: string;
   kind: "fields" | "custom";
   /** A custom tab shown only while the form's values call for it (`tabApplies`). */
-  shownWhen?: "warehouseUsesLocation";
+  shownWhen?: "warehouseUsesLocation" | "costCenterSpreadsByPercent";
 };
 
 export type Column = {
@@ -221,6 +225,8 @@ export type Column = {
   isDate?: boolean;
   /** A stored percentage, shown `1,5%`. */
   isPercent?: boolean;
+  /** A rupiah figure that may carry decimals — a rate per Driver — shown `Rp 25.000,5`. */
+  isPrice?: boolean;
   truncate?: boolean;
   /** Value comes from the server-computed map rather than the row. */
   computed?: boolean;
@@ -958,13 +964,14 @@ export const ENTITIES: Entity[] = [
 
   {
     // Where production transforms input into output (P150, G9): user master
-    // data, never hard-coded. No account, capacity or cost — cost is global.
+    // data, never hard-coded. It names the Production Cost Center its cost is
+    // pooled into (P159, M93); its standard rate is a Tarif Standar row.
     key: "ref_workstation",
     slug: "workstation",
     module: "master",
     name: "Workstation",
     icon: "gear",
-    desc: "Tempat proses produksi — pengolahan, pengemasan, atau tahap lain yang Anda tentukan. Setiap Workstation memiliki Perintah Produksi sendiri.",
+    desc: "Tempat proses produksi — pengolahan, pengemasan, atau tahap lain yang Anda tentukan. Setiap Workstation memiliki Perintah Produksi sendiri dan membebankan biayanya ke satu Cost Center Produksi.",
     codeField: "workstation_code",
     codePrefix: "ws",
     labelField: "workstation_label",
@@ -989,26 +996,91 @@ export const ENTITIES: Entity[] = [
         placeholder: "Pengolahan",
         help: "nama lengkap",
       },
+      {
+        name: "cost_center_id",
+        label: "Cost Center",
+        type: "ref",
+        ref: "acc_cost_center",
+        refFilter: "productionCostCenter",
+        required: true,
+        span: 6,
+        help: "kumpulan biaya yang dibebankan workstation ini; boleh dipakai bersama",
+      },
       STATUS_FIELD,
       NOTE_FIELD,
     ],
     columns: [
       { field: "workstation_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
       { field: "workstation_name", label: "Nama Workstation", primary: true, filter: "text" },
+      { field: "cost_center_id", label: "Cost Center", isRef: true, width: "240px", filter: "ref" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
       { field: "note", label: "Catatan", muted: true, truncate: true },
     ],
   },
 
   {
+    // Tarif Standar (P159, M94 amended): a workstation's conversion rate per
+    // Driver from a period on — the latest row on or before a period applies,
+    // none or 0 is no standard. Driver is a bare number (M95 amended).
+    key: "ref_workstation_rate",
+    slug: "standard-rate",
+    module: "master",
+    name: "Tarif Standar",
+    single: "Tarif Standar",
+    icon: "calc",
+    desc: "Tarif konversi per Driver untuk setiap Workstation, berlaku mulai suatu periode sampai ada tarif berikutnya. Eksekusi Produksi membebankan Driver × tarif; penutupan bulan menyesuaikannya ke biaya aktual. Tanpa tarif atau tarif 0 berarti tanpa standar.",
+    codeField: "rate_code",
+    codePrefix: "tsr",
+    titleRefs: ["workstation_id", "effective_period_id"],
+    fields: [
+      {
+        name: "workstation_id",
+        label: "Workstation",
+        type: "ref",
+        ref: "ref_workstation",
+        required: true,
+        locked: true,
+        span: 6,
+      },
+      {
+        name: "effective_period_id",
+        label: "Berlaku Mulai",
+        type: "ref",
+        ref: "acc_fiscal_period",
+        required: true,
+        locked: true,
+        span: 6,
+        help: "berlaku sampai periode tarif berikutnya",
+      },
+      {
+        name: "rate",
+        label: "Tarif per Driver",
+        type: "rate",
+        required: true,
+        span: 6,
+        placeholder: "0",
+        help: "Rp per satu Driver; 0 = tanpa standar",
+      },
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "workstation_id", label: "Workstation", isRef: true, primary: true, filter: "ref" },
+      { field: "effective_period_id", label: "Berlaku Mulai", isRef: true, width: "200px", filter: "ref" },
+      { field: "rate", label: "Tarif per Driver", isPrice: true, numeric: true, width: "180px" },
+      { field: "note", label: "Catatan", muted: true, truncate: true },
+    ],
+  },
+
+  {
     // Where a cost was incurred (P154): a tag on the journal line beside the
-    // account and the Partner. Designed for many; PRODUKSI is the one today.
+    // account and the Partner. Its type decides what the close does with its
+    // balance (P159, M93); an Overhead one names its spread.
     key: "acc_cost_center",
     slug: "cost-center",
     module: "master",
     name: "Cost Center",
     icon: "pin",
-    desc: "Tempat biaya terjadi — dicatat pada setiap baris journal di account yang wajib Cost Center, dan menjadi dasar pembebanan biaya akhir bulan.",
+    desc: "Tempat biaya terjadi — dicatat pada setiap baris journal di account yang wajib Cost Center. Produksi dibebankan ke hasil produksi lewat Workstation-nya; Overhead dialokasikan ke Cost Center Produksi; Administrasi tidak dibebankan ke produk.",
     codeField: "cost_center_code",
     codePrefix: "cc",
     labelField: "cost_center_label",
@@ -1038,19 +1110,39 @@ export const ENTITIES: Entity[] = [
         label: "Tipe",
         type: "select",
         required: true,
-        options: ["Production"],
-        optionLabels: { Production: "Produksi" },
+        options: ["Production", "Overhead", "Administrative"],
+        optionLabels: { Production: "Produksi", Overhead: "Overhead", Administrative: "Administrasi" },
         defaultValue: "Production",
-        locked: true,
-        help: "Service dan Office menyusul",
+        help: "tetap setelah dipakai journal, workstation atau alokasi",
+      },
+      {
+        name: "spread_method",
+        label: "Metode Alokasi",
+        type: "select",
+        options: ["Even", "Percent"],
+        optionLabels: { Even: "Rata", Percent: "Persentase" },
+        defaultValue: "Even",
+        visibleWhen: "costCenterIsOverhead",
+        help: "Rata ke semua Cost Center Produksi aktif, atau per persentase",
       },
       STATUS_FIELD,
       NOTE_FIELD,
     ],
+    tabs: [
+      {
+        key: "spreads",
+        label: "Alokasi",
+        icon: "layers",
+        desc: "Bagian saldo Overhead yang dialokasikan ke setiap Cost Center Produksi saat penutupan bulan — jumlahnya tepat 100%.",
+        kind: "custom",
+        shownWhen: "costCenterSpreadsByPercent",
+      },
+    ],
     columns: [
       { field: "cost_center_label", label: "Label", isLabel: true, width: "150px", filter: "text" },
       { field: "cost_center_name", label: "Nama Cost Center", primary: true, filter: "text" },
-      { field: "cost_center_type", label: "Tipe", isTag: true, width: "120px", filter: "enum" },
+      { field: "cost_center_type", label: "Tipe", isTag: true, width: "130px", filter: "enum" },
+      { field: "spread_method", label: "Alokasi", isTag: true, width: "130px", filter: "enum" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
   },
@@ -1622,6 +1714,7 @@ export function waitingClause(missing: Field[]): string | null {
 /** Whether a tab is in play, given the values currently entered — a Gudang's Lokasi tab only with Gunakan Lokasi. */
 export function tabApplies(tab: EntityTab, values: Record<string, unknown>): boolean {
   if (tab.shownWhen === "warehouseUsesLocation") return values.use_location === true || values.use_location === "true";
+  if (tab.shownWhen === "costCenterSpreadsByPercent") return values.cost_center_type === "Overhead" && values.spread_method === "Percent";
   return true;
 }
 
@@ -1639,6 +1732,9 @@ export function fieldApplies(
   }
   if (field.visibleWhen === "itemIsGoods") {
     return values.item_type === "Barang";
+  }
+  if (field.visibleWhen === "costCenterIsOverhead") {
+    return values.cost_center_type === "Overhead";
   }
   if (field.visibleWhen === "partnerIsCustomer") {
     return refLabelOf?.("category_id", values.category_id) === CUSTOMER_CATEGORY;
@@ -1690,6 +1786,12 @@ export const TAG_CLASS: Record<string, string> = {
   Kredit: "t-acc",
   Barang: "t-info",
   Jasa: "t-vio",
+  // Cost Center types and an Overhead's spread (P159).
+  Production: "t-info",
+  Overhead: "t-vio",
+  Administrative: "t-slate",
+  Even: "t-acc",
+  Percent: "t-acc",
 };
 
 /** The value a status model treats as "active". */

@@ -937,6 +937,10 @@ section records the decisions.
 | M100 | **Every Tagihan Biaya credits Account Mapping's *Hutang Biaya Produksi*** (13/10/2026, the user; P156): a Jenis Biaya names only its expense account; every bill names its Supplier and is payable. Supersedes M84, M89; amends M75, M76. |
 | M101 | **Job No. replaces the name *batch*** (13/10/2026, the user): the production identity traceable from the first execution to the finished goods is the **Job No.** (`JOB/YYYY/MM/NNNN`, or typed, unique); the rule of M41 is unchanged (no job among the inputs → a new Job No.; one → carried; two → refused unless *Job Baru*, whose parents are both). The built `prd_batch` / `batch_no` / `BT/…` (P157) are renamed at the start of Phase 4. Amends M10, M22, M41, M42, M45, M48. |
 | M102 | **The production reports stay in Phase 7, as planned** (13/10/2026, the user): Saldo Produksi, Kartu Lot Produksi, Telusur Produksi — the genealogy of every Job No., backward and forward — and Rekap Produksi. |
+| M103 | **Tarif Standar stands on its own and is per Workstation** (14/10/2026, the user; P159): Workstation · Berlaku Mulai · Tarif per Driver, in its own menu; the Workstation names the Cost Center it pools into. Amends M94 (the rate was per cost center). |
+| M104 | **Driver has no unit** (14/10/2026, the user): a bare number whose meaning the workstation implies. No Satuan on a cost center. Amends M95. |
+| M105 | **Workstations sharing a Cost Center may carry different rates** (14/10/2026, the user, after a simulation of 2 workstations and 2 jobs, one finished and partly sold, one in WIP): the standard part is spread by the rates and only the leftover by Driver, so the whole cost is still absorbed (M97) and only its split between WIP, stock and HPP moves toward what separate cost centers would give. M91's "standard or none ends the same" holds exactly per cost center when its workstations share one rate, and always with one workstation per cost center. |
+| M106 | **A Tagihan Biaya line may name a Cost Center of any type** (14/10/2026, the user): Overhead and Administrative costs are recorded where they belong. Tagihan Biaya is to become general beyond production — a later step. |
 
 ### Revised build steps (supersede §18 steps 3–9)
 
@@ -944,7 +948,7 @@ section records the decisions.
 | --- | --- |
 | 3 ✅ 13/10/2026 | Production ledger (E2, E3), with a value-only row for the close (P157) |
 | 4 ✅ 13/10/2026 | Stock Issue — *Pengeluaran ke Produksi* (§9.3), with the Job No. rename (M101) (P158) |
-| 5a | Costing masters: cost-center types, Driver unit, Overhead spread, Workstation → Cost Center, Tarif Standar, Account Mapping *Biaya Produksi Dibebankan* |
+| 5a ✅ 14/10/2026 | Costing masters: cost-center types, Overhead spread, Workstation → Cost Center, Tarif Standar per workstation (no Driver unit, M103–M104), Account Mapping *Biaya Produksi Dibebankan* (P159) |
 | 5 | Perintah + Eksekusi Produksi with Driver and the standard's journal |
 | 6 | Penerimaan Hasil Produksi + Pemusnahan Produksi |
 | 7 | Production reports + *Tarif & Selisih* (cost, Driver, rate, standard booked, leftover per cost center per month) |

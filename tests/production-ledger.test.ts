@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { ProductionRefusal, availableBuckets, enterProduction, produce, revalueBucket, takeFromBucket, wipByItem, type Production } from "../src/lib/erp/production-ledger";
 import { jobOutcome, shareByWeight, shareQty } from "../src/lib/erp/production-execution";
-import { FIXTURE_PREFIX, disconnect, prisma, systemUserId } from "./helpers";
+import { FIXTURE_PREFIX, disconnect, prisma, productionCostCenterId, systemUserId } from "./helpers";
 
 /**
  * The production ledger (P150 E2, E3; P155 M92): buckets of one lot at one
@@ -47,7 +47,7 @@ before(async () => {
   const ws = async (l: string, active = true) =>
     (
       await prisma.refWorkstation.create({
-        data: { workstation_code: `test.${key(l)}`, workstation_label: key(l), workstation_name: l, status: active ? "Active" : "Inactive", created_by: actor },
+        data: { workstation_code: `test.${key(l)}`, workstation_label: key(l), workstation_name: l, cost_center_id: await productionCostCenterId(), status: active ? "Active" : "Inactive", created_by: actor },
       })
     ).id;
   f.ws1 = await ws("WS1");

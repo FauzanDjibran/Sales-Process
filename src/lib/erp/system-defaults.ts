@@ -47,6 +47,7 @@ export type SystemDefaultKey =
   | "supplier_invoice_tolerance"
   | "production_scrap_account"
   | "production_cost_payable_account"
+  | "production_absorbed_account"
   | "ppn_rate"
   | "ppn_dpp_other_numerator"
   | "ppn_dpp_other_denominator";
@@ -168,10 +169,10 @@ export const SYSTEM_DEFAULT_GROUPS = [
     page: "account",
     name: "Produksi",
     desc:
-      "Beban atas barang yang dimusnahkan dari produksi. WIP tidak memiliki " +
-      "cadangan di sini: setiap Kategori Item yang masuk produksi harus " +
-      "menentukan Account WIP-nya sendiri. Biaya tenaga kerja dan overhead " +
-      "memakai Jenis Biaya, yang menyebut account biaya dan lawannya sendiri.",
+      "Hutang atas setiap Tagihan Biaya, lawan biaya yang dibebankan ke " +
+      "produksi per Cost Center, dan beban atas barang yang dimusnahkan. WIP " +
+      "tidak memiliki cadangan di sini: setiap Kategori Item yang masuk " +
+      "produksi harus menentukan Account WIP-nya sendiri.",
     icon: "gear",
   },
   {
@@ -449,6 +450,17 @@ export const SYSTEM_DEFAULTS = [
     help: "sisi kredit setiap Tagihan Biaya; dilunasi oleh Pembayaran Biaya Produksi",
   },
   {
+    // The credit side of the standard an Eksekusi Produksi books (P159, M92)
+    // and of the month-end close, per Cost Center: it requires one.
+    key: "production_absorbed_account",
+    name: "Account Biaya Produksi Dibebankan",
+    icon: "layers",
+    type: "ref",
+    ref: "acc_account",
+    group: "production",
+    help: "dikredit saat biaya dibebankan ke produksi, per Cost Center; wajib Require Cost Center",
+  },
+  {
     key: "production_scrap_account",
     name: "Account Beban Pemusnahan Produksi",
     icon: "trash",
@@ -528,6 +540,7 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   supplier_invoice_tolerance: null,
   production_scrap_account: null,
   production_cost_payable_account: null,
+  production_absorbed_account: null,
   ppn_rate: null,
   ppn_dpp_other_numerator: null,
   ppn_dpp_other_denominator: null,
