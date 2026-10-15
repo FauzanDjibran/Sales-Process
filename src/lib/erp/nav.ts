@@ -166,6 +166,28 @@ export const MODULES: NavModule[] = [
     permission: "MENU_PRODUCTION_ACCESS",
     groups: [
       {
+        key: "master",
+        name: "Master Data",
+        entities: [
+          {
+            key: "prd_bom",
+            slug: "bom",
+            name: "Bill of Materials",
+            icon: "layers",
+            desc: "Komponen per barang hasil — saran untuk Eksekusi Produksi.",
+            permission: "BOM_VIEW",
+          },
+          {
+            key: "prd_routing",
+            slug: "routing",
+            name: "Routing",
+            icon: "tree",
+            desc: "Urutan workstation menuju barang target sebuah Partai.",
+            permission: "ROUTING_VIEW",
+          },
+        ],
+      },
+      {
         key: "cost",
         name: "Biaya",
         entities: [

@@ -61,6 +61,7 @@ import {
   standardCostItemsUsingAccount,
   writeStandardCostLines,
 } from "@/lib/erp/standard-cost";
+import { bomDeactivationRefusal, checkBom, checkRouting, writeBom, writeRouting } from "@/lib/erp/production-master";
 
 /**
  * Every action here is permission-gated before it touches anything, and every
@@ -339,6 +340,23 @@ async function validate(
   // account requires one and the credit account takes none (M88).
   if (entity.key === "acc_cost_type" && !currentId) {
     Object.assign(errors, await validateCostType(values, errors));
+  }
+  // The unit code and the Kode Job are part of production numbers
+  // (`BSTB_<unit>_…`, `<Kode Job>_…`, M124, M126): letters and digits only.
+  if (entity.key === "ref_workstation") {
+    for (const name of ["workstation_label", "job_code"] as const) {
+      const v = String(values[name] ?? "").trim();
+      if (v && !errors[name] && !/^[A-Za-z0-9]{2,10}$/.test(v)) {
+        errors[name] = "Gunakan 2–10 huruf atau angka saja, tanpa spasi, garis bawah atau tanda hubung — kode ini masuk ke nomor dokumen produksi.";
+      }
+    }
+  }
+  // An item's value weight is a figure ≥ 0; a BJL weighs nothing (M117, M122).
+  if (entity.key === "m_item" && applies.has("value_weight") && !errors.value_weight) {
+    const raw = String(values.value_weight ?? "").trim();
+    const n = Number(raw);
+    if (raw !== "" && (!Number.isFinite(n) || n < 0)) errors.value_weight = "Bobot nilai tidak boleh negatif.";
+    else if (values.output_type === "BJL" && raw !== "" && n !== 0) errors.value_weight = "BJL tidak menanggung nilai: kosongkan bobot nilainya.";
   }
   // A Workstation pools into an active Production Cost Center (P159, M93).
   if (entity.key === "ref_workstation" && !errors.cost_center_id) {
@@ -647,7 +665,18 @@ async function ownCollections(
     Object.assign(errors, checked.errors);
     return (tx, recordId, actorId) => writeWarehouseCollections(tx, recordId, checked.clean, actorId);
   }
-  // A Standard Cost.s lines (P160).
+  // A BoM's components and a Routing's steps (Walet build step 1).
+  if (entity.key === "prd_bom") {
+    const checked = await checkBom(values, id);
+    for (const [k, v] of Object.entries(checked.errors)) errors[k] ??= v;
+    return (tx, recordId, actorId) => writeBom(tx, recordId, checked.clean, actorId);
+  }
+  if (entity.key === "prd_routing") {
+    const checked = await checkRouting(values, id);
+    for (const [k, v] of Object.entries(checked.errors)) errors[k] ??= v;
+    return (tx, recordId, actorId) => writeRouting(tx, recordId, checked.clean, actorId);
+  }
+  // A Standard Cost's lines (P160).
   if (entity.key === "acc_standard_cost") {
     const checked = await checkStandardCost(values, id);
     for (const [k, v] of Object.entries(checked.errors)) errors[k] ??= v;
@@ -838,6 +867,10 @@ export async function toggleStatus(
   }
   if (entity.key === "acc_standard_cost_item" && !nextActive) {
     const refusal = await standardCostItemDeactivationRefusal(id);
+    if (refusal) return { ok: false, message: refusal };
+  }
+  if (entity.key === "prd_bom" && !nextActive) {
+    const refusal = await bomDeactivationRefusal(id);
     if (refusal) return { ok: false, message: refusal };
   }
 

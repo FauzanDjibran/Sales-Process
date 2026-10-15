@@ -112,8 +112,8 @@ describe("stock and expiry belong to Barang", () => {
   const item = ENTITIES.find((e) => e.key === "m_item")!;
   const goodsOnly = item.fields.filter((f) => f.visibleWhen === "itemIsGoods").map((f) => f.name);
 
-  test("Kelola Stok and Memiliki Kadaluarsa apply to a Barang only", () => {
-    assert.deepEqual(goodsOnly.sort(), ["has_expiry", "track_stock"]);
+  test("Kelola Stok, Memiliki Kadaluarsa and the production fields apply to a Barang only", () => {
+    assert.deepEqual(goodsOnly.sort(), ["has_expiry", "output_type", "track_stock", "value_weight"]);
     for (const f of item.fields.filter((x) => goodsOnly.includes(x.name))) {
       assert.equal(fieldApplies(f, { item_type: "Barang" }), true);
       assert.equal(fieldApplies(f, { item_type: "Jasa" }), false);
@@ -123,7 +123,7 @@ describe("stock and expiry belong to Barang", () => {
   test("the item carries no tax treatment: PPN and PPh are decided on the transaction", () => {
     const names = item.fields.map((f) => f.name).join(" ");
     assert.doesNotMatch(names, /ppn|vat|pph|wht|tax/i);
-    assert.deepEqual(item.tabs?.map((t) => t.key), ["uoms"]);
+    assert.deepEqual(item.tabs?.map((t) => t.key), ["uoms", "production"]);
   });
 });
 

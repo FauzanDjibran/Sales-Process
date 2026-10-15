@@ -152,6 +152,12 @@ const TABLE_OWNERS: Record<string, string[]> = {
   accStandardCostItem: ["src/lib/erp/standard-cost.ts", "src/lib/erp/records.ts"],
   accStandardCost: ["src/lib/erp/standard-cost.ts", "src/lib/erp/records.ts"],
   accStandardCostLine: ["src/lib/erp/standard-cost.ts"],
+  // BoM and Routing (Walet build step 1): masters the registry writes; their
+  // collections and rules are the production-master module's.
+  prdBom: ["src/lib/erp/production-master.ts", "src/lib/erp/records.ts"],
+  prdBomLine: ["src/lib/erp/production-master.ts"],
+  prdRouting: ["src/lib/erp/production-master.ts", "src/lib/erp/records.ts"],
+  prdRoutingStep: ["src/lib/erp/production-master.ts"],
   prdCostBill: ["src/lib/erp/production-cost-bill.ts"],
   // The production ledger (P150 E2, E3): a book, written only by itself; the
   // production documents call it.

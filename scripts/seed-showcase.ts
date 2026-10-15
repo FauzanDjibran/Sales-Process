@@ -17,8 +17,11 @@
  *   suppliers with purchase defaults, and what the company buys: raw and
  *   packaging materials by lot, a consumable without stock, two services;
  *   the suppliers that bill production cost (PLN, water, outsourced labour,
- *   waste), three workstations each with its own Cost Center and Standard
- *   Standar, and FOH spread over them (P150, P159)
+ *   waste); FOH as the overhead and UMUM outside production (P160)
+ *   Walet's production world — items in grams, the eleven units as
+ *   workstations with Cost Center, Kode Job and Standard Cost per gram, BoM
+ *   and Routing for N-MK 50 g, the supplier D0001 and its raw lots in stock
+ *   (`scripts/lib/walet-showcase.ts`)
  *   opening stock of the finished goods, two lots per item per warehouse
  *
  * Not created: opening balances (they start empty, P27), documents, and the
@@ -48,6 +51,7 @@ import { BASE_CURRENCY_LABEL } from "../src/lib/erp/currency";
 import { CUSTOMER_CATEGORY, SUPPLIER_CATEGORY } from "../src/lib/erp/entities";
 import { nextAccountLabel, seedStarterAccounts } from "./lib/starter-accounts";
 import { injectStock, type InjectionRow } from "../src/lib/erp/inventory";
+import { seedWaletProduction } from "./lib/walet-showcase";
 
 // ------------------------------------------------------------------- data
 
@@ -241,32 +245,26 @@ const SUPPLIERS: CustomerSpec[] = [
     addresses: [{ city: "Kabupaten Bekasi", district: "Cikarang Timur", street: "Jl. Raya Serang Km 25", note: "Kantor & TPS B3", billing: true }],
     contact: ["Bpk. Hendra Wijaya", "Sales", "0817 6600 1122", "hendra.wijaya@envirotama.example"],
   },
+  {
+    // The Walet nest supplier: the raw lots' source partner (lot GS_D0001_…).
+    label: "D0001", name: "UD Sarang Walet Nusantara", taxpayer: "Badan", idType: "NPWP", taxId: "0954321098765432",
+    pkp: false, term: "TUNAI", mode: "Exclude", supplier: true,
+    addresses: [{ city: "Kota Surabaya", district: "Tegalsari", street: "Jl. Walet Raya No. 12", note: "Gudang pengumpul", billing: true, shipping: true }],
+    contact: ["Bpk. Darmawan", "Pemilik", "0812 3300 4455", "darmawan@sarangwalet.example"],
+  },
 ];
 
 /**
- * Cost Centers (P160): a Produksi pool per station — any of them can later be
- * pointed at a shared one — FOH, the factory overhead System Default names,
- * spread Rata over them at the close, and UMUM, never absorbed.
+ * Cost Centers (P160): FOH, the factory overhead System Default names, spread
+ * Rata over the units' own Cost Centers at the close, and UMUM, never
+ * absorbed. Each Walet unit's Cost Center comes with it (`lib/walet-showcase.ts`).
  */
 const COST_CENTERS: [label: string, name: string, category: "Production" | "NonProduction"][] = [
-  ["CC-MIX", "Mixing", "Production"],
-  ["CC-FILL", "Filling", "Production"],
-  ["CC-PACK", "Packing", "Production"],
   ["FOH", "Overhead Pabrik", "Production"],
   ["UMUM", "Umum & Administrasi", "NonProduction"],
 ];
 const OVERHEAD_COST_CENTER = "FOH";
 
-/**
- * Workstations (P150 Phase 1): the production stations of the demo plant,
- * each with its Cost Center and its Standard Cost from January, Rp per Driver
- * per Standard Cost Item (P160).
- */
-const WORKSTATIONS: [label: string, name: string, note: string, costCenter: string, rates: [item: string, rate: number][]][] = [
-  ["WS-MIX", "Mixing", "Pencampuran bahan baku menjadi bulk", "CC-MIX", [["TKL", 20_000], ["BOP-MESIN", 15_000], ["BOP-PABRIK", 5_000]]],
-  ["WS-FILL", "Filling", "Pengisian bulk ke botol, tube dan jar", "CC-FILL", [["TKL", 25_000], ["BOP-MESIN", 10_000], ["BOP-PABRIK", 5_000]]],
-  ["WS-PACK", "Packing", "Pelabelan, kemas sekunder dan karton", "CC-PACK", [["TKL", 12_000], ["BOP-MESIN", 3_000], ["BOP-PABRIK", 5_000]]],
-];
 
 type PurchaseItemSpec = {
   label: string;
@@ -412,35 +410,6 @@ async function main() {
     tally("overhead cost center setting");
   }
 
-  // ---- Workstations (P150), each pooling into its own Cost Center. One the
-  // costing migration put on PRODUKSI is moved to its own — the one place
-  // this script changes an existing record, so a database migrated before
-  // P159 shows the demo plant as it is meant to be read.
-  const produksi = await prisma.accCostCenter.findFirst({ where: { cost_center_label: "PRODUKSI" }, select: { id: true } });
-  for (const [label, name, note, center] of WORKSTATIONS) {
-    const existing = await prisma.refWorkstation.findFirst({ where: { workstation_label: label } });
-    if (existing) {
-      if (produksi && existing.cost_center_id === produksi.id) {
-        await prisma.refWorkstation.update({ where: { id: existing.id }, data: { cost_center_id: costCenterId.get(center)!, updated_by: actor } });
-        await prisma.auditLog.create({ data: { entity_key: "ref_workstation", row_id: existing.id, action: "UPDATE", event: "update", by: actor } });
-        tally("workstations moved to their cost center");
-      }
-      continue;
-    }
-    const row = await prisma.refWorkstation.create({
-      data: {
-        workstation_code: await nextCode(entity("ref_workstation")),
-        workstation_label: label,
-        workstation_name: name,
-        cost_center_id: costCenterId.get(center)!,
-        note,
-        created_by: actor,
-      },
-    });
-    await audit("ref_workstation", row.id);
-    tally("workstations");
-  }
-
   // ---- Jenis Perizinan, the simulation's PERMITS (P137)
   for (const [label, name, category, estimate, description] of PERMIT_TYPES) {
     if (await prisma.refPermitType.findFirst({ where: { permit_label: label } })) continue;
@@ -539,30 +508,6 @@ async function main() {
     tally("fiscal year");
   }
 
-  // ---- Standard Cost per workstation from January (P160), once per station
-  const january = await prisma.accFiscalPeriod.findFirst({
-    where: { fiscal_year: { year_label: String(year) }, sequence_no: 1 },
-    select: { id: true },
-  });
-  const standardItem = new Map((await prisma.accStandardCostItem.findMany({ select: { id: true, item_label: true } })).map((i) => [i.item_label, i.id]));
-  for (const [label, , , , rates] of WORKSTATIONS) {
-    const ws = await prisma.refWorkstation.findFirst({ where: { workstation_label: label }, select: { id: true } });
-    if (!ws || !january || (await prisma.accStandardCost.findFirst({ where: { workstation_id: ws.id } }))) continue;
-    for (const [item] of rates) {
-      if (!standardItem.has(item)) throw new Error(`Standard Cost Item ${item} is missing — the starter chart should have made it.`);
-    }
-    const row = await prisma.accStandardCost.create({
-      data: {
-        standard_cost_code: await nextCode(entity("acc_standard_cost")),
-        workstation_id: ws.id,
-        effective_period_id: january.id,
-        created_by: actor,
-        lines: { create: rates.map(([item, rate]) => ({ item_id: standardItem.get(item)!, rate, created_by: actor })) },
-      },
-    });
-    await audit("acc_standard_cost", row.id);
-    tally("standard cost");
-  }
 
   // ---- customers and suppliers
   for (const c of [...CUSTOMERS, ...SUPPLIERS]) {
@@ -720,6 +665,10 @@ async function main() {
     const run = await injectStock(opening, actor);
     made[`stok awal (${run.no})`] = run.count;
   }
+
+  // ---- Walet's production world (Walet build step 1): items, units,
+  // Standard Cost per gram, BoM, Routing and the supplier's raw lots
+  await seedWaletProduction({ actor, tally });
 
   // ---- report
   const entries = Object.entries(made);

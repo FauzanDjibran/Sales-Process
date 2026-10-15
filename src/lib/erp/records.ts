@@ -9,6 +9,8 @@ import { journalLineCountForAccount } from "./journal";
 import { type Entity, type Field, entityBySlug } from "./entities";
 import { ITEM_OPTIONS_REF } from "./standard-cost-shape";
 import { standardCostSummaries } from "./standard-cost";
+import { bomSummaries, routingSummaries } from "./production-master";
+import { BOM_COMPONENT_OPTIONS, ROUTING_BOM_OPTIONS, ROUTING_WORKSTATION_OPTIONS } from "./production-master-shape";
 
 /**
  * Generic record access for registry-driven entities.
@@ -33,6 +35,8 @@ const DELEGATES = {
   ref_workstation: (db: Client) => db.refWorkstation,
   acc_standard_cost_item: (db: Client) => db.accStandardCostItem,
   acc_standard_cost: (db: Client) => db.accStandardCost,
+  prd_bom: (db: Client) => db.prdBom,
+  prd_routing: (db: Client) => db.prdRouting,
   acc_cost_center: (db: Client) => db.accCostCenter,
   acc_cost_type: (db: Client) => db.accCostType,
   acc_item_category_account: (db: Client) => db.accItemCategoryAccount,
@@ -132,10 +136,18 @@ export async function refOptions(
     if (field.type !== "ref" || !field.ref) continue;
     result[field.name] = await optionsFor(field.ref, field.refFilter);
   }
-  // A Standard Cost.s Item tab picks Standard Cost Items (P160); the tab is
+  // A Standard Cost's Item tab picks Standard Cost Items (P160); the tab is
   // not a field, so its option set rides under its own key.
   if (entity.key === "acc_standard_cost") {
     result[ITEM_OPTIONS_REF] = await optionsFor("acc_standard_cost_item");
+  }
+  // A BoM's Komponen tab and a Routing's Langkah tab pick from these.
+  if (entity.key === "prd_bom") {
+    result[BOM_COMPONENT_OPTIONS] = await optionsFor("m_item", "productionItem");
+  }
+  if (entity.key === "prd_routing") {
+    result[ROUTING_WORKSTATION_OPTIONS] = await optionsFor("ref_workstation");
+    result[ROUTING_BOM_OPTIONS] = await optionsFor("prd_bom");
   }
   return result;
 }
@@ -229,6 +241,18 @@ export async function optionsFor(
         name: r.cost_center_name,
         active: r.status === "Active",
       }));
+    }
+    case "m_item": {
+      // Production masters offer only a Barang kept in stock (M8).
+      const rows = await prisma.mItem.findMany({
+        where: filter === "productionItem" ? { item_type: "Barang", track_stock: true } : {},
+        orderBy: { item_label: "asc" },
+      });
+      return rows.map((r) => ({ id: r.id, label: r.item_label, name: r.item_name, active: r.status === "Active" }));
+    }
+    case "prd_bom": {
+      const rows = await prisma.prdBom.findMany({ orderBy: { bom_label: "asc" } });
+      return rows.map((r) => ({ id: r.id, label: r.bom_label, name: r.bom_name, active: r.status === "Active" }));
     }
     case "acc_standard_cost_item": {
       const rows = await prisma.accStandardCostItem.findMany({ orderBy: { item_label: "asc" } });
@@ -536,6 +560,16 @@ export async function computedValues(
         ),
       };
     }
+  }
+
+  // A BoM's components and a Routing's stations in one line each.
+  if (entity.key === "prd_bom") {
+    const summaries = await bomSummaries(rows.map((r) => r.id));
+    for (const r of rows) out[r.id] = { components: summaries.get(r.id) ?? "" };
+  }
+  if (entity.key === "prd_routing") {
+    const summaries = await routingSummaries(rows.map((r) => r.id));
+    for (const r of rows) out[r.id] = { steps: summaries.get(r.id) ?? "" };
   }
 
   // A Standard Cost's rates in one line, so the list says what each sets (P160).

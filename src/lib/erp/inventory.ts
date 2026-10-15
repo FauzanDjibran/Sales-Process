@@ -572,6 +572,8 @@ export type InjectionRow = {
   value: string;
   /** The movement's posting date. */
   date: Date;
+  /** The supplier the lot came from, when known (the showcase's supplier lots). */
+  partnerId?: number | null;
 };
 
 /**

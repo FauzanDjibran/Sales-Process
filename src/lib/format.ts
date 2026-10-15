@@ -103,6 +103,15 @@ export function formatNumber(
 }
 
 /**
+ * A quantity with the decimals it has (stored to six): `50`, `7.000`,
+ * `0,25`. A count reads without a trailing `,00`, and a weight in grams keeps
+ * the fraction it was weighed to.
+ */
+export function formatQty(value: number | string | { toString(): string } | null | undefined): string {
+  return Number(value ?? 0).toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+}
+
+/**
  * An exchange rate: `15.500,00`, `15.500,50`, `15.500,123456`.
  *
  * A rate is not an amount, so it is not `formatMoney` with a different prefix.

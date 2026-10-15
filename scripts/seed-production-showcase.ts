@@ -55,62 +55,62 @@ type BillSpec = {
   draft?: boolean;
 };
 
-// Metered and headcount costs go to each station's Cost Center; what serves
-// the whole plant (water, supervisors and QC, waste) goes to FOH, which the
-// close spreads 50 / 30 / 20 (P159).
+// Metered and headcount costs go to the Walet units' own Cost Centers
+// (Cleaning, Dry A, Moulding); what serves the whole plant (water,
+// supervisors and QC, waste) goes to FOH, which the close spreads Rata (P160).
 const BILLS: BillSpec[] = [
   // ---- August 2026
   { key: "A-PLN", supplier: "S-005", date: "2026-08-31", due: "2026-09-14", ref: "PLN/2608/0071", description: "Listrik pabrik Agustus 2026",
     lines: [
-      ["LISTRIK-PABRIK", "CC-MIX", 20_925_000, "Sub-meter mixing — 13.950 kWh"],
-      ["LISTRIK-PABRIK", "CC-FILL", 12_555_000, "Sub-meter filling — 8.370 kWh"],
-      ["LISTRIK-PABRIK", "CC-PACK", 8_370_000, "Sub-meter packing — 5.580 kWh"],
+      ["LISTRIK-PABRIK", "CC-UCL", 20_925_000, "Sub-meter cleaning — 13.950 kWh"],
+      ["LISTRIK-PABRIK", "CC-UDA", 12_555_000, "Sub-meter dry A — 8.370 kWh"],
+      ["LISTRIK-PABRIK", "CC-UML", 8_370_000, "Sub-meter moulding — 5.580 kWh"],
     ] },
   { key: "A-AIR", supplier: "S-006", date: "2026-08-31", due: "2026-09-14", ref: "AIC/08/1123", description: "Air proses pabrik Agustus 2026",
     lines: [["LISTRIK-PABRIK", "FOH", 4_720_000, "Air proses 1.180 m³"]] },
   { key: "A-KMO", supplier: "S-007", date: "2026-08-31", due: "2026-09-07", ref: "KMO/INV/0826", description: "Tenaga borongan produksi Agustus 2026",
     lines: [
-      ["UPAH-LANGSUNG", "CC-MIX", 28_800_000, "Operator mixing — 8 orang"],
-      ["UPAH-LANGSUNG", "CC-FILL", 36_000_000, "Operator filling — 10 orang"],
-      ["UPAH-LANGSUNG", "CC-PACK", 21_600_000, "Operator packing — 6 orang"],
+      ["UPAH-LANGSUNG", "CC-UCL", 28_800_000, "Operator cabut (cleaning) — 8 orang"],
+      ["UPAH-LANGSUNG", "CC-UDA", 36_000_000, "Operator dry A — 10 orang"],
+      ["UPAH-LANGSUNG", "CC-UML", 21_600_000, "Operator moulding — 6 orang"],
       ["UPAH-TIDAK-LANGSUNG", "FOH", 21_600_000, "Supervisor lini & QC — 4 orang"],
     ] },
-  { key: "A-BTB1", supplier: "S-004", date: "2026-08-12", ref: "BTB-0812", description: "Servis mixer 500 L",
-    lines: [["PEMELIHARAAN-MESIN", "CC-MIX", 3_250_000, "Ganti seal dan bearing"]] },
-  { key: "A-BTB2", supplier: "S-004", date: "2026-08-26", ref: "BTB-0826", description: "Perbaikan conveyor packing",
-    lines: [["PEMELIHARAAN-MESIN", "CC-PACK", 2_100_000, "Ganti roller dan belt"]] },
+  { key: "A-BTB1", supplier: "S-004", date: "2026-08-12", ref: "BTB-0812", description: "Servis bak cuci RO",
+    lines: [["PEMELIHARAAN-MESIN", "CC-UCL", 3_250_000, "Ganti pompa dan filter"]] },
+  { key: "A-BTB2", supplier: "S-004", date: "2026-08-26", ref: "BTB-0826", description: "Perbaikan cetakan moulding",
+    lines: [["PEMELIHARAAN-MESIN", "CC-UML", 2_100_000, "Ganti cetakan dan alas"]] },
   { key: "A-ENV", supplier: "S-008", date: "2026-08-31", due: "2026-09-30", ref: "ENV/2608/045", description: "Pengangkutan & pengolahan limbah B3 Agustus 2026",
     lines: [["OVERHEAD-LAIN", "FOH", 6_350_000, "Limbah cair dan kemasan terkontaminasi"]] },
 
   // ---- September 2026
   { key: "S-PLN", supplier: "S-005", date: "2026-09-30", due: "2026-10-14", ref: "PLN/2609/0071", description: "Listrik pabrik September 2026",
     lines: [
-      ["LISTRIK-PABRIK", "CC-MIX", 22_087_500, "Sub-meter mixing — 14.725 kWh"],
-      ["LISTRIK-PABRIK", "CC-FILL", 13_252_500, "Sub-meter filling — 8.835 kWh"],
-      ["LISTRIK-PABRIK", "CC-PACK", 8_835_000, "Sub-meter packing — 5.890 kWh"],
+      ["LISTRIK-PABRIK", "CC-UCL", 22_087_500, "Sub-meter cleaning — 14.725 kWh"],
+      ["LISTRIK-PABRIK", "CC-UDA", 13_252_500, "Sub-meter dry A — 8.835 kWh"],
+      ["LISTRIK-PABRIK", "CC-UML", 8_835_000, "Sub-meter moulding — 5.890 kWh"],
     ] },
   { key: "S-AIR", supplier: "S-006", date: "2026-09-30", due: "2026-10-14", ref: "AIC/09/1187", description: "Air proses pabrik September 2026",
     lines: [["LISTRIK-PABRIK", "FOH", 5_080_000, "Air proses 1.270 m³"]] },
   { key: "S-KMO", supplier: "S-007", date: "2026-09-30", due: "2026-10-07", ref: "KMO/INV/0926", description: "Tenaga borongan produksi September 2026",
     lines: [
-      ["UPAH-LANGSUNG", "CC-MIX", 32_400_000, "Operator mixing — 9 orang"],
-      ["UPAH-LANGSUNG", "CC-FILL", 39_600_000, "Operator filling — 11 orang"],
-      ["UPAH-LANGSUNG", "CC-PACK", 21_600_000, "Operator packing — 6 orang"],
+      ["UPAH-LANGSUNG", "CC-UCL", 32_400_000, "Operator cabut (cleaning) — 9 orang"],
+      ["UPAH-LANGSUNG", "CC-UDA", 39_600_000, "Operator dry A — 11 orang"],
+      ["UPAH-LANGSUNG", "CC-UML", 21_600_000, "Operator moulding — 6 orang"],
       ["UPAH-TIDAK-LANGSUNG", "FOH", 21_600_000, "Supervisor lini & QC — 4 orang"],
     ] },
-  { key: "S-BTB", supplier: "S-004", date: "2026-09-18", ref: "BTB-0918", description: "Kalibrasi mesin filling",
-    lines: [["PEMELIHARAAN-MESIN", "CC-FILL", 4_600_000, "Kalibrasi 4 nozzle dan sensor level"]] },
+  { key: "S-BTB", supplier: "S-004", date: "2026-09-18", ref: "BTB-0918", description: "Kalibrasi pengering dry A",
+    lines: [["PEMELIHARAAN-MESIN", "CC-UDA", 4_600_000, "Kalibrasi suhu dan kelembapan"]] },
   { key: "S-ENV", supplier: "S-008", date: "2026-09-30", due: "2026-10-30", ref: "ENV/2609/051", description: "Pengangkutan & pengolahan limbah B3 September 2026",
     lines: [["OVERHEAD-LAIN", "FOH", 6_900_000, "Limbah cair dan kemasan terkontaminasi"]] },
 
   // ---- October 2026, to date
-  { key: "O-BTB", supplier: "S-004", date: "2026-10-03", ref: "BTB-1003", description: "Ganti v-belt mesin labeling",
-    lines: [["PEMELIHARAAN-MESIN", "CC-PACK", 1_850_000]] },
+  { key: "O-BTB", supplier: "S-004", date: "2026-10-03", ref: "BTB-1003", description: "Ganti kipas pengering moulding",
+    lines: [["PEMELIHARAAN-MESIN", "CC-UML", 1_850_000]] },
   { key: "O-KMO", supplier: "S-007", date: "2026-10-07", due: "2026-10-14", ref: "KMO/INV/1001", description: "Tenaga borongan produksi 1–7 Oktober 2026",
     lines: [
-      ["UPAH-LANGSUNG", "CC-MIX", 6_720_000, "Operator mixing — 8 orang, 1 minggu"],
-      ["UPAH-LANGSUNG", "CC-FILL", 8_400_000, "Operator filling — 10 orang, 1 minggu"],
-      ["UPAH-LANGSUNG", "CC-PACK", 5_040_000, "Operator packing — 6 orang, 1 minggu"],
+      ["UPAH-LANGSUNG", "CC-UCL", 6_720_000, "Operator cabut (cleaning) — 8 orang, 1 minggu"],
+      ["UPAH-LANGSUNG", "CC-UDA", 8_400_000, "Operator dry A — 10 orang, 1 minggu"],
+      ["UPAH-LANGSUNG", "CC-UML", 5_040_000, "Operator moulding — 6 orang, 1 minggu"],
     ], draft: true },
 ];
 

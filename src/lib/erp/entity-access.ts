@@ -120,6 +120,20 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "STANDARD_COST_ITEM_ACTIVATE",
     deactivate: "STANDARD_COST_ITEM_DEACTIVATE",
   },
+  prd_bom: {
+    view: "BOM_VIEW",
+    create: "BOM_CREATE",
+    edit: "BOM_EDIT",
+    activate: "BOM_ACTIVATE",
+    deactivate: "BOM_DEACTIVATE",
+  },
+  prd_routing: {
+    view: "ROUTING_VIEW",
+    create: "ROUTING_CREATE",
+    edit: "ROUTING_EDIT",
+    activate: "ROUTING_ACTIVATE",
+    deactivate: "ROUTING_DEACTIVATE",
+  },
   // A Standard Cost has no status: a later entry replaces it (P160).
   acc_standard_cost: {
     view: "STANDARD_COST_VIEW",

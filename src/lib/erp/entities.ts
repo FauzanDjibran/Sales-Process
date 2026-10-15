@@ -110,6 +110,8 @@ export type Field = {
     | "parentAccount"
     /** Kategori Item of the Tipe the form currently holds (P47). */
     | "itemCategoryByType"
+    /** A Barang with Kelola Stok — what enters production (BoM, Routing). */
+    | "productionItem"
     /** Active Cost Centers of type Production — a Workstation's pool (P159, M93). */
     | "productionCostCenter";
   /**
@@ -220,6 +222,8 @@ export type Column = {
   isStatus?: boolean;
   isTag?: boolean;
   isBool?: boolean;
+  /** A plain yes / no flag: `Ya` or a dash (isBool reads Aktif / Nonaktif). */
+  isFlag?: boolean;
   isDate?: boolean;
   /** A stored percentage, shown `1,5%`. */
   isPercent?: boolean;
@@ -640,6 +644,27 @@ export const ENTITIES: Entity[] = [
         visibleWhen: "itemIsGoods",
         caption: "Memiliki Kadaluarsa",
       },
+      {
+        name: "output_type",
+        label: "Tipe Output",
+        type: "select",
+        options: ["Utama", "Turunan", "BJL"],
+        optionLabels: { Utama: "Utama", Turunan: "Turunan", BJL: "BJL" },
+        visibleWhen: "itemIsGoods",
+        tab: "production",
+        span: 4,
+        help: "saat keluar dari produksi: Utama dan Turunan berbagi nilai, BJL bernilai 0",
+      },
+      {
+        name: "value_weight",
+        label: "Bobot Nilai per Satuan Dasar",
+        type: "rate",
+        visibleWhen: "itemIsGoods",
+        tab: "production",
+        span: 4,
+        placeholder: "0",
+        help: "nilai relatif per satuan dasar untuk membagi nilai eksekusi; tarif sementara",
+      },
       STATUS_FIELD,
       NOTE_FIELD,
     ],
@@ -650,6 +675,13 @@ export const ENTITIES: Entity[] = [
         icon: "scale",
         desc: "Satuan lain untuk item ini dan isinya dalam satuan dasar, mis. 1 BOX = 12 PCS.",
         kind: "custom",
+      },
+      {
+        key: "production",
+        label: "Produksi",
+        icon: "gear",
+        desc: "Cara barang ini diperlakukan saat dihasilkan produksi: tipe output dan bobot nilainya untuk membagi nilai eksekusi.",
+        kind: "fields",
       },
     ],
     columns: [
@@ -981,8 +1013,8 @@ export const ENTITIES: Entity[] = [
         required: true,
         unique: true,
         ident: true,
-        placeholder: "WS-OLAH",
-        help: identHelp,
+        placeholder: "UGH",
+        help: "kode unit, dipakai di nomor dokumen produksi (BSTB, NG)",
       },
       {
         name: "workstation_name",
@@ -1002,6 +1034,16 @@ export const ENTITIES: Entity[] = [
         span: 6,
         help: "kumpulan biaya yang dibebankan workstation ini; boleh dipakai bersama",
       },
+      {
+        name: "job_code",
+        label: "Kode Job",
+        type: "text",
+        unique: true,
+        ident: true,
+        span: 4,
+        placeholder: "UGH",
+        help: "kode Job yang dibuat saat workstation ini menyerahkan barang dalam kotak; kosong = meneruskan Job yang diterima",
+      },
       STATUS_FIELD,
       NOTE_FIELD,
     ],
@@ -1009,6 +1051,7 @@ export const ENTITIES: Entity[] = [
       { field: "workstation_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
       { field: "workstation_name", label: "Nama Workstation", primary: true, filter: "text" },
       { field: "cost_center_id", label: "Cost Center", isRef: true, width: "240px", filter: "ref" },
+      { field: "job_code", label: "Kode Job", isLabel: true, width: "110px", filter: "text" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
       { field: "note", label: "Catatan", muted: true, truncate: true },
     ],
@@ -1642,6 +1685,161 @@ export const ENTITIES: Entity[] = [
     ],
   },
 
+
+  {
+    // Bill of Materials (Walet build step 1): what goes into an output item per
+    // base quantity — a suggestion an execution starts from, never a limit.
+    key: "prd_bom",
+    slug: "bom",
+    module: "production",
+    name: "Bill of Materials",
+    single: "Bill of Materials",
+    icon: "layers",
+    desc: "Komponen yang masuk untuk menghasilkan suatu barang, per jumlah dasarnya. Saran untuk Eksekusi Produksi — yang benar-benar dipakai tetap dicatat sesuai kenyataan. Satu barang boleh punya beberapa BoM; satu menjadi default.",
+    codeField: "bom_code",
+    codePrefix: "bom",
+    labelField: "bom_label",
+    nameField: "bom_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "bom_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "BOM-NMK-50",
+        help: identHelp,
+      },
+      {
+        name: "bom_name",
+        label: "Nama BoM",
+        type: "text",
+        required: true,
+        placeholder: "N-MK 50 g — kemas box",
+        help: "nama lengkap",
+      },
+      {
+        name: "item_id",
+        label: "Barang Hasil",
+        type: "ref",
+        ref: "m_item",
+        refFilter: "productionItem",
+        required: true,
+        locked: true,
+        span: 6,
+        help: "Barang dengan Kelola Stok",
+      },
+      {
+        name: "base_qty",
+        label: "Jumlah Dasar",
+        type: "rate",
+        required: true,
+        span: 3,
+        placeholder: "1",
+        help: "dalam satuan dasar barang hasil",
+      },
+      {
+        name: "is_default",
+        label: "Default",
+        type: "bool",
+        span: 3,
+        caption: "BoM default barang ini",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    tabs: [
+      {
+        key: "lines",
+        label: "Komponen",
+        icon: "box",
+        desc: "Barang yang dipakai per jumlah dasar, dan langkah routing yang memakainya bila bukan langkah yang menghasilkan barang ini.",
+        kind: "custom",
+      },
+    ],
+    columns: [
+      { field: "bom_label", label: "Label", isLabel: true, width: "150px", filter: "text" },
+      { field: "item_id", label: "Barang Hasil", isRef: true, primary: true, filter: "ref" },
+      { field: "components", label: "Komponen", computed: true },
+      { field: "is_default", label: "Default", isFlag: true, width: "100px" },
+      { field: "status", label: "Status", isStatus: true, width: "110px", filter: "enum" },
+    ],
+  },
+
+  {
+    // Routing (Walet build step 1): the stations a Partai passes on its way to
+    // its target item (the Job Order), in order, each with how it works.
+    key: "prd_routing",
+    slug: "routing",
+    module: "production",
+    name: "Routing",
+    single: "Routing",
+    icon: "tree",
+    desc: "Urutan workstation yang dilalui sebuah Partai menuju barang targetnya (Job Order), dengan cara kerja tiap langkah: Transformasi, Pass-through, atau Mix + Transformasi. Perintah Produksi menyalinnya. Satu barang boleh punya beberapa routing; satu menjadi default.",
+    codeField: "routing_code",
+    codePrefix: "rte",
+    labelField: "routing_label",
+    nameField: "routing_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "routing_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "RTE-NMK",
+        help: identHelp,
+      },
+      {
+        name: "routing_name",
+        label: "Nama Routing",
+        type: "text",
+        required: true,
+        placeholder: "N-MK — Reguler",
+        help: "nama lengkap",
+      },
+      {
+        name: "item_id",
+        label: "Barang Target",
+        type: "ref",
+        ref: "m_item",
+        refFilter: "productionItem",
+        required: true,
+        locked: true,
+        span: 6,
+        help: "Job Order: barang yang menjadi tujuan Partai",
+      },
+      {
+        name: "is_default",
+        label: "Default",
+        type: "bool",
+        span: 6,
+        caption: "Routing default barang ini",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    tabs: [
+      {
+        key: "steps",
+        label: "Langkah",
+        icon: "layers",
+        desc: "Workstation yang dilalui, berurutan, dengan cara kerjanya dan BoM bila langkah itu memakainya.",
+        kind: "custom",
+      },
+    ],
+    columns: [
+      { field: "routing_label", label: "Label", isLabel: true, width: "150px", filter: "text" },
+      { field: "item_id", label: "Barang Target", isRef: true, primary: true, width: "260px", filter: "ref" },
+      { field: "steps", label: "Langkah", computed: true },
+      { field: "is_default", label: "Default", isFlag: true, width: "100px" },
+      { field: "status", label: "Status", isStatus: true, width: "110px", filter: "enum" },
+    ],
+  },
   // ------------------------------------------------ accounting · period control
 
   {

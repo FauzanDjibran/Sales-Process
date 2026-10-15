@@ -22,6 +22,7 @@ import { partnerCollections } from "@/lib/erp/partner";
 import { itemCollections } from "@/lib/erp/item";
 import { warehouseCollections } from "@/lib/erp/warehouse";
 import { standardCostCollections } from "@/lib/erp/standard-cost";
+import { bomCollections, routingCollections } from "@/lib/erp/production-master";
 import { fiscalYearPeriods } from "@/lib/erp/fiscal";
 import { baseCurrencyId } from "@/lib/erp/system-settings";
 import {
@@ -63,6 +64,14 @@ async function collectionsOf(
   if (entity.key === "acc_standard_cost") {
     if (id == null) return { lines: [] };
     return standardCostCollections(id);
+  }
+  if (entity.key === "prd_bom") {
+    if (id == null) return { lines: [] };
+    return bomCollections(id);
+  }
+  if (entity.key === "prd_routing") {
+    if (id == null) return { steps: [] };
+    return routingCollections(id);
   }
   return undefined;
 }

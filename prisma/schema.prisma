@@ -578,13 +578,20 @@ model MItem {
   base_uom_id Int
 
   /// Offered on a Sales Order.
-  can_sell    Boolean @default(true)
+  can_sell     Boolean         @default(true)
   /// Offered on purchasing documents, once they exist.
-  can_buy     Boolean @default(false)
+  can_buy      Boolean         @default(false)
   /// Barang only. Stored now; stock itself is ignored until P5 is lifted.
-  track_stock Boolean @default(false)
+  track_stock  Boolean         @default(false)
   /// Barang only. Batch / expiry tracking, meaningful once stock exists.
-  has_expiry  Boolean @default(false)
+  has_expiry   Boolean         @default(false)
+  /// Barang only (M117): what this item is when production puts it out —
+  /// Utama and Turunan share an execution's value, BJL takes 0.
+  output_type  ItemOutputType?
+  /// Barang only (M122): the item's relative value per base unit, by which an
+  /// execution shares its value over its outputs (quantity × this). A
+  /// temporary rate the user maintains; a BJL weighs 0.
+  value_weight Decimal?        @db.Decimal(18, 6)
 
   note   String?
   status ActiveStatus @default(Active)
@@ -606,6 +613,9 @@ model MItem {
   stock_ledger           LogStockLedger[]
   stock_balances         LogStockBalance[]
   prd_lots               PrdLot[]                  @relation("PrdLotItem")
+  boms_output            PrdBom[]                  @relation("BomOutput")
+  bom_components         PrdBomLine[]              @relation("BomComponent")
+  routings               PrdRouting[]              @relation("RoutingTarget")
   prd_balances           PrdBalance[]              @relation("PrdBalanceItem")
   prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
   valuation_ledger       LogStockValuationLedger[]
@@ -710,6 +720,10 @@ model RefWorkstation {
   workstation_label String
   workstation_name  String
   cost_center_id    Int
+  /// Kode Job (M126): the code of the Jobs made when this station hands its
+  /// goods on in boxes — Grading Halus `UGH`, Moulding `UDB`. Empty: the
+  /// station keeps the Jobs it receives.
+  job_code          String?      @unique
   note              String?
   status            ActiveStatus @default(Active)
 
@@ -723,6 +737,7 @@ model RefWorkstation {
   prd_ledger     PrdLedger[]       @relation("PrdLedgerWorkstation")
   stock_issues   LogStockIssue[]
   standard_costs AccStandardCost[]
+  routing_steps  PrdRoutingStep[]  @relation("RoutingStepWorkstation")
 
   @@index([cost_center_id])
   @@map("ref_workstation")
@@ -4108,4 +4123,122 @@ model PrdLotLink {
   @@index([from_lot_id])
   @@index([to_lot_id])
   @@map("prd_lot_link")
+}
+
+/// What an item is when production puts it out (M117).
+enum ItemOutputType {
+  Utama
+  Turunan
+  BJL
+}
+
+/// Bill of Materials (Walet build step 1): what goes into an output item per
+/// base quantity. **A suggestion only** — it pre-fills an execution's inputs and
+/// never limits them. Several per item; one is the default. Never deleted.
+model PrdBom {
+  id         Int          @id @default(autoincrement())
+  bom_code   String       @unique
+  bom_label  String
+  bom_name   String
+  item_id    Int
+  /// The output quantity the lines are for, in the item's base unit.
+  base_qty   Decimal      @db.Decimal(18, 6)
+  is_default Boolean      @default(false)
+  note       String?
+  status     ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  item  MItem            @relation("BomOutput", fields: [item_id], references: [id])
+  lines PrdBomLine[]
+  steps PrdRoutingStep[]
+
+  @@index([item_id])
+  @@map("prd_bom")
+}
+
+/// One component of a BoM, per its base quantity; optionally consumed at a
+/// given routing step (as D365's operation number on a BOM line).
+model PrdBomLine {
+  id      Int     @id @default(autoincrement())
+  bom_id  Int
+  item_id Int
+  /// In the component's base unit, per the BoM's base quantity.
+  qty     Decimal @db.Decimal(18, 6)
+  /// The routing step that consumes it; empty = the step that makes the output.
+  step_no Int?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  bom  PrdBom @relation(fields: [bom_id], references: [id])
+  item MItem  @relation("BomComponent", fields: [item_id], references: [id])
+
+  @@unique([bom_id, item_id])
+  @@index([item_id])
+  @@map("prd_bom_line")
+}
+
+/// How a routing step works (Walet: M114, M115, M125).
+enum RoutingStepMode {
+  /// Moulding: the Partai's Jobs are mixed into the No. Moulding, then worked.
+  MixTransform
+  /// Inputs become new outputs, each on a new lot.
+  Transform
+  /// The goods are worked without changing the item; the lot is kept.
+  PassThrough
+}
+
+/// Routing (Walet build step 1): the stations a Partai passes on its way to its
+/// **target item** (the Job Order), in order. A Perintah copies it. Several per
+/// item; one is the default. Never deleted.
+model PrdRouting {
+  id            Int          @id @default(autoincrement())
+  routing_code  String       @unique
+  routing_label String
+  routing_name  String
+  /// The target item — what a Partai on this routing is meant to become.
+  item_id       Int
+  is_default    Boolean      @default(false)
+  note          String?
+  status        ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  item  MItem            @relation("RoutingTarget", fields: [item_id], references: [id])
+  steps PrdRoutingStep[]
+
+  @@index([item_id])
+  @@map("prd_routing")
+}
+
+/// One station of a routing, in order, with how it works and its BoM if any.
+model PrdRoutingStep {
+  id             Int             @id @default(autoincrement())
+  routing_id     Int
+  step_no        Int
+  workstation_id Int
+  mode           RoutingStepMode
+  bom_id         Int?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  routing     PrdRouting     @relation(fields: [routing_id], references: [id])
+  workstation RefWorkstation @relation("RoutingStepWorkstation", fields: [workstation_id], references: [id])
+  bom         PrdBom?        @relation(fields: [bom_id], references: [id])
+
+  @@unique([routing_id, step_no])
+  @@index([workstation_id])
+  @@map("prd_routing_step")
 }

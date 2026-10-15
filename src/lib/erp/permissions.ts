@@ -252,6 +252,16 @@ export const PERMISSIONS = [
   // ------------------------------------------------------------- production
   // Everything new for production sits here for now (P150 M64).
   { code: "MENU_PRODUCTION_ACCESS", name: "Akses menu Produksi", module: "production" },
+  { code: "BOM_VIEW", name: "Lihat Bill of Materials", module: "production" },
+  { code: "BOM_CREATE", name: "Tambah Bill of Materials", module: "production" },
+  { code: "BOM_EDIT", name: "Ubah Bill of Materials", module: "production" },
+  { code: "BOM_ACTIVATE", name: "Aktifkan Bill of Materials", module: "production" },
+  { code: "BOM_DEACTIVATE", name: "Nonaktifkan Bill of Materials", module: "production" },
+  { code: "ROUTING_VIEW", name: "Lihat Routing", module: "production" },
+  { code: "ROUTING_CREATE", name: "Tambah Routing", module: "production" },
+  { code: "ROUTING_EDIT", name: "Ubah Routing", module: "production" },
+  { code: "ROUTING_ACTIVATE", name: "Aktifkan Routing", module: "production" },
+  { code: "ROUTING_DEACTIVATE", name: "Nonaktifkan Routing", module: "production" },
   { code: "PRODUCTION_COST_BILL_VIEW", name: "Lihat Tagihan Biaya", module: "production", description: "Termasuk yang masih Draft dan yang dibatalkan." },
   { code: "PRODUCTION_COST_BILL_CREATE", name: "Buat Tagihan Biaya", module: "production" },
   { code: "PRODUCTION_COST_BILL_EDIT", name: "Ubah Tagihan Biaya", module: "production", description: "Hanya selama masih Draft." },

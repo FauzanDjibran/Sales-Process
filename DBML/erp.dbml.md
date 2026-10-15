@@ -621,6 +621,7 @@ table ref_workstation {
   workstation_name            varchar [not null]
 
   cost_center_id              int [not null, ref : > acc_cost_center.id] // an active Produksi Cost Center
+  job_code                    varchar [unique] // Kode Job (M126): code of Jobs made at its output (UGH, UDB); null = keeps the Jobs it receives
 
   note                        varchar
 
@@ -686,6 +687,8 @@ table m_item {
   can_buy                     boolean [not null, default: false]
   track_stock                 boolean [not null, default: false]
   has_expiry                  boolean [not null, default: false]
+  output_type                 enum('Utama', 'Turunan', 'BJL') // Barang only (M117): BJL takes 0 of an execution's value
+  value_weight                decimal(18,6) [note: 'per base unit, >= 0 (M122): shares an execution's value; a temporary rate']
 
   note                        varchar
 
@@ -2951,5 +2954,101 @@ table prd_lot_link {
     (source_doc_type_id, source_doc_id)
     from_lot_id
     to_lot_id
+  }
+}
+
+// Bill of Materials (Walet build step 1): what goes into an output item per base quantity — a
+// suggestion an execution starts from, never a limit. Several per item, one default.
+table prd_bom {
+  id                          int [pk, increment, not null]
+
+  bom_code                    varchar [not null, unique] // bom.NNNN
+
+  bom_label                   varchar [not null]
+  bom_name                    varchar [not null]
+  item_id                     int [not null, ref : > m_item.id] // the output, a Barang with Kelola Stok
+  base_qty                    decimal(18,6) [not null, note: 'CHECK > 0, the output base unit']
+  is_default                  boolean [not null, default: false]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    item_id
+  }
+}
+
+table prd_bom_line {
+  id                          int [pk, increment, not null]
+
+  bom_id                      int [not null, ref : > prd_bom.id]
+  item_id                     int [not null, ref : > m_item.id] // never the BoM's own output
+  qty                         decimal(18,6) [not null, note: 'CHECK > 0, per the base quantity']
+  step_no                     int // the routing step that consumes it; null = the step that makes the output
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (bom_id, item_id) [unique]
+    item_id
+  }
+}
+
+// Routing (Walet build step 1): the stations a Partai passes on its way to its target item (the
+// Job Order), in order. A Perintah Produksi copies it. Several per item, one default.
+table prd_routing {
+  id                          int [pk, increment, not null]
+
+  routing_code                varchar [not null, unique] // rte.NNNN
+
+  routing_label               varchar [not null]
+  routing_name                varchar [not null]
+  item_id                     int [not null, ref : > m_item.id] // the target item
+  is_default                  boolean [not null, default: false]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    item_id
+  }
+}
+
+table prd_routing_step {
+  id                          int [pk, increment, not null]
+
+  routing_id                  int [not null, ref : > prd_routing.id]
+  step_no                     int [not null] // 1..n in order
+  workstation_id              int [not null, ref : > ref_workstation.id]
+  mode                        enum('MixTransform', 'Transform', 'PassThrough') [not null]
+  bom_id                      int [ref : > prd_bom.id] // the BoM a step suggests, optional
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (routing_id, step_no) [unique]
+    workstation_id
   }
 }

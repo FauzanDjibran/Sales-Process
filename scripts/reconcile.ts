@@ -868,6 +868,17 @@ export const CHECKS: Check[] = [
           WHERE NOT a.require_cost_center`,
   },
   {
+    // BoM and Routing (Walet build step 1): one default per item each, a BoM
+    // never lists its own output, a routing's steps are numbered 1..n.
+    area: "production",
+    name: "each item has at most one default BoM and one default Routing; no BoM lists its own output; Routing steps run 1..n",
+    sql: `SELECT 'bom default' AS what, item_id::TEXT AS ref FROM prd_bom WHERE is_default GROUP BY item_id HAVING COUNT(*) > 1
+          UNION ALL SELECT 'routing default', item_id::TEXT FROM prd_routing WHERE is_default GROUP BY item_id HAVING COUNT(*) > 1
+          UNION ALL SELECT 'bom own output', b.bom_label FROM prd_bom b JOIN prd_bom_line l ON l.bom_id = b.id WHERE l.item_id = b.item_id
+          UNION ALL SELECT 'routing numbering', r.routing_label FROM prd_routing r JOIN prd_routing_step s ON s.routing_id = r.id
+                    GROUP BY r.id HAVING MIN(s.step_no) <> 1 OR MAX(s.step_no) <> COUNT(*)`,
+  },
+  {
     // The close credits each Jenis Biaya's leftover to its item's account
     // (P160, M108): an active Jenis Biaya names one.
     area: "production",

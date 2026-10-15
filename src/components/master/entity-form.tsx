@@ -48,6 +48,7 @@ import { AddressesTab, ContactsTab } from "@/components/master/partner-tabs";
 import { UomConversionsTab } from "@/components/master/item-tabs";
 import { WarehouseLocationsTab } from "@/components/master/warehouse-tabs";
 import { StandardCostLinesTab } from "@/components/master/standard-cost-tabs";
+import { BomLinesTab, RoutingStepsTab } from "@/components/master/production-master-tabs";
 import type { CollectionTabProps } from "@/components/master/collection-tab";
 
 /**
@@ -62,6 +63,8 @@ const CUSTOM_TABS: Record<string, (props: CollectionTabProps<any>) => React.Reac
   "m_item.uoms": UomConversionsTab,
   "ref_warehouse.locations": WarehouseLocationsTab,
   "acc_standard_cost.lines": StandardCostLinesTab,
+  "prd_bom.lines": BomLinesTab,
+  "prd_routing.steps": RoutingStepsTab,
 };
 
 export type FormMode = "new" | "view" | "edit";

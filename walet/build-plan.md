@@ -27,7 +27,7 @@
 
 ## 1. The steps
 
-### Step 1 — Masters for Walet (5b)
+### Step 1 — Masters for Walet (5b) ✅ built 15/10/2026 (P162)
 
 | Part | What |
 | --- | --- |
@@ -114,7 +114,7 @@ Demand from Pra-SO and SO; BoM and Routing explosion; planned Perintah and Purch
 
 | # | Question | When |
 | --- | --- | --- |
-| O1 | The **sales and purchasing demo** in the showcase (cosmetics customers and items): replace with Walet's too, or keep for now? | Step 1 |
+| O1 | ~~Sales and purchasing demo~~ — **kept** for now; only production became Walet (P162) | Step 1 ✅ |
 | O2 | **Existing production data on Neon** (cosmetics Stock Issues and buckets): map onto the new register, or reset the production rows? | Step 2 |
 | O3 | Is the **Partai** created by the **Grading Halus execution** (the first transformation) or by its **hand-over into Jobs**? M112 says "the Grading Halus output" | Step 2 |
 | O4 | Can a Logistik BSTB be raised **without a Perintah** (e.g. packaging material sent to Packing), or always from one? | Step 3 |

@@ -81,6 +81,7 @@ export function EntityList({
         const opt = refFor(column).find((o) => o.id === Number(raw));
         return opt ? `${opt.label} ${opt.name}` : "";
       }
+      if (column.isFlag) return raw === true ? "Ya" : "";
       if (column.isDate) return formatDate(raw as string);
       if (column.isPercent) return raw == null ? "" : formatPct(raw as number);
       if (column.isStatus || column.isBool) {
@@ -196,6 +197,11 @@ export function EntityList({
           <span className="nm">{opt.name}</span>
         </span>
       );
+    }
+
+    if (column.isFlag) {
+      // A yes / no that marks the odd row out (the default BoM) reads Ya, the rest a dash.
+      return value === true ? <>Ya</> : <span className="dash">—</span>;
     }
 
     if (column.isStatus || column.isBool) {
