@@ -36,12 +36,12 @@ import {
  *
  * **Posting**, in one transaction: each pick is issued through the stock books
  * (`issueStock`, at the moving average, short stock refused) and enters the
- * production ledger at the workstation with **the same lot number** and the
- * value the stock released (`enterProduction`, M22) — the stock pool locked
+ * production ledger at the workstation under **the same lot** (one register,
+ * M128) and the value the stock released (`enterProduction`, M22) — the stock pool locked
  * before the bucket (§16 X23). One journal, **Dr WIP / Cr Persediaan** per
  * line: WIP is the item's Kategori Item's, with no fallback (M62); Persediaan
  * the category's, else Account Mapping's, as the Delivery Note. Each pick stores
- * what it cost and the production lot it entered.
+ * what it cost and the production bucket it entered.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -550,13 +550,11 @@ export async function transitionStockIssue(
             source,
             actorId,
           });
-          // The lot keeps its number inside production (M22). Stock lots carry
-          // no Job No. yet (Phase 6), so none is passed on.
+          // The goods enter production under the same lot (M128); a stock lot
+          // belongs to no Partai or Job until its first transformation.
           const entered = await enterProduction(tx, {
             itemId: line.item_id,
-            lotNo: p.lot_no,
-            job: null,
-            expiry: p.expiry_date,
+            lotId: p.lot_id,
             workstationId: r.c.data.workstation_id!,
             baseQty,
             value: out.cost,
@@ -566,7 +564,7 @@ export async function transitionStockIssue(
           });
           await tx.logStockIssueLot.update({
             where: { stock_issue_line_id_pick_no: { stock_issue_line_id: stored.id, pick_no: p.pick_no } },
-            data: { base_qty: baseQty, unit_cost: out.unitCost, cost_amount: out.cost, prd_lot_id: entered.lotId, prd_bucket_id: entered.bucketId },
+            data: { base_qty: baseQty, unit_cost: out.unitCost, cost_amount: out.cost, prd_bucket_id: entered.bucketId },
           });
           cost += out.cost;
         }

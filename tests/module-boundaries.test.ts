@@ -109,7 +109,9 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logReceiptNoteLine: ["src/lib/erp/receipt-note.ts"],
   logReceiptNoteLot: ["src/lib/erp/receipt-note.ts"],
   // The stock books (P120): written only by the inventory book, read by its reports.
-  logStockTracking: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
+  // The lot register is one for stock and production (M128): the production
+  // ledger registers the lots its transformations make.
+  logStockTracking: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts", "src/lib/erp/production-ledger.ts"],
   logStockLedger: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
   logStockBalance: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
   logStockValuationLedger: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
@@ -161,9 +163,9 @@ const TABLE_OWNERS: Record<string, string[]> = {
   prdCostBill: ["src/lib/erp/production-cost-bill.ts"],
   // The production ledger (P150 E2, E3): a book, written only by itself; the
   // production documents call it.
+  prdPartai: ["src/lib/erp/production-ledger.ts"],
   prdJob: ["src/lib/erp/production-ledger.ts"],
   prdJobParent: ["src/lib/erp/production-ledger.ts"],
-  prdLot: ["src/lib/erp/production-ledger.ts"],
   prdBalance: ["src/lib/erp/production-ledger.ts"],
   prdLedger: ["src/lib/erp/production-ledger.ts"],
   prdLotLink: ["src/lib/erp/production-ledger.ts"],
@@ -235,8 +237,10 @@ describe("the dependency graph points one way", () => {
       // functions, shared by the inventory book and the forms that pick from it.
       "warehouse-location",
       // The execution arithmetic (P150 E6): pure sharing by Bobot Biaya and the
-      // job rule, shared by the production ledger and the execution form.
+      // Partai rule, shared by the production ledger and the execution form.
       "production-execution",
+      // Walet's production numbering (M124): pure string functions over a day.
+      "production-number",
     ];
     const BOOKS = ["cash-bank", "journal", "ar-item", "ap-item", "inventory", "production-cost", "production-ledger"];
 

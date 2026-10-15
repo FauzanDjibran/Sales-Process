@@ -1,13 +1,11 @@
 /**
- * Execution arithmetic (P150 E6, M13, M41) — pure and client-safe, so the
+ * Execution arithmetic (P150 E6, M13, M112) — pure and client-safe, so the
  * Eksekusi Produksi form previews exactly what the production ledger writes.
  *
  * - **Sharing a value by Bobot Biaya** (M13): whole rupiah, largest remainder,
  *   so the parts always add up to the whole; a weight of 0 takes nothing.
- * - **The job rule** (M41): no jobed input starts a new job; one job
- *   among the inputs is carried, un-jobed inputs (more material, packaging)
- *   joining it; two or more are refused unless *Job Baru*, whose parents are
- *   all of them; *Job Baru* is always allowed.
+ * - **The Partai of the inputs** (M112): one at most — a Partai is never
+ *   merged — and the supplier a made lot carries (M127).
  */
 
 /**
@@ -66,21 +64,28 @@ export function shareQty(total: number, weights: number[]): number[] {
 }
 
 export type JobRef = { id: number; no: string };
+export type PartaiRef = { id: number; no: string };
 
-export type JobOutcome =
-  /** No jobed input, or *Job Baru*: a new job starts; `parents` are the inputs' jobs. */
-  | { kind: "new"; parents: JobRef[] }
-  /** One job among the inputs: it is carried to the outputs. */
-  | { kind: "carried"; job: JobRef }
-  /** Two or more jobs without *Job Baru*. */
-  | { kind: "mixed"; jobs: JobRef[] };
+export type InputsPartai =
+  /** No input belongs to a Partai yet (stock lots before the first transformation). */
+  | { kind: "none" }
+  | { kind: "one"; id: number }
+  /** Two Partai among the inputs — never allowed: a Partai is never merged (M112). */
+  | { kind: "many"; ids: number[] };
 
-/** The job rule (M41) over the inputs' jobs (null for an un-jobed input). */
-export function jobOutcome(inputJobs: (JobRef | null)[], newJob: boolean): JobOutcome {
-  const distinct = new Map<number, JobRef>();
-  for (const b of inputJobs) if (b) distinct.set(b.id, b);
-  const jobs = [...distinct.values()].sort((a, b) => a.id - b.id);
-  if (newJob || !jobs.length) return { kind: "new", parents: jobs };
-  if (jobs.length === 1) return { kind: "carried", job: jobs[0] };
-  return { kind: "mixed", jobs };
+/** The Partai of an execution's inputs (null for an input outside any Partai). */
+export function inputsPartai(partaiIds: (number | null)[]): InputsPartai {
+  const ids = [...new Set(partaiIds.filter((x): x is number => x != null))].sort((a, b) => a - b);
+  if (!ids.length) return { kind: "none" };
+  if (ids.length === 1) return { kind: "one", id: ids[0] };
+  return { kind: "many", ids };
+}
+
+/**
+ * The supplier a lot made from inputs carries (M127, M128): the one supplier
+ * behind its inputs' lots, inputs without one aside; none when two differ.
+ */
+export function carriedSupplier(partnerIds: (number | null)[]): number | null {
+  const ids = new Set(partnerIds.filter((x): x is number => x != null));
+  return ids.size === 1 ? [...ids][0] : null;
 }

@@ -778,8 +778,8 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
-    name: "a posted Stock Issue's value left stock and entered production lot by lot, the same lot number (P158, plan §12 control 12)",
-    sql: `WITH pick AS (SELECT s.id AS issue_id, s.issue_no, p.prd_bucket_id, p.lot_no, p.cost_amount
+    name: "a posted Stock Issue's value left stock and entered production lot by lot, under the same lot (P158, M128, plan §12 control 12)",
+    sql: `WITH pick AS (SELECT s.id AS issue_id, s.issue_no, p.prd_bucket_id, p.lot_id, p.lot_no, p.cost_amount
                        FROM log_stock_issue s JOIN log_stock_issue_line x ON x.stock_issue_id = s.id JOIN log_stock_issue_lot p ON p.stock_issue_line_id = x.id
                        WHERE s.status = 'Posted'),
                entered AS (SELECT l.source_doc_id AS issue_id, l.bucket_id, SUM(l.value_change) AS value
@@ -798,8 +798,28 @@ export const CHECKS: Check[] = [
                                            WHERE v.source_doc_type_id = ${docType("log_stock_issue")} AND v.source_doc_id = s.id), 0)
           UNION ALL
           SELECT pick.issue_id, pick.prd_bucket_id, NULL, NULL, pick.lot_no
-          FROM pick LEFT JOIN prd_balance b ON b.id = pick.prd_bucket_id LEFT JOIN prd_lot t ON t.id = b.lot_id
-          WHERE t.id IS NULL OR t.lot_no <> pick.lot_no`,
+          FROM pick LEFT JOIN prd_balance b ON b.id = pick.prd_bucket_id
+          WHERE b.id IS NULL OR b.lot_id <> pick.lot_id`,
+  },
+  {
+    area: "production",
+    name: "a bucket in a Job names the Job's Partai; a ledger row carries its bucket's lot, Partai, Job, workstation and transit (M112, M127)",
+    sql: `SELECT 'bucket' AS what, b.id AS ref FROM prd_balance b JOIN prd_job j ON j.id = b.job_id WHERE b.partai_id IS DISTINCT FROM j.partai_id
+          UNION ALL
+          SELECT 'ledger', l.id FROM prd_ledger l JOIN prd_balance b ON b.id = l.bucket_id
+           WHERE l.lot_id <> b.lot_id OR l.workstation_id <> b.workstation_id OR l.in_transit <> b.in_transit OR l.item_id <> b.item_id
+              OR l.partai_id IS DISTINCT FROM b.partai_id OR l.job_id IS DISTINCT FROM b.job_id
+          UNION ALL
+          SELECT 'job parent', p.job_id FROM prd_job_parent p JOIN prd_job c ON c.id = p.job_id JOIN prd_job x ON x.id = p.parent_job_id
+           WHERE c.partai_id <> x.partai_id`,
+  },
+  {
+    area: "production",
+    name: "every lot in production is a lot of its item in the one register; a lot made by production names it as its source (M128)",
+    sql: `SELECT 'item' AS what, b.id AS ref FROM prd_balance b JOIN log_stock_tracking t ON t.id = b.lot_id WHERE t.item_id <> b.item_id
+          UNION ALL
+          SELECT 'source', k.to_lot_id FROM prd_lot_link k JOIN log_stock_tracking t ON t.id = k.to_lot_id
+           WHERE t.source_doc_type_id <> k.source_doc_type_id OR t.source_doc_id <> k.source_doc_id`,
   },
   {
     area: "production",

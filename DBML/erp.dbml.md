@@ -2438,8 +2438,7 @@ table log_stock_issue_lot {
   base_qty                    decimal(18,4) [not null, default: 0]
   unit_cost                   decimal(18,6) [not null, default: 0]
   cost_amount                 decimal(18,2) [not null, default: 0]
-  prd_lot_id                  int // the production lot it entered, set at Posting; weak
-  prd_bucket_id               int // the production bucket it entered, set at Posting; weak
+  prd_bucket_id               int // the production bucket it entered, set at Posting; weak — the lot is the same (M128)
 
   indexes {
     (stock_issue_line_id, pick_no) [unique]
@@ -2473,22 +2472,23 @@ table sys_stock_status {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
-// a lot: one per item and number, made by the receipt that first brings it in
+// the one lot register (M128): every lot — bought, made in production, the No. Moulding — one row;
+// stock and production both refer to it; made by the receipt or the execution that first makes it
 // only items with Kelola Stok are in the books, and always by lot
 table log_stock_tracking {
   id                          int [pk, increment, not null]
 
-  tracking_no                 varchar [not null] // unique per item, not globally
+  tracking_no                 varchar [not null, unique] // unique system-wide (M128)
 
   tracking_date               date [not null] // first received
 
   item_id                     int [not null, ref : > m_item.id]
 
-  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // the receipt that made it, weak
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // the receipt or execution that made it, weak
   source_doc_id               int [not null]
   source_no                   varchar [not null]
 
-  source_partner_id           int [ref : > m_partner.id] // the supplier, when named
+  source_partner_id           int [ref : > m_partner.id] // the supplier; a made lot carries the one behind its inputs
 
   expiry_date                 date // required when the item has Memiliki Kadaluarsa
 
@@ -2499,7 +2499,7 @@ table log_stock_tracking {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
-    (item_id, tracking_no) [unique]
+    item_id
     (source_doc_type_id, source_doc_id)
   }
 }
@@ -2821,14 +2821,15 @@ table prd_cost_bill_line {
 
 // ============================================================ production ledger (P150 E2, E3)
 
-// A job — Job No. (M101; M22, M41, M42): the production identity of one run, carried on the lots it makes;
-// JOB/YYYY/MM/NNNN or typed, unique
-table prd_job {
+// The Partai (M112): the production identity cost is tracked on — started at the first
+// transformation from stock, never split or merged, carrying its Job Order; P_<DDMMYY>_<NNNNN> (M124)
+table prd_partai {
   id                          int [pk, increment, not null]
 
-  job_no                      varchar [not null, unique]
-  job_date                    date [not null]
-  source_doc_type_id          int [not null] // the execution that started it, weak
+  partai_no                   varchar [not null, unique]
+  partai_date                 date [not null]
+  target_item_id              int [ref : > m_item.id] // the Job Order; set by the Perintah (step 3)
+  source_doc_type_id          int [not null] // the document that started it, weak
   source_doc_id               int [not null]
   source_no                   varchar [not null]
   customer_order_id           int // information only (M48), weak
@@ -2843,7 +2844,29 @@ table prd_job {
   }
 }
 
-// The jobs a Job Baru merged (M41)
+// A Job (M112, M125, M126): one box inside a Partai, made where a station hands its goods on in
+// boxes; <Kode Job>_<DDMMYY>_<NNNNN>, the Kode Job of the workstation that made it
+table prd_job {
+  id                          int [pk, increment, not null]
+
+  job_no                      varchar [not null, unique]
+  job_date                    date [not null]
+  partai_id                   int [not null, ref : > prd_partai.id]
+  workstation_id              int [not null, ref : > ref_workstation.id] // where it was made
+  source_doc_type_id          int [not null] // the document that made it, weak
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    partai_id
+    (source_doc_type_id, source_doc_id)
+  }
+}
+
+// The Jobs a new Job came from — always inside the same Partai (M112)
 table prd_job_parent {
   id                          int [pk, increment, not null]
   job_id                      int [not null, ref : > prd_job.id]
@@ -2854,36 +2877,17 @@ table prd_job_parent {
   }
 }
 
-// A lot inside production (M11, M22): a stock lot issued in keeps its number; each execution
-// output is a new one; unique per item
-table prd_lot {
-  id                          int [pk, increment, not null]
-
-  item_id                     int [not null, ref : > m_item.id]
-  lot_no                      varchar [not null]
-  job_id                      int [ref : > prd_job.id]
-  expiry_date                 date
-  origin                      enum('Issued', 'Produced') [not null]
-  source_doc_type_id          int [not null] // the document that first made it, weak
-  source_doc_id               int [not null]
-  source_no                   varchar [not null]
-
-  created_by                  int [not null]
-  created_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    (item_id, lot_no) [unique]
-    job_id
-  }
-}
-
-// A bucket: one lot at one workstation, Q (base unit) and V (whole rupiah, WIP); never pooled
-// (G12); CHECK qty >= 0, value >= 0, qty = 0 => value = 0
+// A bucket (M127): one lot, carried by one Job (or none), at one workstation — or in transit to it
+// (M113) — Q (base unit) and V (whole rupiah, WIP); never pooled (G12);
+// CHECK qty >= 0, value >= 0, qty = 0 => value = 0
 table prd_balance {
   id                          int [pk, increment, not null]
 
-  lot_id                      int [not null, ref : > prd_lot.id]
-  workstation_id              int [not null, ref : > ref_workstation.id]
+  lot_id                      int [not null, ref : > log_stock_tracking.id] // the one lot register (M128)
+  partai_id                   int [ref : > prd_partai.id] // null for a stock lot before its Partai starts
+  job_id                      int [ref : > prd_job.id] // null outside a Job (before the Partai, the No. Moulding)
+  workstation_id              int [not null, ref : > ref_workstation.id] // holding it, or in transit the one it is sent to
+  in_transit                  boolean [not null, default: false]
   item_id                     int [not null, ref : > m_item.id]
   uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
   qty_balance                 decimal(18,6) [not null, default: 0]
@@ -2895,7 +2899,9 @@ table prd_balance {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
-    (lot_id, workstation_id) [unique]
+    (lot_id, job_id, workstation_id, in_transit) [unique, note: 'NULLS NOT DISTINCT']
+    partai_id
+    job_id
     workstation_id
     item_id
   }
@@ -2914,8 +2920,11 @@ table prd_ledger {
   source_no                   varchar [not null]
   movement                    enum('Issued', 'Consumed', 'Produced', 'Released', 'Revalued') [not null]
   bucket_id                   int [not null, ref : > prd_balance.id]
-  lot_id                      int [not null, ref : > prd_lot.id]
+  lot_id                      int [not null, ref : > log_stock_tracking.id]
+  partai_id                   int // the bucket's, copied
+  job_id                      int // the bucket's, copied
   workstation_id              int [not null, ref : > ref_workstation.id]
+  in_transit                  boolean [not null, default: false]
   item_id                     int [not null, ref : > m_item.id]
   qty_change                  decimal(18,6) [not null]
   qty_balance                 decimal(18,6) [not null]
@@ -2943,8 +2952,8 @@ table prd_lot_link {
   source_doc_id               int [not null]
   source_no                   varchar [not null]
   from_bucket_id              int [not null, ref : > prd_balance.id]
-  from_lot_id                 int [not null, ref : > prd_lot.id]
-  to_lot_id                   int [not null, ref : > prd_lot.id]
+  from_lot_id                 int [not null, ref : > log_stock_tracking.id]
+  to_lot_id                   int [not null, ref : > log_stock_tracking.id] // registered by the execution
   qty                         decimal(18,6) [not null]
   value                       decimal(18,2) [not null]
 

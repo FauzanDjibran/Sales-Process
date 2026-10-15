@@ -134,7 +134,7 @@ async function injectLocated() {
     [{ itemId: f.rm, warehouseId: f.located, locationId: f.a01, lotNo: key("L1"), expiry: null, qty: "10", value: "100000", date: new Date(`${today}T00:00:00Z`) }],
     actor
   );
-  f.l1 = (await prisma.logStockTracking.findUniqueOrThrow({ where: { item_id_tracking_no: { item_id: f.rm, tracking_no: key("L1").toUpperCase() } } })).id;
+  f.l1 = (await prisma.logStockTracking.findFirstOrThrow({ where: { item_id: f.rm, tracking_no: key("L1").toUpperCase() } })).id;
 }
 
 after(async () => {
@@ -144,7 +144,6 @@ after(async () => {
   await prisma.auditLog.deleteMany({ where: { entity_key: "log_stock_issue", row_id: { in: ids } } });
   await prisma.prdLedger.deleteMany({ where: { item_id: { in: items } } });
   await prisma.prdBalance.deleteMany({ where: { item_id: { in: items } } });
-  await prisma.prdLot.deleteMany({ where: { item_id: { in: items } } });
   for (const [k, v] of savedSettings) await prisma.sysSetting.update({ where: { setting_key: k }, data: { setting_value: v } });
   // The category's mapping names fixture accounts: put it back before they go.
   for (const c of cleanups) await c();
@@ -214,7 +213,7 @@ describe("posting moves the goods from stock into production (Dr WIP / Cr Persed
     assert.equal((await getStockIssue(f.part))!.status, "Draft");
   });
 
-  test("each lot leaves at the moving average and enters production at the workstation under its own number", async () => {
+  test("each lot leaves at the moving average and enters production at the workstation under the same lot (M128)", async () => {
     const r = await transitionStockIssue(f.part, "post", actor);
     assert.deepEqual(r, { ok: true });
     const v = (await getStockIssue(f.part))!;
@@ -223,12 +222,12 @@ describe("posting moves the goods from stock into production (Dr WIP / Cr Persed
     assert.equal(v.cost, 318_750);
     assert.equal(v.lines[0].unitCost, 10_625);
     const bucket = await prisma.prdBalance.findFirstOrThrow({ where: { item_id: f.rm, workstation_id: f.ws }, include: { lot: true } });
-    assert.equal(bucket.lot.lot_no, key("R1").toUpperCase());
-    assert.equal(bucket.lot.origin, "Issued");
+    assert.equal(bucket.lot_id, f.r1, "one register: the stock lot itself, not a copy");
+    assert.equal(bucket.lot.tracking_no, key("R1").toUpperCase());
+    assert.deepEqual([bucket.partai_id, bucket.job_id, bucket.in_transit], [null, null, false], "no Partai before its first transformation");
     assert.deepEqual([bucket.qty_balance.toNumber(), bucket.value_balance.toNumber()], [30, 318_750]);
     const pick = await prisma.logStockIssueLot.findFirstOrThrow({ where: { line: { stock_issue_id: f.part } } });
     assert.equal(pick.prd_bucket_id, bucket.id);
-    assert.equal(pick.prd_lot_id, bucket.lot_id);
 
     const journal = await prisma.accJournal.findUniqueOrThrow({ where: { id: v.journalId! }, include: { lines: true } });
     const wip = journal.lines.find((l) => l.account_id === f.wipAcc)!;
@@ -243,12 +242,12 @@ describe("posting moves the goods from stock into production (Dr WIP / Cr Persed
     const r = await create(header(), [line(f.rm, 70, [{ lot: f.r1, qty: 20 }, { lot: f.r2, qty: 50 }]), line(f.exp, 5, [{ lot: f.e1, qty: 5 }])]);
     assert.ok(r.ok, JSON.stringify(r));
     assert.deepEqual(await transitionStockIssue(r.id, "post", actor), { ok: true });
-    const r1 = await prisma.prdBalance.findFirstOrThrow({ where: { item_id: f.rm, workstation_id: f.ws, lot: { lot_no: key("R1").toUpperCase() } } });
+    const r1 = await prisma.prdBalance.findFirstOrThrow({ where: { item_id: f.rm, workstation_id: f.ws, lot_id: f.r1 } });
     // The pool held 130 kg at 1.381.250 after the first issue: 20 kg release
     // 212.500, so lot R1's bucket at the workstation holds 50 kg at 531.250.
     assert.deepEqual([r1.qty_balance.toNumber(), r1.value_balance.toNumber()], [50, 531_250]);
-    const lot = await prisma.prdLot.findFirstOrThrow({ where: { item_id: f.exp } });
-    assert.equal(lot.expiry_date?.toISOString().slice(0, 10), "2027-12-31");
+    const lot = await prisma.prdBalance.findFirstOrThrow({ where: { item_id: f.exp }, include: { lot: true } });
+    assert.equal(lot.lot.expiry_date?.toISOString().slice(0, 10), "2027-12-31");
     const v = (await getStockIssue(r.id))!;
     // Then 50 kg of R2 release round(1.168.750 × 50 ÷ 110) = 531.250.
     assert.equal(v.lines[0].cost, 212_500 + 531_250);

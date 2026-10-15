@@ -27,7 +27,8 @@ import { locationDisplayLabel, lotKey } from "./warehouse-location";
  * so Σ value over either ledger is the same figure.
  *
  * **Only an item with Kelola Stok enters the books**, and it is always held by
- * lot (`log_stock_tracking`, unique per item). An item without Kelola Stok is
+ * lot (`log_stock_tracking`, one register whose numbers are unique system-wide,
+ * M128 — production refers to the same lots). An item without Kelola Stok is
  * an expense when acquired and is never received or issued here; the user
  * confirmed such a Barang is not sold, so `issueStock` refuses one as a guard.
  *
@@ -445,7 +446,12 @@ export async function receiveStock(tx: Tx, r: StockReceipt): Promise<{ trackingI
   if (item.has_expiry && !expiryIso) throw new InventoryRefusal(`${item.item_label} memiliki kadaluarsa: isi tanggal kadaluarsa lot ${lotNo}.`);
   const place = await stockPlace(tx, r.warehouseId, r.locationId, true);
 
-  let tracking = await tx.logStockTracking.findUnique({ where: { item_id_tracking_no: { item_id: r.itemId, tracking_no: lotNo } } });
+  // One register for every lot (M128): a number belongs to one item, system-wide.
+  let tracking = await tx.logStockTracking.findUnique({ where: { tracking_no: lotNo } });
+  if (tracking && tracking.item_id !== r.itemId) {
+    const other = await tx.mItem.findUnique({ where: { id: tracking.item_id }, select: { item_label: true } });
+    throw new InventoryRefusal(`No. Lot ${lotNo} sudah dipakai untuk ${other?.item_label ?? "barang lain"}; nomor lot berlaku untuk satu barang.`);
+  }
   if (tracking) {
     const known = tracking.expiry_date ? tracking.expiry_date.toISOString().slice(0, 10) : null;
     if (expiryIso && known !== expiryIso) {

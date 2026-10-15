@@ -629,7 +629,7 @@ describe("picking by location in a warehouse with Gunakan Lokasi", () => {
       ],
       actor
     );
-    const lotX = (await prisma.logStockTracking.findUniqueOrThrow({ where: { item_id_tracking_no: { item_id: f.other, tracking_no: key("X1") } } })).id;
+    const lotX = (await prisma.logStockTracking.findFirstOrThrow({ where: { item_id: f.other, tracking_no: key("X1") } })).id;
     const located = await issuedDeliveryOrder([[f.other, f.pcs, 5]], f.located);
     const offered = (await deliveryNoteOptions()).orders.find((o) => o.id === located.doId)!;
     assert.deepEqual(

@@ -483,7 +483,7 @@ export async function stockIn(
     [{ itemId, warehouseId, lotNo, expiry: expiry ? new Date(`${expiry}T00:00:00Z`) : null, qty: String(qty), value: String(value), date: new Date(`${date}T00:00:00Z`) }],
     await systemUserId()
   );
-  const lot = await prisma.logStockTracking.findUniqueOrThrow({ where: { item_id_tracking_no: { item_id: itemId, tracking_no: lotNo.toUpperCase() } } });
+  const lot = await prisma.logStockTracking.findFirstOrThrow({ where: { item_id: itemId, tracking_no: lotNo.toUpperCase() } });
   return lot.id;
 }
 

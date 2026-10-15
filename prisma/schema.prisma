@@ -612,7 +612,7 @@ model MItem {
   receipt_note_lines     LogReceiptNoteLine[]      @relation("ReceiptNoteLineItem")
   stock_ledger           LogStockLedger[]
   stock_balances         LogStockBalance[]
-  prd_lots               PrdLot[]                  @relation("PrdLotItem")
+  partai_targets         PrdPartai[]               @relation("PartaiTarget")
   boms_output            PrdBom[]                  @relation("BomOutput")
   bom_components         PrdBomLine[]              @relation("BomComponent")
   routings               PrdRouting[]              @relation("RoutingTarget")
@@ -738,6 +738,7 @@ model RefWorkstation {
   stock_issues   LogStockIssue[]
   standard_costs AccStandardCost[]
   routing_steps  PrdRoutingStep[]  @relation("RoutingStepWorkstation")
+  jobs           PrdJob[]          @relation("JobWorkstation")
 
   @@index([cost_center_id])
   @@map("ref_workstation")
@@ -2443,7 +2444,8 @@ model SysStockStatus {
 /// to the same lot. Named only by `lib/erp/inventory.ts`.
 model LogStockTracking {
   id                 Int       @id @default(autoincrement())
-  tracking_no        String
+  /// Unique system-wide (M128): one register for every lot, bought or made.
+  tracking_no        String    @unique
   /// The day it was first received.
   tracking_date      DateTime  @db.Date
   item_id            Int
@@ -2468,7 +2470,12 @@ model LogStockTracking {
   ledger   LogStockLedger[]
   balances LogStockBalance[]
 
-  @@unique([item_id, tracking_no])
+  prd_balances  PrdBalance[]
+  prd_ledger    PrdLedger[]
+  prd_links_in  PrdLotLink[] @relation("LinkTo")
+  prd_links_out PrdLotLink[] @relation("LinkFrom")
+
+  @@index([item_id])
   @@index([source_doc_type_id, source_doc_id])
   @@map("log_stock_tracking")
 }
@@ -3525,8 +3532,7 @@ model LogStockIssueLot {
   base_qty            Decimal   @default(0) @db.Decimal(18, 4)
   unit_cost           Decimal   @default(0) @db.Decimal(18, 6)
   cost_amount         Decimal   @default(0) @db.Decimal(18, 2)
-  /// The production lot and bucket it entered, set at Posting (weak).
-  prd_lot_id          Int?
+  /// The production bucket it entered, set at Posting (weak); the lot is the same (M128).
   prd_bucket_id       Int?
 
   line LogStockIssueLine @relation(fields: [stock_issue_line_id], references: [id])
@@ -3945,11 +3951,16 @@ model PrdCostBillLine {
 /// run, carried on top of lots from the execution that starts it to the
 /// finished goods, so they trace back to their material. `JOB/YYYY/MM/NNNN`,
 /// or a number the user typed, unique.
-model PrdJob {
+/// The Partai (M112): the production identity cost is tracked on — started at
+/// the first transformation from stock, never split or merged, carrying its
+/// Job Order (the target item). `P_<DDMMYY>_<NNNNN>` (M124).
+model PrdPartai {
   id                 Int      @id @default(autoincrement())
-  job_no             String   @unique
-  job_date           DateTime @db.Date
-  /// The execution that started it, weak (`source_doc_*`).
+  partai_no          String   @unique
+  partai_date        DateTime @db.Date
+  /// The Job Order: the item the Partai is planned to become. Set by the Perintah (step 3).
+  target_item_id     Int?
+  /// The document that started it, weak (`source_doc_*`).
   source_doc_type_id Int
   source_doc_id      Int
   source_no          String
@@ -3960,16 +3971,43 @@ model PrdJob {
   created_by         Int
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
-  parents  PrdJobParent[] @relation("JobChild")
-  children PrdJobParent[] @relation("JobParent")
-  lots     PrdLot[]
+  target_item MItem?       @relation("PartaiTarget", fields: [target_item_id], references: [id])
+  jobs        PrdJob[]
+  balances    PrdBalance[]
 
+  @@index([source_doc_type_id, source_doc_id])
+  @@map("prd_partai")
+}
+
+/// A Job (M112, M125, M126): one box inside a Partai, made where a station hands
+/// its goods on in boxes — `<Kode Job>_<DDMMYY>_<NNNNN>`, the code of the
+/// workstation that made it. New Jobs name the Jobs they came from.
+model PrdJob {
+  id                 Int      @id @default(autoincrement())
+  job_no             String   @unique
+  job_date           DateTime @db.Date
+  partai_id          Int
+  /// Where it was made; its Kode Job heads the number.
+  workstation_id     Int
+  /// The document that made it, weak.
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  created_by         Int
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  partai      PrdPartai      @relation(fields: [partai_id], references: [id])
+  workstation RefWorkstation @relation("JobWorkstation", fields: [workstation_id], references: [id])
+  parents     PrdJobParent[] @relation("JobChild")
+  children    PrdJobParent[] @relation("JobParent")
+  balances    PrdBalance[]
+
+  @@index([partai_id])
   @@index([source_doc_type_id, source_doc_id])
   @@map("prd_job")
 }
 
-/// The jobs a *Job Baru* merged (M41): a job whose inputs carried two
-/// or more jobs names each of them as a parent.
+/// The Jobs a new Job came from — always inside the same Partai (M112).
 model PrdJobParent {
   id            Int @id @default(autoincrement())
   job_id        Int
@@ -3982,48 +4020,23 @@ model PrdJobParent {
   @@map("prd_job_parent")
 }
 
-/// A lot inside production (M11, M22): a stock lot issued in keeps its number;
-/// each execution output is a new one. Unique per item.
-model PrdLot {
-  id                 Int          @id @default(autoincrement())
-  item_id            Int
-  lot_no             String
-  job_id             Int?
-  expiry_date        DateTime?    @db.Date
-  origin             PrdLotOrigin
-  /// The document that first made it, weak.
-  source_doc_type_id Int
-  source_doc_id      Int
-  source_no          String
-  created_by         Int
-  created_at         DateTime     @default(now()) @db.Timestamptz(6)
-
-  item      MItem        @relation("PrdLotItem", fields: [item_id], references: [id])
-  job       PrdJob?      @relation(fields: [job_id], references: [id])
-  balances  PrdBalance[]
-  ledger    PrdLedger[]
-  links_in  PrdLotLink[] @relation("LinkTo")
-  links_out PrdLotLink[] @relation("LinkFrom")
-
-  @@unique([item_id, lot_no])
-  @@index([job_id])
-  @@map("prd_lot")
-}
-
-/// How a production lot came to be: issued in from stock, or produced.
-enum PrdLotOrigin {
-  Issued
-  Produced
-}
-
-/// A bucket: one lot at one workstation, holding quantity Q (base unit) and
-/// value V (whole rupiah, WIP). Never pooled with another bucket (G12). Kept
-/// in the same transaction as each ledger row and locked while a posting
-/// moves it. CHECKs: Q ≥ 0, V ≥ 0, Q = 0 ⇒ V = 0.
+/// A bucket (M127): one lot, carried by one Job (or none), at one workstation —
+/// or **in transit** to it, sent and not yet received (M113) — holding
+/// quantity Q (base unit) and value V (whole rupiah, WIP). Never pooled with
+/// another bucket (G12). Kept in the same transaction as each ledger row and
+/// locked while a posting moves it. CHECKs: Q ≥ 0, V ≥ 0, Q = 0 ⇒ V = 0. The key
+/// lot · job · workstation · in_transit is unique NULLS NOT DISTINCT (by hand
+/// in the migration).
 model PrdBalance {
   id             Int     @id @default(autoincrement())
   lot_id         Int
+  /// The Partai the goods belong to; null for a stock lot before its Partai starts.
+  partai_id      Int?
+  /// The Job carrying them; null outside a Job (before the Partai, the No. Moulding).
+  job_id         Int?
+  /// The workstation that holds them — or, in transit, the one they are sent to.
   workstation_id Int
+  in_transit     Boolean @default(false)
   item_id        Int
   /// The item's base unit.
   uom_id         Int
@@ -4035,14 +4048,18 @@ model PrdBalance {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  lot         PrdLot         @relation(fields: [lot_id], references: [id])
-  workstation RefWorkstation @relation("PrdBalanceWorkstation", fields: [workstation_id], references: [id])
-  item        MItem          @relation("PrdBalanceItem", fields: [item_id], references: [id])
-  uom         RefUom         @relation("PrdBalanceUom", fields: [uom_id], references: [id])
+  lot         LogStockTracking @relation(fields: [lot_id], references: [id])
+  partai      PrdPartai?       @relation(fields: [partai_id], references: [id])
+  job         PrdJob?          @relation(fields: [job_id], references: [id])
+  workstation RefWorkstation   @relation("PrdBalanceWorkstation", fields: [workstation_id], references: [id])
+  item        MItem            @relation("PrdBalanceItem", fields: [item_id], references: [id])
+  uom         RefUom           @relation("PrdBalanceUom", fields: [uom_id], references: [id])
   ledger      PrdLedger[]
   links_from  PrdLotLink[]
 
-  @@unique([lot_id, workstation_id])
+  @@unique([lot_id, job_id, workstation_id, in_transit], map: "prd_balance_bucket_key")
+  @@index([partai_id])
+  @@index([job_id])
   @@index([workstation_id])
   @@index([item_id])
   @@map("prd_balance")
@@ -4076,7 +4093,10 @@ model PrdLedger {
   movement           PrdMovement
   bucket_id          Int
   lot_id             Int
+  partai_id          Int?
+  job_id             Int?
   workstation_id     Int
+  in_transit         Boolean     @default(false)
   item_id            Int
   qty_change         Decimal     @db.Decimal(18, 6)
   qty_balance        Decimal     @db.Decimal(18, 6)
@@ -4088,10 +4108,10 @@ model PrdLedger {
   created_by         Int
   created_at         DateTime    @default(now()) @db.Timestamptz(6)
 
-  bucket      PrdBalance     @relation(fields: [bucket_id], references: [id])
-  lot         PrdLot         @relation(fields: [lot_id], references: [id])
-  workstation RefWorkstation @relation("PrdLedgerWorkstation", fields: [workstation_id], references: [id])
-  item        MItem          @relation("PrdLedgerItem", fields: [item_id], references: [id])
+  bucket      PrdBalance       @relation(fields: [bucket_id], references: [id])
+  lot         LogStockTracking @relation(fields: [lot_id], references: [id])
+  workstation RefWorkstation   @relation("PrdLedgerWorkstation", fields: [workstation_id], references: [id])
+  item        MItem            @relation("PrdLedgerItem", fields: [item_id], references: [id])
 
   @@unique([ledger_no, line_no])
   @@index([bucket_id, posting_date])
@@ -4115,9 +4135,9 @@ model PrdLotLink {
   value              Decimal  @db.Decimal(18, 2)
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
-  from_bucket PrdBalance @relation(fields: [from_bucket_id], references: [id])
-  from_lot    PrdLot     @relation("LinkFrom", fields: [from_lot_id], references: [id])
-  to_lot      PrdLot     @relation("LinkTo", fields: [to_lot_id], references: [id])
+  from_bucket PrdBalance       @relation(fields: [from_bucket_id], references: [id])
+  from_lot    LogStockTracking @relation("LinkFrom", fields: [from_lot_id], references: [id])
+  to_lot      LogStockTracking @relation("LinkTo", fields: [to_lot_id], references: [id])
 
   @@index([source_doc_type_id, source_doc_id])
   @@index([from_lot_id])

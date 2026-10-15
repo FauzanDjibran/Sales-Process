@@ -91,17 +91,17 @@ describe("a receipt adds its own quantity and value", () => {
     assert.ok(buckets.every((b) => b.stock_status_id === status.id), "received as Tersedia");
   });
 
-  test("a lot is unique per item: the same number adds to it, another item may reuse it", async () => {
+  test("a lot number is one lot system-wide (M128): the same number adds to it, another item may not reuse it", async () => {
     await stockIn(f.a, f.w1, key("A1"), 5, 50_000, null, "2026-09-15");
     assert.equal(await prisma.logStockTracking.count({ where: { item_id: f.a, tracking_no: key("A1") } }), 1);
-    const reused = await stockIn(f.b, f.w1, key("A1"), 1, 1_000, "2030-01-31");
-    assert.notEqual(reused, f.lotA1, "B's A1 is its own lot");
+    await assert.rejects(stockIn(f.b, f.w1, key("A1"), 1, 1_000, "2030-01-31"), /sudah dipakai untuk/);
+    await stockIn(f.b, f.w1, key("BA1"), 1, 1_000, "2030-01-31");
     assert.deepEqual(await pool(f.a), [35, 410_000, 11_714.285714]);
   });
 
   test("an item with Memiliki Kadaluarsa needs its expiry, and a known lot keeps the one it has", async () => {
     await assert.rejects(stockIn(f.b, f.w1, key("B1"), 1, 1_000), /kadaluarsa/);
-    await assert.rejects(stockIn(f.b, f.w1, key("A1"), 1, 1_000, "2031-01-31"), /sudah tercatat dengan kadaluarsa 2030-01-31/);
+    await assert.rejects(stockIn(f.b, f.w1, key("BA1"), 1, 1_000, "2031-01-31"), /sudah tercatat dengan kadaluarsa 2030-01-31/);
   });
 
   test("an item without Kelola Stok never enters the books; a value is whole rupiah", async () => {

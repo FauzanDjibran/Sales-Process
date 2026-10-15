@@ -3,30 +3,36 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
-import { jobOutcome, shareByWeight, shareQty, type JobRef } from "./production-execution";
+import { carriedSupplier, inputsPartai, shareByWeight, shareQty, type JobRef, type PartaiRef } from "./production-execution";
+import { freeNumber, nextDailyNumber } from "./production-number";
 
 /**
- * The production ledger (P150 E2, E3; `production_project.md` §6, §7.2) — the
- * book of what is inside production.
+ * The production ledger (P150 E2, E3; P157; Walet M112, M127, M128) — the book
+ * of what is inside production.
  *
- * A **bucket** (`prd_balance`) is one lot at one workstation, holding quantity
- * Q in the item's base unit and value V in whole rupiah; Σ V is WIP. Buckets
- * are never pooled with one another and do not follow the stock moving
- * average (G12): a stock lot issued in keeps its number and its issue value,
- * and each execution output is a new lot (M11, M22). Every movement is a row
- * of `prd_ledger`, written in the same transaction as the bucket it changes,
- * with the balances after it; one ledger number `MP/YYYY/MM/NNNN` per posting
- * (P110).
+ * **The lot is the stock lot.** Every lot has one row in the global register
+ * `log_stock_tracking` (M128): goods issued from stock enter production under
+ * the same lot, and a transformation registers a new lot for its output, the
+ * execution as its source and the one supplier behind its inputs carried.
+ *
+ * A **bucket** (`prd_balance`) is one lot, carried by one **Job** (or none),
+ * at one workstation — or **in transit** to it (M113, M127) — holding
+ * quantity Q in the item's base unit and value V in whole rupiah; Σ V is WIP.
+ * It names its **Partai** (M112): the cost identity, never split or merged.
+ * Buckets are never pooled with one another and do not follow the stock
+ * moving average (G12). Every movement is a row of `prd_ledger`, written in
+ * the same transaction as the bucket it changes, with the balances after it;
+ * one ledger number `MP/YYYY/MM/NNNN` per posting (P110).
  *
  * - **Taking** q from a bucket releases round(V × q ÷ Q), or V whole when q
  *   empties it, so a bucket always ends at 0 / 0 (M11, as P114's pools).
  * - **Producing** (an execution) takes every input, adds the execution's
  *   standard conversion (P155 M92), shares the total over the outputs by
- *   Bobot Biaya, creates each output lot and its bucket, and writes the
- *   genealogy: what each input gave each output (`prd_lot_link`). Cost in =
- *   cost out (G3).
- * - **The job** (M41, M42) is carried on the lots: decided by the inputs'
- *   jobs, or started by the execution.
+ *   Bobot Biaya, registers each output lot and fills its bucket, and writes
+ *   the genealogy (`prd_lot_link`). Cost in = cost out (G3). Its inputs belong
+ *   to one Partai at most.
+ * - **A Partai** (`P_<DDMMYY>_<NNNNN>`) and **a Job** (`<Kode Job>_<DDMMYY>_<NNNNN>`,
+ *   M124, M126) are started by the documents that make them.
  * - **Revaluing** adds a value with quantity 0 — the month-end close (M96).
  *
  * Only a Barang with Kelola Stok enters production (M8). Buckets are locked
@@ -36,7 +42,7 @@ import { jobOutcome, shareByWeight, shareQty, type JobRef } from "./production-e
  * A book: it imports only the shared kernel (and the pure execution
  * arithmetic) and is called by the documents, never the reverse (§3.1). It
  * writes no journal — the document posts WIP beside it. Its tables are named
- * only here.
+ * only here; the lot register it shares with the stock book.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -44,7 +50,7 @@ type Tx = Prisma.TransactionClient;
 const D = Prisma.Decimal;
 type Dec = Prisma.Decimal;
 
-/** A movement production refuses — short quantity, an unknown lot, a job clash. */
+/** A movement production refuses — short quantity, an unknown lot, a Partai clash. */
 export class ProductionRefusal extends Error {}
 
 export type ProductionSource = { docTypeId: number; docId: number; no: string };
@@ -70,33 +76,80 @@ async function productionItem(tx: Tx, itemId: number) {
 }
 
 async function activeWorkstation(tx: Tx, id: number) {
-  const ws = await tx.refWorkstation.findUnique({ where: { id }, select: { workstation_label: true, status: true } });
+  const ws = await tx.refWorkstation.findUnique({ where: { id }, select: { workstation_label: true, job_code: true, status: true } });
   if (!ws) throw new ProductionRefusal("Workstation tidak ditemukan.");
   if (ws.status !== "Active") throw new ProductionRefusal(`Workstation ${ws.workstation_label} nonaktif.`);
   return ws;
 }
 
+/** The Partai a Job belongs to, and the Job's Partai checked against the one named. */
+async function jobPartai(tx: Tx, jobId: number, partaiId: number | null | undefined): Promise<number> {
+  const job = await tx.prdJob.findUnique({ where: { id: jobId }, select: { job_no: true, partai_id: true } });
+  if (!job) throw new ProductionRefusal("Job tidak ditemukan.");
+  if (partaiId != null && partaiId !== job.partai_id) throw new ProductionRefusal(`Job ${job.job_no} bukan bagian dari Partai ini.`);
+  return job.partai_id;
+}
+
 // ------------------------------------------------------------- locking
 
-type Bucket = { id: number; lotId: number; workstationId: number; itemId: number; qty: Dec; value: Dec };
+type Place = { lotId: number; partaiId: number | null; jobId: number | null; workstationId: number; inTransit: boolean };
+type Bucket = Place & { id: number; itemId: number; qty: Dec; value: Dec };
+
+type BucketRow = {
+  id: number;
+  lot_id: number;
+  partai_id: number | null;
+  job_id: number | null;
+  workstation_id: number;
+  in_transit: boolean;
+  item_id: number;
+  qty_balance: Dec;
+  value_balance: Dec;
+};
 
 async function lockBucketById(tx: Tx, id: number): Promise<Bucket | null> {
-  const [row] = await tx.$queryRaw<{ id: number; lot_id: number; workstation_id: number; item_id: number; qty_balance: Dec; value_balance: Dec }[]>`
-    SELECT "id", "lot_id", "workstation_id", "item_id", "qty_balance", "value_balance" FROM "prd_balance" WHERE "id" = ${id} FOR UPDATE`;
+  const [row] = await tx.$queryRaw<BucketRow[]>`
+    SELECT "id", "lot_id", "partai_id", "job_id", "workstation_id", "in_transit", "item_id", "qty_balance", "value_balance"
+      FROM "prd_balance" WHERE "id" = ${id} FOR UPDATE`;
   return row
-    ? { id: row.id, lotId: row.lot_id, workstationId: row.workstation_id, itemId: row.item_id, qty: new D(row.qty_balance), value: new D(row.value_balance) }
+    ? {
+        id: row.id,
+        lotId: row.lot_id,
+        partaiId: row.partai_id,
+        jobId: row.job_id,
+        workstationId: row.workstation_id,
+        inTransit: row.in_transit,
+        itemId: row.item_id,
+        qty: new D(row.qty_balance),
+        value: new D(row.value_balance),
+      }
     : null;
 }
 
-/** The lot's bucket at the workstation, created empty if missing, and locked. */
-async function openBucket(tx: Tx, k: { lotId: number; workstationId: number; itemId: number; uomId: number }, actorId: number): Promise<Bucket> {
+/**
+ * The bucket of a lot · Job · workstation (· in transit), created empty if
+ * missing, and locked. Its Partai is fixed when it is made; goods of another
+ * Partai never share it.
+ */
+async function openBucket(tx: Tx, k: Place & { itemId: number; uomId: number }, actorId: number): Promise<Bucket> {
   await tx.$executeRaw`
-    INSERT INTO "prd_balance" ("lot_id", "workstation_id", "item_id", "uom_id", "qty_balance", "value_balance", "created_by", "updated_at")
-    VALUES (${k.lotId}, ${k.workstationId}, ${k.itemId}, ${k.uomId}, 0, 0, ${actorId}, now())
-    ON CONFLICT ("lot_id", "workstation_id") DO NOTHING`;
+    INSERT INTO "prd_balance" ("lot_id", "partai_id", "job_id", "workstation_id", "in_transit", "item_id", "uom_id", "qty_balance", "value_balance", "created_by", "updated_at")
+    VALUES (${k.lotId}, ${k.partaiId}, ${k.jobId}, ${k.workstationId}, ${k.inTransit}, ${k.itemId}, ${k.uomId}, 0, 0, ${actorId}, now())
+    ON CONFLICT ("lot_id", "job_id", "workstation_id", "in_transit") DO NOTHING`;
   const [row] = await tx.$queryRaw<{ id: number }[]>`
-    SELECT "id" FROM "prd_balance" WHERE "lot_id" = ${k.lotId} AND "workstation_id" = ${k.workstationId}`;
-  return (await lockBucketById(tx, row.id))!;
+    SELECT "id" FROM "prd_balance"
+     WHERE "lot_id" = ${k.lotId} AND "job_id" IS NOT DISTINCT FROM ${k.jobId}
+       AND "workstation_id" = ${k.workstationId} AND "in_transit" = ${k.inTransit}`;
+  const b = (await lockBucketById(tx, row.id))!;
+  if (b.partaiId !== k.partaiId) {
+    // A lot outside a Job can wait at a station before its Partai starts; once
+    // there it is that Partai's (M112) — two Partai never share one bucket.
+    if (b.qty.isZero() && b.partaiId == null) {
+      await tx.prdBalance.update({ where: { id: b.id }, data: { partai_id: k.partaiId, updated_by: actorId } });
+      b.partaiId = k.partaiId;
+    } else throw new ProductionRefusal("Lot ini di workstation tersebut sudah tercatat untuk Partai lain.");
+  }
+  return b;
 }
 
 // ------------------------------------------------------------ positions
@@ -138,7 +191,10 @@ async function write(tx: Tx, b: Bucket, m: { movement: Movement; qty: Dec; value
       movement: m.movement,
       bucket_id: b.id,
       lot_id: b.lotId,
+      partai_id: b.partaiId,
+      job_id: b.jobId,
       workstation_id: b.workstationId,
+      in_transit: b.inTransit,
       item_id: b.itemId,
       qty_change: m.qty,
       qty_balance: qty,
@@ -160,10 +216,10 @@ function release(b: Bucket, qty: Dec): Dec {
 async function takeLocked(tx: Tx, b: Bucket, qty: Dec, movement: Movement, date: Date, source: ProductionSource, actorId: number) {
   if (!qty.gt(0)) throw new ProductionRefusal("Jumlah yang diambil harus lebih dari 0.");
   if (b.qty.lt(qty)) {
-    const lot = await tx.prdLot.findUnique({ where: { id: b.lotId }, select: { lot_no: true, item: { select: { item_label: true } } } });
+    const lot = await tx.logStockTracking.findUnique({ where: { id: b.lotId }, select: { tracking_no: true, item: { select: { item_label: true } } } });
     const ws = await tx.refWorkstation.findUnique({ where: { id: b.workstationId }, select: { workstation_label: true } });
     throw new ProductionRefusal(
-      `Saldo produksi ${lot?.item.item_label ?? ""} lot ${lot?.lot_no ?? ""} di ${ws?.workstation_label ?? ""} tidak cukup: tersedia ${qtyText(b.qty)}, diminta ${qtyText(qty)}.`
+      `Saldo produksi ${lot?.item.item_label ?? ""} lot ${lot?.tracking_no ?? ""} di ${ws?.workstation_label ?? ""} tidak cukup: tersedia ${qtyText(b.qty)}, diminta ${qtyText(qty)}.`
     );
   }
   const value = release(b, qty);
@@ -171,21 +227,87 @@ async function takeLocked(tx: Tx, b: Bucket, qty: Dec, movement: Movement, date:
   return value;
 }
 
-// --------------------------------------------------------------- lots
+// ------------------------------------------------------- identities
 
-async function lotJob(tx: Tx, lotId: number): Promise<JobRef | null> {
-  const lot = await tx.prdLot.findUnique({ where: { id: lotId }, select: { job: { select: { id: true, job_no: true } } } });
-  return lot?.job ? { id: lot.job.id, no: lot.job.job_no } : null;
+/**
+ * Starts a Partai (M112): the next `P_<DDMMYY>_<NNNNN>` of its day (M124),
+ * carrying its Job Order — the item it is planned to become — when known.
+ */
+export async function startPartai(
+  tx: Tx,
+  s: { date: Date; targetItemId?: number | null; customerOrder?: { id: number; no: string } | null; source: ProductionSource; actorId: number }
+): Promise<PartaiRef> {
+  const no = await nextDailyNumber(["P"], s.date, async (series) => {
+    const row = await tx.prdPartai.findFirst({ where: { partai_no: { startsWith: series } }, orderBy: { id: "desc" }, select: { partai_no: true } });
+    return row?.partai_no ?? null;
+  });
+  const row = await tx.prdPartai.create({
+    data: {
+      partai_no: no,
+      partai_date: s.date,
+      target_item_id: s.targetItemId ?? null,
+      source_doc_type_id: s.source.docTypeId,
+      source_doc_id: s.source.docId,
+      source_no: s.source.no,
+      customer_order_id: s.customerOrder?.id ?? null,
+      customer_order_no: s.customerOrder?.no ?? null,
+      created_by: s.actorId,
+    },
+  });
+  return { id: row.id, no: row.partai_no };
 }
 
+/**
+ * Starts a Job inside a Partai (M112, M125, M126): `<Kode Job>_<DDMMYY>_<NNNNN>`,
+ * the code of the workstation that makes it — one without a Kode Job makes no
+ * Job. Its parents, if any, are Jobs of the same Partai.
+ */
+export async function startJob(
+  tx: Tx,
+  s: { partaiId: number; workstationId: number; parentJobIds?: number[]; date: Date; source: ProductionSource; actorId: number }
+): Promise<JobRef> {
+  const ws = await activeWorkstation(tx, s.workstationId);
+  if (!ws.job_code) throw new ProductionRefusal(`Workstation ${ws.workstation_label} tidak membuat Job (Kode Job kosong).`);
+  const parents = [...new Set(s.parentJobIds ?? [])];
+  for (const id of parents) await jobPartai(tx, id, s.partaiId);
+  const no = await nextDailyNumber([ws.job_code], s.date, async (series) => {
+    const row = await tx.prdJob.findFirst({ where: { job_no: { startsWith: series } }, orderBy: { id: "desc" }, select: { job_no: true } });
+    return row?.job_no ?? null;
+  });
+  const row = await tx.prdJob.create({
+    data: {
+      job_no: no,
+      job_date: s.date,
+      partai_id: s.partaiId,
+      workstation_id: s.workstationId,
+      source_doc_type_id: s.source.docTypeId,
+      source_doc_id: s.source.docId,
+      source_no: s.source.no,
+      created_by: s.actorId,
+      parents: { create: parents.map((parent_job_id) => ({ parent_job_id })) },
+    },
+  });
+  return { id: row.id, no: row.job_no };
+}
+
+/** `base`, or `base-2`, `base-3`, … — the first lot number not in the register (M124). */
+export async function freeLotNo(tx: Db, base: string): Promise<string> {
+  return freeNumber(base, async (no) => !!(await tx.logStockTracking.findUnique({ where: { tracking_no: no }, select: { id: true } })));
+}
+
+// --------------------------------------------------------------- entering
+
 export type ProductionEntry = {
+  /** The stock lot (`log_stock_tracking`): it keeps its number in production (M128). */
+  lotId: number;
   itemId: number;
-  /** The stock lot's number, kept in production (M22). */
-  lotNo: string;
-  /** The stock lot's job, when it carries one (M45). */
-  job?: JobRef | null;
-  expiry: Date | null;
+  /** The Partai the goods go to; none before the first transformation. */
+  partaiId?: number | null;
+  /** The Job carrying them, of that Partai. */
+  jobId?: number | null;
   workstationId: number;
+  /** Sent and not yet received (M113). */
+  inTransit?: boolean;
   /** In the item's base unit. */
   baseQty: number | string | Dec;
   /** Whole rupiah — what the stock issue released. */
@@ -196,12 +318,11 @@ export type ProductionEntry = {
 };
 
 /**
- * Places goods in production at a workstation (Pengeluaran ke Produksi): finds
- * or creates the production lot of that number, then its bucket there, and
- * adds Q and V. A lot already known keeps its job and expiry; a different
- * one is refused.
+ * Places goods from stock in production at a workstation (the Logistik BSTB),
+ * under the same lot (M128): its bucket for that Job and workstation, created
+ * if missing, takes Q and V.
  */
-export async function enterProduction(tx: Tx, e: ProductionEntry): Promise<{ lotId: number; bucketId: number }> {
+export async function enterProduction(tx: Tx, e: ProductionEntry): Promise<{ bucketId: number }> {
   const qty = new D(e.baseQty);
   const value = new D(e.value);
   if (!qty.gt(0)) throw new ProductionRefusal("Jumlah yang masuk produksi harus lebih dari 0.");
@@ -209,37 +330,16 @@ export async function enterProduction(tx: Tx, e: ProductionEntry): Promise<{ lot
   if (value.lt(0) || !value.isInteger()) throw new ProductionRefusal("Nilai harus rupiah utuh, tidak negatif.");
   const item = await productionItem(tx, e.itemId);
   await activeWorkstation(tx, e.workstationId);
-  const lotNo = String(e.lotNo ?? "").trim().toUpperCase();
-  if (!lotNo) throw new ProductionRefusal(`${item.item_label} dikelola per lot: isi No. Lot.`);
-  if (item.has_expiry && !e.expiry) throw new ProductionRefusal(`${item.item_label} memiliki kadaluarsa: lot ${lotNo} tanpa tanggal kadaluarsa.`);
-
-  let lot = await tx.prdLot.findUnique({ where: { item_id_lot_no: { item_id: e.itemId, lot_no: lotNo } } });
-  if (lot) {
-    if ((lot.job_id ?? null) !== (e.job?.id ?? null) && e.job) {
-      if (lot.job_id) throw new ProductionRefusal(`Lot ${lotNo} ${item.item_label} sudah tercatat dengan Job No. lain.`);
-      lot = await tx.prdLot.update({ where: { id: lot.id }, data: { job_id: e.job.id } });
-    }
-    if (e.expiry && iso(lot.expiry_date) !== iso(e.expiry)) {
-      throw new ProductionRefusal(`Lot ${lotNo} ${item.item_label} sudah tercatat dengan kadaluarsa ${iso(lot.expiry_date) ?? "kosong"}.`);
-    }
-  } else {
-    lot = await tx.prdLot.create({
-      data: {
-        item_id: e.itemId,
-        lot_no: lotNo,
-        job_id: e.job?.id ?? null,
-        expiry_date: e.expiry,
-        origin: "Issued",
-        source_doc_type_id: e.source.docTypeId,
-        source_doc_id: e.source.docId,
-        source_no: e.source.no,
-        created_by: e.actorId,
-      },
-    });
-  }
-  const bucket = await openBucket(tx, { lotId: lot.id, workstationId: e.workstationId, itemId: e.itemId, uomId: item.base_uom_id }, e.actorId);
+  const lot = await tx.logStockTracking.findUnique({ where: { id: e.lotId }, select: { item_id: true } });
+  if (!lot || lot.item_id !== e.itemId) throw new ProductionRefusal(`Lot ${item.item_label} tidak ditemukan.`);
+  const partaiId = e.jobId != null ? await jobPartai(tx, e.jobId, e.partaiId) : (e.partaiId ?? null);
+  const bucket = await openBucket(
+    tx,
+    { lotId: e.lotId, partaiId, jobId: e.jobId ?? null, workstationId: e.workstationId, inTransit: !!e.inTransit, itemId: e.itemId, uomId: item.base_uom_id },
+    e.actorId
+  );
   await write(tx, bucket, { movement: "Issued", qty, value, date: e.date, source: e.source, actorId: e.actorId });
-  return { lotId: lot.id, bucketId: bucket.id };
+  return { bucketId: bucket.id };
 }
 
 export type ProductionTake = {
@@ -258,28 +358,30 @@ export type TakenFromProduction = {
   itemId: number;
   workstationId: number;
   expiry: Date | null;
-  job: JobRef | null;
+  partaiId: number | null;
+  jobId: number | null;
 };
 
 /**
  * Takes goods out of production (Penerimaan Hasil Produksi, Pemusnahan): the
  * bucket releases round(V × q ÷ Q), or V whole when q empties it. Refuses
- * short quantity. Says what the goods were — lot, expiry and job — so the
- * caller can carry them into stock.
+ * short quantity. Says what the goods were — the lot, which they keep in
+ * stock (M128), its expiry, Partai and Job.
  */
 export async function takeFromBucket(tx: Tx, t: ProductionTake): Promise<TakenFromProduction> {
   const b = await lockBucketById(tx, t.bucketId);
   if (!b) throw new ProductionRefusal("Saldo produksi tidak ditemukan. Pilih ulang.");
   const value = await takeLocked(tx, b, new D(t.baseQty), "Released", t.date, t.source, t.actorId);
-  const lot = await tx.prdLot.findUniqueOrThrow({ where: { id: b.lotId }, select: { lot_no: true, expiry_date: true } });
+  const lot = await tx.logStockTracking.findUniqueOrThrow({ where: { id: b.lotId }, select: { tracking_no: true, expiry_date: true } });
   return {
     value: value.toNumber(),
     lotId: b.lotId,
-    lotNo: lot.lot_no,
+    lotNo: lot.tracking_no,
     itemId: b.itemId,
     workstationId: b.workstationId,
     expiry: lot.expiry_date,
-    job: await lotJob(tx, b.lotId),
+    partaiId: b.partaiId,
+    jobId: b.jobId,
   };
 }
 
@@ -289,12 +391,14 @@ export type ProduceInput = { bucketId: number; baseQty: number | string };
 
 export type ProduceOutput = {
   itemId: number;
-  /** A new lot number for the item (M42). */
+  /** A lot number not yet in the register (M128); `freeLotNo` finds one. */
   lotNo: string;
   expiry: Date | null;
   baseQty: number | string;
   /** Bobot Biaya (M13); 0 carries no value. */
   weight: number;
+  /** The Job carrying it, of the execution's Partai. */
+  jobId?: number | null;
 };
 
 export type Production = {
@@ -303,12 +407,11 @@ export type Production = {
   outputs: ProduceOutput[];
   /** The execution's standard conversion, whole rupiah (P155 M92); 0 without a standard. */
   addedValue?: number;
-  /** *Job Baru* (M41). */
-  newJob: boolean;
-  /** The number a new job takes; generated `JOB/YYYY/MM/NNNN` when empty (M42). */
-  jobNo?: string | null;
-  /** Information only (M48), for a job that starts here. */
-  customerOrder?: { id: number; no: string } | null;
+  /**
+   * The Partai the execution works (M114): its inputs' Partai, or — when none
+   * of them has one yet — one the caller just started (the first transformation).
+   */
+  partaiId?: number | null;
   date: Date;
   source: ProductionSource;
   actorId: number;
@@ -317,19 +420,20 @@ export type Production = {
 export type Produced = {
   /** Per input, in the order given: what it released. */
   inputs: { bucketId: number; lotId: number; itemId: number; value: number }[];
-  /** Per output, in the order given: its lot, bucket and value. */
+  /** Per output, in the order given: its registered lot, bucket and value. */
   outputs: { lotId: number; bucketId: number; value: number }[];
   /** Σ input value + added value = Σ output value. */
   total: number;
-  job: JobRef;
-  jobStarted: boolean;
+  partaiId: number | null;
 };
 
 /**
  * One execution, balanced (M12): takes every input, shares Σ input value plus
- * the added value over the outputs by Bobot Biaya (largest remainder), creates
- * each output lot and its bucket at the execution's workstation, and records
- * the genealogy. The job follows M41. Called inside the execution's posting.
+ * the added value over the outputs by Bobot Biaya (largest remainder),
+ * registers each output lot — the execution its source, the one supplier
+ * behind its inputs carried (M128) — fills its bucket at the execution's
+ * workstation, and records the genealogy. Its inputs belong to one Partai at
+ * most (M112). Called inside the execution's posting.
  */
 export async function produce(tx: Tx, p: Production): Promise<Produced> {
   if (!p.inputs.length) throw new ProductionRefusal("Eksekusi memerlukan minimal satu input.");
@@ -354,10 +458,10 @@ export async function produce(tx: Tx, p: Production): Promise<Produced> {
     if (qty.decimalPlaces() > 6) throw new ProductionRefusal("Jumlah paling banyak 6 angka desimal.");
     const lotNo = String(o.lotNo ?? "").trim().toUpperCase();
     if (!lotNo) throw new ProductionRefusal(`Isi No. Lot output ${item.item_label}.`);
-    if (seen.has(`${o.itemId}:${lotNo}`)) throw new ProductionRefusal(`Lot ${lotNo} ${item.item_label} dipakai dua kali.`);
-    seen.add(`${o.itemId}:${lotNo}`);
-    if (await tx.prdLot.findUnique({ where: { item_id_lot_no: { item_id: o.itemId, lot_no: lotNo } }, select: { id: true } })) {
-      throw new ProductionRefusal(`Lot ${lotNo} ${item.item_label} sudah pernah dipakai; lot output selalu baru.`);
+    if (seen.has(lotNo)) throw new ProductionRefusal(`Lot ${lotNo} dipakai dua kali.`);
+    seen.add(lotNo);
+    if (await tx.logStockTracking.findUnique({ where: { tracking_no: lotNo }, select: { id: true } })) {
+      throw new ProductionRefusal(`Lot ${lotNo} sudah tercatat; lot hasil transformasi selalu baru.`);
     }
     if (item.has_expiry && !o.expiry) throw new ProductionRefusal(`${item.item_label} memiliki kadaluarsa: isi tanggal kadaluarsa lot ${lotNo}.`);
     outs.push({ ...o, lotNo, qty, item });
@@ -370,8 +474,22 @@ export async function produce(tx: Tx, p: Production): Promise<Produced> {
   for (const id of ids) {
     const b = await lockBucketById(tx, id);
     if (!b) throw new ProductionRefusal("Saldo produksi input tidak ditemukan. Pilih ulang.");
+    if (b.inTransit) throw new ProductionRefusal("Barang yang masih dalam perjalanan belum bisa dikerjakan; terima dulu.");
+    if (b.workstationId !== p.workstationId) throw new ProductionRefusal("Input harus berada di workstation eksekusi.");
     locked.set(id, b);
   }
+
+  // The Partai (M112): one at most among the inputs; a Partai is never merged.
+  const partai = inputsPartai([...locked.values()].map((b) => b.partaiId));
+  if (partai.kind === "many") throw new ProductionRefusal("Input berasal dari lebih dari satu Partai; Partai tidak pernah digabung.");
+  if (partai.kind === "one" && p.partaiId != null && p.partaiId !== partai.id) throw new ProductionRefusal("Input bukan bagian dari Partai yang dieksekusi.");
+  const partaiId = partai.kind === "one" ? partai.id : (p.partaiId ?? null);
+  for (const o of outs) {
+    if (o.jobId == null) continue;
+    if (partaiId == null) throw new ProductionRefusal("Job hanya ada di dalam Partai.");
+    await jobPartai(tx, o.jobId, partaiId);
+  }
+
   const inputs: Produced["inputs"] = [];
   const takenQty: Dec[] = [];
   for (const i of p.inputs) {
@@ -382,39 +500,33 @@ export async function produce(tx: Tx, p: Production): Promise<Produced> {
     takenQty.push(qty);
   }
 
-  // The job (M41).
-  const inputJobs = await Promise.all(inputs.map((i) => lotJob(tx, i.lotId)));
-  const outcome = jobOutcome(inputJobs, p.newJob);
-  if (outcome.kind === "mixed") {
-    throw new ProductionRefusal(`Input berasal dari Job No. ${outcome.jobs.map((b) => b.no).join(" dan ")}; aktifkan Job Baru untuk menggabungkannya.`);
-  }
-  let job: JobRef;
-  let jobStarted = false;
-  if (outcome.kind === "carried") job = outcome.job;
-  else {
-    job = await startJob(tx, { no: p.jobNo, date: p.date, source: p.source, parents: outcome.parents, customerOrder: p.customerOrder, actorId: p.actorId });
-    jobStarted = true;
-  }
+  // The supplier the new lots carry: the one behind the inputs' lots (M127).
+  const inputLots = await tx.logStockTracking.findMany({ where: { id: { in: inputs.map((i) => i.lotId) } }, select: { source_partner_id: true } });
+  const supplierId = carriedSupplier(inputLots.map((l) => l.source_partner_id));
 
   // The outputs, at Σ input + added, shared by Bobot Biaya.
   const total = inputs.reduce((a, i) => a + i.value, 0) + added;
   const values = shareByWeight(total, weights);
   const outputs: Produced["outputs"] = [];
   for (const [j, o] of outs.entries()) {
-    const lot = await tx.prdLot.create({
+    const lot = await tx.logStockTracking.create({
       data: {
+        tracking_no: o.lotNo,
+        tracking_date: p.date,
         item_id: o.itemId,
-        lot_no: o.lotNo,
-        job_id: job.id,
-        expiry_date: o.expiry,
-        origin: "Produced",
         source_doc_type_id: p.source.docTypeId,
         source_doc_id: p.source.docId,
         source_no: p.source.no,
+        source_partner_id: supplierId,
+        expiry_date: o.expiry,
         created_by: p.actorId,
       },
     });
-    const bucket = await openBucket(tx, { lotId: lot.id, workstationId: p.workstationId, itemId: o.itemId, uomId: o.item.base_uom_id }, p.actorId);
+    const bucket = await openBucket(
+      tx,
+      { lotId: lot.id, partaiId, jobId: o.jobId ?? null, workstationId: p.workstationId, inTransit: false, itemId: o.itemId, uomId: o.item.base_uom_id },
+      p.actorId
+    );
     await write(tx, bucket, { movement: "Produced", qty: o.qty, value: new D(values[j]), date: p.date, source: p.source, actorId: p.actorId });
     outputs.push({ lotId: lot.id, bucketId: bucket.id, value: values[j] });
   }
@@ -439,40 +551,7 @@ export async function produce(tx: Tx, p: Production): Promise<Produced> {
       });
     }
   }
-  return { inputs, outputs, total, job, jobStarted };
-}
-
-/**
- * Starts a job (E3): the number typed, or the next `JOB/YYYY/MM/NNNN`;
- * unique. *Job Baru* over jobed inputs names each of their jobs as a
- * parent (M41).
- */
-async function startJob(
-  tx: Tx,
-  s: { no?: string | null; date: Date; source: ProductionSource; parents: JobRef[]; customerOrder?: { id: number; no: string } | null; actorId: number }
-): Promise<JobRef> {
-  const typed = String(s.no ?? "").trim().toUpperCase();
-  const no =
-    typed ||
-    (await nextDocumentNumber("JOB", s.date, async (series) => {
-      const row = await tx.prdJob.findFirst({ where: { job_no: { startsWith: series } }, orderBy: { job_no: "desc" }, select: { job_no: true } });
-      return row?.job_no ?? null;
-    }));
-  if (await tx.prdJob.findUnique({ where: { job_no: no }, select: { id: true } })) throw new ProductionRefusal(`Job No. ${no} sudah dipakai.`);
-  const row = await tx.prdJob.create({
-    data: {
-      job_no: no,
-      job_date: s.date,
-      source_doc_type_id: s.source.docTypeId,
-      source_doc_id: s.source.docId,
-      source_no: s.source.no,
-      customer_order_id: s.customerOrder?.id ?? null,
-      customer_order_no: s.customerOrder?.no ?? null,
-      created_by: s.actorId,
-    },
-  });
-  for (const parent of s.parents) await tx.prdJobParent.create({ data: { job_id: row.id, parent_job_id: parent.id } });
-  return { id: row.id, no: row.job_no };
+  return { inputs, outputs, total, partaiId };
 }
 
 // ------------------------------------------------------------ revaluing
@@ -501,6 +580,9 @@ export type BucketView = {
   itemName: string;
   workstationId: number;
   workstationLabel: string;
+  inTransit: boolean;
+  partaiId: number | null;
+  partaiNo: string | null;
   jobId: number | null;
   jobNo: string | null;
   expiry: string | null;
@@ -509,24 +591,29 @@ export type BucketView = {
 };
 
 const bucketInclude = {
-  lot: { select: { lot_no: true, expiry_date: true, job: { select: { id: true, job_no: true } } } },
+  lot: { select: { tracking_no: true, expiry_date: true } },
+  partai: { select: { partai_no: true } },
+  job: { select: { job_no: true } },
   item: { select: { item_label: true, item_name: true } },
   workstation: { select: { workstation_label: true } },
 } as const;
 
-type BucketRow = Prisma.PrdBalanceGetPayload<{ include: typeof bucketInclude }>;
+type BucketRead = Prisma.PrdBalanceGetPayload<{ include: typeof bucketInclude }>;
 
-const view = (b: BucketRow): BucketView => ({
+const view = (b: BucketRead): BucketView => ({
   id: b.id,
   lotId: b.lot_id,
-  lotNo: b.lot.lot_no,
+  lotNo: b.lot.tracking_no,
   itemId: b.item_id,
   itemLabel: b.item.item_label,
   itemName: b.item.item_name,
   workstationId: b.workstation_id,
   workstationLabel: b.workstation.workstation_label,
-  jobId: b.lot.job?.id ?? null,
-  jobNo: b.lot.job?.job_no ?? null,
+  inTransit: b.in_transit,
+  partaiId: b.partai_id,
+  partaiNo: b.partai?.partai_no ?? null,
+  jobId: b.job_id,
+  jobNo: b.job?.job_no ?? null,
   expiry: iso(b.lot.expiry_date),
   qty: b.qty_balance.toNumber(),
   value: b.value_balance.toNumber(),
@@ -534,12 +621,12 @@ const view = (b: BucketRow): BucketView => ({
 
 /**
  * Every bucket holding quantity, for the pickers of executions, receipts and
- * scrap (pull, M2) — filtered by workstation, item or job; earliest expiry
- * first, then lot. `withIds` brings in buckets a stored document names,
- * whatever they hold now.
+ * scrap — filtered by workstation, item, Partai or Job, received goods only
+ * unless `inTransit` asks for what is on its way; earliest expiry first, then
+ * lot. `withIds` brings in buckets a stored document names, whatever they hold now.
  */
 export async function availableBuckets(
-  filter: { workstationIds?: number[]; itemIds?: number[]; jobIds?: number[]; withIds?: number[] } = {},
+  filter: { workstationIds?: number[]; itemIds?: number[]; partaiIds?: number[]; jobIds?: number[]; inTransit?: boolean; withIds?: number[] } = {},
   db: Db = prisma
 ): Promise<BucketView[]> {
   const rows = await db.prdBalance.findMany({
@@ -547,9 +634,11 @@ export async function availableBuckets(
       OR: [
         {
           qty_balance: { gt: 0 },
+          in_transit: !!filter.inTransit,
           ...(filter.workstationIds?.length ? { workstation_id: { in: filter.workstationIds } } : {}),
           ...(filter.itemIds?.length ? { item_id: { in: filter.itemIds } } : {}),
-          ...(filter.jobIds?.length ? { lot: { job_id: { in: filter.jobIds } } } : {}),
+          ...(filter.partaiIds?.length ? { partai_id: { in: filter.partaiIds } } : {}),
+          ...(filter.jobIds?.length ? { job_id: { in: filter.jobIds } } : {}),
         },
         ...(filter.withIds?.length ? [{ id: { in: filter.withIds } }] : []),
       ],

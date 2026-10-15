@@ -40,7 +40,7 @@
 
 **Done when:** the masters work in a browser and the showcase shows the whole Walet setup; the cosmetics production demo is gone.
 
-### Step 2 — One lot register and Partai · Job (5c-1)
+### Step 2 — One lot register and Partai · Job (5c-1) ✅ built 15/10/2026 (P163)
 
 | Part | What |
 | --- | --- |
@@ -115,8 +115,8 @@ Demand from Pra-SO and SO; BoM and Routing explosion; planned Perintah and Purch
 | # | Question | When |
 | --- | --- | --- |
 | O1 | ~~Sales and purchasing demo~~ — **kept** for now; only production became Walet (P162) | Step 1 ✅ |
-| O2 | **Existing production data on Neon** (cosmetics Stock Issues and buckets): map onto the new register, or reset the production rows? | Step 2 |
-| O3 | Is the **Partai** created by the **Grading Halus execution** (the first transformation) or by its **hand-over into Jobs**? M112 says "the Grading Halus output" | Step 2 |
+| O2 | ~~Existing production data~~ — **mapped** by the migration (there was none locally or on Neon); to confirm at review | Step 2 ✅ |
+| O3 | Is the **Partai** created by the **Grading Halus execution** (the first transformation) or by its **hand-over into Jobs**? M112 says "the Grading Halus output". The ledger's `startPartai` serves either; decided with the first document that starts one | Step 3 / 5 |
 | O4 | Can a Logistik BSTB be raised **without a Perintah** (e.g. packaging material sent to Packing), or always from one? | Step 3 |
-| O5 | Lot numbers: **always generated** in the formats above, or may the user type one (the DBML allows both)? | Step 2 |
+| O5 | ~~Lot numbers~~ — **generated** in the formats above (`production-number.ts`), **a typed one still accepted** while new in the register; to confirm at review | Step 2 ✅ |
 | O6 | A **Reject** output: stays in production until taken out (M59), or straight to a reject warehouse? | Step 5 |

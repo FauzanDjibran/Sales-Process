@@ -18,8 +18,8 @@
  *   fin_ar_invoice(_line, _advance_deduction)         Invoice Penjualan
  *   log_delivery_note(_line, _lot)                 Delivery Notes
  *   log_stock_issue(_line, _lot)                   Stock Issues (P158)
- *   prd_ledger, prd_balance, prd_lot(_link),       the production ledger (P157)
- *   prd_job(_parent)
+ *   prd_ledger, prd_balance, prd_lot_link,         the production ledger (P157, P163)
+ *   prd_job(_parent), prd_partai
  *   log_stock_ledger, log_stock_balance,          the stock books and their lots (P120);
  *   log_stock_valuation_ledger / _balance,         stock comes back with
  *   log_stock_tracking                             `db:stock-inject`
@@ -190,9 +190,9 @@ async function main() {
     await tx.prdLotLink.deleteMany();
     await tx.prdLedger.deleteMany();
     await tx.prdBalance.deleteMany();
-    await tx.prdLot.deleteMany();
     await tx.prdJobParent.deleteMany();
     await tx.prdJob.deleteMany();
+    await tx.prdPartai.deleteMany();
     await tx.logStockLedger.deleteMany();
     await tx.logStockBalance.deleteMany();
     await tx.logStockValuationLedger.deleteMany();
