@@ -327,10 +327,10 @@ the FG in stock, or HPP for what was already sold, or the Turunan in stock.
 | **BSTB** (every hand-over, the Logistik one included) | `BSTB_<unit>_<DDMMYY>_<NNNNN>` | `BSTB_LOG_170526_00001` | per sending unit per day |
 | **Eksekusi Produksi** (the workbook's *Nomor Grading*) | `NG_<unit>_<DDMMYY>_<NNNNN>` | `NG_UPY_210526_00001` | per unit per day |
 | **Job** | `<unit>_<DDMMYY>_<NNNNN>` | `UGH_190526_00001` | per unit per day |
-| **Partai** | `P_<DDMMYY>_<NNNNN>` (the legend's form; the rows show `Pt_<DDMMYY>-<HHMMSS>_A_<unit>`) | `P_190526_00001` | per day — **format to confirm** |
+| **Partai** | `Pt_<DDMMYY>-<HHMMSS>_A_<unit>` (the workbook's rows; chosen 15/10/2026) | `Pt_190526-135607_A_UGH` | the time it starts, at the unit that starts it |
 | **Lot from a supplier** (ID Stok) | `<unit>_<supplier>_<kode barang>_<DDMMYY>` | `GS_D0001_MK-1-0-PTH_150526` | one per supplier, item and day |
 | **Lot made in production** | `<unit>_<supplier>_<kode barang>_<DDMMYY>` while one supplier is behind it; `<partai>_<kode barang>` after a mix (the workbook's ID Stok UML) | `UGH_D0001_MK-1-BSA-PK_180526` · `P_190526_00001_N-NL` | a suffix `-2`, `-3` when taken |
-| **Perintah Produksi** | not in the workbook — proposed `PP_<DDMMYY>_<NNNNN>` | `PP_160526_00001` | per day |
+| **Perintah Produksi** | `PP_<DDMMYY>_<NNNNN>` (not in the workbook; agreed 15/10/2026) | `PP_160526_00001` | per day |
 
 This differs from the ERP's numbering rule (P15, the knowledge base's
 `doc-numbering=prefix-yyyy-mm-seq`) — under the deviation check.
@@ -350,3 +350,21 @@ for a while only it and the Partai exist) → *Persiapan* 07/04 → *Moulding*
 The workbook's internal job numbers for *Persiapan* (`UML_070426_00001`) and
 *Moulding* (`UML_080426_00001`) are steps inside one unit; the workstation is
 the smallest unit (M114), so they are not separate Jobs in the ERP.
+
+---
+
+## 9. Decisions (15/10/2026)
+
+| # | Decision |
+| --- | --- |
+| N1 | **Production identities follow the workbook's numbering** — the deviation check on P15 (`doc-numbering=prefix-yyyy-mm-seq`) answered **D, a Walet-only exception**: BSTB, NG (Eksekusi Produksi), Job, Partai, lot and Perintah Produksi use §8.2's formats; every other document keeps `PREFIX/YYYY/MM/NNNN` |
+| N2 | **Partai: `Pt_<DDMMYY>-<HHMMSS>_A_<unit>`** — date and time it starts and the unit that starts it, e.g. `Pt_190526-135607_A_UGH`. What the **`A`** stands for is open (§10) |
+| N3 | **Perintah Produksi: `PP_<DDMMYY>_<NNNNN>`** — one per Partai, the kick-off (§8.1) |
+| N4 | **Moulding is two postings (option B, §8.3)**: (1) the mix — every Job's lots → **one lot named as the No. Moulding** (`<partai>_<kode barang>`), belonging to the Partai with **no Job**; (2) Moulding + Dry B — that lot → **new Job(s)** (one or more, AD4) whose parents are every Job that went into the mix. The standard (190,87 × grams) is charged **once, on (2)**; (1) books none |
+
+## 10. Still open
+
+| # | Question |
+| --- | --- |
+| Q1 | In `Pt_190526-135607_A_UGH`, what is **`A`** — a fixed letter, a shift, a sequence when two Partai start in the same second, or something else? |
+| Q2 | The mix (N4 step 1) books no standard: should its Driver simply be left at 0, or should the mix be recorded at a workstation of its own without a Standard Cost? |

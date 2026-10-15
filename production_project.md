@@ -982,6 +982,16 @@ company. Where a decision below differs from an earlier M-decision, it wins on
 | M119 | **The showcase follows Walet**: swiftlet-nest items in grams, the units as workstations, one Partai from the Logistik issue to N-NL and the packing of N-MK (the user). |
 | M120 | **Out of scope for now** (Walet AP1–AP6): item variants (one Item per Kode Barang), Nomor Kati and QR CAIQ, Home Industry makloon, rework approval, QC and CCP records, Fase 1 purchasing. MRP stays parked to the end (demand from Pra-SO and SO). |
 
+**From the simulation** (`walet/simulation production.md` §7–§9, 14–15/10/2026):
+
+| # | Decision |
+| --- | --- |
+| M121 | **A Perintah Produksi kick-starts each Partai** (`PP_<DDMMYY>_<NNNNN>`): raised by PPIC with the Job Order, the Routing and the stock lots planned; the Logistik BSTB is raised from it, and the first transformation of its lots creates the Partai linked to it. Afterwards the stations execute the Partai without further orders. |
+| M122 | **The standard is per gram** — Driver = the grams of each Job section — on every gram, as the workbook does. An execution's value is shared over its outputs by **grams × the item's value weight**, BJL 0. The workbook types a total value per output with no formula behind it, so the **value weight is a figure entered on the item** (a temporary rate), seeded from the workbook's figures. |
+| M123 | **A by-product makes a new lot**; **Barcoding (N-NL → N-NL-PU) is a transformation**; **a pass-through's weight is free for now** (loss or gain — added water — shown as the difference); **a station without a standard needs none** (the close absorbs its actual cost). |
+| M124 | **Production identities follow the workbook's numbering** — the deviation check on P15 answered **D, a Walet-only exception**: BSTB `BSTB_<unit>_<DDMMYY>_<NNNNN>`, Eksekusi `NG_<unit>_<DDMMYY>_<NNNNN>`, Job `<unit>_<DDMMYY>_<NNNNN>`, Partai `Pt_<DDMMYY>-<HHMMSS>_A_<unit>`, lot `<unit>_<supplier>_<kode barang>_<DDMMYY>` (or `<partai>_<kode barang>` after a mix), Perintah `PP_<DDMMYY>_<NNNNN>`. Every other document keeps P15. |
+| M125 | **Moulding is two postings**: the mix makes one lot named as the No. Moulding, belonging to the Partai with no Job; Moulding + Dry B turns it into new Job(s) whose parents are every Job in the mix, and books the standard once. |
+
 ### Re-planned phases (supersede §21f's steps 5–9 on `main`)
 
 | # | Step |
