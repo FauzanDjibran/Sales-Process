@@ -327,7 +327,7 @@ the FG in stock, or HPP for what was already sold, or the Turunan in stock.
 | **BSTB** (every hand-over, the Logistik one included) | `BSTB_<unit>_<DDMMYY>_<NNNNN>` | `BSTB_LOG_170526_00001` | per sending unit per day |
 | **Eksekusi Produksi** (the workbook's *Nomor Grading*) | `NG_<unit>_<DDMMYY>_<NNNNN>` | `NG_UPY_210526_00001` | per unit per day |
 | **Job** | `<unit>_<DDMMYY>_<NNNNN>` | `UGH_190526_00001` | per unit per day |
-| **Partai** | `Pt_<DDMMYY>-<HHMMSS>_A_<unit>` (the workbook's rows; chosen 15/10/2026) | `Pt_190526-135607_A_UGH` | the time it starts, at the unit that starts it |
+| **Partai** | `P_<DDMMYY>_<NNNNN>` (the workbook's legend, cell CB8; chosen 15/10/2026) | `P_190526_00001` | per day |
 | **Lot from a supplier** (ID Stok) | `<unit>_<supplier>_<kode barang>_<DDMMYY>` | `GS_D0001_MK-1-0-PTH_150526` | one per supplier, item and day |
 | **Lot made in production** | `<unit>_<supplier>_<kode barang>_<DDMMYY>` while one supplier is behind it; `<partai>_<kode barang>` after a mix (the workbook's ID Stok UML) | `UGH_D0001_MK-1-BSA-PK_180526` · `P_190526_00001_N-NL` | a suffix `-2`, `-3` when taken |
 | **Perintah Produksi** | `PP_<DDMMYY>_<NNNNN>` (not in the workbook; agreed 15/10/2026) | `PP_160526_00001` | per day |
@@ -358,13 +358,28 @@ the smallest unit (M114), so they are not separate Jobs in the ERP.
 | # | Decision |
 | --- | --- |
 | N1 | **Production identities follow the workbook's numbering** — the deviation check on P15 (`doc-numbering=prefix-yyyy-mm-seq`) answered **D, a Walet-only exception**: BSTB, NG (Eksekusi Produksi), Job, Partai, lot and Perintah Produksi use §8.2's formats; every other document keeps `PREFIX/YYYY/MM/NNNN` |
-| N2 | **Partai: `Pt_<DDMMYY>-<HHMMSS>_A_<unit>`** — date and time it starts and the unit that starts it, e.g. `Pt_190526-135607_A_UGH`. What the **`A`** stands for is open (§10) |
+| N2 | *(superseded by N2′, §10.1)* **Partai: `Pt_<DDMMYY>-<HHMMSS>_A_<unit>`** — date and time it starts and the unit that starts it, e.g. `Pt_190526-135607_A_UGH`. What the **`A`** stands for is open (§10) |
 | N3 | **Perintah Produksi: `PP_<DDMMYY>_<NNNNN>`** — one per Partai, the kick-off (§8.1) |
-| N4 | **Moulding is two postings (option B, §8.3)**: (1) the mix — every Job's lots → **one lot named as the No. Moulding** (`<partai>_<kode barang>`), belonging to the Partai with **no Job**; (2) Moulding + Dry B — that lot → **new Job(s)** (one or more, AD4) whose parents are every Job that went into the mix. The standard (190,87 × grams) is charged **once, on (2)**; (1) books none |
+| N4 | *(superseded by N4′, §10.1)* **Moulding is two postings (option B, §8.3)**: (1) the mix — every Job's lots → **one lot named as the No. Moulding** (`<partai>_<kode barang>`), belonging to the Partai with **no Job**; (2) Moulding + Dry B — that lot → **new Job(s)** (one or more, AD4) whose parents are every Job that went into the mix. The standard (190,87 × grams) is charged **once, on (2)**; (1) books none |
 
 ## 10. Still open
 
 | # | Question |
 | --- | --- |
-| Q1 | In `Pt_190526-135607_A_UGH`, what is **`A`** — a fixed letter, a shift, a sequence when two Partai start in the same second, or something else? |
-| Q2 | The mix (N4 step 1) books no standard: should its Driver simply be left at 0, or should the mix be recorded at a workstation of its own without a Standard Cost? |
+| Q1 | *Answered — N2′.*|
+| Q2 | *Answered — N4′.*|
+
+### 10.1 Answered (15/10/2026) — supersedes N2 and N4
+
+| # | Decision |
+| --- | --- |
+| N2′ | **Partai = `P_<DDMMYY>_<NNNNN>`**, the format the workbook's legend defines (flow sheet CB8: *P_230526_00001 = Partai*). The rows' `Pt_010426-135607_A_UGH` has no legend and is the only value of its kind; it is not used, and its `A` is ignored |
+| N4′ | **Moulding** (all at the Moulding workstation): (1) **Mix** — the Partai's Jobs arrive and are mixed into the **No. Moulding** (`<partai>_<kode barang>`, legend CB6), inside the same Partai, with no Job; no standard. (2) **Moulding** — the No. Moulding is the input; the output is still identified by **No. Moulding + Partai** (a lot `<partai>_<kode barang>` of what came out); the station's standard is charged here. (3) **Leaving the station** — the goods are put into **new Jobs** (`<unit>_<DDMMYY>_<NNNNN>`), exactly as Jobs are first made at the Grading Halus output, only **inside the same Partai**; their parents are the Jobs that went into the mix |
+| N5 | **Jobs are made when a station hands its goods on in boxes** — at the Grading Halus output and at the Moulding output; every other station keeps the Job it received |
+
+### 10.2 Still open
+
+| # | Question |
+| --- | --- |
+| Q3 | The new Job after Moulding: the workbook writes it `UDB_080426_00001` (UDB = Dry B, the last step inside Moulding). Use the Moulding workstation's own code (`UML_…`), or a UDB code? |
+| Q4 | When boxing splits one lot into two Jobs (Grading Halus: MK-2-BSA-PK 10.000 g → boxes of 7.000 and 3.000 g), does each box get **its own lot**, or is it **one lot spread over two Jobs**? (Design point for 5c: the production ledger's bucket would then be lot × Job × workstation.) |
