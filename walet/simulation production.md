@@ -381,5 +381,12 @@ the smallest unit (M114), so they are not separate Jobs in the ERP.
 
 | # | Question |
 | --- | --- |
-| Q3 | The new Job after Moulding: the workbook writes it `UDB_080426_00001` (UDB = Dry B, the last step inside Moulding). Use the Moulding workstation's own code (`UML_…`), or a UDB code? |
-| Q4 | When boxing splits one lot into two Jobs (Grading Halus: MK-2-BSA-PK 10.000 g → boxes of 7.000 and 3.000 g), does each box get **its own lot**, or is it **one lot spread over two Jobs**? (Design point for 5c: the production ledger's bucket would then be lot × Job × workstation.) |
+| Q3 | *Answered — N6.* |
+| Q4 | *Answered — N7.* |
+
+### 10.3 Answered (15/10/2026)
+
+| # | Decision |
+| --- | --- |
+| N6 | **A Job's code says where the Job was made**: `UGH_…` for Jobs made at the Grading Halus output, **`UDB_…`** for Jobs made at the Moulding output, because they are made at its Dry B step. So the code is not always the workstation's own: each workstation that makes Jobs names its **Kode Job** (Grading Halus → UGH, Moulding → UDB) |
+| N7 | **The Lot is the main traceability identity and is upheld everywhere**: it carries where the goods were received from and from whom. **Partai, Job and No. Moulding are extra identities for production genealogy.** One lot may be carried by **several Jobs**: a 10 kg Lot.001 boxed as JOB.001 7 kg + JOB.002 3 kg is one lot, carried by two Jobs. The question tracing answers is *"this Job is working this Lot, which came from this Partner"*. For the production ledger this means **a bucket is lot × Job × workstation** (a stock lot before its Partai starts, and the No. Moulding, have no Job), and a lot made in production keeps its supplier origin through its genealogy (and in its number while one supplier is behind it, §8.2) |
