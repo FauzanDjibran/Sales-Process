@@ -39,6 +39,8 @@ async function authorize(code: string): Promise<Guard> {
 function revalidate(id?: number) {
   revalidatePath("/inventory/stock-issue");
   if (id) revalidatePath(`/inventory/stock-issue/${id}`);
+  // A Perintah's page lists the BSTBs raised from it.
+  revalidatePath("/production/order", "layout");
 }
 
 export async function createStockIssueAction(header: StockIssueHeaderInput, lines: StockIssueLineInput[]): Promise<StockIssueResult> {
@@ -57,22 +59,22 @@ export async function updateStockIssueAction(id: number, header: StockIssueHeade
   return result;
 }
 
-/** The journal Posting would write, for the confirmation dialog: a dry run, rolled back (P103). */
-export async function previewStockIssuePostingAction(id: number): Promise<JournalPreviewResult> {
-  const g = await authorize(STOCK_ISSUE_TRANSITIONS.post.permission);
+/** The journal Posting — or Tolak on `date` — would write, for its dialog: a dry run, rolled back (P103). */
+export async function previewStockIssuePostingAction(id: number, action: "post" | "reject" = "post", date?: string): Promise<JournalPreviewResult> {
+  const g = await authorize(STOCK_ISSUE_TRANSITIONS[action].permission);
   if (!g.ok) return g.denial;
-  return stockIssuePreview(id, g.actor.user.id);
+  return stockIssuePreview(id, g.actor.user.id, action, date);
 }
 
 export type StockIssueTransitionActionResult = { ok: true; message: string } | { ok: false; errors: Record<string, string> };
 
-export async function transitionStockIssueAction(id: number, action: StockIssueAction, reason?: string): Promise<StockIssueTransitionActionResult> {
+export async function transitionStockIssueAction(id: number, action: StockIssueAction, reason?: string, date?: string): Promise<StockIssueTransitionActionResult> {
   const transition = STOCK_ISSUE_TRANSITIONS[action];
   if (!transition) return { ok: false, errors: { _form: "Aksi tidak dikenal." } };
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
   try {
-    const result = await transitionStockIssue(id, action, g.actor.user.id, reason);
+    const result = await transitionStockIssue(id, action, g.actor.user.id, reason, { date });
     if (!result.ok) return result;
   } catch (error) {
     return { ok: false, errors: { _form: error instanceof Error ? error.message : "Gagal diproses." } };

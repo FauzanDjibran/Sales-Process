@@ -166,6 +166,20 @@ export const MODULES: NavModule[] = [
     permission: "MENU_PRODUCTION_ACCESS",
     groups: [
       {
+        key: "operation",
+        name: "Operasi Produksi",
+        entities: [
+          {
+            key: "prd_order",
+            slug: "order",
+            name: "Perintah Produksi",
+            icon: "clip",
+            desc: "Perintah PPIC untuk satu Partai: Job Order, rute workstation dan lot yang direncanakan. Logistik mengirim lotnya dengan BSTB.",
+            permission: "PRODUCTION_ORDER_VIEW",
+          },
+        ],
+      },
+      {
         key: "master",
         name: "Master Data",
         entities: [
@@ -243,7 +257,7 @@ export const MODULES: NavModule[] = [
             slug: "stock-issue",
             name: "Stock Issue",
             icon: "layers",
-            desc: "Barang keluar dari gudang untuk dipakai sendiri — ke produksi: bahan per lot ke sebuah Workstation. Posting memindahkan nilainya dari Persediaan ke WIP.",
+            desc: "BSTB Logistik: barang keluar dari gudang ke sebuah Workstation per lot, bisa dari Perintah Produksi. Posting memindahkan nilainya ke WIP; Workstation menerima atau menolaknya.",
             permission: "STOCK_ISSUE_VIEW",
           },
           {

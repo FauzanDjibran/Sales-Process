@@ -1,14 +1,20 @@
 /**
- * The Stock Issue's lifecycle, written once and read by both sides (P158).
+ * The Stock Issue's lifecycle — the Logistik BSTB (P158; Walet step 3, M113),
+ * written once and read by both sides.
  *
- *   Draft ──post──> Posted
- *     │
+ *   Draft ──post──> Posted (Dikirim) ──receive──> Received
+ *     │                    │
+ *     │                    └──reject──> Rejected
  *     └──cancel──> Cancelled
  *
  * Posting is the moment the goods leave the warehouse: each lot is issued
- * through the stock books and, for production, enters the production ledger at
- * the workstation, with one journal Dr WIP / Cr Persediaan. A posted issue is
- * final. Batalkan is for a Draft only, with a reason.
+ * through the stock books and, for production, enters the production ledger
+ * **in transit** to the workstation, with one journal Dr WIP / Cr Persediaan.
+ * The workstation then **receives it whole** (Terima: into its own bucket, no
+ * journal) or **rejects it whole** (Tolak, with a reason: back to the same
+ * warehouse, location and lot at the value it left at, Dr Persediaan / Cr
+ * WIP). A station works only goods it has received. Batalkan is for a Draft
+ * only, with a reason.
  *
  * Client-safe on purpose — no `server-only`, no database import.
  */
@@ -16,12 +22,12 @@ import type { IconName } from "@/components/icon";
 import type { ActionTone } from "./header-actions";
 import type { PermissionCode } from "./permissions";
 
-export type StockIssueStatus = "Draft" | "Posted" | "Cancelled";
+export type StockIssueStatus = "Draft" | "Posted" | "Received" | "Rejected" | "Cancelled";
 
-export type StockIssueAction = "post" | "cancel";
+export type StockIssueAction = "post" | "cancel" | "receive" | "reject";
 
 /** The order the header offers them in, before `orderForHeader` sorts by tone. */
-export const STOCK_ISSUE_ACTIONS: StockIssueAction[] = ["cancel", "post"];
+export const STOCK_ISSUE_ACTIONS: StockIssueAction[] = ["cancel", "reject", "post", "receive"];
 
 export type StockIssueTransition = {
   label: string;
@@ -35,6 +41,10 @@ export type StockIssueTransition = {
   confirmLabel: string;
   /** The reason the step asks for, which is stored and shown — its prompt. */
   reason?: string;
+  /** The step asks for the day it happens (Terima, Tolak). */
+  dated?: boolean;
+  /** The step writes a journal, shown by a dry run in its confirmation (P103). */
+  journal?: boolean;
   done: string;
 };
 
@@ -44,15 +54,48 @@ export const STOCK_ISSUE_TRANSITIONS: Record<StockIssueAction, StockIssueTransit
     permission: "STOCK_ISSUE_POST",
     from: ["Draft"],
     to: "Posted",
-    icon: "box",
+    icon: "truck",
     tone: "primary",
     title: "Posting Stock Issue",
     body:
-      "Barang dicatat keluar dari gudang pada Tanggal dan masuk produksi di Workstation, per lot " +
-      "dengan nomor yang sama, senilai harga pokoknya. Nilainya dipindahkan dengan journal di bawah ini. " +
-      "Stock Issue yang sudah diposting tidak dapat diubah atau dibatalkan.",
+      "Barang dicatat keluar dari gudang pada Tanggal dan dikirim ke Workstation, per lot dengan nomor " +
+      "yang sama, senilai harga pokoknya; selama belum diterima, barang dalam perjalanan. Nilainya " +
+      "dipindahkan dengan journal di bawah ini. Stock Issue yang sudah diposting tidak dapat diubah atau dibatalkan.",
     confirmLabel: "Ya, Posting",
-    done: "Stock Issue diposting",
+    journal: true,
+    done: "Stock Issue diposting — barang dalam perjalanan",
+  },
+  receive: {
+    label: "Terima",
+    permission: "STOCK_ISSUE_RECEIVE",
+    from: ["Posted"],
+    to: "Received",
+    icon: "check",
+    tone: "primary",
+    title: "Terima di Workstation",
+    body:
+      "Workstation menerima seluruh barang kiriman ini, per lot, pada tanggal di bawah; sejak itu barang " +
+      "dapat dikerjakan. Nilainya tidak berubah dan tidak ada journal. Status ini final.",
+    confirmLabel: "Ya, Terima",
+    dated: true,
+    done: "Stock Issue diterima",
+  },
+  reject: {
+    label: "Tolak",
+    permission: "STOCK_ISSUE_RECEIVE",
+    from: ["Posted"],
+    to: "Rejected",
+    icon: "block",
+    tone: "danger",
+    title: "Tolak di Workstation",
+    body:
+      "Workstation menolak seluruh barang kiriman ini: barang kembali ke gudang, lokasi dan lot asalnya, " +
+      "senilai saat keluar, dengan journal di bawah ini. Status ini final.",
+    confirmLabel: "Ya, Tolak",
+    reason: "Mengapa kiriman ini ditolak…",
+    dated: true,
+    journal: true,
+    done: "Stock Issue ditolak — barang kembali ke gudang",
   },
   cancel: {
     label: "Batalkan",
@@ -78,12 +121,19 @@ export function stockIssueIsEditable(status: StockIssueStatus): boolean {
   return status === "Draft";
 }
 
+/** The goods have left stock: sent, received or sent back. */
+export function stockIssueIsPosted(status: StockIssueStatus): boolean {
+  return status === "Posted" || status === "Received" || status === "Rejected";
+}
+
 /** What the signed-in user may do with Stock Issues — presentation only. */
 export type StockIssueAbilities = {
   create: boolean;
   edit: boolean;
   post: boolean;
   cancel: boolean;
+  receive: boolean;
+  reject: boolean;
 };
 
 export function stockIssueAbilities(permissions: Iterable<string>): StockIssueAbilities {
@@ -93,6 +143,8 @@ export function stockIssueAbilities(permissions: Iterable<string>): StockIssueAb
     edit: held.has("STOCK_ISSUE_EDIT"),
     post: held.has("STOCK_ISSUE_POST"),
     cancel: held.has("STOCK_ISSUE_CANCEL"),
+    receive: held.has("STOCK_ISSUE_RECEIVE"),
+    reject: held.has("STOCK_ISSUE_RECEIVE"),
   };
 }
 
@@ -103,12 +155,16 @@ export function availableStockIssueActions(status: StockIssueStatus, can: StockI
 
 export const STOCK_ISSUE_STATUS_TEXT: Record<StockIssueStatus, string> = {
   Draft: "Draft",
-  Posted: "Diposting",
+  Posted: "Dikirim",
+  Received: "Diterima",
+  Rejected: "Ditolak",
   Cancelled: "Dibatalkan",
 };
 
 export const STOCK_ISSUE_STATUS_BADGE: Record<StockIssueStatus, string> = {
   Draft: "s-warn",
-  Posted: "s-ok",
+  Posted: "s-info",
+  Received: "s-ok",
+  Rejected: "s-bad",
   Cancelled: "s-mute",
 };

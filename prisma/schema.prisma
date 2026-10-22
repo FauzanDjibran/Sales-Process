@@ -500,6 +500,7 @@ model RefUom {
   valuation_ledger       LogStockValuationLedger[]  @relation("StockValuationLedgerUom")
   valuation_balances     LogStockValuationBalance[] @relation("StockValuationBalanceUom")
   prd_balances           PrdBalance[]               @relation("PrdBalanceUom")
+  production_order_lots  PrdOrderLot[]              @relation("OrderLotUom")
 
   @@map("ref_uom")
 }
@@ -622,6 +623,8 @@ model MItem {
   valuation_balance      LogStockValuationBalance?
   delivery_note_lines    LogDeliveryNoteLine[]
   stock_issue_lines      LogStockIssueLine[]
+  production_orders      PrdOrder[]                @relation("OrderTarget")
+  production_order_lots  PrdOrderLot[]             @relation("OrderLotItem")
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -705,6 +708,7 @@ model RefWarehouse {
   purchase_requests PurRequest[]
   purchase_orders   PurOrder[]             @relation("PurOrderWarehouse")
   receipt_notes     LogReceiptNote[]       @relation("ReceiptNoteWarehouse")
+  production_orders PrdOrder[]             @relation("OrderWarehouse")
 
   @@map("ref_warehouse")
 }
@@ -739,6 +743,7 @@ model RefWorkstation {
   standard_costs AccStandardCost[]
   routing_steps  PrdRoutingStep[]  @relation("RoutingStepWorkstation")
   jobs           PrdJob[]          @relation("JobWorkstation")
+  order_steps    PrdOrderStep[]    @relation("OrderStepWorkstation")
 
   @@index([cost_center_id])
   @@map("ref_workstation")
@@ -2472,8 +2477,9 @@ model LogStockTracking {
 
   prd_balances  PrdBalance[]
   prd_ledger    PrdLedger[]
-  prd_links_in  PrdLotLink[] @relation("LinkTo")
-  prd_links_out PrdLotLink[] @relation("LinkFrom")
+  prd_links_in  PrdLotLink[]  @relation("LinkTo")
+  prd_links_out PrdLotLink[]  @relation("LinkFrom")
+  order_lots    PrdOrderLot[] @relation("OrderLotLot")
 
   @@index([item_id])
   @@index([source_doc_type_id, source_doc_id])
@@ -3448,7 +3454,12 @@ model PurOrderLineRequest {
 
 enum StockIssueStatus {
   Draft
+  /// Sent: the goods left stock and are in transit to the workstation (M113).
   Posted
+  /// Received whole at the workstation.
+  Received
+  /// Rejected whole by the workstation: the goods went back to stock.
+  Rejected
   Cancelled
 }
 
@@ -3456,24 +3467,37 @@ enum StockIssueStatus {
 /// Produksi*): goods leaving a warehouse for a use inside the company.
 /// Standalone (P106): a purpose decides where they go; its one purpose is
 /// `production_issue` — material into production at a workstation, where each
-/// lot keeps its number (M22). Quantity and stock cost only. `SI/YYYY/MM/NNNN`.
+/// lot keeps its number (M22). Quantity and stock cost only. The Logistik BSTB
+/// (Walet step 3, M113): posted, the goods are in transit; the workstation
+/// receives or rejects them whole. `BSTB_LOG_<DDMMYY>_<NNNNN>` (M124); issues
+/// numbered before keep `SI/YYYY/MM/NNNN`.
 model LogStockIssue {
-  id             Int              @id @default(autoincrement())
-  issue_no       String           @unique
+  id                 Int              @id @default(autoincrement())
+  issue_no           String           @unique
   /// The day the goods leave the warehouse — the journal's date.
-  issue_date     DateTime         @db.Date
-  status         StockIssueStatus @default(Draft)
+  issue_date         DateTime         @db.Date
+  status             StockIssueStatus @default(Draft)
   /// The purpose's key, e.g. `production_issue`.
-  purpose        String
-  warehouse_id   Int
+  purpose            String
+  warehouse_id       Int
   /// Where the goods are placed: required by `production_issue`.
-  workstation_id Int?
-  note           String?
+  workstation_id     Int?
+  note               String?
+  /// The Perintah Produksi it is raised from, weak (P106) — optional (O4).
+  source_doc_type_id Int?
+  source_doc_id      Int?
+  source_no          String?
 
   /// Σ of the lines' cost, set at Posting.
-  cost_amount   Decimal @default(0) @db.Decimal(18, 2)
-  journal_id    Int?
-  cancel_reason String?
+  cost_amount       Decimal   @default(0) @db.Decimal(18, 2)
+  journal_id        Int?
+  cancel_reason     String?
+  /// Terima or Tolak at the workstation: the day, and who.
+  received_date     DateTime? @db.Date
+  received_by       Int?
+  reject_reason     String?
+  /// Tolak's journal, Dr Persediaan / Cr WIP.
+  return_journal_id Int?
 
   created_by Int
   updated_by Int?
@@ -3486,6 +3510,7 @@ model LogStockIssue {
 
   @@index([purpose, status])
   @@index([status, issue_date])
+  @@index([source_doc_type_id, source_doc_id])
   @@map("log_stock_issue")
 }
 
@@ -3532,8 +3557,10 @@ model LogStockIssueLot {
   base_qty            Decimal   @default(0) @db.Decimal(18, 4)
   unit_cost           Decimal   @default(0) @db.Decimal(18, 6)
   cost_amount         Decimal   @default(0) @db.Decimal(18, 2)
-  /// The production bucket it entered, set at Posting (weak); the lot is the same (M128).
+  /// The production bucket it entered, in transit, set at Posting (weak); the lot is the same (M128).
   prd_bucket_id       Int?
+  /// The bucket at the workstation it was received into, set at Terima (weak).
+  received_bucket_id  Int?
 
   line LogStockIssueLine @relation(fields: [stock_issue_line_id], references: [id])
 
@@ -4077,6 +4104,10 @@ enum PrdMovement {
   Released
   /// Value only, quantity 0 — the month-end close (M96).
   Revalued
+  /// Out of transit and into the workstation — a receipt (M113).
+  Received
+  /// Out of transit, sent back to where it came from — a rejection (M113).
+  Returned
 }
 
 /// The production ledger (E2): append-only, one row per bucket movement, with
@@ -4172,9 +4203,10 @@ model PrdBom {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  item  MItem            @relation("BomOutput", fields: [item_id], references: [id])
-  lines PrdBomLine[]
-  steps PrdRoutingStep[]
+  item        MItem            @relation("BomOutput", fields: [item_id], references: [id])
+  lines       PrdBomLine[]
+  steps       PrdRoutingStep[]
+  order_steps PrdOrderStep[]
 
   @@index([item_id])
   @@map("prd_bom")
@@ -4233,8 +4265,9 @@ model PrdRouting {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  item  MItem            @relation("RoutingTarget", fields: [item_id], references: [id])
-  steps PrdRoutingStep[]
+  item   MItem            @relation("RoutingTarget", fields: [item_id], references: [id])
+  steps  PrdRoutingStep[]
+  orders PrdOrder[]
 
   @@index([item_id])
   @@map("prd_routing")
@@ -4261,4 +4294,87 @@ model PrdRoutingStep {
   @@unique([routing_id, step_no])
   @@index([workstation_id])
   @@map("prd_routing_step")
+}
+
+enum ProductionOrderStatus {
+  Draft
+  Open
+  Closed
+  Cancelled
+}
+
+/// Perintah Produksi (Walet step 3, M121): PPIC's order that kick-starts a
+/// Partai — the Job Order (target item), the stations it passes (copied from a
+/// Routing, editable) and the stock lots planned for it. A Logistik BSTB may be
+/// raised from an Open one. Posts nothing. `PP_<DDMMYY>_<NNNNN>` (M124).
+model PrdOrder {
+  id             Int                   @id @default(autoincrement())
+  order_no       String                @unique
+  order_date     DateTime              @db.Date
+  status         ProductionOrderStatus @default(Draft)
+  /// The Job Order: what the Partai is planned to become.
+  target_item_id Int
+  /// The Routing its steps were copied from, if any.
+  routing_id     Int?
+  /// Where the planned lots are kept — the BSTB's warehouse by default.
+  warehouse_id   Int
+  note           String?
+  /// Why it was cancelled or closed by hand.
+  status_reason  String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  target_item MItem          @relation("OrderTarget", fields: [target_item_id], references: [id])
+  routing     PrdRouting?    @relation(fields: [routing_id], references: [id])
+  warehouse   RefWarehouse   @relation("OrderWarehouse", fields: [warehouse_id], references: [id])
+  steps       PrdOrderStep[]
+  lots        PrdOrderLot[]
+
+  @@index([status, order_date])
+  @@map("prd_order")
+}
+
+/// One station of a Perintah's route, in order — a copy of a routing step,
+/// changed freely while the Perintah is a Draft.
+model PrdOrderStep {
+  id             Int             @id @default(autoincrement())
+  order_id       Int
+  step_no        Int
+  workstation_id Int
+  mode           RoutingStepMode
+  bom_id         Int?
+
+  order       PrdOrder       @relation(fields: [order_id], references: [id])
+  workstation RefWorkstation @relation("OrderStepWorkstation", fields: [workstation_id], references: [id])
+  bom         PrdBom?        @relation(fields: [bom_id], references: [id])
+
+  @@unique([order_id, step_no])
+  @@index([workstation_id])
+  @@map("prd_order_step")
+}
+
+/// A stock lot planned for a Perintah, in the item's base unit — each lot once.
+/// A plan: the BSTB that sends it checks the stock.
+model PrdOrderLot {
+  id       Int     @id @default(autoincrement())
+  order_id Int
+  line_no  Int
+  item_id  Int
+  lot_id   Int
+  uom_id   Int
+  qty      Decimal @db.Decimal(18, 4)
+  note     String?
+
+  order PrdOrder         @relation(fields: [order_id], references: [id])
+  item  MItem            @relation("OrderLotItem", fields: [item_id], references: [id])
+  lot   LogStockTracking @relation("OrderLotLot", fields: [lot_id], references: [id])
+  uom   RefUom           @relation("OrderLotUom", fields: [uom_id], references: [id])
+
+  @@unique([order_id, line_no])
+  @@unique([order_id, lot_id])
+  @@index([lot_id])
+  @@map("prd_order_lot")
 }

@@ -2,8 +2,8 @@
 
 > How everything agreed so far is built on `main`, step by step. Sources:
 > `production_project.md` §21g (M111–M128), `walet/walet.md` (AD1–AD22),
-> `walet/simulation production.md` (§7–§10). Written 15/10/2026; **a plan,
-> nothing in it is built yet.**
+> `walet/simulation production.md` (§7–§10). Written 15/10/2026; each step is
+> marked ✅ with its decision number as it is built.
 >
 > **Rules for every step** (Claude-ERP.md §15, the review gate): schema and the
 > code that reads it land together; build, lint, tests and `db:reconcile` pass
@@ -53,12 +53,12 @@
 
 **Done when:** a posted Stock Issue still works, now under one lot register; the production ledger tests pass on the new key.
 
-### Step 3 — Perintah Produksi and the Logistik BSTB (5c-2)
+### Step 3 — Perintah Produksi and the Logistik BSTB (5c-2) ✅ built 22/10/2026 (P164)
 
 | Part | What |
 | --- | --- |
-| **Perintah Produksi** (`prd_order`, `PP_<DDMMYY>_<NNNNN>`) | One per Partai, by PPIC: Tanggal, **Job Order** (target item), **Routing** (copied, editable), **planned stock lots** (item, lot, grams), Catatan. Draft → *Buka* → Open → *Tutup* (reason) / closes itself when nothing of its Partai is left in production; *Batalkan* (Draft) (M121) |
-| **Logistik BSTB** (the Stock Issue reworked) | Raised **from a Perintah** (its lots pre-filled); numbered `BSTB_LOG_<DDMMYY>_<NNNNN>`; posting moves stock → production **in transit** to the first workstation (Dr WIP / Cr Persediaan, as today); the station **receives it whole** (*Terima*) or **rejects it whole** (*Tolak* — back to stock) |
+| **Perintah Produksi** (`prd_order`, `PP_<DDMMYY>_<NNNNN>`) | One per Partai, by PPIC: Tanggal, **Job Order** (target item), **Routing** (copied, editable), **Gudang Bahan**, **planned stock lots** (item, lot, grams), Catatan. Draft → *Buka* → Open → *Tutup* (reason; refused while a BSTB from it is Draft or in transit); *Batalkan* (Draft) (M121). Closing itself once nothing of its Partai is left in production comes when the Partai exists (step 4+) |
+| **Logistik BSTB** (the Stock Issue reworked) | Raised **from a Perintah** (its lots pre-filled) — **optional** (O4); numbered `BSTB_LOG_<DDMMYY>_<NNNNN>`; posting moves stock → production **in transit** to the first workstation (Dr WIP / Cr Persediaan, as today); the station **receives it whole** (*Terima*) or **rejects it whole** (*Tolak* — back to stock) |
 | **Checks** | Goods in transit are WIP; a station cannot use goods not received |
 
 **Done when:** PPIC raises a Perintah, Logistik sends its lots, UGH receives them.
@@ -116,7 +116,7 @@ Demand from Pra-SO and SO; BoM and Routing explosion; planned Perintah and Purch
 | --- | --- | --- |
 | O1 | ~~Sales and purchasing demo~~ — **kept** for now; only production became Walet (P162) | Step 1 ✅ |
 | O2 | ~~Existing production data~~ — **mapped** by the migration (there was none locally or on Neon); to confirm at review | Step 2 ✅ |
-| O3 | Is the **Partai** created by the **Grading Halus execution** (the first transformation) or by its **hand-over into Jobs**? M112 says "the Grading Halus output". The ledger's `startPartai` serves either; decided with the first document that starts one | Step 3 / 5 |
-| O4 | Can a Logistik BSTB be raised **without a Perintah** (e.g. packaging material sent to Packing), or always from one? | Step 3 |
+| O3 | ~~Partai created by the execution or the hand-over?~~ — **by the hand-over** (the user, 22/10/2026): the Grading Halus output has no Partai yet; the Partai is created when the goods continue, boxed into Jobs | Step 4 |
+| O4 | ~~BSTB without a Perintah?~~ — **optional for now** (the user, 22/10/2026): a Logistik issue to production need not come from a Perintah (P164) | Step 3 ✅ |
 | O5 | ~~Lot numbers~~ — **generated** in the formats above (`production-number.ts`), **a typed one still accepted** while new in the register; to confirm at review | Step 2 ✅ |
-| O6 | A **Reject** output: stays in production until taken out (M59), or straight to a reject warehouse? | Step 5 |
+| O6 | ~~Reject output~~ — **stays in production until taken out** (the user, 22/10/2026; M59) | Step 5 |

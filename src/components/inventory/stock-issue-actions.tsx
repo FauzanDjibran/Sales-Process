@@ -1,14 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { DateInput } from "@/components/ui/date-input";
 import { JournalPreview } from "@/components/ui/journal-preview";
 import { Field } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
-import { previewStockIssuePostingAction, transitionStockIssueAction } from "@/app/actions/stock-issue";
-import { headerButtonClass, orderForHeader, type ActionTone } from "@/lib/erp/header-actions";
+import {
+  previewStockIssuePostingAction,
+  transitionStockIssueAction,
+} from "@/app/actions/stock-issue";
+import {
+  headerButtonClass,
+  orderForHeader,
+  type ActionTone,
+} from "@/lib/erp/header-actions";
 import {
   STOCK_ISSUE_TRANSITIONS,
   availableStockIssueActions,
@@ -17,50 +25,69 @@ import {
   type StockIssueAction,
   type StockIssueStatus,
 } from "@/lib/erp/stock-issue-workflow";
+import { todayIso } from "@/lib/format";
 
-/** Why a final note offers no button, for the lock chip. */
+/** Why a final issue offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<StockIssueStatus, string>> = {
-  Posted: "Stock Issue diposting",
+  Posted: "Menunggu diterima Workstation",
+  Received: "Diterima di Workstation",
+  Rejected: "Ditolak — kembali ke gudang",
   Cancelled: "Stock Issue dibatalkan",
 };
 
 /**
- * A Stock Issue's lifecycle as buttons in the page header (P158): Ubah (Draft
- * only), Batalkan and Posting. Posting's confirmation shows the journal it will
- * write — WIP debited, Persediaan credited, per item at the cost the stock books
- * release — from the posting itself run as a dry run and rolled back (P103). An
- * issue that cannot post (short stock, lots not picked in full, no WIP account)
- * says why there, with *Ya, Posting* disabled.
+ * A Stock Issue's lifecycle as buttons in the page header (P158; the Logistik
+ * BSTB, M113): Ubah (Draft only), Batalkan and Posting; then, at the
+ * workstation, Tolak and Terima, each on a day the user picks. Posting's and
+ * Tolak's confirmations show the journal each will write — from the step itself
+ * run as a dry run and rolled back (P103) — with the confirm button disabled
+ * until it loads or while it refuses.
  */
 export function StockIssueActions({
   id,
   subject,
   status,
+  issueDate,
   can,
 }: {
   id: number;
   subject: string;
   status: StockIssueStatus;
+  /** Terima / Tolak may not be dated before it. */
+  issueDate: string;
   can: StockIssueAbilities;
 }) {
   const toast = useToast();
   const [confirm, setConfirm] = useState<StockIssueAction | null>(null);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
+  const [date, setDate] = useState("");
+  const [dateError, setDateError] = useState("");
   const [busy, setBusy] = useState(false);
   const [postable, setPostable] = useState(false);
 
   const run = async (action: StockIssueAction) => {
-    if (STOCK_ISSUE_TRANSITIONS[action].reason && !reason.trim()) {
+    const t = STOCK_ISSUE_TRANSITIONS[action];
+    if (t.reason && !reason.trim()) {
       setReasonError("Alasan wajib diisi.");
       return;
     }
+    if (t.dated && !date) {
+      setDateError("Tanggal wajib diisi.");
+      return;
+    }
     setBusy(true);
-    const result = await transitionStockIssueAction(id, action, reason);
+    const result = await transitionStockIssueAction(
+      id,
+      action,
+      reason,
+      t.dated ? date : undefined,
+    );
     setBusy(false);
     if (!result.ok) {
-      if (result.errors.reason) {
-        setReasonError(result.errors.reason);
+      if (result.errors.reason || result.errors.date) {
+        setReasonError(result.errors.reason ?? "");
+        setDateError(result.errors.date ?? "");
         return;
       }
       setConfirm(null);
@@ -81,7 +108,11 @@ export function StockIssueActions({
               key: "edit",
               tone: "neutral" as ActionTone,
               node: (
-                <Link key="edit" className="btn" href={`/inventory/stock-issue/${id}/edit`}>
+                <Link
+                  key="edit"
+                  className="btn"
+                  href={`/inventory/stock-issue/${id}/edit`}
+                >
                   <Icon name="pen" size={15} /> Ubah
                 </Link>
               ),
@@ -101,6 +132,14 @@ export function StockIssueActions({
               onClick={() => {
                 setReason("");
                 setReasonError("");
+                setDate(
+                  t.dated
+                    ? todayIso() < issueDate
+                      ? issueDate
+                      : todayIso()
+                    : "",
+                );
+                setDateError("");
                 setPostable(false);
                 setConfirm(a);
               }}
@@ -111,10 +150,11 @@ export function StockIssueActions({
         };
       }),
     ],
-    (i) => i.tone
+    (i) => i.tone,
   );
 
   const t = confirm ? STOCK_ISSUE_TRANSITIONS[confirm] : null;
+  const previewOf = confirm === "post" || confirm === "reject" ? confirm : null;
   return (
     <>
       {buttons.length ? (
@@ -128,7 +168,7 @@ export function StockIssueActions({
       {confirm && t && (
         <ConfirmDialog
           open
-          wide={confirm === "post"}
+          wide={Boolean(t.journal)}
           icon={t.icon}
           tone={t.tone === "danger" ? "danger" : "ok"}
           title={t.title}
@@ -137,11 +177,43 @@ export function StockIssueActions({
           confirmLabel={t.confirmLabel}
           confirmTone={t.tone === "danger" ? "solid-danger" : "primary"}
           busy={busy}
-          confirmDisabled={confirm === "post" && !postable}
+          confirmDisabled={Boolean(t.journal) && !postable}
           onConfirm={() => run(confirm)}
           onCancel={() => setConfirm(null)}
         >
-          {confirm === "post" && <JournalPreview load={() => previewStockIssuePostingAction(id)} onReady={setPostable} />}
+          {t.dated && !t.reason && <HoldFocus />}
+          {t.dated && (
+            <Field
+              label={confirm === "reject" ? "Tanggal Tolak" : "Tanggal Terima"}
+              span={12}
+              required
+              error={dateError}
+            >
+              <DateInput
+                value={date}
+                invalid={Boolean(dateError)}
+                onChange={(v) => {
+                  setDate(v);
+                  setDateError("");
+                  setPostable(false);
+                }}
+              />
+            </Field>
+          )}
+          {previewOf && (!t.dated || date) && (
+            // A new date is a new dry run: the journal is dated by it and the period must be open.
+            <JournalPreview
+              key={date}
+              load={() =>
+                previewStockIssuePostingAction(
+                  id,
+                  previewOf,
+                  t.dated ? date : undefined,
+                )
+              }
+              onReady={setPostable}
+            />
+          )}
           {t.reason && (
             <Field label="Alasan" span={12} required error={reasonError}>
               <textarea
@@ -161,4 +233,16 @@ export function StockIssueActions({
       )}
     </>
   );
+}
+
+/**
+ * Takes the dialog's first focus, so a dated step's `DateInput` — which opens
+ * its calendar on focus — does not open over the consequences the dialog
+ * states (P103). `useDialogFocus` keeps a focus a child already took; Tab
+ * still reaches the date next. Tolak needs none: its reason box autofocuses.
+ */
+function HoldFocus() {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => ref.current?.focus(), []);
+  return <div ref={ref} tabIndex={-1} aria-hidden="true" />;
 }

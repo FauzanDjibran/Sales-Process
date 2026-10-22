@@ -9,12 +9,13 @@ import { SearchField } from "@/components/ui/search-field";
 import { Select } from "@/components/ui/select";
 import { formatDate, formatMoney } from "@/lib/format";
 import type { StockIssueListRow } from "@/lib/erp/stock-issue";
-import { STOCK_ISSUE_STATUS_BADGE, STOCK_ISSUE_STATUS_TEXT, type StockIssueAbilities, type StockIssueStatus } from "@/lib/erp/stock-issue-workflow";
+import { STOCK_ISSUE_STATUS_BADGE, STOCK_ISSUE_STATUS_TEXT, stockIssueIsPosted, type StockIssueAbilities, type StockIssueStatus } from "@/lib/erp/stock-issue-workflow";
 
 /**
- * The Stock Issue register (P158). Drafts sort first — goods not yet booked
- * out — then newest first. The value column is what each posted issue moved
- * from Persediaan to WIP; a Draft has none yet.
+ * The Stock Issue register (P158) — the Logistik BSTB. Drafts sort first —
+ * goods not yet booked out — then those still in transit, waiting for their
+ * workstation, then newest first. The value column is what each posted issue
+ * moved from Persediaan to WIP; a Draft has none yet.
  */
 export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; can: StockIssueAbilities }) {
   const router = useRouter();
@@ -28,12 +29,14 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
         (!status || o.status === status) &&
         (!q ||
           o.issueNo.toLowerCase().includes(q) ||
+          (o.orderNo ?? "").toLowerCase().includes(q) ||
           o.warehouseLabel.toLowerCase().includes(q) ||
           o.warehouseName.toLowerCase().includes(q) ||
           o.workstationLabel.toLowerCase().includes(q) ||
           o.workstationName.toLowerCase().includes(q))
     );
-    return out.sort((a, b) => Number(b.status === "Draft") - Number(a.status === "Draft"));
+    const rank = (x: StockIssueListRow) => (x.status === "Draft" ? 2 : x.status === "Posted" ? 1 : 0);
+    return out.sort((a, b) => rank(b) - rank(a));
   }, [issues, q, status]);
   const paging = usePaging(rows, `${q}|${status}`);
 
@@ -61,21 +64,21 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
           </div>
         </div>
         <p className="ph-sub">
-          Barang keluar dari gudang untuk dipakai sendiri — ke produksi: bahan per lot ke sebuah Workstation, dengan nomor lot yang sama.
-          Posting memindahkan nilainya dari Persediaan ke WIP.
+          BSTB Logistik: bahan keluar dari gudang per lot ke sebuah Workstation, dengan nomor lot yang sama, bisa dari Perintah Produksi.
+          Posting memindahkan nilainya dari Persediaan ke WIP; barang dalam perjalanan sampai Workstation menerima atau menolaknya.
         </p>
       </div>
 
       <div className="card">
         <div className="toolbar">
-          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor, gudang atau workstation…" />
+          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor, Perintah, gudang atau workstation…" />
           <Select
             variant="toolbar"
             value={status}
             set={Boolean(status)}
             options={[
               { value: "", label: "Status: semua" },
-              ...(["Draft", "Posted", "Cancelled"] as StockIssueStatus[]).map((s) => ({ value: s, label: STOCK_ISSUE_STATUS_TEXT[s] })),
+              ...(["Draft", "Posted", "Received", "Rejected", "Cancelled"] as StockIssueStatus[]).map((s) => ({ value: s, label: STOCK_ISSUE_STATUS_TEXT[s] })),
             ]}
             onChange={setStatus}
           />
@@ -91,7 +94,7 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
               <table className="grid">
                 <thead>
                   <tr>
-                    <th style={{ width: 160 }}>Nomor</th>
+                    <th style={{ width: 200 }}>Nomor</th>
                     <th style={{ width: 120 }}>Status</th>
                     <th style={{ width: 106 }}>Tanggal</th>
                     <th>Gudang</th>
@@ -104,9 +107,12 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
                   {paging.pageRows.map((o) => (
                     <tr key={o.id} onClick={() => router.push(`/inventory/stock-issue/${o.id}`)}>
                       <td>
-                        <Link className="lab" href={`/inventory/stock-issue/${o.id}`}>
-                          {o.issueNo}
-                        </Link>
+                        <span className="dstack">
+                          <Link className="lab" href={`/inventory/stock-issue/${o.id}`}>
+                            {o.issueNo}
+                          </Link>
+                          {o.orderNo && <span className="d2 mono">{o.orderNo}</span>}
+                        </span>
                       </td>
                       <td>
                         <span className={`bdg ${STOCK_ISSUE_STATUS_BADGE[o.status]}`}>{STOCK_ISSUE_STATUS_TEXT[o.status]}</span>
@@ -126,7 +132,7 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
                       </td>
                       <td className="num">{o.lines}</td>
                       <td className="num">
-                        {o.status === "Posted" ? <span className="mny">{formatMoney(o.cost, "IDR")}</span> : <span className="dash">—</span>}
+                        {stockIssueIsPosted(o.status) ? <span className="mny">{formatMoney(o.cost, "IDR")}</span> : <span className="dash">—</span>}
                       </td>
                     </tr>
                   ))}

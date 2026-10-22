@@ -2375,21 +2375,30 @@ table log_delivery_note_lot {
 
 // The Stock Issue (P158; production_project.md §9.3, Pengeluaran ke Produksi): goods leaving
 // a warehouse for a use inside the company; standalone by purpose (P106) — production_issue:
-// material into production at a workstation, each lot keeping its number. SI/YYYY/MM/NNNN
+// material into production at a workstation, each lot keeping its number. The Logistik BSTB
+// (Walet step 3, M113): posted goods are in transit; the workstation receives (Terima) or
+// rejects (Tolak, back to stock) them whole. BSTB_LOG_<DDMMYY>_<NNNNN>; older issues keep SI/YYYY/MM/NNNN
 table log_stock_issue {
   id                          int [pk, increment, not null]
 
   issue_no                    varchar [not null, unique]
   issue_date                  date [not null] // the journal's date
-  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  status                      enum('Draft', 'Posted', 'Received', 'Rejected', 'Cancelled') [not null, default: 'Draft'] // Posted = Dikirim, in transit
   purpose                     varchar [not null] // production_issue
   warehouse_id                int [not null, ref : > ref_warehouse.id]
   workstation_id              int [ref : > ref_workstation.id] // required by production_issue
   note                        varchar
+  source_doc_type_id          int // the Perintah Produksi it is raised from, weak (P106); optional (O4)
+  source_doc_id               int
+  source_no                   varchar
 
   cost_amount                 decimal(18,2) [not null, default: 0] // set at Posting
   journal_id                  int // Dr WIP / Cr Persediaan
   cancel_reason               varchar
+  received_date               date // Terima or Tolak
+  received_by                 int
+  reject_reason               varchar
+  return_journal_id           int // Tolak: Dr Persediaan / Cr WIP
 
   created_by                  int [not null]
   updated_by                  int
@@ -2399,6 +2408,7 @@ table log_stock_issue {
   indexes {
     (purpose, status)
     (status, issue_date)
+    (source_doc_type_id, source_doc_id)
   }
 }
 
@@ -2438,7 +2448,8 @@ table log_stock_issue_lot {
   base_qty                    decimal(18,4) [not null, default: 0]
   unit_cost                   decimal(18,6) [not null, default: 0]
   cost_amount                 decimal(18,2) [not null, default: 0]
-  prd_bucket_id               int // the production bucket it entered, set at Posting; weak — the lot is the same (M128)
+  prd_bucket_id               int // the production bucket it entered, in transit, set at Posting; weak — the lot is the same (M128)
+  received_bucket_id          int // the station's bucket it was received into, set at Terima; weak
 
   indexes {
     (stock_issue_line_id, pick_no) [unique]
@@ -2918,7 +2929,7 @@ table prd_ledger {
   source_doc_type_id          int [not null] // weak
   source_doc_id               int [not null]
   source_no                   varchar [not null]
-  movement                    enum('Issued', 'Consumed', 'Produced', 'Released', 'Revalued') [not null]
+  movement                    enum('Issued', 'Consumed', 'Produced', 'Released', 'Revalued', 'Received', 'Returned') [not null] // Received / Returned: out of transit (M113)
   bucket_id                   int [not null, ref : > prd_balance.id]
   lot_id                      int [not null, ref : > log_stock_tracking.id]
   partai_id                   int // the bucket's, copied
@@ -3059,5 +3070,65 @@ table prd_routing_step {
   indexes {
     (routing_id, step_no) [unique]
     workstation_id
+  }
+}
+
+// Perintah Produksi (Walet step 3, M121): PPIC's order that kick-starts a Partai — the
+// Job Order, the route (copied from a Routing, editable) and the stock lots planned.
+// A Logistik BSTB may be raised from an Open one. Posts nothing. PP_<DDMMYY>_<NNNNN>
+table prd_order {
+  id                          int [pk, increment, not null]
+
+  order_no                    varchar [not null, unique]
+  order_date                  date [not null]
+  status                      enum('Draft', 'Open', 'Closed', 'Cancelled') [not null, default: 'Draft']
+  target_item_id              int [not null, ref : > m_item.id] // the Job Order
+  routing_id                  int [ref : > prd_routing.id] // copied from, if any
+  warehouse_id                int [not null, ref : > ref_warehouse.id] // where the planned lots are
+  note                        varchar
+  status_reason               varchar // Batalkan / Tutup
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, order_date)
+  }
+}
+
+// One station of a Perintah's route, in order — its own copy
+table prd_order_step {
+  id                          int [pk, increment, not null]
+
+  order_id                    int [not null, ref : > prd_order.id]
+  step_no                     int [not null]
+  workstation_id              int [not null, ref : > ref_workstation.id]
+  mode                        enum('MixTransform', 'Transform', 'PassThrough') [not null]
+  bom_id                      int [ref : > prd_bom.id]
+
+  indexes {
+    (order_id, step_no) [unique]
+    workstation_id
+  }
+}
+
+// A stock lot planned for a Perintah, base unit, each lot once — a plan, not a reservation
+table prd_order_lot {
+  id                          int [pk, increment, not null]
+
+  order_id                    int [not null, ref : > prd_order.id]
+  line_no                     int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  lot_id                      int [not null, ref : > log_stock_tracking.id]
+  uom_id                      int [not null, ref : > ref_uom.id]
+  qty                         decimal(18,4) [not null]
+  note                        varchar
+
+  indexes {
+    (order_id, line_no) [unique]
+    (order_id, lot_id) [unique]
+    lot_id
   }
 }

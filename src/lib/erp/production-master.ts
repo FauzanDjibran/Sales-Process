@@ -247,3 +247,52 @@ export async function bomDeactivationRefusal(bomId: number): Promise<string | nu
   if (!steps.length) return null;
   return `BoM ini dipakai Routing aktif (${[...new Set(steps.map((s) => s.routing.routing_label))].join(", ")}): lepaskan dulu dari langkahnya.`;
 }
+
+// --------------------------------------------------- for the Perintah Produksi
+
+export type RoutingChoice = {
+  id: number;
+  label: string;
+  name: string;
+  active: boolean;
+  itemId: number;
+  isDefault: boolean;
+  steps: { workstationId: number; mode: RoutingStepModeValue; bomId: number | null }[];
+};
+
+export type BomChoice = { id: number; label: string; name: string; active: boolean; itemId: number };
+
+/**
+ * The Routings and BoMs a Perintah Produksi may copy or name (Walet step 3):
+ * every active one, plus those `with` names whatever their status now. The
+ * Perintah keeps its own copy of the route, so later changes here leave it as it was.
+ */
+export async function routingAndBomChoices(
+  withIds: { routingIds: number[]; bomIds: number[] } = { routingIds: [], bomIds: [] },
+  db: Tx | typeof prisma = prisma
+): Promise<{ routings: RoutingChoice[]; boms: BomChoice[] }> {
+  const [routings, boms] = await Promise.all([
+    db.prdRouting.findMany({
+      where: { OR: [{ status: "Active" }, ...(withIds.routingIds.length ? [{ id: { in: withIds.routingIds } }] : [])] },
+      orderBy: { routing_label: "asc" },
+      include: { steps: { orderBy: { step_no: "asc" } } },
+    }),
+    db.prdBom.findMany({
+      where: { OR: [{ status: "Active" }, ...(withIds.bomIds.length ? [{ id: { in: withIds.bomIds } }] : [])] },
+      orderBy: { bom_label: "asc" },
+      select: { id: true, bom_label: true, bom_name: true, status: true, item_id: true },
+    }),
+  ]);
+  return {
+    routings: routings.map((r) => ({
+      id: r.id,
+      label: r.routing_label,
+      name: r.routing_name,
+      active: r.status === "Active",
+      itemId: r.item_id,
+      isDefault: r.is_default,
+      steps: r.steps.map((s) => ({ workstationId: s.workstation_id, mode: s.mode as RoutingStepModeValue, bomId: s.bom_id })),
+    })),
+    boms: boms.map((b) => ({ id: b.id, label: b.bom_label, name: b.bom_name, active: b.status === "Active", itemId: b.item_id })),
+  };
+}

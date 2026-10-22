@@ -2,13 +2,14 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { nextDocumentNumber } from "./document-number";
+import { nextDailyNumber } from "./production-number";
 import { formatNumber } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
-import { InventoryRefusal, issueStock, locationLabelsByIds, lotKey, lotOptions, lotTrackedItems, type LotOption } from "./inventory";
-import { ProductionRefusal, enterProduction } from "./production-ledger";
+import { InventoryRefusal, issueStock, locationLabelsByIds, lotKey, lotOptions, lotTrackedItems, receiveStock, type LotOption } from "./inventory";
+import { ProductionRefusal, enterProduction, receiveTransit, returnTransit } from "./production-ledger";
+import { lockProductionOrderForIssue, productionOrdersForIssue, type IssueSourceOrder } from "./production-order";
 import { fallbackAccounts } from "./system-settings";
 import { accountsForItems } from "./item-account";
 import { DEFAULT_STOCK_ISSUE_PURPOSE, stockIssuePurpose } from "./stock-issue-purposes";
@@ -42,6 +43,15 @@ import {
  * line: WIP is the item's Kategori Item's, with no fallback (M62); Persediaan
  * the category's, else Account Mapping's, as the Delivery Note. Each pick stores
  * what it cost and the production bucket it entered.
+ *
+ * **It is the Logistik BSTB** (Walet step 3, M113, M124): numbered
+ * `BSTB_LOG_<DDMMYY>_<NNNNN>`, it may be raised from an Open **Perintah
+ * Produksi** (optional, O4 — packaging sent to Packing needs none), which
+ * pre-fills its warehouse, workstation and lots. Posted, the goods are **in
+ * transit**; the workstation **receives** them whole (*Terima*, into its own
+ * buckets, no journal) or **rejects** them whole (*Tolak*: back to the same
+ * warehouse, location and lot at the value each pick left at, Dr Persediaan /
+ * Cr WIP). Each sending moves exactly its own quantity and value out of transit.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -55,6 +65,8 @@ export type StockIssueHeaderInput = {
   workstation_id: number | null;
   issue_date: string;
   note: string;
+  /** The Perintah Produksi it is raised from — optional (O4). */
+  order_id?: number | null;
 };
 
 export type StockIssuePickInput = { lot_id: number | null; location_id?: number | null; qty: number | string };
@@ -99,6 +111,8 @@ export type StockIssueOptions = {
   items: StockIssueItem[];
   /** The lots each item may be picked from, per warehouse id, then item id; earliest expiry first. */
   lots: Record<number, Record<number, LotOption[]>>;
+  /** Open Perintah Produksi a BSTB may be raised from (and the stored one's own). */
+  orders: IssueSourceOrder[];
 };
 
 /**
@@ -108,10 +122,10 @@ export type StockIssueOptions = {
  * whatever their status now.
  */
 export async function stockIssueOptions(
-  current: { warehouseId: number; workstationId: number | null; itemIds: number[]; lotIds: number[] } | null = null,
+  current: { warehouseId: number; workstationId: number | null; itemIds: number[]; lotIds: number[]; orderId?: number | null } | null = null,
   db: Db = prisma
 ): Promise<StockIssueOptions> {
-  const [warehouses, workstations, items] = await Promise.all([
+  const [warehouses, workstations, items, orders] = await Promise.all([
     db.refWarehouse.findMany({
       where: { OR: [{ status: "Active" }, ...(current ? [{ id: current.warehouseId }] : [])] },
       orderBy: { warehouse_label: "asc" },
@@ -127,6 +141,7 @@ export async function stockIssueOptions(
       orderBy: { item_label: "asc" },
       select: { id: true, item_label: true, item_name: true, status: true, base_uom_id: true, base_uom: { select: { uom_label: true } } },
     }),
+    productionOrdersForIssue(current?.orderId ? [current.orderId] : [], db),
   ]);
   const byWarehouse = await lotOptions(
     items.map((i) => i.id),
@@ -141,6 +156,7 @@ export async function stockIssueOptions(
     workstations: workstations.map((w) => ({ id: w.id, label: w.workstation_label, name: w.workstation_name, active: w.status === "Active" })),
     items: items.map((i) => ({ id: i.id, label: i.item_label, name: i.item_name, uomId: i.base_uom_id, uomLabel: i.base_uom.uom_label, active: i.status === "Active" })),
     lots,
+    orders,
   };
 }
 
@@ -166,6 +182,9 @@ type Checked = {
     workstation_id: number | null;
     issue_date: Date;
     note: string | null;
+    source_doc_type_id: number | null;
+    source_doc_id: number | null;
+    source_no: string | null;
   };
   warehouseLabel: string;
   workstationLabel: string;
@@ -190,7 +209,10 @@ export async function checkStockIssue(
   if (!purpose) return { ok: false, errors: { purpose: "Tujuan Stock Issue tidak dikenal." } };
 
   const stored = selfId
-    ? await db.logStockIssue.findUnique({ where: { id: selfId }, select: { warehouse_id: true, workstation_id: true, lines: { select: { item_id: true, lots: { select: { lot_id: true } } } } } })
+    ? await db.logStockIssue.findUnique({
+        where: { id: selfId },
+        select: { warehouse_id: true, workstation_id: true, source_doc_id: true, lines: { select: { item_id: true, lots: { select: { lot_id: true } } } } },
+      })
     : null;
   const options = await stockIssueOptions(
     stored
@@ -199,10 +221,16 @@ export async function checkStockIssue(
           workstationId: stored.workstation_id,
           itemIds: stored.lines.map((l) => l.item_id),
           lotIds: stored.lines.flatMap((l) => l.lots.map((p) => p.lot_id)),
+          orderId: stored.source_doc_id,
         }
       : null,
     db
   );
+
+  // The Perintah it is raised from, if any (O4): Open, to save and to post.
+  const orderId = Number(header.order_id) || null;
+  const order = orderId ? options.orders.find((o) => o.id === orderId) : undefined;
+  if (orderId && (!order || !order.open)) errors.order_id = "Perintah Produksi tidak ditemukan atau tidak Open.";
 
   const warehouseId = Number(header.warehouse_id) || null;
   const warehouse = warehouseId ? options.warehouses.find((w) => w.id === warehouseId) : undefined;
@@ -285,6 +313,9 @@ export async function checkStockIssue(
         workstation_id: purpose.needsWorkstation ? workstationId : null,
         issue_date: asDate(issueDate),
         note: text(header.note),
+        source_doc_type_id: order ? await docTypeId(db, "prd_order") : null,
+        source_doc_id: order?.id ?? null,
+        source_no: order?.orderNo ?? null,
       },
       warehouseLabel: warehouse.label,
       workstationLabel: workstation?.label ?? "",
@@ -342,8 +373,8 @@ function checkPicks(
 // ------------------------------------------------------------------ writes
 
 async function nextIssueNo(db: Db, date: Date): Promise<string> {
-  // No -NP series: a Stock Issue carries no tax (P109).
-  return nextDocumentNumber("SI", date, async (series) => {
+  // The Logistik BSTB's number (M124); no -NP series: it carries no tax (P109).
+  return nextDailyNumber(["BSTB", "LOG"], date, async (series) => {
     const row = await db.logStockIssue.findFirst({ where: { issue_no: { startsWith: series } }, orderBy: { id: "desc" }, select: { issue_no: true } });
     return row?.issue_no ?? null;
   });
@@ -365,7 +396,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
     return await run();
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
-    if (e instanceof InventoryRefusal || e instanceof ProductionRefusal) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
+    if (e instanceof InventoryRefusal || e instanceof ProductionRefusal) return { ok: false, errors: { _form: `Belum bisa diproses: ${e.message}` } };
     // A dry run reached the end of the posting: its journal, with every write rolled back (P103).
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;
     throw e;
@@ -427,6 +458,7 @@ function asInput(n: StoredIssue): { header: StockIssueHeaderInput; lines: StockI
       workstation_id: n.workstation_id,
       issue_date: isoDay(n.issue_date),
       note: n.note ?? "",
+      order_id: n.source_doc_id,
     },
     lines: n.lines.map((l) => ({
       item_id: l.item_id,
@@ -440,13 +472,14 @@ function asInput(n: StoredIssue): { header: StockIssueHeaderInput; lines: StockI
 // --------------------------------------------------------------- posting
 
 /**
- * The journal Posting would write now, for the Posting dialog (P103):
- * `transitionStockIssue` run as a dry run — the recheck, every stock issue and
- * production entry, the journal — then rolled back.
+ * The journal Posting — or Tolak, on `date` — would write now, for its dialog
+ * (P103): `transitionStockIssue` run as a dry run — the recheck, every stock
+ * and production movement, the journal — then rolled back.
  */
-export async function stockIssuePreview(id: number, actorId: number): Promise<JournalPreviewResult> {
+export async function stockIssuePreview(id: number, actorId: number, action: "post" | "reject" = "post", date?: string): Promise<JournalPreviewResult> {
   try {
-    const r = await transitionStockIssue(id, "post", actorId, undefined, { dryRun: true });
+    // Tolak's reason is not known yet when its dialog opens; the dry run needs one.
+    const r = await transitionStockIssue(id, action, actorId, action === "reject" ? "pratinjau" : undefined, { dryRun: true, date });
     if (!r.ok) return r;
     return { ok: true, lines: await describeJournalLines(r.journal ?? []) };
   } catch (e) {
@@ -460,19 +493,49 @@ export type StockIssueTransitionResult =
   | { ok: false; errors: Record<string, string> };
 
 /**
- * Runs one lifecycle step. **Posting**, in one transaction: rechecks the stored
- * issue, then for every pick issues the stock and places it in production at
- * the workstation under the same lot number and at the value released, stores
- * the cost and the production lot, and writes the journal Dr WIP / Cr
- * Persediaan dated the issue. **Batalkan** (Draft only) asks for a reason and
- * writes nothing else. Every step is conditional on the status just read.
+ * The accounts each item's line posts to: WIP is the item's Kategori Item's,
+ * with no fallback (M62); Persediaan the category's, else Account Mapping's
+ * (P122). A missing one is named.
+ */
+async function lineAccountsFor(itemIds: number[]): Promise<{ ok: true; accounts: Map<number, { wip: number; inventory: number }> } | { ok: false; error: string }> {
+  const fallback = await fallbackAccounts(["inventory_account"] as const);
+  const byCategory = await accountsForItems([...new Set(itemIds)]);
+  const accounts = new Map<number, { wip: number; inventory: number }>();
+  for (const [itemId, c] of byCategory) {
+    const inventory = c.inventory ?? fallback.inventory_account;
+    if (!c.wip || !inventory) {
+      const item = await prisma.mItem.findUnique({ where: { id: itemId }, select: { item_label: true, category: { select: { category_label: true } } } });
+      const missing = [!c.wip && "WIP", !inventory && "Persediaan"].filter(Boolean).join(" dan ");
+      return { ok: false, error: `Lengkapi Account Kategori Item ${item?.category.category_label ?? ""} dulu: Account ${missing} untuk ${item?.item_label ?? "barang"}.` };
+    }
+    accounts.set(itemId, { wip: c.wip, inventory });
+  }
+  return { ok: true, accounts };
+}
+
+/**
+ * Runs one lifecycle step. Every step is conditional on the status just read.
+ *
+ * - **Posting**, in one transaction: locks its Perintah (if any) and checks it
+ *   is still Open, rechecks the stored issue, then for every pick issues the
+ *   stock and sends it into production **in transit** to the workstation,
+ *   under the same lot and at the value released; stores the cost and the
+ *   bucket; writes the journal Dr WIP / Cr Persediaan dated the issue.
+ * - **Terima** (`date`): each pick's own quantity and value leave transit and
+ *   enter the station's bucket. No journal.
+ * - **Tolak** (`date`, reason): each pick's own quantity and value leave
+ *   transit and come back to the warehouse, location and lot it left, at that
+ *   value; the journal Dr Persediaan / Cr WIP dated the rejection.
+ * - **Batalkan** (Draft only) asks for a reason and writes nothing else.
+ *
+ * A dry run (Posting, Tolak) rolls everything back and returns the journal.
  */
 export async function transitionStockIssue(
   id: number,
   action: StockIssueAction,
   actorId: number,
   reason?: string,
-  options: { dryRun?: boolean } = {}
+  options: { dryRun?: boolean; date?: string } = {}
 ): Promise<StockIssueTransitionResult> {
   const issue = await prisma.logStockIssue.findUnique({ where: { id }, include: WITH_PICKS });
   if (!issue) return { ok: false, errors: { _form: "Stock Issue tidak ditemukan." } };
@@ -481,10 +544,13 @@ export async function transitionStockIssue(
     return { ok: false, errors: { _form: `Stock Issue berstatus ini tidak dapat di-${t.label.toLowerCase()}.` } };
   }
   const moved = "Stock Issue berubah saat diproses. Muat ulang halaman.";
+  let why: string | null = null;
+  if (t.reason) {
+    why = String(reason ?? "").trim();
+    if (!why) return { ok: false, errors: { reason: "Alasan wajib diisi." } };
+  }
 
   if (action === "cancel") {
-    const why = String(reason ?? "").trim();
-    if (!why) return { ok: false, errors: { reason: "Alasan wajib diisi." } };
     await prisma.$transaction(async (tx) => {
       const done = await tx.logStockIssue.updateMany({ where: { id, status: "Draft" }, data: { status: "Cancelled", cancel_reason: why, updated_by: actorId } });
       if (done.count !== 1) throw new Error(moved);
@@ -493,30 +559,22 @@ export async function transitionStockIssue(
     return { ok: true };
   }
 
+  if (action === "receive" || action === "reject") return settleTransit(issue, action, actorId, why, options);
+
   const period = await checkTransactionDate(isoDay(issue.issue_date));
   if (!period.ok) return { ok: false, errors: { _form: period.message } };
-  // WIP is the item's Kategori Item's, with no fallback (M62); Persediaan the
-  // category's, else Account Mapping's (P122).
-  const fallback = await fallbackAccounts(["inventory_account"] as const);
-  const byCategory = await accountsForItems([...new Set(issue.lines.map((l) => l.item_id))]);
-  const lineAccounts = new Map<number, { wip: number; inventory: number }>();
-  for (const [itemId, c] of byCategory) {
-    const inventory = c.inventory ?? fallback.inventory_account;
-    if (!c.wip || !inventory) {
-      const item = await prisma.mItem.findUnique({ where: { id: itemId }, select: { item_label: true, category: { select: { category_label: true } } } });
-      const missing = [!c.wip && "WIP", !inventory && "Persediaan"].filter(Boolean).join(" dan ");
-      return {
-        ok: false,
-        errors: { _form: `Lengkapi Account Kategori Item ${item?.category.category_label ?? ""} dulu: Account ${missing} untuk ${item?.item_label ?? "barang"}.` },
-      };
-    }
-    lineAccounts.set(itemId, { wip: c.wip, inventory });
-  }
+  const accounts = await lineAccountsFor(issue.lines.map((l) => l.item_id));
+  if (!accounts.ok) return { ok: false, errors: { _form: accounts.error } };
   const baseCurrency = await prisma.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
   if (!baseCurrency) return { ok: false, errors: { _form: "Mata uang dasar tidak ditemukan." } };
 
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
+      // The Perintah first (a Tutup on it waits), then the stock pools, then the buckets.
+      if (issue.source_doc_id) {
+        const order = await lockProductionOrderForIssue(tx, issue.source_doc_id);
+        if (!order.ok) throw new Refused({ _form: `Belum bisa diposting: ${order.error}` });
+      }
       const input = asInput(issue);
       const r = await checkStockIssue(tx, input.header, input.lines, id, true);
       if (!r.ok) {
@@ -550,12 +608,14 @@ export async function transitionStockIssue(
             source,
             actorId,
           });
-          // The goods enter production under the same lot (M128); a stock lot
-          // belongs to no Partai or Job until its first transformation.
+          // The goods enter production under the same lot (M128), in transit to
+          // the workstation until it receives them (M113); a stock lot belongs to
+          // no Partai or Job until its Partai is started (O3).
           const entered = await enterProduction(tx, {
             itemId: line.item_id,
             lotId: p.lot_id,
             workstationId: r.c.data.workstation_id!,
+            inTransit: true,
             baseQty,
             value: out.cost,
             date,
@@ -574,7 +634,7 @@ export async function transitionStockIssue(
         total += cost;
         if (cost > 0) {
           const what = `${r.c.itemLabels.get(line.item_id)?.label ?? ""} · ${qtyText(line.qty)} ${r.c.itemLabels.get(line.item_id)?.uomLabel ?? ""}`;
-          const acc = lineAccounts.get(line.item_id)!;
+          const acc = accounts.accounts.get(line.item_id)!;
           journalLines.push(
             { accountId: acc.wip, currencyId: baseCurrency.id, rate: 1, debit: cost, credit: 0, description: `WIP ${r.c.workstationLabel} · ${what}` },
             { accountId: acc.inventory, currencyId: baseCurrency.id, rate: 1, debit: 0, credit: cost, description: `Keluar ${r.c.warehouseLabel} · ${what}` }
@@ -600,6 +660,106 @@ export async function transitionStockIssue(
   });
 }
 
+/** Terima or Tolak at the workstation (M113): the whole sending, pick by pick, at its own figures. */
+async function settleTransit(
+  issue: StoredIssue,
+  action: "receive" | "reject",
+  actorId: number,
+  why: string | null,
+  options: { dryRun?: boolean; date?: string }
+): Promise<StockIssueTransitionResult> {
+  const day = String(options.date ?? "").trim();
+  if (!DAY.test(day)) return { ok: false, errors: { date: "Tanggal wajib diisi." } };
+  if (day < isoDay(issue.issue_date)) return { ok: false, errors: { date: "Tidak boleh sebelum tanggal Stock Issue." } };
+  const period = await checkTransactionDate(day);
+  if (!period.ok) return { ok: false, errors: { date: period.message } };
+  const rejecting = action === "reject";
+  const accounts = rejecting ? await lineAccountsFor(issue.lines.map((l) => l.item_id)) : null;
+  if (accounts && !accounts.ok) return { ok: false, errors: { _form: accounts.error } };
+  const accountOf = accounts?.ok ? accounts.accounts : new Map<number, { wip: number; inventory: number }>();
+  const baseCurrency = await prisma.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
+  if (!baseCurrency) return { ok: false, errors: { _form: "Mata uang dasar tidak ditemukan." } };
+  const [warehouse, workstation, itemRows] = await Promise.all([
+    prisma.refWarehouse.findUniqueOrThrow({ where: { id: issue.warehouse_id }, select: { warehouse_label: true } }),
+    issue.workstation_id ? prisma.refWorkstation.findUnique({ where: { id: issue.workstation_id }, select: { workstation_label: true } }) : null,
+    prisma.mItem.findMany({ where: { id: { in: issue.lines.map((l) => l.item_id) } }, select: { id: true, item_label: true, base_uom: { select: { uom_label: true } } } }),
+  ]);
+  const itemBy = new Map(itemRows.map((i) => [i.id, i]));
+
+  return refusable(async () => {
+    await prisma.$transaction(async (tx) => {
+      const date = asDate(day);
+      const done = await tx.logStockIssue.updateMany({
+        where: { id: issue.id, status: "Posted" },
+        data: {
+          status: rejecting ? "Rejected" : "Received",
+          received_date: date,
+          received_by: actorId,
+          ...(rejecting ? { reject_reason: why } : {}),
+          updated_by: actorId,
+        },
+      });
+      if (done.count !== 1) throw new Refused({ _form: "Stock Issue berubah saat diproses. Muat ulang halaman." });
+      const typeId = await docTypeId(tx, "log_stock_issue");
+      const source = { docTypeId: typeId, docId: issue.id, no: issue.issue_no };
+      const journalLines: JournalLineInput[] = [];
+      for (const line of issue.lines) {
+        let cost = 0;
+        for (const p of line.lots) {
+          if (p.prd_bucket_id == null) throw new Refused({ _form: "Stock Issue ini tidak mencatat saldo dalam perjalanannya." });
+          const move = { bucketId: p.prd_bucket_id, baseQty: p.base_qty, value: p.cost_amount, date, source, actorId };
+          if (!rejecting) {
+            const into = await receiveTransit(tx, move);
+            await tx.logStockIssueLot.update({ where: { id: p.id }, data: { received_bucket_id: into.bucketId } });
+            continue;
+          }
+          // Out of transit, then back into the very lot and place it left (P114:
+          // a return comes back at the value it left at).
+          await returnTransit(tx, move);
+          await receiveStock(tx, {
+            itemId: line.item_id,
+            warehouseId: issue.warehouse_id,
+            locationId: p.location_id,
+            lotNo: p.lot_no,
+            expiry: p.expiry_date,
+            baseQty: p.base_qty,
+            value: p.cost_amount,
+            date,
+            source,
+            actorId,
+          });
+          cost += p.cost_amount.toNumber();
+        }
+        if (rejecting && cost > 0) {
+          const item = itemBy.get(line.item_id);
+          const what = `${item?.item_label ?? ""} · ${qtyText(line.qty.toNumber())} ${item?.base_uom.uom_label ?? ""}`;
+          const acc = accountOf.get(line.item_id)!;
+          journalLines.push(
+            { accountId: acc.inventory, currencyId: baseCurrency.id, rate: 1, debit: cost, credit: 0, description: `Kembali ${warehouse.warehouse_label} · ${what}` },
+            { accountId: acc.wip, currencyId: baseCurrency.id, rate: 1, debit: 0, credit: cost, description: `Ditolak ${workstation?.workstation_label ?? ""} · ${what}` }
+          );
+        }
+      }
+      if (rejecting) {
+        const journal = !journalLines.length
+          ? null
+          : await postJournal(tx, {
+              description: `${issue.issue_no} · Ditolak di ${workstation?.workstation_label ?? ""} → kembali ke ${warehouse.warehouse_label}`,
+              sourceDocTypeId: typeId,
+              sourceDocId: issue.id,
+              postingDate: date,
+              actorId,
+              lines: journalLines,
+            });
+        await tx.logStockIssue.update({ where: { id: issue.id }, data: { return_journal_id: journal?.id ?? null } });
+      }
+      await audit(tx, issue.id, "UPDATE", action, actorId);
+      if (options.dryRun) throw new PostingDryRun(journalLines);
+    });
+    return { ok: true as const };
+  });
+}
+
 // ------------------------------------------------------------------- reads
 
 export type StockIssueListRow = {
@@ -612,6 +772,9 @@ export type StockIssueListRow = {
   warehouseName: string;
   workstationLabel: string;
   workstationName: string;
+  /** The Perintah Produksi it was raised from, if any. */
+  orderNo: string | null;
+  receivedDate: string | null;
   lines: number;
   cost: number;
 };
@@ -631,6 +794,8 @@ export async function listStockIssues(): Promise<StockIssueListRow[]> {
     warehouseName: r.warehouse.warehouse_name,
     workstationLabel: r.workstation?.workstation_label ?? "",
     workstationName: r.workstation?.workstation_name ?? "",
+    orderNo: r.source_no,
+    receivedDate: r.received_date ? isoDay(r.received_date) : null,
     lines: r._count.lines,
     cost: r.cost_amount.toNumber(),
   }));
@@ -653,13 +818,22 @@ export type StockIssueView = {
   journalId: number | null;
   journalNo: string | null;
   cancelReason: string | null;
+  /** The Perintah Produksi it was raised from, if any. */
+  orderNo: string | null;
+  /** Terima or Tolak: the day. */
+  receivedDate: string | null;
+  rejectReason: string | null;
+  returnJournalId: number | null;
+  returnJournalNo: string | null;
 };
 
 export async function getStockIssue(id: number): Promise<StockIssueView | null> {
   const n = await prisma.logStockIssue.findUnique({ where: { id }, include: WITH_PICKS });
   if (!n) return null;
   const input = asInput(n);
-  const journalNo = n.journal_id ? ((await journalNumbersByIds([n.journal_id])).get(n.journal_id) ?? null) : null;
+  const journalIds = [n.journal_id, n.return_journal_id].filter((x): x is number => x != null);
+  const journalNos = journalIds.length ? await journalNumbersByIds(journalIds) : new Map<number, string>();
+  const journalNo = n.journal_id ? (journalNos.get(n.journal_id) ?? null) : null;
   const locations = await locationLabelsByIds(n.lines.flatMap((l) => l.lots.flatMap((p) => (p.location_id ? [p.location_id] : []))));
   return {
     id: n.id,
@@ -686,6 +860,11 @@ export async function getStockIssue(id: number): Promise<StockIssueView | null> 
     journalId: n.journal_id,
     journalNo,
     cancelReason: n.cancel_reason,
+    orderNo: n.source_no,
+    receivedDate: n.received_date ? isoDay(n.received_date) : null,
+    rejectReason: n.reject_reason,
+    returnJournalId: n.return_journal_id,
+    returnJournalNo: n.return_journal_id ? (journalNos.get(n.return_journal_id) ?? null) : null,
   };
 }
 
@@ -696,6 +875,7 @@ export function stockIssueCurrent(v: StockIssueView) {
     workstationId: v.header.workstation_id ? Number(v.header.workstation_id) : null,
     itemIds: v.lines.map((l) => Number(l.item_id)),
     lotIds: v.lines.flatMap((l) => l.pickedLots.map((p) => p.lotId)),
+    orderId: v.header.order_id ?? null,
   };
 }
 
@@ -717,4 +897,50 @@ export async function stockIssueLocationUse(warehouseId: number, locationIds: nu
       : [],
   ]);
   return { drafts, named: new Set(named.flatMap((r) => (r.location_id ? [r.location_id] : []))) };
+}
+
+// ------------------------------------------------ for the Perintah Produksi
+
+export type IssueOfOrder = { id: number; issueNo: string; issueDate: string; status: StockIssueStatus; workstationLabel: string; cost: number };
+
+/**
+ * The BSTBs raised from one Perintah, and what each sent per lot — composed by
+ * the Perintah's page (§3.1: the BSTB depends on the Perintah, never the
+ * reverse). `sentByLot` counts the goods that left stock and were not sent back.
+ */
+export async function stockIssuesOfOrder(orderId: number): Promise<{ issues: IssueOfOrder[]; sentByLot: Map<number, number> }> {
+  const typeId = await docTypeId(prisma, "prd_order");
+  const rows = await prisma.logStockIssue.findMany({
+    where: { source_doc_type_id: typeId, source_doc_id: orderId },
+    orderBy: [{ issue_date: "asc" }, { id: "asc" }],
+    include: { workstation: { select: { workstation_label: true } }, lines: { include: { lots: true } } },
+  });
+  const sentByLot = new Map<number, number>();
+  for (const r of rows) {
+    if (r.status !== "Posted" && r.status !== "Received") continue;
+    for (const l of r.lines) for (const p of l.lots) sentByLot.set(p.lot_id, fromUnits(units(sentByLot.get(p.lot_id) ?? 0) + units(p.base_qty.toNumber())));
+  }
+  return {
+    issues: rows.map((r) => ({
+      id: r.id,
+      issueNo: r.issue_no,
+      issueDate: isoDay(r.issue_date),
+      status: r.status as StockIssueStatus,
+      workstationLabel: r.workstation?.workstation_label ?? "",
+      cost: r.cost_amount.toNumber(),
+    })),
+    sentByLot,
+  };
+}
+
+/** Why a Perintah may not be closed yet: a BSTB from it is still a Draft or in transit. Null when it may. */
+export async function openIssuesRefusal(orderId: number, db: Db = prisma): Promise<string | null> {
+  const typeId = await docTypeId(db, "prd_order");
+  const live = await db.logStockIssue.findMany({
+    where: { source_doc_type_id: typeId, source_doc_id: orderId, status: { in: ["Draft", "Posted"] } },
+    select: { issue_no: true, status: true },
+  });
+  if (!live.length) return null;
+  const names = live.map((i) => `${i.issue_no} (${i.status === "Draft" ? "Draft" : "belum diterima"})`).join(", ");
+  return `Perintah belum bisa ditutup: masih ada BSTB ${names}. Posting, terima, tolak atau batalkan dulu.`;
 }

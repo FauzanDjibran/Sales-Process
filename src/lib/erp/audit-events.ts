@@ -31,6 +31,7 @@ import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
 import { DELIVERY_ORDER_TRANSITIONS } from "./delivery-order-workflow";
 import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
 import { STOCK_ISSUE_TRANSITIONS } from "./stock-issue-workflow";
+import { PRODUCTION_ORDER_TRANSITIONS } from "./production-order-workflow";
 import { RECEIPT_NOTE_TRANSITIONS } from "./receipt-note-workflow";
 import { PURCHASE_INVOICE_TRANSITIONS } from "./ap-invoice-workflow";
 import { COST_BILL_TRANSITIONS } from "./production-cost-bill-workflow";
@@ -183,12 +184,23 @@ const DELIVERY_NOTE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(DELIVERY_NOTE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
-/** Stock Issue: Draft → Diposting, or Dibatalkan (P158). */
+/** Stock Issue — the Logistik BSTB: Draft → Dikirim → Diterima or Ditolak, or Dibatalkan (P158, M113). */
 const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   create: { label: "Stock Issue dibuat", icon: "layers", tone: "neutral" },
-  post: fromTransition(STOCK_ISSUE_TRANSITIONS.post, "Diposting — barang masuk produksi"),
+  post: fromTransition(STOCK_ISSUE_TRANSITIONS.post, "Diposting — barang dikirim ke Workstation"),
+  receive: fromTransition(STOCK_ISSUE_TRANSITIONS.receive, "Diterima di Workstation"),
+  reject: fromTransition(STOCK_ISSUE_TRANSITIONS.reject, "Ditolak — barang kembali ke gudang"),
   cancel: fromTransition(STOCK_ISSUE_TRANSITIONS.cancel, "Dibatalkan"),
+};
+
+/** Perintah Produksi: Draft → Open → Ditutup, or Dibatalkan (M121). */
+const PRODUCTION_ORDER_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Perintah Produksi dibuat", icon: "clip", tone: "neutral" },
+  open: fromTransition(PRODUCTION_ORDER_TRANSITIONS.open, "Dibuka"),
+  close: fromTransition(PRODUCTION_ORDER_TRANSITIONS.close, "Ditutup"),
+  cancel: fromTransition(PRODUCTION_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
 /** Receipt Note: Draft → Posted, or Dibatalkan (P125). */
@@ -325,6 +337,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   log_delivery_note: DELIVERY_NOTE_EVENTS,
   log_receipt_note: RECEIPT_NOTE_EVENTS,
   log_stock_issue: STOCK_ISSUE_EVENTS,
+  prd_order: PRODUCTION_ORDER_EVENTS,
   pur_request: PURCHASE_REQUEST_EVENTS,
   pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,

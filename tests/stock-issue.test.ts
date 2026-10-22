@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 
 import {
   createStockIssue,
+  openIssuesRefusal,
+  stockIssuesOfOrder,
   getStockIssue,
   stockIssueOptions,
   stockIssuePreview,
@@ -12,6 +14,8 @@ import {
   type StockIssueLineInput,
 } from "../src/lib/erp/stock-issue";
 import { availableStockIssueActions, stockIssueAbilities } from "../src/lib/erp/stock-issue-workflow";
+import { createProductionOrder, transitionProductionOrder, type ProductionOrderLotInput } from "../src/lib/erp/production-order";
+import { produce } from "../src/lib/erp/production-ledger";
 import {
   FIXTURE_PREFIX,
   cleanupFiscalYear,
@@ -37,12 +41,19 @@ import {
  * M62); that it writes Dr WIP / Cr Persediaan and the dry run equals it; that
  * short stock is refused; and that a second issue of a lot to the same
  * workstation adds to its bucket.
+ *
+ * As the Logistik BSTB (Walet step 3, M113): posted goods are in transit and
+ * cannot be worked; Terima moves each sending's own figures to the station;
+ * Tolak sends them back to the lot they left at the value they left at, with
+ * Dr Persediaan / Cr WIP; a BSTB may be raised from an Open Perintah Produksi,
+ * which cannot close while one is a Draft or in transit.
  */
 
 const today = new Date().toISOString().slice(0, 10);
 let actor = 0;
 const f = {} as Record<string, number>;
 const ids: number[] = [];
+const orderIds: number[] = [];
 const cleanups: (() => Promise<unknown>)[] = [];
 const stamp = String(Date.now() % 100000);
 const key = (s: string) => `${FIXTURE_PREFIX}${s}${stamp}`;
@@ -142,6 +153,10 @@ after(async () => {
   await prisma.logStockIssueLine.deleteMany({ where: { stock_issue_id: { in: ids } } });
   await prisma.logStockIssue.deleteMany({ where: { id: { in: ids } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "log_stock_issue", row_id: { in: ids } } });
+  await prisma.prdOrderLot.deleteMany({ where: { order_id: { in: orderIds } } });
+  await prisma.prdOrderStep.deleteMany({ where: { order_id: { in: orderIds } } });
+  await prisma.prdOrder.deleteMany({ where: { id: { in: orderIds } } });
+  await prisma.auditLog.deleteMany({ where: { entity_key: "prd_order", row_id: { in: orderIds } } });
   await prisma.prdLedger.deleteMany({ where: { item_id: { in: items } } });
   await prisma.prdBalance.deleteMany({ where: { item_id: { in: items } } });
   for (const [k, v] of savedSettings) await prisma.sysSetting.update({ where: { setting_key: k }, data: { setting_value: v } });
@@ -189,7 +204,7 @@ describe("what a Stock Issue may be saved with", () => {
     assert.ok(!elsewhere.ok && /tidak ada di gudang/.test(elsewhere.errors["lines.0.picks"]));
     const part = await create(header(), [line(f.rm, 30, [{ lot: f.r1, qty: 10 }])]);
     assert.ok(part.ok, JSON.stringify(part));
-    assert.match(part.issueNo, /^SI\/\d{4}\/\d{2}\/\d{4}$/);
+    assert.match(part.issueNo, /^BSTB_LOG_\d{6}_\d{5}$/, "the Logistik BSTB's number (M124)");
     f.part = part.id;
   });
 });
@@ -213,7 +228,7 @@ describe("posting moves the goods from stock into production (Dr WIP / Cr Persed
     assert.equal((await getStockIssue(f.part))!.status, "Draft");
   });
 
-  test("each lot leaves at the moving average and enters production at the workstation under the same lot (M128)", async () => {
+  test("each lot leaves at the moving average and enters production in transit to the workstation, under the same lot (M128, M113)", async () => {
     const r = await transitionStockIssue(f.part, "post", actor);
     assert.deepEqual(r, { ok: true });
     const v = (await getStockIssue(f.part))!;
@@ -224,7 +239,7 @@ describe("posting moves the goods from stock into production (Dr WIP / Cr Persed
     const bucket = await prisma.prdBalance.findFirstOrThrow({ where: { item_id: f.rm, workstation_id: f.ws }, include: { lot: true } });
     assert.equal(bucket.lot_id, f.r1, "one register: the stock lot itself, not a copy");
     assert.equal(bucket.lot.tracking_no, key("R1").toUpperCase());
-    assert.deepEqual([bucket.partai_id, bucket.job_id, bucket.in_transit], [null, null, false], "no Partai before its first transformation");
+    assert.deepEqual([bucket.partai_id, bucket.job_id, bucket.in_transit], [null, null, true], "no Partai yet; in transit until the station receives it");
     assert.deepEqual([bucket.qty_balance.toNumber(), bucket.value_balance.toNumber()], [30, 318_750]);
     const pick = await prisma.logStockIssueLot.findFirstOrThrow({ where: { line: { stock_issue_id: f.part } } });
     assert.equal(pick.prd_bucket_id, bucket.id);
@@ -241,6 +256,7 @@ describe("posting moves the goods from stock into production (Dr WIP / Cr Persed
   test("a second issue of the same lot to the same workstation adds to its bucket; a lot with expiry keeps it", async () => {
     const r = await create(header(), [line(f.rm, 70, [{ lot: f.r1, qty: 20 }, { lot: f.r2, qty: 50 }]), line(f.exp, 5, [{ lot: f.e1, qty: 5 }])]);
     assert.ok(r.ok, JSON.stringify(r));
+    f.second = r.id;
     assert.deepEqual(await transitionStockIssue(r.id, "post", actor), { ok: true });
     const r1 = await prisma.prdBalance.findFirstOrThrow({ where: { item_id: f.rm, workstation_id: f.ws, lot_id: f.r1 } });
     // The pool held 130 kg at 1.381.250 after the first issue: 20 kg release
@@ -275,5 +291,114 @@ describe("posting moves the goods from stock into production (Dr WIP / Cr Persed
     assert.deepEqual([v.status, v.cancelReason, v.journalId], ["Cancelled", "Salah gudang", null]);
     const again = await updateStockIssue(r.id, header(), [line(f.exp, 1, [])], actor);
     assert.ok(!again.ok);
+  });
+});
+
+describe("the workstation receives or rejects the BSTB whole (M113)", () => {
+  test("goods in transit cannot be worked", async () => {
+    const transit = await prisma.prdBalance.findFirstOrThrow({ where: { item_id: f.rm, workstation_id: f.ws, lot_id: f.r1, in_transit: true } });
+    await assert.rejects(
+      prisma.$transaction((tx) =>
+        produce(tx, {
+          workstationId: f.ws,
+          inputs: [{ bucketId: transit.id, baseQty: 1 }],
+          outputs: [{ itemId: f.rm, lotNo: key("OUT"), expiry: null, baseQty: 1, weight: 1 }],
+          date: new Date(`${today}T00:00:00Z`),
+          source: { docTypeId: 1, docId: 1, no: "TEST" },
+          actorId: actor,
+        })
+      ),
+      /dalam perjalanan/
+    );
+  });
+
+  test("Terima needs a day not before the issue; it moves only this sending's own figures, with no journal", async () => {
+    const noDate = await transitionStockIssue(f.part, "receive", actor);
+    assert.ok(!noDate.ok && noDate.errors.date);
+    const early = await transitionStockIssue(f.part, "receive", actor, undefined, { date: "2000-01-01" });
+    assert.ok(!early.ok && /sebelum/.test(early.errors.date), JSON.stringify(early));
+    const journals = await prisma.accJournal.count();
+    assert.deepEqual(await transitionStockIssue(f.part, "receive", actor, undefined, { date: today }), { ok: true });
+    assert.equal(await prisma.accJournal.count(), journals, "receiving writes no journal");
+    const v = (await getStockIssue(f.part))!;
+    assert.deepEqual([v.status, v.receivedDate], ["Received", today]);
+    // The transit bucket held both issues' R1 (50 kg at 531.250); this one took exactly its 30 kg at 318.750.
+    const transit = await prisma.prdBalance.findFirstOrThrow({ where: { item_id: f.rm, workstation_id: f.ws, lot_id: f.r1, in_transit: true } });
+    assert.deepEqual([transit.qty_balance.toNumber(), transit.value_balance.toNumber()], [20, 212_500]);
+    const station = await prisma.prdBalance.findFirstOrThrow({ where: { item_id: f.rm, workstation_id: f.ws, lot_id: f.r1, in_transit: false } });
+    assert.deepEqual([station.qty_balance.toNumber(), station.value_balance.toNumber()], [30, 318_750]);
+    const pick = await prisma.logStockIssueLot.findFirstOrThrow({ where: { line: { stock_issue_id: f.part } } });
+    assert.equal(pick.received_bucket_id, station.id);
+    const again = await transitionStockIssue(f.part, "reject", actor, "Salah", { date: today });
+    assert.ok(!again.ok, "a received BSTB is final");
+  });
+
+  test("Tolak needs a reason; its dry run shows Dr Persediaan / Cr WIP and writes nothing", async () => {
+    const noWhy = await transitionStockIssue(f.second, "reject", actor, " ", { date: today });
+    assert.ok(!noWhy.ok && noWhy.errors.reason);
+    const p = await stockIssuePreview(f.second, actor, "reject", today);
+    assert.ok(p.ok, JSON.stringify(p));
+    assert.equal(p.lines.length, 4, "two items, each Dr Persediaan / Cr WIP");
+    assert.equal((await getStockIssue(f.second))!.status, "Posted");
+  });
+
+  test("Tolak sends every pick back to its lot at the value it left at, and empties transit", async () => {
+    const before = await prisma.logStockBalance.findFirstOrThrow({ where: { item_id: f.rm, tracking_id: f.r1, warehouse_id: f.warehouse } });
+    assert.deepEqual(await transitionStockIssue(f.second, "reject", actor, "Lot tertukar", { date: today }), { ok: true });
+    const v = (await getStockIssue(f.second))!;
+    assert.deepEqual([v.status, v.rejectReason], ["Rejected", "Lot tertukar"]);
+    const after = await prisma.logStockBalance.findFirstOrThrow({ where: { item_id: f.rm, tracking_id: f.r1, warehouse_id: f.warehouse } });
+    assert.equal(after.qty_balance.toNumber() - before.qty_balance.toNumber(), 20, "the same lot, back in the same warehouse");
+    const r2 = await prisma.logStockBalance.findFirstOrThrow({ where: { item_id: f.rm, tracking_id: f.r2, warehouse_id: f.warehouse } });
+    assert.equal(r2.qty_balance.toNumber(), 50);
+    // Lot L1 is another issue's, still on its way: only this one's lots are looked at.
+    const transit = await prisma.prdBalance.findMany({ where: { lot_id: { in: [f.r1, f.r2, f.e1] }, workstation_id: f.ws, in_transit: true } });
+    assert.ok(transit.every((b) => b.qty_balance.isZero() && b.value_balance.isZero()), "nothing of it is left in transit");
+    const journal = await prisma.accJournal.findUniqueOrThrow({ where: { id: v.returnJournalId! }, include: { lines: true } });
+    const wip = journal.lines.filter((l) => l.account_id === f.wipAcc).reduce((s, l) => s + l.kredit_amount.toNumber(), 0);
+    const inv = journal.lines.filter((l) => l.account_id === f.invAcc).reduce((s, l) => s + l.debit_amount.toNumber(), 0);
+    assert.deepEqual([wip, inv], [v.cost, v.cost], "WIP gives back exactly what the BSTB moved");
+  });
+});
+
+describe("a BSTB raised from a Perintah Produksi (M121, O4)", () => {
+  const planned = (lot: number, qty: number): ProductionOrderLotInput => ({ item_id: f.rm, lot_id: lot, qty, note: "" });
+  const orderHeader = () => ({ order_date: today, target_item_id: f.rm, routing_id: null, warehouse_id: f.warehouse, note: "" });
+
+  test("a Perintah needs a route and planned lots of its warehouse; it is numbered PP_", async () => {
+    const empty = await createProductionOrder(orderHeader(), [], [], actor);
+    assert.ok(!empty.ok && empty.errors._steps && empty.errors._lots);
+    const elsewhere = await createProductionOrder(orderHeader(), [{ workstation_id: f.ws, mode: "Transform", bom_id: null }], [planned(f.l1, 1)], actor);
+    assert.ok(!elsewhere.ok && /tidak ada di gudang/.test(elsewhere.errors["lots.0.lot_id"]), JSON.stringify(elsewhere));
+    const r = await createProductionOrder(orderHeader(), [{ workstation_id: f.ws, mode: "Transform", bom_id: null }], [planned(f.r1, 10)], actor);
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.match(r.orderNo, /^PP_\d{6}_\d{5}$/);
+    orderIds.push(r.id);
+    f.order = r.id;
+  });
+
+  test("only an Open Perintah takes a BSTB; it cannot close while one is a Draft or in transit", async () => {
+    const draft = await create(header({ order_id: f.order }), [line(f.rm, 10, [{ lot: f.r1, qty: 10 }])]);
+    assert.ok(!draft.ok && draft.errors.order_id, "a Draft Perintah sends nothing");
+    assert.deepEqual(await transitionProductionOrder(f.order, "open", actor), { ok: true });
+    const r = await create(header({ order_id: f.order }), [line(f.rm, 10, [{ lot: f.r1, qty: 10 }])]);
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.equal((await getStockIssue(r.id))!.orderNo?.startsWith("PP_"), true);
+    const guard = () => openIssuesRefusal(f.order);
+    const whileDraft = await transitionProductionOrder(f.order, "close", actor, "Selesai", guard);
+    assert.ok(!whileDraft.ok && /Draft/.test(whileDraft.errors._form), JSON.stringify(whileDraft));
+    assert.deepEqual(await transitionStockIssue(r.id, "post", actor), { ok: true });
+    const inTransit = await transitionProductionOrder(f.order, "close", actor, "Selesai", guard);
+    assert.ok(!inTransit.ok && /belum diterima/.test(inTransit.errors._form));
+    assert.deepEqual(await transitionStockIssue(r.id, "receive", actor, undefined, { date: today }), { ok: true });
+    const sent = await stockIssuesOfOrder(f.order);
+    assert.equal(sent.sentByLot.get(f.r1), 10);
+    assert.deepEqual(await transitionProductionOrder(f.order, "close", actor, "Selesai", guard), { ok: true });
+  });
+
+  test("a BSTB without a Perintah is still allowed (O4)", async () => {
+    const r = await create(header({ order_id: null }), [line(f.exp, 1, [{ lot: f.e1, qty: 1 }])]);
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.equal((await getStockIssue(r.id))!.orderNo, null);
   });
 });

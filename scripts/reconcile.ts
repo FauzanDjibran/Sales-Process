@@ -767,21 +767,29 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
-    name: "a posted Stock Issue's journal debits its cost; only a posted one with a value has one (P158)",
+    name: "a posted Stock Issue's journal debits its cost; only a posted one with a value has one; a rejected one's return journal credits it back (P158, M113)",
     sql: `SELECT s.issue_no, s.status::text, s.cost_amount, s.journal_id, SUM(l.debit_amount) AS journal_debit
           FROM log_stock_issue s
           LEFT JOIN acc_journal j ON j.id = s.journal_id AND j.status = 'Posted' AND j.source_doc_type_id = ${docType("log_stock_issue")} AND j.source_doc_id = s.id
           LEFT JOIN acc_journal_line l ON l.journal_id = j.id
           GROUP BY s.id
-          HAVING (s.status = 'Posted' AND s.cost_amount > 0 AND COALESCE(SUM(l.debit_amount), 0) <> s.cost_amount)
-              OR (s.status <> 'Posted' AND s.journal_id IS NOT NULL)`,
+          HAVING (s.status IN ('Posted', 'Received', 'Rejected') AND s.cost_amount > 0 AND COALESCE(SUM(l.debit_amount), 0) <> s.cost_amount)
+              OR (NOT s.status IN ('Posted', 'Received', 'Rejected') AND s.journal_id IS NOT NULL)
+          UNION ALL
+          SELECT s.issue_no, s.status::text, s.cost_amount, s.return_journal_id, SUM(l.kredit_amount)
+          FROM log_stock_issue s
+          LEFT JOIN acc_journal j ON j.id = s.return_journal_id AND j.status = 'Posted' AND j.source_doc_type_id = ${docType("log_stock_issue")} AND j.source_doc_id = s.id
+          LEFT JOIN acc_journal_line l ON l.journal_id = j.id
+          GROUP BY s.id
+          HAVING (s.status = 'Rejected' AND s.cost_amount > 0 AND COALESCE(SUM(l.kredit_amount), 0) <> s.cost_amount)
+              OR (s.status <> 'Rejected' AND s.return_journal_id IS NOT NULL)`,
   },
   {
     area: "production",
     name: "a posted Stock Issue's value left stock and entered production lot by lot, under the same lot (P158, M128, plan §12 control 12)",
     sql: `WITH pick AS (SELECT s.id AS issue_id, s.issue_no, p.prd_bucket_id, p.lot_id, p.lot_no, p.cost_amount
                        FROM log_stock_issue s JOIN log_stock_issue_line x ON x.stock_issue_id = s.id JOIN log_stock_issue_lot p ON p.stock_issue_line_id = x.id
-                       WHERE s.status = 'Posted'),
+                       WHERE s.status IN ('Posted', 'Received', 'Rejected')),
                entered AS (SELECT l.source_doc_id AS issue_id, l.bucket_id, SUM(l.value_change) AS value
                            FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("log_stock_issue")} AND l.movement = 'Issued'
                            GROUP BY l.source_doc_id, l.bucket_id),
@@ -792,14 +800,33 @@ export const CHECKS: Check[] = [
           WHERE picked.value IS DISTINCT FROM entered.value
           UNION ALL
           SELECT s.id, NULL, s.cost_amount, (SELECT -SUM(v.value_change) FROM log_stock_valuation_ledger v
-                                             WHERE v.source_doc_type_id = ${docType("log_stock_issue")} AND v.source_doc_id = s.id), NULL
-          FROM log_stock_issue s WHERE s.status = 'Posted'
+                                             WHERE v.source_doc_type_id = ${docType("log_stock_issue")} AND v.source_doc_id = s.id AND v.qty_change < 0), NULL
+          FROM log_stock_issue s WHERE s.status IN ('Posted', 'Received', 'Rejected')
             AND s.cost_amount <> COALESCE((SELECT -SUM(v.value_change) FROM log_stock_valuation_ledger v
-                                           WHERE v.source_doc_type_id = ${docType("log_stock_issue")} AND v.source_doc_id = s.id), 0)
+                                           WHERE v.source_doc_type_id = ${docType("log_stock_issue")} AND v.source_doc_id = s.id AND v.qty_change < 0), 0)
           UNION ALL
           SELECT pick.issue_id, pick.prd_bucket_id, NULL, NULL, pick.lot_no
           FROM pick LEFT JOIN prd_balance b ON b.id = pick.prd_bucket_id
           WHERE b.id IS NULL OR b.lot_id <> pick.lot_id`,
+  },
+  {
+    area: "production",
+    name: "a Stock Issue in transit holds its cost in transit; received, its cost reached the station; rejected, it came back to stock (M113)",
+    sql: `WITH moves AS (SELECT l.source_doc_id AS issue_id,
+                             SUM(l.value_change) FILTER (WHERE l.in_transit) AS in_transit,
+                             SUM(l.value_change) FILTER (WHERE NOT l.in_transit AND l.movement = 'Received') AS at_station,
+                             COUNT(*) FILTER (WHERE l.movement = 'Returned') AS returned
+                      FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("log_stock_issue")} GROUP BY l.source_doc_id),
+               back AS (SELECT v.source_doc_id AS issue_id, SUM(v.value_change) FILTER (WHERE v.qty_change > 0) AS value
+                        FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("log_stock_issue")} GROUP BY v.source_doc_id)
+          SELECT s.issue_no, s.status::text, s.cost_amount, m.in_transit, m.at_station, back.value AS back_in_stock
+          FROM log_stock_issue s
+          LEFT JOIN moves m ON m.issue_id = s.id LEFT JOIN back ON back.issue_id = s.id
+          WHERE (s.status = 'Posted' AND COALESCE(m.in_transit, 0) <> s.cost_amount)
+             -- An issue received before step 3 went straight to its station, never through transit.
+             OR (s.status = 'Received' AND m.in_transit IS NOT NULL AND (m.in_transit <> 0 OR COALESCE(m.at_station, 0) <> s.cost_amount))
+             OR (s.status = 'Rejected' AND (COALESCE(m.in_transit, 0) <> 0 OR COALESCE(back.value, 0) <> s.cost_amount OR COALESCE(m.at_station, 0) <> 0))
+             OR (s.status NOT IN ('Posted', 'Received', 'Rejected') AND m.issue_id IS NOT NULL)`,
   },
   {
     area: "production",

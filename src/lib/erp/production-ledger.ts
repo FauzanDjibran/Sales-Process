@@ -33,6 +33,9 @@ import { freeNumber, nextDailyNumber } from "./production-number";
  *   to one Partai at most.
  * - **A Partai** (`P_<DDMMYY>_<NNNNN>`) and **a Job** (`<Kode Job>_<DDMMYY>_<NNNNN>`,
  *   M124, M126) are started by the documents that make them.
+ * - **Transit** (M113): goods sent to a station wait in its transit bucket
+ *   until it **receives** them (into its own bucket) or **returns** them, each
+ *   sending moving exactly its own quantity and value.
  * - **Revaluing** adds a value with quantity 0 — the month-end close (M96).
  *
  * Only a Barang with Kelola Stok enters production (M8). Buckets are locked
@@ -55,7 +58,7 @@ export class ProductionRefusal extends Error {}
 
 export type ProductionSource = { docTypeId: number; docId: number; no: string };
 
-type Movement = "Issued" | "Consumed" | "Produced" | "Released" | "Revalued";
+type Movement = "Issued" | "Consumed" | "Produced" | "Released" | "Revalued" | "Received" | "Returned";
 
 const qtyText = (d: Dec) => d.toDecimalPlaces(4).toString().replace(".", ",");
 const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
@@ -383,6 +386,65 @@ export async function takeFromBucket(tx: Tx, t: ProductionTake): Promise<TakenFr
     partaiId: b.partaiId,
     jobId: b.jobId,
   };
+}
+
+// -------------------------------------------------------------- transit
+
+export type TransitMove = {
+  /** A bucket in transit — what the sending document put there. */
+  bucketId: number;
+  /** In the item's base unit: exactly what that document sent of this lot. */
+  baseQty: number | string | Dec;
+  /** Whole rupiah: exactly the value it sent with it. */
+  value: number | string | Dec;
+  date: Date;
+  source: ProductionSource;
+  actorId: number;
+};
+
+/**
+ * Takes one sending's own quantity and value out of a transit bucket — not
+ * round(V × q ÷ Q): two sendings of one lot to one station share the bucket,
+ * and each leaves it with exactly what it brought, so the last leaves it 0 / 0.
+ */
+async function takeSent(tx: Tx, m: TransitMove, movement: Movement): Promise<Bucket> {
+  const b = await lockBucketById(tx, m.bucketId);
+  if (!b) throw new ProductionRefusal("Saldo dalam perjalanan tidak ditemukan.");
+  if (!b.inTransit) throw new ProductionRefusal("Barang ini tidak sedang dalam perjalanan.");
+  const qty = new D(m.baseQty);
+  const value = new D(m.value);
+  if (!qty.gt(0) || value.lt(0)) throw new ProductionRefusal("Jumlah yang diterima harus lebih dari 0.");
+  if (b.qty.lt(qty) || b.value.lt(value) || (qty.eq(b.qty) && !value.eq(b.value))) {
+    throw new ProductionRefusal("Saldo dalam perjalanan tidak cocok dengan pengiriman ini.");
+  }
+  await write(tx, b, { movement, qty: qty.neg(), value: value.neg(), date: m.date, source: m.source, actorId: m.actorId });
+  return b;
+}
+
+/**
+ * The workstation receives goods sent to it (M113): the sending's quantity and
+ * value leave the transit bucket and enter the station's bucket of the same
+ * lot, Partai and Job. No value changes; no journal.
+ */
+export async function receiveTransit(tx: Tx, m: TransitMove): Promise<{ bucketId: number }> {
+  const from = await takeSent(tx, m, "Received");
+  const uom = await tx.prdBalance.findUniqueOrThrow({ where: { id: from.id }, select: { uom_id: true } });
+  const to = await openBucket(
+    tx,
+    { lotId: from.lotId, partaiId: from.partaiId, jobId: from.jobId, workstationId: from.workstationId, inTransit: false, itemId: from.itemId, uomId: uom.uom_id },
+    m.actorId
+  );
+  await write(tx, to, { movement: "Received", qty: new D(m.baseQty), value: new D(m.value), date: m.date, source: m.source, actorId: m.actorId });
+  return { bucketId: to.id };
+}
+
+/**
+ * The workstation rejects goods sent to it (M113): the sending's quantity and
+ * value leave the transit bucket, back to whoever sent them — the sending
+ * document puts them there (stock, for the Logistik BSTB).
+ */
+export async function returnTransit(tx: Tx, m: TransitMove): Promise<void> {
+  await takeSent(tx, m, "Returned");
 }
 
 // ------------------------------------------------------------ producing

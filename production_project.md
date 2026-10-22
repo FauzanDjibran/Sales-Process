@@ -1008,9 +1008,11 @@ company. Where a decision below differs from an earlier M-decision, it wins on
 | 8 | **Penutupan Biaya Produksi** (M96–M99) |
 | 9 | **MRP** (parked) |
 
-Open before 5c: whether a separate *Perintah Produksi* is still needed once
-the Partai carries its Job Order and routing (§21g note in `Claude-ERP.md`
-P161).
+The *Perintah Produksi* stays (M121) and is built with the Logistik BSTB
+(`Claude-ERP.md` P164). The user's answers of 22/10/2026: the Partai is
+started by the hand-over that boxes a station's output into Jobs (O3); a
+BSTB from Logistik need not come from a Perintah (O4); a Reject output stays
+in production until taken out (O6).
 
 ---
 

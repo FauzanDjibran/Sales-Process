@@ -147,6 +147,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Tagihan Biaya", "prd_cost_bill"],
   // Goods leaving stock for production (P158): the stock and production ledgers and its journal name it.
   ["Stock Issue", "log_stock_issue"],
+  // Walet step 3 (M121): the Logistik BSTB names the Perintah it is raised from.
+  ["Perintah Produksi", "prd_order"],
 ];
 
 /**

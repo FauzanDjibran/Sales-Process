@@ -20,6 +20,7 @@
  *   log_stock_issue(_line, _lot)                   Stock Issues (P158)
  *   prd_ledger, prd_balance, prd_lot_link,         the production ledger (P157, P163)
  *   prd_job(_parent), prd_partai
+ *   prd_order(_step, _lot)                         Perintah Produksi (Walet step 3)
  *   log_stock_ledger, log_stock_balance,          the stock books and their lots (P120);
  *   log_stock_valuation_ledger / _balance,         stock comes back with
  *   log_stock_tracking                             `db:stock-inject`
@@ -86,6 +87,7 @@ const DOCUMENT_ENTITY_KEYS = [
   "sal_delivery_order",
   "log_delivery_note",
   "log_stock_issue",
+  "prd_order",
   "fin_ar_invoice",
   "fin_ar_advance",
   "fin_cash_bank_tx",
@@ -114,6 +116,7 @@ async function main() {
     log_delivery_note: await prisma.logDeliveryNote.count(),
     log_stock_issue: await prisma.logStockIssue.count(),
     prd_ledger: await prisma.prdLedger.count(),
+    prd_order: await prisma.prdOrder.count(),
     log_stock_ledger: await prisma.logStockLedger.count(),
     log_stock_balance: await prisma.logStockBalance.count(),
     log_stock_valuation_ledger: await prisma.logStockValuationLedger.count(),
@@ -193,6 +196,10 @@ async function main() {
     await tx.prdJobParent.deleteMany();
     await tx.prdJob.deleteMany();
     await tx.prdPartai.deleteMany();
+    // A Perintah names stock lots, which go below.
+    await tx.prdOrderLot.deleteMany();
+    await tx.prdOrderStep.deleteMany();
+    await tx.prdOrder.deleteMany();
     await tx.logStockLedger.deleteMany();
     await tx.logStockBalance.deleteMany();
     await tx.logStockValuationLedger.deleteMany();
