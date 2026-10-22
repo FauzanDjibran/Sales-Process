@@ -622,6 +622,7 @@ table ref_workstation {
 
   cost_center_id              int [not null, ref : > acc_cost_center.id] // an active Produksi Cost Center
   job_code                    varchar [unique] // Kode Job (M126): code of Jobs made at its output (UGH, UDB); null = keeps the Jobs it receives
+  mode                        enum('Transform', 'PassThrough', 'MixTransform') [not null, default: 'Transform'] // Cara Kerja (P166)
 
   note                        varchar
 
@@ -2987,6 +2988,7 @@ table prd_bom {
   bom_label                   varchar [not null]
   bom_name                    varchar [not null]
   item_id                     int [not null, ref : > m_item.id] // the output, a Barang with Kelola Stok
+  workstation_id              int [not null, ref : > ref_workstation.id] // where the components go in (P166); one default per item per workstation
   base_qty                    decimal(18,6) [not null, note: 'CHECK > 0, the output base unit']
   is_default                  boolean [not null, default: false]
 
@@ -3011,7 +3013,6 @@ table prd_bom_line {
   bom_id                      int [not null, ref : > prd_bom.id]
   item_id                     int [not null, ref : > m_item.id] // never the BoM's own output
   qty                         decimal(18,6) [not null, note: 'CHECK > 0, per the base quantity']
-  step_no                     int // the routing step that consumes it; null = the step that makes the output
 
   created_by                  int [not null]
   updated_by                  int
@@ -3058,8 +3059,6 @@ table prd_routing_step {
   routing_id                  int [not null, ref : > prd_routing.id]
   step_no                     int [not null] // 1..n in order
   workstation_id              int [not null, ref : > ref_workstation.id]
-  mode                        enum('MixTransform', 'Transform', 'PassThrough') [not null]
-  bom_id                      int [ref : > prd_bom.id] // the BoM a step suggests, optional
 
   created_by                  int [not null]
   updated_by                  int
@@ -3106,8 +3105,6 @@ table prd_order_step {
   order_id                    int [not null, ref : > prd_order.id]
   step_no                     int [not null]
   workstation_id              int [not null, ref : > ref_workstation.id]
-  mode                        enum('MixTransform', 'Transform', 'PassThrough') [not null]
-  bom_id                      int [ref : > prd_bom.id]
 
   indexes {
     (order_id, step_no) [unique]

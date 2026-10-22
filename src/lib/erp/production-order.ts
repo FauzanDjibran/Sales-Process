@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { routingAndBomChoices, type BomChoice, type RoutingChoice } from "./production-master";
 import { nextDailyNumber } from "./production-number";
-import { ROUTING_MODE_TEXT, type RoutingStepModeValue } from "./production-master-shape";
+import type { RoutingStepModeValue } from "./production-master-shape";
 import { orderRequirements, type Requirement } from "./production-order-shape";
 import {
   PRODUCTION_ORDER_TRANSITIONS,
@@ -20,10 +20,11 @@ import {
  * `prd_order_requirement`, and nothing else names them.
  *
  * PPIC raises one Perintah per Partai: the **Item Target** (what the Partai is
- * to become) and the **Qty Target**, and its **route** — copied from a Routing
- * of that item and changed freely while a Draft. Its **material requirements**
- * are worked out from the BoMs the route names (else the item's default BoM)
- * for that quantity (`production-order-shape.ts`), at every save and again at
+ * to become) and the **Qty Target**, and its **route** — the workstations it
+ * passes, copied from a Routing of that item and changed freely while a Draft;
+ * each works by its own Cara Kerja (P166). Its **material requirements** are
+ * the Item Target's BoMs at those workstations × that quantity
+ * (`production-order-shape.ts`), worked out at every save and again at
  * *Buka*, and are never typed: without a BoM there are none and what goes in is
  * free. The Perintah names no lot and no warehouse — the Logistik BSTB picks
  * and sends (`productionOrdersForIssue`), each to a station, pre-filled from
@@ -41,7 +42,7 @@ export type ProductionOrderHeaderInput = {
   note: string;
 };
 
-export type ProductionOrderStepInput = { workstation_id: number | null; mode: RoutingStepModeValue | null; bom_id: number | null };
+export type ProductionOrderStepInput = { workstation_id: number | null };
 
 export type ProductionOrderResult = { ok: true; id: number; orderNo: string } | { ok: false; errors: Record<string, string> };
 
@@ -63,7 +64,8 @@ export type ProductionOrderOptions = {
   /** Barang with Kelola Stok — the only items production holds (M8); also every BoM component. */
   items: PpItemOption[];
   routings: RoutingChoice[];
-  workstations: PpOption[];
+  /** Each with its Cara Kerja (P166). */
+  workstations: (PpOption & { mode: RoutingStepModeValue })[];
   boms: BomChoice[];
 };
 
@@ -92,21 +94,21 @@ export async function productionOrderOptions(current: ProductionOrderCurrent | n
     db.refWorkstation.findMany({
       where: { OR: [{ status: "Active" }, ...(current?.workstationIds.length ? [{ id: { in: current.workstationIds } }] : [])] },
       orderBy: { workstation_label: "asc" },
-      select: { id: true, workstation_label: true, workstation_name: true, status: true },
+      select: { id: true, workstation_label: true, workstation_name: true, status: true, mode: true },
     }),
   ]);
   const stockItem = (i: (typeof items)[number]) => i.status === "Active" && i.item_type === "Barang" && i.track_stock;
   return {
     items: items.map((i) => ({ id: i.id, label: i.item_label, name: i.item_name, active: stockItem(i), uomId: i.base_uom_id, uomLabel: i.base_uom.uom_label })),
     routings: choices.routings,
-    workstations: workstations.map((w) => ({ id: w.id, label: w.workstation_label, name: w.workstation_name, active: w.status === "Active" })),
+    workstations: workstations.map((w) => ({ id: w.id, label: w.workstation_label, name: w.workstation_name, active: w.status === "Active", mode: w.mode as RoutingStepModeValue })),
     boms: choices.boms,
   };
 }
 
 // ------------------------------------------------------------- validation
 
-type CheckedStep = { step_no: number; workstation_id: number; mode: RoutingStepModeValue; bom_id: number | null };
+type CheckedStep = { step_no: number; workstation_id: number };
 type CheckedRequirement = { line_no: number; item_id: number; uom_id: number; qty: number; step_no: number | null; workstation_id: number | null; bom_id: number };
 
 type Checked = {
@@ -164,11 +166,7 @@ export async function checkProductionOrder(
     const ws = usable(options.workstations, wsId, stored?.steps.map((x) => x.workstation_id) ?? []);
     if (!wsId) errors[k("workstation_id")] = "Pilih workstation.";
     else if (!ws) errors[k("workstation_id")] = "Workstation tidak ditemukan atau nonaktif.";
-    const mode = s.mode && s.mode in ROUTING_MODE_TEXT ? s.mode : null;
-    if (!mode) errors[k("mode")] = "Pilih cara kerja.";
-    const bomId = Number(s.bom_id) || null;
-    if (bomId && !usable(options.boms, bomId, stored?.steps.map((x) => x.bom_id) ?? [])) errors[k("bom_id")] = "BoM tidak ditemukan atau nonaktif.";
-    if (ws && mode) outSteps.push({ step_no: outSteps.length + 1, workstation_id: ws.id, mode, bom_id: bomId });
+    if (ws) outSteps.push({ step_no: outSteps.length + 1, workstation_id: ws.id });
   }
   if (!errors._steps && Object.keys(errors).some((x) => x.startsWith("steps."))) errors._steps = "Ada langkah yang perlu diperbaiki.";
 
@@ -179,7 +177,7 @@ export async function checkProductionOrder(
   for (const r of orderRequirements(
     target.id,
     qty,
-    outSteps.map((s) => ({ workstationId: s.workstation_id, bomId: s.bom_id })),
+    outSteps.map((s) => ({ workstationId: s.workstation_id })),
     options.boms
   )) {
     const item = itemBy.get(r.itemId);
@@ -274,7 +272,7 @@ function currentOf(o: Prisma.PrdOrderGetPayload<{ include: { steps: true; requir
     targetItemId: o.target_item_id,
     routingId: o.routing_id,
     workstationIds: [...o.steps.map((s) => s.workstation_id), ...o.requirements.flatMap((r) => (r.workstation_id ? [r.workstation_id] : []))],
-    bomIds: [...o.steps.flatMap((s) => (s.bom_id ? [s.bom_id] : [])), ...o.requirements.map((r) => r.bom_id)],
+    bomIds: o.requirements.map((r) => r.bom_id),
     itemIds: o.requirements.map((r) => r.item_id),
   };
 }
@@ -288,7 +286,7 @@ function asInput(o: Stored) {
       routing_id: o.routing_id,
       note: o.note ?? "",
     } satisfies ProductionOrderHeaderInput,
-    steps: o.steps.map((s) => ({ workstation_id: s.workstation_id, mode: s.mode as RoutingStepModeValue, bom_id: s.bom_id })),
+    steps: o.steps.map((s) => ({ workstation_id: s.workstation_id })),
   };
 }
 
@@ -423,7 +421,7 @@ export function productionOrderCurrent(v: ProductionOrderView): ProductionOrderC
     targetItemId: Number(v.header.target_item_id),
     routingId: v.header.routing_id,
     workstationIds: [...v.steps.map((s) => Number(s.workstation_id)), ...v.requirements.flatMap((r) => (r.workstationId ? [r.workstationId] : []))],
-    bomIds: [...v.steps.flatMap((s) => (s.bom_id ? [s.bom_id] : [])), ...v.requirements.map((r) => r.bomId)],
+    bomIds: v.requirements.map((r) => r.bomId),
     itemIds: v.requirements.map((r) => r.itemId),
   };
 }

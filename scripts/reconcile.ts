@@ -918,8 +918,8 @@ export const CHECKS: Check[] = [
     // BoM and Routing (Walet build step 1): one default per item each, a BoM
     // never lists its own output, a routing's steps are numbered 1..n.
     area: "production",
-    name: "each item has at most one default BoM and one default Routing; no BoM lists its own output; Routing steps run 1..n",
-    sql: `SELECT 'bom default' AS what, item_id::TEXT AS ref FROM prd_bom WHERE is_default GROUP BY item_id HAVING COUNT(*) > 1
+    name: "each item has at most one default BoM per workstation and one default Routing; no BoM lists its own output; Routing steps run 1..n (P166)",
+    sql: `SELECT 'bom default' AS what, item_id::TEXT || '@' || workstation_id::TEXT AS ref FROM prd_bom WHERE is_default GROUP BY item_id, workstation_id HAVING COUNT(*) > 1
           UNION ALL SELECT 'routing default', item_id::TEXT FROM prd_routing WHERE is_default GROUP BY item_id HAVING COUNT(*) > 1
           UNION ALL SELECT 'bom own output', b.bom_label FROM prd_bom b JOIN prd_bom_line l ON l.bom_id = b.id WHERE l.item_id = b.item_id
           UNION ALL SELECT 'routing numbering', r.routing_label FROM prd_routing r JOIN prd_routing_step s ON s.routing_id = r.id

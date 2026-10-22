@@ -31,7 +31,7 @@
 
 | Part | What |
 | --- | --- |
-| **Workstation** | Its **label is the unit code** used in numbers (UGH, UPC, UPY, UPW, UCL, UDA, UML, UWP, UBC, UP5, UP8). New optional **Kode Job** — the code of Jobs made at its output (UGH → `UGH`, UML → `UDB`); empty = the station keeps the Jobs it receives (M126) |
+| **Workstation** | Its **Cara Kerja** (*Transformasi* / *Pass-through* / *Mix + Transformasi*) is its own since P166. Its **label is the unit code** used in numbers (UGH, UPC, UPY, UPW, UCL, UDA, UML, UWP, UBC, UP5, UP8). New optional **Kode Job** — the code of Jobs made at its output (UGH → `UGH`, UML → `UDB`); empty = the station keeps the Jobs it receives (M126) |
 | **Item** | New **Tipe Output** (Utama / Turunan / BJL, Barang only, M117) and **Bobot Nilai per gram** (value weight per base unit, `Decimal(18,6)`, ≥ 0; BJL fixed at 0; a temporary rate, M122) |
 | **Bill of Materials** (`prd_bom`, `prd_bom_line`) | Per output item: base quantity (grams / pcs), default flag, status; lines = component item + quantity per base quantity + optional **routing step** that consumes it. **A suggestion only**: it pre-fills an execution's inputs, never limits them. Master Data under Produksi |
 | **Routing** (`prd_routing`, `prd_routing_step`) | Per **Item Target** (the Partai's): ordered steps of workstation + **mode** (*Mix + Transformasi* at Moulding, *Transformasi*, *Pass-through*) + optional BoM for the step. Default flag, status. A Perintah copies it |

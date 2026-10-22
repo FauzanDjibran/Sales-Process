@@ -993,7 +993,7 @@ export const ENTITIES: Entity[] = [
   {
     // Where production transforms input into output (P150, G9): user master
     // data, never hard-coded. It names the Production Cost Center its cost is
-    // pooled into (P159, M93); its standard rate is a Tarif Standar row.
+    // pooled into (P159, M93) and knows how it works — its Cara Kerja (P166).
     key: "ref_workstation",
     slug: "workstation",
     module: "master",
@@ -1044,6 +1044,16 @@ export const ENTITIES: Entity[] = [
         placeholder: "UGH",
         help: "kode Job yang dibuat saat workstation ini menyerahkan barang dalam kotak; kosong = meneruskan Job yang diterima",
       },
+      {
+        name: "mode",
+        label: "Cara Kerja",
+        type: "select",
+        required: true,
+        options: ["Transform", "PassThrough", "MixTransform"],
+        optionLabels: { Transform: "Transformasi", PassThrough: "Pass-through", MixTransform: "Mix + Transformasi" },
+        span: 6,
+        help: "Transformasi membuat lot baru; Pass-through mempertahankan lot; Mix + Transformasi mencampur Job menjadi No. Moulding",
+      },
       STATUS_FIELD,
       NOTE_FIELD,
     ],
@@ -1052,6 +1062,7 @@ export const ENTITIES: Entity[] = [
       { field: "workstation_name", label: "Nama Workstation", primary: true, filter: "text" },
       { field: "cost_center_id", label: "Cost Center", isRef: true, width: "240px", filter: "ref" },
       { field: "job_code", label: "Kode Job", isLabel: true, width: "110px", filter: "text" },
+      { field: "mode", label: "Cara Kerja", isTag: true, width: "170px", filter: "enum" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
       { field: "note", label: "Catatan", muted: true, truncate: true },
     ],
@@ -1687,15 +1698,15 @@ export const ENTITIES: Entity[] = [
 
 
   {
-    // Bill of Materials (Walet build step 1): what goes into an output item per
-    // base quantity — a suggestion an execution starts from, never a limit.
+    // Bill of Materials (Walet build step 1, P166): what goes into an output item
+    // per base quantity at one workstation — a suggestion, never a limit.
     key: "prd_bom",
     slug: "bom",
     module: "production",
     name: "Bill of Materials",
     single: "Bill of Materials",
     icon: "layers",
-    desc: "Komponen yang masuk untuk menghasilkan suatu barang, per jumlah dasarnya. Saran untuk Eksekusi Produksi — yang benar-benar dipakai tetap dicatat sesuai kenyataan. Satu barang boleh punya beberapa BoM; satu menjadi default.",
+    desc: "Komponen yang masuk di satu workstation untuk menghasilkan suatu barang, per jumlah dasarnya. Saran untuk Perintah dan Eksekusi Produksi — yang benar-benar dipakai tetap dicatat sesuai kenyataan. Satu barang boleh punya beberapa BoM per workstation; satu menjadi default.",
     codeField: "bom_code",
     codePrefix: "bom",
     labelField: "bom_label",
@@ -1732,6 +1743,15 @@ export const ENTITIES: Entity[] = [
         help: "Barang dengan Kelola Stok",
       },
       {
+        name: "workstation_id",
+        label: "Workstation",
+        type: "ref",
+        ref: "ref_workstation",
+        required: true,
+        span: 6,
+        help: "tempat komponen ini dipakai",
+      },
+      {
         name: "base_qty",
         label: "Jumlah Dasar",
         type: "rate",
@@ -1745,7 +1765,7 @@ export const ENTITIES: Entity[] = [
         label: "Default",
         type: "bool",
         span: 3,
-        caption: "BoM default barang ini",
+        caption: "BoM default barang ini di workstation ini",
       },
       STATUS_FIELD,
       NOTE_FIELD,
@@ -1755,13 +1775,14 @@ export const ENTITIES: Entity[] = [
         key: "lines",
         label: "Komponen",
         icon: "box",
-        desc: "Barang yang dipakai per jumlah dasar, dan langkah routing yang memakainya bila bukan langkah yang menghasilkan barang ini.",
+        desc: "Barang yang dipakai di workstation BoM ini per jumlah dasar.",
         kind: "custom",
       },
     ],
     columns: [
       { field: "bom_label", label: "Label", isLabel: true, width: "150px", filter: "text" },
       { field: "item_id", label: "Barang Hasil", isRef: true, primary: true, filter: "ref" },
+      { field: "workstation_id", label: "Workstation", isRef: true, width: "170px", filter: "ref" },
       { field: "components", label: "Komponen", computed: true },
       { field: "is_default", label: "Default", isFlag: true, width: "100px" },
       { field: "status", label: "Status", isStatus: true, width: "110px", filter: "enum" },
@@ -1770,14 +1791,14 @@ export const ENTITIES: Entity[] = [
 
   {
     // Routing (Walet build step 1): the stations a Partai passes on its way to
-    // its Item Target, in order, each with how it works.
+    // its Item Target, in order; each works by its own Cara Kerja (P166).
     key: "prd_routing",
     slug: "routing",
     module: "production",
     name: "Routing",
     single: "Routing",
     icon: "tree",
-    desc: "Urutan workstation yang dilalui sebuah Partai menuju Item Target-nya, dengan cara kerja tiap langkah: Transformasi, Pass-through, atau Mix + Transformasi. Perintah Produksi menyalinnya. Satu barang boleh punya beberapa routing; satu menjadi default.",
+    desc: "Urutan workstation yang dilalui sebuah Partai menuju Item Target-nya; tiap workstation bekerja menurut Cara Kerja-nya sendiri. Perintah Produksi menyalinnya. Satu barang boleh punya beberapa routing; satu menjadi default.",
     codeField: "routing_code",
     codePrefix: "rte",
     labelField: "routing_label",
@@ -1828,7 +1849,7 @@ export const ENTITIES: Entity[] = [
         key: "steps",
         label: "Langkah",
         icon: "layers",
-        desc: "Workstation yang dilalui, berurutan, dengan cara kerjanya dan BoM bila langkah itu memakainya.",
+        desc: "Workstation yang dilalui, berurutan.",
         kind: "custom",
       },
     ],

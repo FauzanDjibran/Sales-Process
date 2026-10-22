@@ -61,7 +61,7 @@ import {
   standardCostItemsUsingAccount,
   writeStandardCostLines,
 } from "@/lib/erp/standard-cost";
-import { bomDeactivationRefusal, checkBom, checkRouting, writeBom, writeRouting } from "@/lib/erp/production-master";
+import { checkBom, checkRouting, writeBom, writeRouting } from "@/lib/erp/production-master";
 
 /**
  * Every action here is permission-gated before it touches anything, and every
@@ -867,10 +867,6 @@ export async function toggleStatus(
   }
   if (entity.key === "acc_standard_cost_item" && !nextActive) {
     const refusal = await standardCostItemDeactivationRefusal(id);
-    if (refusal) return { ok: false, message: refusal };
-  }
-  if (entity.key === "prd_bom" && !nextActive) {
-    const refusal = await bomDeactivationRefusal(id);
     if (refusal) return { ok: false, message: refusal };
   }
 

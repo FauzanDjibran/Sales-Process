@@ -36,7 +36,7 @@ describe("Workstation is a master the user creates (G9, M7)", () => {
   test("a registry entity under Master › Entitas with its own permissions", () => {
     const e = ENTITIES.find((x) => x.key === "ref_workstation");
     assert.equal(e?.module, "master");
-    assert.deepEqual(e!.fields.map((x) => x.name), ["workstation_label", "workstation_name", "cost_center_id", "job_code", "status", "note"]);
+    assert.deepEqual(e!.fields.map((x) => x.name), ["workstation_label", "workstation_name", "cost_center_id", "job_code", "mode", "status", "note"]);
     const p = entityPermissions("ref_workstation");
     for (const code of [p.view, p.create, p.edit, p.activate, p.deactivate]) {
       assert.ok(PERMISSIONS.some((x) => x.code === code), `${code} declared`);

@@ -10,7 +10,7 @@ import { type Entity, type Field, entityBySlug } from "./entities";
 import { ITEM_OPTIONS_REF } from "./standard-cost-shape";
 import { standardCostSummaries } from "./standard-cost";
 import { bomSummaries, routingSummaries } from "./production-master";
-import { BOM_COMPONENT_OPTIONS, ROUTING_BOM_OPTIONS, ROUTING_WORKSTATION_OPTIONS } from "./production-master-shape";
+import { BOM_COMPONENT_OPTIONS, ROUTING_WORKSTATION_OPTIONS } from "./production-master-shape";
 
 /**
  * Generic record access for registry-driven entities.
@@ -64,6 +64,8 @@ export type RefOption = {
   subcategoryId?: number;
   /** Kategori Item only: the Item Type it belongs to (P47). */
   itemType?: string;
+  /** Workstation only: its Cara Kerja (P166), shown beside it in a routing. */
+  mode?: string;
 };
 
 /** Pass a transaction client to run the write inside someone else's transaction. */
@@ -147,7 +149,6 @@ export async function refOptions(
   }
   if (entity.key === "prd_routing") {
     result[ROUTING_WORKSTATION_OPTIONS] = await optionsFor("ref_workstation");
-    result[ROUTING_BOM_OPTIONS] = await optionsFor("prd_bom");
   }
   return result;
 }
@@ -270,6 +271,7 @@ export async function optionsFor(
         label: r.workstation_label,
         name: r.workstation_name,
         active: r.status === "Active",
+        mode: r.mode,
       }));
     }
     case "acc_fiscal_period": {

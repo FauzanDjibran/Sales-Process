@@ -12,7 +12,7 @@ import { formatQty } from "@/lib/format";
 import type { RefOption } from "@/lib/erp/records";
 import {
   BOM_COMPONENT_OPTIONS,
-  ROUTING_BOM_OPTIONS,
+  ROUTING_MODE_BADGE,
   ROUTING_MODE_TEXT,
   ROUTING_WORKSTATION_OPTIONS,
   bomLineErrors,
@@ -24,7 +24,9 @@ import {
 
 /**
  * The Komponen tab of a Bill of Materials and the Langkah tab of a Routing
- * (Walet build step 1). Rows are saved with their record (P38).
+ * (Walet build step 1). Rows are saved with their record (P38). A BoM's
+ * components go in at the BoM's own workstation, and a routing step shows how
+ * its workstation works — both are the masters' (P166), never chosen here.
  */
 
 function Ident({ o }: { o?: RefOption }) {
@@ -38,8 +40,6 @@ function Ident({ o }: { o?: RefOption }) {
   );
 }
 
-const STEP_CHOICES = Array.from({ length: 30 }, (_, i) => ({ value: String(i + 1), label: `Langkah ${i + 1}` }));
-
 // ------------------------------------------------------------------- BoM
 
 export function BomLinesTab({ editing, items, error, onChange, context }: CollectionTabProps<BomLineDraft>) {
@@ -48,7 +48,7 @@ export function BomLinesTab({ editing, items, error, onChange, context }: Collec
   const byId = new Map(options.map((o) => [o.id, o]));
   const outputItemId = Number(context?.values.item_id) || null;
 
-  const blank = (): BomLineDraft => ({ key: newKey("l"), itemId: null, qty: "", stepNo: null });
+  const blank = (): BomLineDraft => ({ key: newKey("l"), itemId: null, qty: "" });
   const apply = (l: BomLineDraft) => {
     const exists = items.some((x) => x.key === l.key);
     onChange(exists ? items.map((x) => (x.key === l.key ? l : x)) : [...items, l]);
@@ -86,7 +86,6 @@ export function BomLinesTab({ editing, items, error, onChange, context }: Collec
                 <th style={{ width: 44 }}>No</th>
                 <th>Komponen</th>
                 <th className="num" style={{ width: 160 }}>Jumlah</th>
-                <th style={{ width: 140 }}>Langkah</th>
                 {editing && <th style={{ width: 72 }} />}
               </tr>
             </thead>
@@ -100,7 +99,6 @@ export function BomLinesTab({ editing, items, error, onChange, context }: Collec
                   <td className="num">
                     <span className="mny">{formatQty(l.qty)}</span>
                   </td>
-                  <td>{l.stepNo ? `Langkah ${l.stepNo}` : <span className="mut">langkah hasil</span>}</td>
                   {editing && (
                     <td>
                       <RowActions onEdit={() => setOpen(l)} onRemove={() => onChange(items.filter((x) => x.key !== l.key))} />
@@ -186,7 +184,7 @@ function BomLineDialog({
             }}
           />
         </Field>
-        <Field label="Jumlah" span={6} required help="satuan dasar komponen" error={errors.qty}>
+        <Field label="Jumlah" span={12} required help="satuan dasar komponen" error={errors.qty}>
           <RateInput
             value={l.qty}
             invalid={Boolean(errors.qty)}
@@ -197,14 +195,6 @@ function BomLineDialog({
             }}
           />
         </Field>
-        <Field label="Dipakai di Langkah" span={6} help="kosong = langkah yang menghasilkan barang ini" error={errors.stepNo}>
-          <Select
-            value={l.stepNo ? String(l.stepNo) : ""}
-            options={[{ value: "", label: "Langkah hasil" }, ...STEP_CHOICES]}
-            ariaLabel="Langkah routing"
-            onChange={(v) => setL((x) => ({ ...x, stepNo: v ? Number(v) : null }))}
-          />
-        </Field>
       </FormRow>
     </Dialog>
   );
@@ -212,16 +202,12 @@ function BomLineDialog({
 
 // --------------------------------------------------------------- Routing
 
-const MODE_CHOICES = (Object.keys(ROUTING_MODE_TEXT) as RoutingStepModeValue[]).map((m) => ({ value: m, label: ROUTING_MODE_TEXT[m] }));
-
 export function RoutingStepsTab({ editing, items, error, onChange, context }: CollectionTabProps<RoutingStepDraft>) {
   const [open, setOpen] = useState<{ step: RoutingStepDraft; at: number } | null>(null);
   const workstations = context?.refs[ROUTING_WORKSTATION_OPTIONS] ?? [];
-  const boms = context?.refs[ROUTING_BOM_OPTIONS] ?? [];
   const wsById = new Map(workstations.map((o) => [o.id, o]));
-  const bomById = new Map(boms.map((o) => [o.id, o]));
 
-  const blank = (): RoutingStepDraft => ({ key: newKey("s"), workstationId: null, mode: "Transform", bomId: null });
+  const blank = (): RoutingStepDraft => ({ key: newKey("s"), workstationId: null });
   const apply = (s: RoutingStepDraft, at: number) => {
     const rest = items.filter((x) => x.key !== s.key);
     rest.splice(Math.min(Math.max(at, 0), rest.length), 0, s);
@@ -233,7 +219,7 @@ export function RoutingStepsTab({ editing, items, error, onChange, context }: Co
     <CollectionCard
       icon="tree"
       title="Langkah"
-      desc="Workstation yang dilalui Partai, berurutan. Transformasi membuat lot baru; Pass-through mempertahankan lot; Mix + Transformasi mencampur Job menjadi No. Moulding lebih dulu."
+      desc="Workstation yang dilalui Partai, berurutan. Cara Kerja adalah milik tiap workstation: Transformasi membuat lot baru; Pass-through mempertahankan lot; Mix + Transformasi mencampur Job menjadi No. Moulding lebih dulu."
       editing={editing}
       addLabel="Tambah Langkah"
       onAdd={() => setOpen({ step: blank(), at: items.length })}
@@ -245,7 +231,7 @@ export function RoutingStepsTab({ editing, items, error, onChange, context }: Co
             <Icon name="tree" size={18} />
           </div>
           <h4>Belum ada langkah</h4>
-          <p>Tambahkan workstation pertama, mis. UGH — Grading Halus, Transformasi.</p>
+          <p>Tambahkan workstation pertama, mis. UGH — Grading Halus.</p>
           {editing && (
             <button className="btn primary sm cta" onClick={() => setOpen({ step: blank(), at: 0 })}>
               <Icon name="plus" size={14} /> Tambah Langkah
@@ -260,7 +246,6 @@ export function RoutingStepsTab({ editing, items, error, onChange, context }: Co
                 <th style={{ width: 70 }}>Langkah</th>
                 <th>Workstation</th>
                 <th style={{ width: 190 }}>Cara Kerja</th>
-                <th style={{ width: 220 }}>BoM</th>
                 {editing && <th style={{ width: 72 }} />}
               </tr>
             </thead>
@@ -272,9 +257,8 @@ export function RoutingStepsTab({ editing, items, error, onChange, context }: Co
                     <Ident o={s.workstationId ? wsById.get(s.workstationId) : undefined} />
                   </td>
                   <td>
-                    <span className={`bdg ${s.mode === "PassThrough" ? "t-slate" : s.mode === "MixTransform" ? "t-vio" : "t-info"}`}>{ROUTING_MODE_TEXT[s.mode]}</span>
+                    <ModeBadge mode={s.workstationId ? wsById.get(s.workstationId)?.mode : undefined} />
                   </td>
-                  <td>{s.bomId ? <span className="lab">{bomById.get(s.bomId)?.label ?? "—"}</span> : <span className="dash">—</span>}</td>
                   {editing && (
                     <td>
                       <RowActions onEdit={() => setOpen({ step: s, at: i })} onRemove={() => onChange(items.filter((x) => x.key !== s.key))} />
@@ -294,7 +278,6 @@ export function RoutingStepsTab({ editing, items, error, onChange, context }: Co
           count={items.some((x) => x.key === open.step.key) ? items.length : items.length + 1}
           isNew={!items.some((x) => x.key === open.step.key)}
           workstations={workstations.filter((o) => o.active || o.id === open.step.workstationId)}
-          boms={boms.filter((o) => o.active || o.id === open.step.bomId)}
           onCancel={() => setOpen(null)}
           onApply={apply}
         />
@@ -309,7 +292,6 @@ function RoutingStepDialog({
   count,
   isNew,
   workstations,
-  boms,
   onCancel,
   onApply,
 }: {
@@ -318,7 +300,6 @@ function RoutingStepDialog({
   count: number;
   isNew: boolean;
   workstations: RefOption[];
-  boms: RefOption[];
   onCancel: () => void;
   onApply: (s: RoutingStepDraft, at: number) => void;
 }) {
@@ -371,19 +352,19 @@ function RoutingStepDialog({
             }}
           />
         </Field>
-        <Field label="Cara Kerja" span={6} required error={errors.mode}>
-          <Select value={s.mode} options={MODE_CHOICES} ariaLabel="Cara kerja" onChange={(v) => setS((x) => ({ ...x, mode: v as RoutingStepModeValue }))} />
-        </Field>
-        <Field label="BoM" span={6} help="opsional — saran input di langkah ini">
-          <Combobox
-            value={s.bomId}
-            options={boms}
-            placeholder="Pilih BoM…"
-            emptyText="Belum ada BoM"
-            onChange={(v) => setS((x) => ({ ...x, bomId: v }))}
-          />
+        <Field label="Cara Kerja" span={12} help="milik workstation; diubah di master Workstation">
+          <div className="ro">
+            <ModeBadge mode={s.workstationId ? workstations.find((w) => w.id === s.workstationId)?.mode : undefined} />
+          </div>
         </Field>
       </FormRow>
     </Dialog>
   );
+}
+
+/** A workstation's Cara Kerja as its badge; a dash before one is chosen. */
+function ModeBadge({ mode }: { mode?: string }) {
+  if (!mode || !(mode in ROUTING_MODE_TEXT)) return <span className="dash">—</span>;
+  const m = mode as RoutingStepModeValue;
+  return <span className={`bdg ${ROUTING_MODE_BADGE[m]}`}>{ROUTING_MODE_TEXT[m]}</span>;
 }

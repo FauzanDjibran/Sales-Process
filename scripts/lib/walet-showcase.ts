@@ -54,21 +54,23 @@ export const WALET_ITEMS: ItemSpec[] = [
   ["BOX-LUAR", "Box Luar Premium", "BHN-KEMAS", "PCS", "Utama", null, true, false],
 ];
 
-/** Workstation: unit code (label), name, Kode Job, standard per gram per Standard Cost Item. */
-type StationSpec = [unit: string, name: string, jobCode: string | null, rates: [item: string, rate: number][]];
+type Mode = "Transform" | "PassThrough" | "MixTransform";
+
+/** Workstation: unit code (label), name, Kode Job, Cara Kerja (P166), standard per gram per Standard Cost Item. */
+type StationSpec = [unit: string, name: string, jobCode: string | null, mode: Mode, rates: [item: string, rate: number][]];
 
 export const WALET_STATIONS: StationSpec[] = [
-  ["UGH", "Grading Halus", "UGH", []],
-  ["UPC", "Pre Cleaning", null, []],
-  ["UPY", "Penyebaran", null, []],
-  ["UPW", "Pre Wash", null, [["TKL", 110], ["BOP-MESIN", 50], ["BOP-PABRIK", 22.86]]],
-  ["UCL", "Cleaning", null, [["TKL", 600], ["BOP-MESIN", 80], ["BOP-PABRIK", 53.36]]],
-  ["UDA", "Dry A", null, []],
-  ["UML", "Moulding", "UDB", [["TKL", 120], ["BOP-MESIN", 45], ["BOP-PABRIK", 25.87]]],
-  ["UWP", "Wrapping", null, [["TKL", 15], ["BOP-MESIN", 8], ["BOP-PABRIK", 4.13]]],
-  ["UBC", "Barcoding", null, [["TKL", 25], ["BOP-MESIN", 10], ["BOP-PABRIK", 6.55]]],
-  ["UP5", "Packing 95", null, []],
-  ["UP8", "Packing 98", null, []],
+  ["UGH", "Grading Halus", "UGH", "Transform", []],
+  ["UPC", "Pre Cleaning", null, "Transform", []],
+  ["UPY", "Penyebaran", null, "Transform", []],
+  ["UPW", "Pre Wash", null, "PassThrough", [["TKL", 110], ["BOP-MESIN", 50], ["BOP-PABRIK", 22.86]]],
+  ["UCL", "Cleaning", null, "PassThrough", [["TKL", 600], ["BOP-MESIN", 80], ["BOP-PABRIK", 53.36]]],
+  ["UDA", "Dry A", null, "Transform", []],
+  ["UML", "Moulding", "UDB", "MixTransform", [["TKL", 120], ["BOP-MESIN", 45], ["BOP-PABRIK", 25.87]]],
+  ["UWP", "Wrapping", null, "PassThrough", [["TKL", 15], ["BOP-MESIN", 8], ["BOP-PABRIK", 4.13]]],
+  ["UBC", "Barcoding", null, "Transform", [["TKL", 25], ["BOP-MESIN", 10], ["BOP-PABRIK", 6.55]]],
+  ["UP5", "Packing 95", null, "Transform", []],
+  ["UP8", "Packing 98", null, "PassThrough", []],
 ];
 
 export const WALET_WAREHOUSES: [label: string, name: string][] = [
@@ -78,19 +80,13 @@ export const WALET_WAREHOUSES: [label: string, name: string][] = [
   ["GD-BJL", "Gudang BJL"],
 ];
 
-/** The N-MK route: unit, mode, uses the BoM. */
-const ROUTE: [unit: string, mode: "Transform" | "PassThrough" | "MixTransform", bom: boolean][] = [
-  ["UGH", "Transform", false],
-  ["UPC", "Transform", false],
-  ["UPY", "Transform", false],
-  ["UPW", "PassThrough", false],
-  ["UCL", "PassThrough", false],
-  ["UDA", "Transform", false],
-  ["UML", "MixTransform", false],
-  ["UWP", "PassThrough", false],
-  ["UBC", "Transform", false],
-  ["UP5", "Transform", true],
-  ["UP8", "PassThrough", true],
+/** The N-MK route, station by station; each works by its own Cara Kerja. */
+const ROUTE = ["UGH", "UPC", "UPY", "UPW", "UCL", "UDA", "UML", "UWP", "UBC", "UP5", "UP8"];
+
+/** N-MK 50 g's BoMs, one per station where components go in (P166). */
+const NMK_BOMS: [label: string, name: string, unit: string, lines: [item: string, qty: number][]][] = [
+  ["BOM-NMK-50", "N-MK 50 g — isi dan box", "UP5", [["N-NL-PU", 50], ["BOX-NMK", 1]]],
+  ["BOM-NMK-50-UP8", "N-MK 50 g — box luar", "UP8", [["BOX-LUAR", 1]]],
 ];
 
 async function audit(actor: number, entityKey: string, rowId: number) {
@@ -161,7 +157,7 @@ export async function seedWaletProduction({ actor, tally }: Ctx): Promise<void> 
 
   // ---- workstations: label = unit code, Kode Job where the unit makes Jobs
   const workstationId = new Map<string, number>();
-  for (const [unit, name, jobCode] of WALET_STATIONS) {
+  for (const [unit, name, jobCode, mode] of WALET_STATIONS) {
     let row = await prisma.refWorkstation.findFirst({ where: { workstation_label: unit } });
     if (!row) {
       row = await prisma.refWorkstation.create({
@@ -171,6 +167,7 @@ export async function seedWaletProduction({ actor, tally }: Ctx): Promise<void> 
           workstation_name: name,
           cost_center_id: costCenterId.get(unit)!,
           job_code: jobCode,
+          mode,
           created_by: actor,
         },
       });
@@ -184,7 +181,7 @@ export async function seedWaletProduction({ actor, tally }: Ctx): Promise<void> 
   const year = new Date().getUTCFullYear();
   const january = await prisma.accFiscalPeriod.findFirst({ where: { fiscal_year: { year_label: String(year) }, sequence_no: 1 }, select: { id: true } });
   const standardItem = new Map((await prisma.accStandardCostItem.findMany({ select: { id: true, item_label: true } })).map((i) => [i.item_label, i.id]));
-  for (const [unit, , , rates] of WALET_STATIONS) {
+  for (const [unit, , , , rates] of WALET_STATIONS) {
     if (!rates.length || !january) continue;
     const ws = workstationId.get(unit)!;
     if (await prisma.accStandardCost.findFirst({ where: { workstation_id: ws } })) continue;
@@ -202,25 +199,20 @@ export async function seedWaletProduction({ actor, tally }: Ctx): Promise<void> 
     tally("walet standard cost");
   }
 
-  // ---- BoM N-MK 50 g: 50 g N-NL-PU + a box at Packing 95, an outer box at Packing 98
-  let bom = await prisma.prdBom.findFirst({ where: { bom_label: "BOM-NMK-50" } });
-  if (!bom) {
-    bom = await prisma.prdBom.create({
+  // ---- N-MK 50 g's BoMs: 50 g N-NL-PU + a box at Packing 95, an outer box at Packing 98
+  for (const [label, name, unit, lines] of NMK_BOMS) {
+    if (await prisma.prdBom.findFirst({ where: { bom_label: label } })) continue;
+    const bom = await prisma.prdBom.create({
       data: {
         bom_code: await nextCode(entity("prd_bom")),
-        bom_label: "BOM-NMK-50",
-        bom_name: "N-MK 50 g — box dan box luar",
+        bom_label: label,
+        bom_name: name,
         item_id: itemId.get("N-MK-50")!,
+        workstation_id: workstationId.get(unit)!,
         base_qty: 1,
         is_default: true,
         created_by: actor,
-        lines: {
-          create: [
-            { item_id: itemId.get("N-NL-PU")!, qty: 50, step_no: 10, created_by: actor },
-            { item_id: itemId.get("BOX-NMK")!, qty: 1, step_no: 10, created_by: actor },
-            { item_id: itemId.get("BOX-LUAR")!, qty: 1, step_no: 11, created_by: actor },
-          ],
-        },
+        lines: { create: lines.map(([item, qty]) => ({ item_id: itemId.get(item)!, qty, created_by: actor })) },
       },
     });
     await audit(actor, "prd_bom", bom.id);
@@ -238,13 +230,7 @@ export async function seedWaletProduction({ actor, tally }: Ctx): Promise<void> 
         is_default: true,
         created_by: actor,
         steps: {
-          create: ROUTE.map(([unit, mode, usesBom], i) => ({
-            step_no: i + 1,
-            workstation_id: workstationId.get(unit)!,
-            mode,
-            bom_id: usesBom ? bom!.id : null,
-            created_by: actor,
-          })),
+          create: ROUTE.map((unit, i) => ({ step_no: i + 1, workstation_id: workstationId.get(unit)!, created_by: actor })),
         },
       },
     });

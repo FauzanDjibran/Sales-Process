@@ -718,17 +718,20 @@ model RefWarehouse {
 /// all, or any mix — and its standard rates live on `acc_standard_cost` (P160).
 /// Never deleted; deactivated instead.
 model RefWorkstation {
-  id                Int          @id @default(autoincrement())
-  workstation_code  String       @unique
+  id                Int             @id @default(autoincrement())
+  workstation_code  String          @unique
   workstation_label String
   workstation_name  String
   cost_center_id    Int
   /// Kode Job (M126): the code of the Jobs made when this station hands its
   /// goods on in boxes — Grading Halus `UGH`, Moulding `UDB`. Empty: the
   /// station keeps the Jobs it receives.
-  job_code          String?      @unique
+  job_code          String?         @unique
+  /// Cara Kerja (P166): how this station works — Transformasi, Pass-through or
+  /// Mix + Transformasi. A routing step and an execution read it from here.
+  mode              RoutingStepMode @default(Transform)
   note              String?
-  status            ActiveStatus @default(Active)
+  status            ActiveStatus    @default(Active)
 
   created_by Int
   updated_by Int?
@@ -742,6 +745,7 @@ model RefWorkstation {
   standard_costs     AccStandardCost[]
   routing_steps      PrdRoutingStep[]      @relation("RoutingStepWorkstation")
   jobs               PrdJob[]              @relation("JobWorkstation")
+  boms               PrdBom[]              @relation("BomWorkstation")
   order_steps        PrdOrderStep[]        @relation("OrderStepWorkstation")
   order_requirements PrdOrderRequirement[] @relation("OrderRequirementWorkstation")
 
@@ -4186,16 +4190,18 @@ enum ItemOutputType {
 /// base quantity. **A suggestion only** — it pre-fills an execution's inputs and
 /// never limits them. Several per item; one is the default. Never deleted.
 model PrdBom {
-  id         Int          @id @default(autoincrement())
-  bom_code   String       @unique
-  bom_label  String
-  bom_name   String
-  item_id    Int
+  id             Int          @id @default(autoincrement())
+  bom_code       String       @unique
+  bom_label      String
+  bom_name       String
+  item_id        Int
+  /// Where the components go in (P166): the workstation this BoM is used at.
+  workstation_id Int
   /// The output quantity the lines are for, in the item's base unit.
-  base_qty   Decimal      @db.Decimal(18, 6)
-  is_default Boolean      @default(false)
-  note       String?
-  status     ActiveStatus @default(Active)
+  base_qty       Decimal      @db.Decimal(18, 6)
+  is_default     Boolean      @default(false)
+  note           String?
+  status         ActiveStatus @default(Active)
 
   created_by Int
   updated_by Int?
@@ -4203,25 +4209,22 @@ model PrdBom {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   item               MItem                 @relation("BomOutput", fields: [item_id], references: [id])
+  workstation        RefWorkstation        @relation("BomWorkstation", fields: [workstation_id], references: [id])
   lines              PrdBomLine[]
-  steps              PrdRoutingStep[]
-  order_steps        PrdOrderStep[]
   order_requirements PrdOrderRequirement[]
 
   @@index([item_id])
+  @@index([workstation_id])
   @@map("prd_bom")
 }
 
-/// One component of a BoM, per its base quantity; optionally consumed at a
-/// given routing step (as D365's operation number on a BOM line).
+/// One component of a BoM, per its base quantity, used at the BoM's workstation.
 model PrdBomLine {
   id      Int     @id @default(autoincrement())
   bom_id  Int
   item_id Int
   /// In the component's base unit, per the BoM's base quantity.
   qty     Decimal @db.Decimal(18, 6)
-  /// The routing step that consumes it; empty = the step that makes the output.
-  step_no Int?
 
   created_by Int
   updated_by Int?
@@ -4236,7 +4239,7 @@ model PrdBomLine {
   @@map("prd_bom_line")
 }
 
-/// How a routing step works (Walet: M114, M115, M125).
+/// How a workstation works (Walet: M114, M115, M125; a property of the station since P166).
 enum RoutingStepMode {
   /// Moulding: the Partai's Jobs are mixed into the No. Moulding, then worked.
   MixTransform
@@ -4275,12 +4278,10 @@ model PrdRouting {
 
 /// One station of a routing, in order, with how it works and its BoM if any.
 model PrdRoutingStep {
-  id             Int             @id @default(autoincrement())
+  id             Int @id @default(autoincrement())
   routing_id     Int
   step_no        Int
   workstation_id Int
-  mode           RoutingStepMode
-  bom_id         Int?
 
   created_by Int
   updated_by Int?
@@ -4289,7 +4290,6 @@ model PrdRoutingStep {
 
   routing     PrdRouting     @relation(fields: [routing_id], references: [id])
   workstation RefWorkstation @relation("RoutingStepWorkstation", fields: [workstation_id], references: [id])
-  bom         PrdBom?        @relation(fields: [bom_id], references: [id])
 
   @@unique([routing_id, step_no])
   @@index([workstation_id])
@@ -4340,16 +4340,13 @@ model PrdOrder {
 /// One station of a Perintah's route, in order — a copy of a routing step,
 /// changed freely while the Perintah is a Draft.
 model PrdOrderStep {
-  id             Int             @id @default(autoincrement())
+  id             Int @id @default(autoincrement())
   order_id       Int
   step_no        Int
   workstation_id Int
-  mode           RoutingStepMode
-  bom_id         Int?
 
   order       PrdOrder       @relation(fields: [order_id], references: [id])
   workstation RefWorkstation @relation("OrderStepWorkstation", fields: [workstation_id], references: [id])
-  bom         PrdBom?        @relation(fields: [bom_id], references: [id])
 
   @@unique([order_id, step_no])
   @@index([workstation_id])

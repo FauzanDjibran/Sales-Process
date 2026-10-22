@@ -365,30 +365,25 @@ describe("the workstation receives or rejects the BSTB whole (M113)", () => {
   });
 });
 
-describe("the Perintah Produksi's requirements come from the BoM (P165)", () => {
-  test("BoM × Qty Target ÷ base quantity, per step; the default BoM when the route names none; none without a BoM", () => {
-    const bom = { id: 1, itemId: 9, baseQty: 3, isDefault: true, active: true, lines: [{ itemId: 7, qty: 1, stepNo: 1 }, { itemId: 8, qty: 2, stepNo: null }] };
-    const steps = [{ workstationId: 11, bomId: null }, { workstationId: 12, bomId: 1 }];
-    assert.deepEqual(orderRequirements(9, 1, steps, [bom]), [
+describe("the Perintah Produksi's requirements come from the BoM at each station (P165, P166)", () => {
+  test("the Item Target's default BoM at each route station × Qty Target ÷ base quantity; once per station; none without a BoM", () => {
+    const at11 = { id: 1, itemId: 9, workstationId: 11, baseQty: 3, isDefault: true, active: true, lines: [{ itemId: 7, qty: 1 }] };
+    const at12 = { id: 2, itemId: 9, workstationId: 12, baseQty: 3, isDefault: true, active: true, lines: [{ itemId: 8, qty: 2 }] };
+    const notDefault = { ...at12, id: 3, isDefault: false, lines: [{ itemId: 6, qty: 1 }] };
+    const steps = [{ workstationId: 11 }, { workstationId: 12 }, { workstationId: 11 }];
+    assert.deepEqual(orderRequirements(9, 1, steps, [at11, at12, notDefault]), [
       { itemId: 7, qty: 0.3333, stepNo: 1, workstationId: 11, bomId: 1 },
-      { itemId: 8, qty: 0.6667, stepNo: 2, workstationId: 12, bomId: 1 },
-    ]);
-    // The route names no BoM: the default one, a line without a step at the last step.
-    assert.deepEqual(orderRequirements(9, 3, [{ workstationId: 11, bomId: null }, { workstationId: 13, bomId: null }], [bom]).map((r) => [r.itemId, r.qty, r.workstationId]), [
-      [7, 1, 11],
-      [8, 2, 13],
-    ]);
-    assert.deepEqual(orderRequirements(5, 3, steps.map((x) => ({ ...x, bomId: null })), [bom]), [], "no BoM, no requirement: what goes in is free");
-    assert.deepEqual(orderRequirements(9, 0, steps, [bom]), [], "no quantity, no requirement");
+      { itemId: 8, qty: 0.6667, stepNo: 2, workstationId: 12, bomId: 2 },
+    ], "a station visited twice counts once; only the default BoM there");
+    assert.deepEqual(orderRequirements(5, 3, steps, [at11, at12]), [], "no BoM of this item, no requirement: what goes in is free");
+    assert.deepEqual(orderRequirements(9, 3, [{ workstationId: 13 }], [at11, at12]), [], "no BoM at the route's stations");
+    assert.deepEqual(orderRequirements(9, 0, steps, [at11]), [], "no quantity, no requirement");
   });
 });
 
 describe("a BSTB raised from a Perintah Produksi (M121, O4, P165)", () => {
   const orderHeader = (over: Record<string, unknown> = {}) => ({ order_date: today, target_item_id: f.fg, target_qty: 10, routing_id: null, note: "", ...over });
-  const route = () => [
-    { workstation_id: f.ws, mode: "Transform" as const, bom_id: null },
-    { workstation_id: f.ws2, mode: "Transform" as const, bom_id: f.bom },
-  ];
+  const route = () => [{ workstation_id: f.ws }, { workstation_id: f.ws2 }];
 
   test("a Perintah needs an Item Target, a Qty Target and a route; its requirements are generated, numbered PP_", async () => {
     f.ws2 = (
@@ -400,21 +395,24 @@ describe("a BSTB raised from a Perintah Produksi (M121, O4, P165)", () => {
       })
     ).id;
     items.push(f.fg);
-    // Per 2 of FG: 3 of RM at step 1, 1 of EXP wherever the BoM is named (step 2).
-    f.bom = (
-      await prisma.prdBom.create({
-        data: {
-          bom_code: `test.${key("BOM")}`,
-          bom_label: key("BOM"),
-          bom_name: "BoM uji",
-          item_id: f.fg,
-          base_qty: 2,
-          created_by: actor,
-          lines: { create: [{ item_id: f.rm, qty: 3, step_no: 1, created_by: actor }, { item_id: f.exp, qty: 1, created_by: actor }] },
-        },
-      })
-    ).id;
-    bomIds.push(f.bom);
+    // Per 2 of FG: 3 of RM at the first station, 1 of EXP at the second — a BoM each (P166).
+    const stationBomOf = async (l: string, workstationId: number, itemId: number, qty: number) =>
+      (
+        await prisma.prdBom.create({
+          data: {
+            bom_code: `test.${key(l)}`,
+            bom_label: key(l),
+            bom_name: "BoM uji",
+            item_id: f.fg,
+            workstation_id: workstationId,
+            base_qty: 2,
+            is_default: true,
+            created_by: actor,
+            lines: { create: [{ item_id: itemId, qty, created_by: actor }] },
+          },
+        })
+      ).id;
+    bomIds.push(await stationBomOf("BOM1", f.ws, f.rm, 3), await stationBomOf("BOM2", f.ws2, f.exp, 1));
 
     const empty = await createProductionOrder(orderHeader({ target_item_id: null, target_qty: 0 }), [], actor);
     assert.ok(!empty.ok && empty.errors.target_item_id && empty.errors.target_qty && empty.errors._steps);

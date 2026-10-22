@@ -9,12 +9,11 @@ import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
-import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { ProductionOrderActions } from "@/components/production/production-order-actions";
 import { createProductionOrderAction, updateProductionOrderAction } from "@/app/actions/production-order";
-import { ROUTING_MODE_TEXT, type RoutingStepModeValue } from "@/lib/erp/production-master-shape";
-import { orderRequirements, requirementKey } from "@/lib/erp/production-order-shape";
+import { ROUTING_MODE_BADGE, ROUTING_MODE_TEXT } from "@/lib/erp/production-master-shape";
+import { orderRequirements, requirementKey, stationBom } from "@/lib/erp/production-order-shape";
 import {
   PRODUCTION_ORDER_REASON_TEXT,
   PRODUCTION_ORDER_STATUS_BADGE,
@@ -28,20 +27,20 @@ import { formatDate, formatNumber, todayIso } from "@/lib/format";
  * A Perintah Produksi in all three modes: `new`, `edit` (Draft only) and
  * `view` (Walet step 3, M121, P165). The header names the **Item Target** — the
  * item the Partai is to become — and the **Qty Target**; picking a Routing
- * copies its stations into **Rute**, which stays editable. **Kebutuhan Bahan**
- * is never typed: it is the route's BoMs (else the item's default BoM) × Qty
+ * copies its stations into **Rute**, which stays editable. Each station shows
+ * its own Cara Kerja and the Item Target's BoM there — the masters', never
+ * chosen here (P166). **Kebutuhan Bahan** is never typed: those BoMs × Qty
  * Target, per station, worked out here as Simpan will store it — and, once
  * saved, shown as stored. Without a BoM there is none. Once Open, each
  * requirement shows what the Logistik BSTBs sent to its station (`sent`,
  * composed by the page).
  */
 
-type StepState = { key: string; workstation_id: number | null; mode: RoutingStepModeValue | null; bom_id: number | null };
+type StepState = { key: string; workstation_id: number | null };
 
 let seq = 0;
 const newKey = () => `p${Date.now().toString(36)}${seq++}`;
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
-const MODES = Object.entries(ROUTING_MODE_TEXT).map(([value, label]) => ({ value, label }));
 
 export function ProductionOrderForm({
   mode,
@@ -66,7 +65,7 @@ export function ProductionOrderForm({
     order ? { ...order.header, target_qty: String(order.header.target_qty) } : { order_date: todayIso(), target_item_id: null, target_qty: "", routing_id: null, note: "" }
   );
   const [steps, setSteps] = useState<StepState[]>(() =>
-    order ? order.steps.map((s) => ({ key: newKey(), workstation_id: s.workstation_id, mode: s.mode, bom_id: s.bom_id })) : []
+    order ? order.steps.map((s) => ({ key: newKey(), workstation_id: s.workstation_id })) : []
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
@@ -90,7 +89,7 @@ export function ProductionOrderForm({
   const copyRouting = (routingId: number | null) => {
     set("routing_id", routingId);
     const r = routingId ? options.routings.find((x) => x.id === routingId) : undefined;
-    if (r) setSteps(r.steps.map((s) => ({ key: newKey(), workstation_id: s.workstationId, mode: s.mode, bom_id: s.bomId })));
+    if (r) setSteps(r.steps.map((s) => ({ key: newKey(), workstation_id: s.workstationId })));
     touch("_steps");
   };
   /** Another Item Target drops a routing of the old one and starts on the item's default routing. */
@@ -113,7 +112,7 @@ export function ProductionOrderForm({
         ? orderRequirements(
             header.target_item_id,
             Number(String(header.target_qty).replace(",", ".")) || 0,
-            steps.map((s) => ({ workstationId: s.workstation_id, bomId: s.bom_id })),
+            steps.map((s) => ({ workstationId: s.workstation_id })),
             options.boms
           )
         : (order?.requirements ?? []),
@@ -122,7 +121,7 @@ export function ProductionOrderForm({
 
   async function onSave() {
     setSaving(true);
-    const stepPayload = steps.map((s) => ({ workstation_id: s.workstation_id, mode: s.mode, bom_id: s.bom_id }));
+    const stepPayload = steps.map((s) => ({ workstation_id: s.workstation_id }));
     const result = mode === "edit" ? await updateProductionOrderAction(order!.id, header, stepPayload) : await createProductionOrderAction(header, stepPayload);
     setSaving(false);
     if (!result.ok) {
@@ -252,13 +251,13 @@ export function ProductionOrderForm({
         </span>
         <div className="ct">
           <h3>Rute</h3>
-          <p>Workstation yang dilalui Partai, berurutan. BoM pada sebuah langkah menentukan kebutuhan bahannya.</p>
+          <p>Workstation yang dilalui Partai, berurutan. Cara Kerja dan BoM Item Target di tiap workstation diambil dari master-nya.</p>
         </div>
         {editing && (
           <button
             className="btn sm primary"
             onClick={() => {
-              setSteps((ss) => [...ss, { key: newKey(), workstation_id: null, mode: "Transform", bom_id: null }]);
+              setSteps((ss) => [...ss, { key: newKey(), workstation_id: null }]);
               touch("_steps");
             }}
           >
@@ -282,8 +281,10 @@ export function ProductionOrderForm({
             {steps.map((s, i) => {
               const err = (f: string) => errors[`steps.${s.key}.${f}`];
               const ws = s.workstation_id ? options.workstations.find((w) => w.id === s.workstation_id) : undefined;
-              const bom = s.bom_id ? options.boms.find((b) => b.id === s.bom_id) : undefined;
-              const rowError = err("workstation_id") ?? err("mode") ?? err("bom_id");
+              // Saved: the BoM its requirements were worked out from; editing: the station's default now.
+              const storedBomId = !editing ? order?.requirements.find((r) => r.stepNo === i + 1)?.bomId : undefined;
+              const bom = storedBomId ? options.boms.find((b) => b.id === storedBomId) : editing ? stationBom(header.target_item_id, s.workstation_id, options.boms) : undefined;
+              const rowError = err("workstation_id");
               return (
                 <tr key={s.key} className={rowError ? "overrow" : undefined}>
                   <td className="no">{i + 1}</td>
@@ -306,24 +307,14 @@ export function ProductionOrderForm({
                     {rowError && <span className="overtag">{rowError}</span>}
                   </td>
                   <td>
-                    {editing ? (
-                      <Select size="sm" value={s.mode ?? ""} options={MODES} placeholder="Pilih Cara Kerja…" invalid={Boolean(err("mode"))} onChange={(v) => setStep(s.key, { mode: v as RoutingStepModeValue })} />
-                    ) : (
-                      ((s.mode && ROUTING_MODE_TEXT[s.mode]) ?? "")
-                    )}
+                    {ws ? <span className={`bdg ${ROUTING_MODE_BADGE[ws.mode]}`}>{ROUTING_MODE_TEXT[ws.mode]}</span> : <span className="dash">—</span>}
                   </td>
                   <td>
-                    {editing ? (
-                      <Combobox
-                        size="sm"
-                        value={s.bom_id ?? 0}
-                        options={[{ id: 0, label: "", name: "Tanpa BoM", active: true }, ...options.boms.filter((b) => b.active || b.id === s.bom_id)]}
-                        placeholder="Pilih BoM…"
-                        invalid={Boolean(err("bom_id"))}
-                        onChange={(v) => setStep(s.key, { bom_id: v || null })}
-                      />
-                    ) : bom ? (
-                      <span className="lab">{bom.label}</span>
+                    {bom ? (
+                      <span className="idc">
+                        <span className="lab">{bom.label}</span>
+                        <span className="nm">{bom.name}</span>
+                      </span>
                     ) : (
                       <span className="dash">—</span>
                     )}
@@ -369,7 +360,7 @@ export function ProductionOrderForm({
         <div className="ct">
           <h3>Kebutuhan Bahan</h3>
           <p>
-            Dari BoM pada rute (atau BoM default Item Target) × Qty Target, per workstation yang memakainya. Tidak diketik; lot dipilih di BSTB.
+            Dari BoM default Item Target di tiap workstation pada rute × Qty Target. Tidak diketik; lot dipilih di BSTB.
             {opened ? " Dikirim adalah yang sudah keluar ke workstation itu dengan BSTB dan tidak ditolak." : ""}
           </p>
         </div>
