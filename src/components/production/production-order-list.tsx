@@ -63,14 +63,14 @@ export function ProductionOrderList({ orders, can }: { orders: ProductionOrderLi
           </div>
         </div>
         <p className="ph-sub">
-          Perintah PPIC untuk satu Partai: Job Order, rute workstation dan lot stok yang direncanakan. Setelah dibuka, Logistik mengirim lotnya ke
-          workstation pertama dengan BSTB.
+          Perintah PPIC untuk satu Partai: Item Target dan jumlahnya, rute workstation, dan kebutuhan bahan dari BoM. Setelah dibuka, Logistik
+          memilih lot dan mengirimnya ke workstation dengan BSTB.
         </p>
       </div>
 
       <div className="card">
         <div className="toolbar">
-          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor atau Job Order…" />
+          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor atau Item Target…" />
           <Select
             variant="toolbar"
             value={status}
@@ -96,11 +96,11 @@ export function ProductionOrderList({ orders, can }: { orders: ProductionOrderLi
                     <th style={{ width: 170 }}>Nomor</th>
                     <th style={{ width: 110 }}>Status</th>
                     <th style={{ width: 106 }}>Tanggal</th>
-                    <th>Job Order</th>
+                    <th>Item Target</th>
+                    <th className="num" style={{ width: 140 }}>Qty Target</th>
                     <th style={{ width: 160 }}>Mulai di</th>
                     <th className="num" style={{ width: 80 }}>Langkah</th>
-                    <th className="num" style={{ width: 70 }}>Lot</th>
-                    <th className="num" style={{ width: 130 }}>Qty Rencana</th>
+                    <th className="num" style={{ width: 100 }}>Kebutuhan</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -121,12 +121,15 @@ export function ProductionOrderList({ orders, can }: { orders: ProductionOrderLi
                           <span className="nm">{o.targetName}</span>
                         </span>
                       </td>
+                      <td className="num">
+                        <span className="qview">
+                          <span className="mny">{qtyText(o.targetQty)}</span>
+                          <span className="lab">{o.targetUom}</span>
+                        </span>
+                      </td>
                       <td>{o.firstWorkstation ? <span className="lab">{o.firstWorkstation}</span> : <span className="dash">—</span>}</td>
                       <td className="num">{o.steps}</td>
-                      <td className="num">{o.lots}</td>
-                      <td className="num">
-                        <span className="mny">{qtyText(o.plannedQty)}</span>
-                      </td>
+                      <td className="num">{o.requirements || <span className="dash">—</span>}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -143,7 +146,7 @@ export function ProductionOrderList({ orders, can }: { orders: ProductionOrderLi
             <p>
               {q || status
                 ? "Tidak ada Perintah yang sesuai dengan pencarian atau filter."
-                : "Perintah Produksi memulai sebuah Partai: pilih Job Order, Routing dan lot stok yang akan dikirim Logistik."}
+                : "Perintah Produksi memulai sebuah Partai: pilih Item Target, jumlahnya dan Routing; kebutuhan bahan dihitung dari BoM."}
             </p>
             {q || status ? (
               <div className="cta">

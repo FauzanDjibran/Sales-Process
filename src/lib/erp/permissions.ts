@@ -263,7 +263,7 @@ export const PERMISSIONS = [
   { code: "ROUTING_ACTIVATE", name: "Aktifkan Routing", module: "production" },
   { code: "ROUTING_DEACTIVATE", name: "Nonaktifkan Routing", module: "production" },
   { code: "PRODUCTION_ORDER_VIEW", name: "Lihat Perintah Produksi", module: "production", description: "Termasuk yang masih Draft dan yang dibatalkan." },
-  { code: "PRODUCTION_ORDER_CREATE", name: "Buat Perintah Produksi", module: "production", description: "Job Order, rute dan rencana lot sebuah Partai." },
+  { code: "PRODUCTION_ORDER_CREATE", name: "Buat Perintah Produksi", module: "production", description: "Item Target, Qty Target dan rute sebuah Partai; kebutuhan bahan dari BoM." },
   { code: "PRODUCTION_ORDER_EDIT", name: "Ubah Perintah Produksi", module: "production", description: "Hanya selama masih Draft." },
   { code: "PRODUCTION_ORDER_OPEN", name: "Buka Perintah Produksi", module: "production", description: "Mengunci Perintah; sejak itu Logistik dapat mengirim lotnya dengan BSTB." },
   { code: "PRODUCTION_ORDER_CANCEL", name: "Batalkan Perintah Produksi", module: "production", description: "Hanya Draft, dengan alasan." },

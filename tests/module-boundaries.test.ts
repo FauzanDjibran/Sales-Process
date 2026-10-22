@@ -109,7 +109,7 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // The Perintah Produksi (Walet step 3): the BSTB reads it through its functions.
   prdOrder: ["src/lib/erp/production-order.ts"],
   prdOrderStep: ["src/lib/erp/production-order.ts"],
-  prdOrderLot: ["src/lib/erp/production-order.ts"],
+  prdOrderRequirement: ["src/lib/erp/production-order.ts"],
   logReceiptNoteLine: ["src/lib/erp/receipt-note.ts"],
   logReceiptNoteLot: ["src/lib/erp/receipt-note.ts"],
   // The stock books (P120): written only by the inventory book, read by its reports.

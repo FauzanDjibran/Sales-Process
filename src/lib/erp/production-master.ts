@@ -260,7 +260,17 @@ export type RoutingChoice = {
   steps: { workstationId: number; mode: RoutingStepModeValue; bomId: number | null }[];
 };
 
-export type BomChoice = { id: number; label: string; name: string; active: boolean; itemId: number };
+/** A BoM with what the Perintah needs to work out its requirements (P165). */
+export type BomChoice = {
+  id: number;
+  label: string;
+  name: string;
+  active: boolean;
+  itemId: number;
+  baseQty: number;
+  isDefault: boolean;
+  lines: { itemId: number; qty: number; stepNo: number | null }[];
+};
 
 /**
  * The Routings and BoMs a Perintah Produksi may copy or name (Walet step 3):
@@ -280,7 +290,7 @@ export async function routingAndBomChoices(
     db.prdBom.findMany({
       where: { OR: [{ status: "Active" }, ...(withIds.bomIds.length ? [{ id: { in: withIds.bomIds } }] : [])] },
       orderBy: { bom_label: "asc" },
-      select: { id: true, bom_label: true, bom_name: true, status: true, item_id: true },
+      include: { lines: { orderBy: { id: "asc" } } },
     }),
   ]);
   return {
@@ -293,6 +303,15 @@ export async function routingAndBomChoices(
       isDefault: r.is_default,
       steps: r.steps.map((s) => ({ workstationId: s.workstation_id, mode: s.mode as RoutingStepModeValue, bomId: s.bom_id })),
     })),
-    boms: boms.map((b) => ({ id: b.id, label: b.bom_label, name: b.bom_name, active: b.status === "Active", itemId: b.item_id })),
+    boms: boms.map((b) => ({
+      id: b.id,
+      label: b.bom_label,
+      name: b.bom_name,
+      active: b.status === "Active",
+      itemId: b.item_id,
+      baseQty: b.base_qty.toNumber(),
+      isDefault: b.is_default,
+      lines: b.lines.map((l) => ({ itemId: l.item_id, qty: l.qty.toNumber(), stepNo: l.step_no })),
+    })),
   };
 }

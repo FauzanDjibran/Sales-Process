@@ -32,7 +32,7 @@ export function ProductionOrderIssuesCard({ issues, canCreate }: { issues: Issue
             <Icon name="truck" size={18} />
           </div>
           <h4>Belum dikirim</h4>
-          <p>Buat Stock Issue di Persediaan dan pilih Perintah ini: gudang, workstation dan lotnya terisi dari sini.</p>
+          <p>Buat Stock Issue di Persediaan dan pilih Perintah ini: barang yang dibutuhkan workstation terisi dari kebutuhannya; lot dipilih di sana.</p>
         </div>
       ) : (
         <div className="tw">

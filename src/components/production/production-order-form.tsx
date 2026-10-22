@@ -14,6 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { ProductionOrderActions } from "@/components/production/production-order-actions";
 import { createProductionOrderAction, updateProductionOrderAction } from "@/app/actions/production-order";
 import { ROUTING_MODE_TEXT, type RoutingStepModeValue } from "@/lib/erp/production-master-shape";
+import { orderRequirements, requirementKey } from "@/lib/erp/production-order-shape";
 import {
   PRODUCTION_ORDER_REASON_TEXT,
   PRODUCTION_ORDER_STATUS_BADGE,
@@ -25,16 +26,17 @@ import { formatDate, formatNumber, todayIso } from "@/lib/format";
 
 /**
  * A Perintah Produksi in all three modes: `new`, `edit` (Draft only) and
- * `view` (Walet step 3, M121). The header names the Job Order — the item the
- * Partai is to become — and the warehouse its lots come from; picking a
- * Routing copies its stations into **Rute**, which stays editable; **Rencana
- * Lot** lists the stock lots planned, each in its base unit, with what the
- * warehouse holds as a hint. Once Open, each planned lot shows what the
- * Logistik BSTBs raised from it have sent (`sent`, composed by the page).
+ * `view` (Walet step 3, M121, P165). The header names the **Item Target** — the
+ * item the Partai is to become — and the **Qty Target**; picking a Routing
+ * copies its stations into **Rute**, which stays editable. **Kebutuhan Bahan**
+ * is never typed: it is the route's BoMs (else the item's default BoM) × Qty
+ * Target, per station, worked out here as Simpan will store it — and, once
+ * saved, shown as stored. Without a BoM there is none. Once Open, each
+ * requirement shows what the Logistik BSTBs sent to its station (`sent`,
+ * composed by the page).
  */
 
 type StepState = { key: string; workstation_id: number | null; mode: RoutingStepModeValue | null; bom_id: number | null };
-type LotState = { key: string; item_id: number | null; lot_id: number | null; qty: string };
 
 let seq = 0;
 const newKey = () => `p${Date.now().toString(36)}${seq++}`;
@@ -51,8 +53,8 @@ export function ProductionOrderForm({
   mode: "new" | "edit" | "view";
   order: ProductionOrderView | null;
   options: ProductionOrderOptions;
-  /** Per lot id, what the BSTBs raised from this Perintah sent and kept in production. */
-  sent: Record<number, number>;
+  /** Per `requirementKey` (item and workstation), what the BSTBs raised from this Perintah sent. */
+  sent: Record<string, number>;
   can: ProductionOrderAbilities;
 }) {
   const router = useRouter();
@@ -61,13 +63,10 @@ export function ProductionOrderForm({
   const itemById = useMemo(() => new Map(options.items.map((i) => [i.id, i])), [options.items]);
 
   const [header, setHeader] = useState<ProductionOrderHeaderInput>(() =>
-    order ? { ...order.header } : { order_date: todayIso(), target_item_id: null, routing_id: null, warehouse_id: null, note: "" }
+    order ? { ...order.header, target_qty: String(order.header.target_qty) } : { order_date: todayIso(), target_item_id: null, target_qty: "", routing_id: null, note: "" }
   );
   const [steps, setSteps] = useState<StepState[]>(() =>
     order ? order.steps.map((s) => ({ key: newKey(), workstation_id: s.workstation_id, mode: s.mode, bom_id: s.bom_id })) : []
-  );
-  const [lots, setLots] = useState<LotState[]>(() =>
-    order ? order.lots.map((l) => ({ key: newKey(), item_id: Number(l.item_id), lot_id: Number(l.lot_id), qty: String(l.qty) })) : []
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
@@ -94,7 +93,7 @@ export function ProductionOrderForm({
     if (r) setSteps(r.steps.map((s) => ({ key: newKey(), workstation_id: s.workstationId, mode: s.mode, bom_id: s.bomId })));
     touch("_steps");
   };
-  /** Another Job Order drops a routing of the old one and starts on the item's default routing. */
+  /** Another Item Target drops a routing of the old one and starts on the item's default routing. */
   const pickTarget = (itemId: number | null) => {
     set("target_item_id", itemId);
     const current = header.routing_id ? options.routings.find((x) => x.id === header.routing_id) : undefined;
@@ -102,40 +101,39 @@ export function ProductionOrderForm({
     const fallback = options.routings.find((x) => x.active && x.itemId === itemId && x.isDefault);
     copyRouting(fallback?.id ?? null);
   };
-  /** Lots belong to a warehouse: another warehouse clears every lot chosen. */
-  const pickWarehouse = (id: number | null) => {
-    set("warehouse_id", id);
-    if (id !== header.warehouse_id) setLots((ls) => ls.map((l) => ({ ...l, lot_id: null })));
-    touch("_lots");
-  };
   const setStep = (key: string, patch: Partial<StepState>) => {
     setSteps((ss) => ss.map((s) => (s.key === key ? { ...s, ...patch } : s)));
     touch("_steps");
   };
-  const setLot = (key: string, patch: Partial<LotState>) => {
-    setLots((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
-    touch("_lots");
-  };
-  const lotsOf = (itemId: number | null) => (header.warehouse_id && itemId ? (options.lots[header.warehouse_id]?.[itemId] ?? []) : []);
+
+  // While editing, the requirements follow the form; once saved, they are as stored.
+  const requirements = useMemo(
+    () =>
+      editing
+        ? orderRequirements(
+            header.target_item_id,
+            Number(String(header.target_qty).replace(",", ".")) || 0,
+            steps.map((s) => ({ workstationId: s.workstation_id, bomId: s.bom_id })),
+            options.boms
+          )
+        : (order?.requirements ?? []),
+    [editing, header.target_item_id, header.target_qty, steps, options.boms, order]
+  );
 
   async function onSave() {
     setSaving(true);
     const stepPayload = steps.map((s) => ({ workstation_id: s.workstation_id, mode: s.mode, bom_id: s.bom_id }));
-    const lotPayload = lots.map((l) => ({ item_id: l.item_id, lot_id: l.lot_id, qty: l.qty, note: "" }));
-    const result =
-      mode === "edit"
-        ? await updateProductionOrderAction(order!.id, header, stepPayload, lotPayload)
-        : await createProductionOrderAction(header, stepPayload, lotPayload);
+    const result = mode === "edit" ? await updateProductionOrderAction(order!.id, header, stepPayload) : await createProductionOrderAction(header, stepPayload);
     setSaving(false);
     if (!result.ok) {
       const mapped: Record<string, string> = {};
       for (const [k, v] of Object.entries(result.errors)) {
-        const m = /^(steps|lots)\.(\d+)\.(\w+)$/.exec(k);
-        if (m) mapped[`${m[1]}.${(m[1] === "steps" ? steps : lots)[Number(m[2])]?.key}.${m[3]}`] = v;
+        const m = /^steps\.(\d+)\.(\w+)$/.exec(k);
+        if (m) mapped[`steps.${steps[Number(m[1])]?.key}.${m[2]}`] = v;
         else mapped[k] = v;
       }
       setErrors(mapped);
-      toast(result.errors._form ? "Tidak diizinkan" : "Belum bisa disimpan", result.errors._form ?? result.errors._steps ?? result.errors._lots ?? "Periksa kembali isian.", "err");
+      toast(result.errors._form ? "Tidak diizinkan" : "Belum bisa disimpan", result.errors._form ?? result.errors._steps ?? "Periksa kembali isian.", "err");
       return;
     }
     setDirty(false);
@@ -156,7 +154,6 @@ export function ProductionOrderForm({
       : nil();
   const target = header.target_item_id ? itemById.get(header.target_item_id) : undefined;
   const routing = header.routing_id ? options.routings.find((r) => r.id === header.routing_id) : undefined;
-  const warehouse = header.warehouse_id ? options.warehouses.find((w) => w.id === header.warehouse_id) : undefined;
   const banner = (msg?: string) =>
     msg ? (
       <div className="nbox bad slim">
@@ -176,7 +173,7 @@ export function ProductionOrderForm({
             <Field label="Tanggal" span={3} required={editing} error={errors.order_date}>
               {editing ? <DateInput value={header.order_date} invalid={Boolean(errors.order_date)} onChange={(v) => set("order_date", v)} /> : ro(formatDate(header.order_date))}
             </Field>
-            <Field label="Job Order" span={5} required={editing} help={editing ? "barang yang akan dibuat Partai ini" : undefined} error={errors.target_item_id}>
+            <Field label="Item Target" span={5} required={editing} help={editing ? "barang yang akan dibuat Partai ini" : undefined} error={errors.target_item_id}>
               {editing ? (
                 <Combobox
                   value={header.target_item_id}
@@ -190,11 +187,28 @@ export function ProductionOrderForm({
                 chip(target)
               )}
             </Field>
-            <Field label="Routing" span={4} help={editing ? "menyalin rute; boleh diubah" : undefined} error={errors.routing_id}>
+            <Field label="Qty Target" span={4} required={editing} help={editing ? "satuan dasar" : undefined} error={errors.target_qty}>
+              {editing ? (
+                <div className="qcell">
+                  <MoneyInput decimals={4} value={String(header.target_qty)} invalid={Boolean(errors.target_qty)} ariaLabel="Qty Target" onChange={(v) => set("target_qty", v)} />
+                  <span className="qu">{target?.uomLabel}</span>
+                </div>
+              ) : (
+                ro(
+                  <span className="qview">
+                    <span className="mny">{qtyText(Number(header.target_qty))}</span>
+                    <span className="lab">{target?.uomLabel}</span>
+                  </span>
+                )
+              )}
+            </Field>
+          </FormRow>
+          <FormRow>
+            <Field label="Routing" span={6} help={editing ? "menyalin rute; boleh diubah" : undefined} error={errors.routing_id}>
               {editing ? (
                 <Combobox
                   value={header.routing_id ?? 0}
-                  waitingFor={header.target_item_id ? null : "Pilih Job Order dulu…"}
+                  waitingFor={header.target_item_id ? null : "Pilih Item Target dulu…"}
                   options={[
                     { id: 0, label: "", name: "Tanpa Routing", active: true },
                     ...options.routings.filter((r) => r.itemId === header.target_item_id && (r.active || r.id === header.routing_id)),
@@ -207,21 +221,6 @@ export function ProductionOrderForm({
                 chip(routing)
               ) : (
                 nil("tanpa Routing")
-              )}
-            </Field>
-          </FormRow>
-          <FormRow>
-            <Field label="Gudang Bahan" span={6} required={editing} help={editing ? "tempat lot yang direncanakan" : undefined} error={errors.warehouse_id}>
-              {editing ? (
-                <Combobox
-                  value={header.warehouse_id}
-                  options={options.warehouses.filter((w) => w.active || w.id === header.warehouse_id)}
-                  placeholder="Pilih Gudang…"
-                  invalid={Boolean(errors.warehouse_id)}
-                  onChange={pickWarehouse}
-                />
-              ) : (
-                chip(warehouse)
               )}
             </Field>
             <Field label="Catatan" span={12}>
@@ -253,7 +252,7 @@ export function ProductionOrderForm({
         </span>
         <div className="ct">
           <h3>Rute</h3>
-          <p>Workstation yang dilalui Partai, berurutan. Lot dikirim ke langkah pertama.</p>
+          <p>Workstation yang dilalui Partai, berurutan. BoM pada sebuah langkah menentukan kebutuhan bahannya.</p>
         </div>
         {editing && (
           <button
@@ -310,7 +309,7 @@ export function ProductionOrderForm({
                     {editing ? (
                       <Select size="sm" value={s.mode ?? ""} options={MODES} placeholder="Pilih Cara Kerja…" invalid={Boolean(err("mode"))} onChange={(v) => setStep(s.key, { mode: v as RoutingStepModeValue })} />
                     ) : (
-                      (s.mode && ROUTING_MODE_TEXT[s.mode]) ?? ""
+                      ((s.mode && ROUTING_MODE_TEXT[s.mode]) ?? "")
                     )}
                   </td>
                   <td>
@@ -359,159 +358,94 @@ export function ProductionOrderForm({
     </div>
   );
 
-  // ========================================================== lots card
-  const lotsCard = (
+  // =================================================== requirements card
+  const stationOf = (id: number | null) => (id ? options.workstations.find((w) => w.id === id) : undefined);
+  const requirementsCard = (
     <div className="card" style={{ marginTop: 14 }}>
       <div className="card-h">
         <span className="ci">
           <Icon name="layers" size={15} />
         </span>
         <div className="ct">
-          <h3>Rencana Lot</h3>
+          <h3>Kebutuhan Bahan</h3>
           <p>
-            Lot stok yang direncanakan untuk Partai ini, dalam satuan dasar.
-            {opened ? " Dikirim adalah yang sudah keluar dengan BSTB dan tidak ditolak." : " Rencana, bukan pemesanan stok: BSTB yang memeriksa stoknya."}
+            Dari BoM pada rute (atau BoM default Item Target) × Qty Target, per workstation yang memakainya. Tidak diketik; lot dipilih di BSTB.
+            {opened ? " Dikirim adalah yang sudah keluar ke workstation itu dengan BSTB dan tidak ditolak." : ""}
           </p>
         </div>
-        {editing && (
-          <button
-            className="btn sm primary"
-            onClick={() => {
-              setLots((ls) => [...ls, { key: newKey(), item_id: null, lot_id: null, qty: "" }]);
-              touch("_lots");
-            }}
-          >
-            <Icon name="plus" size={14} /> Tambah Lot
-          </button>
-        )}
       </div>
-      {banner(errors._lots)}
-      <div className="tw">
-        <table className="grid ltab" style={{ minWidth: 820 }}>
-          <thead>
-            <tr>
-              <th style={{ width: 40 }}>No</th>
-              <th>Barang</th>
-              <th style={{ width: 250 }}>Lot</th>
-              <th style={{ width: editing ? 200 : 130 }}>Qty</th>
-              {opened && (
-                <th className="num" style={{ width: 130 }}>
-                  Dikirim
+      {requirements.length === 0 ? (
+        <div className="empty sm">
+          <div className="ic">
+            <Icon name="layers" size={18} />
+          </div>
+          <h4>Tanpa kebutuhan bahan</h4>
+          <p>
+            {header.target_item_id && Number(header.target_qty) > 0
+              ? "Tidak ada BoM pada rute maupun BoM default untuk Item Target ini: bahan yang dipakai bebas."
+              : "Pilih Item Target dan isi Qty Target; kebutuhan dihitung dari BoM-nya."}
+          </p>
+        </div>
+      ) : (
+        <div className="tw">
+          <table className="grid ltab" style={{ minWidth: 700 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 40 }}>No</th>
+                <th>Barang</th>
+                <th style={{ width: 200 }}>Workstation</th>
+                <th className="num" style={{ width: 150 }}>
+                  Kebutuhan
                 </th>
-              )}
-              {editing && <th style={{ width: 40 }} />}
-            </tr>
-          </thead>
-          <tbody>
-            {lots.map((l, i) => {
-              const err = (f: string) => errors[`lots.${l.key}.${f}`];
-              const item = l.item_id ? itemById.get(l.item_id) : undefined;
-              const offered = lotsOf(l.item_id);
-              const lot = l.lot_id ? offered.find((o) => o.id === l.lot_id) : undefined;
-              const stored = order?.lots[i];
-              const typed = Number(String(l.qty).replace(",", ".")) || 0;
-              const over = Boolean(lot && typed > lot.available + 1e-9);
-              const rowError = err("item_id") ?? err("lot_id") ?? err("qty");
-              return (
-                <tr key={l.key} className={rowError || over ? "overrow" : undefined}>
-                  <td className="no">{i + 1}</td>
-                  <td>
-                    {editing ? (
-                      <Combobox
-                        size="sm"
-                        value={l.item_id}
-                        options={options.items.filter((o) => o.active || o.id === l.item_id)}
-                        placeholder="Pilih Barang…"
-                        invalid={Boolean(err("item_id"))}
-                        onChange={(v) => setLot(l.key, { item_id: v, lot_id: null })}
-                      />
-                    ) : (
+                {opened && (
+                  <th className="num" style={{ width: 130 }}>
+                    Dikirim
+                  </th>
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {requirements.map((r, i) => {
+                const item = itemById.get(r.itemId);
+                const ws = stationOf(r.workstationId);
+                const done = sent[requirementKey(r.itemId, r.workstationId)] ?? 0;
+                return (
+                  <tr key={`${r.itemId}|${r.stepNo ?? 0}`}>
+                    <td className="no">{i + 1}</td>
+                    <td>
                       <span className="idc">
                         <span className="lab">{item?.label}</span>
                         <span className="nm">{item?.name}</span>
                       </span>
-                    )}
-                    {rowError && <span className="overtag">{rowError}</span>}
-                  </td>
-                  <td>
-                    {editing ? (
-                      <Combobox
-                        size="sm"
-                        value={l.lot_id}
-                        waitingFor={!header.warehouse_id ? "Pilih Gudang dulu…" : !l.item_id ? "Pilih Barang dulu…" : null}
-                        options={offered
-                          // Each lot once per Perintah: the others' lots are not offered.
-                          .filter((o) => o.id === l.lot_id || !lots.some((x) => x.key !== l.key && x.lot_id === o.id))
-                          .map((o) => ({
-                            id: o.id,
-                            label: o.lotNo,
-                            name: `${qtyText(o.available)} ${item?.uomLabel ?? ""}${o.expiry ? ` · ED ${formatDate(o.expiry)}` : ""}`,
-                            active: true,
-                          }))}
-                        placeholder="Pilih Lot…"
-                        emptyText="Barang ini tidak punya stok di gudang yang dipilih."
-                        invalid={Boolean(err("lot_id"))}
-                        onChange={(v) => setLot(l.key, { lot_id: v })}
-                      />
-                    ) : (
-                      <span className="dstack">
-                        <span className="lab">{stored?.lotNo}</span>
-                        {stored?.expiry && <span className="d2">ED {formatDate(stored.expiry)}</span>}
-                      </span>
-                    )}
-                  </td>
-                  <td>
-                    {editing ? (
-                      <>
-                        <div className="qcell">
-                          <MoneyInput size="sm" decimals={4} value={l.qty} over={over} ariaLabel={`Qty ${item?.label ?? ""}`} onChange={(v) => setLot(l.key, { qty: v })} />
-                          <span className="qu">{item?.uomLabel}</span>
-                        </div>
-                        {lot && (
-                          <span className={over ? "overtag" : "fulltag"}>
-                            tersedia {qtyText(lot.available)} {item?.uomLabel}
-                          </span>
-                        )}
-                      </>
-                    ) : (
+                    </td>
+                    <td>
+                      {ws ? (
+                        <span className="idc">
+                          <span className="lab">{ws.label}</span>
+                          <span className="nm">langkah {r.stepNo}</span>
+                        </span>
+                      ) : (
+                        <span className="dash">—</span>
+                      )}
+                    </td>
+                    <td className="num">
                       <span className="qview">
-                        <span className="mny">{qtyText(Number(l.qty))}</span>
+                        <span className="mny">{qtyText(r.qty)}</span>
                         <span className="lab">{item?.uomLabel}</span>
                       </span>
+                    </td>
+                    {opened && (
+                      <td className="num">
+                        <span className={`mny${done + 1e-9 >= r.qty ? " in" : ""}`}>{qtyText(done)}</span>
+                      </td>
                     )}
-                  </td>
-                  {opened && (
-                    <td className="num">
-                      <span className="mny">{qtyText(l.lot_id ? (sent[l.lot_id] ?? 0) : 0)}</span>
-                    </td>
-                  )}
-                  {editing && (
-                    <td>
-                      <button
-                        className="iact del"
-                        title="Hapus lot"
-                        onClick={() => {
-                          setLots((ls) => ls.filter((x) => x.key !== l.key));
-                          touch("_lots");
-                        }}
-                      >
-                        <Icon name="trash" size={14} />
-                      </button>
-                    </td>
-                  )}
-                </tr>
-              );
-            })}
-            {lots.length === 0 && (
-              <tr>
-                <td colSpan={5} className="mut" style={{ textAlign: "center" }}>
-                  Belum ada lot. Tambahkan dengan tombol di atas.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 
@@ -566,7 +500,7 @@ export function ProductionOrderForm({
         <div>
           {headerCard}
           {stepsCard}
-          {lotsCard}
+          {requirementsCard}
         </div>
       </div>
     </>

@@ -9,7 +9,6 @@ import {
   transitionProductionOrder,
   updateProductionOrder,
   type ProductionOrderHeaderInput,
-  type ProductionOrderLotInput,
   type ProductionOrderResult,
   type ProductionOrderStepInput,
 } from "@/lib/erp/production-order";
@@ -40,12 +39,11 @@ function revalidate(id?: number) {
 
 export async function createProductionOrderAction(
   header: ProductionOrderHeaderInput,
-  steps: ProductionOrderStepInput[],
-  lots: ProductionOrderLotInput[]
+  steps: ProductionOrderStepInput[]
 ): Promise<ProductionOrderResult> {
   const g = await authorize("PRODUCTION_ORDER_CREATE");
   if (!g.ok) return g.denial;
-  const result = await createProductionOrder(header, steps, lots, g.actor.user.id);
+  const result = await createProductionOrder(header, steps, g.actor.user.id);
   if (result.ok) revalidate(result.id);
   return result;
 }
@@ -53,12 +51,11 @@ export async function createProductionOrderAction(
 export async function updateProductionOrderAction(
   id: number,
   header: ProductionOrderHeaderInput,
-  steps: ProductionOrderStepInput[],
-  lots: ProductionOrderLotInput[]
+  steps: ProductionOrderStepInput[]
 ): Promise<ProductionOrderResult> {
   const g = await authorize("PRODUCTION_ORDER_EDIT");
   if (!g.ok) return g.denial;
-  const result = await updateProductionOrder(id, header, steps, lots, g.actor.user.id);
+  const result = await updateProductionOrder(id, header, steps, g.actor.user.id);
   if (result.ok) revalidate(id);
   return result;
 }

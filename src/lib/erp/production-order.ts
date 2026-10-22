@@ -2,10 +2,10 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { lotOptions } from "./inventory";
 import { routingAndBomChoices, type BomChoice, type RoutingChoice } from "./production-master";
 import { nextDailyNumber } from "./production-number";
 import { ROUTING_MODE_TEXT, type RoutingStepModeValue } from "./production-master-shape";
+import { orderRequirements, type Requirement } from "./production-order-shape";
 import {
   PRODUCTION_ORDER_TRANSITIONS,
   productionOrderIsEditable,
@@ -16,17 +16,19 @@ import {
 
 /**
  * The Perintah Produksi module (Walet build step 3, `production_project.md`
- * M121): its tables are `prd_order`, `prd_order_step` and `prd_order_lot`, and
- * nothing else names them.
+ * M121, P164, P165): its tables are `prd_order`, `prd_order_step` and
+ * `prd_order_requirement`, and nothing else names them.
  *
- * PPIC raises one Perintah per Partai: the **Job Order** (the item the Partai
- * is to become), its **route** — copied from a Routing of that item and
- * changed freely while a Draft — and the **stock lots planned** for it, each
- * in its base unit, in one warehouse. *Buka* makes it Open; only then may a
- * Logistik BSTB be raised from it (`productionOrdersForIssue`), which sends the
- * lots and checks the stock. The planned lots are a plan, not a reservation.
- * The Partai itself is started later, when the first station hands its goods
- * on in Jobs (O3, step 4). Posts nothing.
+ * PPIC raises one Perintah per Partai: the **Item Target** (what the Partai is
+ * to become) and the **Qty Target**, and its **route** — copied from a Routing
+ * of that item and changed freely while a Draft. Its **material requirements**
+ * are worked out from the BoMs the route names (else the item's default BoM)
+ * for that quantity (`production-order-shape.ts`), at every save and again at
+ * *Buka*, and are never typed: without a BoM there are none and what goes in is
+ * free. The Perintah names no lot and no warehouse — the Logistik BSTB picks
+ * and sends (`productionOrdersForIssue`), each to a station, pre-filled from
+ * that station's requirements. The Partai is started later, by the hand-over
+ * that boxes a station's output into Jobs (O3, step 4). Posts nothing.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -34,14 +36,12 @@ type Db = Prisma.TransactionClient | typeof prisma;
 export type ProductionOrderHeaderInput = {
   order_date: string;
   target_item_id: number | null;
+  target_qty: number | string;
   routing_id: number | null;
-  warehouse_id: number | null;
   note: string;
 };
 
 export type ProductionOrderStepInput = { workstation_id: number | null; mode: RoutingStepModeValue | null; bom_id: number | null };
-
-export type ProductionOrderLotInput = { item_id: number | null; lot_id: number | null; qty: number | string; note: string };
 
 export type ProductionOrderResult = { ok: true; id: number; orderNo: string } | { ok: false; errors: Record<string, string> };
 
@@ -53,33 +53,27 @@ const text = (v: unknown) => String(v ?? "").trim() || null;
 /** Quantities are `Decimal(18, 4)`, compared in ten-thousandths. */
 const QTY_SCALE = 10_000;
 const units = (n: number) => Math.round(n * QTY_SCALE);
-const fromUnits = (u: number) => u / QTY_SCALE;
 
 // ---------------------------------------------------------------- options
 
 export type PpOption = { id: number; label: string; name: string; active: boolean };
 export type PpItemOption = PpOption & { uomId: number; uomLabel: string };
-export type PpLotOption = { id: number; lotNo: string; expiry: string | null; available: number };
 
 export type ProductionOrderOptions = {
-  /** Barang with Kelola Stok — the only items production holds (M8). */
+  /** Barang with Kelola Stok — the only items production holds (M8); also every BoM component. */
   items: PpItemOption[];
   routings: RoutingChoice[];
   workstations: PpOption[];
   boms: BomChoice[];
-  warehouses: PpOption[];
-  /** Lots with stock, per warehouse id, then item id — summed over locations; earliest expiry first. */
-  lots: Record<number, Record<number, PpLotOption[]>>;
 };
 
 export type ProductionOrderCurrent = {
   targetItemId: number;
   routingId: number | null;
-  warehouseId: number;
   workstationIds: number[];
   bomIds: number[];
+  /** Items its stored requirements name. */
   itemIds: number[];
-  lotIds: number[];
 };
 
 /**
@@ -88,7 +82,7 @@ export type ProductionOrderCurrent = {
  */
 export async function productionOrderOptions(current: ProductionOrderCurrent | null = null, db: Db = prisma): Promise<ProductionOrderOptions> {
   const itemIds = current ? [current.targetItemId, ...current.itemIds] : [];
-  const [items, choices, workstations, warehouses] = await Promise.all([
+  const [items, choices, workstations] = await Promise.all([
     db.mItem.findMany({
       where: { OR: [{ item_type: "Barang", track_stock: true, status: "Active" }, ...(itemIds.length ? [{ id: { in: itemIds } }] : [])] },
       orderBy: { item_label: "asc" },
@@ -100,70 +94,41 @@ export async function productionOrderOptions(current: ProductionOrderCurrent | n
       orderBy: { workstation_label: "asc" },
       select: { id: true, workstation_label: true, workstation_name: true, status: true },
     }),
-    db.refWarehouse.findMany({
-      where: { OR: [{ status: "Active" }, ...(current ? [{ id: current.warehouseId }] : [])] },
-      orderBy: { warehouse_label: "asc" },
-      select: { id: true, warehouse_label: true, warehouse_name: true, status: true },
-    }),
   ]);
-  const byWarehouse = await lotOptions(
-    items.map((i) => i.id),
-    warehouses.map((w) => w.id),
-    db,
-    current?.lotIds ?? []
-  );
-  const lots: ProductionOrderOptions["lots"] = {};
-  for (const [w, byItem] of byWarehouse) {
-    lots[w] = {};
-    for (const [itemId, options] of byItem) {
-      // A plan names a lot, not where in the warehouse it lies: the BSTB picks the location.
-      const summed = new Map<number, PpLotOption>();
-      for (const o of options) {
-        const s = summed.get(o.id) ?? { id: o.id, lotNo: o.lotNo, expiry: o.expiry, available: 0 };
-        s.available = fromUnits(units(s.available) + units(o.available));
-        summed.set(o.id, s);
-      }
-      lots[w][itemId] = [...summed.values()].sort((a, b) => (a.expiry ?? "9999").localeCompare(b.expiry ?? "9999") || a.lotNo.localeCompare(b.lotNo));
-    }
-  }
   const stockItem = (i: (typeof items)[number]) => i.status === "Active" && i.item_type === "Barang" && i.track_stock;
   return {
     items: items.map((i) => ({ id: i.id, label: i.item_label, name: i.item_name, active: stockItem(i), uomId: i.base_uom_id, uomLabel: i.base_uom.uom_label })),
     routings: choices.routings,
     workstations: workstations.map((w) => ({ id: w.id, label: w.workstation_label, name: w.workstation_name, active: w.status === "Active" })),
     boms: choices.boms,
-    warehouses: warehouses.map((w) => ({ id: w.id, label: w.warehouse_label, name: w.warehouse_name, active: w.status === "Active" })),
-    lots,
   };
 }
 
 // ------------------------------------------------------------- validation
 
 type CheckedStep = { step_no: number; workstation_id: number; mode: RoutingStepModeValue; bom_id: number | null };
-type CheckedLot = { line_no: number; item_id: number; lot_id: number; uom_id: number; qty: number; note: string | null };
+type CheckedRequirement = { line_no: number; item_id: number; uom_id: number; qty: number; step_no: number | null; workstation_id: number | null; bom_id: number };
 
 type Checked = {
-  data: { order_date: Date; target_item_id: number; routing_id: number | null; warehouse_id: number; note: string | null };
+  data: { order_date: Date; target_item_id: number; target_qty: number; routing_id: number | null; note: string | null };
   steps: CheckedStep[];
-  lots: CheckedLot[];
+  requirements: CheckedRequirement[];
 };
 
 /**
  * Every rule a Perintah must satisfy to be saved — and, run again with
- * `forOpening`, to be opened: everything it names still active.
+ * `forOpening`, to be opened: everything it names still active. Works out its
+ * requirements from the BoMs as they stand now.
  */
 export async function checkProductionOrder(
   db: Db,
   header: ProductionOrderHeaderInput,
   steps: ProductionOrderStepInput[],
-  lots: ProductionOrderLotInput[],
   selfId: number | null,
   forOpening = false
 ): Promise<{ ok: true; c: Checked } | { ok: false; errors: Record<string, string> }> {
   const errors: Record<string, string> = {};
-  const stored = selfId
-    ? await db.prdOrder.findUnique({ where: { id: selfId }, include: { steps: true, lots: true } })
-    : null;
+  const stored = selfId ? await db.prdOrder.findUnique({ where: { id: selfId }, include: { steps: true, requirements: true } }) : null;
   const options = await productionOrderOptions(stored ? currentOf(stored) : null, db);
   // Stored names stay readable on a Draft; opening needs them active again.
   const usable = <T extends PpOption>(list: T[], id: number | null, storedIds: (number | null)[]) => {
@@ -176,8 +141,12 @@ export async function checkProductionOrder(
 
   const targetId = Number(header.target_item_id) || null;
   const target = usable(options.items, targetId, [stored?.target_item_id ?? null]);
-  if (!targetId) errors.target_item_id = "Pilih Job Order — barang yang akan dibuat.";
-  else if (!target) errors.target_item_id = "Job Order harus Barang aktif dengan Kelola Stok.";
+  if (!targetId) errors.target_item_id = "Pilih Item Target — barang yang akan dibuat.";
+  else if (!target) errors.target_item_id = "Item Target harus Barang aktif dengan Kelola Stok.";
+
+  const qty = Number(String(header.target_qty ?? "").replace(",", "."));
+  if (!Number.isFinite(qty) || !(qty > 0)) errors.target_qty = "Isi Qty Target lebih dari 0.";
+  else if (Math.abs(qty * QTY_SCALE - units(qty)) > 1e-6) errors.target_qty = "Paling banyak 4 angka desimal.";
 
   const routingId = Number(header.routing_id) || null;
   if (routingId) {
@@ -185,11 +154,6 @@ export async function checkProductionOrder(
     if (!r) errors.routing_id = "Routing tidak ditemukan atau nonaktif.";
     else if (targetId && r.itemId !== targetId) errors.routing_id = "Routing ini untuk barang lain.";
   }
-
-  const warehouseId = Number(header.warehouse_id) || null;
-  const warehouse = usable(options.warehouses, warehouseId, [stored?.warehouse_id ?? null]);
-  if (!warehouseId) errors.warehouse_id = "Pilih gudang asal lot.";
-  else if (!warehouse) errors.warehouse_id = "Gudang tidak ditemukan atau nonaktif.";
 
   const rawSteps = Array.isArray(steps) ? steps : [];
   const outSteps: CheckedStep[] = [];
@@ -208,58 +172,27 @@ export async function checkProductionOrder(
   }
   if (!errors._steps && Object.keys(errors).some((x) => x.startsWith("steps."))) errors._steps = "Ada langkah yang perlu diperbaiki.";
 
-  const rawLots = Array.isArray(lots) ? lots : [];
-  const outLots: CheckedLot[] = [];
-  if (!rawLots.length) errors._lots = "Tambahkan minimal satu lot yang direncanakan.";
-  const seen = new Set<number>();
-  for (const [i, l] of rawLots.entries()) {
-    const k = (f: string) => `lots.${i}.${f}`;
-    const itemId = Number(l.item_id) || null;
-    const item = usable(options.items, itemId, stored?.lots.map((x) => x.item_id) ?? []);
-    if (!itemId) {
-      errors[k("item_id")] = "Pilih barang.";
-      continue;
-    }
-    if (!item) {
-      errors[k("item_id")] = "Hanya Barang aktif dengan Kelola Stok yang masuk produksi.";
-      continue;
-    }
-    const lotId = Number(l.lot_id) || null;
-    const offered = warehouse ? (options.lots[warehouse.id]?.[item.id] ?? []) : [];
-    const lot = lotId ? offered.find((x) => x.id === lotId) : undefined;
-    if (!lotId) {
-      errors[k("lot_id")] = "Pilih lot.";
-      continue;
-    }
-    if (!lot) {
-      errors[k("lot_id")] = `Lot ini tidak ada di gudang untuk ${item.label}.`;
-      continue;
-    }
-    if (seen.has(lot.id)) {
-      errors[k("lot_id")] = `Lot ${lot.lotNo} direncanakan lebih dari sekali.`;
-      continue;
-    }
-    seen.add(lot.id);
-    const qty = Number(String(l.qty ?? "").replace(",", "."));
-    if (!Number.isFinite(qty) || !(qty > 0)) {
-      errors[k("qty")] = "Isi jumlah lebih dari 0.";
-      continue;
-    }
-    if (Math.abs(qty * QTY_SCALE - units(qty)) > 1e-6) {
-      errors[k("qty")] = "Paling banyak 4 angka desimal.";
-      continue;
-    }
-    outLots.push({ line_no: outLots.length + 1, item_id: item.id, lot_id: lot.id, uom_id: item.uomId, qty: fromUnits(units(qty)), note: text(l.note) });
-  }
-  if (!errors._lots && Object.keys(errors).some((x) => x.startsWith("lots."))) errors._lots = "Ada lot yang perlu diperbaiki.";
+  if (Object.keys(errors).length || !target) return { ok: false, errors };
 
-  if (Object.keys(errors).length || !target || !warehouse) return { ok: false, errors };
+  const itemBy = new Map(options.items.map((i) => [i.id, i]));
+  const requirements: CheckedRequirement[] = [];
+  for (const r of orderRequirements(
+    target.id,
+    qty,
+    outSteps.map((s) => ({ workstationId: s.workstation_id, bomId: s.bom_id })),
+    options.boms
+  )) {
+    const item = itemBy.get(r.itemId);
+    // A BoM component is a Barang with Kelola Stok (P162); one switched off since is named.
+    if (!item) return { ok: false, errors: { _form: "Ada komponen BoM yang tidak lagi Barang dengan Kelola Stok. Periksa BoM-nya dulu." } };
+    requirements.push({ line_no: requirements.length + 1, item_id: r.itemId, uom_id: item.uomId, qty: r.qty, step_no: r.stepNo, workstation_id: r.workstationId, bom_id: r.bomId });
+  }
   return {
     ok: true,
     c: {
-      data: { order_date: asDate(orderDate), target_item_id: target.id, routing_id: routingId, warehouse_id: warehouse.id, note: text(header.note) },
+      data: { order_date: asDate(orderDate), target_item_id: target.id, target_qty: qty, routing_id: routingId, note: text(header.note) },
       steps: outSteps,
-      lots: outLots,
+      requirements,
     },
   };
 }
@@ -292,25 +225,21 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
   }
 }
 
-export async function createProductionOrder(
-  header: ProductionOrderHeaderInput,
-  steps: ProductionOrderStepInput[],
-  lots: ProductionOrderLotInput[],
-  actorId: number
-): Promise<ProductionOrderResult> {
+/** A Draft's route and requirements are rewritten whole: nothing names them before it is Open. */
+async function writeCollections(tx: Prisma.TransactionClient, id: number, c: Checked) {
+  await tx.prdOrderStep.deleteMany({ where: { order_id: id } });
+  await tx.prdOrderRequirement.deleteMany({ where: { order_id: id } });
+  await tx.prdOrderStep.createMany({ data: c.steps.map((s) => ({ ...s, order_id: id })) });
+  await tx.prdOrderRequirement.createMany({ data: c.requirements.map((r) => ({ ...r, order_id: id })) });
+}
+
+export async function createProductionOrder(header: ProductionOrderHeaderInput, steps: ProductionOrderStepInput[], actorId: number): Promise<ProductionOrderResult> {
   return refusable(async () => {
     const made = await prisma.$transaction(async (tx) => {
-      const r = await checkProductionOrder(tx, header, steps, lots, null);
+      const r = await checkProductionOrder(tx, header, steps, null);
       if (!r.ok) throw new Refused(r.errors);
-      const row = await tx.prdOrder.create({
-        data: {
-          ...r.c.data,
-          order_no: await nextOrderNo(tx, r.c.data.order_date),
-          created_by: actorId,
-          steps: { create: r.c.steps },
-          lots: { create: r.c.lots },
-        },
-      });
+      const row = await tx.prdOrder.create({ data: { ...r.c.data, order_no: await nextOrderNo(tx, r.c.data.order_date), created_by: actorId } });
+      await writeCollections(tx, row.id, r.c);
       await audit(tx, row.id, "TAMBAH", "create", actorId);
       return row;
     });
@@ -318,13 +247,7 @@ export async function createProductionOrder(
   });
 }
 
-export async function updateProductionOrder(
-  id: number,
-  header: ProductionOrderHeaderInput,
-  steps: ProductionOrderStepInput[],
-  lots: ProductionOrderLotInput[],
-  actorId: number
-): Promise<ProductionOrderResult> {
+export async function updateProductionOrder(id: number, header: ProductionOrderHeaderInput, steps: ProductionOrderStepInput[], actorId: number): Promise<ProductionOrderResult> {
   const current = await prisma.prdOrder.findUnique({ where: { id }, select: { status: true, order_no: true } });
   if (!current) return { ok: false, errors: { _form: "Perintah Produksi tidak ditemukan." } };
   if (!productionOrderIsEditable(current.status as ProductionOrderStatus)) {
@@ -332,33 +255,27 @@ export async function updateProductionOrder(
   }
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
-      const r = await checkProductionOrder(tx, header, steps, lots, id);
+      const r = await checkProductionOrder(tx, header, steps, id);
       if (!r.ok) throw new Refused(r.errors);
       const done = await tx.prdOrder.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: "Perintah berubah saat diproses. Muat ulang halaman." });
-      // A Draft's route and lots are rewritten whole: nothing names them before it is Open.
-      await tx.prdOrderStep.deleteMany({ where: { order_id: id } });
-      await tx.prdOrderLot.deleteMany({ where: { order_id: id } });
-      await tx.prdOrderStep.createMany({ data: r.c.steps.map((s) => ({ ...s, order_id: id })) });
-      await tx.prdOrderLot.createMany({ data: r.c.lots.map((l) => ({ ...l, order_id: id })) });
+      await writeCollections(tx, id, r.c);
       await audit(tx, id, "UPDATE", "update", actorId);
     });
     return { ok: true as const, id, orderNo: current.order_no };
   });
 }
 
-const WITH_ALL = { steps: { orderBy: { step_no: "asc" as const } }, lots: { orderBy: { line_no: "asc" as const } } };
+const WITH_ALL = { steps: { orderBy: { step_no: "asc" as const } }, requirements: { orderBy: { line_no: "asc" as const } } };
 type Stored = Prisma.PrdOrderGetPayload<{ include: typeof WITH_ALL }>;
 
-function currentOf(o: Prisma.PrdOrderGetPayload<{ include: { steps: true; lots: true } }>): ProductionOrderCurrent {
+function currentOf(o: Prisma.PrdOrderGetPayload<{ include: { steps: true; requirements: true } }>): ProductionOrderCurrent {
   return {
     targetItemId: o.target_item_id,
     routingId: o.routing_id,
-    warehouseId: o.warehouse_id,
-    workstationIds: o.steps.map((s) => s.workstation_id),
-    bomIds: o.steps.flatMap((s) => (s.bom_id ? [s.bom_id] : [])),
-    itemIds: o.lots.map((l) => l.item_id),
-    lotIds: o.lots.map((l) => l.lot_id),
+    workstationIds: [...o.steps.map((s) => s.workstation_id), ...o.requirements.flatMap((r) => (r.workstation_id ? [r.workstation_id] : []))],
+    bomIds: [...o.steps.flatMap((s) => (s.bom_id ? [s.bom_id] : [])), ...o.requirements.map((r) => r.bom_id)],
+    itemIds: o.requirements.map((r) => r.item_id),
   };
 }
 
@@ -367,12 +284,11 @@ function asInput(o: Stored) {
     header: {
       order_date: isoDay(o.order_date),
       target_item_id: o.target_item_id,
+      target_qty: o.target_qty.toNumber(),
       routing_id: o.routing_id,
-      warehouse_id: o.warehouse_id,
       note: o.note ?? "",
     } satisfies ProductionOrderHeaderInput,
     steps: o.steps.map((s) => ({ workstation_id: s.workstation_id, mode: s.mode as RoutingStepModeValue, bom_id: s.bom_id })),
-    lots: o.lots.map((l) => ({ item_id: l.item_id, lot_id: l.lot_id, qty: l.qty.toNumber(), note: l.note ?? "" })),
   };
 }
 
@@ -382,11 +298,12 @@ export type ProductionOrderTransitionResult = { ok: true } | { ok: false; errors
 
 /**
  * One lifecycle step. **Buka** checks the stored Perintah again — anything it
- * names may have been deactivated since. Batalkan and Tutup ask for a reason,
- * kept in `status_reason`. **Tutup** takes a `guard` from the action layer,
- * which knows the BSTBs raised from it (§3.1: the BSTB depends on the
- * Perintah, never the reverse). Every step is conditional on the status just
- * read.
+ * names may have been deactivated since — and works its requirements out once
+ * more from the BoMs as they stand, which then stay as opened. Batalkan and
+ * Tutup ask for a reason, kept in `status_reason`. **Tutup** takes a `guard`
+ * from the action layer, which knows the BSTBs raised from it (§3.1: the BSTB
+ * depends on the Perintah, never the reverse). Every step is conditional on
+ * the status just read.
  */
 export async function transitionProductionOrder(
   id: number,
@@ -412,11 +329,12 @@ export async function transitionProductionOrder(
       await tx.$queryRaw`SELECT id FROM prd_order WHERE id = ${id} FOR UPDATE`;
       if (action === "open") {
         const input = asInput(order);
-        const r = await checkProductionOrder(tx, input.header, input.steps, input.lots, id, true);
+        const r = await checkProductionOrder(tx, input.header, input.steps, id, true);
         if (!r.ok) {
           const first = Object.entries(r.errors).find(([k]) => !k.startsWith("_"))?.[1] ?? Object.values(r.errors)[0];
           throw new Refused({ _form: `Belum bisa dibuka: ${first}` });
         }
+        await writeCollections(tx, id, r.c);
       }
       if (action === "close" && guard) {
         const refusal = await guard();
@@ -442,21 +360,20 @@ export type ProductionOrderListRow = {
   status: ProductionOrderStatus;
   targetLabel: string;
   targetName: string;
-  warehouseLabel: string;
+  targetQty: number;
+  targetUom: string;
   firstWorkstation: string | null;
   steps: number;
-  lots: number;
-  plannedQty: number;
+  requirements: number;
 };
 
 export async function listProductionOrders(): Promise<ProductionOrderListRow[]> {
   const rows = await prisma.prdOrder.findMany({
     orderBy: [{ order_date: "desc" }, { id: "desc" }],
     include: {
-      target_item: { select: { item_label: true, item_name: true } },
-      warehouse: { select: { warehouse_label: true } },
+      target_item: { select: { item_label: true, item_name: true, base_uom: { select: { uom_label: true } } } },
       steps: { orderBy: { step_no: "asc" }, select: { workstation: { select: { workstation_label: true } } } },
-      lots: { select: { qty: true } },
+      _count: { select: { requirements: true } },
     },
   });
   return rows.map((r) => ({
@@ -466,11 +383,11 @@ export async function listProductionOrders(): Promise<ProductionOrderListRow[]> 
     status: r.status as ProductionOrderStatus,
     targetLabel: r.target_item.item_label,
     targetName: r.target_item.item_name,
-    warehouseLabel: r.warehouse.warehouse_label,
+    targetQty: r.target_qty.toNumber(),
+    targetUom: r.target_item.base_uom.uom_label,
     firstWorkstation: r.steps[0]?.workstation.workstation_label ?? null,
     steps: r.steps.length,
-    lots: r.lots.length,
-    plannedQty: fromUnits(r.lots.reduce((s, l) => s + units(l.qty.toNumber()), 0)),
+    requirements: r._count.requirements,
   }));
 }
 
@@ -480,15 +397,13 @@ export type ProductionOrderView = {
   status: ProductionOrderStatus;
   header: ProductionOrderHeaderInput;
   steps: ProductionOrderStepInput[];
-  lots: (ProductionOrderLotInput & { lotNo: string; expiry: string | null })[];
+  /** As stored: worked out at the last save, or at Buka. */
+  requirements: Requirement[];
   statusReason: string | null;
 };
 
 export async function getProductionOrder(id: number): Promise<ProductionOrderView | null> {
-  const o = await prisma.prdOrder.findUnique({
-    where: { id },
-    include: { steps: { orderBy: { step_no: "asc" } }, lots: { orderBy: { line_no: "asc" }, include: { lot: { select: { tracking_no: true, expiry_date: true } } } } },
-  });
+  const o = await prisma.prdOrder.findUnique({ where: { id }, include: WITH_ALL });
   if (!o) return null;
   const input = asInput(o);
   return {
@@ -497,7 +412,7 @@ export async function getProductionOrder(id: number): Promise<ProductionOrderVie
     status: o.status as ProductionOrderStatus,
     header: input.header,
     steps: input.steps,
-    lots: input.lots.map((l, i) => ({ ...l, lotNo: o.lots[i].lot.tracking_no, expiry: o.lots[i].lot.expiry_date ? isoDay(o.lots[i].lot.expiry_date) : null })),
+    requirements: o.requirements.map((r) => ({ itemId: r.item_id, qty: r.qty.toNumber(), stepNo: r.step_no, workstationId: r.workstation_id, bomId: r.bom_id })),
     statusReason: o.status_reason,
   };
 }
@@ -507,11 +422,9 @@ export function productionOrderCurrent(v: ProductionOrderView): ProductionOrderC
   return {
     targetItemId: Number(v.header.target_item_id),
     routingId: v.header.routing_id,
-    warehouseId: Number(v.header.warehouse_id),
-    workstationIds: v.steps.map((s) => Number(s.workstation_id)),
-    bomIds: v.steps.flatMap((s) => (s.bom_id ? [s.bom_id] : [])),
-    itemIds: v.lots.map((l) => Number(l.item_id)),
-    lotIds: v.lots.map((l) => Number(l.lot_id)),
+    workstationIds: [...v.steps.map((s) => Number(s.workstation_id)), ...v.requirements.flatMap((r) => (r.workstationId ? [r.workstationId] : []))],
+    bomIds: [...v.steps.flatMap((s) => (s.bom_id ? [s.bom_id] : [])), ...v.requirements.map((r) => r.bomId)],
+    itemIds: v.requirements.map((r) => r.itemId),
   };
 }
 
@@ -524,9 +437,10 @@ export async function productionOrderNumbersByIds(ids: number[]): Promise<Map<nu
 // -------------------------------------------------------- for the BSTB
 
 /**
- * A Perintah as the Logistik BSTB reads it: its warehouse, the first station
- * of its route (where the lots are sent) and the lots planned. The BSTB module
- * takes this rather than reading `prd_order` itself.
+ * A Perintah as the Logistik BSTB reads it: its route's first station (the
+ * default destination) and its requirements per station, so a BSTB to a
+ * station pre-fills what that station needs. The BSTB module takes this rather
+ * than reading `prd_order` itself.
  */
 export type IssueSourceOrder = {
   id: number;
@@ -534,9 +448,8 @@ export type IssueSourceOrder = {
   open: boolean;
   targetLabel: string;
   targetName: string;
-  warehouseId: number;
   firstWorkstationId: number | null;
-  lots: { itemId: number; lotId: number; qty: number }[];
+  requirements: { itemId: number; qty: number; workstationId: number | null }[];
 };
 
 /** Open Perintah, plus any named (a stored BSTB's own), newest first. */
@@ -547,7 +460,7 @@ export async function productionOrdersForIssue(withIds: number[] = [], db: Db = 
     include: {
       target_item: { select: { item_label: true, item_name: true } },
       steps: { orderBy: { step_no: "asc" }, take: 1 },
-      lots: { orderBy: { line_no: "asc" } },
+      requirements: { orderBy: { line_no: "asc" } },
     },
   });
   return rows.map((r) => ({
@@ -556,15 +469,14 @@ export async function productionOrdersForIssue(withIds: number[] = [], db: Db = 
     open: r.status === "Open",
     targetLabel: r.target_item.item_label,
     targetName: r.target_item.item_name,
-    warehouseId: r.warehouse_id,
     firstWorkstationId: r.steps[0]?.workstation_id ?? null,
-    lots: r.lots.map((l) => ({ itemId: l.item_id, lotId: l.lot_id, qty: l.qty.toNumber() })),
+    requirements: r.requirements.map((q) => ({ itemId: q.item_id, qty: q.qty.toNumber(), workstationId: q.workstation_id })),
   }));
 }
 
 /**
- * Locks a Perintah for a BSTB's save or posting and says whether it may still
- * send goods: it must be Open. Returns its number for the BSTB to copy.
+ * Locks a Perintah for a BSTB's posting and says whether it may still send
+ * goods: it must be Open. Returns its number for the BSTB to copy.
  */
 export async function lockProductionOrderForIssue(tx: Prisma.TransactionClient, id: number): Promise<{ ok: true; orderNo: string } | { ok: false; error: string }> {
   const [row] = await tx.$queryRaw<{ order_no: string; status: string }[]>`SELECT order_no, status::text FROM prd_order WHERE id = ${id} FOR UPDATE`;

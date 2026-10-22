@@ -234,7 +234,7 @@ async function takeLocked(tx: Tx, b: Bucket, qty: Dec, movement: Movement, date:
 
 /**
  * Starts a Partai (M112): the next `P_<DDMMYY>_<NNNNN>` of its day (M124),
- * carrying its Job Order — the item it is planned to become — when known.
+ * carrying its Item Target — the item it is planned to become — when known.
  */
 export async function startPartai(
   tx: Tx,

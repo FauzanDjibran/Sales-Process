@@ -14,7 +14,8 @@ import {
   type StockIssueLineInput,
 } from "../src/lib/erp/stock-issue";
 import { availableStockIssueActions, stockIssueAbilities } from "../src/lib/erp/stock-issue-workflow";
-import { createProductionOrder, transitionProductionOrder, type ProductionOrderLotInput } from "../src/lib/erp/production-order";
+import { createProductionOrder, getProductionOrder, transitionProductionOrder, updateProductionOrder } from "../src/lib/erp/production-order";
+import { orderRequirements, requirementKey } from "../src/lib/erp/production-order-shape";
 import { produce } from "../src/lib/erp/production-ledger";
 import {
   FIXTURE_PREFIX,
@@ -54,6 +55,7 @@ let actor = 0;
 const f = {} as Record<string, number>;
 const ids: number[] = [];
 const orderIds: number[] = [];
+const bomIds: number[] = [];
 const cleanups: (() => Promise<unknown>)[] = [];
 const stamp = String(Date.now() % 100000);
 const key = (s: string) => `${FIXTURE_PREFIX}${s}${stamp}`;
@@ -153,10 +155,12 @@ after(async () => {
   await prisma.logStockIssueLine.deleteMany({ where: { stock_issue_id: { in: ids } } });
   await prisma.logStockIssue.deleteMany({ where: { id: { in: ids } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "log_stock_issue", row_id: { in: ids } } });
-  await prisma.prdOrderLot.deleteMany({ where: { order_id: { in: orderIds } } });
+  await prisma.prdOrderRequirement.deleteMany({ where: { order_id: { in: orderIds } } });
   await prisma.prdOrderStep.deleteMany({ where: { order_id: { in: orderIds } } });
   await prisma.prdOrder.deleteMany({ where: { id: { in: orderIds } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "prd_order", row_id: { in: orderIds } } });
+  await prisma.prdBomLine.deleteMany({ where: { bom_id: { in: bomIds } } });
+  await prisma.prdBom.deleteMany({ where: { id: { in: bomIds } } });
   await prisma.prdLedger.deleteMany({ where: { item_id: { in: items } } });
   await prisma.prdBalance.deleteMany({ where: { item_id: { in: items } } });
   for (const [k, v] of savedSettings) await prisma.sysSetting.update({ where: { setting_key: k }, data: { setting_value: v } });
@@ -165,7 +169,7 @@ after(async () => {
   await cleanupFixtures();
   await cleanupStock(items);
   await prisma.mItem.deleteMany({ where: { id: { in: items } } });
-  await prisma.refWorkstation.deleteMany({ where: { id: { in: [f.ws, f.wsOff] } } });
+  await prisma.refWorkstation.deleteMany({ where: { id: { in: [f.ws, f.wsOff, f.ws2].filter(Boolean) } } });
   await prisma.refWarehouseLocation.deleteMany({ where: { warehouse_id: f.located } });
   await prisma.refWarehouse.deleteMany({ where: { id: { in: [f.warehouse, f.located] } } });
   await prisma.refUom.deleteMany({ where: { id: f.kg } });
@@ -361,26 +365,89 @@ describe("the workstation receives or rejects the BSTB whole (M113)", () => {
   });
 });
 
-describe("a BSTB raised from a Perintah Produksi (M121, O4)", () => {
-  const planned = (lot: number, qty: number): ProductionOrderLotInput => ({ item_id: f.rm, lot_id: lot, qty, note: "" });
-  const orderHeader = () => ({ order_date: today, target_item_id: f.rm, routing_id: null, warehouse_id: f.warehouse, note: "" });
+describe("the Perintah Produksi's requirements come from the BoM (P165)", () => {
+  test("BoM × Qty Target ÷ base quantity, per step; the default BoM when the route names none; none without a BoM", () => {
+    const bom = { id: 1, itemId: 9, baseQty: 3, isDefault: true, active: true, lines: [{ itemId: 7, qty: 1, stepNo: 1 }, { itemId: 8, qty: 2, stepNo: null }] };
+    const steps = [{ workstationId: 11, bomId: null }, { workstationId: 12, bomId: 1 }];
+    assert.deepEqual(orderRequirements(9, 1, steps, [bom]), [
+      { itemId: 7, qty: 0.3333, stepNo: 1, workstationId: 11, bomId: 1 },
+      { itemId: 8, qty: 0.6667, stepNo: 2, workstationId: 12, bomId: 1 },
+    ]);
+    // The route names no BoM: the default one, a line without a step at the last step.
+    assert.deepEqual(orderRequirements(9, 3, [{ workstationId: 11, bomId: null }, { workstationId: 13, bomId: null }], [bom]).map((r) => [r.itemId, r.qty, r.workstationId]), [
+      [7, 1, 11],
+      [8, 2, 13],
+    ]);
+    assert.deepEqual(orderRequirements(5, 3, steps.map((x) => ({ ...x, bomId: null })), [bom]), [], "no BoM, no requirement: what goes in is free");
+    assert.deepEqual(orderRequirements(9, 0, steps, [bom]), [], "no quantity, no requirement");
+  });
+});
 
-  test("a Perintah needs a route and planned lots of its warehouse; it is numbered PP_", async () => {
-    const empty = await createProductionOrder(orderHeader(), [], [], actor);
-    assert.ok(!empty.ok && empty.errors._steps && empty.errors._lots);
-    const elsewhere = await createProductionOrder(orderHeader(), [{ workstation_id: f.ws, mode: "Transform", bom_id: null }], [planned(f.l1, 1)], actor);
-    assert.ok(!elsewhere.ok && /tidak ada di gudang/.test(elsewhere.errors["lots.0.lot_id"]), JSON.stringify(elsewhere));
-    const r = await createProductionOrder(orderHeader(), [{ workstation_id: f.ws, mode: "Transform", bom_id: null }], [planned(f.r1, 10)], actor);
+describe("a BSTB raised from a Perintah Produksi (M121, O4, P165)", () => {
+  const orderHeader = (over: Record<string, unknown> = {}) => ({ order_date: today, target_item_id: f.fg, target_qty: 10, routing_id: null, note: "", ...over });
+  const route = () => [
+    { workstation_id: f.ws, mode: "Transform" as const, bom_id: null },
+    { workstation_id: f.ws2, mode: "Transform" as const, bom_id: f.bom },
+  ];
+
+  test("a Perintah needs an Item Target, a Qty Target and a route; its requirements are generated, numbered PP_", async () => {
+    f.ws2 = (
+      await prisma.refWorkstation.create({ data: { workstation_code: `test.${key("WS2")}`, workstation_label: key("WS2"), workstation_name: "Pengemasan", cost_center_id: await productionCostCenterId(), created_by: actor } })
+    ).id;
+    f.fg = (
+      await prisma.mItem.create({
+        data: { item_code: `test.${key("FG")}`, item_label: key("FG"), item_name: "Barang Jadi", item_type: "Barang", category_id: f.cat, base_uom_id: f.kg, track_stock: true, created_by: actor },
+      })
+    ).id;
+    items.push(f.fg);
+    // Per 2 of FG: 3 of RM at step 1, 1 of EXP wherever the BoM is named (step 2).
+    f.bom = (
+      await prisma.prdBom.create({
+        data: {
+          bom_code: `test.${key("BOM")}`,
+          bom_label: key("BOM"),
+          bom_name: "BoM uji",
+          item_id: f.fg,
+          base_qty: 2,
+          created_by: actor,
+          lines: { create: [{ item_id: f.rm, qty: 3, step_no: 1, created_by: actor }, { item_id: f.exp, qty: 1, created_by: actor }] },
+        },
+      })
+    ).id;
+    bomIds.push(f.bom);
+
+    const empty = await createProductionOrder(orderHeader({ target_item_id: null, target_qty: 0 }), [], actor);
+    assert.ok(!empty.ok && empty.errors.target_item_id && empty.errors.target_qty && empty.errors._steps);
+    const r = await createProductionOrder(orderHeader(), route(), actor);
     assert.ok(r.ok, JSON.stringify(r));
     assert.match(r.orderNo, /^PP_\d{6}_\d{5}$/);
     orderIds.push(r.id);
     f.order = r.id;
+    const v = (await getProductionOrder(r.id))!;
+    assert.deepEqual(
+      v.requirements.map((q) => [q.itemId, q.qty, q.workstationId]),
+      [
+        [f.rm, 15, f.ws],
+        [f.exp, 5, f.ws2],
+      ]
+    );
+    // A new quantity is new requirements, worked out again at save.
+    assert.ok((await updateProductionOrder(r.id, orderHeader({ target_qty: 4 }), route(), actor)).ok);
+    assert.deepEqual((await getProductionOrder(r.id))!.requirements.map((q) => q.qty), [6, 2]);
+    assert.ok((await updateProductionOrder(r.id, orderHeader(), route(), actor)).ok);
   });
 
-  test("only an Open Perintah takes a BSTB; it cannot close while one is a Draft or in transit", async () => {
+  test("only an Open Perintah takes a BSTB; what it sent counts per item and station; it cannot close while one is a Draft or in transit", async () => {
     const draft = await create(header({ order_id: f.order }), [line(f.rm, 10, [{ lot: f.r1, qty: 10 }])]);
     assert.ok(!draft.ok && draft.errors.order_id, "a Draft Perintah sends nothing");
     assert.deepEqual(await transitionProductionOrder(f.order, "open", actor), { ok: true });
+    const o = await stockIssueOptions();
+    const fromOrder = o.orders.find((x) => x.id === f.order)!;
+    assert.deepEqual(fromOrder.requirements.map((q) => [q.itemId, q.qty, q.workstationId]), [
+      [f.rm, 15, f.ws],
+      [f.exp, 5, f.ws2],
+    ]);
+    // The BSTB picks the lots: here 10 of the 15 RM the first station needs.
     const r = await create(header({ order_id: f.order }), [line(f.rm, 10, [{ lot: f.r1, qty: 10 }])]);
     assert.ok(r.ok, JSON.stringify(r));
     assert.equal((await getStockIssue(r.id))!.orderNo?.startsWith("PP_"), true);
@@ -388,11 +455,13 @@ describe("a BSTB raised from a Perintah Produksi (M121, O4)", () => {
     const whileDraft = await transitionProductionOrder(f.order, "close", actor, "Selesai", guard);
     assert.ok(!whileDraft.ok && /Draft/.test(whileDraft.errors._form), JSON.stringify(whileDraft));
     assert.deepEqual(await transitionStockIssue(r.id, "post", actor), { ok: true });
+    assert.equal((await stockIssueOptions()).sent[f.order]?.[requirementKey(f.rm, f.ws)], 10, "sent and in transit counts");
     const inTransit = await transitionProductionOrder(f.order, "close", actor, "Selesai", guard);
     assert.ok(!inTransit.ok && /belum diterima/.test(inTransit.errors._form));
     assert.deepEqual(await transitionStockIssue(r.id, "receive", actor, undefined, { date: today }), { ok: true });
     const sent = await stockIssuesOfOrder(f.order);
-    assert.equal(sent.sentByLot.get(f.r1), 10);
+    assert.equal(sent.sent.get(requirementKey(f.rm, f.ws)), 10);
+    assert.equal(sent.sent.get(requirementKey(f.exp, f.ws2)), undefined);
     assert.deepEqual(await transitionProductionOrder(f.order, "close", actor, "Selesai", guard), { ok: true });
   });
 

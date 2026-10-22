@@ -10,6 +10,7 @@ import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, 
 import { InventoryRefusal, issueStock, locationLabelsByIds, lotKey, lotOptions, lotTrackedItems, receiveStock, type LotOption } from "./inventory";
 import { ProductionRefusal, enterProduction, receiveTransit, returnTransit } from "./production-ledger";
 import { lockProductionOrderForIssue, productionOrdersForIssue, type IssueSourceOrder } from "./production-order";
+import { requirementKey } from "./production-order-shape";
 import { fallbackAccounts } from "./system-settings";
 import { accountsForItems } from "./item-account";
 import { DEFAULT_STOCK_ISSUE_PURPOSE, stockIssuePurpose } from "./stock-issue-purposes";
@@ -46,8 +47,9 @@ import {
  *
  * **It is the Logistik BSTB** (Walet step 3, M113, M124): numbered
  * `BSTB_LOG_<DDMMYY>_<NNNNN>`, it may be raised from an Open **Perintah
- * Produksi** (optional, O4 — packaging sent to Packing needs none), which
- * pre-fills its warehouse, workstation and lots. Posted, the goods are **in
+ * Produksi** (optional, O4 — packaging sent to Packing needs none): its lines
+ * then start on what the Perintah's requirements still ask of the station it
+ * is sent to (P165); the BSTB alone picks the lots. Posted, the goods are **in
  * transit**; the workstation **receives** them whole (*Terima*, into its own
  * buckets, no journal) or **rejects** them whole (*Tolak*: back to the same
  * warehouse, location and lot at the value each pick left at, Dr Persediaan /
@@ -113,6 +115,8 @@ export type StockIssueOptions = {
   lots: Record<number, Record<number, LotOption[]>>;
   /** Open Perintah Produksi a BSTB may be raised from (and the stored one's own). */
   orders: IssueSourceOrder[];
+  /** Per Perintah id, what its BSTBs already sent per `requirementKey` (item and workstation). */
+  sent: Record<number, Record<string, number>>;
 };
 
 /**
@@ -151,12 +155,15 @@ export async function stockIssueOptions(
   );
   const lots: StockIssueOptions["lots"] = {};
   for (const [w, byItem] of byWarehouse) lots[w] = Object.fromEntries(byItem.entries());
+  const sent: StockIssueOptions["sent"] = {};
+  for (const [orderId, byKey] of await sentForOrders(orders.map((o) => o.id), db)) sent[orderId] = Object.fromEntries(byKey);
   return {
     warehouses: warehouses.map((w) => ({ id: w.id, label: w.warehouse_label, name: w.warehouse_name, active: w.status === "Active" })),
     workstations: workstations.map((w) => ({ id: w.id, label: w.workstation_label, name: w.workstation_name, active: w.status === "Active" })),
     items: items.map((i) => ({ id: i.id, label: i.item_label, name: i.item_name, uomId: i.base_uom_id, uomLabel: i.base_uom.uom_label, active: i.status === "Active" })),
     lots,
     orders,
+    sent,
   };
 }
 
@@ -904,22 +911,43 @@ export async function stockIssueLocationUse(warehouseId: number, locationIds: nu
 export type IssueOfOrder = { id: number; issueNo: string; issueDate: string; status: StockIssueStatus; workstationLabel: string; cost: number };
 
 /**
- * The BSTBs raised from one Perintah, and what each sent per lot — composed by
- * the Perintah's page (§3.1: the BSTB depends on the Perintah, never the
- * reverse). `sentByLot` counts the goods that left stock and were not sent back.
+ * What the BSTBs raised from these Perintah sent, per `requirementKey` (item
+ * and workstation): goods that left stock and were not sent back — Dikirim or
+ * Diterima.
  */
-export async function stockIssuesOfOrder(orderId: number): Promise<{ issues: IssueOfOrder[]; sentByLot: Map<number, number> }> {
-  const typeId = await docTypeId(prisma, "prd_order");
-  const rows = await prisma.logStockIssue.findMany({
-    where: { source_doc_type_id: typeId, source_doc_id: orderId },
-    orderBy: [{ issue_date: "asc" }, { id: "asc" }],
-    include: { workstation: { select: { workstation_label: true } }, lines: { include: { lots: true } } },
+async function sentForOrders(orderIds: number[], db: Db = prisma): Promise<Map<number, Map<string, number>>> {
+  const out = new Map<number, Map<string, number>>();
+  if (!orderIds.length) return out;
+  const typeId = await docTypeId(db, "prd_order");
+  const lines = await db.logStockIssueLine.findMany({
+    where: { stock_issue: { source_doc_type_id: typeId, source_doc_id: { in: orderIds }, status: { in: ["Posted", "Received"] } } },
+    select: { item_id: true, base_qty: true, stock_issue: { select: { source_doc_id: true, workstation_id: true } } },
   });
-  const sentByLot = new Map<number, number>();
-  for (const r of rows) {
-    if (r.status !== "Posted" && r.status !== "Received") continue;
-    for (const l of r.lines) for (const p of l.lots) sentByLot.set(p.lot_id, fromUnits(units(sentByLot.get(p.lot_id) ?? 0) + units(p.base_qty.toNumber())));
+  for (const l of lines) {
+    const orderId = l.stock_issue.source_doc_id!;
+    const byKey = out.get(orderId) ?? new Map<string, number>();
+    const key = requirementKey(l.item_id, l.stock_issue.workstation_id);
+    byKey.set(key, fromUnits(units(byKey.get(key) ?? 0) + units(l.base_qty.toNumber())));
+    out.set(orderId, byKey);
   }
+  return out;
+}
+
+/**
+ * The BSTBs raised from one Perintah, and what they sent per item and station
+ * — composed by the Perintah's page (§3.1: the BSTB depends on the Perintah,
+ * never the reverse).
+ */
+export async function stockIssuesOfOrder(orderId: number): Promise<{ issues: IssueOfOrder[]; sent: Map<string, number> }> {
+  const typeId = await docTypeId(prisma, "prd_order");
+  const [rows, sent] = await Promise.all([
+    prisma.logStockIssue.findMany({
+      where: { source_doc_type_id: typeId, source_doc_id: orderId },
+      orderBy: [{ issue_date: "asc" }, { id: "asc" }],
+      include: { workstation: { select: { workstation_label: true } } },
+    }),
+    sentForOrders([orderId]),
+  ]);
   return {
     issues: rows.map((r) => ({
       id: r.id,
@@ -929,7 +957,7 @@ export async function stockIssuesOfOrder(orderId: number): Promise<{ issues: Iss
       workstationLabel: r.workstation?.workstation_label ?? "",
       cost: r.cost_amount.toNumber(),
     })),
-    sentByLot,
+    sent: sent.get(orderId) ?? new Map(),
   };
 }
 

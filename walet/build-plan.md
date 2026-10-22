@@ -34,7 +34,7 @@
 | **Workstation** | Its **label is the unit code** used in numbers (UGH, UPC, UPY, UPW, UCL, UDA, UML, UWP, UBC, UP5, UP8). New optional **Kode Job** — the code of Jobs made at its output (UGH → `UGH`, UML → `UDB`); empty = the station keeps the Jobs it receives (M126) |
 | **Item** | New **Tipe Output** (Utama / Turunan / BJL, Barang only, M117) and **Bobot Nilai per gram** (value weight per base unit, `Decimal(18,6)`, ≥ 0; BJL fixed at 0; a temporary rate, M122) |
 | **Bill of Materials** (`prd_bom`, `prd_bom_line`) | Per output item: base quantity (grams / pcs), default flag, status; lines = component item + quantity per base quantity + optional **routing step** that consumes it. **A suggestion only**: it pre-fills an execution's inputs, never limits them. Master Data under Produksi |
-| **Routing** (`prd_routing`, `prd_routing_step`) | Per **target item** (the Partai's Job Order): ordered steps of workstation + **mode** (*Mix + Transformasi* at Moulding, *Transformasi*, *Pass-through*) + optional BoM for the step. Default flag, status. A Perintah copies it |
+| **Routing** (`prd_routing`, `prd_routing_step`) | Per **Item Target** (the Partai's): ordered steps of workstation + **mode** (*Mix + Transformasi* at Moulding, *Transformasi*, *Pass-through*) + optional BoM for the step. Default flag, status. A Perintah copies it |
 | **Showcase** (`db:seed-showcase`, production part) | Walet's world: items (raw kinds, grading kinds, N-NL-KR, N-NL, N-NL-PU, N-MK 50 g, box, outer box) with Tipe Output and value weights from the workbook; supplier D0001; the 11 workstations with Cost Centers (one per unit + FOH, M110) and Standard Cost per gram from the workbook (Pre Wash 182,86 …); Kode Job on UGH and UML; warehouses (Bahan Baku, Bahan Kemas, Barang Jadi, BJL); the N-MK routing and BoM; raw lots injected with their supplier (`receiveStock`) |
 | **Tests / docs** | Registry tests, BoM / Routing rules, reconcile (a step's BoM is for the step's output; a routing's workstations are active) |
 
@@ -45,7 +45,7 @@
 | Part | What |
 | --- | --- |
 | **Lot register** | `log_stock_tracking.tracking_no` **unique system-wide** (migration refuses duplicates and lists them); production refers to it: `prd_lot` dropped, `prd_balance.lot_id` / `prd_ledger.lot_id` / `prd_lot_link` point at `log_stock_tracking` (M128). A lot made in production is registered with the **execution as its source** and **the supplier carried** when one supplier is behind it |
-| **Partai · Job** | `prd_job` renamed **`prd_partai`** (`P_<DDMMYY>_<NNNNN>`, its **Job Order** = target item, its Perintah); a new **`prd_job`** (`<Kode Job>_<DDMMYY>_<NNNNN>`, belongs to one Partai) with **`prd_job_parent`** |
+| **Partai · Job** | `prd_job` renamed **`prd_partai`** (`P_<DDMMYY>_<NNNNN>`, its **Item Target**, its Perintah); a new **`prd_job`** (`<Kode Job>_<DDMMYY>_<NNNNN>`, belongs to one Partai) with **`prd_job_parent`** |
 | **Bucket** | **lot × Job × workstation** (Job null for a stock lot before its Partai starts and for the No. Moulding) plus a **transit** marker (the receiving workstation) for goods sent but not yet received (M113, M127) |
 | **Numbering kernel** | A second numbering helper beside `document-number.ts`: `<PREFIX>_<unit>_<DDMMYY>_<NNNNN>` (series per prefix, unit and day), `P_<DDMMYY>_<NNNNN>`, `PP_<DDMMYY>_<NNNNN>`, lot `<unit>_<supplier>_<kode barang>_<DDMMYY>` / `<partai>_<kode barang>` with `-2`, `-3` on a clash (M124) |
 | **Data** | Development data only in production today: existing `prd_*` rows are mapped onto their stock lots or, if that is cleaner, Neon's production rows are reset (to confirm) |
@@ -57,8 +57,8 @@
 
 | Part | What |
 | --- | --- |
-| **Perintah Produksi** (`prd_order`, `PP_<DDMMYY>_<NNNNN>`) | One per Partai, by PPIC: Tanggal, **Job Order** (target item), **Routing** (copied, editable), **Gudang Bahan**, **planned stock lots** (item, lot, grams), Catatan. Draft → *Buka* → Open → *Tutup* (reason; refused while a BSTB from it is Draft or in transit); *Batalkan* (Draft) (M121). Closing itself once nothing of its Partai is left in production comes when the Partai exists (step 4+) |
-| **Logistik BSTB** (the Stock Issue reworked) | Raised **from a Perintah** (its lots pre-filled) — **optional** (O4); numbered `BSTB_LOG_<DDMMYY>_<NNNNN>`; posting moves stock → production **in transit** to the first workstation (Dr WIP / Cr Persediaan, as today); the station **receives it whole** (*Terima*) or **rejects it whole** (*Tolak* — back to stock) |
+| **Perintah Produksi** (`prd_order`, `PP_<DDMMYY>_<NNNNN>`) | One per Partai, by PPIC: Tanggal, **Item Target** and **Qty Target**, **Routing** (copied, editable), Catatan; **material requirements** from the BoMs × Qty Target, per station, never typed — none without a BoM (P165). No lot, no warehouse. Draft → *Buka* → Open → *Tutup* (reason; refused while a BSTB from it is Draft or in transit); *Batalkan* (Draft) (M121). Closing itself once nothing of its Partai is left in production comes when the Partai exists (step 4+) |
+| **Logistik BSTB** (the Stock Issue reworked) | Raised **from a Perintah** — **optional** (O4) — its lines starting on what the destination station still needs (P165); **the BSTB picks the lots**; numbered `BSTB_LOG_<DDMMYY>_<NNNNN>`; posting moves stock → production **in transit** to the first workstation (Dr WIP / Cr Persediaan, as today); the station **receives it whole** (*Terima*) or **rejects it whole** (*Tolak* — back to stock) |
 | **Checks** | Goods in transit are WIP; a station cannot use goods not received |
 
 **Done when:** PPIC raises a Perintah, Logistik sends its lots, UGH receives them.

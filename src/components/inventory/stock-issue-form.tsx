@@ -14,6 +14,7 @@ import { DeliveryNoteLotPicker, type LotPick } from "@/components/inventory/deli
 import { StockIssueActions } from "@/components/inventory/stock-issue-actions";
 import { createStockIssueAction, updateStockIssueAction } from "@/app/actions/stock-issue";
 import { DEFAULT_STOCK_ISSUE_PURPOSE, stockIssuePurpose } from "@/lib/erp/stock-issue-purposes";
+import { requirementKey } from "@/lib/erp/production-order-shape";
 import { STOCK_ISSUE_STATUS_BADGE, STOCK_ISSUE_STATUS_TEXT, stockIssueIsPosted, type StockIssueAbilities } from "@/lib/erp/stock-issue-workflow";
 import type { StockIssueHeaderInput, StockIssueOptions, StockIssueView } from "@/lib/erp/stock-issue";
 import { formatDate, formatMoney, formatNumber, formatPrice, todayIso } from "@/lib/format";
@@ -30,9 +31,10 @@ import { formatDate, formatMoney, formatNumber, formatPrice, todayIso } from "@/
  * moved to WIP.
  *
  * As the Logistik BSTB (Walet step 3) it may be raised from an Open Perintah
- * Produksi: picking one fills the warehouse, the first workstation of its route
- * and its planned lots — each lot spread over the locations that hold it,
- * earliest expiry first — all still changeable.
+ * Produksi: picking one fills the lines with what the workstation still needs
+ * of its requirements (P165) — sent to its first station unless another is
+ * chosen; *Isi dari Perintah* fills again for the station now chosen. The
+ * Perintah names no lot: the lots are picked here.
  */
 
 export type StockIssueMode = "new" | "edit" | "view";
@@ -103,32 +105,37 @@ export function StockIssueForm({
     touch("_lines");
   };
   /**
-   * A Perintah fills the warehouse, its first station and its planned lots;
-   * each lot is picked from the locations that hold it, FEFO, up to what was
-   * planned. Clearing the Perintah keeps what is on the page.
+   * A Perintah names no lot (P165): its requirements say what each station
+   * needs. Filling from it puts on the page what the chosen workstation still
+   * needs — its requirements less what BSTBs already sent there — with no lot
+   * picked; the user picks lots (or *Isi FEFO*) and may add or remove lines.
    */
+  const fillFromOrder = (orderId: number, workstationId: number | null) => {
+    const order = options.orders.find((o) => o.id === orderId);
+    if (!order) return;
+    const sent = options.sent[orderId] ?? {};
+    const lines: LineState[] = [];
+    for (const r of order.requirements) {
+      if (r.workstationId !== workstationId) continue;
+      const left = Math.round(r.qty * 10_000) - Math.round((sent[requirementKey(r.itemId, r.workstationId)] ?? 0) * 10_000);
+      if (left <= 0) continue;
+      const had = lines.find((l) => l.item_id === r.itemId);
+      if (had) had.qty = String((Math.round(Number(had.qty) * 10_000) + left) / 10_000);
+      else lines.push({ key: newKey(), item_id: r.itemId, qty: String(left / 10_000), picks: [] });
+    }
+    setLines(lines.length ? lines : [blankLine()]);
+    touch("_lines");
+  };
+  /** Picking a Perintah sends to its first station unless one is chosen, and fills from it. Clearing it keeps the page. */
   const pickOrder = (id: number | null) => {
     setHeader((x) => ({ ...x, order_id: id }));
     touch("order_id");
     const order = id ? options.orders.find((o) => o.id === id) : undefined;
     if (!order) return;
-    setHeader((x) => ({ ...x, order_id: id, warehouse_id: order.warehouseId, workstation_id: order.firstWorkstationId ?? x.workstation_id }));
-    const byItem = new Map<number, LineState>();
-    for (const planned of order.lots) {
-      const line = byItem.get(planned.itemId) ?? { key: newKey(), item_id: planned.itemId, qty: "0", picks: [] };
-      let left = Math.round(planned.qty * 10_000);
-      for (const o of options.lots[order.warehouseId]?.[planned.itemId] ?? []) {
-        if (o.id !== planned.lotId || left <= 0) continue;
-        const take = Math.min(left, Math.round(o.available * 10_000));
-        if (take <= 0) continue;
-        line.picks.push({ lot_id: o.id, location_id: o.locationId, qty: String(take / 10_000) });
-        left -= take;
-      }
-      line.qty = String((Math.round(Number(line.qty) * 10_000) + Math.round(planned.qty * 10_000)) / 10_000);
-      byItem.set(planned.itemId, line);
-    }
-    setLines([...byItem.values()]);
-    touch("warehouse_id", "workstation_id", "_lines");
+    const ws = header.workstation_id ?? order.firstWorkstationId;
+    setHeader((x) => ({ ...x, order_id: id, workstation_id: ws }));
+    touch("workstation_id");
+    fillFromOrder(order.id, ws);
   };
   /** Lots belong to a warehouse: another warehouse clears every pick. */
   const pickWarehouse = (id: number | null) => {
@@ -185,7 +192,7 @@ export function StockIssueForm({
             <Field
               label="Perintah Produksi"
               span={6}
-              help={editing ? "opsional — mengisi gudang, workstation dan lot dari Perintah" : undefined}
+              help={editing ? "opsional — mengisi barang yang dibutuhkan workstation" : undefined}
               error={errors.order_id}
             >
               {editing ? (
@@ -384,6 +391,16 @@ export function StockIssueForm({
                 : "Jumlah per barang dalam satuan dasar dan lot yang dipilih."}
           </p>
         </div>
+        {editing && header.order_id && (
+          <button
+            className="btn sm"
+            disabled={!header.workstation_id}
+            title={header.workstation_id ? undefined : "Pilih Workstation dulu…"}
+            onClick={() => fillFromOrder(header.order_id!, header.workstation_id)}
+          >
+            <Icon name="clip" size={14} /> Isi dari Perintah
+          </button>
+        )}
         {editing && lines.length > 0 && addButton()}
       </div>
       {errors._lines && (

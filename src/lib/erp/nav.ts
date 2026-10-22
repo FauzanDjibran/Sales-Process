@@ -174,7 +174,7 @@ export const MODULES: NavModule[] = [
             slug: "order",
             name: "Perintah Produksi",
             icon: "clip",
-            desc: "Perintah PPIC untuk satu Partai: Job Order, rute workstation dan lot yang direncanakan. Logistik mengirim lotnya dengan BSTB.",
+            desc: "Perintah PPIC untuk satu Partai: Item Target dan jumlahnya, rute workstation, dan kebutuhan bahan dari BoM. Logistik memilih lot dan mengirim dengan BSTB.",
             permission: "PRODUCTION_ORDER_VIEW",
           },
         ],

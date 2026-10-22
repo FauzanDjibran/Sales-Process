@@ -1770,14 +1770,14 @@ export const ENTITIES: Entity[] = [
 
   {
     // Routing (Walet build step 1): the stations a Partai passes on its way to
-    // its target item (the Job Order), in order, each with how it works.
+    // its Item Target, in order, each with how it works.
     key: "prd_routing",
     slug: "routing",
     module: "production",
     name: "Routing",
     single: "Routing",
     icon: "tree",
-    desc: "Urutan workstation yang dilalui sebuah Partai menuju barang targetnya (Job Order), dengan cara kerja tiap langkah: Transformasi, Pass-through, atau Mix + Transformasi. Perintah Produksi menyalinnya. Satu barang boleh punya beberapa routing; satu menjadi default.",
+    desc: "Urutan workstation yang dilalui sebuah Partai menuju Item Target-nya, dengan cara kerja tiap langkah: Transformasi, Pass-through, atau Mix + Transformasi. Perintah Produksi menyalinnya. Satu barang boleh punya beberapa routing; satu menjadi default.",
     codeField: "routing_code",
     codePrefix: "rte",
     labelField: "routing_label",
@@ -1811,7 +1811,7 @@ export const ENTITIES: Entity[] = [
         required: true,
         locked: true,
         span: 6,
-        help: "Job Order: barang yang menjadi tujuan Partai",
+        help: "Item Target: barang yang menjadi tujuan Partai",
       },
       {
         name: "is_default",

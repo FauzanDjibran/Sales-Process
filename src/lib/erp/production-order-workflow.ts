@@ -48,8 +48,8 @@ export const PRODUCTION_ORDER_TRANSITIONS: Record<ProductionOrderAction, Product
     tone: "primary",
     title: "Buka Perintah Produksi",
     body:
-      "Perintah dikunci dan menjadi Open: Job Order, rute dan rencana lot tidak dapat diubah lagi, " +
-      "dan Logistik dapat mengirim lotnya dengan BSTB. Tidak ada stok yang bergerak dan tidak ada journal.",
+      "Perintah dikunci dan menjadi Open: Item Target, Qty Target dan rute tidak dapat diubah lagi, dan kebutuhan bahan dihitung ulang dari BoM saat ini; " +
+      "Logistik dapat mengirim bahan dengan BSTB. Tidak ada stok yang bergerak dan tidak ada journal.",
     confirmLabel: "Ya, Buka",
     done: "Perintah Produksi dibuka",
   },

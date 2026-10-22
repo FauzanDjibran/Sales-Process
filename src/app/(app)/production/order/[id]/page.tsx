@@ -19,7 +19,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const opened = order.status === "Open" || order.status === "Closed";
   return (
     <>
-      <ProductionOrderForm mode="view" order={order} options={options} sent={Object.fromEntries(issued.sentByLot)} can={productionOrderAbilities(actor.permissions)} />
+      <ProductionOrderForm mode="view" order={order} options={options} sent={Object.fromEntries(issued.sent)} can={productionOrderAbilities(actor.permissions)} />
       {opened && <ProductionOrderIssuesCard issues={issued.issues} canCreate={order.status === "Open" && actor.permissions.has("STOCK_ISSUE_CREATE")} />}
       <RecordHistoryCard entityKey="prd_order" rowId={order.id} />
     </>

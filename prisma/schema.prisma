@@ -492,15 +492,15 @@ model RefUom {
   delivery_note_lines  LogDeliveryNoteLine[]
   stock_issue_lines    LogStockIssueLine[]
 
-  purchase_request_lines PurRequestLine[]           @relation("PurRequestLineUom")
-  purchase_order_lines   PurOrderLine[]             @relation("PurOrderLineUom")
-  receipt_note_lines     LogReceiptNoteLine[]       @relation("ReceiptNoteLineUom")
-  stock_ledger           LogStockLedger[]           @relation("StockLedgerUom")
-  stock_balances         LogStockBalance[]          @relation("StockBalanceUom")
-  valuation_ledger       LogStockValuationLedger[]  @relation("StockValuationLedgerUom")
-  valuation_balances     LogStockValuationBalance[] @relation("StockValuationBalanceUom")
-  prd_balances           PrdBalance[]               @relation("PrdBalanceUom")
-  production_order_lots  PrdOrderLot[]              @relation("OrderLotUom")
+  purchase_request_lines  PurRequestLine[]           @relation("PurRequestLineUom")
+  purchase_order_lines    PurOrderLine[]             @relation("PurOrderLineUom")
+  receipt_note_lines      LogReceiptNoteLine[]       @relation("ReceiptNoteLineUom")
+  stock_ledger            LogStockLedger[]           @relation("StockLedgerUom")
+  stock_balances          LogStockBalance[]          @relation("StockBalanceUom")
+  valuation_ledger        LogStockValuationLedger[]  @relation("StockValuationLedgerUom")
+  valuation_balances      LogStockValuationBalance[] @relation("StockValuationBalanceUom")
+  prd_balances            PrdBalance[]               @relation("PrdBalanceUom")
+  production_requirements PrdOrderRequirement[]      @relation("OrderRequirementUom")
 
   @@map("ref_uom")
 }
@@ -606,25 +606,25 @@ model MItem {
   base_uom RefUom          @relation("ItemBaseUom", fields: [base_uom_id], references: [id])
   uoms     MItemUom[]
 
-  customer_order_lines   SalCustomerOrderLine[]
-  stock_trackings        LogStockTracking[]
-  purchase_request_lines PurRequestLine[]
-  purchase_order_lines   PurOrderLine[]            @relation("PurOrderLineItem")
-  receipt_note_lines     LogReceiptNoteLine[]      @relation("ReceiptNoteLineItem")
-  stock_ledger           LogStockLedger[]
-  stock_balances         LogStockBalance[]
-  partai_targets         PrdPartai[]               @relation("PartaiTarget")
-  boms_output            PrdBom[]                  @relation("BomOutput")
-  bom_components         PrdBomLine[]              @relation("BomComponent")
-  routings               PrdRouting[]              @relation("RoutingTarget")
-  prd_balances           PrdBalance[]              @relation("PrdBalanceItem")
-  prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
-  valuation_ledger       LogStockValuationLedger[]
-  valuation_balance      LogStockValuationBalance?
-  delivery_note_lines    LogDeliveryNoteLine[]
-  stock_issue_lines      LogStockIssueLine[]
-  production_orders      PrdOrder[]                @relation("OrderTarget")
-  production_order_lots  PrdOrderLot[]             @relation("OrderLotItem")
+  customer_order_lines    SalCustomerOrderLine[]
+  stock_trackings         LogStockTracking[]
+  purchase_request_lines  PurRequestLine[]
+  purchase_order_lines    PurOrderLine[]            @relation("PurOrderLineItem")
+  receipt_note_lines      LogReceiptNoteLine[]      @relation("ReceiptNoteLineItem")
+  stock_ledger            LogStockLedger[]
+  stock_balances          LogStockBalance[]
+  partai_targets          PrdPartai[]               @relation("PartaiTarget")
+  boms_output             PrdBom[]                  @relation("BomOutput")
+  bom_components          PrdBomLine[]              @relation("BomComponent")
+  routings                PrdRouting[]              @relation("RoutingTarget")
+  prd_balances            PrdBalance[]              @relation("PrdBalanceItem")
+  prd_ledger              PrdLedger[]               @relation("PrdLedgerItem")
+  valuation_ledger        LogStockValuationLedger[]
+  valuation_balance       LogStockValuationBalance?
+  delivery_note_lines     LogDeliveryNoteLine[]
+  stock_issue_lines       LogStockIssueLine[]
+  production_orders       PrdOrder[]                @relation("OrderTarget")
+  production_requirements PrdOrderRequirement[]     @relation("OrderRequirementItem")
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -708,7 +708,6 @@ model RefWarehouse {
   purchase_requests PurRequest[]
   purchase_orders   PurOrder[]             @relation("PurOrderWarehouse")
   receipt_notes     LogReceiptNote[]       @relation("ReceiptNoteWarehouse")
-  production_orders PrdOrder[]             @relation("OrderWarehouse")
 
   @@map("ref_warehouse")
 }
@@ -736,14 +735,15 @@ model RefWorkstation {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  cost_center    AccCostCenter     @relation(fields: [cost_center_id], references: [id])
-  prd_balances   PrdBalance[]      @relation("PrdBalanceWorkstation")
-  prd_ledger     PrdLedger[]       @relation("PrdLedgerWorkstation")
-  stock_issues   LogStockIssue[]
-  standard_costs AccStandardCost[]
-  routing_steps  PrdRoutingStep[]  @relation("RoutingStepWorkstation")
-  jobs           PrdJob[]          @relation("JobWorkstation")
-  order_steps    PrdOrderStep[]    @relation("OrderStepWorkstation")
+  cost_center        AccCostCenter         @relation(fields: [cost_center_id], references: [id])
+  prd_balances       PrdBalance[]          @relation("PrdBalanceWorkstation")
+  prd_ledger         PrdLedger[]           @relation("PrdLedgerWorkstation")
+  stock_issues       LogStockIssue[]
+  standard_costs     AccStandardCost[]
+  routing_steps      PrdRoutingStep[]      @relation("RoutingStepWorkstation")
+  jobs               PrdJob[]              @relation("JobWorkstation")
+  order_steps        PrdOrderStep[]        @relation("OrderStepWorkstation")
+  order_requirements PrdOrderRequirement[] @relation("OrderRequirementWorkstation")
 
   @@index([cost_center_id])
   @@map("ref_workstation")
@@ -2477,9 +2477,8 @@ model LogStockTracking {
 
   prd_balances  PrdBalance[]
   prd_ledger    PrdLedger[]
-  prd_links_in  PrdLotLink[]  @relation("LinkTo")
-  prd_links_out PrdLotLink[]  @relation("LinkFrom")
-  order_lots    PrdOrderLot[] @relation("OrderLotLot")
+  prd_links_in  PrdLotLink[] @relation("LinkTo")
+  prd_links_out PrdLotLink[] @relation("LinkFrom")
 
   @@index([item_id])
   @@index([source_doc_type_id, source_doc_id])
@@ -3980,12 +3979,12 @@ model PrdCostBillLine {
 /// or a number the user typed, unique.
 /// The Partai (M112): the production identity cost is tracked on — started at
 /// the first transformation from stock, never split or merged, carrying its
-/// Job Order (the target item). `P_<DDMMYY>_<NNNNN>` (M124).
+/// Item Target. `P_<DDMMYY>_<NNNNN>` (M124).
 model PrdPartai {
   id                 Int      @id @default(autoincrement())
   partai_no          String   @unique
   partai_date        DateTime @db.Date
-  /// The Job Order: the item the Partai is planned to become. Set by the Perintah (step 3).
+  /// The Item Target: what the Partai is planned to become — its Perintah's.
   target_item_id     Int?
   /// The document that started it, weak (`source_doc_*`).
   source_doc_type_id Int
@@ -4203,10 +4202,11 @@ model PrdBom {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  item        MItem            @relation("BomOutput", fields: [item_id], references: [id])
-  lines       PrdBomLine[]
-  steps       PrdRoutingStep[]
-  order_steps PrdOrderStep[]
+  item               MItem                 @relation("BomOutput", fields: [item_id], references: [id])
+  lines              PrdBomLine[]
+  steps              PrdRoutingStep[]
+  order_steps        PrdOrderStep[]
+  order_requirements PrdOrderRequirement[]
 
   @@index([item_id])
   @@map("prd_bom")
@@ -4247,7 +4247,7 @@ enum RoutingStepMode {
 }
 
 /// Routing (Walet build step 1): the stations a Partai passes on its way to its
-/// **target item** (the Job Order), in order. A Perintah copies it. Several per
+/// **Item Target**, in order. A Perintah copies it. Several per
 /// item; one is the default. Never deleted.
 model PrdRouting {
   id            Int          @id @default(autoincrement())
@@ -4303,21 +4303,22 @@ enum ProductionOrderStatus {
   Cancelled
 }
 
-/// Perintah Produksi (Walet step 3, M121): PPIC's order that kick-starts a
-/// Partai — the Job Order (target item), the stations it passes (copied from a
-/// Routing, editable) and the stock lots planned for it. A Logistik BSTB may be
-/// raised from an Open one. Posts nothing. `PP_<DDMMYY>_<NNNNN>` (M124).
+/// Perintah Produksi (Walet step 3, M121, P165): PPIC's order for one Partai —
+/// the **Item Target** and **Qty Target**, the stations it passes (copied from a
+/// Routing, editable) and the **material requirements** the BoMs give for that
+/// quantity. It names no lot and no warehouse: the Logistik BSTB picks and sends.
+/// Posts nothing. `PP_<DDMMYY>_<NNNNN>` (M124).
 model PrdOrder {
   id             Int                   @id @default(autoincrement())
   order_no       String                @unique
   order_date     DateTime              @db.Date
   status         ProductionOrderStatus @default(Draft)
-  /// The Job Order: what the Partai is planned to become.
+  /// The Item Target: what the Partai is planned to become.
   target_item_id Int
+  /// How much of it, in its base unit.
+  target_qty     Decimal               @db.Decimal(18, 4)
   /// The Routing its steps were copied from, if any.
   routing_id     Int?
-  /// Where the planned lots are kept — the BSTB's warehouse by default.
-  warehouse_id   Int
   note           String?
   /// Why it was cancelled or closed by hand.
   status_reason  String?
@@ -4327,11 +4328,10 @@ model PrdOrder {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  target_item MItem          @relation("OrderTarget", fields: [target_item_id], references: [id])
-  routing     PrdRouting?    @relation(fields: [routing_id], references: [id])
-  warehouse   RefWarehouse   @relation("OrderWarehouse", fields: [warehouse_id], references: [id])
-  steps       PrdOrderStep[]
-  lots        PrdOrderLot[]
+  target_item  MItem                 @relation("OrderTarget", fields: [target_item_id], references: [id])
+  routing      PrdRouting?           @relation(fields: [routing_id], references: [id])
+  steps        PrdOrderStep[]
+  requirements PrdOrderRequirement[]
 
   @@index([status, order_date])
   @@map("prd_order")
@@ -4356,25 +4356,30 @@ model PrdOrderStep {
   @@map("prd_order_step")
 }
 
-/// A stock lot planned for a Perintah, in the item's base unit — each lot once.
-/// A plan: the BSTB that sends it checks the stock.
-model PrdOrderLot {
-  id       Int     @id @default(autoincrement())
-  order_id Int
-  line_no  Int
-  item_id  Int
-  lot_id   Int
-  uom_id   Int
-  qty      Decimal @db.Decimal(18, 4)
-  note     String?
+/// A material requirement of a Perintah (P165): a BoM line × Qty Target ÷ the
+/// BoM's base quantity, in the item's base unit, per item and the route step
+/// that consumes it. Generated from the BoMs at save and again at Buka, never
+/// typed; none without a BoM. A BSTB to that step's station pre-fills from it.
+model PrdOrderRequirement {
+  id             Int     @id @default(autoincrement())
+  order_id       Int
+  line_no        Int
+  item_id        Int
+  uom_id         Int
+  qty            Decimal @db.Decimal(18, 4)
+  /// The route step that consumes it and its workstation; null when none is known.
+  step_no        Int?
+  workstation_id Int?
+  /// The BoM it came from.
+  bom_id         Int
 
-  order PrdOrder         @relation(fields: [order_id], references: [id])
-  item  MItem            @relation("OrderLotItem", fields: [item_id], references: [id])
-  lot   LogStockTracking @relation("OrderLotLot", fields: [lot_id], references: [id])
-  uom   RefUom           @relation("OrderLotUom", fields: [uom_id], references: [id])
+  order       PrdOrder        @relation(fields: [order_id], references: [id])
+  item        MItem           @relation("OrderRequirementItem", fields: [item_id], references: [id])
+  uom         RefUom          @relation("OrderRequirementUom", fields: [uom_id], references: [id])
+  workstation RefWorkstation? @relation("OrderRequirementWorkstation", fields: [workstation_id], references: [id])
+  bom         PrdBom          @relation(fields: [bom_id], references: [id])
 
   @@unique([order_id, line_no])
-  @@unique([order_id, lot_id])
-  @@index([lot_id])
-  @@map("prd_order_lot")
+  @@index([item_id])
+  @@map("prd_order_requirement")
 }

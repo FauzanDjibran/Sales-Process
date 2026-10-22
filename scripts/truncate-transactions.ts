@@ -20,7 +20,7 @@
  *   log_stock_issue(_line, _lot)                   Stock Issues (P158)
  *   prd_ledger, prd_balance, prd_lot_link,         the production ledger (P157, P163)
  *   prd_job(_parent), prd_partai
- *   prd_order(_step, _lot)                         Perintah Produksi (Walet step 3)
+ *   prd_order(_step, _requirement)                       Perintah Produksi (Walet step 3)
  *   log_stock_ledger, log_stock_balance,          the stock books and their lots (P120);
  *   log_stock_valuation_ledger / _balance,         stock comes back with
  *   log_stock_tracking                             `db:stock-inject`
@@ -196,8 +196,8 @@ async function main() {
     await tx.prdJobParent.deleteMany();
     await tx.prdJob.deleteMany();
     await tx.prdPartai.deleteMany();
-    // A Perintah names stock lots, which go below.
-    await tx.prdOrderLot.deleteMany();
+    // A Perintah goes with the BSTBs raised from it.
+    await tx.prdOrderRequirement.deleteMany();
     await tx.prdOrderStep.deleteMany();
     await tx.prdOrder.deleteMany();
     await tx.logStockLedger.deleteMany();

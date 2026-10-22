@@ -3073,18 +3073,19 @@ table prd_routing_step {
   }
 }
 
-// Perintah Produksi (Walet step 3, M121): PPIC's order that kick-starts a Partai — the
-// Job Order, the route (copied from a Routing, editable) and the stock lots planned.
-// A Logistik BSTB may be raised from an Open one. Posts nothing. PP_<DDMMYY>_<NNNNN>
+// Perintah Produksi (Walet step 3, M121, P165): PPIC's order for one Partai — the Item
+// Target and Qty Target, the route (copied from a Routing, editable) and the material
+// requirements its BoMs give. No lot, no warehouse: the Logistik BSTB picks. Posts nothing.
+// PP_<DDMMYY>_<NNNNN>
 table prd_order {
   id                          int [pk, increment, not null]
 
   order_no                    varchar [not null, unique]
   order_date                  date [not null]
   status                      enum('Draft', 'Open', 'Closed', 'Cancelled') [not null, default: 'Draft']
-  target_item_id              int [not null, ref : > m_item.id] // the Job Order
+  target_item_id              int [not null, ref : > m_item.id] // the Item Target
+  target_qty                  decimal(18,4) [not null] // the Qty Target, base unit
   routing_id                  int [ref : > prd_routing.id] // copied from, if any
-  warehouse_id                int [not null, ref : > ref_warehouse.id] // where the planned lots are
   note                        varchar
   status_reason               varchar // Batalkan / Tutup
 
@@ -3114,21 +3115,22 @@ table prd_order_step {
   }
 }
 
-// A stock lot planned for a Perintah, base unit, each lot once — a plan, not a reservation
-table prd_order_lot {
+// A material requirement (P165): BoM line × Qty Target ÷ BoM base qty, per item and the
+// route step that consumes it; generated at save and at Buka, never typed; none without a BoM
+table prd_order_requirement {
   id                          int [pk, increment, not null]
 
   order_id                    int [not null, ref : > prd_order.id]
   line_no                     int [not null]
   item_id                     int [not null, ref : > m_item.id]
-  lot_id                      int [not null, ref : > log_stock_tracking.id]
-  uom_id                      int [not null, ref : > ref_uom.id]
+  uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
   qty                         decimal(18,4) [not null]
-  note                        varchar
+  step_no                     int // the consuming route step, null when none is known
+  workstation_id              int [ref : > ref_workstation.id] // a BSTB to it pre-fills this
+  bom_id                      int [not null, ref : > prd_bom.id]
 
   indexes {
     (order_id, line_no) [unique]
-    (order_id, lot_id) [unique]
-    lot_id
+    item_id
   }
 }
