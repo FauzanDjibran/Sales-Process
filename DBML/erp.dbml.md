@@ -2901,6 +2901,7 @@ table prd_balance {
   job_id                      int [ref : > prd_job.id] // null outside a Job (before the Partai, the No. Moulding)
   workstation_id              int [not null, ref : > ref_workstation.id] // holding it, or in transit the one it is sent to
   in_transit                  boolean [not null, default: false]
+  is_reject                   boolean [not null, default: false] // marked Reject by an execution (AD21): stays in production, no hand-over carries it (O6)
   item_id                     int [not null, ref : > m_item.id]
   uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
   qty_balance                 decimal(18,6) [not null, default: 0]
@@ -3248,5 +3249,105 @@ table prd_plan_line_demand {
   indexes {
     (plan_line_id, so_line_id) [unique]
     so_line_id
+  }
+}
+
+// ============================================================ Eksekusi Produksi (Walet step 5, P169)
+
+// One posting at one workstation, input → output, NG_<unit>_<DDMMYY>_<NNNNN> after the unit (M114, AD3).
+// kind: Mix = the Moulding mix into one lot (M125); Transform = new lots of free items; PassThrough = the lot is kept.
+table prd_execution {
+  id                          int [pk, increment, not null]
+
+  execution_no                varchar [not null, unique]
+  execution_date              date [not null]
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  kind                        enum('Mix', 'Transform', 'PassThrough') [not null]
+  workstation_id              int [not null, ref : > ref_workstation.id]
+  partai_id                   int // set at Posting, from the inputs; null before a hand-over starts one (O3)
+  note                        varchar
+  cancel_reason               varchar
+  journal_id                  int
+  standard_amount             decimal(18,2) [not null, default: 0] // Σ sections' standard, set at Posting
+  total_value                 decimal(18,2) [not null, default: 0] // Σ outputs' value = Σ inputs + standard
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, execution_date)
+    (workstation_id, execution_date)
+  }
+}
+
+// A section: one Job's inputs and outputs; the Driver is typed (AD22)
+table prd_execution_section {
+  id                          int [pk, increment, not null]
+
+  execution_id                int [not null, ref : > prd_execution.id]
+  section_no                  int [not null]
+  job_id                      int // the Job the outputs carry, set at Posting
+  driver                      decimal(18,4) [not null, default: 0]
+  standard_amount             decimal(18,2) [not null, default: 0] // round(driver × rate) per Standard Cost Item, set at Posting
+
+  indexes {
+    (execution_id, section_no) [unique]
+  }
+}
+
+table prd_execution_input {
+  id                          int [pk, increment, not null]
+
+  section_id                  int [not null, ref : > prd_execution_section.id]
+  line_no                     int [not null]
+  source_bucket_id            int [not null] // the production ledger's bucket, by id only
+  lot_id                      int [not null]
+  item_id                     int [not null]
+  lot_no                      varchar [not null]
+  qty                         decimal(18,6) [not null] // base unit, > 0
+  is_main                     boolean [not null, default: false] // a pass-through's kept lot
+  cost_amount                 decimal(18,2) [not null, default: 0] // released at Posting
+
+  indexes {
+    (section_id, line_no) [unique]
+  }
+}
+
+table prd_execution_output {
+  id                          int [pk, increment, not null]
+
+  section_id                  int [not null, ref : > prd_execution_section.id]
+  line_no                     int [not null]
+  item_id                     int [not null]
+  lot_no                      varchar // typed, or generated at Posting; a pass-through keeps its input's
+  expiry_date                 date
+  qty                         decimal(18,6) [not null] // > 0
+  status                      enum('Available', 'Reject') [not null, default: 'Available'] // Reject: takes no cost, flagged in production (AD21, O6)
+  weight                      decimal(18,6) [not null, default: 0] // Bobot Biaya, set at Posting
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  lot_id                      int
+  bucket_id                   int
+
+  indexes {
+    (section_id, line_no) [unique]
+  }
+}
+
+// The standard booked per Standard Cost Item: a snapshot of the rate, account and Cost Center used (M92)
+table prd_execution_cost {
+  id                          int [pk, increment, not null]
+
+  execution_id                int [not null, ref : > prd_execution.id]
+  standard_cost_item_id       int [not null]
+  account_id                  int [not null]
+  cost_center_id              int [not null]
+  rate                        decimal(18,6) [not null]
+  driver                      decimal(18,4) [not null]
+  amount                      decimal(18,2) [not null]
+
+  indexes {
+    execution_id
   }
 }

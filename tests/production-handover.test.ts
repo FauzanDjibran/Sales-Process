@@ -178,6 +178,16 @@ describe("what a hand-over that starts a Partai may be saved with", () => {
     assert.ok(!dupe.ok && /sudah ada di box/.test(dupe.errors["lines.1.bucket_id"]));
   });
 
+  test("a Reject bucket stays in production: no hand-over carries it (O6)", async () => {
+    const lot = await stockIn(f.itemA, f.warehouse, key("L5"), 3, 30);
+    const b = await atStation(f.itemA, lot, f.wsA, 3, 30);
+    await prisma.prdBalance.update({ where: { id: b }, data: { is_reject: true } });
+    const r = await create(header(), [line(b, 3, 1)]);
+    assert.ok(!r.ok && /Reject/.test(r.errors["lines.0.bucket_id"]), JSON.stringify(r));
+    await prisma.prdLedger.deleteMany({ where: { bucket_id: b } });
+    await prisma.prdBalance.delete({ where: { id: b } });
+  });
+
   test("a station without a Kode Job cannot start a Partai", async () => {
     const lot = await stockIn(f.itemA, f.warehouse, key("L9"), 5, 50);
     const b = await atStation(f.itemA, lot, f.wsB, 5, 50);

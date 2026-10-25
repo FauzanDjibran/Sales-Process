@@ -860,8 +860,25 @@ export const CHECKS: Check[] = [
     area: "production",
     name: "every Partai's goods are at one workstation, or in transit to one (AD1, P167)",
     sql: `SELECT b.partai_id, COUNT(DISTINCT (b.workstation_id, b.in_transit)) AS places
-          FROM prd_balance b WHERE b.partai_id IS NOT NULL AND b.qty_balance > 0
+          FROM prd_balance b WHERE b.partai_id IS NOT NULL AND b.qty_balance > 0 AND NOT b.is_reject
           GROUP BY b.partai_id HAVING COUNT(DISTINCT (b.workstation_id, b.in_transit)) > 1`,
+  },
+  {
+    area: "production",
+    name: "a posted run balances: outputs = inputs + standard; the standard equals its cost rows and its journal's credits; every output is a registered lot with the run as its source (P169)",
+    sql: `WITH io AS (
+            SELECT e.id,
+                   COALESCE((SELECT SUM(i.cost_amount) FROM prd_execution_input i JOIN prd_execution_section s ON s.id = i.section_id WHERE s.execution_id = e.id), 0) AS cost_in,
+                   COALESCE((SELECT SUM(o.cost_amount) FROM prd_execution_output o JOIN prd_execution_section s ON s.id = o.section_id WHERE s.execution_id = e.id), 0) AS cost_out,
+                   COALESCE((SELECT SUM(c.amount) FROM prd_execution_cost c WHERE c.execution_id = e.id), 0) AS std,
+                   COALESCE((SELECT SUM(l.kredit_amount) FROM acc_journal_line l JOIN acc_journal j ON j.id = l.journal_id
+                              WHERE j.id = e.journal_id AND l.cost_center_id IS NOT NULL), 0) AS credits
+            FROM prd_execution e WHERE e.status = 'Posted')
+          SELECT 'balance' AS what, id AS ref FROM io WHERE cost_out <> cost_in + std
+          UNION ALL SELECT 'standard', e.id FROM prd_execution e JOIN io ON io.id = e.id WHERE e.standard_amount <> io.std OR io.std <> io.credits
+          UNION ALL SELECT 'lot', o.id FROM prd_execution_output o JOIN prd_execution_section s ON s.id = o.section_id JOIN prd_execution e ON e.id = s.execution_id AND e.status = 'Posted'
+                    LEFT JOIN log_stock_tracking t ON t.id = o.lot_id
+                    WHERE o.lot_id IS NULL OR t.id IS NULL OR (e.kind <> 'PassThrough' AND t.source_doc_id <> e.id)`,
   },
   {
     area: "production",

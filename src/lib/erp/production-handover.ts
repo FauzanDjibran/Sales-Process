@@ -213,6 +213,10 @@ export async function checkHandover(
       errors[lineKey(i, "bucket_id")] = `${b.itemLabel} lot ${b.lotNo} tidak sedang diterima di workstation pengirim.`;
       continue;
     }
+    if (b.isReject) {
+      errors[lineKey(i, "bucket_id")] = `${b.itemLabel} lot ${b.lotNo} berstatus Reject: tinggal di produksi sampai dikeluarkan (O6).`;
+      continue;
+    }
     const qty = parseQty(l.qty);
     if (!qty) {
       errors[lineKey(i, "qty")] = "Isi jumlah lebih dari 0, paling banyak 6 angka desimal.";
@@ -283,7 +287,7 @@ export async function checkHandover(
       // AD1: the whole Partai at the station goes — every bucket, every gram.
       const taken = new Map<number, Dec>();
       for (const l of out) taken.set(l.source_bucket_id, (taken.get(l.source_bucket_id) ?? new D(0)).add(l.qty));
-      const missing = options.buckets.filter((b) => b.partaiId === partaiId && b.workstationId === fromId && !b.inTransit && !(taken.get(b.id) ?? new D(0)).eq(b.qty));
+      const missing = options.buckets.filter((b) => b.partaiId === partaiId && b.workstationId === fromId && !b.inTransit && !b.isReject && !(taken.get(b.id) ?? new D(0)).eq(b.qty));
       if (missing.length) {
         const first = missing[0];
         errors._lines = `Partai ${first.partaiNo} diserahkan utuh: ${first.itemLabel} lot ${first.lotNo} masih ${qtyText(first.qty)} di ${from.label}${missing.length > 1 ? ` (dan ${missing.length - 1} lainnya)` : ""}.`;

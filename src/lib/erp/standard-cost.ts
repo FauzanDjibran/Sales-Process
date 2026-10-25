@@ -197,6 +197,12 @@ export async function standardCostSummaries(ids: number[]): Promise<Map<number, 
   return new Map([...out].map(([id, list]) => [id, list.join(" · ")]));
 }
 
+/** Standard Cost Item labels by id, to show what an execution booked. */
+export async function standardCostItemLabels(ids: number[], db: Db = prisma): Promise<Map<number, string>> {
+  const rows = await db.accStandardCostItem.findMany({ where: { id: { in: ids } }, select: { id: true, item_label: true } });
+  return new Map(rows.map((r) => [r.id, r.item_label]));
+}
+
 export type StandardCostRate = { itemId: number; itemLabel: string; accountId: number; rate: number };
 
 export type StandardCostInForce = { standardCostId: number | null; fromPeriod: string | null; rates: StandardCostRate[] };

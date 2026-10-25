@@ -70,7 +70,7 @@ export function HandoverForm({
   const to = options.workstations.find((w) => w.id === header.to_workstation_id);
   /** What the sender holds, received: the only goods a hand-over can take. */
   const held = useMemo(
-    () => options.buckets.filter((b) => !b.inTransit && b.qty > 0 && b.workstationId === header.from_workstation_id),
+    () => options.buckets.filter((b) => !b.inTransit && !b.isReject && b.qty > 0 && b.workstationId === header.from_workstation_id),
     [options.buckets, header.from_workstation_id]
   );
   const partaiHeld = useMemo(() => {

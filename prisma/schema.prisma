@@ -751,6 +751,7 @@ model RefWorkstation {
   order_requirements PrdOrderRequirement[] @relation("OrderRequirementWorkstation")
   handovers_from     PrdHandover[]         @relation("HandoverFrom")
   handovers_to       PrdHandover[]         @relation("HandoverTo")
+  executions         PrdExecution[]        @relation("ExecutionWorkstation")
 
   @@index([cost_center_id])
   @@map("ref_workstation")
@@ -4073,6 +4074,8 @@ model PrdBalance {
   /// The workstation that holds them — or, in transit, the one they are sent to.
   workstation_id Int
   in_transit     Boolean @default(false)
+  /// Marked Reject by an execution (AD21): it stays in production until taken out and no hand-over carries it (O6).
+  is_reject      Boolean @default(false)
   item_id        Int
   /// The item's base unit.
   uom_id         Int
@@ -4550,4 +4553,140 @@ model PrdPlanLineDemand {
   @@unique([plan_line_id, so_line_id])
   @@index([so_line_id])
   @@map("prd_plan_line_demand")
+}
+
+// ------------------------------------------------ Eksekusi Produksi (P169)
+
+enum ExecutionKind {
+  /// The Moulding mix: the Partai's Jobs' lots become one lot (M125), no standard.
+  Mix
+  /// Inputs become new lots of free items.
+  Transform
+  /// The lot is kept; its weight in and out are free; extra inputs join it.
+  PassThrough
+}
+
+enum ExecutionStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+enum ExecutionOutputStatus {
+  Available
+  /// Marked Reject by the QC check: takes no cost, like a BJL, and stays in production (AD21, O6).
+  Reject
+}
+
+/// Eksekusi Produksi (Walet step 5, M114, AD3, AD20): one posting at one workstation, input → output,
+/// `NG_<unit>_<DDMMYY>_<NNNNN>`; a section per Job.
+model PrdExecution {
+  id              Int             @id @default(autoincrement())
+  execution_no    String          @unique
+  execution_date  DateTime        @db.Date
+  status          ExecutionStatus @default(Draft)
+  kind            ExecutionKind
+  workstation_id  Int
+  /// The Partai worked, set at Posting (from the inputs); null before the first hand-over starts one (O3).
+  partai_id       Int?
+  note            String?
+  cancel_reason   String?
+  journal_id      Int?
+  /// Σ of the sections' standard (whole rupiah), set at Posting.
+  standard_amount Decimal         @default(0) @db.Decimal(18, 2)
+  /// Σ of the outputs' value — Σ inputs + standard — set at Posting.
+  total_value     Decimal         @default(0) @db.Decimal(18, 2)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  workstation RefWorkstation        @relation("ExecutionWorkstation", fields: [workstation_id], references: [id])
+  sections    PrdExecutionSection[]
+  costs       PrdExecutionCost[]
+
+  @@index([status, execution_date])
+  @@index([workstation_id, execution_date])
+  @@map("prd_execution")
+}
+
+/// A section: one Job's inputs and outputs (AD3). `driver` is typed (AD22).
+model PrdExecutionSection {
+  id              Int     @id @default(autoincrement())
+  execution_id    Int
+  section_no      Int
+  /// The Job the outputs carry, set at Posting; null for goods outside a Job.
+  job_id          Int?
+  driver          Decimal @default(0) @db.Decimal(18, 4)
+  /// This section's standard, round(driver × rate) per Standard Cost Item, set at Posting.
+  standard_amount Decimal @default(0) @db.Decimal(18, 2)
+
+  execution PrdExecution         @relation(fields: [execution_id], references: [id], onDelete: Cascade)
+  inputs    PrdExecutionInput[]
+  outputs   PrdExecutionOutput[]
+
+  @@unique([execution_id, section_no])
+  @@map("prd_execution_section")
+}
+
+model PrdExecutionInput {
+  id               Int     @id @default(autoincrement())
+  section_id       Int
+  line_no          Int
+  /// The production ledger's bucket, by id only (its tables are named by the ledger alone).
+  source_bucket_id Int
+  lot_id           Int
+  item_id          Int
+  lot_no           String
+  /// In the item's base unit.
+  qty              Decimal @db.Decimal(18, 6)
+  /// A pass-through's kept lot — the one whose weight in and out are free; the rest are extra inputs.
+  is_main          Boolean @default(false)
+  /// Whole rupiah it released, set at Posting.
+  cost_amount      Decimal @default(0) @db.Decimal(18, 2)
+
+  section PrdExecutionSection @relation(fields: [section_id], references: [id], onDelete: Cascade)
+
+  @@unique([section_id, line_no])
+  @@map("prd_execution_input")
+}
+
+model PrdExecutionOutput {
+  id          Int                   @id @default(autoincrement())
+  section_id  Int
+  line_no     Int
+  item_id     Int
+  /// Typed, or generated at Posting (`production-number.ts`); a pass-through keeps its input's.
+  lot_no      String?
+  expiry_date DateTime?             @db.Date
+  qty         Decimal               @db.Decimal(18, 6)
+  status      ExecutionOutputStatus @default(Available)
+  /// Bobot Biaya = qty × the item's value weight (0 for a BJL or a Reject), set at Posting.
+  weight      Decimal               @default(0) @db.Decimal(18, 6)
+  cost_amount Decimal               @default(0) @db.Decimal(18, 2)
+  lot_id      Int?
+  bucket_id   Int?
+
+  section PrdExecutionSection @relation(fields: [section_id], references: [id], onDelete: Cascade)
+
+  @@unique([section_id, line_no])
+  @@map("prd_execution_output")
+}
+
+/// The standard booked, per Standard Cost Item: a snapshot of the rate, account and Cost Center used (M92).
+model PrdExecutionCost {
+  id                    Int     @id @default(autoincrement())
+  execution_id          Int
+  standard_cost_item_id Int
+  account_id            Int
+  cost_center_id        Int
+  rate                  Decimal @db.Decimal(18, 6)
+  driver                Decimal @db.Decimal(18, 4)
+  amount                Decimal @db.Decimal(18, 2)
+
+  execution PrdExecution @relation(fields: [execution_id], references: [id], onDelete: Cascade)
+
+  @@index([execution_id])
+  @@map("prd_execution_cost")
 }

@@ -186,6 +186,14 @@ export const MODULES: NavModule[] = [
             permission: "PRODUCTION_ORDER_VIEW",
           },
           {
+            key: "prd_execution",
+            slug: "execution",
+            name: "Eksekusi Produksi",
+            icon: "gear",
+            desc: "Pengerjaan di satu Workstation: input menjadi output (lot baru), lot tetap pada pass-through, atau mix Moulding. Nilai ikut barang ditambah biaya standar; journal ke WIP.",
+            permission: "PRODUCTION_EXECUTION_VIEW",
+          },
+          {
             key: "prd_handover",
             slug: "handover",
             name: "Hand-over (BSTB)",

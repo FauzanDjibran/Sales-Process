@@ -153,6 +153,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Hand-over Produksi", "prd_handover"],
   // The monthly plan the Perintah are released from (P168).
   ["Rencana Produksi", "prd_plan"],
+  // Walet step 5 (P169): the production ledger, the lots a run makes and its journal name it.
+  ["Eksekusi Produksi", "prd_execution"],
 ];
 
 /**

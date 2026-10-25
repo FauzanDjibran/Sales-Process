@@ -34,6 +34,7 @@ import { STOCK_ISSUE_TRANSITIONS } from "./stock-issue-workflow";
 import { PRODUCTION_ORDER_TRANSITIONS } from "./production-order-workflow";
 import { HANDOVER_TRANSITIONS } from "./production-handover-workflow";
 import { PRODUCTION_PLAN_TRANSITIONS } from "./production-plan-workflow";
+import { EXECUTION_TRANSITIONS } from "./production-run-workflow";
 import { RECEIPT_NOTE_TRANSITIONS } from "./receipt-note-workflow";
 import { PURCHASE_INVOICE_TRANSITIONS } from "./ap-invoice-workflow";
 import { COST_BILL_TRANSITIONS } from "./production-cost-bill-workflow";
@@ -194,6 +195,14 @@ const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
   receive: fromTransition(STOCK_ISSUE_TRANSITIONS.receive, "Diterima di Workstation"),
   reject: fromTransition(STOCK_ISSUE_TRANSITIONS.reject, "Ditolak — barang kembali ke gudang"),
   cancel: fromTransition(STOCK_ISSUE_TRANSITIONS.cancel, "Dibatalkan"),
+};
+
+/** Eksekusi Produksi: Draft → Diposting, or Dibatalkan (P169). */
+const EXECUTION_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Eksekusi dibuat", icon: "gear", tone: "neutral" },
+  post: fromTransition(EXECUTION_TRANSITIONS.post, "Diposting — barang dikerjakan"),
+  cancel: fromTransition(EXECUTION_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
 /** Rencana Produksi: Draft → Diajukan → Disetujui → Ditutup, or Ditolak / Dibatalkan (P168). */
@@ -363,6 +372,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   prd_order: PRODUCTION_ORDER_EVENTS,
   prd_handover: HANDOVER_EVENTS,
   prd_plan: PRODUCTION_PLAN_EVENTS,
+  prd_execution: EXECUTION_EVENTS,
   pur_request: PURCHASE_REQUEST_EVENTS,
   pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,

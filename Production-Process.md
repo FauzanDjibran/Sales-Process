@@ -8,7 +8,7 @@
 > `walet/walet.md`, and the full worked example is
 > `walet/simulation production.md`. The build order is `walet/build-plan.md`.
 >
-> Last updated: **25/10/2026 — P168** (the Rencana Produksi; before it P167, the hand-over).
+> Last updated: **25/10/2026 — P169** (the Eksekusi Produksi; before it P168, the Rencana, and P167, the hand-over).
 
 ---
 
@@ -37,7 +37,7 @@ cost; the month-end close settles standard to actual.
 | **Lot** | The stock identity of a quantity of one item. One global register (`log_stock_tracking`) for stock and production; a lot keeps its number everywhere it goes. | Bought: typed / `GS_<supplier>_<kode>_<DDMMYY>`; made: `<unit>_<supplier>_<kode barang>_<DDMMYY>`, after a mix `<partai>_<kode barang>`; a clash takes `-2`, `-3` | ✅ register (P163) |
 | **Partai** | The production identity cost is tracked on. Started when the first station hands its goods on in Jobs (O3); never split or merged. Carries the Item Target. | `P_<DDMMYY>_<NNNNN>` | ✅ started by the first hand-over (P167), for the Perintah it names |
 | **Job** | One box inside a Partai. Made where a station hands its goods on in boxes (stations with a Kode Job: UGH, UML → `UDB`); new Jobs name their parents. One lot may be carried by several Jobs. | `<Kode Job>_<DDMMYY>_<NNNNN>` | ✅ made by the hand-over, a Job per box (P167) |
-| **No. Moulding** | The lot a Moulding mix makes from all the Partai's Jobs; belongs to the Partai, no Job. | `<partai>_<kode barang>` | 🔜 (step 5) |
+| **No. Moulding** | The lot a Moulding mix makes from all the Partai's Jobs; belongs to the Partai, no Job. | `<partai>_<kode barang>` | ✅ made by the Mix run (P169) |
 
 Where goods are inside production: a **bucket** = lot · Job · workstation, or
 **in transit** to that workstation. Quantity and value per bucket; Σ value = WIP.
@@ -133,24 +133,35 @@ On the posted BSTB, the station acts on the **whole** sending, on a day it picks
 - **Tolak** (reason) → goods return to the same warehouse, location and lot at
   the value they left at. Journal **Dr Persediaan / Cr WIP**.
 
-### Step D — Eksekusi at a station 🔜 (build step 5)
+### Step D — Eksekusi at a station ✅ (P169)
 
-`NG_<unit>_<DDMMYY>_<NNNNN>`. The station picks one Partai it has received
-(before the Partai exists, the received stock lots) and executes input → output
-in one posting, a section per Job, by its **Cara Kerja**:
+*Produksi › Operasi Produksi › Eksekusi Produksi*, `NG_<unit>_<DDMMYY>_<NNNNN>` after the unit.
+One posting at one workstation: the user picks the station, the **kind** its Cara Kerja allows
+(*Mix + Transformasi* may do Mix or Transform) and the day, then **a section per Job**.
+*Isi dari Barang Workstation* puts the received goods on the page as the kind takes them.
+Only **received** goods are worked — never goods in transit and never a Reject; one Partai at
+most; a section works one Job.
 
-- **Transformasi**: inputs (any quantity they hold) → outputs, each a new lot
-  registered with the execution as its source; output type from the item;
-  status Tersedia / Reject (a Reject stays in production until taken out, O6);
-  value = Σ inputs + standard, shared by grams × value weight (BJL and Reject 0).
-  At a packing station the BoM pre-fills the inputs.
-- **Pass-through**: the lot is kept; extra inputs (wrap, box) are added; weight
-  in and out may differ (susut / tambahan).
-- **Mix + Transformasi** (Moulding): the Partai's Jobs are first mixed into the
-  No. Moulding, then worked.
-- **Standard**: grams × the workstation's Standard Cost in force.
-  Journal **Dr WIP / Cr WIP / Cr each Standard Cost Item's account** with the
-  station's Cost Center.
+- **Transformasi**: inputs (any quantity they hold) → free outputs, each a **new lot** (a typed
+  number, or `<unit>_<supplier>_<kode barang>_<DDMMYY>` generated, `-2`, `-3` on a clash)
+  registered with the run as its source and the one supplier behind its inputs carried; the Job
+  of the inputs is kept. **Value = Σ inputs + the section's standard**, shared by **Bobot** =
+  qty × the item's Bobot Nilai (whole rupiah, largest remainder); a **BJL or a Reject takes 0**;
+  one eligible output needs no weight, two need theirs. A **Reject** output is flagged
+  (`prd_balance.is_reject`), stays in production and is not carried by a hand-over (O6).
+- **Pass-through**: the **lot is kept** — the main input's bucket whole, extra inputs (a box)
+  joining it, the quantity out free (**susut** or **tambahan** shown); same bucket, more value.
+- **Mix** (Moulding): the Partai's goods, **whole**, become one lot `<partai>_<kode barang>`,
+  no Job, no standard; the hand-over then boxes it into Jobs.
+- **Standard**: the section's **Driver** is typed; each Standard Cost Item in force at the
+  station on the run's day books round(Driver × rate) into WIP, the outputs carrying it.
+- **Posting** (one transaction, with a dry-run journal in the confirmation): **WIP by account**
+  — Dr when outputs exceed inputs, Cr when less — and **Cr each Standard Cost Item's account with
+  the station's Cost Center**; none when nothing nets. A posted run is final; a Draft is edited
+  or cancelled (reason).
+
+*Not built:* a Standard Cost still changes for a period with a posted run (the freeze); a correction
+is a new run.
 
 ### Step E — Hand-over between stations ✅ (P167)
 
@@ -239,7 +250,7 @@ executions mark Reject (step 5) the whole-Partai hand-over will leave it behind.
 | BSTB received | none | ✅ |
 | BSTB rejected | Dr Persediaan / Cr WIP | ✅ |
 | Station hand-over | none | ✅ |
-| Eksekusi | Dr WIP (outputs) / Cr WIP (inputs) / Cr Standard Cost Item accounts | 🔜 |
+| Eksekusi | WIP by account: Dr when outputs exceed inputs, Cr when less; Cr each Standard Cost Item's account with the station's Cost Center; none when nothing nets | ✅ |
 | Penerimaan Hasil Produksi | Dr Persediaan / Cr WIP | 🔜 |
 | Pemusnahan | Dr Beban Pemusnahan / Cr WIP | 🔜 |
 | Month-end close | variance to WIP, Persediaan, HPP | 🔜 |
@@ -258,6 +269,7 @@ executions mark Reject (step 5) the whole-Partai hand-over will leave it behind.
 
 | Date | Change | Ref |
 | --- | --- | --- |
+| 25/10/2026 | Eksekusi Produksi: Transformasi (new lots, value by Bobot, BJL and Reject 0), Pass-through (lot kept, extras join, weight free), Mix (the Partai into one lot); the standard per section Driver; journal by dry run. | P169 |
 | 25/10/2026 | Rencana Produksi: PPIC's monthly plan over Open Sales Order lines; Perintah released from its lines. | P168 |
 | 25/10/2026 | Hand-over between workstations: whole Partai, in transit, Terima / Tolak; the first one starts the Partai for a Perintah and boxes goods into Jobs. | P167 |
 | 22/10/2026 | Document started. Workstation carries its Cara Kerja; a BoM names the workstation it is used at (one default per item per station); routing and Perintah steps are stations only; requirements = the Item Target's BoM at each route station. | P166 |

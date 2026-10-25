@@ -510,6 +510,16 @@ export async function returnToSender(tx: Tx, m: TransitMove & { senderId: number
   await write(tx, back, { movement: "Returned", qty: new D(m.baseQty), value: new D(m.value), date: m.date, source: m.source, actorId: m.actorId });
 }
 
+/** Whether a lot number is already in the one register (M128): a lot a run makes is always new. */
+export async function lotNumberTaken(no: string, db: Db = prisma): Promise<boolean> {
+  return !!(await db.logStockTracking.findUnique({ where: { tracking_no: no }, select: { id: true } }));
+}
+
+/** The supplier behind each lot (`source_partner_id`), for the one a made lot carries (M127). */
+export async function lotSupplierIds(lotIds: number[], db: Db = prisma): Promise<(number | null)[]> {
+  return (await db.logStockTracking.findMany({ where: { id: { in: lotIds } }, select: { source_partner_id: true } })).map((l) => l.source_partner_id);
+}
+
 /** The Partai started for a Perintah, if any (P167: one each). */
 export async function partaiOfOrder(orderId: number, db: Db = prisma): Promise<{ id: number; no: string } | null> {
   const p = await db.prdPartai.findUnique({ where: { order_id: orderId }, select: { id: true, partai_no: true } });
@@ -545,6 +555,8 @@ export type ProduceOutput = {
   weight: number;
   /** The Job carrying it, of the execution's Partai. */
   jobId?: number | null;
+  /** Marked Reject (AD21): its bucket is flagged, it stays in production until taken out (O6). */
+  reject?: boolean;
 };
 
 export type Production = {
@@ -674,6 +686,7 @@ export async function produce(tx: Tx, p: Production): Promise<Produced> {
       p.actorId
     );
     await write(tx, bucket, { movement: "Produced", qty: o.qty, value: new D(values[j]), date: p.date, source: p.source, actorId: p.actorId });
+    if (o.reject) await tx.prdBalance.update({ where: { id: bucket.id }, data: { is_reject: true, updated_by: p.actorId } });
     outputs.push({ lotId: lot.id, bucketId: bucket.id, value: values[j] });
   }
 
@@ -698,6 +711,90 @@ export async function produce(tx: Tx, p: Production): Promise<Produced> {
     }
   }
   return { inputs, outputs, total, partaiId };
+}
+
+/**
+ * A pass-through run (P169, AD8): the lot is **kept**. The `main` bucket is taken
+ * whole at its value, the `extras` (a box, a wrap) are taken by the quantity
+ * given, and the same lot returns to the same bucket at `outQty` — free, so a
+ * loss or a gain shows as susut or tambahan (F6) — carrying Σ everything it took
+ * plus the run's standard. Cost in = cost out. The extras' genealogy points at
+ * the kept lot. Extras belong to no Partai or to the main one's.
+ */
+export type PassThroughRun = {
+  workstationId: number;
+  main: { bucketId: number; outQty: number | string };
+  extras: ProduceInput[];
+  addedValue?: number;
+  date: Date;
+  source: ProductionSource;
+  actorId: number;
+};
+
+export type PassedThrough = {
+  lotId: number;
+  bucketId: number;
+  itemId: number;
+  partaiId: number | null;
+  jobId: number | null;
+  inQty: number;
+  inValue: number;
+  extras: { bucketId: number; lotId: number; itemId: number; value: number }[];
+  outValue: number;
+};
+
+export async function passThrough(tx: Tx, r: PassThroughRun): Promise<PassedThrough> {
+  const added = r.addedValue ?? 0;
+  if (!Number.isInteger(added) || added < 0) throw new ProductionRefusal("Biaya konversi harus rupiah utuh, tidak negatif.");
+  const outQty = new D(r.main.outQty);
+  if (!outQty.gt(0)) throw new ProductionRefusal("Jumlah keluar harus lebih dari 0.");
+  if (outQty.decimalPlaces() > 6) throw new ProductionRefusal("Jumlah paling banyak 6 angka desimal.");
+  await activeWorkstation(tx, r.workstationId);
+  const ids = [...new Set([r.main.bucketId, ...r.extras.map((e) => e.bucketId)])].sort((a, b) => a - b);
+  if (ids.length !== r.extras.length + 1) throw new ProductionRefusal("Satu saldo produksi hanya boleh diambil sekali per eksekusi.");
+  const locked = new Map<number, Bucket>();
+  for (const id of ids) {
+    const b = await lockBucketById(tx, id);
+    if (!b) throw new ProductionRefusal("Saldo produksi input tidak ditemukan. Pilih ulang.");
+    if (b.inTransit) throw new ProductionRefusal("Barang yang masih dalam perjalanan belum bisa dikerjakan; terima dulu.");
+    if (b.workstationId !== r.workstationId) throw new ProductionRefusal("Input harus berada di workstation eksekusi.");
+    locked.set(id, b);
+  }
+  const main = locked.get(r.main.bucketId)!;
+  for (const e of r.extras) {
+    const x = locked.get(e.bucketId)!;
+    if (x.partaiId != null && x.partaiId !== main.partaiId) throw new ProductionRefusal("Input tambahan berasal dari Partai lain; Partai tidak pernah digabung.");
+  }
+  const item = await productionItem(tx, main.itemId);
+  const extras: PassedThrough["extras"] = [];
+  const takenQty: Dec[] = [];
+  for (const e of r.extras) {
+    const x = locked.get(e.bucketId)!;
+    const qty = new D(e.baseQty);
+    const value = await takeLocked(tx, x, qty, "Consumed", r.date, r.source, r.actorId);
+    extras.push({ bucketId: x.id, lotId: x.lotId, itemId: x.itemId, value: value.toNumber() });
+    takenQty.push(qty);
+  }
+  const inQty = main.qty;
+  const inValue = await takeLocked(tx, main, inQty, "Consumed", r.date, r.source, r.actorId);
+  const outValue = inValue.add(extras.reduce((a, x) => a.add(x.value), new D(0))).add(added);
+  await write(tx, main, { movement: "Produced", qty: outQty, value: outValue, date: r.date, source: r.source, actorId: r.actorId });
+  for (const [i, x] of extras.entries()) {
+    await tx.prdLotLink.create({
+      data: {
+        source_doc_type_id: r.source.docTypeId,
+        source_doc_id: r.source.docId,
+        source_no: r.source.no,
+        from_bucket_id: x.bucketId,
+        from_lot_id: x.lotId,
+        to_lot_id: main.lotId,
+        qty: takenQty[i],
+        value: x.value,
+      },
+    });
+  }
+  void item;
+  return { lotId: main.lotId, bucketId: main.id, itemId: main.itemId, partaiId: main.partaiId, jobId: main.jobId, inQty: inQty.toNumber(), inValue: inValue.toNumber(), extras, outValue: outValue.toNumber() };
 }
 
 // ------------------------------------------------------------ revaluing
@@ -734,6 +831,8 @@ export type BucketView = {
   expiry: string | null;
   qty: number;
   value: number;
+  /** Marked Reject by an execution (AD21). */
+  isReject: boolean;
 };
 
 const bucketInclude = {
@@ -763,6 +862,7 @@ const view = (b: BucketRead): BucketView => ({
   expiry: iso(b.lot.expiry_date),
   qty: b.qty_balance.toNumber(),
   value: b.value_balance.toNumber(),
+  isReject: b.is_reject,
 });
 
 /**

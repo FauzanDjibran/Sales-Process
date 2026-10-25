@@ -77,7 +77,7 @@
 
 PPIC's monthly plan over Open Sales Order lines, from which the Perintah are released — see `walet/step4-and-rencana-plan.md` Part B and `Production-Process.md` step 0.
 
-### Step 5 — Eksekusi Produksi (5d)
+### Step 5 — Eksekusi Produksi (5d) ✅ built 25/10/2026 (P169)
 
 | Part | What |
 | --- | --- |

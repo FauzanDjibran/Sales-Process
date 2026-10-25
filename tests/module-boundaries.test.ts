@@ -107,6 +107,12 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logStockIssueLine: ["src/lib/erp/stock-issue.ts"],
   logStockIssueLot: ["src/lib/erp/stock-issue.ts"],
   // The Perintah Produksi (Walet step 3): the BSTB reads it through its functions.
+  // The Eksekusi Produksi (P169).
+  prdExecution: ["src/lib/erp/production-run.ts"],
+  prdExecutionSection: ["src/lib/erp/production-run.ts"],
+  prdExecutionInput: ["src/lib/erp/production-run.ts"],
+  prdExecutionOutput: ["src/lib/erp/production-run.ts"],
+  prdExecutionCost: ["src/lib/erp/production-run.ts"],
   // The Rencana Produksi (P168): the Perintah reads it through its functions.
   prdPlan: ["src/lib/erp/production-plan.ts"],
   prdPlanLine: ["src/lib/erp/production-plan.ts"],
