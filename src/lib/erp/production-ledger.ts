@@ -695,7 +695,7 @@ export async function produce(tx: Tx, p: Production): Promise<Produced> {
     const qtyParts = shareQty(takenQty[i].toNumber(), weights);
     const valueParts = shareByWeight(input.value, weights);
     for (const [j, out] of outputs.entries()) {
-      if (!(weights[j] > 0)) continue;
+      // A zero-weight output (a BJL, a Reject) still has its lineage: an edge of 0 qty and value, so Telusur reaches it (P171).
       await tx.prdLotLink.create({
         data: {
           source_doc_type_id: p.source.docTypeId,

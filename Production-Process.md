@@ -8,7 +8,7 @@
 > `walet/walet.md`, and the full worked example is
 > `walet/simulation production.md`. The build order is `walet/build-plan.md`.
 >
-> Last updated: **26/10/2026 — P170** (goods leaving production; before it P169, the Eksekusi, P168, the Rencana, and P167, the hand-over).
+> Last updated: **26/10/2026 — P171** (the production reports; before it P170, goods leaving production, P169, the Eksekusi, P168, the Rencana, P167, the hand-over).
 
 ---
 
@@ -213,11 +213,25 @@ from what it holds: **received goods, any quantity** (a Reject leaves this way t
   Reject — **its Perintah closes itself** (*Ditutup — seluruhnya keluar produksi*). A Reject holds a Partai
   open until it is received or scrapped (O6).
 
-### Step G — Reports 🔜 (build step 7)
+### Step G — Reports ✅ (P171)
 
-Saldo Produksi (Partai · Job · workstation · in transit), Kartu Lot,
-**Telusur** (any lot or Job back to the supplier lot and forward to FG and
-customer), Rekap Produksi (susut, HPP per gram per station).
+*Produksi › Laporan*, each its own view permission, **read from the ledgers** (never the balance tables), so
+a past date is reported as it stood:
+
+- **Saldo Produksi** — as of a date, optionally one Partai and some workstations: a block per **Partai**
+  (and one for goods of no Partai yet), a row per bucket — workstation, Job, item, lot, **status** (Tersedia /
+  Reject / Dalam perjalanan), quantity, value and value per unit; the total is WIP. A warning if the balance
+  table no longer equals its ledger.
+- **Kartu Lot** — one lot's whole life: every production-ledger row (document, movement, workstation, Partai,
+  Job, quantity and value with the balances after) and every stock-ledger row, since the lot is one register.
+- **Telusur** — from a **lot, a Job or a Partai** number: **back** through every run to the lots that came
+  from a supplier (their origin: the receipt or injection and the supplier), **forward** to the finished goods
+  — where each is now: at a station, in stock, or **delivered, on which Delivery Note and to which customer**.
+  Capped at 300 lots and 14 steps, said when it cuts.
+- **Rekap Produksi** — per workstation and unit over a period: input and output, the **susut** (and its %),
+  the standard booked, the value in and out and the **cost per unit in and out** — the loss raising it (F10).
+
+A zero-weight output (a BJL, a Reject) now gets its lineage edge (quantity and value 0), so Telusur reaches it.
 
 ### Step H — Month-end close 🔜 (build step 8)
 
@@ -283,6 +297,7 @@ executions mark Reject (step 5) the whole-Partai hand-over will leave it behind.
 
 | Date | Change | Ref |
 | --- | --- | --- |
+| 26/10/2026 | The four production reports — Saldo Produksi, Kartu Lot, Telusur, Rekap Produksi — read from the ledgers; a zero-weight output (BJL, Reject) now has its lineage edge. | P171 |
 | 26/10/2026 | Penerimaan Hasil Produksi (lot kept into a warehouse, at the value held) and Pemusnahan Produksi (written off), one table by purpose; a Perintah closes itself when the last goods of its Partai leave. | P170 |
 | 25/10/2026 | Eksekusi Produksi: Transformasi (new lots, value by Bobot, BJL and Reject 0), Pass-through (lot kept, extras join, weight free), Mix (the Partai into one lot); the standard per section Driver; journal by dry run. | P169 |
 | 25/10/2026 | Rencana Produksi: PPIC's monthly plan over Open Sales Order lines; Perintah released from its lines. | P168 |

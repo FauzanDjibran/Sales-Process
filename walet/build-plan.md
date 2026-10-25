@@ -100,7 +100,7 @@ PPIC's monthly plan over Open Sales Order lines, from which the Perintah are rel
 | **Pemusnahan Produksi** | Waste out of production: Dr Beban Pemusnahan / Cr WIP |
 | **Checks** | A lot back in stock is the same register row; values leave WIP exactly |
 
-### Step 7 — Reports (7)
+### Step 7 — Reports (7) ✅ built 26/10/2026 (P171)
 
 Saldo Produksi (by Partai · Job · workstation · transit), Kartu Lot, **Telusur** (any lot or Job back to the supplier lot and forward to FG and customer), Rekap Produksi (susut, **HPP per gram** per station).
 

@@ -933,3 +933,25 @@ export async function invoiceSourceLines(
       })
   );
 }
+
+// --------------------------------------------------- for the production Telusur
+
+export type LotDelivery = { lotId: number; noteId: number; noteNo: string; date: string; partnerLabel: string; partnerName: string; baseQty: number };
+
+/** The posted Delivery Notes that sent these lots, and to whom — where a lot ends up (P171). */
+export async function deliveriesOfLots(lotIds: number[]): Promise<LotDelivery[]> {
+  if (!lotIds.length) return [];
+  const rows = await prisma.logDeliveryNoteLot.findMany({
+    where: { lot_id: { in: lotIds }, line: { delivery_note: { status: "Posted" } } },
+    include: { line: { include: { delivery_note: { include: { partner: { select: { partner_label: true, partner_name: true } } } } } } },
+  });
+  return rows.map((r) => ({
+    lotId: r.lot_id,
+    noteId: r.line.delivery_note.id,
+    noteNo: r.line.delivery_note.dn_no,
+    date: r.line.delivery_note.dn_date.toISOString().slice(0, 10),
+    partnerLabel: r.line.delivery_note.partner.partner_label,
+    partnerName: r.line.delivery_note.partner.partner_name,
+    baseQty: r.base_qty.toNumber(),
+  }));
+}

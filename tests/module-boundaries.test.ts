@@ -111,7 +111,7 @@ const TABLE_OWNERS: Record<string, string[]> = {
   prdRelease: ["src/lib/erp/production-release.ts"],
   prdReleaseLine: ["src/lib/erp/production-release.ts"],
   // The Eksekusi Produksi (P169).
-  prdExecution: ["src/lib/erp/production-run.ts"],
+  prdExecution: ["src/lib/erp/production-run.ts", "src/lib/erp/production-report.ts"],
   prdExecutionSection: ["src/lib/erp/production-run.ts"],
   prdExecutionInput: ["src/lib/erp/production-run.ts"],
   prdExecutionOutput: ["src/lib/erp/production-run.ts"],
@@ -131,7 +131,7 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // The stock books (P120): written only by the inventory book, read by its reports.
   // The lot register is one for stock and production (M128): the production
   // ledger registers the lots its transformations make.
-  logStockTracking: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts", "src/lib/erp/production-ledger.ts"],
+  logStockTracking: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts", "src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   logStockLedger: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
   logStockBalance: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
   logStockValuationLedger: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
@@ -183,12 +183,12 @@ const TABLE_OWNERS: Record<string, string[]> = {
   prdCostBill: ["src/lib/erp/production-cost-bill.ts"],
   // The production ledger (P150 E2, E3): a book, written only by itself; the
   // production documents call it.
-  prdPartai: ["src/lib/erp/production-ledger.ts"],
-  prdJob: ["src/lib/erp/production-ledger.ts"],
+  prdPartai: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
+  prdJob: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   prdJobParent: ["src/lib/erp/production-ledger.ts"],
-  prdBalance: ["src/lib/erp/production-ledger.ts"],
-  prdLedger: ["src/lib/erp/production-ledger.ts"],
-  prdLotLink: ["src/lib/erp/production-ledger.ts"],
+  prdBalance: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
+  prdLedger: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
+  prdLotLink: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   prdCostBillLine: ["src/lib/erp/production-cost-bill.ts"],
   finApItem: ["src/lib/erp/ap-item.ts"],
   finApLedger: ["src/lib/erp/ap-item.ts"],

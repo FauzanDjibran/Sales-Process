@@ -301,6 +301,10 @@ export const PERMISSIONS = [
   { code: "PRODUCTION_COST_BILL_EDIT", name: "Ubah Tagihan Biaya", module: "production", description: "Hanya selama masih Draft." },
   { code: "PRODUCTION_COST_BILL_POST", name: "Posting Tagihan Biaya", module: "production", description: "Menjurnal biaya ke account Jenis Biaya dengan Cost Center-nya." },
   { code: "PRODUCTION_COST_BILL_CANCEL", name: "Batalkan Tagihan Biaya", module: "production", description: "Hanya Draft, dengan alasan." },
+  { code: "REPORT_WIP_BALANCE_VIEW", name: "Lihat Saldo Produksi", module: "production", description: "Barang di produksi per Partai, Job dan workstation pada satu tanggal." },
+  { code: "REPORT_LOT_CARD_VIEW", name: "Lihat Kartu Lot", module: "production", description: "Seluruh mutasi satu lot di produksi dan di stok." },
+  { code: "REPORT_TRACE_VIEW", name: "Lihat Telusur", module: "production", description: "Asal dan tujuan sebuah lot, Job atau Partai: dari lot supplier sampai barang jadi dan customer." },
+  { code: "REPORT_PRODUCTION_RECAP_VIEW", name: "Lihat Rekap Produksi", module: "production", description: "Input, output, susut, biaya standar dan HPP per unit di setiap workstation." },
   { code: "REPORT_COST_CENTER_VIEW", name: "Lihat Laporan Cost Center", module: "production", description: "Biaya per Cost Center dan account dalam satu bulan, dengan baris journalnya." },
 
   // -------------------------------------------------------------- inventory

@@ -51,7 +51,13 @@ export type ReportParams =
   /** Optionally an item and a warehouse, and the one date the stock stands at (P120). */
   | "stock-asof"
   /** A fiscal period — the month — and optionally one Cost Center (P154, M90). */
-  | "production-cost-period";
+  | "production-cost-period"
+  /** The one date production stands at, optionally a Partai and workstations (P171). */
+  | "production-asof"
+  /** One lot, Job or Partai number to look up (P171). */
+  | "production-lot"
+  /** A date range and optionally workstations (P171). */
+  | "production-period";
 
 export type ReportDef = {
   key: string;
@@ -285,6 +291,51 @@ const FIXED_REPORTS = [
     icon: "book",
     permission: "REPORT_COST_CENTER_VIEW",
     params: "production-cost-period",
+    subjectRequired: false,
+  },
+  // The production reports (Walet step 7, P171).
+  {
+    key: "wip_balance",
+    slug: "wip-balance",
+    module: "production",
+    name: "Saldo Produksi",
+    desc: "Barang yang ada di produksi pada satu tanggal, per Partai, Job dan workstation — termasuk yang dalam perjalanan dan yang Reject — dengan nilai dan harga per unit.",
+    icon: "layers",
+    permission: "REPORT_WIP_BALANCE_VIEW",
+    params: "production-asof",
+    subjectRequired: false,
+  },
+  {
+    key: "lot_card",
+    slug: "lot-card",
+    module: "production",
+    name: "Kartu Lot",
+    desc: "Seluruh mutasi satu lot — di produksi (workstation, Partai, Job, jumlah dan nilai) dan di stok.",
+    icon: "book",
+    permission: "REPORT_LOT_CARD_VIEW",
+    params: "production-lot",
+    subjectRequired: true,
+  },
+  {
+    key: "trace",
+    slug: "trace",
+    module: "production",
+    name: "Telusur",
+    desc: "Dari sebuah lot, Job atau Partai: mundur sampai lot supplier, maju sampai barang jadi di stok dan customer yang menerimanya.",
+    icon: "tree",
+    permission: "REPORT_TRACE_VIEW",
+    params: "production-lot",
+    subjectRequired: true,
+  },
+  {
+    key: "production_recap",
+    slug: "production-recap",
+    module: "production",
+    name: "Rekap Produksi",
+    desc: "Per workstation pada rentang tanggal: input, output, susut, biaya standar dan HPP per unit masuk dan keluar.",
+    icon: "trend",
+    permission: "REPORT_PRODUCTION_RECAP_VIEW",
+    params: "production-period",
     subjectRequired: false,
   },
 ] as const satisfies readonly ReportDef[];
