@@ -482,3 +482,53 @@ export async function lockProductionOrderForIssue(tx: Prisma.TransactionClient, 
   if (row.status !== "Open") return { ok: false, error: `Perintah ${row.order_no} tidak Open; BSTB hanya dari Perintah yang Open.` };
   return { ok: true, orderNo: row.order_no };
 }
+
+// ---------------------------------------------------- for the hand-over
+
+/**
+ * A Perintah as the hand-over reads it (P167): what the Partai is to become and
+ * the stations of its route. The hand-over that starts a Partai names one.
+ */
+export type HandoverSourceOrder = {
+  id: number;
+  orderNo: string;
+  open: boolean;
+  targetItemId: number;
+  targetLabel: string;
+  targetName: string;
+  workstationIds: number[];
+};
+
+/** Open Perintah, plus any named (a stored hand-over's own), newest first. */
+export async function productionOrdersForHandover(withIds: number[] = [], db: Db = prisma): Promise<HandoverSourceOrder[]> {
+  const rows = await db.prdOrder.findMany({
+    where: { OR: [{ status: "Open" }, ...(withIds.length ? [{ id: { in: withIds } }] : [])] },
+    orderBy: [{ order_date: "desc" }, { id: "desc" }],
+    include: { target_item: { select: { item_label: true, item_name: true } }, steps: { orderBy: { step_no: "asc" } } },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    orderNo: r.order_no,
+    open: r.status === "Open",
+    targetItemId: r.target_item_id,
+    targetLabel: r.target_item.item_label,
+    targetName: r.target_item.item_name,
+    workstationIds: r.steps.map((s) => s.workstation_id),
+  }));
+}
+
+/**
+ * Locks a Perintah for the posting of the hand-over that starts its Partai: it
+ * must be Open. Returns what the Partai takes from it, and its route.
+ */
+export async function lockProductionOrderForHandover(
+  tx: Prisma.TransactionClient,
+  id: number
+): Promise<{ ok: true; orderNo: string; targetItemId: number; workstationIds: number[] } | { ok: false; error: string }> {
+  const [row] = await tx.$queryRaw<{ order_no: string; status: string; target_item_id: number }[]>`
+    SELECT order_no, status::text, target_item_id FROM prd_order WHERE id = ${id} FOR UPDATE`;
+  if (!row) return { ok: false, error: "Perintah Produksi tidak ditemukan." };
+  if (row.status !== "Open") return { ok: false, error: `Perintah ${row.order_no} tidak Open; Partai hanya dimulai untuk Perintah yang Open.` };
+  const steps = await tx.prdOrderStep.findMany({ where: { order_id: id }, orderBy: { step_no: "asc" }, select: { workstation_id: true } });
+  return { ok: true, orderNo: row.order_no, targetItemId: row.target_item_id, workstationIds: steps.map((s) => s.workstation_id) };
+}

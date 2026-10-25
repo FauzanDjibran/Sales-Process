@@ -8,8 +8,7 @@
 > `walet/walet.md`, and the full worked example is
 > `walet/simulation production.md`. The build order is `walet/build-plan.md`.
 >
-> Last updated: **22/10/2026 — P166** (Cara Kerja on the Workstation, BoM at a
-> Workstation).
+> Last updated: **25/10/2026 — P167** (the hand-over between workstations).
 
 ---
 
@@ -34,8 +33,8 @@ cost; the month-end close settles standard to actual.
 | Identity | What it is | Number | Status |
 | --- | --- | --- | --- |
 | **Lot** | The stock identity of a quantity of one item. One global register (`log_stock_tracking`) for stock and production; a lot keeps its number everywhere it goes. | Bought: typed / `GS_<supplier>_<kode>_<DDMMYY>`; made: `<unit>_<supplier>_<kode barang>_<DDMMYY>`, after a mix `<partai>_<kode barang>`; a clash takes `-2`, `-3` | ✅ register (P163) |
-| **Partai** | The production identity cost is tracked on. Started when the first station hands its goods on in Jobs (O3); never split or merged. Carries the Item Target. | `P_<DDMMYY>_<NNNNN>` | ✅ table · 🔜 started by the hand-over (step 4) |
-| **Job** | One box inside a Partai. Made where a station hands its goods on in boxes (stations with a Kode Job: UGH, UML → `UDB`); new Jobs name their parents. One lot may be carried by several Jobs. | `<Kode Job>_<DDMMYY>_<NNNNN>` | ✅ table · 🔜 made by the hand-over |
+| **Partai** | The production identity cost is tracked on. Started when the first station hands its goods on in Jobs (O3); never split or merged. Carries the Item Target. | `P_<DDMMYY>_<NNNNN>` | ✅ started by the first hand-over (P167), for the Perintah it names |
+| **Job** | One box inside a Partai. Made where a station hands its goods on in boxes (stations with a Kode Job: UGH, UML → `UDB`); new Jobs name their parents. One lot may be carried by several Jobs. | `<Kode Job>_<DDMMYY>_<NNNNN>` | ✅ made by the hand-over, a Job per box (P167) |
 | **No. Moulding** | The lot a Moulding mix makes from all the Partai's Jobs; belongs to the Partai, no Job. | `<partai>_<kode barang>` | 🔜 (step 5) |
 
 Where goods are inside production: a **bucket** = lot · Job · workstation, or
@@ -124,13 +123,34 @@ in one posting, a section per Job, by its **Cara Kerja**:
   Journal **Dr WIP / Cr WIP / Cr each Standard Cost Item's account** with the
   station's Cost Center.
 
-### Step E — Hand-over between stations 🔜 (build step 4)
+### Step E — Hand-over between stations ✅ (P167)
 
-`BSTB_<unit>_<DDMMYY>_<NNNNN>`: the whole Partai at a station is sent to the
-next; in transit until *Terima* / *Tolak* there. No value change, no journal.
-**At a station with a Kode Job (UGH, UML)** the hand-over boxes the goods into
-**new Jobs**; **the first such hand-over starts the Partai** (O3), taking the
-Item Target of the Perintah behind the goods.
+*Produksi › Operasi Produksi › Hand-over (BSTB)*, `BSTB_<unit>_<DDMMYY>_<NNNNN>`
+after the **sending** unit. Moves goods already in production; no value change,
+no journal.
+
+1. Choose the **sending** and **receiving** workstation and the day. The lines
+   offer what the sender holds, **received** goods only — never goods still in
+   transit.
+2. **A Partai goes whole** (AD1): *Isi seluruh P_…* puts every bucket of it at the
+   station on the page, every gram; a part is refused. Goods already in a Job
+   keep their Job.
+3. **Goods with no Partai yet start one** (O3): at a station with a **Kode Job**
+   (UGH, UML) the user picks the lots and quantities and gives each line a
+   **box**; a lot may be split over boxes by taking it on several lines. The
+   hand-over names the **Perintah** (Open, its route passes the sender, not yet
+   started): the Partai is started for it and takes its Item Target — one Partai
+   per Perintah. A station without a Kode Job cannot start a Partai.
+4. **Posting**: the Partai is started, a **Job per box** is made
+   (`<Kode Job>_<DDMMYY>_<NNNNN>`), and each line leaves the sender's bucket for
+   the receiver's **transit** bucket, under its Partai and Job. Goods without a
+   Job at a Kode Job station that already hold a Partai (the No. Moulding) are
+   boxed the same way; the new Jobs' parents are every earlier Job of the Partai.
+5. The receiver acts on the **whole** sending, on a day it picks: **Terima**
+   moves each line's own quantity and value into its bucket; **Tolak** (reason)
+   sends them back to the **sender**, same lot and Job, same value. A Draft is
+   edited, or cancelled with a reason; a posted hand-over is final. The Perintah
+   cannot be closed while its starting hand-over is a Draft or in transit.
 
 ### Step F — Leaving production 🔜 (build step 6)
 
@@ -177,6 +197,9 @@ Perintah and Purchase Requests.
 N-NL-PU is made inside production (at UBC), so on a BSTB to UP5 that line is
 removed: it arrives by the hand-over from UBC, not from the warehouse.
 
+*Reject goods (O6): a Reject output stays in production until taken out; when
+executions mark Reject (step 5) the whole-Partai hand-over will leave it behind.*
+
 ---
 
 ## 6. Journals at a glance
@@ -186,7 +209,7 @@ removed: it arrives by the hand-over from UBC, not from the warehouse.
 | BSTB Logistik posted | Dr WIP / Cr Persediaan | ✅ |
 | BSTB received | none | ✅ |
 | BSTB rejected | Dr Persediaan / Cr WIP | ✅ |
-| Station hand-over | none | 🔜 |
+| Station hand-over | none | ✅ |
 | Eksekusi | Dr WIP (outputs) / Cr WIP (inputs) / Cr Standard Cost Item accounts | 🔜 |
 | Penerimaan Hasil Produksi | Dr Persediaan / Cr WIP | 🔜 |
 | Pemusnahan | Dr Beban Pemusnahan / Cr WIP | 🔜 |
@@ -206,6 +229,7 @@ removed: it arrives by the hand-over from UBC, not from the warehouse.
 
 | Date | Change | Ref |
 | --- | --- | --- |
+| 25/10/2026 | Hand-over between workstations: whole Partai, in transit, Terima / Tolak; the first one starts the Partai for a Perintah and boxes goods into Jobs. | P167 |
 | 22/10/2026 | Document started. Workstation carries its Cara Kerja; a BoM names the workstation it is used at (one default per item per station); routing and Perintah steps are stations only; requirements = the Item Target's BoM at each route station. | P166 |
 | 22/10/2026 | Perintah = Item Target + Qty Target + route; requirements from the BoM; the BSTB picks lots per station. | P165 |
 | 22/10/2026 | Perintah Produksi; Stock Issue as the Logistik BSTB, in transit until Terima / Tolak. | P164 |

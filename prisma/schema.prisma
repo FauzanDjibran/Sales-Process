@@ -748,6 +748,8 @@ model RefWorkstation {
   boms               PrdBom[]              @relation("BomWorkstation")
   order_steps        PrdOrderStep[]        @relation("OrderStepWorkstation")
   order_requirements PrdOrderRequirement[] @relation("OrderRequirementWorkstation")
+  handovers_from     PrdHandover[]         @relation("HandoverFrom")
+  handovers_to       PrdHandover[]         @relation("HandoverTo")
 
   @@index([cost_center_id])
   @@map("ref_workstation")
@@ -3994,6 +3996,8 @@ model PrdPartai {
   source_doc_type_id Int
   source_doc_id      Int
   source_no          String
+  /// The Perintah Produksi it was started for (P167): one Partai per Perintah.
+  order_id           Int?     @unique
   /// Information only (M48): the Customer Order it is made for, weak.
   customer_order_id  Int?
   customer_order_no  String?
@@ -4001,6 +4005,7 @@ model PrdPartai {
   created_by         Int
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
+  order       PrdOrder?    @relation(fields: [order_id], references: [id])
   target_item MItem?       @relation("PartaiTarget", fields: [target_item_id], references: [id])
   jobs        PrdJob[]
   balances    PrdBalance[]
@@ -4097,6 +4102,9 @@ model PrdBalance {
 
 /// What moved a bucket.
 enum PrdMovement {
+  /// Handed on to the next workstation: out of the sender's bucket, into the
+  /// receiver's transit bucket (P167).
+  Sent
   /// Issued in from stock (Pengeluaran ke Produksi).
   Issued
   /// Taken as an execution's input.
@@ -4332,6 +4340,8 @@ model PrdOrder {
   routing      PrdRouting?           @relation(fields: [routing_id], references: [id])
   steps        PrdOrderStep[]
   requirements PrdOrderRequirement[]
+  partai       PrdPartai?
+  handovers    PrdHandover[]
 
   @@index([status, order_date])
   @@map("prd_order")
@@ -4379,4 +4389,86 @@ model PrdOrderRequirement {
   @@unique([order_id, line_no])
   @@index([item_id])
   @@map("prd_order_requirement")
+}
+
+// ---------------------------------------------------------- hand-over (P167)
+
+enum HandoverStatus {
+  Draft
+  /// Sent: the goods are in transit to the next workstation.
+  Posted
+  Received
+  /// Rejected whole: the goods went back to the sending workstation.
+  Rejected
+  Cancelled
+}
+
+/// The hand-over between workstations (Walet step 4, M113, AD1): the BSTB a
+/// station writes at its output, `BSTB_<unit>_<DDMMYY>_<NNNNN>`. Moves goods in
+/// production from one station to the next — in transit until *Terima* or *Tolak*
+/// whole; no value changes and no journal.
+model PrdHandover {
+  id                  Int            @id @default(autoincrement())
+  handover_no         String         @unique
+  handover_date       DateTime       @db.Date
+  status              HandoverStatus @default(Draft)
+  from_workstation_id Int
+  to_workstation_id   Int
+  /// The Perintah the Partai is started for — required by the hand-over that starts it.
+  order_id            Int?
+  /// The Partai handed on; for the hand-over that starts one, set at Posting.
+  partai_id           Int?
+  note                String?
+
+  /// Σ of the lines' value, set at Posting — information only, it never changes.
+  cost_amount   Decimal   @default(0) @db.Decimal(18, 2)
+  cancel_reason String?
+  received_date DateTime? @db.Date
+  received_by   Int?
+  reject_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  from  RefWorkstation    @relation("HandoverFrom", fields: [from_workstation_id], references: [id])
+  to    RefWorkstation    @relation("HandoverTo", fields: [to_workstation_id], references: [id])
+  order PrdOrder?         @relation(fields: [order_id], references: [id])
+  lines PrdHandoverLine[]
+
+  @@index([status, handover_date])
+  @@index([order_id])
+  @@index([partai_id])
+  @@map("prd_handover")
+}
+
+/// A quantity of one lot taken from one bucket at the sending station. The
+/// bucket is named by id only: the production ledger is the one module that
+/// names its tables.
+model PrdHandoverLine {
+  id                 Int     @id @default(autoincrement())
+  handover_id        Int
+  line_no            Int
+  source_bucket_id   Int
+  lot_id             Int
+  item_id            Int
+  /// The lot's number as printed.
+  lot_no             String
+  /// In the item's base unit.
+  qty                Decimal @db.Decimal(18, 6)
+  /// The box it goes in, at a station that makes Jobs; goods already in a Job keep it.
+  box_no             Int?
+  /// Set at Posting: the Job carrying it from now on (made, or kept).
+  job_id             Int?
+  /// Whole rupiah the goods carried, set at Posting.
+  cost_amount        Decimal @default(0) @db.Decimal(18, 2)
+  transit_bucket_id  Int?
+  received_bucket_id Int?
+
+  handover PrdHandover @relation(fields: [handover_id], references: [id], onDelete: Cascade)
+
+  @@unique([handover_id, line_no])
+  @@index([handover_id, source_bucket_id])
+  @@map("prd_handover_line")
 }

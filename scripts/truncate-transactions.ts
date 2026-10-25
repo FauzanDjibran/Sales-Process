@@ -88,6 +88,7 @@ const DOCUMENT_ENTITY_KEYS = [
   "log_delivery_note",
   "log_stock_issue",
   "prd_order",
+  "prd_handover",
   "fin_ar_invoice",
   "fin_ar_advance",
   "fin_cash_bank_tx",
@@ -115,6 +116,7 @@ async function main() {
     log_delivery_note_line: await prisma.logDeliveryNoteLine.count(),
     log_delivery_note: await prisma.logDeliveryNote.count(),
     log_stock_issue: await prisma.logStockIssue.count(),
+    prd_handover: await prisma.prdHandover.count(),
     prd_ledger: await prisma.prdLedger.count(),
     prd_order: await prisma.prdOrder.count(),
     log_stock_ledger: await prisma.logStockLedger.count(),
@@ -190,6 +192,8 @@ async function main() {
     await tx.logStockIssueLine.deleteMany();
     await tx.logStockIssue.deleteMany();
     // The production ledger goes with the issues that placed goods in it.
+    await tx.prdHandoverLine.deleteMany();
+    await tx.prdHandover.deleteMany();
     await tx.prdLotLink.deleteMany();
     await tx.prdLedger.deleteMany();
     await tx.prdBalance.deleteMany();

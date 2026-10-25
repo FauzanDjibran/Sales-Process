@@ -149,6 +149,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Stock Issue", "log_stock_issue"],
   // Walet step 3 (M121): the Logistik BSTB names the Perintah it is raised from.
   ["Perintah Produksi", "prd_order"],
+  // Walet step 4 (P167): the production ledger and the Partai it starts name the hand-over.
+  ["Hand-over Produksi", "prd_handover"],
 ];
 
 /**

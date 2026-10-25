@@ -177,6 +177,14 @@ export const MODULES: NavModule[] = [
             desc: "Perintah PPIC untuk satu Partai: Item Target dan jumlahnya, rute workstation, dan kebutuhan bahan dari BoM. Logistik memilih lot dan mengirim dengan BSTB.",
             permission: "PRODUCTION_ORDER_VIEW",
           },
+          {
+            key: "prd_handover",
+            slug: "handover",
+            name: "Hand-over (BSTB)",
+            icon: "truck",
+            desc: "Penyerahan barang dari satu Workstation ke berikutnya, utuh per Partai; yang pertama memulai Partai dan membagi barang ke Job. Dalam perjalanan sampai diterima atau ditolak.",
+            permission: "PRODUCTION_HANDOVER_VIEW",
+          },
         ],
       },
       {

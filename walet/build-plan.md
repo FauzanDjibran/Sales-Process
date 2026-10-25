@@ -63,7 +63,7 @@
 
 **Done when:** PPIC raises a Perintah, Logistik sends its lots, UGH receives them.
 
-### Step 4 — Station hand-over: BSTB between workstations (5c-3)
+### Step 4 — Station hand-over: BSTB between workstations (5c-3) ✅ built 25/10/2026 (P167)
 
 | Part | What |
 | --- | --- |
@@ -116,7 +116,7 @@ Demand from Pra-SO and SO; BoM and Routing explosion; planned Perintah and Purch
 | --- | --- | --- |
 | O1 | ~~Sales and purchasing demo~~ — **kept** for now; only production became Walet (P162) | Step 1 ✅ |
 | O2 | ~~Existing production data~~ — **mapped** by the migration (there was none locally or on Neon); to confirm at review | Step 2 ✅ |
-| O3 | ~~Partai created by the execution or the hand-over?~~ — **by the hand-over** (the user, 22/10/2026): the Grading Halus output has no Partai yet; the Partai is created when the goods continue, boxed into Jobs | Step 4 |
+| O3 | ~~Partai created by the execution or the hand-over?~~ — **by the hand-over** (the user, 22/10/2026): the Grading Halus output has no Partai yet; the Partai is created when the goods continue, boxed into Jobs. Built: the hand-over names the Perintah (P167) | Step 4 ✅ |
 | O4 | ~~BSTB without a Perintah?~~ — **optional for now** (the user, 22/10/2026): a Logistik issue to production need not come from a Perintah (P164) | Step 3 ✅ |
 | O5 | ~~Lot numbers~~ — **generated** in the formats above (`production-number.ts`), **a typed one still accepted** while new in the register; to confirm at review | Step 2 ✅ |
 | O6 | ~~Reject output~~ — **stays in production until taken out** (the user, 22/10/2026; M59) | Step 5 |

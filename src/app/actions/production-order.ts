@@ -14,6 +14,7 @@ import {
 } from "@/lib/erp/production-order";
 import { PRODUCTION_ORDER_TRANSITIONS, type ProductionOrderAction } from "@/lib/erp/production-order-workflow";
 import { openIssuesRefusal } from "@/lib/erp/stock-issue";
+import { openHandoversRefusal } from "@/lib/erp/production-handover";
 
 /**
  * The Perintah Produksi's write path (Walet step 3, M121). The permission is
@@ -68,7 +69,7 @@ export async function transitionProductionOrderAction(id: number, action: Produc
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
   try {
-    const result = await transitionProductionOrder(id, action, g.actor.user.id, reason, () => openIssuesRefusal(id));
+    const result = await transitionProductionOrder(id, action, g.actor.user.id, reason, async () => (await openIssuesRefusal(id)) ?? (await openHandoversRefusal(id)));
     if (!result.ok) return result;
   } catch (error) {
     return { ok: false, errors: { _form: error instanceof Error ? error.message : "Gagal diproses." } };

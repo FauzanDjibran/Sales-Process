@@ -58,7 +58,7 @@ export class ProductionRefusal extends Error {}
 
 export type ProductionSource = { docTypeId: number; docId: number; no: string };
 
-type Movement = "Issued" | "Consumed" | "Produced" | "Released" | "Revalued" | "Received" | "Returned";
+type Movement = "Issued" | "Consumed" | "Produced" | "Released" | "Revalued" | "Received" | "Returned" | "Sent";
 
 const qtyText = (d: Dec) => d.toDecimalPlaces(4).toString().replace(".", ",");
 const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
@@ -238,7 +238,7 @@ async function takeLocked(tx: Tx, b: Bucket, qty: Dec, movement: Movement, date:
  */
 export async function startPartai(
   tx: Tx,
-  s: { date: Date; targetItemId?: number | null; customerOrder?: { id: number; no: string } | null; source: ProductionSource; actorId: number }
+  s: { date: Date; targetItemId?: number | null; orderId?: number | null; customerOrder?: { id: number; no: string } | null; source: ProductionSource; actorId: number }
 ): Promise<PartaiRef> {
   const no = await nextDailyNumber(["P"], s.date, async (series) => {
     const row = await tx.prdPartai.findFirst({ where: { partai_no: { startsWith: series } }, orderBy: { id: "desc" }, select: { partai_no: true } });
@@ -249,6 +249,7 @@ export async function startPartai(
       partai_no: no,
       partai_date: s.date,
       target_item_id: s.targetItemId ?? null,
+      order_id: s.orderId ?? null,
       source_doc_type_id: s.source.docTypeId,
       source_doc_id: s.source.docId,
       source_no: s.source.no,
@@ -445,6 +446,89 @@ export async function receiveTransit(tx: Tx, m: TransitMove): Promise<{ bucketId
  */
 export async function returnTransit(tx: Tx, m: TransitMove): Promise<void> {
   await takeSent(tx, m, "Returned");
+}
+
+// ------------------------------------------------------- handing over
+
+export type HandOver = {
+  /** The sending station's bucket — received goods, never goods in transit. */
+  bucketId: number;
+  toWorkstationId: number;
+  /** In the item's base unit. */
+  baseQty: number | string | Dec;
+  /** The Partai the goods belong to from now on; omitted keeps the bucket's (the hand-over that starts one names it). */
+  partaiId?: number | null;
+  /** The Job carrying them from now on; omitted keeps the bucket's. */
+  jobId?: number | null;
+  date: Date;
+  source: ProductionSource;
+  actorId: number;
+};
+
+export type HandedOver = { bucketId: number; value: number; lotId: number; itemId: number; partaiId: number | null; jobId: number | null };
+
+/**
+ * A workstation hands goods on (P167, M113): round(V × q ÷ Q) leaves its bucket
+ * — V whole when q empties it — and enters the **transit** bucket of the next
+ * station, under the Partai and Job it carries from now on. Nothing changes
+ * value; the receiving station then receives or returns it.
+ */
+export async function sendToTransit(tx: Tx, h: HandOver): Promise<HandedOver> {
+  const from = await lockBucketById(tx, h.bucketId);
+  if (!from) throw new ProductionRefusal("Saldo produksi tidak ditemukan. Pilih ulang.");
+  if (from.inTransit) throw new ProductionRefusal("Barang yang masih dalam perjalanan belum dapat diserahkan lagi.");
+  if (from.workstationId === h.toWorkstationId) throw new ProductionRefusal("Workstation tujuan harus lain dari workstation pengirim.");
+  await activeWorkstation(tx, h.toWorkstationId);
+  const partaiId = h.partaiId === undefined ? from.partaiId : h.partaiId;
+  const jobId = h.jobId === undefined ? from.jobId : h.jobId;
+  if (jobId != null) await jobPartai(tx, jobId, partaiId);
+  const qty = new D(h.baseQty);
+  const value = await takeLocked(tx, from, qty, "Sent", h.date, h.source, h.actorId);
+  const { uom_id } = await tx.prdBalance.findUniqueOrThrow({ where: { id: from.id }, select: { uom_id: true } });
+  const to = await openBucket(
+    tx,
+    { lotId: from.lotId, partaiId, jobId, workstationId: h.toWorkstationId, inTransit: true, itemId: from.itemId, uomId: uom_id },
+    h.actorId
+  );
+  await write(tx, to, { movement: "Sent", qty, value, date: h.date, source: h.source, actorId: h.actorId });
+  return { bucketId: to.id, value: value.toNumber(), lotId: from.lotId, itemId: from.itemId, partaiId, jobId };
+}
+
+/**
+ * The receiving station rejects a hand-over (M113): the sending's own quantity
+ * and value leave the transit bucket and go back into the sending station's
+ * bucket of the same lot, Partai and Job — a Job already made is kept.
+ */
+export async function returnToSender(tx: Tx, m: TransitMove & { senderId: number }): Promise<void> {
+  const b = await takeSent(tx, m, "Returned");
+  const { uom_id } = await tx.prdBalance.findUniqueOrThrow({ where: { id: b.id }, select: { uom_id: true } });
+  const back = await openBucket(
+    tx,
+    { lotId: b.lotId, partaiId: b.partaiId, jobId: b.jobId, workstationId: m.senderId, inTransit: false, itemId: b.itemId, uomId: uom_id },
+    m.actorId
+  );
+  await write(tx, back, { movement: "Returned", qty: new D(m.baseQty), value: new D(m.value), date: m.date, source: m.source, actorId: m.actorId });
+}
+
+/** The Partai started for a Perintah, if any (P167: one each). */
+export async function partaiOfOrder(orderId: number, db: Db = prisma): Promise<{ id: number; no: string } | null> {
+  const p = await db.prdPartai.findUnique({ where: { order_id: orderId }, select: { id: true, partai_no: true } });
+  return p ? { id: p.id, no: p.partai_no } : null;
+}
+
+/** Every Job of a Partai, oldest first — the parents of the Jobs a Moulding hand-over makes (M127). */
+export async function jobIdsOfPartai(partaiId: number, db: Db = prisma): Promise<number[]> {
+  const rows = await db.prdJob.findMany({ where: { partai_id: partaiId }, orderBy: { id: "asc" }, select: { id: true } });
+  return rows.map((r) => r.id);
+}
+
+/** Partai and Job numbers by id, to show what a stored document names. */
+export async function productionIdentityNumbers(ids: { partaiIds?: number[]; jobIds?: number[] }, db: Db = prisma) {
+  const [partai, jobs] = await Promise.all([
+    ids.partaiIds?.length ? db.prdPartai.findMany({ where: { id: { in: ids.partaiIds } }, select: { id: true, partai_no: true } }) : [],
+    ids.jobIds?.length ? db.prdJob.findMany({ where: { id: { in: ids.jobIds } }, select: { id: true, job_no: true } }) : [],
+  ]);
+  return { partai: new Map(partai.map((p) => [p.id, p.partai_no])), jobs: new Map(jobs.map((j) => [j.id, j.job_no])) };
 }
 
 // ------------------------------------------------------------ producing
@@ -712,8 +796,20 @@ export async function availableBuckets(
     .sort((a, b) => (a.expiry ?? "9999").localeCompare(b.expiry ?? "9999") || a.lotNo.localeCompare(b.lotNo) || a.workstationLabel.localeCompare(b.workstationLabel));
 }
 
+/** The named buckets, whatever they hold — for a stored document to show what it moved. */
+export async function bucketsByIds(ids: number[], db: Db = prisma): Promise<BucketView[]> {
+  if (!ids.length) return [];
+  return (await db.prdBalance.findMany({ where: { id: { in: ids } }, include: bucketInclude })).map(view);
+}
+
 /** Σ value held in production now, per item — what the WIP accounts should hold. */
 export async function wipByItem(db: Db = prisma): Promise<Map<number, number>> {
   const rows = await db.prdBalance.groupBy({ by: ["item_id"], _sum: { value_balance: true }, where: { value_balance: { not: 0 } } });
   return new Map(rows.map((r) => [r.item_id, r._sum.value_balance?.toNumber() ?? 0]));
+}
+
+/** The Perintah that already started a Partai (P167: each starts one only). */
+export async function orderIdsWithPartai(db: Db = prisma): Promise<number[]> {
+  const rows = await db.prdPartai.findMany({ where: { order_id: { not: null } }, select: { order_id: true } });
+  return rows.flatMap((p) => (p.order_id ? [p.order_id] : []));
 }

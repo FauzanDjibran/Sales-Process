@@ -842,6 +842,29 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "a hand-over moves exactly its value: out of the sender, into transit, then to the receiver or back to the sender (P167)",
+    sql: `WITH m AS (SELECT l.source_doc_id AS id,
+                       -SUM(l.value_change) FILTER (WHERE l.movement = 'Sent' AND NOT l.in_transit) AS out_v,
+                       SUM(l.value_change) FILTER (WHERE l.movement = 'Sent' AND l.in_transit) AS in_v,
+                       SUM(l.value_change) FILTER (WHERE l.movement = 'Received' AND NOT l.in_transit) AS at_to,
+                       SUM(l.value_change) FILTER (WHERE l.movement = 'Returned' AND NOT l.in_transit) AS back
+                    FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_handover")} GROUP BY l.source_doc_id)
+          SELECT h.handover_no, h.status::text, h.cost_amount, m.out_v, m.in_v, m.at_to, m.back
+          FROM prd_handover h LEFT JOIN m ON m.id = h.id
+          WHERE (h.status IN ('Posted', 'Received', 'Rejected') AND (COALESCE(m.out_v, 0) <> h.cost_amount OR COALESCE(m.in_v, 0) <> h.cost_amount))
+             OR (h.status = 'Received' AND COALESCE(m.at_to, 0) <> h.cost_amount)
+             OR (h.status = 'Rejected' AND COALESCE(m.back, 0) <> h.cost_amount)
+             OR (h.status IN ('Draft', 'Cancelled') AND m.id IS NOT NULL)`,
+  },
+  {
+    area: "production",
+    name: "every Partai's goods are at one workstation, or in transit to one (AD1, P167)",
+    sql: `SELECT b.partai_id, COUNT(DISTINCT (b.workstation_id, b.in_transit)) AS places
+          FROM prd_balance b WHERE b.partai_id IS NOT NULL AND b.qty_balance > 0
+          GROUP BY b.partai_id HAVING COUNT(DISTINCT (b.workstation_id, b.in_transit)) > 1`,
+  },
+  {
+    area: "production",
     name: "every lot in production is a lot of its item in the one register; a lot made by production names it as its source (M128)",
     sql: `SELECT 'item' AS what, b.id AS ref FROM prd_balance b JOIN log_stock_tracking t ON t.id = b.lot_id WHERE t.item_id <> b.item_id
           UNION ALL

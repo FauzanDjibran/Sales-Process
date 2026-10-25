@@ -2840,7 +2840,8 @@ table prd_partai {
 
   partai_no                   varchar [not null, unique]
   partai_date                 date [not null]
-  target_item_id              int [ref : > m_item.id] // the Job Order; set by the Perintah (step 3)
+  target_item_id              int [ref : > m_item.id] // the Item Target; the Perintah's, copied when the Partai starts
+  order_id                    int [unique, ref : > prd_order.id] // the Perintah it was started for (P167): one Partai each
   source_doc_type_id          int [not null] // the document that started it, weak
   source_doc_id               int [not null]
   source_no                   varchar [not null]
@@ -2930,7 +2931,7 @@ table prd_ledger {
   source_doc_type_id          int [not null] // weak
   source_doc_id               int [not null]
   source_no                   varchar [not null]
-  movement                    enum('Issued', 'Consumed', 'Produced', 'Released', 'Revalued', 'Received', 'Returned') [not null] // Received / Returned: out of transit (M113)
+  movement                    enum('Sent', 'Issued', 'Consumed', 'Produced', 'Released', 'Revalued', 'Received', 'Returned') [not null] // Received / Returned: out of transit (M113); Sent: handed on to the next station (P167)
   bucket_id                   int [not null, ref : > prd_balance.id]
   lot_id                      int [not null, ref : > log_stock_tracking.id]
   partai_id                   int // the bucket's, copied
@@ -3129,5 +3130,64 @@ table prd_order_requirement {
   indexes {
     (order_id, line_no) [unique]
     item_id
+  }
+}
+
+// ============================================================ hand-over (Walet step 4, P167)
+
+// The hand-over between workstations (M113, AD1): the BSTB a station writes at its output,
+// BSTB_<unit>_<DDMMYY>_<NNNNN> after the sending unit. Moves goods already in production; in
+// transit until Terima / Tolak whole; no value changes, no journal. The first hand-over of goods
+// with no Partai starts one for its Perintah and boxes them into Jobs (O3, N5).
+table prd_handover {
+  id                          int [pk, increment, not null]
+
+  handover_no                 varchar [not null, unique]
+  handover_date               date [not null]
+  status                      enum('Draft', 'Posted', 'Received', 'Rejected', 'Cancelled') [not null, default: 'Draft'] // Posted = Dikirim, in transit
+  from_workstation_id         int [not null, ref : > ref_workstation.id]
+  to_workstation_id           int [not null, ref : > ref_workstation.id]
+  order_id                    int [ref : > prd_order.id] // required when it starts a Partai
+  partai_id                   int // the Partai handed on; for the one that starts it, set at Posting
+  note                        varchar
+
+  cost_amount                 decimal(18,2) [not null, default: 0] // Σ lines' value at Posting, information only
+  cancel_reason               varchar
+  received_date               date
+  received_by                 int
+  reject_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, handover_date)
+    order_id
+    partai_id
+  }
+}
+
+// A quantity of one lot taken from one bucket at the sending station; the bucket is named by id only.
+table prd_handover_line {
+  id                          int [pk, increment, not null]
+
+  handover_id                 int [not null, ref : > prd_handover.id]
+  line_no                     int [not null]
+  source_bucket_id            int [not null] // weak: the production ledger's bucket
+  lot_id                      int [not null]
+  item_id                     int [not null]
+  lot_no                      varchar [not null]
+  qty                         decimal(18,6) [not null] // base unit, > 0
+  box_no                      int // the box (a new Job) for goods without a Job; goods in a Job keep it
+  job_id                      int // set at Posting: the Job carrying it from now on
+  cost_amount                 decimal(18,2) [not null, default: 0] // set at Posting
+  transit_bucket_id           int
+  received_bucket_id          int
+
+  indexes {
+    (handover_id, line_no) [unique]
+    (handover_id, source_bucket_id)
   }
 }
