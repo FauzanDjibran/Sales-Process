@@ -197,6 +197,14 @@ const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(STOCK_ISSUE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
+/** Keluar Produksi (Penerimaan Hasil / Pemusnahan): Draft → Diposting, or Dibatalkan (P170). */
+const RELEASE_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Dokumen dibuat", icon: "box", tone: "neutral" },
+  post: { label: "Diposting — barang keluar dari produksi", icon: "check", tone: "primary" },
+  cancel: { label: "Dibatalkan", icon: "block", tone: "danger" },
+};
+
 /** Eksekusi Produksi: Draft → Diposting, or Dibatalkan (P169). */
 const EXECUTION_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
@@ -232,6 +240,7 @@ const PRODUCTION_ORDER_EVENTS: Record<string, AuditEventLabel> = {
   create: { label: "Perintah Produksi dibuat", icon: "clip", tone: "neutral" },
   open: fromTransition(PRODUCTION_ORDER_TRANSITIONS.open, "Dibuka"),
   close: fromTransition(PRODUCTION_ORDER_TRANSITIONS.close, "Ditutup"),
+  finish: { label: "Ditutup — seluruhnya keluar produksi", icon: "lock", tone: "neutral" },
   cancel: fromTransition(PRODUCTION_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
@@ -373,6 +382,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   prd_handover: HANDOVER_EVENTS,
   prd_plan: PRODUCTION_PLAN_EVENTS,
   prd_execution: EXECUTION_EVENTS,
+  prd_release: RELEASE_EVENTS,
   pur_request: PURCHASE_REQUEST_EVENTS,
   pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,

@@ -92,7 +92,7 @@ PPIC's monthly plan over Open Sales Order lines, from which the Perintah are rel
 
 **Done when:** the whole simulation (`simulation production.md` §4) can be keyed in and gives its figures to the rupiah.
 
-### Step 6 — Leaving production (6)
+### Step 6 — Leaving production (6) ✅ built 26/10/2026 (P170)
 
 | Part | What |
 | --- | --- |

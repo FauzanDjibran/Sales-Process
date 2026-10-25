@@ -913,3 +913,13 @@ export async function orderIdsWithPartai(db: Db = prisma): Promise<number[]> {
   const rows = await db.prdPartai.findMany({ where: { order_id: { not: null } }, select: { order_id: true } });
   return rows.flatMap((p) => (p.order_id ? [p.order_id] : []));
 }
+
+/** Whether anything of a Partai is still in production — held at a station, in transit or flagged Reject (P170). */
+export async function partaiInProduction(partaiId: number, db: Db = prisma): Promise<boolean> {
+  return (await db.prdBalance.count({ where: { partai_id: partaiId, qty_balance: { gt: 0 } } })) > 0;
+}
+
+/** The Perintah a Partai was started for, if any. */
+export async function orderIdOfPartai(partaiId: number, db: Db = prisma): Promise<number | null> {
+  return (await db.prdPartai.findUnique({ where: { id: partaiId }, select: { order_id: true } }))?.order_id ?? null;
+}

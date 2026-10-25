@@ -710,6 +710,8 @@ model RefWarehouse {
   purchase_orders   PurOrder[]             @relation("PurOrderWarehouse")
   receipt_notes     LogReceiptNote[]       @relation("ReceiptNoteWarehouse")
 
+  production_releases PrdRelease[] @relation("ReleaseWarehouse")
+
   @@map("ref_warehouse")
 }
 
@@ -752,6 +754,7 @@ model RefWorkstation {
   handovers_from     PrdHandover[]         @relation("HandoverFrom")
   handovers_to       PrdHandover[]         @relation("HandoverTo")
   executions         PrdExecution[]        @relation("ExecutionWorkstation")
+  releases           PrdRelease[]          @relation("ReleaseWorkstation")
 
   @@index([cost_center_id])
   @@map("ref_workstation")
@@ -4689,4 +4692,66 @@ model PrdExecutionCost {
 
   @@index([execution_id])
   @@map("prd_execution_cost")
+}
+
+// ------------------------------------- leaving production (P170, Walet step 6)
+
+/// What takes goods out of production, one table by purpose (P106): `finished_receipt` —
+/// Penerimaan Hasil Produksi, into a warehouse with the lot kept — and `scrap` — Pemusnahan
+/// Produksi, written off. `PHP_<unit>_<DDMMYY>_<NNNNN>` / `PMS_<unit>_<DDMMYY>_<NNNNN>`
+/// after the station the goods leave. Draft → Posted (final) or Cancelled.
+model PrdRelease {
+  id             Int             @id @default(autoincrement())
+  release_no     String          @unique
+  release_date   DateTime        @db.Date
+  status         ExecutionStatus @default(Draft)
+  purpose        String
+  workstation_id Int
+  /// Where a receipt's goods go; null for a scrap.
+  warehouse_id   Int?
+  /// Why goods are written off — required by a scrap.
+  reason         String?
+  note           String?
+  cancel_reason  String?
+  journal_id     Int?
+  /// Σ of the lines' value, set at Posting.
+  total_value    Decimal         @default(0) @db.Decimal(18, 2)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  workstation RefWorkstation   @relation("ReleaseWorkstation", fields: [workstation_id], references: [id])
+  warehouse   RefWarehouse?    @relation("ReleaseWarehouse", fields: [warehouse_id], references: [id])
+  lines       PrdReleaseLine[]
+
+  @@index([purpose, status, release_date])
+  @@index([workstation_id])
+  @@map("prd_release")
+}
+
+/// A quantity of one lot taken from one bucket; the bucket is named by id only.
+model PrdReleaseLine {
+  id               Int     @id @default(autoincrement())
+  release_id       Int
+  line_no          Int
+  source_bucket_id Int
+  lot_id           Int
+  item_id          Int
+  lot_no           String
+  /// In the item's base unit.
+  qty              Decimal @db.Decimal(18, 6)
+  /// The place in the warehouse, where it keeps locations (P136).
+  location_id      Int?
+  partai_id        Int?
+  job_id           Int?
+  /// Whole rupiah it released from WIP, set at Posting.
+  cost_amount      Decimal @default(0) @db.Decimal(18, 2)
+
+  release PrdRelease @relation(fields: [release_id], references: [id], onDelete: Cascade)
+
+  @@unique([release_id, line_no])
+  @@index([release_id, source_bucket_id])
+  @@map("prd_release_line")
 }

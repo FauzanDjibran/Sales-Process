@@ -882,6 +882,23 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "a posted release takes exactly what its lines released from WIP: its total, its journal's debits, and — for a receipt — the quantity it put into stock (P170)",
+    sql: `WITH r AS (
+            SELECT d.id, d.purpose, d.total_value, d.journal_id,
+                   COALESCE((SELECT SUM(l.cost_amount) FROM prd_release_line l WHERE l.release_id = d.id), 0) AS lines_value,
+                   COALESCE((SELECT SUM(l.qty) FROM prd_release_line l WHERE l.release_id = d.id), 0) AS lines_qty,
+                   COALESCE((SELECT SUM(jl.debit_amount) FROM acc_journal_line jl WHERE jl.journal_id = d.journal_id), 0) AS debits,
+                   COALESCE((SELECT SUM(m.qty_change) FROM log_stock_ledger m WHERE m.source_doc_type_id = ${docType("prd_release")} AND m.source_doc_id = d.id), 0) AS stocked
+            FROM prd_release d WHERE d.status = 'Posted')
+          SELECT id, purpose, total_value, lines_value, debits, lines_qty, stocked FROM r
+          WHERE total_value <> lines_value
+             OR (total_value > 0 AND debits <> total_value)
+             OR (total_value = 0 AND journal_id IS NOT NULL)
+             OR (purpose = 'finished_receipt' AND stocked <> lines_qty)
+             OR (purpose = 'scrap' AND stocked <> 0)`,
+  },
+  {
+    area: "production",
     name: "a Perintah released from a plan line makes the item that line plans (P168)",
     sql: `SELECT o.order_no FROM prd_order o JOIN prd_plan_line pl ON pl.id = o.plan_line_id WHERE o.target_item_id <> pl.item_id`,
   },

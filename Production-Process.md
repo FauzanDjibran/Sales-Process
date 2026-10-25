@@ -8,7 +8,7 @@
 > `walet/walet.md`, and the full worked example is
 > `walet/simulation production.md`. The build order is `walet/build-plan.md`.
 >
-> Last updated: **25/10/2026 — P169** (the Eksekusi Produksi; before it P168, the Rencana, and P167, the hand-over).
+> Last updated: **26/10/2026 — P170** (goods leaving production; before it P169, the Eksekusi, P168, the Rencana, and P167, the hand-over).
 
 ---
 
@@ -192,12 +192,26 @@ no journal.
    edited, or cancelled with a reason; a posted hand-over is final. The Perintah
    cannot be closed while its starting hand-over is a Draft or in transit.
 
-### Step F — Leaving production 🔜 (build step 6)
+### Step F — Leaving production ✅ (P170)
 
-- **Penerimaan Hasil Produksi**: from a station into a warehouse, the lot kept.
-  FG at its value (**Dr Persediaan / Cr WIP**), a Turunan at the value it holds
-  then, BJL at 0 (no journal).
-- **Pemusnahan Produksi**: waste written off, **Dr Beban Pemusnahan / Cr WIP**.
+*Produksi › Operasi Produksi › Penerimaan Hasil Produksi* (`PHP_<unit>_<DDMMYY>_<NNNNN>`) and
+*Pemusnahan Produksi* (`PMS_<unit>_<DDMMYY>_<NNNNN>`) — one table by purpose, each its own menu,
+number and permissions. The user names the **workstation** the goods leave and the day, then picks lines
+from what it holds: **received goods, any quantity** (a Reject leaves this way too), never goods in transit;
+*Isi semua barang Workstation* takes every bucket whole.
+
+- **Penerimaan Hasil Produksi**: also the **warehouse** (and, where it keeps locations, each line's
+  place). Posting takes each line out of its bucket at round(V × q ÷ Q) (V whole when it empties) and brings
+  it into stock **under the same lot** at that value — a Turunan at the value it holds then, a **BJL or a
+  Reject at 0**. Journal **Dr Persediaan (the category's, else Account Mapping's) / Cr WIP**; none when the
+  goods carry no value.
+- **Pemusnahan Produksi**: a **reason** (required). The goods are taken out and written off: **Dr Beban
+  Pemusnahan Produksi (Account Mapping) / Cr WIP**; nothing enters stock.
+- WIP is each item's Kategori Item's, no fallback (M62). A Draft is edited or cancelled (reason); a posted
+  document is final; the confirmation shows the journal by dry run.
+- **When the last goods of a Partai have left** — nothing of it held at a station, in transit or flagged
+  Reject — **its Perintah closes itself** (*Ditutup — seluruhnya keluar produksi*). A Reject holds a Partai
+  open until it is received or scrapped (O6).
 
 ### Step G — Reports 🔜 (build step 7)
 
@@ -251,8 +265,8 @@ executions mark Reject (step 5) the whole-Partai hand-over will leave it behind.
 | BSTB rejected | Dr Persediaan / Cr WIP | ✅ |
 | Station hand-over | none | ✅ |
 | Eksekusi | WIP by account: Dr when outputs exceed inputs, Cr when less; Cr each Standard Cost Item's account with the station's Cost Center; none when nothing nets | ✅ |
-| Penerimaan Hasil Produksi | Dr Persediaan / Cr WIP | 🔜 |
-| Pemusnahan | Dr Beban Pemusnahan / Cr WIP | 🔜 |
+| Penerimaan Hasil Produksi | Dr Persediaan / Cr WIP (a BJL or Reject at 0: no journal) | ✅ |
+| Pemusnahan | Dr Beban Pemusnahan Produksi / Cr WIP | ✅ |
 | Month-end close | variance to WIP, Persediaan, HPP | 🔜 |
 
 ---
@@ -269,6 +283,7 @@ executions mark Reject (step 5) the whole-Partai hand-over will leave it behind.
 
 | Date | Change | Ref |
 | --- | --- | --- |
+| 26/10/2026 | Penerimaan Hasil Produksi (lot kept into a warehouse, at the value held) and Pemusnahan Produksi (written off), one table by purpose; a Perintah closes itself when the last goods of its Partai leave. | P170 |
 | 25/10/2026 | Eksekusi Produksi: Transformasi (new lots, value by Bobot, BJL and Reject 0), Pass-through (lot kept, extras join, weight free), Mix (the Partai into one lot); the standard per section Driver; journal by dry run. | P169 |
 | 25/10/2026 | Rencana Produksi: PPIC's monthly plan over Open Sales Order lines; Perintah released from its lines. | P168 |
 | 25/10/2026 | Hand-over between workstations: whole Partai, in transit, Terima / Tolak; the first one starts the Partai for a Perintah and boxes goods into Jobs. | P167 |

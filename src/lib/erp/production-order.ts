@@ -616,3 +616,15 @@ export async function planMaterials(lines: { itemId: number; qty: number }[], db
     .map(([itemId, qty]) => ({ itemId, label: itemBy.get(itemId)?.label ?? "", name: itemBy.get(itemId)?.name ?? "", uomLabel: itemBy.get(itemId)?.uomLabel ?? "", qty, onHand: stock.get(itemId) ?? 0 }))
     .sort((a, b) => a.label.localeCompare(b.label));
 }
+
+/**
+ * Closes an Open Perintah by itself once nothing of its Partai is left in
+ * production (P170): no reason, audit event *finish*. Called inside the posting
+ * that took the last goods out. Returns whether it closed.
+ */
+export async function finishProductionOrder(tx: Prisma.TransactionClient, orderId: number, actorId: number): Promise<boolean> {
+  const done = await tx.prdOrder.updateMany({ where: { id: orderId, status: "Open" }, data: { status: "Closed", status_reason: null, updated_by: actorId } });
+  if (done.count !== 1) return false;
+  await tx.auditLog.create({ data: { entity_key: "prd_order", row_id: orderId, action: "UPDATE", event: "finish", by: actorId } });
+  return true;
+}

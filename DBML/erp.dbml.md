@@ -3351,3 +3351,55 @@ table prd_execution_cost {
     execution_id
   }
 }
+
+// ============================================================ leaving production (Walet step 6, P170)
+
+// What takes goods out of production, one table by purpose (P106): finished_receipt = Penerimaan Hasil
+// Produksi (into a warehouse, the lot kept, Dr Persediaan / Cr WIP) and scrap = Pemusnahan Produksi
+// (written off, Dr Beban Pemusnahan Produksi / Cr WIP). PHP_<unit>_<DDMMYY>_<NNNNN> / PMS_… after the unit.
+table prd_release {
+  id                          int [pk, increment, not null]
+
+  release_no                  varchar [not null, unique]
+  release_date                date [not null]
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft'] // the ExecutionStatus enum
+  purpose                     varchar [not null] // finished_receipt | scrap
+  workstation_id              int [not null, ref : > ref_workstation.id]
+  warehouse_id                int [ref : > ref_warehouse.id] // a receipt's destination
+  reason                      varchar // a scrap's reason, required
+  note                        varchar
+  cancel_reason               varchar
+  journal_id                  int
+  total_value                 decimal(18,2) [not null, default: 0] // Σ lines' value released from WIP, set at Posting
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (purpose, status, release_date)
+    workstation_id
+  }
+}
+
+table prd_release_line {
+  id                          int [pk, increment, not null]
+
+  release_id                  int [not null, ref : > prd_release.id]
+  line_no                     int [not null]
+  source_bucket_id            int [not null] // the production ledger's bucket, by id only
+  lot_id                      int [not null]
+  item_id                     int [not null]
+  lot_no                      varchar [not null]
+  qty                         decimal(18,6) [not null] // base unit, > 0
+  location_id                 int // the place in the warehouse, where it keeps locations (P136)
+  partai_id                   int
+  job_id                      int
+  cost_amount                 decimal(18,2) [not null, default: 0] // released from WIP at Posting
+
+  indexes {
+    (release_id, line_no) [unique]
+    (release_id, source_bucket_id)
+  }
+}

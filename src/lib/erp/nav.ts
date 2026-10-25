@@ -194,6 +194,22 @@ export const MODULES: NavModule[] = [
             permission: "PRODUCTION_EXECUTION_VIEW",
           },
           {
+            key: "prd_release",
+            slug: "receipt",
+            name: "Penerimaan Hasil Produksi",
+            icon: "box",
+            desc: "Barang jadi, turunan atau BJL keluar dari Workstation ke gudang dengan lot yang sama, senilai yang dikandungnya. Journal Dr Persediaan / Cr WIP.",
+            permission: "PRODUCTION_RECEIPT_VIEW",
+          },
+          {
+            key: "prd_release_scrap",
+            slug: "scrap",
+            name: "Pemusnahan Produksi",
+            icon: "trash",
+            desc: "Barang di produksi dimusnahkan dengan alasan; nilainya menjadi beban. Journal Dr Beban Pemusnahan Produksi / Cr WIP.",
+            permission: "PRODUCTION_SCRAP_VIEW",
+          },
+          {
             key: "prd_handover",
             slug: "handover",
             name: "Hand-over (BSTB)",

@@ -155,6 +155,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Rencana Produksi", "prd_plan"],
   // Walet step 5 (P169): the production ledger, the lots a run makes and its journal name it.
   ["Eksekusi Produksi", "prd_execution"],
+  // Walet step 6 (P170): goods leaving production — into stock or written off.
+  ["Keluar Produksi", "prd_release"],
 ];
 
 /**
