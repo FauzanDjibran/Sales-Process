@@ -73,6 +73,10 @@
 
 **Done when:** a Partai can be handed station to station with receipts, and boxed into Jobs where the station makes Jobs.
 
+### Step 4b — Rencana Produksi ✅ built 25/10/2026 (P168)
+
+PPIC's monthly plan over Open Sales Order lines, from which the Perintah are released — see `walet/step4-and-rencana-plan.md` Part B and `Production-Process.md` step 0.
+
 ### Step 5 — Eksekusi Produksi (5d)
 
 | Part | What |

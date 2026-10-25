@@ -89,6 +89,7 @@ const DOCUMENT_ENTITY_KEYS = [
   "log_stock_issue",
   "prd_order",
   "prd_handover",
+  "prd_plan",
   "fin_ar_invoice",
   "fin_ar_advance",
   "fin_cash_bank_tx",
@@ -119,6 +120,7 @@ async function main() {
     prd_handover: await prisma.prdHandover.count(),
     prd_ledger: await prisma.prdLedger.count(),
     prd_order: await prisma.prdOrder.count(),
+    prd_plan: await prisma.prdPlan.count(),
     log_stock_ledger: await prisma.logStockLedger.count(),
     log_stock_balance: await prisma.logStockBalance.count(),
     log_stock_valuation_ledger: await prisma.logStockValuationLedger.count(),
@@ -204,6 +206,10 @@ async function main() {
     await tx.prdOrderRequirement.deleteMany();
     await tx.prdOrderStep.deleteMany();
     await tx.prdOrder.deleteMany();
+    // The plan its Perintah were released from goes after them.
+    await tx.prdPlanLineDemand.deleteMany();
+    await tx.prdPlanLine.deleteMany();
+    await tx.prdPlan.deleteMany();
     await tx.logStockLedger.deleteMany();
     await tx.logStockBalance.deleteMany();
     await tx.logStockValuationLedger.deleteMany();

@@ -624,6 +624,7 @@ model MItem {
   delivery_note_lines     LogDeliveryNoteLine[]
   stock_issue_lines       LogStockIssueLine[]
   production_orders       PrdOrder[]                @relation("OrderTarget")
+  plan_lines              PrdPlanLine[]             @relation("PlanLineItem")
   production_requirements PrdOrderRequirement[]     @relation("OrderRequirementItem")
 
   @@index([category_id])
@@ -4342,8 +4343,11 @@ model PrdOrder {
   requirements PrdOrderRequirement[]
   partai       PrdPartai?
   handovers    PrdHandover[]
+  plan_line_id Int?
+  plan_line    PrdPlanLine?          @relation(fields: [plan_line_id], references: [id])
 
   @@index([status, order_date])
+  @@index([plan_line_id])
   @@map("prd_order")
 }
 
@@ -4471,4 +4475,79 @@ model PrdHandoverLine {
   @@unique([handover_id, line_no])
   @@index([handover_id, source_bucket_id])
   @@map("prd_handover_line")
+}
+
+// ------------------------------------------------- production plan (P168)
+
+enum ProductionPlanStatus {
+  Draft
+  Submitted
+  /// Disetujui: Perintah Produksi may be made from its lines.
+  Open
+  Closed
+  Cancelled
+  Rejected
+}
+
+/// Rencana Produksi (Walet, `walet/step4-and-rencana-plan.md` Part B): PPIC's plan of
+/// what to make in one month, `RP/YYYY/MM/NNNN`. Posts nothing; the Perintah Produksi
+/// are released from its lines.
+model PrdPlan {
+  id            Int                  @id @default(autoincrement())
+  plan_no       String               @unique
+  plan_date     DateTime             @db.Date
+  /// The first day of the month the plan is for.
+  period        DateTime             @db.Date
+  status        ProductionPlanStatus @default(Draft)
+  note          String?
+  /// Why it was cancelled, rejected or closed by hand.
+  status_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  lines PrdPlanLine[]
+
+  @@index([status, period])
+  @@map("prd_plan")
+}
+
+/// One item to make, how much, and when to start — each item once per start date.
+model PrdPlanLine {
+  id         Int      @id @default(autoincrement())
+  plan_id    Int
+  line_no    Int
+  item_id    Int
+  /// In the item's base unit; typed — the demand and the stock only suggest it.
+  qty        Decimal  @db.Decimal(18, 4)
+  start_date DateTime @db.Date
+  note       String?
+
+  plan    PrdPlan             @relation(fields: [plan_id], references: [id], onDelete: Cascade)
+  item    MItem               @relation("PlanLineItem", fields: [item_id], references: [id])
+  demands PrdPlanLineDemand[]
+  orders  PrdOrder[]
+
+  @@unique([plan_id, line_no])
+  @@unique([plan_id, item_id, start_date])
+  @@map("prd_plan_line")
+}
+
+/// The Sales Order line a plan line covers, and how much of it — weak: the sales
+/// module's rows are named by id, never by a foreign key (§3.1).
+model PrdPlanLineDemand {
+  id           Int     @id @default(autoincrement())
+  plan_line_id Int
+  so_line_id   Int
+  so_id        Int
+  so_no        String
+  qty          Decimal @db.Decimal(18, 4)
+
+  plan_line PrdPlanLine @relation(fields: [plan_line_id], references: [id], onDelete: Cascade)
+
+  @@unique([plan_line_id, so_line_id])
+  @@index([so_line_id])
+  @@map("prd_plan_line_demand")
 }

@@ -33,6 +33,7 @@ import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
 import { STOCK_ISSUE_TRANSITIONS } from "./stock-issue-workflow";
 import { PRODUCTION_ORDER_TRANSITIONS } from "./production-order-workflow";
 import { HANDOVER_TRANSITIONS } from "./production-handover-workflow";
+import { PRODUCTION_PLAN_TRANSITIONS } from "./production-plan-workflow";
 import { RECEIPT_NOTE_TRANSITIONS } from "./receipt-note-workflow";
 import { PURCHASE_INVOICE_TRANSITIONS } from "./ap-invoice-workflow";
 import { COST_BILL_TRANSITIONS } from "./production-cost-bill-workflow";
@@ -195,6 +196,17 @@ const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(STOCK_ISSUE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
+/** Rencana Produksi: Draft → Diajukan → Disetujui → Ditutup, or Ditolak / Dibatalkan (P168). */
+const PRODUCTION_PLAN_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Rencana dibuat", icon: "cal", tone: "neutral" },
+  submit: fromTransition(PRODUCTION_PLAN_TRANSITIONS.submit, "Diajukan"),
+  approve: fromTransition(PRODUCTION_PLAN_TRANSITIONS.approve, "Disetujui"),
+  reject: fromTransition(PRODUCTION_PLAN_TRANSITIONS.reject, "Ditolak"),
+  cancel: fromTransition(PRODUCTION_PLAN_TRANSITIONS.cancel, "Dibatalkan"),
+  close: fromTransition(PRODUCTION_PLAN_TRANSITIONS.close, "Ditutup"),
+};
+
 /** Hand-over between workstations: Draft → Dikirim → Diterima or Ditolak, or Dibatalkan (P167, M113). */
 const HANDOVER_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
@@ -350,6 +362,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   log_stock_issue: STOCK_ISSUE_EVENTS,
   prd_order: PRODUCTION_ORDER_EVENTS,
   prd_handover: HANDOVER_EVENTS,
+  prd_plan: PRODUCTION_PLAN_EVENTS,
   pur_request: PURCHASE_REQUEST_EVENTS,
   pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,

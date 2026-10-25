@@ -35,6 +35,8 @@ async function authorize(code: string): Promise<Guard> {
 
 function revalidate(id?: number) {
   revalidatePath("/production/order");
+  // A plan shows what was released from it (P168).
+  revalidatePath("/production/plan", "layout");
   if (id) revalidatePath(`/production/order/${id}`);
 }
 

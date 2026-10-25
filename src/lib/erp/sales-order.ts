@@ -730,3 +730,65 @@ export async function recordSalesOrderDelivery(
   // The Customer Order learns what left too, and closes once all of it has (U21).
   return [...closed, ...(await recordCustomerOrderDelivery(tx, byCoLine, actorId))];
 }
+
+// ------------------------------------------- for the Rencana Produksi
+
+/**
+ * One Sales Order line as PPIC's plan reads it (P168): which order, when it is
+ * due, the item and what is left to deliver. Only an **Open** order may be
+ * produced for; a Pra-SO is listed so the plan can show why it is not pickable.
+ */
+export type PlanDemandLine = {
+  id: number;
+  salesOrderId: number;
+  salesOrderNo: string;
+  status: SalesOrderStatus;
+  deliveryDate: string;
+  customerOrderNo: string;
+  itemId: number;
+  itemLabel: string;
+  itemName: string;
+  qty: number;
+  delivered: number;
+};
+
+/** Open and Pra-SO lines, plus any a stored plan names (`withLineIds`) whatever their status now. */
+export async function planDemandLines(withLineIds: number[] = [], db: Db = prisma): Promise<PlanDemandLine[]> {
+  const rows = await db.salOrderLine.findMany({
+    where: { OR: [{ order: { status: { in: ["PreSO", "Open"] } } }, ...(withLineIds.length ? [{ id: { in: withLineIds } }] : [])] },
+    orderBy: [{ order: { delivery_date: "asc" } }, { id: "asc" }],
+    include: {
+      order: { select: { id: true, order_no: true, status: true, delivery_date: true, customer_order: { select: { order_no: true } } } },
+      customer_order_line: { select: { item: { select: { id: true, item_label: true, item_name: true } } } },
+    },
+  });
+  return rows.map((l) => ({
+    id: l.id,
+    salesOrderId: l.order.id,
+    salesOrderNo: l.order.order_no,
+    status: l.order.status as SalesOrderStatus,
+    deliveryDate: isoDay(l.order.delivery_date),
+    customerOrderNo: l.order.customer_order.order_no,
+    itemId: l.customer_order_line.item.id,
+    itemLabel: l.customer_order_line.item.item_label,
+    itemName: l.customer_order_line.item.item_name,
+    qty: l.qty.toNumber(),
+    delivered: l.delivered_qty.toNumber(),
+  }));
+}
+
+/**
+ * Locks Sales Order lines for a plan's Ajukan and says what each still holds
+ * and whether its order is Open — so two plans cannot reserve the same quantity.
+ */
+export async function lockSalesOrderLinesForPlan(
+  tx: Prisma.TransactionClient,
+  ids: number[]
+): Promise<Map<number, { qty: number; delivered: number; status: SalesOrderStatus; orderNo: string }>> {
+  if (!ids.length) return new Map();
+  const rows = await tx.$queryRaw<{ id: number; qty: Prisma.Decimal; delivered_qty: Prisma.Decimal; status: string; order_no: string }[]>`
+    SELECT l.id, l.qty, l.delivered_qty, o.status::text AS status, o.order_no
+      FROM sal_order_line l JOIN sal_order o ON o.id = l.order_id
+     WHERE l.id = ANY(${ids}::int[]) ORDER BY l.id FOR UPDATE OF l`;
+  return new Map(rows.map((r) => [r.id, { qty: Number(r.qty), delivered: Number(r.delivered_qty), status: r.status as SalesOrderStatus, orderNo: r.order_no }]));
+}

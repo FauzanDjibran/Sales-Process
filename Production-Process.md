@@ -8,13 +8,15 @@
 > `walet/walet.md`, and the full worked example is
 > `walet/simulation production.md`. The build order is `walet/build-plan.md`.
 >
-> Last updated: **25/10/2026 — P167** (the hand-over between workstations).
+> Last updated: **25/10/2026 — P168** (the Rencana Produksi; before it P167, the hand-over).
 
 ---
 
 ## 1. The picture in one paragraph
 
-PPIC raises a **Perintah Produksi**: what to make (Item Target) and how much.
+PPIC first makes the **Rencana Produksi** — at each month's end, for the next:
+what to make, how much and when to start, from the Open Sales Orders. From the
+approved plan PPIC releases **Perintah Produksi**: what to make (Item Target) and how much.
 The BoMs say what material that needs at which station. **Logistik** picks
 lots from the warehouse and sends them with a **BSTB** to a workstation, where
 the station **receives** them (or rejects them back). Each station then
@@ -60,12 +62,39 @@ the raw lots in GD-BB.
 
 ## 4. The flow, step by step
 
+### Step 0 — Rencana Produksi ✅ (P168)
+
+*Produksi › Operasi Produksi › Rencana Produksi*, `RP/YYYY/MM/NNNN`. Posts nothing.
+
+1. PPIC picks the **Bulan** (made at the end of the month before) and adds lines:
+   an **Item** to make, **Qty Rencana** (typed) and a **Tanggal Mulai** inside the month,
+   each item once per start date.
+2. *Pilih Sales Order* lists the item's **Open** Sales Order lines — order, due date,
+   quantity, delivered, already covered by other live plans, what is left — and the
+   part this line covers (starting on what is left). A Pra-SO is shown greyed:
+   it may only buy material. A line may cover no Sales Order (a stock build).
+3. Beside the quantity: the **demand covered**, the **Stok FG** on hand and a
+   **Saran** (demand − stock) with *pakai*. They help; the typed quantity decides.
+4. Draft → **Ajukan** (locks the lines and **reserves** the Sales Order quantities under
+   their lock; two plans never cover one quantity twice) → **Setujui** (Disetujui) →
+   **Tutup Rencana** (reason; refused while a Perintah from it is Draft or Open).
+   **Tolak** and **Batalkan** are final, with a reason; Tolak and Tutup release the reservation.
+5. The approved plan's page shows **Dirilis** per line (Σ live Perintah), links the
+   Perintah, offers **Buat Perintah**, and a **Kebutuhan Bahan** card: the whole plan
+   × the BoMs at each station of the items' default Routing, against stock (information only).
+
+*Not built:* capacity (grams per day per station) and yield (loss per step); the plan does not
+close itself when fully released; a mid-month change to an approved plan.
+
 ### Step A — Perintah Produksi ✅ (P164, P165, P166)
 
 *Produksi › Operasi Produksi › Perintah Produksi*, `PP_<DDMMYY>_<NNNNN>`.
 
 1. PPIC picks the **Item Target** (e.g. N-MK 50 g) and types the **Qty Target**
-   (e.g. 200 pcs).
+   (e.g. 200 pcs) — or picks a line of an approved **Rencana Produksi**, which
+   fills the item and the quantity not yet released (*Buat Perintah* on the plan
+   does the same). A Perintah may exceed its plan line (warned in the plan, never
+   refused) and may stand outside any plan (*Di luar rencana*).
 2. The item's default **Routing** fills the **Rute** — the stations in order.
    Each shows its Cara Kerja and the Item Target's BoM there; the route may be
    edited while Draft.
@@ -229,6 +258,7 @@ executions mark Reject (step 5) the whole-Partai hand-over will leave it behind.
 
 | Date | Change | Ref |
 | --- | --- | --- |
+| 25/10/2026 | Rencana Produksi: PPIC's monthly plan over Open Sales Order lines; Perintah released from its lines. | P168 |
 | 25/10/2026 | Hand-over between workstations: whole Partai, in transit, Terima / Tolak; the first one starts the Partai for a Perintah and boxes goods into Jobs. | P167 |
 | 22/10/2026 | Document started. Workstation carries its Cara Kerja; a BoM names the workstation it is used at (one default per item per station); routing and Perintah steps are stations only; requirements = the Item Target's BoM at each route station. | P166 |
 | 22/10/2026 | Perintah = Item Target + Qty Target + route; requirements from the BoM; the BSTB picks lots per station. | P165 |

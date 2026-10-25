@@ -865,6 +865,11 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "a Perintah released from a plan line makes the item that line plans (P168)",
+    sql: `SELECT o.order_no FROM prd_order o JOIN prd_plan_line pl ON pl.id = o.plan_line_id WHERE o.target_item_id <> pl.item_id`,
+  },
+  {
+    area: "production",
     name: "every lot in production is a lot of its item in the one register; a lot made by production names it as its source (M128)",
     sql: `SELECT 'item' AS what, b.id AS ref FROM prd_balance b JOIN log_stock_tracking t ON t.id = b.lot_id WHERE t.item_id <> b.item_id
           UNION ALL

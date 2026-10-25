@@ -170,6 +170,14 @@ export const MODULES: NavModule[] = [
         name: "Operasi Produksi",
         entities: [
           {
+            key: "prd_plan",
+            slug: "plan",
+            name: "Rencana Produksi",
+            icon: "cal",
+            desc: "Rencana PPIC untuk satu bulan: barang yang akan dibuat, jumlah dan tanggal mulainya, dari baris Sales Order yang Open. Perintah Produksi dirilis dari rencana yang disetujui.",
+            permission: "PRODUCTION_PLAN_VIEW",
+          },
+          {
             key: "prd_order",
             slug: "order",
             name: "Perintah Produksi",

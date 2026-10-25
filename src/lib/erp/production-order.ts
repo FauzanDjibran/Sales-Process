@@ -4,6 +4,8 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { routingAndBomChoices, type BomChoice, type RoutingChoice } from "./production-master";
 import { nextDailyNumber } from "./production-number";
+import { availableQtyByItem } from "./inventory";
+import { planLineChoices, type PlanLineChoice } from "./production-plan";
 import type { RoutingStepModeValue } from "./production-master-shape";
 import { orderRequirements, type Requirement } from "./production-order-shape";
 import {
@@ -40,6 +42,8 @@ export type ProductionOrderHeaderInput = {
   target_qty: number | string;
   routing_id: number | null;
   note: string;
+  /** The line of an Open Rencana Produksi it is released from — optional (P168). */
+  plan_line_id?: number | null;
 };
 
 export type ProductionOrderStepInput = { workstation_id: number | null };
@@ -67,9 +71,14 @@ export type ProductionOrderOptions = {
   /** Each with its Cara Kerja (P166). */
   workstations: (PpOption & { mode: RoutingStepModeValue })[];
   boms: BomChoice[];
+  /** Lines of Open plans (and the stored one's own) a Perintah may be released from. */
+  planLines: PlanLineChoice[];
+  /** Per plan line id, what live Perintah already hold of it (P168). */
+  released: Record<number, number>;
 };
 
 export type ProductionOrderCurrent = {
+  planLineId?: number | null;
   targetItemId: number;
   routingId: number | null;
   workstationIds: number[];
@@ -84,7 +93,7 @@ export type ProductionOrderCurrent = {
  */
 export async function productionOrderOptions(current: ProductionOrderCurrent | null = null, db: Db = prisma): Promise<ProductionOrderOptions> {
   const itemIds = current ? [current.targetItemId, ...current.itemIds] : [];
-  const [items, choices, workstations] = await Promise.all([
+  const [items, choices, workstations, planLines] = await Promise.all([
     db.mItem.findMany({
       where: { OR: [{ item_type: "Barang", track_stock: true, status: "Active" }, ...(itemIds.length ? [{ id: { in: itemIds } }] : [])] },
       orderBy: { item_label: "asc" },
@@ -96,13 +105,17 @@ export async function productionOrderOptions(current: ProductionOrderCurrent | n
       orderBy: { workstation_label: "asc" },
       select: { id: true, workstation_label: true, workstation_name: true, status: true, mode: true },
     }),
+    planLineChoices(current?.planLineId ? [current.planLineId] : [], db),
   ]);
+  const released = await releasedByPlanLines(planLines.map((l) => l.id), db);
   const stockItem = (i: (typeof items)[number]) => i.status === "Active" && i.item_type === "Barang" && i.track_stock;
   return {
     items: items.map((i) => ({ id: i.id, label: i.item_label, name: i.item_name, active: stockItem(i), uomId: i.base_uom_id, uomLabel: i.base_uom.uom_label })),
     routings: choices.routings,
     workstations: workstations.map((w) => ({ id: w.id, label: w.workstation_label, name: w.workstation_name, active: w.status === "Active", mode: w.mode as RoutingStepModeValue })),
     boms: choices.boms,
+    planLines,
+    released: Object.fromEntries(released),
   };
 }
 
@@ -112,7 +125,7 @@ type CheckedStep = { step_no: number; workstation_id: number };
 type CheckedRequirement = { line_no: number; item_id: number; uom_id: number; qty: number; step_no: number | null; workstation_id: number | null; bom_id: number };
 
 type Checked = {
-  data: { order_date: Date; target_item_id: number; target_qty: number; routing_id: number | null; note: string | null };
+  data: { order_date: Date; target_item_id: number; target_qty: number; routing_id: number | null; note: string | null; plan_line_id: number | null };
   steps: CheckedStep[];
   requirements: CheckedRequirement[];
 };
@@ -170,6 +183,15 @@ export async function checkProductionOrder(
   }
   if (!errors._steps && Object.keys(errors).some((x) => x.startsWith("steps."))) errors._steps = "Ada langkah yang perlu diperbaiki.";
 
+  // A line of an Open plan, for that item (P168). Exceeding what the plan line has left is allowed:
+  // Walet over-produces for loss and buffer — the plan shows it, nothing refuses it.
+  const planLineId = Number(header.plan_line_id) || null;
+  if (planLineId) {
+    const pl = options.planLines.find((l) => l.id === planLineId);
+    if (!pl || (!pl.open && (forOpening || stored?.plan_line_id !== planLineId))) errors.plan_line_id = "Baris rencana tidak ditemukan atau rencananya tidak lagi Disetujui.";
+    else if (targetId && pl.itemId !== targetId) errors.plan_line_id = "Baris rencana ini untuk barang lain.";
+  }
+
   if (Object.keys(errors).length || !target) return { ok: false, errors };
 
   const itemBy = new Map(options.items.map((i) => [i.id, i]));
@@ -188,7 +210,7 @@ export async function checkProductionOrder(
   return {
     ok: true,
     c: {
-      data: { order_date: asDate(orderDate), target_item_id: target.id, target_qty: qty, routing_id: routingId, note: text(header.note) },
+      data: { order_date: asDate(orderDate), target_item_id: target.id, target_qty: qty, routing_id: routingId, note: text(header.note), plan_line_id: planLineId },
       steps: outSteps,
       requirements,
     },
@@ -269,6 +291,7 @@ type Stored = Prisma.PrdOrderGetPayload<{ include: typeof WITH_ALL }>;
 
 function currentOf(o: Prisma.PrdOrderGetPayload<{ include: { steps: true; requirements: true } }>): ProductionOrderCurrent {
   return {
+    planLineId: o.plan_line_id,
     targetItemId: o.target_item_id,
     routingId: o.routing_id,
     workstationIds: [...o.steps.map((s) => s.workstation_id), ...o.requirements.flatMap((r) => (r.workstation_id ? [r.workstation_id] : []))],
@@ -285,6 +308,7 @@ function asInput(o: Stored) {
       target_qty: o.target_qty.toNumber(),
       routing_id: o.routing_id,
       note: o.note ?? "",
+      plan_line_id: o.plan_line_id,
     } satisfies ProductionOrderHeaderInput,
     steps: o.steps.map((s) => ({ workstation_id: s.workstation_id })),
   };
@@ -423,6 +447,7 @@ export function productionOrderCurrent(v: ProductionOrderView): ProductionOrderC
     workstationIds: [...v.steps.map((s) => Number(s.workstation_id)), ...v.requirements.flatMap((r) => (r.workstationId ? [r.workstationId] : []))],
     bomIds: v.requirements.map((r) => r.bomId),
     itemIds: v.requirements.map((r) => r.itemId),
+    planLineId: v.header.plan_line_id ?? null,
   };
 }
 
@@ -531,4 +556,63 @@ export async function lockProductionOrderForHandover(
   if (row.status !== "Open") return { ok: false, error: `Perintah ${row.order_no} tidak Open; Partai hanya dimulai untuk Perintah yang Open.` };
   const steps = await tx.prdOrderStep.findMany({ where: { order_id: id }, orderBy: { step_no: "asc" }, select: { workstation_id: true } });
   return { ok: true, orderNo: row.order_no, targetItemId: row.target_item_id, workstationIds: steps.map((s) => s.workstation_id) };
+}
+
+// ------------------------------------------------------- for the plan
+
+/**
+ * What live Perintah (every one but a Cancelled one) hold of each plan line, in
+ * the line's item's base unit — the plan's *Dirilis* (P168).
+ */
+export async function releasedByPlanLines(planLineIds: number[], db: Db = prisma): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  if (!planLineIds.length) return out;
+  const rows = await db.prdOrder.groupBy({
+    by: ["plan_line_id"],
+    where: { plan_line_id: { in: planLineIds }, status: { not: "Cancelled" } },
+    _sum: { target_qty: true },
+  });
+  for (const r of rows) if (r.plan_line_id != null) out.set(r.plan_line_id, r._sum.target_qty?.toNumber() ?? 0);
+  return out;
+}
+
+/** Why a plan may not be closed yet: a Perintah made from one of its lines is still a Draft or Open. Null when it may. */
+export async function openOrdersOfPlanRefusal(planLineIds: number[], db: Db = prisma): Promise<string | null> {
+  if (!planLineIds.length) return null;
+  const live = await db.prdOrder.findMany({ where: { plan_line_id: { in: planLineIds }, status: { in: ["Draft", "Open"] } }, select: { order_no: true, status: true } });
+  if (!live.length) return null;
+  return `Rencana belum bisa ditutup: masih ada Perintah Produksi ${live.map((o) => `${o.order_no} (${o.status === "Draft" ? "Draft" : "Open"})`).join(", ")}. Tutup atau batalkan dulu.`;
+}
+
+/** The Perintah made from these plan lines, for the plan's page. */
+export async function ordersOfPlanLines(planLineIds: number[], db: Db = prisma): Promise<{ id: number; orderNo: string; status: ProductionOrderStatus; planLineId: number; targetQty: number }[]> {
+  if (!planLineIds.length) return [];
+  const rows = await db.prdOrder.findMany({ where: { plan_line_id: { in: planLineIds } }, orderBy: { id: "asc" }, select: { id: true, order_no: true, status: true, plan_line_id: true, target_qty: true } });
+  return rows.map((r) => ({ id: r.id, orderNo: r.order_no, status: r.status as ProductionOrderStatus, planLineId: r.plan_line_id!, targetQty: r.target_qty.toNumber() }));
+}
+
+export type PlanMaterial = { itemId: number; label: string; name: string; uomLabel: string; qty: number; onHand: number };
+
+/**
+ * The material a plan's lines ask of the BoMs — each line's item at its default
+ * Routing's stations, × its quantity — summed per component, beside what stock
+ * holds (P168). Read-only: the seed of MRP (step 9), it books and reserves
+ * nothing; an item with no default Routing or no BoM adds nothing.
+ */
+export async function planMaterials(lines: { itemId: number; qty: number }[], db: Db = prisma): Promise<PlanMaterial[]> {
+  if (!lines.length) return [];
+  const options = await productionOrderOptions(null, db);
+  const total = new Map<number, number>();
+  for (const l of lines) {
+    const routing = options.routings.find((r) => r.itemId === l.itemId && r.isDefault && r.active);
+    if (!routing) continue;
+    for (const r of orderRequirements(l.itemId, l.qty, routing.steps, options.boms)) {
+      total.set(r.itemId, Math.round(((total.get(r.itemId) ?? 0) + r.qty) * QTY_SCALE) / QTY_SCALE);
+    }
+  }
+  const stock = await availableQtyByItem([...total.keys()], db);
+  const itemBy = new Map(options.items.map((i) => [i.id, i]));
+  return [...total.entries()]
+    .map(([itemId, qty]) => ({ itemId, label: itemBy.get(itemId)?.label ?? "", name: itemBy.get(itemId)?.name ?? "", uomLabel: itemBy.get(itemId)?.uomLabel ?? "", qty, onHand: stock.get(itemId) ?? 0 }))
+    .sort((a, b) => a.label.localeCompare(b.label));
 }

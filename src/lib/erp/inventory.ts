@@ -625,3 +625,20 @@ export async function injectStock(rows: InjectionRow[], actorId: number, runDate
     { timeout: 120_000 }
   );
 }
+
+/**
+ * What stock holds of each item now, in every warehouse and location, in the
+ * status goods are issued from — the plan's *Stok FG* (P168). Read from the
+ * quantity balance, so a past date is not offered.
+ */
+export async function availableQtyByItem(itemIds: number[], db: Db = prisma): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  if (!itemIds.length) return out;
+  const rows = await db.logStockBalance.groupBy({
+    by: ["item_id"],
+    where: { item_id: { in: itemIds }, stock_status_id: await statusId(db) },
+    _sum: { qty_balance: true },
+  });
+  for (const r of rows) out.set(r.item_id, r._sum.qty_balance?.toNumber() ?? 0);
+  return out;
+}

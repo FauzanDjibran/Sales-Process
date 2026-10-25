@@ -151,6 +151,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Perintah Produksi", "prd_order"],
   // Walet step 4 (P167): the production ledger and the Partai it starts name the hand-over.
   ["Hand-over Produksi", "prd_handover"],
+  // The monthly plan the Perintah are released from (P168).
+  ["Rencana Produksi", "prd_plan"],
 ];
 
 /**

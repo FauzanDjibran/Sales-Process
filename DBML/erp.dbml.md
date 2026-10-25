@@ -3094,6 +3094,8 @@ table prd_order {
   created_at                  timestamptz [not null, default: `now()`]
   updated_at                  timestamptz [not null, default: `now()`]
 
+  plan_line_id                int [ref : > prd_plan_line.id] // the plan line it is released from (P168), optional
+
   indexes {
     (status, order_date)
   }
@@ -3189,5 +3191,62 @@ table prd_handover_line {
   indexes {
     (handover_id, line_no) [unique]
     (handover_id, source_bucket_id)
+  }
+}
+
+// ============================================================ production plan (P168)
+
+// Rencana Produksi: PPIC's plan of one month, RP/YYYY/MM/NNNN. Posts nothing; Perintah Produksi are
+// released from its lines once it is Open (Disetujui).
+table prd_plan {
+  id                          int [pk, increment, not null]
+
+  plan_no                     varchar [not null, unique]
+  plan_date                   date [not null]
+  period                      date [not null] // the first day of the month planned
+  status                      enum('Draft', 'Submitted', 'Open', 'Closed', 'Cancelled', 'Rejected') [not null, default: 'Draft'] // Open = Disetujui
+  note                        varchar
+  status_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, period)
+  }
+}
+
+// One item to make, how much (typed — the demand and stock only suggest it) and the day to start
+table prd_plan_line {
+  id                          int [pk, increment, not null]
+
+  plan_id                     int [not null, ref : > prd_plan.id]
+  line_no                     int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  qty                         decimal(18,4) [not null] // base unit, > 0
+  start_date                  date [not null] // inside the plan's month
+  note                        varchar
+
+  indexes {
+    (plan_id, line_no) [unique]
+    (plan_id, item_id, start_date) [unique]
+  }
+}
+
+// The Sales Order line a plan line covers and how much of it; weak ids into the sales module
+table prd_plan_line_demand {
+  id                          int [pk, increment, not null]
+
+  plan_line_id                int [not null, ref : > prd_plan_line.id]
+  so_line_id                  int [not null]
+  so_id                       int [not null]
+  so_no                       varchar [not null]
+  qty                         decimal(18,4) [not null] // > 0
+
+  indexes {
+    (plan_line_id, so_line_id) [unique]
+    so_line_id
   }
 }

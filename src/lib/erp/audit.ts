@@ -24,6 +24,7 @@ import { receiptNoteNumbersByIds } from "./receipt-note";
 import { stockIssueNumbersByIds } from "./stock-issue";
 import { productionOrderNumbersByIds } from "./production-order";
 import { handoverNumbersByIds } from "./production-handover";
+import { productionPlanNumbersByIds } from "./production-plan";
 import { invoiceNumbersByIds } from "./ar-invoice";
 import { purchaseInvoiceNumbersByIds } from "./ap-invoice";
 import { fakturNumbersByIds, slipNumbersByIds } from "./tax-document";
@@ -94,6 +95,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   log_stock_issue: { label: "Stock Issue", resolve: stockIssueNumbersByIds },
   prd_order: { label: "Perintah Produksi", resolve: productionOrderNumbersByIds },
   prd_handover: { label: "Hand-over Produksi", resolve: handoverNumbersByIds },
+  prd_plan: { label: "Rencana Produksi", resolve: productionPlanNumbersByIds },
   pur_request: { label: "Purchase Request", resolve: purchaseRequestNumbersByIds },
   pur_order: { label: "Purchase Order", resolve: purchaseOrderNumbersByIds },
   fin_ar_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },

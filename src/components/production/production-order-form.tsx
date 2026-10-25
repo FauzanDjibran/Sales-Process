@@ -48,7 +48,10 @@ export function ProductionOrderForm({
   options,
   sent,
   can,
+  fromPlanLine = null,
 }: {
+  /** *Buat Perintah* on a plan line opens a new Perintah already filled from it (P168). */
+  fromPlanLine?: number | null;
   mode: "new" | "edit" | "view";
   order: ProductionOrderView | null;
   options: ProductionOrderOptions;
@@ -61,11 +64,25 @@ export function ProductionOrderForm({
   const editing = mode !== "view";
   const itemById = useMemo(() => new Map(options.items.map((i) => [i.id, i])), [options.items]);
 
+  /** What a plan line gives a new Perintah: its item, what is left to release, the item's default route. */
+  const fromPlan = !order && fromPlanLine ? options.planLines.find((l) => l.id === fromPlanLine && l.open) : undefined;
+  const planRouting = fromPlan ? options.routings.find((r) => r.active && r.itemId === fromPlan.itemId && r.isDefault) : undefined;
   const [header, setHeader] = useState<ProductionOrderHeaderInput>(() =>
-    order ? { ...order.header, target_qty: String(order.header.target_qty) } : { order_date: todayIso(), target_item_id: null, target_qty: "", routing_id: null, note: "" }
+    order
+      ? { ...order.header, target_qty: String(order.header.target_qty) }
+      : fromPlan
+        ? {
+            order_date: todayIso(),
+            target_item_id: fromPlan.itemId,
+            target_qty: String(Math.max(0, Math.round((fromPlan.qty - (options.released[fromPlan.id] ?? 0)) * 10_000) / 10_000) || ""),
+            routing_id: planRouting?.id ?? null,
+            note: "",
+            plan_line_id: fromPlan.id,
+          }
+        : { order_date: todayIso(), target_item_id: null, target_qty: "", routing_id: null, note: "", plan_line_id: null }
   );
   const [steps, setSteps] = useState<StepState[]>(() =>
-    order ? order.steps.map((s) => ({ key: newKey(), workstation_id: s.workstation_id })) : []
+    order ? order.steps.map((s) => ({ key: newKey(), workstation_id: s.workstation_id })) : (planRouting?.steps.map((s) => ({ key: newKey(), workstation_id: s.workstationId })) ?? [])
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
@@ -98,6 +115,16 @@ export function ProductionOrderForm({
     const current = header.routing_id ? options.routings.find((x) => x.id === header.routing_id) : undefined;
     if (current && current.itemId === itemId) return;
     const fallback = options.routings.find((x) => x.active && x.itemId === itemId && x.isDefault);
+    copyRouting(fallback?.id ?? null);
+  };
+  /** A plan line gives the item, what is left to release of it and the item's route; clearing it keeps the page. */
+  const pickPlanLine = (id: number | null) => {
+    const pl = id ? options.planLines.find((l) => l.id === id) : undefined;
+    set("plan_line_id", id);
+    if (!pl) return;
+    set("target_item_id", pl.itemId);
+    set("target_qty", String(Math.max(0, Math.round((pl.qty - (options.released[pl.id] ?? 0)) * 10_000) / 10_000) || ""));
+    const fallback = options.routings.find((x) => x.active && x.itemId === pl.itemId && x.isDefault);
     copyRouting(fallback?.id ?? null);
   };
   const setStep = (key: string, patch: Partial<StepState>) => {
@@ -199,6 +226,33 @@ export function ProductionOrderForm({
                     <span className="lab">{target?.uomLabel}</span>
                   </span>
                 )
+              )}
+            </Field>
+          </FormRow>
+          <FormRow>
+            <Field label="Rencana Produksi" span={12} help={editing ? "opsional — mengisi barang dan sisa jumlah yang belum dirilis" : undefined} error={errors.plan_line_id}>
+              {editing ? (
+                <Combobox
+                  value={header.plan_line_id ?? 0}
+                  // 0 is "outside the plan": an urgent, ad-hoc Perintah needs none (P168).
+                  options={[
+                    { id: 0, label: "", name: "Di luar rencana", active: true },
+                    ...options.planLines
+                      .filter((l) => l.open || l.id === header.plan_line_id)
+                      .map((l) => ({ id: l.id, label: l.planNo, name: `${l.itemLabel} · ${qtyText(l.qty)} (dirilis ${qtyText(options.released[l.id] ?? 0)}) · mulai ${formatDate(l.startDate)}`, active: l.open })),
+                  ]}
+                  placeholder="Pilih baris rencana…"
+                  emptyText="Belum ada Rencana Produksi yang disetujui."
+                  invalid={Boolean(errors.plan_line_id)}
+                  onChange={(v) => pickPlanLine(v || null)}
+                />
+              ) : header.plan_line_id ? (
+                (() => {
+                  const l = options.planLines.find((x) => x.id === header.plan_line_id);
+                  return l ? ro(<Link className="drl" href={`/production/plan/${l.planId}`}><span className="mono">{l.planNo}</span> · {l.itemLabel}</Link>) : nil();
+                })()
+              ) : (
+                nil("di luar rencana")
               )}
             </Field>
           </FormRow>
