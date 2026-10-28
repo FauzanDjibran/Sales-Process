@@ -45,3 +45,6 @@ next-env.d.ts
 
 # Office lock files, created while a workbook in Initialization/ is open
 ~$*
+
+# The client workbooks on branch walet (P200)
+walet/*.xlsx
