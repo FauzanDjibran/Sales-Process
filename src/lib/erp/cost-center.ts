@@ -273,3 +273,13 @@ export async function costCenterReport(input: {
     };
   });
 }
+
+/** What posted journals did on each Cost Center's accounts inside a period — the close's actual and standard (P172, M96). */
+export async function costCenterPeriodNets(from: Date, to: Date, db: Db = prisma): Promise<{ costCenterId: number; accountId: number; debit: number; credit: number }[]> {
+  const rows = await db.accJournalLine.groupBy({
+    by: ["cost_center_id", "account_id"],
+    where: { cost_center_id: { not: null }, journal: { status: "Posted", posting_date: { gte: from, lte: to } } },
+    _sum: { debit_amount: true, kredit_amount: true },
+  });
+  return rows.map((r) => ({ costCenterId: r.cost_center_id!, accountId: r.account_id, debit: r._sum.debit_amount?.toNumber() ?? 0, credit: r._sum.kredit_amount?.toNumber() ?? 0 }));
+}

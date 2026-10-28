@@ -92,6 +92,7 @@ const DOCUMENT_ENTITY_KEYS = [
   "prd_plan",
   "prd_execution",
   "prd_release",
+  "prd_cost_close",
   "fin_ar_invoice",
   "fin_ar_advance",
   "fin_cash_bank_tx",
@@ -125,6 +126,7 @@ async function main() {
     prd_plan: await prisma.prdPlan.count(),
     prd_execution: await prisma.prdExecution.count(),
     prd_release: await prisma.prdRelease.count(),
+    prd_cost_close: await prisma.prdCostClose.count(),
     log_stock_ledger: await prisma.logStockLedger.count(),
     log_stock_balance: await prisma.logStockBalance.count(),
     log_stock_valuation_ledger: await prisma.logStockValuationLedger.count(),
@@ -197,6 +199,9 @@ async function main() {
     await tx.logStockIssueLot.deleteMany();
     await tx.logStockIssueLine.deleteMany();
     await tx.logStockIssue.deleteMany();
+    // The month-end costing names its journal, and its lock goes with it (P172).
+    await tx.prdCostClose.deleteMany();
+    await tx.accFiscalPeriod.updateMany({ data: { production_costed_at: null } });
     // The production ledger goes with the issues that placed goods in it.
     await tx.prdReleaseLine.deleteMany();
     await tx.prdRelease.deleteMany();

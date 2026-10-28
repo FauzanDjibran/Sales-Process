@@ -972,3 +972,8 @@ export async function openIssuesRefusal(orderId: number, db: Db = prisma): Promi
   const names = live.map((i) => `${i.issue_no} (${i.status === "Draft" ? "Draft" : "belum diterima"})`).join(", ");
   return `Perintah belum bisa ditutup: masih ada BSTB ${names}. Posting, terima, tolak atau batalkan dulu.`;
 }
+
+/** Documents of this kind that would still post into a period closing on `to` — a blocker of Penutupan Biaya Produksi (P172, Q74). */
+export async function unsettledStockIssuesUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.logStockIssue.count({ where: { status: { in: ["Draft", "Posted"] }, issue_date: { lte: to } } });
+}

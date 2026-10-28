@@ -104,7 +104,7 @@ PPIC's monthly plan over Open Sales Order lines, from which the Perintah are rel
 
 Saldo Produksi (by Partai · Job · workstation · transit), Kartu Lot, **Telusur** (any lot or Job back to the supplier lot and forward to FG and customer), Rekap Produksi (susut, **HPP per gram** per station).
 
-### Step 8 — Penutupan Biaya Produksi (8)
+### Step 8 — Penutupan Biaya Produksi (8) ✅ built 27/10/2026 (P172)
 
 As agreed (M96–M99): per Cost Center and Standard Cost Item, the leftover spread over the month's executions by Driver (grams) and followed to WIP, stock and HPP; FOH spread Rata first.
 

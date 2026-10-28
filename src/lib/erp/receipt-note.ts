@@ -768,3 +768,8 @@ export async function apInvoiceSourceLines(filter: { orderIds?: number[]; lineId
     value: l.value_amount.toNumber(),
   }));
 }
+
+/** Documents of this kind that would still post into a period closing on `to` — a blocker of Penutupan Biaya Produksi (P172, Q74). */
+export async function draftReceiptNotesUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.logReceiptNote.count({ where: { status: "Draft", rn_date: { lte: to } } });
+}

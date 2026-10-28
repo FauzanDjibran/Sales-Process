@@ -596,3 +596,8 @@ export async function recordCostBillPaid(tx: Prisma.TransactionClient, id: numbe
   if (!(settled > 0) || cents(paid) > cents(v.total_amount.toNumber())) throw new Error(`Pembayaran melebihi sisa ${v.bill_no}.`);
   await tx.prdCostBill.update({ where: { id }, data: { paid_amount: paid } });
 }
+
+/** Documents of this kind that would still post into a period closing on `to` — a blocker of Penutupan Biaya Produksi (P172, Q74). */
+export async function draftCostBillsUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.prdCostBill.count({ where: { status: "Draft", bill_date: { lte: to } } });
+}

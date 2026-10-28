@@ -577,3 +577,15 @@ export async function releasePurposeOf(id: number): Promise<ReleasePurpose | nul
 export async function releaseSourceBuckets(v: ReleaseView): Promise<BucketView[]> {
   return bucketsByIds(v.lines.map((l) => Number(l.bucket_id)));
 }
+
+/** Documents of this kind that would still post into a period closing on `to` — a blocker of Penutupan Biaya Produksi (P172, Q74). */
+export async function draftReleasesUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.prdRelease.count({ where: { status: "Draft", release_date: { lte: to } } });
+}
+
+/** The purpose of each release (`finished_receipt` / `scrap`) — the close follows value that left production by it (P172). */
+export async function releasePurposesByIds(ids: number[], db: Db = prisma): Promise<Map<number, string>> {
+  if (!ids.length) return new Map();
+  const rows = await db.prdRelease.findMany({ where: { id: { in: ids } }, select: { id: true, purpose: true } });
+  return new Map(rows.map((r) => [r.id, r.purpose]));
+}

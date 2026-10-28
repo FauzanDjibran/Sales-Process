@@ -955,3 +955,8 @@ export async function deliveriesOfLots(lotIds: number[]): Promise<LotDelivery[]>
     baseQty: r.base_qty.toNumber(),
   }));
 }
+
+/** Documents of this kind that would still post into a period closing on `to` — a blocker of Penutupan Biaya Produksi (P172, Q74). */
+export async function draftDeliveryNotesUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.logDeliveryNote.count({ where: { status: "Draft", dn_date: { lte: to } } });
+}

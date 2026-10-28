@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 import { isBaseCurrency } from "./currency";
+import { costedPeriodRefusal } from "./fiscal";
 import { roundBase } from "./fx";
 
 /**
@@ -102,6 +103,8 @@ export type JournalInput = {
    * question, not the not-ahead rule's.
    */
   closingEntry?: boolean;
+  /** The month-end production costing's own journal (P172): it is what locks the period, so the lock does not apply to it. */
+  costClose?: boolean;
   /**
    * The day the journal belongs to in the books — the date of the document
    * that produced it, which may be earlier than today (a backdated posting).
@@ -293,6 +296,11 @@ export async function postJournal(
   if (input.postingDate && !input.closingEntry) assertNotAhead(input.postingDate);
   const postingDate = input.postingDate ?? postingDateToday();
   if (!input.closingEntry) await assertCostCenters(tx, input.lines);
+  // A line on a Cost Center is a cost posting: refused in a period already costed (P172, M32).
+  if (!input.costClose && input.lines.some((l) => l.costCenterId)) {
+    const costed = await costedPeriodRefusal(postingDate, tx);
+    if (costed) throw new CostCenterRefusal(costed);
+  }
 
   const journal = await tx.accJournal.create({
     data: {

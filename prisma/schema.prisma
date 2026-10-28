@@ -1500,16 +1500,19 @@ model AccFiscalYear {
 }
 
 model AccFiscalPeriod {
-  id             Int          @id @default(autoincrement())
-  fiscal_year_id Int
-  sequence_no    Int
-  period_code    String       @unique
-  period_label   String
-  period_name    String
-  start_date     DateTime     @db.Date
-  end_date       DateTime     @db.Date
-  note           String?
-  status         FiscalStatus @default(Draft)
+  id                   Int          @id @default(autoincrement())
+  fiscal_year_id       Int
+  sequence_no          Int
+  period_code          String       @unique
+  period_label         String
+  period_name          String
+  start_date           DateTime     @db.Date
+  end_date             DateTime     @db.Date
+  note                 String?
+  status               FiscalStatus @default(Draft)
+  /// Set by the month-end Penutupan Biaya Produksi (P172, M32): from then on the
+  /// stock, production and cost books take no posting dated in this period.
+  production_costed_at DateTime?    @db.Timestamptz(6)
 
   created_by Int
   updated_by Int?
@@ -1518,6 +1521,7 @@ model AccFiscalPeriod {
 
   fiscal_year    AccFiscalYear     @relation(fields: [fiscal_year_id], references: [id])
   standard_costs AccStandardCost[]
+  cost_close     PrdCostClose?
 
   @@index([fiscal_year_id])
   @@map("acc_fiscal_period")
@@ -4754,4 +4758,78 @@ model PrdReleaseLine {
   @@unique([release_id, line_no])
   @@index([release_id, source_bucket_id])
   @@map("prd_release_line")
+}
+
+// ------------------------------------- month-end production costing (P172, Walet step 8)
+
+/// Penutupan Biaya Produksi (M96–M99): one per fiscal period, once, irreversible. It settles each
+/// Production and Overhead Cost Center to actual — the leftover shared over the period's
+/// executions by Driver and followed forward to WIP, stock, HPP and scrap — and locks the period.
+model PrdCostClose {
+  id             Int      @id @default(autoincrement())
+  period_id      Int      @unique
+  /// The period's last day — the journal's and the value-only rows' date.
+  close_date     DateTime @db.Date
+  journal_id     Int?
+  /// Σ of every Cost Center's leftover absorbed (negative when the standard over-absorbed).
+  leftover_total Decimal  @default(0) @db.Decimal(18, 2)
+  created_by     Int
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+
+  period AccFiscalPeriod     @relation(fields: [period_id], references: [id])
+  pools  PrdCostClosePool[]
+  shares PrdCostCloseShare[]
+  dests  PrdCostCloseDest[]
+
+  @@map("prd_cost_close")
+}
+
+/// Per Cost Center and Standard Cost Item: what was spent, what the executions absorbed at standard,
+/// the Overhead spread in, and the leftover taken to zero.
+model PrdCostClosePool {
+  id                    Int     @id @default(autoincrement())
+  close_id              Int
+  cost_center_id        Int
+  standard_cost_item_id Int
+  actual                Decimal @db.Decimal(18, 2)
+  standard              Decimal @db.Decimal(18, 2)
+  /// The Overhead's share spread into this Cost Center (positive), or out of the Overhead (negative).
+  overhead              Decimal @default(0) @db.Decimal(18, 2)
+  /// actual + overhead − standard: what the close absorbs.
+  leftover              Decimal @db.Decimal(18, 2)
+
+  close PrdCostClose @relation(fields: [close_id], references: [id], onDelete: Cascade)
+
+  @@unique([close_id, cost_center_id, standard_cost_item_id])
+  @@map("prd_cost_close_pool")
+}
+
+/// What one posted execution of the period received: its Driver and its share of the leftover.
+model PrdCostCloseShare {
+  id           Int     @id @default(autoincrement())
+  close_id     Int
+  execution_id Int
+  driver       Decimal @db.Decimal(18, 4)
+  amount       Decimal @db.Decimal(18, 2)
+
+  close PrdCostClose @relation(fields: [close_id], references: [id], onDelete: Cascade)
+
+  @@unique([close_id, execution_id])
+  @@map("prd_cost_close_share")
+}
+
+/// Where the shares ended up: a production bucket (Wip), a stock pool (Stock), HPP (Hpp) or scrap (Scrap).
+model PrdCostCloseDest {
+  id         Int     @id @default(autoincrement())
+  close_id   Int
+  kind       String
+  item_id    Int?
+  bucket_id  Int?
+  account_id Int
+  amount     Decimal @db.Decimal(18, 2)
+
+  close PrdCostClose @relation(fields: [close_id], references: [id], onDelete: Cascade)
+
+  @@index([close_id, kind])
+  @@map("prd_cost_close_dest")
 }

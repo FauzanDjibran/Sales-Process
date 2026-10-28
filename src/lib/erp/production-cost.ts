@@ -71,3 +71,9 @@ export async function costTypesUsingStandardCostItem(itemId: number, db: Db = pr
   const rows = await db.accCostType.findMany({ where: { standard_cost_item_id: itemId, status: "Active" }, select: { cost_type_label: true } });
   return rows.map((r) => r.cost_type_label);
 }
+
+/** Which Standard Cost Item each Jenis Biaya's expense account is absorbed under (P160 M108) — how the close reads a Cost Center's actual cost per item (P172). */
+export async function expenseAccountItems(db: Db = prisma): Promise<Map<number, number>> {
+  const rows = await db.accCostType.findMany({ where: { standard_cost_item_id: { not: null } }, select: { expense_account_id: true, standard_cost_item_id: true } });
+  return new Map(rows.map((r) => [r.expense_account_id, r.standard_cost_item_id!]));
+}

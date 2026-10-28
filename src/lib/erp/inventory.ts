@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
+import { costedPeriodRefusal } from "./fiscal";
 import { locationDisplayLabel, lotKey } from "./warehouse-location";
 
 /**
@@ -355,6 +356,9 @@ async function move(
     actorId: number;
   }
 ) {
+  // A costed period takes no stock posting (P172, M32).
+  const costed = await costedPeriodRefusal(m.date, tx);
+  if (costed) throw new InventoryRefusal(costed);
   const bucketAfter = m.bucket.qty.add(m.qty);
   const poolQty = m.pool.qty.add(m.qty);
   const poolValue = m.pool.value.add(m.value);
@@ -640,5 +644,68 @@ export async function availableQtyByItem(itemIds: number[], db: Db = prisma): Pr
     _sum: { qty_balance: true },
   });
   for (const r of rows) out.set(r.item_id, r._sum.qty_balance?.toNumber() ?? 0);
+  return out;
+}
+
+// ---------------------------------------------------- value-only revaluation
+
+/**
+ * Adds a whole-rupiah value to an item's pool with quantity 0 — the month-end
+ * production costing (P172, M96): the leftover that stays in stock raises the
+ * moving average without moving a gram. Writes the valuation book only; the
+ * quantity book has no row, so Σ value of the two books differs by exactly this.
+ * Refuses an empty pool (nothing carries the value) and a result below zero.
+ */
+export async function revaluePool(tx: Tx, r: { itemId: number; value: number; date: Date; source: StockSource; actorId: number }): Promise<void> {
+  if (!Number.isInteger(r.value)) throw new InventoryRefusal("Nilai penyesuaian harus rupiah utuh.");
+  if (r.value === 0) return;
+  const item = await stockItem(tx, r.itemId);
+  const pool = await lockPool(tx, r.itemId, item.base_uom_id, r.actorId);
+  if (!pool.qty.gt(0)) throw new InventoryRefusal(`Persediaan ${item.item_label} kosong: nilai tidak dapat ditambahkan.`);
+  const value = pool.value.add(r.value);
+  if (value.lt(0)) throw new InventoryRefusal("Stok tidak boleh negatif.");
+  const avg = average(value, pool.qty);
+  await tx.logStockValuationBalance.update({ where: { id: pool.id }, data: { value_balance: value, avg_unit_cost: avg, updated_by: r.actorId } });
+  await tx.logStockValuationLedger.create({
+    data: {
+      ...(await valuationPosition(tx, r.date, r.source)),
+      posting_date: r.date,
+      source_doc_type_id: r.source.docTypeId,
+      source_doc_id: r.source.docId,
+      source_no: r.source.no,
+      item_id: r.itemId,
+      uom_id: item.base_uom_id,
+      qty_change: new D(0),
+      qty_balance: pool.qty,
+      unit_cost: new D(0),
+      value_change: new D(r.value),
+      value_balance: value,
+      avg_unit_cost: avg,
+      created_by: r.actorId,
+    },
+  });
+}
+
+/**
+ * Goods available and goods that left, per item, over a period (M27): the pool's
+ * quantity before the period plus what came in, against what went out. A
+ * value-only row (quantity 0) belongs to neither.
+ */
+export async function poolFlows(itemIds: number[], from: Date, to: Date, db: Db = prisma): Promise<Map<number, { opening: number; inflow: number; outflow: number; poolQty: number }>> {
+  const out = new Map<number, { opening: number; inflow: number; outflow: number; poolQty: number }>();
+  for (const itemId of itemIds) {
+    const [before, rows, pool] = await Promise.all([
+      db.logStockValuationLedger.findFirst({ where: { item_id: itemId, posting_date: { lt: from } }, orderBy: { id: "desc" }, select: { qty_balance: true } }),
+      db.logStockValuationLedger.findMany({ where: { item_id: itemId, posting_date: { gte: from, lte: to }, NOT: { qty_change: 0 } }, select: { qty_change: true } }),
+      db.logStockValuationBalance.findUnique({ where: { item_id: itemId }, select: { qty_balance: true } }),
+    ]);
+    const qtys = rows.map((r) => r.qty_change.toNumber());
+    out.set(itemId, {
+      opening: before?.qty_balance.toNumber() ?? 0,
+      inflow: qtys.filter((q) => q > 0).reduce((a, q) => a + q, 0),
+      outflow: -qtys.filter((q) => q < 0).reduce((a, q) => a + q, 0),
+      poolQty: pool?.qty_balance.toNumber() ?? 0,
+    });
+  }
   return out;
 }

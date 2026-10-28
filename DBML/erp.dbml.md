@@ -952,6 +952,8 @@ table acc_fiscal_year {
 
   status                      enum('Draft', 'Open', 'Closed') [not null, default: 'Draft']
 
+  production_costed_at        timestamptz // set by Penutupan Biaya Produksi (P172): stock, production and cost postings are refused in the period
+
   created_by                  int [not null]
   updated_by                  int
 
@@ -3402,4 +3404,53 @@ table prd_release_line {
     (release_id, line_no) [unique]
     (release_id, source_bucket_id)
   }
+}
+
+// ---------------------------------------------------------------- month-end production costing (P172)
+
+table prd_cost_close {
+  id                          int [pk, increment, not null]
+  period_id                   int [not null, unique, ref : - acc_fiscal_period.id]
+  close_date                  date [not null] // the period's last day
+  journal_id                  int // by id only
+  leftover_total              decimal(18,2) [not null, default: 0] // Σ taken to the products and stock
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+}
+
+table prd_cost_close_pool {
+  id                          int [pk, increment, not null]
+  close_id                    int [not null, ref : > prd_cost_close.id]
+  cost_center_id              int [not null]
+  standard_cost_item_id       int [not null]
+  actual                      decimal(18,2) [not null]
+  standard                    decimal(18,2) [not null]
+  overhead                    decimal(18,2) [not null, default: 0] // spread in (+) or out (−)
+  leftover                    decimal(18,2) [not null] // actual − standard
+
+  indexes {
+    (close_id, cost_center_id, standard_cost_item_id) [unique]
+  }
+}
+
+table prd_cost_close_share {
+  id                          int [pk, increment, not null]
+  close_id                    int [not null, ref : > prd_cost_close.id]
+  execution_id                int [not null] // by id only
+  driver                      decimal(18,4) [not null]
+  amount                      decimal(18,2) [not null]
+
+  indexes {
+    (close_id, execution_id) [unique]
+  }
+}
+
+table prd_cost_close_dest {
+  id                          int [pk, increment, not null]
+  close_id                    int [not null, ref : > prd_cost_close.id]
+  kind                        varchar [not null] // Wip | Stock | Hpp | Scrap
+  item_id                     int
+  bucket_id                   int // the production bucket revalued, for Wip
+  account_id                  int [not null]
+  amount                      decimal(18,2) [not null]
 }

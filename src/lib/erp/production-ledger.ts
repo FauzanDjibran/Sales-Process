@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
+import { costedPeriodRefusal } from "./fiscal";
 import { carriedSupplier, inputsPartai, shareByWeight, shareQty, type JobRef, type PartaiRef } from "./production-execution";
 import { freeNumber, nextDailyNumber } from "./production-number";
 
@@ -179,6 +180,11 @@ async function position(tx: Tx, date: Date, s: ProductionSource) {
 // -------------------------------------------------------------- writing
 
 async function write(tx: Tx, b: Bucket, m: { movement: Movement; qty: Dec; value: Dec; date: Date; source: ProductionSource; actorId: number }) {
+  // A costed period takes no production posting (P172, M32) — but the costing's own value-only rows.
+  if (m.movement !== "Revalued") {
+    const costed = await costedPeriodRefusal(m.date, tx);
+    if (costed) throw new ProductionRefusal(costed);
+  }
   const qty = b.qty.add(m.qty);
   const value = b.value.add(m.value);
   if (qty.lt(0) || value.lt(0)) throw new ProductionRefusal("Saldo produksi tidak boleh negatif.");
@@ -922,4 +928,48 @@ export async function partaiInProduction(partaiId: number, db: Db = prisma): Pro
 /** The Perintah a Partai was started for, if any. */
 export async function orderIdOfPartai(partaiId: number, db: Db = prisma): Promise<number | null> {
   return (await db.prdPartai.findUnique({ where: { id: partaiId }, select: { order_id: true } }))?.order_id ?? null;
+}
+
+// ------------------------------------------------- where a lot's value goes (P172)
+
+export type LotFate = {
+  /** Still in production, by bucket. */
+  held: { bucketId: number; itemId: number; qty: number }[];
+  /** Taken as an input of a later execution, into this output lot (a pass-through's own lot is no fate). */
+  links: { toLotId: number; qty: number }[];
+  /** Taken out of production by a release document. */
+  released: { docTypeId: number; docId: number; itemId: number; qty: number }[];
+};
+
+/**
+ * What became of each lot's quantity — the month-end close follows an execution's
+ * share of cost along it, in proportion to quantity (`Standard-Cost-Plan.md` §4.3).
+ */
+export async function lotFates(lotIds: number[], db: Db = prisma): Promise<Map<number, LotFate>> {
+  const out = new Map<number, LotFate>(lotIds.map((id) => [id, { held: [], links: [], released: [] }]));
+  if (!lotIds.length) return out;
+  const [held, links, released] = await Promise.all([
+    db.prdBalance.findMany({ where: { lot_id: { in: lotIds }, qty_balance: { gt: 0 } }, select: { id: true, lot_id: true, item_id: true, qty_balance: true } }),
+    db.prdLotLink.findMany({ where: { from_lot_id: { in: lotIds } }, select: { from_lot_id: true, to_lot_id: true, qty: true } }),
+    db.prdLedger.findMany({
+      where: { lot_id: { in: lotIds }, movement: "Released" },
+      select: { lot_id: true, item_id: true, source_doc_type_id: true, source_doc_id: true, qty_change: true },
+    }),
+  ]);
+  for (const b of held) out.get(b.lot_id)!.held.push({ bucketId: b.id, itemId: b.item_id, qty: b.qty_balance.toNumber() });
+  for (const l of links) {
+    if (l.to_lot_id === l.from_lot_id) continue;
+    const f = out.get(l.from_lot_id)!;
+    const same = f.links.find((x) => x.toLotId === l.to_lot_id);
+    if (same) same.qty += l.qty.toNumber();
+    else f.links.push({ toLotId: l.to_lot_id, qty: l.qty.toNumber() });
+  }
+  for (const r of released) {
+    const f = out.get(r.lot_id)!;
+    const same = f.released.find((x) => x.docTypeId === r.source_doc_type_id && x.docId === r.source_doc_id);
+    const q = r.qty_change.abs().toNumber();
+    if (same) same.qty += q;
+    else f.released.push({ docTypeId: r.source_doc_type_id, docId: r.source_doc_id, itemId: r.item_id, qty: q });
+  }
+  return out;
 }

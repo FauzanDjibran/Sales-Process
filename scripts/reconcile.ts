@@ -680,7 +680,7 @@ export const CHECKS: Check[] = [
     sql: `SELECT 'per posting' AS kind, COALESCE(s.source_doc_type_id, v.source_doc_type_id) AS doc_type, COALESCE(s.source_doc_id, v.source_doc_id) AS doc,
                  COALESCE(s.item_id, v.item_id) AS item_id, s.q AS stock_qty, v.q AS valuation_qty, s.v AS stock_value, v.v AS valuation_value
           FROM (SELECT source_doc_type_id, source_doc_id, item_id, SUM(qty_change) q, SUM(value_change) v, COUNT(*) n FROM log_stock_ledger GROUP BY 1, 2, 3) s
-          FULL JOIN (SELECT source_doc_type_id, source_doc_id, item_id, SUM(qty_change) q, SUM(value_change) v, COUNT(*) n FROM log_stock_valuation_ledger GROUP BY 1, 2, 3) v
+          FULL JOIN (SELECT source_doc_type_id, source_doc_id, item_id, SUM(qty_change) q, SUM(value_change) v, COUNT(*) n FROM log_stock_valuation_ledger WHERE qty_change <> 0 GROUP BY 1, 2, 3) v
             ON v.source_doc_type_id = s.source_doc_type_id AND v.source_doc_id = s.source_doc_id AND v.item_id = s.item_id
           WHERE s.q IS DISTINCT FROM v.q OR s.v IS DISTINCT FROM v.v OR s.n IS DISTINCT FROM v.n
           UNION ALL
@@ -688,6 +688,42 @@ export const CHECKS: Check[] = [
           FROM log_stock_valuation_balance p
           LEFT JOIN (SELECT item_id, SUM(qty_balance) q FROM log_stock_balance GROUP BY item_id) b ON b.item_id = p.item_id
           WHERE p.qty_balance <> COALESCE(b.q, 0)`,
+  },
+  {
+    area: "production",
+    name: "a cost close settles to zero: every Production Cost Center nets 0 at each costed period end, and its destinations add up to what it absorbed",
+    sql: `SELECT 'cost center' AS kind, p.period_name, c.cost_center_label AS what, SUM(l.debit_amount - l.kredit_amount) AS amount
+          FROM acc_fiscal_period p
+          JOIN acc_cost_center c ON c.cost_center_category = 'Production'
+          JOIN acc_journal_line l ON l.cost_center_id = c.id
+          JOIN acc_journal j ON j.id = l.journal_id AND j.status = 'Posted' AND j.posting_date <= p.end_date
+          WHERE p.production_costed_at IS NOT NULL
+          GROUP BY p.period_name, c.cost_center_label
+          HAVING SUM(l.debit_amount - l.kredit_amount) <> 0
+          UNION ALL
+          SELECT 'destinations', p.period_name, NULL, cc.leftover_total - COALESCE(d.t, 0)
+          FROM prd_cost_close cc
+          JOIN acc_fiscal_period p ON p.id = cc.period_id
+          LEFT JOIN (SELECT close_id, SUM(amount) t FROM prd_cost_close_dest GROUP BY close_id) d ON d.close_id = cc.id
+          WHERE cc.leftover_total <> COALESCE(d.t, 0)`,
+  },
+  {
+    area: "production",
+    name: "a cost close writes value-only rows equal to its WIP and stock destinations, and every costed period has its close",
+    sql: `SELECT 'wip' AS kind, cc.id AS close_id, COALESCE(w.t, 0) AS rows_total, COALESCE(d.t, 0) AS dest_total
+          FROM prd_cost_close cc
+          LEFT JOIN (SELECT source_doc_id, SUM(value_change) t FROM prd_ledger WHERE movement = 'Revalued' AND source_doc_type_id = (SELECT id FROM sys_doc_type WHERE doc_table = 'prd_cost_close') GROUP BY 1) w ON w.source_doc_id = cc.id
+          LEFT JOIN (SELECT close_id, SUM(amount) t FROM prd_cost_close_dest WHERE kind = 'Wip' GROUP BY 1) d ON d.close_id = cc.id
+          WHERE COALESCE(w.t, 0) <> COALESCE(d.t, 0)
+          UNION ALL
+          SELECT 'stock', cc.id, COALESCE(v.t, 0), COALESCE(d.t, 0)
+          FROM prd_cost_close cc
+          LEFT JOIN (SELECT source_doc_id, SUM(value_change) t FROM log_stock_valuation_ledger WHERE qty_change = 0 AND source_doc_type_id = (SELECT id FROM sys_doc_type WHERE doc_table = 'prd_cost_close') GROUP BY 1) v ON v.source_doc_id = cc.id
+          LEFT JOIN (SELECT close_id, SUM(amount) t FROM prd_cost_close_dest WHERE kind = 'Stock' GROUP BY 1) d ON d.close_id = cc.id
+          WHERE COALESCE(v.t, 0) <> COALESCE(d.t, 0)
+          UNION ALL
+          SELECT 'no close', p.id, NULL, NULL FROM acc_fiscal_period p
+          WHERE p.production_costed_at IS NOT NULL AND NOT EXISTS (SELECT 1 FROM prd_cost_close c WHERE c.period_id = p.id)`,
   },
   {
     area: "stock",

@@ -232,3 +232,9 @@ export async function standardCostFor(workstationId: number, date: string, db: D
       .map((l) => ({ itemId: l.item_id, itemLabel: l.item.item_label, accountId: l.item.account_id, rate: l.rate.toNumber() })),
   };
 }
+
+/** Every Standard Cost Item with the account it credits — the close settles that account per Cost Center (P172). */
+export async function standardCostItemAccounts(db: Db = prisma): Promise<{ id: number; label: string; accountId: number }[]> {
+  const rows = await db.accStandardCostItem.findMany({ select: { id: true, item_label: true, account_id: true } });
+  return rows.map((r) => ({ id: r.id, label: r.item_label, accountId: r.account_id }));
+}

@@ -110,6 +110,11 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // What takes goods out of production (P170).
   prdRelease: ["src/lib/erp/production-release.ts"],
   prdReleaseLine: ["src/lib/erp/production-release.ts"],
+  // The month-end production costing (P172).
+  prdCostClose: ["src/lib/erp/production-close.ts"],
+  prdCostClosePool: ["src/lib/erp/production-close.ts"],
+  prdCostCloseShare: ["src/lib/erp/production-close.ts"],
+  prdCostCloseDest: ["src/lib/erp/production-close.ts"],
   // The Eksekusi Produksi (P169).
   prdExecution: ["src/lib/erp/production-run.ts", "src/lib/erp/production-report.ts"],
   prdExecutionSection: ["src/lib/erp/production-run.ts"],

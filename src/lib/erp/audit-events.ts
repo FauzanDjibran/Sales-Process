@@ -205,6 +205,12 @@ const RELEASE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: { label: "Dibatalkan", icon: "block", tone: "danger" },
 };
 
+/** Penutupan Biaya Produksi: one act per period (P172). */
+const COST_CLOSE_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  close: { label: "Biaya periode ditutup", icon: "lock", tone: "primary" },
+};
+
 /** Eksekusi Produksi: Draft → Diposting, or Dibatalkan (P169). */
 const EXECUTION_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
@@ -383,6 +389,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   prd_plan: PRODUCTION_PLAN_EVENTS,
   prd_execution: EXECUTION_EVENTS,
   prd_release: RELEASE_EVENTS,
+  prd_cost_close: COST_CLOSE_EVENTS,
   pur_request: PURCHASE_REQUEST_EVENTS,
   pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,

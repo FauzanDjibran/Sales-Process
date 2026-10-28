@@ -253,6 +253,14 @@ export const MODULES: NavModule[] = [
             desc: "Biaya yang diakui pada bulan terjadinya, per Jenis Biaya dan Cost Center; yang dibayar dilunasi lewat Pengeluaran — Pembayaran Biaya Produksi.",
             permission: "PRODUCTION_COST_BILL_VIEW",
           },
+          {
+            key: "prd_cost_close",
+            slug: "cost-close",
+            name: "Penutupan Biaya",
+            icon: "lock",
+            desc: "Penutupan biaya bulanan: sisa biaya tiap Cost Center dibagi ke eksekusi menurut Driver dan dibawa ke WIP, stok, HPP atau scrap; periode dikunci.",
+            permission: "PRODUCTION_COST_CLOSE_VIEW",
+          },
         ],
       },
       {

@@ -378,6 +378,22 @@ export async function checkTransactionDate(
   return { ok: true, date: text };
 }
 
+/**
+ * Why a stock, production or cost posting dated `date` is refused: its fiscal
+ * period has been costed by the month-end Penutupan Biaya Produksi (P172, M32) —
+ * the leftover was absorbed into WIP, stock and HPP as they stood, so a later
+ * posting dated inside it would make that figure wrong. Null when it may post.
+ * The books that take those postings ask this at their one write point.
+ */
+export async function costedPeriodRefusal(date: Date | string, db: Db = prisma): Promise<string | null> {
+  const day = asDay(date);
+  const period = await db.accFiscalPeriod.findFirst({
+    where: { start_date: { lte: day }, end_date: { gte: day }, production_costed_at: { not: null } },
+    select: { period_name: true },
+  });
+  return period ? `Periode ${period.period_name} sudah ditutup biayanya (Penutupan Biaya Produksi); tidak ada posting stok, produksi atau biaya bertanggal di dalamnya.` : null;
+}
+
 // ---------------------------------------------------------------- closing
 
 /** A fiscal year as the closing workspace needs to name and bound it. */

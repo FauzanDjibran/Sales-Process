@@ -690,3 +690,8 @@ export async function handoversOfOrder(orderId: number): Promise<{ id: number; h
   });
   return rows.map((r) => ({ id: r.id, handoverNo: r.handover_no, handoverDate: isoDay(r.handover_date), status: r.status as HandoverStatus, fromLabel: r.from.workstation_label, toLabel: r.to.workstation_label }));
 }
+
+/** Documents of this kind that would still post into a period closing on `to` — a blocker of Penutupan Biaya Produksi (P172, Q74). */
+export async function unsettledHandoversUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.prdHandover.count({ where: { status: { in: ["Draft", "Posted"] }, handover_date: { lte: to } } });
+}

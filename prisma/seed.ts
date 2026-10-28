@@ -157,6 +157,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Eksekusi Produksi", "prd_execution"],
   // Walet step 6 (P170): goods leaving production — into stock or written off.
   ["Keluar Produksi", "prd_release"],
+  // Walet step 8 (P172): the month-end costing — its journal and value-only rows name it.
+  ["Penutupan Biaya Produksi", "prd_cost_close"],
 ];
 
 /**

@@ -836,3 +836,42 @@ export async function runNumbersByIds(ids: number[]): Promise<Map<number, string
 export async function runSourceBuckets(v: RunView): Promise<BucketView[]> {
   return bucketsByIds(v.sections.flatMap((s) => s.inputs.map((x) => Number(x.bucket_id))));
 }
+
+/** Documents of this kind that would still post into a period closing on `to` — a blocker of Penutupan Biaya Produksi (P172, Q74). */
+export async function draftRunsUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.prdExecution.count({ where: { status: "Draft", execution_date: { lte: to } } });
+}
+
+// ------------------------------------------------------ the month-end close (P172)
+
+export type CloseRun = {
+  id: number;
+  no: string;
+  date: string;
+  kind: string;
+  workstationId: number;
+  /** Σ of the sections' Driver. */
+  driver: number;
+  /** Outputs that took cost: lot, Bobot Biaya and quantity. */
+  outputs: { lotId: number; itemId: number; weight: number; qty: number }[];
+};
+
+/** The posted executions dated inside a period — what the close shares the leftover over. */
+export async function postedRunsInRange(from: Date, to: Date, db: Db = prisma): Promise<CloseRun[]> {
+  const rows = await db.prdExecution.findMany({
+    where: { status: "Posted", execution_date: { gte: from, lte: to } },
+    orderBy: { id: "asc" },
+    include: { sections: { include: { outputs: true } } },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    no: r.execution_no,
+    date: r.execution_date.toISOString().slice(0, 10),
+    kind: r.kind,
+    workstationId: r.workstation_id,
+    driver: r.sections.reduce((a, s) => a + s.driver.toNumber(), 0),
+    outputs: r.sections.flatMap((s) =>
+      s.outputs.filter((o) => o.lot_id != null).map((o) => ({ lotId: o.lot_id!, itemId: o.item_id, weight: o.weight.toNumber(), qty: o.qty.toNumber() }))
+    ),
+  }));
+}

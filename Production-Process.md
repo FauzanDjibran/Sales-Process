@@ -233,11 +233,40 @@ a past date is reported as it stood:
 
 A zero-weight output (a BJL, a Reject) now gets its lineage edge (quantity and value 0), so Telusur reaches it.
 
-### Step H — Month-end close 🔜 (build step 8)
+### Step H — Month-end close ✅ (P172)
 
-Per Cost Center and Standard Cost Item, the difference between actual cost and
-standard booked is spread over the month's executions by grams and followed
-into WIP, stock and HPP; the FOH Cost Center is spread evenly first.
+**Produksi › Penutupan Biaya** (`PRODUCTION_COST_CLOSE_VIEW` / `_RUN`). One period at a
+time, the oldest first and only after its last day. The page lists the fiscal
+periods; a period's page shows the **checklist**, the figures and the one button.
+
+1. **Checklist (blocks the button):** no Draft Eksekusi, Penerimaan / Pemusnahan,
+   Receipt Note, Delivery Note or Tagihan Biaya dated up to the period's end; no
+   Hand-over or BSTB still Draft or in transit; no earlier period with production
+   activity left uncosted; every account the close posts to is mapped (WIP per
+   Kategori Item, Persediaan, HPP, Beban Pemusnahan); no cost on a Production Cost
+   Center's account that no Standard Cost Item owns.
+2. **The leftover** per Production Cost Center and Standard Cost Item = actual (the
+   month's debits on the expense accounts of the Jenis Biaya absorbed under that
+   item) − the standard the executions booked (credits on the item's account).
+3. **Overhead** (System Default › Cost Center Overhead): its leftover is spread Rata
+   over the Production Cost Centers that ran an execution this month.
+4. Each Cost Center's balance is shared over **the month's posted executions at its
+   workstations by Driver** (largest remainder). A Cost Center with a balance and
+   no Driver is shared over all the executions by what they took from the Cost Centers that had a Driver; with no
+   execution in the month at all, it goes to HPP.
+5. An execution's share goes to its outputs by Bobot Biaya, then is **followed
+   forward by quantity** through each lot — to the bucket still holding it (**WIP**),
+   to a later execution that took it, to a Penerimaan Hasil Produksi (**stock**) or a
+   Pemusnahan (**scrap**). The stock part is split by goods available (M27): the
+   part sold goes to **HPP**, the part still in stock raises the item's pool.
+6. **Posting**, in one transaction: value-only rows (quantity 0) in the production
+   ledger (*Revalued*) and the stock valuation book; **one journal** dated the
+   period's last day — Dr WIP / Persediaan / HPP / Beban Pemusnahan, Cr each
+   Standard Cost Item's account with its Cost Center — so every Production and
+   Overhead Cost Center ends at 0; the close is stored (pools, shares, destinations)
+   and the period is **locked**.
+7. **Irreversible.** A costed period takes no stock, production or Cost Center
+   posting (the Revalued rows and the close's own journal excepted).
 
 ### Step I — MRP 🔜 (last)
 
@@ -281,7 +310,7 @@ executions mark Reject (step 5) the whole-Partai hand-over will leave it behind.
 | Eksekusi | WIP by account: Dr when outputs exceed inputs, Cr when less; Cr each Standard Cost Item's account with the station's Cost Center; none when nothing nets | ✅ |
 | Penerimaan Hasil Produksi | Dr Persediaan / Cr WIP (a BJL or Reject at 0: no journal) | ✅ |
 | Pemusnahan | Dr Beban Pemusnahan Produksi / Cr WIP | ✅ |
-| Month-end close | variance to WIP, Persediaan, HPP | 🔜 |
+| Month-end close | Dr WIP / Persediaan / HPP / Beban Pemusnahan, Cr each Standard Cost Item's account at its Cost Center | ✅ |
 
 ---
 
@@ -297,6 +326,7 @@ executions mark Reject (step 5) the whole-Partai hand-over will leave it behind.
 
 | Date | Change | Ref |
 | --- | --- | --- |
+| 27/10/2026 | Penutupan Biaya Produksi: the month's leftover per Cost Center and Standard Cost Item shared over the executions by Driver, followed to WIP, stock, HPP and scrap; one journal; the period locked. | P172 |
 | 26/10/2026 | The four production reports — Saldo Produksi, Kartu Lot, Telusur, Rekap Produksi — read from the ledgers; a zero-weight output (BJL, Reject) now has its lineage edge. | P171 |
 | 26/10/2026 | Penerimaan Hasil Produksi (lot kept into a warehouse, at the value held) and Pemusnahan Produksi (written off), one table by purpose; a Perintah closes itself when the last goods of its Partai leave. | P170 |
 | 25/10/2026 | Eksekusi Produksi: Transformasi (new lots, value by Bobot, BJL and Reject 0), Pass-through (lot kept, extras join, weight free), Mix (the Partai into one lot); the standard per section Driver; journal by dry run. | P169 |

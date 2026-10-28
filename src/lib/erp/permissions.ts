@@ -301,6 +301,8 @@ export const PERMISSIONS = [
   { code: "PRODUCTION_COST_BILL_EDIT", name: "Ubah Tagihan Biaya", module: "production", description: "Hanya selama masih Draft." },
   { code: "PRODUCTION_COST_BILL_POST", name: "Posting Tagihan Biaya", module: "production", description: "Menjurnal biaya ke account Jenis Biaya dengan Cost Center-nya." },
   { code: "PRODUCTION_COST_BILL_CANCEL", name: "Batalkan Tagihan Biaya", module: "production", description: "Hanya Draft, dengan alasan." },
+  { code: "PRODUCTION_COST_CLOSE_VIEW", name: "Lihat Penutupan Biaya Produksi", module: "production", description: "Daftar periode, checklist, pratinjau dan hasil penutupan biaya bulanan." },
+  { code: "PRODUCTION_COST_CLOSE_RUN", name: "Jalankan Penutupan Biaya Produksi", module: "production", description: "Menutup biaya satu periode: sisa biaya dibagi ke eksekusi, dibawa ke WIP, stok, HPP atau scrap, dan periode dikunci. Tidak dapat dibatalkan." },
   { code: "REPORT_WIP_BALANCE_VIEW", name: "Lihat Saldo Produksi", module: "production", description: "Barang di produksi per Partai, Job dan workstation pada satu tanggal." },
   { code: "REPORT_LOT_CARD_VIEW", name: "Lihat Kartu Lot", module: "production", description: "Seluruh mutasi satu lot di produksi dan di stok." },
   { code: "REPORT_TRACE_VIEW", name: "Lihat Telusur", module: "production", description: "Asal dan tujuan sebuah lot, Job atau Partai: dari lot supplier sampai barang jadi dan customer." },
