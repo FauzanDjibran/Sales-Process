@@ -68,7 +68,7 @@ export type ItemCategoryAccountInput = {
   categoryId: number;
   inventory: number | null;
   cogs: number | null;
-  /** Optional: absent reads as empty, as for a Jasa category. */
+  /** Optional: absent keeps what the category names now, so a caller that knows nothing of WIP never clears it. */
   wip?: number | null;
   expense: number | null;
 };
@@ -98,7 +98,7 @@ export async function saveItemCategoryAccounts(input: ItemCategoryAccountInput[]
       continue;
     }
     const allowed = new Set(categoryAccountKinds(c.item_type));
-    const values = { inventory: Number(r.inventory) || null, cogs: Number(r.cogs) || null, wip: Number(r.wip) || null, expense: Number(r.expense) || null };
+    const values = { inventory: Number(r.inventory) || null, cogs: Number(r.cogs) || null, wip: r.wip === undefined ? (c.accounts?.wip_account_id ?? null) : Number(r.wip) || null, expense: Number(r.expense) || null };
     for (const kind of ["inventory", "cogs", "wip", "expense"] as const) {
       const id = values[kind];
       if (!id) continue;
