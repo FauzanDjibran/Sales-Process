@@ -606,6 +606,8 @@ model MItem {
   delivery_note_lines    LogDeliveryNoteLine[]
   prd_balances           PrdBalance[]              @relation("PrdBalanceItem")
   stock_issue_lines      LogStockIssueLine[]
+  execution_inputs       PrdExecutionInput[]
+  execution_outputs      PrdExecutionOutput[]
   prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
 
   @@index([category_id])
@@ -822,6 +824,7 @@ model RefWorkstation {
   prd_balances PrdBalance[] @relation("PrdBalanceWorkstation")
   stock_issues LogStockIssue[]
   prd_ledger   PrdLedger[]  @relation("PrdLedgerWorkstation")
+  executions   PrdExecution[]
 
   @@map("ref_workstation")
 }
@@ -3889,4 +3892,88 @@ enum StockIssueStatus {
   Draft
   Posted
   Cancelled
+}
+
+/// The lifecycle the production documents share (R5, R7, R8).
+enum ProductionDocStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+/// Eksekusi Produksi (R5, R6, R11, R17): inputs held at one workstation are
+/// consumed, each output is a new lot valued by qty × Bobot Nilai; Driver > 0
+/// is its share of the month's cost pool. `EKS/YYYY/MM/NNNN`.
+model PrdExecution {
+  id             Int                 @id @default(autoincrement())
+  execution_no   String              @unique
+  execution_date DateTime            @db.Date
+  workstation_id Int
+  /// R11: the execution's weight in the month-end allocation, > 0.
+  driver         Decimal             @db.Decimal(18, 4)
+  status         ProductionDocStatus @default(Draft)
+  note           String?
+  /// Σ input value = Σ output value, set at Posting.
+  input_value    Decimal             @default(0) @db.Decimal(18, 2)
+  journal_id     Int?
+  cancel_reason  String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  workstation RefWorkstation       @relation(fields: [workstation_id], references: [id])
+  inputs      PrdExecutionInput[]
+  outputs     PrdExecutionOutput[]
+
+  @@index([status, execution_date])
+  @@index([workstation_id])
+  @@map("prd_execution")
+}
+
+model PrdExecutionInput {
+  id           Int     @id @default(autoincrement())
+  execution_id Int
+  line_no      Int
+  /// The production bucket taken from (weak).
+  bucket_id    Int
+  lot_id       Int
+  item_id      Int
+  /// In the item's base unit.
+  qty          Decimal @db.Decimal(18, 4)
+  /// What it released, set at Posting.
+  value        Decimal @default(0) @db.Decimal(18, 2)
+
+  execution PrdExecution @relation(fields: [execution_id], references: [id], onDelete: Cascade)
+  item      MItem        @relation(fields: [item_id], references: [id])
+
+  @@unique([execution_id, line_no])
+  @@index([bucket_id])
+  @@map("prd_execution_input")
+}
+
+model PrdExecutionOutput {
+  id           Int       @id @default(autoincrement())
+  execution_id Int
+  line_no      Int
+  item_id      Int
+  /// Typed, or `<execution number>-<n>` at Posting (R17).
+  lot_no       String?
+  expiry_date  DateTime? @db.Date
+  /// In the item's base unit.
+  qty          Decimal   @db.Decimal(18, 4)
+  /// qty × Bobot Nilai at Posting.
+  weight       Decimal   @default(0) @db.Decimal(18, 6)
+  value        Decimal   @default(0) @db.Decimal(18, 2)
+  /// The lot and bucket made, set at Posting (weak).
+  lot_id       Int?
+  bucket_id    Int?
+
+  execution PrdExecution @relation(fields: [execution_id], references: [id], onDelete: Cascade)
+  item      MItem        @relation(fields: [item_id], references: [id])
+
+  @@unique([execution_id, line_no])
+  @@index([lot_id])
+  @@map("prd_execution_output")
 }

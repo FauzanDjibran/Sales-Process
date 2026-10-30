@@ -127,6 +127,10 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logStockIssue: ["src/lib/erp/stock-issue.ts"],
   logStockIssueLine: ["src/lib/erp/stock-issue.ts"],
   logStockIssueLot: ["src/lib/erp/stock-issue.ts"],
+  // The production documents (R5, R7, R8): each named only by its module.
+  prdExecution: ["src/lib/erp/production-run.ts"],
+  prdExecutionInput: ["src/lib/erp/production-run.ts"],
+  prdExecutionOutput: ["src/lib/erp/production-run.ts"],
   // The production ledger (R3): a book, written only by its module.
   prdBalance: ["src/lib/erp/production-ledger.ts"],
   prdLedger: ["src/lib/erp/production-ledger.ts"],

@@ -2765,4 +2765,68 @@ table log_stock_issue_lot {
   }
 }
 
+// Eksekusi Produksi (R5, R6, R11, R17): inputs held at one workstation consumed, outputs made
+// as new lots valued by qty × Bobot Nilai; EKS/YYYY/MM/NNNN
+table prd_execution {
+  id                          int [pk, increment, not null]
+
+  execution_no                varchar [not null, unique]
+  execution_date              date [not null]
+  workstation_id              int [not null, ref : > ref_workstation.id]
+  driver                      decimal(18,4) [not null] // R11, CHECK > 0
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft'] // ProductionDocStatus
+  note                        varchar
+  input_value                 decimal(18,2) [not null, default: 0] // = Σ outputs, set at Posting
+  journal_id                  int // none when inputs and outputs share a WIP account
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, execution_date)
+    workstation_id
+  }
+}
+
+table prd_execution_input {
+  id                          int [pk, increment, not null]
+
+  execution_id                int [not null, ref : > prd_execution.id] // cascade
+  line_no                     int [not null]
+  bucket_id                   int [not null] // prd_balance.id, weak
+  lot_id                      int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  qty                         decimal(18,4) [not null] // base unit
+  value                       decimal(18,2) [not null, default: 0] // released, set at Posting
+
+  indexes {
+    (execution_id, line_no) [unique]
+    bucket_id
+  }
+}
+
+table prd_execution_output {
+  id                          int [pk, increment, not null]
+
+  execution_id                int [not null, ref : > prd_execution.id] // cascade
+  line_no                     int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  lot_no                      varchar // typed, or <execution no>-<n> at Posting (R17)
+  expiry_date                 date
+  qty                         decimal(18,4) [not null]
+  weight                      decimal(18,6) [not null, default: 0] // qty × Bobot Nilai
+  value                       decimal(18,2) [not null, default: 0]
+  lot_id                      int // made at Posting, weak
+  bucket_id                   int
+
+  indexes {
+    (execution_id, line_no) [unique]
+    lot_id
+  }
+}
+
 ```

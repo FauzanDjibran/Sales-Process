@@ -784,6 +784,20 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "a posted Eksekusi's value = Σ inputs = Σ outputs = what the ledger consumed and produced; its Driver is above 0 (R5, R6, R11)",
+    sql: `WITH e AS (SELECT e.id, e.execution_no, e.status, e.input_value, e.driver,
+                        COALESCE((SELECT SUM(value) FROM prd_execution_input i WHERE i.execution_id = e.id), 0) AS ins,
+                        COALESCE((SELECT SUM(value) FROM prd_execution_output o WHERE o.execution_id = e.id), 0) AS outs,
+                        COALESCE((SELECT -SUM(l.value_change) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_execution")} AND l.source_doc_id = e.id AND l.movement = 'Consumed'), 0) AS consumed,
+                        COALESCE((SELECT SUM(l.value_change) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_execution")} AND l.source_doc_id = e.id AND l.movement = 'Produced'), 0) AS produced
+                 FROM prd_execution e)
+          SELECT * FROM e
+          WHERE driver <= 0
+             OR (status = 'Posted' AND (input_value <> ins OR input_value <> outs OR input_value <> consumed OR input_value <> produced))
+             OR (status <> 'Posted' AND (consumed <> 0 OR produced <> 0))`,
+  },
+  {
+    area: "production",
     name: "each WIP account equals the value held in production by the items it is the WIP of (R16)",
     sql: `WITH held AS (SELECT a.wip_account_id AS account_id, SUM(b.value_balance) AS v
                        FROM prd_balance b JOIN m_item i ON i.id = b.item_id

@@ -167,6 +167,20 @@ export const MODULES: NavModule[] = [
     permission: "MENU_PRODUCTION_ACCESS",
     groups: [
       {
+        key: "operation",
+        name: "Operasi Produksi",
+        entities: [
+          {
+            key: "prd_execution",
+            slug: "execution",
+            name: "Eksekusi Produksi",
+            icon: "gear",
+            desc: "Pengerjaan di satu Workstation: input dipakai, output menjadi lot baru senilai input menurut Qty × Bobot Nilai.",
+            permission: "PRODUCTION_EXECUTION_VIEW",
+          },
+        ],
+      },
+      {
         key: "cost",
         name: "Biaya",
         entities: [
