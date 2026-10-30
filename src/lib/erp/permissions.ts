@@ -22,6 +22,7 @@ export type PermissionModule =
   | "master"
   | "sales"
   | "purchasing"
+  | "production"
   | "inventory"
   | "accounting"
   | "finance"
@@ -88,6 +89,11 @@ export const PERMISSIONS = [
   { code: "WAREHOUSE_EDIT", name: "Ubah Gudang", module: "master" },
   { code: "WAREHOUSE_ACTIVATE", name: "Aktifkan Gudang", module: "master" },
   { code: "WAREHOUSE_DEACTIVATE", name: "Nonaktifkan Gudang", module: "master" },
+  { code: "WORKSTATION_VIEW", name: "Lihat Workstation", module: "master" },
+  { code: "WORKSTATION_CREATE", name: "Tambah Workstation", module: "master" },
+  { code: "WORKSTATION_EDIT", name: "Ubah Workstation", module: "master" },
+  { code: "WORKSTATION_ACTIVATE", name: "Aktifkan Workstation", module: "master" },
+  { code: "WORKSTATION_DEACTIVATE", name: "Nonaktifkan Workstation", module: "master" },
 
   { code: "WITHHOLDING_TAX_VIEW", name: "Lihat Jenis PPh", module: "master" },
   { code: "WITHHOLDING_TAX_CREATE", name: "Tambah Jenis PPh", module: "master" },
@@ -99,6 +105,11 @@ export const PERMISSIONS = [
   { code: "PERMIT_TYPE_EDIT", name: "Ubah Jenis Perizinan", module: "master" },
   { code: "PERMIT_TYPE_ACTIVATE", name: "Aktifkan Jenis Perizinan", module: "master" },
   { code: "PERMIT_TYPE_DEACTIVATE", name: "Nonaktifkan Jenis Perizinan", module: "master" },
+  { code: "COST_TYPE_VIEW", name: "Lihat Jenis Biaya", module: "master" },
+  { code: "COST_TYPE_CREATE", name: "Tambah Jenis Biaya", module: "master" },
+  { code: "COST_TYPE_EDIT", name: "Ubah Jenis Biaya", module: "master" },
+  { code: "COST_TYPE_ACTIVATE", name: "Aktifkan Jenis Biaya", module: "master" },
+  { code: "COST_TYPE_DEACTIVATE", name: "Nonaktifkan Jenis Biaya", module: "master" },
 
   { code: "PARTNER_CATEGORY_VIEW", name: "Lihat Partner Category", module: "settings" },
   { code: "PARTNER_CATEGORY_CREATE", name: "Tambah Partner Category", module: "settings" },
@@ -224,6 +235,14 @@ export const PERMISSIONS = [
   { code: "PURCHASE_ORDER_APPROVE", name: "Setujui / Tolak Purchase Order", module: "purchasing" },
   { code: "PURCHASE_ORDER_CANCEL", name: "Batalkan Purchase Order", module: "purchasing", description: "Hanya Draft, dengan alasan." },
   { code: "PURCHASE_ORDER_CLOSE", name: "Tutup Purchase Order", module: "purchasing", description: "Mengembalikan sisa yang belum diterima ke Purchase Request, dengan alasan." },
+
+  // ------------------------------------------------------------- production
+  { code: "MENU_PRODUCTION_ACCESS", name: "Akses menu Produksi", module: "production" },
+  { code: "PRODUCTION_COST_BILL_VIEW", name: "Lihat Tagihan Biaya", module: "production", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "PRODUCTION_COST_BILL_CREATE", name: "Buat Tagihan Biaya", module: "production" },
+  { code: "PRODUCTION_COST_BILL_EDIT", name: "Ubah Tagihan Biaya", module: "production", description: "Hanya selama masih Draft." },
+  { code: "PRODUCTION_COST_BILL_POST", name: "Posting Tagihan Biaya", module: "production", description: "Menjurnal biaya ke account Jenis Biaya dan Hutang Biaya Produksi." },
+  { code: "PRODUCTION_COST_BILL_CANCEL", name: "Batalkan Tagihan Biaya", module: "production", description: "Hanya Draft, dengan alasan." },
 
   // -------------------------------------------------------------- inventory
   // One module for the goods (P131): the standalone documents that move stock,
@@ -385,6 +404,7 @@ export const MODULE_LABELS: Record<PermissionModule, string> = {
   master: "Master",
   sales: "Penjualan",
   purchasing: "Pembelian",
+  production: "Produksi",
   inventory: "Persediaan",
   accounting: "Accounting",
   finance: "Finance",
@@ -397,6 +417,7 @@ export const MODULE_ORDER: PermissionModule[] = [
   "dashboard",
   "sales",
   "purchasing",
+  "production",
   "inventory",
   "finance",
   "tax",

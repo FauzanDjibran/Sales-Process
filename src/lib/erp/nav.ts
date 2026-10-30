@@ -158,6 +158,31 @@ export const MODULES: NavModule[] = [
     ],
   },
   {
+    // Production (P200, Production-Plan.md): goods held per lot · workstation,
+    // transformed by executions, costed at month end.
+    key: "production",
+    name: "Produksi",
+    icon: "gear",
+    desc: "Barang di produksi per lot dan workstation, eksekusi yang mengubahnya, dan biaya produksi yang dibebankan saat penutupan bulan.",
+    permission: "MENU_PRODUCTION_ACCESS",
+    groups: [
+      {
+        key: "cost",
+        name: "Biaya",
+        entities: [
+          {
+            key: "prd_cost_bill",
+            slug: "cost-bill",
+            name: "Tagihan Biaya",
+            icon: "file",
+            desc: "Biaya produksi yang diakui pada bulan terjadinya, per Jenis Biaya; dilunasi lewat Pengeluaran — Pembayaran Biaya Produksi.",
+            permission: "PRODUCTION_COST_BILL_VIEW",
+          },
+        ],
+      },
+    ],
+  },
+  {
     // One module for the goods (P131): the documents that move stock — standalone,
     // chosen by purpose (P106) — and the stock books they write (P120).
     key: "inventory",
@@ -595,6 +620,14 @@ export const MODULES: NavModule[] = [
             desc: "Tempat barang disimpan. Stok dicatat per gudang, lot dan status di Persediaan.",
             permission: "WAREHOUSE_VIEW",
           },
+          {
+            key: "ref_workstation",
+            slug: "workstation",
+            name: "Workstation",
+            icon: "gear",
+            desc: "Tempat proses produksi yang Anda tentukan sendiri, mis. pengolahan dan pengemasan.",
+            permission: "WORKSTATION_VIEW",
+          },
         ],
       },
       {
@@ -640,6 +673,14 @@ export const MODULES: NavModule[] = [
             icon: "clip",
             desc: "Perizinan yang diurus untuk produk customer maklon, beserta estimasi harga standarnya.",
             permission: "PERMIT_TYPE_VIEW",
+          },
+          {
+            key: "acc_cost_type",
+            slug: "cost-type",
+            name: "Jenis Biaya",
+            icon: "coin",
+            desc: "Biaya produksi beserta account biayanya; dipilih di Tagihan Biaya.",
+            permission: "COST_TYPE_VIEW",
           },
         ],
       },

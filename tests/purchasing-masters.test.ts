@@ -119,7 +119,7 @@ describe("accounts per Kategori Item (B5a, closes C25)", () => {
   test("saved accounts resolve per item; an empty one reads null for the caller's fallback", async () => {
     const r = await saveItemCategoryAccounts([{ categoryId: f.goodsCat, inventory: f.inv, cogs: f.cogs, expense: null }], actor);
     assert.deepEqual(r, { ok: true, changed: 1 });
-    assert.deepEqual((await accountsForItems([f.item])).get(f.item), { inventory: f.inv, cogs: f.cogs, expense: null });
+    assert.deepEqual((await accountsForItems([f.item])).get(f.item), { inventory: f.inv, cogs: f.cogs, wip: null, expense: null });
     assert.deepEqual(await saveItemCategoryAccounts([{ categoryId: f.goodsCat, inventory: f.inv, cogs: f.cogs, expense: null }], actor), { ok: true, changed: 0 }, "nothing changed, nothing written");
   });
 

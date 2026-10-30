@@ -47,6 +47,7 @@ import { checkWarehouseCollections, writeWarehouseCollections } from "@/lib/erp/
 import type { Prisma } from "@/generated/prisma/client";
 import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-rules";
 import { categoriesUsingAccount } from "@/lib/erp/item-account";
+import { costTypesUsingAccount } from "@/lib/erp/production-cost";
 
 /**
  * Every action here is permission-gated before it touches anything, and every
@@ -739,6 +740,10 @@ export async function toggleStatus(
     const categories = await categoriesUsingAccount(id);
     if (categories.length) {
       return { ok: false, message: `Account ini dipakai Kategori Item (${categories.join(", ")}) dan tidak dapat dinonaktifkan.` };
+    }
+    const costTypes = await costTypesUsingAccount(id);
+    if (costTypes.length) {
+      return { ok: false, message: `Account ini dipakai Jenis Biaya (${costTypes.join(", ")}) dan tidak dapat dinonaktifkan.` };
     }
     const dependents = await prisma.mCashBank.findMany({
       where: { account_id: id },

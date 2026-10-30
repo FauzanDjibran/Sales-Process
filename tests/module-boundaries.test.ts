@@ -117,6 +117,11 @@ const TABLE_OWNERS: Record<string, string[]> = {
   purOrderLineRequest: ["src/lib/erp/purchase-order.ts"],
   // Accounts per Kategori Item (P122): read and written only through its module.
   accItemCategoryAccount: ["src/lib/erp/item-account.ts"],
+  // Production (P200): Jenis Biaya is a master the registry writes; the Tagihan
+  // Biaya owns its own tables.
+  accCostType: ["src/lib/erp/production-cost.ts", "src/lib/erp/records.ts"],
+  prdCostBill: ["src/lib/erp/production-cost-bill.ts"],
+  prdCostBillLine: ["src/lib/erp/production-cost-bill.ts"],
   // Billing documents: Finance owns them since P107; Sales holds only orders.
   finArAdvance: ["src/lib/erp/ar-advance.ts"],
   finArPermitAdvance: ["src/lib/erp/permit-advance.ts"],

@@ -85,6 +85,20 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "PERMIT_TYPE_ACTIVATE",
     deactivate: "PERMIT_TYPE_DEACTIVATE",
   },
+  ref_workstation: {
+    view: "WORKSTATION_VIEW",
+    create: "WORKSTATION_CREATE",
+    edit: "WORKSTATION_EDIT",
+    activate: "WORKSTATION_ACTIVATE",
+    deactivate: "WORKSTATION_DEACTIVATE",
+  },
+  acc_cost_type: {
+    view: "COST_TYPE_VIEW",
+    create: "COST_TYPE_CREATE",
+    edit: "COST_TYPE_EDIT",
+    activate: "COST_TYPE_ACTIVATE",
+    deactivate: "COST_TYPE_DEACTIVATE",
+  },
   sys_partner_category: {
     view: "PARTNER_CATEGORY_VIEW",
     create: "PARTNER_CATEGORY_CREATE",

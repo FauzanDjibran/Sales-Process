@@ -45,6 +45,9 @@ export type SystemDefaultKey =
   | "input_vat_account"
   | "supplier_invoice_diff_account"
   | "supplier_invoice_tolerance"
+  | "production_cost_payable_account"
+  | "production_scrap_account"
+  | "production_absorbed_account"
   | "ppn_rate"
   | "ppn_dpp_other_numerator"
   | "ppn_dpp_other_denominator";
@@ -64,6 +67,7 @@ export type SystemDefaultGroupKey =
   | "permit"
   | "delivery"
   | "purchase"
+  | "production"
   | "fx"
   | "equity_pl";
 
@@ -159,6 +163,17 @@ export const SYSTEM_DEFAULT_GROUPS = [
       "Kategori Item; PPh yang dipotong perusahaan memakai account pada " +
       "Jenis PPh pembelian.",
     icon: "box",
+  },
+  {
+    key: "production",
+    page: "account",
+    name: "Produksi",
+    desc:
+      "Hutang atas setiap Tagihan Biaya, beban atas barang produksi yang " +
+      "dimusnahkan, dan account yang dikredit saat penutupan bulan membebankan " +
+      "biaya produksi. WIP tidak memiliki cadangan di sini: setiap Kategori Item " +
+      "yang masuk produksi menentukan Account WIP-nya sendiri.",
+    icon: "gear",
   },
   {
     key: "fx",
@@ -420,6 +435,37 @@ export const SYSTEM_DEFAULTS = [
     help: "selisih dalam toleransi antara tagihan supplier dan invoice",
   },
 
+  // ----------------------------------------------------------- production
+  //
+  // WIP has no fallback here (R16): it is the Kategori Item's own.
+  {
+    key: "production_cost_payable_account",
+    name: "Account Hutang Biaya Produksi",
+    icon: "wallet",
+    type: "ref",
+    ref: "acc_account",
+    group: "production",
+    help: "sisi kredit setiap Tagihan Biaya; dilunasi oleh Pembayaran Biaya Produksi",
+  },
+  {
+    key: "production_scrap_account",
+    name: "Account Beban Pemusnahan Produksi",
+    icon: "trash",
+    type: "ref",
+    ref: "acc_account",
+    group: "production",
+    help: "didebit senilai barang produksi yang dimusnahkan",
+  },
+  {
+    key: "production_absorbed_account",
+    name: "Account Biaya Produksi Dibebankan",
+    icon: "layers",
+    type: "ref",
+    ref: "acc_account",
+    group: "production",
+    help: "dikredit saat penutupan bulan membebankan biaya produksi",
+  },
+
   // ------------------------------------------------------------------ fx
   //
   // One account rather than a gain and a loss. A gain and a loss are the same
@@ -488,6 +534,9 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   input_vat_account: null,
   supplier_invoice_diff_account: null,
   supplier_invoice_tolerance: null,
+  production_cost_payable_account: null,
+  production_scrap_account: null,
+  production_absorbed_account: null,
   ppn_rate: null,
   ppn_dpp_other_numerator: null,
   ppn_dpp_other_denominator: null,

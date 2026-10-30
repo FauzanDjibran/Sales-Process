@@ -9,11 +9,12 @@ import { saveItemCategoryAccountsAction } from "@/app/actions/settings";
 import type { ItemCategoryAccountRow } from "@/lib/erp/item-account";
 import type { RefOption } from "@/lib/erp/records";
 
-type Kind = "inventory" | "cogs" | "expense";
+type Kind = "inventory" | "cogs" | "wip" | "expense";
 
 const KINDS: { kind: Kind; label: string; goodsOnly: boolean }[] = [
   { kind: "inventory", label: "Persediaan", goodsOnly: true },
   { kind: "cogs", label: "HPP", goodsOnly: true },
+  { kind: "wip", label: "WIP", goodsOnly: true },
   { kind: "expense", label: "Beban", goodsOnly: false },
 ];
 
@@ -54,7 +55,7 @@ export function ItemCategoryAccountForm({
   const onSave = async () => {
     setSaving(true);
     const result = await saveItemCategoryAccountsAction(
-      rows.map((r) => ({ categoryId: r.categoryId, inventory: r.inventory, cogs: r.cogs, expense: r.expense }))
+      rows.map((r) => ({ categoryId: r.categoryId, inventory: r.inventory, cogs: r.cogs, wip: r.wip, expense: r.expense }))
     );
     setSaving(false);
     if (!result.ok) {
@@ -68,7 +69,7 @@ export function ItemCategoryAccountForm({
 
   const fallbackText = (kind: Kind) => {
     const id = kind === "inventory" ? fallback.inventory : kind === "cogs" ? fallback.cogs : null;
-    if (kind === "expense") return "Belum diatur";
+    if (kind === "expense" || kind === "wip") return "Belum diatur";
     const a = id ? byId.get(id) : null;
     return a ? `Ikut Account Mapping: ${a.label}` : "Ikut Account Mapping (belum diatur)";
   };
@@ -86,13 +87,13 @@ export function ItemCategoryAccountForm({
             <h3>Kategori {type}</h3>
             <p>
               {type === "Barang"
-                ? "Persediaan dan HPP untuk barang dengan Kelola Stok; Beban untuk barang tanpa Kelola Stok, yang dibebankan saat diterima."
+                ? "Persediaan dan HPP untuk barang dengan Kelola Stok, WIP selama barang berada di produksi; Beban untuk barang tanpa Kelola Stok, yang dibebankan saat diterima."
                 : "Jasa dibebankan saat diterima, ke Account Beban kategorinya."}
             </p>
           </div>
         </div>
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: type === "Barang" ? 980 : 620 }}>
+          <table className="grid ltab" style={{ minWidth: type === "Barang" ? 1260 : 620 }}>
             <thead>
               <tr>
                 <th>Kategori</th>
@@ -200,7 +201,8 @@ export function ItemCategoryAccountForm({
 
       <p className="foot-note">
         Persediaan dan HPP yang kosong memakai account di Account Mapping (kartu Pengiriman Barang). Beban tidak punya
-        cadangan: penerimaan barang tanpa Kelola Stok atau jasa ditolak selama kategorinya belum menyebut Account Beban.
+        cadangan: penerimaan barang tanpa Kelola Stok atau jasa ditolak selama kategorinya belum menyebut Account Beban. WIP juga
+        tidak punya cadangan: dokumen produksi ditolak selama kategori barangnya belum menyebut Account WIP.
       </p>
     </>
   );

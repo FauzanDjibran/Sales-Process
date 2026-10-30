@@ -110,6 +110,10 @@ describe("the settings catalogue lives in code", () => {
         "purchase_advance_account",
         "input_vat_account",
         "supplier_invoice_diff_account",
+        // Production (R9, R13, R16).
+        "production_cost_payable_account",
+        "production_scrap_account",
+        "production_absorbed_account",
         "fx_account",
         "accumulated_pl_account",
         "current_pl_account",

@@ -268,6 +268,7 @@ table acc_item_category_account {
   inventory_account_id        int [ref : > acc_account.id]
   cogs_account_id             int [ref : > acc_account.id]
   expense_account_id          int [ref : > acc_account.id]
+  wip_account_id              int [ref : > acc_account.id] // Barang only; no fallback (R16)
 
   created_by                  int [not null]
   updated_by                  int
@@ -382,6 +383,48 @@ table ref_payment_term {
   term_name                   varchar [not null]
 
   due_days                    int [not null]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// Workstation (R3): where production happens; goods in production sit per lot · workstation
+table ref_workstation {
+  id                          int [pk, increment, not null]
+
+  workstation_code            varchar [not null, unique]
+
+  workstation_label           varchar [not null]
+  workstation_name            varchar [not null]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// Jenis Biaya (R9): a Tagihan Biaya line's cost and the expense account it books to;
+// the month-end close pools the net debit on these accounts (R10)
+table acc_cost_type {
+  id                          int [pk, increment, not null]
+
+  cost_type_code              varchar [not null, unique]
+
+  cost_type_label             varchar [not null]
+  cost_type_name              varchar [not null]
+  expense_account_id          int [not null, ref : > acc_account.id] // fixed once chosen
 
   note                        varchar
 
@@ -522,6 +565,7 @@ table m_item {
   can_buy                     boolean [not null, default: false]
   track_stock                 boolean [not null, default: false]
   has_expiry                  boolean [not null, default: false]
+  value_weight                decimal(18,6) // Bobot Nilai (R6): an execution shares its value by qty × this; empty / 0 = no value
 
   note                        varchar
 
@@ -2517,6 +2561,54 @@ table tax_withholding_slip {
     (status, withheld_date)
     receipt_id
     (doc_type_id, doc_id)
+  }
+}
+
+// ------------------------------------------------------------- production (P200)
+
+// Tagihan Biaya (R9): Dr each line's Jenis Biaya expense account / Cr Account Mapping's
+// Hutang Biaya Produksi, copied at posting; paid by Pembayaran Biaya Produksi (P132)
+table prd_cost_bill {
+  id                          int [pk, increment, not null]
+
+  bill_no                     varchar [not null, unique] // TBP/YYYY/MM/NNNN
+  bill_date                   date [not null]
+  partner_id                  int [ref : > m_partner.id] // the Supplier owed; required at saving
+  supplier_ref                varchar
+  due_date                    date
+  description                 varchar [not null]
+  note                        varchar
+
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  cancel_reason               varchar
+  total_amount                decimal(18,2) [not null, default: 0]
+  payable_account_id          int [ref : > acc_account.id] // copied at posting
+  paid_amount                 decimal(18,2) [not null, default: 0] // CHECK 0 ≤ paid ≤ total
+  journal_id                  int // no FK
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    status
+    partner_id
+  }
+}
+
+table prd_cost_bill_line {
+  id                          int [pk, increment, not null]
+
+  bill_id                     int [not null, ref : > prd_cost_bill.id] // cascade
+  line_no                     int [not null]
+  cost_type_id                int [not null, ref : > acc_cost_type.id]
+  amount                      decimal(18,2) [not null]
+  note                        varchar
+
+  indexes {
+    bill_id
   }
 }
 

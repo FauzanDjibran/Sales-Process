@@ -638,6 +638,15 @@ export const ENTITIES: Entity[] = [
         visibleWhen: "itemIsGoods",
         caption: "Memiliki Kadaluarsa",
       },
+      {
+        name: "value_weight",
+        label: "Bobot Nilai",
+        type: "rate",
+        span: 4,
+        visibleWhen: "itemIsGoods",
+        placeholder: "0",
+        help: "nilai relatif per satuan dasar saat keluar dari Eksekusi Produksi; 0 = tanpa nilai",
+      },
       STATUS_FIELD,
       NOTE_FIELD,
     ],
@@ -957,6 +966,50 @@ export const ENTITIES: Entity[] = [
   },
 
   {
+    // Where production transforms input into output (R3): goods in production
+    // are held per lot · workstation.
+    key: "ref_workstation",
+    slug: "workstation",
+    module: "master",
+    name: "Workstation",
+    icon: "gear",
+    desc: "Tempat proses produksi yang Anda tentukan sendiri — pengolahan, pengemasan, atau tahap lain. Barang di produksi dicatat per lot dan workstation.",
+    codeField: "workstation_code",
+    codePrefix: "ws",
+    labelField: "workstation_label",
+    nameField: "workstation_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "workstation_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "WS-OLAH",
+        help: identHelp,
+      },
+      {
+        name: "workstation_name",
+        label: "Nama Workstation",
+        type: "text",
+        required: true,
+        placeholder: "Pengolahan",
+        help: "nama lengkap",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "workstation_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
+      { field: "workstation_name", label: "Nama Workstation", primary: true, filter: "text" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+      { field: "note", label: "Catatan", muted: true, truncate: true },
+    ],
+  },
+
+  {
     key: "ref_withholding_tax",
     slug: "withholding-tax",
     module: "master",
@@ -1111,6 +1164,62 @@ export const ENTITIES: Entity[] = [
   },
 
   // ------------------------------------------------------ pengaturan
+
+  {
+    // Jenis Biaya (R9): what a Tagihan Biaya line picks instead of an account.
+    // The month-end close pools the net debit on the accounts these name (R10).
+    // The account is fixed once chosen; several Jenis Biaya may share it.
+    key: "acc_cost_type",
+    slug: "cost-type",
+    module: "master",
+    name: "Jenis Biaya",
+    icon: "coin",
+    desc: "Biaya produksi — listrik pabrik, upah, pemeliharaan mesin — beserta account biayanya. Tagihan Biaya memilih Jenis Biaya, bukan account; penutupan bulan membebankan saldo account-account ini ke produksi.",
+    codeField: "cost_type_code",
+    codePrefix: "jb",
+    labelField: "cost_type_label",
+    nameField: "cost_type_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "cost_type_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "LISTRIK-PABRIK",
+        help: identHelp,
+      },
+      {
+        name: "cost_type_name",
+        label: "Nama Jenis Biaya",
+        type: "text",
+        required: true,
+        placeholder: "Listrik & Utilitas Pabrik",
+        help: "nama lengkap",
+      },
+      {
+        name: "expense_account_id",
+        label: "Account Biaya",
+        type: "ref",
+        ref: "acc_account",
+        refFilter: "postableAccount",
+        required: true,
+        locked: true,
+        span: 6,
+        help: "didebit oleh Tagihan Biaya; dibebankan ke produksi saat penutupan bulan",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "cost_type_label", label: "Label", isLabel: true, width: "170px", filter: "text" },
+      { field: "cost_type_name", label: "Nama Jenis Biaya", primary: true, filter: "text" },
+      { field: "expense_account_id", label: "Account Biaya", isRef: true, width: "280px" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+    ],
+  },
 
   {
     key: "sys_partner_category",

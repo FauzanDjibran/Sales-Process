@@ -11,6 +11,8 @@ import { checkAccountIsLeaf } from "./records";
  *
  * - **Persediaan** and **HPP** apply to a Barang category: a Barang with Kelola
  *   Stok is valued in Persediaan and issued to HPP.
+ * - **WIP** applies to a Barang category: its value while in production. It has
+ *   no fallback (R16) — a production posting is refused naming the category.
  * - **Beban** applies to every category: a Barang without Kelola Stok, and a
  *   Jasa, is an expense when it is received.
  *
@@ -24,11 +26,11 @@ import { checkAccountIsLeaf } from "./records";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-export type CategoryAccountKind = "inventory" | "cogs" | "expense";
+export type CategoryAccountKind = "inventory" | "cogs" | "wip" | "expense";
 
 /** Which accounts a category of this type may carry. */
 export function categoryAccountKinds(itemType: "Barang" | "Jasa"): CategoryAccountKind[] {
-  return itemType === "Barang" ? ["inventory", "cogs", "expense"] : ["expense"];
+  return itemType === "Barang" ? ["inventory", "cogs", "wip", "expense"] : ["expense"];
 }
 
 export type ItemCategoryAccountRow = {
@@ -39,6 +41,7 @@ export type ItemCategoryAccountRow = {
   active: boolean;
   inventory: number | null;
   cogs: number | null;
+  wip: number | null;
   expense: number | null;
 };
 
@@ -56,6 +59,7 @@ export async function itemCategoryAccounts(): Promise<ItemCategoryAccountRow[]> 
     active: c.status === "Active",
     inventory: c.accounts?.inventory_account_id ?? null,
     cogs: c.accounts?.cogs_account_id ?? null,
+    wip: c.accounts?.wip_account_id ?? null,
     expense: c.accounts?.expense_account_id ?? null,
   }));
 }
@@ -64,6 +68,8 @@ export type ItemCategoryAccountInput = {
   categoryId: number;
   inventory: number | null;
   cogs: number | null;
+  /** Optional: absent reads as empty, as for a Jasa category. */
+  wip?: number | null;
   expense: number | null;
 };
 
@@ -77,14 +83,14 @@ export type ItemCategoryAccountResult = { ok: true; changed: number } | { ok: fa
 export async function saveItemCategoryAccounts(input: ItemCategoryAccountInput[], actorId: number): Promise<ItemCategoryAccountResult> {
   const errors: Record<string, string> = {};
   const categories = new Map((await prisma.sysItemCategory.findMany({ include: { accounts: true } })).map((c) => [c.id, c]));
-  const ids = [...new Set(input.flatMap((r) => [r.inventory, r.cogs, r.expense]).filter((v): v is number => Boolean(v)))];
+  const ids = [...new Set(input.flatMap((r) => [r.inventory, r.cogs, r.wip, r.expense]).filter((v): v is number => Boolean(v)))];
   const accounts = new Map(
     (await prisma.accAccount.findMany({ where: { id: { in: ids } }, select: { id: true, is_active: true, is_postable: true } })).map((a) => [a.id, a])
   );
   const leafProblems = new Map<number, string | null>();
   for (const id of ids) leafProblems.set(id, await checkAccountIsLeaf(id));
 
-  const writes: { categoryId: number; data: { inventory_account_id: number | null; cogs_account_id: number | null; expense_account_id: number | null } }[] = [];
+  const writes: { categoryId: number; data: { inventory_account_id: number | null; cogs_account_id: number | null; wip_account_id: number | null; expense_account_id: number | null } }[] = [];
   for (const r of input) {
     const c = categories.get(Number(r.categoryId));
     if (!c) {
@@ -92,8 +98,8 @@ export async function saveItemCategoryAccounts(input: ItemCategoryAccountInput[]
       continue;
     }
     const allowed = new Set(categoryAccountKinds(c.item_type));
-    const values = { inventory: Number(r.inventory) || null, cogs: Number(r.cogs) || null, expense: Number(r.expense) || null };
-    for (const kind of ["inventory", "cogs", "expense"] as const) {
+    const values = { inventory: Number(r.inventory) || null, cogs: Number(r.cogs) || null, wip: Number(r.wip) || null, expense: Number(r.expense) || null };
+    for (const kind of ["inventory", "cogs", "wip", "expense"] as const) {
       const id = values[kind];
       if (!id) continue;
       const key = `${c.id}.${kind}`;
@@ -107,11 +113,12 @@ export async function saveItemCategoryAccounts(input: ItemCategoryAccountInput[]
       else if (!a.is_active) errors[key] = "Account tersebut non-aktif.";
       else if (leafProblems.get(id)) errors[key] = leafProblems.get(id)!;
     }
-    const data = { inventory_account_id: values.inventory, cogs_account_id: values.cogs, expense_account_id: values.expense };
+    const data = { inventory_account_id: values.inventory, cogs_account_id: values.cogs, wip_account_id: values.wip, expense_account_id: values.expense };
     const before = c.accounts;
     const same =
       (before?.inventory_account_id ?? null) === data.inventory_account_id &&
       (before?.cogs_account_id ?? null) === data.cogs_account_id &&
+      (before?.wip_account_id ?? null) === data.wip_account_id &&
       (before?.expense_account_id ?? null) === data.expense_account_id;
     if (!same) writes.push({ categoryId: c.id, data });
   }
@@ -130,7 +137,7 @@ export async function saveItemCategoryAccounts(input: ItemCategoryAccountInput[]
   return { ok: true, changed: writes.length };
 }
 
-export type ItemAccounts = { inventory: number | null; cogs: number | null; expense: number | null };
+export type ItemAccounts = { inventory: number | null; cogs: number | null; wip: number | null; expense: number | null };
 
 /**
  * The accounts each item's category names, by item id — null where the
@@ -149,6 +156,7 @@ export async function accountsForItems(itemIds: number[], db: Db = prisma): Prom
       {
         inventory: i.category.accounts?.inventory_account_id ?? null,
         cogs: i.category.accounts?.cogs_account_id ?? null,
+        wip: i.category.accounts?.wip_account_id ?? null,
         expense: i.category.accounts?.expense_account_id ?? null,
       },
     ])
@@ -158,7 +166,7 @@ export async function accountsForItems(itemIds: number[], db: Db = prisma): Prom
 /** Whether any category points at this account — read before it is deactivated. */
 export async function categoriesUsingAccount(accountId: number): Promise<string[]> {
   const rows = await prisma.accItemCategoryAccount.findMany({
-    where: { OR: [{ inventory_account_id: accountId }, { cogs_account_id: accountId }, { expense_account_id: accountId }] },
+    where: { OR: [{ inventory_account_id: accountId }, { cogs_account_id: accountId }, { wip_account_id: accountId }, { expense_account_id: accountId }] },
     select: { category: { select: { category_label: true } } },
   });
   return rows.map((r) => r.category.category_label);

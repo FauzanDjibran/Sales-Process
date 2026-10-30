@@ -706,6 +706,47 @@ export const CHECKS: Check[] = [
               OR (NOT w.use_location AND b.location_id IS NOT NULL)
               OR (b.location_id IS NOT NULL AND loc.warehouse_id <> b.warehouse_id))`,
   },
+  // ------------------------------------------------------------ production
+  {
+    area: "production",
+    name: "every posted Tagihan Biaya has a posted journal naming it, at its total; no other has one (R9)",
+    sql: `SELECT b.bill_no, b.status::text, b.total_amount, SUM(l.debit_amount) AS journal_debit
+          FROM prd_cost_bill b
+          LEFT JOIN acc_journal j ON j.id = b.journal_id
+          LEFT JOIN acc_journal_line l ON l.journal_id = j.id
+          GROUP BY b.id, j.id
+          HAVING (b.status = 'Posted' AND (j.id IS NULL OR j.status <> 'Posted' OR j.source_doc_type_id <> ${docType("prd_cost_bill")} OR j.source_doc_id <> b.id
+                                          OR COALESCE(SUM(l.debit_amount), 0) <> b.total_amount))
+              OR (b.status <> 'Posted' AND b.journal_id IS NOT NULL)`,
+  },
+  {
+    area: "production",
+    name: "each posted Tagihan Biaya debits its lines per expense account and credits its payable for its total (R9)",
+    sql: `WITH bl AS (SELECT b.id AS bill_id, t.expense_account_id AS account_id, SUM(x.amount) AS amount
+                     FROM prd_cost_bill b JOIN prd_cost_bill_line x ON x.bill_id = b.id JOIN acc_cost_type t ON t.id = x.cost_type_id
+                     WHERE b.status = 'Posted' GROUP BY b.id, t.expense_account_id),
+               jl AS (SELECT b.id AS bill_id, l.account_id, SUM(l.debit_amount) AS amount
+                      FROM prd_cost_bill b JOIN acc_journal_line l ON l.journal_id = b.journal_id
+                      WHERE b.status = 'Posted' AND l.debit_amount > 0 GROUP BY b.id, l.account_id)
+          SELECT COALESCE(bl.bill_id, jl.bill_id) AS bill_id, COALESCE(bl.account_id, jl.account_id) AS account_id, bl.amount AS bill, jl.amount AS journal
+          FROM bl FULL JOIN jl ON jl.bill_id = bl.bill_id AND jl.account_id = bl.account_id
+          WHERE bl.amount IS DISTINCT FROM jl.amount
+          UNION ALL
+          SELECT b.id, b.payable_account_id, b.total_amount, SUM(l.kredit_amount)
+          FROM prd_cost_bill b LEFT JOIN acc_journal_line l ON l.journal_id = b.journal_id AND l.account_id = b.payable_account_id
+          WHERE b.status = 'Posted'
+          GROUP BY b.id HAVING b.payable_account_id IS NULL OR COALESCE(SUM(l.kredit_amount), 0) <> b.total_amount`,
+  },
+  {
+    area: "production",
+    name: "a Tagihan Biaya's paid amount equals its posted payment lines (R9, P132)",
+    sql: `SELECT b.bill_no, b.total_amount, b.paid_amount, COALESCE(p.paid, 0) AS lines
+          FROM prd_cost_bill b
+          LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid FROM fin_cash_bank_tx_line l
+                     JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+                     WHERE l.doc_type_id = ${docType("prd_cost_bill")} GROUP BY l.doc_id) p ON p.doc_id = b.id
+          WHERE b.paid_amount <> COALESCE(p.paid, 0) OR b.paid_amount > b.total_amount`,
+  },
 ];
 
 export type CheckResult = { area: string; name: string; rows: Record<string, unknown>[] };

@@ -2,7 +2,7 @@
  * Starter chart of accounts and the account pointers that hang off it
  * (Claude-ERP.md P130): the accounts every posting document needs, under the
  * seeded skeleton, then Account Mapping, the Kategori Item accounts and the
- * Jenis PPh accounts pointed at them.
+ * Jenis PPh accounts pointed at them, and the starter Jenis Biaya (R9).
  *
  * **Idempotent and additive, never overwriting.** An account is matched on its
  * name (case-insensitive) and created only when missing, with the next free
@@ -45,12 +45,15 @@ export const STARTER_ACCOUNTS: AccountSpec[] = [
   { key: "purchaseAdvance", sub: "1.1.6", name: "Uang Muka Pembelian", normal: "Debit", partner: S, control: true, note: "Uang muka yang sudah dibayar ke supplier, per supplier" },
   { key: "pph23", sub: "1.1.7", name: "PPh 23 Dibayar Dimuka", normal: "Debit", note: "PPh 23 yang dipotong customer — dikreditkan dengan bukti potong" },
   { key: "pph22", sub: "1.1.7", name: "PPh 22 Dibayar Dimuka", normal: "Debit", note: "PPh 22 yang dipungut pembeli atas barang" },
+  { key: "wip", sub: "1.1.5", name: "Persediaan Barang Dalam Proses", normal: "Debit", control: true, note: "Nilai barang yang sedang berada di produksi (WIP), sebesar buku produksi" },
+  { key: "accDepMachine", sub: "1.3.9", name: "Akumulasi Penyusutan Mesin & Peralatan", normal: "Kredit", note: "Lawan Biaya Penyusutan Mesin & Peralatan" },
   { key: "inputVat", sub: "1.1.7", name: "PPN Masukan", normal: "Debit", control: true, note: "PPN dari faktur pajak supplier" },
   // ---- liabilities
   { key: "ap", sub: "2.1.1", name: "Hutang Usaha", normal: "Kredit", partner: S, control: true, note: "Tagihan invoice pembelian yang belum dibayar, per supplier" },
   { key: "grir", sub: "2.1.1", name: "Barang Diterima Belum Ditagih", normal: "Kredit", partner: S, control: true, note: "Kliring antara Receipt Note dan Invoice Pembelian, per supplier" },
   { key: "vat", sub: "2.1.2", name: "PPN Keluaran", normal: "Kredit", control: true, note: "PPN terutang atas penyerahan dan uang muka" },
   { key: "pph23Payable", sub: "2.1.2", name: "Hutang PPh 23", normal: "Kredit", note: "PPh 23 yang dipotong dari supplier, disetor ke negara" },
+  { key: "productionCostPayable", sub: "2.1.3", name: "Hutang Biaya Produksi", normal: "Kredit", note: "Biaya produksi (listrik, upah, jasa) yang sudah ditagih dan belum dibayar" },
   { key: "advance", sub: "2.1.4", name: "Uang Muka Penjualan", normal: "Kredit", partner: C, control: true, note: "Kewajiban menyerahkan barang atas uang muka yang sudah diterima" },
   { key: "permitAdvance", sub: "2.1.4", name: "Uang Muka Perizinan", normal: "Kredit", partner: C, control: true, note: "Kewajiban mengurus perizinan atas uang muka yang sudah diterima, per customer" },
   // ---- equity
@@ -68,6 +71,16 @@ export const STARTER_ACCOUNTS: AccountSpec[] = [
   { key: "cogsTrade", sub: "5.1.1", name: "HPP Barang Dagangan", normal: "Debit" },
   { key: "toll", sub: "5.1.1", name: "Biaya Jasa Maklon", normal: "Debit" },
   { key: "permitCost", sub: "5.1.1", name: "Biaya Perizinan", normal: "Debit", note: "Biaya pengurusan perizinan yang dibayar sebesar realisasinya, tanpa pajak" },
+  // Production cost (R9, R10): not Control Accounts, so a manual journal (e.g.
+  // depreciation) may post to them too; the month-end close pools them.
+  { key: "costLabor", sub: "5.1.1", name: "Biaya Tenaga Kerja Langsung", normal: "Debit", note: "Biaya produksi, dibebankan saat penutupan bulan" },
+  { key: "costIndirectLabor", sub: "5.1.1", name: "Biaya Tenaga Kerja Tidak Langsung", normal: "Debit", note: "Biaya produksi, dibebankan saat penutupan bulan" },
+  { key: "costUtility", sub: "5.1.1", name: "Biaya Listrik & Utilitas Pabrik", normal: "Debit", note: "Biaya produksi, dibebankan saat penutupan bulan" },
+  { key: "costDepreciation", sub: "5.1.1", name: "Biaya Penyusutan Mesin & Peralatan", normal: "Debit", note: "Biaya produksi, dibebankan saat penutupan bulan" },
+  { key: "costMaintenance", sub: "5.1.1", name: "Biaya Pemeliharaan Mesin", normal: "Debit", note: "Biaya produksi, dibebankan saat penutupan bulan" },
+  { key: "costOverhead", sub: "5.1.1", name: "Biaya Overhead Pabrik Lain-lain", normal: "Debit", note: "Biaya produksi, dibebankan saat penutupan bulan" },
+  { key: "costAbsorbed", sub: "5.1.1", name: "Biaya Produksi Dibebankan", normal: "Kredit", control: true, note: "Dikredit penutupan bulan sebesar biaya produksi yang dibebankan ke WIP, Persediaan dan HPP" },
+  { key: "productionScrap", sub: "5.1.9", name: "Beban Pemusnahan Produksi", normal: "Debit", note: "Nilai barang produksi yang dimusnahkan" },
   { key: "freight", sub: "5.2.1", name: "Beban Pengiriman", normal: "Debit" },
   { key: "bankFee", sub: "5.3.1", name: "Beban Bank", normal: "Debit" },
   { key: "admin", sub: "5.3.1", name: "Beban Umum & Administrasi", normal: "Debit" },
@@ -98,6 +111,23 @@ export const STARTER_MAPPINGS: [setting: string, account: string][] = [
   ["purchase_advance_account", "purchaseAdvance"],
   ["input_vat_account", "inputVat"],
   ["supplier_invoice_diff_account", "invoiceDiff"],
+  ["production_cost_payable_account", "productionCostPayable"],
+  ["production_scrap_account", "productionScrap"],
+  ["production_absorbed_account", "costAbsorbed"],
+];
+
+/**
+ * Starter Jenis Biaya (R9): label, name and the expense account it books to.
+ * Penyusutan has one so the close pools its account, though it is journalled
+ * by hand rather than billed (R10).
+ */
+export const STARTER_COST_TYPES: [label: string, name: string, expense: string][] = [
+  ["UPAH-LANGSUNG", "Upah Tenaga Kerja Langsung", "costLabor"],
+  ["UPAH-TIDAK-LANGSUNG", "Upah Tenaga Kerja Tidak Langsung", "costIndirectLabor"],
+  ["LISTRIK-PABRIK", "Listrik & Utilitas Pabrik", "costUtility"],
+  ["PENYUSUTAN-MESIN", "Penyusutan Mesin & Peralatan", "costDepreciation"],
+  ["PEMELIHARAAN-MESIN", "Pemeliharaan Mesin", "costMaintenance"],
+  ["OVERHEAD-LAIN", "Overhead Pabrik Lain-lain", "costOverhead"],
 ];
 
 /** Jenis PPh label → its account: PPh Dibayar Dimuka for sales, Hutang PPh for purchases (P122). */
@@ -108,7 +138,7 @@ export const STARTER_WHT_ACCOUNTS: [whtLabel: string, account: string][] = [
   ["PPH23-BELI", "pph23Payable"],
 ];
 
-/** Kategori Item → [Persediaan, HPP, Beban]; a Jasa category takes Beban only (P122). */
+/** Kategori Item → [Persediaan, HPP, Beban]; a Jasa category takes Beban only (P122); a Barang category also takes WIP (R16). */
 export const STARTER_CATEGORY_ACCOUNTS: [category: string, inventory: string | null, cogs: string | null, expense: string][] = [
   ["BHN-BAKU", "invRaw", "cogs", "supplies"],
   ["BHN-KEMAS", "invPack", "cogs", "supplies"],
@@ -219,18 +249,21 @@ export async function seedStarterAccounts(actor: number): Promise<StarterAccount
     const want = {
       inventory_account_id: inventory ? accountId.get(inventory)! : null,
       cogs_account_id: cogs ? accountId.get(cogs)! : null,
+      wip_account_id: inventory ? accountId.get("wip")! : null,
       expense_account_id: accountId.get(expense)!,
     };
     const current = await prisma.accItemCategoryAccount.findUnique({ where: { category_id: category.id } });
     const fill = {
       inventory_account_id: current?.inventory_account_id ?? want.inventory_account_id,
       cogs_account_id: current?.cogs_account_id ?? want.cogs_account_id,
+      wip_account_id: current?.wip_account_id ?? want.wip_account_id,
       expense_account_id: current?.expense_account_id ?? want.expense_account_id,
     };
     if (
       current &&
       current.inventory_account_id === fill.inventory_account_id &&
       current.cogs_account_id === fill.cogs_account_id &&
+      current.wip_account_id === fill.wip_account_id &&
       current.expense_account_id === fill.expense_account_id
     ) continue;
     const row = await prisma.accItemCategoryAccount.upsert({
@@ -242,6 +275,18 @@ export async function seedStarterAccounts(actor: number): Promise<StarterAccount
       data: { entity_key: "acc_item_category_account", row_id: row.id, action: "UPDATE", event: "update", by: actor },
     });
     tally("kategori item accounts");
+  }
+
+  // ---- Jenis Biaya — created only when none has its label.
+  const costTypeEntity = ENTITIES.find((x) => x.key === "acc_cost_type");
+  if (!costTypeEntity) throw new Error("Registry entity acc_cost_type not found");
+  for (const [label, name, expense] of STARTER_COST_TYPES) {
+    if (await prisma.accCostType.findFirst({ where: { cost_type_label: { equals: label, mode: "insensitive" } } })) continue;
+    const row = await prisma.accCostType.create({
+      data: { cost_type_code: await nextCode(costTypeEntity), cost_type_label: label, cost_type_name: name, expense_account_id: accountId.get(expense)!, created_by: actor },
+    });
+    await prisma.auditLog.create({ data: { entity_key: "acc_cost_type", row_id: row.id, action: "TAMBAH", event: "create", by: actor } });
+    tally("jenis biaya");
   }
 
   return { accountId, made };
