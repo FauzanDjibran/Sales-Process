@@ -104,7 +104,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logReceiptNoteLine: ["src/lib/erp/receipt-note.ts"],
   logReceiptNoteLot: ["src/lib/erp/receipt-note.ts"],
   // The stock books (P120): written only by the inventory book, read by its reports.
-  logStockTracking: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
+  // One lot register for stock and production (R3): the production ledger registers the lots executions make.
+  logStockTracking: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts", "src/lib/erp/production-ledger.ts"],
   logStockLedger: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
   logStockBalance: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
   logStockValuationLedger: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
@@ -122,6 +123,10 @@ const TABLE_OWNERS: Record<string, string[]> = {
   accCostType: ["src/lib/erp/production-cost.ts", "src/lib/erp/records.ts"],
   prdCostBill: ["src/lib/erp/production-cost-bill.ts"],
   prdCostBillLine: ["src/lib/erp/production-cost-bill.ts"],
+  // The production ledger (R3): a book, written only by its module.
+  prdBalance: ["src/lib/erp/production-ledger.ts"],
+  prdLedger: ["src/lib/erp/production-ledger.ts"],
+  prdLotLink: ["src/lib/erp/production-ledger.ts"],
   // Billing documents: Finance owns them since P107; Sales holds only orders.
   finArAdvance: ["src/lib/erp/ar-advance.ts"],
   finArPermitAdvance: ["src/lib/erp/permit-advance.ts"],

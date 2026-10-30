@@ -490,6 +490,7 @@ model RefUom {
 
   customer_order_lines SalCustomerOrderLine[]
   delivery_note_lines  LogDeliveryNoteLine[]
+  prd_balances         PrdBalance[]           @relation("PrdBalanceUom")
 
   purchase_request_lines PurRequestLine[]           @relation("PurRequestLineUom")
   purchase_order_lines   PurOrderLine[]             @relation("PurOrderLineUom")
@@ -602,6 +603,8 @@ model MItem {
   valuation_ledger       LogStockValuationLedger[]
   valuation_balance      LogStockValuationBalance?
   delivery_note_lines    LogDeliveryNoteLine[]
+  prd_balances           PrdBalance[]              @relation("PrdBalanceItem")
+  prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -812,6 +815,9 @@ model RefWorkstation {
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  prd_balances PrdBalance[] @relation("PrdBalanceWorkstation")
+  prd_ledger   PrdLedger[]  @relation("PrdLedgerWorkstation")
 
   @@map("ref_workstation")
 }
@@ -2311,6 +2317,11 @@ model LogStockTracking {
   ledger   LogStockLedger[]
   balances LogStockBalance[]
 
+  prd_balances PrdBalance[]
+  prd_ledger   PrdLedger[]
+  links_from   PrdLotLink[] @relation("LinkFrom")
+  links_to     PrdLotLink[] @relation("LinkTo")
+
   @@unique([item_id, tracking_no])
   @@index([source_doc_type_id, source_doc_id])
   @@map("log_stock_tracking")
@@ -3674,4 +3685,114 @@ enum ProductionCostBillStatus {
   Draft
   Posted
   Cancelled
+}
+
+/// A production bucket (R3): one lot at one workstation, quantity in the
+/// item's base unit and value in whole rupiah; Σ value is WIP. Written only by
+/// `production-ledger.ts`, beside its ledger row.
+model PrdBalance {
+  id             Int     @id @default(autoincrement())
+  lot_id         Int
+  workstation_id Int
+  item_id        Int
+  /// The item's base unit.
+  uom_id         Int
+  qty_balance    Decimal @default(0) @db.Decimal(18, 6)
+  value_balance  Decimal @default(0) @db.Decimal(18, 2)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  lot         LogStockTracking @relation(fields: [lot_id], references: [id])
+  workstation RefWorkstation   @relation("PrdBalanceWorkstation", fields: [workstation_id], references: [id])
+  item        MItem            @relation("PrdBalanceItem", fields: [item_id], references: [id])
+  uom         RefUom           @relation("PrdBalanceUom", fields: [uom_id], references: [id])
+  ledger      PrdLedger[]
+  links_from  PrdLotLink[]
+
+  @@unique([lot_id, workstation_id])
+  @@index([workstation_id])
+  @@index([item_id])
+  @@map("prd_balance")
+}
+
+/// The production ledger (R3): append-only, one row per bucket movement with
+/// the balances after it; one ledger number `MP/…` per posting (P110).
+model PrdLedger {
+  id                 Int         @id @default(autoincrement())
+  ledger_no          String
+  line_no            Int
+  posting_date       DateTime    @db.Date
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  movement           PrdMovement
+  bucket_id          Int
+  lot_id             Int
+  workstation_id     Int
+  item_id            Int
+  qty_change         Decimal     @db.Decimal(18, 6)
+  qty_balance        Decimal     @db.Decimal(18, 6)
+  /// Whole rupiah.
+  value_change       Decimal     @db.Decimal(18, 2)
+  value_balance      Decimal     @db.Decimal(18, 2)
+  /// |value ÷ qty| of this movement — a description, never read back (P114).
+  unit_cost          Decimal     @db.Decimal(18, 6)
+  created_by         Int
+  created_at         DateTime    @default(now()) @db.Timestamptz(6)
+
+  bucket      PrdBalance       @relation(fields: [bucket_id], references: [id])
+  lot         LogStockTracking @relation(fields: [lot_id], references: [id])
+  workstation RefWorkstation   @relation("PrdLedgerWorkstation", fields: [workstation_id], references: [id])
+  item        MItem            @relation("PrdLedgerItem", fields: [item_id], references: [id])
+
+  @@unique([ledger_no, line_no])
+  @@index([bucket_id, posting_date])
+  @@index([lot_id])
+  @@index([source_doc_type_id, source_doc_id])
+  @@map("prd_ledger")
+}
+
+/// Genealogy (R12): what each input of an execution gave each output lot, by
+/// quantity and value — read by the Kartu Lot and followed forward by the
+/// month-end close.
+model PrdLotLink {
+  id                 Int      @id @default(autoincrement())
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  from_bucket_id     Int
+  from_lot_id        Int
+  to_lot_id          Int
+  qty                Decimal  @db.Decimal(18, 6)
+  value              Decimal  @db.Decimal(18, 2)
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  from_bucket PrdBalance       @relation(fields: [from_bucket_id], references: [id])
+  from_lot    LogStockTracking @relation("LinkFrom", fields: [from_lot_id], references: [id])
+  to_lot      LogStockTracking @relation("LinkTo", fields: [to_lot_id], references: [id])
+
+  @@index([source_doc_type_id, source_doc_id])
+  @@index([from_lot_id])
+  @@index([to_lot_id])
+  @@map("prd_lot_link")
+}
+
+enum PrdMovement {
+  /// Issued in from stock (Stock Issue).
+  Issued
+  /// Taken as an execution's input.
+  Consumed
+  /// Made as an execution's output.
+  Produced
+  /// Out to another workstation (Production Transfer).
+  TransferOut
+  /// In from another workstation (Production Transfer).
+  TransferIn
+  /// Taken out of production (Production Release: to a warehouse, Pemusnahan).
+  Released
+  /// Value only, quantity 0 — the month-end close.
+  Revalued
 }

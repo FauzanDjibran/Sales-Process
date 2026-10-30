@@ -2612,4 +2612,85 @@ table prd_cost_bill_line {
   }
 }
 
+// A production bucket (R3): one lot at one workstation; Σ value_balance is WIP.
+// Written only by production-ledger.ts, beside its ledger row
+table prd_balance {
+  id                          int [pk, increment, not null]
+
+  lot_id                      int [not null, ref : > log_stock_tracking.id] // the one lot register (P120)
+  workstation_id              int [not null, ref : > ref_workstation.id]
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
+
+  qty_balance                 decimal(18,6) [not null, default: 0]
+  value_balance               decimal(18,2) [not null, default: 0] // CHECK ≥ 0; 0 when the bucket is empty
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (lot_id, workstation_id) [unique]
+    workstation_id
+    item_id
+  }
+}
+
+// The production ledger (R3): append-only, the balances after each row; MP/… per posting (P110)
+table prd_ledger {
+  id                          int [pk, increment, not null]
+
+  ledger_no                   varchar [not null]
+  line_no                     int [not null]
+  posting_date                date [not null]
+  source_doc_type_id          int [not null] // weak source pair (§3.1)
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+  movement                    enum('Issued', 'Consumed', 'Produced', 'TransferOut', 'TransferIn', 'Released', 'Revalued') [not null]
+  bucket_id                   int [not null, ref : > prd_balance.id]
+  lot_id                      int [not null, ref : > log_stock_tracking.id]
+  workstation_id              int [not null, ref : > ref_workstation.id]
+  item_id                     int [not null, ref : > m_item.id]
+
+  qty_change                  decimal(18,6) [not null]
+  qty_balance                 decimal(18,6) [not null]
+  value_change                decimal(18,2) [not null]
+  value_balance               decimal(18,2) [not null]
+  unit_cost                   decimal(18,6) [not null] // a description, never read back (P114)
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (ledger_no, line_no) [unique]
+    (bucket_id, posting_date)
+    lot_id
+    (source_doc_type_id, source_doc_id)
+  }
+}
+
+// Genealogy (R12): what each input of an execution gave each output lot
+table prd_lot_link {
+  id                          int [pk, increment, not null]
+
+  source_doc_type_id          int [not null]
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+  from_bucket_id              int [not null, ref : > prd_balance.id]
+  from_lot_id                 int [not null, ref : > log_stock_tracking.id]
+  to_lot_id                   int [not null, ref : > log_stock_tracking.id]
+  qty                         decimal(18,6) [not null]
+  value                       decimal(18,2) [not null]
+
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (source_doc_type_id, source_doc_id)
+    from_lot_id
+    to_lot_id
+  }
+}
+
 ```

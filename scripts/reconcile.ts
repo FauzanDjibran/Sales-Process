@@ -747,6 +747,44 @@ export const CHECKS: Check[] = [
                      WHERE l.doc_type_id = ${docType("prd_cost_bill")} GROUP BY l.doc_id) p ON p.doc_id = b.id
           WHERE b.paid_amount <> COALESCE(p.paid, 0) OR b.paid_amount > b.total_amount`,
   },
+  {
+    area: "production",
+    name: "each production bucket equals its ledger rows, quantity and value (R3)",
+    sql: `SELECT b.id, b.qty_balance, b.value_balance, COALESCE(SUM(l.qty_change), 0) AS qty, COALESCE(SUM(l.value_change), 0) AS value
+          FROM prd_balance b LEFT JOIN prd_ledger l ON l.bucket_id = b.id
+          GROUP BY b.id HAVING b.qty_balance <> COALESCE(SUM(l.qty_change), 0) OR b.value_balance <> COALESCE(SUM(l.value_change), 0)`,
+  },
+  {
+    area: "production",
+    name: "each production ledger row carries its bucket's balance after it (R3)",
+    sql: `SELECT l.ledger_no, l.line_no, l.bucket_id, l.qty_balance, l.value_balance
+          FROM (SELECT l.*, SUM(l.qty_change) OVER w AS run_qty, SUM(l.value_change) OVER w AS run_value
+                FROM prd_ledger l WINDOW w AS (PARTITION BY l.bucket_id ORDER BY l.id)) l
+          WHERE l.qty_balance <> l.run_qty OR l.value_balance <> l.run_value`,
+  },
+  {
+    area: "production",
+    name: "every lot in production is a lot of its item; a lot an execution made names it as its source (R3, R17)",
+    sql: `SELECT 'item' AS what, b.id AS ref FROM prd_balance b JOIN log_stock_tracking t ON t.id = b.lot_id WHERE t.item_id <> b.item_id
+          UNION ALL
+          SELECT 'source', k.to_lot_id FROM prd_lot_link k JOIN log_stock_tracking t ON t.id = k.to_lot_id
+           WHERE t.source_doc_type_id <> k.source_doc_type_id OR t.source_doc_id <> k.source_doc_id`,
+  },
+  {
+    area: "production",
+    name: "each WIP account equals the value held in production by the items it is the WIP of (R16)",
+    sql: `WITH held AS (SELECT a.wip_account_id AS account_id, SUM(b.value_balance) AS v
+                       FROM prd_balance b JOIN m_item i ON i.id = b.item_id
+                       LEFT JOIN acc_item_category_account a ON a.category_id = i.category_id
+                       WHERE b.value_balance <> 0 GROUP BY a.wip_account_id),
+               gl AS (SELECT l.account_id, SUM(l.debit_amount - l.kredit_amount) AS bal
+                      FROM acc_journal_line l JOIN acc_journal j ON j.id = l.journal_id AND j.status = 'Posted'
+                      WHERE l.account_id IN (SELECT wip_account_id FROM acc_item_category_account WHERE wip_account_id IS NOT NULL)
+                      GROUP BY l.account_id)
+          SELECT COALESCE(held.account_id, gl.account_id) AS account_id, COALESCE(held.v, 0) AS production, COALESCE(gl.bal, 0) AS gl
+          FROM held FULL JOIN gl ON gl.account_id = held.account_id
+          WHERE COALESCE(held.v, 0) <> COALESCE(gl.bal, 0)`,
+  },
 ];
 
 export type CheckResult = { area: string; name: string; rows: Record<string, unknown>[] };
