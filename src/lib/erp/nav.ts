@@ -178,6 +178,22 @@ export const MODULES: NavModule[] = [
             desc: "Pengerjaan di satu Workstation: input dipakai, output menjadi lot baru senilai input menurut Qty × Bobot Nilai.",
             permission: "PRODUCTION_EXECUTION_VIEW",
           },
+          {
+            key: "prd_transfer",
+            slug: "transfer",
+            name: "Production Transfer",
+            icon: "truck",
+            desc: "Lot berpindah langsung antar Workstation, senilai yang dikandungnya; tanpa journal.",
+            permission: "PRODUCTION_TRANSFER_VIEW",
+          },
+          {
+            key: "prd_release",
+            slug: "release",
+            name: "Production Release",
+            icon: "box",
+            desc: "Barang keluar dari produksi ke gudang dengan lot yang sama, atau dimusnahkan.",
+            permission: "PRODUCTION_RELEASE_VIEW",
+          },
         ],
       },
       {

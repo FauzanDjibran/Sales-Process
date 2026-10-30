@@ -798,6 +798,32 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "a posted Production Transfer moves its value out and in unchanged, with no journal (R7)",
+    sql: `WITH t AS (SELECT t.id, t.transfer_no, t.status, t.value,
+                        COALESCE((SELECT SUM(value) FROM prd_transfer_line x WHERE x.transfer_id = t.id), 0) AS lines,
+                        COALESCE((SELECT -SUM(l.value_change) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_transfer")} AND l.source_doc_id = t.id AND l.movement = 'TransferOut'), 0) AS out_v,
+                        COALESCE((SELECT SUM(l.value_change) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_transfer")} AND l.source_doc_id = t.id AND l.movement = 'TransferIn'), 0) AS in_v,
+                        (SELECT COUNT(*) FROM acc_journal j WHERE j.source_doc_type_id = ${docType("prd_transfer")} AND j.source_doc_id = t.id) AS journals
+                 FROM prd_transfer t)
+          SELECT * FROM t
+          WHERE journals > 0 OR (status = 'Posted' AND (value <> lines OR value <> out_v OR value <> in_v)) OR (status <> 'Posted' AND (out_v <> 0 OR in_v <> 0))`,
+  },
+  {
+    area: "production",
+    name: "a posted Production Release's value = what production released = its journal's debit; to stock, the same quantity came in (R8)",
+    sql: `WITH d AS (SELECT d.id, d.release_no, d.status, d.purpose, d.value, d.journal_id,
+                        COALESCE((SELECT SUM(value) FROM prd_release_line x WHERE x.release_id = d.id), 0) AS lines,
+                        COALESCE((SELECT SUM(qty) FROM prd_release_line x WHERE x.release_id = d.id), 0) AS qty,
+                        COALESCE((SELECT -SUM(l.value_change) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_release")} AND l.source_doc_id = d.id AND l.movement = 'Released'), 0) AS released,
+                        COALESCE((SELECT SUM(m.qty_change) FROM log_stock_ledger m WHERE m.source_doc_type_id = ${docType("prd_release")} AND m.source_doc_id = d.id), 0) AS stocked,
+                        COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = d.journal_id), 0) AS journal
+                 FROM prd_release d)
+          SELECT * FROM d
+          WHERE (status = 'Posted' AND (value <> lines OR value <> released OR value <> journal OR (purpose = 'to_stock' AND stocked <> qty) OR (purpose = 'scrap' AND stocked <> 0)))
+             OR (status <> 'Posted' AND (released <> 0 OR stocked <> 0 OR journal_id IS NOT NULL))`,
+  },
+  {
+    area: "production",
     name: "each WIP account equals the value held in production by the items it is the WIP of (R16)",
     sql: `WITH held AS (SELECT a.wip_account_id AS account_id, SUM(b.value_balance) AS v
                        FROM prd_balance b JOIN m_item i ON i.id = b.item_id

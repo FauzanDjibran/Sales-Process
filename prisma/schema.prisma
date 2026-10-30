@@ -608,6 +608,8 @@ model MItem {
   stock_issue_lines      LogStockIssueLine[]
   execution_inputs       PrdExecutionInput[]
   execution_outputs      PrdExecutionOutput[]
+  transfer_lines         PrdTransferLine[]
+  release_lines          PrdReleaseLine[]
   prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
 
   @@index([category_id])
@@ -692,6 +694,7 @@ model RefWarehouse {
   purchase_orders   PurOrder[]             @relation("PurOrderWarehouse")
   receipt_notes     LogReceiptNote[]       @relation("ReceiptNoteWarehouse")
   stock_issues      LogStockIssue[]
+  production_releases PrdRelease[]
 
   @@map("ref_warehouse")
 }
@@ -825,6 +828,9 @@ model RefWorkstation {
   stock_issues LogStockIssue[]
   prd_ledger   PrdLedger[]  @relation("PrdLedgerWorkstation")
   executions   PrdExecution[]
+  transfers_from PrdTransfer[] @relation("TransferFrom")
+  transfers_to   PrdTransfer[] @relation("TransferTo")
+  releases       PrdRelease[]
 
   @@map("ref_workstation")
 }
@@ -3976,4 +3982,103 @@ model PrdExecutionOutput {
   @@unique([execution_id, line_no])
   @@index([lot_id])
   @@map("prd_execution_output")
+}
+
+/// Production Transfer (R7): lots move directly between workstations, value
+/// kept, no journal. `PT/YYYY/MM/NNNN`.
+model PrdTransfer {
+  id                  Int                 @id @default(autoincrement())
+  transfer_no         String              @unique
+  transfer_date       DateTime            @db.Date
+  from_workstation_id Int
+  to_workstation_id   Int
+  status              ProductionDocStatus @default(Draft)
+  note                String?
+  /// Σ of the lines' value, set at Posting.
+  value               Decimal             @default(0) @db.Decimal(18, 2)
+  cancel_reason       String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  from_workstation RefWorkstation    @relation("TransferFrom", fields: [from_workstation_id], references: [id])
+  to_workstation   RefWorkstation    @relation("TransferTo", fields: [to_workstation_id], references: [id])
+  lines            PrdTransferLine[]
+
+  @@index([status, transfer_date])
+  @@map("prd_transfer")
+}
+
+model PrdTransferLine {
+  id           Int     @id @default(autoincrement())
+  transfer_id  Int
+  line_no      Int
+  /// The bucket taken from and the one filled (weak).
+  bucket_id    Int
+  to_bucket_id Int?
+  lot_id       Int
+  item_id      Int
+  qty          Decimal @db.Decimal(18, 4)
+  value        Decimal @default(0) @db.Decimal(18, 2)
+
+  transfer PrdTransfer @relation(fields: [transfer_id], references: [id], onDelete: Cascade)
+  item     MItem       @relation(fields: [item_id], references: [id])
+
+  @@unique([transfer_id, line_no])
+  @@index([bucket_id])
+  @@map("prd_transfer_line")
+}
+
+/// Production Release (R8): goods leave production — `to_stock` into a
+/// warehouse at the same lot (Dr Persediaan / Cr WIP, `PHP/…`) or `scrap`
+/// (Dr Beban Pemusnahan Produksi / Cr WIP, `PMS/…`).
+model PrdRelease {
+  id             Int                 @id @default(autoincrement())
+  release_no     String              @unique
+  release_date   DateTime            @db.Date
+  purpose        String
+  workstation_id Int
+  /// `to_stock` only.
+  warehouse_id   Int?
+  location_id    Int?
+  status         ProductionDocStatus @default(Draft)
+  /// `scrap`: why the goods are destroyed — required.
+  scrap_reason   String?
+  note           String?
+  value          Decimal             @default(0) @db.Decimal(18, 2)
+  journal_id     Int?
+  cancel_reason  String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  workstation RefWorkstation   @relation(fields: [workstation_id], references: [id])
+  warehouse   RefWarehouse?    @relation(fields: [warehouse_id], references: [id])
+  lines       PrdReleaseLine[]
+
+  @@index([purpose, status])
+  @@index([status, release_date])
+  @@map("prd_release")
+}
+
+model PrdReleaseLine {
+  id         Int     @id @default(autoincrement())
+  release_id Int
+  line_no    Int
+  bucket_id  Int
+  lot_id     Int
+  item_id    Int
+  qty        Decimal @db.Decimal(18, 4)
+  value      Decimal @default(0) @db.Decimal(18, 2)
+
+  release PrdRelease @relation(fields: [release_id], references: [id], onDelete: Cascade)
+  item    MItem      @relation(fields: [item_id], references: [id])
+
+  @@unique([release_id, line_no])
+  @@index([bucket_id])
+  @@map("prd_release_line")
 }

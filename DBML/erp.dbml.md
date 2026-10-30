@@ -2829,4 +2829,93 @@ table prd_execution_output {
   }
 }
 
+// Production Transfer (R7): lots move directly between workstations, value kept, no journal; PT/…
+table prd_transfer {
+  id                          int [pk, increment, not null]
+
+  transfer_no                 varchar [not null, unique]
+  transfer_date               date [not null]
+  from_workstation_id         int [not null, ref : > ref_workstation.id]
+  to_workstation_id           int [not null, ref : > ref_workstation.id] // CHECK <> from
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  note                        varchar
+  value                       decimal(18,2) [not null, default: 0]
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, transfer_date)
+  }
+}
+
+table prd_transfer_line {
+  id                          int [pk, increment, not null]
+
+  transfer_id                 int [not null, ref : > prd_transfer.id] // cascade
+  line_no                     int [not null]
+  bucket_id                   int [not null] // weak
+  to_bucket_id                int // weak, set at Posting
+  lot_id                      int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  qty                         decimal(18,4) [not null]
+  value                       decimal(18,2) [not null, default: 0]
+
+  indexes {
+    (transfer_id, line_no) [unique]
+    bucket_id
+  }
+}
+
+// Production Release (R8): to_stock (PHP/…, Dr Persediaan / Cr WIP, same lot into a warehouse)
+// or scrap (PMS/…, Dr Beban Pemusnahan Produksi / Cr WIP, with a reason)
+table prd_release {
+  id                          int [pk, increment, not null]
+
+  release_no                  varchar [not null, unique]
+  release_date                date [not null]
+  purpose                     varchar [not null] // to_stock | scrap, CHECK with warehouse
+  workstation_id              int [not null, ref : > ref_workstation.id]
+  warehouse_id                int [ref : > ref_warehouse.id] // to_stock only
+  location_id                 int // ref_warehouse_location.id, no FK
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  scrap_reason                varchar // scrap: required
+  note                        varchar
+  value                       decimal(18,2) [not null, default: 0]
+  journal_id                  int
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (purpose, status)
+    (status, release_date)
+  }
+}
+
+table prd_release_line {
+  id                          int [pk, increment, not null]
+
+  release_id                  int [not null, ref : > prd_release.id] // cascade
+  line_no                     int [not null]
+  bucket_id                   int [not null] // weak
+  lot_id                      int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  qty                         decimal(18,4) [not null]
+  value                       decimal(18,2) [not null, default: 0]
+
+  indexes {
+    (release_id, line_no) [unique]
+    bucket_id
+  }
+}
+
 ```

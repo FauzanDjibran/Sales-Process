@@ -131,6 +131,10 @@ const TABLE_OWNERS: Record<string, string[]> = {
   prdExecution: ["src/lib/erp/production-run.ts"],
   prdExecutionInput: ["src/lib/erp/production-run.ts"],
   prdExecutionOutput: ["src/lib/erp/production-run.ts"],
+  prdTransfer: ["src/lib/erp/production-transfer.ts"],
+  prdTransferLine: ["src/lib/erp/production-transfer.ts"],
+  prdRelease: ["src/lib/erp/production-release.ts"],
+  prdReleaseLine: ["src/lib/erp/production-release.ts"],
   // The production ledger (R3): a book, written only by its module.
   prdBalance: ["src/lib/erp/production-ledger.ts"],
   prdLedger: ["src/lib/erp/production-ledger.ts"],

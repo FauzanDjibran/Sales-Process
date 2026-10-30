@@ -148,7 +148,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Stock Issue", "log_stock_issue"],
   ["Eksekusi Produksi", "prd_execution"],
   ["Production Transfer", "prd_transfer"],
-  ["Keluar Produksi", "prd_release"],
+  ["Production Release", "prd_release"],
 ];
 
 /**

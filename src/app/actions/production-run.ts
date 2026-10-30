@@ -14,7 +14,7 @@ import type { JournalPreviewResult } from "@/lib/erp/journal";
 
 const W = EXECUTION_WORKFLOW;
 
-async function guarded<T>(code: string, run: (actorId: number) => Promise<T>): Promise<T | { ok: false; errors: Record<string, string> }> {
+async function authorize<T>(code: string, run: (actorId: number) => Promise<T>): Promise<T | { ok: false; errors: Record<string, string> }> {
   try {
     const actor = await authorizeAction(code);
     return await run(actor.user.id);
@@ -30,26 +30,26 @@ function revalidate(id?: number) {
 }
 
 export async function createExecutionAction(input: ExecutionInput): Promise<ExecutionResult> {
-  const r = await guarded("PRODUCTION_EXECUTION_CREATE", (actor) => createExecution(input, actor));
+  const r = await authorize("PRODUCTION_EXECUTION_CREATE", (actor) => createExecution(input, actor));
   if (r.ok) revalidate(r.id);
   return r;
 }
 
 export async function updateExecutionAction(id: number, input: ExecutionInput): Promise<ExecutionResult> {
-  const r = await guarded("PRODUCTION_EXECUTION_EDIT", (actor) => updateExecution(id, input, actor));
+  const r = await authorize("PRODUCTION_EXECUTION_EDIT", (actor) => updateExecution(id, input, actor));
   if (r.ok) revalidate(id);
   return r;
 }
 
 /** The journal Posting would write, for the confirmation dialog: a dry run, rolled back (P103). */
 export async function previewExecutionAction(id: number): Promise<JournalPreviewResult> {
-  return guarded(W.transitions.post.permission, (actor) => executionPreview(id, actor));
+  return authorize(W.transitions.post.permission, (actor) => executionPreview(id, actor));
 }
 
 export async function transitionExecutionAction(id: number, action: ProdDocAction, reason?: string): Promise<{ ok: true; message: string } | { ok: false; errors: Record<string, string> }> {
   const t = W.transitions[action];
   if (!t) return { ok: false, errors: { _form: "Aksi tidak dikenal." } };
-  const r = await guarded(t.permission, async (actor) => {
+  const r = await authorize(t.permission, async (actor) => {
     try {
       return await transitionExecution(id, action, actor, reason);
     } catch (error) {

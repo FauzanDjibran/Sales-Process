@@ -6,7 +6,7 @@ import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
-import { produce } from "./production-ledger";
+import { lotNumberTaken, produce } from "./production-ledger";
 import { outputWeight } from "./production-execution";
 import {
   DAY,
@@ -155,7 +155,7 @@ export async function checkExecution(db: Db, input: ExecutionInput, selfId: numb
         continue;
       }
       lotsTaken.add(`${item.id}:${lotNo}`);
-      if (await db.logStockTracking.findUnique({ where: { item_id_tracking_no: { item_id: item.id, tracking_no: lotNo } }, select: { id: true } })) {
+      if (await lotNumberTaken(item.id, lotNo, db)) {
         errors[key("lot_no")] = `${item.label} sudah punya lot ${lotNo}; lot output selalu baru.`;
         continue;
       }

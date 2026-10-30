@@ -478,6 +478,11 @@ export async function bucketsByIds(ids: number[], db: Db = prisma): Promise<Map<
   return new Map(rows.map((r) => [r.id, view(r)]));
 }
 
+/** Whether the item already has a lot of this number in the one register — an output lot is always new (R17). */
+export async function lotNumberTaken(itemId: number, lotNo: string, db: Db = prisma): Promise<boolean> {
+  return Boolean(await db.logStockTracking.findUnique({ where: { item_id_tracking_no: { item_id: itemId, tracking_no: lotNo.trim().toUpperCase() } }, select: { id: true } }));
+}
+
 /** Σ value held in production now, per item — what the WIP accounts should hold. */
 export async function wipByItem(db: Db = prisma): Promise<Map<number, number>> {
   const rows = await db.prdBalance.groupBy({ by: ["item_id"], _sum: { value_balance: true }, where: { value_balance: { not: 0 } } });
