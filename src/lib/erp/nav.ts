@@ -204,6 +204,14 @@ export const MODULES: NavModule[] = [
             permission: "RECEIPT_NOTE_VIEW",
           },
           {
+            key: "log_stock_issue",
+            slug: "stock-issue",
+            name: "Stock Issue",
+            icon: "layers",
+            desc: "Bahan keluar dari gudang per lot langsung ke sebuah Workstation. Posting memindahkan nilainya dari Persediaan ke WIP.",
+            permission: "STOCK_ISSUE_VIEW",
+          },
+          {
             key: "log_delivery_note",
             slug: "delivery-note",
             name: "Delivery Note",

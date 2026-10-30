@@ -32,6 +32,7 @@ import { DELIVERY_ORDER_TRANSITIONS } from "./delivery-order-workflow";
 import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
 import { RECEIPT_NOTE_TRANSITIONS } from "./receipt-note-workflow";
 import { COST_BILL_TRANSITIONS } from "./production-cost-bill-workflow";
+import { STOCK_ISSUE_TRANSITIONS } from "./stock-issue-workflow";
 import { PURCHASE_INVOICE_TRANSITIONS } from "./ap-invoice-workflow";
 import { PURCHASE_REQUEST_TRANSITIONS } from "./purchase-request-workflow";
 import { PURCHASE_ORDER_TRANSITIONS } from "./purchase-order-workflow";
@@ -191,6 +192,14 @@ const COST_BILL_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(COST_BILL_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
+/** Stock Issue: Draft → Diposting, or Dibatalkan (R4). */
+const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Stock Issue dibuat", icon: "layers", tone: "neutral" },
+  post: fromTransition(STOCK_ISSUE_TRANSITIONS.post, "Diposting — barang masuk ke Workstation"),
+  cancel: fromTransition(STOCK_ISSUE_TRANSITIONS.cancel, "Dibatalkan"),
+};
+
 const RECEIPT_NOTE_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   create: { label: "Receipt Note dibuat", icon: "box", tone: "neutral" },
@@ -316,6 +325,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   log_delivery_note: DELIVERY_NOTE_EVENTS,
   log_receipt_note: RECEIPT_NOTE_EVENTS,
   prd_cost_bill: COST_BILL_EVENTS,
+  log_stock_issue: STOCK_ISSUE_EVENTS,
   pur_request: PURCHASE_REQUEST_EVENTS,
   pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,

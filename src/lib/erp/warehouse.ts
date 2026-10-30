@@ -7,6 +7,7 @@ import { LOCATIONS_KEY, locationErrors, type LocationDraft } from "./warehouse-s
 import { locationStockUse, warehouseHoldsStock } from "./inventory";
 import { receiptNoteLocationUse } from "./receipt-note";
 import { deliveryNoteLocationUse } from "./delivery-note";
+import { stockIssueLocationUse } from "./stock-issue";
 
 /**
  * A Gudang's own collection — its locations (`ref_warehouse_location`) — and
@@ -46,15 +47,16 @@ export async function warehouseCollections(warehouseId: number): Promise<{ locat
  * hold stock now (`holding`), and how many Draft notes the warehouse has.
  */
 async function usedLocations(warehouseId: number, ids: number[]) {
-  const [stock, receipts, deliveries] = await Promise.all([
+  const [stock, receipts, deliveries, issues] = await Promise.all([
     locationStockUse(ids),
     receiptNoteLocationUse(warehouseId, ids),
     deliveryNoteLocationUse(warehouseId, ids),
+    stockIssueLocationUse(warehouseId, ids),
   ]);
   return {
-    moved: new Set([...stock.moved, ...receipts.named, ...deliveries.named]),
+    moved: new Set([...stock.moved, ...receipts.named, ...deliveries.named, ...issues.named]),
     holding: stock.holding,
-    drafts: receipts.drafts + deliveries.drafts,
+    drafts: receipts.drafts + deliveries.drafts + issues.drafts,
   };
 }
 
@@ -101,7 +103,7 @@ export async function checkWarehouseCollections(
       if (await warehouseHoldsStock(warehouseId)) {
         errors.use_location = "Gudang ini masih menyimpan stok: Gunakan Lokasi hanya bisa diubah saat gudang kosong.";
       } else if (used.drafts > 0) {
-        errors.use_location = `Masih ada ${used.drafts} Receipt / Delivery Note Draft di gudang ini: selesaikan atau batalkan dulu.`;
+        errors.use_location = `Masih ada ${used.drafts} Receipt Note, Delivery Note atau Stock Issue Draft di gudang ini: selesaikan atau batalkan dulu.`;
       }
     }
   }

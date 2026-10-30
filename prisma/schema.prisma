@@ -491,6 +491,7 @@ model RefUom {
   customer_order_lines SalCustomerOrderLine[]
   delivery_note_lines  LogDeliveryNoteLine[]
   prd_balances         PrdBalance[]           @relation("PrdBalanceUom")
+  stock_issue_lines    LogStockIssueLine[]
 
   purchase_request_lines PurRequestLine[]           @relation("PurRequestLineUom")
   purchase_order_lines   PurOrderLine[]             @relation("PurOrderLineUom")
@@ -604,6 +605,7 @@ model MItem {
   valuation_balance      LogStockValuationBalance?
   delivery_note_lines    LogDeliveryNoteLine[]
   prd_balances           PrdBalance[]              @relation("PrdBalanceItem")
+  stock_issue_lines      LogStockIssueLine[]
   prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
 
   @@index([category_id])
@@ -687,6 +689,7 @@ model RefWarehouse {
   purchase_requests PurRequest[]
   purchase_orders   PurOrder[]             @relation("PurOrderWarehouse")
   receipt_notes     LogReceiptNote[]       @relation("ReceiptNoteWarehouse")
+  stock_issues      LogStockIssue[]
 
   @@map("ref_warehouse")
 }
@@ -817,6 +820,7 @@ model RefWorkstation {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   prd_balances PrdBalance[] @relation("PrdBalanceWorkstation")
+  stock_issues LogStockIssue[]
   prd_ledger   PrdLedger[]  @relation("PrdLedgerWorkstation")
 
   @@map("ref_workstation")
@@ -3795,4 +3799,94 @@ enum PrdMovement {
   Released
   /// Value only, quantity 0 — the month-end close.
   Revalued
+}
+
+/// Stock Issue (R4): goods leave a warehouse straight into a workstation, by
+/// lot, at moving average — Dr WIP / Cr Persediaan. Standalone by purpose
+/// (P106); no transit, no receipt. Named only by `stock-issue.ts`.
+model LogStockIssue {
+  id             Int              @id @default(autoincrement())
+  issue_no       String           @unique
+  /// The day the goods leave the warehouse — the journal's date.
+  issue_date     DateTime         @db.Date
+  status         StockIssueStatus @default(Draft)
+  /// The purpose's key, e.g. `production_issue`.
+  purpose        String
+  warehouse_id   Int
+  /// Where the goods are placed: required by `production_issue`.
+  workstation_id Int?
+  note           String?
+
+  /// Σ of the lines' cost, set at Posting.
+  cost_amount   Decimal @default(0) @db.Decimal(18, 2)
+  journal_id    Int?
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  warehouse   RefWarehouse        @relation(fields: [warehouse_id], references: [id])
+  workstation RefWorkstation?     @relation(fields: [workstation_id], references: [id])
+  lines       LogStockIssueLine[]
+
+  @@index([purpose, status])
+  @@index([status, issue_date])
+  @@map("log_stock_issue")
+}
+
+model LogStockIssueLine {
+  id             Int     @id @default(autoincrement())
+  stock_issue_id Int
+  line_no        Int
+  item_id        Int
+  /// The item's base unit, factor 1 (as sales, P108).
+  uom_id         Int
+  uom_factor     Decimal @default(1) @db.Decimal(18, 4)
+  qty            Decimal @db.Decimal(18, 4)
+  base_qty       Decimal @default(0) @db.Decimal(18, 4)
+  unit_cost      Decimal @default(0) @db.Decimal(18, 6)
+  cost_amount    Decimal @default(0) @db.Decimal(18, 2)
+  note           String?
+
+  stock_issue LogStockIssue      @relation(fields: [stock_issue_id], references: [id])
+  item        MItem              @relation(fields: [item_id], references: [id])
+  uom         RefUom             @relation(fields: [uom_id], references: [id])
+  lots        LogStockIssueLot[]
+
+  @@unique([stock_issue_id, line_no])
+  @@unique([stock_issue_id, item_id])
+  @@index([item_id])
+  @@map("log_stock_issue_line")
+}
+
+model LogStockIssueLot {
+  id                  Int       @id @default(autoincrement())
+  stock_issue_line_id Int
+  pick_no             Int
+  lot_id              Int
+  location_id         Int?
+  lot_no              String
+  expiry_date         DateTime? @db.Date
+  qty                 Decimal   @db.Decimal(18, 4)
+  base_qty            Decimal   @default(0) @db.Decimal(18, 4)
+  unit_cost           Decimal   @default(0) @db.Decimal(18, 6)
+  cost_amount         Decimal   @default(0) @db.Decimal(18, 2)
+  /// The production bucket it entered, set at Posting (weak).
+  prd_bucket_id       Int?
+
+  line LogStockIssueLine @relation(fields: [stock_issue_line_id], references: [id])
+
+  @@unique([stock_issue_line_id, pick_no])
+  /// A pick is a lot in a location: NULLS NOT DISTINCT, added in the migration by hand.
+  @@unique([stock_issue_line_id, lot_id, location_id], map: "log_stock_issue_lot_pick_key")
+  @@index([lot_id])
+  @@map("log_stock_issue_lot")
+}
+
+enum StockIssueStatus {
+  Draft
+  Posted
+  Cancelled
 }

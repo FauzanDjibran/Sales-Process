@@ -772,6 +772,18 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "a posted Stock Issue's cost = what the stock books released = what entered production = its journal's debit; no other has a journal (R4)",
+    sql: `WITH s AS (SELECT s.id, s.issue_no, s.status, s.cost_amount, s.journal_id,
+                        COALESCE((SELECT -SUM(v.value_change) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("log_stock_issue")} AND v.source_doc_id = s.id), 0) AS stock_out,
+                        COALESCE((SELECT SUM(l.value_change) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("log_stock_issue")} AND l.source_doc_id = s.id AND l.movement = 'Issued'), 0) AS prd_in,
+                        COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = s.journal_id), 0) AS journal
+                 FROM log_stock_issue s)
+          SELECT * FROM s
+          WHERE (status = 'Posted' AND (cost_amount <> stock_out OR cost_amount <> prd_in OR cost_amount <> journal OR (cost_amount > 0 AND journal_id IS NULL)))
+             OR (status <> 'Posted' AND (journal_id IS NOT NULL OR stock_out <> 0 OR prd_in <> 0))`,
+  },
+  {
+    area: "production",
     name: "each WIP account equals the value held in production by the items it is the WIP of (R16)",
     sql: `WITH held AS (SELECT a.wip_account_id AS account_id, SUM(b.value_balance) AS v
                        FROM prd_balance b JOIN m_item i ON i.id = b.item_id

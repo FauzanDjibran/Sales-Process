@@ -2693,4 +2693,76 @@ table prd_lot_link {
   }
 }
 
+// Stock Issue (R4): goods leave a warehouse by lot straight into a workstation — Dr WIP /
+// Cr Persediaan; standalone by purpose (P106), SI/YYYY/MM/NNNN
+table log_stock_issue {
+  id                          int [pk, increment, not null]
+
+  issue_no                    varchar [not null, unique]
+  issue_date                  date [not null]
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  purpose                     varchar [not null] // production_issue
+  warehouse_id                int [not null, ref : > ref_warehouse.id]
+  workstation_id              int [ref : > ref_workstation.id] // required by production_issue
+  note                        varchar
+
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  journal_id                  int // no FK
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (purpose, status)
+    (status, issue_date)
+  }
+}
+
+table log_stock_issue_line {
+  id                          int [pk, increment, not null]
+
+  stock_issue_id              int [not null, ref : > log_stock_issue.id]
+  line_no                     int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id] // the base unit, factor 1
+  uom_factor                  decimal(18,4) [not null, default: 1]
+  qty                         decimal(18,4) [not null]
+  base_qty                    decimal(18,4) [not null, default: 0]
+  unit_cost                   decimal(18,6) [not null, default: 0]
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  note                        varchar
+
+  indexes {
+    (stock_issue_id, line_no) [unique]
+    (stock_issue_id, item_id) [unique]
+    item_id
+  }
+}
+
+table log_stock_issue_lot {
+  id                          int [pk, increment, not null]
+
+  stock_issue_line_id         int [not null, ref : > log_stock_issue_line.id]
+  pick_no                     int [not null]
+  lot_id                      int [not null] // log_stock_tracking.id, no FK
+  location_id                 int // ref_warehouse_location.id, no FK
+  lot_no                      varchar [not null]
+  expiry_date                 date
+  qty                         decimal(18,4) [not null]
+  base_qty                    decimal(18,4) [not null, default: 0]
+  unit_cost                   decimal(18,6) [not null, default: 0]
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  prd_bucket_id               int // the production bucket it entered, weak
+
+  indexes {
+    (stock_issue_line_id, pick_no) [unique]
+    (stock_issue_line_id, lot_id, location_id) [unique] // NULLS NOT DISTINCT
+    lot_id
+  }
+}
+
 ```

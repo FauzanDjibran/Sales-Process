@@ -123,6 +123,10 @@ const TABLE_OWNERS: Record<string, string[]> = {
   accCostType: ["src/lib/erp/production-cost.ts", "src/lib/erp/records.ts"],
   prdCostBill: ["src/lib/erp/production-cost-bill.ts"],
   prdCostBillLine: ["src/lib/erp/production-cost-bill.ts"],
+  // The Stock Issue (R4): standalone, by purpose.
+  logStockIssue: ["src/lib/erp/stock-issue.ts"],
+  logStockIssueLine: ["src/lib/erp/stock-issue.ts"],
+  logStockIssueLot: ["src/lib/erp/stock-issue.ts"],
   // The production ledger (R3): a book, written only by its module.
   prdBalance: ["src/lib/erp/production-ledger.ts"],
   prdLedger: ["src/lib/erp/production-ledger.ts"],
