@@ -6,12 +6,23 @@
 > merged. Every point below was confirmed with the user on 28/10/2026; nothing
 > here is open. Decisions on this line are numbered from **P200** so they never
 > collide with `walet`'s P150–P172.
+>
+> **Extended 01/11/2026** (R20–R29, steps 8–15) from
+> `Production-Baseline-Analysis.md` and the `walet` documents, every point
+> answered by the user: a planning layer (Perintah Produksi, BoM per
+> workstation, Routing) that guides but never limits, the period frame of the
+> close, *Costing Sementara*, and the trace and plan-versus-actual reports. The
+> three goals it serves: **G1** month-end costing with material-only WIP,
+> **G2** tracing lot → Perintah → workstation → FG both ways, **G3** flexible
+> workstations and BoM without breaking G1 or G2.
 
 ## 1. The goal
 
 One simple end-to-end production flow, to be grown later:
 
 ```
+Perintah Produksi (item target, qty; Routing + BoM per workstation copied, frozen)
+     ⋮ guides, never limits — every document below names it, Eksekusi always
 Gudang ──Stock Issue──► Workstation A ──Eksekusi──► output lots at A
                                      ──Production Transfer──► Workstation B ──Eksekusi──► …
                                      ──Production Release──► Gudang (or Pemusnahan)
@@ -45,7 +56,17 @@ cost is booked outside production and absorbed **at month end**.
 | R16 | WIP account | A **WIP column on Account Kategori Item**, no fallback: posting is refused naming the category when it is empty. |
 | R17 | Numbering | Standard `PREFIX/YYYY/MM/NNNN` (P15). Output lots are generated as `<execution number>-<n>` (the Receipt Note's pattern) and may be typed; a number the item already has is refused. |
 | R18 | Extras in scope | Reports **Saldo Produksi**, **Kartu Lot**, **Rekap Produksi**; a **production showcase seed**. |
-| R19 | Not adopted | Cost Center, Standard Cost, Standard Cost Items, Partai / Job / Kode Job, transit and receipts, pass-through / mix, Tipe Output and Reject flag, Perintah / Rencana Produksi, BoM, Routing, Telusur, `production-number.ts` daily numbering, global lot uniqueness (P163; the lot stays unique per item, P120). |
+| R19 | Not adopted | Cost Center, Standard Cost, Standard Cost Items, Partai / Job / Kode Job, transit and receipts, pass-through / mix, Tipe Output and Reject flag, Rencana Produksi, `production-number.ts` daily numbering, global lot uniqueness (P163; the lot stays unique per item, P120). *Amended 01/11/2026: Perintah Produksi, BoM, Routing and Telusur are adopted by R20–R27.* |
+| R20 | Perintah Produksi | `prd_order`, `PP/YYYY/MM/NNNN`, Produksi › Operasi Produksi. **Made by hand**: an **Item Target** (Barang, Kelola Stok), a **Qty Target** in its base unit, a date, and optionally **one Open Sales Order line** as a reference (weak pair, never a reservation). It picks one **Routing** of the item (starting on its default) and, for each workstation on it, one **BoM** of the item there (starting on the default; none = no requirement). Lifecycle **Draft → *Rilis* → Dirilis → *Tutup* → Ditutup**; *Batalkan* a Draft, with a reason. **Rilis copies** the route and the BoM lines into `prd_order_step` / `prd_order_component` with the requirement per component = BoM qty × Qty Target ÷ BoM base qty; **a released Perintah is frozen** — a different plan is a Tutup and a new Perintah. *Tutup* is by hand (a reason when what was received is below the target), refused while a Draft document names it. Posts nothing, moves nothing. |
+| R21 | BoM and Routing | Masters under Produksi › Master Data. **BoM** (`m_bom(_line)`): for **one Item Target at one workstation** — base quantity and the components that go in there (item, qty in the base unit). **Routing** (`m_routing(_step)`): for one Item Target, its workstations in order. An item may have **several of each, Aktif / Nonaktif, one default** (per item per workstation for a BoM, per item for a Routing); a used one is deactivated, never deleted. A change to a master never touches a released Perintah. **A suggestion, never a limit** (R22). |
+| R22 | Execution against a Perintah | **Every Eksekusi names one Dirilis Perintah**, dated on or after its release; inputs and outputs stay free (R5). Where it leaves the plan — a workstation not on the route, an input not among the Perintah's components at that workstation, more consumed than required — it is **shown as a warning** on the form and in the Posting confirmation, **never refused**, and counted in *Rencana vs Aktual* (R27). Repeating a step is more executions; skipping one is none. Costing and genealogy read only the actual inputs and outputs, so the plan never changes a value. |
+| R23 | Other documents and the Perintah | Stock Issue, Production Transfer and Production Release **may** name a Dirilis Perintah. A Stock Issue that names one starts its lines on what the destination workstation still needs (requirement less what issues naming it already sent there). The bucket stays **lot · workstation** (R3): goods carry no Perintah; the execution says which Perintah they were worked for. |
+| R24 | Multi-level | A semi-finished item with its own BoM is made by **its own Perintah**; the upper Perintah consumes its lots like any input. Trace crosses Perintah through the genealogy. No phantom and no automatic child Perintah. |
+| R25 | The period frame | Production, its FG, its HPP and its cost are **framed in one fiscal period**: the close stores, per period, **what it closed** — the pool per Jenis Biaya account, each execution's Driver and share, and per FG item its opening, received, issued and ending quantity and value before and after the close (HPP part and ending part), and the WIP buckets it raised. The stored close is the period's costing record; the next period opens from it. Together with R15 (oldest first, after the last day, irreversible, locked). |
+| R26 | Costing Sementara | A report (Produksi › Laporan, per **FG item**) that **runs the close for the open period as of a date**, as a dry run of the close's own calculation (P103): the costs posted so far, the executions posted so far, followed forward as R12. Per item: quantity received, material value, conversion share, final unit cost, HPP of what was sold, ending stock — labelled *Sementara*. Nothing is posted. |
+| R27 | Trace and plan reports | **Telusur Produksi** (a lot, *Mundur* / *Maju*): backward FG → executions (Perintah, workstation, date) → inputs → issued stock lots → their Receipt Notes and suppliers; forward to Production Release → Delivery Notes and customers; quantity and value at each edge, and where any of it still sits. **Rencana vs Aktual** (per Perintah): per workstation of the route and outside it, components required vs consumed (item, qty, value), outputs vs the target, the warnings of R22. |
+| R28 | Close checklist and controls | Before the close (from `walet` P172): no Draft production, stock or Tagihan Biaya document dated in the period; no earlier period with production activity uncosted; every account the close posts to mapped. **The fiscal-year close is refused** while a period with production or cost activity is uncosted. `db:reconcile` gains: the pool equals the GL on the Jenis Biaya accounts; Biaya Produksi Dibebankan equals the closes; each close's shares add up to its pool; no production, stock or cost row dated in a costed period after its close; stock valuation including revaluation rows equals Persediaan. |
+| R29 | Later phases | Kept out on purpose, each addable without changing the close's logic: the **normal-capacity rule** (PSAK 14 / IAS 2: fixed cost absorbed up to normal capacity, the rest expensed — needs Tetap / Variabel on Jenis Biaya and a capacity per workstation), **a pool per workstation**, **pass-through keeping the lot**, **Rencana Produksi** and MRP, standard cost, by-product at NRV, QC status in production, serial numbers, subcontracting. |
 
 ## 3. Salvage map (from branch `walet`)
 
@@ -84,11 +105,54 @@ P2xx in `Claude-ERP.md`, `Production-Process.md` updated, push, then
 | 6 | **Production Transfer** (R7) | Lot moved between stations, value kept |
 | 7 | **Production Release** (R8) | Lot into stock or scrapped; journals checked |
 | 8 | **Reports** Saldo Produksi, Kartu Lot, Rekap Produksi (R18) | Read from the ledgers; match the balance tables |
-| 9 | **Penutupan Biaya Produksi** (R10–R15) | A month closed in a test and in the browser: pool fully absorbed, Biaya Produksi Dibebankan = pool, WIP / Persediaan / HPP move as R12 |
-| 10 | **Production showcase seed** and one end-to-end test: inject → issue → execute → transfer → execute → release → sell → close | Neon carries the showcase month, closed |
+| 9 | **Penutupan Biaya Produksi** (R10–R15, R25, R28): the close, its stored period record, the checklist, the year-end guard, the reconcile checks | Scenario G1 passes in a test and in the browser |
+| 10 | **Costing Sementara** (R26) on the close's own calculation | Run as of the period's last day it equals the close posted afterwards, figure for figure |
+| 11 | **Telusur Produksi** (R27), before the Perintah exists | Scenario G2 without Perintah: every edge back to the supplier and forward to the customer |
+| 12 | **BoM and Routing** masters (R21) | Created, defaulted, deactivated in the browser |
+| 13 | **Perintah Produksi** (R20, R24); Eksekusi names one (R22); Stock Issue, Transfer and Release may (R23) | Scenario G3 passes; executions posted before this step keep no Perintah |
+| 14 | **Rencana vs Aktual**; Telusur shows the Perintah at each execution (R27) | The deviations of scenario G3 are listed |
+| 15 | **Production showcase seed** and one end-to-end test: inject → Perintah → issue → execute → transfer → execute → release → sell → Costing Sementara → close | Neon carries the showcase month, closed |
+
+Steps 12 and 8–11 do not depend on each other; 13 needs 11 and 12.
+
+### 4.1 Acceptance scenarios
+
+**G1 — WIP is material only, and the close is right.** Lot BB-1 100 kg at
+Rp10.000 (Rp1.000.000). Stock Issue 100 kg to WS-A → WIP 1.000.000. EKS-1
+(Driver 10): 100 kg → SJ-1 80 kg at 1.000.000. Transfer to WS-B. Stock Issue
+BK-1 200 pcs (Rp200.000). EKS-2 (Driver 30): SJ-1 + BK-1 → FG-1 200 pcs at
+1.200.000. Release 100 pcs to stock (600.000); sell 50 (HPP 300.000).
+*Before the close:* WIP = 600.000 = Σ buckets, no non-material value in WIP or
+stock. Tagihan Biaya Rp400.000. *Costing Sementara* as of the last day shows
+FG-1 at a final unit cost of Rp8.000 (6.000 material + 2.000 conversion).
+*Close:* EKS-1 100.000 and EKS-2 300.000, both reaching FG-1 (400.000): 100 pcs
+still at WS-B → WIP +200.000; of the 100 received, 50 sold → HPP +100.000 and
+50 in stock → Persediaan +100.000; Cr Biaya Produksi Dibebankan 400.000. The
+expense accounts less Biaya Produksi Dibebankan = 0; reconcile green; the
+period is locked (a posting dated in it is refused) and its stored close lists
+exactly FG-1, its HPP and the pool.
+
+**G2 — trace.** Backward from FG-1: EKS-2 at WS-B ← SJ-1 + BK-1; SJ-1 ← EKS-1
+at WS-A ← BB-1 ← its Receipt Note and supplier. Forward from BB-1 to the
+Delivery Note and the customer. Each edge carries the ledger's quantity and
+value; the 100 pcs still at WS-B are shown as such. From step 14, each
+execution also shows its Perintah.
+
+**G3 — change during production.** Perintah PP-1 released from BoM v1 and the
+default Routing (WS-A → WS-B → WS-D). Then a BoM v2 becomes the default →
+PP-1 does not change. Under PP-1: 30 kg of BB-1 replaced by BB-ALT, the WS-B
+step executed twice, WS-D skipped, one execution at WS-C (not on the route).
+Every posting goes through with its warning; values are the actual inputs
+(BB-ALT at its moving average); the pool is shared over the four executions
+by Driver; Telusur shows BB-ALT and WS-C; *Rencana vs Aktual* lists the
+substitute, the repeat, the skip and the off-route workstation; reconcile
+green. A new plan for the remaining quantity is PP-1 *Tutup* and PP-2; goods
+already at the workstations are executed under PP-2 unchanged.
 
 ## 5. Known limits kept on purpose
 
-- Output lots carry no supplier and no genealogy view beyond Kartu Lot (Telusur is not built).
 - A Draft reserves nothing; a lot picked by two Drafts posts once.
 - Goods cannot go back from stock into production except by a new Stock Issue.
+- A released Perintah is never edited (R20); its plan is replaced, not changed.
+- The Perintah's requirement is information: nothing is reserved in stock and no purchase is proposed (MRP is R29).
+- Costing Sementara is a reading, not a posting; until the close, posted HPP and stock are material only.
