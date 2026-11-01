@@ -6,7 +6,7 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **30/10/2026 — P201–P207** (masters; Tagihan Biaya; production ledger; Stock Issue; Eksekusi; Transfer; Release).
+> Last updated: **01/11/2026 — P209** (production reports).
 
 ---
 
@@ -55,7 +55,7 @@ by their **Driver** and follows it forward to WIP, Persediaan, HPP or scrap.
 | 5 | **Eksekusi Produksi** `EKS/…` (Produksi › Operasi Produksi) | Inputs: any lots held at the station, any quantity. Outputs: new lots — typed number or `<EKS no>-<n>` — valued by Σ input × (qty × Bobot Nilai) share; all outputs weighing 0 is refused. Driver > 0 for the close. | Dr WIP (output) / Cr WIP (input), only where the accounts differ | ✅ P205 |
 | 6 | **Production Transfer** `PT/…` (Produksi › Operasi Produksi) | Any quantity of a lot moves directly to another station, out at round(V × q ÷ Q) and in at the same value. | none | ✅ P206 |
 | 7 | **Production Release** (Produksi › Operasi Produksi) | *Penerimaan Hasil Produksi* `PHP/…`: into a warehouse (and location) under the same lot at the value released. *Pemusnahan Produksi* `PMS/…`: written off with a reason. | Dr Persediaan / Cr WIP · Dr Beban Pemusnahan Produksi / Cr WIP | ✅ P207 |
-| 8 | Reports: Saldo Produksi, Kartu Lot, Rekap Produksi | | | 🔜 |
+| 8 | Reports (Produksi › Laporan): **Saldo Produksi** (per workstation and lot as of a date), **Kartu Lot** (a lot in production and in stock), **Rekap Produksi** (per workstation: in, out, loss, Driver, value per unit) | Read from the ledgers; a past date as it stood. | none | ✅ P209 |
 | 9 | **Penutupan Biaya Produksi** | Month pool by Driver, followed forward; what it closed stored per period (R25); checklist and year-end guard (R28); period locked. | Dr WIP / Persediaan / HPP / Beban Pemusnahan — Cr Biaya Produksi Dibebankan | 🔜 |
 | 10 | Report: **Costing Sementara** | The close run as a dry run for the open period as of a date, per FG item (R26). | none | 🔜 |
 | 11 | Report: **Telusur Produksi** | Lot backward to supplier, forward to customer (R27). | | 🔜 |
@@ -75,3 +75,5 @@ by their **Driver** and follows it forward to WIP, Persediaan, HPP or scrap.
 | 30/10/2026 | P204 | Stock Issue, direct into the workstation. |
 | 30/10/2026 | P205 | Eksekusi Produksi; the shared lifecycle of the production documents. |
 | 30/10/2026 | P206–P207 | Production Transfer and Production Release. |
+| 01/11/2026 | P208 | Plan extended: Perintah Produksi, BoM, Routing, period frame, Costing Sementara, Telusur, Rencana vs Aktual. |
+| 01/11/2026 | P209 | Reports Saldo Produksi, Kartu Lot, Rekap Produksi. |

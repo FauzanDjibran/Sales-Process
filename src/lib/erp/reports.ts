@@ -49,13 +49,19 @@ export type ReportParams =
   /** One item, optionally a warehouse, and a date range — a stock card (P120). */
   | "stock-period"
   /** Optionally an item and a warehouse, and the one date the stock stands at (P120). */
-  | "stock-asof";
+  | "stock-asof"
+  /** The one date production stands at, optionally workstations (R18). */
+  | "production-asof"
+  /** One lot number to look up (R18, R27). */
+  | "production-lot"
+  /** A date range and optionally workstations (R18). */
+  | "production-period";
 
 export type ReportDef = {
   key: string;
   /** URL segment under the module's `report/` namespace. */
   slug: string;
-  module: "finance" | "accounting" | "inventory";
+  module: "finance" | "accounting" | "inventory" | "production";
   name: string;
   /** Singular subject line shown under the title. */
   desc: string;
@@ -270,6 +276,40 @@ const FIXED_REPORTS = [
     icon: "scale",
     permission: "REPORT_BALANCE_SHEET_VIEW",
     params: "fiscal-period",
+    subjectRequired: false,
+  },
+  // The production reports (R18, P209), read from the production ledger.
+  {
+    key: "wip_balance",
+    slug: "wip-balance",
+    module: "production",
+    name: "Saldo Produksi",
+    desc: "Barang yang ada di produksi pada satu tanggal, per workstation dan lot, dengan nilai dan harga per unit.",
+    icon: "layers",
+    permission: "REPORT_WIP_BALANCE_VIEW",
+    params: "production-asof",
+    subjectRequired: false,
+  },
+  {
+    key: "lot_card",
+    slug: "lot-card",
+    module: "production",
+    name: "Kartu Lot",
+    desc: "Seluruh mutasi satu lot — di produksi (workstation, jumlah dan nilai) dan di stok.",
+    icon: "book",
+    permission: "REPORT_LOT_CARD_VIEW",
+    params: "production-lot",
+    subjectRequired: true,
+  },
+  {
+    key: "production_recap",
+    slug: "production-recap",
+    module: "production",
+    name: "Rekap Produksi",
+    desc: "Per workstation pada rentang tanggal: input, output, susut, Driver dan harga per unit masuk dan keluar.",
+    icon: "trend",
+    permission: "REPORT_PRODUCTION_RECAP_VIEW",
+    params: "production-period",
     subjectRequired: false,
   },
 ] as const satisfies readonly ReportDef[];

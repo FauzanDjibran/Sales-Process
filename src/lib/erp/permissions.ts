@@ -258,6 +258,9 @@ export const PERMISSIONS = [
   { code: "PRODUCTION_RELEASE_EDIT", name: "Ubah Production Release", module: "production", description: "Hanya selama masih Draft." },
   { code: "PRODUCTION_RELEASE_POST", name: "Posting Production Release", module: "production", description: "Mengeluarkan barang dari produksi ke gudang atau memusnahkannya, dan menjurnal Persediaan atau Beban Pemusnahan / WIP." },
   { code: "PRODUCTION_RELEASE_CANCEL", name: "Batalkan Production Release", module: "production", description: "Hanya Draft, dengan alasan." },
+  { code: "REPORT_WIP_BALANCE_VIEW", name: "Lihat Saldo Produksi", module: "production", description: "Barang di produksi per workstation dan lot pada satu tanggal." },
+  { code: "REPORT_LOT_CARD_VIEW", name: "Lihat Kartu Lot", module: "production", description: "Seluruh mutasi satu lot di produksi dan di stok." },
+  { code: "REPORT_PRODUCTION_RECAP_VIEW", name: "Lihat Rekap Produksi", module: "production", description: "Input, output dan susut per workstation pada rentang tanggal." },
 
   // -------------------------------------------------------------- inventory
   // One module for the goods (P131): the standalone documents that move stock,

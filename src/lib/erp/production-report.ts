@@ -1,0 +1,260 @@
+import "server-only";
+
+import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
+import type { PeriodRange } from "./period";
+import type { RefOption } from "./records";
+import { lotStockHistory, type LotStockMovement } from "./stock-report";
+
+/**
+ * The production reports (R18, P209): **Saldo Produksi**, **Kartu Lot** and
+ * **Rekap Produksi**, salvaged from `walet` without Partai, Job, transit or
+ * standard cost. Read-only, and read from the ledgers — never from the balance
+ * tables — so a past date is reported as it stood; Saldo Produksi says whether
+ * the balance table still equals its ledger.
+ *
+ * The book is written only by `production-ledger.ts`; this module only reads it
+ * (as `stock-report.ts` reads the stock books).
+ */
+
+const day = (s: string) => new Date(`${s}T00:00:00Z`);
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+const num = (d: Prisma.Decimal | null | undefined) => (d ? d.toNumber() : 0);
+const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
+
+export async function stationOptions(): Promise<RefOption[]> {
+  const rows = await prisma.refWorkstation.findMany({ orderBy: { workstation_label: "asc" }, select: { id: true, workstation_label: true, workstation_name: true, status: true } });
+  return rows.map((w) => ({ id: w.id, label: w.workstation_label, name: w.workstation_name, active: w.status === "Active" }));
+}
+
+// ----------------------------------------------------------- Saldo Produksi
+
+export type WipRow = {
+  bucketId: number;
+  itemLabel: string;
+  itemName: string;
+  lotNo: string;
+  uom: string;
+  qty: number;
+  value: number;
+  /** value ÷ qty, a description (P114). */
+  unitCost: number;
+};
+
+export type WipBlock = { stationId: number; stationLabel: string; stationName: string; rows: WipRow[]; value: number };
+
+/**
+ * What production held on a date, per workstation: every bucket's balance after
+ * its last ledger row on or before it — so a past date is as it stood.
+ */
+export async function wipBalanceReport(asOf: string, workstationIds: number[]): Promise<WipBlock[]> {
+  const last = await prisma.$queryRaw<{ bucket_id: number; qty_balance: Prisma.Decimal; value_balance: Prisma.Decimal }[]>`
+    SELECT DISTINCT ON (bucket_id) bucket_id, qty_balance, value_balance
+      FROM prd_ledger WHERE posting_date <= ${asOf}::date ORDER BY bucket_id, posting_date DESC, id DESC`;
+  const at = new Map(last.filter((l) => num(l.qty_balance) > 0 || num(l.value_balance) !== 0).map((l) => [l.bucket_id, l]));
+  if (!at.size) return [];
+  const buckets = await prisma.prdBalance.findMany({
+    where: { id: { in: [...at.keys()] }, ...(workstationIds.length ? { workstation_id: { in: workstationIds } } : {}) },
+    include: {
+      lot: { select: { tracking_no: true } },
+      item: { select: { item_label: true, item_name: true, base_uom: { select: { uom_label: true } } } },
+      workstation: { select: { workstation_label: true, workstation_name: true } },
+    },
+  });
+  const blocks = new Map<number, WipBlock>();
+  for (const b of buckets) {
+    const p = at.get(b.id)!;
+    const qty = num(p.qty_balance);
+    const value = num(p.value_balance);
+    const block = blocks.get(b.workstation_id) ?? { stationId: b.workstation_id, stationLabel: b.workstation.workstation_label, stationName: b.workstation.workstation_name, rows: [], value: 0 };
+    block.rows.push({
+      bucketId: b.id,
+      itemLabel: b.item.item_label,
+      itemName: b.item.item_name,
+      lotNo: b.lot.tracking_no,
+      uom: b.item.base_uom.uom_label,
+      qty,
+      value,
+      unitCost: qty > 0 ? round6(value / qty) : 0,
+    });
+    block.value += value;
+    blocks.set(b.workstation_id, block);
+  }
+  for (const block of blocks.values()) block.rows.sort((a, b) => a.itemLabel.localeCompare(b.itemLabel) || a.lotNo.localeCompare(b.lotNo));
+  return [...blocks.values()].sort((a, b) => a.stationLabel.localeCompare(b.stationLabel));
+}
+
+/** Whether every bucket still equals its ledger rows — the book's own check, shown as a warning when it fails. */
+export async function productionBooksReconcile(): Promise<boolean> {
+  const rows = await prisma.$queryRaw<{ n: bigint }[]>`
+    SELECT COUNT(*) AS n FROM prd_balance b
+      LEFT JOIN (SELECT bucket_id, SUM(qty_change) AS q, SUM(value_change) AS v FROM prd_ledger GROUP BY bucket_id) l ON l.bucket_id = b.id
+     WHERE b.qty_balance <> COALESCE(l.q, 0) OR b.value_balance <> COALESCE(l.v, 0)`;
+  return Number(rows[0].n) === 0;
+}
+
+// --------------------------------------------------------------- Kartu Lot
+
+export type LotMovement = {
+  date: string;
+  ledgerNo: string;
+  sourceNo: string;
+  movement: string;
+  stationLabel: string;
+  qtyChange: number;
+  qtyBalance: number;
+  valueChange: number;
+  valueBalance: number;
+};
+
+export type LotCard = {
+  lotId: number;
+  lotNo: string;
+  itemLabel: string;
+  itemName: string;
+  uom: string;
+  expiry: string | null;
+  sourceNo: string;
+  supplier: string | null;
+  inProduction: LotMovement[];
+  inStock: LotStockMovement[];
+};
+
+/** How a ledger movement reads on the card. */
+export const MOVEMENT_LABEL: Record<string, string> = {
+  Issued: "Masuk dari gudang",
+  Consumed: "Dipakai",
+  Produced: "Dihasilkan",
+  TransferOut: "Pindah keluar",
+  TransferIn: "Pindah masuk",
+  Released: "Keluar produksi",
+  Revalued: "Revaluasi",
+};
+
+/**
+ * Every lot with this number — a lot is unique per item (P120), so one number
+ * may name lots of several items — with its whole life: the production
+ * ledger's rows and the stock books', by date.
+ */
+export async function lotCardReport(lotNo: string): Promise<LotCard[]> {
+  const lots = await prisma.logStockTracking.findMany({
+    where: { tracking_no: { equals: lotNo.trim(), mode: "insensitive" } },
+    orderBy: { id: "asc" },
+    include: {
+      item: { select: { item_label: true, item_name: true, base_uom: { select: { uom_label: true } } } },
+      source_partner: { select: { partner_label: true, partner_name: true } },
+    },
+  });
+  return Promise.all(
+    lots.map(async (lot) => {
+      const [rows, inStock] = await Promise.all([
+        prisma.prdLedger.findMany({ where: { lot_id: lot.id }, orderBy: [{ posting_date: "asc" }, { id: "asc" }], include: { workstation: { select: { workstation_label: true } } } }),
+        lotStockHistory(lot.id),
+      ]);
+      return {
+        lotId: lot.id,
+        lotNo: lot.tracking_no,
+        itemLabel: lot.item.item_label,
+        itemName: lot.item.item_name,
+        uom: lot.item.base_uom.uom_label,
+        expiry: lot.expiry_date ? iso(lot.expiry_date) : null,
+        sourceNo: lot.source_no,
+        supplier: lot.source_partner ? `${lot.source_partner.partner_label} · ${lot.source_partner.partner_name}` : null,
+        inProduction: rows.map((r) => ({
+          date: iso(r.posting_date),
+          ledgerNo: `${r.ledger_no}#${r.line_no}`,
+          sourceNo: r.source_no,
+          movement: r.movement,
+          stationLabel: r.workstation.workstation_label,
+          qtyChange: num(r.qty_change),
+          qtyBalance: num(r.qty_balance),
+          valueChange: num(r.value_change),
+          valueBalance: num(r.value_balance),
+        })),
+        inStock,
+      };
+    }),
+  );
+}
+
+// ---------------------------------------------------------- Rekap Produksi
+
+export type RecapRow = {
+  uom: string;
+  runs: number;
+  inQty: number;
+  outQty: number;
+  /** In − out: a loss (susut) when positive, a gain when negative. */
+  loss: number;
+  lossPct: number;
+  inValue: number;
+  outValue: number;
+  /** Per unit going in and coming out — a loss raises the cost per unit, because the value stays with the goods. */
+  inUnitCost: number;
+  outUnitCost: number;
+};
+
+export type RecapStation = { stationId: number; stationLabel: string; stationName: string; runs: number; driver: number; rows: RecapRow[]; executions: { id: number; no: string; date: string }[] };
+
+/**
+ * Per workstation over a period: what went in and came out of its posted
+ * executions per unit of measure (quantities of different units are never
+ * added), the loss, the Driver they carry for the close, and the cost per unit
+ * in and out.
+ */
+export async function runRecapReport(range: PeriodRange, workstationIds: number[]): Promise<RecapStation[]> {
+  const runs = await prisma.prdExecution.findMany({
+    where: { status: "Posted", execution_date: { gte: day(range.from), lte: day(range.to) }, ...(workstationIds.length ? { workstation_id: { in: workstationIds } } : {}) },
+    orderBy: [{ execution_date: "asc" }, { id: "asc" }],
+    include: {
+      workstation: { select: { workstation_label: true, workstation_name: true } },
+      inputs: { select: { qty: true, value: true, item: { select: { base_uom: { select: { uom_label: true } } } } } },
+      outputs: { select: { qty: true, value: true, item: { select: { base_uom: { select: { uom_label: true } } } } } },
+    },
+  });
+  type Acc = RecapRow & { runIds: Set<number> };
+  const stations = new Map<number, Omit<RecapStation, "rows"> & { by: Map<string, Acc> }>();
+  for (const r of runs) {
+    const st = stations.get(r.workstation_id) ?? { stationId: r.workstation_id, stationLabel: r.workstation.workstation_label, stationName: r.workstation.workstation_name, runs: 0, driver: 0, executions: [], by: new Map<string, Acc>() };
+    st.runs += 1;
+    st.driver = round6(st.driver + num(r.driver));
+    st.executions.push({ id: r.id, no: r.execution_no, date: iso(r.execution_date) });
+    const row = (uom: string) => {
+      const had = st.by.get(uom);
+      if (had) return had;
+      const fresh: Acc = { uom, runs: 0, inQty: 0, outQty: 0, loss: 0, lossPct: 0, inValue: 0, outValue: 0, inUnitCost: 0, outUnitCost: 0, runIds: new Set() };
+      st.by.set(uom, fresh);
+      return fresh;
+    };
+    for (const x of r.inputs) {
+      const g = row(x.item.base_uom.uom_label);
+      g.inQty += num(x.qty);
+      g.inValue += num(x.value);
+      g.runIds.add(r.id);
+    }
+    for (const o of r.outputs) {
+      const g = row(o.item.base_uom.uom_label);
+      g.outQty += num(o.qty);
+      g.outValue += num(o.value);
+      g.runIds.add(r.id);
+    }
+    stations.set(r.workstation_id, st);
+  }
+  return [...stations.values()]
+    .map(({ by, ...st }) => ({
+      ...st,
+      rows: [...by.values()]
+        .map(({ runIds, ...g }) => ({
+          ...g,
+          runs: runIds.size,
+          inQty: round6(g.inQty),
+          outQty: round6(g.outQty),
+          loss: round6(g.inQty - g.outQty),
+          lossPct: g.inQty > 0 ? Math.round(((g.inQty - g.outQty) / g.inQty) * 10_000) / 100 : 0,
+          inUnitCost: g.inQty > 0 ? round6(g.inValue / g.inQty) : 0,
+          outUnitCost: g.outQty > 0 ? round6(g.outValue / g.outQty) : 0,
+        }))
+        .sort((a, b) => a.uom.localeCompare(b.uom)),
+    }))
+    .sort((a, b) => a.stationLabel.localeCompare(b.stationLabel));
+}

@@ -105,7 +105,7 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logReceiptNoteLot: ["src/lib/erp/receipt-note.ts"],
   // The stock books (P120): written only by the inventory book, read by its reports.
   // One lot register for stock and production (R3): the production ledger registers the lots executions make.
-  logStockTracking: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts", "src/lib/erp/production-ledger.ts"],
+  logStockTracking: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts", "src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   logStockLedger: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
   logStockBalance: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
   logStockValuationLedger: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts"],
@@ -128,17 +128,17 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logStockIssueLine: ["src/lib/erp/stock-issue.ts"],
   logStockIssueLot: ["src/lib/erp/stock-issue.ts"],
   // The production documents (R5, R7, R8): each named only by its module.
-  prdExecution: ["src/lib/erp/production-run.ts"],
+  prdExecution: ["src/lib/erp/production-run.ts", "src/lib/erp/production-report.ts"],
   prdExecutionInput: ["src/lib/erp/production-run.ts"],
   prdExecutionOutput: ["src/lib/erp/production-run.ts"],
   prdTransfer: ["src/lib/erp/production-transfer.ts"],
   prdTransferLine: ["src/lib/erp/production-transfer.ts"],
   prdRelease: ["src/lib/erp/production-release.ts"],
   prdReleaseLine: ["src/lib/erp/production-release.ts"],
-  // The production ledger (R3): a book, written only by its module.
-  prdBalance: ["src/lib/erp/production-ledger.ts"],
-  prdLedger: ["src/lib/erp/production-ledger.ts"],
-  prdLotLink: ["src/lib/erp/production-ledger.ts"],
+  // The production ledger (R3): a book, written only by its module and read by its reports (R18).
+  prdBalance: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
+  prdLedger: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
+  prdLotLink: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   // Billing documents: Finance owns them since P107; Sales holds only orders.
   finArAdvance: ["src/lib/erp/ar-advance.ts"],
   finArPermitAdvance: ["src/lib/erp/permit-advance.ts"],

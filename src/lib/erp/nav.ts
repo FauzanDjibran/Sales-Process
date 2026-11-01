@@ -210,6 +210,36 @@ export const MODULES: NavModule[] = [
           },
         ],
       },
+      {
+        key: "report",
+        name: "Laporan",
+        entities: [
+          {
+            key: "report_wip_balance",
+            slug: "report/wip-balance",
+            name: "Saldo Produksi",
+            icon: "layers",
+            desc: "Barang di produksi per workstation dan lot pada satu tanggal.",
+            permission: "REPORT_WIP_BALANCE_VIEW",
+          },
+          {
+            key: "report_lot_card",
+            slug: "report/lot-card",
+            name: "Kartu Lot",
+            icon: "book",
+            desc: "Seluruh mutasi satu lot di produksi dan di stok.",
+            permission: "REPORT_LOT_CARD_VIEW",
+          },
+          {
+            key: "report_production_recap",
+            slug: "report/production-recap",
+            name: "Rekap Produksi",
+            icon: "trend",
+            desc: "Input, output, susut dan harga per unit per workstation pada rentang tanggal.",
+            permission: "REPORT_PRODUCTION_RECAP_VIEW",
+          },
+        ],
+      },
     ],
   },
   {
