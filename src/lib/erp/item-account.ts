@@ -101,7 +101,8 @@ export async function saveItemCategoryAccounts(input: ItemCategoryAccountInput[]
     const values = { inventory: Number(r.inventory) || null, cogs: Number(r.cogs) || null, wip: r.wip === undefined ? (c.accounts?.wip_account_id ?? null) : Number(r.wip) || null, expense: Number(r.expense) || null };
     for (const kind of ["inventory", "cogs", "wip", "expense"] as const) {
       const id = values[kind];
-      if (!id) continue;
+      // A WIP kept because none was sent was checked when it was set.
+      if (!id || (kind === "wip" && r.wip === undefined)) continue;
       const key = `${c.id}.${kind}`;
       if (!allowed.has(kind)) {
         errors[key] = "Kategori Jasa hanya memakai Account Beban.";

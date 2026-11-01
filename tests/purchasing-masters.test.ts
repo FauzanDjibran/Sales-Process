@@ -117,9 +117,11 @@ describe("accounts per Kategori Item (B5a, closes C25)", () => {
   });
 
   test("saved accounts resolve per item; an empty one reads null for the caller's fallback", async () => {
+    // A save that sends no WIP keeps the category's own (P201).
+    const wip = (await prisma.accItemCategoryAccount.findUnique({ where: { category_id: f.goodsCat } }))?.wip_account_id ?? null;
     const r = await saveItemCategoryAccounts([{ categoryId: f.goodsCat, inventory: f.inv, cogs: f.cogs, expense: null }], actor);
     assert.deepEqual(r, { ok: true, changed: 1 });
-    assert.deepEqual((await accountsForItems([f.item])).get(f.item), { inventory: f.inv, cogs: f.cogs, wip: null, expense: null });
+    assert.deepEqual((await accountsForItems([f.item])).get(f.item), { inventory: f.inv, cogs: f.cogs, wip, expense: null });
     assert.deepEqual(await saveItemCategoryAccounts([{ categoryId: f.goodsCat, inventory: f.inv, cogs: f.cogs, expense: null }], actor), { ok: true, changed: 0 }, "nothing changed, nothing written");
   });
 
