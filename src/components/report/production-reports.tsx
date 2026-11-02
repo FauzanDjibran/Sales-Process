@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { Icon } from "@/components/icon";
+import { CostingCards } from "@/components/production/cost-close-detail";
+import type { CostingSoFar } from "@/lib/erp/production-close";
 import { MOVEMENT_LABEL, type LotCard, type RecapStation, type WipBlock } from "@/lib/erp/production-report";
 import { reportHref } from "@/lib/erp/reports";
 import { formatDate, formatMoney, formatNumber, formatPrice } from "@/lib/format";
@@ -338,6 +340,89 @@ export function RecapBody({ stations }: { stations: RecapStation[] }) {
           </div>
         </div>
       ))}
+    </>
+  );
+}
+
+/** Costing Sementara (R26): per item the pool as posted and as the close would leave it, then the close's own figures. */
+export function CostingSoFarBody({ report }: { report: CostingSoFar }) {
+  return (
+    <>
+      <div className="nbox warn slim" style={{ marginTop: 14 }}>
+        <Icon name="warn" size={15} className="ni" />
+        <div>
+          <b>Sementara — tidak diposting.</b> Penutupan {report.periodName} dijalankan sebagai simulasi atas biaya dan eksekusi yang sudah diposting {formatDate(report.from)} s/d {formatDate(report.to)}; posisi lot dibaca seperti saat ini. HPP dan persediaan yang sudah diposting masih bernilai material saja sampai periode ditutup.
+          {report.costed ? " Periode ini sudah ditutup; angka finalnya ada di Penutupan Biaya Produksi." : ""}
+        </div>
+      </div>
+      <div className="card" style={{ marginTop: 14 }}>
+        <div className="card-h">
+          <span className="ci">
+            <Icon name="calc" size={15} />
+          </span>
+          <div className="ct">
+            <h3>Harga Pokok per Barang</h3>
+            <p>Nilai persediaan yang sudah diposting (material), bagian biaya konversi yang sampai ke barang itu, dan hasilnya setelah penutupan.</p>
+          </div>
+        </div>
+        {report.items.length ? (
+          <div className="tw">
+            <table className="grid" style={{ minWidth: 1100 }}>
+              <thead>
+                <tr>
+                  <th>Barang</th>
+                  <th className="num" style={{ width: 120 }}>Stok</th>
+                  <th className="num" style={{ width: 150 }}>Nilai Diposting</th>
+                  <th className="num" style={{ width: 140 }}>Konversi</th>
+                  <th className="num" style={{ width: 140 }}>Ke HPP</th>
+                  <th className="num" style={{ width: 140 }}>Ke Persediaan</th>
+                  <th className="num" style={{ width: 150 }}>Nilai Final</th>
+                  <th className="num" style={{ width: 130 }}>Per Unit Final</th>
+                </tr>
+              </thead>
+              <tbody>
+                {report.items.map((i) => (
+                  <tr key={i.itemId}>
+                    <td>
+                      <span className="idc">
+                        <span className="lab">{i.itemLabel}</span>
+                        <span className="nm">{i.itemName}</span>
+                      </span>
+                    </td>
+                    <td className="num">
+                      <span className="mny">
+                        {qty(i.poolQty)} {i.uom}
+                      </span>
+                    </td>
+                    <td className="num">
+                      <span className="mny">{money(i.postedValue)}</span>
+                    </td>
+                    <td className="num">
+                      <span className="mny">{money(i.share)}</span>
+                    </td>
+                    <td className="num">
+                      <span className="mny">{money(i.hpp)}</span>
+                    </td>
+                    <td className="num">
+                      <span className="mny">{money(i.stock)}</span>
+                    </td>
+                    <td className="num">
+                      <span className="mny">{money(i.finalValue)}</span>
+                    </td>
+                    <td className="num">{i.poolQty > 0 ? <span className="mny">{formatPrice(i.finalUnitCost)}</span> : dash}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="empty sm">
+            <h4>Belum ada barang jadi yang menerima biaya konversi</h4>
+            <p>Biaya sampai ke barang yang sudah masuk persediaan lewat Penerimaan Hasil Produksi.</p>
+          </div>
+        )}
+      </div>
+      <CostingCards view={report.view} />
     </>
   );
 }

@@ -55,7 +55,9 @@ export type ReportParams =
   /** One lot number to look up (R18, R27). */
   | "production-lot"
   /** A date range and optionally workstations (R18). */
-  | "production-period";
+  | "production-period"
+  /** The one date the open period is costed up to (R26). */
+  | "production-date";
 
 export type ReportDef = {
   key: string;
@@ -310,6 +312,17 @@ const FIXED_REPORTS = [
     icon: "trend",
     permission: "REPORT_PRODUCTION_RECAP_VIEW",
     params: "production-period",
+    subjectRequired: false,
+  },
+  {
+    key: "costing_so_far",
+    slug: "costing-so-far",
+    module: "production",
+    name: "Costing Sementara",
+    desc: "Penutupan biaya periode berjalan dijalankan seolah-olah hari ini akhir bulan, tanpa memposting apa pun: harga pokok final per barang jadi sejauh ini.",
+    icon: "calc",
+    permission: "REPORT_COSTING_SO_FAR_VIEW",
+    params: "production-date",
     subjectRequired: false,
   },
 ] as const satisfies readonly ReportDef[];

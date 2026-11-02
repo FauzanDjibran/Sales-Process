@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { issueStock } from "../src/lib/erp/inventory";
 import { postJournal } from "../src/lib/erp/journal";
-import { previewClose, runClose, storedClose } from "../src/lib/erp/production-close";
+import { costingSoFar, previewClose, runClose, storedClose } from "../src/lib/erp/production-close";
 import { settleClose } from "../src/lib/erp/production-close-shape";
 import { enterProduction, transferBucket } from "../src/lib/erp/production-ledger";
 import { createRelease, transitionRelease } from "../src/lib/erp/production-release";
@@ -189,8 +189,16 @@ describe("the close of scenario G1", () => {
   });
 
   test("the close posts, revalues, stores what it closed and locks the period", async () => {
+    // Costing Sementara on the last day (R26) is the close it then posts, figure for figure.
+    const soFar = (await costingSoFar("2001-03-31"))!;
+    assert.deepEqual(soFar.items.map((i) => [i.share, i.hpp, i.stock, i.postedValue, i.finalValue, i.finalUnitCost]), [[200_000, 100_000, 100_000, 300_000, 400_000, 8_000]]);
     const r = await runClose(periodId, f.actor);
     assert.ok(r.ok, JSON.stringify(r));
+    const after = (await storedClose(periodId))!;
+    assert.equal(after.poolTotal, soFar.view.poolTotal);
+    assert.deepEqual(after.shares, soFar.view.shares);
+    assert.deepEqual(after.dests, soFar.view.dests);
+    assert.deepEqual(after.items, soFar.view.items);
     const wip = await prisma.prdBalance.findFirstOrThrow({ where: { lot_id: fgLot, workstation_id: f.wsB } });
     assert.equal(wip.value_balance.toNumber(), 800_000);
     const pool = await prisma.logStockValuationBalance.findUniqueOrThrow({ where: { item_id: fg } });

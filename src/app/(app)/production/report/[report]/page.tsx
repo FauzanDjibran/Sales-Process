@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
 import { ProductionReportParams } from "@/components/report/production-report-params";
-import { LotCardBody, ProductionMismatch, RecapBody, WipBalanceBody } from "@/components/report/production-reports";
+import { CostingSoFarBody, LotCardBody, ProductionMismatch, RecapBody, WipBalanceBody } from "@/components/report/production-reports";
 import { requirePermission } from "@/lib/erp/auth";
 import { lotCardReport, productionBooksReconcile, runRecapReport, stationOptions, wipBalanceReport } from "@/lib/erp/production-report";
+import { costingSoFar } from "@/lib/erp/production-close";
 import { reportBySlug, reportHref } from "@/lib/erp/reports";
 import { formatDate } from "@/lib/format";
 
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 /**
  * Every Report View in the Produksi module (R18), driven by the catalogue like
  * the other modules': Saldo Produksi as of a date, Rekap Produksi over a
- * period, Kartu Lot for one lot number. Parameters come from the query string
+ * period, Kartu Lot for one lot number, Costing Sementara up to a date. Parameters come from the query string
  * (`asOf`, `from`, `to`, `stations=1,4`, `q`); the figures from the ledgers.
  */
 export default async function Page({
@@ -34,8 +35,8 @@ export default async function Page({
   const asOf = isDate(query.asOf) ? query.asOf : today;
   const range = resolveRange(isDate(query.from) ? query.from : `${today.slice(0, 8)}01`, isDate(query.to) ? query.to : today);
   const text = (query.q ?? "").trim();
-  const mode = report.params === "production-asof" ? "asof" : report.params === "production-period" ? "period" : "lot";
-  const stations = mode === "lot" ? [] : await stationOptions();
+  const mode = report.params === "production-asof" ? "asof" : report.params === "production-period" ? "period" : report.params === "production-date" ? "date" : "lot";
+  const stations = mode === "asof" || mode === "period" ? await stationOptions() : [];
   const filter = <ProductionReportParams slug={slug} mode={mode} stations={stations} stationIds={stationIds} asOf={asOf} from={range.from} to={range.to} query={text} />;
 
   if (report.key === "wip_balance") {
@@ -44,6 +45,14 @@ export default async function Page({
       <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Saldo per {formatDate(asOf)} dari buku produksi; jumlah dalam satuan dasar barang, nilai dalam rupiah utuh.</>}>
         <WipBalanceBody blocks={blocks} asOf={asOf} />
         <ProductionMismatch show={!reconciles} />
+      </ReportView>
+    );
+  }
+  if (report.key === "costing_so_far") {
+    const soFar = await costingSoFar(asOf);
+    return (
+      <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Dihitung dengan fungsi yang sama dengan Penutupan Biaya Produksi; tidak ada yang ditulis.</>}>
+        {soFar ? <CostingSoFarBody report={soFar} /> : <ReportNeedsSubject icon="cal" title="Tidak ada periode" body={`Tanggal ${formatDate(asOf)} tidak berada di periode Fiscal Year mana pun.`} />}
       </ReportView>
     );
   }

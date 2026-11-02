@@ -13,7 +13,8 @@ import { useReportRun } from "./report-run";
  * The filter of the production reports (R18), in the URL like every Report
  * View: `asof` — the one date production stands at, optionally workstations
  * (Saldo Produksi); `period` — a date range and optionally workstations (Rekap
- * Produksi); `lot` — a lot number to look up (Kartu Lot, Telusur Produksi).
+ * Produksi); `lot` — a lot number to look up (Kartu Lot, Telusur Produksi);
+ * `date` — the one date the open period is costed up to (Costing Sementara).
  */
 export function ProductionReportParams({
   slug,
@@ -26,7 +27,7 @@ export function ProductionReportParams({
   query,
 }: {
   slug: string;
-  mode: "asof" | "period" | "lot";
+  mode: "asof" | "period" | "lot" | "date";
   stations: RefOption[];
   stationIds: number[];
   asOf: string;
@@ -48,12 +49,22 @@ export function ProductionReportParams({
   const run = () => {
     if (badRange || missing) return;
     startTransition(() => {
-      const where = mode === "lot" ? { q: text.trim() } : { stations: stationSet.join(","), ...(mode === "asof" ? { asOf: day } : { from: start, to: end }) };
+      const where = mode === "lot" ? { q: text.trim() } : mode === "date" ? { asOf: day } : { stations: stationSet.join(","), ...(mode === "asof" ? { asOf: day } : { from: start, to: end }) };
       router.push(reportHref(slug, where));
     });
   };
   useReportRun(run, { blocked: badRange || missing, hint: badRange ? INVALID_RANGE_HINT : "Isi nomor lot terlebih dahulu.", pending });
 
+  if (mode === "date") {
+    return (
+      <div className="rrow">
+        <span className="rl">Sampai Tanggal</span>
+        <div className="rf date">
+          <DateInput value={day} onChange={setDay} ariaLabel="Sampai tanggal" />
+        </div>
+      </div>
+    );
+  }
   if (mode === "lot") {
     return (
       <div className="rrow">

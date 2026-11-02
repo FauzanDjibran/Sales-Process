@@ -309,6 +309,51 @@ export async function closeNumbersByIds(ids: number[]): Promise<Map<number, stri
   return new Map(closes.map((c) => [c.id, `Penutupan Biaya ${name.get(c.period_id) ?? ""}`]));
 }
 
+export type CostingSoFar = {
+  periodName: string;
+  from: string;
+  to: string;
+  costed: boolean;
+  view: CostingView;
+  /** Per item received to stock: the pool as posted and as the close would leave it (R26). */
+  items: { itemId: number; itemLabel: string; itemName: string; uom: string; poolQty: number; postedValue: number; share: number; hpp: number; stock: number; finalValue: number; finalUnitCost: number }[];
+};
+
+/**
+ * Costing Sementara (R26): the close of the period holding `asOf`, run as a
+ * dry run of its own calculation over what is posted from the period's first
+ * day to `asOf` — nothing is written. Null when no fiscal period holds the date.
+ */
+export async function costingSoFar(asOf: string): Promise<CostingSoFar | null> {
+  const to = day(asOf);
+  const period = await prisma.accFiscalPeriod.findFirst({ where: { start_date: { lte: to }, end_date: { gte: to } } });
+  if (!period) return null;
+  const f = await costingFigures(period.start_date, to, `Costing Sementara ${period.period_name}`);
+  return {
+    periodName: period.period_name,
+    from: isoDay(period.start_date),
+    to: asOf,
+    costed: period.production_costed_at != null,
+    view: await costingView(f),
+    items: f.items.map((i) => {
+      const finalValue = i.flow.poolValue + i.stock;
+      return {
+        itemId: i.itemId,
+        itemLabel: i.itemLabel,
+        itemName: i.itemName,
+        uom: i.uom,
+        poolQty: i.flow.poolQty,
+        postedValue: i.flow.poolValue,
+        share: i.received,
+        hpp: i.hpp,
+        stock: i.stock,
+        finalValue,
+        finalUnitCost: i.flow.poolQty > 0 ? Math.round((finalValue / i.flow.poolQty) * 1e6) / 1e6 : 0,
+      };
+    }),
+  };
+}
+
 // ------------------------------------------------------------------ running
 
 export type CloseResult = { ok: true; closeId: number; journal: JournalLineInput[] } | { ok: false; errors: Record<string, string> };
