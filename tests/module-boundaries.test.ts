@@ -139,6 +139,13 @@ const TABLE_OWNERS: Record<string, string[]> = {
   prdBalance: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   prdLedger: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   prdLotLink: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
+  // The month-end close (R10–R15, R25): its record, named only by its module; the lock only by the kernel.
+  prdCostClose: ["src/lib/erp/production-close.ts"],
+  prdCostClosePool: ["src/lib/erp/production-close.ts"],
+  prdCostCloseShare: ["src/lib/erp/production-close.ts"],
+  prdCostCloseDest: ["src/lib/erp/production-close.ts"],
+  prdCostCloseItem: ["src/lib/erp/production-close.ts"],
+  accFiscalPeriodLock: ["src/lib/erp/period-lock.ts"],
   // Billing documents: Finance owns them since P107; Sales holds only orders.
   finArAdvance: ["src/lib/erp/ar-advance.ts"],
   finArPermitAdvance: ["src/lib/erp/permit-advance.ts"],
@@ -224,6 +231,9 @@ describe("the dependency graph points one way", () => {
       // How a warehouse location reads and the key of a lot in one: pure string
       // functions, shared by the inventory book and the forms that pick from it.
       "warehouse-location",
+      // The production close's period lock (R15): the books ask it at their one
+      // write point; it reads only the fiscal period and its own lock rows.
+      "period-lock",
     ];
     const BOOKS = ["cash-bank", "journal", "ar-item", "ap-item", "inventory"];
 

@@ -768,3 +768,8 @@ export async function apInvoiceSourceLines(filter: { orderIds?: number[]; lineId
     value: l.value_amount.toNumber(),
   }));
 }
+
+/** Drafts dated up to a day — the month-end close's checklist (R28). */
+export async function draftReceiptNotesUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.logReceiptNote.count({ where: { status: "Draft", rn_date: { lte: to } } });
+}

@@ -208,6 +208,14 @@ export const MODULES: NavModule[] = [
             desc: "Biaya produksi yang diakui pada bulan terjadinya, per Jenis Biaya; dilunasi lewat Pengeluaran — Pembayaran Biaya Produksi.",
             permission: "PRODUCTION_COST_BILL_VIEW",
           },
+          {
+            key: "prd_cost_close",
+            slug: "cost-close",
+            name: "Penutupan Biaya Produksi",
+            icon: "lock",
+            desc: "Akhir bulan: biaya pada account Jenis Biaya dibagi ke eksekusi menurut Driver, dibawa ke WIP, persediaan dan HPP, lalu periode dikunci.",
+            permission: "PRODUCTION_COST_CLOSE_VIEW",
+          },
         ],
       },
       {

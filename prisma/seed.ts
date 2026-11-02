@@ -149,6 +149,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Eksekusi Produksi", "prd_execution"],
   ["Production Transfer", "prd_transfer"],
   ["Production Release", "prd_release"],
+  ["Penutupan Biaya Produksi", "prd_cost_close"],
 ];
 
 /**

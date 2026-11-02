@@ -905,3 +905,24 @@ export async function statementBalances(
       : null,
   };
 }
+
+/**
+ * Per account, debit less credit of posted journal lines dated in a range, in
+ * base currency — the month-end close's pool (R10) and its checks.
+ */
+export async function accountNetMovements(
+  accountIds: number[],
+  from: Date,
+  to: Date,
+  db: Prisma.TransactionClient | typeof prisma = prisma
+): Promise<Map<number, number>> {
+  const out = new Map<number, number>();
+  if (!accountIds.length) return out;
+  const rows = await db.accJournalLine.groupBy({
+    by: ["account_id"],
+    where: { account_id: { in: accountIds }, journal: { status: "Posted", posting_date: { gte: from, lte: to } } },
+    _sum: { debit_amount: true, kredit_amount: true },
+  });
+  for (const r of rows) out.set(r.account_id, (r._sum.debit_amount?.toNumber() ?? 0) - (r._sum.kredit_amount?.toNumber() ?? 0));
+  return out;
+}

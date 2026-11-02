@@ -25,6 +25,7 @@ import { stockIssueNumbersByIds } from "./stock-issue";
 import { executionNumbersByIds } from "./production-run";
 import { transferNumbersByIds } from "./production-transfer";
 import { releaseNumbersByIds } from "./production-release";
+import { closeNumbersByIds } from "./production-close";
 import { invoiceNumbersByIds } from "./ar-invoice";
 import { purchaseInvoiceNumbersByIds } from "./ap-invoice";
 import { fakturNumbersByIds, slipNumbersByIds } from "./tax-document";
@@ -97,6 +98,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   prd_execution: { label: "Eksekusi Produksi", resolve: executionNumbersByIds },
   prd_transfer: { label: "Production Transfer", resolve: transferNumbersByIds },
   prd_release: { label: "Production Release", resolve: releaseNumbersByIds },
+  prd_cost_close: { label: "Penutupan Biaya Produksi", resolve: closeNumbersByIds },
   pur_request: { label: "Purchase Request", resolve: purchaseRequestNumbersByIds },
   pur_order: { label: "Purchase Order", resolve: purchaseOrderNumbersByIds },
   fin_ar_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },

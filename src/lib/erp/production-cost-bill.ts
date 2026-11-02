@@ -5,6 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate } from "./fiscal";
+import { PeriodLockRefusal } from "./period-lock";
 import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { costTypeOptions, costTypesByIds } from "./production-cost";
 import { checkAccountIsLeaf } from "./records";
@@ -382,6 +383,7 @@ export async function transitionCostBill(
     return { ok: true, journal: journalLines };
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
+    if (e instanceof PeriodLockRefusal) return { ok: false, errors: { _form: e.message } };
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines };
     throw e;
   }
@@ -569,3 +571,8 @@ export async function recordCostBillPaid(tx: Prisma.TransactionClient, id: numbe
   await tx.prdCostBill.update({ where: { id }, data: { paid_amount: paid } });
 }
 
+
+/** Drafts dated up to a day — the month-end close's checklist (R28). */
+export async function draftCostBillsUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.prdCostBill.count({ where: { status: "Draft", bill_date: { lte: to } } });
+}

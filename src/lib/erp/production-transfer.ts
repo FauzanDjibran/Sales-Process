@@ -213,3 +213,8 @@ export async function transferNumbersByIds(ids: number[]): Promise<Map<number, s
   const rows = await prisma.prdTransfer.findMany({ where: { id: { in: ids } }, select: { id: true, transfer_no: true } });
   return new Map(rows.map((r) => [r.id, r.transfer_no]));
 }
+
+/** Drafts dated up to a day — the month-end close's checklist (R28). */
+export async function draftTransfersUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.prdTransfer.count({ where: { status: "Draft", transfer_date: { lte: to } } });
+}

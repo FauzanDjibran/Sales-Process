@@ -60,3 +60,9 @@ export async function costTypesUsingAccount(accountId: number, db: Db = prisma):
   const rows = await db.accCostType.findMany({ where: { expense_account_id: accountId }, select: { cost_type_label: true } });
   return rows.map((r) => r.cost_type_label);
 }
+
+/** Every account a Jenis Biaya books to, active or not — the close's pool accounts (R10). */
+export async function costPoolAccountIds(db: Db = prisma): Promise<number[]> {
+  const rows = await db.accCostType.findMany({ distinct: ["expense_account_id"], select: { expense_account_id: true } });
+  return rows.map((r) => r.expense_account_id);
+}

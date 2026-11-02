@@ -717,3 +717,8 @@ export async function stockIssueLocationUse(warehouseId: number, locationIds: nu
   ]);
   return { drafts, named: new Set(named.flatMap((r) => (r.location_id ? [r.location_id] : []))) };
 }
+
+/** Drafts dated up to a day — the month-end close's checklist (R28). */
+export async function draftStockIssuesUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.logStockIssue.count({ where: { status: "Draft", issue_date: { lte: to } } });
+}

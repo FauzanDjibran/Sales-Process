@@ -853,6 +853,9 @@ table acc_fiscal_period {
 
   status                      enum('Draft', 'Open', 'Closed') [not null, default: 'Draft']
 
+  production_costed_at        timestamptz // set by the Penutupan Biaya Produksi (R15)
+  production_costed_by        int
+
   created_by                  int [not null]
   updated_by                  int
 
@@ -2915,6 +2918,83 @@ table prd_release_line {
   indexes {
     (release_id, line_no) [unique]
     bucket_id
+  }
+}
+
+// The period lock (R15): accounts a costed period takes no journal line on.
+table acc_fiscal_period_lock {
+  id                          int [pk, increment, not null]
+  period_id                   int [not null, ref : > acc_fiscal_period.id] // cascade
+  account_id                  int [not null]
+
+  indexes {
+    (period_id, account_id) [unique]
+  }
+}
+
+// Penutupan Biaya Produksi (R10–R15, R25): one per fiscal period, final.
+table prd_cost_close {
+  id                          int [pk, increment, not null]
+  period_id                   int [not null, unique] // weak: acc_fiscal_period
+  close_date                  date [not null]
+  pool_total                  decimal(18,2) [not null, default: 0]
+  journal_id                  int
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+}
+
+table prd_cost_close_pool {
+  id                          int [pk, increment, not null]
+  close_id                    int [not null, ref : > prd_cost_close.id] // cascade
+  account_id                  int [not null]
+  amount                      decimal(18,2) [not null]
+
+  indexes {
+    (close_id, account_id) [unique]
+  }
+}
+
+table prd_cost_close_share {
+  id                          int [pk, increment, not null]
+  close_id                    int [not null, ref : > prd_cost_close.id] // cascade
+  execution_id                int [not null]
+  execution_no                varchar [not null]
+  driver                      decimal(18,4) [not null]
+  amount                      decimal(18,2) [not null]
+
+  indexes {
+    (close_id, execution_id) [unique]
+  }
+}
+
+table prd_cost_close_dest {
+  id                          int [pk, increment, not null]
+  close_id                    int [not null, ref : > prd_cost_close.id] // cascade
+  kind                        varchar [not null] // Wip | Stock | Hpp | Scrap
+  item_id                     int
+  bucket_id                   int
+  account_id                  int [not null]
+  amount                      decimal(18,2) [not null]
+
+  indexes {
+    (close_id, kind)
+  }
+}
+
+table prd_cost_close_item {
+  id                          int [pk, increment, not null]
+  close_id                    int [not null, ref : > prd_cost_close.id] // cascade
+  item_id                     int [not null]
+  opening_qty                 decimal(18,6) [not null]
+  inflow_qty                  decimal(18,6) [not null]
+  outflow_qty                 decimal(18,6) [not null]
+  ending_qty                  decimal(18,6) [not null]
+  value_before                decimal(18,2) [not null]
+  hpp_amount                  decimal(18,2) [not null]
+  stock_amount                decimal(18,2) [not null]
+
+  indexes {
+    (close_id, item_id) [unique]
   }
 }
 

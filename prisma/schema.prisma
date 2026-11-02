@@ -1360,16 +1360,35 @@ model AccFiscalPeriod {
   end_date       DateTime     @db.Date
   note           String?
   status         FiscalStatus @default(Draft)
+  /// Set by the Penutupan Biaya Produksi (R15): the period then takes no stock
+  /// or production posting, and no journal line on an account in its locks.
+  production_costed_at DateTime? @db.Timestamptz(6)
+  production_costed_by Int?
 
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  fiscal_year AccFiscalYear @relation(fields: [fiscal_year_id], references: [id])
+  fiscal_year AccFiscalYear      @relation(fields: [fiscal_year_id], references: [id])
+  locks       AccFiscalPeriodLock[]
 
   @@index([fiscal_year_id])
   @@map("acc_fiscal_period")
+}
+
+/// An account a costed period is locked for (R15): the Jenis Biaya expense
+/// accounts and Biaya Produksi Dibebankan as they stood at the close. Written
+/// and read only by `period-lock.ts`.
+model AccFiscalPeriodLock {
+  id         Int @id @default(autoincrement())
+  period_id  Int
+  account_id Int
+
+  period AccFiscalPeriod @relation(fields: [period_id], references: [id], onDelete: Cascade)
+
+  @@unique([period_id, account_id])
+  @@map("acc_fiscal_period_lock")
 }
 
 /// The closing state of one fiscal year, and what its close produced.
@@ -4081,4 +4100,93 @@ model PrdReleaseLine {
   @@unique([release_id, line_no])
   @@index([bucket_id])
   @@map("prd_release_line")
+}
+
+/// Penutupan Biaya Produksi (R10–R15, R25): one per fiscal period, final. It
+/// stores what it closed — the pool per Jenis Biaya account, each execution's
+/// share, where the value went and, per item received to stock, its flow.
+model PrdCostClose {
+  id         Int      @id @default(autoincrement())
+  /// acc_fiscal_period.id (weak, §3.1): the period is the fiscal module's.
+  period_id  Int      @unique
+  /// The period's last day — the journal's and the value-only rows' date.
+  close_date DateTime @db.Date
+  /// Σ pools = the credit to Biaya Produksi Dibebankan.
+  pool_total Decimal  @default(0) @db.Decimal(18, 2)
+  journal_id Int?
+  created_by Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  pools  PrdCostClosePool[]
+  shares PrdCostCloseShare[]
+  dests  PrdCostCloseDest[]
+  items  PrdCostCloseItem[]
+
+  @@map("prd_cost_close")
+}
+
+/// The month's net debit on one Jenis Biaya expense account (R10).
+model PrdCostClosePool {
+  id         Int     @id @default(autoincrement())
+  close_id   Int
+  account_id Int
+  amount     Decimal @db.Decimal(18, 2)
+
+  close PrdCostClose @relation(fields: [close_id], references: [id], onDelete: Cascade)
+
+  @@unique([close_id, account_id])
+  @@map("prd_cost_close_pool")
+}
+
+/// One posted execution of the period: its Driver and its share of the pool (R11).
+model PrdCostCloseShare {
+  id           Int     @id @default(autoincrement())
+  close_id     Int
+  execution_id Int
+  execution_no String
+  driver       Decimal @db.Decimal(18, 4)
+  amount       Decimal @db.Decimal(18, 2)
+
+  close PrdCostClose @relation(fields: [close_id], references: [id], onDelete: Cascade)
+
+  @@unique([close_id, execution_id])
+  @@map("prd_cost_close_share")
+}
+
+/// Where the value went (R12): `Wip` a bucket, `Stock` an item's pool,
+/// `Hpp` HPP (an item's, or Account Mapping's when none), `Scrap`.
+model PrdCostCloseDest {
+  id         Int     @id @default(autoincrement())
+  close_id   Int
+  kind       String
+  item_id    Int?
+  bucket_id  Int?
+  account_id Int
+  amount     Decimal @db.Decimal(18, 2)
+
+  close PrdCostClose @relation(fields: [close_id], references: [id], onDelete: Cascade)
+
+  @@index([close_id, kind])
+  @@map("prd_cost_close_dest")
+}
+
+/// An item whose released goods took part of the pool (R25): the period's
+/// flow of its stock pool, the value before, the part to HPP, the part kept.
+model PrdCostCloseItem {
+  id           Int     @id @default(autoincrement())
+  close_id     Int
+  item_id      Int
+  opening_qty  Decimal @db.Decimal(18, 6)
+  inflow_qty   Decimal @db.Decimal(18, 6)
+  outflow_qty  Decimal @db.Decimal(18, 6)
+  ending_qty   Decimal @db.Decimal(18, 6)
+  /// The pool's value when the close ran, before its own revaluation.
+  value_before Decimal @db.Decimal(18, 2)
+  hpp_amount   Decimal @db.Decimal(18, 2)
+  stock_amount Decimal @db.Decimal(18, 2)
+
+  close PrdCostClose @relation(fields: [close_id], references: [id], onDelete: Cascade)
+
+  @@unique([close_id, item_id])
+  @@map("prd_cost_close_item")
 }

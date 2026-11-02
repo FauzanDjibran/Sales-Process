@@ -5,6 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 import { isBaseCurrency } from "./currency";
 import { roundBase } from "./fx";
+import { PeriodLockRefusal, lockedAccountRefusal } from "./period-lock";
 
 /**
  * The accounting journal.
@@ -253,6 +254,9 @@ export async function postJournal(
 
   if (input.postingDate && !input.closingEntry) assertNotAhead(input.postingDate);
   const postingDate = input.postingDate ?? postingDateToday();
+  // A costed period takes no line on the accounts it was costed from (R15).
+  const locked = await lockedAccountRefusal(postingDate, input.lines.map((l) => l.accountId), tx);
+  if (locked) throw new PeriodLockRefusal(locked);
 
   const journal = await tx.accJournal.create({
     data: {
@@ -502,6 +506,8 @@ export async function postDraftJournal(
   if (postingDate.getTime() > postingDateToday().getTime()) {
     return { ok: false, error: "Journal tidak boleh bertanggal di masa depan." };
   }
+  const locked = await lockedAccountRefusal(postingDate, resolved.map((l) => l.accountId));
+  if (locked) return { ok: false, error: locked };
 
   await prisma.$transaction(async (tx) => {
     if (hold) await hold(tx, postingDate.toISOString().slice(0, 10));

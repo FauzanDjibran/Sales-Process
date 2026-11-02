@@ -364,3 +364,15 @@ export async function releaseLocationUse(warehouseId: number, locationIds: numbe
   ]);
   return { drafts, named: new Set(named.flatMap((r) => (r.location_id ? [r.location_id] : []))) };
 }
+
+/** Drafts dated up to a day — the month-end close's checklist (R28). */
+export async function draftReleasesUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.prdRelease.count({ where: { status: "Draft", release_date: { lte: to } } });
+}
+
+/** The purpose of each release, by id (`to_stock` / `scrap`) — the close sends value to stock or scrap by it (R12). */
+export async function releasePurposesByIds(ids: number[], db: Db = prisma): Promise<Map<number, string>> {
+  if (!ids.length) return new Map();
+  const rows = await db.prdRelease.findMany({ where: { id: { in: ids } }, select: { id: true, purpose: true } });
+  return new Map(rows.map((r) => [r.id, r.purpose]));
+}

@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { InventoryRefusal } from "./inventory";
+import { PeriodLockRefusal } from "./period-lock";
 import { PostingDryRun, type JournalLineInput } from "./journal";
 import { ProductionRefusal, availableBuckets, type BucketView } from "./production-ledger";
 import { accountsForItems } from "./item-account";
@@ -158,6 +159,7 @@ export async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: fal
     return await run();
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
+    if (e instanceof PeriodLockRefusal) return { ok: false, errors: { _form: e.message } };
     if (e instanceof InventoryRefusal || e instanceof ProductionRefusal) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
     // A dry run reached the end of the posting: its journal, with every write rolled back (P103).
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;

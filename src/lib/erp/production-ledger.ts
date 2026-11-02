@@ -3,7 +3,9 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
+import { costedPeriodRefusal } from "./period-lock";
 import { outputWeight, shareByWeight, shareQty } from "./production-execution";
+import type { LotFate } from "./production-close-shape";
 
 /**
  * The production ledger (R3, step 3) — the book of what is inside production.
@@ -119,6 +121,9 @@ async function position(tx: Tx, date: Date, s: ProductionSource) {
 // -------------------------------------------------------------- writing
 
 async function write(tx: Tx, b: Bucket, m: { movement: Movement; qty: Dec; value: Dec; date: Date; source: ProductionSource; actorId: number }) {
+  // A costed period takes no production posting (R15).
+  const costed = await costedPeriodRefusal(m.date, tx);
+  if (costed) throw new ProductionRefusal(costed);
   const qty = b.qty.add(m.qty);
   const value = b.value.add(m.value);
   if (qty.lt(0) || value.lt(0)) throw new ProductionRefusal("Saldo produksi tidak boleh negatif.");
@@ -487,4 +492,36 @@ export async function lotNumberTaken(itemId: number, lotNo: string, db: Db = pri
 export async function wipByItem(db: Db = prisma): Promise<Map<number, number>> {
   const rows = await db.prdBalance.groupBy({ by: ["item_id"], _sum: { value_balance: true }, where: { value_balance: { not: 0 } } });
   return new Map(rows.map((r) => [r.item_id, r._sum.value_balance?.toNumber() ?? 0]));
+}
+
+// ------------------------------------------------------------ the close
+
+/** What became of each lot, as the books stand now (R12): held, taken into later lots, released. */
+export async function lotFates(lotIds: number[], db: Db = prisma): Promise<Map<number, LotFate>> {
+  const out = new Map<number, LotFate>(lotIds.map((id) => [id, { held: [], links: [], released: [] }]));
+  if (!lotIds.length) return out;
+  const releaseType = await db.sysDocType.findFirst({ where: { doc_table: "prd_release" }, select: { id: true } });
+  const [held, links, released] = await Promise.all([
+    db.prdBalance.findMany({ where: { lot_id: { in: lotIds }, qty_balance: { gt: 0 } }, select: { id: true, lot_id: true, item_id: true, qty_balance: true } }),
+    db.prdLotLink.findMany({ where: { from_lot_id: { in: lotIds } }, select: { from_lot_id: true, to_lot_id: true, qty: true } }),
+    db.prdLedger.findMany({
+      where: { lot_id: { in: lotIds }, movement: "Released", source_doc_type_id: releaseType?.id ?? -1 },
+      select: { lot_id: true, item_id: true, source_doc_id: true, qty_change: true },
+    }),
+  ]);
+  for (const b of held) out.get(b.lot_id)!.held.push({ bucketId: b.id, itemId: b.item_id, qty: b.qty_balance.toNumber() });
+  for (const l of links) {
+    const f = out.get(l.from_lot_id)!;
+    const same = f.links.find((x) => x.toLotId === l.to_lot_id);
+    if (same) same.qty += l.qty.toNumber();
+    else f.links.push({ toLotId: l.to_lot_id, qty: l.qty.toNumber() });
+  }
+  for (const r of released) {
+    const f = out.get(r.lot_id)!;
+    const same = f.released.find((x) => x.docId === r.source_doc_id);
+    const q = r.qty_change.abs().toNumber();
+    if (same) same.qty += q;
+    else f.released.push({ docId: r.source_doc_id, itemId: r.item_id, qty: q });
+  }
+  return out;
 }

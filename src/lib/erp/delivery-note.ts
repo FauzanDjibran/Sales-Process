@@ -933,3 +933,8 @@ export async function invoiceSourceLines(
       })
   );
 }
+
+/** Drafts dated up to a day — the month-end close's checklist (R28). */
+export async function draftDeliveryNotesUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.logDeliveryNote.count({ where: { status: "Draft", dn_date: { lte: to } } });
+}

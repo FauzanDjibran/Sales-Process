@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { authorizeAction } from "@/lib/erp/auth";
 import { isAccessDenied } from "@/lib/erp/auth-errors";
 import { executeClosing } from "@/lib/erp/closing";
+import { uncostedPeriodRefusal } from "@/lib/erp/production-close";
 
 /**
  * Closing a fiscal year.
@@ -40,6 +41,10 @@ export async function closeFiscalYear(
     if (isAccessDenied(error)) return { ok: false, message: error.message };
     throw error;
   }
+
+  // A year with production does not close before every period of it is costed (R28).
+  const uncosted = await uncostedPeriodRefusal(fiscalYearId);
+  if (uncosted) return { ok: false, message: `Tahun buku belum dapat ditutup: ${uncosted}` };
 
   const result = await executeClosing(fiscalYearId, actorId);
   if (!result.ok) return { ok: false, message: result.error };

@@ -410,3 +410,28 @@ export async function executionNumbersByIds(ids: number[]): Promise<Map<number, 
   const rows = await prisma.prdExecution.findMany({ where: { id: { in: ids } }, select: { id: true, execution_no: true } });
   return new Map(rows.map((r) => [r.id, r.execution_no]));
 }
+
+/** Drafts dated up to a day — the month-end close's checklist (R28). */
+export async function draftExecutionsUpTo(to: Date, db: Db = prisma): Promise<number> {
+  return db.prdExecution.count({ where: { status: "Draft", execution_date: { lte: to } } });
+}
+
+export type PostedRun = { id: number; no: string; date: string; workstationId: number; workstationLabel: string; driver: number; outputs: { lotId: number; weight: number; qty: number }[] };
+
+/** Posted executions dated in a range, with their outputs' lots and weights — what the close shares the pool over (R11, R12). */
+export async function postedRunsInRange(from: Date, to: Date, db: Db = prisma): Promise<PostedRun[]> {
+  const rows = await db.prdExecution.findMany({
+    where: { status: "Posted", execution_date: { gte: from, lte: to } },
+    orderBy: [{ execution_date: "asc" }, { id: "asc" }],
+    include: { workstation: { select: { workstation_label: true } }, outputs: { select: { lot_id: true, weight: true, qty: true }, orderBy: { line_no: "asc" } } },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    no: r.execution_no,
+    date: r.execution_date.toISOString().slice(0, 10),
+    workstationId: r.workstation_id,
+    workstationLabel: r.workstation.workstation_label,
+    driver: r.driver.toNumber(),
+    outputs: r.outputs.flatMap((o) => (o.lot_id ? [{ lotId: o.lot_id, weight: o.weight.toNumber(), qty: o.qty.toNumber() }] : [])),
+  }));
+}
