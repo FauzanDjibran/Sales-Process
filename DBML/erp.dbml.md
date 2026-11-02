@@ -1147,6 +1147,7 @@ table fin_ar_item {
   scope_doc_type_id           int [ref : > sys_doc_type.id] // the agreement it is settled within: Customer Order or Pengajuan Perizinan (P137)
   scope_doc_id                int // weak: an invoice uses only its own agreement's advances
   original_amount             decimal(18,2) [not null, default: 0] // what it was born at: an Uang Muka its DPP, an Invoice its face (P116)
+  paid_amount                 decimal(18,2) [not null, default: 0] // what its source document has been paid, cash + PPh; a receipt's `before`, raised at posting; CHECK ≥ 0 (P214)
 
   current_balance             decimal(18,2) [not null] // sum of its fin_ar_ledger entries
 
@@ -1158,8 +1159,7 @@ table fin_ar_item {
   indexes {
     (partner_id, item_type)
     (scope_doc_type_id, scope_doc_id)
-    (source_doc_type_id, source_doc_id)
-    // unique where item_type = 'Advance': one Uang Muka item per advance bill (P133, partial index in SQL)
+    (source_doc_type_id, source_doc_id) [unique] // one item per document, its identity (P214)
   }
 }
 
@@ -1216,6 +1216,7 @@ table fin_ap_item {
 
   current_balance             decimal(18,2) [not null] // Σ its Buku Hutang entries
   original_amount             decimal(18,2) [not null, default: 0]
+  paid_amount                 decimal(18,2) [not null, default: 0] // what its source document has been paid; a payment's `before`, raised at posting; CHECK ≥ 0 (P214)
 
   created_by                  int [not null]
   created_at                  timestamptz [not null, default: `now()`]
@@ -1224,8 +1225,7 @@ table fin_ap_item {
   indexes {
     (partner_id, item_type)
     purchase_order_id
-    (source_doc_type_id, source_doc_id)
-    // unique where item_type = 'Advance': one Uang Muka item per advance bill (P133, partial index in SQL)
+    (source_doc_type_id, source_doc_id) [unique] // one item per document, its identity (P214)
   }
 }
 
@@ -1285,7 +1285,6 @@ table fin_ar_advance {
   dpp_other_amount            decimal(18,2) [not null]
   ppn_amount                  decimal(18,2) [not null]
   total_amount                decimal(18,2) [not null]
-  paid_amount                 decimal(18,2) [not null, default: 0] // what posted payments settled (cash + PPh); a payment's `before`, added to at posting; 0 ≤ paid ≤ total (P132)
 
   cancel_reason               varchar
 
@@ -1331,7 +1330,6 @@ table fin_ar_permit_advance {
   dpp_other_amount            decimal(18,2) [not null]
   ppn_amount                  decimal(18,2) [not null]
   total_amount                decimal(18,2) [not null]
-  paid_amount                 decimal(18,2) [not null, default: 0] // what posted payments settled (cash + PPh); a payment's `before`, added to at posting; 0 ≤ paid ≤ total (P132)
 
   cancel_reason               varchar
 
@@ -1382,7 +1380,6 @@ table fin_ar_permit_invoice {
   full_ppn_amount             decimal(18,2) [not null, default: 0]
   ppn_amount                  decimal(18,2) [not null, default: 0] // full − advance (P113)
   total_amount                decimal(18,2) [not null, default: 0]
-  paid_amount                 decimal(18,2) [not null, default: 0] // CHECK 0 ≤ paid ≤ total
 
   journal_id                  int
   ar_item_id                  int
@@ -1444,7 +1441,6 @@ table fin_ap_advance {
   dpp_other_amount            decimal(18,2) [not null]
   ppn_amount                  decimal(18,2) [not null]
   total_amount                decimal(18,2) [not null]
-  paid_amount                 decimal(18,2) [not null, default: 0] // what posted payments settled (cash + PPh); a payment's `before`, added to at posting; 0 ≤ paid ≤ total (P132)
 
   cancel_reason               varchar
 
@@ -1496,7 +1492,6 @@ table fin_ap_invoice {
   supplier_total              decimal(18,2) // Total Tagihan Supplier as typed; null = not compared
   difference_amount           decimal(18,2) [not null, default: 0] // within the tolerance, to Selisih Tagihan Supplier
   payable_amount              decimal(18,2) [not null, default: 0] // Hutang born at: full DPP + full PPN + difference − PPh
-  paid_amount                 decimal(18,2) [not null, default: 0] // what posted payments settled; owed − paid = its item's balance (P133)
 
   journal_id                  int
   ap_item_id                  int
@@ -1589,7 +1584,6 @@ table fin_ar_invoice {
   dpp_other_amount            decimal(18,2) [not null, default: 0] // Σ lines, on the full DPP
   ppn_amount                  decimal(18,2) [not null, default: 0] // Σ lines' full PPN − advance_ppn_amount (P113)
   total_amount                decimal(18,2) [not null, default: 0] // net Piutang
-  paid_amount                 decimal(18,2) [not null, default: 0] // what posted receipts settled (cash + PPh); a receipt's `before`; total − paid = its item's balance (P133)
   tax_invoice_no              varchar // Coretax number, typed after upload
 
   journal_id                  int

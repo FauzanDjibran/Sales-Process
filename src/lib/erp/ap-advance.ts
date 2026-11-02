@@ -1,6 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
+import { apPaidByDocument } from "./ap-item";
 import { formatMoney } from "@/lib/format";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
@@ -32,8 +33,8 @@ import {
  * whose supplier, price mode and Kena PPN it follows, as one value typed as a
  * percent of the order or a flat value. The figures come from `sales-tax.ts`.
  * The order's room — its value less every live bill on it — is spent with the
- * order's row locked. What is paid is kept here, as `paid_amount`: a posted
- * Pengeluaran adds what it settled through `recordPurchaseAdvancePaid` (P132).
+ * order's row locked. What is paid is held by the
+ * bill's one Uang Muka item, raised by each posted Pengeluaran (P214).
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -363,9 +364,8 @@ export async function transitionPurchaseAdvance(
       await prisma.$transaction(async (tx) => {
         await lockPurchaseAdvances(tx, [id]);
         // A bill a posted payment has settled, even in part, is not cancelled
-        // (P66); what was paid is the bill's own record (P132).
-        const held = await tx.finApAdvance.findUnique({ where: { id }, select: { paid_amount: true } });
-        const paid = held?.paid_amount.toNumber() ?? 0;
+        // (P66); what was paid is held by its item (P214).
+        const paid = (await apPaidByDocument(tx, "fin_ap_advance", [id])).get(id) ?? 0;
         if (paid > 0) {
           throw new Refused({
             _form: `Tagihan ini sudah dibayar ${formatMoney(paid)} melalui Kas & Bank. Sisa yang tidak terpakai dikembalikan, bukan dibatalkan.`,
@@ -418,7 +418,7 @@ export type PurchaseAdvanceListRow = {
   dpp: number;
   ppn: number;
   total: number;
-  /** What posted payments settled of it (P132). */
+  /** What posted payments settled of it, read from its item (P214). */
   paid: number;
 };
 
@@ -429,6 +429,7 @@ export async function listPurchaseAdvances(): Promise<PurchaseAdvanceListRow[]> 
   });
   // The Purchase Order is another module's document (P107): its number is asked for.
   const orderNos = await purchaseOrderNumbersByIds([...new Set(rows.map((r) => r.purchase_order_id))]);
+  const paidOf = await apPaidByDocument(prisma, "fin_ap_advance", rows.map((r) => r.id));
   return rows.map((r) => ({
     id: r.id,
     advanceNo: r.advance_no,
@@ -443,7 +444,7 @@ export async function listPurchaseAdvances(): Promise<PurchaseAdvanceListRow[]> 
     dpp: r.dpp_amount.toNumber(),
     ppn: r.ppn_amount.toNumber(),
     total: r.total_amount.toNumber(),
-    paid: r.paid_amount.toNumber(),
+    paid: paidOf.get(r.id) ?? 0,
   }));
 }
 
@@ -457,7 +458,7 @@ export type PurchaseAdvanceView = {
   figures: { amount: number; dpp: number; dppOther: number; ppn: number; total: number };
   /** The rate and factor it carries (P60); null when not Kena PPN. */
   rates: PpnRates | null;
-  /** What posted payments settled of it (P132). */
+  /** What posted payments settled of it, read from its item (P214). */
   paid: number;
 };
 
@@ -481,7 +482,7 @@ export async function getPurchaseAdvance(id: number): Promise<PurchaseAdvanceVie
       a.ppn_rate && a.ppn_dpp_other_numerator && a.ppn_dpp_other_denominator
         ? { rate: a.ppn_rate.toNumber(), otherNum: a.ppn_dpp_other_numerator, otherDen: a.ppn_dpp_other_denominator }
         : null,
-    paid: a.paid_amount.toNumber(),
+    paid: (await apPaidByDocument(prisma, "fin_ap_advance", [a.id])).get(a.id) ?? 0,
   };
 }
 
@@ -525,7 +526,7 @@ export async function purchaseAdvanceNumbersByIds(ids: number[]): Promise<Map<nu
  * for, and — per Jenis PPh — what the customer is expected to withhold, as
  * `computeAdvance` works it out from the order the bill is drawn from and the
  * rate the bill carries. The payment module takes this rather than reading
- * `fin_ap_advance` itself; what has been *paid* is kept on the bill (`paid_amount`, P132), which the
+ * `fin_ap_advance` itself; what has been *paid* is held by the bill's item (`paid_amount`, P214), which the
  * payment reads as its `before` and adds to when it posts.
  */
 export type SettlementAdvance = {
@@ -544,7 +545,7 @@ export type SettlementAdvance = {
   /** The PPN rate and DPP Nilai Lain factor the bill was issued with; null without PPN. */
   rates: PpnRates | null;
   withholdings: { key: string; rate: number; base: number; amount: number }[];
-  /** What posted payments settled of it before — a payment's `before` (P132). */
+  /** What posted payments settled of it before — a payment's `before`, read from its item (P214). */
   paid: number;
 };
 
@@ -552,26 +553,10 @@ export type SettlementAdvance = {
 export async function unpaidAdvanceIds(db: Db = prisma): Promise<number[]> {
   const rows = await db.finApAdvance.findMany({
     where: { status: "Issued" },
-    select: { id: true, total_amount: true, paid_amount: true },
+    select: { id: true, total_amount: true },
   });
-  return rows.filter((r) => r.paid_amount.lt(r.total_amount)).map((r) => r.id);
-}
-
-/**
- * Adds what one posted payment line settled to the bill (P132), inside that
- * posting with the bill locked (`lockPurchaseAdvances`). The bill is the one record of
- * what was paid: the next payment reads it as its `before`, never the
- * payments before it. Refused beyond the bill's total or on a bill no longer
- * issued.
- */
-export async function recordPurchaseAdvancePaid(tx: Prisma.TransactionClient, id: number, settled: number): Promise<void> {
-  const bill = await tx.finApAdvance.findUnique({ where: { id }, select: { advance_no: true, status: true, total_amount: true, paid_amount: true } });
-  if (!bill || bill.status !== "Issued") throw new Error("Tagihan uang muka tidak berstatus Diterbitkan.");
-  const paid = bill.paid_amount.toNumber() + settled;
-  if (settled <= 0 || paid > bill.total_amount.toNumber()) {
-    throw new Error(`Pembayaran melebihi sisa ${bill.advance_no}.`);
-  }
-  await tx.finApAdvance.update({ where: { id }, data: { paid_amount: paid } });
+  const paidOf = await apPaidByDocument(db, "fin_ap_advance", rows.map((r) => r.id));
+  return rows.filter((r) => (paidOf.get(r.id) ?? 0) < r.total_amount.toNumber()).map((r) => r.id);
 }
 
 export async function settlementAdvances(
@@ -588,6 +573,7 @@ export async function settlementAdvances(
   const orders = new Map(
     (await purchaseAdvanceSources({ ids: [...new Set(rows.map((r) => r.purchase_order_id))] }, db)).map((o) => [o.id, o])
   );
+  const paidOf = await apPaidByDocument(db, "fin_ap_advance", rows.map((r) => r.id));
   return rows.map((a) => {
     const order = orders.get(a.purchase_order_id)!;
     const rates =
@@ -616,7 +602,7 @@ export async function settlementAdvances(
       ppn: a.ppn_amount.toNumber(),
       rates: a.ppn_amount.toNumber() > 0 ? rates : null,
       withholdings: f.withholdings,
-      paid: a.paid_amount.toNumber(),
+      paid: paidOf.get(a.id) ?? 0,
     };
   });
 }

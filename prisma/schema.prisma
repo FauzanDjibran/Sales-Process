@@ -2203,9 +2203,6 @@ model FinArInvoice {
   ppn_amount         Decimal @default(0) @db.Decimal(18, 2)
   /// Net Piutang: net DPP + PPN.
   total_amount       Decimal @default(0) @db.Decimal(18, 2)
-  /// What posted receipts settled of it, cash + PPh (P133): a receipt's
-  /// `before`, added to as it posts; total − paid = its Invoice item's balance.
-  paid_amount        Decimal @default(0) @db.Decimal(18, 2)
 
   /// Coretax number of its faktur pajak, typed after upload (U10).
   tax_invoice_no String?
@@ -2534,10 +2531,6 @@ model FinArAdvance {
   ppn_amount       Decimal @db.Decimal(18, 2)
   /// What the bill asks for: DPP + PPN.
   total_amount     Decimal @db.Decimal(18, 2)
-  /// What posted receipts have settled of it, cash + PPh (P132). Each posting
-  /// reads it as the payment's `before` and adds its line to it, so a receipt
-  /// never reads another receipt.
-  paid_amount      Decimal @default(0) @db.Decimal(18, 2)
 
   cancel_reason String?
 
@@ -2604,10 +2597,6 @@ model FinArPermitAdvance {
   ppn_amount       Decimal @db.Decimal(18, 2)
   /// What the bill asks for: DPP + PPN.
   total_amount     Decimal @db.Decimal(18, 2)
-  /// What posted receipts have settled of it, cash + PPh (P132). Each posting
-  /// reads it as the payment's `before` and adds its line to it, so a receipt
-  /// never reads another receipt.
-  paid_amount      Decimal @default(0) @db.Decimal(18, 2)
 
   cancel_reason String?
 
@@ -2670,8 +2659,6 @@ model FinArPermitInvoice {
   ppn_amount         Decimal @default(0) @db.Decimal(18, 2)
   /// Net Piutang: net DPP + PPN.
   total_amount       Decimal @default(0) @db.Decimal(18, 2)
-  /// What posted receipts settled of it (P133).
-  paid_amount        Decimal @default(0) @db.Decimal(18, 2)
 
   journal_id    Int?
   ar_item_id    Int?
@@ -2883,6 +2870,10 @@ model FinArItem {
   /// an Invoice its face (DPP + PPN). The item keeps balances only; its tax
   /// lives on its tax document, read from the tax module when a page needs it.
   original_amount Decimal @default(0) @db.Decimal(18, 2)
+  /// What the source document has been paid, cash + PPh (P214): the item is
+  /// the one holder of it, raised by each payment posting; a payment reads it
+  /// as its `before`. The document keeps its value, never what was paid.
+  paid_amount     Decimal @default(0) @db.Decimal(18, 2)
 
   created_by Int
   created_at DateTime @default(now()) @db.Timestamptz(6)
@@ -2897,7 +2888,7 @@ model FinArItem {
 
   @@index([partner_id, item_type])
   @@index([scope_doc_type_id, scope_doc_id])
-  @@index([source_doc_type_id, source_doc_id])
+  @@unique([source_doc_type_id, source_doc_id])
   @@map("fin_ar_item")
 }
 
@@ -3446,8 +3437,6 @@ model FinApAdvance {
   dpp_other_amount Decimal @db.Decimal(18, 2)
   ppn_amount       Decimal @db.Decimal(18, 2)
   total_amount     Decimal @db.Decimal(18, 2)
-  /// What posted payments have settled of it, cash + PPh (P132), as on the AR bill.
-  paid_amount      Decimal @default(0) @db.Decimal(18, 2)
 
   cancel_reason String?
 
@@ -3490,6 +3479,10 @@ model FinApItem {
 
   current_balance Decimal @db.Decimal(18, 2)
   original_amount Decimal @default(0) @db.Decimal(18, 2)
+  /// What the source document has been paid, cash + PPh (P214): the item is
+  /// the one holder of it, raised by each payment posting; a payment reads it
+  /// as its `before`. The document keeps its value, never what was paid.
+  paid_amount     Decimal @default(0) @db.Decimal(18, 2)
 
   created_by Int
   created_at DateTime @default(now()) @db.Timestamptz(6)
@@ -3503,7 +3496,7 @@ model FinApItem {
 
   @@index([partner_id, item_type])
   @@index([purchase_order_id])
-  @@index([source_doc_type_id, source_doc_id])
+  @@unique([source_doc_type_id, source_doc_id])
   @@map("fin_ap_item")
 }
 
@@ -3585,8 +3578,6 @@ model FinApInvoice {
   difference_amount  Decimal  @default(0) @db.Decimal(18, 2)
   /// What Hutang Usaha is born at: full DPP + full PPN + difference − PPh.
   payable_amount     Decimal  @default(0) @db.Decimal(18, 2)
-  /// What posted payments settled of it (P133): owed − paid = its AP item's balance.
-  paid_amount        Decimal  @default(0) @db.Decimal(18, 2)
 
   journal_id    Int?
   ap_item_id    Int?

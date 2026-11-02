@@ -202,16 +202,16 @@ export const CHECKS: Check[] = [
   },
   {
     area: "ar",
-    name: "each Invoice's paid amount equals its posted receipt lines, and its total less it equals its item's balance (P133)",
-    sql: `SELECT v.invoice_no, v.total_amount, v.paid_amount, COALESCE(p.paid, 0) AS lines, i.current_balance
+    name: "each Invoice's paid amount, held by its item, equals its posted receipt lines, and its total less it equals the item's balance (P214)",
+    sql: `SELECT v.invoice_no, v.total_amount, COALESCE(i.paid_amount, 0), COALESCE(p.paid, 0) AS lines, i.current_balance
           FROM fin_ar_invoice v
           LEFT JOIN fin_ar_item i ON i.id = v.ar_item_id
           LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid FROM fin_cash_bank_tx_line l
                      JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
                      WHERE l.doc_type_id = ${docType("fin_ar_invoice")} GROUP BY l.doc_id) p ON p.doc_id = v.id
-          WHERE v.paid_amount <> COALESCE(p.paid, 0)
-             OR (v.status = 'Posted' AND v.ar_item_id IS NOT NULL AND v.total_amount - v.paid_amount <> i.current_balance)
-             OR (v.status <> 'Posted' AND v.paid_amount <> 0)`,
+          WHERE COALESCE(i.paid_amount, 0) <> COALESCE(p.paid, 0)
+             OR (v.status = 'Posted' AND v.ar_item_id IS NOT NULL AND v.total_amount - COALESCE(i.paid_amount, 0) <> i.current_balance)
+             OR (v.status <> 'Posted' AND COALESCE(i.paid_amount, 0) <> 0)`,
   },
   {
     area: "ar",
@@ -446,37 +446,39 @@ export const CHECKS: Check[] = [
   // ------------------------------------------------------------- advance
   {
     area: "advance",
-    name: "each bill's paid amount equals its posted receipt lines, within its total; a cancelled or unissued bill has no payment (P132)",
-    sql: `SELECT a.advance_no, a.status::text, a.total_amount, a.paid_amount, COALESCE(p.paid, 0) AS lines
+    name: "each bill's paid amount, held by its item, equals its posted receipt lines, within its total; a cancelled or unissued bill has no payment (P214)",
+    sql: `SELECT a.advance_no, a.status::text, a.total_amount, COALESCE(pi.paid_amount, 0), COALESCE(p.paid, 0) AS lines
           FROM fin_ar_advance a
+          LEFT JOIN fin_ar_item pi ON pi.source_doc_type_id = ${docType("fin_ar_advance")} AND pi.source_doc_id = a.id
           LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid
                      FROM fin_cash_bank_tx_line l JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
                      WHERE l.doc_type_id = ${docType("fin_ar_advance")} GROUP BY l.doc_id) p ON p.doc_id = a.id
-          WHERE a.paid_amount <> COALESCE(p.paid, 0) OR a.paid_amount > a.total_amount
-             OR (a.paid_amount > 0 AND a.status <> 'Issued')`,
+          WHERE COALESCE(pi.paid_amount, 0) <> COALESCE(p.paid, 0) OR COALESCE(pi.paid_amount, 0) > a.total_amount
+             OR (COALESCE(pi.paid_amount, 0) > 0 AND a.status <> 'Issued')`,
   },
   {
     area: "advance",
     name: "each Uang Muka Perizinan's paid amount equals its posted receipt lines, within its total (P137)",
-    sql: `SELECT a.advance_no, a.status::text, a.total_amount, a.paid_amount, COALESCE(p.paid, 0) AS lines
+    sql: `SELECT a.advance_no, a.status::text, a.total_amount, COALESCE(pi.paid_amount, 0), COALESCE(p.paid, 0) AS lines
           FROM fin_ar_permit_advance a
+          LEFT JOIN fin_ar_item pi ON pi.source_doc_type_id = ${docType("fin_ar_permit_advance")} AND pi.source_doc_id = a.id
           LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid
                      FROM fin_cash_bank_tx_line l JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
                      WHERE l.doc_type_id = ${docType("fin_ar_permit_advance")} GROUP BY l.doc_id) p ON p.doc_id = a.id
-          WHERE a.paid_amount <> COALESCE(p.paid, 0) OR a.paid_amount > a.total_amount
-             OR (a.paid_amount > 0 AND a.status <> 'Issued')`,
+          WHERE COALESCE(pi.paid_amount, 0) <> COALESCE(p.paid, 0) OR COALESCE(pi.paid_amount, 0) > a.total_amount
+             OR (COALESCE(pi.paid_amount, 0) > 0 AND a.status <> 'Issued')`,
   },
   {
     area: "permit",
     name: "each Invoice Perizinan's paid amount equals its posted receipt lines, and its total less it equals its item's balance (P137)",
-    sql: `SELECT v.invoice_no, v.total_amount, v.paid_amount, COALESCE(p.paid, 0) AS lines, i.current_balance
+    sql: `SELECT v.invoice_no, v.total_amount, COALESCE(i.paid_amount, 0), COALESCE(p.paid, 0) AS lines, i.current_balance
           FROM fin_ar_permit_invoice v
           LEFT JOIN fin_ar_item i ON i.id = v.ar_item_id
           LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid FROM fin_cash_bank_tx_line l
                      JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
                      WHERE l.doc_type_id = ${docType("fin_ar_permit_invoice")} GROUP BY l.doc_id) p ON p.doc_id = v.id
-          WHERE v.paid_amount <> COALESCE(p.paid, 0)
-             OR (v.status = 'Posted' AND (v.ar_item_id IS NULL OR v.total_amount - v.paid_amount <> i.current_balance))`,
+          WHERE COALESCE(i.paid_amount, 0) <> COALESCE(p.paid, 0)
+             OR (v.status = 'Posted' AND (v.ar_item_id IS NULL OR v.total_amount - COALESCE(i.paid_amount, 0) <> i.current_balance))`,
   },
   {
     area: "permit",
@@ -585,28 +587,29 @@ export const CHECKS: Check[] = [
   },
   {
     area: "ap",
-    name: "each Invoice Pembelian's paid amount equals its posted payment lines, and what it owes less it equals its item's balance (P133)",
-    sql: `SELECT v.invoice_no, v.paid_amount, COALESCE(p.paid, 0) AS lines, i.current_balance
+    name: "each Invoice Pembelian's paid amount, held by its item, equals its posted payment lines, and what it owes less it equals the item's balance (P214)",
+    sql: `SELECT v.invoice_no, COALESCE(i.paid_amount, 0), COALESCE(p.paid, 0) AS lines, i.current_balance
           FROM fin_ap_invoice v
           LEFT JOIN fin_ap_item i ON i.id = v.ap_item_id
           LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid FROM fin_cash_bank_tx_line l
                      JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
                      WHERE l.doc_type_id = ${docType("fin_ap_invoice")} GROUP BY l.doc_id) p ON p.doc_id = v.id
-          WHERE v.paid_amount <> COALESCE(p.paid, 0)
+          WHERE COALESCE(i.paid_amount, 0) <> COALESCE(p.paid, 0)
              OR (v.status = 'Posted' AND v.ap_item_id IS NOT NULL
-                 AND v.payable_amount - v.advance_dpp_amount - v.advance_ppn_amount - v.paid_amount <> i.current_balance)
-             OR (v.status <> 'Posted' AND v.paid_amount <> 0)`,
+                 AND v.payable_amount - v.advance_dpp_amount - v.advance_ppn_amount - COALESCE(i.paid_amount, 0) <> i.current_balance)
+             OR (v.status <> 'Posted' AND COALESCE(i.paid_amount, 0) <> 0)`,
   },
   {
     area: "ap",
-    name: "each AP advance bill's paid amount equals its posted payment lines, within its total; a cancelled or unrecorded bill has no payment (P127, P132)",
-    sql: `SELECT a.advance_no, a.status::text, a.total_amount, a.paid_amount, COALESCE(p.paid, 0) AS lines
+    name: "each AP advance bill's paid amount, held by its item, equals its posted payment lines, within its total; a cancelled or unrecorded bill has no payment (P127, P214)",
+    sql: `SELECT a.advance_no, a.status::text, a.total_amount, COALESCE(pi.paid_amount, 0), COALESCE(p.paid, 0) AS lines
           FROM fin_ap_advance a
+          LEFT JOIN fin_ap_item pi ON pi.source_doc_type_id = ${docType("fin_ap_advance")} AND pi.source_doc_id = a.id
           LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid
                      FROM fin_cash_bank_tx_line l JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
                      WHERE l.doc_type_id = ${docType("fin_ap_advance")} GROUP BY l.doc_id) p ON p.doc_id = a.id
-          WHERE a.paid_amount <> COALESCE(p.paid, 0) OR a.paid_amount > a.total_amount
-             OR (a.paid_amount > 0 AND a.status <> 'Issued')`,
+          WHERE COALESCE(pi.paid_amount, 0) <> COALESCE(p.paid, 0) OR COALESCE(pi.paid_amount, 0) > a.total_amount
+             OR (COALESCE(pi.paid_amount, 0) > 0 AND a.status <> 'Issued')`,
   },
   // --------------------------------------------------------------- books
   {

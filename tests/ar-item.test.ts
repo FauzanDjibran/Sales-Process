@@ -54,7 +54,8 @@ async function make(type: "Advance" | "Invoice", date: string, amount: number, d
     currencyId: f.idr,
     date,
     dueDate,
-    source: { docTypeId: f.receiptType, docId: f.doc, no: `${FIXTURE_PREFIX}/${type}/${items.length}` },
+    // One document, one item (P214): each item is about a document of its own.
+    source: { docTypeId: f.receiptType, docId: f.doc + 1 + items.length, no: `${FIXTURE_PREFIX}/${type}/${items.length}` },
     createdBy: { docTypeId: f.receiptType, docId: f.doc, no: `${FIXTURE_PREFIX}/R/${items.length}` },
     scope: { docTypeId: f.receiptType, docId: 1 },
     amount,

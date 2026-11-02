@@ -49,8 +49,9 @@ const savedSettings = new Map<string, string | null>();
 const stamp = String(Date.now() % 100000);
 const key = (s: string) => `${FIXTURE_PREFIX}${s}${stamp}`;
 const today = new Date().toISOString().slice(0, 10);
-/** What an advance bill records as paid (P132). */
-const paidOf = async (id: number) => (await prisma.finArAdvance.findUniqueOrThrow({ where: { id } })).paid_amount.toNumber();
+/** What an advance bill has been paid, held by its item (P214). */
+const paidOf = async (id: number) =>
+  (await prisma.finArItem.findFirst({ where: { source_doc_type: { doc_table: "fin_ar_advance" }, source_doc_id: id } }))?.paid_amount.toNumber() ?? 0;
 
 async function cashBank(label: string) {
   const currency = (await prisma.refCurrency.findFirstOrThrow({ where: { currency_label: "IDR" } })).id;
@@ -231,9 +232,17 @@ describe("what one receipt may settle (P67)", () => {
     assert.ok(o.purposes.every((p) => p.direction === "In"));
   });
 
-  test("a bill's open amount and a line's split read the bill's paid_amount, not earlier receipts (P132)", async () => {
-    // No receipt names bill1 yet; the bill alone says 400.000 was paid.
-    await prisma.finArAdvance.update({ where: { id: f.bill1 }, data: { paid_amount: 400_000 } });
+  test("a bill's open amount and a line's split read its item's paid_amount, not earlier receipts (P214)", async () => {
+    // No receipt names bill1 yet; its item alone says 400.000 was paid.
+    const bill = await prisma.finArAdvance.findUniqueOrThrow({ where: { id: f.bill1 } });
+    const docType = await prisma.sysDocType.findFirstOrThrow({ where: { doc_table: "fin_ar_advance" } });
+    const planted = await prisma.finArItem.create({
+      data: {
+        ar_item_no: key("ARI-P214-"), item_type: "Advance", direction: "Decrease", partner_id: bill.customer_id,
+        currency_id: (await prisma.refCurrency.findFirstOrThrow({ where: { currency_label: "IDR" } })).id, item_date: bill.advance_date, source_doc_type_id: docType.id, source_doc_id: bill.id,
+        source_no: bill.advance_no, current_balance: 0, original_amount: 0, paid_amount: 400_000, created_by: bill.created_by,
+      },
+    });
     try {
       const b = (await cashReceiptOptions()).bills.find((x) => x.kind === "fin_ar_advance" && x.id === f.bill1)!;
       assert.deepEqual([b.paid, b.open], [400_000, 599_000]);
@@ -242,7 +251,7 @@ describe("what one receipt may settle (P67)", () => {
       assert.ok(r.ok, JSON.stringify(r));
       assert.equal(r.c.lines[0].ppnPart, Math.round((99_000 * 500_000) / 999_000) - Math.round((99_000 * 400_000) / 999_000));
     } finally {
-      await prisma.finArAdvance.update({ where: { id: f.bill1 }, data: { paid_amount: 0 } });
+      await prisma.finArItem.delete({ where: { id: planted.id } });
     }
   });
 

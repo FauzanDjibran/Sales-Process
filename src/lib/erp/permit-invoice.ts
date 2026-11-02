@@ -8,7 +8,7 @@ import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { checkTransactionDate } from "./fiscal";
 import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { checkAccountIsLeaf } from "./records";
-import { ArItemOverdrawn, advanceItemsForInvoice, createArItem, settleArItem, type AdvanceItemForInvoice } from "./ar-item";
+import { ArItemOverdrawn, advanceItemsForInvoice, arPaidByDocument, createArItem, settleArItem, type AdvanceItemForInvoice } from "./ar-item";
 import { lockPermitRequest, markPermitRequestInvoiced, permitAdvanceSources, type PermitAdvanceSource } from "./permit-request";
 import { permitAdvanceRatesByIds } from "./permit-advance";
 import { advancePpnUsed, computeInvoice, withholdingsOf, type InvoiceFigures } from "./sales-tax";
@@ -629,6 +629,7 @@ export type PermitInvoiceListRow = {
 export async function listPermitInvoices(): Promise<PermitInvoiceListRow[]> {
   const rows = await prisma.finArPermitInvoice.findMany({ orderBy: [{ invoice_date: "desc" }, { id: "desc" }], include: { customer: true } });
   const sources = new Map((await permitAdvanceSources({ ids: [...new Set(rows.map((r) => r.permit_request_id))] })).map((s) => [s.id, s.orderNo]));
+  const paidOf = await arPaidByDocument(prisma, "fin_ar_permit_invoice", rows.map((r) => r.id));
   return rows.map((r) => ({
     id: r.id,
     invoiceNo: r.invoice_no,
@@ -640,7 +641,7 @@ export async function listPermitInvoices(): Promise<PermitInvoiceListRow[]> {
     customerName: r.customer.partner_name,
     description: r.description,
     total: r.total_amount.toNumber(),
-    paid: r.paid_amount.toNumber(),
+    paid: paidOf.get(r.id) ?? 0,
   }));
 }
 
@@ -688,7 +689,7 @@ export async function getPermitInvoice(id: number): Promise<PermitInvoiceView | 
       ppn: n.ppn_amount.toNumber(),
       total: n.total_amount.toNumber(),
     },
-    paid: n.paid_amount.toNumber(),
+    paid: (await arPaidByDocument(prisma, "fin_ar_permit_invoice", [n.id])).get(n.id) ?? 0,
   };
 }
 
@@ -704,7 +705,7 @@ export async function permitInvoiceOfRequest(
 ): Promise<{ id: number; invoiceNo: string; date: string; status: InvoiceStatus; total: number; paid: number } | null> {
   const r = await db.finArPermitInvoice.findFirst({ where: { permit_request_id: requestId, status: { in: LIVE } }, orderBy: { id: "desc" } });
   return r
-    ? { id: r.id, invoiceNo: r.invoice_no, date: isoDay(r.invoice_date), status: r.status as InvoiceStatus, total: r.total_amount.toNumber(), paid: r.paid_amount.toNumber() }
+    ? { id: r.id, invoiceNo: r.invoice_no, date: isoDay(r.invoice_date), status: r.status as InvoiceStatus, total: r.total_amount.toNumber(), paid: (await arPaidByDocument(db, "fin_ar_permit_invoice", [r.id])).get(r.id) ?? 0 }
     : null;
 }
 
@@ -731,6 +732,7 @@ export type SettlementPermitInvoice = {
 export async function settlementPermitInvoices(filter: { ids?: number[] }, db: Db = prisma): Promise<SettlementPermitInvoice[]> {
   const rows = await db.finArPermitInvoice.findMany({ where: filter.ids ? { id: { in: filter.ids } } : {}, orderBy: [{ due_date: "asc" }, { id: "asc" }] });
   const sources = new Map((await permitAdvanceSources({ ids: [...new Set(rows.map((r) => r.permit_request_id))] }, db)).map((s) => [s.id, s.orderNo]));
+  const paidOf = await arPaidByDocument(db, "fin_ar_permit_invoice", rows.map((r) => r.id));
   return rows.map((r) => {
     const rate = r.withholding_rate?.toNumber() ?? null;
     const base = r.net_dpp_amount.toNumber();
@@ -750,27 +752,19 @@ export async function settlementPermitInvoices(filter: { ids?: number[] }, db: D
       ppn: r.ppn_amount.toNumber(),
       withholdings,
       arItemId: r.ar_item_id,
-      paid: r.paid_amount.toNumber(),
+      paid: paidOf.get(r.id) ?? 0,
     };
   });
 }
 
 export async function unpaidPermitInvoiceIds(db: Db = prisma): Promise<number[]> {
-  const rows = await db.finArPermitInvoice.findMany({ where: { status: "Posted", ar_item_id: { not: null } }, select: { id: true, total_amount: true, paid_amount: true } });
-  return rows.filter((r) => r.paid_amount.lt(r.total_amount)).map((r) => r.id);
+  const rows = await db.finArPermitInvoice.findMany({ where: { status: "Posted", ar_item_id: { not: null } }, select: { id: true, total_amount: true } });
+  const paidOf = await arPaidByDocument(db, "fin_ar_permit_invoice", rows.map((r) => r.id));
+  return rows.filter((r) => (paidOf.get(r.id) ?? 0) < r.total_amount.toNumber()).map((r) => r.id);
 }
 
 export async function lockPermitInvoices(tx: Prisma.TransactionClient, ids: number[]): Promise<void> {
   for (const id of [...new Set(ids)].sort((a, b) => a - b)) await tx.$queryRaw`SELECT id FROM fin_ar_permit_invoice WHERE id = ${id} FOR UPDATE`;
-}
-
-export async function recordPermitInvoicePaid(tx: Prisma.TransactionClient, id: number, settled: number): Promise<void> {
-  const v = await tx.finArPermitInvoice.findUnique({ where: { id }, select: { invoice_no: true, status: true, total_amount: true, paid_amount: true } });
-  if (!v || v.status !== "Posted") throw new Error("Invoice Perizinan tidak berstatus Posted.");
-  const cents = (x: number) => Math.round(x * 100);
-  const paid = (cents(v.paid_amount.toNumber()) + cents(settled)) / 100;
-  if (!(settled > 0) || cents(paid) > cents(v.total_amount.toNumber())) throw new Error(`Pembayaran melebihi sisa ${v.invoice_no}.`);
-  await tx.finArPermitInvoice.update({ where: { id }, data: { paid_amount: paid } });
 }
 
 // ------------------------------------------------------- for the tax module

@@ -8,9 +8,9 @@ import { checkTransactionDate } from "./fiscal";
 import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { InsufficientFunds, recordCashBankEntry } from "./cash-bank";
 import { ApItemOverdrawn, lockApItems, payAdvance, settleApItem } from "./ap-item";
-import { lockPurchaseInvoices, purchaseInvoiceNumbersByIds, recordPurchaseInvoicePaid, settlementPurchaseInvoices, unpaidPurchaseInvoiceIds } from "./ap-invoice";
+import { lockPurchaseInvoices, purchaseInvoiceNumbersByIds, settlementPurchaseInvoices, unpaidPurchaseInvoiceIds } from "./ap-invoice";
 import { checkAccountIsLeaf } from "./records";
-import { lockPurchaseAdvances, purchaseAdvanceNumbersByIds, recordPurchaseAdvancePaid, settlementAdvances, unpaidAdvanceIds } from "./ap-advance";
+import { lockPurchaseAdvances, purchaseAdvanceNumbersByIds, settlementAdvances, unpaidAdvanceIds } from "./ap-advance";
 import { cashToClear, receivedProblem, settleBillFromCash, type SettlementLine } from "./sales-tax";
 import { postingAccounts } from "./system-settings";
 import { CASH_BANK_PREFIX, cashBankPurpose, paidKey, purposesFor, type CashBankPurpose, type PaidDocKind } from "./cash-bank-purposes";
@@ -705,20 +705,22 @@ export async function transitionCashPayment(
       await tx.finCashBankTx.update({ where: { id }, data: { journal_id: journal.id } });
       await tx.finCashBankTxLine.deleteMany({ where: { tx_id: id } });
       for (const line of await lineRows(tx, r.c.lines, actorId)) await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
-      // Each document records what this payment settled of it (P132, P133):
-      // the next payment reads that as its `before`, not this payment.
+      // The Biaya Perizinan and the Tagihan Biaya still record what they were
+      // paid on themselves (P132); an advance bill and an Invoice have it held
+      // by their AP item, below (P214).
       for (const l of r.c.lines) {
-        if (l.kind === "fin_ap_advance") await recordPurchaseAdvancePaid(tx, l.docId, l.settled);
-        else if (l.kind === "sal_permit_request") await recordPermitCostPaid(tx, l.docId, l.settled);
+        if (l.kind === "sal_permit_request") await recordPermitCostPaid(tx, l.docId, l.settled);
         else if (l.kind === "prd_cost_bill") await recordCostBillPaid(tx, l.docId, l.settled);
-        else await recordPurchaseInvoicePaid(tx, l.docId, l.settled);
       }
       // Each advance bill paid is an Uang Muka the company now holds with the
-      // supplier, in the bill's one AP item (P133), at its DPP part.
+      // supplier, in the bill's one AP item (P133), at its DPP part; the item
+      // also holds what the bill has been paid (P214).
       const advanceType = r.c.lines.some((l) => l.kind === "fin_ap_advance") ? await docTypeId(tx, "fin_ap_advance") : 0;
       for (const l of r.c.lines) {
-        if (l.kind !== "fin_ap_advance" || !(l.dppPart > 0)) continue;
+        if (l.kind !== "fin_ap_advance") continue;
         await payAdvance(tx, {
+          paid: l.settled,
+          documentTotal: l.bill.total,
           partnerId: t.partner_id,
           currencyId: currency.id,
           date: isoDay(t.tx_date),

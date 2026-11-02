@@ -51,6 +51,8 @@ export type NewApItem = {
   createdBy: { docTypeId: number; docId: number; no: string };
   orderId?: number | null;
   amount: number;
+  /** What of the source document this posting pays — the item holds it (P214). */
+  paid?: number;
   note?: string | null;
   actorId: number;
 };
@@ -68,7 +70,10 @@ async function ledgerPosition(db: Db, date: Date, docTypeId: number, docId: numb
 
 /** Creates an item and its Create entry, inside the caller's transaction. */
 export async function createApItem(db: Db, item: NewApItem): Promise<number> {
-  if (!(item.amount > 0)) throw new Error(`Nilai AP item harus lebih besar dari nol (diterima ${item.amount}).`);
+  // An advance paid only in its PPN share is born at nil DPP but paid (P214).
+  if (!(item.amount > 0) && !(item.type === "Advance" && item.amount === 0 && (item.paid ?? 0) > 0)) {
+    throw new Error(`Nilai AP item harus lebih besar dari nol (diterima ${item.amount}).`);
+  }
   const date = asDate(item.date);
   const no = await nextDocumentNumber("API", date, async (series) => {
     const last = await db.finApItem.findFirst({ where: { ap_item_no: { startsWith: series } }, orderBy: { ap_item_no: "desc" }, select: { ap_item_no: true } });
@@ -89,6 +94,7 @@ export async function createApItem(db: Db, item: NewApItem): Promise<number> {
       purchase_order_id: item.orderId ?? null,
       current_balance: item.amount,
       original_amount: item.amount,
+      paid_amount: item.paid ?? 0,
       created_by: item.actorId,
     },
     select: { id: true },
@@ -115,20 +121,30 @@ export async function createApItem(db: Db, item: NewApItem): Promise<number> {
  * What one payment of an AP advance bill brings into the bill's **one** Uang
  * Muka item (P133), as `receiveAdvance` on the AR side: the first payment
  * creates it, each later one raises it (`AdvanceReceived`) and adds to its
- * `original_amount`.
+ * `original_amount`. It also holds what the bill has been paid (`paid`, cash +
+ * PPh, P214), refused beyond the bill's total.
  */
-export async function payAdvance(db: Prisma.TransactionClient, item: Omit<NewApItem, "type" | "dueDate">): Promise<number> {
-  if (!(item.amount > 0)) throw new Error(`Nilai uang muka harus lebih besar dari nol (diterima ${item.amount}).`);
+export async function payAdvance(
+  db: Prisma.TransactionClient,
+  item: Omit<NewApItem, "type" | "dueDate" | "paid"> & { paid: number; documentTotal: number }
+): Promise<number> {
+  if (!(item.paid > 0) || item.amount < 0) throw new Error(`Pembayaran uang muka harus lebih besar dari nol (diterima ${item.paid}).`);
   const found = await db.$queryRaw<{ id: number }[]>`
     SELECT id FROM fin_ap_item
     WHERE item_type = 'Advance' AND source_doc_type_id = ${item.source.docTypeId} AND source_doc_id = ${item.source.docId}
     FOR UPDATE`;
-  if (!found.length) return createApItem(db, { ...item, type: "Advance" });
+  if (!found.length) {
+    if (cents(item.paid) > cents(item.documentTotal)) throw new Error(`Pembayaran melebihi sisa ${item.source.no}.`);
+    return createApItem(db, { ...item, type: "Advance" });
+  }
   const id = found[0].id;
-  const row = await db.finApItem.findUniqueOrThrow({ where: { id }, select: { current_balance: true, original_amount: true } });
+  const row = await db.finApItem.findUniqueOrThrow({ where: { id }, select: { current_balance: true, original_amount: true, paid_amount: true } });
   const after = (cents(row.current_balance.toNumber()) + cents(item.amount)) / 100;
   const original = (cents(row.original_amount.toNumber()) + cents(item.amount)) / 100;
-  await db.finApItem.update({ where: { id }, data: { current_balance: after, original_amount: original } });
+  const paid = cents(row.paid_amount.toNumber()) + cents(item.paid);
+  if (paid > cents(item.documentTotal)) throw new Error(`Pembayaran melebihi sisa ${item.source.no}.`);
+  await db.finApItem.update({ where: { id }, data: { current_balance: after, original_amount: original, paid_amount: paid / 100 } });
+  if (!(item.amount > 0)) return id; // paid only in its PPN share: no balance moves
   await db.finApLedger.create({
     data: {
       ...(await ledgerPosition(db, asDate(item.date), item.createdBy.docTypeId, item.createdBy.docId)),
@@ -170,11 +186,13 @@ export async function settleApItem(
 ): Promise<void> {
   if (!(move.amount > 0)) throw new Error("Nilai penyelesaian AP item harus lebih besar dari nol.");
   await db.$queryRaw`SELECT id FROM fin_ap_item WHERE id = ${move.itemId} FOR UPDATE`;
-  const item = await db.finApItem.findUniqueOrThrow({ where: { id: move.itemId }, select: { current_balance: true } });
+  const item = await db.finApItem.findUniqueOrThrow({ where: { id: move.itemId }, select: { current_balance: true, paid_amount: true } });
   const balance = item.current_balance.toNumber();
   if (cents(move.amount) > cents(balance)) throw new ApItemOverdrawn(move.itemId, balance, move.amount);
   const after = (cents(balance) - cents(move.amount)) / 100;
-  await db.finApItem.update({ where: { id: move.itemId }, data: { current_balance: after } });
+  // A payment is what the source document has been paid (P214); an advance used or applied is not.
+  const paid = move.event === "Payment" ? { paid_amount: (cents(item.paid_amount.toNumber()) + cents(move.amount)) / 100 } : {};
+  await db.finApItem.update({ where: { id: move.itemId }, data: { current_balance: after, ...paid } });
   await db.finApLedger.create({
     data: {
       ...(await ledgerPosition(db, asDate(move.date), move.doc.docTypeId, move.doc.docId)),
@@ -191,6 +209,20 @@ export async function settleApItem(
       created_by: move.actorId,
     },
   });
+}
+
+/**
+ * What each document has been paid, keyed by its id — read from its one item,
+ * the holder of what was paid (P214). A document no payment has reached yet
+ * has no item, and has been paid nothing.
+ */
+export async function apPaidByDocument(db: Db, docTable: string, ids: number[]): Promise<Map<number, number>> {
+  if (!ids.length) return new Map();
+  const rows = await db.finApItem.findMany({
+    where: { source_doc_type: { doc_table: docTable }, source_doc_id: { in: ids } },
+    select: { source_doc_id: true, paid_amount: true },
+  });
+  return new Map(rows.map((r) => [r.source_doc_id, r.paid_amount.toNumber()]));
 }
 
 export async function lockApItems(tx: Prisma.TransactionClient, ids: number[]): Promise<void> {

@@ -92,9 +92,13 @@ export type NewArItem = {
   scope?: { docTypeId: number; docId: number } | null;
   /** What it is born at — also kept as its original amount (P116). */
   amount: number;
+  /** What of the source document this posting settles — the item holds it (P214). */
+  paid?: number;
   note?: string | null;
   actorId: number;
 };
+
+const cents = (n: number) => Math.round(n * 100);
 
 /**
  * The ledger number and line an entry takes (P110): `BP/2026/10/0001`, one per
@@ -124,7 +128,8 @@ async function ledgerPosition(db: Db, date: Date, docTypeId: number, docId: numb
 
 /** Creates an item and its Create entry, inside the caller's transaction. */
 export async function createArItem(db: Db, item: NewArItem): Promise<number> {
-  if (!(item.amount > 0)) {
+  // An advance paid only in its PPN share is born at nil DPP but paid (P214).
+  if (!(item.amount > 0) && !(item.type === "Advance" && item.amount === 0 && (item.paid ?? 0) > 0)) {
     throw new Error(`Nilai AR item harus lebih besar dari nol (diterima ${item.amount}).`);
   }
   const date = asDate(item.date);
@@ -152,6 +157,7 @@ export async function createArItem(db: Db, item: NewArItem): Promise<number> {
       scope_doc_id: item.scope?.docId ?? null,
       current_balance: item.amount,
       original_amount: item.amount,
+      paid_amount: item.paid ?? 0,
       created_by: item.actorId,
     },
     select: { id: true },
@@ -179,21 +185,31 @@ export async function createArItem(db: Db, item: NewArItem): Promise<number> {
  * item (P133): the first payment creates it, each later one raises it with an
  * `AdvanceReceived` entry and adds to its `original_amount` — the total
  * received. The item is found by its source (the bill) with its row locked; a
- * unique index on the source makes "one per bill" a database rule.
+ * unique index on the source makes "one per bill" a database rule. It also
+ * holds what the bill has been paid (`paid`, cash + PPh, P214), refused beyond
+ * the bill's total.
  */
-export async function receiveAdvance(db: Prisma.TransactionClient, item: Omit<NewArItem, "type" | "dueDate">): Promise<number> {
-  if (!(item.amount > 0)) throw new Error(`Nilai uang muka harus lebih besar dari nol (diterima ${item.amount}).`);
+export async function receiveAdvance(
+  db: Prisma.TransactionClient,
+  item: Omit<NewArItem, "type" | "dueDate" | "paid"> & { paid: number; documentTotal: number }
+): Promise<number> {
+  if (!(item.paid > 0) || item.amount < 0) throw new Error(`Pembayaran uang muka harus lebih besar dari nol (diterima ${item.paid}).`);
   const found = await db.$queryRaw<{ id: number }[]>`
     SELECT id FROM fin_ar_item
     WHERE item_type = 'Advance' AND source_doc_type_id = ${item.source.docTypeId} AND source_doc_id = ${item.source.docId}
     FOR UPDATE`;
-  if (!found.length) return createArItem(db, { ...item, type: "Advance" });
+  if (!found.length) {
+    if (cents(item.paid) > cents(item.documentTotal)) throw new Error(`Pembayaran melebihi sisa ${item.source.no}.`);
+    return createArItem(db, { ...item, type: "Advance" });
+  }
   const id = found[0].id;
-  const row = await db.finArItem.findUniqueOrThrow({ where: { id }, select: { current_balance: true, original_amount: true } });
-  const cents = (n: number) => Math.round(n * 100);
+  const row = await db.finArItem.findUniqueOrThrow({ where: { id }, select: { current_balance: true, original_amount: true, paid_amount: true } });
   const after = (cents(row.current_balance.toNumber()) + cents(item.amount)) / 100;
   const original = (cents(row.original_amount.toNumber()) + cents(item.amount)) / 100;
-  await db.finArItem.update({ where: { id }, data: { current_balance: after, original_amount: original } });
+  const paid = cents(row.paid_amount.toNumber()) + cents(item.paid);
+  if (paid > cents(item.documentTotal)) throw new Error(`Pembayaran melebihi sisa ${item.source.no}.`);
+  await db.finArItem.update({ where: { id }, data: { current_balance: after, original_amount: original, paid_amount: paid / 100 } });
+  if (!(item.amount > 0)) return id; // paid only in its PPN share: no balance moves
   await db.finArLedger.create({
     data: {
       ...(await ledgerPosition(db, asDate(item.date), item.createdBy.docTypeId, item.createdBy.docId)),
@@ -241,12 +257,13 @@ export async function settleArItem(
 ): Promise<void> {
   if (!(move.amount > 0)) throw new Error("Nilai penyelesaian AR item harus lebih besar dari nol.");
   await db.$queryRaw`SELECT id FROM fin_ar_item WHERE id = ${move.itemId} FOR UPDATE`;
-  const item = await db.finArItem.findUniqueOrThrow({ where: { id: move.itemId }, select: { current_balance: true } });
+  const item = await db.finArItem.findUniqueOrThrow({ where: { id: move.itemId }, select: { current_balance: true, paid_amount: true } });
   const balance = item.current_balance.toNumber();
-  const cents = (n: number) => Math.round(n * 100);
   if (cents(move.amount) > cents(balance)) throw new ArItemOverdrawn(move.itemId, balance, move.amount);
   const after = (cents(balance) - cents(move.amount)) / 100;
-  await db.finArItem.update({ where: { id: move.itemId }, data: { current_balance: after } });
+  // A payment is what the source document has been paid (P214); an advance used or applied is not.
+  const paid = move.event === "Payment" ? { paid_amount: (cents(item.paid_amount.toNumber()) + cents(move.amount)) / 100 } : {};
+  await db.finArItem.update({ where: { id: move.itemId }, data: { current_balance: after, ...paid } });
   await db.finArLedger.create({
     data: {
       ...(await ledgerPosition(db, asDate(move.date), move.doc.docTypeId, move.doc.docId)),
@@ -266,6 +283,20 @@ export async function settleArItem(
 }
 
 // ------------------------------------------------------------------- reads
+
+/**
+ * What each document has been paid, keyed by its id — read from its one item,
+ * the holder of what was paid (P214). A bill no payment has reached yet has no
+ * item, and has been paid nothing.
+ */
+export async function arPaidByDocument(db: Db, docTable: string, ids: number[]): Promise<Map<number, number>> {
+  if (!ids.length) return new Map();
+  const rows = await db.finArItem.findMany({
+    where: { source_doc_type: { doc_table: docTable }, source_doc_id: { in: ids } },
+    select: { source_doc_id: true, paid_amount: true },
+  });
+  return new Map(rows.map((r) => [r.source_doc_id, r.paid_amount.toNumber()]));
+}
 
 export type ArItemRow = {
   id: number;

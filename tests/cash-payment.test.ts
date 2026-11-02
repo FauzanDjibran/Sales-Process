@@ -141,8 +141,8 @@ describe("Pembayaran ke Supplier", () => {
     const item = await prisma.finApItem.findFirstOrThrow({ where: { partner_id: w.f.supplier, item_type: "Advance" } });
     assert.deepEqual([item.current_balance.toNumber(), item.purchase_order_id, item.source_doc_id], [300_000, f.po, f.bill]);
     assert.match(item.ap_item_no, /^API\//);
-    // The bill records what the payment settled (P132), and refuses Batalkan by it.
-    assert.equal((await prisma.finApAdvance.findUniqueOrThrow({ where: { id: f.bill } })).paid_amount.toNumber(), 333_000);
+    // The bill's item holds what the payment settled (P214); the bill refuses Batalkan by it.
+    assert.equal(item.paid_amount.toNumber(), 333_000);
     const cancel = await transitionPurchaseAdvance(f.bill, "cancel", w.actor, "batal");
     assert.ok(!cancel.ok && /sudah dibayar/.test(cancel.errors._form), "a paid bill refuses Batalkan");
     assert.ok(!(await cashPaymentOptions()).bills.some((b) => b.id === f.bill), "a paid bill is no longer offered");

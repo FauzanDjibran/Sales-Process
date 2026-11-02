@@ -215,13 +215,11 @@ describe("Uang Muka Perizinan", () => {
     assert.equal(by(f.pphAcc)[0].debit_amount.toNumber(), 16_000);
     assert.equal(by(f.bankAcc)[0].debit_amount.toNumber(), 872_000);
 
-    const bill = await prisma.finArPermitAdvance.findUniqueOrThrow({ where: { id: a.id } });
-    assert.equal(bill.paid_amount.toNumber(), 888_000);
     const item = await prisma.finArItem.findFirstOrThrow({
       where: { source_doc_type: { doc_table: "fin_ar_permit_advance" }, source_doc_id: a.id },
       include: { scope_doc_type: true },
     });
-    assert.deepEqual([item.item_type, item.current_balance.toNumber(), item.scope_doc_type?.doc_table, item.scope_doc_id], ["Advance", 800_000, "sal_permit_request", requestId]);
+    assert.deepEqual([item.item_type, item.current_balance.toNumber(), item.paid_amount.toNumber(), item.scope_doc_type?.doc_table, item.scope_doc_id], ["Advance", 800_000, 888_000, "sal_permit_request", requestId]);
     const faktur = await prisma.taxFaktur.findFirstOrThrow({ where: { ar_item_id: item.id }, include: { lines: true } });
     assert.deepEqual([faktur.kind, faktur.dpp.toNumber(), faktur.ppn.toNumber(), faktur.lines.length, faktur.scope_doc_id], ["Advance", 800_000, 88_000, 1, requestId]);
     assert.equal(faktur.lines[0].item_label, null, "one description line, no item (Z1)");
@@ -346,8 +344,8 @@ describe("Uang Muka Perizinan", () => {
     assert.ok(pay.ok, JSON.stringify(pay));
     receipts.push(pay.id);
     assert.deepEqual(await transitionCashReceipt(pay.id, "post", actor, undefined, (tx) => createTaxDocsForReceipt(tx, pay.id, actor)), { ok: true });
-    assert.equal((await prisma.finArPermitInvoice.findUniqueOrThrow({ where: { id: inv.id } })).paid_amount.toNumber(), 199_800);
-    assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: invItem.id } })).current_balance.toNumber(), 0);
+    const paidItem = await prisma.finArItem.findUniqueOrThrow({ where: { id: invItem.id } });
+    assert.deepEqual([paidItem.paid_amount.toNumber(), paidItem.current_balance.toNumber()], [199_800, 0]);
   });
 
   test("a realised Pengajuan still takes an advance; a Draft one does not", async () => {

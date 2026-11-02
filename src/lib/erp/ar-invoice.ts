@@ -14,6 +14,7 @@ import { invoiceSourceLines, postedNoteLineIds, type InvoiceSourceLine } from ".
 import {
   ArItemOverdrawn,
   advanceItemsForInvoice,
+  arPaidByDocument,
   createArItem,
   settleArItem,
   type AdvanceItemForInvoice,
@@ -1081,6 +1082,7 @@ export async function settlementInvoices(
   const orders = new Map(
     (await invoiceSourceOrders({ ids: [...new Set(rows.map((r) => r.customer_order_id))] }, db)).map((o) => [o.id, o.orderNo])
   );
+  const paidOf = await arPaidByDocument(db, "fin_ar_invoice", rows.map((r) => r.id));
   return rows.map((r) => ({
     id: r.id,
     invoiceNo: r.invoice_no,
@@ -1101,12 +1103,12 @@ export async function settlementInvoices(
       }))
     ),
     arItemId: r.ar_item_id,
-    paid: r.paid_amount.toNumber(),
+    paid: paidOf.get(r.id) ?? 0,
   }));
 }
 
 /**
- * Where each posted Invoice stands (U26), read from what it records as paid (P133): what
+ * Where each posted Invoice stands (U26), read from what its item holds as paid (P214): what
  * is still open, Belum Dibayar / Sebagian / Lunas, and whether it is overdue.
  * An Invoice its Uang Muka covered whole has no item and is Lunas.
  */
@@ -1116,14 +1118,14 @@ export async function invoicePayStates(
   if (!ids.length) return {};
   const rows = await prisma.finArInvoice.findMany({
     where: { id: { in: ids }, status: "Posted" },
-    select: { id: true, total_amount: true, paid_amount: true, due_date: true },
+    select: { id: true, total_amount: true, due_date: true },
   });
+  const paidOf = await arPaidByDocument(prisma, "fin_ar_invoice", rows.map((r) => r.id));
   const today = new Date().toISOString().slice(0, 10);
   return Object.fromEntries(
     rows.map((r) => {
-      // What it was paid is its own record (P133).
       const total = r.total_amount.toNumber();
-      const open = total - r.paid_amount.toNumber();
+      const open = total - (paidOf.get(r.id) ?? 0);
       const state: InvoicePayState = open <= 0 ? "Paid" : open >= total ? "Unpaid" : "Partial";
       return [r.id, { state, open, overdue: open > 0 && isoDay(r.due_date) < today }];
     })
@@ -1134,9 +1136,10 @@ export async function invoicePayStates(
 export async function unpaidSalesInvoiceIds(db: Db = prisma): Promise<number[]> {
   const rows = await db.finArInvoice.findMany({
     where: { status: "Posted", ar_item_id: { not: null } },
-    select: { id: true, total_amount: true, paid_amount: true },
+    select: { id: true, total_amount: true },
   });
-  return rows.filter((r) => r.paid_amount.lt(r.total_amount)).map((r) => r.id);
+  const paidOf = await arPaidByDocument(db, "fin_ar_invoice", rows.map((r) => r.id));
+  return rows.filter((r) => (paidOf.get(r.id) ?? 0) < r.total_amount.toNumber()).map((r) => r.id);
 }
 
 /** Locks Invoices' rows, in id order, before a receipt reads and pays them (P133). */
@@ -1144,22 +1147,6 @@ export async function lockSalesInvoices(tx: Prisma.TransactionClient, ids: numbe
   for (const id of [...new Set(ids)].sort((a, b) => a - b)) {
     await tx.$queryRaw`SELECT id FROM fin_ar_invoice WHERE id = ${id} FOR UPDATE`;
   }
-}
-
-/**
- * Adds what one posted receipt line settled to the Invoice (P133), inside that
- * posting with the Invoice locked. The Invoice is the record of what it was
- * paid — the next receipt reads it as its `before`; the receipt also writes
- * *Pembayaran* on the Invoice item, and `db:reconcile` proves total − paid =
- * the item's balance.
- */
-export async function recordSalesInvoicePaid(tx: Prisma.TransactionClient, id: number, settled: number): Promise<void> {
-  const v = await tx.finArInvoice.findUnique({ where: { id }, select: { invoice_no: true, status: true, total_amount: true, paid_amount: true } });
-  if (!v || v.status !== "Posted") throw new Error("Invoice tidak berstatus Posted.");
-  const cents = (n: number) => Math.round(n * 100);
-  const paid = (cents(v.paid_amount.toNumber()) + cents(settled)) / 100;
-  if (!(settled > 0) || cents(paid) > cents(v.total_amount.toNumber())) throw new Error(`Pembayaran melebihi sisa ${v.invoice_no}.`);
-  await tx.finArInvoice.update({ where: { id }, data: { paid_amount: paid } });
 }
 
 // ------------------------------------------------------- for the tax module

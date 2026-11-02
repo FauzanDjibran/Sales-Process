@@ -9,22 +9,10 @@ import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput
 import { recordCashBankEntry } from "./cash-bank";
 import { ArItemOverdrawn, lockArItems, receiveAdvance, settleArItem } from "./ar-item";
 import { checkAccountIsLeaf } from "./records";
-import { lockSalesAdvances, recordSalesAdvancePaid, salesAdvanceNumbersByIds, settlementAdvances, unpaidAdvanceIds } from "./ar-advance";
-import {
-  lockPermitAdvances,
-  permitAdvanceNumbersByIds,
-  recordPermitAdvancePaid,
-  settlementPermitAdvances,
-  unpaidPermitAdvanceIds,
-} from "./permit-advance";
-import {
-  lockPermitInvoices,
-  permitInvoiceNumbersByIds,
-  recordPermitInvoicePaid,
-  settlementPermitInvoices,
-  unpaidPermitInvoiceIds,
-} from "./permit-invoice";
-import { invoiceNumbersByIds, lockSalesInvoices, recordSalesInvoicePaid, settlementInvoices, unpaidSalesInvoiceIds } from "./ar-invoice";
+import { lockSalesAdvances, salesAdvanceNumbersByIds, settlementAdvances, unpaidAdvanceIds } from "./ar-advance";
+import { lockPermitAdvances, permitAdvanceNumbersByIds, settlementPermitAdvances, unpaidPermitAdvanceIds } from "./permit-advance";
+import { lockPermitInvoices, permitInvoiceNumbersByIds, settlementPermitInvoices, unpaidPermitInvoiceIds } from "./permit-invoice";
+import { invoiceNumbersByIds, lockSalesInvoices, settlementInvoices, unpaidSalesInvoiceIds } from "./ar-invoice";
 import {
   cashToClear,
   ppnChain,
@@ -1014,21 +1002,16 @@ export async function transitionCashReceipt(
       for (const line of lineRows(typeIds, r.c.lines, actorId)) {
         await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
       }
-      // Each document records what this receipt settled of it (P132, P133):
-      // the next receipt reads that as its `before`, not this receipt.
-      for (const l of r.c.lines) {
-        if (l.kind === "fin_ar_advance") await recordSalesAdvancePaid(tx, l.docId, l.settled);
-        else if (l.kind === "fin_ar_permit_advance") await recordPermitAdvancePaid(tx, l.docId, l.settled);
-        else if (l.kind === "fin_ar_permit_invoice") await recordPermitInvoicePaid(tx, l.docId, l.settled);
-        else await recordSalesInvoicePaid(tx, l.docId, l.settled);
-      }
       // Each bill paid is an Uang Muka the customer now holds, in the bill's
       // one AR item (P133): the first payment creates it, a later one raises
       // it, at the DPP part the Uang Muka account was credited with, so the
-      // items reconcile with that account.
+      // items reconcile with that account. The item also holds what the bill
+      // has been paid — the next receipt's `before` (P214).
       for (const l of r.c.lines) {
-        if (!isAdvanceKind(l.kind) || !(l.dppPart > 0)) continue;
+        if (!isAdvanceKind(l.kind)) continue;
         await receiveAdvance(tx, {
+          paid: l.settled,
+          documentTotal: l.bill.total,
           partnerId: t.partner_id,
           currencyId: baseCurrency.id,
           date: isoDay(t.tx_date),
