@@ -938,3 +938,23 @@ export async function invoiceSourceLines(
 export async function draftDeliveryNotesUpTo(to: Date, db: Db = prisma): Promise<number> {
   return db.logDeliveryNote.count({ where: { status: "Draft", dn_date: { lte: to } } });
 }
+
+export type LotDelivery = { lotId: number; noteId: number; noteNo: string; date: string; partnerLabel: string; partnerName: string; baseQty: number };
+
+/** Posted Delivery Notes that took these lots — where goods went to the customer (Telusur Produksi, R27). */
+export async function deliveriesOfLots(lotIds: number[]): Promise<LotDelivery[]> {
+  if (!lotIds.length) return [];
+  const rows = await prisma.logDeliveryNoteLot.findMany({
+    where: { lot_id: { in: lotIds }, line: { delivery_note: { status: "Posted" } } },
+    include: { line: { include: { delivery_note: { include: { partner: { select: { partner_label: true, partner_name: true } } } } } } },
+  });
+  return rows.map((r) => ({
+    lotId: r.lot_id,
+    noteId: r.line.delivery_note.id,
+    noteNo: r.line.delivery_note.dn_no,
+    date: r.line.delivery_note.dn_date.toISOString().slice(0, 10),
+    partnerLabel: r.line.delivery_note.partner.partner_label,
+    partnerName: r.line.delivery_note.partner.partner_name,
+    baseQty: r.base_qty.toNumber(),
+  }));
+}

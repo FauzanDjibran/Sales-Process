@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import type { PeriodRange } from "./period";
 import type { RefOption } from "./records";
-import { lotStockHistory, type LotStockMovement } from "./stock-report";
+import { deliveriesOfLots } from "./delivery-note";
+import { lotStockHistory, lotStockPositions, type LotStockMovement } from "./stock-report";
 
 /**
  * The production reports (R18, P209): **Saldo Produksi**, **Kartu Lot** and
@@ -257,4 +258,122 @@ export async function runRecapReport(range: PeriodRange, workstationIds: number[
         .sort((a, b) => a.uom.localeCompare(b.uom)),
     }))
     .sort((a, b) => a.stationLabel.localeCompare(b.stationLabel));
+}
+
+// ---------------------------------------------------------- Telusur Produksi
+
+export type TraceEdge = { sourceNo: string; stationLabel: string; qty: number; value: number };
+
+export type TraceNode = {
+  lotId: number;
+  lotNo: string;
+  itemLabel: string;
+  itemName: string;
+  uom: string;
+  /** Steps from the start lots; 0 is the start. */
+  depth: number;
+  /** The executions between it and the lot one step nearer the start, with the workstation they ran at. */
+  via: TraceEdge[];
+  /** Where the lot was registered and from whom, for a lot no execution made. */
+  origin: { sourceNo: string; supplier: string | null } | null;
+  /** Where it is now: at a workstation, in stock, delivered. Shown for the start and the forward lots. */
+  now: { production: { stationLabel: string; qty: number }[]; stock: { where: string; qty: number }[]; delivered: { noteNo: string; date: string; to: string; qty: number }[] } | null;
+};
+
+export type TraceReport = { start: TraceNode[]; backward: TraceNode[]; forward: TraceNode[]; truncated: boolean };
+
+const TRACE_NODE_CAP = 300;
+const TRACE_DEPTH_CAP = 20;
+
+/**
+ * The genealogy of a lot number (R27): back through every execution to the
+ * lots that came in from a supplier, and forward to where the goods are now —
+ * at a workstation, in stock, or delivered to a customer. Read from
+ * `prd_lot_link`, which every posted execution writes; every lot of the number
+ * starts the walk (a lot is unique per item, P120).
+ */
+export async function traceReport(lotNo: string): Promise<TraceReport | null> {
+  const startIds = (await prisma.logStockTracking.findMany({ where: { tracking_no: { equals: lotNo.trim(), mode: "insensitive" } }, select: { id: true } })).map((l) => l.id);
+  if (!startIds.length) return null;
+
+  const edgesOf = { back: new Map<number, Map<string, TraceEdge>>(), fwd: new Map<number, Map<string, TraceEdge>>() };
+  const depths = { back: new Map<number, number>(), fwd: new Map<number, number>() };
+  const walk = async (dir: "back" | "fwd") => {
+    const seen = new Set<number>(startIds);
+    let frontier = [...startIds];
+    const order: number[] = [];
+    let depth = 0;
+    let truncated = false;
+    while (frontier.length && depth < TRACE_DEPTH_CAP) {
+      const links = await prisma.prdLotLink.findMany({
+        where: dir === "back" ? { to_lot_id: { in: frontier } } : { from_lot_id: { in: frontier } },
+        select: { from_lot_id: true, to_lot_id: true, source_no: true, qty: true, value: true, from_bucket: { select: { workstation: { select: { workstation_label: true } } } } },
+      });
+      depth += 1;
+      const next: number[] = [];
+      for (const l of links) {
+        // Backward a node is an input lot, forward an output lot; each carries the execution between.
+        const id = dir === "back" ? l.from_lot_id : l.to_lot_id;
+        const edges = edgesOf[dir].get(id) ?? new Map<string, TraceEdge>();
+        const e = edges.get(l.source_no) ?? { sourceNo: l.source_no, stationLabel: l.from_bucket.workstation.workstation_label, qty: 0, value: 0 };
+        e.qty = round6(e.qty + num(l.qty));
+        e.value += num(l.value);
+        edges.set(l.source_no, e);
+        edgesOf[dir].set(id, edges);
+        if (seen.has(id)) continue;
+        if (order.length >= TRACE_NODE_CAP) {
+          truncated = true;
+          continue;
+        }
+        seen.add(id);
+        order.push(id);
+        depths[dir].set(id, depth);
+        next.push(id);
+      }
+      frontier = next;
+    }
+    return { order, truncated };
+  };
+  const [back, fwd] = await Promise.all([walk("back"), walk("fwd")]);
+
+  const allIds = [...new Set([...startIds, ...back.order, ...fwd.order])];
+  const lots = await prisma.logStockTracking.findMany({
+    where: { id: { in: allIds } },
+    include: { item: { select: { item_label: true, item_name: true, base_uom: { select: { uom_label: true } } } }, source_partner: { select: { partner_label: true, partner_name: true } } },
+  });
+  const lotBy = new Map(lots.map((l) => [l.id, l]));
+  const made = new Set((await prisma.prdLotLink.findMany({ where: { to_lot_id: { in: allIds } }, distinct: ["to_lot_id"], select: { to_lot_id: true } })).map((x) => x.to_lot_id));
+  const nowIds = [...new Set([...startIds, ...fwd.order])];
+  const [held, stock, delivered] = await Promise.all([
+    prisma.prdBalance.findMany({ where: { lot_id: { in: nowIds }, qty_balance: { gt: 0 } }, include: { workstation: { select: { workstation_label: true } } } }),
+    lotStockPositions(nowIds),
+    deliveriesOfLots(nowIds),
+  ]);
+  const node = (id: number, dir: "back" | "fwd" | "start"): TraceNode => {
+    const l = lotBy.get(id)!;
+    return {
+      lotId: id,
+      lotNo: l.tracking_no,
+      itemLabel: l.item.item_label,
+      itemName: l.item.item_name,
+      uom: l.item.base_uom.uom_label,
+      depth: dir === "start" ? 0 : (depths[dir].get(id) ?? 1),
+      via: dir === "start" ? [] : [...(edgesOf[dir].get(id)?.values() ?? [])],
+      origin: dir !== "fwd" && !made.has(id) ? { sourceNo: l.source_no, supplier: l.source_partner ? `${l.source_partner.partner_label} · ${l.source_partner.partner_name}` : null } : null,
+      now:
+        dir === "back"
+          ? null
+          : {
+              production: held.filter((h) => h.lot_id === id).map((h) => ({ stationLabel: h.workstation.workstation_label, qty: num(h.qty_balance) })),
+              stock: stock.filter((s) => s.lotId === id).map((s) => ({ where: s.locationLabel ? `${s.warehouseLabel} · ${s.locationLabel}` : s.warehouseLabel, qty: s.qty })),
+              delivered: delivered.filter((d) => d.lotId === id).map((d) => ({ noteNo: d.noteNo, date: d.date, to: `${d.partnerLabel} · ${d.partnerName}`, qty: d.baseQty })),
+            },
+    };
+  };
+  return {
+    start: startIds.map((id) => node(id, "start")),
+    backward: back.order.map((id) => node(id, "back")),
+    forward: fwd.order.map((id) => node(id, "fwd")),
+    truncated: back.truncated || fwd.truncated,
+  };
 }

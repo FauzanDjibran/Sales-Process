@@ -1,9 +1,9 @@
 import { notFound } from "next/navigation";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
 import { ProductionReportParams } from "@/components/report/production-report-params";
-import { CostingSoFarBody, LotCardBody, ProductionMismatch, RecapBody, WipBalanceBody } from "@/components/report/production-reports";
+import { CostingSoFarBody, LotCardBody, ProductionMismatch, TraceBody, RecapBody, WipBalanceBody } from "@/components/report/production-reports";
 import { requirePermission } from "@/lib/erp/auth";
-import { lotCardReport, productionBooksReconcile, runRecapReport, stationOptions, wipBalanceReport } from "@/lib/erp/production-report";
+import { lotCardReport, productionBooksReconcile, runRecapReport, stationOptions, traceReport, wipBalanceReport } from "@/lib/erp/production-report";
 import { costingSoFar } from "@/lib/erp/production-close";
 import { reportBySlug, reportHref } from "@/lib/erp/reports";
 import { formatDate } from "@/lib/format";
@@ -73,6 +73,14 @@ export default async function Page({
     return (
       <ReportView report={report} filter={filter} runAt={runAt}>
         <ReportNeedsSubject icon="book" title="Isi nomor lot" body="Ketik nomornya di atas, lalu tekan Tampilkan." />
+      </ReportView>
+    );
+  }
+  if (report.key === "trace") {
+    const trace = await traceReport(text);
+    return (
+      <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Dibaca dari silsilah lot yang ditulis setiap Eksekusi Produksi; jumlah dan nilai tiap langkah dari buku produksi.</>}>
+        {trace ? <TraceBody report={trace} /> : <ReportNeedsSubject icon="tree" title="Lot tidak ditemukan" body={`Tidak ada lot bernomor ${text}.`} />}
       </ReportView>
     );
   }

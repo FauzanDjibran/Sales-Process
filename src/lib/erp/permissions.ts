@@ -262,6 +262,7 @@ export const PERMISSIONS = [
   { code: "PRODUCTION_COST_CLOSE_RUN", name: "Jalankan Penutupan Biaya Produksi", module: "production", description: "Membebankan biaya produksi periode ke WIP, persediaan dan HPP, dan mengunci periodenya. Tidak dapat dibatalkan." },
   { code: "REPORT_WIP_BALANCE_VIEW", name: "Lihat Saldo Produksi", module: "production", description: "Barang di produksi per workstation dan lot pada satu tanggal." },
   { code: "REPORT_LOT_CARD_VIEW", name: "Lihat Kartu Lot", module: "production", description: "Seluruh mutasi satu lot di produksi dan di stok." },
+  { code: "REPORT_PRODUCTION_TRACE_VIEW", name: "Lihat Telusur Produksi", module: "production", description: "Silsilah satu lot mundur sampai supplier dan maju sampai customer." },
   { code: "REPORT_COSTING_SO_FAR_VIEW", name: "Lihat Costing Sementara", module: "production", description: "Penutupan periode berjalan sebagai simulasi, per barang jadi; tidak memposting." },
   { code: "REPORT_PRODUCTION_RECAP_VIEW", name: "Lihat Rekap Produksi", module: "production", description: "Input, output dan susut per workstation pada rentang tanggal." },
 

@@ -239,6 +239,14 @@ export const MODULES: NavModule[] = [
             permission: "REPORT_LOT_CARD_VIEW",
           },
           {
+            key: "report_trace",
+            slug: "report/trace",
+            name: "Telusur Produksi",
+            icon: "tree",
+            desc: "Silsilah satu lot: mundur sampai supplier, maju sampai customer.",
+            permission: "REPORT_PRODUCTION_TRACE_VIEW",
+          },
+          {
             key: "report_production_recap",
             slug: "report/production-recap",
             name: "Rekap Produksi",

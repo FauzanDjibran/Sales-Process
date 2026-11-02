@@ -315,6 +315,17 @@ const FIXED_REPORTS = [
     subjectRequired: false,
   },
   {
+    key: "trace",
+    slug: "trace",
+    module: "production",
+    name: "Telusur Produksi",
+    desc: "Dari sebuah lot: mundur lewat setiap eksekusi sampai lot dari supplier, maju sampai barang di workstation, di stok, atau terkirim ke customer.",
+    icon: "tree",
+    permission: "REPORT_PRODUCTION_TRACE_VIEW",
+    params: "production-lot",
+    subjectRequired: true,
+  },
+  {
     key: "costing_so_far",
     slug: "costing-so-far",
     module: "production",

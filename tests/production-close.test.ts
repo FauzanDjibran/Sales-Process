@@ -7,6 +7,7 @@ import { costingSoFar, previewClose, runClose, storedClose } from "../src/lib/er
 import { settleClose } from "../src/lib/erp/production-close-shape";
 import { enterProduction, transferBucket } from "../src/lib/erp/production-ledger";
 import { createRelease, transitionRelease } from "../src/lib/erp/production-release";
+import { traceReport } from "../src/lib/erp/production-report";
 import { createExecution, getExecution, transitionExecution, type ExecutionInput } from "../src/lib/erp/production-run";
 import { cleanupFiscalYear, cleanupFixtures, disconnect, makeAccount, openFiscalYear, prisma, stockIn } from "./helpers";
 import { makeProductionFixture, sourceOf, type ProductionFixture } from "./production-helpers";
@@ -164,6 +165,29 @@ describe("the arithmetic (pure)", () => {
   test("a pool with no execution is HPP (R14); every rupiah lands somewhere", () => {
     const out = settleClose({ pool: 1_000, runs: [], fate: () => ({ held: [], links: [], released: [] }), releasePurpose: () => "to_stock", flows: () => ({ opening: 0, inflow: 0, outflow: 0, poolQty: 0 }) });
     assert.deepEqual(out.dests, [{ kind: "Hpp", itemId: null, bucketId: null, amount: 1_000 }]);
+  });
+});
+
+describe("Telusur Produksi on the same goods (scenario G2)", () => {
+  test("backward from the finished lot to the supplier lots; forward from the material to where it is now", async () => {
+    const fgNo = (await prisma.logStockTracking.findUniqueOrThrow({ where: { id: fgLot } })).tracking_no;
+    const back = (await traceReport(fgNo))!;
+    const byLabel = (nodes: { itemLabel: string }[]) => nodes.map((n) => n.itemLabel).sort();
+    assert.deepEqual(byLabel(back.backward), [f.key("BB"), f.key("BK"), f.key("PRODUK")].sort());
+    const bb = back.backward.find((n) => n.itemLabel === f.key("BB"))!;
+    assert.equal(bb.depth, 2);
+    assert.ok(bb.origin?.sourceNo.startsWith("INJ/"), "the material lot names what brought it in");
+    assert.equal(bb.via[0].stationLabel, f.key("WSA"));
+    const [start] = back.start;
+    assert.deepEqual(start.now?.production, [{ stationLabel: f.key("WSB"), qty: 100 }]);
+    assert.deepEqual(start.now?.stock.map((s) => s.qty), [50]);
+
+    const fwd = (await traceReport(f.key("BB1")))!;
+    assert.deepEqual(fwd.forward.map((n) => [n.itemLabel, n.depth]), [
+      [f.key("PRODUK"), 1],
+      [f.key("FG"), 2],
+    ]);
+    assert.equal(fwd.forward[1].via[0].stationLabel, f.key("WSB"));
   });
 });
 

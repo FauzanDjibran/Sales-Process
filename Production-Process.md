@@ -6,7 +6,7 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **01/11/2026 — P211** (Costing Sementara).
+> Last updated: **01/11/2026 — P212** (Telusur Produksi).
 
 ---
 
@@ -58,7 +58,7 @@ by their **Driver** and follows it forward to WIP, Persediaan, HPP or scrap.
 | 8 | Reports (Produksi › Laporan): **Saldo Produksi** (per workstation and lot as of a date), **Kartu Lot** (a lot in production and in stock), **Rekap Produksi** (per workstation: in, out, loss, Driver, value per unit) | Read from the ledgers; a past date as it stood. | none | ✅ P209 |
 | 9 | **Penutupan Biaya Produksi** (Produksi › Biaya) | One period at a time, oldest first, after its last day, with a checklist (no Drafts, earlier periods costed, accounts set). The month's pool — net debit on the Jenis Biaya accounts — is shared over its executions by Driver, then by qty × Bobot Nilai to their outputs, and followed forward by quantity: still at a workstation → WIP; in stock → sold part to HPP, kept part raises the item's pool; scrapped → Beban Pemusnahan; no execution → HPP. Stores what it closed; irreversible; locks the period for stock, production and the cost accounts; the year does not close before its periods are costed. | Dr WIP / Persediaan / HPP / Beban Pemusnahan — Cr Biaya Produksi Dibebankan | ✅ P210 |
 | 10 | Report: **Costing Sementara** (Produksi › Laporan) | The close's own calculation run for the open period up to a date, writing nothing: per finished item its posted (material) value, the conversion share, HPP part, stock part and final value per unit. On the period's last day it equals the close. | none | ✅ P211 |
-| 11 | Report: **Telusur Produksi** | Lot backward to supplier, forward to customer (R27). | | 🔜 |
+| 11 | Report: **Telusur Produksi** (Produksi › Laporan) | From a lot number: backward through every execution (number, workstation, quantity, value) to the lots that came from a supplier or an injection; forward to every lot made from it and where each is now — at a workstation, in stock, or delivered to a customer. | none | ✅ P212 |
 | 12 | **BoM** and **Routing** (Produksi › Master Data) | BoM per Item Target per workstation; Routing per Item Target; several each, one default (R21). | | 🔜 |
 | 13 | **Perintah Produksi** `PP/…` | Item Target, Qty Target, optional Sales Order line; route and BoMs copied at Rilis and frozen; Tutup by hand. Every Eksekusi names one; deviations warned, never refused (R20–R24). | none | 🔜 |
 | 14 | Report: **Rencana vs Aktual** | Per Perintah: required vs consumed, target vs output, deviations (R27). | | 🔜 |
@@ -79,3 +79,4 @@ by their **Driver** and follows it forward to WIP, Persediaan, HPP or scrap.
 | 01/11/2026 | P209 | Reports Saldo Produksi, Kartu Lot, Rekap Produksi. |
 | 01/11/2026 | P210 | Penutupan Biaya Produksi and its period lock. |
 | 01/11/2026 | P211 | Costing Sementara. |
+| 01/11/2026 | P212 | Telusur Produksi. |
