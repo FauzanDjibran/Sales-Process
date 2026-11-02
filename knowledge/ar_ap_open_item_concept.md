@@ -70,6 +70,18 @@ The open item is the **settlement unit**, not the source document itself.
 
 Source documents should not own their own outstanding balance. Outstanding balance is maintained through the open-item model.
 
+### One item per source document
+
+A source document gives rise to **at most one** open item, and the item is **identified by that document** (its document type and id, unique). Every later payment, application or adjustment of the document moves that one item; nothing creates a second item for it.
+
+The item is the **only holder of the document's settlement state**. Beside its `current_balance` it keeps `paid_amount` — what payments have settled of the source document — raised inside each payment's posting. The source document keeps its **value and its lifecycle** (draft, issued, posted, cancelled) and stores no paid or outstanding figure.
+
+A payment names the **source document**, finds its item by the document's id, and reads what was paid before from the item — never by summing other payments.
+
+An item may be born by the first event that moves it (an advance item by its first payment, for instance); a document that has no item yet has been paid nothing.
+
+Why: one place holds the settlement state, so the document and its item cannot disagree, and no payment depends on reading the payments before it. The document stays the authority on what was billed; the item is what settlements change.
+
 ### Required identity
 
 Each open item must identify:
@@ -80,7 +92,8 @@ currency_id
 open_item_type
 direction
 current_balance
-source document reference
+paid_amount
+source document reference (unique)
 ```
 
 ---
@@ -153,6 +166,8 @@ original_amount
 applied_amount
 ```
 
+The one settlement figure it keeps beside the balance is `paid_amount` (§3), because the source document does not hold it.
+
 The balance is simply:
 
 ```text
@@ -206,3 +221,7 @@ Ledger = history
 Balance = current state
 Allocation = settlement relationship
 ```
+
+## Changelog
+- **1.0** (03/10/2026): from ERP `Initialization/ar_ap_open_item_concept.md`.
+- **2.0** (02/11/2026): §3 — one open item per source document, identified by it (unique), holding `paid_amount` beside its balance; the document keeps its value and lifecycle only, and a payment reads what was paid from the document's item. §6 notes the one figure kept beside the balance. Harvested from ERP P214 (the user's deviation-check answer B, 02/11/2026), which replaces ERP P132–P133's "the document keeps what it was paid". Changes a rule: adopters make the source reference unique and move any paid figure off their documents onto the item.
