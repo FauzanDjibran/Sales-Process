@@ -69,7 +69,8 @@ after(async () => {
 
 const pool = async (item: number) => {
   const p = await prisma.logStockValuationBalance.findUniqueOrThrow({ where: { item_id: item } });
-  return [p.qty_balance.toNumber(), p.value_balance.toNumber(), p.avg_unit_cost.toNumber()];
+  const avg = p.qty_balance.gt(0) ? p.value_balance.div(p.qty_balance).toDecimalPlaces(6, 4).toNumber() : 0;
+  return [p.qty_balance.toNumber(), p.value_balance.toNumber(), avg];
 };
 const issue = (item: number, wh: number, lot: number, qty: number, date = "2026-10-01") =>
   prisma.$transaction((tx) => issueStock(tx, { itemId: item, warehouseId: wh, lotId: lot, baseQty: qty, date: day(date), source: src, actorId: actor }));

@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20261006240000_ap_invoice`
+- **As of migration:** `20261102090000_drop_redundant_ledger_columns`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout:** tables are grouped in sections by prefix — System (`sys_`),
@@ -1009,13 +1009,10 @@ table cash_bank_ledger {
 
   entry_date                  date [not null]
   entry_type                  enum('Opening', 'Transaction', 'Adjustment') [not null]
-  direction                   enum('In', 'Out') [not null]
-  amount                      decimal(18,2) [not null]
-  movement                    decimal(18,2) [not null]
+  movement                    decimal(18,2) [not null] // signed: + in, − out; direction and size are read from it (P213)
   balance_after               decimal(18,2) [not null]
   rate                        decimal(18,6) [not null]
-  base_amount                 decimal(18,2) [not null]
-  base_movement               decimal(18,2) [not null]
+  base_movement               decimal(18,2) [not null] // movement in base currency, signed the same way
   base_balance_after          decimal(18,2) [not null]
 
   source_doc_type_id          int [ref : > sys_doc_type.id]
@@ -1042,7 +1039,6 @@ table cash_bank_balance {
   base_balance                decimal(18,2) [not null, default: 0]
   entry_count                 int [not null, default: 0]
 
-  last_entry_id               int
 
   last_entry_date             date
 
@@ -1178,8 +1174,7 @@ table fin_ar_ledger {
 
   event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied', 'AdvanceReceived') [not null] // AdvanceReceived: a later payment raising a bill's one Uang Muka item (P133)
   entry_date                  date [not null]
-  amount                      decimal(18,2) [not null]
-  movement                    decimal(18,2) [not null] // signed on the item balance
+  movement                    decimal(18,2) [not null] // signed on the item balance: + grows, − falls; the one figure of the entry (P213)
   balance_after               decimal(18,2) [not null]
 
   doc_type_id                 int [not null, ref : > sys_doc_type.id]
@@ -1243,8 +1238,7 @@ table fin_ap_ledger {
   item_id                     int [not null, ref : > fin_ap_item.id]
   event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied', 'AdvanceReceived') [not null] // AdvanceReceived: a later payment raising a bill's one Uang Muka item (P133)
   entry_date                  date [not null]
-  amount                      decimal(18,2) [not null]
-  movement                    decimal(18,2) [not null]
+  movement                    decimal(18,2) [not null] // signed on the item balance: + grows, − falls (P213)
   balance_after               decimal(18,2) [not null]
 
   doc_type_id                 int [not null, ref : > sys_doc_type.id]
@@ -2330,7 +2324,6 @@ table log_stock_ledger {
 
   qty_change                  decimal(18,6) [not null]
   qty_balance                 decimal(18,6) [not null] // the bucket after this row, in posting order
-  unit_cost                   decimal(18,6) [not null] // |value ÷ qty|, a description (P114)
   value_change                decimal(18,2) [not null] // whole rupiah; equals its valuation twin
 
   created_by                  int [not null]
@@ -2389,10 +2382,8 @@ table log_stock_valuation_ledger {
 
   qty_change                  decimal(18,6) [not null]
   qty_balance                 decimal(18,6) [not null] // the pool after, every warehouse and status
-  unit_cost                   decimal(18,6) // |value ÷ qty|, a description
   value_change                decimal(18,2) [not null] // a receipt its own value; an issue round(V × q ÷ Q), the emptying one V
   value_balance               decimal(18,2) [not null]
-  avg_unit_cost               decimal(18,6) [not null] // V ÷ Q, cached for reading, never multiplied
 
   created_by                  int [not null]
 
@@ -2414,7 +2405,6 @@ table log_stock_valuation_balance {
 
   qty_balance                 decimal(18,6) [not null]
   value_balance               decimal(18,2) [not null]
-  avg_unit_cost               decimal(18,6) [not null]
 
   created_by                  int [not null]
   updated_by                  int
@@ -2661,7 +2651,6 @@ table prd_ledger {
   qty_balance                 decimal(18,6) [not null]
   value_change                decimal(18,2) [not null]
   value_balance               decimal(18,2) [not null]
-  unit_cost                   decimal(18,6) [not null] // a description, never read back (P114)
 
   created_by                  int [not null]
   created_at                  timestamptz [not null, default: `now()`]

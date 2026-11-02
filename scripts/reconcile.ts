@@ -51,7 +51,7 @@ type Check = { area: string; name: string; sql: string };
 
 /** Accounts from Account Mapping, by key; `-1` matches nothing when unset. */
 /** The Uang Muka applied to an invoice's item (P117); 0 for one posted before P117. */
-const applied = (v: string) => `COALESCE((SELECT SUM(a.amount) FROM fin_ar_ledger a WHERE a.item_id = ${v}.ar_item_id AND a.event = 'AdvanceApplied'), 0)`;
+const applied = (v: string) => `COALESCE((SELECT SUM(ABS(a.movement)) FROM fin_ar_ledger a WHERE a.item_id = ${v}.ar_item_id AND a.event = 'AdvanceApplied'), 0)`;
 
 const acc = (key: string) =>
   `COALESCE((SELECT NULLIF(setting_value, '')::int FROM sys_setting WHERE setting_key = '${key}'), -1)`;
@@ -113,11 +113,11 @@ export const CHECKS: Check[] = [
   {
     area: "cash",
     name: "one Cash Bank Book entry per posted receipt, at its cash, into its resource",
-    sql: `SELECT t.tx_no, t.cash_amount, COUNT(e.id) AS entries, SUM(e.amount) AS booked
+    sql: `SELECT t.tx_no, t.cash_amount, COUNT(e.id) AS entries, SUM(ABS(e.movement)) AS booked
           FROM fin_cash_bank_tx t
           LEFT JOIN cash_bank_ledger e ON e.source_doc_type_id = ${docType("fin_cash_bank_tx")} AND e.source_doc_id = t.id
-            AND e.cash_bank_id = t.cash_bank_id AND e.direction = t.direction
-          WHERE t.status = 'Posted' GROUP BY t.id HAVING COUNT(e.id) <> 1 OR SUM(e.amount) <> t.cash_amount`,
+            AND e.cash_bank_id = t.cash_bank_id AND SIGN(e.movement) = CASE t.direction WHEN 'In' THEN 1 ELSE -1 END
+          WHERE t.status = 'Posted' GROUP BY t.id HAVING COUNT(e.id) <> 1 OR SUM(ABS(e.movement)) <> t.cash_amount`,
   },
   {
     area: "cash",
@@ -178,13 +178,13 @@ export const CHECKS: Check[] = [
   {
     area: "ar",
     name: "each posted receipt's advance line wrote one entry at its DPP part on the bill's one Uang Muka item (P133)",
-    sql: `SELECT t.tx_no, l.doc_id AS bill_id, l.dpp_part, COUNT(e.id) AS entries, SUM(e.amount) AS amount
+    sql: `SELECT t.tx_no, l.doc_id AS bill_id, l.dpp_part, COUNT(e.id) AS entries, SUM(ABS(e.movement)) AS amount
           FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id IN ${advanceTypes}
           LEFT JOIN fin_ar_item i ON i.item_type = 'Advance' AND i.source_doc_type_id = l.doc_type_id AND i.source_doc_id = l.doc_id
           LEFT JOIN fin_ar_ledger e ON e.item_id = i.id AND e.event IN ('Create', 'AdvanceReceived')
             AND e.doc_type_id = ${docType("fin_cash_bank_tx")} AND e.doc_id = t.id
           WHERE t.status = 'Posted' AND l.dpp_part > 0
-          GROUP BY t.id, l.id HAVING COUNT(e.id) <> 1 OR SUM(e.amount) <> l.dpp_part`,
+          GROUP BY t.id, l.id HAVING COUNT(e.id) <> 1 OR SUM(ABS(e.movement)) <> l.dpp_part`,
   },
   {
     area: "ar",
@@ -216,45 +216,45 @@ export const CHECKS: Check[] = [
   {
     area: "ar",
     name: "each posted receipt's invoice line wrote one Pembayaran on the invoice's item",
-    sql: `SELECT t.tx_no, v.invoice_no, l.settled_amount, COUNT(e.id) AS entries, SUM(e.amount) AS paid
+    sql: `SELECT t.tx_no, v.invoice_no, l.settled_amount, COUNT(e.id) AS entries, SUM(ABS(e.movement)) AS paid
           FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id AND l.doc_type_id = ${docType("fin_ar_invoice")}
           JOIN fin_ar_invoice v ON v.id = l.doc_id
           LEFT JOIN fin_ar_ledger e ON e.item_id = v.ar_item_id AND e.event = 'Payment' AND e.doc_type_id = ${docType("fin_cash_bank_tx")} AND e.doc_id = t.id
-          WHERE t.status = 'Posted' GROUP BY t.id, l.id, v.invoice_no HAVING COUNT(e.id) <> 1 OR SUM(e.amount) <> l.settled_amount`,
+          WHERE t.status = 'Posted' GROUP BY t.id, l.id, v.invoice_no HAVING COUNT(e.id) <> 1 OR SUM(ABS(e.movement)) <> l.settled_amount`,
   },
   {
     area: "ar",
     name: "each posted invoice's Invoice item: born at its face, less the Uang Muka applied, leaving its net Piutang (P117)",
     // An invoice posted before P117 was born at net with nothing applied, and had
     // no item when its Uang Muka covered it whole; the identity holds for both.
-    sql: `SELECT v.invoice_no, v.total_amount, i.ar_item_no, i.original_amount, e.amount AS created, ${applied("v")} AS applied
+    sql: `SELECT v.invoice_no, v.total_amount, i.ar_item_no, i.original_amount, ABS(e.movement) AS created, ${applied("v")} AS applied
           FROM fin_ar_invoice v
           LEFT JOIN fin_ar_item i ON i.id = v.ar_item_id
           LEFT JOIN fin_ar_ledger e ON e.item_id = i.id AND e.event = 'Create'
           WHERE v.status = 'Posted' AND (
             (v.ar_item_id IS NULL AND v.total_amount <> 0)
             OR (v.ar_item_id IS NOT NULL AND (i.item_type <> 'Invoice' OR i.source_doc_type_id <> ${docType("fin_ar_invoice")} OR i.source_doc_id <> v.id
-                OR e.amount <> i.original_amount OR e.amount - ${applied("v")} <> v.total_amount
-                OR (${applied("v")} <> 0 AND (e.amount <> v.dpp_amount + v.ppn_amount + v.advance_ppn_amount
+                OR ABS(e.movement) <> i.original_amount OR ABS(e.movement) - ${applied("v")} <> v.total_amount
+                OR (${applied("v")} <> 0 AND (ABS(e.movement) <> v.dpp_amount + v.ppn_amount + v.advance_ppn_amount
                                               OR ${applied("v")} <> v.advance_dpp_amount + v.advance_ppn_amount)))))`,
   },
   {
     area: "ar",
     name: "each posted invoice's deduction wrote one Dipakai Invoice on its Uang Muka item",
-    sql: `SELECT v.invoice_no, d.ar_item_no, d.dpp_used, COUNT(e.id) AS entries, SUM(e.amount) AS used
+    sql: `SELECT v.invoice_no, d.ar_item_no, d.dpp_used, COUNT(e.id) AS entries, SUM(ABS(e.movement)) AS used
           FROM fin_ar_invoice v JOIN fin_ar_invoice_advance_deduction d ON d.invoice_id = v.id
           LEFT JOIN fin_ar_ledger e ON e.item_id = d.ar_item_id AND e.event = 'AdvanceUsed' AND e.doc_type_id = ${docType("fin_ar_invoice")} AND e.doc_id = v.id
             AND e.counter_item_id IS NOT DISTINCT FROM v.ar_item_id
-          WHERE v.status = 'Posted' GROUP BY v.id, d.id HAVING COUNT(e.id) <> 1 OR SUM(e.amount) <> d.dpp_used`,
+          WHERE v.status = 'Posted' GROUP BY v.id, d.id HAVING COUNT(e.id) <> 1 OR SUM(ABS(e.movement)) <> d.dpp_used`,
   },
   {
     area: "ar",
     name: "under P117 each deduction also lowered the Invoice item by its DPP and PPN, naming the Uang Muka item",
-    sql: `SELECT v.invoice_no, d.ar_item_no, d.dpp_used + d.ppn_used AS expected, COUNT(e.id) AS entries, SUM(e.amount) AS applied
+    sql: `SELECT v.invoice_no, d.ar_item_no, d.dpp_used + d.ppn_used AS expected, COUNT(e.id) AS entries, SUM(ABS(e.movement)) AS applied
           FROM fin_ar_invoice v JOIN fin_ar_invoice_advance_deduction d ON d.invoice_id = v.id
           LEFT JOIN fin_ar_ledger e ON e.item_id = v.ar_item_id AND e.event = 'AdvanceApplied' AND e.counter_item_id = d.ar_item_id
           WHERE v.status = 'Posted' AND ${applied("v")} <> 0
-          GROUP BY v.id, d.id HAVING COUNT(e.id) <> 1 OR SUM(e.amount) <> d.dpp_used + d.ppn_used`,
+          GROUP BY v.id, d.id HAVING COUNT(e.id) <> 1 OR SUM(ABS(e.movement)) <> d.dpp_used + d.ppn_used`,
   },
   {
     area: "ar",
@@ -662,14 +662,13 @@ export const CHECKS: Check[] = [
   },
   {
     area: "stock",
-    name: "each item's pool is the sum of its valuation rows, not negative, empty in value when empty in quantity, its average V ÷ Q (P114)",
-    sql: `SELECT b.item_id, b.qty_balance, b.value_balance, b.avg_unit_cost, l.q, l.v
+    name: "each item's pool is the sum of its valuation rows, not negative, empty in value when empty in quantity (P114)",
+    sql: `SELECT b.item_id, b.qty_balance, b.value_balance, l.q, l.v
           FROM log_stock_valuation_balance b
           LEFT JOIN (SELECT item_id, SUM(qty_change) AS q, SUM(value_change) AS v FROM log_stock_valuation_ledger GROUP BY item_id) l ON l.item_id = b.item_id
           WHERE b.qty_balance <> COALESCE(l.q, 0) OR b.value_balance <> COALESCE(l.v, 0)
              OR b.qty_balance < 0 OR b.value_balance < 0
-             OR (b.qty_balance = 0 AND b.value_balance <> 0)
-             OR b.avg_unit_cost <> CASE WHEN b.qty_balance > 0 THEN ROUND(b.value_balance / b.qty_balance, 6) ELSE 0 END`,
+             OR (b.qty_balance = 0 AND b.value_balance <> 0)`,
   },
   {
     area: "stock",

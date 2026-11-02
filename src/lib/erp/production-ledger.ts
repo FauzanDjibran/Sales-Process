@@ -51,7 +51,6 @@ type Movement = "Issued" | "Consumed" | "Produced" | "TransferOut" | "TransferIn
 
 const qtyText = (d: Dec) => d.toDecimalPlaces(6).toString().replace(".", ",");
 const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
-const describe = (value: Dec, qty: Dec) => (qty.isZero() ? new D(0) : value.abs().div(qty.abs()).toDecimalPlaces(6, D.ROUND_HALF_UP));
 
 // ------------------------------------------------------------- masters
 
@@ -145,7 +144,6 @@ async function write(tx: Tx, b: Bucket, m: { movement: Movement; qty: Dec; value
       qty_balance: qty,
       value_change: m.value,
       value_balance: value,
-      unit_cost: describe(m.value, m.qty),
       created_by: m.actorId,
     },
   });

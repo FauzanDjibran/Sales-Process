@@ -341,7 +341,7 @@ export async function valuationLedgerReport(itemId: number, range: PeriodRange):
       source: { table: r.source_doc_type.doc_table, id: r.source_doc_id, no: r.source_no, docName: r.source_doc_type.doc_name },
       qtyChange: r.qty_change.toNumber(),
       valueChange: r.value_change.toNumber(),
-      unitCost: num(r.unit_cost),
+      unitCost: avgOf(r.value_change.abs(), r.qty_change.abs()),
       qtyBalance: q.toNumber(),
       valueBalance: v.toNumber(),
       average: avgOf(v, q),

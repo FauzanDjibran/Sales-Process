@@ -162,7 +162,6 @@ export async function createArItem(db: Db, item: NewArItem): Promise<number> {
       item_id: row.id,
       event: "Create",
       entry_date: date,
-      amount: item.amount,
       movement: item.amount,
       balance_after: item.amount,
       doc_type_id: item.createdBy.docTypeId,
@@ -201,7 +200,6 @@ export async function receiveAdvance(db: Prisma.TransactionClient, item: Omit<Ne
       item_id: id,
       event: "AdvanceReceived",
       entry_date: asDate(item.date),
-      amount: item.amount,
       movement: item.amount,
       balance_after: after,
       doc_type_id: item.createdBy.docTypeId,
@@ -255,7 +253,6 @@ export async function settleArItem(
       item_id: move.itemId,
       event: move.event,
       entry_date: asDate(move.date),
-      amount: move.amount,
       movement: -move.amount,
       balance_after: after,
       doc_type_id: move.doc.docTypeId,
@@ -318,7 +315,7 @@ export async function openArItemsAsOf(
       scope_doc_type: SCOPE_SELECT,
       entries: {
         where: { entry_date: { lte: asDate(asOf) } },
-        select: { event: true, amount: true, movement: true, doc_id: true, doc_no: true, doc_type: { select: { doc_table: true } } },
+        select: { event: true, movement: true, doc_id: true, doc_no: true, doc_type: { select: { doc_table: true } } },
         orderBy: { id: "asc" },
       },
     },
@@ -330,7 +327,7 @@ export async function openArItemsAsOf(
       // As of the date: an Uang Muka item grows with each payment (P133).
       const original = i.entries
         .filter((e) => e.event === "Create" || e.event === "AdvanceReceived")
-        .reduce((a, e) => a + e.amount.toNumber(), 0);
+        .reduce((a, e) => a + e.movement.toNumber(), 0);
       const open = i.entries.reduce((a, e) => a + e.movement.toNumber(), 0);
       return {
         id: i.id,
@@ -540,7 +537,7 @@ export async function advanceItemsForInvoice(
     include: {
       source_doc_type: { select: { doc_table: true } },
       scope_doc_type: SCOPE_SELECT,
-      entries: { where: { event: "Create" }, select: { doc_no: true, amount: true } },
+      entries: { where: { event: "Create" }, select: { doc_no: true } },
     },
     orderBy: [{ item_date: "asc" }, { id: "asc" }],
   });

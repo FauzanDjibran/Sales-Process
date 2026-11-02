@@ -1137,12 +1137,11 @@ model CashBankLedger {
   cash_bank_id Int
   entry_date   DateTime          @db.Date
   entry_type   CashBankEntryType
-  direction    FlowDirection
 
-  /// Always positive; `direction` carries the sign.
-  amount        Decimal @db.Decimal(18, 2)
-  /// The same figure, signed: +In, -Out. Summing this column reconstructs the
-  /// balance from scratch, which is how the materialised total is verified.
+  /// Signed: + money in, − money out — the one figure of the entry; its
+  /// direction and size are read from it (P213). Summing this column
+  /// reconstructs the balance from scratch, which is how the materialised
+  /// total is verified.
   movement      Decimal @db.Decimal(18, 2)
   /// Balance after this entry, in the resource's own currency.
   balance_after Decimal @db.Decimal(18, 2)
@@ -1150,12 +1149,12 @@ model CashBankLedger {
   /// The kurs this movement was valued at, always converting the resource's
   /// own currency to the base currency.
   ///
-  /// **Money in** records the kurs it was received at, and `base_amount` is
-  /// `amount × rate`. **Money out** records the resource's moving average
+  /// **Money in** records the kurs it was received at, and `base_movement` is
+  /// `movement × rate`. **Money out** records the resource's moving average
   /// (`base_balance ÷ balance`) at the moment it was posted, whatever date the
   /// entry carries — a backdated payment is valued at the average as it stood
-  /// when it was entered (Claude-ERP.md P37). Its `base_amount` is what the
-  /// pool released, which can differ from `amount × rate` by a rounding unit,
+  /// when it was entered (Claude-ERP.md P37). Its `base_movement` is what the
+  /// pool released, which can differ from `movement × rate` by a rounding unit,
   /// and emptying the resource releases its remaining base exactly.
   ///
   /// **This book's own rate**, not necessarily the one another book recorded
@@ -1169,12 +1168,11 @@ model CashBankLedger {
   /// `1` means the money is base currency, and nothing else: a rate of 1
   /// between two foreign amounts would assert that USD 100 is IDR 100.
   rate               Decimal @db.Decimal(18, 6)
-  /// `amount` in base currency. Stored rather than derived: base value is a
-  /// record of how the balance was built, and re-deriving it at a current rate
-  /// would destroy the only figure that says what currency movement cost.
-  base_amount        Decimal @db.Decimal(18, 2)
   /// `movement` in base currency — signed, and summing it rebuilds the base
-  /// balance exactly as `movement` rebuilds the foreign one.
+  /// balance exactly as `movement` rebuilds the foreign one. Stored rather
+  /// than derived: base value is a record of how the balance was built, and
+  /// re-deriving it at a current rate would destroy the only figure that says
+  /// what currency movement cost.
   base_movement      Decimal @db.Decimal(18, 2)
   /// `balance_after` in base currency.
   base_balance_after Decimal @db.Decimal(18, 2)
@@ -1209,7 +1207,6 @@ model CashBankBalance {
   /// effective rate that will generally equal no rate anyone transacted at.
   base_balance    Decimal   @default(0) @db.Decimal(18, 2)
   entry_count     Int       @default(0)
-  last_entry_id   Int?
   last_entry_date DateTime? @db.Date
 
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
@@ -2383,8 +2380,7 @@ model LogStockLedger {
   stock_status_id    Int
   qty_change         Decimal  @db.Decimal(18, 6)
   qty_balance        Decimal  @db.Decimal(18, 6)
-  unit_cost          Decimal  @db.Decimal(18, 6)
-  /// Whole rupiah (P114).
+  /// Whole rupiah (P114); its unit cost is |value_change ÷ qty_change|, read, never stored (P213).
   value_change       Decimal  @db.Decimal(18, 2)
   created_by         Int
   created_at         DateTime @default(now()) @db.Timestamptz(6)
@@ -2440,8 +2436,8 @@ model LogStockBalance {
 /// The valuation ledger (P114, P120): one row per movement of an item's one
 /// moving-average pool (company-wide: one company, one valuation area). Each
 /// row stores its changes and the pool after them; Σ value_change = the pool's
-/// V. `avg_unit_cost` is V ÷ Q cached for reading, never multiplied. Rows of
-/// one posting share `ledger_no` (`MN/YYYY/MM/NNNN`, P110).
+/// V. The average V ÷ Q and a row's unit cost are worked out on read, never
+/// stored (P213). Rows of one posting share `ledger_no` (`MN/YYYY/MM/NNNN`, P110).
 model LogStockValuationLedger {
   id                 Int      @id @default(autoincrement())
   ledger_no          String
@@ -2454,11 +2450,8 @@ model LogStockValuationLedger {
   uom_id             Int
   qty_change         Decimal  @db.Decimal(18, 6)
   qty_balance        Decimal  @db.Decimal(18, 6)
-  /// |value_change ÷ qty_change| — a description of the row.
-  unit_cost          Decimal? @db.Decimal(18, 6)
   value_change       Decimal  @db.Decimal(18, 2)
   value_balance      Decimal  @db.Decimal(18, 2)
-  avg_unit_cost      Decimal  @db.Decimal(18, 6)
   created_by         Int
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
@@ -2480,7 +2473,6 @@ model LogStockValuationBalance {
   uom_id        Int
   qty_balance   Decimal  @db.Decimal(18, 6)
   value_balance Decimal  @db.Decimal(18, 2)
-  avg_unit_cost Decimal  @db.Decimal(18, 6)
   created_by    Int
   updated_by    Int?
   created_at    DateTime @default(now()) @db.Timestamptz(6)
@@ -2921,8 +2913,7 @@ model FinArLedger {
   item_id       Int
   event         ArEvent
   entry_date    DateTime @db.Date
-  /// Always positive; `movement` carries the sign on the item's balance.
-  amount        Decimal  @db.Decimal(18, 2)
+  /// Signed on the item's balance: + it grows, − it falls (P213).
   movement      Decimal  @db.Decimal(18, 2)
   balance_after Decimal  @db.Decimal(18, 2)
 
@@ -3525,7 +3516,7 @@ model FinApLedger {
   item_id       Int
   event         ArEvent
   entry_date    DateTime @db.Date
-  amount        Decimal  @db.Decimal(18, 2)
+  /// Signed on the item's balance: + it grows, − it falls (P213).
   movement      Decimal  @db.Decimal(18, 2)
   balance_after Decimal  @db.Decimal(18, 2)
 
@@ -3770,8 +3761,6 @@ model PrdLedger {
   /// Whole rupiah.
   value_change       Decimal     @db.Decimal(18, 2)
   value_balance      Decimal     @db.Decimal(18, 2)
-  /// |value ÷ qty| of this movement — a description, never read back (P114).
-  unit_cost          Decimal     @db.Decimal(18, 6)
   created_by         Int
   created_at         DateTime    @default(now()) @db.Timestamptz(6)
 

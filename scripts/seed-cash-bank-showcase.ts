@@ -200,8 +200,8 @@ async function move(
           leg.dir === "In"
             ? await recordCashBankEntry(tx, { ...common, direction: "In", rate: currencyOf.get(leg.res) === "USD" ? leg.rate! : 1 })
             : await recordCashBankEntry(tx, { ...common, direction: "Out" });
-        if (entry.base_amount.toNumber() !== bases[i]) {
-          throw new Error(`Book released ${entry.base_amount} for ${leg.res}, journal took ${bases[i]}.`);
+        if (entry.base_movement.abs().toNumber() !== bases[i]) {
+          throw new Error(`Book released ${entry.base_movement.abs()} for ${leg.res}, journal took ${bases[i]}.`);
         }
       }
     });

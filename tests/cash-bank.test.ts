@@ -98,7 +98,7 @@ describe("a resource always has a book", () => {
     });
     assert.equal(entries.length, 1);
     assert.equal(entries[0].entry_type, "Opening");
-    assert.equal(entries[0].direction, "In");
+    assert.ok(entries[0].movement.gt(0), "money in is a positive movement");
     assert.equal(entries[0].movement.toNumber(), 5_000_000);
     assert.equal(entries[0].balance_after.toNumber(), 5_000_000);
     assert.equal(entries[0].line_no, 1);
@@ -163,7 +163,6 @@ describe("the balance never disagrees with the ledger", () => {
     });
     assert.equal(stored.balance.toNumber(), 830_000);
     assert.equal(stored.entry_count, 3);
-    assert.equal(stored.last_entry_id, entries.at(-1)!.id);
   });
 
   test("recomputing from the ledger reproduces the stored balance", async () => {
@@ -211,13 +210,7 @@ describe("the balance never disagrees with the ledger", () => {
     const entry = await prisma.cashBankLedger.findFirstOrThrow({
       where: { cash_bank_id: id, entry_type: "Transaction" },
     });
-    assert.equal(entry.amount.toNumber(), 125_000, "amount carries no sign");
-    assert.equal(entry.movement.toNumber(), -125_000, "direction carries the sign");
-    assert.equal(
-      entry.base_amount.toNumber(),
-      125_000,
-      "base carries no sign either"
-    );
+    assert.equal(entry.movement.toNumber(), -125_000, "money out is a negative movement");
     assert.equal(
       entry.base_movement.toNumber(),
       -125_000,
@@ -296,13 +289,13 @@ describe("every entry carries what it was worth in base currency", () => {
     const entry = await prisma.cashBankLedger.findFirstOrThrow({
       where: { cash_bank_id: id, entry_type: "Transaction" },
     });
-    assert.equal(entry.amount.toNumber(), 300);
+    assert.equal(entry.movement.toNumber(), 300);
     assert.equal(entry.rate.toNumber(), 15_500);
-    assert.equal(entry.base_amount.toNumber(), 4_650_000);
+    assert.equal(entry.base_movement.toNumber(), 4_650_000);
     // The property that makes a book independently checkable: every row's own
     // arithmetic holds, without reference to any other book.
     assert.equal(
-      entry.base_amount.toNumber() / entry.amount.toNumber(),
+      entry.base_movement.toNumber() / entry.movement.toNumber(),
       entry.rate.toNumber(),
       "base / foreign equals the rate recorded on the row"
     );
@@ -386,7 +379,7 @@ describe("money leaving is valued at the moving average", () => {
     const id = await pooled();
     const entry = await pay(id, 120);
     assert.equal(entry.rate.toNumber(), 15_300);
-    assert.equal(entry.base_amount.toNumber(), 1_836_000);
+    assert.equal(entry.base_movement.abs().toNumber(), 1_836_000);
     assert.equal(entry.base_balance_after.toNumber(), 7_650_000 - 1_836_000);
     // Spending never moves the average of what is left.
     assert.equal(entry.base_balance_after.toNumber() / entry.balance_after.toNumber(), 15_300);
@@ -407,7 +400,7 @@ describe("money leaving is valued at the moving average", () => {
     // (400 × 15.300 + 100 × 16.300) ÷ 500 = 15.500
     const entry = await pay(id, 50);
     assert.equal(entry.rate.toNumber(), 15_500);
-    assert.equal(entry.base_amount.toNumber(), 775_000);
+    assert.equal(entry.base_movement.abs().toNumber(), 775_000);
   });
 
   test("emptying the resource releases its remaining base exactly", async () => {
@@ -443,7 +436,7 @@ describe("money leaving is valued at the moving average", () => {
     const backdated = await pay(id, 100, "2020-01-15");
     assert.equal(backdated.entry_date.toISOString().slice(0, 10), "2020-01-15");
     assert.equal(backdated.rate.toNumber(), 15_300);
-    assert.equal(backdated.base_amount.toNumber(), 1_530_000);
+    assert.equal(backdated.base_movement.abs().toNumber(), 1_530_000);
     assert.equal(backdated.balance_after.toNumber(), 400, "the running balance is in posting order");
   });
 

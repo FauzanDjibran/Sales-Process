@@ -205,7 +205,6 @@ async function main() {
         balance: 0,
         base_balance: 0,
         entry_count: 0,
-        last_entry_id: null,
         last_entry_date: null,
       },
     });

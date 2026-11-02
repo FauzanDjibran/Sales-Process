@@ -354,8 +354,7 @@ describe("posting a receipt of two bills (P66)", () => {
 
     const book = await prisma.cashBankLedger.findMany({ where: { cash_bank_id: f.bank } });
     assert.equal(book.length, 1);
-    assert.equal(book[0].amount.toNumber(), 1_483_000);
-    assert.equal(book[0].direction, "In");
+    assert.equal(book[0].movement.toNumber(), 1_483_000, "money in is a positive movement");
 
     // Posting records what it settled on each bill (P132).
     assert.equal(await paidOf(f.bill2), 999_000);
@@ -418,7 +417,7 @@ describe("posting a receipt of two bills (P66)", () => {
     });
     assert.equal(items.length, 1, "one Uang Muka item per bill");
     const [item] = items;
-    assert.deepEqual(item.entries.map((e) => [e.event, e.amount.toNumber(), e.balance_after.toNumber()]), [
+    assert.deepEqual(item.entries.map((e) => [e.event, e.movement.toNumber(), e.balance_after.toNumber()]), [
       ["Create", 450_000, 450_000],
       ["AdvanceReceived", 450_000, 900_000],
     ]);

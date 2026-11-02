@@ -99,7 +99,6 @@ export async function createApItem(db: Db, item: NewApItem): Promise<number> {
       item_id: row.id,
       event: "Create",
       entry_date: date,
-      amount: item.amount,
       movement: item.amount,
       balance_after: item.amount,
       doc_type_id: item.createdBy.docTypeId,
@@ -136,7 +135,6 @@ export async function payAdvance(db: Prisma.TransactionClient, item: Omit<NewApI
       item_id: id,
       event: "AdvanceReceived",
       entry_date: asDate(item.date),
-      amount: item.amount,
       movement: item.amount,
       balance_after: after,
       doc_type_id: item.createdBy.docTypeId,
@@ -183,7 +181,6 @@ export async function settleApItem(
       item_id: move.itemId,
       event: move.event,
       entry_date: asDate(move.date),
-      amount: move.amount,
       movement: -move.amount,
       balance_after: after,
       doc_type_id: move.doc.docTypeId,
@@ -292,7 +289,7 @@ export async function openApItemsAsOf(
       source_doc_type: { select: { doc_table: true } },
       entries: {
         where: { entry_date: { lte: asDate(asOf) } },
-        select: { event: true, amount: true, movement: true, doc_id: true, doc_no: true, doc_type: { select: { doc_table: true } } },
+        select: { event: true, movement: true, doc_id: true, doc_no: true, doc_type: { select: { doc_table: true } } },
         orderBy: { id: "asc" },
       },
     },
@@ -304,7 +301,7 @@ export async function openApItemsAsOf(
       // As of the date: an Uang Muka item grows with each payment (P133).
       const original = i.entries
         .filter((e) => e.event === "Create" || e.event === "AdvanceReceived")
-        .reduce((a, e) => a + e.amount.toNumber(), 0);
+        .reduce((a, e) => a + e.movement.toNumber(), 0);
       const open = i.entries.reduce((a, e) => a + e.movement.toNumber(), 0);
       return {
         id: i.id,

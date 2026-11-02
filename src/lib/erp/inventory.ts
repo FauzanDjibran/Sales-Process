@@ -22,7 +22,7 @@ import { locationDisplayLabel, lotKey } from "./warehouse-location";
  *   as quantity Q and value V in whole rupiah. A receipt adds its own value;
  *   an issue of q releases round(V × q ÷ Q), and the issue that empties the
  *   pool releases V whole, so a pool always ends at 0 / 0. The average V ÷ Q is
- *   cached for reading and never multiplied by anything.
+ *   worked out on read and never multiplied by anything (P213).
  *
  * Every quantity row has exactly one valuation row with the same value change,
  * so Σ value over either ledger is the same figure.
@@ -254,8 +254,8 @@ type Bucket = { id: number; qty: Dec };
 /** The item's pool, created empty if it has none, and locked for this posting. */
 async function lockPool(tx: Tx, itemId: number, uomId: number, actorId: number): Promise<Pool> {
   await tx.$executeRaw`
-    INSERT INTO "log_stock_valuation_balance" ("item_id", "uom_id", "qty_balance", "value_balance", "avg_unit_cost", "created_by")
-    VALUES (${itemId}, ${uomId}, 0, 0, 0, ${actorId})
+    INSERT INTO "log_stock_valuation_balance" ("item_id", "uom_id", "qty_balance", "value_balance", "created_by")
+    VALUES (${itemId}, ${uomId}, 0, 0, ${actorId})
     ON CONFLICT ("item_id") DO NOTHING`;
   const [row] = await tx.$queryRaw<{ id: number; qty_balance: Dec; value_balance: Dec }[]>`
     SELECT "id", "qty_balance", "value_balance" FROM "log_stock_valuation_balance" WHERE "item_id" = ${itemId} FOR UPDATE`;
@@ -334,7 +334,6 @@ async function valuationPosition(tx: Tx, date: Date, s: StockSource) {
 
 /** |value ÷ qty| at six decimals — a description of a movement, never read back (P114). */
 const describe = (value: Dec, qty: Dec) => (qty.isZero() ? new D(0) : value.abs().div(qty.abs()).toDecimalPlaces(6, D.ROUND_HALF_UP));
-const average = (value: Dec, qty: Dec) => (qty.gt(0) ? value.div(qty).toDecimalPlaces(6, D.ROUND_HALF_UP) : new D(0));
 
 /** Writes one movement to both books: the bucket and its row, the pool and its row. */
 async function move(
@@ -379,16 +378,14 @@ async function move(
       stock_status_id: m.statusId,
       qty_change: m.qty,
       qty_balance: bucketAfter,
-      unit_cost: unitCost,
       value_change: m.value,
       created_by: m.actorId,
     },
   });
 
-  const avg = average(poolValue, poolQty);
   await tx.logStockValuationBalance.update({
     where: { id: m.pool.id },
-    data: { qty_balance: poolQty, value_balance: poolValue, avg_unit_cost: avg, updated_by: m.actorId },
+    data: { qty_balance: poolQty, value_balance: poolValue, updated_by: m.actorId },
   });
   await tx.logStockValuationLedger.create({
     data: {
@@ -399,10 +396,8 @@ async function move(
       uom_id: m.uomId,
       qty_change: m.qty,
       qty_balance: poolQty,
-      unit_cost: unitCost,
       value_change: m.value,
       value_balance: poolValue,
-      avg_unit_cost: avg,
       created_by: m.actorId,
     },
   });
@@ -641,8 +636,7 @@ export async function revaluePool(tx: Tx, r: { itemId: number; value: number; da
   if (!pool.qty.gt(0)) throw new InventoryRefusal(`Persediaan ${item.item_label} kosong: nilai tidak dapat ditambahkan.`);
   const value = pool.value.add(r.value);
   if (value.lt(0)) throw new InventoryRefusal("Stok tidak boleh negatif.");
-  const avg = average(value, pool.qty);
-  await tx.logStockValuationBalance.update({ where: { id: pool.id }, data: { value_balance: value, avg_unit_cost: avg, updated_by: r.actorId } });
+  await tx.logStockValuationBalance.update({ where: { id: pool.id }, data: { value_balance: value, updated_by: r.actorId } });
   await tx.logStockValuationLedger.create({
     data: {
       ...(await valuationPosition(tx, r.date, r.source)),
@@ -654,10 +648,8 @@ export async function revaluePool(tx: Tx, r: { itemId: number; value: number; da
       uom_id: item.base_uom_id,
       qty_change: new D(0),
       qty_balance: pool.qty,
-      unit_cost: new D(0),
       value_change: new D(r.value),
       value_balance: value,
-      avg_unit_cost: avg,
       created_by: r.actorId,
     },
   });

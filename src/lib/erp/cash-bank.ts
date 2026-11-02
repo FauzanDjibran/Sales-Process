@@ -194,12 +194,9 @@ export async function recordCashBankEntry(db: Db, entry: NewEntry) {
       cash_bank_id: entry.cashBankId,
       entry_date: asDate(entry.date),
       entry_type: entry.type,
-      direction: entry.direction,
-      amount,
       movement,
       balance_after: after,
       rate,
-      base_amount: base,
       base_movement: baseMovement,
       base_balance_after: afterBase,
       source_doc_type_id: entry.sourceDocTypeId ?? null,
@@ -216,14 +213,12 @@ export async function recordCashBankEntry(db: Db, entry: NewEntry) {
       balance: after,
       base_balance: afterBase,
       entry_count: 1,
-      last_entry_id: created.id,
       last_entry_date: created.entry_date,
     },
     update: {
       balance: after,
       base_balance: afterBase,
       entry_count: (current?.entry_count ?? 0) + 1,
-      last_entry_id: created.id,
       last_entry_date: created.entry_date,
     },
   });
@@ -320,7 +315,6 @@ export async function rebuildCashBankBalance(
     balance,
     base_balance: baseBalance,
     entry_count: entries.length,
-    last_entry_id: last?.id ?? null,
     last_entry_date: last?.entry_date ?? null,
   };
 
@@ -589,12 +583,12 @@ export async function cashBankLedgerReport(
   let baseTotalIn = 0;
   let baseTotalOut = 0;
   for (const r of rows) {
-    if (r.direction === "In") {
-      totalIn += r.amount.toNumber();
-      baseTotalIn += r.base_amount.toNumber();
+    if (r.movement.gt(0)) {
+      totalIn += r.movement.toNumber();
+      baseTotalIn += r.base_movement.toNumber();
     } else {
-      totalOut += r.amount.toNumber();
-      baseTotalOut += r.base_amount.toNumber();
+      totalOut -= r.movement.toNumber();
+      baseTotalOut -= r.base_movement.toNumber();
     }
   }
   const closing = opening + totalIn - totalOut;
@@ -608,11 +602,11 @@ export async function cashBankLedgerReport(
     lineNo: r.line_no,
     date: r.entry_date.toISOString().slice(0, 10),
     type: r.entry_type,
-    direction: r.direction,
-    amount: r.amount.toNumber(),
+    direction: r.movement.gt(0) ? "In" : "Out",
+    amount: r.movement.abs().toNumber(),
     movement: r.movement.toNumber(),
     rate: r.rate.toNumber(),
-    baseAmount: r.base_amount.toNumber(),
+    baseAmount: r.base_movement.abs().toNumber(),
     baseMovement: r.base_movement.toNumber(),
     note: r.note,
     sourceDocTable: r.source_doc_type?.doc_table ?? null,
@@ -758,22 +752,26 @@ export async function cashBankBalanceReport(
 
   const ids = resources.map((r) => r.id);
 
-  // Two grouped queries rather than one per resource: opening is everything
-  // before the period, movement is the period itself split by direction.
-  const [openings, movements] = await Promise.all([
+  // Grouped queries rather than one per resource: opening is everything
+  // before the period, then the period itself split by the movement's sign.
+  const inPeriod = (sign: "gt" | "lt") =>
+    prisma.cashBankLedger.groupBy({
+      by: ["cash_bank_id"],
+      where: {
+        cash_bank_id: { in: ids },
+        entry_date: { gte: startOf(range.from), lte: startOf(range.to) },
+        movement: { [sign]: 0 },
+      },
+      _sum: { movement: true, base_movement: true },
+    });
+  const [openings, ins, outs] = await Promise.all([
     prisma.cashBankLedger.groupBy({
       by: ["cash_bank_id"],
       where: { cash_bank_id: { in: ids }, entry_date: { lt: startOf(range.from) } },
       _sum: { movement: true, base_movement: true },
     }),
-    prisma.cashBankLedger.groupBy({
-      by: ["cash_bank_id", "direction"],
-      where: {
-        cash_bank_id: { in: ids },
-        entry_date: { gte: startOf(range.from), lte: startOf(range.to) },
-      },
-      _sum: { amount: true, base_amount: true },
-    }),
+    inPeriod("gt"),
+    inPeriod("lt"),
   ]);
 
   const openingOf = new Map(
@@ -786,16 +784,13 @@ export async function cashBankBalanceReport(
   const outOf = new Map<number, number>();
   const baseInOf = new Map<number, number>();
   const baseOutOf = new Map<number, number>();
-  for (const m of movements) {
-    const incoming = m.direction === "In";
-    (incoming ? inOf : outOf).set(
-      m.cash_bank_id,
-      m._sum.amount?.toNumber() ?? 0
-    );
-    (incoming ? baseInOf : baseOutOf).set(
-      m.cash_bank_id,
-      m._sum.base_amount?.toNumber() ?? 0
-    );
+  for (const m of ins) {
+    inOf.set(m.cash_bank_id, m._sum.movement?.toNumber() ?? 0);
+    baseInOf.set(m.cash_bank_id, m._sum.base_movement?.toNumber() ?? 0);
+  }
+  for (const m of outs) {
+    outOf.set(m.cash_bank_id, -(m._sum.movement?.toNumber() ?? 0));
+    baseOutOf.set(m.cash_bank_id, -(m._sum.base_movement?.toNumber() ?? 0));
   }
 
   const groups = new Map<number, BalanceReportGroup>();
