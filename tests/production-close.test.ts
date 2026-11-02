@@ -49,8 +49,8 @@ const exec = async (input: ExecutionInput) => {
   return (await getExecution(r.id))!;
 };
 
-const outputLot = (executionId: number) => prisma.prdExecutionOutput.findFirstOrThrow({ where: { execution_id: executionId } }).then((o) => o.lot_id!);
-const bucketOf = (lotId: number, workstationId: number) => prisma.prdBalance.findFirstOrThrow({ where: { lot_id: lotId, workstation_id: workstationId } }).then((b) => b.id);
+const outputLot = (executionId: number) => prisma.prdExecutionOutput.findFirstOrThrow({ where: { execution_id: executionId } }).then((o) => o.tracking_id!);
+const bucketOf = (lotId: number, workstationId: number) => prisma.prdBalance.findFirstOrThrow({ where: { tracking_id: lotId, workstation_id: workstationId } }).then((b) => b.id);
 
 before(async () => {
   await openFiscalYear(at("15"));
@@ -83,7 +83,7 @@ before(async () => {
   const bbBucket = await issue(bb, bbItem, 100, f.wsA, "02");
 
   // EKS-1 at WS-A (Driver 10): 100 kg → 80 of the semi-finished product.
-  const e1 = await exec({ execution_date: "2001-03-03", workstation_id: f.wsA, driver: "10", note: "", inputs: [{ bucket_id: bbBucket, qty: "100" }], outputs: [{ item_id: f.product, lot_no: "", expiry_date: "", qty: "80" }] });
+  const e1 = await exec({ execution_date: "2001-03-03", workstation_id: f.wsA, driver: "10", note: "", inputs: [{ bucket_id: bbBucket, qty: "100" }], outputs: [{ item_id: f.product, tracking_no: "", expiry_date: "", qty: "80" }] });
   const sjLot = await outputLot(e1.id);
   const sjAtA = await bucketOf(sjLot, f.wsA);
   const t = await sourceOf("prd_transfer", "PT-CL");
@@ -100,7 +100,7 @@ before(async () => {
       { bucket_id: await bucketOf(sjLot, f.wsB), qty: "80" },
       { bucket_id: bkBucket, qty: "200" },
     ],
-    outputs: [{ item_id: fg, lot_no: "", expiry_date: "", qty: "200" }],
+    outputs: [{ item_id: fg, tracking_no: "", expiry_date: "", qty: "200" }],
   });
   fgLot = await outputLot(e2.id);
   assert.equal(e2.value, 1_200_000);
@@ -146,7 +146,7 @@ after(async () => {
   await prisma.accCostType.deleteMany({ where: { id: costType } });
   const items = [fg, bbItem, bkItem];
   const lots = (await prisma.logStockTracking.findMany({ where: { item_id: { in: items } }, select: { id: true } })).map((l) => l.id);
-  await prisma.prdLotLink.deleteMany({ where: { OR: [{ from_lot_id: { in: lots } }, { to_lot_id: { in: lots } }] } });
+  await prisma.prdTrackingLink.deleteMany({ where: { OR: [{ from_tracking_id: { in: lots } }, { to_tracking_id: { in: lots } }] } });
   await prisma.prdLedger.deleteMany({ where: { item_id: { in: items } } });
   await prisma.prdBalance.deleteMany({ where: { item_id: { in: items } } });
   await prisma.logStockLedger.deleteMany({ where: { item_id: { in: items } } });
@@ -193,7 +193,7 @@ describe("Telusur Produksi on the same goods (scenario G2)", () => {
 
 describe("the close of scenario G1", () => {
   test("before it, WIP and stock carry material only", async () => {
-    const wip = await prisma.prdBalance.findFirstOrThrow({ where: { lot_id: fgLot, workstation_id: f.wsB } });
+    const wip = await prisma.prdBalance.findFirstOrThrow({ where: { tracking_id: fgLot, workstation_id: f.wsB } });
     assert.equal(wip.value_balance.toNumber(), 600_000);
     const pool = await prisma.logStockValuationBalance.findUniqueOrThrow({ where: { item_id: fg } });
     assert.equal(pool.value_balance.toNumber(), 300_000);
@@ -223,7 +223,7 @@ describe("the close of scenario G1", () => {
     assert.deepEqual(after.shares, soFar.view.shares);
     assert.deepEqual(after.dests, soFar.view.dests);
     assert.deepEqual(after.items, soFar.view.items);
-    const wip = await prisma.prdBalance.findFirstOrThrow({ where: { lot_id: fgLot, workstation_id: f.wsB } });
+    const wip = await prisma.prdBalance.findFirstOrThrow({ where: { tracking_id: fgLot, workstation_id: f.wsB } });
     assert.equal(wip.value_balance.toNumber(), 800_000);
     const pool = await prisma.logStockValuationBalance.findUniqueOrThrow({ where: { item_id: fg } });
     assert.equal(pool.value_balance.toNumber(), 400_000);

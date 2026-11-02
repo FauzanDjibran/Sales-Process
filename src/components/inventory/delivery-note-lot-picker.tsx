@@ -16,7 +16,7 @@ const units = (v: string | number) => Math.round((Number(String(v).replace(",", 
 export type LotPickerLine = { itemLabel: string; itemName: string; uomLabel: string };
 
 /** A lot in a location (`location_id` null where the warehouse keeps none). */
-export type LotPick = { lot_id: number; location_id: number | null; qty: string };
+export type LotPick = { tracking_id: number; location_id: number | null; qty: string };
 
 /**
  * The stock picking of one Delivery Note line (U15, P120): the item's lots
@@ -52,7 +52,7 @@ export function DeliveryNoteLotPicker({
   onClose: () => void;
 }) {
   const [qty, setQty] = useState<Record<string, string>>(() =>
-    Object.fromEntries(current.map((p) => [lotKey(p.lot_id, p.location_id), p.qty]))
+    Object.fromEntries(current.map((p) => [lotKey(p.tracking_id, p.location_id), p.qty]))
   );
   const shown = lots.filter((l) => l.active || qty[l.key] !== undefined);
   const total = shown.reduce((s, l) => s + units(qty[l.key] ?? 0), 0);
@@ -79,7 +79,7 @@ export function DeliveryNoteLotPicker({
 
   const apply = () =>
     onApply(
-      shown.flatMap((l) => (units(qty[l.key] ?? 0) > 0 ? [{ lot_id: l.id, location_id: l.locationId, qty: String(units(qty[l.key]) / SCALE) }] : []))
+      shown.flatMap((l) => (units(qty[l.key] ?? 0) > 0 ? [{ tracking_id: l.id, location_id: l.locationId, qty: String(units(qty[l.key]) / SCALE) }] : []))
     );
 
   return (

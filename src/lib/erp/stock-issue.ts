@@ -22,7 +22,7 @@ import {
 
 /**
  * The Stock Issue module (R4, step 4; *Pengeluaran ke Produksi*): its tables are `log_stock_issue`, `log_stock_issue_line` and
- * `log_stock_issue_lot`, and nothing else names them.
+ * `log_stock_issue_tracking`, and nothing else names them.
  *
  * **Standalone** (P106): goods leave a warehouse for a use inside the company,
  * and the purpose (`stock-issue-purposes.ts`) says where. The one purpose so
@@ -57,7 +57,7 @@ export type StockIssueHeaderInput = {
   note: string;
 };
 
-export type StockIssuePickInput = { lot_id: number | null; location_id?: number | null; qty: number | string };
+export type StockIssuePickInput = { tracking_id: number | null; location_id?: number | null; qty: number | string };
 
 export type StockIssueLineInput = {
   item_id: number | null;
@@ -146,7 +146,7 @@ export async function stockIssueOptions(
 
 // ------------------------------------------------------------- validation
 
-type CheckedPick = { pick_no: number; lot_id: number; location_id: number | null; lot_no: string; expiry_date: Date | null; qty: number };
+type CheckedPick = { pick_no: number; tracking_id: number; location_id: number | null; tracking_no: string; expiry_date: Date | null; qty: number };
 
 type CheckedLine = {
   line_no: number;
@@ -190,7 +190,7 @@ export async function checkStockIssue(
   if (!purpose) return { ok: false, errors: { purpose: "Tujuan Stock Issue tidak dikenal." } };
 
   const stored = selfId
-    ? await db.logStockIssue.findUnique({ where: { id: selfId }, select: { warehouse_id: true, workstation_id: true, lines: { select: { item_id: true, lots: { select: { lot_id: true } } } } } })
+    ? await db.logStockIssue.findUnique({ where: { id: selfId }, select: { warehouse_id: true, workstation_id: true, lines: { select: { item_id: true, trackings: { select: { tracking_id: true } } } } } })
     : null;
   const options = await stockIssueOptions(
     stored
@@ -198,7 +198,7 @@ export async function checkStockIssue(
           warehouseId: stored.warehouse_id,
           workstationId: stored.workstation_id,
           itemIds: stored.lines.map((l) => l.item_id),
-          lotIds: stored.lines.flatMap((l) => l.lots.map((p) => p.lot_id)),
+          lotIds: stored.lines.flatMap((l) => l.trackings.map((p) => p.tracking_id)),
         }
       : null,
     db
@@ -312,7 +312,7 @@ function checkPicks(
   const picks: CheckedPick[] = [];
   let total = 0;
   for (const p of list) {
-    const lot = byKey.get(lotKey(Number(p.lot_id), Number(p.location_id) || null));
+    const lot = byKey.get(lotKey(Number(p.tracking_id), Number(p.location_id) || null));
     if (!lot) return { ok: false, error: `Lot tidak ada di gudang ini untuk ${item.label}. Pilih ulang lotnya.` };
     const where = lot.locationLabel ? ` di ${lot.locationLabel}` : "";
     if (seen.has(lot.key)) return { ok: false, error: `Lot ${lot.lotNo}${where} dipilih lebih dari sekali.` };
@@ -323,9 +323,9 @@ function checkPicks(
     total += units(qty);
     picks.push({
       pick_no: picks.length + 1,
-      lot_id: lot.id,
+      tracking_id: lot.id,
       location_id: lot.locationId,
-      lot_no: lot.lotNo,
+      tracking_no: lot.lotNo,
       expiry_date: lot.expiry ? asDate(lot.expiry) : null,
       qty: fromUnits(units(qty)),
     });
@@ -382,7 +382,7 @@ export async function createStockIssue(header: StockIssueHeaderInput, lines: Sto
           ...r.c.data,
           issue_no: await nextIssueNo(tx, r.c.data.issue_date),
           created_by: actorId,
-          lines: { create: r.c.lines.map(({ picks, ...l }) => ({ ...l, lots: { create: picks } })) },
+          lines: { create: r.c.lines.map(({ picks, ...l }) => ({ ...l, trackings: { create: picks } })) },
         },
       });
       await audit(tx, row.id, "TAMBAH", "create", actorId);
@@ -405,10 +405,10 @@ export async function updateStockIssue(id: number, header: StockIssueHeaderInput
       const done = await tx.logStockIssue.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: "Stock Issue berubah saat diproses. Muat ulang halaman." });
       // A Draft's lines and picks are rewritten whole: nothing names them yet.
-      await tx.logStockIssueLot.deleteMany({ where: { line: { stock_issue_id: id } } });
+      await tx.logStockIssueTracking.deleteMany({ where: { line: { stock_issue_id: id } } });
       await tx.logStockIssueLine.deleteMany({ where: { stock_issue_id: id } });
       for (const { picks, ...l } of r.c.lines) {
-        await tx.logStockIssueLine.create({ data: { ...l, stock_issue_id: id, lots: { create: picks } } });
+        await tx.logStockIssueLine.create({ data: { ...l, stock_issue_id: id, trackings: { create: picks } } });
       }
       await audit(tx, id, "UPDATE", "update", actorId);
     });
@@ -416,7 +416,7 @@ export async function updateStockIssue(id: number, header: StockIssueHeaderInput
   });
 }
 
-const WITH_PICKS = { lines: { include: { lots: { orderBy: { pick_no: "asc" as const } } }, orderBy: { line_no: "asc" as const } } };
+const WITH_PICKS = { lines: { include: { trackings: { orderBy: { pick_no: "asc" as const } } }, orderBy: { line_no: "asc" as const } } };
 type StoredIssue = Prisma.LogStockIssueGetPayload<{ include: typeof WITH_PICKS }>;
 
 function asInput(n: StoredIssue): { header: StockIssueHeaderInput; lines: StockIssueLineInput[] } {
@@ -432,7 +432,7 @@ function asInput(n: StoredIssue): { header: StockIssueHeaderInput; lines: StockI
       item_id: l.item_id,
       qty: l.qty.toNumber(),
       note: l.note ?? "",
-      picks: l.lots.map((p) => ({ lot_id: p.lot_id, location_id: p.location_id, qty: p.qty.toNumber() })),
+      picks: l.trackings.map((p) => ({ tracking_id: p.tracking_id, location_id: p.location_id, qty: p.qty.toNumber() })),
     })),
   };
 }
@@ -544,7 +544,7 @@ export async function transitionStockIssue(
             itemId: line.item_id,
             warehouseId: r.c.data.warehouse_id,
             locationId: p.location_id,
-            lotId: p.lot_id,
+            lotId: p.tracking_id,
             baseQty,
             date,
             source,
@@ -552,7 +552,7 @@ export async function transitionStockIssue(
           });
           // The lot keeps its number inside production (R3).
           const entered = await enterProduction(tx, {
-            lotId: p.lot_id,
+            lotId: p.tracking_id,
             itemId: line.item_id,
             workstationId: r.c.data.workstation_id!,
             baseQty,
@@ -561,7 +561,7 @@ export async function transitionStockIssue(
             source,
             actorId,
           });
-          await tx.logStockIssueLot.update({
+          await tx.logStockIssueTracking.update({
             where: { stock_issue_line_id_pick_no: { stock_issue_line_id: stored.id, pick_no: p.pick_no } },
             data: { base_qty: baseQty, unit_cost: out.unitCost, cost_amount: out.cost, prd_bucket_id: entered.bucketId },
           });
@@ -659,7 +659,7 @@ export async function getStockIssue(id: number): Promise<StockIssueView | null> 
   if (!n) return null;
   const input = asInput(n);
   const journalNo = n.journal_id ? ((await journalNumbersByIds([n.journal_id])).get(n.journal_id) ?? null) : null;
-  const locations = await locationLabelsByIds(n.lines.flatMap((l) => l.lots.flatMap((p) => (p.location_id ? [p.location_id] : []))));
+  const locations = await locationLabelsByIds(n.lines.flatMap((l) => l.trackings.flatMap((p) => (p.location_id ? [p.location_id] : []))));
   return {
     id: n.id,
     issueNo: n.issue_no,
@@ -671,11 +671,11 @@ export async function getStockIssue(id: number): Promise<StockIssueView | null> 
       baseQty: n.lines[i].base_qty.toNumber(),
       unitCost: n.lines[i].unit_cost.toNumber(),
       cost: n.lines[i].cost_amount.toNumber(),
-      pickedLots: n.lines[i].lots.map((p) => ({
-        lotId: p.lot_id,
+      pickedLots: n.lines[i].trackings.map((p) => ({
+        lotId: p.tracking_id,
         locationId: p.location_id,
         locationLabel: p.location_id ? (locations.get(p.location_id) ?? null) : null,
-        lotNo: p.lot_no,
+        lotNo: p.tracking_no,
         expiry: p.expiry_date ? isoDay(p.expiry_date) : null,
         qty: p.qty.toNumber(),
         cost: p.cost_amount.toNumber(),
@@ -712,7 +712,7 @@ export async function stockIssueLocationUse(warehouseId: number, locationIds: nu
   const [drafts, named] = await Promise.all([
     prisma.logStockIssue.count({ where: { warehouse_id: warehouseId, status: "Draft" } }),
     locationIds.length
-      ? prisma.logStockIssueLot.findMany({ where: { location_id: { in: locationIds } }, distinct: ["location_id"], select: { location_id: true } })
+      ? prisma.logStockIssueTracking.findMany({ where: { location_id: { in: locationIds } }, distinct: ["location_id"], select: { location_id: true } })
       : [],
   ]);
   return { drafts, named: new Set(named.flatMap((r) => (r.location_id ? [r.location_id] : []))) };

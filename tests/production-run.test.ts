@@ -29,8 +29,8 @@ const input = (over: Partial<ExecutionInput> = {}): ExecutionInput => ({
   note: "",
   inputs: [{ bucket_id: bucket, qty: "400" }],
   outputs: [
-    { item_id: f.product, lot_no: "", expiry_date: "", qty: "300" },
-    { item_id: f.byproduct, lot_no: "", expiry_date: "", qty: "50" },
+    { item_id: f.product, tracking_no: "", expiry_date: "", qty: "300" },
+    { item_id: f.byproduct, tracking_no: "", expiry_date: "", qty: "50" },
   ],
   ...over,
 });
@@ -66,7 +66,7 @@ after(async () => {
 
 describe("an Eksekusi Produksi is checked before it is saved", () => {
   test("a Driver above 0 (R11), inputs held at its workstation, outputs that carry weight (R6)", async () => {
-    const r = await createExecution(input({ driver: "0", workstation_id: f.wsB, outputs: [{ item_id: f.byproduct, lot_no: "", expiry_date: "", qty: "5" }] }), f.actor);
+    const r = await createExecution(input({ driver: "0", workstation_id: f.wsB, outputs: [{ item_id: f.byproduct, tracking_no: "", expiry_date: "", qty: "5" }] }), f.actor);
     assert.ok(!r.ok);
     if (!r.ok) {
       assert.match(r.errors.driver, /Driver/);
@@ -77,8 +77,8 @@ describe("an Eksekusi Produksi is checked before it is saved", () => {
 
   test("an output lot number the item already has is refused (R17)", async () => {
     const lotNo = (await prisma.logStockTracking.findUniqueOrThrow({ where: { id: f.lot } })).tracking_no;
-    const r = await createExecution(input({ outputs: [{ item_id: f.material, lot_no: lotNo, expiry_date: "", qty: "1" }, { item_id: f.product, lot_no: "", expiry_date: "", qty: "1" }] }), f.actor);
-    assert.ok(!r.ok && /sudah punya lot/.test(r.errors["outputs.0.lot_no"]));
+    const r = await createExecution(input({ outputs: [{ item_id: f.material, tracking_no: lotNo, expiry_date: "", qty: "1" }, { item_id: f.product, tracking_no: "", expiry_date: "", qty: "1" }] }), f.actor);
+    assert.ok(!r.ok && /sudah punya lot/.test(r.errors["outputs.0.tracking_no"]));
   });
 });
 
@@ -107,10 +107,10 @@ describe("posting transforms the inputs into new lots", () => {
   });
 
   test("an execution within one WIP account writes no journal; a posted one is final", async () => {
-    const r = await createExecution(input({ inputs: [{ bucket_id: bucket, qty: "100" }], outputs: [{ item_id: f.byproduct, lot_no: "", expiry_date: "", qty: "10" }, { item_id: f.material, lot_no: f.key("RE1"), expiry_date: "", qty: "1" }] }), f.actor);
+    const r = await createExecution(input({ inputs: [{ bucket_id: bucket, qty: "100" }], outputs: [{ item_id: f.byproduct, tracking_no: "", expiry_date: "", qty: "10" }, { item_id: f.material, tracking_no: f.key("RE1"), expiry_date: "", qty: "1" }] }), f.actor);
     assert.ok(!r.ok, "material has no Bobot Nilai either: all outputs weigh 0");
     await prisma.mItem.update({ where: { id: f.material }, data: { value_weight: 1 } });
-    const ok = await createExecution(input({ inputs: [{ bucket_id: bucket, qty: "100" }], outputs: [{ item_id: f.material, lot_no: f.key("RE1"), expiry_date: "", qty: "90" }] }), f.actor);
+    const ok = await createExecution(input({ inputs: [{ bucket_id: bucket, qty: "100" }], outputs: [{ item_id: f.material, tracking_no: f.key("RE1"), expiry_date: "", qty: "90" }] }), f.actor);
     assert.ok(ok.ok, JSON.stringify(ok));
     ids.push(ok.id);
     assert.ok((await transitionExecution(ok.id, "post", f.actor)).ok);

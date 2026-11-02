@@ -82,7 +82,7 @@ export function DeliveryNoteForm({
         key: newKey(),
         source_doc_line_id: Number(l.source_doc_line_id),
         qty: String(l.qty),
-        picks: (l.picks ?? []).map((p) => ({ lot_id: Number(p.lot_id), location_id: p.location_id ?? null, qty: String(p.qty) })),
+        picks: (l.picks ?? []).map((p) => ({ tracking_id: Number(p.tracking_id), location_id: p.location_id ?? null, qty: String(p.qty) })),
       }));
     }
     return (preset?.lines ?? [])

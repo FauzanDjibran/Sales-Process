@@ -99,10 +99,10 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // The standalone Delivery Note (P106): a logistics document, not a sales one.
   logDeliveryNote: ["src/lib/erp/delivery-note.ts"],
   logDeliveryNoteLine: ["src/lib/erp/delivery-note.ts"],
-  logDeliveryNoteLot: ["src/lib/erp/delivery-note.ts"],
+  logDeliveryNoteTracking: ["src/lib/erp/delivery-note.ts"],
   logReceiptNote: ["src/lib/erp/receipt-note.ts"],
   logReceiptNoteLine: ["src/lib/erp/receipt-note.ts"],
-  logReceiptNoteLot: ["src/lib/erp/receipt-note.ts"],
+  logReceiptNoteTracking: ["src/lib/erp/receipt-note.ts"],
   // The stock books (P120): written only by the inventory book, read by its reports.
   // One lot register for stock and production (R3): the production ledger registers the lots executions make.
   logStockTracking: ["src/lib/erp/inventory.ts", "src/lib/erp/stock-report.ts", "src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
@@ -126,7 +126,7 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // The Stock Issue (R4): standalone, by purpose.
   logStockIssue: ["src/lib/erp/stock-issue.ts"],
   logStockIssueLine: ["src/lib/erp/stock-issue.ts"],
-  logStockIssueLot: ["src/lib/erp/stock-issue.ts"],
+  logStockIssueTracking: ["src/lib/erp/stock-issue.ts"],
   // The production documents (R5, R7, R8): each named only by its module.
   prdExecution: ["src/lib/erp/production-run.ts", "src/lib/erp/production-report.ts"],
   prdExecutionInput: ["src/lib/erp/production-run.ts"],
@@ -138,7 +138,7 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // The production ledger (R3): a book, written only by its module and read by its reports (R18).
   prdBalance: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   prdLedger: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
-  prdLotLink: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
+  prdTrackingLink: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   // The month-end close (R10–R15, R25): its record, named only by its module; the lock only by the kernel.
   prdCostClose: ["src/lib/erp/production-close.ts"],
   prdCostClosePool: ["src/lib/erp/production-close.ts"],

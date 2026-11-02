@@ -146,7 +146,7 @@ async function audit(db: Db, id: number, action: "TAMBAH" | "UPDATE", event: str
 
 async function writeLines(tx: Prisma.TransactionClient, id: number, c: Checked) {
   await tx.prdReleaseLine.deleteMany({ where: { release_id: id } });
-  for (const l of c.lines) await tx.prdReleaseLine.create({ data: { release_id: id, line_no: l.line_no, bucket_id: l.bucket_id, lot_id: l.lot_id, item_id: l.item_id, qty: l.qty } });
+  for (const l of c.lines) await tx.prdReleaseLine.create({ data: { release_id: id, line_no: l.line_no, bucket_id: l.bucket_id, tracking_id: l.tracking_id, item_id: l.item_id, qty: l.qty } });
 }
 
 export async function createRelease(input: ReleaseInput, actorId: number): Promise<ReleaseResult> {

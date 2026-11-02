@@ -86,7 +86,7 @@ export async function makeProductionFixture(tag: string): Promise<ProductionFixt
 /** Removes every production book row of fixture items — a test's own teardown. */
 export async function cleanupProduction(itemIds: number[]): Promise<void> {
   const lots = (await prisma.logStockTracking.findMany({ where: { item_id: { in: itemIds } }, select: { id: true } })).map((l) => l.id);
-  await prisma.prdLotLink.deleteMany({ where: { OR: [{ from_lot_id: { in: lots } }, { to_lot_id: { in: lots } }] } });
+  await prisma.prdTrackingLink.deleteMany({ where: { OR: [{ from_tracking_id: { in: lots } }, { to_tracking_id: { in: lots } }] } });
   await prisma.prdLedger.deleteMany({ where: { item_id: { in: itemIds } } });
   await prisma.prdBalance.deleteMany({ where: { item_id: { in: itemIds } } });
 }

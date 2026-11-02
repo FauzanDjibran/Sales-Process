@@ -96,7 +96,7 @@ const lotOf = (doLineId: number) => (doLineId === order.doLines[0] ? f.lotA : f.
 async function postedNote(doLineQty: [number, number][]) {
   const r = await createDeliveryNote(
     { source_doc_id: f.do, dn_date: today, vehicle_no: "", driver_name: "", note: "" },
-    doLineQty.map(([id, qty]) => ({ source_doc_line_id: id, qty, note: "", picks: [{ lot_id: lotOf(id), qty }] })),
+    doLineQty.map(([id, qty]) => ({ source_doc_line_id: id, qty, note: "", picks: [{ tracking_id: lotOf(id), qty }] })),
     actor
   );
   assert.ok(r.ok, JSON.stringify(r));
@@ -257,7 +257,7 @@ after(async () => {
   await prisma.finArItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
   await prisma.finCashBankTx.deleteMany({ where: { id: { in: [...ids.rc, f.rcHalf] } } });
   await prisma.finArAdvance.deleteMany({ where: { id: { in: ids.adv } } });
-  await prisma.logDeliveryNoteLot.deleteMany({ where: { line: { delivery_note_id: { in: ids.dn } } } });
+  await prisma.logDeliveryNoteTracking.deleteMany({ where: { line: { delivery_note_id: { in: ids.dn } } } });
   await prisma.logDeliveryNoteLine.deleteMany({ where: { delivery_note_id: { in: ids.dn } } });
   await prisma.logDeliveryNote.deleteMany({ where: { id: { in: ids.dn } } });
   await prisma.salDeliveryOrderLine.deleteMany({ where: { delivery_order_id: { in: ids.do } } });

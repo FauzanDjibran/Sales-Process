@@ -32,7 +32,7 @@ import {
 
 /**
  * The Delivery Note module (P106; C28, U11–U15): its tables are
- * `log_delivery_note`, `log_delivery_note_line` and `log_delivery_note_lot`,
+ * `log_delivery_note`, `log_delivery_note_line` and `log_delivery_note_tracking`,
  * and nothing else names them.
  *
  * **Standalone** (P106): the note belongs to no business module. Its purpose
@@ -79,7 +79,7 @@ export type DeliveryNoteHeaderInput = {
  * One lot a line takes goods from — the stock picking (U15) — and, in a
  * warehouse with Gunakan Lokasi, the location it is taken from.
  */
-export type DeliveryNotePickInput = { lot_id: number | null; location_id?: number | null; qty: number | string };
+export type DeliveryNotePickInput = { tracking_id: number | null; location_id?: number | null; qty: number | string };
 
 export type DeliveryNoteLineInput = {
   /** The source line: for `sales_delivery` a Delivery Order line. */
@@ -194,7 +194,7 @@ export async function deliveryNoteOptions(
 
 // ------------------------------------------------------------- validation
 
-type CheckedPick = { pick_no: number; lot_id: number; location_id: number | null; lot_no: string; expiry_date: Date | null; qty: number };
+type CheckedPick = { pick_no: number; tracking_id: number; location_id: number | null; tracking_no: string; expiry_date: Date | null; qty: number };
 
 type CheckedLine = {
   line_no: number;
@@ -356,7 +356,7 @@ function checkPicks(
   const picks: CheckedPick[] = [];
   let total = 0;
   for (const p of list) {
-    const lot = byKey.get(lotKey(Number(p.lot_id), Number(p.location_id) || null));
+    const lot = byKey.get(lotKey(Number(p.tracking_id), Number(p.location_id) || null));
     if (!lot) return { ok: false, error: `Lot tidak ada di gudang ini untuk ${line.itemLabel}. Pilih ulang lotnya.` };
     const where = lot.locationLabel ? ` di ${lot.locationLabel}` : "";
     if (seen.has(lot.key)) return { ok: false, error: `Lot ${lot.lotNo}${where} dipilih lebih dari sekali.` };
@@ -367,9 +367,9 @@ function checkPicks(
     total += units(qty);
     picks.push({
       pick_no: picks.length + 1,
-      lot_id: lot.id,
+      tracking_id: lot.id,
       location_id: lot.locationId,
-      lot_no: lot.lotNo,
+      tracking_no: lot.lotNo,
       expiry_date: lot.expiry ? asDate(lot.expiry) : null,
       qty: fromUnits(units(qty)),
     });
@@ -436,7 +436,7 @@ export async function createDeliveryNote(
           // A sale's note follows its Customer Order's series (P109).
           dn_no: await nextDnNo(tx, r.c.data.dn_date, r.c.source.isTaxable),
           created_by: actorId,
-          lines: { create: r.c.lines.map(({ picks, ...l }) => ({ ...l, lots: { create: picks } })) },
+          lines: { create: r.c.lines.map(({ picks, ...l }) => ({ ...l, trackings: { create: picks } })) },
         },
       });
       await audit(tx, row.id, "TAMBAH", "create", actorId);
@@ -474,10 +474,10 @@ export async function updateDeliveryNote(
       const done = await tx.logDeliveryNote.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: "Delivery Note berubah saat diproses. Muat ulang halaman." });
       // A Draft's lines and picks are rewritten whole: nothing names them yet.
-      await tx.logDeliveryNoteLot.deleteMany({ where: { line: { delivery_note_id: id } } });
+      await tx.logDeliveryNoteTracking.deleteMany({ where: { line: { delivery_note_id: id } } });
       await tx.logDeliveryNoteLine.deleteMany({ where: { delivery_note_id: id } });
       for (const { picks, ...l } of r.c.lines) {
-        await tx.logDeliveryNoteLine.create({ data: { ...l, delivery_note_id: id, lots: { create: picks } } });
+        await tx.logDeliveryNoteLine.create({ data: { ...l, delivery_note_id: id, trackings: { create: picks } } });
       }
       await audit(tx, id, "UPDATE", "update", actorId);
     });
@@ -485,8 +485,8 @@ export async function updateDeliveryNote(
   });
 }
 
-type StoredNote = Prisma.LogDeliveryNoteGetPayload<{ include: { lines: { include: { lots: true } } } }>;
-const WITH_PICKS = { lines: { include: { lots: { orderBy: { pick_no: "asc" as const } } } } };
+type StoredNote = Prisma.LogDeliveryNoteGetPayload<{ include: { lines: { include: { trackings: true } } } }>;
+const WITH_PICKS = { lines: { include: { trackings: { orderBy: { pick_no: "asc" as const } } } } };
 
 function asInput(n: StoredNote): {
   header: DeliveryNoteHeaderInput;
@@ -507,7 +507,7 @@ function asInput(n: StoredNote): {
         source_doc_line_id: l.source_doc_line_id,
         qty: l.qty.toNumber(),
         note: l.note ?? "",
-        picks: l.lots.map((p) => ({ lot_id: p.lot_id, location_id: p.location_id, qty: p.qty.toNumber() })),
+        picks: l.trackings.map((p) => ({ tracking_id: p.tracking_id, location_id: p.location_id, qty: p.qty.toNumber() })),
       })),
   };
 }
@@ -634,13 +634,13 @@ export async function transitionDeliveryNote(
             itemId: d.itemId,
             warehouseId: r.c.source.warehouseId,
             locationId: p.location_id,
-            lotId: p.lot_id,
+            lotId: p.tracking_id,
             baseQty: pickBase,
             date: r.c.data.dn_date,
             source,
             actorId,
           });
-          await tx.logDeliveryNoteLot.update({
+          await tx.logDeliveryNoteTracking.update({
             where: { delivery_note_line_id_pick_no: { delivery_note_line_id: stored.id, pick_no: p.pick_no } },
             data: { base_qty: pickBase, unit_cost: out.unitCost, cost_amount: out.cost },
           });
@@ -775,7 +775,7 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
   const input = asInput(n);
   const sorted = [...n.lines].sort((a, b) => a.line_no - b.line_no);
   const journalNo = n.journal_id ? ((await journalNumbersByIds([n.journal_id])).get(n.journal_id) ?? null) : null;
-  const locations = await locationLabelsByIds(n.lines.flatMap((l) => l.lots.flatMap((p) => (p.location_id ? [p.location_id] : []))));
+  const locations = await locationLabelsByIds(n.lines.flatMap((l) => l.trackings.flatMap((p) => (p.location_id ? [p.location_id] : []))));
   return {
     id: n.id,
     dnNo: n.dn_no,
@@ -787,11 +787,11 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
       baseQty: sorted[i].base_qty.toNumber(),
       unitCost: sorted[i].unit_cost.toNumber(),
       cost: sorted[i].cost_amount.toNumber(),
-      pickedLots: sorted[i].lots.map((p) => ({
-        lotId: p.lot_id,
+      pickedLots: sorted[i].trackings.map((p) => ({
+        lotId: p.tracking_id,
         locationId: p.location_id,
         locationLabel: p.location_id ? (locations.get(p.location_id) ?? null) : null,
-        lotNo: p.lot_no,
+        lotNo: p.tracking_no,
         expiry: p.expiry_date ? isoDay(p.expiry_date) : null,
         qty: p.qty.toNumber(),
         cost: p.cost_amount.toNumber(),
@@ -814,7 +814,7 @@ export async function deliveryNoteLocationUse(warehouseId: number, locationIds: 
   const [drafts, named] = await Promise.all([
     prisma.logDeliveryNote.count({ where: { warehouse_id: warehouseId, status: "Draft" } }),
     locationIds.length
-      ? prisma.logDeliveryNoteLot.findMany({ where: { location_id: { in: locationIds } }, distinct: ["location_id"], select: { location_id: true } })
+      ? prisma.logDeliveryNoteTracking.findMany({ where: { location_id: { in: locationIds } }, distinct: ["location_id"], select: { location_id: true } })
       : [],
   ]);
   return { drafts, named: new Set(named.flatMap((r) => (r.location_id ? [r.location_id] : []))) };
@@ -904,7 +904,7 @@ export async function invoiceSourceLines(
       ? { purpose: SALES_DELIVERY, lines: { some: { id: { in: filter.lineIds } } } }
       : { purpose: SALES_DELIVERY, status: "Posted", ...(doIds ? { source_doc_id: { in: doIds } } : {}) },
     orderBy: [{ dn_date: "asc" }, { id: "asc" }],
-    include: { lines: { include: { lots: { orderBy: { pick_no: "asc" } } }, orderBy: { line_no: "asc" } } },
+    include: { lines: { include: { trackings: { orderBy: { pick_no: "asc" } } }, orderBy: { line_no: "asc" } } },
   });
   if (!notes.length) return [];
   const sources = await deliveryNoteSources({ ids: [...new Set(notes.map((n) => n.source_doc_id))] }, db);
@@ -928,7 +928,7 @@ export async function invoiceSourceLines(
           itemName: d?.itemName ?? "",
           uomLabel: d?.uomLabel ?? "",
           qty: l.qty.toNumber(),
-          lots: l.lots.map((p) => p.lot_no),
+          lots: l.trackings.map((p) => p.tracking_no),
         };
       })
   );
@@ -944,12 +944,12 @@ export type LotDelivery = { lotId: number; noteId: number; noteNo: string; date:
 /** Posted Delivery Notes that took these lots — where goods went to the customer (Telusur Produksi, R27). */
 export async function deliveriesOfLots(lotIds: number[]): Promise<LotDelivery[]> {
   if (!lotIds.length) return [];
-  const rows = await prisma.logDeliveryNoteLot.findMany({
-    where: { lot_id: { in: lotIds }, line: { delivery_note: { status: "Posted" } } },
+  const rows = await prisma.logDeliveryNoteTracking.findMany({
+    where: { tracking_id: { in: lotIds }, line: { delivery_note: { status: "Posted" } } },
     include: { line: { include: { delivery_note: { include: { partner: { select: { partner_label: true, partner_name: true } } } } } } },
   });
   return rows.map((r) => ({
-    lotId: r.lot_id,
+    lotId: r.tracking_id,
     noteId: r.line.delivery_note.id,
     noteNo: r.line.delivery_note.dn_no,
     date: r.line.delivery_note.dn_date.toISOString().slice(0, 10),

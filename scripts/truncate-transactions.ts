@@ -105,7 +105,7 @@ async function main() {
     fin_ar_invoice_advance_deduction: await prisma.finArInvoiceAdvanceDeduction.count(),
     fin_ar_invoice_line: await prisma.finArInvoiceLine.count(),
     fin_ar_invoice: await prisma.finArInvoice.count(),
-    log_delivery_note_lot: await prisma.logDeliveryNoteLot.count(),
+    log_delivery_note_tracking: await prisma.logDeliveryNoteTracking.count(),
     log_delivery_note_line: await prisma.logDeliveryNoteLine.count(),
     log_delivery_note: await prisma.logDeliveryNote.count(),
     log_stock_ledger: await prisma.logStockLedger.count(),
@@ -174,7 +174,7 @@ async function main() {
     await tx.finArInvoiceAdvanceDeduction.deleteMany();
     await tx.finArInvoiceLine.deleteMany();
     await tx.finArInvoice.deleteMany();
-    await tx.logDeliveryNoteLot.deleteMany();
+    await tx.logDeliveryNoteTracking.deleteMany();
     await tx.logDeliveryNoteLine.deleteMany();
     await tx.logDeliveryNote.deleteMany();
     await tx.logStockLedger.deleteMany();

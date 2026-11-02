@@ -2111,7 +2111,7 @@ model LogDeliveryNoteLine {
   uom           RefUom               @relation(fields: [uom_id], references: [id])
   /// For an item with Kelola Stok: which lots the line's quantity is taken
   /// from (U15). Their quantities add up to the line's at Posting.
-  lots          LogDeliveryNoteLot[]
+  trackings          LogDeliveryNoteTracking[]
 
   @@unique([delivery_note_id, line_no])
   @@unique([delivery_note_id, source_doc_line_id])
@@ -2125,14 +2125,14 @@ model LogDeliveryNoteLine {
 /// on its own and stores what it cost. The lot is the inventory's, named by id
 /// without a foreign key (the inventory behind it is a stand-in today), with
 /// its number and expiry copied as printed on the note.
-model LogDeliveryNoteLot {
+model LogDeliveryNoteTracking {
   id                    Int       @id @default(autoincrement())
   delivery_note_line_id Int
   pick_no               Int
-  lot_id                Int
+  tracking_id                Int
   /// The location it is taken from, in a warehouse with Gunakan Lokasi.
   location_id           Int?
-  lot_no                String
+  tracking_no                String
   expiry_date           DateTime? @db.Date
   /// In the line's unit.
   qty                   Decimal   @db.Decimal(18, 4)
@@ -2145,9 +2145,9 @@ model LogDeliveryNoteLot {
   @@unique([delivery_note_line_id, pick_no])
   /// A pick is a lot in a location: unique on (line, lot, location) NULLS NOT
   /// DISTINCT, the NULLS NOT DISTINCT added in the migration by hand.
-  @@unique([delivery_note_line_id, lot_id, location_id], map: "log_delivery_note_lot_pick_key")
-  @@index([lot_id])
-  @@map("log_delivery_note_lot")
+  @@unique([delivery_note_line_id, tracking_id, location_id], map: "log_delivery_note_tracking_pick_key")
+  @@index([tracking_id])
+  @@map("log_delivery_note_tracking")
 }
 
 enum InvoiceStatus {
@@ -2345,8 +2345,8 @@ model LogStockTracking {
 
   prd_balances PrdBalance[]
   prd_ledger   PrdLedger[]
-  links_from   PrdLotLink[] @relation("LinkFrom")
-  links_to     PrdLotLink[] @relation("LinkTo")
+  links_from   PrdTrackingLink[] @relation("LinkFrom")
+  links_to     PrdTrackingLink[] @relation("LinkTo")
 
   @@unique([item_id, tracking_no])
   @@index([source_doc_type_id, source_doc_id])
@@ -3372,7 +3372,7 @@ model LogReceiptNoteLine {
   receipt_note LogReceiptNote      @relation(fields: [receipt_note_id], references: [id], onDelete: Cascade)
   item         MItem               @relation("ReceiptNoteLineItem", fields: [item_id], references: [id])
   uom          RefUom              @relation("ReceiptNoteLineUom", fields: [uom_id], references: [id])
-  lots         LogReceiptNoteLot[]
+  trackings         LogReceiptNoteTracking[]
 
   @@unique([receipt_note_id, line_no])
   @@unique([receipt_note_id, source_doc_line_id])
@@ -3381,12 +3381,12 @@ model LogReceiptNoteLine {
 }
 
 /// The lots a stock line comes in as (B19): made here at Posting.
-model LogReceiptNoteLot {
+model LogReceiptNoteTracking {
   id           Int       @id @default(autoincrement())
   line_id      Int
-  lot_seq      Int
+  tracking_seq      Int
   /// Typed, or generated at Posting when left empty.
-  lot_no       String?
+  tracking_no       String?
   expiry_date  DateTime? @db.Date
   /// In the line's unit.
   qty          Decimal   @db.Decimal(18, 4)
@@ -3400,8 +3400,8 @@ model LogReceiptNoteLot {
 
   line LogReceiptNoteLine @relation(fields: [line_id], references: [id], onDelete: Cascade)
 
-  @@unique([line_id, lot_seq])
-  @@map("log_receipt_note_lot")
+  @@unique([line_id, tracking_seq])
+  @@map("log_receipt_note_tracking")
 }
 
 /// Uang Muka Pembelian (P126, Purchasing-Concept.md B23): the supplier's
@@ -3706,7 +3706,7 @@ enum ProductionCostBillStatus {
 /// `production-ledger.ts`, beside its ledger row.
 model PrdBalance {
   id             Int     @id @default(autoincrement())
-  lot_id         Int
+  tracking_id         Int
   workstation_id Int
   item_id        Int
   /// The item's base unit.
@@ -3719,14 +3719,14 @@ model PrdBalance {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  lot         LogStockTracking @relation(fields: [lot_id], references: [id])
+  tracking         LogStockTracking @relation(fields: [tracking_id], references: [id])
   workstation RefWorkstation   @relation("PrdBalanceWorkstation", fields: [workstation_id], references: [id])
   item        MItem            @relation("PrdBalanceItem", fields: [item_id], references: [id])
   uom         RefUom           @relation("PrdBalanceUom", fields: [uom_id], references: [id])
   ledger      PrdLedger[]
-  links_from  PrdLotLink[]
+  links_from  PrdTrackingLink[]
 
-  @@unique([lot_id, workstation_id])
+  @@unique([tracking_id, workstation_id])
   @@index([workstation_id])
   @@index([item_id])
   @@map("prd_balance")
@@ -3744,7 +3744,7 @@ model PrdLedger {
   source_no          String
   movement           PrdMovement
   bucket_id          Int
-  lot_id             Int
+  tracking_id             Int
   workstation_id     Int
   item_id            Int
   qty_change         Decimal     @db.Decimal(18, 6)
@@ -3756,13 +3756,13 @@ model PrdLedger {
   created_at         DateTime    @default(now()) @db.Timestamptz(6)
 
   bucket      PrdBalance       @relation(fields: [bucket_id], references: [id])
-  lot         LogStockTracking @relation(fields: [lot_id], references: [id])
+  tracking         LogStockTracking @relation(fields: [tracking_id], references: [id])
   workstation RefWorkstation   @relation("PrdLedgerWorkstation", fields: [workstation_id], references: [id])
   item        MItem            @relation("PrdLedgerItem", fields: [item_id], references: [id])
 
   @@unique([ledger_no, line_no])
   @@index([bucket_id, posting_date])
-  @@index([lot_id])
+  @@index([tracking_id])
   @@index([source_doc_type_id, source_doc_id])
   @@map("prd_ledger")
 }
@@ -3770,26 +3770,26 @@ model PrdLedger {
 /// Genealogy (R12): what each input of an execution gave each output lot, by
 /// quantity and value — read by the Kartu Lot and followed forward by the
 /// month-end close.
-model PrdLotLink {
+model PrdTrackingLink {
   id                 Int      @id @default(autoincrement())
   source_doc_type_id Int
   source_doc_id      Int
   source_no          String
   from_bucket_id     Int
-  from_lot_id        Int
-  to_lot_id          Int
+  from_tracking_id        Int
+  to_tracking_id          Int
   qty                Decimal  @db.Decimal(18, 6)
   value              Decimal  @db.Decimal(18, 2)
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
   from_bucket PrdBalance       @relation(fields: [from_bucket_id], references: [id])
-  from_lot    LogStockTracking @relation("LinkFrom", fields: [from_lot_id], references: [id])
-  to_lot      LogStockTracking @relation("LinkTo", fields: [to_lot_id], references: [id])
+  from_tracking    LogStockTracking @relation("LinkFrom", fields: [from_tracking_id], references: [id])
+  to_tracking      LogStockTracking @relation("LinkTo", fields: [to_tracking_id], references: [id])
 
   @@index([source_doc_type_id, source_doc_id])
-  @@index([from_lot_id])
-  @@index([to_lot_id])
-  @@map("prd_lot_link")
+  @@index([from_tracking_id])
+  @@index([to_tracking_id])
+  @@map("prd_tracking_link")
 }
 
 enum PrdMovement {
@@ -3861,7 +3861,7 @@ model LogStockIssueLine {
   stock_issue LogStockIssue      @relation(fields: [stock_issue_id], references: [id])
   item        MItem              @relation(fields: [item_id], references: [id])
   uom         RefUom             @relation(fields: [uom_id], references: [id])
-  lots        LogStockIssueLot[]
+  trackings        LogStockIssueTracking[]
 
   @@unique([stock_issue_id, line_no])
   @@unique([stock_issue_id, item_id])
@@ -3869,13 +3869,13 @@ model LogStockIssueLine {
   @@map("log_stock_issue_line")
 }
 
-model LogStockIssueLot {
+model LogStockIssueTracking {
   id                  Int       @id @default(autoincrement())
   stock_issue_line_id Int
   pick_no             Int
-  lot_id              Int
+  tracking_id              Int
   location_id         Int?
-  lot_no              String
+  tracking_no              String
   expiry_date         DateTime? @db.Date
   qty                 Decimal   @db.Decimal(18, 4)
   base_qty            Decimal   @default(0) @db.Decimal(18, 4)
@@ -3888,9 +3888,9 @@ model LogStockIssueLot {
 
   @@unique([stock_issue_line_id, pick_no])
   /// A pick is a lot in a location: NULLS NOT DISTINCT, added in the migration by hand.
-  @@unique([stock_issue_line_id, lot_id, location_id], map: "log_stock_issue_lot_pick_key")
-  @@index([lot_id])
-  @@map("log_stock_issue_lot")
+  @@unique([stock_issue_line_id, tracking_id, location_id], map: "log_stock_issue_tracking_pick_key")
+  @@index([tracking_id])
+  @@map("log_stock_issue_tracking")
 }
 
 enum StockIssueStatus {
@@ -3943,7 +3943,7 @@ model PrdExecutionInput {
   line_no      Int
   /// The production bucket taken from (weak).
   bucket_id    Int
-  lot_id       Int
+  tracking_id       Int
   item_id      Int
   /// In the item's base unit.
   qty          Decimal @db.Decimal(18, 4)
@@ -3964,7 +3964,7 @@ model PrdExecutionOutput {
   line_no      Int
   item_id      Int
   /// Typed, or `<execution number>-<n>` at Posting (R17).
-  lot_no       String?
+  tracking_no       String?
   expiry_date  DateTime? @db.Date
   /// In the item's base unit.
   qty          Decimal   @db.Decimal(18, 4)
@@ -3972,14 +3972,14 @@ model PrdExecutionOutput {
   weight       Decimal   @default(0) @db.Decimal(18, 6)
   value        Decimal   @default(0) @db.Decimal(18, 2)
   /// The lot and bucket made, set at Posting (weak).
-  lot_id       Int?
+  tracking_id       Int?
   bucket_id    Int?
 
   execution PrdExecution @relation(fields: [execution_id], references: [id], onDelete: Cascade)
   item      MItem        @relation(fields: [item_id], references: [id])
 
   @@unique([execution_id, line_no])
-  @@index([lot_id])
+  @@index([tracking_id])
   @@map("prd_execution_output")
 }
 
@@ -4017,7 +4017,7 @@ model PrdTransferLine {
   /// The bucket taken from and the one filled (weak).
   bucket_id    Int
   to_bucket_id Int?
-  lot_id       Int
+  tracking_id       Int
   item_id      Int
   qty          Decimal @db.Decimal(18, 4)
   value        Decimal @default(0) @db.Decimal(18, 2)
@@ -4069,7 +4069,7 @@ model PrdReleaseLine {
   release_id Int
   line_no    Int
   bucket_id  Int
-  lot_id     Int
+  tracking_id     Int
   item_id    Int
   qty        Decimal @db.Decimal(18, 4)
   value      Decimal @default(0) @db.Decimal(18, 2)

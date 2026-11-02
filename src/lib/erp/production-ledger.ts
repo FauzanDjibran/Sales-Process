@@ -24,7 +24,7 @@ import type { LotFate } from "./production-close-shape";
  *   value in another workstation's (R7).
  * - **Producing** takes every input and shares Σ input value over the outputs
  *   by qty × Bobot Nilai (R6), creates each output lot and its bucket, and
- *   writes the genealogy — what each input gave each output (`prd_lot_link`),
+ *   writes the genealogy — what each input gave each output (`prd_tracking_link`),
  *   which the month-end close follows forward (R12).
  * - **Revaluing** adds a value with quantity 0 — the month-end close.
  *
@@ -78,21 +78,21 @@ async function activeWorkstation(tx: Tx, id: number) {
 type Bucket = { id: number; lotId: number; workstationId: number; itemId: number; qty: Dec; value: Dec };
 
 async function lockBucketById(tx: Tx, id: number): Promise<Bucket | null> {
-  const [row] = await tx.$queryRaw<{ id: number; lot_id: number; workstation_id: number; item_id: number; qty_balance: Dec; value_balance: Dec }[]>`
-    SELECT "id", "lot_id", "workstation_id", "item_id", "qty_balance", "value_balance" FROM "prd_balance" WHERE "id" = ${id} FOR UPDATE`;
+  const [row] = await tx.$queryRaw<{ id: number; tracking_id: number; workstation_id: number; item_id: number; qty_balance: Dec; value_balance: Dec }[]>`
+    SELECT "id", "tracking_id", "workstation_id", "item_id", "qty_balance", "value_balance" FROM "prd_balance" WHERE "id" = ${id} FOR UPDATE`;
   return row
-    ? { id: row.id, lotId: row.lot_id, workstationId: row.workstation_id, itemId: row.item_id, qty: new D(row.qty_balance), value: new D(row.value_balance) }
+    ? { id: row.id, lotId: row.tracking_id, workstationId: row.workstation_id, itemId: row.item_id, qty: new D(row.qty_balance), value: new D(row.value_balance) }
     : null;
 }
 
 /** The lot's bucket at the workstation, created empty if missing, and locked. */
 async function openBucket(tx: Tx, k: { lotId: number; workstationId: number; itemId: number; uomId: number }, actorId: number): Promise<Bucket> {
   await tx.$executeRaw`
-    INSERT INTO "prd_balance" ("lot_id", "workstation_id", "item_id", "uom_id", "qty_balance", "value_balance", "created_by", "updated_at")
+    INSERT INTO "prd_balance" ("tracking_id", "workstation_id", "item_id", "uom_id", "qty_balance", "value_balance", "created_by", "updated_at")
     VALUES (${k.lotId}, ${k.workstationId}, ${k.itemId}, ${k.uomId}, 0, 0, ${actorId}, now())
-    ON CONFLICT ("lot_id", "workstation_id") DO NOTHING`;
+    ON CONFLICT ("tracking_id", "workstation_id") DO NOTHING`;
   const [row] = await tx.$queryRaw<{ id: number }[]>`
-    SELECT "id" FROM "prd_balance" WHERE "lot_id" = ${k.lotId} AND "workstation_id" = ${k.workstationId}`;
+    SELECT "id" FROM "prd_balance" WHERE "tracking_id" = ${k.lotId} AND "workstation_id" = ${k.workstationId}`;
   return (await lockBucketById(tx, row.id))!;
 }
 
@@ -137,7 +137,7 @@ async function write(tx: Tx, b: Bucket, m: { movement: Movement; qty: Dec; value
       source_no: m.source.no,
       movement: m.movement,
       bucket_id: b.id,
-      lot_id: b.lotId,
+      tracking_id: b.lotId,
       workstation_id: b.workstationId,
       item_id: b.itemId,
       qty_change: m.qty,
@@ -370,14 +370,14 @@ export async function produce(tx: Tx, p: Production): Promise<Produced> {
     const valueParts = shareByWeight(input.value, weights);
     for (const [j, out] of outputs.entries()) {
       if (!(weights[j] > 0)) continue;
-      await tx.prdLotLink.create({
+      await tx.prdTrackingLink.create({
         data: {
           source_doc_type_id: p.source.docTypeId,
           source_doc_id: p.source.docId,
           source_no: p.source.no,
           from_bucket_id: input.bucketId,
-          from_lot_id: input.lotId,
-          to_lot_id: out.lotId,
+          from_tracking_id: input.lotId,
+          to_tracking_id: out.lotId,
           qty: qtyParts[j],
           value: valueParts[j],
         },
@@ -422,7 +422,7 @@ export type BucketView = {
 };
 
 const bucketInclude = {
-  lot: { select: { tracking_no: true, expiry_date: true } },
+  tracking: { select: { tracking_no: true, expiry_date: true } },
   item: { select: { item_label: true, item_name: true, value_weight: true } },
   uom: { select: { uom_label: true } },
   workstation: { select: { workstation_label: true, workstation_name: true } },
@@ -432,8 +432,8 @@ type BucketRow = Prisma.PrdBalanceGetPayload<{ include: typeof bucketInclude }>;
 
 const view = (b: BucketRow): BucketView => ({
   id: b.id,
-  lotId: b.lot_id,
-  lotNo: b.lot.tracking_no,
+  lotId: b.tracking_id,
+  lotNo: b.tracking.tracking_no,
   itemId: b.item_id,
   itemLabel: b.item.item_label,
   itemName: b.item.item_name,
@@ -442,7 +442,7 @@ const view = (b: BucketRow): BucketView => ({
   workstationId: b.workstation_id,
   workstationLabel: b.workstation.workstation_label,
   workstationName: b.workstation.workstation_name,
-  expiry: iso(b.lot.expiry_date),
+  expiry: iso(b.tracking.expiry_date),
   qty: b.qty_balance.toNumber(),
   value: b.value_balance.toNumber(),
 });
@@ -500,22 +500,22 @@ export async function lotFates(lotIds: number[], db: Db = prisma): Promise<Map<n
   if (!lotIds.length) return out;
   const releaseType = await db.sysDocType.findFirst({ where: { doc_table: "prd_release" }, select: { id: true } });
   const [held, links, released] = await Promise.all([
-    db.prdBalance.findMany({ where: { lot_id: { in: lotIds }, qty_balance: { gt: 0 } }, select: { id: true, lot_id: true, item_id: true, qty_balance: true } }),
-    db.prdLotLink.findMany({ where: { from_lot_id: { in: lotIds } }, select: { from_lot_id: true, to_lot_id: true, qty: true } }),
+    db.prdBalance.findMany({ where: { tracking_id: { in: lotIds }, qty_balance: { gt: 0 } }, select: { id: true, tracking_id: true, item_id: true, qty_balance: true } }),
+    db.prdTrackingLink.findMany({ where: { from_tracking_id: { in: lotIds } }, select: { from_tracking_id: true, to_tracking_id: true, qty: true } }),
     db.prdLedger.findMany({
-      where: { lot_id: { in: lotIds }, movement: "Released", source_doc_type_id: releaseType?.id ?? -1 },
-      select: { lot_id: true, item_id: true, source_doc_id: true, qty_change: true },
+      where: { tracking_id: { in: lotIds }, movement: "Released", source_doc_type_id: releaseType?.id ?? -1 },
+      select: { tracking_id: true, item_id: true, source_doc_id: true, qty_change: true },
     }),
   ]);
-  for (const b of held) out.get(b.lot_id)!.held.push({ bucketId: b.id, itemId: b.item_id, qty: b.qty_balance.toNumber() });
+  for (const b of held) out.get(b.tracking_id)!.held.push({ bucketId: b.id, itemId: b.item_id, qty: b.qty_balance.toNumber() });
   for (const l of links) {
-    const f = out.get(l.from_lot_id)!;
-    const same = f.links.find((x) => x.toLotId === l.to_lot_id);
+    const f = out.get(l.from_tracking_id)!;
+    const same = f.links.find((x) => x.toLotId === l.to_tracking_id);
     if (same) same.qty += l.qty.toNumber();
-    else f.links.push({ toLotId: l.to_lot_id, qty: l.qty.toNumber() });
+    else f.links.push({ toLotId: l.to_tracking_id, qty: l.qty.toNumber() });
   }
   for (const r of released) {
-    const f = out.get(r.lot_id)!;
+    const f = out.get(r.tracking_id)!;
     const same = f.released.find((x) => x.docId === r.source_doc_id);
     const q = r.qty_change.abs().toNumber();
     if (same) same.qty += q;

@@ -35,8 +35,8 @@ before(async () => {
       note: "",
       inputs: [{ bucket_id: bucket, qty: "400" }],
       outputs: [
-        { item_id: f.product, lot_no: "", expiry_date: "", qty: "300" },
-        { item_id: f.byproduct, lot_no: "", expiry_date: "", qty: "50" },
+        { item_id: f.product, tracking_no: "", expiry_date: "", qty: "300" },
+        { item_id: f.byproduct, tracking_no: "", expiry_date: "", qty: "50" },
       ],
     },
     f.actor,

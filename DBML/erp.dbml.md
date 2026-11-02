@@ -2127,12 +2127,12 @@ table log_receipt_note_line {
 }
 
 // the lots a stock line comes in as, made at Posting
-table log_receipt_note_lot {
+table log_receipt_note_tracking {
   id                          int [pk, increment, not null]
 
   line_id                     int [not null, ref : > log_receipt_note_line.id]
-  lot_seq                     int [not null]
-  lot_no                      varchar // typed, or generated at Posting
+  tracking_seq                     int [not null]
+  tracking_no                      varchar // typed, or generated at Posting
   expiry_date                 date
   qty                         decimal(18,4) [not null] // in the line's unit
   base_qty                    decimal(18,4) [not null, default: 0]
@@ -2141,7 +2141,7 @@ table log_receipt_note_lot {
   location_id                 int // weak: ref_warehouse_location.id — where it is put, in a warehouse with Gunakan Lokasi
 
   indexes {
-    (line_id, lot_seq) [unique]
+    (line_id, tracking_seq) [unique]
   }
 }
 
@@ -2214,18 +2214,18 @@ table log_delivery_note_line {
 }
 
 // stock picking by lot for a Barang with Kelola Stok, one row per lot (P95)
-// lot_id names a log_stock_tracking lot without a foreign key
-table log_delivery_note_lot {
+// tracking_id names a log_stock_tracking lot without a foreign key
+table log_delivery_note_tracking {
   id                          int [pk, increment, not null]
 
   delivery_note_line_id       int [not null, ref : > log_delivery_note_line.id]
 
   pick_no                     int [not null]
 
-  lot_id                      int [not null] // the inventory's lot (log_stock_tracking); no FK
+  tracking_id                      int [not null] // the inventory's lot (log_stock_tracking); no FK
   location_id                 int // the location it is taken from, in a warehouse with Gunakan Lokasi; no FK
 
-  lot_no                      varchar [not null] // as printed on the note
+  tracking_no                      varchar [not null] // as printed on the note
   expiry_date                 date
   qty                         decimal(18,4) [not null] // in the line unit
   base_qty                    decimal(18,4) [not null, default: 0] // set at Posting
@@ -2234,8 +2234,8 @@ table log_delivery_note_lot {
 
   indexes {
     (delivery_note_line_id, pick_no) [unique]
-    (delivery_note_line_id, lot_id, location_id) [unique] // NULLS NOT DISTINCT: a pick is a lot in a location
-    lot_id
+    (delivery_note_line_id, tracking_id, location_id) [unique] // NULLS NOT DISTINCT: a pick is a lot in a location
+    tracking_id
   }
 }
 
@@ -2604,7 +2604,7 @@ table prd_cost_bill_line {
 table prd_balance {
   id                          int [pk, increment, not null]
 
-  lot_id                      int [not null, ref : > log_stock_tracking.id] // the one lot register (P120)
+  tracking_id                      int [not null, ref : > log_stock_tracking.id] // the one lot register (P120)
   workstation_id              int [not null, ref : > ref_workstation.id]
   item_id                     int [not null, ref : > m_item.id]
   uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
@@ -2619,7 +2619,7 @@ table prd_balance {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
-    (lot_id, workstation_id) [unique]
+    (tracking_id, workstation_id) [unique]
     workstation_id
     item_id
   }
@@ -2637,7 +2637,7 @@ table prd_ledger {
   source_no                   varchar [not null]
   movement                    enum('Issued', 'Consumed', 'Produced', 'TransferOut', 'TransferIn', 'Released', 'Revalued') [not null]
   bucket_id                   int [not null, ref : > prd_balance.id]
-  lot_id                      int [not null, ref : > log_stock_tracking.id]
+  tracking_id                      int [not null, ref : > log_stock_tracking.id]
   workstation_id              int [not null, ref : > ref_workstation.id]
   item_id                     int [not null, ref : > m_item.id]
 
@@ -2652,21 +2652,21 @@ table prd_ledger {
   indexes {
     (ledger_no, line_no) [unique]
     (bucket_id, posting_date)
-    lot_id
+    tracking_id
     (source_doc_type_id, source_doc_id)
   }
 }
 
 // Genealogy (R12): what each input of an execution gave each output lot
-table prd_lot_link {
+table prd_tracking_link {
   id                          int [pk, increment, not null]
 
   source_doc_type_id          int [not null]
   source_doc_id               int [not null]
   source_no                   varchar [not null]
   from_bucket_id              int [not null, ref : > prd_balance.id]
-  from_lot_id                 int [not null, ref : > log_stock_tracking.id]
-  to_lot_id                   int [not null, ref : > log_stock_tracking.id]
+  from_tracking_id                 int [not null, ref : > log_stock_tracking.id]
+  to_tracking_id                   int [not null, ref : > log_stock_tracking.id]
   qty                         decimal(18,6) [not null]
   value                       decimal(18,2) [not null]
 
@@ -2674,8 +2674,8 @@ table prd_lot_link {
 
   indexes {
     (source_doc_type_id, source_doc_id)
-    from_lot_id
-    to_lot_id
+    from_tracking_id
+    to_tracking_id
   }
 }
 
@@ -2729,14 +2729,14 @@ table log_stock_issue_line {
   }
 }
 
-table log_stock_issue_lot {
+table log_stock_issue_tracking {
   id                          int [pk, increment, not null]
 
   stock_issue_line_id         int [not null, ref : > log_stock_issue_line.id]
   pick_no                     int [not null]
-  lot_id                      int [not null] // log_stock_tracking.id, no FK
+  tracking_id                      int [not null] // log_stock_tracking.id, no FK
   location_id                 int // ref_warehouse_location.id, no FK
-  lot_no                      varchar [not null]
+  tracking_no                      varchar [not null]
   expiry_date                 date
   qty                         decimal(18,4) [not null]
   base_qty                    decimal(18,4) [not null, default: 0]
@@ -2746,8 +2746,8 @@ table log_stock_issue_lot {
 
   indexes {
     (stock_issue_line_id, pick_no) [unique]
-    (stock_issue_line_id, lot_id, location_id) [unique] // NULLS NOT DISTINCT
-    lot_id
+    (stock_issue_line_id, tracking_id, location_id) [unique] // NULLS NOT DISTINCT
+    tracking_id
   }
 }
 
@@ -2784,7 +2784,7 @@ table prd_execution_input {
   execution_id                int [not null, ref : > prd_execution.id] // cascade
   line_no                     int [not null]
   bucket_id                   int [not null] // prd_balance.id, weak
-  lot_id                      int [not null]
+  tracking_id                      int [not null]
   item_id                     int [not null, ref : > m_item.id]
   qty                         decimal(18,4) [not null] // base unit
   value                       decimal(18,2) [not null, default: 0] // released, set at Posting
@@ -2801,17 +2801,17 @@ table prd_execution_output {
   execution_id                int [not null, ref : > prd_execution.id] // cascade
   line_no                     int [not null]
   item_id                     int [not null, ref : > m_item.id]
-  lot_no                      varchar // typed, or <execution no>-<n> at Posting (R17)
+  tracking_no                      varchar // typed, or <execution no>-<n> at Posting (R17)
   expiry_date                 date
   qty                         decimal(18,4) [not null]
   weight                      decimal(18,6) [not null, default: 0] // qty × Bobot Nilai
   value                       decimal(18,2) [not null, default: 0]
-  lot_id                      int // made at Posting, weak
+  tracking_id                      int // made at Posting, weak
   bucket_id                   int
 
   indexes {
     (execution_id, line_no) [unique]
-    lot_id
+    tracking_id
   }
 }
 
@@ -2846,7 +2846,7 @@ table prd_transfer_line {
   line_no                     int [not null]
   bucket_id                   int [not null] // weak
   to_bucket_id                int // weak, set at Posting
-  lot_id                      int [not null]
+  tracking_id                      int [not null]
   item_id                     int [not null, ref : > m_item.id]
   qty                         decimal(18,4) [not null]
   value                       decimal(18,2) [not null, default: 0]
@@ -2893,7 +2893,7 @@ table prd_release_line {
   release_id                  int [not null, ref : > prd_release.id] // cascade
   line_no                     int [not null]
   bucket_id                   int [not null] // weak
-  lot_id                      int [not null]
+  tracking_id                      int [not null]
   item_id                     int [not null, ref : > m_item.id]
   qty                         decimal(18,4) [not null]
   value                       decimal(18,2) [not null, default: 0]

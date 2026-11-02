@@ -55,7 +55,7 @@ before(async () => {
 });
 
 after(async () => {
-  await prisma.logReceiptNoteLot.deleteMany({ where: { line: { receipt_note_id: { in: rns } } } });
+  await prisma.logReceiptNoteTracking.deleteMany({ where: { line: { receipt_note_id: { in: rns } } } });
   await prisma.logReceiptNoteLine.deleteMany({ where: { receipt_note_id: { in: rns } } });
   await prisma.logReceiptNote.deleteMany({ where: { id: { in: rns } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "log_receipt_note", row_id: { in: rns } } });
@@ -87,7 +87,7 @@ describe("receiving goods", () => {
 
     const r = await create(
       header(po.id),
-      [{ source_doc_line_id: po.lineIds[0], qty: 3, note: "", lots: [{ lot_no: w.key("A"), expiry_date: "", qty: 1 }, { lot_no: "", expiry_date: "", qty: 2 }] }],
+      [{ source_doc_line_id: po.lineIds[0], qty: 3, note: "", lots: [{ tracking_no: w.key("A"), expiry_date: "", qty: 1 }, { tracking_no: "", expiry_date: "", qty: 2 }] }],
       w.actor
     );
     assert.ok(r.ok, JSON.stringify(r));
@@ -99,7 +99,7 @@ describe("receiving goods", () => {
     const v = (await getReceiptNote(r.id))!;
     assert.equal(v.value, 3_000);
     assert.deepEqual(v.lines[0].lotValues, [1_000, 2_000]);
-    assert.equal(v.lines[0].lots![1].lot_no, `${r.rnNo.replace(/\//g, "")}-1-2`, "an empty lot number is generated");
+    assert.equal(v.lines[0].lots![1].tracking_no, `${r.rnNo.replace(/\//g, "")}-1-2`, "an empty lot number is generated");
     const balance = await prisma.logStockValuationBalance.findFirstOrThrow({ where: { item_id: w.f.stock } });
     assert.equal(balance.qty_balance.toNumber(), 3);
     assert.equal(balance.value_balance.toNumber(), 3_000);
@@ -115,7 +115,7 @@ describe("receiving goods", () => {
     assert.equal((await getPurchaseOrder(po.id))!.lines[0].received, 3);
 
     // The rest of the line: the receipts add up to the DPP, and the PO closes itself.
-    const rest = await create(header(po.id), [{ source_doc_line_id: po.lineIds[0], qty: 7, note: "", lots: [{ lot_no: w.key("B"), expiry_date: "", qty: 7 }] }], w.actor);
+    const rest = await create(header(po.id), [{ source_doc_line_id: po.lineIds[0], qty: 7, note: "", lots: [{ tracking_no: w.key("B"), expiry_date: "", qty: 7 }] }], w.actor);
     assert.ok(rest.ok);
     const done = await transitionReceiptNote(rest.id, "post", w.actor);
     assert.deepEqual(done, { ok: true, closed: [po.orderNo] });
@@ -125,7 +125,7 @@ describe("receiving goods", () => {
 
   test("lots must be complete to post; an expiring item needs its expiry", async () => {
     const po = await w.openPO([{ item: w.f.expiring, qty: 5, price: 100 }]);
-    const r = await create(header(po.id), [{ source_doc_line_id: po.lineIds[0], qty: 5, note: "", lots: [{ lot_no: "", expiry_date: "", qty: 2 }] }], w.actor);
+    const r = await create(header(po.id), [{ source_doc_line_id: po.lineIds[0], qty: 5, note: "", lots: [{ tracking_no: "", expiry_date: "", qty: 2 }] }], w.actor);
     assert.ok(r.ok, "a Draft may be partly lotted");
     const short = await transitionReceiptNote(r.id, "post", w.actor);
     assert.ok(!short.ok && /Lengkapi lotnya|kadaluarsa/.test(short.errors._form));
@@ -165,8 +165,8 @@ describe("receiving goods", () => {
 
     const po = await w.openPO([{ item: w.f.stock, qty: 4, price: 1_000 }]);
     const lots = (a: number | null, b: number | null) => [
-      { lot_no: w.key("LL"), expiry_date: "", location_id: a, qty: 3 },
-      { lot_no: w.key("LL"), expiry_date: "", location_id: b, qty: 1 },
+      { tracking_no: w.key("LL"), expiry_date: "", location_id: a, qty: 3 },
+      { tracking_no: w.key("LL"), expiry_date: "", location_id: b, qty: 1 },
     ];
     const line = (l: ReturnType<typeof lots>) => [{ source_doc_line_id: po.lineIds[0], qty: 4, note: "", lots: l }];
     const twice = await create(header(po.id, { warehouse_id: wh.id }), line(lots(a01, a01)), w.actor);
@@ -178,7 +178,7 @@ describe("receiving goods", () => {
     const missing = await transitionReceiptNote(r.id, "post", w.actor);
     assert.ok(!missing.ok && /pilih lokasi setiap lot/.test(missing.errors._form), JSON.stringify(missing));
 
-    await prisma.logReceiptNoteLot.deleteMany({ where: { line: { receipt_note_id: r.id } } });
+    await prisma.logReceiptNoteTracking.deleteMany({ where: { line: { receipt_note_id: r.id } } });
     await prisma.logReceiptNoteLine.deleteMany({ where: { receipt_note_id: r.id } });
     await prisma.logReceiptNote.delete({ where: { id: r.id } });
     const ok = await create(header(po.id, { warehouse_id: wh.id }), line(lots(a01, a02)), w.actor);
@@ -192,7 +192,7 @@ describe("receiving goods", () => {
   test("another unit comes into stock in base units", async () => {
     const po = await w.openPO([{ item: w.f.stock, qty: 2, price: 24_000, uom: w.f.box }]);
     const before = (await prisma.logStockValuationBalance.findFirst({ where: { item_id: w.f.stock } }))?.qty_balance.toNumber() ?? 0;
-    const r = await create(header(po.id), [{ source_doc_line_id: po.lineIds[0], qty: 1, note: "", lots: [{ lot_no: w.key("BX"), expiry_date: "", qty: 1 }] }], w.actor);
+    const r = await create(header(po.id), [{ source_doc_line_id: po.lineIds[0], qty: 1, note: "", lots: [{ tracking_no: w.key("BX"), expiry_date: "", qty: 1 }] }], w.actor);
     assert.ok(r.ok);
     await transitionReceiptNote(r.id, "post", w.actor);
     const after = (await prisma.logStockValuationBalance.findFirstOrThrow({ where: { item_id: w.f.stock } })).qty_balance.toNumber();

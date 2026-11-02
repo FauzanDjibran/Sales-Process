@@ -24,7 +24,7 @@ import {
 
 /**
  * The Receipt Note module (P125, Purchasing-Concept.md B17–B22): its tables are
- * `log_receipt_note`, `log_receipt_note_line` and `log_receipt_note_lot`, and
+ * `log_receipt_note`, `log_receipt_note_line` and `log_receipt_note_tracking`, and
  * nothing else names them.
  *
  * **Standalone** (P106): a purpose and a weak source pair, each line naming
@@ -52,7 +52,7 @@ export type ReceiptNoteHeaderInput = {
 };
 
 /** One lot a line comes in as — and, in a warehouse with Gunakan Lokasi, where it is put. */
-export type ReceiptNoteLotInput = { lot_no: string; expiry_date: string; location_id?: number | null; qty: number | string };
+export type ReceiptNoteLotInput = { tracking_no: string; expiry_date: string; location_id?: number | null; qty: number | string };
 
 export type ReceiptNoteLineInput = {
   source_doc_line_id: number | null;
@@ -143,7 +143,7 @@ export async function receiptNoteOptions(current: { id: number; sourceId: number
 
 // ------------------------------------------------------------- validation
 
-type CheckedLot = { lot_seq: number; lot_no: string | null; expiry_date: Date | null; location_id: number | null; qty: number };
+type CheckedLot = { tracking_seq: number; tracking_no: string | null; expiry_date: Date | null; location_id: number | null; qty: number };
 
 /** Where a receipt's lots may be put: nothing to choose, or one of the warehouse's locations. */
 type Place = { useLocation: boolean; locations: Map<number, WarehouseLocationOption> };
@@ -308,7 +308,7 @@ function checkLots(
   const lots: CheckedLot[] = [];
   let total = 0;
   for (const p of list) {
-    const lotNo = String(p.lot_no ?? "").trim().toUpperCase() || null;
+    const lotNo = String(p.tracking_no ?? "").trim().toUpperCase() || null;
     const locationId = Number(p.location_id) || null;
     const location = locationId ? place.locations.get(locationId) : undefined;
     if (!place.useLocation && locationId) return { ok: false, error: "Gudang ini tidak memakai lokasi." };
@@ -325,7 +325,7 @@ function checkLots(
     if (expiry && !DAY.test(expiry)) return { ok: false, error: "Tanggal kadaluarsa tidak valid." };
     if (line.hasExpiry && !expiry && forPosting) return { ok: false, error: `${line.itemLabel} memiliki kadaluarsa: isi tanggal kadaluarsa setiap lot.` };
     total += units(qty);
-    lots.push({ lot_seq: lots.length + 1, lot_no: lotNo, expiry_date: expiry ? asDate(expiry) : null, location_id: locationId, qty: fromUnits(units(qty)) });
+    lots.push({ tracking_seq: lots.length + 1, tracking_no: lotNo, expiry_date: expiry ? asDate(expiry) : null, location_id: locationId, qty: fromUnits(units(qty)) });
   }
   if (total > units(lineQty)) return { ok: false, error: `Jumlah lot (${qtyText(fromUnits(total))}) melebihi Qty baris (${qtyText(lineQty)} ${line.uomLabel}).` };
   if (forPosting && total !== units(lineQty)) {
@@ -364,7 +364,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
   }
 }
 
-const lineCreate = ({ lots, ...l }: CheckedLine) => ({ ...l, lots: { create: lots } });
+const lineCreate = ({ lots, ...l }: CheckedLine) => ({ ...l, trackings: { create: lots } });
 
 export async function createReceiptNote(header: ReceiptNoteHeaderInput, lines: ReceiptNoteLineInput[], actorId: number): Promise<ReceiptNoteResult> {
   const sourceId = Number(header.source_doc_id) || null;
@@ -411,8 +411,8 @@ export async function updateReceiptNote(id: number, header: ReceiptNoteHeaderInp
   });
 }
 
-type StoredNote = Prisma.LogReceiptNoteGetPayload<{ include: { lines: { include: { lots: true } } } }>;
-const WITH_LOTS = { lines: { include: { lots: { orderBy: { lot_seq: "asc" as const } } }, orderBy: { line_no: "asc" as const } } };
+type StoredNote = Prisma.LogReceiptNoteGetPayload<{ include: { lines: { include: { trackings: true } } } }>;
+const WITH_LOTS = { lines: { include: { trackings: { orderBy: { tracking_seq: "asc" as const } } }, orderBy: { line_no: "asc" as const } } };
 
 function asInput(n: StoredNote): { header: ReceiptNoteHeaderInput; lines: ReceiptNoteLineInput[] } {
   return {
@@ -429,7 +429,7 @@ function asInput(n: StoredNote): { header: ReceiptNoteHeaderInput; lines: Receip
         source_doc_line_id: l.source_doc_line_id,
         qty: l.qty.toNumber(),
         note: l.note ?? "",
-        lots: l.lots.map((p) => ({ lot_no: p.lot_no ?? "", expiry_date: isoDay(p.expiry_date), location_id: p.location_id, qty: p.qty.toNumber() })),
+        lots: l.trackings.map((p) => ({ tracking_no: p.tracking_no ?? "", expiry_date: isoDay(p.expiry_date), location_id: p.location_id, qty: p.qty.toNumber() })),
       })),
   };
 }
@@ -541,7 +541,7 @@ export async function transitionReceiptNote(
             const lotValue = cumulativeShare(value, line.qty, before, lot.qty);
             before += lot.qty;
             const baseQty = fromUnits(units(lot.qty * line.uom_factor));
-            const lotNo = lot.lot_no ?? `${note.rn_no.replace(/[^A-Z0-9]/gi, "")}-${line.line_no}-${lot.lot_seq}`;
+            const lotNo = lot.tracking_no ?? `${note.rn_no.replace(/[^A-Z0-9]/gi, "")}-${line.line_no}-${lot.tracking_seq}`;
             const inn = await receiveStock(tx, {
               itemId: line.item_id,
               warehouseId: r.c.data.warehouse_id!,
@@ -555,9 +555,9 @@ export async function transitionReceiptNote(
               partnerId: r.c.data.partner_id,
               actorId,
             });
-            await tx.logReceiptNoteLot.update({
-              where: { line_id_lot_seq: { line_id: stored.id, lot_seq: lot.lot_seq } },
-              data: { lot_no: inn.trackingNo, base_qty: baseQty, value_amount: lotValue, tracking_id: inn.trackingId },
+            await tx.logReceiptNoteTracking.update({
+              where: { line_id_tracking_seq: { line_id: stored.id, tracking_seq: lot.tracking_seq } },
+              data: { tracking_no: inn.trackingNo, base_qty: baseQty, value_amount: lotValue, tracking_id: inn.trackingId },
             });
           }
         }
@@ -680,7 +680,7 @@ export async function getReceiptNote(id: number): Promise<ReceiptNoteView | null
       baseQty: n.lines[i].base_qty.toNumber(),
       value: n.lines[i].value_amount.toNumber(),
       isStock: n.lines[i].is_stock,
-      lotValues: n.lines[i].lots.map((p) => p.value_amount.toNumber()),
+      lotValues: n.lines[i].trackings.map((p) => p.value_amount.toNumber()),
     })),
     value: n.value_amount.toNumber(),
     journalId: n.journal_id,
@@ -698,7 +698,7 @@ export async function receiptNoteLocationUse(warehouseId: number, locationIds: n
   const [drafts, named] = await Promise.all([
     prisma.logReceiptNote.count({ where: { warehouse_id: warehouseId, status: "Draft" } }),
     locationIds.length
-      ? prisma.logReceiptNoteLot.findMany({ where: { location_id: { in: locationIds } }, distinct: ["location_id"], select: { location_id: true } })
+      ? prisma.logReceiptNoteTracking.findMany({ where: { location_id: { in: locationIds } }, distinct: ["location_id"], select: { location_id: true } })
       : [],
   ]);
   return { drafts, named: new Set(named.flatMap((r) => (r.location_id ? [r.location_id] : []))) };

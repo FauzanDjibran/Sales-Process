@@ -30,7 +30,7 @@ const line = (qty: number, picks: { lot: number; qty: number }[], itemId = f.mat
   item_id: itemId,
   qty,
   note: "",
-  picks: picks.map((p) => ({ lot_id: p.lot, location_id: null, qty: p.qty })),
+  picks: picks.map((p) => ({ tracking_id: p.lot, location_id: null, qty: p.qty })),
 });
 async function create(h: StockIssueHeaderInput, lines: StockIssueLineInput[]) {
   const r = await createStockIssue(h, lines, f.actor);
@@ -44,7 +44,7 @@ before(async () => {
 });
 
 after(async () => {
-  await prisma.logStockIssueLot.deleteMany({ where: { line: { stock_issue_id: { in: ids } } } });
+  await prisma.logStockIssueTracking.deleteMany({ where: { line: { stock_issue_id: { in: ids } } } });
   await prisma.logStockIssueLine.deleteMany({ where: { stock_issue_id: { in: ids } } });
   await prisma.logStockIssue.deleteMany({ where: { id: { in: ids } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "log_stock_issue", row_id: { in: ids } } });
@@ -101,9 +101,9 @@ describe("posting moves the lot straight into the workstation", () => {
     assert.equal(v.cost, 300_000);
     const lines = await prisma.accJournalLine.findMany({ where: { journal_id: v.journalId! }, orderBy: { sequence_no: "asc" } });
     assert.deepEqual(lines.map((l) => [l.account_id, l.debit_amount.toNumber(), l.kredit_amount.toNumber()]), [[f.wipAcc, 300_000, 0], [f.inventoryAcc, 0, 300_000]]);
-    const bucket = await prisma.prdBalance.findUniqueOrThrow({ where: { lot_id_workstation_id: { lot_id: f.lot, workstation_id: f.wsA } } });
+    const bucket = await prisma.prdBalance.findUniqueOrThrow({ where: { tracking_id_workstation_id: { tracking_id: f.lot, workstation_id: f.wsA } } });
     assert.deepEqual([bucket.qty_balance.toNumber(), bucket.value_balance.toNumber()], [300, 300_000], "the same lot, at the workstation");
-    const pick = await prisma.logStockIssueLot.findFirstOrThrow({ where: { line: { stock_issue_id: id } } });
+    const pick = await prisma.logStockIssueTracking.findFirstOrThrow({ where: { line: { stock_issue_id: id } } });
     assert.equal(pick.prd_bucket_id, bucket.id);
   });
 

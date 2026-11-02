@@ -28,10 +28,10 @@ import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
  * shares it; once posted it shows what each received.
  */
 
-type OutputLine = { key: string; item_id: number | null; lot_no: string; expiry_date: string; qty: string };
+type OutputLine = { key: string; item_id: number | null; tracking_no: string; expiry_date: string; qty: string };
 
 let seq = 0;
-const newOutput = (): OutputLine => ({ key: `o${Date.now().toString(36)}${seq++}`, item_id: null, lot_no: "", expiry_date: "", qty: "" });
+const newOutput = (): OutputLine => ({ key: `o${Date.now().toString(36)}${seq++}`, item_id: null, tracking_no: "", expiry_date: "", qty: "" });
 const num = (v: string) => Number(String(v).replace(",", ".")) || 0;
 const money = (n: number) => formatMoney(n, "IDR");
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
@@ -64,7 +64,7 @@ export function ExecutionForm({
   }));
   const [inputs, setInputs] = useState<BucketLine[]>(() => (src ? src.inputs.map((l) => newBucketLine(Number(l.bucket_id), String(l.qty))) : []));
   const [outputs, setOutputs] = useState<OutputLine[]>(() =>
-    src ? src.outputs.map((o) => ({ ...newOutput(), item_id: Number(o.item_id), lot_no: o.lot_no, expiry_date: o.expiry_date, qty: String(o.qty) })) : [newOutput()]
+    src ? src.outputs.map((o) => ({ ...newOutput(), item_id: Number(o.item_id), tracking_no: o.tracking_no, expiry_date: o.expiry_date, qty: String(o.qty) })) : [newOutput()]
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
@@ -97,7 +97,7 @@ export function ExecutionForm({
     const payload = {
       ...header,
       inputs: inputs.map((l) => ({ bucket_id: l.bucket_id, qty: l.qty })),
-      outputs: outputs.map((o) => ({ item_id: o.item_id, lot_no: o.lot_no, expiry_date: o.expiry_date, qty: o.qty })),
+      outputs: outputs.map((o) => ({ item_id: o.item_id, tracking_no: o.tracking_no, expiry_date: o.expiry_date, qty: o.qty })),
     };
     const r = mode === "edit" ? await updateExecutionAction(execution!.id, payload) : await createExecutionAction(payload);
     setSaving(false);
@@ -243,7 +243,7 @@ export function ExecutionForm({
             {outputs.map((o, i) => {
               const item = o.item_id ? itemById.get(o.item_id) : undefined;
               const e = (f: string) => errors[`out.${o.key}.${f}`];
-              const err = e("item_id") ?? e("lot_no") ?? e("expiry_date") ?? e("qty");
+              const err = e("item_id") ?? e("tracking_no") ?? e("expiry_date") ?? e("qty");
               const stored = execution?.outputs[i];
               return (
                 <tr key={o.key} className={err ? "overrow" : undefined}>
@@ -269,9 +269,9 @@ export function ExecutionForm({
                   </td>
                   <td>
                     {editing ? (
-                      <input className={`inp sm${e("lot_no") ? " bad" : ""}`} value={o.lot_no} placeholder="otomatis" onChange={(ev) => setOutput(o.key, { lot_no: ev.target.value })} />
+                      <input className={`inp sm${e("tracking_no") ? " bad" : ""}`} value={o.tracking_no} placeholder="otomatis" onChange={(ev) => setOutput(o.key, { tracking_no: ev.target.value })} />
                     ) : (
-                      <span className="mono">{stored?.lotNo ?? (o.lot_no || "otomatis")}</span>
+                      <span className="mono">{stored?.lotNo ?? (o.tracking_no || "otomatis")}</span>
                     )}
                   </td>
                   <td>

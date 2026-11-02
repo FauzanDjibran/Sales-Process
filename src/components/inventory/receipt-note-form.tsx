@@ -27,7 +27,7 @@ import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
  * provisional on a Draft, as stored once posted.
  */
 
-type LotState = { key: string; lot_no: string; expiry_date: string; location_id: number | null; qty: string };
+type LotState = { key: string; tracking_no: string; expiry_date: string; location_id: number | null; qty: string };
 type LineState = { key: string; source_doc_line_id: number; qty: string; note: string; lots: LotState[] };
 
 let seq = 0;
@@ -58,7 +58,7 @@ export function ReceiptNoteForm({
       source_doc_line_id: Number(l.source_doc_line_id),
       qty: String(l.qty),
       note: l.note,
-      lots: (l.lots ?? []).map((p) => ({ key: newKey(), lot_no: p.lot_no, expiry_date: p.expiry_date, location_id: p.location_id ?? null, qty: String(p.qty) })),
+      lots: (l.lots ?? []).map((p) => ({ key: newKey(), tracking_no: p.tracking_no, expiry_date: p.expiry_date, location_id: p.location_id ?? null, qty: String(p.qty) })),
     }))
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -112,7 +112,7 @@ export function ReceiptNoteForm({
       .map((id) => {
         const left = String(leftOf(id));
         const stock = poLine.get(id)?.isStock;
-        return { key: newKey(), source_doc_line_id: id, qty: left, note: "", lots: stock ? [{ key: newKey(), lot_no: "", expiry_date: "", location_id: null, qty: left }] : [] };
+        return { key: newKey(), source_doc_line_id: id, qty: left, note: "", lots: stock ? [{ key: newKey(), tracking_no: "", expiry_date: "", location_id: null, qty: left }] : [] };
       });
     setLines([...keep, ...added]);
     setPicking(false);
@@ -132,7 +132,7 @@ export function ReceiptNoteForm({
       source_doc_line_id: l.source_doc_line_id,
       qty: l.qty,
       note: l.note,
-      lots: l.lots.map((p) => ({ lot_no: p.lot_no, expiry_date: p.expiry_date, location_id: p.location_id, qty: p.qty })),
+      lots: l.lots.map((p) => ({ tracking_no: p.tracking_no, expiry_date: p.expiry_date, location_id: p.location_id, qty: p.qty })),
     }));
     const result = mode === "edit" ? await updateReceiptNoteAction(note!.id, header, payload) : await createReceiptNoteAction(header, payload);
     setSaving(false);
@@ -326,10 +326,10 @@ export function ReceiptNoteForm({
                             >
                               <input
                                 className="inp sm idf"
-                                value={lot.lot_no}
+                                value={lot.tracking_no}
                                 placeholder="No. Lot (otomatis)"
                                 aria-label="No. Lot"
-                                onChange={(e) => setLine(l.key, { lots: l.lots.map((x) => (x.key === lot.key ? { ...x, lot_no: e.target.value } : x)) })}
+                                onChange={(e) => setLine(l.key, { lots: l.lots.map((x) => (x.key === lot.key ? { ...x, tracking_no: e.target.value } : x)) })}
                               />
                               <DateInput
                                 value={lot.expiry_date}
@@ -363,7 +363,7 @@ export function ReceiptNoteForm({
                             onClick={() => {
                               const used = l.lots.reduce((s, x) => s + (Number(x.qty) || 0), 0);
                               const rest = Math.max(0, (Number(l.qty) || 0) - used);
-                              setLine(l.key, { lots: [...l.lots, { key: newKey(), lot_no: "", expiry_date: "", location_id: null, qty: rest ? String(+rest.toFixed(4)) : "" }] });
+                              setLine(l.key, { lots: [...l.lots, { key: newKey(), tracking_no: "", expiry_date: "", location_id: null, qty: rest ? String(+rest.toFixed(4)) : "" }] });
                             }}
                           >
                             <Icon name="plus" size={13} /> Tambah Lot
@@ -374,7 +374,7 @@ export function ReceiptNoteForm({
                           {l.lots
                             .map(
                               (lot) =>
-                                `${lot.lot_no || "(otomatis)"}${lot.expiry_date ? ` · exp ${formatDate(lot.expiry_date)}` : ""}${lot.location_id ? ` · ${locationLabel.get(lot.location_id) ?? "lokasi?"}` : ""}: ${qtyText(Number(lot.qty))}`
+                                `${lot.tracking_no || "(otomatis)"}${lot.expiry_date ? ` · exp ${formatDate(lot.expiry_date)}` : ""}${lot.location_id ? ` · ${locationLabel.get(lot.location_id) ?? "lokasi?"}` : ""}: ${qtyText(Number(lot.qty))}`
                             )
                             .join(" · ")}
                         </span>

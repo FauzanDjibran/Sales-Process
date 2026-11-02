@@ -322,7 +322,7 @@ export const CHECKS: Check[] = [
                 AND n.cost_amount <> (SELECT -SUM(value_change) FROM log_stock_valuation_ledger WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id)))
           UNION ALL
           SELECT n.dn_no, l.cost_amount, SUM(p.cost_amount), SUM(p.qty) - l.qty
-          FROM log_delivery_note n JOIN log_delivery_note_line l ON l.delivery_note_id = n.id JOIN log_delivery_note_lot p ON p.delivery_note_line_id = l.id
+          FROM log_delivery_note n JOIN log_delivery_note_line l ON l.delivery_note_id = n.id JOIN log_delivery_note_tracking p ON p.delivery_note_line_id = l.id
           WHERE n.status = 'Posted' GROUP BY n.dn_no, l.id HAVING l.cost_amount <> SUM(p.cost_amount) OR SUM(p.qty) <> l.qty`,
   },
   {
@@ -331,7 +331,7 @@ export const CHECKS: Check[] = [
     sql: `SELECT n.dn_no, l.id AS line, m.item_label FROM log_delivery_note n
           JOIN log_delivery_note_line l ON l.delivery_note_id = n.id
           JOIN m_item m ON m.id = l.item_id AND m.item_type = 'Barang' AND m.track_stock = true
-          WHERE n.status = 'Posted' AND NOT EXISTS (SELECT 1 FROM log_delivery_note_lot p WHERE p.delivery_note_line_id = l.id)`,
+          WHERE n.status = 'Posted' AND NOT EXISTS (SELECT 1 FROM log_delivery_note_tracking p WHERE p.delivery_note_line_id = l.id)`,
   },
   // ------------------------------------------------------------- billing
   {
@@ -769,9 +769,9 @@ export const CHECKS: Check[] = [
   {
     area: "production",
     name: "every lot in production is a lot of its item; a lot an execution made names it as its source (R3, R17)",
-    sql: `SELECT 'item' AS what, b.id AS ref FROM prd_balance b JOIN log_stock_tracking t ON t.id = b.lot_id WHERE t.item_id <> b.item_id
+    sql: `SELECT 'item' AS what, b.id AS ref FROM prd_balance b JOIN log_stock_tracking t ON t.id = b.tracking_id WHERE t.item_id <> b.item_id
           UNION ALL
-          SELECT 'source', k.to_lot_id FROM prd_lot_link k JOIN log_stock_tracking t ON t.id = k.to_lot_id
+          SELECT 'source', k.to_tracking_id FROM prd_tracking_link k JOIN log_stock_tracking t ON t.id = k.to_tracking_id
            WHERE t.source_doc_type_id <> k.source_doc_type_id OR t.source_doc_id <> k.source_doc_id`,
   },
   {

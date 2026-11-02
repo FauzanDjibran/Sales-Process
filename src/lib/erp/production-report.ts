@@ -57,7 +57,7 @@ export async function wipBalanceReport(asOf: string, workstationIds: number[]): 
   const buckets = await prisma.prdBalance.findMany({
     where: { id: { in: [...at.keys()] }, ...(workstationIds.length ? { workstation_id: { in: workstationIds } } : {}) },
     include: {
-      lot: { select: { tracking_no: true } },
+      tracking: { select: { tracking_no: true } },
       item: { select: { item_label: true, item_name: true, base_uom: { select: { uom_label: true } } } },
       workstation: { select: { workstation_label: true, workstation_name: true } },
     },
@@ -72,7 +72,7 @@ export async function wipBalanceReport(asOf: string, workstationIds: number[]): 
       bucketId: b.id,
       itemLabel: b.item.item_label,
       itemName: b.item.item_name,
-      lotNo: b.lot.tracking_no,
+      lotNo: b.tracking.tracking_no,
       uom: b.item.base_uom.uom_label,
       qty,
       value,
@@ -149,7 +149,7 @@ export async function lotCardReport(lotNo: string): Promise<LotCard[]> {
   return Promise.all(
     lots.map(async (lot) => {
       const [rows, inStock] = await Promise.all([
-        prisma.prdLedger.findMany({ where: { lot_id: lot.id }, orderBy: [{ posting_date: "asc" }, { id: "asc" }], include: { workstation: { select: { workstation_label: true } } } }),
+        prisma.prdLedger.findMany({ where: { tracking_id: lot.id }, orderBy: [{ posting_date: "asc" }, { id: "asc" }], include: { workstation: { select: { workstation_label: true } } } }),
         lotStockHistory(lot.id),
       ]);
       return {
@@ -289,7 +289,7 @@ const TRACE_DEPTH_CAP = 20;
  * The genealogy of a lot number (R27): back through every execution to the
  * lots that came in from a supplier, and forward to where the goods are now —
  * at a workstation, in stock, or delivered to a customer. Read from
- * `prd_lot_link`, which every posted execution writes; every lot of the number
+ * `prd_tracking_link`, which every posted execution writes; every lot of the number
  * starts the walk (a lot is unique per item, P120).
  */
 export async function traceReport(lotNo: string): Promise<TraceReport | null> {
@@ -305,15 +305,15 @@ export async function traceReport(lotNo: string): Promise<TraceReport | null> {
     let depth = 0;
     let truncated = false;
     while (frontier.length && depth < TRACE_DEPTH_CAP) {
-      const links = await prisma.prdLotLink.findMany({
-        where: dir === "back" ? { to_lot_id: { in: frontier } } : { from_lot_id: { in: frontier } },
-        select: { from_lot_id: true, to_lot_id: true, source_no: true, qty: true, value: true, from_bucket: { select: { workstation: { select: { workstation_label: true } } } } },
+      const links = await prisma.prdTrackingLink.findMany({
+        where: dir === "back" ? { to_tracking_id: { in: frontier } } : { from_tracking_id: { in: frontier } },
+        select: { from_tracking_id: true, to_tracking_id: true, source_no: true, qty: true, value: true, from_bucket: { select: { workstation: { select: { workstation_label: true } } } } },
       });
       depth += 1;
       const next: number[] = [];
       for (const l of links) {
         // Backward a node is an input lot, forward an output lot; each carries the execution between.
-        const id = dir === "back" ? l.from_lot_id : l.to_lot_id;
+        const id = dir === "back" ? l.from_tracking_id : l.to_tracking_id;
         const edges = edgesOf[dir].get(id) ?? new Map<string, TraceEdge>();
         const e = edges.get(l.source_no) ?? { sourceNo: l.source_no, stationLabel: l.from_bucket.workstation.workstation_label, qty: 0, value: 0 };
         e.qty = round6(e.qty + num(l.qty));
@@ -342,10 +342,10 @@ export async function traceReport(lotNo: string): Promise<TraceReport | null> {
     include: { item: { select: { item_label: true, item_name: true, base_uom: { select: { uom_label: true } } } }, source_partner: { select: { partner_label: true, partner_name: true } } },
   });
   const lotBy = new Map(lots.map((l) => [l.id, l]));
-  const made = new Set((await prisma.prdLotLink.findMany({ where: { to_lot_id: { in: allIds } }, distinct: ["to_lot_id"], select: { to_lot_id: true } })).map((x) => x.to_lot_id));
+  const made = new Set((await prisma.prdTrackingLink.findMany({ where: { to_tracking_id: { in: allIds } }, distinct: ["to_tracking_id"], select: { to_tracking_id: true } })).map((x) => x.to_tracking_id));
   const nowIds = [...new Set([...startIds, ...fwd.order])];
   const [held, stock, delivered] = await Promise.all([
-    prisma.prdBalance.findMany({ where: { lot_id: { in: nowIds }, qty_balance: { gt: 0 } }, include: { workstation: { select: { workstation_label: true } } } }),
+    prisma.prdBalance.findMany({ where: { tracking_id: { in: nowIds }, qty_balance: { gt: 0 } }, include: { workstation: { select: { workstation_label: true } } } }),
     lotStockPositions(nowIds),
     deliveriesOfLots(nowIds),
   ]);
@@ -364,7 +364,7 @@ export async function traceReport(lotNo: string): Promise<TraceReport | null> {
         dir === "back"
           ? null
           : {
-              production: held.filter((h) => h.lot_id === id).map((h) => ({ stationLabel: h.workstation.workstation_label, qty: num(h.qty_balance) })),
+              production: held.filter((h) => h.tracking_id === id).map((h) => ({ stationLabel: h.workstation.workstation_label, qty: num(h.qty_balance) })),
               stock: stock.filter((s) => s.lotId === id).map((s) => ({ where: s.locationLabel ? `${s.warehouseLabel} · ${s.locationLabel}` : s.warehouseLabel, qty: s.qty })),
               delivered: delivered.filter((d) => d.lotId === id).map((d) => ({ noteNo: d.noteNo, date: d.date, to: `${d.partnerLabel} · ${d.partnerName}`, qty: d.baseQty })),
             },

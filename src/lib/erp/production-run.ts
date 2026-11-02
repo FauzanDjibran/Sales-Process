@@ -49,7 +49,7 @@ import { EXECUTION_WORKFLOW, prodDocIsEditable, prodDocTransitionAllowed, type P
  * (P103). Named only by this module.
  */
 
-export type ExecutionOutputInput = { item_id: number | null; lot_no: string; expiry_date: string; qty: number | string };
+export type ExecutionOutputInput = { item_id: number | null; tracking_no: string; expiry_date: string; qty: number | string };
 
 export type ExecutionInput = {
   execution_date: string;
@@ -93,7 +93,7 @@ export async function executionOptions(current: { workstationId: number; bucketI
 
 // ------------------------------------------------------------- validation
 
-type CheckedOutput = { line_no: number; item_id: number; lot_no: string | null; expiry_date: Date | null; qty: number; weight: number };
+type CheckedOutput = { line_no: number; item_id: number; tracking_no: string | null; expiry_date: Date | null; qty: number; weight: number };
 type Checked = {
   data: { execution_date: Date; workstation_id: number; driver: number; note: string | null };
   workstationLabel: string;
@@ -148,15 +148,15 @@ export async function checkExecution(db: Db, input: ExecutionInput, selfId: numb
       errors[key("qty")] = "Paling banyak 4 angka desimal.";
       continue;
     }
-    const lotNo = String(o.lot_no ?? "").trim().toUpperCase() || null;
+    const lotNo = String(o.tracking_no ?? "").trim().toUpperCase() || null;
     if (lotNo) {
       if (lotsTaken.has(`${item.id}:${lotNo}`)) {
-        errors[key("lot_no")] = `Lot ${lotNo} dipakai dua kali.`;
+        errors[key("tracking_no")] = `Lot ${lotNo} dipakai dua kali.`;
         continue;
       }
       lotsTaken.add(`${item.id}:${lotNo}`);
       if (await lotNumberTaken(item.id, lotNo, db)) {
-        errors[key("lot_no")] = `${item.label} sudah punya lot ${lotNo}; lot output selalu baru.`;
+        errors[key("tracking_no")] = `${item.label} sudah punya lot ${lotNo}; lot output selalu baru.`;
         continue;
       }
     }
@@ -170,7 +170,7 @@ export async function checkExecution(db: Db, input: ExecutionInput, selfId: numb
       continue;
     }
     const q = fromUnits(units(qty));
-    outputs.push({ line_no: outputs.length + 1, item_id: item.id, lot_no: lotNo, expiry_date: expiry ? asDate(expiry) : null, qty: q, weight: outputWeight(q, item.valueWeight) });
+    outputs.push({ line_no: outputs.length + 1, item_id: item.id, tracking_no: lotNo, expiry_date: expiry ? asDate(expiry) : null, qty: q, weight: outputWeight(q, item.valueWeight) });
   }
   if (outputs.length && outputs.length === (input.outputs ?? []).length && !outputs.some((o) => o.weight > 0)) {
     errors._outputs = "Semua output berbobot 0: isi Bobot Nilai pada barang output, minimal satu.";
@@ -200,9 +200,9 @@ async function audit(db: Db, id: number, action: "TAMBAH" | "UPDATE", event: str
 async function writeLines(tx: Prisma.TransactionClient, id: number, c: Checked) {
   await tx.prdExecutionInput.deleteMany({ where: { execution_id: id } });
   await tx.prdExecutionOutput.deleteMany({ where: { execution_id: id } });
-  for (const l of c.inputs) await tx.prdExecutionInput.create({ data: { execution_id: id, line_no: l.line_no, bucket_id: l.bucket_id, lot_id: l.lot_id, item_id: l.item_id, qty: l.qty } });
+  for (const l of c.inputs) await tx.prdExecutionInput.create({ data: { execution_id: id, line_no: l.line_no, bucket_id: l.bucket_id, tracking_id: l.tracking_id, item_id: l.item_id, qty: l.qty } });
   for (const o of c.outputs) {
-    await tx.prdExecutionOutput.create({ data: { execution_id: id, line_no: o.line_no, item_id: o.item_id, lot_no: o.lot_no, expiry_date: o.expiry_date, qty: o.qty } });
+    await tx.prdExecutionOutput.create({ data: { execution_id: id, line_no: o.line_no, item_id: o.item_id, tracking_no: o.tracking_no, expiry_date: o.expiry_date, qty: o.qty } });
   }
 }
 
@@ -247,7 +247,7 @@ function asInput(e: Stored): ExecutionInput {
     driver: e.driver.toString(),
     note: e.note ?? "",
     inputs: e.inputs.map((l) => ({ bucket_id: l.bucket_id, qty: l.qty.toString() })),
-    outputs: e.outputs.map((o) => ({ item_id: o.item_id, lot_no: o.lot_no ?? "", expiry_date: isoDay(o.expiry_date), qty: o.qty.toString() })),
+    outputs: e.outputs.map((o) => ({ item_id: o.item_id, tracking_no: o.tracking_no ?? "", expiry_date: isoDay(o.expiry_date), qty: o.qty.toString() })),
   };
 }
 
@@ -294,7 +294,7 @@ export async function transitionExecution(id: number, action: ProdDocAction, act
       const source = { docTypeId: await docTypeId(tx, "prd_execution"), docId: id, no: e.execution_no };
       const date = r.c.data.execution_date;
       // R17: an output without a typed number takes <execution number>-<n>.
-      const lotNos = r.c.outputs.map((o) => o.lot_no ?? `${e.execution_no}-${o.line_no}`);
+      const lotNos = r.c.outputs.map((o) => o.tracking_no ?? `${e.execution_no}-${o.line_no}`);
       const made = await produce(tx, {
         workstationId: r.c.data.workstation_id,
         inputs: r.c.inputs.map((l) => ({ bucketId: l.bucket_id, baseQty: l.qty })),
@@ -309,7 +309,7 @@ export async function transitionExecution(id: number, action: ProdDocAction, act
       for (const [i, o] of r.c.outputs.entries()) {
         await tx.prdExecutionOutput.update({
           where: { execution_id_line_no: { execution_id: id, line_no: o.line_no } },
-          data: { lot_no: lotNos[i].toUpperCase(), weight: made.outputs[i].weight, value: made.outputs[i].value, lot_id: made.outputs[i].lotId, bucket_id: made.outputs[i].bucketId },
+          data: { tracking_no: lotNos[i].toUpperCase(), weight: made.outputs[i].weight, value: made.outputs[i].value, tracking_id: made.outputs[i].lotId, bucket_id: made.outputs[i].bucketId },
         });
       }
 
@@ -389,7 +389,7 @@ export async function getExecution(id: number): Promise<ExecutionView | null> {
     status: e.status,
     input: asInput(e),
     inputValues: e.inputs.map((l) => l.value.toNumber()),
-    outputs: e.outputs.map((o) => ({ lotNo: o.lot_no, weight: o.weight.toNumber(), value: o.value.toNumber() })),
+    outputs: e.outputs.map((o) => ({ lotNo: o.tracking_no, weight: o.weight.toNumber(), value: o.value.toNumber() })),
     value: e.input_value.toNumber(),
     journalId: e.journal_id,
     journalNo: e.journal_id ? ((await journalNumbersByIds([e.journal_id])).get(e.journal_id) ?? null) : null,
@@ -423,7 +423,7 @@ export async function postedRunsInRange(from: Date, to: Date, db: Db = prisma): 
   const rows = await db.prdExecution.findMany({
     where: { status: "Posted", execution_date: { gte: from, lte: to } },
     orderBy: [{ execution_date: "asc" }, { id: "asc" }],
-    include: { workstation: { select: { workstation_label: true } }, outputs: { select: { lot_id: true, weight: true, qty: true }, orderBy: { line_no: "asc" } } },
+    include: { workstation: { select: { workstation_label: true } }, outputs: { select: { tracking_id: true, weight: true, qty: true }, orderBy: { line_no: "asc" } } },
   });
   return rows.map((r) => ({
     id: r.id,
@@ -432,6 +432,6 @@ export async function postedRunsInRange(from: Date, to: Date, db: Db = prisma): 
     workstationId: r.workstation_id,
     workstationLabel: r.workstation.workstation_label,
     driver: r.driver.toNumber(),
-    outputs: r.outputs.flatMap((o) => (o.lot_id ? [{ lotId: o.lot_id, weight: o.weight.toNumber(), qty: o.qty.toNumber() }] : [])),
+    outputs: r.outputs.flatMap((o) => (o.tracking_id ? [{ lotId: o.tracking_id, weight: o.weight.toNumber(), qty: o.qty.toNumber() }] : [])),
   }));
 }

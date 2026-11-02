@@ -99,7 +99,7 @@ before(async () => {
   // Received in full.
   const rn = await createReceiptNote(
     { source_doc_id: po.id, rn_date: today, warehouse_id: w.f.warehouse, supplier_dn_no: "", note: "" },
-    [{ source_doc_line_id: po.lineIds[0], qty: 10, note: "", lots: [{ lot_no: w.key("L"), expiry_date: "", qty: 10 }] }],
+    [{ source_doc_line_id: po.lineIds[0], qty: 10, note: "", lots: [{ tracking_no: w.key("L"), expiry_date: "", qty: 10 }] }],
     w.actor
   );
   assert.ok(rn.ok, JSON.stringify(rn));
@@ -116,7 +116,7 @@ after(async () => {
   await prisma.finApInvoice.deleteMany({ where: { id: { in: ids.inv } } });
   await prisma.finCashBankTx.deleteMany({ where: { id: { in: ids.pay } } });
   await prisma.finApAdvance.deleteMany({ where: { id: { in: ids.bill } } });
-  await prisma.logReceiptNoteLot.deleteMany({ where: { line: { receipt_note_id: { in: ids.rn } } } });
+  await prisma.logReceiptNoteTracking.deleteMany({ where: { line: { receipt_note_id: { in: ids.rn } } } });
   await prisma.logReceiptNoteLine.deleteMany({ where: { receipt_note_id: { in: ids.rn } } });
   await prisma.logReceiptNote.deleteMany({ where: { id: { in: ids.rn } } });
   for (const [k, list] of Object.entries({ fin_ap_invoice: ids.inv, fin_cash_bank_tx: ids.pay, fin_ap_advance: ids.bill, log_receipt_note: ids.rn })) {

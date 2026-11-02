@@ -67,7 +67,7 @@ export async function bucketOptions(withIds: number[] = [], db: Db = prisma): Pr
 }
 
 export type BucketLineInput = { bucket_id: number | null; qty: number | string };
-export type CheckedBucketLine = { line_no: number; bucket_id: number; lot_id: number; item_id: number; qty: number; bucket: BucketOption };
+export type CheckedBucketLine = { line_no: number; bucket_id: number; tracking_id: number; item_id: number; qty: number; bucket: BucketOption };
 
 /**
  * Lines taken from buckets: each a bucket held at `workstationId`, once, at a
@@ -113,7 +113,7 @@ export function checkBucketLines(
       errors[key("qty")] = `Melebihi yang tersedia (${b.qty} ${b.uomLabel}).`;
       continue;
     }
-    out.push({ line_no: out.length + 1, bucket_id: b.id, lot_id: b.lotId, item_id: b.itemId, qty: fromUnits(units(qty)), bucket: b });
+    out.push({ line_no: out.length + 1, bucket_id: b.id, tracking_id: b.lotId, item_id: b.itemId, qty: fromUnits(units(qty)), bucket: b });
   }
   return out;
 }

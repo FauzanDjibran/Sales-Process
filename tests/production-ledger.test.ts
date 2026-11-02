@@ -17,7 +17,7 @@ let f: ProductionFixture;
 let productLot = 0;
 const date = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
 const tx = <T>(fn: (t: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<T>) => prisma.$transaction(fn);
-const bucketOf = async (lotId: number, ws: number) => prisma.prdBalance.findUniqueOrThrow({ where: { lot_id_workstation_id: { lot_id: lotId, workstation_id: ws } } });
+const bucketOf = async (lotId: number, ws: number) => prisma.prdBalance.findUniqueOrThrow({ where: { tracking_id_workstation_id: { tracking_id: lotId, workstation_id: ws } } });
 
 before(async () => {
   f = await makeProductionFixture("LED");
@@ -85,7 +85,7 @@ describe("goods in, through and out of production", () => {
     assert.deepEqual(r.outputs.map((o) => o.value), [300_000, 0], "the by-product without Bobot Nilai takes nothing");
     const lot = await prisma.logStockTracking.findUniqueOrThrow({ where: { id: r.outputs[0].lotId } });
     assert.equal(lot.tracking_no, f.key("P1"));
-    assert.equal((await prisma.prdLotLink.findMany({ where: { to_lot_id: r.outputs[0].lotId } })).length, 1);
+    assert.equal((await prisma.prdTrackingLink.findMany({ where: { to_tracking_id: r.outputs[0].lotId } })).length, 1);
     productLot = r.outputs[0].lotId;
   });
 

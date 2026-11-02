@@ -82,7 +82,7 @@ describe("Production Transfer (R7)", () => {
     const v = (await getTransfer(r.id))!;
     assert.equal(v.status, "Posted");
     assert.equal(v.value, 250_000);
-    const at = async (ws: number) => (await prisma.prdBalance.findUniqueOrThrow({ where: { lot_id_workstation_id: { lot_id: f.lot, workstation_id: ws } } })).value_balance.toNumber();
+    const at = async (ws: number) => (await prisma.prdBalance.findUniqueOrThrow({ where: { tracking_id_workstation_id: { tracking_id: f.lot, workstation_id: ws } } })).value_balance.toNumber();
     assert.deepEqual([await at(f.wsA), await at(f.wsB)], [150_000, 250_000]);
     assert.equal(await prisma.accJournal.count({ where: { source_doc_id: r.id, source_doc_type: { doc_table: "prd_transfer" } } }), 0);
   });
@@ -90,7 +90,7 @@ describe("Production Transfer (R7)", () => {
 
 describe("Production Release (R8)", () => {
   test("to a warehouse: the same lot comes back into stock at the value it carried; Dr Persediaan / Cr WIP", async () => {
-    const b = await prisma.prdBalance.findUniqueOrThrow({ where: { lot_id_workstation_id: { lot_id: f.lot, workstation_id: f.wsB } } });
+    const b = await prisma.prdBalance.findUniqueOrThrow({ where: { tracking_id_workstation_id: { tracking_id: f.lot, workstation_id: f.wsB } } });
     const r = await createRelease(release({ lines: [{ bucket_id: b.id, qty: "100" }] }), f.actor);
     assert.ok(r.ok, JSON.stringify(r));
     releases.push(r.id);
@@ -107,7 +107,7 @@ describe("Production Release (R8)", () => {
   });
 
   test("Pemusnahan needs a reason and writes Dr Beban Pemusnahan / Cr WIP", async () => {
-    const b = await prisma.prdBalance.findUniqueOrThrow({ where: { lot_id_workstation_id: { lot_id: f.lot, workstation_id: f.wsA } } });
+    const b = await prisma.prdBalance.findUniqueOrThrow({ where: { tracking_id_workstation_id: { tracking_id: f.lot, workstation_id: f.wsA } } });
     const bare = await createRelease(release({ purpose: "scrap", workstation_id: f.wsA, warehouse_id: null, lines: [{ bucket_id: b.id, qty: "150" }] }), f.actor);
     assert.ok(!bare.ok && /Alasan/.test(bare.errors.scrap_reason));
     const r = await createRelease(release({ purpose: "scrap", workstation_id: f.wsA, warehouse_id: null, scrap_reason: "rusak", lines: [{ bucket_id: b.id, qty: "150" }] }), f.actor);
