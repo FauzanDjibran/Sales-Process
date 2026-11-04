@@ -89,6 +89,9 @@ export async function cleanupProduction(itemIds: number[]): Promise<void> {
   await prisma.prdTrackingLink.deleteMany({ where: { OR: [{ from_tracking_id: { in: lots } }, { to_tracking_id: { in: lots } }] } });
   await prisma.prdLedger.deleteMany({ where: { item_id: { in: itemIds } } });
   await prisma.prdBalance.deleteMany({ where: { item_id: { in: itemIds } } });
+  await prisma.prdCostEntry.deleteMany({ where: { tracking_id: { in: lots } } });
+  await prisma.prdTrackingInfo.deleteMany({ where: { tracking_id: { in: lots } } });
+  await prisma.prdJob.deleteMany({ where: { tracking_id: { in: lots } } });
 }
 
 /** A source for direct book calls: the given document type, a made-up id. */

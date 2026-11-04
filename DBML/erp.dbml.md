@@ -459,7 +459,8 @@ table prd_line {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
-// Routing (P226): the ordered Units; one per line, and one row with no line = the segment before the partai
+// Routing (P227): the ordered Units; several per line for now, each naming its line;
+// one row with no line = the segment before the partai (partial unique index prd_routing_one_segment)
 table prd_routing {
   id                          int [pk, increment, not null]
 
@@ -467,7 +468,7 @@ table prd_routing {
 
   routing_label               varchar [not null]
   routing_name                varchar [not null]
-  line_id                     int [unique, ref : > prd_line.id] // NULLS NOT DISTINCT
+  line_id                     int [ref : > prd_line.id]
 
   note                        varchar
 
@@ -530,6 +531,78 @@ table prd_rate_version_line {
     (version_id, unit_id) [unique]
     unit_id
   }
+}
+
+// A partai (P227): names its line, the routing it follows and the Standard Cost it started on
+table prd_partai {
+  id                          int [pk, increment, not null]
+
+  partai_no                   varchar [not null, unique] // P_<ddmmyy>_<NNNNN> (W11)
+  partai_date                 date [not null]
+  line_id                     int [not null, ref : > prd_line.id]
+  routing_id                  int [not null, ref : > prd_routing.id]
+  rate_version_id             int [not null, ref : > prd_rate_version.id]
+
+  source_doc_type_id          int [not null] // the document that formed it, weak
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+}
+
+// A No. Job (P227): one pickup of one No. Stok when made (W31)
+table prd_job {
+  id                          int [pk, increment, not null]
+
+  job_no                      varchar [not null, unique] // <kode unit>_<ddmmyy>_<NNNNN> (W11)
+  job_date                    date [not null]
+  unit_id                     int [not null, ref : > ref_unit.id] // the Unit that issued it
+  tracking_id                 int [not null, ref : > log_stock_tracking.id] // the No. Stok picked up from
+  partai_id                   int [ref : > prd_partai.id]
+
+  source_doc_type_id          int [not null]
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+}
+
+// What a No. Stok locked when it started production (P227)
+table prd_tracking_info {
+  id                          int [pk, increment, not null]
+
+  tracking_id                 int [not null, unique, ref : > log_stock_tracking.id]
+  rate_version_id             int [not null, ref : > prd_rate_version.id]
+  routing_id                  int [ref : > prd_routing.id]
+  grams                       decimal(18,6)
+  form                        enum('Bulk', 'Piece', 'Box') [not null, default: 'Bulk']
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+}
+
+// Standard cost absorbed (P227, V1): grams × rate at one Unit, append-only
+table prd_cost_entry {
+  id                          int [pk, increment, not null]
+
+  posting_date                date [not null]
+  source_doc_type_id          int [not null]
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+
+  unit_id                     int [not null, ref : > ref_unit.id]
+  rate_version_id             int [not null, ref : > prd_rate_version.id]
+  tracking_id                 int [not null, ref : > log_stock_tracking.id]
+  partai_id                   int [ref : > prd_partai.id]
+  line_id                     int [ref : > prd_line.id]
+  grams                       decimal(18,6) [not null]
+  rate                        decimal(18,6) [not null]
+  amount                      decimal(18,2) [not null]
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
 }
 
 // Karyawan (P225, W26): who worked a No. Job at a Pass Through Unit
@@ -2751,13 +2824,16 @@ table prd_cost_bill_line {
   }
 }
 
-// A production bucket (R3): one lot at one workstation; Σ value_balance is WIP.
+// A production bucket (P227): one No. Stok · Unit · stage · Partai · Job, the last two optional; Σ value_balance is WIP.
 // Written only by production-ledger.ts, beside its ledger row
 table prd_balance {
   id                          int [pk, increment, not null]
 
   tracking_id                      int [not null, ref : > log_stock_tracking.id] // the one lot register (P120)
   unit_id              int [not null, ref : > ref_unit.id]
+  stage                       enum('Preparation', 'StandBy') [not null, default: 'Preparation'] // Persiapan, Stand By (W29)
+  partai_id                   int [ref : > prd_partai.id]
+  job_id                      int [ref : > prd_job.id]
   item_id                     int [not null, ref : > m_item.id]
   uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
 
@@ -2771,7 +2847,7 @@ table prd_balance {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
-    (tracking_id, unit_id) [unique]
+    (tracking_id, unit_id, stage, partai_id, job_id) [unique] // NULLS NOT DISTINCT
     unit_id
     item_id
   }
@@ -2791,6 +2867,9 @@ table prd_ledger {
   bucket_id                   int [not null, ref : > prd_balance.id]
   tracking_id                      int [not null, ref : > log_stock_tracking.id]
   unit_id              int [not null, ref : > ref_unit.id]
+  stage                       enum('Preparation', 'StandBy') [not null]
+  partai_id                   int [ref : > prd_partai.id]
+  job_id                      int [ref : > prd_job.id]
   item_id                     int [not null, ref : > m_item.id]
 
   qty_change                  decimal(18,6) [not null]

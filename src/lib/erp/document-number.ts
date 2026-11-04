@@ -34,6 +34,22 @@ export function documentSeries(prefix: string, date: Date | string): string {
 }
 
 /**
+ * A production document tied to a Unit is numbered per day (W11, a local
+ * exception to P15): `P` + 2026-05-19 -> `P_190526_`, the part every number
+ * of that day shares.
+ */
+export function dailySeries(prefix: string, date: Date | string): string {
+  const iso = date instanceof Date ? date.toISOString() : String(date);
+  return `${prefix}_${iso.slice(8, 10)}${iso.slice(5, 7)}${iso.slice(2, 4)}_`;
+}
+
+/** The next number of a daily series, from the highest one the reader finds. */
+export function nextDailyNumber(series: string, last: string | null): string {
+  const n = last ? Number(last.slice(series.length)) + 1 : 1;
+  return `${series}${String(n).padStart(5, "0")}`;
+}
+
+/**
  * A document without PPN is numbered in its own series, its prefix marked
  * `-NP` (P109): `CO` -> `CO-NP/2026/10/0001`. The Customer Order decides it
  * and every document that follows its tax status takes the same side. The two

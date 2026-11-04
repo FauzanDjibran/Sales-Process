@@ -101,7 +101,7 @@ describe("posting moves the lot straight into the unit", () => {
     assert.equal(v.cost, 300_000);
     const lines = await prisma.accJournalLine.findMany({ where: { journal_id: v.journalId! }, orderBy: { sequence_no: "asc" } });
     assert.deepEqual(lines.map((l) => [l.account_id, l.debit_amount.toNumber(), l.kredit_amount.toNumber()]), [[f.wipAcc, 300_000, 0], [f.inventoryAcc, 0, 300_000]]);
-    const bucket = await prisma.prdBalance.findUniqueOrThrow({ where: { tracking_id_unit_id: { tracking_id: f.lot, unit_id: f.wsA } } });
+    const bucket = await prisma.prdBalance.findFirstOrThrow({ where: { tracking_id: f.lot, unit_id: f.wsA } });
     assert.deepEqual([bucket.qty_balance.toNumber(), bucket.value_balance.toNumber()], [300, 300_000], "the same lot, at the unit");
     const pick = await prisma.logStockIssueTracking.findFirstOrThrow({ where: { line: { stock_issue_id: id } } });
     assert.equal(pick.prd_bucket_id, bucket.id);

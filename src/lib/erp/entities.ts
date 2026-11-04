@@ -1145,14 +1145,14 @@ export const ENTITIES: Entity[] = [
   },
 
   {
-    // The ordered Units a line's goods pass; a line has one (P226). Without a
-    // line it is the one segment before the partai, shared by every line.
+    // The ordered Units a line's goods pass; a line may have several (P227).
+    // Without a line it is the one segment before the partai, shared by every line.
     key: "prd_routing",
     slug: "routing",
     module: "master",
     name: "Routing",
     icon: "tree",
-    desc: "Urutan unit yang dilalui barang. Satu line punya satu routing. Tanpa line, ini segmen sebelum partai yang sama untuk semua line.",
+    desc: "Urutan unit yang dilalui barang, milik satu line. Tanpa line, ini segmen sebelum partai yang sama untuk semua line. Langkah terkunci begitu dipakai partai.",
     codeField: "routing_code",
     codePrefix: "rout",
     labelField: "routing_label",

@@ -133,6 +133,10 @@ const TABLE_OWNERS: Record<string, string[]> = {
   prdBalance: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   prdLedger: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   prdTrackingLink: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
+  prdPartai: ["src/lib/erp/production-ledger.ts"],
+  prdJob: ["src/lib/erp/production-ledger.ts"],
+  prdTrackingInfo: ["src/lib/erp/production-ledger.ts"],
+  prdCostEntry: ["src/lib/erp/production-ledger.ts"],
   // The month-end close (R10–R15, R25): its record, named only by its module; the lock only by the kernel.
   accFiscalPeriodLock: ["src/lib/erp/period-lock.ts"],
   // Billing documents: Finance owns them since P107; Sales holds only orders.

@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { parseList } from "./partner-shape";
+import { routingInUse } from "./production-ledger";
 import {
   RATES_KEY,
   STEPS_KEY,
@@ -65,14 +66,22 @@ async function stillOffered(routingId: number | null, unit: UnitInfo): Promise<b
   return (await prisma.prdRoutingStep.count({ where: { routing_id: routingId, unit_id: unit.id } })) > 0;
 }
 
-/** A line has one routing, and there is one segment before the partai (P226). */
-async function routingClash(lineId: number | null, routingId: number | null): Promise<string | null> {
+/** A line may have several routings; the segment before the partai is one (P227). */
+async function segmentClash(lineId: number | null, routingId: number | null): Promise<string | null> {
+  if (lineId) return null;
   const other = await prisma.prdRouting.findFirst({
-    where: { line_id: lineId, ...(routingId ? { id: { not: routingId } } : {}) },
+    where: { line_id: null, ...(routingId ? { id: { not: routingId } } : {}) },
     select: { routing_label: true },
   });
-  if (!other) return null;
-  return lineId ? `Line ini sudah punya routing ${other.routing_label}.` : `Segmen sebelum partai sudah ada: ${other.routing_label}.`;
+  return other ? `Segmen sebelum partai sudah ada: ${other.routing_label}.` : null;
+}
+
+/** A routing goods follow keeps its steps: a different order is a new routing (P227). */
+async function changesUsedRouting(routingId: number | null, steps: RoutingCollections["steps"]): Promise<boolean> {
+  if (!routingId || !(await routingInUse(routingId))) return false;
+  const stored = await prisma.prdRoutingStep.findMany({ where: { routing_id: routingId }, orderBy: { seq: "asc" } });
+  const shape = (s: RoutingCollections["steps"][number]) => [s.unit_id, s.exit_mode, s.job_policy, s.is_checkpoint, s.is_skippable].join("|");
+  return stored.map(shape).join(",") !== steps.map(shape).join(",");
 }
 
 export async function checkRoutingCollections(
@@ -115,8 +124,11 @@ export async function checkRoutingCollections(
     problems.push(...stepRuleErrors(clean.steps, hasLine, (id) => units.get(id)?.processes ?? []));
   }
   const errors: Record<string, string> = problems.length ? { [STEPS_KEY]: problems.join(" ") } : {};
-  const clash = await routingClash(Number(values.line_id) || null, routingId);
+  const clash = await segmentClash(Number(values.line_id) || null, routingId);
   if (clash) errors.line_id = clash;
+  if (!problems.length && (await changesUsedRouting(routingId, clean.steps))) {
+    errors[STEPS_KEY] = "Routing ini sudah dipakai: langkahnya tidak dapat diubah. Buat routing baru untuk line ini.";
+  }
   return { errors, clean };
 }
 

@@ -833,6 +833,25 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "each production ledger row names its bucket's identity: No. Stok, Unit, stage, Partai, Job (P227)",
+    sql: `SELECT l.ledger_no, l.line_no FROM prd_ledger l JOIN prd_balance b ON b.id = l.bucket_id
+          WHERE l.tracking_id <> b.tracking_id OR l.unit_id <> b.unit_id OR l.stage <> b.stage
+             OR l.partai_id IS DISTINCT FROM b.partai_id OR l.job_id IS DISTINCT FROM b.job_id`,
+  },
+  {
+    area: "production",
+    name: "a partai follows a routing of its own line (P227)",
+    sql: `SELECT p.partai_no FROM prd_partai p JOIN prd_routing r ON r.id = p.routing_id WHERE r.line_id IS DISTINCT FROM p.line_id`,
+  },
+  {
+    area: "production",
+    name: "a standard cost entry is round(grams × rate), its rate that of its version (V1)",
+    sql: `SELECT e.id, e.amount FROM prd_cost_entry e
+          LEFT JOIN prd_rate_version_line v ON v.version_id = e.rate_version_id AND v.unit_id = e.unit_id
+          WHERE e.rate <> COALESCE(v.rate, 0) OR e.amount <> ROUND(e.grams * e.rate)`,
+  },
+  {
+    area: "production",
     name: "a costed period takes nothing after its close: no stock, production or locked-account journal row dated in it (R15)",
     sql: `SELECT 'production' AS book, l.id, l.source_no, l.posting_date FROM prd_ledger l
             JOIN acc_fiscal_period fp ON l.posting_date BETWEEN fp.start_date AND fp.end_date

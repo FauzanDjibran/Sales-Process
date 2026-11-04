@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { issueStock } from "../src/lib/erp/inventory";
 import { shareByWeight, shareQty } from "../src/lib/erp/production-execution";
-import { availableBuckets, enterProduction, takeFromBucket, transferBucket } from "../src/lib/erp/production-ledger";
+import { advanceToStandBy, availableBuckets, enterProduction, takeFromBucket, transferBucket } from "../src/lib/erp/production-ledger";
 import { cleanupFixtures, disconnect, prisma } from "./helpers";
 import { makeProductionFixture, sourceOf, type ProductionFixture } from "./production-helpers";
 
@@ -16,7 +16,8 @@ import { makeProductionFixture, sourceOf, type ProductionFixture } from "./produ
 let f: ProductionFixture;
 const date = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
 const tx = <T>(fn: (t: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<T>) => prisma.$transaction(fn);
-const bucketOf = async (lotId: number, ws: number) => prisma.prdBalance.findUniqueOrThrow({ where: { tracking_id_unit_id: { tracking_id: lotId, unit_id: ws } } });
+const bucketOf = async (lotId: number, ws: number, stage: "Preparation" | "StandBy" = "Preparation") =>
+  prisma.prdBalance.findFirstOrThrow({ where: { tracking_id: lotId, unit_id: ws, stage } });
 
 before(async () => {
   f = await makeProductionFixture("LED");
@@ -52,7 +53,10 @@ describe("goods in, through and out of production", () => {
   test("a transfer moves the lot and its released value to another station", async () => {
     const s = await sourceOf("log_stock_issue", "PT-T1");
     const from = await bucketOf(f.lot, f.wsA);
-    const r = await tx((t) => transferBucket(t, { bucketId: from.id, toUnitId: f.wsB, baseQty: 100, date, source: s, actorId: f.actor }));
+    await assert.rejects(tx((t) => transferBucket(t, { bucketId: from.id, toUnitId: f.wsB, baseQty: 100, date, source: s, actorId: f.actor })), /Hanya barang di Stand By/);
+    const ready = await tx((t) => advanceToStandBy(t, { bucketId: from.id, baseQty: 100, date, source: s, actorId: f.actor }));
+    assert.equal(ready.value, 100_000);
+    const r = await tx((t) => transferBucket(t, { bucketId: ready.toBucketId, toUnitId: f.wsB, baseQty: 100, date, source: s, actorId: f.actor }));
     assert.equal(r.value, 100_000);
     assert.equal((await bucketOf(f.lot, f.wsB)).value_balance.toNumber(), 100_000);
     assert.equal((await bucketOf(f.lot, f.wsA)).value_balance.toNumber(), 300_000);

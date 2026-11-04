@@ -6,7 +6,7 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **05/11/2026 — P226** (one routing per line, one active Standard Cost).
+> Last updated: **05/11/2026 — P227** (step 2: the identities and the bucket).
 >
 > **What follows describes what is on `main`.** The agreed target is in
 > `Produksi Walet (Real).md`; its build steps add the documents back.
@@ -28,7 +28,10 @@ plan's steps 1–13.
 
 | Identity | What it is | Status |
 | --- | --- | --- |
-| **Lot** | The only identity (R3). Lots stay unique per item (P120). Production holds goods per **lot · workstation**; quantity and value per bucket, Σ value = WIP. An execution's outputs are new lots, numbered `<execution number>-<n>` or typed (R17). | ✅ P203 |
+| **No. Stok** (*Lot* on screen until the wording step) | Unique in the whole system (W10). Production holds goods per **No. Stok · Unit · stage · Partai · Job**, the last two optional; quantity and value per bucket, Σ value = WIP. | ✅ P227 |
+| **Stage** | Each Unit holds goods in **Persiapan** (received) and **Stand By** (worked). Only an execution advances them; a transfer sends only from Stand By (W29). | ✅ P227 (book only) |
+| **Partai** | `P_<ddmmyy>_<NNNNN>`. One line, the routing it follows (of that line) and the id of the Standard Cost active that day. | ✅ P227 (book only) |
+| **No. Job** | `<unit>_<ddmmyy>_<NNNNN>`. One pickup of one No. Stok when made (W31). | ✅ P227 (book only) |
 
 ---
 
@@ -39,7 +42,7 @@ plan's steps 1–13.
 | **Unit** | Code (in document numbers, locked), name, its Workstation, and the **kinds of work** it may do. Where goods are held in production; no unit is named in code. | Master › Produksi | ✅ P225 |
 | **Workstation** | Label, name. Only groups Units. | Master › Produksi | ✅ P225 |
 | **Line Produksi** | Label, name, the variance account. | Master › Produksi | ✅ P225 |
-| **Routing** | The ordered Units; **one per line**, and one without a line = the segment before the partai. Each step: exit mode, No. Job policy, checkpoint, skippable. | Master › Produksi | ✅ P226 |
+| **Routing** | The ordered Units, each routing naming its line; several per line for now, and one without a line = the segment before the partai. Each step: exit mode, No. Job policy, checkpoint, skippable. Steps lock once goods follow it. | Master › Produksi | ✅ P227 |
 | **Standard Cost** | Versions of the rate per gram per Unit; empty = 0. **Never edited once saved; one active**: saving a new one closes the old. A partai keeps the id it started on. | Master › Produksi | ✅ P226 |
 | **Karyawan** | Who worked a No. Job at a Pass Through Unit. | Master › Produksi | ✅ P225 |
 | **BJL** | A flag on the Item; valued 0 in production; locked once used. | Master › Item | ✅ P225 |
@@ -81,3 +84,4 @@ plan's steps 1–13.
 | 04/11/2026 | P218 | Step D: Eksekusi, Production Transfer, Production Release, the close, Bobot Nilai, Rekap Produksi and Costing Sementara dropped. |
 | 05/11/2026 | P225 | Step 1: Unit and Workstation as masters, Line, Routing, Standard Cost, Karyawan, BJL, one No. Stok system-wide. |
 | 05/11/2026 | P226 | One routing per line; Standard Cost never edited, one active, the old closed by the new. |
+| 05/11/2026 | P227 | Step 2: bucket No. Stok · Unit · stage · Partai · Job, Partai, No. Job, what a No. Stok locked, standard cost entries; several routings per line again. No document uses them yet. |

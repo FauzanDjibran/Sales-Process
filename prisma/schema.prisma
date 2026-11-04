@@ -882,6 +882,8 @@ model RefUnit {
   prd_ledger    PrdLedger[]          @relation("PrdLedgerUnit")
   routing_steps PrdRoutingStep[]
   rate_lines    PrdRateVersionLine[]
+  jobs          PrdJob[]
+  cost_entries  PrdCostEntry[]
 
   @@index([workstation_id])
   @@map("ref_unit")
@@ -903,14 +905,18 @@ model PrdLine {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  variance_account AccAccount? @relation("PrdLineVariance", fields: [variance_account_id], references: [id])
-  routing          PrdRouting?
+  variance_account AccAccount?    @relation("PrdLineVariance", fields: [variance_account_id], references: [id])
+  routings         PrdRouting[]
+  partais          PrdPartai[]
+  cost_entries     PrdCostEntry[]
 
   @@map("prd_line")
 }
 
-/// A routing (P226): the ordered Units a line's goods pass. A line has one.
-/// With no line it is the one segment before the partai, shared by every line.
+/// A routing (P227): the ordered Units a line's goods pass. A line may have
+/// several for now, each naming its line; a partai names the one it follows.
+/// With no line it is the one segment before the partai, shared by every line
+/// (`prd_routing_one_segment`, hand-written in the migration).
 model PrdRouting {
   id            Int          @id @default(autoincrement())
   routing_code  String       @unique
@@ -925,11 +931,12 @@ model PrdRouting {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  line  PrdLine?         @relation(fields: [line_id], references: [id])
-  steps PrdRoutingStep[]
+  line           PrdLine?          @relation(fields: [line_id], references: [id])
+  steps          PrdRoutingStep[]
+  partais        PrdPartai[]
+  tracking_infos PrdTrackingInfo[]
 
-  /// NULLS NOT DISTINCT, hand-written in the migration: one row without a line too.
-  @@unique([line_id])
+  @@index([line_id])
   @@map("prd_routing")
 }
 
@@ -972,7 +979,10 @@ model PrdRateVersion {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  lines PrdRateVersionLine[]
+  lines          PrdRateVersionLine[]
+  partais        PrdPartai[]
+  tracking_infos PrdTrackingInfo[]
+  cost_entries   PrdCostEntry[]
 
   @@map("prd_rate_version")
 }
@@ -989,6 +999,125 @@ model PrdRateVersionLine {
   @@unique([version_id, unit_id])
   @@index([unit_id])
   @@map("prd_rate_version_line")
+}
+
+/// A partai (P227): born at the unit that forms it, on one line. It names the
+/// routing it follows and the Standard Cost version active that day, by id, so
+/// closing the version changes nothing for it (W36).
+model PrdPartai {
+  id                 Int      @id @default(autoincrement())
+  /// `P_<ddmmyy>_<NNNNN>` (W11).
+  partai_no          String   @unique
+  partai_date        DateTime @db.Date
+  line_id            Int
+  routing_id         Int
+  rate_version_id    Int
+  /// The document that formed it, weak (§3.1).
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  created_by         Int
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  line         PrdLine        @relation(fields: [line_id], references: [id])
+  routing      PrdRouting     @relation(fields: [routing_id], references: [id])
+  rate_version PrdRateVersion @relation(fields: [rate_version_id], references: [id])
+  jobs         PrdJob[]
+  balances     PrdBalance[]
+  ledger       PrdLedger[]
+  cost_entries PrdCostEntry[]
+
+  @@index([line_id])
+  @@index([routing_id])
+  @@map("prd_partai")
+}
+
+/// A No. Job: one pickup of one No. Stok when it is made (W31). What it holds
+/// later is read from the buckets naming it.
+model PrdJob {
+  id                 Int      @id @default(autoincrement())
+  /// `<kode unit>_<ddmmyy>_<NNNNN>` (W11).
+  job_no             String   @unique
+  job_date           DateTime @db.Date
+  /// The Unit that issued it.
+  unit_id            Int
+  /// The No. Stok it was picked up from.
+  tracking_id        Int
+  partai_id          Int?
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  created_by         Int
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  unit     RefUnit          @relation(fields: [unit_id], references: [id])
+  tracking LogStockTracking @relation(fields: [tracking_id], references: [id])
+  partai   PrdPartai?       @relation(fields: [partai_id], references: [id])
+  balances PrdBalance[]
+  ledger   PrdLedger[]
+
+  @@index([tracking_id])
+  @@index([partai_id])
+  @@map("prd_job")
+}
+
+/// What a No. Stok is in production. Kept here, not on the stock books (§6).
+enum PrdStockForm {
+  Bulk
+  Piece
+  Box
+}
+
+/// One row per No. Stok that started production: the Standard Cost version and
+/// the pre-partai routing it locked, its grams and its form.
+model PrdTrackingInfo {
+  id              Int          @id @default(autoincrement())
+  tracking_id     Int          @unique
+  rate_version_id Int
+  routing_id      Int?
+  grams           Decimal?     @db.Decimal(18, 6)
+  form            PrdStockForm @default(Bulk)
+  created_by      Int
+  created_at      DateTime     @default(now()) @db.Timestamptz(6)
+
+  tracking     LogStockTracking @relation(fields: [tracking_id], references: [id])
+  rate_version PrdRateVersion   @relation(fields: [rate_version_id], references: [id])
+  routing      PrdRouting?      @relation(fields: [routing_id], references: [id])
+
+  @@index([routing_id])
+  @@map("prd_tracking_info")
+}
+
+/// Standard cost absorbed: gram × rate at one Unit (V1). Append-only; Σ per
+/// period is the credit of Biaya Produksi Dibebankan the close compares with
+/// actual cost. The rate is copied, so the entry reads as it was posted.
+model PrdCostEntry {
+  id                 Int      @id @default(autoincrement())
+  posting_date       DateTime @db.Date
+  source_doc_type_id Int
+  source_doc_id      Int
+  source_no          String
+  unit_id            Int
+  rate_version_id    Int
+  tracking_id        Int
+  partai_id          Int?
+  line_id            Int?
+  grams              Decimal  @db.Decimal(18, 6)
+  rate               Decimal  @db.Decimal(18, 6)
+  /// Whole rupiah.
+  amount             Decimal  @db.Decimal(18, 2)
+  created_by         Int
+  created_at         DateTime @default(now()) @db.Timestamptz(6)
+
+  unit         RefUnit          @relation(fields: [unit_id], references: [id])
+  rate_version PrdRateVersion   @relation(fields: [rate_version_id], references: [id])
+  tracking     LogStockTracking @relation(fields: [tracking_id], references: [id])
+  partai       PrdPartai?       @relation(fields: [partai_id], references: [id])
+  line         PrdLine?         @relation(fields: [line_id], references: [id])
+
+  @@index([posting_date])
+  @@index([source_doc_type_id, source_doc_id])
+  @@map("prd_cost_entry")
 }
 
 /// A worker whose work a Pass Through Unit records against a No. Job (W26).
@@ -2553,6 +2682,9 @@ model LogStockTracking {
 
   prd_balances PrdBalance[]
   prd_ledger   PrdLedger[]
+  prd_info     PrdTrackingInfo?
+  prd_jobs     PrdJob[]
+  cost_entries PrdCostEntry[]
   links_from   PrdTrackingLink[] @relation("LinkFrom")
   links_to     PrdTrackingLink[] @relation("LinkTo")
 
@@ -3908,18 +4040,28 @@ enum ProductionCostBillStatus {
   Cancelled
 }
 
-/// A production bucket (R3): one lot at one unit, quantity in the
+/// Each Unit holds goods in two stages: Persiapan (received, not worked) and
+/// Stand By (worked, waiting to be sent); only Eksekusi Produksi moves them (W29).
+enum PrdStage {
+  Preparation
+  StandBy
+}
+
+/// A production bucket (P227): one No. Stok · Unit · stage · Partai · Job, the last two optional, quantity in the
 /// item's base unit and value in whole rupiah; Σ value is WIP. Written only by
 /// `production-ledger.ts`, beside its ledger row.
 model PrdBalance {
-  id            Int     @id @default(autoincrement())
+  id            Int      @id @default(autoincrement())
   tracking_id   Int
   unit_id       Int
+  stage         PrdStage @default(Preparation)
+  partai_id     Int?
+  job_id        Int?
   item_id       Int
   /// The item's base unit.
   uom_id        Int
-  qty_balance   Decimal @default(0) @db.Decimal(18, 6)
-  value_balance Decimal @default(0) @db.Decimal(18, 2)
+  qty_balance   Decimal  @default(0) @db.Decimal(18, 6)
+  value_balance Decimal  @default(0) @db.Decimal(18, 2)
 
   created_by Int
   updated_by Int?
@@ -3930,12 +4072,17 @@ model PrdBalance {
   unit       RefUnit           @relation("PrdBalanceUnit", fields: [unit_id], references: [id])
   item       MItem             @relation("PrdBalanceItem", fields: [item_id], references: [id])
   uom        RefUom            @relation("PrdBalanceUom", fields: [uom_id], references: [id])
+  partai     PrdPartai?        @relation(fields: [partai_id], references: [id])
+  job        PrdJob?           @relation(fields: [job_id], references: [id])
   ledger     PrdLedger[]
   links_from PrdTrackingLink[]
 
-  @@unique([tracking_id, unit_id])
+  /// NULLS NOT DISTINCT, hand-written in the migration.
+  @@unique([tracking_id, unit_id, stage, partai_id, job_id])
   @@index([unit_id])
   @@index([item_id])
+  @@index([partai_id])
+  @@index([job_id])
   @@map("prd_balance")
 }
 
@@ -3953,6 +4100,9 @@ model PrdLedger {
   bucket_id          Int
   tracking_id        Int
   unit_id            Int
+  stage              PrdStage
+  partai_id          Int?
+  job_id             Int?
   item_id            Int
   qty_change         Decimal     @db.Decimal(18, 6)
   qty_balance        Decimal     @db.Decimal(18, 6)
@@ -3966,8 +4116,11 @@ model PrdLedger {
   tracking LogStockTracking @relation(fields: [tracking_id], references: [id])
   unit     RefUnit          @relation("PrdLedgerUnit", fields: [unit_id], references: [id])
   item     MItem            @relation("PrdLedgerItem", fields: [item_id], references: [id])
+  partai   PrdPartai?       @relation(fields: [partai_id], references: [id])
+  job      PrdJob?          @relation(fields: [job_id], references: [id])
 
   @@unique([ledger_no, line_no])
+  @@index([partai_id])
   @@index([bucket_id, posting_date])
   @@index([tracking_id])
   @@index([source_doc_type_id, source_doc_id])

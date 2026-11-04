@@ -114,16 +114,11 @@ describe("a routing is the order of Units, the rules of each step the step's own
     assert.deepEqual(other.errors, {});
   });
 
-  test("a line has one routing: a second is refused, the database holding the same rule (P226)", async () => {
+  test("a line may have several routings, each naming its line (P227)", async () => {
     const second = await checkRoutingCollections({ line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.grade)]) }, null);
-    assert.match(second.errors.line_id, /sudah punya routing/);
-    await assert.rejects(
-      prisma.prdRouting.create({ data: { routing_code: `test.${key("R2")}`, routing_label: key("R2"), routing_name: "Uji", line_id: f.line, created_by: actor } }),
-      /Unique constraint/
-    );
-    const own = await prisma.prdRouting.findFirstOrThrow({ where: { line_id: f.line } });
-    const same = await checkRoutingCollections({ line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.grade)]) }, own.id);
-    assert.equal(same.errors.line_id, undefined, "saving itself is no clash");
+    assert.deepEqual(second.errors, {});
+    const row = await prisma.prdRouting.create({ data: { routing_code: `test.${key("R2")}`, routing_label: key("R2"), routing_name: "Uji", line_id: f.line, created_by: actor } });
+    assert.equal(row.line_id, f.line);
   });
 });
 
