@@ -45,6 +45,7 @@ only (PROTOCOL §4, answer D).
 
 | Concept | Rule departed from | Project decision | Why |
 | --- | --- | --- | --- |
+| engineering/data-conventions | `doc-numbering=prefix-yyyy-mm-seq`: a series per prefix per month, for every document and journal | P216: production documents tied to a unit are numbered daily per unit, e.g. `BSTB_UGH_190526_00001`, `NG_UGH_180526_00001`; every other document and journal stays on the choice | The user's answer D, 04/11/2026: follows the numbering in Walet's production simulation |
 
 ## Harvest queue
 

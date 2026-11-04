@@ -6,7 +6,11 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **01/11/2026 — P212** (Telusur Produksi).
+> Last updated: **04/11/2026 — P216** (replanned; nothing built by it yet).
+>
+> **What follows describes what is on `main`.** The agreed target is in
+> `Produksi Walet (Real).md`, which replaces most of this flow step by step and
+> cancels steps 12–14 below.
 
 ---
 
@@ -80,3 +84,4 @@ by their **Driver** and follows it forward to WIP, Persediaan, HPP or scrap.
 | 01/11/2026 | P210 | Penutupan Biaya Produksi and its period lock. |
 | 01/11/2026 | P211 | Costing Sementara. |
 | 01/11/2026 | P212 | Telusur Produksi. |
+| 04/11/2026 | P216 | Production replanned in `Produksi Walet (Real).md`; no change to what is built. |

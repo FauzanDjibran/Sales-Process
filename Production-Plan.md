@@ -1,5 +1,9 @@
 # Production — restart plan (from erp-0.8)
 
+> **Superseded in large part by `Produksi Walet (Real).md` (P216, 04/11/2026).**
+> R3–R8, R10–R14, R17, R19–R26 and Rencana vs Aktual in R27 are revoked, with
+> steps 12–15; R9, R15, R16, R18, R28 stay. Kept as the record of what was built.
+
 > A new start on production from `erp-0.8` (`bbf32ca`, P149: sales, purchasing,
 > stock, finance, tax; no production). The work from P150–P172 is kept on the
 > branch `walet` and is **salvaged file by file**, trimmed to this plan, never
