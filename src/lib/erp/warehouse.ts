@@ -103,7 +103,7 @@ export async function checkWarehouseCollections(
       if (await warehouseHoldsStock(warehouseId)) {
         errors.use_location = "Gudang ini masih menyimpan stok: Gunakan Lokasi hanya bisa diubah saat gudang kosong.";
       } else if (used.drafts > 0) {
-        errors.use_location = `Masih ada ${used.drafts} Receipt Note, Delivery Note atau Stock Issue Draft di gudang ini: selesaikan atau batalkan dulu.`;
+        errors.use_location = `Masih ada ${used.drafts} Receipt Note, Delivery Note atau BSTB Issue Draft di gudang ini: selesaikan atau batalkan dulu.`;
       }
     }
   }

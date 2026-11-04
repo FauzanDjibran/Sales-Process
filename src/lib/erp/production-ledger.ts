@@ -549,6 +549,15 @@ export async function hasProductionMovement(from: Date, to: Date, db: Db = prism
   return Boolean(await db.prdLedger.findFirst({ where: { posting_date: { gte: from, lte: to } }, select: { id: true } }));
 }
 
+/** The Unit goods enter production at: the first step of the segment before the partai (W2). */
+export async function firstProductionUnit(db: Db = prisma): Promise<number | null> {
+  const segment = await db.prdRouting.findFirst({
+    where: { line_id: null, status: "Active" },
+    select: { steps: { orderBy: { seq: "asc" }, take: 1, select: { unit_id: true } } },
+  });
+  return segment?.steps[0]?.unit_id ?? null;
+}
+
 /** Whether a partai or a started No. Stok follows this routing: its steps may no longer change. */
 export async function routingInUse(routingId: number): Promise<boolean> {
   const [partai, info] = await Promise.all([

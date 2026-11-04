@@ -12,9 +12,9 @@ import type { StockIssueListRow } from "@/lib/erp/stock-issue";
 import { STOCK_ISSUE_STATUS_BADGE, STOCK_ISSUE_STATUS_TEXT, type StockIssueAbilities, type StockIssueStatus } from "@/lib/erp/stock-issue-workflow";
 
 /**
- * The Stock Issue register (R4). Drafts sort first — goods not yet booked
- * out — then newest first. The value column is what each posted issue moved
- * from Persediaan to WIP; a Draft has none yet.
+ * The BSTB Issue register (R4). Issues not yet received sort first, then
+ * newest first. The value column is what each received issue moved from
+ * Persediaan to WIP; an open one has none yet.
  */
 export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; can: StockIssueAbilities }) {
   const router = useRouter();
@@ -33,7 +33,8 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
           o.unitLabel.toLowerCase().includes(q) ||
           o.unitName.toLowerCase().includes(q))
     );
-    return out.sort((a, b) => Number(b.status === "Draft") - Number(a.status === "Draft"));
+    const open = (s: StockIssueStatus) => Number(s === "Draft" || s === "Submitted");
+    return out.sort((a, b) => open(b.status) - open(a.status));
   }, [issues, q, status]);
   const paging = usePaging(rows, `${q}|${status}`);
 
@@ -43,26 +44,26 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
         <div className="crumb">
           <span>Persediaan</span>
           <span>/</span>
-          <span className="cur">Stock Issue</span>
+          <span className="cur">BSTB Issue</span>
         </div>
         <div className="ph-row">
           <h1>
             <span className="ph-ico">
               <Icon name="layers" size={16} />
             </span>
-            Stock Issue
+            BSTB Issue
           </h1>
           <div className="ph-act">
             {can.create && (
               <Link className="btn primary" href="/inventory/stock-issue/new">
-                <Icon name="plus" size={15} /> Stock Issue Baru
+                <Icon name="plus" size={15} /> BSTB Issue Baru
               </Link>
             )}
           </div>
         </div>
         <p className="ph-sub">
-          Barang keluar dari gudang untuk dipakai sendiri — ke produksi: bahan per lot ke sebuah Unit, dengan nomor lot yang sama.
-          Posting memindahkan nilainya dari Persediaan ke WIP.
+          Barang keluar dari gudang ke produksi: bahan ke Unit pertama routing, atau bahan penolong ke Unit yang memakainya, per lot.
+          Barang terkunci sejak Ajukan, dan bergerak saat Unit menerima.
         </p>
       </div>
 
@@ -75,7 +76,7 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
             set={Boolean(status)}
             options={[
               { value: "", label: "Status: semua" },
-              ...(["Draft", "Posted", "Cancelled"] as StockIssueStatus[]).map((s) => ({ value: s, label: STOCK_ISSUE_STATUS_TEXT[s] })),
+              ...(["Draft", "Submitted", "Posted", "Cancelled"] as StockIssueStatus[]).map((s) => ({ value: s, label: STOCK_ISSUE_STATUS_TEXT[s] })),
             ]}
             onChange={setStatus}
           />
@@ -140,11 +141,11 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
             <div className="ic">
               <Icon name="layers" size={20} />
             </div>
-            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada Stock Issue"}</h4>
+            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada BSTB Issue"}</h4>
             <p>
               {q || status
-                ? "Tidak ada Stock Issue yang sesuai dengan pencarian atau filter."
-                : "Stock Issue mengeluarkan bahan dari gudang ke produksi: pilih gudang, Unit, barang dan lotnya."}
+                ? "Tidak ada BSTB Issue yang sesuai dengan pencarian atau filter."
+                : "BSTB Issue mengeluarkan bahan dari gudang ke produksi: pilih gudang, Unit, barang dan lotnya."}
             </p>
             {q || status ? (
               <div className="cta">
@@ -162,7 +163,7 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
               can.create && (
                 <div className="cta">
                   <Link className="btn primary" href="/inventory/stock-issue/new">
-                    <Icon name="plus" size={15} /> Stock Issue Baru
+                    <Icon name="plus" size={15} /> BSTB Issue Baru
                   </Link>
                 </div>
               )

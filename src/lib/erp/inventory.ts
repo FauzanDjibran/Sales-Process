@@ -109,11 +109,12 @@ export async function lotOptions(
       location_id: true,
       tracking_id: true,
       qty_balance: true,
+      reserved_qty: true,
       warehouse: { select: { warehouse_label: true } },
       location: { select: { location_label: true, location_name: true } },
     },
   });
-  const live = balances.filter((b) => b.qty_balance.gt(0) || withIds.includes(b.tracking_id));
+  const live = balances.filter((b) => b.qty_balance.gt(b.reserved_qty) || withIds.includes(b.tracking_id));
   if (!live.length) return out;
   const lots = await db.logStockTracking.findMany({
     where: { id: { in: [...new Set(live.map((b) => b.tracking_id))] }, item_id: { in: itemIds } },
@@ -122,7 +123,7 @@ export async function lotOptions(
   for (const b of live) {
     const t = lotBy.get(b.tracking_id);
     if (!t) continue;
-    const available = b.qty_balance.toNumber();
+    const available = b.qty_balance.sub(b.reserved_qty).toNumber();
     const byItem = out.get(b.warehouse_id) ?? new Map<number, LotOption[]>();
     const list = byItem.get(t.item_id) ?? [];
     list.push({
@@ -249,7 +250,7 @@ async function stockItem(tx: Tx, itemId: number) {
 // ------------------------------------------------------------ locking
 
 type Pool = { id: number; qty: Dec; value: Dec };
-type Bucket = { id: number; qty: Dec };
+type Bucket = { id: number; qty: Dec; reserved: Dec };
 
 /** The item's pool, created empty if it has none, and locked for this posting. */
 async function lockPool(tx: Tx, itemId: number, uomId: number, actorId: number): Promise<Pool> {
@@ -279,12 +280,12 @@ async function lockBucket(
       VALUES (${k.warehouseId}, ${k.locationId}::int, ${k.trackingId}, ${k.itemId}, ${k.uomId}, ${k.statusId}, 0, ${actorId})
       ON CONFLICT ("warehouse_id", "location_id", "tracking_id", "stock_status_id") DO NOTHING`;
   }
-  const [row] = await tx.$queryRaw<{ id: number; qty_balance: Dec }[]>`
-    SELECT "id", "qty_balance" FROM "log_stock_balance"
+  const [row] = await tx.$queryRaw<{ id: number; qty_balance: Dec; reserved_qty: Dec }[]>`
+    SELECT "id", "qty_balance", "reserved_qty" FROM "log_stock_balance"
     WHERE "warehouse_id" = ${k.warehouseId} AND "location_id" IS NOT DISTINCT FROM ${k.locationId}::int
       AND "tracking_id" = ${k.trackingId} AND "stock_status_id" = ${k.statusId}
     FOR UPDATE`;
-  return row ? { id: row.id, qty: new D(row.qty_balance) } : null;
+  return row ? { id: row.id, qty: new D(row.qty_balance), reserved: new D(row.reserved_qty) } : null;
 }
 
 // ------------------------------------------------------------ positions
@@ -533,7 +534,8 @@ export async function issueStock(tx: Tx, issue: StockIssue): Promise<{ unitCost:
     issue.actorId,
     false
   );
-  const available = bucket?.qty ?? new D(0);
+  // What a Submitted document holds is not free (W20).
+  const available = bucket ? bucket.qty.sub(bucket.reserved) : new D(0);
   if (!bucket || available.lt(qty)) {
     throw new InventoryRefusal(
       `Stok ${item.item_label} lot ${tracking.tracking_no} di ${place.where} tidak cukup: tersedia ${qtyText(available)}, diminta ${qtyText(qty)}.`
@@ -557,6 +559,45 @@ export async function issueStock(tx: Tx, issue: StockIssue): Promise<{ unitCost:
     actorId: issue.actorId,
   });
   return { unitCost: unitCost.toNumber(), cost: release.toNumber() };
+}
+
+// ---------------------------------------------------------- reservation
+
+export type StockReservation = { itemId: number; warehouseId: number; locationId?: number | null; lotId: number; baseQty: number };
+
+async function reservedBucket(tx: Tx, r: StockReservation, actorId: number) {
+  const item = await stockItem(tx, r.itemId);
+  const place = await stockPlace(tx, r.warehouseId, r.locationId, false);
+  const bucket = await lockBucket(
+    tx,
+    { warehouseId: r.warehouseId, locationId: place.locationId, trackingId: r.lotId, statusId: await statusId(tx), itemId: r.itemId, uomId: item.base_uom_id },
+    actorId,
+    false
+  );
+  return { item, place, bucket };
+}
+
+/**
+ * Locks goods at the warehouse without moving them: a Submitted document holds
+ * them until Terima (W20), so no other document can take them. Refuses what is
+ * not free.
+ */
+export async function reserveStock(tx: Tx, r: StockReservation, actorId: number): Promise<void> {
+  const { item, place, bucket } = await reservedBucket(tx, r, actorId);
+  const free = bucket ? bucket.qty.sub(bucket.reserved) : new D(0);
+  const qty = new D(r.baseQty);
+  if (!bucket || free.lt(qty)) {
+    const lot = await tx.logStockTracking.findUnique({ where: { id: r.lotId }, select: { tracking_no: true } });
+    throw new InventoryRefusal(`Stok ${item.item_label} lot ${lot?.tracking_no ?? ""} di ${place.where} tidak cukup: tersedia ${qtyText(free)}, diminta ${qtyText(qty)}.`);
+  }
+  await tx.logStockBalance.update({ where: { id: bucket.id }, data: { reserved_qty: bucket.reserved.add(qty), updated_by: actorId } });
+}
+
+/** Gives back what `reserveStock` held, just before the goods leave. */
+export async function releaseReservation(tx: Tx, r: StockReservation, actorId: number): Promise<void> {
+  const { bucket } = await reservedBucket(tx, r, actorId);
+  if (!bucket || bucket.reserved.lt(r.baseQty)) throw new InventoryRefusal("Reservasi stok tidak ditemukan.");
+  await tx.logStockBalance.update({ where: { id: bucket.id }, data: { reserved_qty: bucket.reserved.sub(r.baseQty), updated_by: actorId } });
 }
 
 // ------------------------------------------------------------ injection

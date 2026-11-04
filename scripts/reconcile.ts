@@ -852,6 +852,17 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "what a stock bucket holds reserved is what Submitted BSTB Issues picked of it (W20)",
+    sql: `WITH held AS (SELECT l.item_id, s.warehouse_id, t.location_id, t.tracking_id, SUM(t.qty * l.uom_factor) AS qty
+                        FROM log_stock_issue_tracking t JOIN log_stock_issue_line l ON l.id = t.stock_issue_line_id
+                        JOIN log_stock_issue s ON s.id = l.stock_issue_id AND s.status = 'Submitted'
+                       GROUP BY 1, 2, 3, 4)
+          SELECT b.id, b.reserved_qty, COALESCE(h.qty, 0) AS held FROM log_stock_balance b
+            LEFT JOIN held h ON h.warehouse_id = b.warehouse_id AND h.tracking_id = b.tracking_id AND h.location_id IS NOT DISTINCT FROM b.location_id
+           WHERE b.reserved_qty <> COALESCE(h.qty, 0)`,
+  },
+  {
+    area: "production",
     name: "a costed period takes nothing after its close: no stock, production or locked-account journal row dated in it (R15)",
     sql: `SELECT 'production' AS book, l.id, l.source_no, l.posting_date FROM prd_ledger l
             JOIN acc_fiscal_period fp ON l.posting_date BETWEEN fp.start_date AND fp.end_date

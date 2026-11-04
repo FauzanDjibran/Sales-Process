@@ -20,13 +20,13 @@ import {
 
 /** Why a final note offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<StockIssueStatus, string>> = {
-  Posted: "Stock Issue diposting",
-  Cancelled: "Stock Issue dibatalkan",
+  Posted: "BSTB Issue diterima",
+  Cancelled: "BSTB Issue dibatalkan",
 };
 
 /**
- * A Stock Issue's lifecycle as buttons in the page header (R4): Ubah (Draft
- * only), Batalkan and Posting. Posting's confirmation shows the journal it will
+ * A BSTB Issue's lifecycle as buttons in the page header (R4): Ubah (Draft
+ * only), Batalkan, Ajukan and Terima. Terima's confirmation shows the journal it will
  * write — WIP debited, Persediaan credited, per item at the cost the stock books
  * release — from the posting itself run as a dry run and rolled back (P103). An
  * issue that cannot post (short stock, lots not picked in full, no WIP account)

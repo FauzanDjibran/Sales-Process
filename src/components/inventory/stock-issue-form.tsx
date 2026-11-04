@@ -13,13 +13,14 @@ import { useToast } from "@/components/ui/toast";
 import { DeliveryNoteLotPicker, type LotPick } from "@/components/inventory/delivery-note-lot-picker";
 import { StockIssueActions } from "@/components/inventory/stock-issue-actions";
 import { createStockIssueAction, updateStockIssueAction } from "@/app/actions/stock-issue";
-import { DEFAULT_STOCK_ISSUE_PURPOSE, stockIssuePurpose } from "@/lib/erp/stock-issue-purposes";
+import { Select } from "@/components/ui/select";
+import { DEFAULT_STOCK_ISSUE_PURPOSE, STOCK_ISSUE_PURPOSES, stockIssuePurpose } from "@/lib/erp/stock-issue-purposes";
 import { STOCK_ISSUE_STATUS_BADGE, STOCK_ISSUE_STATUS_TEXT, type StockIssueAbilities } from "@/lib/erp/stock-issue-workflow";
 import type { StockIssueHeaderInput, StockIssueOptions, StockIssueView } from "@/lib/erp/stock-issue";
 import { formatDate, formatMoney, formatNumber, formatPrice, todayIso } from "@/lib/format";
 
 /**
- * A Stock Issue in all three modes: `new`, `edit` (Draft only) and `view`
+ * A BSTB Issue in all three modes: `new`, `edit` (Draft only) and `view`
  * (R4).
  *
  * The user names the warehouse the goods leave, the unit they are
@@ -59,7 +60,7 @@ export function StockIssueForm({
   const [header, setHeader] = useState<StockIssueHeaderInput>(() =>
     issue
       ? { ...issue.header }
-      : { purpose: DEFAULT_STOCK_ISSUE_PURPOSE, warehouse_id: null, unit_id: null, issue_date: todayIso(), note: "" }
+      : { purpose: DEFAULT_STOCK_ISSUE_PURPOSE, warehouse_id: null, unit_id: options.firstUnitId, issue_date: todayIso(), note: "" }
   );
   const [lines, setLines] = useState<LineState[]>(() =>
     issue
@@ -122,7 +123,7 @@ export function StockIssueForm({
       return;
     }
     setDirty(false);
-    toast("Stock Issue disimpan", `${result.issueNo} · Draft`, "ok");
+    toast("BSTB Issue disimpan", `${result.issueNo} · Draft`, "ok");
     router.push(`/inventory/stock-issue/${result.id}`);
   }
 
@@ -149,8 +150,20 @@ export function StockIssueForm({
       <FormBody>
         <FormSection title="Pengeluaran">
           <FormRow>
-            <Field label="Tujuan" span={4} locked={editing} help={editing ? "menentukan ke mana barang dan jurnalnya" : undefined}>
-              {ro(stockIssuePurpose(header.purpose ?? DEFAULT_STOCK_ISSUE_PURPOSE)?.name ?? header.purpose)}
+            <Field label="Tujuan" span={4} locked={mode === "edit"} help={editing ? "menentukan Unit yang boleh menerima" : undefined}>
+              {mode === "new" ? (
+                <Select
+                  value={header.purpose ?? DEFAULT_STOCK_ISSUE_PURPOSE}
+                  options={STOCK_ISSUE_PURPOSES.map((p) => ({ value: p.key, label: p.name }))}
+                  ariaLabel="Tujuan"
+                  onChange={(v) => {
+                    set("purpose", v);
+                    set("unit_id", stockIssuePurpose(v)?.firstUnitOnly ? options.firstUnitId : null);
+                  }}
+                />
+              ) : (
+                ro(stockIssuePurpose(header.purpose ?? DEFAULT_STOCK_ISSUE_PURPOSE)?.name ?? header.purpose)
+              )}
             </Field>
             <Field label="Tanggal" span={3} required={editing} help={editing ? "hari barang keluar" : undefined} error={errors.issue_date}>
               {editing ? (
@@ -189,9 +202,9 @@ export function StockIssueForm({
               {editing ? (
                 <Combobox
                   value={header.unit_id}
-                  options={options.units.filter((w) => w.active || w.id === header.unit_id)}
+                  options={options.units.filter((w) => (w.active || w.id === header.unit_id) && (!stockIssuePurpose(header.purpose ?? "")?.firstUnitOnly || w.id === options.firstUnitId))}
                   placeholder="Pilih Unit…"
-                  emptyText="Belum ada Unit yang aktif."
+                  emptyText={stockIssuePurpose(header.purpose ?? "")?.firstUnitOnly ? "Belum ada routing sebelum partai." : "Belum ada Unit yang aktif."}
                   invalid={Boolean(errors.unit_id)}
                   onChange={(v) => set("unit_id", v)}
                 />
@@ -471,7 +484,7 @@ export function StockIssueForm({
         <div className="crumb">
           <span>Persediaan</span>
           <span>/</span>
-          <Link href="/inventory/stock-issue">Stock Issue</Link>
+          <Link href="/inventory/stock-issue">BSTB Issue</Link>
           <span>/</span>
           <span className="cur">{issue ? issue.issueNo : "Baru"}</span>
         </div>
@@ -486,7 +499,7 @@ export function StockIssueForm({
                 <span className={`bdg ${STOCK_ISSUE_STATUS_BADGE[status]}`}>{STOCK_ISSUE_STATUS_TEXT[status]}</span>
               </>
             ) : (
-              "Stock Issue Baru"
+              "BSTB Issue Baru"
             )}
             {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
           </h1>

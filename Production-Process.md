@@ -6,7 +6,7 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **05/11/2026 — P227** (step 2: the identities and the bucket).
+> Last updated: **05/11/2026 — P228** (step 3: BSTB Issue with Terima).
 >
 > **What follows describes what is on `main`.** The agreed target is in
 > `Produksi Walet (Real).md`; its build steps add the documents back.
@@ -58,7 +58,7 @@ plan's steps 1–13.
 | --- | --- | --- | --- | --- |
 | 2 | **Tagihan Biaya** `TBP/…` (Produksi › Biaya) | A production cost recognised in its month. Supplier required; each line a Jenis Biaya and an amount. Draft → Posting → Posted; Batalkan a Draft with a reason. | Dr each Jenis Biaya's expense account / Cr Hutang Biaya Produksi (copied onto the bill) | ✅ P202 |
 | 2 | **Pembayaran Biaya Produksi** `BKK/…` (Finance › Kas & Bank › Pengeluaran) | Pays posted Tagihan Biaya of one supplier, in parts if wanted, never beyond the bill. No tax. The bill keeps what it was paid. | Dr Hutang Biaya Produksi / Cr Kas & Bank | ✅ P202 |
-| 4 | **Stock Issue** `SI/…` (Persediaan › Operasi Gudang) | Lots leave a warehouse straight into a workstation at moving average, the same lot number; picked by lot (and location) as a Delivery Note. No transit, no receipt. | Dr WIP / Cr Persediaan | ✅ P204 |
+| 3 | **BSTB Issue** `BSTB_<unit>_<ddmmyy>_<NNNNN>` (Persediaan › Operasi Gudang) | Draft → **Ajukan** (goods locked at the warehouse, books untouched) → **Terima** (goods leave at moving average into the Unit's Persiapan, same lot number, dated Tanggal). *Bahan ke Produksi* goes to the first Unit of the routing; *Bahan Penolong ke Unit* to any Unit, as that Unit's balance, not a partai's contents. No QC. | Dr WIP / Cr Persediaan, at Terima | ✅ P228 |
 | 8 | Reports (Produksi › Laporan): **Saldo Produksi** (per workstation and lot as of a date), **Kartu Lot** (a lot in production and in stock). | Read from the ledgers; a past date as it stood. | none | ✅ P209 |
 | 11 | Report: **Telusur Produksi** (Produksi › Laporan) | From a lot number: backward through every execution (number, workstation, quantity, value) to the lots that came from a supplier or an injection; forward to every lot made from it and where each is now — at a workstation, in stock, or delivered to a customer. | none | ✅ P212 |
 
@@ -85,3 +85,4 @@ plan's steps 1–13.
 | 05/11/2026 | P225 | Step 1: Unit and Workstation as masters, Line, Routing, Standard Cost, Karyawan, BJL, one No. Stok system-wide. |
 | 05/11/2026 | P226 | One routing per line; Standard Cost never edited, one active, the old closed by the new. |
 | 05/11/2026 | P227 | Step 2: bucket No. Stok · Unit · stage · Partai · Job, Partai, No. Job, what a No. Stok locked, standard cost entries; several routings per line again. No document uses them yet. |
+| 05/11/2026 | P228 | Step 3: BSTB Issue, Ajukan and Terima, stock reserved from Ajukan, Bahan Penolong ke Unit. |

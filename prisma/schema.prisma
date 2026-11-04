@@ -2751,6 +2751,8 @@ model LogStockBalance {
   uom_id          Int
   stock_status_id Int
   qty_balance     Decimal  @db.Decimal(18, 6)
+  /// What Submitted documents hold of it: not free, still on the balance (W20).
+  reserved_qty    Decimal  @default(0) @db.Decimal(18, 6)
   created_by      Int
   updated_by      Int?
   created_at      DateTime @default(now()) @db.Timestamptz(6)
@@ -4252,6 +4254,9 @@ model LogStockIssueTracking {
 
 enum StockIssueStatus {
   Draft
+  /// Ajukan: the goods are locked at the warehouse, the books have not moved (W20).
+  Submitted
+  /// Terima: the goods moved. Labelled *Diterima*.
   Posted
   Cancelled
 }

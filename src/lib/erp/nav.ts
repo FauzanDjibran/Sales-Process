@@ -236,9 +236,9 @@ export const MODULES: NavModule[] = [
           {
             key: "log_stock_issue",
             slug: "stock-issue",
-            name: "Stock Issue",
+            name: "BSTB Issue",
             icon: "layers",
-            desc: "Bahan keluar dari gudang per lot langsung ke sebuah Unit. Posting memindahkan nilainya dari Persediaan ke WIP.",
+            desc: "Bahan dan bahan penolong keluar dari gudang per lot ke Unit; bergerak saat Unit menerima.",
             permission: "STOCK_ISSUE_VIEW",
           },
           {

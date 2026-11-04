@@ -145,7 +145,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Invoice Perizinan", "fin_ar_permit_invoice"],
   // Production (P200): the journals, the stock and production ledgers and the payment name them.
   ["Tagihan Biaya", "prd_cost_bill"],
-  ["Stock Issue", "log_stock_issue"],
+  ["BSTB Issue", "log_stock_issue"],
 ];
 
 /**

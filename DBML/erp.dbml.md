@@ -2569,6 +2569,7 @@ table log_stock_balance {
   stock_status_id             int [not null, ref : > sys_stock_status.id]
 
   qty_balance                 decimal(18,6) [not null]
+  reserved_qty                decimal(18,6) [not null, default: 0] // held by Submitted BSTB Issues (W20); CHECK 0 <= reserved <= balance
 
   created_by                  int [not null]
   updated_by                  int
@@ -2910,14 +2911,14 @@ table prd_tracking_link {
   }
 }
 
-// Stock Issue (R4): goods leave a warehouse by lot straight into a workstation — Dr WIP /
+// BSTB Issue (P228; R4): Draft → Ajukan (goods reserved) → Terima (goods move, W20); into a Unit's Persiapan — Dr WIP /
 // Cr Persediaan; standalone by purpose (P106), SI/YYYY/MM/NNNN
 table log_stock_issue {
   id                          int [pk, increment, not null]
 
   issue_no                    varchar [not null, unique]
   issue_date                  date [not null]
-  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  status                      enum('Draft', 'Submitted', 'Posted', 'Cancelled') [not null, default: 'Draft']
   purpose                     varchar [not null] // production_issue
   warehouse_id                int [not null, ref : > ref_warehouse.id]
   unit_id              int [ref : > ref_unit.id] // required by production_issue

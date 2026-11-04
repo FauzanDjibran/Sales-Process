@@ -192,11 +192,12 @@ const COST_BILL_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(COST_BILL_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
-/** Stock Issue: Draft → Diposting, or Dibatalkan (R4). */
+/** BSTB Issue: Draft → Diajukan → Diterima, or Dibatalkan. */
 const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
-  create: { label: "Stock Issue dibuat", icon: "layers", tone: "neutral" },
-  post: fromTransition(STOCK_ISSUE_TRANSITIONS.post, "Diposting — barang masuk ke Unit"),
+  create: { label: "BSTB Issue dibuat", icon: "layers", tone: "neutral" },
+  submit: fromTransition(STOCK_ISSUE_TRANSITIONS.submit, "Diajukan — barang terkunci di gudang"),
+  post: fromTransition(STOCK_ISSUE_TRANSITIONS.post, "Diterima — barang masuk ke Unit"),
   cancel: fromTransition(STOCK_ISSUE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
