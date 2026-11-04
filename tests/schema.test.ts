@@ -73,6 +73,14 @@ describe("the schema, the client and the database agree", () => {
     );
   });
 
+  test("every table is keyed by a single id", () => {
+    const schema = readFileSync(join(process.cwd(), "prisma", "schema.prisma"), "utf8");
+    const keyed = [...schema.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)]
+      .filter(([, , body]) => !/^\s*id\s+Int\s+@id\b/m.test(body))
+      .map(([, model]) => model);
+    assert.deepEqual(keyed, []);
+  });
+
   test("every model in the schema has a table in the database", async () => {
     const rows = await prisma.$queryRaw<{ table_name: string }[]>`
       SELECT table_name FROM information_schema.tables

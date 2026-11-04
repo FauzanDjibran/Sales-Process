@@ -1009,10 +1009,8 @@ table cash_bank_ledger {
   entry_date                  date [not null]
   entry_type                  enum('Opening', 'Transaction', 'Adjustment') [not null]
   movement                    decimal(18,2) [not null] // signed: + in, − out; direction and size are read from it (P213)
-  balance_after               decimal(18,2) [not null]
   rate                        decimal(18,6) [not null]
   base_movement               decimal(18,2) [not null] // movement in base currency, signed the same way
-  base_balance_after          decimal(18,2) [not null]
 
   source_doc_type_id          int [ref : > sys_doc_type.id]
   source_doc_id               int
@@ -1053,7 +1051,8 @@ table cash_bank_period {
 }
 
 table cash_bank_balance {
-  cash_bank_id                int [pk, not null, ref : > m_cash_bank.id]
+  id                          int [pk, increment, not null]
+  cash_bank_id                int [not null, unique, ref : > m_cash_bank.id]
   balance                     decimal(18,2) [not null, default: 0]
   base_balance                decimal(18,2) [not null, default: 0]
   entry_count                 int [not null, default: 0]
@@ -1193,7 +1192,6 @@ table fin_ar_ledger {
   event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied', 'AdvanceReceived') [not null] // AdvanceReceived: a later payment raising a bill's one Uang Muka item (P133)
   entry_date                  date [not null]
   movement                    decimal(18,2) [not null] // signed on the item balance: + grows, − falls; the one figure of the entry (P213)
-  balance_after               decimal(18,2) [not null]
 
   doc_type_id                 int [not null, ref : > sys_doc_type.id]
   doc_id                      int [not null]
@@ -1257,7 +1255,6 @@ table fin_ap_ledger {
   event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied', 'AdvanceReceived') [not null] // AdvanceReceived: a later payment raising a bill's one Uang Muka item (P133)
   entry_date                  date [not null]
   movement                    decimal(18,2) [not null] // signed on the item balance: + grows, − falls (P213)
-  balance_after               decimal(18,2) [not null]
 
   doc_type_id                 int [not null, ref : > sys_doc_type.id]
   doc_id                      int [not null]

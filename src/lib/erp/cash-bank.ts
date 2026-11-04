@@ -376,10 +376,8 @@ export async function recordCashBankEntry(db: Db, entry: NewEntry) {
       entry_date: asDate(entry.date),
       entry_type: entry.type,
       movement,
-      balance_after: after,
       rate,
       base_movement: baseMovement,
-      base_balance_after: afterBase,
       source_doc_type_id: entry.sourceDocTypeId ?? null,
       source_doc_id: entry.sourceDocId ?? null,
       note: entry.note ?? null,
@@ -750,11 +748,11 @@ export type LedgerReport = {
  * One resource's book over a period.
  *
  * Entries are ordered by date, oldest first, which is how a book is read.
- * **There is no running balance.** An entry may be dated before entries
- * already written — a backdated posting — so the `balance_after` stored on
- * each row is the balance at the moment of writing, not at the entry's date,
- * and printing it beside date-ordered rows would show figures no row above
- * produced. Opening and closing are derived from movements; the current
+ * **There is no stored running balance.** An entry may be dated before entries
+ * already written — a backdated posting — so a balance kept on the row would
+ * follow write order rather than date, and printing it beside date-ordered
+ * rows would show figures no row above produced. Opening and closing are
+ * derived from movements; the current
  * balance is `cash_bank_balance`'s, and `reconciles` checks the book against
  * it.
  *

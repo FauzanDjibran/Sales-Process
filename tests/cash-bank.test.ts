@@ -103,7 +103,6 @@ describe("a resource always has a book", () => {
     assert.equal(entries[0].entry_type, "Opening");
     assert.ok(entries[0].movement.gt(0), "money in is a positive movement");
     assert.equal(entries[0].movement.toNumber(), 5_000_000);
-    assert.equal(entries[0].balance_after.toNumber(), 5_000_000);
     assert.equal(entries[0].line_no, 1);
     assert.match(entries[0].ledger_no, /^CBL\/\d{4}\/\d{2}\/\d{4}$/);
 
@@ -155,10 +154,6 @@ describe("the balance never disagrees with the ledger", () => {
     assert.deepEqual(
       entries.map((e) => e.movement.toNumber()),
       [1_000_000, -250_000, 80_000]
-    );
-    assert.deepEqual(
-      entries.map((e) => e.balance_after.toNumber()),
-      [1_000_000, 750_000, 830_000]
     );
 
     const stored = await prisma.cashBankBalance.findUniqueOrThrow({
@@ -383,9 +378,10 @@ describe("money leaving is valued at the moving average", () => {
     const entry = await pay(id, 120);
     assert.equal(entry.rate.toNumber(), 15_300);
     assert.equal(entry.base_movement.abs().toNumber(), 1_836_000);
-    assert.equal(entry.base_balance_after.toNumber(), 7_650_000 - 1_836_000);
+    const row = await prisma.cashBankBalance.findUniqueOrThrow({ where: { cash_bank_id: id } });
+    assert.equal(row.base_balance.toNumber(), 7_650_000 - 1_836_000);
     // Spending never moves the average of what is left.
-    assert.equal(entry.base_balance_after.toNumber() / entry.balance_after.toNumber(), 15_300);
+    assert.equal(row.base_balance.toNumber() / row.balance.toNumber(), 15_300);
   });
 
   test("a receipt after a payment moves the average; a payment does not", async () => {
@@ -425,9 +421,10 @@ describe("money leaving is valued at the moving average", () => {
     }
     await pay(id, 100);
     await pay(id, 250);
-    const last = await pay(id, 350);
-    assert.equal(last.balance_after.toNumber(), 0);
-    assert.equal(last.base_balance_after.toNumber(), 0, "no rupiah left against no currency");
+    await pay(id, 350);
+    const row = await prisma.cashBankBalance.findUniqueOrThrow({ where: { cash_bank_id: id } });
+    assert.equal(row.balance.toNumber(), 0);
+    assert.equal(row.base_balance.toNumber(), 0, "no rupiah left against no currency");
     const rebuilt = await rebuildCashBankBalance(id);
     assert.deepEqual(rebuilt, { balance: 0, baseBalance: 0 });
   });
@@ -440,7 +437,6 @@ describe("money leaving is valued at the moving average", () => {
     assert.equal(backdated.entry_date.toISOString().slice(0, 10), "2020-01-15");
     assert.equal(backdated.rate.toNumber(), 15_300);
     assert.equal(backdated.base_movement.abs().toNumber(), 1_530_000);
-    assert.equal(backdated.balance_after.toNumber(), 400, "the running balance is in posting order");
   });
 
   test("a payment cannot state its own kurs", async () => {

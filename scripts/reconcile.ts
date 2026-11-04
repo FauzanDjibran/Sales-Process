@@ -177,13 +177,9 @@ export const CHECKS: Check[] = [
   // ------------------------------------------------------------------ ar
   {
     area: "ar",
-    name: "every AR item's balance equals its entries, and each entry's running balance follows",
+    name: "every AR item's balance equals its entries",
     sql: `SELECT i.ar_item_no, i.current_balance, SUM(e.movement) AS entries FROM fin_ar_item i
-            JOIN fin_ar_ledger e ON e.item_id = i.id GROUP BY i.id HAVING i.current_balance <> SUM(e.movement)
-          UNION ALL
-          SELECT x.ar_item_no, x.balance_after, x.running FROM (
-            SELECT i.ar_item_no, e.balance_after, SUM(e.movement) OVER (PARTITION BY e.item_id ORDER BY e.id) AS running
-            FROM fin_ar_ledger e JOIN fin_ar_item i ON i.id = e.item_id) x WHERE x.balance_after <> x.running`,
+            JOIN fin_ar_ledger e ON e.item_id = i.id GROUP BY i.id HAVING i.current_balance <> SUM(e.movement)`,
   },
   {
     area: "ar",

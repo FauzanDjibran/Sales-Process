@@ -1175,8 +1175,6 @@ model CashBankLedger {
   /// reconstructs the balance from scratch, which is how the materialised
   /// total is verified.
   movement      Decimal @db.Decimal(18, 2)
-  /// Balance after this entry, in the resource's own currency.
-  balance_after Decimal @db.Decimal(18, 2)
 
   /// The kurs this movement was valued at, always converting the resource's
   /// own currency to the base currency.
@@ -1206,8 +1204,6 @@ model CashBankLedger {
   /// re-deriving it at a current rate would destroy the only figure that says
   /// what currency movement cost.
   base_movement      Decimal @db.Decimal(18, 2)
-  /// `balance_after` in base currency.
-  base_balance_after Decimal @db.Decimal(18, 2)
 
   /// What caused the movement. Null for an opening balance, which has no
   /// source document — the registration of the resource is the event.
@@ -1232,7 +1228,8 @@ model CashBankLedger {
 /// in the same transaction as the entry that changed it. Never written on its
 /// own: `rebuildCashBankBalance` recomputes it from the ledger.
 model CashBankBalance {
-  cash_bank_id    Int       @id
+  id              Int       @id @default(autoincrement())
+  cash_bank_id    Int       @unique
   balance         Decimal   @default(0) @db.Decimal(18, 2)
   /// The same balance in base currency. A resource's carrying rate is
   /// `base_balance ÷ balance`, derived on read and never stored — it is an
@@ -2938,7 +2935,6 @@ model FinArLedger {
   entry_date    DateTime @db.Date
   /// Signed on the item's balance: + it grows, − it falls (P213).
   movement      Decimal  @db.Decimal(18, 2)
-  balance_after Decimal  @db.Decimal(18, 2)
 
   /// The document that caused the entry, and its number.
   doc_type_id     Int
@@ -3543,7 +3539,6 @@ model FinApLedger {
   entry_date    DateTime @db.Date
   /// Signed on the item's balance: + it grows, − it falls (P213).
   movement      Decimal  @db.Decimal(18, 2)
-  balance_after Decimal  @db.Decimal(18, 2)
 
   doc_type_id     Int
   doc_id          Int

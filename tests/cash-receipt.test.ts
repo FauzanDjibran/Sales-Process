@@ -439,9 +439,9 @@ describe("posting a receipt of two bills (P66)", () => {
     });
     assert.equal(items.length, 1, "one Uang Muka item per bill");
     const [item] = items;
-    assert.deepEqual(item.entries.map((e) => [e.event, e.movement.toNumber(), e.balance_after.toNumber()]), [
-      ["Create", 450_000, 450_000],
-      ["AdvanceReceived", 450_000, 900_000],
+    assert.deepEqual(item.entries.map((e) => [e.event, e.movement.toNumber()]), [
+      ["Create", 450_000],
+      ["AdvanceReceived", 450_000],
     ]);
     assert.deepEqual([item.original_amount.toNumber(), item.current_balance.toNumber()], [900_000, 900_000], "its original amount is what it received");
     assert.equal(item.entries[1].doc_id, r.id);

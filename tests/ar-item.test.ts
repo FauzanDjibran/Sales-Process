@@ -82,9 +82,9 @@ describe("an AR item's balance moves only through Buku Piutang", () => {
     );
     const row = await prisma.finArItem.findUniqueOrThrow({ where: { id: adv }, include: { entries: { orderBy: { id: "asc" } } } });
     assert.equal(row.current_balance.toNumber(), 600_000);
-    assert.deepEqual(row.entries.map((e) => [e.event, e.movement.toNumber(), e.balance_after.toNumber()]), [
-      ["Create", 1_000_000, 1_000_000],
-      ["AdvanceUsed", -400_000, 600_000],
+    assert.deepEqual(row.entries.map((e) => [e.event, e.movement.toNumber()]), [
+      ["Create", 1_000_000],
+      ["AdvanceUsed", -400_000],
     ]);
     assert.equal(row.entries[1].counter_item_id, inv, "the advance names the invoice that used it");
 
