@@ -10,7 +10,7 @@ import { useReportRun } from "./report-run";
 
 /**
  * The filter of the production reports (R18), in the URL like every Report
- * View: `asof` — the one date production stands at, optionally workstations
+ * View: `asof` — the one date production stands at, optionally units
  * (Saldo Produksi); `lot` — a lot number to look up (Kartu Lot, Telusur Produksi).
  */
 export function ProductionReportParams({
@@ -67,9 +67,9 @@ export function ProductionReportParams({
   return (
     <>
       <div className="rrow">
-        <span className="rl">Workstation</span>
+        <span className="rl">Unit</span>
         <div className="rf wide">
-          <MultiSelect value={stationSet} options={stations} placeholder="Tambah Workstation…" emptyPlaceholder="Semua workstation" removeTitle="Keluarkan dari laporan" onChange={setStationSet} />
+          <MultiSelect value={stationSet} options={stations} placeholder="Tambah Unit…" emptyPlaceholder="Semua unit" removeTitle="Keluarkan dari laporan" onChange={setStationSet} />
         </div>
       </div>
       <div className="rrow">

@@ -16,8 +16,8 @@ export type StockIssuePurpose = {
   /** As the form and the register read it. */
   name: string;
   desc: string;
-  /** The goods are placed at a workstation (the production ledger). */
-  needsWorkstation: boolean;
+  /** The goods are placed at a unit (the production ledger). */
+  needsUnit: boolean;
 };
 
 export const STOCK_ISSUE_PURPOSES: readonly StockIssuePurpose[] = [
@@ -25,9 +25,9 @@ export const STOCK_ISSUE_PURPOSES: readonly StockIssuePurpose[] = [
     key: "production_issue",
     name: "Pengeluaran ke Produksi",
     desc:
-      "Bahan keluar dari gudang ke sebuah Workstation, per lot. Lot tetap bernomor sama di produksi; " +
+      "Bahan keluar dari gudang ke sebuah Unit, per lot. Lot tetap bernomor sama di produksi; " +
       "Posting memindahkan nilainya dari Persediaan ke WIP.",
-    needsWorkstation: true,
+    needsUnit: true,
   },
 ];
 

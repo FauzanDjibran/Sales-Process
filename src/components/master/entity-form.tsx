@@ -12,6 +12,7 @@ import {
 } from "@/lib/erp/header-actions";
 import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
+import { MultiSelect } from "@/components/ui/multi-select";
 import { Select } from "@/components/ui/select";
 import { MoneyInput } from "@/components/ui/money-input";
 import { PercentInput } from "@/components/ui/percent-input";
@@ -47,6 +48,7 @@ import { recordTitle } from "@/lib/erp/record-title";
 import { AddressesTab, ContactsTab } from "@/components/master/partner-tabs";
 import { UomConversionsTab } from "@/components/master/item-tabs";
 import { WarehouseLocationsTab } from "@/components/master/warehouse-tabs";
+import { RateLinesTab, RoutingStepsTab } from "@/components/master/production-master-tabs";
 import type { CollectionTabProps } from "@/components/master/collection-tab";
 
 /**
@@ -60,6 +62,8 @@ const CUSTOM_TABS: Record<string, (props: CollectionTabProps<any>) => React.Reac
   "m_partner.contacts": ContactsTab,
   "m_item.uoms": UomConversionsTab,
   "ref_warehouse.locations": WarehouseLocationsTab,
+  "prd_routing.steps": RoutingStepsTab,
+  "prd_rate_version.rates": RateLinesTab,
 };
 
 export type FormMode = "new" | "view" | "edit";
@@ -721,6 +725,19 @@ function readOnlyBody({
       <div className="ro nil">tidak diisi</div>
     );
   }
+  if (field.type === "multi") {
+    const list = Array.isArray(raw) ? (raw as string[]) : [];
+    if (!list.length) return <div className="ro nil">tidak diisi</div>;
+    return (
+      <div className="ro">
+        {list.map((o) => (
+          <span key={o} className="bdg t-slate" style={{ marginRight: 4 }}>
+            {field.optionLabels?.[o] ?? o}
+          </span>
+        ))}
+      </div>
+    );
+  }
   if (field.type === "select") {
     if (raw == null || raw === "") return <div className="ro nil">tidak diisi</div>;
     const s = String(raw);
@@ -862,6 +879,24 @@ function editableControl({
         invalid={Boolean(error)}
         waitingFor={waitingFor}
         onChange={(v) => onChange(v == null ? null : String(v))}
+      />
+    );
+  }
+  if (field.type === "multi") {
+    // MultiSelect works in ids; a field option is its 1-based position.
+    const opts = (field.options ?? []).map((o, i) => ({ id: i + 1, label: field.optionLabels?.[o] ?? o, name: "", active: true }));
+    const chosen = String(value ?? "")
+      .split(",")
+      .map((o) => (field.options ?? []).indexOf(o) + 1)
+      .filter((n) => n > 0);
+    return (
+      <MultiSelect
+        value={chosen}
+        options={opts}
+        placeholder={`Tambah ${field.label}…`}
+        emptyPlaceholder={`Pilih ${field.label}…`}
+        invalid={Boolean(error)}
+        onChange={(ids) => onChange(ids.map((n) => (field.options ?? [])[n - 1]).join(","))}
       />
     );
   }

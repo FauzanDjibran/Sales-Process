@@ -8,7 +8,7 @@ import { cleanupFixtures, disconnect, prisma } from "./helpers";
 import { makeProductionFixture, sourceOf, type ProductionFixture } from "./production-helpers";
 
 /**
- * The production ledger (R3, R7): buckets per lot · workstation, release at
+ * The production ledger (R3, R7): buckets per lot · unit, release at
  * round(V × q ÷ Q), transfers at the value released, and the balances always
  * equal the ledger.
  */
@@ -16,7 +16,7 @@ import { makeProductionFixture, sourceOf, type ProductionFixture } from "./produ
 let f: ProductionFixture;
 const date = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`);
 const tx = <T>(fn: (t: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<T>) => prisma.$transaction(fn);
-const bucketOf = async (lotId: number, ws: number) => prisma.prdBalance.findUniqueOrThrow({ where: { tracking_id_workstation_id: { tracking_id: lotId, workstation_id: ws } } });
+const bucketOf = async (lotId: number, ws: number) => prisma.prdBalance.findUniqueOrThrow({ where: { tracking_id_unit_id: { tracking_id: lotId, unit_id: ws } } });
 
 before(async () => {
   f = await makeProductionFixture("LED");
@@ -38,12 +38,12 @@ describe("the sharing arithmetic", () => {
 });
 
 describe("goods in, through and out of production", () => {
-  test("a stock lot enters a workstation at the value it left stock at", async () => {
+  test("a stock lot enters a unit at the value it left stock at", async () => {
     const s = await sourceOf("log_stock_issue", "SI-T1");
     await tx(async (t) => {
       const { cost } = await issueStock(t, { itemId: f.material, warehouseId: f.warehouse, lotId: f.lot, baseQty: 400, date, source: s, actorId: f.actor });
       assert.equal(cost, 400_000);
-      await enterProduction(t, { lotId: f.lot, itemId: f.material, workstationId: f.wsA, baseQty: 400, value: cost, date, source: s, actorId: f.actor });
+      await enterProduction(t, { lotId: f.lot, itemId: f.material, unitId: f.wsA, baseQty: 400, value: cost, date, source: s, actorId: f.actor });
     });
     const b = await bucketOf(f.lot, f.wsA);
     assert.deepEqual([b.qty_balance.toNumber(), b.value_balance.toNumber()], [400, 400_000]);
@@ -52,7 +52,7 @@ describe("goods in, through and out of production", () => {
   test("a transfer moves the lot and its released value to another station", async () => {
     const s = await sourceOf("log_stock_issue", "PT-T1");
     const from = await bucketOf(f.lot, f.wsA);
-    const r = await tx((t) => transferBucket(t, { bucketId: from.id, toWorkstationId: f.wsB, baseQty: 100, date, source: s, actorId: f.actor }));
+    const r = await tx((t) => transferBucket(t, { bucketId: from.id, toUnitId: f.wsB, baseQty: 100, date, source: s, actorId: f.actor }));
     assert.equal(r.value, 100_000);
     assert.equal((await bucketOf(f.lot, f.wsB)).value_balance.toNumber(), 100_000);
     assert.equal((await bucketOf(f.lot, f.wsA)).value_balance.toNumber(), 300_000);
@@ -78,8 +78,8 @@ describe("goods in, through and out of production", () => {
       assert.equal(rows.reduce((a, r) => a + r.value_change.toNumber(), 0), b.value_balance.toNumber());
       assert.equal(rows.at(-1)!.value_balance.toNumber(), b.value_balance.toNumber());
     }
-    const held = await availableBuckets({ workstationIds: [f.wsA, f.wsB] });
+    const held = await availableBuckets({ unitIds: [f.wsA, f.wsB] });
     assert.ok(held.every((b) => b.qty > 0));
-    assert.deepEqual(held.map((b) => [b.workstationId, b.qty, b.value]), [[f.wsA, 300, 300_000]], "a bucket emptied is no longer offered");
+    assert.deepEqual(held.map((b) => [b.unitId, b.qty, b.value]), [[f.wsA, 300, 300_000]], "a bucket emptied is no longer offered");
   });
 });

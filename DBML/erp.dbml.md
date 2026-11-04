@@ -395,7 +395,7 @@ table ref_payment_term {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
-// Workstation (R3): where production happens; goods in production sit per lot · workstation
+// Workstation (P225, W33): only groups Units; holds no goods and no rate
 table ref_workstation {
   id                          int [pk, increment, not null]
 
@@ -403,6 +403,144 @@ table ref_workstation {
 
   workstation_label           varchar [not null]
   workstation_name            varchar [not null]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// Unit (P225, W33): where goods are held in production, and the kinds of work done there;
+// the old ref_workstation (P201) renamed in place
+table ref_unit {
+  id                          int [pk, increment, not null]
+
+  unit_code                   varchar [not null, unique]
+
+  unit_label                  varchar [not null] // the short code used in document numbers, e.g. UGH
+  unit_name                   varchar [not null]
+  workstation_id              int [ref : > ref_workstation.id]
+  processes                   varchar // PrdProcessKind[]: PassThrough, Grading, PartaiFormer, GradingMix, JobOrder, Assembly
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// Line Produksi (P225): a routing hangs on it; the month's variance goes to its account
+table prd_line {
+  id                          int [pk, increment, not null]
+
+  line_code                   varchar [not null, unique]
+
+  line_label                  varchar [not null]
+  line_name                   varchar [not null]
+  variance_account_id         int [ref : > acc_account.id]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// Routing (P225): a version of the ordered Units; no line = the segment before the partai
+table prd_routing {
+  id                          int [pk, increment, not null]
+
+  routing_code                varchar [not null, unique]
+
+  routing_label               varchar [not null]
+  routing_name                varchar [not null]
+  line_id                     int [ref : > prd_line.id]
+  effective_from              date [not null]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+table prd_routing_step {
+  id                          int [pk, increment, not null]
+
+  routing_id                  int [not null, ref : > prd_routing.id]
+  seq                         int [not null]
+  unit_id                     int [not null, ref : > ref_unit.id]
+  exit_mode                   enum('Direct', 'NoQc', 'WithQc', 'PerCarton') [not null]
+  job_policy                  enum('Issued', 'Carried', 'Released', 'None') [not null]
+  is_checkpoint               boolean [not null, default: false] // from here a partai moves whole (W28)
+  is_skippable                boolean [not null, default: false]
+
+  indexes {
+    (routing_id, seq) [unique]
+    (routing_id, unit_id) [unique]
+    unit_id
+  }
+}
+
+// Standard Cost (P225): the rate per gram of each Unit, in versions
+table prd_rate_version {
+  id                          int [pk, increment, not null]
+
+  rate_code                   varchar [not null, unique]
+
+  rate_label                  varchar [not null]
+  rate_name                   varchar [not null]
+  effective_from              date [not null]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+table prd_rate_version_line {
+  id                          int [pk, increment, not null]
+
+  version_id                  int [not null, ref : > prd_rate_version.id]
+  unit_id                     int [not null, ref : > ref_unit.id]
+  rate                        decimal(18,6) [not null]
+
+  indexes {
+    (version_id, unit_id) [unique]
+    unit_id
+  }
+}
+
+// Karyawan (P225, W26): who worked a No. Job at a Pass Through Unit
+table m_employee {
+  id                          int [pk, increment, not null]
+
+  employee_code               varchar [not null, unique]
+
+  employee_label              varchar [not null]
+  employee_name               varchar [not null]
 
   note                        varchar
 
@@ -565,6 +703,7 @@ table m_item {
   can_buy                     boolean [not null, default: false]
   track_stock                 boolean [not null, default: false]
   has_expiry                  boolean [not null, default: false]
+  is_bjl                      boolean [not null, default: false] // BJL (W32): valued 0 in production; locked once used
 
   note                        varchar
 
@@ -2279,12 +2418,12 @@ table sys_stock_status {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
-// a lot: one per item and number, made by the receipt that first brings it in
+// a lot (No. Stok): one number, one stock in the whole system (W10), made by the receipt that first brings it in
 // only items with Kelola Stok are in the books, and always by lot
 table log_stock_tracking {
   id                          int [pk, increment, not null]
 
-  tracking_no                 varchar [not null] // unique per item, not globally
+  tracking_no                 varchar [not null, unique] // one No. Stok is one stock in the whole system (W10)
 
   tracking_date               date [not null] // first received
 
@@ -2305,7 +2444,6 @@ table log_stock_tracking {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
-    (item_id, tracking_no) [unique]
     (source_doc_type_id, source_doc_id)
   }
 }
@@ -2620,7 +2758,7 @@ table prd_balance {
   id                          int [pk, increment, not null]
 
   tracking_id                      int [not null, ref : > log_stock_tracking.id] // the one lot register (P120)
-  workstation_id              int [not null, ref : > ref_workstation.id]
+  unit_id              int [not null, ref : > ref_unit.id]
   item_id                     int [not null, ref : > m_item.id]
   uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
 
@@ -2634,8 +2772,8 @@ table prd_balance {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
-    (tracking_id, workstation_id) [unique]
-    workstation_id
+    (tracking_id, unit_id) [unique]
+    unit_id
     item_id
   }
 }
@@ -2653,7 +2791,7 @@ table prd_ledger {
   movement                    enum('Issued', 'Consumed', 'Produced', 'TransferOut', 'TransferIn', 'Released') [not null]
   bucket_id                   int [not null, ref : > prd_balance.id]
   tracking_id                      int [not null, ref : > log_stock_tracking.id]
-  workstation_id              int [not null, ref : > ref_workstation.id]
+  unit_id              int [not null, ref : > ref_unit.id]
   item_id                     int [not null, ref : > m_item.id]
 
   qty_change                  decimal(18,6) [not null]
@@ -2704,7 +2842,7 @@ table log_stock_issue {
   status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
   purpose                     varchar [not null] // production_issue
   warehouse_id                int [not null, ref : > ref_warehouse.id]
-  workstation_id              int [ref : > ref_workstation.id] // required by production_issue
+  unit_id              int [ref : > ref_unit.id] // required by production_issue
   note                        varchar
 
   cost_amount                 decimal(18,2) [not null, default: 0]

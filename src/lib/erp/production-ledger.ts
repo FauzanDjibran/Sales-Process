@@ -8,7 +8,7 @@ import { costedPeriodRefusal } from "./period-lock";
 /**
  * The production ledger (R3, step 3) — the book of what is inside production.
  *
- * A **bucket** (`prd_balance`) is one lot at one workstation, holding quantity
+ * A **bucket** (`prd_balance`) is one lot at one unit, holding quantity
  * Q in the item's base unit and value V in whole rupiah; Σ V is WIP. Lots are
  * the stock lots (`log_stock_tracking`, unique per item, P120): a stock lot
  * issued in keeps its number. Every movement is a row of `prd_ledger`, written
@@ -18,7 +18,7 @@ import { costedPeriodRefusal } from "./period-lock";
  * - **Taking** q from a bucket releases round(V × q ÷ Q), or V whole when q
  *   empties it, so a bucket always ends at 0 / 0 (as P114's pools).
  * - **Transferring** takes from one bucket and puts the same lot, quantity and
- *   value in another workstation's (R7).
+ *   value in another unit's (R7).
  *
  * Only a Barang with Kelola Stok enters production. Buckets are locked
  * `FOR UPDATE` in id order; a document that also moves stock locks the stock
@@ -58,33 +58,33 @@ async function productionItem(tx: Tx, itemId: number) {
   return item;
 }
 
-async function activeWorkstation(tx: Tx, id: number) {
-  const ws = await tx.refWorkstation.findUnique({ where: { id }, select: { workstation_label: true, status: true } });
-  if (!ws) throw new ProductionRefusal("Workstation tidak ditemukan.");
-  if (ws.status !== "Active") throw new ProductionRefusal(`Workstation ${ws.workstation_label} nonaktif.`);
+async function activeUnit(tx: Tx, id: number) {
+  const ws = await tx.refUnit.findUnique({ where: { id }, select: { unit_label: true, status: true } });
+  if (!ws) throw new ProductionRefusal("Unit tidak ditemukan.");
+  if (ws.status !== "Active") throw new ProductionRefusal(`Unit ${ws.unit_label} nonaktif.`);
   return ws;
 }
 
 // ------------------------------------------------------------- locking
 
-type Bucket = { id: number; lotId: number; workstationId: number; itemId: number; qty: Dec; value: Dec };
+type Bucket = { id: number; lotId: number; unitId: number; itemId: number; qty: Dec; value: Dec };
 
 async function lockBucketById(tx: Tx, id: number): Promise<Bucket | null> {
-  const [row] = await tx.$queryRaw<{ id: number; tracking_id: number; workstation_id: number; item_id: number; qty_balance: Dec; value_balance: Dec }[]>`
-    SELECT "id", "tracking_id", "workstation_id", "item_id", "qty_balance", "value_balance" FROM "prd_balance" WHERE "id" = ${id} FOR UPDATE`;
+  const [row] = await tx.$queryRaw<{ id: number; tracking_id: number; unit_id: number; item_id: number; qty_balance: Dec; value_balance: Dec }[]>`
+    SELECT "id", "tracking_id", "unit_id", "item_id", "qty_balance", "value_balance" FROM "prd_balance" WHERE "id" = ${id} FOR UPDATE`;
   return row
-    ? { id: row.id, lotId: row.tracking_id, workstationId: row.workstation_id, itemId: row.item_id, qty: new D(row.qty_balance), value: new D(row.value_balance) }
+    ? { id: row.id, lotId: row.tracking_id, unitId: row.unit_id, itemId: row.item_id, qty: new D(row.qty_balance), value: new D(row.value_balance) }
     : null;
 }
 
-/** The lot's bucket at the workstation, created empty if missing, and locked. */
-async function openBucket(tx: Tx, k: { lotId: number; workstationId: number; itemId: number; uomId: number }, actorId: number): Promise<Bucket> {
+/** The lot's bucket at the unit, created empty if missing, and locked. */
+async function openBucket(tx: Tx, k: { lotId: number; unitId: number; itemId: number; uomId: number }, actorId: number): Promise<Bucket> {
   await tx.$executeRaw`
-    INSERT INTO "prd_balance" ("tracking_id", "workstation_id", "item_id", "uom_id", "qty_balance", "value_balance", "created_by", "updated_at")
-    VALUES (${k.lotId}, ${k.workstationId}, ${k.itemId}, ${k.uomId}, 0, 0, ${actorId}, now())
-    ON CONFLICT ("tracking_id", "workstation_id") DO NOTHING`;
+    INSERT INTO "prd_balance" ("tracking_id", "unit_id", "item_id", "uom_id", "qty_balance", "value_balance", "created_by", "updated_at")
+    VALUES (${k.lotId}, ${k.unitId}, ${k.itemId}, ${k.uomId}, 0, 0, ${actorId}, now())
+    ON CONFLICT ("tracking_id", "unit_id") DO NOTHING`;
   const [row] = await tx.$queryRaw<{ id: number }[]>`
-    SELECT "id" FROM "prd_balance" WHERE "tracking_id" = ${k.lotId} AND "workstation_id" = ${k.workstationId}`;
+    SELECT "id" FROM "prd_balance" WHERE "tracking_id" = ${k.lotId} AND "unit_id" = ${k.unitId}`;
   return (await lockBucketById(tx, row.id))!;
 }
 
@@ -130,7 +130,7 @@ async function write(tx: Tx, b: Bucket, m: { movement: Movement; qty: Dec; value
       movement: m.movement,
       bucket_id: b.id,
       tracking_id: b.lotId,
-      workstation_id: b.workstationId,
+      unit_id: b.unitId,
       item_id: b.itemId,
       qty_change: m.qty,
       qty_balance: qty,
@@ -153,9 +153,9 @@ async function takeLocked(tx: Tx, b: Bucket, qty: Dec, movement: Movement, date:
   if (qty.decimalPlaces() > 6) throw new ProductionRefusal("Jumlah paling banyak 6 angka desimal.");
   if (b.qty.lt(qty)) {
     const lot = await tx.logStockTracking.findUnique({ where: { id: b.lotId }, select: { tracking_no: true, item: { select: { item_label: true } } } });
-    const ws = await tx.refWorkstation.findUnique({ where: { id: b.workstationId }, select: { workstation_label: true } });
+    const ws = await tx.refUnit.findUnique({ where: { id: b.unitId }, select: { unit_label: true } });
     throw new ProductionRefusal(
-      `Saldo produksi ${lot?.item.item_label ?? ""} lot ${lot?.tracking_no ?? ""} di ${ws?.workstation_label ?? ""} tidak cukup: tersedia ${qtyText(b.qty)}, diminta ${qtyText(qty)}.`
+      `Saldo produksi ${lot?.item.item_label ?? ""} lot ${lot?.tracking_no ?? ""} di ${ws?.unit_label ?? ""} tidak cukup: tersedia ${qtyText(b.qty)}, diminta ${qtyText(qty)}.`
     );
   }
   const value = release(b, qty);
@@ -169,7 +169,7 @@ export type ProductionEntry = {
   /** A stock lot (`log_stock_tracking`) of the item, kept in production. */
   lotId: number;
   itemId: number;
-  workstationId: number;
+  unitId: number;
   /** In the item's base unit. */
   baseQty: number | string | Dec;
   /** Whole rupiah — what the stock issue released. */
@@ -179,7 +179,7 @@ export type ProductionEntry = {
   actorId: number;
 };
 
-/** Places a stock lot in production at a workstation (Stock Issue, R4). */
+/** Places a stock lot in production at a unit (Stock Issue, R4). */
 export async function enterProduction(tx: Tx, e: ProductionEntry): Promise<{ bucketId: number }> {
   const qty = new D(e.baseQty);
   const value = new D(e.value);
@@ -187,10 +187,10 @@ export async function enterProduction(tx: Tx, e: ProductionEntry): Promise<{ buc
   if (qty.decimalPlaces() > 6) throw new ProductionRefusal("Jumlah paling banyak 6 angka desimal.");
   if (value.lt(0) || !value.isInteger()) throw new ProductionRefusal("Nilai harus rupiah utuh, tidak negatif.");
   const item = await productionItem(tx, e.itemId);
-  await activeWorkstation(tx, e.workstationId);
+  await activeUnit(tx, e.unitId);
   const lot = await tx.logStockTracking.findFirst({ where: { id: e.lotId, item_id: e.itemId }, select: { id: true } });
   if (!lot) throw new ProductionRefusal(`Lot ${item.item_label} tidak ditemukan.`);
-  const bucket = await openBucket(tx, { lotId: lot.id, workstationId: e.workstationId, itemId: e.itemId, uomId: item.base_uom_id }, e.actorId);
+  const bucket = await openBucket(tx, { lotId: lot.id, unitId: e.unitId, itemId: e.itemId, uomId: item.base_uom_id }, e.actorId);
   await write(tx, bucket, { movement: "Issued", qty, value, date: e.date, source: e.source, actorId: e.actorId });
   return { bucketId: bucket.id };
 }
@@ -211,7 +211,7 @@ export type TakenFromProduction = {
   lotId: number;
   lotNo: string;
   itemId: number;
-  workstationId: number;
+  unitId: number;
   expiry: Date | null;
 };
 
@@ -226,25 +226,25 @@ export async function takeFromBucket(tx: Tx, t: ProductionTake): Promise<TakenFr
   if (!b) throw new ProductionRefusal("Saldo produksi tidak ditemukan. Pilih ulang.");
   const value = await takeLocked(tx, b, new D(t.baseQty), "Released", t.date, t.source, t.actorId);
   const lot = await tx.logStockTracking.findUniqueOrThrow({ where: { id: b.lotId }, select: { tracking_no: true, expiry_date: true } });
-  return { value: value.toNumber(), lotId: b.lotId, lotNo: lot.tracking_no, itemId: b.itemId, workstationId: b.workstationId, expiry: lot.expiry_date };
+  return { value: value.toNumber(), lotId: b.lotId, lotNo: lot.tracking_no, itemId: b.itemId, unitId: b.unitId, expiry: lot.expiry_date };
 }
 
 /**
- * Moves q of a lot from its bucket to another workstation's (Production
+ * Moves q of a lot from its bucket to another unit's (Production
  * Transfer, R7): out at round(V × q ÷ Q) — V whole when it empties — and in at
  * the same value. Both buckets locked in id order.
  */
 export async function transferBucket(
   tx: Tx,
-  t: ProductionTake & { toWorkstationId: number }
+  t: ProductionTake & { toUnitId: number }
 ): Promise<{ value: number; toBucketId: number; lotId: number; itemId: number }> {
   const from = await lockBucketById(tx, t.bucketId);
   if (!from) throw new ProductionRefusal("Saldo produksi tidak ditemukan. Pilih ulang.");
-  if (from.workstationId === t.toWorkstationId) throw new ProductionRefusal("Workstation tujuan sama dengan asalnya.");
-  await activeWorkstation(tx, t.toWorkstationId);
+  if (from.unitId === t.toUnitId) throw new ProductionRefusal("Unit tujuan sama dengan asalnya.");
+  await activeUnit(tx, t.toUnitId);
   const item = await productionItem(tx, from.itemId);
   // The destination exists before either is locked twice; locks then follow id order.
-  const to = await openBucket(tx, { lotId: from.lotId, workstationId: t.toWorkstationId, itemId: from.itemId, uomId: item.base_uom_id }, t.actorId);
+  const to = await openBucket(tx, { lotId: from.lotId, unitId: t.toUnitId, itemId: from.itemId, uomId: item.base_uom_id }, t.actorId);
   const value = await takeLocked(tx, from, new D(t.baseQty), "TransferOut", t.date, t.source, t.actorId);
   await write(tx, to, { movement: "TransferIn", qty: new D(t.baseQty), value, date: t.date, source: t.source, actorId: t.actorId });
   return { value: value.toNumber(), toBucketId: to.id, lotId: from.lotId, itemId: from.itemId };
@@ -260,9 +260,9 @@ export type BucketView = {
   itemLabel: string;
   itemName: string;
   uomLabel: string;
-  workstationId: number;
-  workstationLabel: string;
-  workstationName: string;
+  unitId: number;
+  unitLabel: string;
+  unitName: string;
   expiry: string | null;
   qty: number;
   value: number;
@@ -272,7 +272,7 @@ const bucketInclude = {
   tracking: { select: { tracking_no: true, expiry_date: true } },
   item: { select: { item_label: true, item_name: true } },
   uom: { select: { uom_label: true } },
-  workstation: { select: { workstation_label: true, workstation_name: true } },
+  unit: { select: { unit_label: true, unit_name: true } },
 } as const;
 
 type BucketRow = Prisma.PrdBalanceGetPayload<{ include: typeof bucketInclude }>;
@@ -285,9 +285,9 @@ const view = (b: BucketRow): BucketView => ({
   itemLabel: b.item.item_label,
   itemName: b.item.item_name,
   uomLabel: b.uom.uom_label,
-  workstationId: b.workstation_id,
-  workstationLabel: b.workstation.workstation_label,
-  workstationName: b.workstation.workstation_name,
+  unitId: b.unit_id,
+  unitLabel: b.unit.unit_label,
+  unitName: b.unit.unit_name,
   expiry: iso(b.tracking.expiry_date),
   qty: b.qty_balance.toNumber(),
   value: b.value_balance.toNumber(),
@@ -295,11 +295,11 @@ const view = (b: BucketRow): BucketView => ({
 
 /**
  * Every bucket holding quantity, for the pickers of executions, transfers and
- * releases — filtered by workstation or item; earliest expiry first, then lot.
+ * releases — filtered by unit or item; earliest expiry first, then lot.
  * `withIds` brings in buckets a stored document names, whatever they hold now.
  */
 export async function availableBuckets(
-  filter: { workstationIds?: number[]; itemIds?: number[]; withIds?: number[] } = {},
+  filter: { unitIds?: number[]; itemIds?: number[]; withIds?: number[] } = {},
   db: Db = prisma
 ): Promise<BucketView[]> {
   const rows = await db.prdBalance.findMany({
@@ -307,7 +307,7 @@ export async function availableBuckets(
       OR: [
         {
           qty_balance: { gt: 0 },
-          ...(filter.workstationIds?.length ? { workstation_id: { in: filter.workstationIds } } : {}),
+          ...(filter.unitIds?.length ? { unit_id: { in: filter.unitIds } } : {}),
           ...(filter.itemIds?.length ? { item_id: { in: filter.itemIds } } : {}),
         },
         ...(filter.withIds?.length ? [{ id: { in: filter.withIds } }] : []),
@@ -317,7 +317,7 @@ export async function availableBuckets(
   });
   return rows
     .map(view)
-    .sort((a, b) => (a.expiry ?? "9999").localeCompare(b.expiry ?? "9999") || a.lotNo.localeCompare(b.lotNo) || a.workstationLabel.localeCompare(b.workstationLabel));
+    .sort((a, b) => (a.expiry ?? "9999").localeCompare(b.expiry ?? "9999") || a.lotNo.localeCompare(b.lotNo) || a.unitLabel.localeCompare(b.unitLabel));
 }
 
 /** The buckets by id, whatever they hold — for a stored document's lines. */
@@ -336,4 +336,9 @@ export async function wipByItem(db: Db = prisma): Promise<Map<number, number>> {
 /** Whether anything moved in production between two dates — what the year-end guard asks (R28). */
 export async function hasProductionMovement(from: Date, to: Date, db: Db = prisma): Promise<boolean> {
   return Boolean(await db.prdLedger.findFirst({ where: { posting_date: { gte: from, lte: to } }, select: { id: true } }));
+}
+
+/** Whether any stock of the item has ever been in production — what locks its BJL flag (W32). */
+export async function itemUsedInProduction(itemId: number): Promise<boolean> {
+  return (await prisma.prdLedger.count({ where: { tracking: { item_id: itemId } } })) > 0;
 }

@@ -6,7 +6,7 @@ import { MoneyInput } from "@/components/ui/money-input";
 import type { BucketOption } from "@/lib/erp/production-doc";
 import { formatMoney, formatNumber } from "@/lib/format";
 
-/** One line taken from a production bucket: a lot at a workstation and a quantity of it. */
+/** One line taken from a production bucket: a lot at a unit and a quantity of it. */
 export type BucketLine = { key: string; bucket_id: number | null; qty: string };
 
 let seq = 0;
@@ -24,7 +24,7 @@ export function bucketReleaseEstimate(b: BucketOption | undefined, qty: number):
 
 /**
  * The lines a production document takes from buckets (R5, R7, R8): each a lot
- * held at the document's workstation and a quantity of it, in the item's base
+ * held at the document's unit and a quantity of it, in the item's base
  * unit, each lot once. While editing a line shows what is held and the value
  * it would release now; once posted, the value it released.
  */
@@ -46,9 +46,9 @@ export function BucketLinesCard({
   icon: "layers" | "box" | "truck";
   editing: boolean;
   lines: BucketLine[];
-  /** The buckets offered — held at the workstation, plus any a stored line names. */
+  /** The buckets offered — held at the unit, plus any a stored line names. */
   buckets: BucketOption[];
-  /** Why nothing can be picked yet, e.g. `Pilih Workstation dulu…`. */
+  /** Why nothing can be picked yet, e.g. `Pilih Unit dulu…`. */
   waitingFor?: string | null;
   /** Per line, once posted: the value it released. */
   posted?: (number | null)[];
@@ -92,7 +92,7 @@ export function BucketLinesCard({
             <Icon name={icon} size={18} />
           </div>
           <h4>Belum ada lot</h4>
-          <p>{waitingFor ?? "Pilih lot yang ada di Workstation dan jumlahnya."}</p>
+          <p>{waitingFor ?? "Pilih lot yang ada di Unit dan jumlahnya."}</p>
           {editing && add(true)}
         </div>
       ) : (
@@ -129,7 +129,7 @@ export function BucketLinesCard({
                             .map((o) => ({ id: o.id, label: o.lotNo, name: `${o.itemLabel} · ${o.itemName}`, active: true }))}
                           placeholder="Pilih Lot…"
                           waitingFor={waitingFor}
-                          emptyText="Tidak ada barang di Workstation ini."
+                          emptyText="Tidak ada barang di Unit ini."
                           invalid={Boolean(err(l.key, "bucket_id"))}
                           onChange={(v) => set(l.key, { bucket_id: v })}
                         />

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { parseList } from "./partner-shape";
 import { UOMS_KEY, uomErrors, type UomDraft } from "./item-shape";
+import { itemUsedInProduction } from "./production-ledger";
 
 /**
  * An Item's own collection — its alternate units and their conversion to the
@@ -156,6 +157,18 @@ export async function checkItemBaseUom(
     ? await prisma.mItem.findUnique({ where: { id: itemId }, select: { base_uom_id: true } })
     : null;
   return current?.base_uom_id === uomId ? {} : { base_uom_id: "Satuan ini sudah nonaktif." };
+}
+
+/** BJL is locked once the item has been in production (W32); the value would change under posted rows. */
+export async function checkItemBjl(
+  values: Record<string, unknown>,
+  itemId: number | null
+): Promise<Record<string, string>> {
+  if (!itemId) return {};
+  const current = await prisma.mItem.findUnique({ where: { id: itemId }, select: { is_bjl: true } });
+  const next = values.is_bjl === true || values.is_bjl === "true";
+  if (!current || current.is_bjl === next) return {};
+  return (await itemUsedInProduction(itemId)) ? { is_bjl: "BJL tidak dapat diubah: item ini sudah dipakai di produksi." } : {};
 }
 
 // ------------------------------------------------------------------- writes

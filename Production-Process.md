@@ -6,7 +6,7 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **04/11/2026 — P218** (step D: the old production documents and close dropped).
+> Last updated: **05/11/2026 — P225** (step 1: the production masters).
 >
 > **What follows describes what is on `main`.** The agreed target is in
 > `Produksi Walet (Real).md`; its build steps add the documents back.
@@ -36,7 +36,13 @@ plan's steps 1–13.
 
 | Master | What it holds | Where | Status |
 | --- | --- | --- | --- |
-| **Workstation** | Label, name. Where production happens. | Master › Entitas | ✅ P201 |
+| **Unit** | Code (in document numbers, locked), name, its Workstation, and the **kinds of work** it may do. Where goods are held in production; no unit is named in code. | Master › Produksi | ✅ P225 |
+| **Workstation** | Label, name. Only groups Units. | Master › Produksi | ✅ P225 |
+| **Line Produksi** | Label, name, the variance account. | Master › Produksi | ✅ P225 |
+| **Routing** | A version of the ordered Units; no line = the segment before the partai. Each step: exit mode, No. Job policy, checkpoint, skippable. | Master › Produksi | ✅ P225 |
+| **Standard Cost** | Versions of the rate per gram per Unit; empty = 0. | Master › Produksi | ✅ P225 |
+| **Karyawan** | Who worked a No. Job at a Pass Through Unit. | Master › Produksi | ✅ P225 |
+| **BJL** | A flag on the Item; valued 0 in production; locked once used. | Master › Item | ✅ P225 |
 | **Jenis Biaya** | Label, name and the **expense account** a Tagihan Biaya line debits (fixed once chosen). The close pools the net debit on these accounts. Starter rows by `db:seed-accounts`: upah langsung / tidak langsung, listrik, penyusutan, pemeliharaan, overhead lain. | Master › Referensi | ✅ P201 |
 | **Account WIP** | A column on Account Kategori Item (Barang). **No fallback**: a production posting is refused naming the category without one (R16). `db:seed-accounts` points every Barang category at *Persediaan Barang Dalam Proses*. | Accounting › Pengaturan › Account Kategori Item | ✅ P201 |
 | **Account Mapping › Produksi** | *Hutang Biaya Produksi* (credit of every Tagihan Biaya), *Beban Pemusnahan Produksi* (scrap), *Biaya Produksi Dibebankan* (credit of the month-end close). | Accounting › Pengaturan › Account Mapping | ✅ P201 |
@@ -73,3 +79,4 @@ plan's steps 1–13.
 | 04/11/2026 | P216 | Production replanned in `Produksi Walet (Real).md`; no change to what is built. |
 | 04/11/2026 | P217 | Drop list and step D agreed in `Produksi Walet (Real).md` §12–13; no change to what is built. |
 | 04/11/2026 | P218 | Step D: Eksekusi, Production Transfer, Production Release, the close, Bobot Nilai, Rekap Produksi and Costing Sementara dropped. |
+| 05/11/2026 | P225 | Step 1: Unit and Workstation as masters, Line, Routing, Standard Cost, Karyawan, BJL, one No. Stok system-wide. |

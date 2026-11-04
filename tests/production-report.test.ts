@@ -25,7 +25,7 @@ before(async () => {
   const s = await sourceOf("log_stock_issue", "SI-RP");
   await prisma.$transaction(async (tx) => {
     const { cost } = await issueStock(tx, { itemId: f.material, warehouseId: f.warehouse, lotId: f.lot, baseQty: 500, date, source: s, actorId: f.actor });
-    await enterProduction(tx, { lotId: f.lot, itemId: f.material, workstationId: f.wsA, baseQty: 500, value: cost, date, source: s, actorId: f.actor });
+    await enterProduction(tx, { lotId: f.lot, itemId: f.material, unitId: f.wsA, baseQty: 500, value: cost, date, source: s, actorId: f.actor });
   });
 });
 
@@ -37,7 +37,7 @@ after(async () => {
 });
 
 describe("Saldo Produksi", () => {
-  test("reads the ledger as of a date, per workstation and lot", async () => {
+  test("reads the ledger as of a date, per unit and lot", async () => {
     const [block] = await wipBalanceReport(today, [f.wsA]);
     assert.ok(block);
     assert.deepEqual(block.rows.map((r) => [r.itemLabel, r.qty, r.value]), [[f.key("BAHAN"), 500, 500_000]]);

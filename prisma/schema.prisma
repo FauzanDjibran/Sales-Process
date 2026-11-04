@@ -585,6 +585,8 @@ model MItem {
   track_stock Boolean @default(false)
   /// Barang only. Batch / expiry tracking, meaningful once stock exists.
   has_expiry  Boolean @default(false)
+  /// BJL (W32): always valued 0, still counts in quantity and grams. Locked once used in production.
+  is_bjl      Boolean @default(false)
 
   note   String?
   status ActiveStatus @default(Active)
@@ -808,8 +810,8 @@ model RefPermitType {
   @@map("ref_permit_type")
 }
 
-/// Where production transforms input into output (R3): user master data.
-/// Goods in production are held per lot · workstation.
+/// A Workstation (P225, W33) only groups Units — Cleaning, Moulding, WIP
+/// Packing. It holds no goods and no rate.
 model RefWorkstation {
   id                Int          @id @default(autoincrement())
   workstation_code  String       @unique
@@ -823,11 +825,188 @@ model RefWorkstation {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  prd_balances PrdBalance[] @relation("PrdBalanceWorkstation")
-  stock_issues LogStockIssue[]
-  prd_ledger   PrdLedger[]  @relation("PrdLedgerWorkstation")
+  units RefUnit[]
 
   @@map("ref_workstation")
+}
+
+/// The kinds of work an engine in code knows (W33). A Unit is allowed some of
+/// them; a new kind is new code, a new Unit is not.
+enum PrdProcessKind {
+  PassThrough
+  Grading
+  PartaiFormer
+  GradingMix
+  JobOrder
+  Assembly
+}
+
+/// How goods leave a routing step (§8 Siklus BSTB).
+enum PrdExitMode {
+  Direct
+  NoQc
+  WithQc
+  PerCarton
+}
+
+/// What happens to the No. Job when goods leave a routing step (§5).
+enum PrdJobPolicy {
+  Issued
+  Carried
+  Released
+  None
+}
+
+/// A Unit (P225): where goods are held in production, and the engines its work
+/// may use. The old `ref_workstation` (P201), renamed in place so its id, its
+/// buckets and its Stock Issues keep pointing at it.
+model RefUnit {
+  id             Int              @id @default(autoincrement())
+  unit_code      String           @unique
+  unit_label     String
+  unit_name      String
+  workstation_id Int?
+  /// The kinds of work done here; Moulding holds Grading Mix and Job Order.
+  processes      PrdProcessKind[]
+  note           String?
+  status         ActiveStatus     @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  workstation   RefWorkstation?      @relation(fields: [workstation_id], references: [id])
+  prd_balances  PrdBalance[]         @relation("PrdBalanceUnit")
+  stock_issues  LogStockIssue[]
+  prd_ledger    PrdLedger[]          @relation("PrdLedgerUnit")
+  routing_steps PrdRoutingStep[]
+  rate_lines    PrdRateVersionLine[]
+
+  @@index([workstation_id])
+  @@map("ref_unit")
+}
+
+/// A production line (P225). The routing hangs on it; the variance of the
+/// month goes to its account at the close (W23).
+model PrdLine {
+  id                  Int          @id @default(autoincrement())
+  line_code           String       @unique
+  line_label          String
+  line_name           String
+  variance_account_id Int?
+  note                String?
+  status              ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  variance_account AccAccount?  @relation("PrdLineVariance", fields: [variance_account_id], references: [id])
+  routings         PrdRouting[]
+
+  @@map("prd_line")
+}
+
+/// A routing version (P225): the ordered Units a line's goods pass. With no
+/// line it is the segment before the partai, shared by every line. A version
+/// is its own record; the one in force on a date is the latest active whose
+/// `effective_from` has come.
+model PrdRouting {
+  id             Int          @id @default(autoincrement())
+  routing_code   String       @unique
+  routing_label  String
+  routing_name   String
+  line_id        Int?
+  effective_from DateTime     @db.Date
+  note           String?
+  status         ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  line  PrdLine?         @relation(fields: [line_id], references: [id])
+  steps PrdRoutingStep[]
+
+  @@index([line_id])
+  @@map("prd_routing")
+}
+
+/// One step of a routing. The exit mode and the Job policy are the step's, not
+/// the Unit's, because another line may use the same Unit another way.
+model PrdRoutingStep {
+  id            Int          @id @default(autoincrement())
+  routing_id    Int
+  seq           Int
+  unit_id       Int
+  exit_mode     PrdExitMode
+  job_policy    PrdJobPolicy
+  /// From here to the last step a partai moves whole (W28).
+  is_checkpoint Boolean      @default(false)
+  is_skippable  Boolean      @default(false)
+
+  routing PrdRouting @relation(fields: [routing_id], references: [id], onDelete: Cascade)
+  unit    RefUnit    @relation(fields: [unit_id], references: [id])
+
+  @@unique([routing_id, seq])
+  @@unique([routing_id, unit_id])
+  @@index([unit_id])
+  @@map("prd_routing_step")
+}
+
+/// A standard cost version (P225): the rate per gram of each Unit, locked into
+/// a No. Stok or a partai when it starts (§7). An empty rate is 0 (W17).
+model PrdRateVersion {
+  id             Int          @id @default(autoincrement())
+  rate_code      String       @unique
+  rate_label     String
+  rate_name      String
+  effective_from DateTime     @db.Date
+  note           String?
+  status         ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  lines PrdRateVersionLine[]
+
+  @@map("prd_rate_version")
+}
+
+model PrdRateVersionLine {
+  id         Int     @id @default(autoincrement())
+  version_id Int
+  unit_id    Int
+  rate       Decimal @db.Decimal(18, 6)
+
+  version PrdRateVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
+  unit    RefUnit        @relation(fields: [unit_id], references: [id])
+
+  @@unique([version_id, unit_id])
+  @@index([unit_id])
+  @@map("prd_rate_version_line")
+}
+
+/// A worker whose work a Pass Through Unit records against a No. Job (W26).
+model MEmployee {
+  id             Int          @id @default(autoincrement())
+  employee_code  String       @unique
+  employee_label String
+  employee_name  String
+  note           String?
+  status         ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  @@map("m_employee")
 }
 
 /// Jenis Biaya (R9): a production cost a Tagihan Biaya line picks instead of
@@ -1174,7 +1353,7 @@ model CashBankLedger {
   /// direction and size are read from it (P213). Summing this column
   /// reconstructs the balance from scratch, which is how the materialised
   /// total is verified.
-  movement      Decimal @db.Decimal(18, 2)
+  movement Decimal @db.Decimal(18, 2)
 
   /// The kurs this movement was valued at, always converting the resource's
   /// own currency to the base currency.
@@ -1197,13 +1376,13 @@ model CashBankLedger {
   ///
   /// `1` means the money is base currency, and nothing else: a rate of 1
   /// between two foreign amounts would assert that USD 100 is IDR 100.
-  rate               Decimal @db.Decimal(18, 6)
+  rate          Decimal @db.Decimal(18, 6)
   /// `movement` in base currency — signed, and summing it rebuilds the base
   /// balance exactly as `movement` rebuilds the foreign one. Stored rather
   /// than derived: base value is a record of how the balance was built, and
   /// re-deriving it at a current rate would destroy the only figure that says
   /// what currency movement cost.
-  base_movement      Decimal @db.Decimal(18, 2)
+  base_movement Decimal @db.Decimal(18, 2)
 
   /// What caused the movement. Null for an opening balance, which has no
   /// source document — the registration of the resource is the event.
@@ -1342,6 +1521,7 @@ model AccAccount {
   category_wip       AccItemCategoryAccount[] @relation("CategoryWip")
   cost_types         AccCostType[]            @relation("CostTypeExpense")
   cost_bills         PrdCostBill[]            @relation("CostBillPayable")
+  prd_lines          PrdLine[]                @relation("PrdLineVariance")
 
   @@unique([account_label])
   @@index([account_subcategory_id])
@@ -1376,19 +1556,19 @@ model AccFiscalYear {
 }
 
 model AccFiscalPeriod {
-  id             Int          @id @default(autoincrement())
-  fiscal_year_id Int
-  sequence_no    Int
-  period_code    String       @unique
-  period_label   String
-  period_name    String
-  start_date     DateTime     @db.Date
-  end_date       DateTime     @db.Date
-  note           String?
-  status         FiscalPeriodStatus @default(Open)
+  id                   Int                @id @default(autoincrement())
+  fiscal_year_id       Int
+  sequence_no          Int
+  period_code          String             @unique
+  period_label         String
+  period_name          String
+  start_date           DateTime           @db.Date
+  end_date             DateTime           @db.Date
+  note                 String?
+  status               FiscalPeriodStatus @default(Open)
   /// Set by the Penutupan Biaya Produksi (R15): the period then takes no stock
   /// or production posting, and no journal line on an account in its locks.
-  production_costed_at DateTime? @db.Timestamptz(6)
+  production_costed_at DateTime?          @db.Timestamptz(6)
   production_costed_by Int?
 
   created_by Int
@@ -1396,7 +1576,7 @@ model AccFiscalPeriod {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  fiscal_year AccFiscalYear      @relation(fields: [fiscal_year_id], references: [id])
+  fiscal_year AccFiscalYear         @relation(fields: [fiscal_year_id], references: [id])
   locks       AccFiscalPeriodLock[]
 
   @@index([fiscal_year_id])
@@ -2135,12 +2315,12 @@ model LogDeliveryNoteLine {
   cost_amount        Decimal @default(0) @db.Decimal(18, 2)
   note               String?
 
-  delivery_note LogDeliveryNote      @relation(fields: [delivery_note_id], references: [id])
-  item          MItem                @relation(fields: [item_id], references: [id])
-  uom           RefUom               @relation(fields: [uom_id], references: [id])
+  delivery_note LogDeliveryNote           @relation(fields: [delivery_note_id], references: [id])
+  item          MItem                     @relation(fields: [item_id], references: [id])
+  uom           RefUom                    @relation(fields: [uom_id], references: [id])
   /// For an item with Kelola Stok: which lots the line's quantity is taken
   /// from (U15). Their quantities add up to the line's at Posting.
-  trackings          LogDeliveryNoteTracking[]
+  trackings     LogDeliveryNoteTracking[]
 
   @@unique([delivery_note_id, line_no])
   @@unique([delivery_note_id, source_doc_line_id])
@@ -2158,10 +2338,10 @@ model LogDeliveryNoteTracking {
   id                    Int       @id @default(autoincrement())
   delivery_note_line_id Int
   pick_no               Int
-  tracking_id                Int
+  tracking_id           Int
   /// The location it is taken from, in a warehouse with Gunakan Lokasi.
   location_id           Int?
-  tracking_no                String
+  tracking_no           String
   expiry_date           DateTime? @db.Date
   /// In the line's unit.
   qty                   Decimal   @db.Decimal(18, 4)
@@ -2377,7 +2557,8 @@ model LogStockTracking {
   links_from   PrdTrackingLink[] @relation("LinkFrom")
   links_to     PrdTrackingLink[] @relation("LinkTo")
 
-  @@unique([item_id, tracking_no])
+  /// One No. Stok is one stock in the whole system (W10).
+  @@unique([tracking_no])
   @@index([source_doc_type_id, source_doc_id])
   @@map("log_stock_tracking")
 }
@@ -2915,26 +3096,26 @@ model FinArItem {
   entries         FinArLedger[] @relation("ArItemEntries")
   counter_entries FinArLedger[] @relation("ArItemCounter")
 
+  @@unique([source_doc_type_id, source_doc_id])
   @@index([partner_id, item_type])
   @@index([scope_doc_type_id, scope_doc_id])
-  @@unique([source_doc_type_id, source_doc_id])
   @@map("fin_ar_item")
 }
 
 /// Buku Piutang — every change to an AR item's balance, append-only: an entry
 /// is never edited or deleted (P72).
 model FinArLedger {
-  id            Int      @id @default(autoincrement())
+  id         Int      @id @default(autoincrement())
   /// `BP/YYYY/MM/NNNN`, one per posting: the entries one document writes —
   /// a receipt's items, an Invoice's item and the advances it used — share it,
   /// a `line_no` each (P110).
-  ledger_no     String
-  line_no       Int
-  item_id       Int
-  event         ArEvent
-  entry_date    DateTime @db.Date
+  ledger_no  String
+  line_no    Int
+  item_id    Int
+  event      ArEvent
+  entry_date DateTime @db.Date
   /// Signed on the item's balance: + it grows, − it falls (P213).
-  movement      Decimal  @db.Decimal(18, 2)
+  movement   Decimal  @db.Decimal(18, 2)
 
   /// The document that caused the entry, and its number.
   doc_type_id     Int
@@ -3397,10 +3578,10 @@ model LogReceiptNoteLine {
   value_amount Decimal @default(0) @db.Decimal(18, 2)
   note         String?
 
-  receipt_note LogReceiptNote      @relation(fields: [receipt_note_id], references: [id], onDelete: Cascade)
-  item         MItem               @relation("ReceiptNoteLineItem", fields: [item_id], references: [id])
-  uom          RefUom              @relation("ReceiptNoteLineUom", fields: [uom_id], references: [id])
-  trackings         LogReceiptNoteTracking[]
+  receipt_note LogReceiptNote           @relation(fields: [receipt_note_id], references: [id], onDelete: Cascade)
+  item         MItem                    @relation("ReceiptNoteLineItem", fields: [item_id], references: [id])
+  uom          RefUom                   @relation("ReceiptNoteLineUom", fields: [uom_id], references: [id])
+  trackings    LogReceiptNoteTracking[]
 
   @@unique([receipt_note_id, line_no])
   @@unique([receipt_note_id, source_doc_line_id])
@@ -3412,9 +3593,9 @@ model LogReceiptNoteLine {
 model LogReceiptNoteTracking {
   id           Int       @id @default(autoincrement())
   line_id      Int
-  tracking_seq      Int
+  tracking_seq Int
   /// Typed, or generated at Posting when left empty.
-  tracking_no       String?
+  tracking_no  String?
   expiry_date  DateTime? @db.Date
   /// In the line's unit.
   qty          Decimal   @db.Decimal(18, 4)
@@ -3522,23 +3703,23 @@ model FinApItem {
   entries         FinApLedger[] @relation("ApItemEntries")
   counter_entries FinApLedger[] @relation("ApItemCounter")
 
+  @@unique([source_doc_type_id, source_doc_id])
   @@index([partner_id, item_type])
   @@index([purchase_order_id])
-  @@unique([source_doc_type_id, source_doc_id])
   @@map("fin_ap_item")
 }
 
 /// Buku Hutang: every change to an AP item's balance, append-only (P127).
 model FinApLedger {
-  id            Int      @id @default(autoincrement())
+  id         Int      @id @default(autoincrement())
   /// `BH/YYYY/MM/NNNN`, one per posting, a `line_no` each (P110).
-  ledger_no     String
-  line_no       Int
-  item_id       Int
-  event         ArEvent
-  entry_date    DateTime @db.Date
+  ledger_no  String
+  line_no    Int
+  item_id    Int
+  event      ArEvent
+  entry_date DateTime @db.Date
   /// Signed on the item's balance: + it grows, − it falls (P213).
-  movement      Decimal  @db.Decimal(18, 2)
+  movement   Decimal  @db.Decimal(18, 2)
 
   doc_type_id     Int
   doc_id          Int
@@ -3728,33 +3909,33 @@ enum ProductionCostBillStatus {
   Cancelled
 }
 
-/// A production bucket (R3): one lot at one workstation, quantity in the
+/// A production bucket (R3): one lot at one unit, quantity in the
 /// item's base unit and value in whole rupiah; Σ value is WIP. Written only by
 /// `production-ledger.ts`, beside its ledger row.
 model PrdBalance {
-  id             Int     @id @default(autoincrement())
-  tracking_id         Int
-  workstation_id Int
-  item_id        Int
+  id            Int     @id @default(autoincrement())
+  tracking_id   Int
+  unit_id       Int
+  item_id       Int
   /// The item's base unit.
-  uom_id         Int
-  qty_balance    Decimal @default(0) @db.Decimal(18, 6)
-  value_balance  Decimal @default(0) @db.Decimal(18, 2)
+  uom_id        Int
+  qty_balance   Decimal @default(0) @db.Decimal(18, 6)
+  value_balance Decimal @default(0) @db.Decimal(18, 2)
 
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  tracking         LogStockTracking @relation(fields: [tracking_id], references: [id])
-  workstation RefWorkstation   @relation("PrdBalanceWorkstation", fields: [workstation_id], references: [id])
-  item        MItem            @relation("PrdBalanceItem", fields: [item_id], references: [id])
-  uom         RefUom           @relation("PrdBalanceUom", fields: [uom_id], references: [id])
-  ledger      PrdLedger[]
-  links_from  PrdTrackingLink[]
+  tracking   LogStockTracking  @relation(fields: [tracking_id], references: [id])
+  unit       RefUnit           @relation("PrdBalanceUnit", fields: [unit_id], references: [id])
+  item       MItem             @relation("PrdBalanceItem", fields: [item_id], references: [id])
+  uom        RefUom            @relation("PrdBalanceUom", fields: [uom_id], references: [id])
+  ledger     PrdLedger[]
+  links_from PrdTrackingLink[]
 
-  @@unique([tracking_id, workstation_id])
-  @@index([workstation_id])
+  @@unique([tracking_id, unit_id])
+  @@index([unit_id])
   @@index([item_id])
   @@map("prd_balance")
 }
@@ -3771,8 +3952,8 @@ model PrdLedger {
   source_no          String
   movement           PrdMovement
   bucket_id          Int
-  tracking_id             Int
-  workstation_id     Int
+  tracking_id        Int
+  unit_id            Int
   item_id            Int
   qty_change         Decimal     @db.Decimal(18, 6)
   qty_balance        Decimal     @db.Decimal(18, 6)
@@ -3782,10 +3963,10 @@ model PrdLedger {
   created_by         Int
   created_at         DateTime    @default(now()) @db.Timestamptz(6)
 
-  bucket      PrdBalance       @relation(fields: [bucket_id], references: [id])
-  tracking         LogStockTracking @relation(fields: [tracking_id], references: [id])
-  workstation RefWorkstation   @relation("PrdLedgerWorkstation", fields: [workstation_id], references: [id])
-  item        MItem            @relation("PrdLedgerItem", fields: [item_id], references: [id])
+  bucket   PrdBalance       @relation(fields: [bucket_id], references: [id])
+  tracking LogStockTracking @relation(fields: [tracking_id], references: [id])
+  unit     RefUnit          @relation("PrdLedgerUnit", fields: [unit_id], references: [id])
+  item     MItem            @relation("PrdLedgerItem", fields: [item_id], references: [id])
 
   @@unique([ledger_no, line_no])
   @@index([bucket_id, posting_date])
@@ -3802,15 +3983,15 @@ model PrdTrackingLink {
   source_doc_id      Int
   source_no          String
   from_bucket_id     Int
-  from_tracking_id        Int
-  to_tracking_id          Int
+  from_tracking_id   Int
+  to_tracking_id     Int
   qty                Decimal  @db.Decimal(18, 6)
   value              Decimal  @db.Decimal(18, 2)
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
-  from_bucket PrdBalance       @relation(fields: [from_bucket_id], references: [id])
-  from_tracking    LogStockTracking @relation("LinkFrom", fields: [from_tracking_id], references: [id])
-  to_tracking      LogStockTracking @relation("LinkTo", fields: [to_tracking_id], references: [id])
+  from_bucket   PrdBalance       @relation(fields: [from_bucket_id], references: [id])
+  from_tracking LogStockTracking @relation("LinkFrom", fields: [from_tracking_id], references: [id])
+  to_tracking   LogStockTracking @relation("LinkTo", fields: [to_tracking_id], references: [id])
 
   @@index([source_doc_type_id, source_doc_id])
   @@index([from_tracking_id])
@@ -3825,29 +4006,29 @@ enum PrdMovement {
   Consumed
   /// Made as an execution's output.
   Produced
-  /// Out to another workstation (Production Transfer).
+  /// Out to another unit (Production Transfer).
   TransferOut
-  /// In from another workstation (Production Transfer).
+  /// In from another unit (Production Transfer).
   TransferIn
   /// Taken out of production (Production Release: to a warehouse, Pemusnahan).
   Released
 }
 
-/// Stock Issue (R4): goods leave a warehouse straight into a workstation, by
+/// Stock Issue (R4): goods leave a warehouse straight into a unit, by
 /// lot, at moving average — Dr WIP / Cr Persediaan. Standalone by purpose
 /// (P106); no transit, no receipt. Named only by `stock-issue.ts`.
 model LogStockIssue {
-  id             Int              @id @default(autoincrement())
-  issue_no       String           @unique
+  id           Int              @id @default(autoincrement())
+  issue_no     String           @unique
   /// The day the goods leave the warehouse — the journal's date.
-  issue_date     DateTime         @db.Date
-  status         StockIssueStatus @default(Draft)
+  issue_date   DateTime         @db.Date
+  status       StockIssueStatus @default(Draft)
   /// The purpose's key, e.g. `production_issue`.
-  purpose        String
-  warehouse_id   Int
+  purpose      String
+  warehouse_id Int
   /// Where the goods are placed: required by `production_issue`.
-  workstation_id Int?
-  note           String?
+  unit_id      Int?
+  note         String?
 
   /// Σ of the lines' cost, set at Posting.
   cost_amount   Decimal @default(0) @db.Decimal(18, 2)
@@ -3859,9 +4040,9 @@ model LogStockIssue {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  warehouse   RefWarehouse        @relation(fields: [warehouse_id], references: [id])
-  workstation RefWorkstation?     @relation(fields: [workstation_id], references: [id])
-  lines       LogStockIssueLine[]
+  warehouse RefWarehouse        @relation(fields: [warehouse_id], references: [id])
+  unit      RefUnit?            @relation(fields: [unit_id], references: [id])
+  lines     LogStockIssueLine[]
 
   @@index([purpose, status])
   @@index([status, issue_date])
@@ -3882,10 +4063,10 @@ model LogStockIssueLine {
   cost_amount    Decimal @default(0) @db.Decimal(18, 2)
   note           String?
 
-  stock_issue LogStockIssue      @relation(fields: [stock_issue_id], references: [id])
-  item        MItem              @relation(fields: [item_id], references: [id])
-  uom         RefUom             @relation(fields: [uom_id], references: [id])
-  trackings        LogStockIssueTracking[]
+  stock_issue LogStockIssue           @relation(fields: [stock_issue_id], references: [id])
+  item        MItem                   @relation(fields: [item_id], references: [id])
+  uom         RefUom                  @relation(fields: [uom_id], references: [id])
+  trackings   LogStockIssueTracking[]
 
   @@unique([stock_issue_id, line_no])
   @@unique([stock_issue_id, item_id])
@@ -3897,9 +4078,9 @@ model LogStockIssueTracking {
   id                  Int       @id @default(autoincrement())
   stock_issue_line_id Int
   pick_no             Int
-  tracking_id              Int
+  tracking_id         Int
   location_id         Int?
-  tracking_no              String
+  tracking_no         String
   expiry_date         DateTime? @db.Date
   qty                 Decimal   @db.Decimal(18, 4)
   base_qty            Decimal   @default(0) @db.Decimal(18, 4)

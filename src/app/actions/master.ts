@@ -39,11 +39,18 @@ import {
 import { normalizeTaxId } from "@/lib/erp/partner-shape";
 import {
   checkItemBaseUom,
+  checkItemBjl,
   checkItemCategory,
   checkItemCollections,
   writeItemCollections,
 } from "@/lib/erp/item";
 import { checkWarehouseCollections, writeWarehouseCollections } from "@/lib/erp/warehouse";
+import {
+  checkRateCollections,
+  checkRoutingCollections,
+  writeRateCollections,
+  writeRoutingCollections,
+} from "@/lib/erp/production-master";
 import type { Prisma } from "@/generated/prisma/client";
 import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-rules";
 import { categoriesUsingAccount } from "@/lib/erp/item-account";
@@ -109,6 +116,9 @@ function coerce(field: Field, raw: string | boolean | null | undefined) {
   if (field.type === "segment") return raw == null ? "" : String(raw).trim();
 
   const value = raw == null ? "" : String(raw).trim();
+
+  // A multi field travels as one comma-joined string; only known options survive.
+  if (field.type === "multi") return value.split(",").filter((o) => field.options?.includes(o));
 
   if (
     field.type === "ref" ||
@@ -278,7 +288,7 @@ async function validate(
     const value = coerce(field, values[field.name]);
 
     if (field.required) {
-      const missing = value === null || value === undefined || value === "";
+      const missing = value === null || value === undefined || value === "" || (Array.isArray(value) && value.length === 0);
       if (missing) errors[field.name] = `${field.label} wajib diisi.`;
     }
 
@@ -335,6 +345,7 @@ async function validate(
     for (const [k, v] of Object.entries({
       ...(await checkItemCategory(values, currentId)),
       ...(await checkItemBaseUom(values, currentId)),
+      ...(await checkItemBjl(values, currentId)),
     })) {
       errors[k] ??= v;
     }
@@ -544,6 +555,16 @@ async function ownCollections(
     const checked = await checkWarehouseCollections(values, id);
     Object.assign(errors, checked.errors);
     return (tx, recordId, actorId) => writeWarehouseCollections(tx, recordId, checked.clean, actorId);
+  }
+  if (entity.key === "prd_routing") {
+    const checked = await checkRoutingCollections(values, id);
+    Object.assign(errors, checked.errors);
+    return (tx, recordId) => writeRoutingCollections(tx, recordId, checked.clean);
+  }
+  if (entity.key === "prd_rate_version") {
+    const checked = await checkRateCollections(values, id);
+    Object.assign(errors, checked.errors);
+    return (tx, recordId) => writeRateCollections(tx, recordId, checked.clean);
   }
   return null;
 }

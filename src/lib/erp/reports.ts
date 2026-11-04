@@ -50,7 +50,7 @@ export type ReportParams =
   | "stock-period"
   /** Optionally an item and a warehouse, and the one date the stock stands at (P120). */
   | "stock-asof"
-  /** The one date production stands at, optionally workstations (R18). */
+  /** The one date production stands at, optionally units (R18). */
   | "production-asof"
   /** One lot number to look up (R18, R27). */
   | "production-lot";
@@ -282,7 +282,7 @@ const FIXED_REPORTS = [
     slug: "wip-balance",
     module: "production",
     name: "Saldo Produksi",
-    desc: "Barang yang ada di produksi pada satu tanggal, per workstation dan lot, dengan nilai dan harga per unit.",
+    desc: "Barang yang ada di produksi pada satu tanggal, per unit dan lot, dengan nilai dan harga per unit.",
     icon: "layers",
     permission: "REPORT_WIP_BALANCE_VIEW",
     params: "production-asof",
@@ -293,7 +293,7 @@ const FIXED_REPORTS = [
     slug: "lot-card",
     module: "production",
     name: "Kartu Lot",
-    desc: "Seluruh mutasi satu lot — di produksi (workstation, jumlah dan nilai) dan di stok.",
+    desc: "Seluruh mutasi satu lot — di produksi (unit, jumlah dan nilai) dan di stok.",
     icon: "book",
     permission: "REPORT_LOT_CARD_VIEW",
     params: "production-lot",
@@ -304,7 +304,7 @@ const FIXED_REPORTS = [
     slug: "trace",
     module: "production",
     name: "Telusur Produksi",
-    desc: "Dari sebuah lot: mundur lewat setiap eksekusi sampai lot dari supplier, maju sampai barang di workstation, di stok, atau terkirim ke customer.",
+    desc: "Dari sebuah lot: mundur lewat setiap eksekusi sampai lot dari supplier, maju sampai barang di unit, di stok, atau terkirim ke customer.",
     icon: "tree",
     permission: "REPORT_PRODUCTION_TRACE_VIEW",
     params: "production-lot",

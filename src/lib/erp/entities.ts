@@ -17,6 +17,8 @@ export type FieldType =
   | "text"
   | "textarea"
   | "select"
+  /** Several values of `options`, held in the form as one comma-joined string and stored as an enum array. */
+  | "multi"
   | "ref"
   | "bool"
   | "date"
@@ -282,6 +284,17 @@ const FISCAL_STATUS: StatusModel = {
   kind: "enum",
   options: ["Draft", "Open", "Closed"],
   toggle: false,
+};
+
+/** The kinds of work an engine in code knows (W33); a Unit is allowed some of them. */
+export const PROCESS_KINDS = ["PassThrough", "Grading", "PartaiFormer", "GradingMix", "JobOrder", "Assembly"];
+export const PROCESS_KIND_LABEL: Record<string, string> = {
+  PassThrough: "Pass Through",
+  Grading: "Grading",
+  PartaiFormer: "Pembentuk Partai",
+  GradingMix: "Grading Mix",
+  JobOrder: "Job Order",
+  Assembly: "Assembly",
 };
 
 const STATUS_FIELD: Field = {
@@ -638,6 +651,15 @@ export const ENTITIES: Entity[] = [
         visibleWhen: "itemIsGoods",
         caption: "Memiliki Kadaluarsa",
       },
+      {
+        name: "is_bjl",
+        label: "BJL",
+        type: "bool",
+        span: 3,
+        visibleWhen: "itemIsGoods",
+        caption: "BJL",
+        captionDetail: "nilainya selalu 0 di produksi; terkunci setelah dipakai",
+      },
       STATUS_FIELD,
       NOTE_FIELD,
     ],
@@ -957,14 +979,77 @@ export const ENTITIES: Entity[] = [
   },
 
   {
-    // Where production transforms input into output (R3): goods in production
-    // are held per lot · workstation.
+    // Where goods are held in production, and the kinds of work done there
+    // (P225, W33). A routing step names a Unit; nothing in code names one.
+    key: "ref_unit",
+    slug: "unit",
+    module: "master",
+    name: "Unit",
+    icon: "gear",
+    desc: "Tempat barang berada selama produksi — Grading Halus, Pre Wash, Moulding. Jenis pekerjaan yang boleh dilakukan di sini dipilih dari yang dikenal sistem; urutan antarunit ada di Routing.",
+    codeField: "unit_code",
+    codePrefix: "unit",
+    labelField: "unit_label",
+    nameField: "unit_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "unit_label",
+        label: "Kode Unit",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        locked: true,
+        placeholder: "UGH",
+        help: "tampil di nomor dokumen; terkunci",
+      },
+      {
+        name: "unit_name",
+        label: "Nama Unit",
+        type: "text",
+        required: true,
+        placeholder: "Grading Halus",
+        help: "nama lengkap",
+      },
+      {
+        name: "workstation_id",
+        label: "Workstation",
+        type: "ref",
+        ref: "ref_workstation",
+        required: true,
+        span: 4,
+        help: "kelompok unit",
+      },
+      {
+        name: "processes",
+        label: "Jenis Pekerjaan",
+        type: "multi",
+        required: true,
+        span: 8,
+        options: PROCESS_KINDS,
+        optionLabels: PROCESS_KIND_LABEL,
+        help: "Moulding memakai Grading Mix dan Job Order",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "unit_label", label: "Kode", isLabel: true, width: "110px", filter: "text" },
+      { field: "unit_name", label: "Nama Unit", primary: true, filter: "text" },
+      { field: "workstation_id", label: "Workstation", isRef: true, width: "200px" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+    ],
+  },
+
+  {
+    // Only groups Units (W33); it holds no goods and no rate.
     key: "ref_workstation",
     slug: "workstation",
     module: "master",
     name: "Workstation",
-    icon: "gear",
-    desc: "Tempat proses produksi yang Anda tentukan sendiri — pengolahan, pengemasan, atau tahap lain. Barang di produksi dicatat per lot dan workstation.",
+    icon: "build",
+    desc: "Pengelompok unit produksi — Cleaning, Moulding, WIP Packing.",
     codeField: "workstation_code",
     codePrefix: "ws",
     labelField: "workstation_label",
@@ -978,7 +1063,7 @@ export const ENTITIES: Entity[] = [
         required: true,
         unique: true,
         ident: true,
-        placeholder: "WS-OLAH",
+        placeholder: "MOULDING",
         help: identHelp,
       },
       {
@@ -986,15 +1071,237 @@ export const ENTITIES: Entity[] = [
         label: "Nama Workstation",
         type: "text",
         required: true,
-        placeholder: "Pengolahan",
+        placeholder: "Moulding",
         help: "nama lengkap",
       },
       STATUS_FIELD,
       NOTE_FIELD,
     ],
     columns: [
-      { field: "workstation_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
+      { field: "workstation_label", label: "Label", isLabel: true, width: "170px", filter: "text" },
       { field: "workstation_name", label: "Nama Workstation", primary: true, filter: "text" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+      { field: "note", label: "Catatan", muted: true, truncate: true },
+    ],
+  },
+
+  {
+    key: "prd_line",
+    slug: "production-line",
+    module: "master",
+    name: "Line Produksi",
+    icon: "layers",
+    desc: "Satu lini produksi, mis. Reguler. Routing-nya mengikuti line; selisih biaya bulanan masuk ke account varians line ini.",
+    codeField: "line_code",
+    codePrefix: "line",
+    labelField: "line_label",
+    nameField: "line_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "line_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "REGULER",
+        help: identHelp,
+      },
+      {
+        name: "line_name",
+        label: "Nama Line",
+        type: "text",
+        required: true,
+        placeholder: "Reguler",
+        help: "nama lengkap",
+      },
+      {
+        name: "variance_account_id",
+        label: "Account Varians",
+        type: "ref",
+        ref: "acc_account",
+        refFilter: "postableAccount",
+        span: 6,
+        help: "akun HPP milik line; menampung varians saat penutupan bulan",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "line_label", label: "Label", isLabel: true, width: "170px", filter: "text" },
+      { field: "line_name", label: "Nama Line", primary: true, filter: "text" },
+      { field: "variance_account_id", label: "Account Varians", isRef: true, width: "280px" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+    ],
+  },
+
+  {
+    // The ordered Units a line's goods pass (P225). Without a line it is the
+    // segment before the partai, shared by every line.
+    key: "prd_routing",
+    slug: "routing",
+    module: "master",
+    name: "Routing",
+    icon: "tree",
+    desc: "Urutan unit yang dilalui barang. Tanpa line, ini segmen sebelum partai yang sama untuk semua line. Satu versi satu record; yang berlaku adalah versi aktif terbaru yang tanggalnya sudah tiba.",
+    codeField: "routing_code",
+    codePrefix: "rout",
+    labelField: "routing_label",
+    nameField: "routing_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "routing_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "REGULER-V1",
+        help: identHelp,
+      },
+      {
+        name: "routing_name",
+        label: "Nama Routing",
+        type: "text",
+        required: true,
+        placeholder: "Reguler dari Dry A sampai Packing",
+        help: "nama lengkap",
+      },
+      {
+        name: "line_id",
+        label: "Line",
+        type: "ref",
+        ref: "prd_line",
+        span: 4,
+        help: "kosong = segmen sebelum partai",
+      },
+      {
+        name: "effective_from",
+        label: "Berlaku Mulai",
+        type: "date",
+        required: true,
+        span: 4,
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    tabs: [
+      {
+        key: "steps",
+        label: "Langkah",
+        icon: "tree",
+        desc: "Unit berurutan. Unit tujuan BSTB selalu langkah berikutnya; mode keluar dan kebijakan No. Job milik langkah, bukan unit.",
+        kind: "custom",
+      },
+    ],
+    columns: [
+      { field: "routing_label", label: "Label", isLabel: true, width: "170px", filter: "text" },
+      { field: "routing_name", label: "Nama Routing", primary: true, filter: "text" },
+      { field: "line_id", label: "Line", isRef: true, width: "200px" },
+      { field: "effective_from", label: "Berlaku Mulai", width: "130px" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+    ],
+  },
+
+  {
+    // Standard cost: the rate per gram of each Unit, in versions (P225, §7).
+    key: "prd_rate_version",
+    slug: "rate-version",
+    module: "master",
+    name: "Standard Cost",
+    icon: "calc",
+    desc: "Rate biaya per gram tiap unit, dalam versi. Versi dikunci ke No. Stok atau partai saat mulai. Rate kosong berarti 0.",
+    codeField: "rate_code",
+    codePrefix: "rate",
+    labelField: "rate_label",
+    nameField: "rate_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "rate_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "SC-2026-11",
+        help: identHelp,
+      },
+      {
+        name: "rate_name",
+        label: "Nama Versi",
+        type: "text",
+        required: true,
+        placeholder: "Standard cost November 2026",
+        help: "nama lengkap",
+      },
+      {
+        name: "effective_from",
+        label: "Berlaku Mulai",
+        type: "date",
+        required: true,
+        span: 4,
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    tabs: [
+      {
+        key: "rates",
+        label: "Rate per Unit",
+        icon: "calc",
+        desc: "Rate per gram input untuk tiap unit. Unit yang tidak diisi berarti rate 0.",
+        kind: "custom",
+      },
+    ],
+    columns: [
+      { field: "rate_label", label: "Label", isLabel: true, width: "170px", filter: "text" },
+      { field: "rate_name", label: "Nama Versi", primary: true, filter: "text" },
+      { field: "effective_from", label: "Berlaku Mulai", width: "130px" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+    ],
+  },
+
+  {
+    // Who worked a No. Job at a Pass Through Unit (W26).
+    key: "m_employee",
+    slug: "employee",
+    module: "master",
+    name: "Karyawan",
+    icon: "users",
+    desc: "Pekerja yang mengerjakan No. Job di unit Pass Through. Hanya catatan; tanpa biaya tenaga kerja.",
+    codeField: "employee_code",
+    codePrefix: "emp",
+    labelField: "employee_label",
+    nameField: "employee_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "employee_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        ident: true,
+        placeholder: "K-001",
+        help: identHelp,
+      },
+      {
+        name: "employee_name",
+        label: "Nama Karyawan",
+        type: "text",
+        required: true,
+        placeholder: "Siti Aminah",
+        help: "nama lengkap",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "employee_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
+      { field: "employee_name", label: "Nama Karyawan", primary: true, filter: "text" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
       { field: "note", label: "Catatan", muted: true, truncate: true },
     ],

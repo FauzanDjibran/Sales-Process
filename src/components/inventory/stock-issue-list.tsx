@@ -30,8 +30,8 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
           o.issueNo.toLowerCase().includes(q) ||
           o.warehouseLabel.toLowerCase().includes(q) ||
           o.warehouseName.toLowerCase().includes(q) ||
-          o.workstationLabel.toLowerCase().includes(q) ||
-          o.workstationName.toLowerCase().includes(q))
+          o.unitLabel.toLowerCase().includes(q) ||
+          o.unitName.toLowerCase().includes(q))
     );
     return out.sort((a, b) => Number(b.status === "Draft") - Number(a.status === "Draft"));
   }, [issues, q, status]);
@@ -61,14 +61,14 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
           </div>
         </div>
         <p className="ph-sub">
-          Barang keluar dari gudang untuk dipakai sendiri — ke produksi: bahan per lot ke sebuah Workstation, dengan nomor lot yang sama.
+          Barang keluar dari gudang untuk dipakai sendiri — ke produksi: bahan per lot ke sebuah Unit, dengan nomor lot yang sama.
           Posting memindahkan nilainya dari Persediaan ke WIP.
         </p>
       </div>
 
       <div className="card">
         <div className="toolbar">
-          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor, gudang atau workstation…" />
+          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor, gudang atau unit…" />
           <Select
             variant="toolbar"
             value={status}
@@ -95,7 +95,7 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
                     <th style={{ width: 120 }}>Status</th>
                     <th style={{ width: 106 }}>Tanggal</th>
                     <th>Gudang</th>
-                    <th>Workstation</th>
+                    <th>Unit</th>
                     <th className="num" style={{ width: 70 }}>Baris</th>
                     <th className="num" style={{ width: 150 }}>Nilai ke WIP</th>
                   </tr>
@@ -120,8 +120,8 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
                       </td>
                       <td>
                         <span className="idc">
-                          <span className="lab">{o.workstationLabel}</span>
-                          <span className="nm">{o.workstationName}</span>
+                          <span className="lab">{o.unitLabel}</span>
+                          <span className="nm">{o.unitName}</span>
                         </span>
                       </td>
                       <td className="num">{o.lines}</td>
@@ -144,7 +144,7 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
             <p>
               {q || status
                 ? "Tidak ada Stock Issue yang sesuai dengan pencarian atau filter."
-                : "Stock Issue mengeluarkan bahan dari gudang ke produksi: pilih gudang, Workstation, barang dan lotnya."}
+                : "Stock Issue mengeluarkan bahan dari gudang ke produksi: pilih gudang, Unit, barang dan lotnya."}
             </p>
             {q || status ? (
               <div className="cta">

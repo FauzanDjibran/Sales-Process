@@ -2,7 +2,7 @@ import { cleanupStock, makeAccount, prisma, stockIn, systemUserId } from "./help
 
 /**
  * A production fixture (P200): a category with its own Persediaan and WIP
- * accounts, a material and two products, a warehouse, two workstations and a
+ * accounts, a material and two products, a warehouse, two units and a
  * stock lot of the material.
  * Everything is the test's own and goes in `teardown`.
  */
@@ -50,7 +50,7 @@ export async function makeProductionFixture(tag: string): Promise<ProductionFixt
   const byproduct = await item("SISA");
   const warehouse = (await prisma.refWarehouse.create({ data: { warehouse_code: `test.${key("WH")}`, warehouse_label: key("WH"), warehouse_name: "Gudang Uji Produksi", created_by: actor } })).id;
   const ws = async (label: string) =>
-    (await prisma.refWorkstation.create({ data: { workstation_code: `test.${key(label)}`, workstation_label: key(label), workstation_name: label, created_by: actor } })).id;
+    (await prisma.refUnit.create({ data: { unit_code: `test.${key(label)}`, unit_label: key(label), unit_name: label, created_by: actor } })).id;
   const wsA = await ws("WSA");
   const wsB = await ws("WSB");
   const lot = await stockIn(material, warehouse, key("L1"), 1_000, 1_000_000);
@@ -77,7 +77,7 @@ export async function makeProductionFixture(tag: string): Promise<ProductionFixt
       await prisma.mItem.deleteMany({ where: { id: { in: items } } });
       await prisma.accItemCategoryAccount.deleteMany({ where: { category_id: category } });
       await prisma.sysItemCategory.deleteMany({ where: { id: category } });
-      await prisma.refWorkstation.deleteMany({ where: { id: { in: [wsA, wsB] } } });
+      await prisma.refUnit.deleteMany({ where: { id: { in: [wsA, wsB] } } });
       await prisma.refWarehouse.deleteMany({ where: { id: warehouse } });
     },
   };

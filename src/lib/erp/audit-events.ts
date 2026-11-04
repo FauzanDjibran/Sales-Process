@@ -196,7 +196,7 @@ const COST_BILL_EVENTS: Record<string, AuditEventLabel> = {
 const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   create: { label: "Stock Issue dibuat", icon: "layers", tone: "neutral" },
-  post: fromTransition(STOCK_ISSUE_TRANSITIONS.post, "Diposting — barang masuk ke Workstation"),
+  post: fromTransition(STOCK_ISSUE_TRANSITIONS.post, "Diposting — barang masuk ke Unit"),
   cancel: fromTransition(STOCK_ISSUE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 

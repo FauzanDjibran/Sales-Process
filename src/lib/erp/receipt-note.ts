@@ -8,7 +8,7 @@ import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { lockPurchaseOrder, receiptNoteSources, recordPurchaseOrderReceived, type ReceiptNoteSource } from "./purchase-order";
-import { InventoryRefusal, receiveStock, warehouseLocationOptions, type WarehouseLocationOption } from "./inventory";
+import { InventoryRefusal, assertNewTrackingNo, receiveStock, warehouseLocationOptions, type WarehouseLocationOption } from "./inventory";
 import { fallbackAccounts } from "./system-settings";
 import { accountsForItems } from "./item-account";
 import {
@@ -529,6 +529,7 @@ export async function transitionReceiptNote(
       const byId = new Map(r.c.source.lines.map((l) => [l.id, l]));
       const journalLines: JournalLineInput[] = [];
       const received = new Map<number, number>();
+      const madeHere = new Set<string>();
       let total = 0;
       for (const line of r.c.lines) {
         const po = byId.get(line.source_doc_line_id)!;
@@ -544,6 +545,9 @@ export async function transitionReceiptNote(
             before += lot.qty;
             const baseQty = fromUnits(units(lot.qty * line.uom_factor));
             const lotNo = lot.tracking_no ?? `${note.rn_no.replace(/[^A-Z0-9]/gi, "")}-${line.line_no}-${lot.tracking_seq}`;
+            // A receipt brings a new No. Stok (W10); only this posting's own lots may share one.
+            if (!madeHere.has(lotNo)) await assertNewTrackingNo(tx, lotNo);
+            madeHere.add(lotNo);
             const inn = await receiveStock(tx, {
               itemId: line.item_id,
               warehouseId: r.c.data.warehouse_id!,

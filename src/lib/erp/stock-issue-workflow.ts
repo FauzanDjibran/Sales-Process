@@ -7,7 +7,7 @@
  *
  * Posting is the moment the goods leave the warehouse: each lot is issued
  * through the stock books and, for production, enters the production ledger at
- * the workstation, with one journal Dr WIP / Cr Persediaan. A posted issue is
+ * the unit, with one journal Dr WIP / Cr Persediaan. A posted issue is
  * final. Batalkan is for a Draft only, with a reason.
  *
  * Client-safe on purpose — no `server-only`, no database import.
@@ -48,7 +48,7 @@ export const STOCK_ISSUE_TRANSITIONS: Record<StockIssueAction, StockIssueTransit
     tone: "primary",
     title: "Posting Stock Issue",
     body:
-      "Barang dicatat keluar dari gudang pada Tanggal dan masuk produksi di Workstation, per lot " +
+      "Barang dicatat keluar dari gudang pada Tanggal dan masuk produksi di Unit, per lot " +
       "dengan nomor yang sama, senilai harga pokoknya. Nilainya dipindahkan dengan journal di bawah ini. " +
       "Stock Issue yang sudah diposting tidak dapat diubah atau dibatalkan.",
     confirmLabel: "Ya, Posting",

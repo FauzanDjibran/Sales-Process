@@ -15,7 +15,7 @@ import { makeProductionFixture, type ProductionFixture } from "./production-help
 
 /**
  * The Stock Issue (R4): material leaves a warehouse lot by lot straight into a
- * workstation, at the value the stock books release, under the same lot. What
+ * unit, at the value the stock books release, under the same lot. What
  * may be saved; that Posting needs every line picked in full and a WIP account
  * on the item's category (no fallback, R16); that it writes Dr WIP / Cr
  * Persediaan and the dry run equals it; that short stock is refused.
@@ -25,7 +25,7 @@ const today = new Date().toISOString().slice(0, 10);
 let f: ProductionFixture;
 const ids: number[] = [];
 
-const header = (over: Partial<StockIssueHeaderInput> = {}): StockIssueHeaderInput => ({ warehouse_id: f.warehouse, workstation_id: f.wsA, issue_date: today, note: "", ...over });
+const header = (over: Partial<StockIssueHeaderInput> = {}): StockIssueHeaderInput => ({ warehouse_id: f.warehouse, unit_id: f.wsA, issue_date: today, note: "", ...over });
 const line = (qty: number, picks: { lot: number; qty: number }[], itemId = f.material): StockIssueLineInput => ({
   item_id: itemId,
   qty,
@@ -55,11 +55,11 @@ after(async () => {
 });
 
 describe("a Stock Issue is checked before it is saved", () => {
-  test("it names a warehouse, a workstation and items picked within their quantity", async () => {
-    const r = await create(header({ workstation_id: null }), [line(10, [{ lot: f.lot, qty: 11 }])]);
+  test("it names a warehouse, a unit and items picked within their quantity", async () => {
+    const r = await create(header({ unit_id: null }), [line(10, [{ lot: f.lot, qty: 11 }])]);
     assert.ok(!r.ok);
     if (!r.ok) {
-      assert.match(r.errors.workstation_id, /Workstation/);
+      assert.match(r.errors.unit_id, /Unit/);
       assert.match(r.errors["lines.0.picks"], /melebihi/);
     }
   });
@@ -73,7 +73,7 @@ describe("a Stock Issue is checked before it is saved", () => {
   });
 });
 
-describe("posting moves the lot straight into the workstation", () => {
+describe("posting moves the lot straight into the unit", () => {
   test("a category without a WIP account is refused by name (R16)", async () => {
     const r = await create(header(), [line(300, [{ lot: f.lot, qty: 300 }])]);
     assert.ok(r.ok, JSON.stringify(r));
@@ -101,8 +101,8 @@ describe("posting moves the lot straight into the workstation", () => {
     assert.equal(v.cost, 300_000);
     const lines = await prisma.accJournalLine.findMany({ where: { journal_id: v.journalId! }, orderBy: { sequence_no: "asc" } });
     assert.deepEqual(lines.map((l) => [l.account_id, l.debit_amount.toNumber(), l.kredit_amount.toNumber()]), [[f.wipAcc, 300_000, 0], [f.inventoryAcc, 0, 300_000]]);
-    const bucket = await prisma.prdBalance.findUniqueOrThrow({ where: { tracking_id_workstation_id: { tracking_id: f.lot, workstation_id: f.wsA } } });
-    assert.deepEqual([bucket.qty_balance.toNumber(), bucket.value_balance.toNumber()], [300, 300_000], "the same lot, at the workstation");
+    const bucket = await prisma.prdBalance.findUniqueOrThrow({ where: { tracking_id_unit_id: { tracking_id: f.lot, unit_id: f.wsA } } });
+    assert.deepEqual([bucket.qty_balance.toNumber(), bucket.value_balance.toNumber()], [300, 300_000], "the same lot, at the unit");
     const pick = await prisma.logStockIssueTracking.findFirstOrThrow({ where: { line: { stock_issue_id: id } } });
     assert.equal(pick.prd_bucket_id, bucket.id);
   });

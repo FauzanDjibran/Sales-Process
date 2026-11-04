@@ -9,7 +9,7 @@ import { ProductionRefusal, availableBuckets, type BucketView } from "./producti
 import { accountsForItems } from "./item-account";
 
 /**
- * What the production documents share (R5, R7, R8): the workstations and the
+ * What the production documents share (R5, R7, R8): the units and the
  * buckets they pick from, the check of a line taken from a bucket, the WIP
  * account of an item (no fallback, R16) and the refusal plumbing of a
  * posting run as a dry run (P103). Each document keeps its own tables.
@@ -18,7 +18,7 @@ import { accountsForItems } from "./item-account";
 export type Db = Prisma.TransactionClient | typeof prisma;
 
 /** A bucket as a picker offers it (client-safe shape). */
-export type BucketOption = Pick<BucketView, "id" | "lotId" | "lotNo" | "itemId" | "itemLabel" | "itemName" | "uomLabel" | "workstationId" | "qty" | "value" | "expiry">;
+export type BucketOption = Pick<BucketView, "id" | "lotId" | "lotNo" | "itemId" | "itemLabel" | "itemName" | "uomLabel" | "unitId" | "qty" | "value" | "expiry">;
 
 export type Place = { id: number; label: string; name: string; active: boolean };
 
@@ -40,13 +40,13 @@ export async function docTypeId(db: Db, table: string): Promise<number> {
   return row.id;
 }
 
-/** Active workstations, and the ones a stored document names whatever their status. */
-export async function workstationOptions(keep: number[] = [], db: Db = prisma): Promise<Place[]> {
-  const rows = await db.refWorkstation.findMany({
+/** Active units, and the ones a stored document names whatever their status. */
+export async function unitOptions(keep: number[] = [], db: Db = prisma): Promise<Place[]> {
+  const rows = await db.refUnit.findMany({
     where: { OR: [{ status: "Active" }, ...(keep.length ? [{ id: { in: keep } }] : [])] },
-    orderBy: { workstation_label: "asc" },
+    orderBy: { unit_label: "asc" },
   });
-  return rows.map((w) => ({ id: w.id, label: w.workstation_label, name: w.workstation_name, active: w.status === "Active" }));
+  return rows.map((w) => ({ id: w.id, label: w.unit_label, name: w.unit_name, active: w.status === "Active" }));
 }
 
 /** Every bucket holding goods (and any a stored document names), for the pickers. */
@@ -59,7 +59,7 @@ export async function bucketOptions(withIds: number[] = [], db: Db = prisma): Pr
     itemLabel: b.itemLabel,
     itemName: b.itemName,
     uomLabel: b.uomLabel,
-    workstationId: b.workstationId,
+    unitId: b.unitId,
     qty: b.qty,
     value: b.value,
     expiry: b.expiry,
@@ -70,14 +70,14 @@ export type BucketLineInput = { bucket_id: number | null; qty: number | string }
 export type CheckedBucketLine = { line_no: number; bucket_id: number; tracking_id: number; item_id: number; qty: number; bucket: BucketOption };
 
 /**
- * Lines taken from buckets: each a bucket held at `workstationId`, once, at a
+ * Lines taken from buckets: each a bucket held at `unitId`, once, at a
  * quantity above 0 with at most four decimals and no more than it holds. Errors
  * keyed `<prefix>.<i>.<field>`.
  */
 export function checkBucketLines(
   raw: BucketLineInput[] | undefined,
   buckets: BucketOption[],
-  workstationId: number | null,
+  unitId: number | null,
   prefix: string,
   errors: Record<string, string>
 ): CheckedBucketLine[] {
@@ -91,8 +91,8 @@ export function checkBucketLines(
       errors[key("bucket_id")] = "Pilih lot.";
       continue;
     }
-    if (workstationId && b.workstationId !== workstationId) {
-      errors[key("bucket_id")] = `Lot ${b.lotNo} tidak berada di Workstation ini.`;
+    if (unitId && b.unitId !== unitId) {
+      errors[key("bucket_id")] = `Lot ${b.lotNo} tidak berada di Unit ini.`;
       continue;
     }
     if (seen.has(b.id)) {

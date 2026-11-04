@@ -22,7 +22,7 @@ import { formatDate, formatMoney, formatNumber, formatPrice, todayIso } from "@/
  * A Stock Issue in all three modes: `new`, `edit` (Draft only) and `view`
  * (R4).
  *
- * The user names the warehouse the goods leave, the workstation they are
+ * The user names the warehouse the goods leave, the unit they are
  * placed at and the day; then each item in its base unit and, since every item
  * here is kept by lot, the lots it leaves from — the Delivery Note's picker.
  * Changing the warehouse clears the picks, which are lots of that warehouse.
@@ -59,7 +59,7 @@ export function StockIssueForm({
   const [header, setHeader] = useState<StockIssueHeaderInput>(() =>
     issue
       ? { ...issue.header }
-      : { purpose: DEFAULT_STOCK_ISSUE_PURPOSE, warehouse_id: null, workstation_id: null, issue_date: todayIso(), note: "" }
+      : { purpose: DEFAULT_STOCK_ISSUE_PURPOSE, warehouse_id: null, unit_id: null, issue_date: todayIso(), note: "" }
   );
   const [lines, setLines] = useState<LineState[]>(() =>
     issue
@@ -78,7 +78,7 @@ export function StockIssueForm({
 
   const posted = issue?.status === "Posted";
   const warehouse = options.warehouses.find((w) => w.id === header.warehouse_id);
-  const workstation = options.workstations.find((w) => w.id === header.workstation_id);
+  const unit = options.units.find((w) => w.id === header.unit_id);
   const lotsOf = (itemId: number | null) => (header.warehouse_id && itemId ? (options.lots[header.warehouse_id]?.[itemId] ?? []) : []);
 
   const touch = (...names: string[]) => {
@@ -185,18 +185,18 @@ export function StockIssueForm({
                 place(warehouse)
               )}
             </Field>
-            <Field label="Workstation" span={6} required={editing} help={editing ? "tempat barang masuk produksi" : undefined} error={errors.workstation_id}>
+            <Field label="Unit" span={6} required={editing} help={editing ? "tempat barang masuk produksi" : undefined} error={errors.unit_id}>
               {editing ? (
                 <Combobox
-                  value={header.workstation_id}
-                  options={options.workstations.filter((w) => w.active || w.id === header.workstation_id)}
-                  placeholder="Pilih Workstation…"
-                  emptyText="Belum ada Workstation yang aktif."
-                  invalid={Boolean(errors.workstation_id)}
-                  onChange={(v) => set("workstation_id", v)}
+                  value={header.unit_id}
+                  options={options.units.filter((w) => w.active || w.id === header.unit_id)}
+                  placeholder="Pilih Unit…"
+                  emptyText="Belum ada Unit yang aktif."
+                  invalid={Boolean(errors.unit_id)}
+                  onChange={(v) => set("unit_id", v)}
                 />
               ) : (
-                place(workstation)
+                place(unit)
               )}
             </Field>
             <Field label="Catatan" span={12}>

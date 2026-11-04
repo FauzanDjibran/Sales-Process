@@ -25,7 +25,7 @@ export function ProductionMismatch({ show }: { show: boolean }) {
   );
 }
 
-/** Saldo Produksi: a block per workstation, a row per bucket (R18). */
+/** Saldo Produksi: a block per unit, a row per bucket (R18). */
 export function WipBalanceBody({ blocks, asOf }: { blocks: WipBlock[]; asOf: string }) {
   if (!blocks.length) {
     return (
@@ -140,7 +140,7 @@ export function LotCardBody({ cards }: { cards: LotCard[] }) {
             <div className="card-h">
               <div className="ct">
                 <h3>Di Produksi</h3>
-                <p>Setiap mutasi buku produksi atas lot ini, dengan saldo dan nilainya setelah itu, per workstation.</p>
+                <p>Setiap mutasi buku produksi atas lot ini, dengan saldo dan nilainya setelah itu, per unit.</p>
               </div>
             </div>
             {card.inProduction.length ? (
@@ -152,7 +152,7 @@ export function LotCardBody({ cards }: { cards: LotCard[] }) {
                       <th style={{ width: 150 }}>No. Mutasi</th>
                       <th style={{ width: 170 }}>Dokumen</th>
                       <th style={{ width: 140 }}>Mutasi</th>
-                      <th>Workstation</th>
+                      <th>Unit</th>
                       <th className="num" style={{ width: 110 }}>Qty</th>
                       <th className="num" style={{ width: 110 }}>Saldo</th>
                       <th className="num" style={{ width: 140 }}>Nilai</th>
@@ -349,7 +349,7 @@ export function TraceBody({ report }: { report: TraceReport }) {
     <>
       <TraceTable title="Lot yang Ditelusuri" lead="Lot dengan nomor ini — satu per barang — dan di mana ia sekarang." nodes={report.start} dir="start" />
       <TraceTable title="Asal (Mundur)" lead="Lewat setiap eksekusi sampai lot yang masuk dari supplier atau injeksi." nodes={report.backward} dir="back" />
-      <TraceTable title="Tujuan (Maju)" lead="Lewat setiap eksekusi sampai barang di workstation, di stok, atau terkirim ke customer." nodes={report.forward} dir="fwd" />
+      <TraceTable title="Tujuan (Maju)" lead="Lewat setiap eksekusi sampai barang di unit, di stok, atau terkirim ke customer." nodes={report.forward} dir="fwd" />
       {report.truncated && (
         <div className="nbox warn slim" style={{ marginTop: 14 }}>
           <Icon name="warn" size={15} className="ni" />

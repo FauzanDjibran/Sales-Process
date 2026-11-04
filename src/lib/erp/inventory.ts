@@ -444,7 +444,10 @@ export async function receiveStock(tx: Tx, r: StockReceipt): Promise<{ trackingI
   if (item.has_expiry && !expiryIso) throw new InventoryRefusal(`${item.item_label} memiliki kadaluarsa: isi tanggal kadaluarsa lot ${lotNo}.`);
   const place = await stockPlace(tx, r.warehouseId, r.locationId, true);
 
-  let tracking = await tx.logStockTracking.findUnique({ where: { item_id_tracking_no: { item_id: r.itemId, tracking_no: lotNo } } });
+  let tracking = await tx.logStockTracking.findUnique({ where: { tracking_no: lotNo } });
+  if (tracking && tracking.item_id !== r.itemId) {
+    throw new InventoryRefusal(`No. Stok ${lotNo} sudah dipakai barang lain: satu nomor satu stok di seluruh sistem.`);
+  }
   if (tracking) {
     const known = tracking.expiry_date ? tracking.expiry_date.toISOString().slice(0, 10) : null;
     if (expiryIso && known !== expiryIso) {
@@ -573,6 +576,12 @@ export type InjectionRow = {
   date: Date;
 };
 
+/** A receipt brings a new No. Stok (W10): refuses a number the system already holds. */
+export async function assertNewTrackingNo(tx: Tx, trackingNo: string): Promise<void> {
+  const taken = await tx.logStockTracking.findUnique({ where: { tracking_no: trackingNo }, select: { id: true } });
+  if (taken) throw new InventoryRefusal(`No. Stok ${trackingNo} sudah ada. Setiap penerimaan memakai nomor baru.`);
+}
+
 /**
  * Brings stock in without a document (P120), for `db:stock-inject`: each run
  * is one source — document type *Injeksi Stok*, numbered `INJ/YYYY/MM/NNNN` by
@@ -602,6 +611,12 @@ export async function injectStock(rows: InjectionRow[], actorId: number, runDate
         });
         return row?.source_no ?? null;
       });
+      // A receipt brings a new No. Stok (W10); only the rows of this run share one.
+      const taken = await tx.logStockTracking.findFirst({
+        where: { tracking_no: { in: rows.map((r) => r.lotNo.trim().toUpperCase()) } },
+        select: { tracking_no: true },
+      });
+      if (taken) throw new InventoryRefusal(`No. Stok ${taken.tracking_no} sudah ada. Setiap penerimaan memakai nomor baru.`);
       const source = { docTypeId: type.id, docId, no };
       for (const [i, r] of rows.entries()) {
         try {

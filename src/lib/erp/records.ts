@@ -28,7 +28,12 @@ const DELEGATES = {
   ref_warehouse: (db: Client) => db.refWarehouse,
   ref_withholding_tax: (db: Client) => db.refWithholdingTax,
   ref_permit_type: (db: Client) => db.refPermitType,
+  ref_unit: (db: Client) => db.refUnit,
   ref_workstation: (db: Client) => db.refWorkstation,
+  prd_line: (db: Client) => db.prdLine,
+  prd_routing: (db: Client) => db.prdRouting,
+  prd_rate_version: (db: Client) => db.prdRateVersion,
+  m_employee: (db: Client) => db.mEmployee,
   acc_cost_type: (db: Client) => db.accCostType,
   sys_partner_category: (db: Client) => db.sysPartnerCategory,
   acc_account: (db: Client) => db.accAccount,
@@ -126,6 +131,8 @@ export async function refOptions(
     if (field.type !== "ref" || !field.ref) continue;
     result[field.name] = await optionsFor(field.ref, field.refFilter);
   }
+  // The Units a routing step or a rate line picks from (P225).
+  if (entity.key === "prd_routing" || entity.key === "prd_rate_version") result._units = await optionsFor("ref_unit");
   return result;
 }
 
@@ -216,6 +223,18 @@ export async function optionsFor(
           active: r.is_active,
           subcategoryId: r.account_subcategory_id,
         }));
+    }
+    case "ref_unit": {
+      const rows = await prisma.refUnit.findMany({ orderBy: { unit_label: "asc" } });
+      return rows.map((r) => ({ id: r.id, label: r.unit_label, name: r.unit_name, active: r.status === "Active" }));
+    }
+    case "ref_workstation": {
+      const rows = await prisma.refWorkstation.findMany({ orderBy: { workstation_label: "asc" } });
+      return rows.map((r) => ({ id: r.id, label: r.workstation_label, name: r.workstation_name, active: r.status === "Active" }));
+    }
+    case "prd_line": {
+      const rows = await prisma.prdLine.findMany({ orderBy: { line_label: "asc" } });
+      return rows.map((r) => ({ id: r.id, label: r.line_label, name: r.line_name, active: r.status === "Active" }));
     }
     default:
       return [];

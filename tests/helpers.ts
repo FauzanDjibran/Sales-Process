@@ -1,5 +1,5 @@
 import { prisma } from "../src/lib/prisma";
-import { injectStock } from "../src/lib/erp/inventory";
+import { injectStock, receiveStock } from "../src/lib/erp/inventory";
 import { actorFor, type Actor } from "../src/lib/erp/access";
 import { ensureFiscalPeriods } from "../src/lib/erp/fiscal";
 import { hashPassword } from "../src/lib/erp/login";
@@ -468,11 +468,19 @@ export async function stockIn(
   expiry: string | null = null,
   date = new Date().toISOString().slice(0, 10)
 ): Promise<number> {
-  await injectStock(
-    [{ itemId, warehouseId, lotNo, expiry: expiry ? new Date(`${expiry}T00:00:00Z`) : null, qty: String(qty), value: String(value), date: new Date(`${date}T00:00:00Z`) }],
-    await systemUserId()
-  );
-  const lot = await prisma.logStockTracking.findUniqueOrThrow({ where: { item_id_tracking_no: { item_id: itemId, tracking_no: lotNo.toUpperCase() } } });
+  const row = { itemId, warehouseId, lotNo, expiry: expiry ? new Date(`${expiry}T00:00:00Z`) : null, qty: String(qty), value: String(value), date: new Date(`${date}T00:00:00Z`) };
+  const actorId = await systemUserId();
+  if (await prisma.logStockTracking.findUnique({ where: { tracking_no: lotNo.toUpperCase() }, select: { id: true } })) {
+    // An injection brings a new No. Stok (W10); topping a lot up is a plain receipt of it.
+    const type = await prisma.sysDocType.findFirstOrThrow({ where: { doc_table: "log_stock_injection" }, select: { id: true } });
+    const no = `TOPUP-${Date.now()}`;
+    await prisma.$transaction((tx) =>
+      receiveStock(tx, { ...row, baseQty: row.qty, source: { docTypeId: type.id, docId: 900_000_000 + (Date.now() % 100_000_000), no }, actorId })
+    );
+  } else {
+    await injectStock([row], actorId);
+  }
+  const lot = await prisma.logStockTracking.findUniqueOrThrow({ where: { tracking_no: lotNo.toUpperCase() } });
   return lot.id;
 }
 

@@ -26,16 +26,16 @@ import {
  *
  * **Standalone** (P106): goods leave a warehouse for a use inside the company,
  * and the purpose (`stock-issue-purposes.ts`) says where. The one purpose so
- * far is `production_issue`: material placed at a workstation.
+ * far is `production_issue`: material placed at a unit.
  *
- * The user picks the warehouse, the workstation, the day and the items, each in
+ * The user picks the warehouse, the unit, the day and the items, each in
  * its base unit (as sales, P108), and — every item being a Barang with Kelola
  * Stok — the lots each leaves from, exactly as on a Delivery Note (U15, P136):
  * a Draft may be picked in part, Posting needs every line picked in full.
  *
  * **Posting**, in one transaction: each pick is issued through the stock books
  * (`issueStock`, at the moving average, short stock refused) and enters the
- * production ledger at the workstation with **the same lot number** and the
+ * production ledger at the unit with **the same lot number** and the
  * value the stock released (`enterProduction`) — the stock pool locked before
  * the bucket. **Direct**: no transit, no receipt. One journal, **Dr WIP / Cr
  * Persediaan** per line: WIP is the item's Kategori Item's, with no fallback
@@ -52,7 +52,7 @@ export type StockIssueHeaderInput = {
   /** The purpose's key; `production_issue` when omitted. */
   purpose?: string;
   warehouse_id: number | null;
-  workstation_id: number | null;
+  unit_id: number | null;
   issue_date: string;
   note: string;
 };
@@ -94,7 +94,7 @@ export type StockIssueItem = { id: number; label: string; name: string; uomId: n
 
 export type StockIssueOptions = {
   warehouses: StockIssuePlace[];
-  workstations: StockIssuePlace[];
+  units: StockIssuePlace[];
   /** Barang with Kelola Stok — the only items that leave by lot (P120). */
   items: StockIssueItem[];
   /** The lots each item may be picked from, per warehouse id, then item id; earliest expiry first. */
@@ -102,25 +102,25 @@ export type StockIssueOptions = {
 };
 
 /**
- * What the form offers: active warehouses and workstations, every Barang with
+ * What the form offers: active warehouses and units, every Barang with
  * Kelola Stok, and the lots with stock of each in each warehouse. `current` is
- * a stored issue: its own warehouse, workstation, items and lots stay readable
+ * a stored issue: its own warehouse, unit, items and lots stay readable
  * whatever their status now.
  */
 export async function stockIssueOptions(
-  current: { warehouseId: number; workstationId: number | null; itemIds: number[]; lotIds: number[] } | null = null,
+  current: { warehouseId: number; unitId: number | null; itemIds: number[]; lotIds: number[] } | null = null,
   db: Db = prisma
 ): Promise<StockIssueOptions> {
-  const [warehouses, workstations, items] = await Promise.all([
+  const [warehouses, units, items] = await Promise.all([
     db.refWarehouse.findMany({
       where: { OR: [{ status: "Active" }, ...(current ? [{ id: current.warehouseId }] : [])] },
       orderBy: { warehouse_label: "asc" },
       select: { id: true, warehouse_label: true, warehouse_name: true, status: true },
     }),
-    db.refWorkstation.findMany({
-      where: { OR: [{ status: "Active" }, ...(current?.workstationId ? [{ id: current.workstationId }] : [])] },
-      orderBy: { workstation_label: "asc" },
-      select: { id: true, workstation_label: true, workstation_name: true, status: true },
+    db.refUnit.findMany({
+      where: { OR: [{ status: "Active" }, ...(current?.unitId ? [{ id: current.unitId }] : [])] },
+      orderBy: { unit_label: "asc" },
+      select: { id: true, unit_label: true, unit_name: true, status: true },
     }),
     db.mItem.findMany({
       where: { item_type: "Barang", track_stock: true, OR: [{ status: "Active" }, ...(current?.itemIds.length ? [{ id: { in: current.itemIds } }] : [])] },
@@ -138,7 +138,7 @@ export async function stockIssueOptions(
   for (const [w, byItem] of byWarehouse) lots[w] = Object.fromEntries(byItem.entries());
   return {
     warehouses: warehouses.map((w) => ({ id: w.id, label: w.warehouse_label, name: w.warehouse_name, active: w.status === "Active" })),
-    workstations: workstations.map((w) => ({ id: w.id, label: w.workstation_label, name: w.workstation_name, active: w.status === "Active" })),
+    units: units.map((w) => ({ id: w.id, label: w.unit_label, name: w.unit_name, active: w.status === "Active" })),
     items: items.map((i) => ({ id: i.id, label: i.item_label, name: i.item_name, uomId: i.base_uom_id, uomLabel: i.base_uom.uom_label, active: i.status === "Active" })),
     lots,
   };
@@ -163,12 +163,12 @@ type Checked = {
   data: {
     purpose: string;
     warehouse_id: number;
-    workstation_id: number | null;
+    unit_id: number | null;
     issue_date: Date;
     note: string | null;
   };
   warehouseLabel: string;
-  workstationLabel: string;
+  unitLabel: string;
   itemLabels: Map<number, { label: string; uomLabel: string }>;
   lines: CheckedLine[];
 };
@@ -176,7 +176,7 @@ type Checked = {
 /**
  * Every rule a Stock Issue must satisfy to be saved — and, run again inside the
  * posting transaction with `forPosting`, to be posted: every line then picked
- * in full, the warehouse, workstation and items still active.
+ * in full, the warehouse, unit and items still active.
  */
 export async function checkStockIssue(
   db: Db,
@@ -190,13 +190,13 @@ export async function checkStockIssue(
   if (!purpose) return { ok: false, errors: { purpose: "Tujuan Stock Issue tidak dikenal." } };
 
   const stored = selfId
-    ? await db.logStockIssue.findUnique({ where: { id: selfId }, select: { warehouse_id: true, workstation_id: true, lines: { select: { item_id: true, trackings: { select: { tracking_id: true } } } } } })
+    ? await db.logStockIssue.findUnique({ where: { id: selfId }, select: { warehouse_id: true, unit_id: true, lines: { select: { item_id: true, trackings: { select: { tracking_id: true } } } } } })
     : null;
   const options = await stockIssueOptions(
     stored
       ? {
           warehouseId: stored.warehouse_id,
-          workstationId: stored.workstation_id,
+          unitId: stored.unit_id,
           itemIds: stored.lines.map((l) => l.item_id),
           lotIds: stored.lines.flatMap((l) => l.trackings.map((p) => p.tracking_id)),
         }
@@ -209,12 +209,12 @@ export async function checkStockIssue(
   if (!warehouseId) errors.warehouse_id = "Pilih gudang.";
   else if (!warehouse || (!warehouse.active && (forPosting || stored?.warehouse_id !== warehouseId))) errors.warehouse_id = "Gudang tidak ditemukan atau nonaktif.";
 
-  const workstationId = Number(header.workstation_id) || null;
-  const workstation = workstationId ? options.workstations.find((w) => w.id === workstationId) : undefined;
-  if (purpose.needsWorkstation) {
-    if (!workstationId) errors.workstation_id = "Pilih Workstation.";
-    else if (!workstation || (!workstation.active && (forPosting || stored?.workstation_id !== workstationId))) {
-      errors.workstation_id = "Workstation tidak ditemukan atau nonaktif.";
+  const unitId = Number(header.unit_id) || null;
+  const unit = unitId ? options.units.find((w) => w.id === unitId) : undefined;
+  if (purpose.needsUnit) {
+    if (!unitId) errors.unit_id = "Pilih Unit.";
+    else if (!unit || (!unit.active && (forPosting || stored?.unit_id !== unitId))) {
+      errors.unit_id = "Unit tidak ditemukan atau nonaktif.";
     }
   }
 
@@ -282,12 +282,12 @@ export async function checkStockIssue(
       data: {
         purpose: purpose.key,
         warehouse_id: warehouse.id,
-        workstation_id: purpose.needsWorkstation ? workstationId : null,
+        unit_id: purpose.needsUnit ? unitId : null,
         issue_date: asDate(issueDate),
         note: text(header.note),
       },
       warehouseLabel: warehouse.label,
-      workstationLabel: workstation?.label ?? "",
+      unitLabel: unit?.label ?? "",
       itemLabels: new Map(options.items.map((i) => [i.id, { label: i.label, uomLabel: i.uomLabel }])),
       lines: out,
     },
@@ -425,7 +425,7 @@ function asInput(n: StoredIssue): { header: StockIssueHeaderInput; lines: StockI
     header: {
       purpose: n.purpose,
       warehouse_id: n.warehouse_id,
-      workstation_id: n.workstation_id,
+      unit_id: n.unit_id,
       issue_date: isoDay(n.issue_date),
       note: n.note ?? "",
     },
@@ -463,7 +463,7 @@ export type StockIssueTransitionResult =
 /**
  * Runs one lifecycle step. **Posting**, in one transaction: rechecks the stored
  * issue, then for every pick issues the stock and places it in production at
- * the workstation under the same lot number and at the value released, stores
+ * the unit under the same lot number and at the value released, stores
  * the cost and the production lot, and writes the journal Dr WIP / Cr
  * Persediaan dated the issue. **Batalkan** (Draft only) asks for a reason and
  * writes nothing else. Every step is conditional on the status just read.
@@ -556,7 +556,7 @@ export async function transitionStockIssue(
           const entered = await enterProduction(tx, {
             lotId: p.tracking_id,
             itemId: line.item_id,
-            workstationId: r.c.data.workstation_id!,
+            unitId: r.c.data.unit_id!,
             baseQty,
             value: out.cost,
             date,
@@ -577,7 +577,7 @@ export async function transitionStockIssue(
           const what = `${r.c.itemLabels.get(line.item_id)?.label ?? ""} · ${qtyText(line.qty)} ${r.c.itemLabels.get(line.item_id)?.uomLabel ?? ""}`;
           const acc = lineAccounts.get(line.item_id)!;
           journalLines.push(
-            { accountId: acc.wip, currencyId: baseCurrency.id, rate: 1, debit: cost, credit: 0, description: `WIP ${r.c.workstationLabel} · ${what}` },
+            { accountId: acc.wip, currencyId: baseCurrency.id, rate: 1, debit: cost, credit: 0, description: `WIP ${r.c.unitLabel} · ${what}` },
             { accountId: acc.inventory, currencyId: baseCurrency.id, rate: 1, debit: 0, credit: cost, description: `Keluar ${r.c.warehouseLabel} · ${what}` }
           );
         }
@@ -586,7 +586,7 @@ export async function transitionStockIssue(
       const journal = !journalLines.length
         ? null
         : await postJournal(tx, {
-            description: `${issue.issue_no} · Pengeluaran ke Produksi ${r.c.warehouseLabel} → ${r.c.workstationLabel}`,
+            description: `${issue.issue_no} · Pengeluaran ke Produksi ${r.c.warehouseLabel} → ${r.c.unitLabel}`,
             sourceDocTypeId: typeId,
             sourceDocId: id,
             postingDate: date,
@@ -611,8 +611,8 @@ export type StockIssueListRow = {
   purpose: string;
   warehouseLabel: string;
   warehouseName: string;
-  workstationLabel: string;
-  workstationName: string;
+  unitLabel: string;
+  unitName: string;
   lines: number;
   cost: number;
 };
@@ -620,7 +620,7 @@ export type StockIssueListRow = {
 export async function listStockIssues(): Promise<StockIssueListRow[]> {
   const rows = await prisma.logStockIssue.findMany({
     orderBy: [{ issue_date: "desc" }, { id: "desc" }],
-    include: { warehouse: true, workstation: true, _count: { select: { lines: true } } },
+    include: { warehouse: true, unit: true, _count: { select: { lines: true } } },
   });
   return rows.map((r) => ({
     id: r.id,
@@ -630,8 +630,8 @@ export async function listStockIssues(): Promise<StockIssueListRow[]> {
     purpose: r.purpose,
     warehouseLabel: r.warehouse.warehouse_label,
     warehouseName: r.warehouse.warehouse_name,
-    workstationLabel: r.workstation?.workstation_label ?? "",
-    workstationName: r.workstation?.workstation_name ?? "",
+    unitLabel: r.unit?.unit_label ?? "",
+    unitName: r.unit?.unit_name ?? "",
     lines: r._count.lines,
     cost: r.cost_amount.toNumber(),
   }));
@@ -694,7 +694,7 @@ export async function getStockIssue(id: number): Promise<StockIssueView | null> 
 export function stockIssueCurrent(v: StockIssueView) {
   return {
     warehouseId: Number(v.header.warehouse_id),
-    workstationId: v.header.workstation_id ? Number(v.header.workstation_id) : null,
+    unitId: v.header.unit_id ? Number(v.header.unit_id) : null,
     itemIds: v.lines.map((l) => Number(l.item_id)),
     lotIds: v.lines.flatMap((l) => l.pickedLots.map((p) => p.lotId)),
   };

@@ -16,7 +16,7 @@ export type ProdDocListRow = {
   no: string;
   date: string;
   status: ProdDocStatus;
-  /** Label + name pairs, one per place column (workstation, warehouse…). */
+  /** Label + name pairs, one per place column (unit, warehouse…). */
   places: { label: string; name: string }[];
   /** A short tag, e.g. the release's purpose; empty for none. */
   tag?: string;
