@@ -189,7 +189,21 @@ export function SystemDefaultForm({
                       help={def.help}
                       error={errors[def.key]}
                     >
-                      {def.type === "number" ? (
+                      {def.type === "text" ? (
+                        canEdit ? (
+                          <input
+                            className={`inp${errors[def.key] ? " bad" : ""}`}
+                            value={value ?? ""}
+                            aria-label={def.name}
+                            onChange={(e) => set(def.key, e.target.value)}
+                            autoComplete="off"
+                          />
+                        ) : value ? (
+                          <div className="ro">{value}</div>
+                        ) : (
+                          <div className="ro nil">belum diatur</div>
+                        )
+                      ) : def.type === "number" ? (
                         canEdit ? (
                           "percent" in def && def.percent ? (
                             <PercentInput

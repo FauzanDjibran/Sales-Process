@@ -4,7 +4,8 @@ import { GeneralLedgerReport } from "@/components/report/general-ledger-report";
 import { TrialBalanceReport } from "@/components/report/trial-balance-report";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
 import { requirePermission } from "@/lib/erp/auth";
-import { generalLedgerReport, ledgerAccountOptions } from "@/lib/erp/ledger";
+import { generalLedgerReport, ledgerAccountOptions, ledgerPartnerOptions } from "@/lib/erp/ledger";
+import { parseIds, resolveRange } from "@/lib/erp/report-params";
 import { TrialBalanceParams } from "@/components/report/trial-balance-params";
 import type { PeriodRange } from "@/lib/erp/period";
 import { reportBySlug, reportHref } from "@/lib/erp/reports";
@@ -20,17 +21,15 @@ import { Icon } from "@/components/icon";
 import {
   carriedYearsBefore,
   reportableFiscalYears,
-  type ReportableFiscalYear,
 } from "@/lib/erp/fiscal";
 import {
   balanceSheetReport,
   profitLossReport,
-  resolveColumn,
+  resolveStatementRun,
   trialBalanceStatement,
   type StatementColumn,
 } from "@/lib/erp/statements";
 import { formatMoney } from "@/lib/format";
-import type { StatementMode } from "@/lib/erp/statement-layout";
 import type { ReportDef } from "@/lib/erp/reports";
 
 export const dynamic = "force-dynamic";
@@ -63,6 +62,7 @@ export default async function Page({
     cmpYear?: string;
     cmpPeriod?: string;
     all?: string;
+    partners?: string;
   }>;
 }) {
   const { report: slug } = await params;
@@ -84,8 +84,9 @@ export default async function Page({
   }
 
   const accountIds = parseIds(query.accounts);
+  const partnerIds = parseIds(query.partners);
 
-  const options = await ledgerAccountOptions();
+  const [options, partnerOptions] = await Promise.all([ledgerAccountOptions(), ledgerPartnerOptions()]);
   const runAt = new Date().toISOString();
 
   const filterBar = (
@@ -102,6 +103,7 @@ export default async function Page({
         addPlaceholder="Tambah account…"
         allPlaceholder="Pilih account…"
         missingHint="Pilih minimal satu account terlebih dahulu."
+        partnerFilter={{ options: partnerOptions, selectedIds: partnerIds }}
       />
     </>
   );
@@ -110,7 +112,7 @@ export default async function Page({
 
   if (report.key === "general_ledger") {
     const data = accountIds.length
-      ? await generalLedgerReport(accountIds, range)
+      ? await generalLedgerReport(accountIds, range, partnerIds)
       : null;
 
     return (
@@ -118,11 +120,23 @@ export default async function Page({
         report={report}
         filter={filterBar}
         runAt={runAt}
+        exportHref={
+          data
+            ? reportHref(`${slug}/export`, {
+                accounts: accountIds.join(","),
+                partners: partnerIds.join(","),
+                from: range.from,
+                to: range.to,
+              })
+            : undefined
+        }
         footnote={
           <>
             Seluruh angka dalam mata uang dasar ({BASE_CURRENCY_LABEL}), dan saldo
             bergerak mengikuti normal balance account — account Debit naik di sisi
-            debit, account Kredit di sisi kredit{openingSource(data?.openingFrom)}.
+            debit, account Kredit di sisi kredit
+            {partnerIds.length ? "; hanya baris journal Partner yang dipilih" : ""}
+            {openingSource(data?.openingFrom)}.
           </>
         }
       >
@@ -161,44 +175,6 @@ function openingSource(from: OpeningProvenance | null | undefined) {
   return `; saldo awal diambil dari Opening Balance ${from.openingNo} per ${formatDate(from.date)}`;
 }
 
-/** Defaults to the current month to date, like every other Report View. */
-function resolveRange(from?: string, to?: string): PeriodRange {
-  const today = new Date();
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  const monthStart = new Date(
-    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)
-  );
-
-  const start = isDate(from) ? from : iso(monthStart);
-  const end = isDate(to) ? to : iso(today);
-  return start <= end ? { from: start, to: end } : { from: end, to: start };
-}
-
-function isDate(value: string | undefined): value is string {
-  return Boolean(
-    value &&
-      /^\d{4}-\d{2}-\d{2}$/.test(value) &&
-      !Number.isNaN(Date.parse(`${value}T00:00:00Z`))
-  );
-}
-
-/**
- * `accounts=3,17,42` — the subject of an `account-period` report.
- *
- * Duplicates are dropped and anything unparseable is ignored rather than
- * refused: a hand-edited URL should still answer with the accounts it does
- * name.
- */
-function parseIds(raw?: string): number[] {
-  if (!raw) return [];
-  const out: number[] = [];
-  for (const part of raw.split(",")) {
-    const n = Number(part.trim());
-    if (Number.isInteger(n) && n > 0 && !out.includes(n)) out.push(n);
-  }
-  return out;
-}
-
 // -------------------------------------------------------------- trial balance
 
 /**
@@ -219,6 +195,11 @@ async function trialBalancePage(
   return (
     <ReportView
       report={report}
+      exportHref={reportHref(`${slug}/export`, {
+        from: range.from,
+        to: range.to,
+        all: includeAll ? 1 : null,
+      })}
       filter={
         <TrialBalanceParams
           slug={slug}
@@ -305,13 +286,15 @@ async function statementPage(
   // column runs from the year's first day, which is where the profit it carries
   // in equity is split.
   const neraca = report.key === "balance_sheet";
-  const mode: StatementMode = !neraca && query.mode === "mtd" ? "mtd" : "ytd";
-  const fallback = defaultPeriod(years);
-  const main =
-    resolveColumn(years, toId(query.year), toId(query.period), mode) ??
-    resolveColumn(years, fallback.yearId, fallback.periodId, mode)!;
-  const compare = resolveColumn(years, toId(query.cmpYear), toId(query.cmpPeriod), mode);
+  const { mode, main, compare } = resolveStatementRun(years, query, neraca);
   const columns = compare ? [main, compare] : [main];
+  const exportHref = reportHref(`${slug}/export`, {
+    year: main.yearId,
+    period: main.periodId,
+    mode: neraca ? null : mode,
+    cmpYear: compare?.yearId,
+    cmpPeriod: compare?.periodId,
+  });
 
   // The earlier years not closed yet. The books are running
   // as an extension of them, and the report says so rather than leaving a
@@ -375,6 +358,7 @@ async function statementPage(
         report={report}
         filter={filter}
         runAt={runAt}
+        exportHref={exportHref}
         title={
           <StatementTitle
             name={report.name}
@@ -437,6 +421,7 @@ async function statementPage(
       report={report}
       filter={filter}
       runAt={runAt}
+      exportHref={exportHref}
       title={
         <StatementTitle
           name={report.name}
@@ -506,21 +491,4 @@ function UnplacedNotice({ names }: { names: string[] }) {
       tidak masuk ke subtotal manapun: {names.join(", ")}.
     </Notice>
   );
-}
-
-/** The Open year holding today, and its period holding today; else the newest. */
-function defaultPeriod(years: ReportableFiscalYear[]): { yearId: number; periodId: number | null } {
-  const today = new Date().toISOString().slice(0, 10);
-  const year =
-    years.find((y) => y.status === "Open" && y.startDate <= today && today <= y.endDate) ??
-    years[0];
-  const period =
-    year.periods.find((p) => p.startDate <= today && today <= p.endDate) ??
-    year.periods[year.periods.length - 1];
-  return { yearId: year.id, periodId: period?.id ?? null };
-}
-
-function toId(raw?: string): number | null {
-  const n = Number(raw);
-  return Number.isInteger(n) && n > 0 ? n : null;
 }

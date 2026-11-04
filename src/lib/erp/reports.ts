@@ -327,7 +327,8 @@ export function reportHref(
   slug: string,
   params?: Record<string, string | number | null | undefined>
 ): string {
-  const base = `/${BY_SLUG.get(slug)?.module ?? "finance"}/report/${slug}`;
+  const report = BY_SLUG.get(slug.replace(/\/export$/, ""));
+  const base = `/${report?.module ?? "finance"}/report/${slug}`;
   if (!params) return base;
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {

@@ -4,6 +4,7 @@ import { CashBankLedgerReport } from "@/components/report/cash-bank-ledger-repor
 import { ReportParams } from "@/components/report/report-params";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
 import { requirePermission } from "@/lib/erp/auth";
+import { attachDocumentNumbers } from "@/lib/erp/document-numbers";
 import {
   cashBankBalanceReport,
   cashBankLedgerReport,
@@ -98,6 +99,7 @@ export default async function Page({
     const data = cashBankId
       ? await cashBankLedgerReport(cashBankId, range)
       : null;
+    if (data) await attachDocumentNumbers(data.entries);
 
     return (
       <ReportView

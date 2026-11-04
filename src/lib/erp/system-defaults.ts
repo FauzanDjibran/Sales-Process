@@ -26,6 +26,7 @@
 import type { IconName } from "@/components/icon";
 
 export type SystemDefaultKey =
+  | "company_name"
   | "fx_account"
   | "accumulated_pl_account"
   | "current_pl_account"
@@ -86,8 +87,9 @@ export const SYSTEM_DEFAULT_GROUPS = [
     page: "default",
     name: "Aplikasi",
     desc:
-      "Berlaku untuk seluruh pengguna. Base Currency adalah mata uang tempat " +
-      "seluruh buku diukur; ditetapkan sekali dan tidak dapat diubah.",
+      "Berlaku untuk seluruh pengguna. Nama Perusahaan tampil di judul laporan yang " +
+      "diunduh. Base Currency adalah mata uang tempat seluruh buku diukur; ditetapkan " +
+      "sekali dan tidak dapat diubah.",
     icon: "gear",
   },
   {
@@ -209,6 +211,10 @@ type SystemDefaultBase = {
 
 export type SystemDefaultDef =
   | (SystemDefaultBase & {
+      /** A `text` setting stores what was typed; empty is unset. */
+      type: "text";
+    })
+  | (SystemDefaultBase & {
       /** A `ref` setting stores the referenced row's id as text. */
       type: "ref";
       /** Registry entity key the value points at. */
@@ -226,6 +232,17 @@ export type SystemDefaultDef =
     });
 
 export const SYSTEM_DEFAULTS = [
+  // Only the name for now: the rest of the seller's identity waits for its own
+  // Company Setting menu (P28), which will take this key over.
+  {
+    key: "company_name",
+    name: "Nama Perusahaan",
+    help: "judul laporan yang diunduh",
+    icon: "gear",
+    group: "application",
+    type: "text",
+  },
+
   // ------------------------------------------------------------------ tax
   //
   // PPN = round(Tarif PPN × round(DPP × pembilang / penyebut)) (P59, P60).
@@ -515,6 +532,7 @@ export const SYSTEM_DEFAULTS = [
 export type SystemDefaultValues = Record<SystemDefaultKey, string | null>;
 
 export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
+  company_name: null,
   fx_account: null,
   accumulated_pl_account: null,
   current_pl_account: null,

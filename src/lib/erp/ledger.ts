@@ -115,13 +115,16 @@ type OpeningBasis = {
 async function openingBasis(
   from: Date,
   /** The accounts asked about, or null for every account. */
-  accountIds: number[] | null
+  accountIds: number[] | null,
+  /** Only the lines naming these Partners (the General Ledger's filter); none = all. */
+  partnerIds: number[] = []
 ): Promise<OpeningBasis> {
   const snapshot = await openingBasisFor(from);
 
   const lines = await prisma.accJournalLine.findMany({
     where: {
       ...(accountIds ? { account_id: { in: accountIds } } : {}),
+      ...partnerWhere(partnerIds),
       journal: {
         ...POSTED,
         // A snapshot holds everything **before** its own date, so only what
@@ -144,9 +147,19 @@ async function openingBasis(
 
   if (snapshot) {
     const wanted = accountIds ? new Set(accountIds) : null;
-    for (const [accountId, value] of snapshot.byAccount) {
-      if (wanted && !wanted.has(accountId)) continue;
-      net.set(accountId, value);
+    if (partnerIds.length) {
+      // The snapshot is kept at (account, partner?) grain, so a Partner's
+      // opening is read off it exactly as the lines are filtered.
+      for (const pair of snapshot.byPair) {
+        if (wanted && !wanted.has(pair.accountId)) continue;
+        if (pair.partnerId == null || !partnerIds.includes(pair.partnerId)) continue;
+        net.set(pair.accountId, (net.get(pair.accountId) ?? 0) + pair.net);
+      }
+    } else {
+      for (const [accountId, value] of snapshot.byAccount) {
+        if (wanted && !wanted.has(accountId)) continue;
+        net.set(accountId, value);
+      }
     }
   }
 
@@ -172,6 +185,11 @@ async function openingBasis(
       : null,
     currencies,
   };
+}
+
+/** A journal line filter naming only these Partners; none chosen filters nothing. */
+function partnerWhere(partnerIds: number[]) {
+  return partnerIds.length ? { partner_id: { in: partnerIds } } : {};
 }
 
 /**
@@ -290,7 +308,8 @@ export type GeneralLedgerReport = {
  */
 export async function generalLedgerReport(
   accountIds: number[],
-  range: PeriodRange
+  range: PeriodRange,
+  partnerIds: number[] = []
 ): Promise<GeneralLedgerReport> {
   if (!accountIds.length) return { range, accounts: [], openingFrom: null };
 
@@ -311,10 +330,11 @@ export async function generalLedgerReport(
   const to = new Date(`${range.to}T00:00:00Z`);
 
   const [basis, within] = await Promise.all([
-    openingBasis(from, ids),
+    openingBasis(from, ids, partnerIds),
     prisma.accJournalLine.findMany({
       where: {
         account_id: { in: ids },
+        ...partnerWhere(partnerIds),
         journal: { ...POSTED, posting_date: { gte: from, lte: to } },
       },
       orderBy: [{ journal: { posting_date: "asc" } }, { journal_id: "asc" }, { sequence_no: "asc" }],
@@ -925,4 +945,18 @@ export async function accountNetMovements(
   });
   for (const r of rows) out.set(r.account_id, (r._sum.debit_amount?.toNumber() ?? 0) - (r._sum.kredit_amount?.toNumber() ?? 0));
   return out;
+}
+
+/** The Partners a General Ledger may be narrowed to — every one, inactive included. */
+export async function ledgerPartnerOptions() {
+  const rows = await prisma.mPartner.findMany({
+    orderBy: { partner_label: "asc" },
+    select: { id: true, partner_label: true, partner_name: true, status: true },
+  });
+  return rows.map((p) => ({
+    id: p.id,
+    label: p.partner_label,
+    name: p.partner_name + (p.status === "Active" ? "" : " · non-aktif"),
+    active: true,
+  }));
 }

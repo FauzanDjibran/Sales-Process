@@ -1,0 +1,167 @@
+import { actorCan } from "@/lib/erp/access";
+import { currentActor } from "@/lib/erp/auth";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import { carriedYearsBefore, reportableFiscalYears } from "@/lib/erp/fiscal";
+import { generalLedgerReport, ledgerPartnerOptions } from "@/lib/erp/ledger";
+import { ledgerWorkbook } from "@/lib/erp/ledger-export";
+import { parseIds, resolveRange } from "@/lib/erp/report-params";
+import { reportBySlug } from "@/lib/erp/reports";
+import { statementWorkbook, xlsxResponse } from "@/lib/erp/statement-export";
+import { STATEMENT_MODES, type StatementRow } from "@/lib/erp/statement-layout";
+import {
+  balanceSheetReport,
+  profitLossReport,
+  resolveStatementRun,
+  trialBalanceStatement,
+  type StatementColumn,
+} from "@/lib/erp/statements";
+import { companyName } from "@/lib/erp/system-settings";
+import { trialBalanceWorkbook } from "@/lib/erp/trial-balance-export";
+import { formatDate, formatMoney, formatTimestamp } from "@/lib/format";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * Unduh XLSX for the Laba Rugi, the Neraca, the General Ledger and the Trial
+ * Balance.
+ *
+ * A file download, which a Server Action cannot return, so this is a Route
+ * Handler. It takes the page's own parameters and asks the page's own
+ * permission, then reads the statement through the same functions the page
+ * does, so the file is the run on screen. A refusal says nothing about why,
+ * like every denial.
+ */
+export async function GET(
+  request: Request,
+  { params }: { params: Promise<{ report: string }> }
+) {
+  const { report: slug } = await params;
+  const report = reportBySlug(slug);
+  if (!report || report.module !== "accounting") {
+    return new Response("Tidak ditemukan", { status: 404 });
+  }
+
+  const actor = await currentActor();
+  if (!actor) return new Response("Silakan masuk kembali", { status: 401 });
+  if (!actorCan(actor, report.permission)) return new Response("Akses ditolak", { status: 403 });
+
+  const query = Object.fromEntries(new URL(request.url).searchParams);
+  const company = await companyName();
+  const printed = { printedBy: actor.user.name, printedAt: formatTimestamp(new Date()) };
+
+  if (report.key === "general_ledger") {
+    const ids = parseIds(query.accounts);
+    if (!ids.length) return new Response("Pilih account terlebih dahulu", { status: 400 });
+    const range = resolveRange(query.from, query.to);
+    const partnerIds = parseIds(query.partners);
+    const data = await generalLedgerReport(ids, range, partnerIds);
+    const notes = [`Seluruh angka dalam mata uang dasar (${BASE_CURRENCY_LABEL}); saldo bergerak mengikuti normal balance account.`];
+    if (partnerIds.length) {
+      const names = (await ledgerPartnerOptions()).filter((p) => partnerIds.includes(p.id));
+      notes.push(`Hanya baris journal Partner: ${names.map((p) => `${p.label} ${p.name}`).join(", ")}.`);
+    }
+    if (data.openingFrom) {
+      notes.push(`Saldo awal diambil dari Opening Balance ${data.openingFrom.openingNo} per ${formatDate(data.openingFrom.date)}.`);
+    }
+    const file = await ledgerWorkbook({
+      companyName: company,
+      subtitle: `Untuk periode ${formatDate(range.from)} s.d. ${formatDate(range.to)}`,
+      accounts: data.accounts,
+      footnotes: notes,
+      ...printed,
+    });
+    return xlsxResponse(file, `${report.name} ${range.from} - ${range.to}.xlsx`);
+  }
+
+  if (report.key === "trial_balance") {
+    const range = resolveRange(query.from, query.to);
+    const data = await trialBalanceStatement(range, query.all === "1");
+    const notes = [`Seluruh angka dalam mata uang dasar (${BASE_CURRENCY_LABEL}); saldo mengikuti normal balance tipe account.`];
+    if (data.openingFrom) {
+      notes.push(`Saldo awal diambil dari Opening Balance ${data.openingFrom.openingNo} per ${formatDate(data.openingFrom.date)}.`);
+    }
+    if (!data.balanced) {
+      notes.push(`Mutasi debit tidak sama dengan mutasi kredit: selisih ${formatMoney(Math.abs(data.totalDebit - data.totalCredit))}.`);
+    }
+    if (data.unbalanced.length) {
+      notes.push(`Journal tidak seimbang: ${data.unbalanced.map((j) => j.journalNo).join(", ")}.`);
+    }
+    const file = await trialBalanceWorkbook({
+      companyName: company,
+      subtitle: `Untuk periode ${formatDate(range.from)} s.d. ${formatDate(range.to)}`,
+      rows: data.rows,
+      totalDebit: data.totalDebit,
+      totalCredit: data.totalCredit,
+      footnotes: notes,
+      ...printed,
+    });
+    return xlsxResponse(file, `${report.name} ${range.from} - ${range.to}.xlsx`);
+  }
+
+  const years = await reportableFiscalYears();
+  if (!years.length) return new Response("Belum ada tahun buku aktif", { status: 404 });
+
+  const neraca = report.key === "balance_sheet";
+  const { mode, main, compare } = resolveStatementRun(years, query, neraca);
+  const columns = compare ? [main, compare] : [main];
+
+  const latestStart = columns.map((c) => c.range.from).sort().at(-1)!;
+  const carried = await carriedYearsBefore(latestStart);
+  const notes: string[] = [];
+  if (carried.length) notes.push(`${carried.map((y) => y.name).join(", ")} belum ditutup.`);
+
+  const dates = (c: StatementColumn) =>
+    neraca ? formatDate(c.range.to) : `${formatDate(c.range.from)} – ${formatDate(c.range.to)}`;
+  const span = (c: StatementColumn) =>
+    neraca ? `per ${formatDate(c.range.to)}` : `${formatDate(c.range.from)} s.d. ${formatDate(c.range.to)}`;
+  const subtitle =
+    (neraca ? `Per ${formatDate(main.range.to)}` : `Untuk periode ${span(main)} (${STATEMENT_MODES.find((m) => m.value === mode)!.label})`) +
+    (compare ? `, dibandingkan dengan ${span(compare)}` : "");
+
+  let rows: StatementRow[];
+  let grandTotal: (r: StatementRow) => boolean;
+  if (neraca) {
+    const data = await balanceSheetReport(columns, years);
+    if (!data.ok) {
+      return new Response(`Neraca tidak dapat dibuat. Belum diatur: ${data.missing.join(", ")}.`, { status: 409 });
+    }
+    rows = data.rows;
+    const same = (a: number[], b: number[]) => a.every((v, i) => Math.round(v * 100) === Math.round(b[i] * 100));
+    grandTotal = (r) =>
+      r.kind === "subtotal" && (same(r.values, data.debitTotal) || same(r.values, data.creditTotal));
+    if (rows.some((r) => r.computed)) {
+      notes.unshift(
+        "* Dihitung dari journal, bukan diposting: Laba/Rugi Tahun Berjalan sejak awal tahun buku s.d. akhir periode kolom, dan laba rugi tiap tahun yang belum ditutup."
+      );
+    }
+    data.columns.forEach((c, i) => {
+      const gap = Math.abs(data.debitTotal[i] - data.creditTotal[i]);
+      if (Math.round(gap * 100) !== 0) notes.push(`Aktiva tidak sama dengan Pasiva dan Ekuitas per ${formatDate(c.range.to)}: selisih ${formatMoney(gap)}.`);
+    });
+    const opening = data.openingFrom.find(Boolean);
+    if (opening) notes.push(`Saldo awal diambil dari Opening Balance ${opening.openingNo} per ${formatDate(opening.date)}.`);
+  } else {
+    const data = await profitLossReport(columns);
+    rows = data.rows;
+    const last = rows.at(-1)?.key;
+    grandTotal = (r) => r.key === last;
+    notes.push("Tidak termasuk journal penutupan tahun buku kolom itu sendiri.");
+  }
+
+  const file = await statementWorkbook({
+    companyName: company,
+    title: neraca ? "LAPORAN POSISI KEUANGAN (NERACA)" : "LAPORAN LABA RUGI",
+    subtitle,
+    pageTitle: `${report.name} · ${span(main)}`,
+    columns: compare
+      ? [{ role: "Periode Ini", dates: dates(main) }, { role: "Pembanding", dates: dates(compare) }]
+      : [{ role: neraca ? "Saldo" : "Periode Ini", dates: dates(main) }],
+    rows,
+    grandTotal,
+    footnotes: notes,
+    ...printed,
+  });
+
+  const name = `${report.name} ${main.range.to}${compare ? ` vs ${compare.range.to}` : ""}.xlsx`;
+  return xlsxResponse(file, name);
+}

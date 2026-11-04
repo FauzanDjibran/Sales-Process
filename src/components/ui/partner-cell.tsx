@@ -1,5 +1,16 @@
 import type { PartnerMismatch } from "@/lib/erp/journal";
 
+/** The fault's short words, shared with the General Ledger's export. */
+export const PARTNER_MISMATCH_TEXT: Record<PartnerMismatch, string> = {
+  missing: "tanpa Partner",
+  unexpected: "account tanpa Partner",
+};
+
+const PARTNER_MISMATCH_TITLE: Record<PartnerMismatch, string> = {
+  missing: "Account ini mewajibkan Partner, tetapi baris journal ini tidak mencatatnya.",
+  unexpected: "Account ini tidak memakai Partner, tetapi baris journal ini mencatatnya.",
+};
+
 /**
  * The Partner of one journal line — on the Journal and in the General Ledger.
  *
@@ -31,13 +42,9 @@ export function PartnerCell({
       {mismatch && (
         <span
           className="overtag"
-          title={
-            mismatch === "missing"
-              ? "Account ini mewajibkan Partner, tetapi baris journal ini tidak mencatatnya."
-              : "Account ini tidak memakai Partner, tetapi baris journal ini mencatatnya."
-          }
+          title={PARTNER_MISMATCH_TITLE[mismatch]}
         >
-          {mismatch === "missing" ? "tanpa Partner" : "account tanpa Partner"}
+          {PARTNER_MISMATCH_TEXT[mismatch]}
         </span>
       )}
     </>

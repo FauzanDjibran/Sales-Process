@@ -71,8 +71,8 @@ export async function saveSystemDefaults(
       else clean[key] = String(Number(value));
       continue;
     }
-    if (value === "") {
-      clean[key] = null;
+    if (def.type === "text" || value === "") {
+      clean[key] = value || null;
       continue;
     }
     const n = Number(value);

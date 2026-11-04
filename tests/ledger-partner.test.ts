@@ -118,6 +118,20 @@ describe("the General Ledger shows each line's own Partner", () => {
   });
 });
 
+describe("the General Ledger narrows to chosen Partners", () => {
+  const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
+  test("only the lines naming them, opening included, so the block still adds up", async () => {
+    const entries = (await generalLedgerReport([payable], RANGE, [branch])).accounts[0].entries;
+    assert.deepEqual(entries.map((e) => e.credit), [400_000], "the line without a Partner is left out");
+
+    const narrowed = (await generalLedgerReport([payable], { from: tomorrow, to: tomorrow }, [branch])).accounts[0];
+    const whole = (await generalLedgerReport([payable], { from: tomorrow, to: tomorrow })).accounts[0];
+    assert.equal(narrowed.opening, -400_000); // the fixture account is Debit-normal
+    assert.equal(whole.opening, -250_000);
+  });
+});
+
 describe("the Journal shows the same warning on the same line", () => {
   test("each line of the broken journal names its own fault", async () => {
     const journal = await getJournal(broken);

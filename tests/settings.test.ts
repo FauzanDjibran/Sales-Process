@@ -19,6 +19,7 @@ import {
   missingClosingAccounts,
   missingNeracaAccounts,
   ppnRates,
+  companyName,
   systemDefaults,
   systemDefaultsUsingAccount,
   writeSystemDefaults,
@@ -166,6 +167,13 @@ describe("a saved setting is what the application reads", () => {
     assert.deepEqual(await writeSystemDefaults({ fx_account: "12" }, actor), []);
     await writeSystemDefaults({ fx_account: null }, actor);
     assert.equal((await systemDefaults()).fx_account, null);
+  });
+
+  test("the company's name is plain text, and empty unsets it", async () => {
+    await writeSystemDefaults({ company_name: "PT Contoh" }, actor);
+    assert.equal(await companyName(), "PT Contoh");
+    await writeSystemDefaults({ company_name: null }, actor);
+    assert.equal(await companyName(), "");
   });
 
   test("a key outside the catalogue is never written", async () => {

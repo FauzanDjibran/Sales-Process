@@ -594,8 +594,6 @@ export async function cashBankLedgerReport(
   const closing = opening + totalIn - totalOut;
   const baseClosing = roundBase(baseOpening + baseTotalIn - baseTotalOut);
 
-  const docNumbers = await sourceDocumentNumbers(rows);
-
   const entries: LedgerEntryRow[] = rows.map((r) => ({
     id: r.id,
     entryNo: r.ledger_no,
@@ -611,7 +609,7 @@ export async function cashBankLedgerReport(
     note: r.note,
     sourceDocTable: r.source_doc_type?.doc_table ?? null,
     sourceDocId: r.source_doc_id,
-    sourceDocNo: r.source_doc_id ? docNumbers.get(r.source_doc_id) ?? null : null,
+    sourceDocNo: null,
   }));
 
   const cents = (n: number) => Math.round(n * 100);
@@ -642,21 +640,6 @@ export async function cashBankLedgerReport(
     entries,
     reconciles,
   };
-}
-
-/**
- * Document numbers for the entries that name one, so a row can say which
- * document moved the money rather than only that something did.
- *
- * Nothing but a resource's registration writes the book yet — SIBA's Cash Bank
- * Transaction was not carried (Claude-ERP.md P10) — so there is nothing to
- * look up. Pembayaran adds its own documents here when it is built.
- */
-async function sourceDocumentNumbers(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  rows: { source_doc_id: number | null; source_doc_type: { doc_table: string } | null }[]
-): Promise<Map<number, string>> {
-  return new Map();
 }
 
 export type BalanceReportRow = {

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { documentHref } from "@/lib/erp/document-links";
 import { Icon } from "@/components/icon";
 import { ReportSummary } from "@/components/report/report-summary";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -8,8 +9,8 @@ import type { LedgerReport } from "@/lib/erp/cash-bank";
  * Buku Kas & Bank — every movement of one resource across a period.
  *
  * Read the way a book is read: oldest first, opening balance carried in at the
- * top, closing balance struck at the bottom, and a running balance in the last
- * column that the rows above it actually produce.
+ * top and closing balance struck at the bottom; there is no running balance,
+ * because an entry may be backdated in among entries written before it.
  *
  * The block header states the report's own arithmetic — opening + masuk −
  * keluar = saldo akhir — as the same labelled strip the General Ledger uses, so
@@ -32,6 +33,10 @@ const TYPE_CLASS: Record<string, string> = {
   Opening: "t-slate",
   Adjustment: "t-vio",
 };
+
+/** What the entry was, read from its type and the sign of its movement. */
+const ENTRY_KIND = (e: LedgerReport["entries"][number]) =>
+  e.type === "Transaction" ? (e.direction === "In" ? "Penerimaan" : "Pengeluaran") : TYPE_TEXT[e.type];
 
 export function CashBankLedgerReport({ report }: { report: LedgerReport }) {
   const cur = report.resource.currencyLabel;
@@ -78,7 +83,7 @@ export function CashBankLedgerReport({ report }: { report: LedgerReport }) {
             <thead>
               <tr>
                 <th style={{ width: 92 }}>Tanggal</th>
-                <th style={{ width: 116 }}>Entri</th>
+                <th style={{ width: 150 }}>Dokumen</th>
                 <th>Keterangan</th>
                 <th className="num" style={{ width: 126 }}>
                   Masuk
@@ -103,25 +108,21 @@ export function CashBankLedgerReport({ report }: { report: LedgerReport }) {
 
               {report.entries.map((e) => {
                 const inn = e.direction === "In";
-                const linked =
-                  e.sourceDocNo &&
-                  e.sourceDocTable === "fin_cash_bank_transaction";
+                const href = documentHref(e.sourceDocTable, e.sourceDocId);
                 return (
                   <tr key={e.id} style={{ cursor: "default" }}>
                     <td className="mono mut" style={{ fontSize: "11.5px" }}>
                       {formatDate(e.date)}
                     </td>
                     <td>
-                      <span className="lab">{e.entryNo}</span>
-                      {linked && (
-                        <Link
-                          className="rsub"
-                          href={`/finance/cash-bank-transaction/${e.sourceDocId}`}
-                          title="Buka dokumen sumber"
-                        >
+                      {e.sourceDocNo && href ? (
+                        <Link className="lab" href={href} title="Buka dokumen sumber">
                           {e.sourceDocNo}
                         </Link>
+                      ) : (
+                        <span className="lab">{e.sourceDocNo ?? "—"}</span>
                       )}
+                      <span className="rsub">{ENTRY_KIND(e)}</span>
                     </td>
                     <td className="pri wrapok">
                       {TYPE_TEXT[e.type] && (

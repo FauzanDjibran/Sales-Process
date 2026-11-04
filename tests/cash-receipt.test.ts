@@ -14,6 +14,8 @@ import {
 import { createSalesAdvance, transitionSalesAdvance } from "../src/lib/erp/ar-advance";
 import { createCustomerOrder, transitionCustomerOrder, type CustomerOrderLineInput } from "../src/lib/erp/customer-order";
 import { availableCashReceiptActions, cashReceiptAbilities } from "../src/lib/erp/cash-bank-tx-workflow";
+import { cashBankLedgerReport } from "../src/lib/erp/cash-bank";
+import { attachDocumentNumbers } from "../src/lib/erp/document-numbers";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import {
   FIXTURE_PREFIX,
@@ -398,6 +400,17 @@ describe("posting a receipt of two bills (P66)", () => {
       on(f.advAcc, "kredit_amount"),
       "the Uang Muka items reconcile with the Uang Muka Penjualan account"
     );
+  });
+
+  test("Buku Kas & Bank names the receipt, by table and id together", async () => {
+    const report = await cashBankLedgerReport(f.bank, { from: "2000-01-01", to: "2100-01-01" });
+    assert.ok(report);
+    const entry = report.entries.find((e) => e.sourceDocTable === "fin_cash_bank_tx");
+    assert.ok(entry);
+    const stranger = { ...entry, sourceDocTable: "some_other_table" };
+    await attachDocumentNumbers([entry, stranger]);
+    assert.match(entry.sourceDocNo ?? "", /^BKM\//);
+    assert.equal(stranger.sourceDocNo, null, "the same id in another table is another document");
   });
 
   test("a posted receipt is permanent; its bill refuses Batalkan", async () => {

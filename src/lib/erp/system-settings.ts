@@ -156,6 +156,15 @@ export async function checkSystemDefaultValue(
   return checkAccountIsLeaf(id);
 }
 
+/** The name a downloaded report is titled with; empty until it is set. */
+export async function companyName(): Promise<string> {
+  const row = await prisma.sysSetting.findUnique({
+    where: { setting_key: "company_name" },
+    select: { setting_value: true },
+  });
+  return row?.setting_value ?? "";
+}
+
 /** A setting's account id, or null when it is unset or no longer usable. */
 async function usableAccount(
   values: SystemDefaultValues,
