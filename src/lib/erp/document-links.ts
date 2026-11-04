@@ -34,6 +34,21 @@ const ROUTES: Record<string, string> = {
   tax_withholding_slip: "/tax/withholding-slip",
 };
 
+/**
+ * What a Cash Bank Book entry was, in a reader's words: its entry type and the
+ * sign of the movement, which is the direction.
+ */
+const KIND: Record<string, [string, string]> = {
+  Opening: ["Saldo Awal", "Saldo Awal"],
+  Transaction: ["Penerimaan", "Pengeluaran"],
+  Adjustment: ["Penyesuaian", "Penyesuaian"],
+};
+
+export function entryKindText(type: string, movement: number): string | null {
+  const kind = KIND[type];
+  return kind ? kind[movement > 0 ? 0 : 1] : null;
+}
+
 /** The page a source document is read on, or null when it has none. */
 export function documentHref(table: string | null, id: number | null): string | null {
   if (!table || !id) return null;

@@ -1032,6 +1032,26 @@ table cash_bank_ledger {
 
 // one row per resource; a foreign resource is valued at its moving average,
 // base_balance ÷ balance — no rate layers (P37)
+table cash_bank_period {
+  id              int [pk, increment]
+  cash_bank_id    int [not null, ref: > m_cash_bank.id]
+  period          date [not null]
+  opening         decimal(18,2) [not null, default: 0]
+  total_in        decimal(18,2) [not null, default: 0]
+  total_out       decimal(18,2) [not null, default: 0]
+  closing         decimal(18,2) [not null, default: 0]
+  min_balance     decimal(18,2) [not null, default: 0]
+  base_opening    decimal(18,2) [not null, default: 0]
+  base_total_in   decimal(18,2) [not null, default: 0]
+  base_total_out  decimal(18,2) [not null, default: 0]
+  base_closing    decimal(18,2) [not null, default: 0]
+  updated_at      timestamptz [not null, default: `now()`]
+
+  indexes {
+    (cash_bank_id, period) [unique]
+  }
+}
+
 table cash_bank_balance {
   cash_bank_id                int [pk, not null, ref : > m_cash_bank.id]
   balance                     decimal(18,2) [not null, default: 0]

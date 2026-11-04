@@ -77,7 +77,7 @@ const FIXED_REPORTS = [
     module: "finance",
     name: "Buku Kas & Bank",
     desc:
-      "Seluruh mutasi satu resource kas atau bank pada rentang tanggal yang dipilih, " +
+      "Seluruh mutasi satu atau beberapa resource kas dan bank pada rentang tanggal yang dipilih, " +
       "lengkap dengan saldo awal dan saldo akhir.",
     icon: "book",
     permission: "REPORT_CASH_BANK_LEDGER_VIEW",

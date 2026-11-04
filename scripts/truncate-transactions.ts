@@ -21,6 +21,7 @@
  *   log_stock_valuation_ledger / _balance,         stock comes back with
  *   log_stock_tracking                             `db:stock-inject`
  *   acc_journal_line, acc_journal                  the books' journals
+ *   cash_bank_period                               the month chain beside it
  *   cash_bank_ledger                               the Cash Bank Book
  *   fin_ar_advance                                    Uang Muka Penjualan bills
  *   sal_delivery_order_line, sal_delivery_order    Delivery Orders
@@ -116,6 +117,7 @@ async function main() {
     acc_journal_line: await prisma.accJournalLine.count(),
     acc_journal: await prisma.accJournal.count(),
     cash_bank_ledger: await prisma.cashBankLedger.count(),
+    cash_bank_period: await prisma.cashBankPeriod.count(),
     fin_ar_advance: await prisma.finArAdvance.count(),
     sal_delivery_order_line: await prisma.salDeliveryOrderLine.count(),
     sal_delivery_order: await prisma.salDeliveryOrder.count(),
@@ -188,6 +190,7 @@ async function main() {
     await tx.accJournal.deleteMany();
 
     await tx.cashBankLedger.deleteMany();
+    await tx.cashBankPeriod.deleteMany();
 
     // Sales documents, children before what they name: an advance bill and a
     // Sales Order name their Customer Order, a line its order.

@@ -3,9 +3,10 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
-import { formatNumber } from "@/lib/format";
+import { formatDate, formatNumber } from "@/lib/format";
 import { relieve, roundBase } from "./fx";
 import type { PeriodRange } from "./period";
+import { ENTRY_PAGE_SIZE, afterBookCursor, type BookCursor } from "./register-query";
 
 /**
  * The Cash Bank Book — the authoritative record of what is in each cash and
@@ -71,14 +72,188 @@ export class InsufficientFunds extends Error {
   constructor(
     readonly cashBankId: number,
     readonly balance: number,
-    readonly requested: number
+    readonly requested: number,
+    /** Where the balance would go below nothing — `dd/mm/yyyy`, or `bulan mm/yyyy`. */
+    readonly at: string
   ) {
     super(
-      `Saldo Cash & Bank tidak mencukupi: tersedia ${formatNumber(balance)}, dibutuhkan ${formatNumber(requested)}. ` +
+      `Saldo Cash & Bank tidak mencukupi pada ${at}: tersedia ${formatNumber(balance)}, dibutuhkan ${formatNumber(requested)}. ` +
         "Transaksi dibatalkan."
     );
     this.name = "InsufficientFunds";
   }
+}
+
+const monthOf = (d: string) => asDate(`${d.slice(0, 7)}-01`);
+const addMonths = (p: Date, n: number) =>
+  new Date(Date.UTC(p.getUTCFullYear(), p.getUTCMonth() + n, 1));
+const cents = (n: number) => Math.round(n * 100);
+
+/**
+ * Holds a resource until the transaction ends, so two postings cannot both
+ * pass the check below on one read of the chain.
+ */
+async function lockCashBank(db: Db, id: number): Promise<void> {
+  const key = `cash_bank:${id}`;
+  await db.$queryRaw`SELECT 1 AS held FROM (SELECT pg_advisory_xact_lock(hashtext(${key}))) AS lock`;
+}
+
+/**
+ * Extends the resource's chain of months to cover `period`: back to it with
+ * nothing in them when it is before the first, or forward carrying the last
+ * closing when it is after the latest. The chain stays unbroken, so every month
+ * from the first entry's to the latest's has a row.
+ */
+async function ensurePeriod(db: Db, cashBankId: number, period: Date) {
+  const [first, last] = await Promise.all([
+    db.cashBankPeriod.findFirst({ where: { cash_bank_id: cashBankId }, orderBy: { period: "asc" } }),
+    db.cashBankPeriod.findFirst({ where: { cash_bank_id: cashBankId }, orderBy: { period: "desc" } }),
+  ]);
+  const months = (from: Date, until: Date) => {
+    const out: Date[] = [];
+    for (let p = from; p < until; p = addMonths(p, 1)) out.push(p);
+    return out;
+  };
+  if (!first || !last) {
+    await db.cashBankPeriod.create({ data: { cash_bank_id: cashBankId, period } });
+  } else if (period < first.period) {
+    await db.cashBankPeriod.createMany({
+      data: months(period, first.period).map((p) => ({ cash_bank_id: cashBankId, period: p })),
+    });
+  } else if (period > last.period) {
+    const carried = {
+      opening: last.closing,
+      closing: last.closing,
+      min_balance: last.closing,
+      base_opening: last.base_closing,
+      base_closing: last.base_closing,
+    };
+    await db.cashBankPeriod.createMany({
+      data: months(addMonths(last.period, 1), addMonths(period, 1)).map((p) => ({
+        cash_bank_id: cashBankId,
+        period: p,
+        ...carried,
+      })),
+    });
+  }
+}
+
+/**
+ * Checks a movement dated `date` against the balance on every day from then
+ * to now, and returns the month's new lowest point. Reads one month of entries
+ * and one aggregate over the later months — never the book from its start —
+ * and writes nothing.
+ *
+ * Within the month the entry is placed last on its day, as the reports order
+ * it. Every later month shifts by the whole movement, so its lowest point does
+ * too: `min_balance + movement ≥ 0` over them is the whole check.
+ */
+async function checkMovement(
+  db: Db,
+  cashBankId: number,
+  date: string,
+  movement: number
+): Promise<number> {
+  const period = monthOf(date);
+  const row = await db.cashBankPeriod.findUnique({
+    where: { cash_bank_id_period: { cash_bank_id: cashBankId, period } },
+    select: { opening: true },
+  });
+  // A month outside the chain holds no entries: before the first it opens at
+  // nil, after the last at the last closing.
+  const opening = row
+    ? row.opening.toNumber()
+    : ((
+        await db.cashBankPeriod.findFirst({
+          where: { cash_bank_id: cashBankId, period: { lt: period } },
+          orderBy: { period: "desc" },
+          select: { closing: true },
+        })
+      )?.closing.toNumber() ?? 0);
+
+  const day = asDate(date);
+  const entries = await db.cashBankLedger.findMany({
+    where: { cash_bank_id: cashBankId, entry_date: { gte: period, lt: addMonths(period, 1) } },
+    orderBy: [{ entry_date: "asc" }, { id: "asc" }],
+    select: { entry_date: true, movement: true },
+  });
+  const m = cents(movement);
+  let run = cents(opening);
+  let min = run;
+  // The lowest the balance stood, before this movement, from its day on.
+  let lowest: { at: Date; balance: number } | null = null;
+  const pass = (at: Date) => {
+    if (!lowest || run < lowest.balance) lowest = { at, balance: run };
+    min = Math.min(min, run + m);
+  };
+  let placed = false;
+  for (const e of entries) {
+    if (!placed && e.entry_date > day) {
+      placed = true;
+      pass(day);
+    }
+    run += cents(e.movement.toNumber());
+    if (placed) pass(e.entry_date);
+    else min = Math.min(min, run);
+  }
+  if (!placed) pass(day);
+
+  if (m < 0) {
+    const found = lowest as { at: Date; balance: number } | null;
+    if (found && found.balance + m < 0) {
+      throw new InsufficientFunds(cashBankId, found.balance / 100, -movement, formatDate(found.at));
+    }
+    const later = await db.cashBankPeriod.findFirst({
+      where: { cash_bank_id: cashBankId, period: { gt: period } },
+      orderBy: [{ min_balance: "asc" }, { period: "asc" }],
+      select: { period: true, min_balance: true },
+    });
+    if (later && cents(later.min_balance.toNumber()) + m < 0) {
+      throw new InsufficientFunds(
+        cashBankId,
+        later.min_balance.toNumber(),
+        -movement,
+        `bulan ${formatDate(later.period).slice(3)}`
+      );
+    }
+  }
+  return min / 100;
+}
+
+/** Moves the month chain with an entry `checkMovement` has passed. */
+async function movePeriods(
+  db: Db,
+  cashBankId: number,
+  date: string,
+  movement: number,
+  baseMovement: number,
+  newMin: number
+) {
+  const period = monthOf(date);
+  await ensurePeriod(db, cashBankId, period);
+
+  const inSide = movement > 0;
+  await db.cashBankPeriod.update({
+    where: { cash_bank_id_period: { cash_bank_id: cashBankId, period } },
+    data: {
+      ...(inSide
+        ? { total_in: { increment: movement }, base_total_in: { increment: baseMovement } }
+        : { total_out: { increment: -movement }, base_total_out: { increment: -baseMovement } }),
+      closing: { increment: movement },
+      base_closing: { increment: baseMovement },
+      min_balance: newMin,
+    },
+  });
+  await db.cashBankPeriod.updateMany({
+    where: { cash_bank_id: cashBankId, period: { gt: period } },
+    data: {
+      opening: { increment: movement },
+      closing: { increment: movement },
+      min_balance: { increment: movement },
+      base_opening: { increment: baseMovement },
+      base_closing: { increment: baseMovement },
+    },
+  });
 }
 
 /**
@@ -149,6 +324,15 @@ export async function recordCashBankEntry(db: Db, entry: NewEntry) {
   }
 
   const amount = entry.amount;
+  const signed = entry.direction === "In" ? amount : -amount;
+
+  await lockCashBank(db, entry.cashBankId);
+
+  // A resource cannot hold less than nothing, in any currency — on the entry's
+  // own date or any day after it, since a backdated payment lowers every later
+  // balance (KB books-and-posting §3.4). Throws before anything is written, and
+  // a Post preview runs the posting, so it refuses there too.
+  const newMin = await checkMovement(db, entry.cashBankId, entry.date, signed);
 
   const current = await db.cashBankBalance.findUnique({
     where: { cash_bank_id: entry.cashBankId },
@@ -156,11 +340,6 @@ export async function recordCashBankEntry(db: Db, entry: NewEntry) {
   });
   const before = current ? current.balance.toNumber() : 0;
   const beforeBase = current ? current.base_balance.toNumber() : 0;
-
-  // A resource cannot hold less than nothing, in any currency.
-  if (entry.direction === "Out" && amount > before) {
-    throw new InsufficientFunds(entry.cashBankId, before, amount);
-  }
 
   // Money arriving joins the pool at its own kurs. Money leaving is released
   // at the pool's moving average as it stands *now* — the balance row is the
@@ -183,6 +362,8 @@ export async function recordCashBankEntry(db: Db, entry: NewEntry) {
   const baseMovement = sign * base;
   const after = before + movement;
   const afterBase = roundBase(beforeBase + baseMovement);
+
+  await movePeriods(db, entry.cashBankId, entry.date, movement, baseMovement, newMin);
 
   const created = await db.cashBankLedger.create({
     data: {
@@ -453,9 +634,9 @@ export async function cashBankBalanceMap(): Promise<Map<number, number>> {
 // is read through the Cash Bank Book or not at all (CLAUDE.md §9, §12).
 //
 // The property both must hold is `opening + in - out === closing`. Opening is
-// therefore computed the same way `rebuildCashBankBalance` computes a balance —
-// by summing `movement` over everything before the period — rather than by
-// trusting a stored figure, so the report's own arithmetic is checkable.
+// read from `cash_bank_period` plus the month's entries before the period
+// (`openingsAt`), so a report never sums the book from its first entry; the
+// month chain is itself re-derivable from the entries.
 
 /** An inclusive calendar range, `YYYY-MM-DD` at both ends. */
 // `PeriodRange` now lives in `./period` — the General Ledger and both report
@@ -464,6 +645,46 @@ export async function cashBankBalanceMap(): Promise<Map<number, number>> {
 // working and the boundary would quietly stay crossed.
 
 const startOf = (d: string) => new Date(`${d}T00:00:00Z`);
+
+/**
+ * Each resource's balance at the start of `from`, on both measures: its month
+ * row's opening (or the closing of the latest month before, when nothing has
+ * moved since) plus the entries from the first of the month up to `from`. A
+ * resource with no month on or before it held nothing then.
+ */
+async function openingsAt(
+  ids: number[],
+  from: string
+): Promise<Map<number, { opening: number; baseOpening: number }>> {
+  const month = monthOf(from);
+  const [rows, partial] = await Promise.all([
+    prisma.cashBankPeriod.findMany({
+      where: { cash_bank_id: { in: ids }, period: { lte: month } },
+      orderBy: [{ cash_bank_id: "asc" }, { period: "desc" }],
+      distinct: ["cash_bank_id"],
+    }),
+    prisma.cashBankLedger.groupBy({
+      by: ["cash_bank_id"],
+      where: { cash_bank_id: { in: ids }, entry_date: { gte: month, lt: startOf(from) } },
+      _sum: { movement: true, base_movement: true },
+    }),
+  ]);
+  const out = new Map<number, { opening: number; baseOpening: number }>();
+  for (const r of rows) {
+    const current = r.period.getTime() === month.getTime();
+    out.set(r.cash_bank_id, {
+      opening: (current ? r.opening : r.closing).toNumber(),
+      baseOpening: (current ? r.base_opening : r.base_closing).toNumber(),
+    });
+  }
+  for (const p of partial) {
+    const o = out.get(p.cash_bank_id) ?? { opening: 0, baseOpening: 0 };
+    o.opening += p._sum.movement?.toNumber() ?? 0;
+    o.baseOpening = roundBase(o.baseOpening + (p._sum.base_movement?.toNumber() ?? 0));
+    out.set(p.cash_bank_id, o);
+  }
+  return out;
+}
 
 export type LedgerEntryRow = {
   id: number;
@@ -505,7 +726,13 @@ export type LedgerReport = {
   baseTotalIn: number;
   baseTotalOut: number;
   baseClosing: number;
-  /** By date, oldest first — a book reads forward through the period. */
+  /** How many entries the period holds, whether or not `entries` carries them. */
+  entryCount: number;
+  /**
+   * By date, oldest first — a book reads forward through the period. Empty on
+   * a summary run (`entries: false`): the page states the rollup and fetches a
+   * resource's rows a page at a time (`cashBankEntriesPage`).
+   */
   entries: LedgerEntryRow[];
   /**
    * False when the resource's whole book, summed, disagrees with its
@@ -533,10 +760,15 @@ export type LedgerReport = {
  *
  * Entries dated exactly `from` or exactly `to` are inside the period; anything
  * earlier is folded into the opening balance rather than listed.
+ *
+ * `entries: false` is the screen's run: the rollup comes from the database's
+ * own sums and no entry is read. The default reads every entry, which is what
+ * the export and the reconciling tests need.
  */
 export async function cashBankLedgerReport(
   cashBankId: number,
-  range: PeriodRange
+  range: PeriodRange,
+  options: { entries?: boolean } = {}
 ): Promise<LedgerReport | null> {
   const resource = await prisma.mCashBank.findFirst({
     where: { id: cashBankId },
@@ -551,21 +783,38 @@ export async function cashBankLedgerReport(
   });
   if (!resource) return null;
 
-  const [before, rows, wholeBook, stored] = await Promise.all([
-    prisma.cashBankLedger.aggregate({
-      where: { cash_bank_id: cashBankId, entry_date: { lt: startOf(range.from) } },
-      _sum: { movement: true, base_movement: true },
-    }),
-    prisma.cashBankLedger.findMany({
-      where: {
-        cash_bank_id: cashBankId,
-        entry_date: { gte: startOf(range.from), lte: startOf(range.to) },
-      },
-      // Date first: a backdated entry has a later id than the entries it
-      // precedes, and a book is read in the order things happened.
-      orderBy: [{ entry_date: "asc" }, { id: "asc" }],
-      include: { source_doc_type: { select: { doc_table: true } } },
-    }),
+  const within = {
+    cash_bank_id: cashBankId,
+    entry_date: { gte: startOf(range.from), lte: startOf(range.to) },
+  };
+  const summary = options.entries === false;
+
+  const [before, rows, rolled, wholeBook, stored] = await Promise.all([
+    openingsAt([cashBankId], range.from).then((m) => m.get(cashBankId)),
+    summary
+      ? Promise.resolve([])
+      : prisma.cashBankLedger.findMany({
+          where: within,
+          // Date first: a backdated entry has a later id than the entries it
+          // precedes, and a book is read in the order things happened.
+          orderBy: [{ entry_date: "asc" }, { id: "asc" }],
+          include: { source_doc_type: { select: { doc_table: true } } },
+        }),
+    // The same split the loop below makes, from the database's own sums.
+    summary
+      ? Promise.all([
+          prisma.cashBankLedger.aggregate({
+            where: { ...within, movement: { gt: 0 } },
+            _sum: { movement: true, base_movement: true },
+            _count: { _all: true },
+          }),
+          prisma.cashBankLedger.aggregate({
+            where: { ...within, movement: { lte: 0 } },
+            _sum: { movement: true, base_movement: true },
+            _count: { _all: true },
+          }),
+        ])
+      : Promise.resolve(null),
     prisma.cashBankLedger.aggregate({
       where: { cash_bank_id: cashBankId },
       _sum: { movement: true, base_movement: true },
@@ -576,43 +825,35 @@ export async function cashBankLedgerReport(
     }),
   ]);
 
-  const opening = before._sum.movement?.toNumber() ?? 0;
-  const baseOpening = roundBase(before._sum.base_movement?.toNumber() ?? 0);
+  const opening = before?.opening ?? 0;
+  const baseOpening = roundBase(before?.baseOpening ?? 0);
   let totalIn = 0;
   let totalOut = 0;
   let baseTotalIn = 0;
   let baseTotalOut = 0;
+  if (rolled) {
+    const [inbound, outbound] = rolled;
+    totalIn = inbound._sum.movement?.toNumber() ?? 0;
+    baseTotalIn = inbound._sum.base_movement?.toNumber() ?? 0;
+    totalOut = 0 - (outbound._sum.movement?.toNumber() ?? 0);
+    baseTotalOut = 0 - (outbound._sum.base_movement?.toNumber() ?? 0);
+  }
   for (const r of rows) {
-    if (r.movement.gt(0)) {
-      totalIn += r.movement.toNumber();
-      baseTotalIn += r.base_movement.toNumber();
+    const movement = r.movement.toNumber();
+    const base = r.base_movement.toNumber();
+    if (movement > 0) {
+      totalIn += movement;
+      baseTotalIn += base;
     } else {
-      totalOut -= r.movement.toNumber();
-      baseTotalOut -= r.base_movement.toNumber();
+      totalOut -= movement;
+      baseTotalOut -= base;
     }
   }
   const closing = opening + totalIn - totalOut;
   const baseClosing = roundBase(baseOpening + baseTotalIn - baseTotalOut);
 
-  const entries: LedgerEntryRow[] = rows.map((r) => ({
-    id: r.id,
-    entryNo: r.ledger_no,
-    lineNo: r.line_no,
-    date: r.entry_date.toISOString().slice(0, 10),
-    type: r.entry_type,
-    direction: r.movement.gt(0) ? "In" : "Out",
-    amount: r.movement.abs().toNumber(),
-    movement: r.movement.toNumber(),
-    rate: r.rate.toNumber(),
-    baseAmount: r.base_movement.abs().toNumber(),
-    baseMovement: r.base_movement.toNumber(),
-    note: r.note,
-    sourceDocTable: r.source_doc_type?.doc_table ?? null,
-    sourceDocId: r.source_doc_id,
-    sourceDocNo: null,
-  }));
+  const entries = rows.map(ledgerEntryRow);
 
-  const cents = (n: number) => Math.round(n * 100);
   const reconciles =
     !!stored &&
     cents(wholeBook._sum.movement?.toNumber() ?? 0) === cents(stored.balance.toNumber()) &&
@@ -637,8 +878,76 @@ export async function cashBankLedgerReport(
     baseTotalIn,
     baseTotalOut,
     baseClosing,
+    entryCount: rolled ? rolled[0]._count._all + rolled[1]._count._all : entries.length,
     entries,
     reconciles,
+  };
+}
+
+type LedgerEntryRecord = Prisma.CashBankLedgerGetPayload<{
+  include: { source_doc_type: { select: { doc_table: true } } };
+}>;
+
+function ledgerEntryRow(r: LedgerEntryRecord): LedgerEntryRow {
+  return {
+    id: r.id,
+    entryNo: r.ledger_no,
+    lineNo: r.line_no,
+    date: r.entry_date.toISOString().slice(0, 10),
+    type: r.entry_type,
+    direction: r.movement.gt(0) ? "In" : "Out",
+    amount: r.movement.abs().toNumber(),
+    movement: r.movement.toNumber(),
+    rate: r.rate.toNumber(),
+    baseAmount: r.base_movement.abs().toNumber(),
+    baseMovement: r.base_movement.toNumber(),
+    note: r.note,
+    sourceDocTable: r.source_doc_type?.doc_table ?? null,
+    sourceDocId: r.source_doc_id,
+    // Filled in by `attachDocumentNumbers`: a book cannot name another module's table.
+    sourceDocNo: null,
+  };
+}
+
+export type LedgerEntryPage = { entries: LedgerEntryRow[]; next: BookCursor | null };
+
+/**
+ * One resource's entries for a period, a page at a time, in the book's order.
+ *
+ * The book states no running balance, so a page needs nothing carried to it
+ * but where the last one stopped. A keyset cursor on (day, id): a page costs
+ * the same however deep it is.
+ */
+export async function cashBankEntriesPage(
+  cashBankId: number,
+  range: PeriodRange,
+  cursor: BookCursor | null
+): Promise<LedgerEntryPage | null> {
+  const resource = await prisma.mCashBank.findFirst({
+    where: { id: cashBankId },
+    select: { id: true },
+  });
+  if (!resource) return null;
+
+  const rows = await prisma.cashBankLedger.findMany({
+    where: {
+      cash_bank_id: cashBankId,
+      entry_date: { gte: startOf(range.from), lte: startOf(range.to) },
+      ...afterBookCursor(cursor),
+    },
+    orderBy: [{ entry_date: "asc" }, { id: "asc" }],
+    take: ENTRY_PAGE_SIZE + 1,
+    include: { source_doc_type: { select: { doc_table: true } } },
+  });
+
+  const shown = rows.slice(0, ENTRY_PAGE_SIZE);
+  const last = shown[shown.length - 1];
+  return {
+    entries: shown.map(ledgerEntryRow),
+    next:
+      rows.length > ENTRY_PAGE_SIZE && last
+        ? { date: last.entry_date.toISOString().slice(0, 10), id: last.id }
+        : null,
   };
 }
 
@@ -707,10 +1016,11 @@ export type BalanceReport = {
  */
 export async function cashBankBalanceReport(
   range: PeriodRange,
-  cashBankId?: number | null
+  /** Narrows to these resources; empty or absent reports every one. */
+  cashBankIds?: number[] | null
 ): Promise<BalanceReport> {
   const resources = await prisma.mCashBank.findMany({
-    where: cashBankId ? { id: cashBankId } : {},
+    where: cashBankIds?.length ? { id: { in: cashBankIds } } : {},
     orderBy: { cash_bank_label: "asc" },
     select: {
       id: true,
@@ -735,8 +1045,8 @@ export async function cashBankBalanceReport(
 
   const ids = resources.map((r) => r.id);
 
-  // Grouped queries rather than one per resource: opening is everything
-  // before the period, then the period itself split by the movement's sign.
+  // Grouped queries rather than one per resource: the period split by the
+  // movement's sign.
   const inPeriod = (sign: "gt" | "lt") =>
     prisma.cashBankLedger.groupBy({
       by: ["cash_bank_id"],
@@ -748,21 +1058,13 @@ export async function cashBankBalanceReport(
       _sum: { movement: true, base_movement: true },
     });
   const [openings, ins, outs] = await Promise.all([
-    prisma.cashBankLedger.groupBy({
-      by: ["cash_bank_id"],
-      where: { cash_bank_id: { in: ids }, entry_date: { lt: startOf(range.from) } },
-      _sum: { movement: true, base_movement: true },
-    }),
+    openingsAt(ids, range.from),
     inPeriod("gt"),
     inPeriod("lt"),
   ]);
 
-  const openingOf = new Map(
-    openings.map((o) => [o.cash_bank_id, o._sum.movement?.toNumber() ?? 0])
-  );
-  const baseOpeningOf = new Map(
-    openings.map((o) => [o.cash_bank_id, o._sum.base_movement?.toNumber() ?? 0])
-  );
+  const openingOf = new Map([...openings].map(([id, o]) => [id, o.opening]));
+  const baseOpeningOf = new Map([...openings].map(([id, o]) => [id, o.baseOpening]));
   const inOf = new Map<number, number>();
   const outOf = new Map<number, number>();
   const baseInOf = new Map<number, number>();

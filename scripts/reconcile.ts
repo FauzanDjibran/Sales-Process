@@ -129,6 +129,42 @@ export const CHECKS: Check[] = [
   },
   {
     area: "cash",
+    name: "each resource's chain of months equals its entries, its lowest point included",
+    sql: `WITH e AS (
+            SELECT cash_bank_id, date_trunc('month', entry_date)::date AS period, movement, base_movement,
+                   SUM(movement) OVER (PARTITION BY cash_bank_id ORDER BY entry_date, id) AS run
+            FROM cash_bank_ledger
+          ), m AS (
+            SELECT cash_bank_id, period,
+                   COALESCE(SUM(movement) FILTER (WHERE movement > 0), 0) AS total_in,
+                   COALESCE(-SUM(movement) FILTER (WHERE movement <= 0), 0) AS total_out,
+                   COALESCE(SUM(base_movement), 0) AS base_net, MIN(run) AS min_run
+            FROM e GROUP BY cash_bank_id, period
+          ), months AS (
+            SELECT b.cash_bank_id, gs::date AS period
+            FROM (SELECT cash_bank_id, MIN(period) AS lo, MAX(period) AS hi FROM m GROUP BY cash_bank_id) b,
+                 generate_series(b.lo, b.hi, interval '1 month') gs
+          ), f AS (
+            SELECT mo.cash_bank_id, mo.period, COALESCE(m.total_in, 0) AS total_in, COALESCE(m.total_out, 0) AS total_out,
+                   COALESCE(m.base_net, 0) AS base_net, m.min_run,
+                   COALESCE(SUM(COALESCE(m.total_in, 0) - COALESCE(m.total_out, 0)) OVER w, 0) AS opening
+            FROM months mo LEFT JOIN m USING (cash_bank_id, period)
+            WINDOW w AS (PARTITION BY mo.cash_bank_id ORDER BY mo.period ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+          )
+          SELECT c.cash_bank_label, COALESCE(f.period, p.period) AS period, p.opening, f.opening AS want_opening,
+                 p.closing, f.opening + f.total_in - f.total_out AS want_closing, p.min_balance, LEAST(f.opening, COALESCE(f.min_run, f.opening)) AS want_min
+          FROM f
+          FULL JOIN cash_bank_period p ON p.cash_bank_id = f.cash_bank_id AND p.period = f.period
+          JOIN m_cash_bank c ON c.id = COALESCE(f.cash_bank_id, p.cash_bank_id)
+          WHERE p.cash_bank_id IS NULL
+             OR (f.cash_bank_id IS NULL AND (p.total_in <> 0 OR p.total_out <> 0))
+             OR (f.cash_bank_id IS NOT NULL AND (p.opening <> f.opening OR p.total_in <> f.total_in OR p.total_out <> f.total_out
+                 OR p.closing <> f.opening + f.total_in - f.total_out OR p.min_balance <> LEAST(f.opening, COALESCE(f.min_run, f.opening))
+                 OR p.base_total_in - p.base_total_out <> f.base_net))
+             OR p.min_balance < 0`,
+  },
+  {
+    area: "cash",
     name: "each resource's journalled entries equal its GL account",
     sql: `SELECT c.cash_bank_label, book.base AS book, COALESCE(gl.bal, 0) AS gl
           FROM m_cash_bank c

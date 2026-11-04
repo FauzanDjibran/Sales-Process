@@ -7,6 +7,8 @@ import {
   openCashBankBook,
   rebuildCashBankBalance,
   recordCashBankEntry,
+  cashBankBalanceReport,
+  cashBankLedgerReport,
 } from "../src/lib/erp/cash-bank";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import {
@@ -68,6 +70,7 @@ before(async () => {
 after(async () => {
   if (made.length) {
     await prisma.cashBankLedger.deleteMany({ where: { cash_bank_id: { in: made } } });
+    await prisma.cashBankPeriod.deleteMany({ where: { cash_bank_id: { in: made } } });
     await prisma.cashBankBalance.deleteMany({ where: { cash_bank_id: { in: made } } });
     await prisma.mCashBank.deleteMany({ where: { id: { in: made } } });
   }
@@ -346,15 +349,15 @@ describe("every entry carries what it was worth in base currency", () => {
 
 describe("money leaving is valued at the moving average", () => {
   /** USD 200 at 15.000 and USD 300 at 15.500 — a pool carried at 15.300. */
-  async function pooled(): Promise<number> {
+  async function pooled(firstDate = today): Promise<number> {
     const id = await makeCashBank(0);
-    for (const [amount, rate] of [
-      [200, 15_000],
-      [300, 15_500],
+    for (const [amount, rate, date] of [
+      [200, 15_000, firstDate],
+      [300, 15_500, today],
     ] as const) {
       await recordCashBankEntry(prisma, {
         cashBankId: id,
-        date: today,
+        date,
         type: "Transaction",
         direction: "In",
         amount,
@@ -432,7 +435,7 @@ describe("money leaving is valued at the moving average", () => {
   test("a backdated payment is valued at the average as it stands now", async () => {
     // P37: the book does not replay history. A payment dated before the last
     // receipt still takes the average that receipt produced.
-    const id = await pooled();
+    const id = await pooled("2020-01-01");
     const backdated = await pay(id, 100, "2020-01-15");
     assert.equal(backdated.entry_date.toISOString().slice(0, 10), "2020-01-15");
     assert.equal(backdated.rate.toNumber(), 15_300);
@@ -478,7 +481,7 @@ describe("a resource can never hold less than nothing", () => {
           actorId: actor,
         }),
       // The figures read as money, grouped the app's way (SIBA 15d9933).
-      /Saldo Cash & Bank tidak mencukupi: tersedia 500\.000, dibutuhkan 500\.001\./
+      /Saldo Cash & Bank tidak mencukupi pada \S+: tersedia 500\.000, dibutuhkan 500\.001\./
     );
   });
 
@@ -555,5 +558,110 @@ describe("a resource can never hold less than nothing", () => {
       /tidak boleh negatif/,
       "the one path that used to reach a negative balance is closed too"
     );
+  });
+});
+
+describe("a backdated movement is checked on every day from its date on", () => {
+  // Books held in fixture years, opened with nothing, so the dates are the test's.
+  const emptyResource = () => makeCashBank(0);
+  const move = (id: number, date: string, signed: number) =>
+    signed > 0
+      ? recordCashBankEntry(prisma, { cashBankId: id, date, type: "Transaction", direction: "In", amount: signed, rate: 1, actorId: actor })
+      : recordCashBankEntry(prisma, { cashBankId: id, date, type: "Transaction", direction: "Out", amount: -signed, actorId: actor });
+
+  /** Every month row equals what the entries, read in date order, say it is. */
+  async function assertChainMatchesBook(id: number) {
+    const [periods, entries] = await Promise.all([
+      prisma.cashBankPeriod.findMany({ where: { cash_bank_id: id }, orderBy: { period: "asc" } }),
+      prisma.cashBankLedger.findMany({
+        where: { cash_bank_id: id },
+        orderBy: [{ entry_date: "asc" }, { id: "asc" }],
+      }),
+    ]);
+    let run = 0;
+    for (const p of periods) {
+      const next = new Date(Date.UTC(p.period.getUTCFullYear(), p.period.getUTCMonth() + 1, 1));
+      const inMonth = entries.filter((e) => e.entry_date >= p.period && e.entry_date < next);
+      assert.equal(p.opening.toNumber(), run, `opening ${p.period.toISOString()}`);
+      let min = run;
+      let tin = 0;
+      let tout = 0;
+      for (const e of inMonth) {
+        const m = e.movement.toNumber();
+        run += m;
+        min = Math.min(min, run);
+        if (m > 0) tin += m;
+        else tout -= m;
+      }
+      assert.equal(p.total_in.toNumber(), tin);
+      assert.equal(p.total_out.toNumber(), tout);
+      assert.equal(p.closing.toNumber(), run);
+      assert.equal(p.min_balance.toNumber(), min, `min ${p.period.toISOString()}`);
+    }
+  }
+
+  test("a payment that would take an earlier day below nothing is refused, though the month closes positive", async () => {
+    const id = await emptyResource();
+    await move(id, "2020-01-01", 100);
+    await move(id, "2020-01-05", -80);
+    await move(id, "2020-01-20", 200);
+    await assert.rejects(() => move(id, "2020-01-03", -50), /tidak mencukupi pada 05\/01\/2020: tersedia 20/);
+    await move(id, "2020-01-03", -20);
+    await assertChainMatchesBook(id);
+  });
+
+  test("a payment that would take a later month's lowest point below nothing is refused", async () => {
+    const id = await emptyResource();
+    await move(id, "2020-01-01", 220);
+    await move(id, "2020-02-02", -210);
+    await move(id, "2020-02-25", 500);
+    await assert.rejects(() => move(id, "2020-01-15", -50), /tidak mencukupi pada bulan 02\/2020: tersedia 10/);
+    await move(id, "2020-01-15", -10);
+    await assertChainMatchesBook(id);
+  });
+
+  test("a movement dated before the first entry extends the chain backwards", async () => {
+    const id = await emptyResource();
+    await move(id, "2020-03-10", 100);
+    await assert.rejects(() => move(id, "2020-01-10", -1), /tidak mencukupi pada 10\/01\/2020: tersedia 0/);
+    await move(id, "2020-01-10", 40);
+    await move(id, "2020-02-10", -30);
+    await move(id, "2020-06-10", -100);
+    await assertChainMatchesBook(id);
+    const rows = await prisma.cashBankPeriod.count({ where: { cash_bank_id: id } });
+    assert.equal(rows, 6, "January to June, unbroken");
+  });
+
+  test("backdated money in lifts every later month, and a payment it covers then passes", async () => {
+    const id = await emptyResource();
+    await move(id, "2020-01-10", 100);
+    await move(id, "2020-03-10", -100);
+    await move(id, "2020-04-10", 20);
+    await assert.rejects(() => move(id, "2020-02-15", -50), /tidak mencukupi/);
+    await move(id, "2020-01-20", 70);
+    const march = await prisma.cashBankPeriod.findUniqueOrThrow({
+      where: { cash_bank_id_period: { cash_bank_id: id, period: new Date("2020-03-01") } },
+    });
+    assert.equal(march.opening.toNumber(), 170);
+    assert.equal(march.min_balance.toNumber(), 70, "March's lowest point moved with the money");
+    await move(id, "2020-02-15", -50);
+    await assertChainMatchesBook(id);
+  });
+
+  test("the reports open from the month row and agree with the full scan", async () => {
+    const id = await emptyResource();
+    await move(id, "2020-01-05", 1_000);
+    await move(id, "2020-02-03", -300);
+    await move(id, "2020-02-20", 50);
+    await move(id, "2020-01-25", -100);
+    const ledger = await cashBankLedgerReport(id, { from: "2020-02-10", to: "2020-02-28" });
+    assert.equal(ledger?.opening, 600);
+    assert.equal(ledger?.closing, 650);
+    const later = await cashBankLedgerReport(id, { from: "2020-05-01", to: "2020-05-31" });
+    assert.equal(later?.opening, 650, "a month after the chain carries its last closing");
+    const earlier = await cashBankLedgerReport(id, { from: "2019-12-01", to: "2019-12-31" });
+    assert.equal(earlier?.opening, 0);
+    const summary = await cashBankBalanceReport({ from: "2020-02-10", to: "2020-02-28" }, [id]);
+    assert.equal(summary.groups[0]?.rows[0]?.opening, 600);
   });
 });

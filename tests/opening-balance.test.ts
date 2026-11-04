@@ -444,6 +444,63 @@ describe("closingBalances agrees with the General Ledger", () => {
 
 // ------------------------------------------- the closing journal's series
 
+describe("closingBalances stands on a snapshot, so a go-live one survives a close", () => {
+  test("opening + what was posted since, with no journal behind the opening", async (t) => {
+    // A year of its own: the file's fixture year already holds its one snapshot.
+    const year = FIXTURE_YEAR + 1;
+    const fiscalYearId = (
+      await prisma.accFiscalYear.create({
+        data: {
+          year_code: `${FIXTURE_YEAR_CODE}B`,
+          year_label: String(year),
+          year_name: `Tahun Buku ${year}`,
+          start_date: new Date(Date.UTC(year, 0, 1)),
+          end_date: new Date(Date.UTC(year, 11, 31)),
+          status: "Draft",
+          created_by: actor,
+        },
+        select: { id: true },
+      })
+    ).id;
+    const asset = await makeAccount({ subcategoryLabel: CASH_BANK_SUBCATEGORY });
+    const equity = await makeAccount({ subcategoryLabel: "3.3.1", normalBalance: "Kredit" });
+    const other = await makeAccount({ subcategoryLabel: CASH_BANK_SUBCATEGORY });
+    const written = await writeOpeningBalance(prisma, {
+      ...snapshot([
+        { accountId: asset, debit: 1_000_000, credit: 0 },
+        { accountId: equity, debit: 0, credit: 1_000_000 },
+      ]),
+      fiscalYearId,
+      postingDate: new Date(Date.UTC(year, 0, 1)),
+    });
+    t.after(async () => {
+      await prisma.accOpeningBalanceLine.deleteMany({ where: { opening_id: written.id } });
+      await prisma.auditLog.deleteMany({ where: { entity_key: "acc_opening_balance", row_id: written.id } });
+      await prisma.accOpeningBalance.delete({ where: { id: written.id } });
+      await prisma.accFiscalYear.delete({ where: { id: fiscalYearId } });
+    });
+
+    const line = (accountId: number, debit: number, credit: number) => ({
+      accountId, currencyId: currency, rate: 1, debit, credit, description: "Fixture",
+    });
+    await postJournal(prisma, {
+      description: "Fixture go-live movement",
+      postingDate: new Date(Date.UTC(year, 5, 15)),
+      lines: [line(asset, 200_000, 0), line(other, 0, 200_000)],
+      actorId: actor,
+    });
+
+    const rows = await closingBalances(`${year}-12-31`);
+    const net = (accountId: number) => rows.find((r) => r.accountId === accountId)?.net;
+    assert.equal(net(asset), 1_200_000, "the opening is carried, not dropped");
+    assert.equal(net(equity), -1_000_000, "an account only the snapshot knows is kept");
+    assert.equal(net(other), -200_000);
+
+    const before = await closingBalances(`${year - 1}-12-31`);
+    assert.equal(before.some((r) => r.accountId === asset), false, "a snapshot dated after the day asked about is not read");
+  });
+});
+
 describe("a closing journal names its own date and series", () => {
   const line = (accountId: number, debit: number, credit: number) => ({
     accountId,

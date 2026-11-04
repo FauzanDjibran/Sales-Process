@@ -7,6 +7,7 @@ import { isBaseCurrency } from "./currency";
 import { roundBase } from "./fx";
 import { partnerMismatch, type PartnerMismatch } from "./journal";
 import { openingBasisFor } from "./opening-balance";
+import { ENTRY_PAGE_SIZE } from "./register-query";
 import type { PeriodRange } from "./period";
 
 /**
@@ -274,11 +275,22 @@ export type LedgerAccount = {
    * look at the per-entry columns.
    */
   foreignCurrencies: string[];
+  /** How many lines the period holds, whether or not `entries` carries them. */
+  entryCount: number;
+  /** Lines breaking the account's Partner rule, counted without reading the lines. */
+  mismatchCount: number;
+  /**
+   * The lines themselves. Empty on a summary run (`entries: false`): the page
+   * states the rollup, and an account's rows are fetched a page at a time when
+   * it is opened (`ledgerEntriesPage`). The export asks for them whole.
+   */
   entries: LedgerEntry[];
 };
 
 export type GeneralLedgerReport = {
   range: PeriodRange;
+  /** The Partners the run is narrowed to; empty for every line. */
+  partnerIds: number[];
   accounts: LedgerAccount[];
   /**
    * The Opening Balance the openings were computed from, where there was one.
@@ -305,13 +317,19 @@ export type GeneralLedgerReport = {
  * the Cash Bank reports use (§10 rule 41). Where a close has written one, that
  * figure starts from the Opening Balance snapshot instead of from the first
  * transaction in history; see `openingBasis`.
+ *
+ * `entries: false` is the screen's run: the rollup comes from aggregate
+ * queries and no line is read, so the cost no longer grows with a busy
+ * account's year. The default reads every line, which is what the export and
+ * the reconciling tests need.
  */
 export async function generalLedgerReport(
   accountIds: number[],
   range: PeriodRange,
-  partnerIds: number[] = []
+  partnerIds: number[] = [],
+  options: { entries?: boolean } = {}
 ): Promise<GeneralLedgerReport> {
-  if (!accountIds.length) return { range, accounts: [], openingFrom: null };
+  if (!accountIds.length) return { range, partnerIds, accounts: [], openingFrom: null };
 
   const accounts = await prisma.accAccount.findMany({
     where: { id: { in: accountIds } },
@@ -323,27 +341,27 @@ export async function generalLedgerReport(
       require_partner: true,
     },
   });
-  if (!accounts.length) return { range, accounts: [], openingFrom: null };
+  if (!accounts.length) return { range, partnerIds, accounts: [], openingFrom: null };
 
   const ids = accounts.map((a) => a.id);
   const from = new Date(`${range.from}T00:00:00Z`);
   const to = new Date(`${range.to}T00:00:00Z`);
+  const within = {
+    journal: { ...POSTED, posting_date: { gte: from, lte: to } },
+    ...partnerWhere(partnerIds),
+  };
+  const summary = options.entries === false;
 
-  const [basis, within] = await Promise.all([
+  const [basis, rollups, lines] = await Promise.all([
     openingBasis(from, ids, partnerIds),
-    prisma.accJournalLine.findMany({
-      where: {
-        account_id: { in: ids },
-        ...partnerWhere(partnerIds),
-        journal: { ...POSTED, posting_date: { gte: from, lte: to } },
-      },
-      orderBy: [{ journal: { posting_date: "asc" } }, { journal_id: "asc" }, { sequence_no: "asc" }],
-      include: {
-        journal: { select: { id: true, journal_no: true, posting_date: true } },
-        partner: { select: { partner_label: true, partner_name: true } },
-        currency: { select: { currency_label: true } },
-      },
-    }),
+    summary ? ledgerRollup(accounts, within) : null,
+    summary
+      ? []
+      : prisma.accJournalLine.findMany({
+          where: { account_id: { in: ids }, ...within },
+          orderBy: LINE_ORDER,
+          include: LINE_INCLUDE,
+        }),
   ]);
 
   const out: LedgerAccount[] = accounts.map((a) => {
@@ -354,8 +372,18 @@ export async function generalLedgerReport(
     let credit = 0;
     const entries: LedgerEntry[] = [];
     const foreign = new Set<string>();
+    let mismatches = 0;
 
-    for (const l of within.filter((x) => x.account_id === a.id)) {
+    const rollup = rollups?.get(a.id);
+    if (rollup) {
+      debit = rollup.debit;
+      credit = rollup.credit;
+      running += signedMovement(a.normal_balance, debit, credit);
+      mismatches = rollup.mismatches;
+      for (const label of rollup.foreign) foreign.add(label);
+    }
+
+    for (const l of lines.filter((x) => x.account_id === a.id)) {
       const d = l.debit_amount.toNumber();
       const c = l.kredit_amount.toNumber();
       debit += d;
@@ -366,6 +394,9 @@ export async function generalLedgerReport(
       const isForeign = !isBaseCurrency(label);
       if (isForeign) foreign.add(label);
 
+      const mismatch = partnerMismatch(a.require_partner, l.partner_id);
+      if (mismatch) mismatches += 1;
+
       entries.push({
         journalId: l.journal.id,
         journalNo: l.journal.journal_no,
@@ -373,7 +404,7 @@ export async function generalLedgerReport(
         description: l.description,
         partnerLabel: l.partner?.partner_label ?? null,
         partnerName: l.partner?.partner_name ?? null,
-        partnerMismatch: partnerMismatch(a.require_partner, l.partner_id),
+        partnerMismatch: mismatch,
         debit: d,
         credit: c,
         balance: running,
@@ -400,12 +431,205 @@ export async function generalLedgerReport(
       credit,
       closing: running,
       foreignCurrencies: [...foreign].sort(),
+      entryCount: rollups ? (rollup?.count ?? 0) : entries.length,
+      mismatchCount: mismatches,
       entries,
     };
   });
 
   out.sort((a, b) => compareCodes(a.label, b.label));
-  return { range, accounts: out, openingFrom: provenanceOf(basis) };
+  return { range, partnerIds, accounts: out, openingFrom: provenanceOf(basis) };
+}
+
+const LINE_ORDER = [
+  { journal: { posting_date: "asc" } },
+  { journal_id: "asc" },
+  { sequence_no: "asc" },
+] as const satisfies Prisma.AccJournalLineOrderByWithRelationInput[];
+
+const LINE_INCLUDE = {
+  journal: { select: { id: true, journal_no: true, posting_date: true } },
+  partner: { select: { partner_label: true, partner_name: true } },
+  currency: { select: { currency_label: true } },
+} as const;
+
+/** Each account's period from the database's own sums, no line read. */
+async function ledgerRollup(
+  accounts: { id: number; require_partner: boolean }[],
+  within: Prisma.AccJournalLineWhereInput
+) {
+  const ids = accounts.map((a) => a.id);
+  const required = accounts.filter((a) => a.require_partner).map((a) => a.id);
+  const unrequired = accounts.filter((a) => !a.require_partner).map((a) => a.id);
+
+  const [sums, faults, currencies] = await Promise.all([
+    prisma.accJournalLine.groupBy({
+      by: ["account_id"],
+      where: { account_id: { in: ids }, ...within },
+      _sum: { debit_amount: true, kredit_amount: true },
+      _count: { _all: true },
+    }),
+    prisma.accJournalLine.groupBy({
+      by: ["account_id"],
+      where: {
+        ...within,
+        OR: [
+          { account_id: { in: required }, partner_id: null },
+          { account_id: { in: unrequired }, partner_id: { not: null } },
+        ],
+      },
+      _count: { _all: true },
+    }),
+    prisma.accJournalLine.groupBy({
+      by: ["account_id", "currency_id"],
+      where: { account_id: { in: ids }, ...within },
+      _count: { _all: true },
+    }),
+  ]);
+
+  const labels = new Map(
+    (
+      await prisma.refCurrency.findMany({
+        where: { id: { in: [...new Set(currencies.map((c) => c.currency_id))] } },
+        select: { id: true, currency_label: true },
+      })
+    ).map((c) => [c.id, c.currency_label])
+  );
+
+  const out = new Map<
+    number,
+    { debit: number; credit: number; count: number; mismatches: number; foreign: string[] }
+  >();
+  for (const r of sums) {
+    out.set(r.account_id, {
+      debit: r._sum.debit_amount?.toNumber() ?? 0,
+      credit: r._sum.kredit_amount?.toNumber() ?? 0,
+      count: r._count._all,
+      mismatches: 0,
+      foreign: [],
+    });
+  }
+  for (const r of faults) out.get(r.account_id)!.mismatches += r._count._all;
+  for (const r of currencies) {
+    const label = labels.get(r.currency_id);
+    if (label && !isBaseCurrency(label)) out.get(r.account_id)!.foreign.push(label);
+  }
+  return out;
+}
+
+/** Where a page of entries stopped: the last line's place in the ledger's order. */
+export type LedgerCursor = { date: string; journalId: number; sequenceNo: number };
+
+export type LedgerEntryPage = {
+  entries: LedgerEntry[];
+  /** Null when this page reached the end of the period. */
+  next: LedgerCursor | null;
+};
+
+/**
+ * One account's lines for a period, a page at a time, in the ledger's order.
+ *
+ * The running balance is the account's own: the opening, plus everything up to
+ * and including the cursor (one aggregate, not a read of those lines), then
+ * line by line — so a page opened in the middle of a year shows the same Saldo
+ * the full ledger prints beside it. A keyset cursor rather than an offset, so
+ * a page costs the same however deep it is.
+ */
+export async function ledgerEntriesPage(
+  accountId: number,
+  range: PeriodRange,
+  cursor: LedgerCursor | null,
+  partnerIds: number[] = []
+): Promise<LedgerEntryPage | null> {
+  const account = await prisma.accAccount.findFirst({
+    where: { id: accountId },
+    select: { id: true, normal_balance: true, require_partner: true },
+  });
+  if (!account) return null;
+
+  const from = new Date(`${range.from}T00:00:00Z`);
+  const to = new Date(`${range.to}T00:00:00Z`);
+  const within = {
+    journal: { ...POSTED, posting_date: { gte: from, lte: to } },
+    ...partnerWhere(partnerIds),
+  };
+
+  // "After the cursor" in the ledger's order: a later day, a later journal on
+  // the same day, or a later line within the same journal.
+  const day = cursor ? new Date(`${cursor.date}T00:00:00Z`) : null;
+  const after = cursor
+    ? {
+        OR: [
+          { journal: { posting_date: { gt: day! } } },
+          { journal: { posting_date: day! }, journal_id: { gt: cursor.journalId } },
+          {
+            journal: { posting_date: day! },
+            journal_id: cursor.journalId,
+            sequence_no: { gt: cursor.sequenceNo },
+          },
+        ],
+      }
+    : {};
+
+  const basis = await openingBasis(from, [account.id], partnerIds);
+  let running = signedNet(account.normal_balance, basis.net.get(account.id) ?? 0);
+
+  if (cursor) {
+    // Everything in the period up to and including the cursor.
+    const upTo = await prisma.accJournalLine.aggregate({
+      where: { account_id: account.id, ...within, NOT: after },
+      _sum: { debit_amount: true, kredit_amount: true },
+    });
+    running += signedMovement(
+      account.normal_balance,
+      upTo._sum.debit_amount?.toNumber() ?? 0,
+      upTo._sum.kredit_amount?.toNumber() ?? 0
+    );
+  }
+
+  const lines = await prisma.accJournalLine.findMany({
+    where: { account_id: account.id, ...within, ...after },
+    orderBy: LINE_ORDER,
+    take: ENTRY_PAGE_SIZE + 1,
+    include: LINE_INCLUDE,
+  });
+
+  const shown = lines.slice(0, ENTRY_PAGE_SIZE);
+  const entries: LedgerEntry[] = shown.map((l) => {
+    const d = l.debit_amount.toNumber();
+    const c = l.kredit_amount.toNumber();
+    running += signedMovement(account.normal_balance, d, c);
+    const label = l.currency.currency_label;
+    const isForeign = !isBaseCurrency(label);
+    return {
+      journalId: l.journal.id,
+      journalNo: l.journal.journal_no,
+      date: postedOn(l.journal.posting_date).toISOString(),
+      description: l.description,
+      partnerLabel: l.partner?.partner_label ?? null,
+      partnerName: l.partner?.partner_name ?? null,
+      partnerMismatch: partnerMismatch(account.require_partner, l.partner_id),
+      debit: d,
+      credit: c,
+      balance: running,
+      trxAmount: isForeign ? l.trx_amount.toNumber() : null,
+      trxCurrencyLabel: isForeign ? label : null,
+      rate: isForeign ? l.exchange_rate.toNumber() : null,
+    };
+  });
+
+  const last = shown[shown.length - 1];
+  return {
+    entries,
+    next:
+      lines.length > ENTRY_PAGE_SIZE && last
+        ? {
+            date: postedOn(last.journal.posting_date).toISOString().slice(0, 10),
+            journalId: last.journal_id,
+            sequenceNo: last.sequence_no,
+          }
+        : null,
+  };
 }
 
 export type TrialBalanceRow = {
@@ -600,7 +824,10 @@ export type ClosingBalance = {
   section: AccountSection;
   partnerId: number | null;
   partnerLabel: string | null;
-  /** Raw sums over every posted line up to and including `asOf`, base currency. */
+  /**
+   * Raw sums up to and including `asOf`, base currency: the opening snapshot's
+   * net (on its own side) plus every posted line since it.
+   */
   debit: number;
   credit: number;
   /** `debit − credit`. Positive sits on the debit side. */
@@ -647,9 +874,17 @@ export async function closingBalances(
       ? new Date(`${asOf.toISOString().slice(0, 10)}T00:00:00Z`)
       : new Date(`${asOf.slice(0, 10)}T00:00:00Z`);
 
+  // The balance is opening + what was posted since, like every report here. A
+  // snapshot holds everything before its own date — and a go-live one holds
+  // figures no journal line backs — so only the lines from that date are added.
+  const basis = await openingBasisFor(to, db);
+
   const lines = await db.accJournalLine.findMany({
     where: {
-      journal: { ...POSTED, posting_date: { lte: to } },
+      journal: {
+        ...POSTED,
+        posting_date: basis ? { gte: basis.postingDate, lte: to } : { lte: to },
+      },
     },
     select: {
       account_id: true,
@@ -668,12 +903,22 @@ export async function closingBalances(
   // and a ledger of a thousand lines would otherwise carry the same three
   // joins a thousand times.
   const sections = new Map<number, AccountSection>();
-  const accountIds = [...new Set(lines.map((l) => l.account_id))];
+  // Accounts that only the snapshot knows have no line to carry their names.
+  const meta = new Map<number, { label: string; name: string; normalBalance: string }>();
+  const accountIds = [
+    ...new Set([
+      ...lines.map((l) => l.account_id),
+      ...(basis?.byPair ?? []).map((p) => p.accountId),
+    ]),
+  ];
   if (accountIds.length) {
     const rows = await db.accAccount.findMany({
       where: { id: { in: accountIds } },
       select: {
         id: true,
+        account_label: true,
+        account_name: true,
+        normal_balance: true,
         account_subcategory: {
           select: {
             account_category: {
@@ -688,10 +933,45 @@ export async function closingBalances(
         r.id,
         r.account_subcategory.account_category.account_type.section
       );
+      meta.set(r.id, {
+        label: r.account_label,
+        name: r.account_name,
+        normalBalance: r.normal_balance,
+      });
     }
   }
 
   const pairs = new Map<string, ClosingBalance>();
+
+  if (basis) {
+    const partnerIds = [
+      ...new Set(basis.byPair.flatMap((p) => (p.partnerId === null ? [] : [p.partnerId]))),
+    ];
+    const partners = partnerIds.length
+      ? await db.mPartner.findMany({
+          where: { id: { in: partnerIds } },
+          select: { id: true, partner_label: true },
+        })
+      : [];
+    const partnerLabels = new Map(partners.map((p) => [p.id, p.partner_label]));
+    for (const p of basis.byPair) {
+      const a = meta.get(p.accountId)!;
+      // A snapshot stores the net per pair, so it enters on its own side.
+      pairs.set(`${p.accountId}:${p.partnerId ?? "-"}`, {
+        accountId: p.accountId,
+        accountLabel: a.label,
+        accountName: a.name,
+        normalBalance: a.normalBalance,
+        section: sections.get(p.accountId)!,
+        partnerId: p.partnerId,
+        partnerLabel: p.partnerId === null ? null : (partnerLabels.get(p.partnerId) ?? null),
+        debit: p.net > 0 ? p.net : 0,
+        credit: p.net < 0 ? -p.net : 0,
+        net: 0,
+        balance: 0,
+      });
+    }
+  }
 
   for (const l of lines) {
     // The null partner is a key of its own, not an absent one: an account with

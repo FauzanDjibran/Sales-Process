@@ -1,10 +1,10 @@
 import { notFound } from "next/navigation";
 import { CashBankBalanceReport } from "@/components/report/cash-bank-balance-report";
 import { CashBankLedgerReport } from "@/components/report/cash-bank-ledger-report";
-import { ReportParams } from "@/components/report/report-params";
+import { SubjectParams } from "@/components/report/subject-params";
+import { parseIds, resolveRange } from "@/lib/erp/report-params";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
 import { requirePermission } from "@/lib/erp/auth";
-import { attachDocumentNumbers } from "@/lib/erp/document-numbers";
 import {
   cashBankBalanceReport,
   cashBankLedgerReport,
@@ -66,7 +66,6 @@ export default async function Page({
 
   const query = await searchParams;
   const range = resolveRange(query.from, query.to);
-  const cashBankId = positiveInt(query.cashBank);
   const runAt = new Date().toISOString();
 
   if (report.params === "ar-asof" || report.params === "ar-period") {
@@ -78,34 +77,43 @@ export default async function Page({
 
   const resources = await cashBankOptions();
 
+  // Both Cash & Bank reports read several resources at once, like the General Ledger.
+  const cashBankIds = parseIds(query.cashBank);
+  const exportHref = reportHref(`${slug}/export`, {
+    cashBank: cashBankIds.join(","),
+    from: range.from,
+    to: range.to,
+  });
   const filterBar = (
-    <>
-      <ReportParams
-        slug={slug}
-        resources={resources}
-        cashBankId={cashBankId}
-        from={range.from}
-        to={range.to}
-        subjectRequired={report.subjectRequired}
-        subjectLabel="Cash & Bank"
-        allLabel={report.subjectRequired ? undefined : "Semua resource"}
-      />
-    </>
+    <SubjectParams
+      slug={slug}
+      subjects={resources}
+      selectedIds={cashBankIds}
+      from={range.from}
+      to={range.to}
+      subjectRequired={report.subjectRequired}
+      label="Cash & Bank"
+      param="cashBank"
+      addPlaceholder="Tambah Cash & Bank…"
+      allPlaceholder={report.subjectRequired ? "Pilih Cash & Bank…" : "Semua Cash & Bank"}
+      missingHint="Pilih minimal satu Cash & Bank terlebih dahulu."
+    />
   );
 
   // --------------------------------------------------------------- ledger
 
   if (report.key === "cash_bank_ledger") {
-    const data = cashBankId
-      ? await cashBankLedgerReport(cashBankId, range)
-      : null;
-    if (data) await attachDocumentNumbers(data.entries);
+    const books = await Promise.all(
+      cashBankIds.map((id) => cashBankLedgerReport(id, range, { entries: false }))
+    );
+    const data = cashBankIds.length ? books.filter((b) => b !== null) : null;
 
     return (
       <ReportView
         report={report}
         filter={filterBar}
         runAt={runAt}
+        exportHref={data?.length ? exportHref : undefined}
         footnote={
           <>
             Saldo awal adalah seluruh mutasi sebelum {formatDate(range.from)} dan
@@ -114,12 +122,16 @@ export default async function Page({
         }
       >
         {data ? (
-          <CashBankLedgerReport report={data} />
+          <CashBankLedgerReport
+            key={`${range.from}|${range.to}|${cashBankIds.join(",")}`}
+            books={data}
+            range={range}
+          />
         ) : (
           <ReportNeedsSubject
             icon="book"
             title="Pilih Cash & Bank terlebih dahulu"
-            body="Buku kas/bank selalu milik satu resource. Pilih resource dan rentang tanggal di atas, lalu tekan Tampilkan."
+            body="Buku kas/bank selalu milik sebuah resource. Pilih satu resource atau lebih beserta rentang tanggal di atas, lalu tekan Tampilkan."
           />
         )}
       </ReportView>
@@ -128,13 +140,14 @@ export default async function Page({
 
   // -------------------------------------------------------------- balance
 
-  const data = await cashBankBalanceReport(range, cashBankId);
+  const data = await cashBankBalanceReport(range, cashBankIds);
 
   return (
     <ReportView
       report={report}
       filter={filterBar}
       runAt={runAt}
+      exportHref={data.groups.length ? exportHref : undefined}
       footnote={
         <>
           Setiap currency direkap terpisah dan tidak pernah dijumlahkan menjadi
@@ -145,26 +158,6 @@ export default async function Page({
       <CashBankBalanceReport report={data} />
     </ReportView>
   );
-}
-
-/**
- * The period a report runs for.
- *
- * Defaults to the current month to date: predictable, needs no Fiscal Year to
- * exist, and consistent with the rule that a date field starts on today (§10).
- * A range whose end precedes its start is swapped rather than refused — the
- * parameter bar already blocks it, and a direct URL should still answer.
- */
-function resolveRange(from?: string, to?: string): PeriodRange {
-  const today = new Date();
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
-  const monthStart = new Date(
-    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1)
-  );
-
-  const start = isDate(from) ? from : iso(monthStart);
-  const end = isDate(to) ? to : iso(today);
-  return start <= end ? { from: start, to: end } : { from: end, to: start };
 }
 
 function isDate(value: string | undefined): value is string {

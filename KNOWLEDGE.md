@@ -28,7 +28,7 @@ in **Note** to stay on an older version on purpose.
 | engineering/code-conventions | 2.1 | core | — | §4, §7; P102 harvested |
 | engineering/data-conventions | 1.0 | doc-numbering=prefix-yyyy-mm-seq | — | §9, P15 |
 | engineering/security-rbac | 1.0 | core | — | §11 |
-| accounting/books-and-posting | 2.1 | core | — | P25 → P71; positions kept by accounting/open-items. §6 reconcile command built: `db:reconcile` / `db:neon-reconcile`, 29 checks, each proven by a planted fault (05/10/2026) |
+| accounting/books-and-posting | 3.1 | core | — | P25 → P71; positions kept by accounting/open-items. §6 reconcile command built: `db:reconcile` / `db:neon-reconcile`. 3.0 §1.3 is P213; 3.1 §3.4 is P221 |
 | accounting/chart-of-accounts | 1.1 | control-account=user-set | — | P14, P16 |
 | accounting/fiscal-periods-and-statements | 1.0 | core | — | P23, P27, P35 |
 | accounting/multi-currency | 1.1 | core | knowledge/multi_currency_concept.md | P13, P37 (moving average = core pool) |

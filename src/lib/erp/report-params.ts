@@ -1,7 +1,7 @@
 import type { PeriodRange } from "./period";
 
 /**
- * How an Accounting Report View reads its URL — shared by the page and its
+ * How a Report View reads its URL — shared by the page and its
  * Unduh XLSX route, so the file is the run on screen.
  */
 

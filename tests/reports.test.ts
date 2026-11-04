@@ -130,6 +130,9 @@ after(async () => {
     await prisma.cashBankLedger.deleteMany({
       where: { cash_bank_id: { in: cashBanks } },
     });
+    await prisma.cashBankPeriod.deleteMany({
+      where: { cash_bank_id: { in: cashBanks } },
+    });
     await prisma.cashBankBalance.deleteMany({
       where: { cash_bank_id: { in: cashBanks } },
     });
@@ -493,7 +496,7 @@ describe("the balance report summarises every resource", () => {
 
     const report = await cashBankBalanceReport(
       { from: "2026-11-01", to: "2026-11-30" },
-      cb
+      [cb]
     );
     assert.equal(report.resources, 1);
     assert.equal(report.groups.length, 1);
@@ -508,7 +511,7 @@ describe("the balance report summarises every resource", () => {
     const range = { from: "2026-12-01", to: "2026-12-31" };
 
     const ledger = await cashBankLedgerReport(cb, range);
-    const balance = await cashBankBalanceReport(range, cb);
+    const balance = await cashBankBalanceReport(range, [cb]);
     const row = balance.groups[0].rows[0];
 
     assert.ok(ledger);

@@ -71,6 +71,7 @@ const TABLE_OWNERS: Record<string, string[]> = {
   // building block, not two modules.
   cashBankLedger: ["src/lib/erp/cash-bank.ts"],
   cashBankBalance: ["src/lib/erp/cash-bank.ts"],
+  cashBankPeriod: ["src/lib/erp/cash-bank.ts"],
   // The General Ledger is the one thing that may derive from journal lines
   // (CLAUDE.md §10 rule 22) — it reads them and never writes one.
   accJournal: ["src/lib/erp/journal.ts", "src/lib/erp/ledger.ts"],
@@ -222,6 +223,8 @@ describe("the dependency graph points one way", () => {
       // The production close's period lock (R15): the books ask it at their one
       // write point; it reads only the fiscal period and its own lock rows.
       "period-lock",
+      // How a book's entries are paged: a page size and a cursor, no database.
+      "register-query",
     ];
     const BOOKS = ["cash-bank", "journal", "ar-item", "ap-item", "inventory"];
 

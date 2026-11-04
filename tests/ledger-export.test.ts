@@ -38,6 +38,8 @@ const account = (o: Partial<LedgerAccount>): LedgerAccount => ({
   credit: 0,
   closing: 0,
   foreignCurrencies: [],
+  entryCount: 0,
+  mismatchCount: 0,
   entries: [],
   ...o,
 });

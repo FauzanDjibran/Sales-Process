@@ -1080,6 +1080,7 @@ model MCashBank {
 
   ledger       CashBankLedger[]
   book_balance CashBankBalance?
+  periods      CashBankPeriod[]
   transactions FinCashBankTx[]
 
   /// Advance bills that print this account as where to pay (P56).
@@ -1113,6 +1114,42 @@ enum CashBankEntryType {
   Transaction
   /// A manual correction, recorded rather than edited into an existing entry.
   Adjustment
+}
+
+/// One row per resource per month, the chain the per-day check stands on
+/// (KB books-and-posting §3.4). Unbroken from the first entry's month to the
+/// latest's; every figure is re-derivable from the entries.
+model CashBankPeriod {
+  id           Int      @id @default(autoincrement())
+  cash_bank_id Int
+  /// The first day of the month.
+  period       DateTime @db.Date
+
+  /// In the resource's own currency. `closing = opening + total_in - total_out`,
+  /// and the next month's `opening` is this `closing`.
+  opening     Decimal @default(0) @db.Decimal(18, 2)
+  total_in    Decimal @default(0) @db.Decimal(18, 2)
+  total_out   Decimal @default(0) @db.Decimal(18, 2)
+  closing     Decimal @default(0) @db.Decimal(18, 2)
+  /// The lowest the balance stands at any moment of the month, the opening
+  /// included. A backdated movement shifts every later month by the same
+  /// amount, so `MIN(min_balance) + movement` over them answers whether any of
+  /// them would go below zero without reading their entries.
+  min_balance Decimal @default(0) @db.Decimal(18, 2)
+
+  /// The same four in base currency, for the reports. Not validated: what may
+  /// not go negative is the money.
+  base_opening   Decimal @default(0) @db.Decimal(18, 2)
+  base_total_in  Decimal @default(0) @db.Decimal(18, 2)
+  base_total_out Decimal @default(0) @db.Decimal(18, 2)
+  base_closing   Decimal @default(0) @db.Decimal(18, 2)
+
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  cash_bank MCashBank @relation(fields: [cash_bank_id], references: [id])
+
+  @@unique([cash_bank_id, period])
+  @@map("cash_bank_period")
 }
 
 model CashBankLedger {
