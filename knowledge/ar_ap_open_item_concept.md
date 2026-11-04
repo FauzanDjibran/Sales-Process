@@ -51,7 +51,7 @@ Supplier net position
 = Ordinary AP - Advance
 ```
 
-Advance does not need to be permanently tied to one PO or Invoice. Its source reference may be retained for traceability; allocation happens separately.
+Advance does not need to be permanently tied to one PO or Invoice. Its source reference may be retained for traceability; how it is settled against an invoice follows §4.
 
 ### An invoice that deducts an advance
 
@@ -104,6 +104,8 @@ source document reference (unique)
 
 ## 4. Allocation / Clearing Rule
 
+**Choice point `settlement`.** The main path is **`in-posting`**: there is no allocation record. The document that settles (a receipt, an invoice using an advance) moves the items directly inside its own posting, and each ledger entry names its counter item, so the relationship stays traceable. The alternative, `allocation-step`, makes allocation a separate record linking a source item to a target item. The rules below hold for both.
+
 The primary allocation eligibility rule is:
 
 ```text
@@ -123,7 +125,7 @@ Advance → Invoice    allowed
 DNCN    → Invoice    allowed
 ```
 
-The allocation itself creates a traceable relationship between the source and target open items.
+Either way, the settlement creates a traceable relationship between the source and target open items.
 
 Partial allocation is allowed as long as the source open item's remaining balance is sufficient.
 
@@ -228,5 +230,6 @@ Allocation = settlement relationship
 
 ## Changelog
 - **1.0** (03/10/2026): from ERP `Initialization/ar_ap_open_item_concept.md`.
+- **2.2** (04/11/2026): `in-posting` made the main path and default for new projects, on the user's decision (REGISTRY R4). §2 and §4 no longer assume a separate allocation step. No rule removed: `allocation-step` stays an option.
 - **2.1** (04/11/2026): harvested ERP P116, P117. §6, an item keeps balances only, with `original_amount` allowed and no tax figures; §2, an invoice's item is born at its face and the advance it deducts is applied inside its posting as a pair of entries.
 - **2.0** (02/11/2026): §3 — one open item per source document, identified by it (unique), holding `paid_amount` beside its balance; the document keeps its value and lifecycle only, and a payment reads what was paid from the document's item. §6 notes the one figure kept beside the balance. Harvested from ERP P214 (the user's deviation-check answer B, 02/11/2026), which replaces ERP P132–P133's "the document keeps what it was paid". Changes a rule: adopters make the source reference unique and move any paid figure off their documents onto the item.
