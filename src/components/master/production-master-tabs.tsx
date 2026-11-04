@@ -6,13 +6,8 @@ import { Combobox } from "@/components/ui/combobox";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, FormRow } from "@/components/ui/form";
 import { RateInput } from "@/components/ui/rate-input";
-import { Select } from "@/components/ui/select";
 import { CollectionCard, RowActions, newKey, type CollectionTabProps } from "@/components/master/collection-tab";
 import {
-  EXIT_MODES,
-  EXIT_MODE_LABEL,
-  JOB_POLICIES,
-  JOB_POLICY_LABEL,
   rateErrors,
   stepErrors,
   type RateDraft,
@@ -45,7 +40,7 @@ export function RoutingStepsTab({ editing, items, error, onChange, context }: Co
   const [open, setOpen] = useState<StepDraft | null>(null);
   const units = context?.refs._units ?? [];
 
-  const blank = (): StepDraft => ({ key: newKey("s"), unit_id: null, exit_mode: "WithQc", job_policy: "Carried", is_checkpoint: false, is_skippable: false });
+  const blank = (): StepDraft => ({ key: newKey("s"), unit_id: null, is_checkpoint: false, is_skippable: false });
   const apply = (s: StepDraft) => {
     onChange(items.some((x) => x.key === s.key) ? items.map((x) => (x.key === s.key ? s : x)) : [...items, s]);
     setOpen(null);
@@ -60,7 +55,7 @@ export function RoutingStepsTab({ editing, items, error, onChange, context }: Co
     <CollectionCard
       icon="tree"
       title="Langkah"
-      desc="Unit berurutan yang dilalui barang. Mode keluar dan kebijakan No. Job milik langkah, bukan unit."
+      desc="Unit berurutan yang dilalui barang. Cara barang keluar diatur di masing-masing Unit."
       editing={editing}
       addLabel="Tambah Langkah"
       onAdd={() => setOpen(blank())}
@@ -76,13 +71,11 @@ export function RoutingStepsTab({ editing, items, error, onChange, context }: Co
         </div>
       ) : (
         <div className="tw">
-          <table className="grid coll" style={{ minWidth: 760 }}>
+          <table className="grid coll" style={{ minWidth: 560 }}>
             <thead>
               <tr>
                 <th style={{ width: 44 }}>No</th>
                 <th>Unit</th>
-                <th style={{ width: 120 }}>Mode Keluar</th>
-                <th style={{ width: 120 }}>No. Job</th>
                 <th style={{ width: 110 }}>Checkpoint</th>
                 <th style={{ width: 110 }}>Boleh Dilewati</th>
                 {editing && <th style={{ width: 130 }} />}
@@ -95,8 +88,6 @@ export function RoutingStepsTab({ editing, items, error, onChange, context }: Co
                   <td>
                     <UnitCell units={units} id={s.unit_id} />
                   </td>
-                  <td>{EXIT_MODE_LABEL[s.exit_mode]}</td>
-                  <td>{JOB_POLICY_LABEL[s.job_policy]}</td>
                   <td>{s.is_checkpoint ? "Ya" : "—"}</td>
                   <td>{s.is_skippable ? "Ya" : "—"}</td>
                   {editing && (
@@ -201,22 +192,6 @@ function StepDialog({
               setS((x) => ({ ...x, unit_id: v == null ? null : Number(v) }));
               setErrors((e) => ({ ...e, unit_id: "" }));
             }}
-          />
-        </Field>
-        <Field label="Mode Keluar" span={6} required error={errors.exit_mode} help="cara barang meninggalkan unit ini">
-          <Select
-            value={s.exit_mode}
-            options={EXIT_MODES.map((m) => ({ value: m, label: EXIT_MODE_LABEL[m] }))}
-            ariaLabel="Mode keluar"
-            onChange={(v) => setS((x) => ({ ...x, exit_mode: v as StepDraft["exit_mode"] }))}
-          />
-        </Field>
-        <Field label="No. Job saat Keluar" span={6} required error={errors.job_policy}>
-          <Select
-            value={s.job_policy}
-            options={JOB_POLICIES.map((m) => ({ value: m, label: JOB_POLICY_LABEL[m] }))}
-            ariaLabel="Kebijakan No. Job"
-            onChange={(v) => setS((x) => ({ ...x, job_policy: v as StepDraft["job_policy"] }))}
           />
         </Field>
         <Field label="Checkpoint" span={6} help="dari langkah ini partai berpindah utuh">

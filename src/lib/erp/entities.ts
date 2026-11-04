@@ -9,6 +9,7 @@
  */
 import type { IconName } from "@/components/icon";
 import { isBaseCurrency } from "./currency";
+import { EXIT_MODES, EXIT_MODE_LABEL, JOB_POLICIES, JOB_POLICY_LABEL } from "./production-master-shape";
 
 /** A value a create form's field can start on (P61). */
 export type FieldPreset = "base_currency";
@@ -987,8 +988,8 @@ export const ENTITIES: Entity[] = [
   },
 
   {
-    // Where goods are held in production, and the kinds of work done there
-    // (P225, W33). A routing step names a Unit; nothing in code names one.
+    // Where goods are held in production, the kinds of work done there and how
+    // goods leave (P230, §5). A routing step names a Unit; nothing in code names one.
     key: "ref_unit",
     slug: "unit",
     module: "master",
@@ -1039,6 +1040,28 @@ export const ENTITIES: Entity[] = [
         optionLabels: PROCESS_KIND_LABEL,
         help: "Moulding memakai Grading Mix dan Job Order",
       },
+      {
+        name: "exit_mode",
+        label: "Keluar Lewat",
+        type: "select",
+        required: true,
+        span: 4,
+        options: [...EXIT_MODES],
+        optionLabels: EXIT_MODE_LABEL,
+        defaultValue: "WithQc",
+        help: "cara barang meninggalkan unit ini",
+      },
+      {
+        name: "job_policy",
+        label: "No. Job saat Keluar",
+        type: "select",
+        required: true,
+        span: 4,
+        options: [...JOB_POLICIES],
+        optionLabels: JOB_POLICY_LABEL,
+        defaultValue: "Carried",
+        help: "Terbit bila barang perlu identitas baru di sini",
+      },
       STATUS_FIELD,
       NOTE_FIELD,
     ],
@@ -1046,6 +1069,8 @@ export const ENTITIES: Entity[] = [
       { field: "unit_label", label: "Kode", isLabel: true, width: "110px", filter: "text" },
       { field: "unit_name", label: "Nama Unit", primary: true, filter: "text" },
       { field: "workstation_id", label: "Workstation", isRef: true, width: "200px" },
+      { field: "exit_mode", label: "Keluar Lewat", isStatus: true, width: "130px" },
+      { field: "job_policy", label: "No. Job", isStatus: true, width: "110px" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
   },
@@ -1194,7 +1219,7 @@ export const ENTITIES: Entity[] = [
         key: "steps",
         label: "Langkah",
         icon: "tree",
-        desc: "Unit berurutan. Unit tujuan BSTB selalu langkah berikutnya; mode keluar dan kebijakan No. Job milik langkah, bukan unit.",
+        desc: "Unit berurutan. Unit tujuan BSTB selalu langkah berikutnya.",
         kind: "custom",
       },
     ],

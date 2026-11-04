@@ -55,7 +55,7 @@ before(async () => {
         routing_name: "Uji",
         line_id: ids.line,
         created_by: a,
-        steps: { create: [{ seq: 1, unit_id: f.wsA, exit_mode: "WithQc", job_policy: "Carried" }] },
+        steps: { create: [{ seq: 1, unit_id: f.wsA }] },
       },
     })
   ).id;
@@ -129,7 +129,7 @@ describe("a partai keeps what it started on", () => {
   });
 
   test("a routing goods follow keeps its steps; another routing for the line is open", async () => {
-    const steps = [{ unit_id: f.wsB, exit_mode: "WithQc", job_policy: "Carried", is_checkpoint: false, is_skippable: false }];
+    const steps = [{ unit_id: f.wsB, is_checkpoint: false, is_skippable: false }];
     const changed = await checkRoutingCollections({ line_id: ids.line, [STEPS_KEY]: JSON.stringify(steps) }, ids.routing);
     assert.match(changed.errors[STEPS_KEY] ?? "", /sudah dipakai/);
     const same = await checkRoutingCollections({ line_id: ids.line, [STEPS_KEY]: JSON.stringify([{ ...steps[0], unit_id: f.wsA }]) }, ids.routing);

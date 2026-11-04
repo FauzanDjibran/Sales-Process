@@ -51,6 +51,7 @@ import {
   writeRateCollections,
   writeRoutingCollections,
 } from "@/lib/erp/production-master";
+import { unitExitError } from "@/lib/erp/production-master-shape";
 import type { Prisma } from "@/generated/prisma/client";
 import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-rules";
 import { categoriesUsingAccount } from "@/lib/erp/item-account";
@@ -349,6 +350,10 @@ async function validate(
     })) {
       errors[k] ??= v;
     }
+  }
+  if (entity.key === "ref_unit") {
+    const exit = unitExitError(String(values.exit_mode ?? ""), String(values.processes ?? "").split(","));
+    if (exit) errors.exit_mode ??= exit;
   }
   if (entity.key === "m_partner" && (applies.has("default_term_id") || applies.has("purchase_term_id"))) {
     for (const [k, v] of Object.entries(await checkPartnerSalesDefaults(values, currentId))) {

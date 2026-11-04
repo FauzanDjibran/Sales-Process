@@ -6,7 +6,7 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **05/11/2026 — P228** (step 3: BSTB Issue with Terima).
+> Last updated: **05/11/2026 — P230** (routing is only the order; exit rules on the Unit).
 >
 > **What follows describes what is on `main`.** The agreed target is in
 > `Produksi Walet (Real).md`; its build steps add the documents back.
@@ -39,10 +39,10 @@ plan's steps 1–13.
 
 | Master | What it holds | Where | Status |
 | --- | --- | --- | --- |
-| **Unit** | Code (in document numbers, locked), name, its Workstation, and the **kinds of work** it may do. Where goods are held in production; no unit is named in code. | Master › Produksi | ✅ P225 |
+| **Unit** | Code (in document numbers, locked), name, its Workstation, the **kinds of work** it may do, **Keluar Lewat** and **No. Job saat Keluar**. Where goods are held in production; no unit is named in code. | Master › Produksi | ✅ P230 |
 | **Workstation** | Label, name. Only groups Units. | Master › Produksi | ✅ P225 |
 | **Line Produksi** | Label, name, the variance account. | Master › Produksi | ✅ P225 |
-| **Routing** | The ordered Units, each routing naming its line; several per line for now, and one without a line = the segment before the partai. Each step: exit mode, No. Job policy, checkpoint, skippable. Steps lock once goods follow it. | Master › Produksi | ✅ P227 |
+| **Routing** | The ordered Units, each routing naming its line; several per line for now, and one without a line = the segment before the partai. Only the order, with a checkpoint and skippable mark per step. Steps lock once goods follow it. | Master › Produksi | ✅ P230 |
 | **Standard Cost** | Versions of the rate per gram per Unit; empty = 0. **Never edited once saved; one active**: saving a new one closes the old. A partai keeps the id it started on. | Master › Produksi | ✅ P226 |
 | **Karyawan** | Who worked a No. Job at a Pass Through Unit. | Master › Produksi | ✅ P225 |
 | **BJL** | A flag on the Item; valued 0 in production; locked once used. | Master › Item | ✅ P225 |
@@ -87,3 +87,4 @@ plan's steps 1–13.
 | 05/11/2026 | P227 | Step 2: bucket No. Stok · Unit · stage · Partai · Job, Partai, No. Job, what a No. Stok locked, standard cost entries; several routings per line again. No document uses them yet. |
 | 05/11/2026 | P228 | Step 3: BSTB Issue, Ajukan and Terima, stock reserved from Ajukan, Bahan Penolong ke Unit. |
 | 05/11/2026 | P229 | The Reguler Workstations, Units and routings as a seed; clearer routing refusals. |
+| 05/11/2026 | P230 | A routing is only the order of Units; Keluar Lewat and No. Job saat Keluar move to the Unit. |

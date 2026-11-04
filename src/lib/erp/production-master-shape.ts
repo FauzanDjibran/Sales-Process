@@ -30,8 +30,6 @@ export type StepDraft = {
   id?: number;
   key: string;
   unit_id: number | null;
-  exit_mode: (typeof EXIT_MODES)[number];
-  job_policy: (typeof JOB_POLICIES)[number];
   is_checkpoint: boolean;
   is_skippable: boolean;
 };
@@ -49,8 +47,6 @@ export function stepErrors(s: Partial<StepDraft>, takenUnits: number[]): Record<
   const e: Record<string, string> = {};
   if (!s.unit_id) e.unit_id = "Pilih unit.";
   else if (takenUnits.includes(s.unit_id)) e.unit_id = "Unit ini sudah ada di routing.";
-  if (!EXIT_MODES.includes(s.exit_mode as never)) e.exit_mode = "Pilih mode keluar.";
-  if (!JOB_POLICIES.includes(s.job_policy as never)) e.job_policy = "Pilih kebijakan No. Job.";
   return e;
 }
 
@@ -72,7 +68,7 @@ export function rateErrors(r: Partial<RateDraft>, takenUnits: number[]): Record<
  * at the one Unit that forms the partai. A line's routing starts after it.
  */
 export function stepRuleErrors(
-  steps: Pick<StepDraft, "unit_id" | "exit_mode" | "is_checkpoint">[],
+  steps: Pick<StepDraft, "unit_id" | "is_checkpoint">[],
   hasLine: boolean,
   processesOf: (unitId: number) => string[]
 ): string[] {
@@ -89,10 +85,10 @@ export function stepRuleErrors(
   const cps = steps.map((s, i) => (s.is_checkpoint ? i : -1)).filter((i) => i >= 0);
   if (cps.length > 1) out.push("Checkpoint hanya boleh satu per routing.");
   if (cps[0] === 0) out.push("Langkah pertama tidak bisa menjadi checkpoint.");
-  steps.forEach((s, i) => {
-    if (s.exit_mode === "PerCarton" && !processesOf(s.unit_id!).includes("Assembly")) {
-      out.push(`Langkah ${i + 1}: mode Per Kotak hanya untuk unit dengan pekerjaan Assembly.`);
-    }
-  });
   return out;
+}
+
+/** A Unit's own rule: only Assembly makes kotak, so only it sends per kotak. */
+export function unitExitError(exitMode: string, processes: string[]): string | null {
+  return exitMode === "PerCarton" && !processes.includes("Assembly") ? "Per Kotak hanya untuk unit dengan pekerjaan Assembly." : null;
 }

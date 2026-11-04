@@ -5,7 +5,7 @@ import { ENTITIES } from "../src/lib/erp/entities";
 import { checkItemBjl } from "../src/lib/erp/item";
 import { abilitiesFor } from "../src/lib/erp/entity-access";
 import { checkRateCollections, checkRoutingCollections, routingCollections, writeRateCollections, writeRoutingCollections } from "../src/lib/erp/production-master";
-import { STEPS_KEY, stepRuleErrors } from "../src/lib/erp/production-master-shape";
+import { STEPS_KEY, stepRuleErrors, unitExitError } from "../src/lib/erp/production-master-shape";
 import { InventoryRefusal, injectStock, receiveStock } from "../src/lib/erp/inventory";
 import { enterProduction } from "../src/lib/erp/production-ledger";
 import { FIXTURE_PREFIX, cleanupFixtures, disconnect, prisma, systemUserId } from "./helpers";
@@ -54,7 +54,7 @@ after(async () => {
   await disconnect();
 });
 
-const step = (unit: number, over: Record<string, unknown> = {}) => ({ unit_id: unit, exit_mode: "WithQc", job_policy: "Carried", is_checkpoint: false, is_skippable: false, ...over });
+const step = (unit: number, over: Record<string, unknown> = {}) => ({ unit_id: unit, is_checkpoint: false, is_skippable: false, ...over });
 
 describe("Unit, Workstation and the masters around them", () => {
   test("a Unit belongs to a Workstation and holds several kinds of work", async () => {
@@ -70,31 +70,31 @@ describe("Unit, Workstation and the masters around them", () => {
   });
 });
 
-describe("a routing is the order of Units, the rules of each step the step's own", () => {
+describe("a routing is the order of Units (P230)", () => {
   test("a line's routing round-trips with its order and per-step flags", async () => {
     const routing = await prisma.prdRouting.create({
       data: { routing_code: `test.${key("R")}`, routing_label: key("R"), routing_name: "Uji", line_id: f.line, created_by: actor },
     });
-    const values = { line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.grade, { exit_mode: "Direct", job_policy: "Issued" }), step(f.mould, { is_checkpoint: true }), step(f.pack, { exit_mode: "PerCarton", is_skippable: true })]) };
+    const values = { line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.grade), step(f.mould, { is_checkpoint: true }), step(f.pack, { is_skippable: true })]) };
     const checked = await checkRoutingCollections(values, routing.id);
     assert.deepEqual(checked.errors, {});
     await prisma.$transaction((tx) => writeRoutingCollections(tx, routing.id, checked.clean));
     const back = (await routingCollections(routing.id)).steps;
     assert.deepEqual(back.map((s) => s.unit_id), [f.grade, f.mould, f.pack]);
-    assert.deepEqual(back.map((s) => s.exit_mode), ["Direct", "WithQc", "PerCarton"]);
     assert.equal(back[1].is_checkpoint, true);
     assert.equal(back[2].is_skippable, true);
   });
 
-  test("a Unit appears once, and Per Kotak needs an Assembly Unit", async () => {
+  test("a Unit appears once in a routing; Per Kotak is for an Assembly Unit", async () => {
     const twice = await checkRoutingCollections({ line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.grade), step(f.grade)]) }, null);
     assert.match(twice.errors[STEPS_KEY], /sudah ada di routing/);
-    const carton = await checkRoutingCollections({ line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.grade, { exit_mode: "PerCarton" })]) }, null);
-    assert.match(carton.errors[STEPS_KEY], /Per Kotak hanya untuk unit dengan pekerjaan Assembly/);
+    assert.match(unitExitError("PerCarton", ["Grading"]) ?? "", /Assembly/);
+    assert.equal(unitExitError("PerCarton", ["Assembly"]), null);
+    assert.equal(unitExitError("WithQc", ["Grading"]), null);
   });
 
   test("the segment before the partai ends at the one Unit that forms it; a line's starts after", async () => {
-    const ok = await checkRoutingCollections({ [STEPS_KEY]: JSON.stringify([step(f.grade, { exit_mode: "Direct" }), step(f.former)]) }, null);
+    const ok = await checkRoutingCollections({ [STEPS_KEY]: JSON.stringify([step(f.grade), step(f.former)]) }, null);
     assert.equal(ok.errors[STEPS_KEY], undefined);
     const noFormer = await checkRoutingCollections({ [STEPS_KEY]: JSON.stringify([step(f.grade)]) }, null);
     assert.match(noFormer.errors[STEPS_KEY], /Pembentuk Partai/);

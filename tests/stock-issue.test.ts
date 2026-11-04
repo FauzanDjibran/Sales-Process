@@ -152,7 +152,7 @@ describe("which Unit takes what", () => {
             routing_label: f.key("SG"),
             routing_name: "Segmen",
             created_by: f.actor,
-            steps: { create: [{ seq: 1, unit_id: f.wsB, exit_mode: "Direct", job_policy: "Issued" }] },
+            steps: { create: [{ seq: 1, unit_id: f.wsB }] },
           },
         });
     try {

@@ -426,6 +426,8 @@ table ref_unit {
   unit_name                   varchar [not null]
   workstation_id              int [ref : > ref_workstation.id]
   processes                   varchar // PrdProcessKind[]: PassThrough, Grading, PartaiFormer, GradingMix, JobOrder, Assembly
+  exit_mode                   enum('Direct', 'NoQc', 'WithQc', 'PerCarton') [not null, default: 'WithQc'] // how goods leave (§5, P230)
+  job_policy                  enum('Issued', 'Carried', 'Released', 'None') [not null, default: 'Carried']
 
   note                        varchar
 
@@ -487,8 +489,6 @@ table prd_routing_step {
   routing_id                  int [not null, ref : > prd_routing.id]
   seq                         int [not null]
   unit_id                     int [not null, ref : > ref_unit.id]
-  exit_mode                   enum('Direct', 'NoQc', 'WithQc', 'PerCarton') [not null]
-  job_policy                  enum('Issued', 'Carried', 'Released', 'None') [not null]
   is_checkpoint               boolean [not null, default: false] // from here a partai moves whole (W28)
   is_skippable                boolean [not null, default: false]
 

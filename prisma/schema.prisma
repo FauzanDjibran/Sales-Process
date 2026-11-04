@@ -841,7 +841,7 @@ enum PrdProcessKind {
   Assembly
 }
 
-/// How goods leave a routing step (§8 Siklus BSTB).
+/// How goods leave a Unit (§5, §8 Siklus BSTB).
 enum PrdExitMode {
   Direct
   NoQc
@@ -849,7 +849,8 @@ enum PrdExitMode {
   PerCarton
 }
 
-/// What happens to the No. Job when goods leave a routing step (§5).
+/// What happens to the No. Job when goods leave a Unit (§5). A No. Job exists
+/// because goods need telling apart, first on leaving Grading Halus (W38).
 enum PrdJobPolicy {
   Issued
   Carried
@@ -868,6 +869,8 @@ model RefUnit {
   workstation_id Int?
   /// The kinds of work done here; Moulding holds Grading Mix and Job Order.
   processes      PrdProcessKind[]
+  exit_mode      PrdExitMode      @default(WithQc)
+  job_policy     PrdJobPolicy     @default(Carried)
   note           String?
   status         ActiveStatus     @default(Active)
 
@@ -940,18 +943,16 @@ model PrdRouting {
   @@map("prd_routing")
 }
 
-/// One step of a routing. The exit mode and the Job policy are the step's, not
-/// the Unit's, because another line may use the same Unit another way.
+/// One step of a routing: only the order, and the two marks that are about the
+/// order. How goods leave a Unit is the Unit's own (P230).
 model PrdRoutingStep {
-  id            Int          @id @default(autoincrement())
+  id            Int     @id @default(autoincrement())
   routing_id    Int
   seq           Int
   unit_id       Int
-  exit_mode     PrdExitMode
-  job_policy    PrdJobPolicy
   /// From here to the last step a partai moves whole (W28).
-  is_checkpoint Boolean      @default(false)
-  is_skippable  Boolean      @default(false)
+  is_checkpoint Boolean @default(false)
+  is_skippable  Boolean @default(false)
 
   routing PrdRouting @relation(fields: [routing_id], references: [id], onDelete: Cascade)
   unit    RefUnit    @relation(fields: [unit_id], references: [id])

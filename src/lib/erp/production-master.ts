@@ -32,8 +32,6 @@ export async function routingCollections(routingId: number): Promise<{ steps: St
       id: r.id,
       key: `s${r.id}`,
       unit_id: r.unit_id,
-      exit_mode: r.exit_mode,
-      job_policy: r.job_policy,
       is_checkpoint: r.is_checkpoint,
       is_skippable: r.is_skippable,
     })),
@@ -80,7 +78,7 @@ async function segmentClash(lineId: number | null, routingId: number | null): Pr
 async function changesUsedRouting(routingId: number | null, steps: RoutingCollections["steps"]): Promise<boolean> {
   if (!routingId || !(await routingInUse(routingId))) return false;
   const stored = await prisma.prdRoutingStep.findMany({ where: { routing_id: routingId }, orderBy: { seq: "asc" } });
-  const shape = (s: RoutingCollections["steps"][number]) => [s.unit_id, s.exit_mode, s.job_policy, s.is_checkpoint, s.is_skippable].join("|");
+  const shape = (s: RoutingCollections["steps"][number]) => [s.unit_id, s.is_checkpoint, s.is_skippable].join("|");
   return stored.map(shape).join(",") !== steps.map(shape).join(",");
 }
 
@@ -113,8 +111,6 @@ export async function checkRoutingCollections(
     taken.push(unit.id);
     clean.steps.push({
       unit_id: unit.id,
-      exit_mode: s.exit_mode!,
-      job_policy: s.job_policy!,
       is_checkpoint: Boolean(s.is_checkpoint),
       is_skippable: Boolean(s.is_skippable),
     });

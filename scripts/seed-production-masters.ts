@@ -19,49 +19,36 @@ const WORKSTATIONS = [
   ["WP", "WIP Packing"],
 ] as const;
 
-const UNITS: [label: string, name: string, workstation: string, processes: PrdProcessKind[]][] = [
-  ["UGH", "Grading Halus", "BB + PPIC", ["Grading"]],
-  ["UPC", "Pre Cleaning", "BB + PPIC", ["PassThrough"]],
-  ["UPY", "Penyebaran", "BB + PPIC", ["Grading", "PartaiFormer"]],
-  ["UPW", "Pre Wash", "CL", ["PassThrough"]],
-  ["UCL", "Cleaning", "CL", ["PassThrough"]],
-  ["UDA", "Dry A", "ML", ["Grading"]],
-  ["UML", "Moulding", "ML", ["GradingMix", "JobOrder"]],
-  ["UDB", "Dry B", "ML", ["Grading"]],
-  ["UWP", "Wrapping", "WP", ["PassThrough"]],
-  ["UBC", "Barcoding", "WP", ["Grading"]],
-  ["UP5", "Packing 95", "WP", ["Assembly"]],
-  ["UP8", "Packing 98", "WP", ["Assembly"]],
+// The table of §5, column for column.
+const UNITS: [label: string, name: string, workstation: string, processes: PrdProcessKind[], exit: PrdExitMode, job: PrdJobPolicy][] = [
+  ["UGH", "Grading Halus", "BB + PPIC", ["Grading"], "Direct", "Issued"],
+  ["UPC", "Pre Cleaning", "BB + PPIC", ["PassThrough"], "Direct", "Carried"],
+  ["UPY", "Penyebaran", "BB + PPIC", ["Grading", "PartaiFormer"], "WithQc", "Issued"],
+  ["UPW", "Pre Wash", "CL", ["PassThrough"], "WithQc", "Carried"],
+  ["UCL", "Cleaning", "CL", ["PassThrough"], "WithQc", "Carried"],
+  ["UDA", "Dry A", "ML", ["Grading"], "WithQc", "Carried"],
+  ["UML", "Moulding", "ML", ["GradingMix", "JobOrder"], "WithQc", "None"],
+  ["UDB", "Dry B", "ML", ["Grading"], "WithQc", "Issued"],
+  ["UWP", "Wrapping", "WP", ["PassThrough"], "WithQc", "Carried"],
+  ["UBC", "Barcoding", "WP", ["Grading"], "WithQc", "Carried"],
+  ["UP5", "Packing 95", "WP", ["Assembly"], "PerCarton", "Released"],
+  ["UP8", "Packing 98", "WP", ["Assembly"], "NoQc", "None"],
 ];
 
-type Step = [unit: string, exit: PrdExitMode, job: PrdJobPolicy, flags?: { checkpoint?: boolean; skippable?: boolean }];
+type Step = [unit: string, flags?: { checkpoint?: boolean; skippable?: boolean }];
 
 const ROUTINGS: { label: string; name: string; line: string | null; steps: Step[] }[] = [
   {
     label: "PRA-PARTAI",
     name: "Sebelum partai, sama untuk semua line",
     line: null,
-    steps: [
-      ["UGH", "Direct", "Issued"],
-      ["UPC", "Direct", "Carried"],
-      ["UPY", "WithQc", "Issued"],
-    ],
+    steps: [["UGH"], ["UPC"], ["UPY"]],
   },
   {
     label: "REG-1",
     name: "Reguler, Pre Wash sampai Packing",
     line: "REG",
-    steps: [
-      ["UPW", "WithQc", "Carried"],
-      ["UCL", "WithQc", "Carried"],
-      ["UDA", "WithQc", "Carried", { checkpoint: true }],
-      ["UML", "WithQc", "None"],
-      ["UDB", "WithQc", "Issued"],
-      ["UWP", "WithQc", "Carried"],
-      ["UBC", "WithQc", "Carried"],
-      ["UP5", "PerCarton", "Released"],
-      ["UP8", "NoQc", "None", { skippable: true }],
-    ],
+    steps: [["UPW"], ["UCL"], ["UDA", { checkpoint: true }], ["UML"], ["UDB"], ["UWP"], ["UBC"], ["UP5"], ["UP8", { skippable: true }]],
   },
 ];
 
@@ -93,9 +80,9 @@ async function main() {
 
   const unitId = new Map<string, number>();
   const processes = new Map<number, string[]>();
-  for (const [label, name, workstation, kinds] of UNITS) {
+  for (const [label, name, workstation, kinds, exit_mode, job_policy] of UNITS) {
     const known = await prisma.refUnit.findFirst({ where: { OR: [{ unit_label: label }, { unit_name: name }] } });
-    const data = { unit_label: label, unit_name: name, workstation_id: wsId.get(workstation)!, processes: kinds };
+    const data = { unit_label: label, unit_name: name, workstation_id: wsId.get(workstation)!, processes: kinds, exit_mode, job_policy };
     const row = known
       ? await prisma.refUnit.update({ where: { id: known.id }, data: { ...data, updated_by: actor } })
       : await prisma.refUnit.create({
@@ -113,11 +100,9 @@ async function main() {
       console.log(`  ${r.label}: sudah ada, dibiarkan`);
       continue;
     }
-    const steps = r.steps.map(([unit, exit_mode, job_policy, flags], i) => ({
+    const steps = r.steps.map(([unit, flags], i) => ({
       seq: i + 1,
       unit_id: unitId.get(unit)!,
-      exit_mode,
-      job_policy,
       is_checkpoint: Boolean(flags?.checkpoint),
       is_skippable: Boolean(flags?.skippable),
     }));
