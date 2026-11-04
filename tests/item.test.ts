@@ -113,7 +113,7 @@ describe("stock and expiry belong to Barang", () => {
   const goodsOnly = item.fields.filter((f) => f.visibleWhen === "itemIsGoods").map((f) => f.name);
 
   test("Kelola Stok and Memiliki Kadaluarsa apply to a Barang only", () => {
-    assert.deepEqual(goodsOnly.sort(), ["has_expiry", "track_stock", "value_weight"]);
+    assert.deepEqual(goodsOnly.sort(), ["has_expiry", "track_stock"]);
     for (const f of item.fields.filter((x) => goodsOnly.includes(x.name))) {
       assert.equal(fieldApplies(f, { item_type: "Barang" }), true);
       assert.equal(fieldApplies(f, { item_type: "Jasa" }), false);

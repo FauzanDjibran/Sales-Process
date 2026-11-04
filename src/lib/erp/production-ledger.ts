@@ -4,8 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 import { costedPeriodRefusal } from "./period-lock";
-import { outputWeight, shareByWeight, shareQty } from "./production-execution";
-import type { LotFate } from "./production-close-shape";
 
 /**
  * The production ledger (R3, step 3) — the book of what is inside production.
@@ -13,8 +11,7 @@ import type { LotFate } from "./production-close-shape";
  * A **bucket** (`prd_balance`) is one lot at one workstation, holding quantity
  * Q in the item's base unit and value V in whole rupiah; Σ V is WIP. Lots are
  * the stock lots (`log_stock_tracking`, unique per item, P120): a stock lot
- * issued in keeps its number, and each execution output is a **new lot**
- * registered here (R5, R17). Every movement is a row of `prd_ledger`, written
+ * issued in keeps its number. Every movement is a row of `prd_ledger`, written
  * in the same transaction as the bucket it changes, with the balances after
  * it; one ledger number `MP/YYYY/MM/NNNN` per posting (P110).
  *
@@ -22,19 +19,14 @@ import type { LotFate } from "./production-close-shape";
  *   empties it, so a bucket always ends at 0 / 0 (as P114's pools).
  * - **Transferring** takes from one bucket and puts the same lot, quantity and
  *   value in another workstation's (R7).
- * - **Producing** takes every input and shares Σ input value over the outputs
- *   by qty × Bobot Nilai (R6), creates each output lot and its bucket, and
- *   writes the genealogy — what each input gave each output (`prd_tracking_link`),
- *   which the month-end close follows forward (R12).
- * - **Revaluing** adds a value with quantity 0 — the month-end close.
  *
  * Only a Barang with Kelola Stok enters production. Buckets are locked
  * `FOR UPDATE` in id order; a document that also moves stock locks the stock
  * pools first.
  *
- * A book: it imports only the shared kernel (and the pure execution
- * arithmetic) and is called by the documents, never the reverse (§3.1). It
- * writes no journal — the document posts WIP beside it.
+ * A book: it imports only the shared kernel and is called by the documents,
+ * never the reverse (§3.1). It writes no journal — the document posts WIP
+ * beside it.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -47,7 +39,7 @@ export class ProductionRefusal extends Error {}
 
 export type ProductionSource = { docTypeId: number; docId: number; no: string };
 
-type Movement = "Issued" | "Consumed" | "Produced" | "TransferOut" | "TransferIn" | "Released" | "Revalued";
+type Movement = "Issued" | "Consumed" | "Produced" | "TransferOut" | "TransferIn" | "Released";
 
 const qtyText = (d: Dec) => d.toDecimalPlaces(6).toString().replace(".", ",");
 const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
@@ -57,7 +49,7 @@ const iso = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
 async function productionItem(tx: Tx, itemId: number) {
   const item = await tx.mItem.findUnique({
     where: { id: itemId },
-    select: { item_label: true, item_type: true, track_stock: true, has_expiry: true, base_uom_id: true, value_weight: true },
+    select: { item_label: true, item_type: true, track_stock: true, has_expiry: true, base_uom_id: true },
   });
   if (!item) throw new ProductionRefusal("Barang tidak ditemukan.");
   if (item.item_type !== "Barang" || !item.track_stock) {
@@ -224,7 +216,7 @@ export type TakenFromProduction = {
 };
 
 /**
- * Takes goods out of production (Production Release, R8): the bucket
+ * Takes goods out of production: the bucket
  * releases round(V × q ÷ Q), or V whole when q empties it. Refuses short
  * quantity. Says what the goods were — lot and expiry — so the caller can
  * carry them into stock.
@@ -258,150 +250,6 @@ export async function transferBucket(
   return { value: value.toNumber(), toBucketId: to.id, lotId: from.lotId, itemId: from.itemId };
 }
 
-// ------------------------------------------------------------ producing
-
-export type ProduceInput = { bucketId: number; baseQty: number | string };
-
-export type ProduceOutput = {
-  itemId: number;
-  /** A new lot number for the item (R17). */
-  lotNo: string;
-  expiry: Date | null;
-  baseQty: number | string;
-};
-
-export type Production = {
-  workstationId: number;
-  inputs: ProduceInput[];
-  outputs: ProduceOutput[];
-  date: Date;
-  source: ProductionSource;
-  actorId: number;
-};
-
-export type Produced = {
-  /** Per input, in the order given: what it released. */
-  inputs: { bucketId: number; lotId: number; itemId: number; value: number }[];
-  /** Per output, in the order given: its lot, bucket, weight and value. */
-  outputs: { lotId: number; bucketId: number; weight: number; value: number }[];
-  /** Σ input value = Σ output value. */
-  total: number;
-};
-
-/**
- * One execution, balanced (R5, R6): takes every input from the execution's
- * workstation, shares Σ input value over the outputs by qty × Bobot Nilai
- * (largest remainder), registers each output as a new lot of its item with its
- * bucket at the workstation, and records the genealogy. Refuses an execution
- * whose outputs all weigh 0. Called inside the execution's posting.
- */
-export async function produce(tx: Tx, p: Production): Promise<Produced> {
-  if (!p.inputs.length) throw new ProductionRefusal("Eksekusi memerlukan minimal satu input.");
-  if (!p.outputs.length) throw new ProductionRefusal("Eksekusi memerlukan minimal satu output.");
-  await activeWorkstation(tx, p.workstationId);
-
-  // Outputs checked first, nothing written.
-  const seen = new Set<string>();
-  const outs = [];
-  for (const o of p.outputs) {
-    const item = await productionItem(tx, o.itemId);
-    const qty = new D(o.baseQty);
-    if (!qty.gt(0)) throw new ProductionRefusal(`Jumlah output ${item.item_label} harus lebih dari 0.`);
-    if (qty.decimalPlaces() > 6) throw new ProductionRefusal("Jumlah paling banyak 6 angka desimal.");
-    const lotNo = String(o.lotNo ?? "").trim().toUpperCase();
-    if (!lotNo) throw new ProductionRefusal(`Isi No. Lot output ${item.item_label}.`);
-    if (seen.has(`${o.itemId}:${lotNo}`)) throw new ProductionRefusal(`Lot ${lotNo} ${item.item_label} dipakai dua kali.`);
-    seen.add(`${o.itemId}:${lotNo}`);
-    if (await tx.logStockTracking.findUnique({ where: { item_id_tracking_no: { item_id: o.itemId, tracking_no: lotNo } }, select: { id: true } })) {
-      throw new ProductionRefusal(`Lot ${lotNo} ${item.item_label} sudah ada; lot output selalu baru.`);
-    }
-    if (item.has_expiry && !o.expiry) throw new ProductionRefusal(`${item.item_label} memiliki kadaluarsa: isi tanggal kadaluarsa lot ${lotNo}.`);
-    outs.push({ ...o, lotNo, qty, item, weight: outputWeight(qty.toNumber(), item.value_weight?.toNumber()) });
-  }
-  const weights = outs.map((o) => o.weight);
-  if (!(weights.reduce((a, w) => a + w, 0) > 0)) {
-    throw new ProductionRefusal("Semua output berbobot 0: isi Bobot Nilai pada barang output, minimal satu.");
-  }
-
-  // Inputs: locked in bucket-id order, then taken in the order given.
-  const ids = [...new Set(p.inputs.map((i) => i.bucketId))].sort((a, b) => a - b);
-  if (ids.length !== p.inputs.length) throw new ProductionRefusal("Satu saldo produksi hanya boleh diambil sekali per eksekusi.");
-  const locked = new Map<number, Bucket>();
-  for (const id of ids) {
-    const b = await lockBucketById(tx, id);
-    if (!b) throw new ProductionRefusal("Saldo produksi input tidak ditemukan. Pilih ulang.");
-    if (b.workstationId !== p.workstationId) throw new ProductionRefusal("Input harus berada di workstation eksekusi ini.");
-    locked.set(id, b);
-  }
-  const inputs: Produced["inputs"] = [];
-  const takenQty: Dec[] = [];
-  for (const i of p.inputs) {
-    const b = locked.get(i.bucketId)!;
-    const qty = new D(i.baseQty);
-    const value = await takeLocked(tx, b, qty, "Consumed", p.date, p.source, p.actorId);
-    inputs.push({ bucketId: b.id, lotId: b.lotId, itemId: b.itemId, value: value.toNumber() });
-    takenQty.push(qty);
-  }
-
-  const total = inputs.reduce((a, i) => a + i.value, 0);
-  const values = shareByWeight(total, weights);
-  const outputs: Produced["outputs"] = [];
-  for (const [j, o] of outs.entries()) {
-    const lot = await tx.logStockTracking.create({
-      data: {
-        tracking_no: o.lotNo,
-        tracking_date: p.date,
-        item_id: o.itemId,
-        source_doc_type_id: p.source.docTypeId,
-        source_doc_id: p.source.docId,
-        source_no: p.source.no,
-        expiry_date: o.expiry,
-        created_by: p.actorId,
-      },
-    });
-    const bucket = await openBucket(tx, { lotId: lot.id, workstationId: p.workstationId, itemId: o.itemId, uomId: o.item.base_uom_id }, p.actorId);
-    await write(tx, bucket, { movement: "Produced", qty: o.qty, value: new D(values[j]), date: p.date, source: p.source, actorId: p.actorId });
-    outputs.push({ lotId: lot.id, bucketId: bucket.id, weight: o.weight, value: values[j] });
-  }
-
-  // Genealogy: each input's quantity and value shared over the outputs that carry value.
-  for (const [i, input] of inputs.entries()) {
-    const qtyParts = shareQty(takenQty[i].toNumber(), weights);
-    const valueParts = shareByWeight(input.value, weights);
-    for (const [j, out] of outputs.entries()) {
-      if (!(weights[j] > 0)) continue;
-      await tx.prdTrackingLink.create({
-        data: {
-          source_doc_type_id: p.source.docTypeId,
-          source_doc_id: p.source.docId,
-          source_no: p.source.no,
-          from_bucket_id: input.bucketId,
-          from_tracking_id: input.lotId,
-          to_tracking_id: out.lotId,
-          qty: qtyParts[j],
-          value: valueParts[j],
-        },
-      });
-    }
-  }
-  return { inputs, outputs, total };
-}
-
-// ------------------------------------------------------------ revaluing
-
-/**
- * Adds a whole-rupiah value to a bucket with quantity 0 (the month-end close).
- * Refuses an empty bucket and a result below zero.
- */
-export async function revalueBucket(tx: Tx, r: { bucketId: number; value: number; date: Date; source: ProductionSource; actorId: number }): Promise<void> {
-  if (!Number.isInteger(r.value)) throw new ProductionRefusal("Nilai penyesuaian harus rupiah utuh.");
-  if (r.value === 0) return;
-  const b = await lockBucketById(tx, r.bucketId);
-  if (!b) throw new ProductionRefusal("Saldo produksi tidak ditemukan.");
-  if (!b.qty.gt(0)) throw new ProductionRefusal("Saldo produksi yang kosong tidak dapat dinilai ulang.");
-  await write(tx, b, { movement: "Revalued", qty: new D(0), value: new D(r.value), date: r.date, source: r.source, actorId: r.actorId });
-}
-
 // ---------------------------------------------------------------- reads
 
 export type BucketView = {
@@ -412,7 +260,6 @@ export type BucketView = {
   itemLabel: string;
   itemName: string;
   uomLabel: string;
-  valueWeight: number | null;
   workstationId: number;
   workstationLabel: string;
   workstationName: string;
@@ -423,7 +270,7 @@ export type BucketView = {
 
 const bucketInclude = {
   tracking: { select: { tracking_no: true, expiry_date: true } },
-  item: { select: { item_label: true, item_name: true, value_weight: true } },
+  item: { select: { item_label: true, item_name: true } },
   uom: { select: { uom_label: true } },
   workstation: { select: { workstation_label: true, workstation_name: true } },
 } as const;
@@ -438,7 +285,6 @@ const view = (b: BucketRow): BucketView => ({
   itemLabel: b.item.item_label,
   itemName: b.item.item_name,
   uomLabel: b.uom.uom_label,
-  valueWeight: b.item.value_weight?.toNumber() ?? null,
   workstationId: b.workstation_id,
   workstationLabel: b.workstation.workstation_label,
   workstationName: b.workstation.workstation_name,
@@ -481,45 +327,13 @@ export async function bucketsByIds(ids: number[], db: Db = prisma): Promise<Map<
   return new Map(rows.map((r) => [r.id, view(r)]));
 }
 
-/** Whether the item already has a lot of this number in the one register — an output lot is always new (R17). */
-export async function lotNumberTaken(itemId: number, lotNo: string, db: Db = prisma): Promise<boolean> {
-  return Boolean(await db.logStockTracking.findUnique({ where: { item_id_tracking_no: { item_id: itemId, tracking_no: lotNo.trim().toUpperCase() } }, select: { id: true } }));
-}
-
 /** Σ value held in production now, per item — what the WIP accounts should hold. */
 export async function wipByItem(db: Db = prisma): Promise<Map<number, number>> {
   const rows = await db.prdBalance.groupBy({ by: ["item_id"], _sum: { value_balance: true }, where: { value_balance: { not: 0 } } });
   return new Map(rows.map((r) => [r.item_id, r._sum.value_balance?.toNumber() ?? 0]));
 }
 
-// ------------------------------------------------------------ the close
-
-/** What became of each lot, as the books stand now (R12): held, taken into later lots, released. */
-export async function lotFates(lotIds: number[], db: Db = prisma): Promise<Map<number, LotFate>> {
-  const out = new Map<number, LotFate>(lotIds.map((id) => [id, { held: [], links: [], released: [] }]));
-  if (!lotIds.length) return out;
-  const releaseType = await db.sysDocType.findFirst({ where: { doc_table: "prd_release" }, select: { id: true } });
-  const [held, links, released] = await Promise.all([
-    db.prdBalance.findMany({ where: { tracking_id: { in: lotIds }, qty_balance: { gt: 0 } }, select: { id: true, tracking_id: true, item_id: true, qty_balance: true } }),
-    db.prdTrackingLink.findMany({ where: { from_tracking_id: { in: lotIds } }, select: { from_tracking_id: true, to_tracking_id: true, qty: true } }),
-    db.prdLedger.findMany({
-      where: { tracking_id: { in: lotIds }, movement: "Released", source_doc_type_id: releaseType?.id ?? -1 },
-      select: { tracking_id: true, item_id: true, source_doc_id: true, qty_change: true },
-    }),
-  ]);
-  for (const b of held) out.get(b.tracking_id)!.held.push({ bucketId: b.id, itemId: b.item_id, qty: b.qty_balance.toNumber() });
-  for (const l of links) {
-    const f = out.get(l.from_tracking_id)!;
-    const same = f.links.find((x) => x.toLotId === l.to_tracking_id);
-    if (same) same.qty += l.qty.toNumber();
-    else f.links.push({ toLotId: l.to_tracking_id, qty: l.qty.toNumber() });
-  }
-  for (const r of released) {
-    const f = out.get(r.tracking_id)!;
-    const same = f.released.find((x) => x.docId === r.source_doc_id);
-    const q = r.qty_change.abs().toNumber();
-    if (same) same.qty += q;
-    else f.released.push({ docId: r.source_doc_id, itemId: r.item_id, qty: q });
-  }
-  return out;
+/** Whether anything moved in production between two dates — what the year-end guard asks (R28). */
+export async function hasProductionMovement(from: Date, to: Date, db: Db = prisma): Promise<boolean> {
+  return Boolean(await db.prdLedger.findFirst({ where: { posting_date: { gte: from, lte: to } }, select: { id: true } }));
 }

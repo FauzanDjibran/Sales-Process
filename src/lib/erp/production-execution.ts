@@ -1,18 +1,7 @@
 /**
- * Execution arithmetic (R6) — pure and client-safe, so the Eksekusi Produksi
- * form previews exactly what the production ledger writes.
- *
- * An execution's value — Σ input value — is shared over its outputs by
- * **qty × Bobot Nilai**: whole rupiah, largest remainder, so the parts always
- * add up to the whole; an output weighing 0 takes nothing.
+ * Production sharing arithmetic — pure and client-safe, so a form previews
+ * exactly what the production ledger writes.
  */
-
-/** An output's weight: its base quantity × its item's Bobot Nilai (empty = 0). */
-export function outputWeight(baseQty: number, valueWeight: number | null | undefined): number {
-  const q = Number(baseQty);
-  const w = Number(valueWeight ?? 0);
-  return q > 0 && w > 0 ? q * w : 0;
-}
 
 /**
  * Shares a whole-rupiah `total` over `weights` in proportion, largest

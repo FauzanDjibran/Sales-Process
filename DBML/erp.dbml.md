@@ -565,7 +565,6 @@ table m_item {
   can_buy                     boolean [not null, default: false]
   track_stock                 boolean [not null, default: false]
   has_expiry                  boolean [not null, default: false]
-  value_weight                decimal(18,6) // Bobot Nilai (R6): an execution shares its value by qty × this; empty / 0 = no value
 
   note                        varchar
 
@@ -1038,7 +1037,6 @@ table cash_bank_balance {
   balance                     decimal(18,2) [not null, default: 0]
   base_balance                decimal(18,2) [not null, default: 0]
   entry_count                 int [not null, default: 0]
-
 
   last_entry_date             date
 
@@ -2635,7 +2633,7 @@ table prd_ledger {
   source_doc_type_id          int [not null] // weak source pair (§3.1)
   source_doc_id               int [not null]
   source_no                   varchar [not null]
-  movement                    enum('Issued', 'Consumed', 'Produced', 'TransferOut', 'TransferIn', 'Released', 'Revalued') [not null]
+  movement                    enum('Issued', 'Consumed', 'Produced', 'TransferOut', 'TransferIn', 'Released') [not null]
   bucket_id                   int [not null, ref : > prd_balance.id]
   tracking_id                      int [not null, ref : > log_stock_tracking.id]
   workstation_id              int [not null, ref : > ref_workstation.id]
@@ -2751,159 +2749,6 @@ table log_stock_issue_tracking {
   }
 }
 
-// Eksekusi Produksi (R5, R6, R11, R17): inputs held at one workstation consumed, outputs made
-// as new lots valued by qty × Bobot Nilai; EKS/YYYY/MM/NNNN
-table prd_execution {
-  id                          int [pk, increment, not null]
-
-  execution_no                varchar [not null, unique]
-  execution_date              date [not null]
-  workstation_id              int [not null, ref : > ref_workstation.id]
-  driver                      decimal(18,4) [not null] // R11, CHECK > 0
-  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft'] // ProductionDocStatus
-  note                        varchar
-  input_value                 decimal(18,2) [not null, default: 0] // = Σ outputs, set at Posting
-  journal_id                  int // none when inputs and outputs share a WIP account
-  cancel_reason               varchar
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    (status, execution_date)
-    workstation_id
-  }
-}
-
-table prd_execution_input {
-  id                          int [pk, increment, not null]
-
-  execution_id                int [not null, ref : > prd_execution.id] // cascade
-  line_no                     int [not null]
-  bucket_id                   int [not null] // prd_balance.id, weak
-  tracking_id                      int [not null]
-  item_id                     int [not null, ref : > m_item.id]
-  qty                         decimal(18,4) [not null] // base unit
-  value                       decimal(18,2) [not null, default: 0] // released, set at Posting
-
-  indexes {
-    (execution_id, line_no) [unique]
-    bucket_id
-  }
-}
-
-table prd_execution_output {
-  id                          int [pk, increment, not null]
-
-  execution_id                int [not null, ref : > prd_execution.id] // cascade
-  line_no                     int [not null]
-  item_id                     int [not null, ref : > m_item.id]
-  tracking_no                      varchar // typed, or <execution no>-<n> at Posting (R17)
-  expiry_date                 date
-  qty                         decimal(18,4) [not null]
-  weight                      decimal(18,6) [not null, default: 0] // qty × Bobot Nilai
-  value                       decimal(18,2) [not null, default: 0]
-  tracking_id                      int // made at Posting, weak
-  bucket_id                   int
-
-  indexes {
-    (execution_id, line_no) [unique]
-    tracking_id
-  }
-}
-
-// Production Transfer (R7): lots move directly between workstations, value kept, no journal; PT/…
-table prd_transfer {
-  id                          int [pk, increment, not null]
-
-  transfer_no                 varchar [not null, unique]
-  transfer_date               date [not null]
-  from_workstation_id         int [not null, ref : > ref_workstation.id]
-  to_workstation_id           int [not null, ref : > ref_workstation.id] // CHECK <> from
-  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
-  note                        varchar
-  value                       decimal(18,2) [not null, default: 0]
-  cancel_reason               varchar
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    (status, transfer_date)
-  }
-}
-
-table prd_transfer_line {
-  id                          int [pk, increment, not null]
-
-  transfer_id                 int [not null, ref : > prd_transfer.id] // cascade
-  line_no                     int [not null]
-  bucket_id                   int [not null] // weak
-  to_bucket_id                int // weak, set at Posting
-  tracking_id                      int [not null]
-  item_id                     int [not null, ref : > m_item.id]
-  qty                         decimal(18,4) [not null]
-  value                       decimal(18,2) [not null, default: 0]
-
-  indexes {
-    (transfer_id, line_no) [unique]
-    bucket_id
-  }
-}
-
-// Production Release (R8): to_stock (PHP/…, Dr Persediaan / Cr WIP, same lot into a warehouse)
-// or scrap (PMS/…, Dr Beban Pemusnahan Produksi / Cr WIP, with a reason)
-table prd_release {
-  id                          int [pk, increment, not null]
-
-  release_no                  varchar [not null, unique]
-  release_date                date [not null]
-  purpose                     varchar [not null] // to_stock | scrap, CHECK with warehouse
-  workstation_id              int [not null, ref : > ref_workstation.id]
-  warehouse_id                int [ref : > ref_warehouse.id] // to_stock only
-  location_id                 int // ref_warehouse_location.id, no FK
-  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
-  scrap_reason                varchar // scrap: required
-  note                        varchar
-  value                       decimal(18,2) [not null, default: 0]
-  journal_id                  int
-  cancel_reason               varchar
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    (purpose, status)
-    (status, release_date)
-  }
-}
-
-table prd_release_line {
-  id                          int [pk, increment, not null]
-
-  release_id                  int [not null, ref : > prd_release.id] // cascade
-  line_no                     int [not null]
-  bucket_id                   int [not null] // weak
-  tracking_id                      int [not null]
-  item_id                     int [not null, ref : > m_item.id]
-  qty                         decimal(18,4) [not null]
-  value                       decimal(18,2) [not null, default: 0]
-
-  indexes {
-    (release_id, line_no) [unique]
-    bucket_id
-  }
-}
-
 // The period lock (R15): accounts a costed period takes no journal line on.
 table acc_fiscal_period_lock {
   id                          int [pk, increment, not null]
@@ -2912,72 +2757,6 @@ table acc_fiscal_period_lock {
 
   indexes {
     (period_id, account_id) [unique]
-  }
-}
-
-// Penutupan Biaya Produksi (R10–R15, R25): one per fiscal period, final.
-table prd_cost_close {
-  id                          int [pk, increment, not null]
-  period_id                   int [not null, unique] // weak: acc_fiscal_period
-  close_date                  date [not null]
-  pool_total                  decimal(18,2) [not null, default: 0]
-  journal_id                  int
-  created_by                  int [not null]
-  created_at                  timestamptz [not null, default: `now()`]
-}
-
-table prd_cost_close_pool {
-  id                          int [pk, increment, not null]
-  close_id                    int [not null, ref : > prd_cost_close.id] // cascade
-  account_id                  int [not null]
-  amount                      decimal(18,2) [not null]
-
-  indexes {
-    (close_id, account_id) [unique]
-  }
-}
-
-table prd_cost_close_share {
-  id                          int [pk, increment, not null]
-  close_id                    int [not null, ref : > prd_cost_close.id] // cascade
-  execution_id                int [not null]
-  execution_no                varchar [not null]
-  driver                      decimal(18,4) [not null]
-  amount                      decimal(18,2) [not null]
-
-  indexes {
-    (close_id, execution_id) [unique]
-  }
-}
-
-table prd_cost_close_dest {
-  id                          int [pk, increment, not null]
-  close_id                    int [not null, ref : > prd_cost_close.id] // cascade
-  kind                        varchar [not null] // Wip | Stock | Hpp | Scrap
-  item_id                     int
-  bucket_id                   int
-  account_id                  int [not null]
-  amount                      decimal(18,2) [not null]
-
-  indexes {
-    (close_id, kind)
-  }
-}
-
-table prd_cost_close_item {
-  id                          int [pk, increment, not null]
-  close_id                    int [not null, ref : > prd_cost_close.id] // cascade
-  item_id                     int [not null]
-  opening_qty                 decimal(18,6) [not null]
-  inflow_qty                  decimal(18,6) [not null]
-  outflow_qty                 decimal(18,6) [not null]
-  ending_qty                  decimal(18,6) [not null]
-  value_before                decimal(18,2) [not null]
-  hpp_amount                  decimal(18,2) [not null]
-  stock_amount                decimal(18,2) [not null]
-
-  indexes {
-    (close_id, item_id) [unique]
   }
 }
 

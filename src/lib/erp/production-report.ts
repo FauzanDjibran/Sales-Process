@@ -2,15 +2,14 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
-import type { PeriodRange } from "./period";
 import type { RefOption } from "./records";
 import { deliveriesOfLots } from "./delivery-note";
 import { lotStockHistory, lotStockPositions, type LotStockMovement } from "./stock-report";
 
 /**
- * The production reports (R18, P209): **Saldo Produksi**, **Kartu Lot** and
- * **Rekap Produksi**, salvaged from `walet` without Partai, Job, transit or
- * standard cost. Read-only, and read from the ledgers — never from the balance
+ * The production reports (R18, P209): **Saldo Produksi** and **Kartu Lot**,
+ * salvaged from `walet` without Partai, Job, transit or standard cost, and
+ * **Telusur Produksi**. Read-only, and read from the ledgers — never from the balance
  * tables — so a past date is reported as it stood; Saldo Produksi says whether
  * the balance table still equals its ledger.
  *
@@ -18,7 +17,6 @@ import { lotStockHistory, lotStockPositions, type LotStockMovement } from "./sto
  * (as `stock-report.ts` reads the stock books).
  */
 
-const day = (s: string) => new Date(`${s}T00:00:00Z`);
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 const num = (d: Prisma.Decimal | null | undefined) => (d ? d.toNumber() : 0);
 const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
@@ -129,7 +127,6 @@ export const MOVEMENT_LABEL: Record<string, string> = {
   TransferOut: "Pindah keluar",
   TransferIn: "Pindah masuk",
   Released: "Keluar produksi",
-  Revalued: "Revaluasi",
 };
 
 /**
@@ -176,88 +173,6 @@ export async function lotCardReport(lotNo: string): Promise<LotCard[]> {
       };
     }),
   );
-}
-
-// ---------------------------------------------------------- Rekap Produksi
-
-export type RecapRow = {
-  uom: string;
-  runs: number;
-  inQty: number;
-  outQty: number;
-  /** In − out: a loss (susut) when positive, a gain when negative. */
-  loss: number;
-  lossPct: number;
-  inValue: number;
-  outValue: number;
-  /** Per unit going in and coming out — a loss raises the cost per unit, because the value stays with the goods. */
-  inUnitCost: number;
-  outUnitCost: number;
-};
-
-export type RecapStation = { stationId: number; stationLabel: string; stationName: string; runs: number; driver: number; rows: RecapRow[]; executions: { id: number; no: string; date: string }[] };
-
-/**
- * Per workstation over a period: what went in and came out of its posted
- * executions per unit of measure (quantities of different units are never
- * added), the loss, the Driver they carry for the close, and the cost per unit
- * in and out.
- */
-export async function runRecapReport(range: PeriodRange, workstationIds: number[]): Promise<RecapStation[]> {
-  const runs = await prisma.prdExecution.findMany({
-    where: { status: "Posted", execution_date: { gte: day(range.from), lte: day(range.to) }, ...(workstationIds.length ? { workstation_id: { in: workstationIds } } : {}) },
-    orderBy: [{ execution_date: "asc" }, { id: "asc" }],
-    include: {
-      workstation: { select: { workstation_label: true, workstation_name: true } },
-      inputs: { select: { qty: true, value: true, item: { select: { base_uom: { select: { uom_label: true } } } } } },
-      outputs: { select: { qty: true, value: true, item: { select: { base_uom: { select: { uom_label: true } } } } } },
-    },
-  });
-  type Acc = RecapRow & { runIds: Set<number> };
-  const stations = new Map<number, Omit<RecapStation, "rows"> & { by: Map<string, Acc> }>();
-  for (const r of runs) {
-    const st = stations.get(r.workstation_id) ?? { stationId: r.workstation_id, stationLabel: r.workstation.workstation_label, stationName: r.workstation.workstation_name, runs: 0, driver: 0, executions: [], by: new Map<string, Acc>() };
-    st.runs += 1;
-    st.driver = round6(st.driver + num(r.driver));
-    st.executions.push({ id: r.id, no: r.execution_no, date: iso(r.execution_date) });
-    const row = (uom: string) => {
-      const had = st.by.get(uom);
-      if (had) return had;
-      const fresh: Acc = { uom, runs: 0, inQty: 0, outQty: 0, loss: 0, lossPct: 0, inValue: 0, outValue: 0, inUnitCost: 0, outUnitCost: 0, runIds: new Set() };
-      st.by.set(uom, fresh);
-      return fresh;
-    };
-    for (const x of r.inputs) {
-      const g = row(x.item.base_uom.uom_label);
-      g.inQty += num(x.qty);
-      g.inValue += num(x.value);
-      g.runIds.add(r.id);
-    }
-    for (const o of r.outputs) {
-      const g = row(o.item.base_uom.uom_label);
-      g.outQty += num(o.qty);
-      g.outValue += num(o.value);
-      g.runIds.add(r.id);
-    }
-    stations.set(r.workstation_id, st);
-  }
-  return [...stations.values()]
-    .map(({ by, ...st }) => ({
-      ...st,
-      rows: [...by.values()]
-        .map(({ runIds, ...g }) => ({
-          ...g,
-          runs: runIds.size,
-          inQty: round6(g.inQty),
-          outQty: round6(g.outQty),
-          loss: round6(g.inQty - g.outQty),
-          lossPct: g.inQty > 0 ? Math.round(((g.inQty - g.outQty) / g.inQty) * 10_000) / 100 : 0,
-          inUnitCost: g.inQty > 0 ? round6(g.inValue / g.inQty) : 0,
-          outUnitCost: g.outQty > 0 ? round6(g.outValue / g.outQty) : 0,
-        }))
-        .sort((a, b) => a.uom.localeCompare(b.uom)),
-    }))
-    .sort((a, b) => a.stationLabel.localeCompare(b.stationLabel));
 }
 
 // ---------------------------------------------------------- Telusur Produksi

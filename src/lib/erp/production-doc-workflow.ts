@@ -1,7 +1,6 @@
 /**
- * The lifecycle the production documents share — Eksekusi Produksi,
- * Production Transfer and Production Release (R5, R7, R8) — written once and
- * read by both sides.
+ * The lifecycle production documents share, written once and read by both
+ * sides.
  *
  *   Draft ──post──> Posted
  *     │
@@ -118,34 +117,3 @@ export const PROD_DOC_STATUS_BADGE: Record<ProdDocStatus, string> = {
   Posted: "s-ok",
   Cancelled: "s-mute",
 };
-
-// ---------------------------------------------------------------- the three
-
-export const EXECUTION_WORKFLOW = prodDocWorkflow({
-  noun: "Eksekusi Produksi",
-  prefix: "PRODUCTION_EXECUTION",
-  path: "/production/execution",
-  journal: true,
-  postIcon: "gear",
-  postBody:
-    "Input diambil dari Workstation, output dicatat sebagai lot baru senilai input yang dibagi menurut Qty × Bobot Nilai. " +
-    "Journal di bawah hanya memindahkan nilai antar Account WIP bila account input dan output berbeda.",
-});
-
-export const TRANSFER_WORKFLOW = prodDocWorkflow({
-  noun: "Production Transfer",
-  prefix: "PRODUCTION_TRANSFER",
-  path: "/production/transfer",
-  journal: false,
-  postIcon: "truck",
-  postBody: "Lot dipindahkan langsung ke Workstation tujuan, senilai yang dikandungnya. Tidak ada journal: nilainya tetap di WIP.",
-});
-
-export const RELEASE_WORKFLOW = prodDocWorkflow({
-  noun: "Production Release",
-  prefix: "PRODUCTION_RELEASE",
-  path: "/production/release",
-  journal: true,
-  postIcon: "box",
-  postBody: "Barang keluar dari produksi senilai yang dikandungnya — ke gudang dengan lot yang sama, atau dimusnahkan — dengan journal di bawah.",
-});

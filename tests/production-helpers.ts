@@ -2,8 +2,8 @@ import { cleanupStock, makeAccount, prisma, stockIn, systemUserId } from "./help
 
 /**
  * A production fixture (P200): a category with its own Persediaan and WIP
- * accounts, a material and two products (one with Bobot Nilai, a by-product
- * without), a warehouse, two workstations and a stock lot of the material.
+ * accounts, a material and two products, a warehouse, two workstations and a
+ * stock lot of the material.
  * Everything is the test's own and goes in `teardown`.
  */
 export type ProductionFixture = {
@@ -39,15 +39,15 @@ export async function makeProductionFixture(tag: string): Promise<ProductionFixt
   ).id;
   await prisma.accItemCategoryAccount.create({ data: { category_id: category, inventory_account_id: inventoryAcc, cogs_account_id: scrapAcc, wip_account_id: wipAcc, created_by: actor } });
   const uom = (await prisma.refUom.findFirstOrThrow({ where: { uom_label: "GR" } })).id;
-  const item = async (label: string, weight: number | null) =>
+  const item = async (label: string) =>
     (
       await prisma.mItem.create({
-        data: { item_code: `test.${key(label)}`, item_label: key(label), item_name: label, item_type: "Barang", category_id: category, base_uom_id: uom, track_stock: true, value_weight: weight, created_by: actor },
+        data: { item_code: `test.${key(label)}`, item_label: key(label), item_name: label, item_type: "Barang", category_id: category, base_uom_id: uom, track_stock: true, created_by: actor },
       })
     ).id;
-  const material = await item("BAHAN", null);
-  const product = await item("PRODUK", 1);
-  const byproduct = await item("SISA", null);
+  const material = await item("BAHAN");
+  const product = await item("PRODUK");
+  const byproduct = await item("SISA");
   const warehouse = (await prisma.refWarehouse.create({ data: { warehouse_code: `test.${key("WH")}`, warehouse_label: key("WH"), warehouse_name: "Gudang Uji Produksi", created_by: actor } })).id;
   const ws = async (label: string) =>
     (await prisma.refWorkstation.create({ data: { workstation_code: `test.${key(label)}`, workstation_label: key(label), workstation_name: label, created_by: actor } })).id;

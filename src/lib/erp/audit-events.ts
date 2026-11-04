@@ -33,7 +33,6 @@ import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
 import { RECEIPT_NOTE_TRANSITIONS } from "./receipt-note-workflow";
 import { COST_BILL_TRANSITIONS } from "./production-cost-bill-workflow";
 import { STOCK_ISSUE_TRANSITIONS } from "./stock-issue-workflow";
-import { EXECUTION_WORKFLOW, RELEASE_WORKFLOW, TRANSFER_WORKFLOW, type ProdDocWorkflow } from "./production-doc-workflow";
 import { PURCHASE_INVOICE_TRANSITIONS } from "./ap-invoice-workflow";
 import { PURCHASE_REQUEST_TRANSITIONS } from "./purchase-request-workflow";
 import { PURCHASE_ORDER_TRANSITIONS } from "./purchase-order-workflow";
@@ -201,14 +200,6 @@ const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(STOCK_ISSUE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
-/** Eksekusi, Transfer and Release: Draft → Diposting, or Dibatalkan (R5, R7, R8). */
-const prodDocEvents = (w: ProdDocWorkflow, posted: string): Record<string, AuditEventLabel> => ({
-  ...COMMON,
-  create: { label: `${w.noun} dibuat`, icon: w.transitions.post.icon, tone: "neutral" },
-  post: fromTransition(w.transitions.post, posted),
-  cancel: fromTransition(w.transitions.cancel, "Dibatalkan"),
-});
-
 const RECEIPT_NOTE_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   create: { label: "Receipt Note dibuat", icon: "box", tone: "neutral" },
@@ -335,9 +326,6 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   log_receipt_note: RECEIPT_NOTE_EVENTS,
   prd_cost_bill: COST_BILL_EVENTS,
   log_stock_issue: STOCK_ISSUE_EVENTS,
-  prd_execution: prodDocEvents(EXECUTION_WORKFLOW, "Diposting — input diolah menjadi output"),
-  prd_transfer: prodDocEvents(TRANSFER_WORKFLOW, "Diposting — lot dipindahkan"),
-  prd_release: prodDocEvents(RELEASE_WORKFLOW, "Diposting — barang keluar dari produksi"),
   pur_request: PURCHASE_REQUEST_EVENTS,
   pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,

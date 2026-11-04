@@ -128,23 +128,11 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logStockIssueLine: ["src/lib/erp/stock-issue.ts"],
   logStockIssueTracking: ["src/lib/erp/stock-issue.ts"],
   // The production documents (R5, R7, R8): each named only by its module.
-  prdExecution: ["src/lib/erp/production-run.ts", "src/lib/erp/production-report.ts"],
-  prdExecutionInput: ["src/lib/erp/production-run.ts"],
-  prdExecutionOutput: ["src/lib/erp/production-run.ts"],
-  prdTransfer: ["src/lib/erp/production-transfer.ts"],
-  prdTransferLine: ["src/lib/erp/production-transfer.ts"],
-  prdRelease: ["src/lib/erp/production-release.ts"],
-  prdReleaseLine: ["src/lib/erp/production-release.ts"],
   // The production ledger (R3): a book, written only by its module and read by its reports (R18).
   prdBalance: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   prdLedger: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   prdTrackingLink: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   // The month-end close (R10–R15, R25): its record, named only by its module; the lock only by the kernel.
-  prdCostClose: ["src/lib/erp/production-close.ts"],
-  prdCostClosePool: ["src/lib/erp/production-close.ts"],
-  prdCostCloseShare: ["src/lib/erp/production-close.ts"],
-  prdCostCloseDest: ["src/lib/erp/production-close.ts"],
-  prdCostCloseItem: ["src/lib/erp/production-close.ts"],
   accFiscalPeriodLock: ["src/lib/erp/period-lock.ts"],
   // Billing documents: Finance owns them since P107; Sales holds only orders.
   finArAdvance: ["src/lib/erp/ar-advance.ts"],

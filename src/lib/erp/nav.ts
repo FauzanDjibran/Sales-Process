@@ -158,44 +158,14 @@ export const MODULES: NavModule[] = [
     ],
   },
   {
-    // Production (P200, Production-Plan.md): goods held per lot · workstation,
-    // transformed by executions, costed at month end.
+    // Production (P200, `Produksi Walet (Real).md`): what is left while its
+    // documents are rebuilt (P218).
     key: "production",
     name: "Produksi",
     icon: "gear",
-    desc: "Barang di produksi per lot dan workstation, eksekusi yang mengubahnya, dan biaya produksi yang dibebankan saat penutupan bulan.",
+    desc: "Barang di produksi per lot dan workstation, dan biaya produksi per Jenis Biaya.",
     permission: "MENU_PRODUCTION_ACCESS",
     groups: [
-      {
-        key: "operation",
-        name: "Operasi Produksi",
-        entities: [
-          {
-            key: "prd_execution",
-            slug: "execution",
-            name: "Eksekusi Produksi",
-            icon: "gear",
-            desc: "Pengerjaan di satu Workstation: input dipakai, output menjadi lot baru senilai input menurut Qty × Bobot Nilai.",
-            permission: "PRODUCTION_EXECUTION_VIEW",
-          },
-          {
-            key: "prd_transfer",
-            slug: "transfer",
-            name: "Production Transfer",
-            icon: "truck",
-            desc: "Lot berpindah langsung antar Workstation, senilai yang dikandungnya; tanpa journal.",
-            permission: "PRODUCTION_TRANSFER_VIEW",
-          },
-          {
-            key: "prd_release",
-            slug: "release",
-            name: "Production Release",
-            icon: "box",
-            desc: "Barang keluar dari produksi ke gudang dengan lot yang sama, atau dimusnahkan.",
-            permission: "PRODUCTION_RELEASE_VIEW",
-          },
-        ],
-      },
       {
         key: "cost",
         name: "Biaya",
@@ -207,14 +177,6 @@ export const MODULES: NavModule[] = [
             icon: "file",
             desc: "Biaya produksi yang diakui pada bulan terjadinya, per Jenis Biaya; dilunasi lewat Pengeluaran — Pembayaran Biaya Produksi.",
             permission: "PRODUCTION_COST_BILL_VIEW",
-          },
-          {
-            key: "prd_cost_close",
-            slug: "cost-close",
-            name: "Penutupan Biaya Produksi",
-            icon: "lock",
-            desc: "Akhir bulan: biaya pada account Jenis Biaya dibagi ke eksekusi menurut Driver, dibawa ke WIP, persediaan dan HPP, lalu periode dikunci.",
-            permission: "PRODUCTION_COST_CLOSE_VIEW",
           },
         ],
       },
@@ -245,22 +207,6 @@ export const MODULES: NavModule[] = [
             icon: "tree",
             desc: "Silsilah satu lot: mundur sampai supplier, maju sampai customer.",
             permission: "REPORT_PRODUCTION_TRACE_VIEW",
-          },
-          {
-            key: "report_production_recap",
-            slug: "report/production-recap",
-            name: "Rekap Produksi",
-            icon: "trend",
-            desc: "Input, output, susut dan harga per unit per workstation pada rentang tanggal.",
-            permission: "REPORT_PRODUCTION_RECAP_VIEW",
-          },
-          {
-            key: "report_costing_so_far",
-            slug: "report/costing-so-far",
-            name: "Costing Sementara",
-            icon: "calc",
-            desc: "Harga pokok final per barang jadi sejauh ini, seolah-olah periode ditutup hari ini; tidak memposting.",
-            permission: "REPORT_COSTING_SO_FAR_VIEW",
           },
         ],
       },

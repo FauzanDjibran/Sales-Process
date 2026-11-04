@@ -361,7 +361,7 @@ Menu baru untuk PPIC, membaca baris Sales Order berstatus Open yang belum terkir
 | Rekap Produksi | Drop di langkah D, kembali di langkah 11 | Membaca Eksekusi dan Driver; kembali sebagai laporan susut per partai |
 | `Production-Plan.md`, `Production-Baseline-Analysis.md` | Tetap sebagai arsip | R9, R15, R16, R18, R28 masih berlaku |
 
-**Sesudah langkah D**, `main` tetap berjalan dengan Tagihan Biaya, Pembayaran Biaya Produksi, Stock Issue, Saldo Produksi, Kartu Lot dan Telusur. Sampai langkah 10, tahun buku dengan aktivitas produksi tidak bisa ditutup.
+**Sesudah langkah D (selesai, P218)**, `main` tetap berjalan dengan Tagihan Biaya, Pembayaran Biaya Produksi, Stock Issue, Saldo Produksi, Kartu Lot dan Telusur. Sampai langkah 10, tahun buku dengan aktivitas produksi tidak bisa ditutup.
 
 **Tabel baru:** `ref_unit`, `ref_workstation` (arti baru), `prd_execution(_input, _output)`, `prd_transfer(_line)`, `prd_release(_line)`, `prd_cost_close`, `prd_line`, `prd_routing(_step)`, `prd_output_type`, `prd_rate_version(_line)`, `m_item_sale_spec`, `prd_bom_packing(_line)`, `prd_partai`, `prd_job`, `prd_tracking_info`, `prd_cost_entry`, `prd_composition`, `prd_carton(_line)`, `prd_cost_close_line`, `prd_plan(_line)`.
 
@@ -378,7 +378,7 @@ Tiap langkah: satu commit ke `main`, migrasi dan DBML bersamaan, `npm run build`
 | Langkah | Isi | Selesai bila |
 | --- | --- | --- |
 | 0 | Catat keputusan di `Claude-ERP.md` (§1.4, §12), pengecualian di `KNOWLEDGE.md`, tandai `Production-Plan.md`, reset data produksi Neon setelah disetujui | Dokumen selaras |
-| D | Satu commit drop (bagian 12, P217), kecuali Workstation: tabel dan kode, permission dan jenis dokumen lewat migrasi, tes `production-run`, `production-move`, `production-close`; pangkas `production-ledger`, `production-report`; hapus 6 dari 12 cek produksi `db:reconcile`; tulis ulang guard R28 | Build, lint, test, `db:reconcile` hijau; menu yang tersisa berjalan |
+| D | **Selesai (P218).** Satu commit drop (bagian 12, P217), kecuali Workstation: tabel dan kode, permission dan jenis dokumen lewat migrasi, tes `production-run`, `production-move`, `production-close`; pangkas `production-ledger`, `production-report`; hapus 6 dari 12 cek produksi `db:reconcile`; tulis ulang guard R28 | Build, lint, test, `db:reconcile` hijau; menu yang tersisa berjalan |
 | 1 | Istilah di layar; drop `ref_workstation` lama, Unit + Workstation baru dalam satu migrasi; Tipe Unit, Line, Routing versi, Tabel Tipe, Standard Cost versi; No. Stok unik | Master bisa dibuat di browser; penerimaan kedua jenis sama mendapat nomor baru |
 | 2 | Identitas dan buku: bucket baru, Partai, Job, `prd_tracking_info`, `prd_cost_entry` | Test buku hijau |
 | 3 | BSTB Issue + Terima; bahan penolong ke unit | Skenario A1 |

@@ -675,13 +675,11 @@ export const CHECKS: Check[] = [
   },
   {
     area: "stock",
-    // The close's value-only rows (R12) are in the valuation book alone; a check below holds them.
     name: "the two stock books move together: per posting and item, the same quantity and value; and each item's pool holds every bucket",
     sql: `SELECT 'per posting' AS kind, COALESCE(s.source_doc_type_id, v.source_doc_type_id) AS doc_type, COALESCE(s.source_doc_id, v.source_doc_id) AS doc,
                  COALESCE(s.item_id, v.item_id) AS item_id, s.q AS stock_qty, v.q AS valuation_qty, s.v AS stock_value, v.v AS valuation_value
           FROM (SELECT source_doc_type_id, source_doc_id, item_id, SUM(qty_change) q, SUM(value_change) v, COUNT(*) n FROM log_stock_ledger GROUP BY 1, 2, 3) s
-          FULL JOIN (SELECT source_doc_type_id, source_doc_id, item_id, SUM(qty_change) q, SUM(value_change) v, COUNT(*) n FROM log_stock_valuation_ledger
-                     WHERE source_doc_type_id <> ${docType("prd_cost_close")} GROUP BY 1, 2, 3) v
+          FULL JOIN (SELECT source_doc_type_id, source_doc_id, item_id, SUM(qty_change) q, SUM(value_change) v, COUNT(*) n FROM log_stock_valuation_ledger GROUP BY 1, 2, 3) v
             ON v.source_doc_type_id = s.source_doc_type_id AND v.source_doc_id = s.source_doc_id AND v.item_id = s.item_id
           WHERE s.q IS DISTINCT FROM v.q OR s.v IS DISTINCT FROM v.v OR s.n IS DISTINCT FROM v.n
           UNION ALL
@@ -788,46 +786,6 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
-    name: "a posted Eksekusi's value = Σ inputs = Σ outputs = what the ledger consumed and produced; its Driver is above 0 (R5, R6, R11)",
-    sql: `WITH e AS (SELECT e.id, e.execution_no, e.status, e.input_value, e.driver,
-                        COALESCE((SELECT SUM(value) FROM prd_execution_input i WHERE i.execution_id = e.id), 0) AS ins,
-                        COALESCE((SELECT SUM(value) FROM prd_execution_output o WHERE o.execution_id = e.id), 0) AS outs,
-                        COALESCE((SELECT -SUM(l.value_change) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_execution")} AND l.source_doc_id = e.id AND l.movement = 'Consumed'), 0) AS consumed,
-                        COALESCE((SELECT SUM(l.value_change) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_execution")} AND l.source_doc_id = e.id AND l.movement = 'Produced'), 0) AS produced
-                 FROM prd_execution e)
-          SELECT * FROM e
-          WHERE driver <= 0
-             OR (status = 'Posted' AND (input_value <> ins OR input_value <> outs OR input_value <> consumed OR input_value <> produced))
-             OR (status <> 'Posted' AND (consumed <> 0 OR produced <> 0))`,
-  },
-  {
-    area: "production",
-    name: "a posted Production Transfer moves its value out and in unchanged, with no journal (R7)",
-    sql: `WITH t AS (SELECT t.id, t.transfer_no, t.status, t.value,
-                        COALESCE((SELECT SUM(value) FROM prd_transfer_line x WHERE x.transfer_id = t.id), 0) AS lines,
-                        COALESCE((SELECT -SUM(l.value_change) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_transfer")} AND l.source_doc_id = t.id AND l.movement = 'TransferOut'), 0) AS out_v,
-                        COALESCE((SELECT SUM(l.value_change) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_transfer")} AND l.source_doc_id = t.id AND l.movement = 'TransferIn'), 0) AS in_v,
-                        (SELECT COUNT(*) FROM acc_journal j WHERE j.source_doc_type_id = ${docType("prd_transfer")} AND j.source_doc_id = t.id) AS journals
-                 FROM prd_transfer t)
-          SELECT * FROM t
-          WHERE journals > 0 OR (status = 'Posted' AND (value <> lines OR value <> out_v OR value <> in_v)) OR (status <> 'Posted' AND (out_v <> 0 OR in_v <> 0))`,
-  },
-  {
-    area: "production",
-    name: "a posted Production Release's value = what production released = its journal's debit; to stock, the same quantity came in (R8)",
-    sql: `WITH d AS (SELECT d.id, d.release_no, d.status, d.purpose, d.value, d.journal_id,
-                        COALESCE((SELECT SUM(value) FROM prd_release_line x WHERE x.release_id = d.id), 0) AS lines,
-                        COALESCE((SELECT SUM(qty) FROM prd_release_line x WHERE x.release_id = d.id), 0) AS qty,
-                        COALESCE((SELECT -SUM(l.value_change) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_release")} AND l.source_doc_id = d.id AND l.movement = 'Released'), 0) AS released,
-                        COALESCE((SELECT SUM(m.qty_change) FROM log_stock_ledger m WHERE m.source_doc_type_id = ${docType("prd_release")} AND m.source_doc_id = d.id), 0) AS stocked,
-                        COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = d.journal_id), 0) AS journal
-                 FROM prd_release d)
-          SELECT * FROM d
-          WHERE (status = 'Posted' AND (value <> lines OR value <> released OR value <> journal OR (purpose = 'to_stock' AND stocked <> qty) OR (purpose = 'scrap' AND stocked <> 0)))
-             OR (status <> 'Posted' AND (released <> 0 OR stocked <> 0 OR journal_id IS NOT NULL))`,
-  },
-  {
-    area: "production",
     name: "each WIP account equals the value held in production by the items it is the WIP of (R16)",
     sql: `WITH held AS (SELECT a.wip_account_id AS account_id, SUM(b.value_balance) AS v
                        FROM prd_balance b JOIN m_item i ON i.id = b.item_id
@@ -843,59 +801,19 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
-    name: "each production close lands its whole pool: Σ pool accounts = Σ destinations = its journal's debit; its shares add up to it (R13, R25)",
-    sql: `SELECT c.id, c.pool_total,
-                 (SELECT COALESCE(SUM(amount), 0) FROM prd_cost_close_pool p WHERE p.close_id = c.id) AS pools,
-                 (SELECT COALESCE(SUM(amount), 0) FROM prd_cost_close_dest d WHERE d.close_id = c.id) AS dests,
-                 (SELECT COALESCE(SUM(amount), 0) FROM prd_cost_close_share s WHERE s.close_id = c.id) AS shares,
-                 (SELECT COUNT(*) FROM prd_cost_close_share s WHERE s.close_id = c.id) AS share_rows,
-                 (SELECT COALESCE(SUM(l.debit_amount), 0) FROM acc_journal_line l WHERE l.journal_id = c.journal_id) AS journal_debit
-          FROM prd_cost_close c
-          WHERE c.pool_total <> (SELECT COALESCE(SUM(amount), 0) FROM prd_cost_close_pool p WHERE p.close_id = c.id)
-             OR c.pool_total <> (SELECT COALESCE(SUM(amount), 0) FROM prd_cost_close_dest d WHERE d.close_id = c.id)
-             OR (EXISTS (SELECT 1 FROM prd_cost_close_share s WHERE s.close_id = c.id AND s.amount <> 0)
-                 AND c.pool_total <> (SELECT SUM(amount) FROM prd_cost_close_share s WHERE s.close_id = c.id))
-             OR c.pool_total <> (SELECT COALESCE(SUM(l.debit_amount), 0) FROM acc_journal_line l WHERE l.journal_id = c.journal_id)`,
-  },
-  {
-    area: "production",
-    name: "each close's pool row equals the General Ledger's net debit on that account in its period (R10)",
-    sql: `SELECT c.id, p.account_id, p.amount,
-                 (SELECT COALESCE(SUM(l.debit_amount - l.kredit_amount), 0) FROM acc_journal_line l JOIN acc_journal j ON j.id = l.journal_id AND j.status = 'Posted'
-                   WHERE l.account_id = p.account_id AND j.posting_date BETWEEN fp.start_date AND fp.end_date) AS gl
-          FROM prd_cost_close c JOIN acc_fiscal_period fp ON fp.id = c.period_id JOIN prd_cost_close_pool p ON p.close_id = c.id
-          WHERE p.amount <> (SELECT COALESCE(SUM(l.debit_amount - l.kredit_amount), 0) FROM acc_journal_line l JOIN acc_journal j ON j.id = l.journal_id AND j.status = 'Posted'
-                              WHERE l.account_id = p.account_id AND j.posting_date BETWEEN fp.start_date AND fp.end_date)`,
-  },
-  {
-    area: "production",
-    name: "a close's value-only rows equal its WIP and stock destinations (R12)",
-    sql: `SELECT c.id,
-                 (SELECT COALESCE(SUM(amount), 0) FROM prd_cost_close_dest d WHERE d.close_id = c.id AND d.kind = 'Wip') AS wip_dest,
-                 (SELECT COALESCE(SUM(value_change), 0) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_cost_close")} AND l.source_doc_id = c.id) AS wip_rows,
-                 (SELECT COALESCE(SUM(amount), 0) FROM prd_cost_close_dest d WHERE d.close_id = c.id AND d.kind = 'Stock') AS stock_dest,
-                 (SELECT COALESCE(SUM(value_change), 0) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("prd_cost_close")} AND v.source_doc_id = c.id) AS stock_rows
-          FROM prd_cost_close c
-          WHERE (SELECT COALESCE(SUM(amount), 0) FROM prd_cost_close_dest d WHERE d.close_id = c.id AND d.kind = 'Wip')
-                <> (SELECT COALESCE(SUM(value_change), 0) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("prd_cost_close")} AND l.source_doc_id = c.id)
-             OR (SELECT COALESCE(SUM(amount), 0) FROM prd_cost_close_dest d WHERE d.close_id = c.id AND d.kind = 'Stock')
-                <> (SELECT COALESCE(SUM(value_change), 0) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("prd_cost_close")} AND v.source_doc_id = c.id)`,
-  },
-  {
-    area: "production",
     name: "a costed period takes nothing after its close: no stock, production or locked-account journal row dated in it (R15)",
     sql: `SELECT 'production' AS book, l.id, l.source_no, l.posting_date FROM prd_ledger l
-            JOIN acc_fiscal_period fp ON l.posting_date BETWEEN fp.start_date AND fp.end_date JOIN prd_cost_close c ON c.period_id = fp.id
-           WHERE l.created_at > c.created_at AND l.source_doc_type_id <> ${docType("prd_cost_close")}
+            JOIN acc_fiscal_period fp ON l.posting_date BETWEEN fp.start_date AND fp.end_date
+           WHERE l.created_at > fp.production_costed_at
           UNION ALL
           SELECT 'stock', l.id, l.source_no, l.posting_date FROM log_stock_valuation_ledger l
-            JOIN acc_fiscal_period fp ON l.posting_date BETWEEN fp.start_date AND fp.end_date JOIN prd_cost_close c ON c.period_id = fp.id
-           WHERE l.created_at > c.created_at AND l.source_doc_type_id <> ${docType("prd_cost_close")}
+            JOIN acc_fiscal_period fp ON l.posting_date BETWEEN fp.start_date AND fp.end_date
+           WHERE l.created_at > fp.production_costed_at
           UNION ALL
           SELECT 'journal', l.id, j.journal_no, j.posting_date FROM acc_journal_line l JOIN acc_journal j ON j.id = l.journal_id AND j.status = 'Posted'
-            JOIN acc_fiscal_period fp ON j.posting_date BETWEEN fp.start_date AND fp.end_date JOIN prd_cost_close c ON c.period_id = fp.id
+            JOIN acc_fiscal_period fp ON j.posting_date BETWEEN fp.start_date AND fp.end_date
             JOIN acc_fiscal_period_lock k ON k.period_id = fp.id AND k.account_id = l.account_id
-           WHERE l.created_at > c.created_at AND j.id IS DISTINCT FROM c.journal_id`,
+           WHERE l.created_at > fp.production_costed_at`,
   },
 ];
 

@@ -577,10 +577,6 @@ model MItem {
   track_stock Boolean @default(false)
   /// Barang only. Batch / expiry tracking, meaningful once stock exists.
   has_expiry  Boolean @default(false)
-  /// Barang only (R6): Bobot Nilai, the relative value per base unit by which
-  /// an execution shares its value over its outputs (qty × this). Empty or 0
-  /// = an output without value.
-  value_weight Decimal? @db.Decimal(18, 6)
 
   note   String?
   status ActiveStatus @default(Active)
@@ -606,10 +602,6 @@ model MItem {
   delivery_note_lines    LogDeliveryNoteLine[]
   prd_balances           PrdBalance[]              @relation("PrdBalanceItem")
   stock_issue_lines      LogStockIssueLine[]
-  execution_inputs       PrdExecutionInput[]
-  execution_outputs      PrdExecutionOutput[]
-  transfer_lines         PrdTransferLine[]
-  release_lines          PrdReleaseLine[]
   prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
 
   @@index([category_id])
@@ -694,7 +686,6 @@ model RefWarehouse {
   purchase_orders   PurOrder[]             @relation("PurOrderWarehouse")
   receipt_notes     LogReceiptNote[]       @relation("ReceiptNoteWarehouse")
   stock_issues      LogStockIssue[]
-  production_releases PrdRelease[]
 
   @@map("ref_warehouse")
 }
@@ -827,10 +818,6 @@ model RefWorkstation {
   prd_balances PrdBalance[] @relation("PrdBalanceWorkstation")
   stock_issues LogStockIssue[]
   prd_ledger   PrdLedger[]  @relation("PrdLedgerWorkstation")
-  executions   PrdExecution[]
-  transfers_from PrdTransfer[] @relation("TransferFrom")
-  transfers_to   PrdTransfer[] @relation("TransferTo")
-  releases       PrdRelease[]
 
   @@map("ref_workstation")
 }
@@ -3767,9 +3754,8 @@ model PrdLedger {
   @@map("prd_ledger")
 }
 
-/// Genealogy (R12): what each input of an execution gave each output lot, by
-/// quantity and value — read by the Kartu Lot and followed forward by the
-/// month-end close.
+/// Genealogy: what each input lot gave each output lot, by quantity and value —
+/// read by the Kartu Lot and Telusur Produksi.
 model PrdTrackingLink {
   id                 Int      @id @default(autoincrement())
   source_doc_type_id Int
@@ -3805,8 +3791,6 @@ enum PrdMovement {
   TransferIn
   /// Taken out of production (Production Release: to a warehouse, Pemusnahan).
   Released
-  /// Value only, quantity 0 — the month-end close.
-  Revalued
 }
 
 /// Stock Issue (R4): goods leave a warehouse straight into a workstation, by
@@ -3897,276 +3881,4 @@ enum StockIssueStatus {
   Draft
   Posted
   Cancelled
-}
-
-/// The lifecycle the production documents share (R5, R7, R8).
-enum ProductionDocStatus {
-  Draft
-  Posted
-  Cancelled
-}
-
-/// Eksekusi Produksi (R5, R6, R11, R17): inputs held at one workstation are
-/// consumed, each output is a new lot valued by qty × Bobot Nilai; Driver > 0
-/// is its share of the month's cost pool. `EKS/YYYY/MM/NNNN`.
-model PrdExecution {
-  id             Int                 @id @default(autoincrement())
-  execution_no   String              @unique
-  execution_date DateTime            @db.Date
-  workstation_id Int
-  /// R11: the execution's weight in the month-end allocation, > 0.
-  driver         Decimal             @db.Decimal(18, 4)
-  status         ProductionDocStatus @default(Draft)
-  note           String?
-  /// Σ input value = Σ output value, set at Posting.
-  input_value    Decimal             @default(0) @db.Decimal(18, 2)
-  journal_id     Int?
-  cancel_reason  String?
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  workstation RefWorkstation       @relation(fields: [workstation_id], references: [id])
-  inputs      PrdExecutionInput[]
-  outputs     PrdExecutionOutput[]
-
-  @@index([status, execution_date])
-  @@index([workstation_id])
-  @@map("prd_execution")
-}
-
-model PrdExecutionInput {
-  id           Int     @id @default(autoincrement())
-  execution_id Int
-  line_no      Int
-  /// The production bucket taken from (weak).
-  bucket_id    Int
-  tracking_id       Int
-  item_id      Int
-  /// In the item's base unit.
-  qty          Decimal @db.Decimal(18, 4)
-  /// What it released, set at Posting.
-  value        Decimal @default(0) @db.Decimal(18, 2)
-
-  execution PrdExecution @relation(fields: [execution_id], references: [id], onDelete: Cascade)
-  item      MItem        @relation(fields: [item_id], references: [id])
-
-  @@unique([execution_id, line_no])
-  @@index([bucket_id])
-  @@map("prd_execution_input")
-}
-
-model PrdExecutionOutput {
-  id           Int       @id @default(autoincrement())
-  execution_id Int
-  line_no      Int
-  item_id      Int
-  /// Typed, or `<execution number>-<n>` at Posting (R17).
-  tracking_no       String?
-  expiry_date  DateTime? @db.Date
-  /// In the item's base unit.
-  qty          Decimal   @db.Decimal(18, 4)
-  /// qty × Bobot Nilai at Posting.
-  weight       Decimal   @default(0) @db.Decimal(18, 6)
-  value        Decimal   @default(0) @db.Decimal(18, 2)
-  /// The lot and bucket made, set at Posting (weak).
-  tracking_id       Int?
-  bucket_id    Int?
-
-  execution PrdExecution @relation(fields: [execution_id], references: [id], onDelete: Cascade)
-  item      MItem        @relation(fields: [item_id], references: [id])
-
-  @@unique([execution_id, line_no])
-  @@index([tracking_id])
-  @@map("prd_execution_output")
-}
-
-/// Production Transfer (R7): lots move directly between workstations, value
-/// kept, no journal. `PT/YYYY/MM/NNNN`.
-model PrdTransfer {
-  id                  Int                 @id @default(autoincrement())
-  transfer_no         String              @unique
-  transfer_date       DateTime            @db.Date
-  from_workstation_id Int
-  to_workstation_id   Int
-  status              ProductionDocStatus @default(Draft)
-  note                String?
-  /// Σ of the lines' value, set at Posting.
-  value               Decimal             @default(0) @db.Decimal(18, 2)
-  cancel_reason       String?
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  from_workstation RefWorkstation    @relation("TransferFrom", fields: [from_workstation_id], references: [id])
-  to_workstation   RefWorkstation    @relation("TransferTo", fields: [to_workstation_id], references: [id])
-  lines            PrdTransferLine[]
-
-  @@index([status, transfer_date])
-  @@map("prd_transfer")
-}
-
-model PrdTransferLine {
-  id           Int     @id @default(autoincrement())
-  transfer_id  Int
-  line_no      Int
-  /// The bucket taken from and the one filled (weak).
-  bucket_id    Int
-  to_bucket_id Int?
-  tracking_id       Int
-  item_id      Int
-  qty          Decimal @db.Decimal(18, 4)
-  value        Decimal @default(0) @db.Decimal(18, 2)
-
-  transfer PrdTransfer @relation(fields: [transfer_id], references: [id], onDelete: Cascade)
-  item     MItem       @relation(fields: [item_id], references: [id])
-
-  @@unique([transfer_id, line_no])
-  @@index([bucket_id])
-  @@map("prd_transfer_line")
-}
-
-/// Production Release (R8): goods leave production — `to_stock` into a
-/// warehouse at the same lot (Dr Persediaan / Cr WIP, `PHP/…`) or `scrap`
-/// (Dr Beban Pemusnahan Produksi / Cr WIP, `PMS/…`).
-model PrdRelease {
-  id             Int                 @id @default(autoincrement())
-  release_no     String              @unique
-  release_date   DateTime            @db.Date
-  purpose        String
-  workstation_id Int
-  /// `to_stock` only.
-  warehouse_id   Int?
-  location_id    Int?
-  status         ProductionDocStatus @default(Draft)
-  /// `scrap`: why the goods are destroyed — required.
-  scrap_reason   String?
-  note           String?
-  value          Decimal             @default(0) @db.Decimal(18, 2)
-  journal_id     Int?
-  cancel_reason  String?
-
-  created_by Int
-  updated_by Int?
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
-
-  workstation RefWorkstation   @relation(fields: [workstation_id], references: [id])
-  warehouse   RefWarehouse?    @relation(fields: [warehouse_id], references: [id])
-  lines       PrdReleaseLine[]
-
-  @@index([purpose, status])
-  @@index([status, release_date])
-  @@map("prd_release")
-}
-
-model PrdReleaseLine {
-  id         Int     @id @default(autoincrement())
-  release_id Int
-  line_no    Int
-  bucket_id  Int
-  tracking_id     Int
-  item_id    Int
-  qty        Decimal @db.Decimal(18, 4)
-  value      Decimal @default(0) @db.Decimal(18, 2)
-
-  release PrdRelease @relation(fields: [release_id], references: [id], onDelete: Cascade)
-  item    MItem      @relation(fields: [item_id], references: [id])
-
-  @@unique([release_id, line_no])
-  @@index([bucket_id])
-  @@map("prd_release_line")
-}
-
-/// Penutupan Biaya Produksi (R10–R15, R25): one per fiscal period, final. It
-/// stores what it closed — the pool per Jenis Biaya account, each execution's
-/// share, where the value went and, per item received to stock, its flow.
-model PrdCostClose {
-  id         Int      @id @default(autoincrement())
-  /// acc_fiscal_period.id (weak, §3.1): the period is the fiscal module's.
-  period_id  Int      @unique
-  /// The period's last day — the journal's and the value-only rows' date.
-  close_date DateTime @db.Date
-  /// Σ pools = the credit to Biaya Produksi Dibebankan.
-  pool_total Decimal  @default(0) @db.Decimal(18, 2)
-  journal_id Int?
-  created_by Int
-  created_at DateTime @default(now()) @db.Timestamptz(6)
-
-  pools  PrdCostClosePool[]
-  shares PrdCostCloseShare[]
-  dests  PrdCostCloseDest[]
-  items  PrdCostCloseItem[]
-
-  @@map("prd_cost_close")
-}
-
-/// The month's net debit on one Jenis Biaya expense account (R10).
-model PrdCostClosePool {
-  id         Int     @id @default(autoincrement())
-  close_id   Int
-  account_id Int
-  amount     Decimal @db.Decimal(18, 2)
-
-  close PrdCostClose @relation(fields: [close_id], references: [id], onDelete: Cascade)
-
-  @@unique([close_id, account_id])
-  @@map("prd_cost_close_pool")
-}
-
-/// One posted execution of the period: its Driver and its share of the pool (R11).
-model PrdCostCloseShare {
-  id           Int     @id @default(autoincrement())
-  close_id     Int
-  execution_id Int
-  execution_no String
-  driver       Decimal @db.Decimal(18, 4)
-  amount       Decimal @db.Decimal(18, 2)
-
-  close PrdCostClose @relation(fields: [close_id], references: [id], onDelete: Cascade)
-
-  @@unique([close_id, execution_id])
-  @@map("prd_cost_close_share")
-}
-
-/// Where the value went (R12): `Wip` a bucket, `Stock` an item's pool,
-/// `Hpp` HPP (an item's, or Account Mapping's when none), `Scrap`.
-model PrdCostCloseDest {
-  id         Int     @id @default(autoincrement())
-  close_id   Int
-  kind       String
-  item_id    Int?
-  bucket_id  Int?
-  account_id Int
-  amount     Decimal @db.Decimal(18, 2)
-
-  close PrdCostClose @relation(fields: [close_id], references: [id], onDelete: Cascade)
-
-  @@index([close_id, kind])
-  @@map("prd_cost_close_dest")
-}
-
-/// An item whose released goods took part of the pool (R25): the period's
-/// flow of its stock pool, the value before, the part to HPP, the part kept.
-model PrdCostCloseItem {
-  id           Int     @id @default(autoincrement())
-  close_id     Int
-  item_id      Int
-  opening_qty  Decimal @db.Decimal(18, 6)
-  inflow_qty   Decimal @db.Decimal(18, 6)
-  outflow_qty  Decimal @db.Decimal(18, 6)
-  ending_qty   Decimal @db.Decimal(18, 6)
-  /// The pool's value when the close ran, before its own revaluation.
-  value_before Decimal @db.Decimal(18, 2)
-  hpp_amount   Decimal @db.Decimal(18, 2)
-  stock_amount Decimal @db.Decimal(18, 2)
-
-  close PrdCostClose @relation(fields: [close_id], references: [id], onDelete: Cascade)
-
-  @@unique([close_id, item_id])
-  @@map("prd_cost_close_item")
 }
