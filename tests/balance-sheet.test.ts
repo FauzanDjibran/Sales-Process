@@ -21,6 +21,7 @@ import {
   makePartner,
   prisma,
   systemUserId,
+  lockYearPeriods,
 } from "./helpers";
 
 /**
@@ -452,6 +453,7 @@ describe("the Neraca across the close", () => {
     before1980 = await neraca([december1980()]);
     before1981 = await neraca([march1981()]);
     before1982 = await neraca([march1982()]);
+    await lockYearPeriods(year1980, 1980);
     const result = await executeClosing(year1980, actor);
     assert.equal(result.ok, true, JSON.stringify(result));
   });

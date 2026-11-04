@@ -22,6 +22,7 @@ import { partnerCollections } from "@/lib/erp/partner";
 import { itemCollections } from "@/lib/erp/item";
 import { warehouseCollections } from "@/lib/erp/warehouse";
 import { fiscalYearPeriods } from "@/lib/erp/fiscal";
+import { fiscalPeriodAbilities } from "@/lib/erp/fiscal-workflow";
 import { baseCurrencyId } from "@/lib/erp/system-settings";
 import {
   fiscalYearAbilities,
@@ -211,6 +212,7 @@ export async function EntityDetailPage({
           periods={await fiscalYearPeriods(row.id)}
           yearLabel={String(row.year_label ?? "")}
           yearStatus={String(row.status ?? "")}
+          can={fiscalPeriodAbilities(actor.permissions)}
         />
         <RecordHistoryCard entityKey={entity.key} rowId={row.id} />
       </>

@@ -5,7 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { formatNumber } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
-import { checkTransactionDate } from "./fiscal";
+import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { lockPurchaseOrder, receiptNoteSources, recordPurchaseOrderReceived, type ReceiptNoteSource } from "./purchase-order";
 import { InventoryRefusal, receiveStock, warehouseLocationOptions, type WarehouseLocationOption } from "./inventory";
@@ -358,6 +358,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
     return await run();
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
+    if (e instanceof PeriodShut) return { ok: false, errors: { _form: e.message } };
     if (e instanceof InventoryRefusal) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;
     throw e;
@@ -512,6 +513,7 @@ export async function transitionReceiptNote(
 
   return refusable(async () => {
     const closed = await prisma.$transaction(async (tx) => {
+      await holdPostingPeriod(tx, isoDay(note.rn_date));
       await lockPurchaseOrder(tx, note.source_doc_id);
       const input = asInput(note);
       const r = await checkReceiptNote(tx, input.header, input.lines, id, true);

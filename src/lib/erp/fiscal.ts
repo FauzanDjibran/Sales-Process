@@ -5,6 +5,8 @@ import type { Prisma } from "@/generated/prisma/client";
 import { MONTHS_LONG, formatDate } from "@/lib/format";
 import {
   activationRefusal,
+  FISCAL_PERIOD_TRANSITIONS,
+  type FiscalPeriodAction,
   type OpenYearSummary,
 } from "./fiscal-workflow";
 
@@ -208,14 +210,13 @@ function asDay(value: Date | string): Date {
 /**
  * May the books be written into on this date?
  *
- * Two questions, in order: the **year** containing the date must be Open, and
- * it must not already have been closed. The year carries the date
- * range, so it is the year that is queried and not the period — a period's own
- * status says nothing the year's does not, and a date outside every year
- * belongs to no period either.
+ * Three questions, in order: the **year** containing the date must be Open, it
+ * must not already have been closed, and the **period** containing the date
+ * must not be Locked.
  *
  * `Draft` means *not yet*: a year whose twelve periods have not been generated
- * cannot group what is posted into it. `Closed` means *never again*.
+ * cannot group what is posted into it. `Closed` means *never again*. `Locked`
+ * means *not until it is unlocked*.
  *
  * A date inside **no** year is refused as well. That is the same rule read
  * plainly rather than a separate one — a posting that belongs to no fiscal year
@@ -274,6 +275,19 @@ export async function checkPostingPeriod(
     };
   }
 
+  const period = await db.accFiscalPeriod.findFirst({
+    where: { fiscal_year_id: year.id, start_date: { lte: day }, end_date: { gte: day } },
+    select: { period_name: true, status: true },
+  });
+  if (period?.status === "Locked") {
+    return {
+      ok: false,
+      message:
+        `Periode ${period.period_name} sedang dikunci. Buka kunci periode itu ` +
+        "di Fiscal Year sebelum memposting ke dalamnya.",
+    };
+  }
+
   return { ok: true, fiscalYearId: year.id };
 }
 
@@ -301,9 +315,12 @@ export class PeriodShut extends Error {
  * committed could write into the closed year afterwards, and a posting landing
  * between the close's preview and its write would leave profit and loss in the
  * snapshot. Every posting path and the close take this first, so whichever
- * comes second waits and then reads what the first committed.
+ * comes second waits and then reads what the first committed. Locking a period
+ * takes it too, so a posting lands before the lock or finds it Locked.
  *
  * An advisory lock, keyed on the year and released when the transaction ends.
+ * Exclusive here; postings take it shared (`holdPostingPeriod`), so they wait
+ * for a close or a lock but never for one another.
  * Parameterised; nothing is interpolated into the SQL text.
  */
 export async function lockFiscalPeriod(
@@ -330,7 +347,10 @@ export async function holdPostingPeriod(
     where: { start_date: { lte: day }, end_date: { gte: day } },
     select: { id: true },
   });
-  if (year) await lockFiscalPeriod(tx, year.id);
+  if (year) {
+    const key = `acc_fiscal_closing:${year.id}`;
+    await tx.$queryRaw`SELECT 1 AS held FROM (SELECT pg_advisory_xact_lock_shared(hashtext(${key}))) AS lock`;
+  }
   const period = await checkPostingPeriod(date, tx);
   if (!period.ok) throw new PeriodShut(period.message);
 }
@@ -564,6 +584,10 @@ export async function recordFiscalClosing(
     where: { id: fiscalYearId },
     data: { status: "Closed", updated_by: actorId },
   });
+  await tx.accFiscalPeriod.updateMany({
+    where: { fiscal_year_id: fiscalYearId },
+    data: { status: "Closed", updated_by: actorId },
+  });
   await tx.auditLog.create({
     data: {
       entity_key: "acc_fiscal_year",
@@ -575,6 +599,84 @@ export async function recordFiscalClosing(
   });
 
   return { yearClosed: true };
+}
+
+/**
+ * Locks or unlocks one period of an Open year.
+ *
+ * Takes the lock against postings first, then moves the period only from the
+ * state the transition starts from, so two people pressing at once cannot both
+ * write it.
+ */
+export async function changeFiscalPeriodStatus(
+  periodId: number,
+  action: FiscalPeriodAction,
+  actorId: number
+): Promise<{ ok: true; periodName: string } | { ok: false; message: string }> {
+  const transition = FISCAL_PERIOD_TRANSITIONS[action];
+  const period = await prisma.accFiscalPeriod.findUnique({
+    where: { id: periodId },
+    select: {
+      period_name: true,
+      status: true,
+      fiscal_year: { select: { id: true, year_name: true, status: true } },
+    },
+  });
+  if (!period) return { ok: false, message: "Periode tidak ditemukan." };
+  if (period.fiscal_year.status !== "Open") {
+    return {
+      ok: false,
+      message: `${period.fiscal_year.year_name} berstatus ${period.fiscal_year.status}; periodenya tidak dapat diubah.`,
+    };
+  }
+  if (period.status !== transition.from) {
+    return {
+      ok: false,
+      message: `Periode ${period.period_name} berstatus ${period.status}, tidak dapat di${transition.label.toLowerCase()}.`,
+    };
+  }
+
+  const moved = await prisma.$transaction(async (tx) => {
+    await lockFiscalPeriod(tx, period.fiscal_year.id);
+    const { count } = await tx.accFiscalPeriod.updateMany({
+      where: { id: periodId, status: transition.from },
+      data: { status: transition.to, updated_by: actorId },
+    });
+    if (count) {
+      await tx.auditLog.create({
+        data: { entity_key: "acc_fiscal_period", row_id: periodId, action: "UPDATE", event: action, by: actorId },
+      });
+    }
+    return count > 0;
+  });
+  if (!moved) return { ok: false, message: `Periode ${period.period_name} baru saja diubah pengguna lain.` };
+  return { ok: true, periodName: period.period_name };
+}
+
+/** A year's periods, and those not Locked yet in calendar order — what stands between it and its close. */
+export async function unlockedPeriods(
+  fiscalYearId: number,
+  db: Db = prisma
+): Promise<{ total: number; unlocked: string[] }> {
+  const rows = await db.accFiscalPeriod.findMany({
+    where: { fiscal_year_id: fiscalYearId },
+    orderBy: { sequence_no: "asc" },
+    select: { period_name: true, status: true },
+  });
+  return {
+    total: rows.length,
+    unlocked: rows.filter((r) => r.status !== "Locked").map((r) => r.period_name),
+  };
+}
+
+/** How a period names itself in an audit panel. */
+export async function fiscalPeriodLabels(ids: number[]): Promise<Map<number, string>> {
+  if (!ids.length) return new Map();
+  const rows = await prisma.accFiscalPeriod.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, period_name: true },
+  });
+  return new Map(rows.map((r) => [r.id, r.period_name]));
 }
 
 /**

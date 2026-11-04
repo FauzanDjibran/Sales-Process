@@ -485,3 +485,9 @@ export async function cleanupStock(itemIds: number[]): Promise<void> {
   await prisma.logStockValuationBalance.deleteMany({ where });
   await prisma.logStockTracking.deleteMany({ where });
 }
+
+/** A year's twelve periods, Locked: what a close asks of the year it closes. */
+export async function lockYearPeriods(fiscalYearId: number, year: number): Promise<void> {
+  await ensureFiscalPeriods(prisma, { fiscalYearId, year, actorId: await systemUserId() });
+  await prisma.accFiscalPeriod.updateMany({ where: { fiscal_year_id: fiscalYearId }, data: { status: "Locked" } });
+}

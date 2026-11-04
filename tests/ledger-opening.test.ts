@@ -11,6 +11,7 @@ import {
   makeAccount,
   prisma,
   systemUserId,
+  lockYearPeriods,
 } from "./helpers";
 
 /**
@@ -260,6 +261,7 @@ before(async () => {
   ]);
 
   // Closing 1980 writes the snapshot dated 01/01/1981.
+  await lockYearPeriods(year1980, FY);
   const closed = await executeClosing(year1980, actor);
   assert.equal(closed.ok, true, JSON.stringify(closed));
 
@@ -465,6 +467,7 @@ describe("the latest snapshot on or before the date is the one used", () => {
       data: { status: "Closed" },
     });
 
+    await lockYearPeriods(year1981, FY + 1);
     const closed = await executeClosing(year1981, actor);
     assert.equal(closed.ok, true, JSON.stringify(closed));
 

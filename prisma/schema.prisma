@@ -101,6 +101,14 @@ enum FiscalStatus {
   Closed
 }
 
+/// A period inside its year: `Open` takes postings, `Locked` refuses them until
+/// it is unlocked, `Closed` came with its year's close and is final.
+enum FiscalPeriodStatus {
+  Open
+  Locked
+  Closed
+}
+
 /// Whether a fiscal year has been closed.
 ///
 /// Deliberately not `FiscalStatus`: a closing has no Draft. A year is either
@@ -1380,7 +1388,7 @@ model AccFiscalPeriod {
   start_date     DateTime     @db.Date
   end_date       DateTime     @db.Date
   note           String?
-  status         FiscalStatus @default(Draft)
+  status         FiscalPeriodStatus @default(Open)
   /// Set by the Penutupan Biaya Produksi (R15): the period then takes no stock
   /// or production posting, and no journal line on an account in its locks.
   production_costed_at DateTime? @db.Timestamptz(6)

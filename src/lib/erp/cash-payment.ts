@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
-import { checkTransactionDate } from "./fiscal";
+import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { InsufficientFunds, recordCashBankEntry } from "./cash-bank";
 import { ApItemOverdrawn, lockApItems, payAdvance, settleApItem } from "./ap-item";
@@ -466,6 +466,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
     return await run();
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
+    if (e instanceof PeriodShut) return { ok: false, errors: { _form: e.message } };
     if (e instanceof ApItemOverdrawn || e instanceof InsufficientFunds) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;
     throw e;
@@ -665,6 +666,7 @@ export async function transitionCashPayment(
 
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
+      await holdPostingPeriod(tx, isoDay(t.tx_date));
       const stored = asInput(t);
       await lockPurchaseAdvances(tx, stored.lines.filter((l) => l.doc_type === "fin_ap_advance").map((l) => Number(l.doc_id)));
       const invoiceIds = stored.lines.filter((l) => l.doc_type === "fin_ap_invoice").map((l) => Number(l.doc_id));

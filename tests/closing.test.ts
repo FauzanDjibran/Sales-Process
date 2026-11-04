@@ -14,6 +14,7 @@ import {
   makePartner,
   prisma,
   systemUserId,
+  lockYearPeriods,
 } from "./helpers";
 
 /**
@@ -181,6 +182,7 @@ before(async () => {
 
   fiscalYear = await makeYear(FY, "Open");
   nextYear = await makeYear(NEXT_FY, "Draft");
+  await lockYearPeriods(fiscalYear, FY);
 
   chart = await makeChart();
   branch = await makePartner({ categoryLabel: "Customer" });
@@ -391,6 +393,16 @@ describe("every blocking condition refuses by name", () => {
     }
   });
 
+  test("a period still Open holds the close back, and is named", async () => {
+    const period = await prisma.accFiscalPeriod.findFirstOrThrow({ where: { fiscal_year_id: fiscalYear, sequence_no: 3 } });
+    await prisma.accFiscalPeriod.update({ where: { id: period.id }, data: { status: "Open" } });
+    const c = await check("periods_locked");
+    await prisma.accFiscalPeriod.update({ where: { id: period.id }, data: { status: "Locked" } });
+    assert.equal(c.ok, false);
+    assert.match(c.detail, new RegExp(period.period_name));
+    assert.equal((await check("periods_locked")).ok, true);
+  });
+
   test("the snapshot goes to the next year that exists, not to a label plus one", async () => {
     // 1991 is what inherits here because it is the nearest year starting after
     // 1990 ends. A calendar with a gap in it has exactly one candidate, and it
@@ -549,6 +561,11 @@ describe("closing writes the journal, the snapshot and the record", () => {
     assert.equal(result.ok, true, JSON.stringify(result));
     if (!result.ok) return;
 
+    assert.equal(
+      await prisma.accFiscalPeriod.count({ where: { fiscal_year_id: fiscalYear, status: { not: "Closed" } } }),
+      0,
+      "the close makes its periods Closed"
+    );
     assert.ok(result.journalNo);
     assert.ok(result.openingNo);
     journalNo = result.journalNo!;

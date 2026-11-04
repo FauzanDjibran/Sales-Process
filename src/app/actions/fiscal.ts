@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { prisma } from "@/lib/prisma";
 import { authorizeAction } from "@/lib/erp/auth";
 import { isAccessDenied } from "@/lib/erp/auth-errors";
-import { checkYearOpenable, ensureFiscalPeriods, parseYear } from "@/lib/erp/fiscal";
+import { changeFiscalPeriodStatus, checkYearOpenable, ensureFiscalPeriods, parseYear } from "@/lib/erp/fiscal";
 import {
+  FISCAL_PERIOD_TRANSITIONS,
   FISCAL_YEAR_TRANSITIONS,
   transitionAllowed,
+  type FiscalPeriodAction,
   type FiscalYearAction,
   type FiscalYearStatus,
 } from "@/lib/erp/fiscal-workflow";
@@ -100,4 +102,28 @@ export async function transitionFiscalYear(
   revalidatePath("/dashboard");
 
   return { ok: true, status: transition.to, message: transition.done, periods };
+}
+
+/** Locks or unlocks one period of an Open year — the period list's one action. */
+export async function transitionFiscalPeriod(
+  periodId: number,
+  action: FiscalPeriodAction
+): Promise<{ ok: true; message: string } | { ok: false; message: string }> {
+  const transition = FISCAL_PERIOD_TRANSITIONS[action];
+  if (!transition) return { ok: false, message: "Aksi tidak dikenal." };
+
+  let actorId: number;
+  try {
+    const actor = await authorizeAction(transition.permission);
+    actorId = actor.user.id;
+  } catch (error) {
+    if (isAccessDenied(error)) return { ok: false, message: error.message };
+    throw error;
+  }
+
+  const result = await changeFiscalPeriodStatus(periodId, action, actorId);
+  if (!result.ok) return result;
+
+  revalidatePath("/accounting/fiscal-year/[id]", "page");
+  return { ok: true, message: `${transition.done}: ${result.periodName}` };
 }

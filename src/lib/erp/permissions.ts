@@ -161,6 +161,18 @@ export const PERMISSIONS = [
   // form. Periods are generated when a Fiscal Year is opened and are read from
   // inside it, so seeing and opening a year is the whole capability.
   { code: "FISCAL_YEAR_VIEW", name: "Lihat Fiscal Year", module: "accounting", description: "Termasuk Fiscal Period di dalamnya." },
+  {
+    code: "FISCAL_PERIOD_LOCK",
+    name: "Kunci Fiscal Period",
+    module: "accounting",
+    description: "Menolak posting bertanggal di dalam periode itu sampai kuncinya dibuka.",
+  },
+  {
+    code: "FISCAL_PERIOD_UNLOCK",
+    name: "Buka Kunci Fiscal Period",
+    module: "accounting",
+    description: "Periode yang terkunci kembali menerima posting.",
+  },
   { code: "FISCAL_YEAR_CREATE", name: "Tambah Fiscal Year", module: "accounting" },
   { code: "FISCAL_YEAR_EDIT", name: "Ubah Fiscal Year", module: "accounting", description: "Catatan tahun buku. Status bukan isian dan tidak berubah lewat Ubah." },
   {

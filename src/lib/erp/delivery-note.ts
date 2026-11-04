@@ -5,7 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { formatNumber } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
-import { checkTransactionDate } from "./fiscal";
+import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { customerOrderNumbersByIds } from "./customer-order";
 import {
@@ -412,6 +412,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
     return await run();
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
+    if (e instanceof PeriodShut) return { ok: false, errors: { _form: e.message } };
     if (e instanceof InventoryRefusal) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
     // A dry run reached the end of the posting: its journal, with every write rolled back (P103).
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;
@@ -604,6 +605,7 @@ export async function transitionDeliveryNote(
 
   return refusable(async () => {
     const closed = await prisma.$transaction(async (tx) => {
+      await holdPostingPeriod(tx, isoDay(note.dn_date));
       await lockDeliveryOrderScope(tx, note.source_doc_id);
       const input = asInput(note);
       const r = await checkDeliveryNote(tx, input.header, input.lines, id, true);

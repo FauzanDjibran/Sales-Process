@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
-import { checkTransactionDate } from "./fiscal";
+import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PeriodLockRefusal } from "./period-lock";
 import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { costTypeOptions, costTypesByIds } from "./production-cost";
@@ -311,6 +311,7 @@ export async function transitionCostBill(
   try {
     let journalLines: JournalLineInput[] = [];
     await prisma.$transaction(async (tx) => {
+      await holdPostingPeriod(tx, isoDay(b.bill_date));
       const input: CostBillInput = {
         bill_date: isoDay(b.bill_date),
         partner_id: b.partner_id,
@@ -383,6 +384,7 @@ export async function transitionCostBill(
     return { ok: true, journal: journalLines };
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
+    if (e instanceof PeriodShut) return { ok: false, errors: { _form: e.message } };
     if (e instanceof PeriodLockRefusal) return { ok: false, errors: { _form: e.message } };
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines };
     throw e;

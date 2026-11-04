@@ -5,7 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { formatMoney } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
-import { checkTransactionDate } from "./fiscal";
+import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { checkAccountIsLeaf } from "./records";
 import { ArItemOverdrawn, advanceItemsForInvoice, arPaidByDocument, createArItem, settleArItem, type AdvanceItemForInvoice } from "./ar-item";
@@ -362,6 +362,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
     return await run();
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
+    if (e instanceof PeriodShut) return { ok: false, errors: { _form: e.message } };
     if (e instanceof ArItemOverdrawn) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;
     throw e;
@@ -549,6 +550,7 @@ export async function transitionPermitInvoice(
 
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
+      await holdPostingPeriod(tx, isoDay(n.invoice_date));
       await lockPermitRequest(tx, n.permit_request_id);
       const s = asInput(n);
       const r = await checkPermitInvoice(tx, s.input, s.deductions, id, s.keep);

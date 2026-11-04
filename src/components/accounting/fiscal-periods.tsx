@@ -1,28 +1,44 @@
 import { Icon } from "@/components/icon";
 import { formatDate } from "@/lib/format";
 import type { FiscalPeriodRow } from "@/lib/erp/fiscal";
+import {
+  periodAction,
+  type FiscalPeriodAbilities,
+  type FiscalPeriodStatus,
+  type FiscalYearStatus,
+} from "@/lib/erp/fiscal-workflow";
+import { FiscalPeriodActionButton } from "./fiscal-period-action";
 
 /**
  * A Fiscal Year's twelve months, shown inside the year that owns them.
  *
  * Fiscal Period has no menu and no form: a calendar month is not something
  * anyone should be able to mistype, so the periods are generated when the year
- * is opened and only read here.
+ * is opened and only read here. Inside an Open year each one is locked and
+ * unlocked from its own row; a Locked period refuses postings dated in it.
  */
 const STATUS_CLASS: Record<string, string> = {
-  Draft: "s-warn",
   Open: "s-ok",
+  Locked: "s-warn",
   Closed: "s-mute",
+};
+
+const STATUS_TEXT: Record<string, string> = {
+  Open: "Open",
+  Locked: "Terkunci",
+  Closed: "Closed",
 };
 
 export function FiscalPeriods({
   periods,
   yearLabel,
   yearStatus,
+  can,
 }: {
   periods: FiscalPeriodRow[];
   yearLabel: string;
   yearStatus: string;
+  can: FiscalPeriodAbilities;
 }) {
   return (
     <div className="card" style={{ marginTop: 14 }}>
@@ -50,10 +66,13 @@ export function FiscalPeriods({
                 <th>Nama Period</th>
                 <th style={{ width: 196 }}>Rentang Tanggal</th>
                 <th style={{ width: 96 }}>Status</th>
+                <th style={{ width: 128 }} />
               </tr>
             </thead>
             <tbody>
-              {periods.map((p) => (
+              {periods.map((p) => {
+                const action = periodAction(yearStatus as FiscalYearStatus, p.status as FiscalPeriodStatus, can);
+                return (
                 <tr key={p.id} style={{ cursor: "default" }}>
                   <td className="no">{p.sequence}</td>
                   <td>
@@ -65,11 +84,15 @@ export function FiscalPeriods({
                   </td>
                   <td>
                     <span className={`bdg ${STATUS_CLASS[p.status] ?? "s-mute"}`}>
-                      {p.status}
+                      {STATUS_TEXT[p.status] ?? p.status}
                     </span>
                   </td>
+                  <td style={{ textAlign: "right" }}>
+                    {action && <FiscalPeriodActionButton periodId={p.id} subject={p.name} action={action} />}
+                  </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -88,8 +111,8 @@ export function FiscalPeriods({
       )}
 
       <p className="foot-note" style={{ padding: "0 16px 14px" }}>
-        Periode dibuat otomatis dan tidak dapat ditambah, diubah, atau dihapus
-        satu per satu. Satu periode selalu tepat satu bulan kalender.
+        Periode terkunci menolak posting bertanggal di dalamnya; tahun buku
+        hanya dapat ditutup setelah seluruh periodenya terkunci.
       </p>
     </div>
   );

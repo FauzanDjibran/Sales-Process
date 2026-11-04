@@ -6,6 +6,7 @@ import { PERMISSION_CODES } from "../src/lib/erp/permissions";
 import { hasEntityPermissions } from "../src/lib/erp/entity-access";
 import { MODULES } from "../src/lib/erp/nav";
 import {
+  changeFiscalPeriodStatus,
   checkPostingPeriod,
   checkYearOpenable,
   ensureFiscalPeriods,
@@ -17,6 +18,7 @@ import {
 import {
   FISCAL_YEAR_TRANSITIONS,
   activationRefusal,
+  periodAction,
   availableActions,
   fiscalYearAbilities,
   transitionAllowed,
@@ -49,6 +51,7 @@ const LOCK_CLOSED_YEAR = 2082;
 const LOCK_OPEN_YEAR = 2083;
 const LOCK_THIRD_YEAR = 2084;
 const LOCK_FILLER_YEAR = 2085;
+const LOCK_PERIOD_YEAR = 2095;
 
 after(async () => {
   // Keyed on the code this file writes rather than on a list of labels: the
@@ -135,14 +138,12 @@ describe("Fiscal Period is reachable only through Fiscal Year", () => {
     assert.ok(leaves.includes("fiscal-year"), "Fiscal Year is the top-level entity");
   });
 
-  test("it declares no permissions, because it has nothing to authorize", () => {
+  test("it declares no entity permissions: locking is its one action", () => {
     assert.equal(hasEntityPermissions("acc_fiscal_period"), false);
-    for (const code of PERMISSION_CODES) {
-      assert.ok(
-        !code.startsWith("FISCAL_PERIOD"),
-        `${code} governs a screen that no longer exists`
-      );
-    }
+    assert.deepEqual(
+      PERMISSION_CODES.filter((code) => code.startsWith("FISCAL_PERIOD")),
+      ["FISCAL_PERIOD_LOCK", "FISCAL_PERIOD_UNLOCK"]
+    );
   });
 });
 
@@ -462,6 +463,43 @@ describe("the calendar decides what may be posted into it", () => {
       "only a Closed row shuts the year"
     );
     await prisma.accFiscalClosing.delete({ where: { id: row.id } });
+  });
+});
+
+describe("a period is locked and unlocked inside its Open year", () => {
+  test("Kunci refuses a posting dated in that month only, and Buka Kunci takes it back", async () => {
+    const actor = await systemUserId();
+    const id = await makeYear(LOCK_PERIOD_YEAR, "Open");
+    await ensureFiscalPeriods(prisma, { fiscalYearId: id, year: LOCK_PERIOD_YEAR, actorId: actor });
+    const may = await prisma.accFiscalPeriod.findFirstOrThrow({ where: { fiscal_year_id: id, sequence_no: 5 } });
+
+    assert.deepEqual(await changeFiscalPeriodStatus(may.id, "lock", actor), { ok: true, periodName: may.period_name });
+    const refused = await checkPostingPeriod(`${LOCK_PERIOD_YEAR}-05-20`);
+    assert.equal(refused.ok, false);
+    assert.match((refused as { message: string }).message, /sedang dikunci/);
+    assert.equal((await checkPostingPeriod(`${LOCK_PERIOD_YEAR}-06-01`)).ok, true, "June stays open");
+
+    const twice = await changeFiscalPeriodStatus(may.id, "lock", actor);
+    assert.equal(twice.ok, false, "a Locked period cannot be locked again");
+
+    assert.equal((await changeFiscalPeriodStatus(may.id, "unlock", actor)).ok, true);
+    assert.equal((await checkPostingPeriod(`${LOCK_PERIOD_YEAR}-05-20`)).ok, true);
+
+    const events = await prisma.auditLog.findMany({
+      where: { entity_key: "acc_fiscal_period", row_id: may.id },
+      orderBy: { id: "asc" },
+      select: { event: true },
+    });
+    assert.deepEqual(events.map((e) => e.event), ["lock", "unlock"]);
+    await prisma.auditLog.deleteMany({ where: { entity_key: "acc_fiscal_period", row_id: may.id } });
+  });
+
+  test("a period offers its one move, in an Open year, to whoever holds it", () => {
+    const can = { lock: true, unlock: false };
+    assert.equal(periodAction("Open", "Open", can), "lock");
+    assert.equal(periodAction("Open", "Locked", can), null);
+    assert.equal(periodAction("Open", "Locked", { lock: false, unlock: true }), "unlock");
+    assert.equal(periodAction("Closed", "Closed", { lock: true, unlock: true }), null);
   });
 });
 

@@ -20,7 +20,7 @@
  * workflow table it reads is.
  */
 import type { IconName } from "@/components/icon";
-import { FISCAL_YEAR_TRANSITIONS } from "./fiscal-workflow";
+import { FISCAL_PERIOD_TRANSITIONS, FISCAL_YEAR_TRANSITIONS } from "./fiscal-workflow";
 import type { ActionTone } from "./header-actions";
 import { JOURNAL_TRANSITIONS } from "./journal-workflow";
 import { SALES_ADVANCE_TRANSITIONS } from "./ar-advance-workflow";
@@ -287,6 +287,13 @@ const FISCAL_EVENTS: Record<string, AuditEventLabel> = {
   },
 };
 
+/** A period inside an Open year: Open ⇄ Locked. */
+const FISCAL_PERIOD_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  lock: fromTransition(FISCAL_PERIOD_TRANSITIONS.lock, "Dikunci"),
+  unlock: fromTransition(FISCAL_PERIOD_TRANSITIONS.unlock, "Kunci dibuka"),
+};
+
 /** A year's closing state. Written once, never reopened. */
 const FISCAL_CLOSING_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
@@ -316,6 +323,7 @@ const ROLE_EVENTS: Record<string, AuditEventLabel> = {
  */
 const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   acc_fiscal_year: FISCAL_EVENTS,
+  acc_fiscal_period: FISCAL_PERIOD_EVENTS,
   acc_fiscal_closing: FISCAL_CLOSING_EVENTS,
   acc_journal: JOURNAL_EVENTS,
   sal_customer_order: CUSTOMER_ORDER_EVENTS,

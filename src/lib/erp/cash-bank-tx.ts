@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
-import { checkTransactionDate } from "./fiscal";
+import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { recordCashBankEntry } from "./cash-bank";
 import { ArItemOverdrawn, lockArItems, receiveAdvance, settleArItem } from "./ar-item";
@@ -625,6 +625,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
     return await run();
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
+    if (e instanceof PeriodShut) return { ok: false, errors: { _form: e.message } };
     if (e instanceof ArItemOverdrawn) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
     // A dry run reached the end of the posting: its journal, with every write rolled back (P103).
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;
@@ -929,6 +930,7 @@ export async function transitionCashReceipt(
 
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
+      await holdPostingPeriod(tx, isoDay(t.tx_date));
       // Every document the receipt settles is locked before it is read again —
       // the advance bills and the Invoices, then the Invoices' items (U28, P133).
       const stored = asInput(t);

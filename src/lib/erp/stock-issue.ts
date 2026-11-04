@@ -5,7 +5,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
 import { formatNumber } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
-import { checkTransactionDate } from "./fiscal";
+import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { InventoryRefusal, issueStock, locationLabelsByIds, lotKey, lotOptions, lotTrackedItems, type LotOption } from "./inventory";
 import { ProductionRefusal, enterProduction } from "./production-ledger";
@@ -365,6 +365,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
     return await run();
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
+    if (e instanceof PeriodShut) return { ok: false, errors: { _form: e.message } };
     if (e instanceof InventoryRefusal || e instanceof ProductionRefusal) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
     // A dry run reached the end of the posting: its journal, with every write rolled back (P103).
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;
@@ -517,6 +518,7 @@ export async function transitionStockIssue(
 
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
+      await holdPostingPeriod(tx, isoDay(issue.issue_date));
       const input = asInput(issue);
       const r = await checkStockIssue(tx, input.header, input.lines, id, true);
       if (!r.ok) {

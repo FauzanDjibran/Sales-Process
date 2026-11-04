@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { ENTITIES } from "./entities";
 import { rowsByIds } from "./records";
 import { recordTitle } from "./record-title";
-import { fiscalClosingLabels } from "./fiscal";
+import { fiscalClosingLabels, fiscalPeriodLabels } from "./fiscal";
 import { journalNumbersByIds } from "./journal";
 import { openingBalanceNumbersByIds } from "./opening-balance";
 import { salesAdvanceNumbersByIds } from "./ar-advance";
@@ -109,6 +109,10 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   acc_opening_balance: {
     label: "Opening Balance",
     resolve: openingBalanceNumbersByIds,
+  },
+  acc_fiscal_period: {
+    label: "Fiscal Period",
+    resolve: fiscalPeriodLabels,
   },
   acc_fiscal_closing: {
     label: "Penutupan Fiscal Year",

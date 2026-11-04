@@ -19,6 +19,11 @@
  * Year's own header — it needs a checklist and a preview of the entry it is
  * about to write, so it carries `runAt` and the header links there instead.
  *
+ * A **period** inside an Open year is Open or Locked, and moves between the two
+ * from the year's period list (`FISCAL_PERIOD_TRANSITIONS`). Locked is a state,
+ * not a close: it refuses postings until the period is unlocked. A year closes
+ * only once all twelve are Locked, and its close makes them Closed.
+ *
  * Client-safe on purpose — no `server-only`, no database import.
  */
 import type { IconName } from "@/components/icon";
@@ -101,6 +106,73 @@ export const FISCAL_YEAR_TRANSITIONS: Record<
 export const FISCAL_YEAR_CLOSING_NOTE =
   "Penutupan dilakukan di layar Fiscal Year Closing: di sana " +
   "validasinya diperiksa dan journal penutup ditampilkan sebelum dijalankan.";
+
+// ------------------------------------------------------------------ periods
+
+export type FiscalPeriodStatus = "Open" | "Locked" | "Closed";
+
+export type FiscalPeriodAction = "lock" | "unlock";
+
+export type FiscalPeriodTransition = Omit<FiscalYearTransition, "from" | "to" | "runAt"> & {
+  from: FiscalPeriodStatus;
+  to: FiscalPeriodStatus;
+};
+
+/**
+ * A period's two moves, both reversible, both from the year's period list.
+ *
+ * Only inside an Open year: a Draft year has no periods and a Closed one has
+ * made all of them Closed for good.
+ */
+export const FISCAL_PERIOD_TRANSITIONS: Record<FiscalPeriodAction, FiscalPeriodTransition> = {
+  lock: {
+    label: "Kunci",
+    permission: "FISCAL_PERIOD_LOCK",
+    from: "Open",
+    to: "Locked",
+    icon: "lock",
+    tone: "neutral",
+    title: "Kunci periode?",
+    body:
+      "Selama terkunci, tidak ada dokumen bertanggal di dalam periode ini yang " +
+      "dapat diposting. Periode dapat dibuka kembali kapan saja.",
+    confirmLabel: "Ya, Kunci",
+    done: "Periode dikunci",
+  },
+  unlock: {
+    label: "Buka Kunci",
+    permission: "FISCAL_PERIOD_UNLOCK",
+    from: "Locked",
+    to: "Open",
+    icon: "check",
+    tone: "neutral",
+    title: "Buka kunci periode?",
+    body:
+      "Periode kembali menerima posting bertanggal di dalamnya, termasuk " +
+      "dokumen backdate.",
+    confirmLabel: "Ya, Buka Kunci",
+    done: "Kunci periode dibuka",
+  },
+};
+
+export type FiscalPeriodAbilities = { lock: boolean; unlock: boolean };
+
+export function fiscalPeriodAbilities(permissions: Iterable<string>): FiscalPeriodAbilities {
+  const held = permissions instanceof Set ? permissions : new Set(permissions);
+  return { lock: held.has("FISCAL_PERIOD_LOCK"), unlock: held.has("FISCAL_PERIOD_UNLOCK") };
+}
+
+/** The one move a period offers, or null — inside an Open year only. */
+export function periodAction(
+  yearStatus: FiscalYearStatus,
+  periodStatus: FiscalPeriodStatus,
+  can: FiscalPeriodAbilities
+): FiscalPeriodAction | null {
+  if (yearStatus !== "Open") return null;
+  if (periodStatus === "Open" && can.lock) return "lock";
+  if (periodStatus === "Locked" && can.unlock) return "unlock";
+  return null;
+}
 
 /** Just enough of a Fiscal Year to say which one is being talked about. */
 export type OpenYearSummary = { id: number; label: string; name: string };

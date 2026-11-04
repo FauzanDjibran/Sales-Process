@@ -850,7 +850,7 @@ table acc_fiscal_period {
 
   note                        varchar
 
-  status                      enum('Draft', 'Open', 'Closed') [not null, default: 'Draft']
+  status                      enum('Open', 'Locked', 'Closed') [not null, default: 'Open'] // Locked refuses postings until unlocked; Closed comes with the year's close
 
   production_costed_at        timestamptz // set by the Penutupan Biaya Produksi (R15)
   production_costed_by        int
