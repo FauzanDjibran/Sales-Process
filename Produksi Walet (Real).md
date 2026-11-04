@@ -48,8 +48,8 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | Di layar (v5) | Di sistem | Nama lama di layar |
 | --- | --- | --- |
 | **No. Stok** | `log_stock_tracking`, `tracking_id` | Lot |
-| **Unit** | `ref_workstation` lama, diganti nama `ref_unit` | Workstation |
-| **Workstation** (pengelompok unit) | `ref_workstation` baru | — |
+| **Unit** | `ref_unit` baru, menggantikan `ref_workstation` lama yang di-drop | Workstation |
+| **Workstation** (pengelompok unit) | `ref_workstation` baru, arti berbeda dari yang lama | — |
 | **BSTB Issue** | `log_stock_issue` | Stock Issue |
 | **BSTB Penyebaran, BSTB Transfer** | `prd_transfer` per tujuan | Production Transfer |
 | **BSTB Pengeluaran, BSTB ke Finish Goods** | `prd_release` per tujuan | Production Release, Pemusnahan |
@@ -313,21 +313,57 @@ Menu baru untuk PPIC, membaca baris Sales Order berstatus Open yang belum terkir
 | Yang ada | Tindakan |
 | --- | --- |
 | Tagihan Biaya, Pembayaran Biaya Produksi, Jenis Biaya, Account WIP | **Tetap** |
-| `inventory.ts`, buku stok, MAC | Tetap; `log_stock_tracking` unik seluruh sistem (W10) |
+| `inventory.ts`, buku stok, MAC | Tetap; `log_stock_tracking` unik seluruh sistem (W10). Nomor baru tiap penerimaan ditegakkan di Receipt Note dan `db:stock-inject`; `receiveStock` tetap menerima nomor yang sudah ada, karena BSTB ke Finish Goods dan Pengeluaran membawa No. Stok yang sama kembali ke Logistik |
 | `production-ledger.ts` | Tetap sebagai buku; kunci bucket jadi No. Stok · Unit · Partai · Job |
 | `prd_tracking_link` | Tetap; ditambah komposisi `prd_composition` |
-| `period-lock.ts`, checklist closing | Tetap |
-| Telusur, Kartu Lot, Saldo Produksi, Rekap Produksi | Tetap, diubah: Partai dan Job, himpunan supplier setelah mix, komposisi kotak; Rekap tanpa Driver dan menjadi laporan susut per partai |
-| `log_stock_issue` | Diubah: tambah Terima dan tujuan bahan penolong ke unit |
-| `prd_transfer` | Diubah: mode, QC, Terima, tujuan Penyebaran / Transfer / Reproses |
-| `prd_release` | Diubah: tujuan ke Finish Goods dan Pengeluaran beralasan; Pemusnahan dilebur ke Reject |
-| `prd_execution(_input, _output)` | Diubah: jenis Pengerjaan / Grading / Mix / Job Order / Assembly; hapus `driver`; tambah bahan penolong |
-| `m_item.value_weight` | Dihapus; bobot pindah ke Tabel Tipe per output |
-| Share, destination, item pada closing; `revaluePool`; Costing Sementara | Dihapus |
+| `period-lock.ts`, checklist closing | Tetap. Guard tahun buku R28 ditulis ulang agar membaca `prd_ledger`, bukan Eksekusi |
+| Telusur, Kartu Lot, Saldo Produksi | Tetap, diubah: Partai dan Job, himpunan supplier setelah mix, komposisi kotak |
+| `log_stock_issue` | Diubah: tambah Terima dan tujuan bahan penolong ke unit. Struktur baris dan pick tetap |
+| `production-doc.ts`, `production-doc-workflow.ts` | Tetap; konstanta Transfer dan Release dibuang |
+| Akun Beban Pemusnahan Produksi, Biaya Produksi Dibebankan | Tetap. Yang pertama cadangan OD-1; yang kedua kini dikredit saat biaya unit dicatat |
 | R3–R8, R10–R14, R17, R19–R26 (Production-Plan) | **Dicabut.** R27: Rencana vs Aktual dicabut, Telusur tetap. Langkah 12–15 lama dibatalkan |
 | R9, R15, R16, R18, R28 | Tetap |
 
-**Tabel baru:** `ref_unit` (ganti nama), `ref_workstation` (baru), `prd_line`, `prd_routing(_step)`, `prd_output_type`, `prd_rate_version(_line)`, `m_item_sale_spec`, `prd_bom_packing(_line)`, `prd_partai`, `prd_job`, `prd_tracking_info`, `prd_cost_entry`, `prd_composition`, `prd_carton(_line)`, `prd_cost_close_line`, `prd_plan(_line)`.
+### Drop dan deprecated (P217)
+
+**Aturan:** yang namanya sama tetapi isinya berbeda terlalu jauh di-drop dulu, lalu ditambahkan lagi saat langkahnya tiba. Tidak ada kode yang dibiarkan menggantung.
+
+**Drop lalu dibangun ulang**
+
+| Yang di-drop | Alasan | Dibangun lagi |
+| --- | --- | --- |
+| `ref_workstation`, `WORKSTATION_*` | Artinya berubah dari tempat barang menjadi pengelompok Unit | Langkah 1, dalam satu migrasi dengan `ref_unit` |
+| `prd_execution(_input, _output)`, `production-run.ts`, `PRODUCTION_EXECUTION_*` | Satu jenis ber-Driver menjadi lima jenis dengan rate, Tabel Tipe, bahan penolong, Partai dan Job | Langkah 4–8 |
+| `prd_transfer(_line)`, `production-transfer.ts`, `PRODUCTION_TRANSFER_*` | Perpindahan langsung menjadi siklus BSTB dengan mode, QC, Terima dan syarat partai | Langkah 4–5, 9 |
+| `prd_release(_line)`, `production-release.ts`, `production-release-purposes.ts`, `PRODUCTION_RELEASE_*` | Dua purpose menjadi BSTB ke Finish Goods dan Pengeluaran beralasan | Langkah 8–9 |
+| `prd_cost_close(_pool, _share, _dest, _item)`, bagian hitung `production-close.ts`, layar Penutupan | Alokasi maju menjadi Aktual dibanding Standar. `_pool` diganti `prd_cost_close_line` | Langkah 10 |
+
+**Drop permanen**
+
+| Yang di-drop | Alasan |
+| --- | --- |
+| `m_item.value_weight` | Bobot pindah ke Tabel Tipe per output |
+| `driver`, `outputWeight` | Biaya diserap per gram × rate saat produksi |
+| `production-close-shape.ts`, `revaluePool`, `revalueBucket`, `poolFlows`, `lotFates`, `postedRunsInRange` | Hanya melayani revaluasi maju |
+| Movement `Revalued` | Closing tidak menulis ke buku |
+| Costing Sementara, `REPORT_COSTING_SO_FAR_VIEW`, `CostingCards` | Diganti Proyeksi Varians |
+| Purpose `scrap`; seri `PMS/…`, `EKS/…`, `PT/…`, `PHP/…` | Dilebur ke Reject; nomor mengikuti W11 |
+| Nomor lot `<eksekusi>-<n>` dan nomor ketikan (R17) | Diganti `<induk>-<n>` |
+| Perintah Produksi, BoM per workstation, Routing per item, Rencana vs Aktual | Belum dibangun; cukup dicabut dari rencana |
+
+**Deprecated, hidup sampai penggantinya siap**
+
+| Yang ada | Sampai | Alasan |
+| --- | --- | --- |
+| `ref_workstation` | Langkah 1 | `log_stock_issue`, `prd_balance` dan `prd_ledger` masih mengacu padanya |
+| Posting langsung Stock Issue, seri `SI/…` | Langkah 3 | Diganti Ajukan → Terima |
+| `produce()` | Drop di langkah D, ditulis ulang di langkah 4 | Masih memakai Bobot Nilai; `shareByWeight` tetap |
+| Rekap Produksi | Drop di langkah D, kembali di langkah 11 | Membaca Eksekusi dan Driver; kembali sebagai laporan susut per partai |
+| `Production-Plan.md`, `Production-Baseline-Analysis.md` | Tetap sebagai arsip | R9, R15, R16, R18, R28 masih berlaku |
+
+**Sesudah langkah D**, `main` tetap berjalan dengan Tagihan Biaya, Pembayaran Biaya Produksi, Stock Issue, Saldo Produksi, Kartu Lot dan Telusur. Sampai langkah 10, tahun buku dengan aktivitas produksi tidak bisa ditutup.
+
+**Tabel baru:** `ref_unit`, `ref_workstation` (arti baru), `prd_execution(_input, _output)`, `prd_transfer(_line)`, `prd_release(_line)`, `prd_cost_close`, `prd_line`, `prd_routing(_step)`, `prd_output_type`, `prd_rate_version(_line)`, `m_item_sale_spec`, `prd_bom_packing(_line)`, `prd_partai`, `prd_job`, `prd_tracking_info`, `prd_cost_entry`, `prd_composition`, `prd_carton(_line)`, `prd_cost_close_line`, `prd_plan(_line)`.
 
 **Sumber salvage dari branch `walet`** (ambil per file, tidak di-merge): Partai dan Job (P163), BSTB + QC tanpa transit (P167), pass-through dan mix (P169), Rencana Produksi (P168), laporan (P171). Bucket `walet` tidak mencakup komposisi dan standard cost versi ini.
 
@@ -342,8 +378,9 @@ Tiap langkah: satu commit ke `main`, migrasi dan DBML bersamaan, `npm run build`
 | Langkah | Isi | Selesai bila |
 | --- | --- | --- |
 | 0 | Catat keputusan di `Claude-ERP.md` (§1.4, §12), pengecualian di `KNOWLEDGE.md`, tandai `Production-Plan.md`, reset data produksi Neon setelah disetujui | Dokumen selaras |
-| 1 | Istilah di layar; Workstation + Unit, Tipe Unit, Line, Routing versi, Tabel Tipe, Standard Cost versi; No. Stok unik | Master bisa dibuat di browser; penerimaan kedua jenis sama mendapat nomor baru |
-| 2 | Identitas dan buku: bucket baru, Partai, Job, `prd_tracking_info`, `prd_cost_entry`; hapus Driver | Test buku hijau |
+| D | Satu commit drop (bagian 12, P217), kecuali Workstation: tabel dan kode, permission dan jenis dokumen lewat migrasi, tes `production-run`, `production-move`, `production-close`; pangkas `production-ledger`, `production-report`; hapus 6 dari 12 cek produksi `db:reconcile`; tulis ulang guard R28 | Build, lint, test, `db:reconcile` hijau; menu yang tersisa berjalan |
+| 1 | Istilah di layar; drop `ref_workstation` lama, Unit + Workstation baru dalam satu migrasi; Tipe Unit, Line, Routing versi, Tabel Tipe, Standard Cost versi; No. Stok unik | Master bisa dibuat di browser; penerimaan kedua jenis sama mendapat nomor baru |
+| 2 | Identitas dan buku: bucket baru, Partai, Job, `prd_tracking_info`, `prd_cost_entry` | Test buku hijau |
 | 3 | BSTB Issue + Terima; bahan penolong ke unit | Skenario A1 |
 | 4 | Grading Halus, Pre Cleaning, BSTB langsung | Job terbit; V1–V3 benar |
 | 5 | Penyebaran, BSTB + QC, pembentukan partai | Skenario A2 |
