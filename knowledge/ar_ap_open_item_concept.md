@@ -53,6 +53,10 @@ Supplier net position
 
 Advance does not need to be permanently tied to one PO or Invoice. Its source reference may be retained for traceability; allocation happens separately.
 
+### An invoice that deducts an advance
+
+The invoice's item is **born at its face**, always, even when advances cover it whole (it then ends at zero). Each advance it deducts is applied **inside the invoice's own posting**, as a pair of ledger entries each naming the other: the advance item falls by the amount used, and the invoice item falls by that amount plus any tax on it already acknowledged. The journal moves the same way, so the receivable moves line for line with the invoice item.
+
 ---
 
 ## 3. Open Item Concept
@@ -162,11 +166,11 @@ The balance table stores only the **current running balance** of each open item.
 It does **not** need to store:
 
 ```text
-original_amount
 applied_amount
+tax figures
 ```
 
-The one settlement figure it keeps beside the balance is `paid_amount` (§3), because the source document does not hold it.
+Tax belongs to the tax document. Beside the balance it keeps `paid_amount` (§3), because the source document does not hold it, and it may keep `original_amount`, what it was born at.
 
 The balance is simply:
 
@@ -224,4 +228,5 @@ Allocation = settlement relationship
 
 ## Changelog
 - **1.0** (03/10/2026): from ERP `Initialization/ar_ap_open_item_concept.md`.
+- **2.1** (04/11/2026): harvested ERP P116, P117. §6, an item keeps balances only, with `original_amount` allowed and no tax figures; §2, an invoice's item is born at its face and the advance it deducts is applied inside its posting as a pair of entries.
 - **2.0** (02/11/2026): §3 — one open item per source document, identified by it (unique), holding `paid_amount` beside its balance; the document keeps its value and lifecycle only, and a payment reads what was paid from the document's item. §6 notes the one figure kept beside the balance. Harvested from ERP P214 (the user's deviation-check answer B, 02/11/2026), which replaces ERP P132–P133's "the document keeps what it was paid". Changes a rule: adopters make the source reference unique and move any paid figure off their documents onto the item.

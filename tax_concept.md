@@ -279,7 +279,6 @@ payment (accrual) or due date, **whichever comes first**. So:
 
 This is the mainstream practice (Accurate, Jurnal.id, Odoo's Indonesian
 localization, and SAP / Dynamics withholding set to post at invoice).
-Decided for the ERP 06/10/2026 (`Purchasing-Concept.md` B31, P121).
 
 ### 4.4 Advances and withholding
 
