@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
+import type { Paged, RegisterQuery } from "./register-query";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
@@ -9,6 +10,7 @@ import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput
 import { InsufficientFunds, recordCashBankEntry } from "./cash-bank";
 import { ApItemOverdrawn, lockApItems, payAdvance, settleApItem } from "./ap-item";
 import { lockPurchaseInvoices, purchaseInvoiceNumbersByIds, settlementPurchaseInvoices, unpaidPurchaseInvoiceIds } from "./ap-invoice";
+import { cashBankTxPage } from "./cash-bank-tx";
 import { checkAccountIsLeaf } from "./records";
 import { lockPurchaseAdvances, purchaseAdvanceNumbersByIds, settlementAdvances, unpaidAdvanceIds } from "./ap-advance";
 import { cashToClear, receivedProblem, settleBillFromCash, type SettlementLine } from "./sales-tax";
@@ -773,12 +775,8 @@ export type CashPaymentListRow = {
   docs: string[];
 };
 
-export async function listCashPayments(): Promise<CashPaymentListRow[]> {
-  const rows = await prisma.finCashBankTx.findMany({
-    where: { direction: "Out" },
-    orderBy: [{ tx_date: "desc" }, { id: "desc" }],
-    include: { partner: true, cash_bank: true, lines: { select: { doc_id: true, doc_type: { select: { doc_table: true } } } } },
-  });
+export async function listCashPayments(query: RegisterQuery): Promise<Paged<CashPaymentListRow>> {
+  const { rows, ...page } = await cashBankTxPage("Out", query);
   const idsOf = (kind: PaidDocKind) => [...new Set(rows.flatMap((r) => r.lines.filter((l) => l.doc_type.doc_table === kind).map((l) => l.doc_id)))];
   const [advanceNos, invoiceNos, costNos, billNos] = await Promise.all([
     purchaseAdvanceNumbersByIds(idsOf("fin_ap_advance")),
@@ -792,22 +790,25 @@ export async function listCashPayments(): Promise<CashPaymentListRow[]> {
     sal_permit_request: costNos,
     prd_cost_bill: billNos,
   };
-  return rows.map((r) => ({
-    id: r.id,
-    txNo: r.tx_no,
-    date: isoDay(r.tx_date),
-    status: r.status as CashBankTxStatus,
-    purpose: r.purpose,
-    partnerLabel: r.partner.partner_label,
-    partnerName: r.partner.partner_name,
-    cashBankLabel: r.cash_bank.cash_bank_label,
-    bankRef: r.bank_ref,
-    cash: r.cash_amount.toNumber(),
-    settled: r.settled_amount.toNumber(),
-    pph: r.pph_amount.toNumber(),
-    lines: r.lines.length,
-    docs: r.lines.map((l) => (numbersOf[l.doc_type.doc_table as PaidDocKind] ?? invoiceNos).get(l.doc_id) ?? "?"),
-  }));
+  return {
+    ...page,
+    rows: rows.map((r) => ({
+      id: r.id,
+      txNo: r.tx_no,
+      date: isoDay(r.tx_date),
+      status: r.status as CashBankTxStatus,
+      purpose: r.purpose,
+      partnerLabel: r.partner.partner_label,
+      partnerName: r.partner.partner_name,
+      cashBankLabel: r.cash_bank.cash_bank_label,
+      bankRef: r.bank_ref,
+      cash: r.cash_amount.toNumber(),
+      settled: r.settled_amount.toNumber(),
+      pph: r.pph_amount.toNumber(),
+      lines: r.lines.length,
+      docs: r.lines.map((l) => (numbersOf[l.doc_type.doc_table as PaidDocKind] ?? invoiceNos).get(l.doc_id) ?? "?"),
+    })),
+  };
 }
 
 export type CashPaymentView = {

@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
+import { windowOf, type Paged, type RegisterQuery } from "./register-query";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
@@ -1065,12 +1066,42 @@ export type CashReceiptListRow = {
   docs: string[];
 };
 
-export async function listCashReceipts(): Promise<CashReceiptListRow[]> {
+/**
+ * One page of a direction's register, Drafts first, then newest first. It
+ * searches what the row itself holds: a line names its document by id, so the
+ * document's number is found from that document, not from here.
+ */
+export async function cashBankTxPage(direction: "In" | "Out", query: RegisterQuery) {
+  const contains = { contains: query.q, mode: "insensitive" as const };
+  const scope = { direction };
+  const where: Prisma.FinCashBankTxWhereInput = {
+    ...scope,
+    ...(query.status ? { status: query.status as CashBankTxStatus } : {}),
+    ...(query.q
+      ? {
+          OR: [
+            { tx_no: contains },
+            { bank_ref: contains },
+            { partner: { partner_label: contains } },
+            { partner: { partner_name: contains } },
+          ],
+        }
+      : {}),
+  };
+  const [total, all] = await Promise.all([prisma.finCashBankTx.count({ where }), prisma.finCashBankTx.count({ where: scope })]);
+  const win = windowOf(total, query);
   const rows = await prisma.finCashBankTx.findMany({
-    where: { direction: "In" },
-    orderBy: [{ tx_date: "desc" }, { id: "desc" }],
+    where,
+    orderBy: [{ status: "asc" }, { tx_date: "desc" }, { id: "desc" }],
+    skip: win.skip,
+    take: win.take,
     include: { partner: true, cash_bank: true, lines: { select: { doc_id: true, doc_type: { select: { doc_table: true } } } } },
   });
+  return { rows, total, all, page: win.page, pages: win.pages, size: query.size };
+}
+
+export async function listCashReceipts(query: RegisterQuery): Promise<Paged<CashReceiptListRow>> {
+  const { rows, ...page } = await cashBankTxPage("In", query);
   const idsOf = (kind: SettledDocKind) => [
     ...new Set(rows.flatMap((r) => r.lines.filter((l) => l.doc_type.doc_table === kind).map((l) => l.doc_id))),
   ];
@@ -1087,22 +1118,25 @@ export async function listCashReceipts(): Promise<CashReceiptListRow[]> {
     ...[...permitAdvanceNos].map(([id, no]) => [billKey("fin_ar_permit_advance", id), no] as const),
     ...[...permitInvoiceNos].map(([id, no]) => [billKey("fin_ar_permit_invoice", id), no] as const),
   ]);
-  return rows.map((r) => ({
-    id: r.id,
-    txNo: r.tx_no,
-    date: isoDay(r.tx_date),
-    status: r.status as CashBankTxStatus,
-    purpose: r.purpose,
-    partnerLabel: r.partner.partner_label,
-    partnerName: r.partner.partner_name,
-    cashBankLabel: r.cash_bank.cash_bank_label,
-    bankRef: r.bank_ref,
-    cash: r.cash_amount.toNumber(),
-    settled: r.settled_amount.toNumber(),
-    pph: r.pph_amount.toNumber(),
-    lines: r.lines.length,
-    docs: r.lines.map((l) => bills.get(billKey(l.doc_type.doc_table as SettledDocKind, l.doc_id)) ?? "?"),
-  }));
+  return {
+    ...page,
+    rows: rows.map((r) => ({
+      id: r.id,
+      txNo: r.tx_no,
+      date: isoDay(r.tx_date),
+      status: r.status as CashBankTxStatus,
+      purpose: r.purpose,
+      partnerLabel: r.partner.partner_label,
+      partnerName: r.partner.partner_name,
+      cashBankLabel: r.cash_bank.cash_bank_label,
+      bankRef: r.bank_ref,
+      cash: r.cash_amount.toNumber(),
+      settled: r.settled_amount.toNumber(),
+      pph: r.pph_amount.toNumber(),
+      lines: r.lines.length,
+      docs: r.lines.map((l) => bills.get(billKey(l.doc_type.doc_table as SettledDocKind, l.doc_id)) ?? "?"),
+    })),
+  };
 }
 
 export type CashReceiptLineView = {

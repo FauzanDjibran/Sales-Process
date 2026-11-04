@@ -1,13 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { Amount } from "@/components/ui/amount";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DocumentHeader } from "@/components/ui/document-header";
-import { Pager, usePaging } from "@/components/ui/pager";
+import { Pager } from "@/components/ui/pager";
+import { useRegisterParams } from "@/components/ui/use-register-params";
+import type { Paged } from "@/lib/erp/register-query";
 import { SearchField } from "@/components/ui/search-field";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
@@ -49,14 +51,13 @@ export function JournalList({
   journals,
   can,
 }: {
-  journals: JournalRow[];
+  journals: Paged<JournalRow>;
   can: JournalAbilities;
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("");
-  const [origin, setOrigin] = useState("");
+  const reg = useRegisterParams();
+  const origin = reg.param("origin");
   const [menuFor, setMenuFor] = useState<{ row: JournalRow; x: number; y: number } | null>(
     null
   );
@@ -65,29 +66,11 @@ export function JournalList({
   );
   const [busy, setBusy] = useState(false);
 
-  const q = query.trim().toLowerCase();
-  const rows = useMemo(
-    () =>
-      journals.filter(
-        (j) =>
-          (!status || j.status === status) &&
-          (!origin || (origin === "manual") === j.isManual) &&
-          (!q ||
-            j.journalNo.toLowerCase().includes(q) ||
-            j.description.toLowerCase().includes(q))
-      ),
-    [journals, q, status, origin]
-  );
-
-  const activeFilters = [status, origin].filter(Boolean).length;
-  const clearAll = () => {
-    setQuery("");
-    setStatus("");
-    setOrigin("");
-  };
+  const rows = journals.rows;
+  const activeFilters = [reg.status, origin, reg.q].filter(Boolean).length;
+  const clearAll = () => reg.clear("origin");
 
   const cents = (n: number) => Math.round(n * 100);
-  const paging = usePaging(rows, `${q}|${status}|${origin}`);
 
   const run = async (row: JournalRow, action: JournalAction) => {
     setBusy(true);
@@ -119,20 +102,20 @@ export function JournalList({
       <div className="card">
         <div className="toolbar">
           <SearchField
-            value={query}
-            onChange={setQuery}
+            value={reg.search.value}
+            onChange={reg.search.onChange}
             placeholder="Cari nomor journal atau keterangan…"
           />
           <Select
             variant="toolbar"
-            value={status}
-            set={Boolean(status)}
+            value={reg.status}
+            set={Boolean(reg.status)}
             ariaLabel="Filter status"
             options={[
               { value: "", label: "Status: semua" },
               ...STATUSES.map((s) => ({ value: s, label: STATUS_TEXT[s] ?? s })),
             ]}
-            onChange={setStatus}
+            onChange={reg.setStatus}
           />
           <Select
             variant="toolbar"
@@ -144,7 +127,7 @@ export function JournalList({
               { value: "manual", label: "Manual" },
               { value: "auto", label: "Otomatis" },
             ]}
-            onChange={setOrigin}
+            onChange={(v) => reg.setParam("origin", v)}
           />
           {activeFilters > 0 && (
             <button className="btn sm ghost" onClick={clearAll}>
@@ -153,11 +136,11 @@ export function JournalList({
           )}
           <div className="tspace" />
           <span className="count">
-            <b>{rows.length}</b> dari {journals.length} journal
+            <b>{journals.total}</b> dari {journals.all} journal
           </span>
         </div>
 
-        {rows.length ? (
+        {journals.total ? (
           <>
             <div className="tw">
               <table className="grid">
@@ -182,7 +165,7 @@ export function JournalList({
                   </tr>
                 </thead>
                 <tbody>
-                  {paging.pageRows.map((j, i) => {
+                  {rows.map((j, i) => {
                     const href = `/accounting/journal/${j.id}`;
                     const actions = j.isManual
                       ? availableJournalActions(j.status as JournalStatus, can)
@@ -192,7 +175,7 @@ export function JournalList({
                     const broken = cents(j.debit) !== cents(j.credit) && j.status === "Posted";
                     return (
                       <tr key={j.id} onClick={() => router.push(href)}>
-                        <td className="no">{paging.start + i + 1}</td>
+                        <td className="no">{(journals.page - 1) * journals.size + i + 1}</td>
                         <td>
                           <Link href={href}>
                             <span className="lab">{j.journalNo}</span>
@@ -273,27 +256,27 @@ export function JournalList({
               </table>
             </div>
             <Pager
-              page={paging.page}
-              pages={paging.pages}
-              total={paging.total}
-              perPage={paging.perPage}
-              onPage={paging.setPage}
-              onPerPage={paging.setPerPage}
+              page={journals.page}
+              pages={journals.pages}
+              total={journals.total}
+              perPage={journals.size}
+              onPage={reg.setPage}
+              onPerPage={reg.setSize}
             />
           </>
         ) : (
           <div className="empty">
             <div className="ic">
-              <Icon name={journals.length ? "srch" : "book"} size={20} />
+              <Icon name={journals.all ? "srch" : "book"} size={20} />
             </div>
-            <h4>{journals.length ? "Tidak ada journal yang cocok" : "Belum ada journal"}</h4>
+            <h4>{journals.all ? "Tidak ada journal yang cocok" : "Belum ada journal"}</h4>
             <p>
-              {journals.length
+              {journals.all
                 ? "Ubah kata kunci atau bersihkan filter yang sedang aktif."
                 : "Journal terbentuk otomatis saat dokumen diposting, atau dibuat sendiri sebagai Journal Manual."}
             </p>
             <div className="cta">
-              {journals.length ? (
+              {journals.all ? (
                 <button className="btn" onClick={clearAll}>
                   Bersihkan filter
                 </button>

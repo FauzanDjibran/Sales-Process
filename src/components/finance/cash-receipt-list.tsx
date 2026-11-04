@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
-import { Pager, usePaging } from "@/components/ui/pager";
+import { Pager } from "@/components/ui/pager";
 import { SearchField } from "@/components/ui/search-field";
 import { Select } from "@/components/ui/select";
+import { useRegisterParams } from "@/components/ui/use-register-params";
+import type { Paged } from "@/lib/erp/register-query";
 import { formatDate, formatMoney } from "@/lib/format";
 import type { CashReceiptListRow } from "@/lib/erp/cash-bank-tx";
 import { cashBankPurpose } from "@/lib/erp/cash-bank-purposes";
@@ -18,25 +19,10 @@ import {
 } from "@/lib/erp/cash-bank-tx-workflow";
 
 /** The Penerimaan Kas & Bank register. Drafts first, then newest first. */
-export function CashReceiptList({ rows: all, can }: { rows: CashReceiptListRow[]; can: CashReceiptAbilities }) {
+export function CashReceiptList({ paged, can }: { paged: Paged<CashReceiptListRow>; can: CashReceiptAbilities }) {
   const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("");
-  const q = query.trim().toLowerCase();
-  const rows = useMemo(() => {
-    const out = all.filter(
-      (r) =>
-        (!status || r.status === status) &&
-        (!q ||
-          r.txNo.toLowerCase().includes(q) ||
-          (r.bankRef ?? "").toLowerCase().includes(q) ||
-          r.partnerLabel.toLowerCase().includes(q) ||
-          r.partnerName.toLowerCase().includes(q) ||
-          r.docs.some((d) => d.toLowerCase().includes(q)))
-    );
-    return out.sort((a, b) => Number(b.status === "Draft") - Number(a.status === "Draft"));
-  }, [all, q, status]);
-  const paging = usePaging(rows, `${q}|${status}`);
+  const reg = useRegisterParams();
+  const filtered = Boolean(reg.q || reg.status);
   const money = (n: number) => formatMoney(n, "IDR");
 
   return (
@@ -72,11 +58,11 @@ export function CashReceiptList({ rows: all, can }: { rows: CashReceiptListRow[]
 
       <div className="card">
         <div className="toolbar">
-          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor, referensi bank, partner atau tagihan…" />
+          <SearchField value={reg.search.value} onChange={reg.search.onChange} placeholder="Cari nomor, referensi bank atau partner…" />
           <Select
             variant="toolbar"
-            value={status}
-            set={Boolean(status)}
+            value={reg.status}
+            set={Boolean(reg.status)}
             options={[
               { value: "", label: "Status: semua" },
               ...(["Draft", "Posted", "Cancelled"] as CashBankTxStatus[]).map((s) => ({
@@ -84,15 +70,15 @@ export function CashReceiptList({ rows: all, can }: { rows: CashReceiptListRow[]
                 label: CASH_BANK_TX_STATUS_TEXT[s],
               })),
             ]}
-            onChange={setStatus}
+            onChange={reg.setStatus}
           />
           <span className="tspace" />
           <span className="count">
-            <b>{rows.length}</b> penerimaan
+            <b>{paged.total}</b> penerimaan
           </span>
         </div>
 
-        {rows.length ? (
+        {paged.total ? (
           <>
             <div className="tw">
               <table className="grid">
@@ -109,7 +95,7 @@ export function CashReceiptList({ rows: all, can }: { rows: CashReceiptListRow[]
                   </tr>
                 </thead>
                 <tbody>
-                  {paging.pageRows.map((r) => (
+                  {paged.rows.map((r) => (
                     <tr key={r.id} onClick={() => router.push(`/finance/cash-bank/receipt/${r.id}`)}>
                       <td>
                         <Link className="lab" href={`/finance/cash-bank/receipt/${r.id}`}>
@@ -147,12 +133,12 @@ export function CashReceiptList({ rows: all, can }: { rows: CashReceiptListRow[]
               </table>
             </div>
             <Pager
-              page={paging.page}
-              pages={paging.pages}
-              total={paging.total}
-              perPage={paging.perPage}
-              onPage={paging.setPage}
-              onPerPage={paging.setPerPage}
+              page={paged.page}
+              pages={paged.pages}
+              total={paged.total}
+              perPage={paged.size}
+              onPage={reg.setPage}
+              onPerPage={reg.setSize}
             />
           </>
         ) : (
@@ -160,20 +146,17 @@ export function CashReceiptList({ rows: all, can }: { rows: CashReceiptListRow[]
             <div className="ic">
               <Icon name="down" size={20} />
             </div>
-            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada penerimaan"}</h4>
+            <h4>{filtered ? "Tidak ada yang cocok" : "Belum ada penerimaan"}</h4>
             <p>
-              {q || status
+              {filtered
                 ? "Tidak ada penerimaan yang sesuai dengan pencarian atau filter."
                 : "Catat dana yang masuk dari customer atas tagihan uang muka."}
             </p>
-            {q || status ? (
+            {filtered ? (
               <div className="cta">
                 <button
                   className="btn"
-                  onClick={() => {
-                    setQuery("");
-                    setStatus("");
-                  }}
+                  onClick={() => reg.clear()}
                 >
                   Bersihkan filter
                 </button>

@@ -1,7 +1,8 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import type { Prisma } from "@/generated/prisma/client";
+import type { JournalStatus, Prisma } from "@/generated/prisma/client";
+import { windowOf, type Paged, type RegisterQuery } from "./register-query";
 import { nextDocumentNumber } from "./document-number";
 import { isBaseCurrency } from "./currency";
 import { roundBase } from "./fx";
@@ -782,39 +783,65 @@ const totalOf = (lines: { debit_amount: { toNumber(): number }; kredit_amount: {
   credit: lines.reduce((t, l) => t + l.kredit_amount.toNumber(), 0),
 });
 
-/** Every journal, newest first. */
-export async function listJournals(): Promise<JournalRow[]> {
+/**
+ * One page of the Journal register.
+ *
+ * Drafts first — an unposted journal is the one somebody still has to act on,
+ * and a register that buried it under a year of posted entries would hide the
+ * only rows that are anybody's to do something about — then newest first. The
+ * status enum is declared Draft, Posted, Cancelled, so ordering by it puts the
+ * drafts on top and a cancelled journal below the posted ones.
+ */
+export async function listJournals(
+  query: RegisterQuery,
+  /** `manual`, `auto`, or empty for both. */
+  origin = ""
+): Promise<Paged<JournalRow>> {
+  const where: Prisma.AccJournalWhereInput = {
+    ...(query.status ? { status: query.status as JournalStatus } : {}),
+    ...(origin ? { is_manual: origin === "manual" } : {}),
+    ...(query.q
+      ? {
+          OR: [
+            { journal_no: { contains: query.q, mode: "insensitive" as const } },
+            { description: { contains: query.q, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+  };
+  const [total, all] = await Promise.all([prisma.accJournal.count({ where }), prisma.accJournal.count()]);
+  const win = windowOf(total, query);
   const rows = await prisma.accJournal.findMany({
-    orderBy: [{ posting_date: { sort: "desc", nulls: "first" } }, { id: "desc" }],
+    where,
+    orderBy: [{ status: "asc" }, { posting_date: { sort: "desc", nulls: "first" } }, { id: "desc" }],
+    skip: win.skip,
+    take: win.take,
     include: {
       source_doc_type: { select: { doc_label: true, doc_table: true } },
       lines: { select: { debit_amount: true, kredit_amount: true } },
     },
   });
 
-  // Drafts first: an unposted journal is the one somebody still has to act on,
-  // and a register that buried it under a year of posted entries would hide the
-  // only rows that are anybody's to do something about. A draft now carries the
-  // date it was written for, so this is decided by status rather than by a
-  // null date. The sort is stable, so each group keeps the query's order.
-  const ordered = [
-    ...rows.filter((j) => j.status === "Draft"),
-    ...rows.filter((j) => j.status !== "Draft"),
-  ];
-
-  return ordered.map((j) => ({
-    id: j.id,
-    journalNo: j.journal_no,
-    postingDate: j.posting_date ? j.posting_date.toISOString() : null,
-    description: j.description,
-    status: j.status,
-    isManual: j.is_manual,
-    sourceDocLabel: j.source_doc_type?.doc_label ?? null,
-    sourceDocTable: j.source_doc_type?.doc_table ?? null,
-    sourceDocId: j.source_doc_id,
-    lineCount: j.lines.length,
-    ...totalOf(j.lines),
-  }));
+  return {
+    rows: rows.map((j) => ({
+      id: j.id,
+      journalNo: j.journal_no,
+      postingDate: j.posting_date ? j.posting_date.toISOString() : null,
+      description: j.description,
+      status: j.status,
+      isManual: j.is_manual,
+      sourceDocLabel: j.source_doc_type?.doc_label ?? null,
+      sourceDocTable: j.source_doc_type?.doc_table ?? null,
+      sourceDocId: j.source_doc_id,
+      lineCount: j.lines.length,
+      ...totalOf(j.lines),
+    })),
+    total,
+    all,
+    page: win.page,
+    pages: win.pages,
+    size: query.size,
+  };
 }
 
 export async function getJournal(
