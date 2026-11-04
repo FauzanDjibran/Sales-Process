@@ -80,10 +80,10 @@ export function stepRuleErrors(
   if (steps.length === 0) return ["Routing butuh minimal satu langkah."];
   const former = (i: number) => processesOf(steps[i].unit_id!).includes("PartaiFormer");
   const formers = steps.map((_, i) => i).filter(former);
-  if (hasLine && formers.length) out.push("Routing line dimulai sesudah partai terbentuk: unit Pembentuk Partai tidak ada di dalamnya.");
+  if (hasLine && formers.length) out.push("Routing milik line dimulai sesudah partai terbentuk. Keluarkan unit Pembentuk Partai dari sini: tempatnya di routing tanpa line.");
   if (!hasLine) {
     if (formers.length !== 1 || formers[0] !== steps.length - 1) {
-      out.push("Routing tanpa line berakhir di satu unit Pembentuk Partai, tempat line dipilih.");
+      out.push("Routing tanpa line harus berakhir di satu unit Pembentuk Partai, tempat line dipilih. Unit sesudahnya masuk routing milik line.");
     }
   }
   const cps = steps.map((s, i) => (s.is_checkpoint ? i : -1)).filter((i) => i >= 0);

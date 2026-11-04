@@ -1152,7 +1152,7 @@ export const ENTITIES: Entity[] = [
     module: "master",
     name: "Routing",
     icon: "tree",
-    desc: "Urutan unit yang dilalui barang, milik satu line. Tanpa line, ini segmen sebelum partai yang sama untuk semua line. Langkah terkunci begitu dipakai partai.",
+    desc: "Urutan unit yang dilalui barang. Ada dua macam: tanpa line, dari unit pertama sampai unit Pembentuk Partai; dan milik line, dari unit sesudahnya sampai akhir. Langkah terkunci begitu dipakai partai.",
     codeField: "routing_code",
     codePrefix: "rout",
     labelField: "routing_label",

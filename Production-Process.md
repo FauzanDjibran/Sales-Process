@@ -86,3 +86,4 @@ plan's steps 1–13.
 | 05/11/2026 | P226 | One routing per line; Standard Cost never edited, one active, the old closed by the new. |
 | 05/11/2026 | P227 | Step 2: bucket No. Stok · Unit · stage · Partai · Job, Partai, No. Job, what a No. Stok locked, standard cost entries; several routings per line again. No document uses them yet. |
 | 05/11/2026 | P228 | Step 3: BSTB Issue, Ajukan and Terima, stock reserved from Ajukan, Bahan Penolong ke Unit. |
+| 05/11/2026 | P229 | The Reguler Workstations, Units and routings as a seed; clearer routing refusals. |
