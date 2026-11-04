@@ -48,3 +48,6 @@ next-env.d.ts
 
 # The client workbooks on branch walet (P200)
 walet/*.xlsx
+
+# Gathered source material for production, kept local
+/walet/
