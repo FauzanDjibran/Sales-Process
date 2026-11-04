@@ -903,25 +903,22 @@ model PrdLine {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  variance_account AccAccount?  @relation("PrdLineVariance", fields: [variance_account_id], references: [id])
-  routings         PrdRouting[]
+  variance_account AccAccount? @relation("PrdLineVariance", fields: [variance_account_id], references: [id])
+  routing          PrdRouting?
 
   @@map("prd_line")
 }
 
-/// A routing version (P225): the ordered Units a line's goods pass. With no
-/// line it is the segment before the partai, shared by every line. A version
-/// is its own record; the one in force on a date is the latest active whose
-/// `effective_from` has come.
+/// A routing (P226): the ordered Units a line's goods pass. A line has one.
+/// With no line it is the one segment before the partai, shared by every line.
 model PrdRouting {
-  id             Int          @id @default(autoincrement())
-  routing_code   String       @unique
-  routing_label  String
-  routing_name   String
-  line_id        Int?
-  effective_from DateTime     @db.Date
-  note           String?
-  status         ActiveStatus @default(Active)
+  id            Int          @id @default(autoincrement())
+  routing_code  String       @unique
+  routing_label String
+  routing_name  String
+  line_id       Int?
+  note          String?
+  status        ActiveStatus @default(Active)
 
   created_by Int
   updated_by Int?
@@ -931,7 +928,8 @@ model PrdRouting {
   line  PrdLine?         @relation(fields: [line_id], references: [id])
   steps PrdRoutingStep[]
 
-  @@index([line_id])
+  /// NULLS NOT DISTINCT, hand-written in the migration: one row without a line too.
+  @@unique([line_id])
   @@map("prd_routing")
 }
 
@@ -957,16 +955,17 @@ model PrdRoutingStep {
   @@map("prd_routing_step")
 }
 
-/// A standard cost version (P225): the rate per gram of each Unit, locked into
-/// a No. Stok or a partai when it starts (§7). An empty rate is 0 (W17).
+/// A standard cost version (P226): the rate per gram of each Unit. Never edited
+/// once saved; saving a new one closes the active one, and a partial unique
+/// index keeps one Active. A partai and a No. Stok keep the id they started on,
+/// so closing a version changes nothing for them. An empty rate is 0 (W17).
 model PrdRateVersion {
-  id             Int          @id @default(autoincrement())
-  rate_code      String       @unique
-  rate_label     String
-  rate_name      String
-  effective_from DateTime     @db.Date
-  note           String?
-  status         ActiveStatus @default(Active)
+  id         Int          @id @default(autoincrement())
+  rate_code  String       @unique
+  rate_label String
+  rate_name  String
+  note       String?
+  status     ActiveStatus @default(Inactive)
 
   created_by Int
   updated_by Int?

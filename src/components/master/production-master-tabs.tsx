@@ -256,7 +256,7 @@ export function RateLinesTab({ editing, items, error, onChange, context }: Colle
     <CollectionCard
       icon="calc"
       title="Rate per Unit"
-      desc="Rate biaya per gram input. Unit yang tidak diisi berarti rate 0."
+      desc="Rate biaya per gram input. Unit yang tidak diisi berarti rate 0. Versi tidak dapat diubah setelah disimpan."
       editing={editing}
       addLabel="Tambah Rate"
       onAdd={() => setOpen(blank())}
@@ -268,7 +268,7 @@ export function RateLinesTab({ editing, items, error, onChange, context }: Colle
             <Icon name="calc" size={18} />
           </div>
           <h4>Belum ada rate</h4>
-          <p>Versi tanpa rate membebankan 0 di semua unit.</p>
+          <p>Unit yang tidak diisi membebankan 0.</p>
         </div>
       ) : (
         <div className="tw">

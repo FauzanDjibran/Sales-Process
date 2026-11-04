@@ -562,9 +562,9 @@ async function ownCollections(
     return (tx, recordId) => writeRoutingCollections(tx, recordId, checked.clean);
   }
   if (entity.key === "prd_rate_version") {
-    const checked = await checkRateCollections(values, id);
+    const checked = await checkRateCollections(values);
     Object.assign(errors, checked.errors);
-    return (tx, recordId) => writeRateCollections(tx, recordId, checked.clean);
+    return (tx, recordId, actorId) => writeRateCollections(tx, recordId, checked.clean, actorId);
   }
   return null;
 }

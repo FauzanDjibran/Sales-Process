@@ -18,9 +18,8 @@ import {
  * steps and a Standard Cost's rates (P225). Part of the record: edited on its
  * form's tab, saved with it in one transaction, as an Item's conversions are.
  *
- * Rows are replaced as a whole on every save. Nothing refers to a step or a
- * rate line by id; a partai and a No. Stok will lock the routing and the rate
- * version, not their rows.
+ * A routing's steps are replaced as a whole on every save: nothing refers to a
+ * step by id. A Standard Cost version is written once and never again (P226).
  */
 
 // -------------------------------------------------------------------- reads
@@ -60,12 +59,20 @@ async function unitsById(ids: number[]): Promise<Map<number, UnitInfo>> {
 export type RoutingCollections = { steps: (Omit<StepDraft, "key" | "id" | "unit_id"> & { unit_id: number })[] };
 
 /** A step may keep an inactive Unit it already had; it may not pick one. */
-async function stillOffered(table: "prdRoutingStep" | "prdRateVersionLine", parentId: number | null, unit: UnitInfo): Promise<boolean> {
+async function stillOffered(routingId: number | null, unit: UnitInfo): Promise<boolean> {
   if (unit.status === "Active") return true;
-  if (!parentId) return false;
-  const where = table === "prdRoutingStep" ? { routing_id: parentId, unit_id: unit.id } : { version_id: parentId, unit_id: unit.id };
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((await (prisma[table] as any).count({ where })) as number) > 0;
+  if (!routingId) return false;
+  return (await prisma.prdRoutingStep.count({ where: { routing_id: routingId, unit_id: unit.id } })) > 0;
+}
+
+/** A line has one routing, and there is one segment before the partai (P226). */
+async function routingClash(lineId: number | null, routingId: number | null): Promise<string | null> {
+  const other = await prisma.prdRouting.findFirst({
+    where: { line_id: lineId, ...(routingId ? { id: { not: routingId } } : {}) },
+    select: { routing_label: true },
+  });
+  if (!other) return null;
+  return lineId ? `Line ini sudah punya routing ${other.routing_label}.` : `Segmen sebelum partai sudah ada: ${other.routing_label}.`;
 }
 
 export async function checkRoutingCollections(
@@ -90,7 +97,7 @@ export async function checkRoutingCollections(
       problems.push(`Langkah ${i + 1}: unit tidak ditemukan.`);
       continue;
     }
-    if (!(await stillOffered("prdRoutingStep", routingId, unit))) {
+    if (!(await stillOffered(routingId, unit))) {
       problems.push(`Langkah ${i + 1}: unit ${unit.unit_label} nonaktif.`);
       continue;
     }
@@ -107,14 +114,16 @@ export async function checkRoutingCollections(
     const hasLine = Number(values.line_id) > 0;
     problems.push(...stepRuleErrors(clean.steps, hasLine, (id) => units.get(id)?.processes ?? []));
   }
-  return { errors: problems.length ? { [STEPS_KEY]: problems.join(" ") } : {}, clean };
+  const errors: Record<string, string> = problems.length ? { [STEPS_KEY]: problems.join(" ") } : {};
+  const clash = await routingClash(Number(values.line_id) || null, routingId);
+  if (clash) errors.line_id = clash;
+  return { errors, clean };
 }
 
 export type RateCollections = { rates: { unit_id: number; rate: string }[] };
 
 export async function checkRateCollections(
-  values: Record<string, unknown>,
-  versionId: number | null
+  values: Record<string, unknown>
 ): Promise<{ errors: Record<string, string>; clean: RateCollections }> {
   const clean: RateCollections = { rates: [] };
   const list = parseList<Partial<RateDraft>>(values[RATES_KEY]);
@@ -134,7 +143,7 @@ export async function checkRateCollections(
       problems.push(`Rate ${i + 1}: unit tidak ditemukan.`);
       continue;
     }
-    if (!(await stillOffered("prdRateVersionLine", versionId, unit))) {
+    if (unit.status !== "Active") {
       problems.push(`Rate ${i + 1}: unit ${unit.unit_label} nonaktif.`);
       continue;
     }
@@ -157,13 +166,22 @@ export async function writeRoutingCollections(
   }
 }
 
+/** Writes a new version's rates, closes the active version and makes this one active. */
 export async function writeRateCollections(
   tx: Prisma.TransactionClient,
   versionId: number,
-  clean: RateCollections
+  clean: RateCollections,
+  actorId: number
 ): Promise<void> {
-  await tx.prdRateVersionLine.deleteMany({ where: { version_id: versionId } });
   if (clean.rates.length) {
     await tx.prdRateVersionLine.createMany({ data: clean.rates.map((r) => ({ ...r, version_id: versionId })) });
+  }
+  const active = await tx.prdRateVersion.findMany({ where: { status: "Active" }, select: { id: true } });
+  await tx.prdRateVersion.updateMany({ where: { status: "Active" }, data: { status: "Inactive", updated_by: actorId } });
+  await tx.prdRateVersion.update({ where: { id: versionId }, data: { status: "Active" } });
+  if (active.length) {
+    await tx.auditLog.createMany({
+      data: active.map((v) => ({ entity_key: "prd_rate_version", row_id: v.id, action: "UPDATE" as const, event: "deactivate", by: actorId })),
+    });
   }
 }

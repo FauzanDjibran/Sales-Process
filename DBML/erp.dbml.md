@@ -459,7 +459,7 @@ table prd_line {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
-// Routing (P225): a version of the ordered Units; no line = the segment before the partai
+// Routing (P226): the ordered Units; one per line, and one row with no line = the segment before the partai
 table prd_routing {
   id                          int [pk, increment, not null]
 
@@ -467,8 +467,7 @@ table prd_routing {
 
   routing_label               varchar [not null]
   routing_name                varchar [not null]
-  line_id                     int [ref : > prd_line.id]
-  effective_from              date [not null]
+  line_id                     int [unique, ref : > prd_line.id] // NULLS NOT DISTINCT
 
   note                        varchar
 
@@ -499,7 +498,8 @@ table prd_routing_step {
   }
 }
 
-// Standard Cost (P225): the rate per gram of each Unit, in versions
+// Standard Cost (P226): the rate per gram of each Unit; never edited once saved, one Active (partial unique index);
+// saving a new version closes the active one, and a partai keeps the id it started on
 table prd_rate_version {
   id                          int [pk, increment, not null]
 
@@ -507,7 +507,6 @@ table prd_rate_version {
 
   rate_label                  varchar [not null]
   rate_name                   varchar [not null]
-  effective_from              date [not null]
 
   note                        varchar
 

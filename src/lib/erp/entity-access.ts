@@ -116,9 +116,6 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
   prd_rate_version: {
     view: "RATE_VERSION_VIEW",
     create: "RATE_VERSION_CREATE",
-    edit: "RATE_VERSION_EDIT",
-    activate: "RATE_VERSION_ACTIVATE",
-    deactivate: "RATE_VERSION_DEACTIVATE",
   },
   m_employee: {
     view: "EMPLOYEE_VIEW",

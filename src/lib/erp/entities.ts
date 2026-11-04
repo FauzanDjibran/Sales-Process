@@ -279,6 +279,14 @@ const ACTIVE_STATUS: StatusModel = {
   toggle: true,
 };
 
+/** Shown and filtered, never toggled: saving a new version closes the old one (P226). */
+const RATE_VERSION_STATUS: StatusModel = {
+  field: "status",
+  kind: "enum",
+  options: ["Active", "Inactive"],
+  toggle: false,
+};
+
 const FISCAL_STATUS: StatusModel = {
   field: "status",
   kind: "enum",
@@ -1137,14 +1145,14 @@ export const ENTITIES: Entity[] = [
   },
 
   {
-    // The ordered Units a line's goods pass (P225). Without a line it is the
-    // segment before the partai, shared by every line.
+    // The ordered Units a line's goods pass; a line has one (P226). Without a
+    // line it is the one segment before the partai, shared by every line.
     key: "prd_routing",
     slug: "routing",
     module: "master",
     name: "Routing",
     icon: "tree",
-    desc: "Urutan unit yang dilalui barang. Tanpa line, ini segmen sebelum partai yang sama untuk semua line. Satu versi satu record; yang berlaku adalah versi aktif terbaru yang tanggalnya sudah tiba.",
+    desc: "Urutan unit yang dilalui barang. Satu line punya satu routing. Tanpa line, ini segmen sebelum partai yang sama untuk semua line.",
     codeField: "routing_code",
     codePrefix: "rout",
     labelField: "routing_label",
@@ -1158,7 +1166,7 @@ export const ENTITIES: Entity[] = [
         required: true,
         unique: true,
         ident: true,
-        placeholder: "REGULER-V1",
+        placeholder: "REGULER",
         help: identHelp,
       },
       {
@@ -1174,15 +1182,9 @@ export const ENTITIES: Entity[] = [
         label: "Line",
         type: "ref",
         ref: "prd_line",
+        locked: true,
         span: 4,
         help: "kosong = segmen sebelum partai",
-      },
-      {
-        name: "effective_from",
-        label: "Berlaku Mulai",
-        type: "date",
-        required: true,
-        span: 4,
       },
       STATUS_FIELD,
       NOTE_FIELD,
@@ -1200,24 +1202,25 @@ export const ENTITIES: Entity[] = [
       { field: "routing_label", label: "Label", isLabel: true, width: "170px", filter: "text" },
       { field: "routing_name", label: "Nama Routing", primary: true, filter: "text" },
       { field: "line_id", label: "Line", isRef: true, width: "200px" },
-      { field: "effective_from", label: "Berlaku Mulai", width: "130px" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
   },
 
   {
-    // Standard cost: the rate per gram of each Unit, in versions (P225, §7).
+    // Standard cost: the rate per gram of each Unit, in versions (§7). A saved
+    // version is never edited and one is active; it has no edit or toggle
+    // permission at all, so neither operation exists (P226).
     key: "prd_rate_version",
     slug: "rate-version",
     module: "master",
     name: "Standard Cost",
     icon: "calc",
-    desc: "Rate biaya per gram tiap unit, dalam versi. Versi dikunci ke No. Stok atau partai saat mulai. Rate kosong berarti 0.",
+    desc: "Rate biaya per gram tiap unit. Setelah disimpan versi tidak dapat diubah, dan menjadi satu-satunya yang aktif: versi sebelumnya otomatis ditutup. Partai tetap memakai versi yang dipakainya sejak mulai.",
     codeField: "rate_code",
     codePrefix: "rate",
     labelField: "rate_label",
     nameField: "rate_name",
-    statusModel: ACTIVE_STATUS,
+    statusModel: RATE_VERSION_STATUS,
     fields: [
       {
         name: "rate_label",
@@ -1237,14 +1240,8 @@ export const ENTITIES: Entity[] = [
         placeholder: "Standard cost November 2026",
         help: "nama lengkap",
       },
-      {
-        name: "effective_from",
-        label: "Berlaku Mulai",
-        type: "date",
-        required: true,
-        span: 4,
-      },
-      STATUS_FIELD,
+      // Written by saving, never typed: `virtual` keeps it out of the insert.
+      { name: "status", label: "Status", type: "select", options: ["Active", "Inactive"], derived: true, virtual: true },
       NOTE_FIELD,
     ],
     tabs: [
@@ -1252,14 +1249,13 @@ export const ENTITIES: Entity[] = [
         key: "rates",
         label: "Rate per Unit",
         icon: "calc",
-        desc: "Rate per gram input untuk tiap unit. Unit yang tidak diisi berarti rate 0.",
+        desc: "Rate per gram input untuk tiap unit. Unit yang tidak diisi berarti rate 0. Tidak dapat diubah setelah disimpan.",
         kind: "custom",
       },
     ],
     columns: [
       { field: "rate_label", label: "Label", isLabel: true, width: "170px", filter: "text" },
       { field: "rate_name", label: "Nama Versi", primary: true, filter: "text" },
-      { field: "effective_from", label: "Berlaku Mulai", width: "130px" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
   },

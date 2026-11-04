@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 
 import { ENTITIES } from "../src/lib/erp/entities";
 import { checkItemBjl } from "../src/lib/erp/item";
-import { checkRateCollections, checkRoutingCollections, routingCollections, writeRoutingCollections } from "../src/lib/erp/production-master";
+import { abilitiesFor } from "../src/lib/erp/entity-access";
+import { checkRateCollections, checkRoutingCollections, routingCollections, writeRateCollections, writeRoutingCollections } from "../src/lib/erp/production-master";
 import { STEPS_KEY, stepRuleErrors } from "../src/lib/erp/production-master-shape";
 import { InventoryRefusal, injectStock, receiveStock } from "../src/lib/erp/inventory";
 import { enterProduction } from "../src/lib/erp/production-ledger";
@@ -20,6 +21,8 @@ let actor = 0;
 const stamp = String(Date.now() % 100000);
 const key = (s: string) => `${FIXTURE_PREFIX}${s}${stamp}`;
 const f = {} as Record<string, number>;
+/** The versions active before the suite: a test's version closes them. */
+let activeBefore: number[] = [];
 
 before(async () => {
   actor = await systemUserId();
@@ -30,15 +33,21 @@ before(async () => {
   f.former = await unit("F", ["PartaiFormer", "Grading"]);
   f.mould = await unit("M", ["GradingMix", "JobOrder"]);
   f.pack = await unit("P", ["Assembly"]);
-  f.line = (await prisma.prdLine.create({ data: { line_code: `test.${key("L")}`, line_label: key("L"), line_name: "Uji", created_by: actor } })).id;
+  const line = async (tag: string) =>
+    (await prisma.prdLine.create({ data: { line_code: `test.${key(tag)}`, line_label: key(tag), line_name: "Uji", created_by: actor } })).id;
+  f.line = await line("L");
+  f.line2 = await line("L2");
+  activeBefore = (await prisma.prdRateVersion.findMany({ where: { status: "Active" }, select: { id: true } })).map((v) => v.id);
 });
 
 after(async () => {
   await prisma.prdRoutingStep.deleteMany({ where: { unit_id: { in: [f.grade, f.former, f.mould, f.pack] } } });
   await prisma.prdRouting.deleteMany({ where: { routing_label: { startsWith: FIXTURE_PREFIX } } });
   await prisma.prdRateVersionLine.deleteMany({ where: { unit_id: { in: [f.grade, f.former, f.mould, f.pack] } } });
+  await prisma.auditLog.deleteMany({ where: { entity_key: "prd_rate_version", row_id: { in: activeBefore } } });
   await prisma.prdRateVersion.deleteMany({ where: { rate_label: { startsWith: FIXTURE_PREFIX } } });
-  await prisma.prdLine.deleteMany({ where: { id: f.line } });
+  await prisma.prdRateVersion.updateMany({ where: { id: { in: activeBefore } }, data: { status: "Active" } });
+  await prisma.prdLine.deleteMany({ where: { id: { in: [f.line, f.line2] } } });
   await prisma.refUnit.deleteMany({ where: { id: { in: [f.grade, f.former, f.mould, f.pack] } } });
   await prisma.refWorkstation.deleteMany({ where: { id: f.ws } });
   await cleanupFixtures();
@@ -64,7 +73,7 @@ describe("Unit, Workstation and the masters around them", () => {
 describe("a routing is the order of Units, the rules of each step the step's own", () => {
   test("a line's routing round-trips with its order and per-step flags", async () => {
     const routing = await prisma.prdRouting.create({
-      data: { routing_code: `test.${key("R")}`, routing_label: key("R"), routing_name: "Uji", line_id: f.line, effective_from: new Date("2026-01-01"), created_by: actor },
+      data: { routing_code: `test.${key("R")}`, routing_label: key("R"), routing_name: "Uji", line_id: f.line, created_by: actor },
     });
     const values = { line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.grade, { exit_mode: "Direct", job_policy: "Issued" }), step(f.mould, { is_checkpoint: true }), step(f.pack, { exit_mode: "PerCarton", is_skippable: true })]) };
     const checked = await checkRoutingCollections(values, routing.id);
@@ -86,7 +95,7 @@ describe("a routing is the order of Units, the rules of each step the step's own
 
   test("the segment before the partai ends at the one Unit that forms it; a line's starts after", async () => {
     const ok = await checkRoutingCollections({ [STEPS_KEY]: JSON.stringify([step(f.grade, { exit_mode: "Direct" }), step(f.former)]) }, null);
-    assert.deepEqual(ok.errors, {});
+    assert.equal(ok.errors[STEPS_KEY], undefined);
     const noFormer = await checkRoutingCollections({ [STEPS_KEY]: JSON.stringify([step(f.grade)]) }, null);
     assert.match(noFormer.errors[STEPS_KEY], /Pembentuk Partai/);
     const inLine = await checkRoutingCollections({ line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.former)]) }, null);
@@ -101,19 +110,53 @@ describe("a routing is the order of Units, the rules of each step the step's own
   });
 
   test("another line's routing is only data: a different order of the same Units is accepted", async () => {
-    const other = await checkRoutingCollections({ line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.mould), step(f.grade), step(f.pack)]) }, null);
+    const other = await checkRoutingCollections({ line_id: f.line2, [STEPS_KEY]: JSON.stringify([step(f.mould), step(f.grade), step(f.pack)]) }, null);
     assert.deepEqual(other.errors, {});
+  });
+
+  test("a line has one routing: a second is refused, the database holding the same rule (P226)", async () => {
+    const second = await checkRoutingCollections({ line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.grade)]) }, null);
+    assert.match(second.errors.line_id, /sudah punya routing/);
+    await assert.rejects(
+      prisma.prdRouting.create({ data: { routing_code: `test.${key("R2")}`, routing_label: key("R2"), routing_name: "Uji", line_id: f.line, created_by: actor } }),
+      /Unique constraint/
+    );
+    const own = await prisma.prdRouting.findFirstOrThrow({ where: { line_id: f.line } });
+    const same = await checkRoutingCollections({ line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.grade)]) }, own.id);
+    assert.equal(same.errors.line_id, undefined, "saving itself is no clash");
   });
 });
 
 describe("Standard Cost versions", () => {
   test("a rate is 0 or more with at most six decimals, once per Unit", async () => {
-    const ok = await checkRateCollections({ _rates: JSON.stringify([{ unit_id: f.grade, rate: "182.8637" }, { unit_id: f.mould, rate: "0" }]) }, null);
+    const ok = await checkRateCollections({ _rates: JSON.stringify([{ unit_id: f.grade, rate: "182.8637" }, { unit_id: f.mould, rate: "0" }]) });
     assert.deepEqual(ok.errors, {});
-    const bad = await checkRateCollections({ _rates: JSON.stringify([{ unit_id: f.grade, rate: "-1" }]) }, null);
+    const bad = await checkRateCollections({ _rates: JSON.stringify([{ unit_id: f.grade, rate: "-1" }]) });
     assert.match(bad.errors._rates, /0 atau lebih/);
-    const dup = await checkRateCollections({ _rates: JSON.stringify([{ unit_id: f.grade, rate: "1" }, { unit_id: f.grade, rate: "2" }]) }, null);
+    const dup = await checkRateCollections({ _rates: JSON.stringify([{ unit_id: f.grade, rate: "1" }, { unit_id: f.grade, rate: "2" }]) });
     assert.match(dup.errors._rates, /sudah punya rate/);
+  });
+
+  test("a saved version has no edit and no toggle, for anyone", () => {
+    const can = abilitiesFor("prd_rate_version", ["RATE_VERSION_VIEW", "RATE_VERSION_CREATE", "RATE_VERSION_EDIT", "RATE_VERSION_ACTIVATE", "RATE_VERSION_DEACTIVATE"]);
+    assert.deepEqual(can, { create: true, edit: false, activate: false, deactivate: false });
+  });
+
+  test("saving a version makes it the one active; the closed one keeps its rates and its id (P226)", async () => {
+    const save = async (tag: string, rate: string) => {
+      const v = await prisma.prdRateVersion.create({ data: { rate_code: `test.${key(tag)}`, rate_label: key(tag), rate_name: tag, created_by: actor } });
+      assert.equal(v.status, "Inactive", "born closed, made active by saving");
+      await prisma.$transaction((tx) => writeRateCollections(tx, v.id, { rates: [{ unit_id: f.grade, rate }] }, actor));
+      return v.id;
+    };
+    const first = await save("V1", "10");
+    const second = await save("V2", "20");
+    const rows = await prisma.prdRateVersion.findMany({ where: { status: "Active" } });
+    assert.deepEqual(rows.map((r) => r.id), [second]);
+    const old = await prisma.prdRateVersion.findUniqueOrThrow({ where: { id: first }, include: { lines: true } });
+    assert.equal(old.status, "Inactive");
+    assert.equal(old.lines[0].rate.toNumber(), 10);
+    await assert.rejects(prisma.prdRateVersion.update({ where: { id: first }, data: { status: "Active" } }), /Unique constraint/);
   });
 });
 
