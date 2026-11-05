@@ -6,7 +6,7 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **05/11/2026 — P236** (the simulation's rulings, Grading Halus to Barcoding; not yet built).
+> Last updated: **05/11/2026 — P237** (QC validates only, Dokumen Reproses; not yet built).
 >
 > **What follows describes what is on `main`.** The agreed target is in
 > `Produksi Walet (Real).md`; its build steps add the documents back.
@@ -91,3 +91,4 @@ plan's steps 1–13.
 | 05/11/2026 | P231 | The plan compared with the 45 field SOPs in `walet sop.md`; W41–W56 agreed, no change to what is built. |
 | 05/11/2026 | P232 | W57–W63 agreed: Dokumen Push, the list of moves, a new No. Stok per grading, a pack as a kotak's contents; no change to what is built. |
 | 05/11/2026 | P236 | W64–W76 agreed from the simulation: Push inside a Workstation and BSTB across, QC Check in the unit, Moulding split in two without Mix, CCP-1 and Sortir as units, the checkpoint only at Barcoding, one process per Unit; no change to what is built. |
+| 05/11/2026 | P237 | W77–W80 agreed: QC only validates, Dokumen Reproses from any unit with QC back along the routing, Reject for the worst cases, the rest of a partai goes on to the checkpoint; no change to what is built. |
