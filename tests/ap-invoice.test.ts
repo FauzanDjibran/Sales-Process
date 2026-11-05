@@ -205,7 +205,7 @@ describe("the Invoice Pembelian", () => {
     const range = { from: today, to: today };
     const hutang = await apBook("Invoice", range, [w.f.supplier]);
     assert.deepEqual(hutang.subjects.map((s) => [s.raised, s.closing]), [[1_096_050, 0]], "born, then settled");
-    assert.equal(hutang.subjects[0].items[0].progress, 100);
+    assert.equal(hutang.subjects[0].items[0].closing, 0);
     const advance = await apBook("Advance", range, [w.f.supplier]);
     assert.deepEqual(advance.subjects.map((s) => [s.raised, s.lowered, s.closing]), [[300_000, 300_000, 0]]);
     const entries = (await apBookEntriesPage("Invoice", w.f.supplier, range, null)).entries;

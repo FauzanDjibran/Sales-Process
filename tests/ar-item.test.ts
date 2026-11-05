@@ -10,7 +10,7 @@ import {
   openArItemsAsOf,
   settleArItem,
 } from "../src/lib/erp/ar-item";
-import { agingBucket, daysOverdue } from "../src/lib/erp/ar-aging";
+import { agingBucket, daysOverdue, foldAging, type AgingRow } from "../src/lib/erp/ar-aging";
 import { FIXTURE_PREFIX, cleanupFixtures, disconnect, makePartner, prisma, systemUserId } from "./helpers";
 
 /**
@@ -134,8 +134,6 @@ describe("an AR item's balance moves only through Buku Piutang", () => {
     const advance = await arBook("Advance", range, [f.customer]);
     assert.deepEqual(advance.subjects.map((s) => [s.opening, s.raised, s.lowered, s.closing]), [[1_000_000, 0, 400_000, 600_000]], "received raises it, used lowers it");
     const [item] = advance.subjects[0].items;
-    assert.equal(item.progress, 40);
-    assert.deepEqual(item.settledBy, [{ text: "Dipakai Invoice", amount: 400_000 }]);
 
     const page = await arBookEntriesPage("Advance", f.customer, range, null);
     assert.deepEqual(page.entries.map((e) => [e.eventText, e.movement]), [["Dipakai Invoice", -400_000]]);
@@ -161,5 +159,37 @@ describe("Umur Piutang ages from the due date (P75)", () => {
     assert.equal(agingBucket("2026-10-10", "2027-01-08"), "d90");
     assert.equal(agingBucket("2026-10-10", "2027-01-09"), "over90");
     assert.equal(agingBucket("2026-10-10", "2026-09-30"), "current", "not yet due");
+  });
+
+  test("the tree adds up at both levels and leaves an Uang Muka out of the buckets (P235)", () => {
+    const row = (id: number, partnerId: number, open: number, dueDate: string | null): AgingRow => ({
+      id,
+      partnerId,
+      partnerLabel: `P${partnerId}`,
+      partnerName: `Partner ${partnerId}`,
+      date: "2026-08-01",
+      dueDate,
+      open,
+      sourceNo: `DOC/${id}`,
+      sourceTable: "fin_ar_invoice",
+      sourceId: id,
+    });
+    const tree = foldAging(
+      [row(1, 2, 100.1, "2026-10-20"), row(2, 2, 200.2, "2026-09-01"), row(3, 1, 300, "2026-12-01"), row(4, 2, 50, null)],
+      [row(5, 2, 75, null), row(6, 3, 10, null)],
+      "2026-10-31"
+    );
+    assert.deepEqual(tree.partners.map((p) => p.label), ["P1", "P2", "P3"]);
+    const [, two, three] = tree.partners;
+    assert.deepEqual(two.invoices.map((d) => [d.sourceNo, d.days, d.bucket]), [
+      ["DOC/4", 91, "over90"],
+      ["DOC/2", 60, "d60"],
+      ["DOC/1", 11, "d30"],
+    ], "oldest due first, no due date ages from its own date");
+    assert.deepEqual(two.buckets, { current: 0, d30: 100.1, d60: 200.2, d90: 0, over90: 50 });
+    assert.deepEqual([two.invoice, two.advance, two.net], [350.3, 75, 275.3]);
+    assert.deepEqual([three.invoice, three.advance, three.net], [0, 10, -10], "an advance alone still has its row");
+    assert.deepEqual(tree.totals.buckets, { current: 300, d30: 100.1, d60: 200.2, d90: 0, over90: 50 });
+    assert.deepEqual([tree.totals.invoice, tree.totals.advance, tree.totals.net], [650.3, 85, 565.3]);
   });
 });

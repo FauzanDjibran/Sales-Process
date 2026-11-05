@@ -16,8 +16,8 @@ import { formatDate, formatMoney } from "@/lib/format";
  * Buku and Saldo Piutang / Hutang (P233) — SIBA's Buku Subjek and Saldo Buku
  * Subjek on the AR and AP items. One block per partner, its header stating Saldo
  * Awal, Bertambah, Berkurang and the closing. The book reads a block entry by
- * entry, fetched when it is opened; the balance reads it item by item, with
- * where each came from and how far it has been settled.
+ * entry, fetched when it is opened; the balance reads it item by item, each
+ * under its document.
  *
  * Piutang / Hutang Usaha and Uang Muka are two books, chosen by the toggle, each
  * in its own direction, so Bertambah and Berkurang always mean the book in view.
@@ -282,7 +282,7 @@ export function PartnerBalanceReport({ report }: { report: PartnerBook }) {
             />
             {isOpen && (
               <div className="tw">
-                <table className="grid" style={{ minWidth: 960 }}>
+                <table className="grid" style={{ minWidth: 760 }}>
                   <thead>
                     <tr>
                       <th style={{ width: 88 }}>Tanggal</th>
@@ -291,7 +291,6 @@ export function PartnerBalanceReport({ report }: { report: PartnerBook }) {
                       <th className="num" style={{ width: 116 }}>Bertambah</th>
                       <th className="num" style={{ width: 116 }}>Berkurang</th>
                       <th className="num" style={{ width: 122 }}>Saldo</th>
-                      <th style={{ width: 210 }}>Progres</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -308,16 +307,6 @@ export function PartnerBalanceReport({ report }: { report: PartnerBook }) {
                         <td className="num">{figure(i.raised)}</td>
                         <td className="num">{figure(i.lowered)}</td>
                         <td className="num"><b className="mny">{money(i.closing)}</b></td>
-                        <td>
-                          <span className="dstack">
-                            <span className="mono" style={{ fontSize: "11px" }}>{i.progress}%</span>
-                            <span className="d2" style={{ fontFamily: "inherit", whiteSpace: "normal" }}>
-                              {i.settledBy.length
-                                ? i.settledBy.map((b) => `${b.text} ${money(b.amount)}`).join(" · ")
-                                : `Belum ada penyelesaian dari ${money(i.original)}`}
-                            </span>
-                          </span>
-                        </td>
                       </tr>
                     ))}
                   </tbody>

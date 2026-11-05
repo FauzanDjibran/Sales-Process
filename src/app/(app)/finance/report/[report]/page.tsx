@@ -14,7 +14,8 @@ import { reportBySlug, reportHref } from "@/lib/erp/reports";
 import { prisma } from "@/lib/prisma";
 import { formatDate } from "@/lib/format";
 import { ArReportParams } from "@/components/report/ar-report-params";
-import { ArAgingReport } from "@/components/report/ar-aging-report";
+import { PartnerAgingReport } from "@/components/report/partner-aging-report";
+import { foldAging } from "@/lib/erp/ar-aging";
 import { BookToggle, PartnerBalanceReport, PartnerLedgerReport } from "@/components/report/partner-book-report";
 import { CustomerAdvanceReport, type AdvanceReconciliation } from "@/components/report/customer-advance-report";
 import { arBook, arItemsReconcile, arPartnerOptions, openArItemsAsOf } from "@/lib/erp/ar-item";
@@ -23,7 +24,6 @@ import { postingAccounts } from "@/lib/erp/system-settings";
 import { agreementNumbers, withAgreementNumbers } from "@/lib/erp/document-numbers";
 import { BOOK_WORDS, bookParam, parseBook, type BookKind, type BookSide } from "@/lib/erp/partner-book";
 import { ApReportParams } from "@/components/report/ap-report-params";
-import { ApAgingReport } from "@/components/report/ap-aging-report";
 import { SupplierAdvanceReport, type SupplierAdvanceReconciliation } from "@/components/report/supplier-advance-report";
 import { apBook, apItemsReconcileFor, apPartnerOptions, openApItemsAsOf } from "@/lib/erp/ap-item";
 import { purchaseOrderNumbersByIds } from "@/lib/erp/purchase-order";
@@ -308,7 +308,7 @@ async function arReport(
         runAt={runAt}
         footnote={mismatch ?? <>Umur dihitung dari tanggal jatuh tempo invoice per {formatDate(asOf)}; uang muka mengurangi posisi bersih tetapi tidak dialokasikan ke kelompok umur.</>}
       >
-        <ArAgingReport invoices={invoices} advances={advances} asOf={asOf} />
+        <PartnerAgingReport key={`${asOf}|${customerId}`} report={foldAging(invoices, advances, asOf)} side="ar" asOf={asOf} />
       </ReportView>
     );
   }
@@ -378,7 +378,7 @@ async function apReport(
     const invoices = await openApItemsAsOf("Invoice", asOf, supplierId);
     return (
       <ReportView report={report} filter={filter} runAt={runAt} footnote={mismatch ?? <>Umur dihitung dari tanggal jatuh tempo invoice per {formatDate(asOf)}.</>}>
-        <ApAgingReport invoices={invoices} advances={advances} asOf={asOf} />
+        <PartnerAgingReport key={`${asOf}|${supplierId}`} report={foldAging(invoices, advances, asOf)} side="ap" asOf={asOf} />
       </ReportView>
     );
   }

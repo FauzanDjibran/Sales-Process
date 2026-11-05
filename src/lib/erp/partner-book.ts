@@ -69,16 +69,10 @@ export type BookItemRaw = {
 };
 
 export type BookItem = Omit<BookItemRaw, "entries" | "partnerId" | "partnerLabel" | "partnerName"> & {
-  /** What the item had reached by the end of the period: all the raises. */
-  original: number;
   opening: number;
   raised: number;
   lowered: number;
   closing: number;
-  /** Whole percent of `original` settled, 100 only when nothing is left. */
-  progress: number;
-  /** What settled it so far, per kind of event. */
-  settledBy: { text: string; amount: number }[];
   agreementNo?: string | null;
 };
 
@@ -135,13 +129,8 @@ export function foldPartnerBook(raw: BookItemRaw[], side: BookSide, book: BookKi
     let raised = 0;
     let lowered = 0;
     let inPeriod = 0;
-    const settled = new Map<string, number>();
     for (const e of r.entries) {
       const c = cents(e.movement);
-      if (c < 0) {
-        const text = bookEventText(side, book, e.event);
-        settled.set(text, (settled.get(text) ?? 0) - c);
-      }
       if (e.date < range.from) opening += c;
       else {
         inPeriod += 1;
@@ -151,7 +140,6 @@ export function foldPartnerBook(raw: BookItemRaw[], side: BookSide, book: BookKi
     }
     const end = opening + raised - lowered;
     if (!opening && !inPeriod) continue;
-    const original = r.entries.reduce((a, e) => a + Math.max(cents(e.movement), 0), 0);
     const subject =
       subjects.get(r.partnerId) ??
       subjects
@@ -180,13 +168,10 @@ export function foldPartnerBook(raw: BookItemRaw[], side: BookSide, book: BookKi
       sourceId: r.sourceId,
       scopeTable: r.scopeTable,
       scopeId: r.scopeId,
-      original: original / 100,
       opening: opening / 100,
       raised: raised / 100,
       lowered: lowered / 100,
       closing: end / 100,
-      progress: original ? Math.floor(((original - end) / original) * 100) : 0,
-      settledBy: [...settled].map(([text, amount]) => ({ text, amount: amount / 100 })),
     });
   }
   const list = [...subjects.values()].sort((a, b) => a.label.localeCompare(b.label));
