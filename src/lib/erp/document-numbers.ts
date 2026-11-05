@@ -1,6 +1,9 @@
 import "server-only";
 
 import { cashBankTxNumbersByIds } from "./cash-bank-tx";
+import { customerOrderNumbersByIds } from "./customer-order";
+import { permitRequestNumbersByIds } from "./permit-request";
+import { purchaseOrderNumbersByIds } from "./purchase-order";
 import type { LedgerEntryRow } from "./cash-bank";
 
 /**
@@ -22,4 +25,23 @@ export async function attachDocumentNumbers(entries: LedgerEntryRow[]): Promise<
       e.sourceDocNo = numbers.get(e.sourceDocId) ?? null;
     }
   }
+}
+
+type Agreement = { scopeTable: string | null; scopeId: number | null };
+
+/** Each AR / AP item's agreement number by `table:id`: a Customer Order, a Pengajuan Perizinan or a Purchase Order. */
+export async function agreementNumbers(rows: Agreement[]): Promise<Record<string, string>> {
+  const ids = (table: string) => [...new Set(rows.filter((r) => r.scopeTable === table && r.scopeId).map((r) => r.scopeId!))];
+  const tables = [
+    ["sal_customer_order", customerOrderNumbersByIds],
+    ["sal_permit_request", permitRequestNumbersByIds],
+    ["pur_order", purchaseOrderNumbersByIds],
+  ] as const;
+  const found = await Promise.all(tables.map(async ([table, read]) => [table, await read(ids(table))] as const));
+  return Object.fromEntries(found.flatMap(([table, numbers]) => [...numbers].map(([id, no]) => [`${table}:${id}`, no] as const)));
+}
+
+export async function withAgreementNumbers<T extends Agreement>(rows: T[]): Promise<(T & { agreementNo: string | null })[]> {
+  const numbers = await agreementNumbers(rows);
+  return rows.map((r) => ({ ...r, agreementNo: numbers[`${r.scopeTable}:${r.scopeId}`] ?? null }));
 }

@@ -15,18 +15,17 @@ import { prisma } from "@/lib/prisma";
 import { formatDate } from "@/lib/format";
 import { ArReportParams } from "@/components/report/ar-report-params";
 import { ArAgingReport } from "@/components/report/ar-aging-report";
-import { ArLedgerReportBody } from "@/components/report/ar-ledger-report";
+import { BookToggle, PartnerBalanceReport, PartnerLedgerReport } from "@/components/report/partner-book-report";
 import { CustomerAdvanceReport, type AdvanceReconciliation } from "@/components/report/customer-advance-report";
-import { arItemsReconcile, arLedgerReport, arPartnerOptions, openArItemsAsOf } from "@/lib/erp/ar-item";
+import { arBook, arItemsReconcile, arPartnerOptions, openArItemsAsOf } from "@/lib/erp/ar-item";
 import { closingBalances } from "@/lib/erp/ledger";
 import { postingAccounts } from "@/lib/erp/system-settings";
-import { customerOrderNumbersByIds } from "@/lib/erp/customer-order";
-import { permitRequestNumbersByIds } from "@/lib/erp/permit-request";
+import { agreementNumbers, withAgreementNumbers } from "@/lib/erp/document-numbers";
+import { BOOK_WORDS, bookParam, parseBook, type BookKind, type BookSide } from "@/lib/erp/partner-book";
 import { ApReportParams } from "@/components/report/ap-report-params";
 import { ApAgingReport } from "@/components/report/ap-aging-report";
-import { ApLedgerReportBody } from "@/components/report/ap-ledger-report";
 import { SupplierAdvanceReport, type SupplierAdvanceReconciliation } from "@/components/report/supplier-advance-report";
-import { apItemsReconcileFor, apLedgerReport, apPartnerOptions, openApItemsAsOf } from "@/lib/erp/ap-item";
+import { apBook, apItemsReconcileFor, apPartnerOptions, openApItemsAsOf } from "@/lib/erp/ap-item";
 import { purchaseOrderNumbersByIds } from "@/lib/erp/purchase-order";
 
 export const dynamic = "force-dynamic";
@@ -55,7 +54,8 @@ export default async function Page({
     asOf?: string;
     from?: string;
     to?: string;
-    advance?: string;
+    partners?: string;
+    book?: string;
   }>;
 }) {
   const { report: slug } = await params;
@@ -68,12 +68,11 @@ export default async function Page({
   const range = resolveRange(query.from, query.to);
   const runAt = new Date().toISOString();
 
-  if (report.params === "ar-asof" || report.params === "ar-period") {
-    return arReport(report, query, range, runAt);
+  if (report.params === "ar-book" || report.params === "ap-book") {
+    return partnerBookReport(report, report.params === "ar-book" ? "ar" : "ap", query, range, runAt);
   }
-  if (report.params === "ap-asof" || report.params === "ap-period") {
-    return apReport(report, query, range, runAt);
-  }
+  if (report.params === "ar-asof") return arReport(report, query, asOfOf(query), runAt);
+  if (report.params === "ap-asof") return apReport(report, query, asOfOf(query), runAt);
 
   const resources = await cashBankOptions();
 
@@ -168,6 +167,8 @@ function isDate(value: string | undefined): value is string {
   );
 }
 
+const asOfOf = (query: { asOf?: string }) => (isDate(query.asOf) ? query.asOf : new Date().toISOString().slice(0, 10));
+
 function positiveInt(value: string | undefined): number | null {
   const n = Number(value);
   return Number.isInteger(n) && n > 0 ? n : null;
@@ -204,70 +205,97 @@ async function cashBankOptions() {
   }));
 }
 
-// ------------------------------------------------------------ AR reports
+// ------------------------------------------- Buku and Saldo Piutang / Hutang
 
 /**
- * Buku Piutang, Umur Piutang and Uang Muka Customer (P75). Their figures come
- * from the AR items; the Uang Muka report is also checked against the General
- * Ledger, which is composed here — the AR book never reads the journal.
+ * Buku Piutang / Hutang and Saldo Piutang / Hutang (P233): one read of the book
+ * in view, an entry per row or an item per row, under one permission per side.
  */
-async function arReport(
+async function partnerBookReport(
   report: NonNullable<ReturnType<typeof reportBySlug>>,
-  query: { customer?: string; asOf?: string; advance?: string },
+  side: BookSide,
+  query: { partners?: string; book?: string },
   range: PeriodRange,
   runAt: string
 ) {
+  const words = BOOK_WORDS[side];
+  const book = parseBook(query.book);
+  const partnerIds = parseIds(query.partners);
+  const [data, options, reconciles] = await Promise.all([
+    (side === "ar" ? arBook : apBook)(book, range, partnerIds),
+    side === "ar" ? arPartnerOptions() : apPartnerOptions(),
+    side === "ar" ? arItemsReconcile() : apItemsReconcileFor(),
+  ]);
+  const hrefOf = (b: BookKind) =>
+    reportHref(report.slug, { partners: partnerIds.join(","), from: range.from, to: range.to, book: bookParam(b) });
+  const noun = words.partner;
+  const filter = (
+    <SubjectParams
+      slug={report.slug}
+      subjects={options}
+      selectedIds={partnerIds}
+      from={range.from}
+      to={range.to}
+      subjectRequired={false}
+      label={noun}
+      param="partners"
+      addPlaceholder={`Tambah ${noun}…`}
+      allPlaceholder={`Semua ${noun}`}
+      missingHint=""
+      extraParams={{ book: bookParam(book) }}
+      lead={<BookToggle book={book} side={side} hrefs={{ Invoice: hrefOf("Invoice"), Advance: hrefOf("Advance") }} />}
+    />
+  );
+  const footnote = reconciles ? words.notes[book] : `Ada ${words.item} yang saldonya tidak sama dengan jumlah entrinya; angka di atas dibaca dari entri.`;
+  const runKey = `${book}|${range.from}|${range.to}|${partnerIds.join(",")}`;
+
+  if (report.key.endsWith("_balance")) {
+    const items = await withAgreementNumbers(data.subjects.flatMap((s) => s.items));
+    const byId = new Map(items.map((i) => [i.id, i]));
+    const named = { ...data, subjects: data.subjects.map((s) => ({ ...s, items: s.items.map((i) => byId.get(i.id)!) })) };
+    return (
+      <ReportView report={report} filter={filter} runAt={runAt} footnote={footnote}>
+        <PartnerBalanceReport key={runKey} report={named} />
+      </ReportView>
+    );
+  }
+  // The entries come when a block is opened, so the items need not reach the browser.
+  const rollup = { ...data, subjects: data.subjects.map((s) => ({ ...s, items: [] })) };
+  return (
+    <ReportView report={report} filter={filter} runAt={runAt} footnote={footnote}>
+      <PartnerLedgerReport key={runKey} report={rollup} />
+    </ReportView>
+  );
+}
+
+// ------------------------------------------------------------ AR reports
+
+/**
+ * Umur Piutang and Uang Muka Customer (P75). Their figures come from the AR
+ * items; the Uang Muka report is also checked against the General Ledger, which
+ * is composed here — the AR book never reads the journal.
+ */
+async function arReport(
+  report: NonNullable<ReturnType<typeof reportBySlug>>,
+  query: { customer?: string },
+  asOf: string,
+  runAt: string
+) {
   const customerId = positiveInt(query.customer);
-  const asOf = isDate(query.asOf) ? query.asOf : new Date().toISOString().slice(0, 10);
   const customers = await arPartnerOptions();
-  // Buku Piutang holds Invoice items only unless Uang Muka is asked for (P77).
-  const includeAdvance = query.advance === "1";
   const filter = (
     <ArReportParams
       slug={report.slug}
       customers={customers}
       customerId={customerId}
-      mode={report.params === "ar-asof" ? "asof" : "period"}
       asOf={asOf}
-      from={range.from}
-      to={range.to}
       subjectRequired={report.subjectRequired}
-      advance={report.key === "ar_ledger" ? includeAdvance : null}
     />
   );
   const reconciles = await arItemsReconcile(customerId);
   const mismatch = reconciles ? null : (
     <>Ada AR item yang saldonya tidak sama dengan jumlah entri Buku Piutang-nya; angka di atas dibaca dari entri.</>
   );
-
-  if (report.key === "ar_ledger") {
-    const data = customerId ? await arLedgerReport(customerId, range, { includeAdvance }) : null;
-    return (
-      <ReportView
-        report={report}
-        filter={filter}
-        runAt={runAt}
-        footnote={
-          mismatch ??
-          (includeAdvance ? (
-            <>Menambah menaikkan Piutang Usaha customer (invoice, uang muka yang dipakai); Mengurangi menurunkannya (uang muka diterima, pembayaran).</>
-          ) : (
-            <>Buku ini memuat Invoice saja; uang muka yang masih dipegang customer disebut di bawahnya. Centang Sertakan Uang Muka untuk memasukkannya ke buku.</>
-          ))
-        }
-      >
-        {data ? (
-          <ArLedgerReportBody report={data} orderNos={await scopeNumbers(data.entries)} />
-        ) : (
-          <ReportNeedsSubject
-            icon="book"
-            title="Pilih Customer terlebih dahulu"
-            body="Buku Piutang selalu milik satu customer. Pilih customer dan rentang tanggal di atas, lalu tekan Tampilkan."
-          />
-        )}
-      </ReportView>
-    );
-  }
 
   const advances = await openArItemsAsOf("Advance", asOf, customerId);
 
@@ -308,53 +336,33 @@ async function arReport(
       runAt={runAt}
       footnote={mismatch ?? <>Nilai uang muka adalah bagian DPP-nya — yang tercatat di account Uang Muka Penjualan; PPN-nya sudah tercatat di PPN Keluaran saat diterima.</>}
     >
-      <CustomerAdvanceReport rows={advances} gl={gl} orderNos={await scopeNumbers(advances)} />
+      <CustomerAdvanceReport rows={advances} gl={gl} orderNos={await agreementNumbers(advances)} />
     </ReportView>
   );
 }
 
 
-/**
- * Customer Order numbers by id for the AR reports: the AR book names an order
- * by id only, and the page composes the order module's numbers (§3.1).
- */
-/** Each AR item's agreement number by `table:id`: a Customer Order or a Pengajuan Perizinan (P137). */
-async function scopeNumbers(rows: { scopeTable: string | null; scopeId: number | null }[]): Promise<Record<string, string>> {
-  const ids = (table: string) => [...new Set(rows.filter((r) => r.scopeTable === table && r.scopeId).map((r) => r.scopeId!))];
-  const [orders, permits] = await Promise.all([customerOrderNumbersByIds(ids("sal_customer_order")), permitRequestNumbersByIds(ids("sal_permit_request"))]);
-  return Object.fromEntries([
-    ...[...orders].map(([id, no]) => [`sal_customer_order:${id}`, no] as const),
-    ...[...permits].map(([id, no]) => [`sal_permit_request:${id}`, no] as const),
-  ]);
-}
-
 // ------------------------------------------------------------ AP reports
 
 /**
- * Buku Hutang, Umur Hutang and Uang Muka Supplier (B33): the AR reports
- * mirrored on the AP items. The Uang Muka report is checked against the
- * Uang Muka Pembelian account in the General Ledger, composed here.
+ * Umur Hutang and Uang Muka Supplier (B33): the AR reports mirrored on the AP
+ * items. The Uang Muka report is checked against the Uang Muka Pembelian account
+ * in the General Ledger, composed here.
  */
 async function apReport(
   report: NonNullable<ReturnType<typeof reportBySlug>>,
-  query: { supplier?: string; asOf?: string; advance?: string },
-  range: PeriodRange,
+  query: { supplier?: string },
+  asOf: string,
   runAt: string
 ) {
   const supplierId = positiveInt(query.supplier);
-  const asOf = isDate(query.asOf) ? query.asOf : new Date().toISOString().slice(0, 10);
-  const includeAdvance = query.advance === "1";
   const filter = (
     <ApReportParams
       slug={report.slug}
       suppliers={await apPartnerOptions()}
       supplierId={supplierId}
-      mode={report.params === "ap-asof" ? "asof" : "period"}
       asOf={asOf}
-      from={range.from}
-      to={range.to}
       subjectRequired={report.subjectRequired}
-      advance={report.key === "ap_ledger" ? includeAdvance : null}
     />
   );
   const mismatch = (await apItemsReconcileFor(supplierId)) ? null : (
@@ -364,24 +372,6 @@ async function apReport(
     const wanted = [...new Set(ids.filter((id): id is number => id !== null))];
     return wanted.length ? Object.fromEntries(await purchaseOrderNumbersByIds(wanted)) : {};
   };
-
-  if (report.key === "ap_ledger") {
-    const data = supplierId ? await apLedgerReport(supplierId, range, { includeAdvance }) : null;
-    return (
-      <ReportView
-        report={report}
-        filter={filter}
-        runAt={runAt}
-        footnote={mismatch ?? <>Menambah menaikkan Hutang Usaha ke supplier (invoice); Mengurangi menurunkannya (uang muka dibayar, pembayaran, uang muka diterapkan).</>}
-      >
-        {data ? (
-          <ApLedgerReportBody report={data} orderNos={await poNumbers(data.entries.map((e) => e.orderId))} />
-        ) : (
-          <ReportNeedsSubject icon="book" title="Pilih Supplier terlebih dahulu" body="Buku Hutang selalu milik satu supplier. Pilih supplier dan rentang tanggal di atas, lalu tekan Tampilkan." />
-        )}
-      </ReportView>
-    );
-  }
 
   const advances = await openApItemsAsOf("Advance", asOf, supplierId);
   if (report.key === "ap_aging") {

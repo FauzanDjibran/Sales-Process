@@ -3,7 +3,9 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
+import { bookEventText, foldPartnerBook, type BookEntry, type BookKind, type PartnerBook } from "./partner-book";
 import type { PeriodRange } from "./period";
+import { ENTRY_PAGE_SIZE, afterBookCursor, type BookCursor } from "./register-query";
 
 /**
  * AR items and Buku Piutang (Claude-ERP.md P71–P75).
@@ -41,19 +43,6 @@ type Db = Prisma.TransactionClient | typeof prisma;
 
 export type ArItemType = "Advance" | "Invoice";
 export type ArEvent = "Create" | "Payment" | "AdvanceUsed" | "AdvanceApplied" | "AdvanceReceived";
-
-export const AR_TYPE_TEXT: Record<ArItemType, string> = {
-  Advance: "Uang Muka",
-  Invoice: "Invoice",
-};
-
-export const AR_EVENT_TEXT: Record<ArEvent, string> = {
-  Create: "Terbentuk",
-  Payment: "Pembayaran",
-  AdvanceUsed: "Dipakai Invoice",
-  AdvanceApplied: "Uang Muka Diterapkan",
-  AdvanceReceived: "Uang Muka Diterima",
-};
 
 /**
  * Which way an item moves the customer's Piutang Usaha: an Invoice raises it,
@@ -381,115 +370,96 @@ export async function openArItemsAsOf(
     .filter((r) => Math.round(r.open * 100) !== 0);
 }
 
-export type ArLedgerEntryRow = {
-  id: number;
-  date: string;
-  itemId: number;
-  type: ArItemType;
-  event: ArEvent;
-  /** The posting's Buku Piutang number (P110), shared by its entries. */
-  ledgerNo: string;
-  docNo: string;
-  docTable: string;
-  docId: number;
-  /** The item's own identity: its number and what it is about. */
-  itemNo: string;
-  itemSourceNo: string;
-  orderId: number | null;
-  scopeTable: string | null;
-  scopeId: number | null;
-  note: string | null;
-  /** Signed on the customer's Piutang Usaha: + raises it, − lowers it. */
-  exposure: number;
-};
-
-export type ArLedgerReport = {
-  partner: { id: number; label: string; name: string };
-  range: PeriodRange;
-  /** Whether Uang Muka entries are in the book, or only stated beside it (P77). */
-  includeAdvance: boolean;
-  /** Piutang Usaha position at the start: Σ exposure before `range.from`. */
-  opening: number;
-  entries: ArLedgerEntryRow[];
-  increase: number;
-  decrease: number;
-  closing: number;
-  /** What each type holds at the end, as a positive figure. */
-  closingByType: Record<ArItemType, number>;
-};
-
 /**
- * Buku Piutang of one customer over a period: every entry on their items,
- * oldest first, each signed on their Piutang Usaha position, with the position
- * before and after.
- *
- * By default the book holds **Invoice items only** and states the Uang Muka
- * still held beside it, as mainstream ERPs keep a customer's down payments out
- * of the receivables line until they are cleared against an invoice (P77).
- * `includeAdvance` puts the Uang Muka entries in, netting the position.
+ * Piutang Usaha or Uang Muka Customer over a period, one block per customer
+ * (P233): the rollup Buku Piutang states and the items Saldo Piutang lists.
+ * Read from the entries, so a past period reads as it stood. No entry reaches
+ * the browser until its block is opened (`arBookEntriesPage`).
  */
-export async function arLedgerReport(
+export async function arBook(book: BookKind, range: PeriodRange, partnerIds: number[] = []): Promise<PartnerBook> {
+  const items = await prisma.finArItem.findMany({
+    where: { item_date: { lte: asDate(range.to) }, ...(partnerIds.length ? { partner_id: { in: partnerIds } } : {}) },
+    select: {
+      id: true,
+      ar_item_no: true,
+      item_type: true,
+      partner_id: true,
+      item_date: true,
+      source_no: true,
+      source_doc_id: true,
+      scope_doc_id: true,
+      partner: { select: { partner_label: true, partner_name: true } },
+      source_doc_type: { select: { doc_table: true } },
+      scope_doc_type: SCOPE_SELECT,
+      entries: {
+        where: { entry_date: { lte: asDate(range.to) } },
+        select: { event: true, movement: true, entry_date: true },
+        orderBy: { id: "asc" },
+      },
+    },
+    orderBy: [{ item_date: "asc" }, { id: "asc" }],
+  });
+  return foldPartnerBook(
+    items.map((i) => ({
+      id: i.id,
+      itemNo: i.ar_item_no,
+      type: i.item_type as BookKind,
+      partnerId: i.partner_id,
+      partnerLabel: i.partner.partner_label,
+      partnerName: i.partner.partner_name,
+      date: isoDay(i.item_date),
+      sourceNo: i.source_no,
+      sourceTable: i.source_doc_type.doc_table,
+      sourceId: i.source_doc_id,
+      scopeTable: i.scope_doc_type?.doc_table ?? null,
+      scopeId: i.scope_doc_id,
+      entries: i.entries.map((e) => ({ event: e.event, date: isoDay(e.entry_date), movement: e.movement.toNumber() })),
+    })),
+    "ar",
+    book,
+    range
+  );
+}
+
+/** One page of one customer's entries in a book, oldest first. */
+export async function arBookEntriesPage(
+  book: BookKind,
   partnerId: number,
   range: PeriodRange,
-  opts: { includeAdvance?: boolean } = {}
-): Promise<ArLedgerReport | null> {
-  const includeAdvance = Boolean(opts.includeAdvance);
-  const partner = await prisma.mPartner.findUnique({
-    where: { id: partnerId },
-    select: { id: true, partner_label: true, partner_name: true },
-  });
-  if (!partner) return null;
+  cursor: BookCursor | null
+): Promise<{ entries: BookEntry[]; next: BookCursor | null }> {
   const rows = await prisma.finArLedger.findMany({
-    where: { item: { partner_id: partnerId }, entry_date: { lte: asDate(range.to) } },
+    where: {
+      item: { partner_id: partnerId, item_type: book },
+      entry_date: { gte: asDate(range.from), lte: asDate(range.to) },
+      ...afterBookCursor(cursor),
+    },
     include: {
-      item: { select: { item_type: true, ar_item_no: true, source_no: true, scope_doc_id: true, scope_doc_type: SCOPE_SELECT } },
+      item: { select: { ar_item_no: true, source_no: true, scope_doc_id: true, scope_doc_type: SCOPE_SELECT } },
       doc_type: { select: { doc_table: true } },
     },
     orderBy: [{ entry_date: "asc" }, { id: "asc" }],
+    take: ENTRY_PAGE_SIZE + 1,
   });
-  const exposureOf = (r: (typeof rows)[number]) => r.movement.toNumber() * AR_SIGN[r.item.item_type as ArItemType];
-
-  let opening = 0;
-  const entries: ArLedgerEntryRow[] = [];
-  const closingByType: Record<ArItemType, number> = { Advance: 0, Invoice: 0 };
-  for (const r of rows) {
-    closingByType[r.item.item_type as ArItemType] += r.movement.toNumber();
-    // Uang Muka is shown beside the book, not in it, unless asked for (P77).
-    if (!includeAdvance && r.item.item_type === "Advance") continue;
-    if (isoDay(r.entry_date) < range.from) {
-      opening += exposureOf(r);
-      continue;
-    }
-    entries.push({
+  const page = rows.slice(0, ENTRY_PAGE_SIZE);
+  const last = page[page.length - 1];
+  return {
+    entries: page.map((r) => ({
       id: r.id,
       date: isoDay(r.entry_date),
-      itemId: r.item_id,
-      type: r.item.item_type as ArItemType,
-      event: r.event as ArEvent,
       ledgerNo: r.ledger_no,
       docNo: r.doc_no,
       docTable: r.doc_type.doc_table,
       docId: r.doc_id,
       itemNo: r.item.ar_item_no,
       itemSourceNo: r.item.source_no,
-      ...scopeOf(r.item),
+      scopeTable: r.item.scope_doc_type?.doc_table ?? null,
+      scopeId: r.item.scope_doc_id,
+      eventText: bookEventText("ar", book, r.event),
       note: r.note,
-      exposure: exposureOf(r),
-    });
-  }
-  const increase = entries.filter((e) => e.exposure > 0).reduce((a, e) => a + e.exposure, 0);
-  // `|| 0` so an empty period reads 0, not −0.
-  const decrease = -entries.filter((e) => e.exposure < 0).reduce((a, e) => a + e.exposure, 0) || 0;
-  return {
-    partner: { id: partner.id, label: partner.partner_label, name: partner.partner_name },
-    range,
-    includeAdvance,
-    opening,
-    entries,
-    increase,
-    decrease,
-    closing: opening + increase - decrease,
-    closingByType,
+      movement: r.movement.toNumber(),
+    })),
+    next: rows.length > ENTRY_PAGE_SIZE ? { date: isoDay(last.entry_date), id: last.id } : null,
   };
 }
 

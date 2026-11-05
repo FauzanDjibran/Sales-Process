@@ -15,7 +15,7 @@ import {
   type PurchaseInvoiceHeaderInput,
 } from "../src/lib/erp/ap-invoice";
 import { computePurchaseInvoice } from "../src/lib/erp/ap-invoice-workflow";
-import { apLedgerReport, openApItemsAsOf } from "../src/lib/erp/ap-item";
+import { apBook, apBookEntriesPage, openApItemsAsOf } from "../src/lib/erp/ap-item";
 import { recordCashBankEntry } from "../src/lib/erp/cash-bank";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import { cleanupFiscalYear, cleanupFixtures, disconnect, makeAccount, openFiscalYear, prisma } from "./helpers";
@@ -202,12 +202,14 @@ describe("the Invoice Pembelian", () => {
   });
 
   test("Buku Hutang and Umur Hutang read the AP items (B33)", async () => {
-    const book = (await apLedgerReport(w.f.supplier, { from: today, to: today }, { includeAdvance: true }))!;
-    assert.deepEqual(book.entries.map((e) => e.event), ["Create", "Create", "AdvanceUsed", "AdvanceApplied", "Payment"]);
-    assert.equal(book.closing, 0, "everything settled");
-    // The invoice born (1.096.050) and the advance used up (300.000) raise Hutang;
-    // the advance paid, the advance applied and the payment lower it.
-    assert.equal(book.increase, 1_396_050);
+    const range = { from: today, to: today };
+    const hutang = await apBook("Invoice", range, [w.f.supplier]);
+    assert.deepEqual(hutang.subjects.map((s) => [s.raised, s.closing]), [[1_096_050, 0]], "born, then settled");
+    assert.equal(hutang.subjects[0].items[0].progress, 100);
+    const advance = await apBook("Advance", range, [w.f.supplier]);
+    assert.deepEqual(advance.subjects.map((s) => [s.raised, s.lowered, s.closing]), [[300_000, 300_000, 0]]);
+    const entries = (await apBookEntriesPage("Invoice", w.f.supplier, range, null)).entries;
+    assert.deepEqual(entries.map((e) => e.eventText), ["Invoice Terbit", "Uang Muka Diterapkan", "Pembayaran"]);
     assert.deepEqual(await openApItemsAsOf("Invoice", today, w.f.supplier), []);
   });
 });

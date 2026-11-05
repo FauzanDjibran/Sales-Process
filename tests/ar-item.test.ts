@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import {
   ArItemOverdrawn,
   arItemsReconcile,
-  arLedgerReport,
+  arBook,
+  arBookEntriesPage,
   createArItem,
   openArItemsAsOf,
   settleArItem,
@@ -125,25 +126,29 @@ describe("an AR item's balance moves only through Buku Piutang", () => {
     assert.equal((await openArItemsAsOf("Invoice", "2026-09-09", f.customer)).length, 0, "not yet born");
   });
 
-  test("Buku Piutang holds Invoice items only unless Uang Muka is asked for (P77)", async () => {
-    const r = (await arLedgerReport(f.customer, { from: "2026-09-05", to: "2026-09-30" }))!;
-    assert.equal(r.includeAdvance, false);
-    assert.equal(r.opening, 0, "the advance before the period is beside the book");
-    assert.deepEqual(r.entries.map((e) => [e.event, e.type, e.exposure]), [["Create", "Invoice", 5_000_000]]);
-    assert.equal(r.closing, 5_000_000);
-    assert.deepEqual(r.closingByType, { Advance: 600_000, Invoice: 5_000_000 }, "still stated beside it");
+  test("each book runs in its own direction, and states the other beside it (P233)", async () => {
+    const range = { from: "2026-09-05", to: "2026-09-30" };
+    const piutang = await arBook("Invoice", range, [f.customer]);
+    assert.deepEqual(piutang.subjects.map((s) => [s.opening, s.raised, s.lowered, s.closing]), [[0, 5_000_000, 0, 5_000_000]]);
+    assert.equal(piutang.otherClosing, 600_000);
+
+    const advance = await arBook("Advance", range, [f.customer]);
+    assert.deepEqual(advance.subjects.map((s) => [s.opening, s.raised, s.lowered, s.closing]), [[1_000_000, 0, 400_000, 600_000]], "received raises it, used lowers it");
+    assert.equal(advance.otherClosing, 5_000_000);
+    const [item] = advance.subjects[0].items;
+    assert.equal(item.progress, 40);
+    assert.deepEqual(item.settledBy, [{ text: "Dipakai Invoice", amount: 400_000 }]);
+
+    const page = await arBookEntriesPage("Advance", f.customer, range, null);
+    assert.deepEqual(page.entries.map((e) => [e.eventText, e.movement]), [["Dipakai Invoice", -400_000]]);
+    assert.equal(page.next, null);
   });
 
-  test("with Uang Muka, Buku Piutang signs each entry on the net position", async () => {
-    const r = (await arLedgerReport(f.customer, { from: "2026-09-05", to: "2026-09-30" }, { includeAdvance: true }))!;
-    assert.equal(r.opening, -1_000_000, "the advance received before the period lowers the position");
-    assert.deepEqual(r.entries.map((e) => [e.event, e.type, e.exposure]), [
-      ["Create", "Invoice", 5_000_000],
-      ["AdvanceUsed", "Advance", 400_000],
-    ]);
-    assert.equal(r.closing, 4_400_000);
-    assert.deepEqual(r.closingByType, { Advance: 600_000, Invoice: 5_000_000 });
-    assert.equal(r.closing, r.closingByType.Invoice - r.closingByType.Advance);
+  test("an item is listed while it stands or moves, and not before it is born (P233)", async () => {
+    const later = await arBook("Advance", { from: "2026-10-01", to: "2026-10-31" }, [f.customer]);
+    assert.deepEqual(later.subjects[0].items.map((i) => [i.opening, i.closing]), [[600_000, 600_000]]);
+    const none = await arBook("Invoice", { from: "2026-09-01", to: "2026-09-02" }, [f.customer]);
+    assert.deepEqual(none.subjects, []);
   });
 });
 

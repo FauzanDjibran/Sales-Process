@@ -229,6 +229,7 @@ describe("the dependency graph points one way", () => {
       "period-lock",
       // How a book's entries are paged: a page size and a cursor, no database.
       "register-query",
+      "partner-book",
     ];
     const BOOKS = ["cash-bank", "journal", "ar-item", "ap-item", "inventory"];
 

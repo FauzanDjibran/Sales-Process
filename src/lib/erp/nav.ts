@@ -400,7 +400,15 @@ export const MODULES: NavModule[] = [
             slug: "report/ar-ledger",
             name: "Buku Piutang",
             icon: "book",
-            desc: "Riwayat AR item satu customer — invoice, uang muka dan pembayarannya.",
+            desc: "Riwayat Piutang Usaha atau Uang Muka Customer per customer.",
+            permission: "REPORT_AR_LEDGER_VIEW",
+          },
+          {
+            key: "report_ar_balance",
+            slug: "report/ar-balance",
+            name: "Saldo Piutang",
+            icon: "wallet",
+            desc: "Saldo per customer, asal setiap item dan progres penyelesaiannya.",
             permission: "REPORT_AR_LEDGER_VIEW",
           },
           {
@@ -424,7 +432,15 @@ export const MODULES: NavModule[] = [
             slug: "report/ap-ledger",
             name: "Buku Hutang",
             icon: "book",
-            desc: "Riwayat AP item satu supplier — invoice, uang muka dan pembayarannya.",
+            desc: "Riwayat Hutang Usaha atau Uang Muka Supplier per supplier.",
+            permission: "REPORT_AP_LEDGER_VIEW",
+          },
+          {
+            key: "report_ap_balance",
+            slug: "report/ap-balance",
+            name: "Saldo Hutang",
+            icon: "wallet",
+            desc: "Saldo per supplier, asal setiap item dan progres penyelesaiannya.",
             permission: "REPORT_AP_LEDGER_VIEW",
           },
           {

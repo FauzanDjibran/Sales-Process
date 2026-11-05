@@ -1209,7 +1209,8 @@ position as it stood.
 
 | Report | Shows | Permission |
 | --- | --- | --- |
-| **Buku Piutang** | One customer over a period: every entry, position before/after, open items behind it. Invoices by default; *Sertakan Uang Muka* (`advance=1`) adds advances | `REPORT_AR_LEDGER_VIEW` |
+| **Buku Piutang** | Customers over a period, rolled up per customer: every entry of the book chosen by the toggle, Piutang Usaha or Uang Muka Customer (`book=advance`), each in its own direction (P233) | `REPORT_AR_LEDGER_VIEW` |
+| **Saldo Piutang** | The same book per customer: opening, raised, lowered, closing, and each item with its source and progress (P233) | `REPORT_AR_LEDGER_VIEW` |
 | **Umur Piutang** | Open Invoice items per customer: Belum Jatuh Tempo / 1–30 / 31–60 / 61–90 / > 90 days, beside Uang Muka held and net | `REPORT_AR_AGING_VIEW` |
 | **Uang Muka Customer** | Open Uang Muka items per customer and Customer Order, checked against the Uang Muka Penjualan account | own view permission |
 

@@ -40,12 +40,12 @@ export type ReportParams =
   | "fiscal-period"
   /** An optional customer and the one date the figures stand at (P75). */
   | "ar-asof"
-  /** One customer and a date range — a book of that customer (P75). */
-  | "ar-period"
+  /** Customers, a date range and the book — Buku and Saldo Piutang (P233). */
+  | "ar-book"
   /** An optional supplier and the one date the figures stand at (B33). */
   | "ap-asof"
-  /** One supplier and a date range — a book of that supplier (B33). */
-  | "ap-period"
+  /** Suppliers, a date range and the book — Buku and Saldo Hutang (P233). */
+  | "ap-book"
   /** One item, optionally a warehouse, and a date range — a stock card (P120). */
   | "stock-period"
   /** Optionally an item and a warehouse, and the one date the stock stands at (P120). */
@@ -107,13 +107,25 @@ const FIXED_REPORTS = [
     module: "finance",
     name: "Buku Piutang",
     desc:
-      "Setiap perubahan AR item satu customer pada rentang tanggal — invoice, uang muka " +
-      "dan pembayarannya — dengan posisi Piutang Usaha awal dan akhir.",
+      "Setiap perubahan pada Piutang Usaha atau Uang Muka Customer per customer pada " +
+      "rentang tanggal, masing-masing buku dengan arahnya sendiri.",
     icon: "book",
     permission: "REPORT_AR_LEDGER_VIEW",
-    params: "ar-period",
-    // A book is a book *of* someone.
-    subjectRequired: true,
+    params: "ar-book",
+    subjectRequired: false,
+  },
+  {
+    key: "ar_balance",
+    slug: "ar-balance",
+    module: "finance",
+    name: "Saldo Piutang",
+    desc:
+      "Saldo awal, bertambah, berkurang dan saldo akhir setiap customer, dengan item " +
+      "penyusunnya: asal dokumennya dan progres penyelesaiannya.",
+    icon: "wallet",
+    permission: "REPORT_AR_LEDGER_VIEW",
+    params: "ar-book",
+    subjectRequired: false,
   },
   {
     key: "ar_aging",
@@ -146,11 +158,22 @@ const FIXED_REPORTS = [
     slug: "ap-ledger",
     module: "finance",
     name: "Buku Hutang",
-    desc: "Setiap perubahan AP item satu supplier pada rentang tanggal — invoice, uang muka dan pembayarannya — dengan posisi Hutang Usaha awal dan akhir.",
+    desc: "Setiap perubahan pada Hutang Usaha atau Uang Muka Supplier per supplier pada rentang tanggal, masing-masing buku dengan arahnya sendiri.",
     icon: "book",
     permission: "REPORT_AP_LEDGER_VIEW",
-    params: "ap-period",
-    subjectRequired: true,
+    params: "ap-book",
+    subjectRequired: false,
+  },
+  {
+    key: "ap_balance",
+    slug: "ap-balance",
+    module: "finance",
+    name: "Saldo Hutang",
+    desc: "Saldo awal, bertambah, berkurang dan saldo akhir setiap supplier, dengan item penyusunnya: asal dokumennya dan progres penyelesaiannya.",
+    icon: "wallet",
+    permission: "REPORT_AP_LEDGER_VIEW",
+    params: "ap-book",
+    subjectRequired: false,
   },
   {
     key: "ap_aging",

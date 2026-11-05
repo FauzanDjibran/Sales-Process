@@ -56,6 +56,7 @@ Project decisions that look reusable and are waiting to be folded into the KB
 
 | Project decision | Target concept | Proposed change | Status |
 | --- | --- | --- | --- |
+| P233 | `accounting/open-items` | Report receivable and advance as two books, each signed on its own movement, with a balance report per partner listing each item's source and progress | Offered |
 
 Processed 04/11/2026: P106 → `engineering/app-architecture` 1.2; P109 →
 `engineering/data-conventions` 1.1; P110, P223 → `accounting/books-and-posting`

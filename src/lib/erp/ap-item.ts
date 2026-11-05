@@ -3,7 +3,9 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
+import { bookEventText, foldPartnerBook, type BookEntry, type BookKind, type PartnerBook } from "./partner-book";
 import type { PeriodRange } from "./period";
+import { ENTRY_PAGE_SIZE, afterBookCursor, type BookCursor } from "./register-query";
 
 /**
  * AP items and Buku Hutang (P127, Purchasing-Concept.md B32) — the AR items
@@ -24,15 +26,6 @@ type Db = Prisma.TransactionClient | typeof prisma;
 
 export type ApItemType = "Advance" | "Invoice";
 export type ApEvent = "Create" | "Payment" | "AdvanceUsed" | "AdvanceApplied" | "AdvanceReceived";
-
-export const AP_TYPE_TEXT: Record<ApItemType, string> = { Advance: "Uang Muka", Invoice: "Invoice" };
-export const AP_EVENT_TEXT: Record<ApEvent, string> = {
-  Create: "Terbentuk",
-  Payment: "Pembayaran",
-  AdvanceUsed: "Dipakai Invoice",
-  AdvanceApplied: "Uang Muka Diterapkan",
-  AdvanceReceived: "Uang Muka Dibayar",
-};
 
 /** Which way an item moves Hutang Usaha: an Invoice raises it, an Uang Muka lowers it. */
 export const AP_SIGN: Record<ApItemType, 1 | -1> = { Invoice: 1, Advance: -1 };
@@ -356,113 +349,90 @@ export async function openApItemsAsOf(
     .filter((r) => Math.round(r.open * 100) !== 0);
 }
 
-export type ApLedgerEntryRow = {
-  id: number;
-  date: string;
-  itemId: number;
-  type: ApItemType;
-  event: ApEvent;
-  /** The posting's Buku Hutang number (P110), shared by its entries. */
-  ledgerNo: string;
-  docNo: string;
-  docTable: string;
-  docId: number;
-  /** The item's own identity: its number and what it is about. */
-  itemNo: string;
-  itemSourceNo: string;
-  orderId: number | null;
-  note: string | null;
-  /** Signed on the supplier's Hutang Usaha: + raises it, − lowers it. */
-  exposure: number;
-};
+/** Hutang Usaha or Uang Muka Supplier over a period: `arBook` mirrored (P233). */
+export async function apBook(book: BookKind, range: PeriodRange, partnerIds: number[] = []): Promise<PartnerBook> {
+  const items = await prisma.finApItem.findMany({
+    where: { item_date: { lte: asDate(range.to) }, ...(partnerIds.length ? { partner_id: { in: partnerIds } } : {}) },
+    select: {
+      id: true,
+      ap_item_no: true,
+      item_type: true,
+      partner_id: true,
+      item_date: true,
+      source_no: true,
+      source_doc_id: true,
+      purchase_order_id: true,
+      partner: { select: { partner_label: true, partner_name: true } },
+      source_doc_type: { select: { doc_table: true } },
+      entries: {
+        where: { entry_date: { lte: asDate(range.to) } },
+        select: { event: true, movement: true, entry_date: true },
+        orderBy: { id: "asc" },
+      },
+    },
+    orderBy: [{ item_date: "asc" }, { id: "asc" }],
+  });
+  return foldPartnerBook(
+    items.map((i) => ({
+      id: i.id,
+      itemNo: i.ap_item_no,
+      type: i.item_type as BookKind,
+      partnerId: i.partner_id,
+      partnerLabel: i.partner.partner_label,
+      partnerName: i.partner.partner_name,
+      date: isoDay(i.item_date),
+      sourceNo: i.source_no,
+      sourceTable: i.source_doc_type.doc_table,
+      sourceId: i.source_doc_id,
+      scopeTable: i.purchase_order_id ? "pur_order" : null,
+      scopeId: i.purchase_order_id,
+      entries: i.entries.map((e) => ({ event: e.event, date: isoDay(e.entry_date), movement: e.movement.toNumber() })),
+    })),
+    "ap",
+    book,
+    range
+  );
+}
 
-export type ApLedgerReport = {
-  partner: { id: number; label: string; name: string };
-  range: PeriodRange;
-  /** Whether Uang Muka entries are in the book, or only stated beside it (P77). */
-  includeAdvance: boolean;
-  /** Hutang Usaha position at the start: Σ exposure before `range.from`. */
-  opening: number;
-  entries: ApLedgerEntryRow[];
-  increase: number;
-  decrease: number;
-  closing: number;
-  /** What each type holds at the end, as a positive figure. */
-  closingByType: Record<ApItemType, number>;
-};
-
-/**
- * Buku Hutang of one supplier over a period: every entry on their items,
- * oldest first, each signed on their Hutang Usaha position, with the position
- * before and after.
- *
- * By default the book holds **Invoice items only** and states the Uang Muka
- * still held beside it, as mainstream ERPs keep a supplier's down payments out
- * of the receivables line until they are cleared against an invoice (P77).
- * `includeAdvance` puts the Uang Muka entries in, netting the position.
- */
-export async function apLedgerReport(
+/** One page of one supplier's entries in a book, oldest first. */
+export async function apBookEntriesPage(
+  book: BookKind,
   partnerId: number,
   range: PeriodRange,
-  opts: { includeAdvance?: boolean } = {}
-): Promise<ApLedgerReport | null> {
-  const includeAdvance = Boolean(opts.includeAdvance);
-  const partner = await prisma.mPartner.findUnique({
-    where: { id: partnerId },
-    select: { id: true, partner_label: true, partner_name: true },
-  });
-  if (!partner) return null;
+  cursor: BookCursor | null
+): Promise<{ entries: BookEntry[]; next: BookCursor | null }> {
   const rows = await prisma.finApLedger.findMany({
-    where: { item: { partner_id: partnerId }, entry_date: { lte: asDate(range.to) } },
+    where: {
+      item: { partner_id: partnerId, item_type: book },
+      entry_date: { gte: asDate(range.from), lte: asDate(range.to) },
+      ...afterBookCursor(cursor),
+    },
     include: {
-      item: { select: { item_type: true, ap_item_no: true, source_no: true, purchase_order_id: true } },
+      item: { select: { ap_item_no: true, source_no: true, purchase_order_id: true } },
       doc_type: { select: { doc_table: true } },
     },
     orderBy: [{ entry_date: "asc" }, { id: "asc" }],
+    take: ENTRY_PAGE_SIZE + 1,
   });
-  const exposureOf = (r: (typeof rows)[number]) => r.movement.toNumber() * AP_SIGN[r.item.item_type as ApItemType];
-
-  let opening = 0;
-  const entries: ApLedgerEntryRow[] = [];
-  const closingByType: Record<ApItemType, number> = { Advance: 0, Invoice: 0 };
-  for (const r of rows) {
-    closingByType[r.item.item_type as ApItemType] += r.movement.toNumber();
-    // Uang Muka is shown beside the book, not in it, unless asked for (P77).
-    if (!includeAdvance && r.item.item_type === "Advance") continue;
-    if (isoDay(r.entry_date) < range.from) {
-      opening += exposureOf(r);
-      continue;
-    }
-    entries.push({
+  const page = rows.slice(0, ENTRY_PAGE_SIZE);
+  const last = page[page.length - 1];
+  return {
+    entries: page.map((r) => ({
       id: r.id,
       date: isoDay(r.entry_date),
-      itemId: r.item_id,
-      type: r.item.item_type as ApItemType,
-      event: r.event as ApEvent,
       ledgerNo: r.ledger_no,
       docNo: r.doc_no,
       docTable: r.doc_type.doc_table,
       docId: r.doc_id,
       itemNo: r.item.ap_item_no,
       itemSourceNo: r.item.source_no,
-      orderId: r.item.purchase_order_id,
+      scopeTable: r.item.purchase_order_id ? "pur_order" : null,
+      scopeId: r.item.purchase_order_id,
+      eventText: bookEventText("ap", book, r.event),
       note: r.note,
-      exposure: exposureOf(r),
-    });
-  }
-  const increase = entries.filter((e) => e.exposure > 0).reduce((a, e) => a + e.exposure, 0);
-  // `|| 0` so an empty period reads 0, not −0.
-  const decrease = -entries.filter((e) => e.exposure < 0).reduce((a, e) => a + e.exposure, 0) || 0;
-  return {
-    partner: { id: partner.id, label: partner.partner_label, name: partner.partner_name },
-    range,
-    includeAdvance,
-    opening,
-    entries,
-    increase,
-    decrease,
-    closing: opening + increase - decrease,
-    closingByType,
+      movement: r.movement.toNumber(),
+    })),
+    next: rows.length > ENTRY_PAGE_SIZE ? { date: isoDay(last.entry_date), id: last.id } : null,
   };
 }
 
