@@ -20,9 +20,9 @@
 
 **Tetap belum masuk (§15):** barcode dan scan (O-03), Rambang dan Titil (O-10), QC Packing (O-12), hal-hal W62.
 
-## Asumsi yang Dipakai
+## Keputusan dan Asumsi yang Dipakai
 
-Asumsi 1–9 sudah disampaikan di Fase 1. Asumsi 10–15 ditemukan saat menulis detail dan **perlu ditinjau user**.
+Disetujui user 05/11/2026 dan dicatat di `Produksi Walet (Real).md`: asumsi 1 = W81, 2 = W82, 5 = W83, 6 = W84, 7 dan 13 = W85, 8 = W86, 10 = W87, 11 = W88, 12 = W89, 14 = W90, 15 = W91. Nomor 3, 4 dan 9 hanya batas penulisan plan ini, jadi tetap di sini.
 
 | # | Asumsi | Menu |
 | --- | --- | --- |

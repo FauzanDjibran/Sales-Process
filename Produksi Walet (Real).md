@@ -18,6 +18,8 @@
 > **Putaran kelima, 05/11/2026:** W64–W76, hasil simulasi per unit dan validasi user. Workstation menentukan Push atau BSTB, QC Check di unit, Moulding menjadi dua unit tanpa Mix, CCP-1 dan Sortir menjadi unit, checkpoint hanya di Barcoding, satu unit satu proses. Packing 95 ke atas sengaja belum disentuh.
 >
 > **Putaran keenam, 05/11/2026:** W77–W80. QC hanya validasi, Dokumen Reproses, Reject untuk kasus parah, dan sisa partai yang tetap jalan sampai checkpoint. Menutup O-11.
+>
+> **Putaran ketujuh, 05/11/2026:** W81–W91, hasil penulisan `plan-implementasi-produksi.md` sampai Barcoding: routing sampai UP5, batas Reproses dan Reject, siklus BSTB Pengeluaran, kapan identitas BSTB lahir, dan checklist Closing.
 
 **Sumber dan bobotnya**
 
@@ -188,6 +190,17 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | W78 | **Reproses memakai Dokumen Reproses.** Alurnya mengikuti proses yang ada, dan belum ada aturan baku lapangan: barang **di-Balik dulu oleh QC** (W66), lalu Dokumen Reproses memindahkannya dari Persiapan unit itu ke **Persiapan unit mana pun sebelumnya pada routing**. Boleh dibuat di **semua unit ber-QC**. Tujuan bebas, alasan diketik dan opsional; contoh di line Reguler, dari Wrapping: nitrit melebihi standar ke CCP-1, masih ada bulu halus ke Cleaning (Cabut), bentuk tidak standar ke Moulding (grading). Dari situ barang berjalan maju lagi mengikuti routing dengan semua aturan unitnya, dan kena biaya unit lagi (V9). Menggantikan W50 sebatas asal Reproses, dan mengakhiri BSTB Transfer jenis Reproses | User |
 | W79 | **Kasus parah dikeluarkan dari produksi sebagai Reject** lewat BSTB Pengeluaran, sesudah QC membalikkan barangnya atau dari tahap lain yang diizinkan W29. Nilainya tetap diserap sisa partai; Beban Pemusnahan Produksi hanya bila tidak ada penyerap | User |
 | W80 | **Sisa partai tidak menunggu di unit asal Reproses.** Ia boleh lanjut sampai Barcoding dan tertahan di checkpoint sampai barang reproses menyusul (W71). Mengubah W13 dan W50 | User |
+| W81 | **Routing Reguler berlanjut sampai UP5**, dengan checkpoint pada UBC, supaya Dokumen Push keluar Barcoding punya tujuan. Selama Packing belum dibangun, UP5 hanya master dan barang berhenti di Persiapan UP5. Mengubah routing bagian 12 | User |
+| W82 | **Biaya Packing yang ditagih sebelum Packing dibangun masuk varians**, karena Standar baru sampai Barcoding | User |
+| W83 | **Reproses hanya ke unit sebelumnya pada routing yang sama.** Barang berpartai tidak mundur ke UGH, UPC, atau UPY, karena pra-partai routing terpisah (W39). Mempertegas W78 | User |
+| W84 | **Reject sebelum partai lahir tidak punya penyerap**, jadi nilainya Dr Beban Pemusnahan Produksi / Cr WIP. Mempertegas W79 | User |
+| W85 | **BSTB Pengeluaran tanpa QC: Draft → Ajukan → Terima oleh Logistik.** Nomornya memakai kode unit asal, karena tujuannya Logistik, bukan unit. Pengecualian atas "unit tujuan" di W11 | User |
+| W86 | **Layar memakai Kartu No. Stok**, mengikuti W5. **Tipe Unit "Gudang" keluar dari daftar**, karena tidak ada unit yang memakainya | User |
+| W87 | **Keputusan QC tetap utuh per baris (W65).** Skenario A26 berarti satu baris 60 g dari No. Stok yang saldonya 100 g, bukan baris 100 g yang dipecah | User |
+| W88 | **No. Partai dan No. Job yang terbit di BSTB lahir saat Terima**, bersama gerakan buku (W20). No. Job di Dokumen Push tetap lahir saat Posting (W58) | User |
+| W89 | **Tanda Balik QC hilang begitu barang pindah lewat Dokumen Reproses**, karena di unit tujuan ia barang biasa | User |
+| W90 | **Checklist Closing juga menolak Dokumen Grading, Pengerjaan Unit, QC Check, Dokumen Reproses, dan BSTB Pengeluaran yang belum selesai**, selain BSTB dan Dokumen Push. Berlaku juga untuk hasil proses yang masih menunggu QC Check | User |
+| W91 | **"Boleh dilewati" pada routing tersimpan tetapi belum berpengaruh**; tidak ada langkah Reguler yang memakainya, dan akibatnya dibahas bila kelak dibutuhkan | User |
 
 ---
 
@@ -215,7 +228,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 
 ## 5. Struktur
 
-**Tipe Unit** tertutup: Pass Through, Grading, Assembly, Gudang. **Satu Unit satu tipe** (W73).
+**Tipe Unit** tertutup: Pass Through, Grading, Assembly (W86). **Satu Unit satu tipe** (W73).
 
 | Workstation | Unit | Kode | Tipe | QC Check | No. Job saat keluar | Keluar lewat |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -251,7 +264,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | --- | --- |
 | **No. Stok** | Unik seluruh sistem (W10), 1 jenis, universal di Logistik dan Produksi. No. Stok akar lahir di Receipt Note: 1 lot, 1 supplier. Setiap hasil grading dan transformasi melahirkan nomor baru `<induk>-<n>`, walau jenisnya sama (W60). Mulai Barcoding 1 No. Stok = 1 pcs dengan gram final |
 | **No. Job** | Pengelompok No. Stok yang bergerak. **Saat dibuat, 1 No. Job = 1 pengambilan 1 No. Stok** (W31); sesudah digrading ia boleh berisi beberapa No. Stok turunan. Format `<kode unit>_<ddmmyy>_<NNNNN>`. Terbit pertama di Dokumen Push keluar Grading Halus (W58). Dilepas saat grading Penyebaran dan terbit lagi di BSTB Penyebaran. Dilepas saat grading Moulding, terbit sebagai **No. Job Moulding** di Dokumen Push keluar UMG, dilepas saat grading Dry B, dan terbit lagi di BSTB keluar Dry B (W68). |
-| **No. Partai** | Lahir dari BSTB Penyebaran: 1 BSTB = 1 partai = 1 line, dan yang dikirim bersama menjadi 1 partai (W73); format `P_<ddmmyy>_<NNNNN>`. **Tidak pernah lepas dari No. Stok** sampai Packing (W68). Satu dokumen satu partai (W76). Tidak diasumsikan 1 supplier. Menyimpan id routing yang diikuti (milik line-nya, W35) dan id Standard Cost yang aktif (W36) |
+| **No. Partai** | Lahir dari BSTB Penyebaran saat Terima (W88): 1 BSTB = 1 partai = 1 line, dan yang dikirim bersama menjadi 1 partai (W73); format `P_<ddmmyy>_<NNNNN>`. **Tidak pernah lepas dari No. Stok** sampai Packing (W68). Satu dokumen satu partai (W76). Tidak diasumsikan 1 supplier. Menyimpan id routing yang diikuti (milik line-nya, W35) dan id Standard Cost yang aktif (W36) |
 | **No. Grading** | Dokumen `NG_<unit>_<ddmmyy>_<NNNNN>`; penghubung stok lama dan baru. **1 No. Stok input = 1 No. Grading** (W25); satu No. Stok yang diambil beberapa kali menghasilkan No. Grading tiap pengambilan dan sisanya tetap saldo. Grading ulang sesudah Reproses punya No. Grading sendiri |
 | **Dokumen QC Check** | `QCK_<unit>_<ddmmyy>_<NNNNN>`; mencatat No. Stok yang diperiksa, hasilnya, dan alasan bila Balik (W65) |
 | **Dokumen Reproses** | `RPR_<unit>_<ddmmyy>_<NNNNN>`, unit tujuan seperti BSTB (W11, W78); menyimpan unit asal, unit tujuan, No. Stok dan alasan |
@@ -344,6 +357,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | BSTB tanpa QC | BSTB Issue, dan antar unit lintas Workstation (W64, W67) | Draft → Ajukan → Terima |
 | BSTB dengan QC | Hanya BSTB ke Finish Goods (W46) | Draft → Ajukan → QC **PASS** → Terima; **REJECT** = BSTB batal, barang tetap |
 | Dokumen Reproses | Barang Balik QC mundur pada routing (W78) | Dalam satu Workstation seperti Dokumen Push; lintas Workstation seperti BSTB tanpa QC (W64) |
+| BSTB Pengeluaran | Keluar ke Logistik (W85) | Draft → Ajukan → Terima oleh Logistik |
 
 - Barang terkunci sejak Ajukan, dan buku hanya bergerak saat Terima (W20). Batalkan hanya untuk Draft; BSTB yang sudah Diajukan tidak bisa dibatalkan atau ditolak (W67).
 - **Untuk sekarang BSTB hanya konfirmasi (W57):** Terima menerima tepat isi dokumen. Gram berubah hanya lewat grading (W47).
@@ -366,7 +380,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | **Sisa bahan penolong** | Nilai bucketnya | Kembali ke Persediaan | Dr Persediaan / Cr WIP |
 | **Pcs sisa** | Dipilih: 0, atau nilai saat itu | Bila 0, seperti Reject | Bila bernilai: Dr Persediaan / Cr WIP |
 
-Reject yang tidak punya penyerap dibebankan ke Beban Pemusnahan Produksi (W32). Pcs rusak sesudah Barcoding memakai alasan Reject.
+Reject yang tidak punya penyerap, termasuk Reject sebelum partai lahir (W84), dibebankan ke Beban Pemusnahan Produksi (W32). Pcs rusak sesudah Barcoding memakai alasan Reject.
 
 **Reject** untuk kasus yang sangat parah memakai BSTB Pengeluaran di atas (W79). Keputusannya milik unit, bukan QC (W77).
 
@@ -376,8 +390,8 @@ Reject yang tidak punya penyerap dibebankan ke Beban Pemusnahan Produksi (W32). 
 | --- | --- |
 | 1. QC Check | Barang di-Balik QC ke Persiapan unit itu, sebagai baris sendiri (W66) |
 | 2. Keputusan unit | Dikerjakan ulang di unit itu, dibuatkan Dokumen Reproses, atau dikeluarkan sebagai Reject |
-| 3. Dokumen Reproses | Dari unit ber-QC mana pun, atas baris Balik QC, boleh sebagian qty, ke unit mana pun sebelumnya pada routing; alasan opsional |
-| 4. Di unit tujuan | Barang masuk Persiapan, tetap di partainya, No. Stok tetap sampai digrading ulang; stok hasilnya terhubung ke induk |
+| 3. Dokumen Reproses | Dari unit ber-QC mana pun, atas baris Balik QC, boleh sebagian qty, ke unit mana pun sebelumnya pada routing yang sama (W83); alasan opsional |
+| 4. Di unit tujuan | Barang masuk Persiapan tanpa tanda Balik QC (W89), tetap di partainya, No. Stok tetap sampai digrading ulang; stok hasilnya terhubung ke induk |
 | 5. Berjalan maju | Mengikuti routing dengan semua aturan unit, termasuk QC Check, biaya V9, dan aturan No. Job. Barang yang melewati UMG mendapat No. Job Moulding dan Job Order baru; barang yang langsung ke UMP tidak membawa Job Order |
 | 6. Sisa partai | Tetap jalan sampai Barcoding, tertahan di checkpoint sampai barang reproses menyusul (W80) |
 
@@ -395,7 +409,7 @@ Daftar ini contoh, bukan batasan: tujuan bebas ke unit sebelumnya (W78).
 
 ## 10. Closing Costing Produksi
 
-Satu periode bulan = satu closing. Checklist P210 tetap, ditambah tidak ada BSTB yang belum Terima dan tidak ada Dokumen Push yang masih Draft. Bersifat final dan mengunci periode (W23).
+Satu periode bulan = satu closing. Checklist P210 tetap, ditambah tidak ada BSTB yang belum Terima, tidak ada Dokumen Push yang masih Draft, dan dokumen lain di W90. Bersifat final dan mengunci periode (W23).
 
 | Angka | Sumber |
 | --- | --- |
@@ -443,10 +457,10 @@ Menu baru untuk PPIC, membaca baris Sales Order berstatus Open yang belum terkir
 | `ref_unit.processes`, `PrdProcessKind`, `entities.ts`, `production-master-shape.ts` | Diubah: satu jenis pekerjaan per Unit (W73). `GradingMix`, `JobOrder` dan `PartaiFormer` dibuang; aturan "pra-partai berakhir di unit Pembentuk Partai" diganti: berakhir di Penyebaran, yang keluar lewat BSTB |
 | `ref_unit` | Ditambah penanda QC Check (W65) |
 | `PrdStage`, `prd_balance`, `prd_ledger` | Ditambah tahap QC Check; bucket Balik QC harus terpisah dari saldo No. Stok yang sama (W66) |
-| Routing REG-1 di seed | Diubah: UPW → UCL → UC1 → USR → UDA → UMG → UMP → UDB → UWP → UBC, checkpoint pindah dari UDA ke UBC (W71). Routing yang sudah dipakai tetap terkunci, jadi ini routing baru |
+| Routing REG-1 di seed | Diubah: UPW → UCL → UC1 → USR → UDA → UMG → UMP → UDB → UWP → UBC, checkpoint pindah dari UDA ke UBC (W71), lalu berlanjut ke UP5 (W81). Routing yang sudah dipakai tetap terkunci, jadi ini routing baru |
 | `prd_tracking_link` | Tetap; ditambah komposisi `prd_composition` |
 | `period-lock.ts`, checklist closing | Tetap. Guard tahun buku R28 ditulis ulang agar membaca `prd_ledger`, bukan Eksekusi |
-| Telusur, Kartu Lot, Saldo Produksi | Tetap, diubah: Partai dan Job, himpunan supplier setelah mix, komposisi kotak |
+| Telusur, Kartu No. Stok (W86), Saldo Produksi | Tetap, diubah: Partai dan Job, himpunan supplier setelah mix, komposisi kotak |
 | `log_stock_issue` | Diubah: tambah Terima dan tujuan bahan penolong ke unit. Struktur baris dan pick tetap |
 | `production-doc.ts`, `production-doc-workflow.ts` | Tetap; konstanta Transfer dan Release dibuang |
 | Akun Beban Pemusnahan Produksi, Biaya Produksi Dibebankan | Tetap. Yang pertama dipakai bila tidak ada penerima nilai (W32); yang kedua kini dikredit saat biaya unit dicatat |
@@ -550,12 +564,12 @@ Tiap langkah: satu commit ke `main`, migrasi dan DBML bersamaan, `npm run build`
 | A19 | Grading yang seluruh outputnya BJL | Nilai input Dr Beban Pemusnahan Produksi / Cr WIP; tidak ada output bernilai |
 | A20 | Mengubah flag BJL pada Item yang sudah dipakai di produksi | Ditolak |
 | A15 | Moulding (grading) sampai BSTB Dry B | Grading melepas No. Job, Partai tetap; Push melahirkan No. Job Moulding dan Job Order per Job (W69); Moulding (process) hanya lewat; grading Dry B melepas No. Job Moulding dan Job Order, Partai tetap; BSTB memberi No. Job baru |
-| A21 | Dokumen Push keluar Grading Halus, 30 kg lalu 20 kg dari satu No. Stok | Posting memindahkan barang dari Stand By ke Persiapan Pre Cleaning tanpa QC, Terima dan jurnal; dua No. Job terbit; kedua dokumen tercatat di Kartu Lot |
+| A21 | Dokumen Push keluar Grading Halus, 30 kg lalu 20 kg dari satu No. Stok | Posting memindahkan barang dari Stand By ke Persiapan Pre Cleaning tanpa QC, Terima dan jurnal; dua No. Job terbit; kedua dokumen tercatat di Kartu No. Stok |
 | A22 | BSTB sampai Terima | Yang pindah tepat isi dokumen, tanpa QC dan tanpa kolom selisih (W57, W67); BSTB Diajukan tidak bisa dibatalkan |
 | A23 | Grading dengan output berjenis sama | Output mendapat No. Stok baru `<induk>-<n>`, jenis tetap, gram boleh berubah (W47, W60) |
 | A24 | Packing 98 menambah box pada kotak hasil Packing 95 | Nilai kotak naik, gram dan No. Stok Kotak tetap; komposisi tidak berubah (W61) |
 | A25 | QC Check atas hasil proses, termasuk BJL | OK masuk Stand By; jelek balik ke Persiapan unit itu; satu baris diputuskan utuh; alasan boleh kosong; dokumen `QCK_…` tanpa jurnal (W65) |
-| A26 | 60 g dari 100 g Balik QC dan diproses lagi | Persiapan berisi dua baris No. Stok yang sama, yang balik bertanda; biaya unit masuk lagi dan tercatat pada No. Stok itu (W66); total nilai tetap seimbang |
+| A26 | Baris 60 g dari No. Stok bersaldo 100 g Balik QC dan diproses lagi (W87) | Persiapan berisi dua baris No. Stok yang sama, yang balik bertanda; biaya unit masuk lagi dan tercatat pada No. Stok itu (W66); total nilai tetap seimbang |
 | A27 | Pindah antar unit sepanjang routing | Dalam Workstation selalu Dokumen Push, lintas Workstation selalu BSTB, tanpa isian Keluar Lewat (W64) |
 | A28 | Pengerjaan Unit satu Job ditambahi bahan penolong | Nilai bahan penolong masuk Job itu, gram tetap, saldo bahan penolong unit berkurang (W75) |
 | A29 | Dokumen berisi dua partai di unit berpartai | Ditolak (W76) |
