@@ -88,3 +88,4 @@ plan's steps 1–13.
 | 05/11/2026 | P228 | Step 3: BSTB Issue, Ajukan and Terima, stock reserved from Ajukan, Bahan Penolong ke Unit. |
 | 05/11/2026 | P229 | The Reguler Workstations, Units and routings as a seed; clearer routing refusals. |
 | 05/11/2026 | P230 | A routing is only the order of Units; Keluar Lewat and No. Job saat Keluar move to the Unit. |
+| 05/11/2026 | P231 | The plan compared with the 45 field SOPs in `walet sop.md`; W41–W56 agreed, no change to what is built. |

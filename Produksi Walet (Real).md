@@ -10,6 +10,8 @@
 > Persiapan dan Stand By, Eksekusi Produksi, No. Job per pengambilan, dan pembagian nilai BJL / bukan BJL
 > yang menutup OD-1 dan OD-2).
 > W25 dan W26 dikoreksi user pada hari yang sama.
+>
+> **Putaran ketiga, 05/11/2026:** W41–W56, hasil perbandingan dengan 45 SOP di `walet sop.md`. Yang belum diputuskan ada di bagian 15, tabel Open dari SOP.
 
 **Sumber dan bobotnya**
 
@@ -128,6 +130,22 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | W38 | **No. Job lahir karena barang perlu identifikasi, bukan karena grading.** Kebutuhan identifikasi itu baru muncul saat barang keluar Grading Halus, jadi di situlah No. Job pertama terbit. Jenis pekerjaan unit tidak menentukan No. Job | User |
 | W39 | **Pra-partai dan partai adalah satu produksi**, hanya cara berpikirnya seperti produksi 1 dan produksi 2: produksi 1 tanpa partai, berakhir di output Penyebaran, yang menjadi input produksi 2 berpartai. Karena itu urutan UGH → UPC → UPY tetap dicatat sebagai routing tanpa line, dan produksi tidak dipecah | User |
 | W40 | **Routing hanya urutan unit** (P230). "No. Job saat keluar" dan "Keluar lewat" adalah atribut **Unit**, kembali seperti tabel bagian 5; langkah routing hanya menyimpan urutan, checkpoint dan boleh dilewati. Menggantikan bagian W33 yang menaruhnya di langkah. Line lain yang butuh aturan keluar berbeda memakai unit sendiri | User |
+| W41 | **BSTB Issue tetap menjadi titik mulai.** SOP mengambil BB dari Cold Storage tanpa dokumen; Cold Storage dicatat sebagai Gudang, Admin Bahan Baku mengajukan dan Grading Halus menerima | User, SOP |
+| W42 | **Pre Cleaning tetap Pass Through dan membawa catatan.** Catatan hasil pre cleaning (jenis dan berat) tidak mengubah jenis maupun No. Job, dibawa ke Penyebaran, lalu digrading dan divalidasi di sana. Menegaskan W6 | User, SOP |
+| W43 | **Di dalam produksi pembobotan memakai gram**, bukan proporsi harga pasar, dan tidak ada proporsi ulang di final grading. Menegaskan W32. Proporsi harga di WI-ACC-001 berada di Grading Kasar, sebelum produksi | User, SOP |
+| W44 | **Partai tetap lahir di Penyebaran.** Nomor `Pt_…` lama hanya referensi migrasi | User, SOP |
+| W45 | **Perpindahan mengikuti SOP**: per pasangan unit ditentukan cukup pindah (Push) atau perlu BSTB. Daftarnya ditetapkan kemudian dari usulan `walet sop.md` bagian 12.1. Mengubah W20 dan W21 sebatas pasangan itu; dasar untuk melepas W34 | User, SOP |
+| W46 | **BSTB ke Finish Goods memakai QC**, sesuai release Packing. BSTB Issue tetap tanpa QC. Mengubah W22 | User, SOP |
+| W47 | **Grading adalah pencatatan transformasi dan perubahan qty.** Jenis boleh tetap atau berubah, gram boleh berubah. Berlaku di Penyebaran dan Dry A. Hasil Penyebaran terkumpul di Stand By dengan identitas No. Stok-nya; pembentukan partai boleh mendapat tempat sendiri bila kelak perlu | User |
+| W48 | **Gerbang lab per partai sebelum cetak.** Sesudah Grading Moulding, partai harus Lolos Uji (nitrit < 30 ppm, aluminium < 50 ppm) sebelum Job Order dimulai | User, SOP |
+| W49 | **Approval BSTB diabaikan dulu**; diterapkan setelah alur bersih | User |
+| W50 | **Reproses tetap sesuai bagian 9; sisa partai menunggu.** Dry A kotor kembali ke Cabut memakai Reproses. Menegaskan W13 | User |
+| W51 | **Semua item, termasuk BJL, tetap disimpan dengan No. Stok** | User |
+| W52 | **Packing mengikuti SOP**: gramasi dan stiker daun adalah Packing 95; box dan karton adalah Packing 98 (Final Packing). Reguler tanpa karton. Mengubah bagian 5, 6, dan W14; lihat Open O-07 | User, SOP |
+| W53 | **Final Grading hanya sebutan untuk grading terakhir**, bukan proses tersendiri | User |
+| W54 | **Sales Planning memakai W15, ditambah informasi stok packing 95 dan BB.** Rencana Produksi satu dokumen dengan tahap target | User, SOP |
+| W55 | **Home Industri dianggap tidak ada dulu** | User |
+| W56 | **FG langsung Tersedia dan produksi mencatat gram saja** untuk sementara; karantina dan kadar air menjadi Open | User |
 
 ---
 
@@ -465,6 +483,20 @@ Tiap langkah: satu commit ke `main`, migrasi dan DBML bersamaan, `npm run build`
 **Open discussion**
 
 Tidak ada yang tersisa. OD-1 (lingkup penyerapan BJL dan reject) dan OD-2 (pembobotan estimasi harga) ditutup oleh W32 pada 04/11/2026.
+
+**Open dari SOP (05/11/2026).** Sumber per SOP ada di `walet sop.md` bagian 12.3.
+
+| # | Topik | Status |
+| --- | --- | --- |
+| O-01 | Selisih data BSTB, misalnya BSTB 10 Job tetapi data 11 | Open |
+| O-02 | Barang retur dan tukar barang di Cabut | Open |
+| O-03 | Barcode dan sistem scan yang berjalan sekarang | Open |
+| O-04 | Kadar air sebagai data | Open |
+| O-05 | Karantina sesudah FG | Open |
+| O-06 | Cabut, Rambang, Titil, CCP1, Sortir: satu Unit atau Unit sendiri | Dipertimbangkan |
+| O-07 | Apakah pack di Packing 95 sama dengan isi kotak; penentu letak komposisi | Open |
+| O-08 | No. Stok hasil grading berjenis sama: nomor baru atau tetap | Open |
+| O-09 | No. Job pertama bila Grading Halus ke Pre Cleaning tanpa BSTB | Open |
 
 **Scope terpisah (tidak menghalangi build)**
 
