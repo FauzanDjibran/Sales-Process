@@ -352,11 +352,9 @@ export async function openApItemsAsOf(
 /** Hutang Usaha or Uang Muka Supplier over a period: `arBook` mirrored (P233). */
 export async function apBook(book: BookKind, range: PeriodRange, partnerIds: number[] = []): Promise<PartnerBook> {
   const items = await prisma.finApItem.findMany({
-    where: { item_date: { lte: asDate(range.to) }, ...(partnerIds.length ? { partner_id: { in: partnerIds } } : {}) },
+    where: { item_type: book, item_date: { lte: asDate(range.to) }, ...(partnerIds.length ? { partner_id: { in: partnerIds } } : {}) },
     select: {
       id: true,
-      ap_item_no: true,
-      item_type: true,
       partner_id: true,
       item_date: true,
       source_no: true,
@@ -375,8 +373,6 @@ export async function apBook(book: BookKind, range: PeriodRange, partnerIds: num
   return foldPartnerBook(
     items.map((i) => ({
       id: i.id,
-      itemNo: i.ap_item_no,
-      type: i.item_type as BookKind,
       partnerId: i.partner_id,
       partnerLabel: i.partner.partner_label,
       partnerName: i.partner.partner_name,
@@ -408,7 +404,7 @@ export async function apBookEntriesPage(
       ...afterBookCursor(cursor),
     },
     include: {
-      item: { select: { ap_item_no: true, source_no: true, purchase_order_id: true } },
+      item: { select: { source_no: true, source_doc_id: true, source_doc_type: { select: { doc_table: true } }, purchase_order_id: true } },
       doc_type: { select: { doc_table: true } },
     },
     orderBy: [{ entry_date: "asc" }, { id: "asc" }],
@@ -424,8 +420,9 @@ export async function apBookEntriesPage(
       docNo: r.doc_no,
       docTable: r.doc_type.doc_table,
       docId: r.doc_id,
-      itemNo: r.item.ap_item_no,
-      itemSourceNo: r.item.source_no,
+      sourceNo: r.item.source_no,
+      sourceTable: r.item.source_doc_type.doc_table,
+      sourceId: r.item.source_doc_id,
       scopeTable: r.item.purchase_order_id ? "pur_order" : null,
       scopeId: r.item.purchase_order_id,
       eventText: bookEventText("ap", book, r.event),

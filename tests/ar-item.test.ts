@@ -126,21 +126,20 @@ describe("an AR item's balance moves only through Buku Piutang", () => {
     assert.equal((await openArItemsAsOf("Invoice", "2026-09-09", f.customer)).length, 0, "not yet born");
   });
 
-  test("each book runs in its own direction, and states the other beside it (P233)", async () => {
+  test("each book runs in its own direction (P233)", async () => {
     const range = { from: "2026-09-05", to: "2026-09-30" };
     const piutang = await arBook("Invoice", range, [f.customer]);
     assert.deepEqual(piutang.subjects.map((s) => [s.opening, s.raised, s.lowered, s.closing]), [[0, 5_000_000, 0, 5_000_000]]);
-    assert.equal(piutang.otherClosing, 600_000);
 
     const advance = await arBook("Advance", range, [f.customer]);
     assert.deepEqual(advance.subjects.map((s) => [s.opening, s.raised, s.lowered, s.closing]), [[1_000_000, 0, 400_000, 600_000]], "received raises it, used lowers it");
-    assert.equal(advance.otherClosing, 5_000_000);
     const [item] = advance.subjects[0].items;
     assert.equal(item.progress, 40);
     assert.deepEqual(item.settledBy, [{ text: "Dipakai Invoice", amount: 400_000 }]);
 
     const page = await arBookEntriesPage("Advance", f.customer, range, null);
     assert.deepEqual(page.entries.map((e) => [e.eventText, e.movement]), [["Dipakai Invoice", -400_000]]);
+    assert.equal(page.entries[0].sourceNo, item.sourceNo, "an entry names the document that moved (P234)");
     assert.equal(page.next, null);
   });
 

@@ -378,11 +378,9 @@ export async function openArItemsAsOf(
  */
 export async function arBook(book: BookKind, range: PeriodRange, partnerIds: number[] = []): Promise<PartnerBook> {
   const items = await prisma.finArItem.findMany({
-    where: { item_date: { lte: asDate(range.to) }, ...(partnerIds.length ? { partner_id: { in: partnerIds } } : {}) },
+    where: { item_type: book, item_date: { lte: asDate(range.to) }, ...(partnerIds.length ? { partner_id: { in: partnerIds } } : {}) },
     select: {
       id: true,
-      ar_item_no: true,
-      item_type: true,
       partner_id: true,
       item_date: true,
       source_no: true,
@@ -402,8 +400,6 @@ export async function arBook(book: BookKind, range: PeriodRange, partnerIds: num
   return foldPartnerBook(
     items.map((i) => ({
       id: i.id,
-      itemNo: i.ar_item_no,
-      type: i.item_type as BookKind,
       partnerId: i.partner_id,
       partnerLabel: i.partner.partner_label,
       partnerName: i.partner.partner_name,
@@ -435,7 +431,7 @@ export async function arBookEntriesPage(
       ...afterBookCursor(cursor),
     },
     include: {
-      item: { select: { ar_item_no: true, source_no: true, scope_doc_id: true, scope_doc_type: SCOPE_SELECT } },
+      item: { select: { source_no: true, source_doc_id: true, source_doc_type: { select: { doc_table: true } }, scope_doc_id: true, scope_doc_type: SCOPE_SELECT } },
       doc_type: { select: { doc_table: true } },
     },
     orderBy: [{ entry_date: "asc" }, { id: "asc" }],
@@ -451,8 +447,9 @@ export async function arBookEntriesPage(
       docNo: r.doc_no,
       docTable: r.doc_type.doc_table,
       docId: r.doc_id,
-      itemNo: r.item.ar_item_no,
-      itemSourceNo: r.item.source_no,
+      sourceNo: r.item.source_no,
+      sourceTable: r.item.source_doc_type.doc_table,
+      sourceId: r.item.source_doc_id,
       scopeTable: r.item.scope_doc_type?.doc_table ?? null,
       scopeId: r.item.scope_doc_id,
       eventText: bookEventText("ar", book, r.event),

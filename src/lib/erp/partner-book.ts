@@ -55,8 +55,6 @@ export function bookEventText(side: BookSide, type: BookKind, event: string): st
 
 export type BookItemRaw = {
   id: number;
-  itemNo: string;
-  type: BookKind;
   partnerId: number;
   partnerLabel: string;
   partnerName: string;
@@ -70,7 +68,7 @@ export type BookItemRaw = {
   entries: { event: string; date: string; movement: number }[];
 };
 
-export type BookItem = Omit<BookItemRaw, "entries" | "type" | "partnerId" | "partnerLabel" | "partnerName"> & {
+export type BookItem = Omit<BookItemRaw, "entries" | "partnerId" | "partnerLabel" | "partnerName"> & {
   /** What the item had reached by the end of the period: all the raises. */
   original: number;
   opening: number;
@@ -102,9 +100,6 @@ export type PartnerBook = {
   book: BookKind;
   range: PeriodRange;
   subjects: BookSubject[];
-  closing: number;
-  /** The closing of the other book for the same partners, to state the net (P77). */
-  otherClosing: number;
 };
 
 export type BookEntry = {
@@ -114,8 +109,10 @@ export type BookEntry = {
   docNo: string;
   docTable: string;
   docId: number;
-  itemNo: string;
-  itemSourceNo: string;
+  /** The document whose balance moved: the item's source (P234). */
+  sourceNo: string;
+  sourceTable: string;
+  sourceId: number;
   scopeTable: string | null;
   scopeId: number | null;
   agreementNo?: string | null;
@@ -133,8 +130,6 @@ const cents = (n: number) => Math.round(n * 100);
  */
 export function foldPartnerBook(raw: BookItemRaw[], side: BookSide, book: BookKind, range: PeriodRange): PartnerBook {
   const subjects = new Map<number, BookSubject>();
-  let closing = 0;
-  let otherClosing = 0;
   for (const r of raw) {
     let opening = 0;
     let raised = 0;
@@ -144,7 +139,7 @@ export function foldPartnerBook(raw: BookItemRaw[], side: BookSide, book: BookKi
     for (const e of r.entries) {
       const c = cents(e.movement);
       if (c < 0) {
-        const text = bookEventText(side, r.type, e.event);
+        const text = bookEventText(side, book, e.event);
         settled.set(text, (settled.get(text) ?? 0) - c);
       }
       if (e.date < range.from) opening += c;
@@ -155,11 +150,6 @@ export function foldPartnerBook(raw: BookItemRaw[], side: BookSide, book: BookKi
       }
     }
     const end = opening + raised - lowered;
-    if (r.type !== book) {
-      otherClosing += end;
-      continue;
-    }
-    closing += end;
     if (!opening && !inPeriod) continue;
     const original = r.entries.reduce((a, e) => a + Math.max(cents(e.movement), 0), 0);
     const subject =
@@ -184,7 +174,6 @@ export function foldPartnerBook(raw: BookItemRaw[], side: BookSide, book: BookKi
     subject.entryCount += inPeriod;
     subject.items.push({
       id: r.id,
-      itemNo: r.itemNo,
       date: r.date,
       sourceNo: r.sourceNo,
       sourceTable: r.sourceTable,
@@ -202,5 +191,5 @@ export function foldPartnerBook(raw: BookItemRaw[], side: BookSide, book: BookKi
   }
   const list = [...subjects.values()].sort((a, b) => a.label.localeCompare(b.label));
   for (const s of list) for (const k of ["opening", "raised", "lowered", "closing"] as const) s[k] /= 100;
-  return { side, book, range, subjects: list, closing: closing / 100, otherClosing: otherClosing / 100 };
+  return { side, book, range, subjects: list };
 }

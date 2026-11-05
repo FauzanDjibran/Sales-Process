@@ -133,23 +133,6 @@ function CountLine({ report, open, setOpen }: { report: PartnerBook; open: Set<n
   );
 }
 
-function NetNote({ report }: { report: PartnerBook }) {
-  const words = BOOK_WORDS[report.side];
-  const invoice = report.book === "Invoice" ? report.closing : report.otherClosing;
-  const advance = report.book === "Advance" ? report.closing : report.otherClosing;
-  return (
-    <div className="nbox slim">
-      <span className="ni"><Icon name="scale" size={14} /></span>
-      <div>
-        <b>
-          Per {formatDate(report.range.to)}: {words.Invoice} {money(invoice)} − {words.Advance} {money(advance)} = Posisi bersih{" "}
-          {money(invoice - advance)}
-        </b>
-      </div>
-    </div>
-  );
-}
-
 function Empty({ report }: { report: PartnerBook }) {
   return (
     <div className="empty sm">
@@ -163,7 +146,6 @@ function Empty({ report }: { report: PartnerBook }) {
 const closingLabel = (report: PartnerBook) => (report.book === "Invoice" ? BOOK_WORDS[report.side].Invoice : "Sisa Uang Muka");
 
 export function PartnerLedgerReport({ report }: { report: PartnerBook }) {
-  const words = BOOK_WORDS[report.side];
   // One partner has nothing to scan past: its entries open with the page.
   const only = report.subjects.length === 1 ? report.subjects[0] : null;
   const blocks = useBlocks(report, Boolean(only));
@@ -202,13 +184,13 @@ export function PartnerLedgerReport({ report }: { report: PartnerBook }) {
             <SubjectHead s={s} isOpen={isOpen} count={`${s.entryCount} entri`} book={closingLabel(report)} onToggle={() => toggle(s)} />
             {isOpen && (
               <div className="tw">
-                <table className="grid" style={{ minWidth: 980 }}>
+                <table className="grid" style={{ minWidth: 960 }}>
                   <thead>
                     <tr>
                       <th style={{ width: 118 }}>Tanggal</th>
-                      <th style={{ width: 150 }}>Dokumen</th>
-                      <th style={{ width: 190 }}>{words.item}</th>
+                      <th style={{ width: 190 }}>Dokumen</th>
                       <th>Keterangan</th>
+                      <th style={{ width: 170 }}>Referensi</th>
                       <th className="num" style={{ width: 120 }}>Bertambah</th>
                       <th className="num" style={{ width: 120 }}>Berkurang</th>
                       <th className="num" style={{ width: 128 }}>Saldo</th>
@@ -229,14 +211,10 @@ export function PartnerLedgerReport({ report }: { report: PartnerBook }) {
                               <span className="d2">{e.ledgerNo}</span>
                             </span>
                           </td>
-                          <td><DocLink table={e.docTable} id={e.docId} no={e.docNo} /></td>
                           <td>
                             <span className="dstack">
-                              <span className="lab">{e.itemNo}</span>
-                              <span className="d2">
-                                {e.itemSourceNo}
-                                {e.agreementNo ? ` · ${e.agreementNo}` : ""}
-                              </span>
+                              <DocLink table={e.sourceTable} id={e.sourceId} no={e.sourceNo} />
+                              {e.agreementNo && <span className="d2">{e.agreementNo}</span>}
                             </span>
                           </td>
                           <td>
@@ -244,6 +222,13 @@ export function PartnerLedgerReport({ report }: { report: PartnerBook }) {
                               <span>{e.eventText}</span>
                               {e.note && <span className="d2" style={{ fontFamily: "inherit", whiteSpace: "normal" }}>{e.note}</span>}
                             </span>
+                          </td>
+                          <td>
+                            {e.docTable === e.sourceTable && e.docId === e.sourceId ? (
+                              <span className="dash">–</span>
+                            ) : (
+                              <DocLink table={e.docTable} id={e.docId} no={e.docNo} />
+                            )}
                           </td>
                           <td className="num">{figure(Math.max(e.movement, 0))}</td>
                           <td className="num">{figure(Math.max(-e.movement, 0))}</td>
@@ -274,13 +259,11 @@ export function PartnerLedgerReport({ report }: { report: PartnerBook }) {
           </div>
         );
       })}
-      <NetNote report={report} />
     </>
   );
 }
 
 export function PartnerBalanceReport({ report }: { report: PartnerBook }) {
-  const words = BOOK_WORDS[report.side];
   const blocks = useBlocks(report, true);
   if (!report.subjects.length) return <Empty report={report} />;
   return (
@@ -299,12 +282,11 @@ export function PartnerBalanceReport({ report }: { report: PartnerBook }) {
             />
             {isOpen && (
               <div className="tw">
-                <table className="grid" style={{ minWidth: 1040 }}>
+                <table className="grid" style={{ minWidth: 960 }}>
                   <thead>
                     <tr>
                       <th style={{ width: 88 }}>Tanggal</th>
-                      <th style={{ width: 130 }}>{words.item}</th>
-                      <th>Asal</th>
+                      <th>Dokumen</th>
                       <th className="num" style={{ width: 116 }}>Saldo Awal</th>
                       <th className="num" style={{ width: 116 }}>Bertambah</th>
                       <th className="num" style={{ width: 116 }}>Berkurang</th>
@@ -316,7 +298,6 @@ export function PartnerBalanceReport({ report }: { report: PartnerBook }) {
                     {s.items.map((i) => (
                       <tr key={i.id} style={{ cursor: "default" }}>
                         <td className="mono mut" style={{ fontSize: "11.5px" }}>{formatDate(i.date)}</td>
-                        <td><span className="lab">{i.itemNo}</span></td>
                         <td>
                           <span className="dstack">
                             <DocLink table={i.sourceTable} id={i.sourceId} no={i.sourceNo} />
@@ -329,10 +310,7 @@ export function PartnerBalanceReport({ report }: { report: PartnerBook }) {
                         <td className="num"><b className="mny">{money(i.closing)}</b></td>
                         <td>
                           <span className="dstack">
-                            <span style={{ display: "flex", alignItems: "center", gap: 7 }}>
-                              <span className="bar" style={{ flex: "1 1 auto" }}><i style={{ width: `${i.progress}%` }} /></span>
-                              <span className="mono" style={{ fontSize: "11px" }}>{i.progress}%</span>
-                            </span>
+                            <span className="mono" style={{ fontSize: "11px" }}>{i.progress}%</span>
                             <span className="d2" style={{ fontFamily: "inherit", whiteSpace: "normal" }}>
                               {i.settledBy.length
                                 ? i.settledBy.map((b) => `${b.text} ${money(b.amount)}`).join(" · ")
@@ -349,7 +327,6 @@ export function PartnerBalanceReport({ report }: { report: PartnerBook }) {
           </div>
         );
       })}
-      <NetNote report={report} />
     </>
   );
 }
