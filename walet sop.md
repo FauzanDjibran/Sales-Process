@@ -702,16 +702,18 @@ R = Reguler, S = S-MK, I = Indomi.
 
 ## 12. Tindak Lanjut Perbandingan dengan PWR (05/11/2026)
 
-Keputusannya tercatat sebagai W41–W56 di PWR. Sumber tambahan: sheet `flow` di `walet/Simulasi Flow Costing.xlsx` dan bagan sheet Reguler di `walet/Proses Produksi - 05 Februari 2026.xlsx`.
+Keputusannya tercatat sebagai W41–W63 di PWR, dan PWR-lah yang berlaku bila berbeda dengan bagian ini. Sumber tambahan: sheet `flow` di `walet/Simulasi Flow Costing.xlsx` dan bagan sheet Reguler di `walet/Proses Produksi - 05 Februari 2026.xlsx`.
 
 **Koreksi G-16.** Proporsi harga pasar di WI-ACC-001 berada di **Grading Kasar**, sebelum produksi, jadi tidak bertabrakan dengan W32. Yang bertabrakan hanya proporsi ulang di final grading (G-17).
 
-### 12.1 Usulan perpindahan antar unit (W45)
+### 12.1 Perpindahan antar unit (W45, W59)
+
+Push selalu memakai Dokumen Push (W58).
 
 | Dari → Ke | SOP | Simulasi | Usulan |
 | --- | --- | --- | --- |
 | Logistik → Grading Halus | Ambil tanpa dokumen | `BSTB_LOG` | BSTB tanpa QC (W41) |
-| Grading Halus → Pre Cleaning | Tanpa BSTB | `BSTB_UGH` | Lihat O-09 |
+| Grading Halus → Pre Cleaning | Tanpa BSTB | `BSTB_UGH` | Push, No. Job terbit (W58) |
 | Pre Cleaning → Penyebaran | Tanpa BSTB | `BSTB_UPC` | Push |
 | Penyebaran → Pre Wash | BSTB + release | `BSTB_UPY` | BSTB + QC |
 | Pre Wash → Cabut | BSTB + release | `BSTB_UPW` | BSTB + QC |

@@ -6,7 +6,7 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **05/11/2026 — P230** (routing is only the order; exit rules on the Unit).
+> Last updated: **05/11/2026 — P232** (the SOP rulings; `Produksi Walet (Real).md` is production's main document).
 >
 > **What follows describes what is on `main`.** The agreed target is in
 > `Produksi Walet (Real).md`; its build steps add the documents back.
@@ -89,3 +89,4 @@ plan's steps 1–13.
 | 05/11/2026 | P229 | The Reguler Workstations, Units and routings as a seed; clearer routing refusals. |
 | 05/11/2026 | P230 | A routing is only the order of Units; Keluar Lewat and No. Job saat Keluar move to the Unit. |
 | 05/11/2026 | P231 | The plan compared with the 45 field SOPs in `walet sop.md`; W41–W56 agreed, no change to what is built. |
+| 05/11/2026 | P232 | W57–W63 agreed: Dokumen Push, the list of moves, a new No. Stok per grading, a pack as a kotak's contents; no change to what is built. |
