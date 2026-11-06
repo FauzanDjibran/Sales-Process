@@ -44,6 +44,57 @@ function decimals(n: number): number {
   return dot < 0 ? 0 : s.length - dot - 1;
 }
 
+/** Biaya unit (V1), for a form's preview: the book writes it in exact decimals, rounded once. */
+export function unitCost(grams: number, rate: number): number {
+  return Math.round(Number((grams * rate).toFixed(6)));
+}
+
+export type GradingOutputShare = { grams: number; isBjl: boolean };
+
+/**
+ * What one No. Grading gives its outputs (V3, W32): the whole value over the
+ * non-BJL by gram, BJL always 0. With no receiver it is `scrap`, for Beban
+ * Pemusnahan Produksi.
+ */
+export function shareGrading(total: number, outputs: GradingOutputShare[]): { values: number[]; scrap: number } {
+  const weights = outputs.map((o) => (o.isBjl ? 0 : o.grams));
+  if (!weights.some((w) => w > 0)) return { values: outputs.map(() => 0), scrap: total };
+  return { values: shareByWeight(total, weights), scrap: 0 };
+}
+
+export type WorkLineShare = { key: string; grams: number; isBjl: boolean; input: number; cost: number };
+
+/**
+ * What one Pengerjaan Unit gives its lines (V2, W75): each non-BJL line keeps
+ * its input and its own cost, so without BJL a line takes exactly gram × rate.
+ * The cost of BJL lines goes over the others by gram. Bahan penolong goes into
+ * its Job, by gram; a Job of BJL alone passes it to the document, and with no
+ * receiver at all it is `scrap`.
+ */
+export function shareWork(lines: WorkLineShare[], aux: { key: string | null; value: number }[]): { values: number[]; auxValues: number[]; scrap: number } {
+  const receivers = lines.map((l) => (l.isBjl ? 0 : l.grams));
+  const aside = lines.reduce((a, l) => a + (l.isBjl ? l.cost : 0), 0);
+  const any = receivers.some((w) => w > 0);
+  const values = lines.map((l) => (l.isBjl ? l.input : l.input + l.cost));
+  const auxValues = lines.map(() => 0);
+  let scrap = 0;
+  if (any) shareByWeight(aside, receivers).forEach((v, i) => (values[i] += v));
+  else scrap += aside;
+  for (const a of aux) {
+    const own = lines.map((l, i) => (a.key == null || l.key === a.key ? receivers[i] : 0));
+    const weights = own.some((w) => w > 0) ? own : receivers;
+    if (!weights.some((w) => w > 0)) {
+      scrap += a.value;
+      continue;
+    }
+    shareByWeight(a.value, weights).forEach((v, i) => {
+      values[i] += v;
+      auxValues[i] += v;
+    });
+  }
+  return { values, auxValues, scrap };
+}
+
 /**
  * Shares a quantity over weights in proportion at six decimals, the last part
  * taking the rounding so the parts add up exactly — for genealogy links,

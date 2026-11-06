@@ -833,6 +833,36 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "a posted grading gives out what went in: input + unit cost + bahan penolong = outputs + beban (V3, W32)",
+    sql: `SELECT g.grading_no, g.input_value + g.cost_amount + g.aux_value AS masuk, COALESCE(o.v, 0) + g.scrap_amount AS keluar
+          FROM prd_grading g LEFT JOIN (SELECT grading_id, SUM(value) AS v FROM prd_grading_output GROUP BY grading_id) o ON o.grading_id = g.id
+          WHERE g.status = 'Posted' AND g.input_value + g.cost_amount + g.aux_value <> COALESCE(o.v, 0) + g.scrap_amount`,
+  },
+  {
+    area: "production",
+    name: "a posted Pengerjaan Unit gives out what went in, gram unchanged (V2, W19)",
+    sql: `SELECT w.work_no, SUM(l.input_value) + w.cost_amount + w.aux_value AS masuk, SUM(l.value) + w.scrap_amount AS keluar
+          FROM prd_work w JOIN prd_work_line l ON l.work_id = w.id
+          WHERE w.status = 'Posted' GROUP BY w.id
+          HAVING SUM(l.input_value) + w.cost_amount + w.aux_value <> SUM(l.value) + w.scrap_amount`,
+  },
+  {
+    area: "production",
+    name: "the unit cost of each execution equals its cost entries (V1)",
+    sql: `WITH d AS (SELECT ${docType("prd_grading")} AS t, id, grading_no AS no, cost_amount FROM prd_grading WHERE status = 'Posted'
+                     UNION ALL SELECT ${docType("prd_work")}, id, work_no, cost_amount FROM prd_work WHERE status = 'Posted')
+          SELECT d.no, d.cost_amount, COALESCE(SUM(e.amount), 0) AS entries
+          FROM d LEFT JOIN prd_cost_entry e ON e.source_doc_type_id = d.t AND e.source_doc_id = d.id
+          GROUP BY d.no, d.cost_amount HAVING d.cost_amount <> COALESCE(SUM(e.amount), 0)`,
+  },
+  {
+    area: "production",
+    name: "a Balik QC row sits in Persiapan and names a posted QC Check (W66)",
+    sql: `SELECT b.id FROM prd_balance b LEFT JOIN prd_qc_check q ON q.id = b.qc_check_id AND q.status = 'Posted'
+          WHERE b.qc_check_id IS NOT NULL AND (b.stage <> 'Preparation' OR q.id IS NULL)`,
+  },
+  {
+    area: "production",
     name: "each production ledger row names its bucket's identity: No. Stok, Unit, stage, Partai, Job (P227)",
     sql: `SELECT l.ledger_no, l.line_no FROM prd_ledger l JOIN prd_balance b ON b.id = l.bucket_id
           WHERE l.tracking_id <> b.tracking_id OR l.unit_id <> b.unit_id OR l.stage <> b.stage

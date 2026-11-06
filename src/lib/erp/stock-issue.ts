@@ -598,6 +598,7 @@ export async function transitionStockIssue(
             unitId: r.c.data.unit_id!,
             baseQty,
             value: out.cost,
+            auxiliary: issue.purpose === "auxiliary_issue",
             date,
             source,
             actorId,

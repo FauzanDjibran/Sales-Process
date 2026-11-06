@@ -613,6 +613,7 @@ model MItem {
   prd_balances           PrdBalance[]              @relation("PrdBalanceItem")
   stock_issue_lines      LogStockIssueLine[]
   prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
+  grading_outputs PrdGradingOutput[]
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -865,6 +866,9 @@ model RefUnit {
 
   workstation   RefWorkstation?      @relation(fields: [workstation_id], references: [id])
   prd_balances  PrdBalance[]         @relation("PrdBalanceUnit")
+  gradings      PrdGrading[]
+  works         PrdWork[]
+  qc_checks     PrdQcCheck[]
   stock_issues  LogStockIssue[]
   prd_ledger    PrdLedger[]          @relation("PrdLedgerUnit")
   routing_steps PrdRoutingStep[]
@@ -1091,6 +1095,8 @@ model PrdCostEntry {
   rate               Decimal  @db.Decimal(18, 6)
   /// Whole rupiah.
   amount             Decimal  @db.Decimal(18, 2)
+  /// Goods QC turned back, worked again: the cost charged a second time (W66).
+  is_rework          Boolean  @default(false)
   created_by         Int
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
@@ -1118,6 +1124,8 @@ model MEmployee {
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  work_lines PrdWorkLine[]
 
   @@map("m_employee")
 }
@@ -4027,10 +4035,12 @@ enum ProductionCostBillStatus {
   Cancelled
 }
 
-/// Each Unit holds goods in two stages: Persiapan (received, not worked) and
-/// Stand By (worked, waiting to be sent); only Eksekusi Produksi moves them (W29).
+/// Each Unit holds goods in Persiapan (received, not worked), then QC Check where
+/// the Unit has one (W65), then Stand By (waiting to be sent). Only an execution
+/// takes goods out of Persiapan (W29).
 enum PrdStage {
   Preparation
+  QcCheck
   StandBy
 }
 
@@ -4049,6 +4059,10 @@ model PrdBalance {
   uom_id        Int
   qty_balance   Decimal  @default(0) @db.Decimal(18, 6)
   value_balance Decimal  @default(0) @db.Decimal(18, 2)
+  /// Bahan penolong: a balance of the Unit, not goods being worked (V8).
+  auxiliary     Boolean  @default(false)
+  /// The QC Check that turned these goods back: their own row in Persiapan (W66).
+  qc_check_id   Int?
 
   created_by Int
   updated_by Int?
@@ -4065,7 +4079,7 @@ model PrdBalance {
   links_from PrdTrackingLink[]
 
   /// NULLS NOT DISTINCT, hand-written in the migration.
-  @@unique([tracking_id, unit_id, stage, partai_id, job_id])
+  @@unique([tracking_id, unit_id, stage, partai_id, job_id, qc_check_id])
   @@index([unit_id])
   @@index([item_id])
   @@index([partai_id])
@@ -4136,6 +4150,201 @@ model PrdTrackingLink {
   @@index([from_tracking_id])
   @@index([to_tracking_id])
   @@map("prd_tracking_link")
+}
+
+/// The lifecycle of the execution documents: Draft → Posted, or Cancelled.
+enum PrdDocStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+/// Dokumen Grading (W25): one pick from one bucket in Persiapan becomes new No.
+/// Stok. A bucket is the book's, named by id (§3.1). The figures are Posting's.
+model PrdGrading {
+  id            Int          @id @default(autoincrement())
+  /// `NG_<unit>_<ddmmyy>_<NNNNN>` (W11).
+  grading_no    String       @unique
+  grading_date  DateTime     @db.Date
+  unit_id       Int
+  status        PrdDocStatus @default(Draft)
+  bucket_id     Int
+  qty           Decimal      @db.Decimal(18, 6)
+  /// Gram of the input, at Posting.
+  grams         Decimal      @default(0) @db.Decimal(18, 6)
+  rate          Decimal      @default(0) @db.Decimal(18, 6)
+  input_value   Decimal      @default(0) @db.Decimal(18, 2)
+  cost_amount   Decimal      @default(0) @db.Decimal(18, 2)
+  aux_value     Decimal      @default(0) @db.Decimal(18, 2)
+  /// Value with no receiver, every output being BJL (W32).
+  scrap_amount  Decimal      @default(0) @db.Decimal(18, 2)
+  journal_id    Int?
+  note          String?
+  status_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  unit    RefUnit            @relation(fields: [unit_id], references: [id])
+  outputs PrdGradingOutput[]
+  aux     PrdAuxUse[]
+
+  @@index([unit_id])
+  @@index([bucket_id])
+  @@map("prd_grading")
+}
+
+model PrdGradingOutput {
+  id           Int     @id @default(autoincrement())
+  grading_id   Int
+  line_no      Int
+  item_id      Int
+  /// In the item's base unit; gram for an item held in GR.
+  qty          Decimal @db.Decimal(18, 6)
+  grams        Decimal @db.Decimal(18, 6)
+  /// Copied at Posting (W32).
+  is_bjl       Boolean @default(false)
+  tracking_id  Int?
+  tracking_no  String?
+  value        Decimal @default(0) @db.Decimal(18, 2)
+  to_bucket_id Int?
+
+  grading PrdGrading @relation(fields: [grading_id], references: [id], onDelete: Cascade)
+  item    MItem      @relation(fields: [item_id], references: [id])
+
+  @@unique([grading_id, line_no])
+  @@index([item_id])
+  @@map("prd_grading_output")
+}
+
+/// Pengerjaan Unit (W74): No. Job picked from Persiapan at a Pass Through Unit.
+/// Goods and gram stay; only value is added.
+model PrdWork {
+  id            Int          @id @default(autoincrement())
+  /// `KRJ_<unit>_<ddmmyy>_<NNNNN>` (W11).
+  work_no       String       @unique
+  work_date     DateTime     @db.Date
+  unit_id       Int
+  status        PrdDocStatus @default(Draft)
+  /// Pre Cleaning's note, read at Penyebaran (W42).
+  result_note   String?
+  rate          Decimal      @default(0) @db.Decimal(18, 6)
+  cost_amount   Decimal      @default(0) @db.Decimal(18, 2)
+  aux_value     Decimal      @default(0) @db.Decimal(18, 2)
+  scrap_amount  Decimal      @default(0) @db.Decimal(18, 2)
+  journal_id    Int?
+  note          String?
+  status_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  unit  RefUnit       @relation(fields: [unit_id], references: [id])
+  lines PrdWorkLine[]
+  aux   PrdAuxUse[]
+
+  @@index([unit_id])
+  @@map("prd_work")
+}
+
+model PrdWorkLine {
+  id           Int     @id @default(autoincrement())
+  work_id      Int
+  line_no      Int
+  bucket_id    Int
+  /// The bucket's No. Job, kept so Penyebaran finds the note (W42).
+  job_id       Int?
+  /// One per No. Job (W74); a record of the work, not of the Job (W26).
+  employee_id  Int
+  qty          Decimal @db.Decimal(18, 6)
+  grams        Decimal @default(0) @db.Decimal(18, 6)
+  input_value  Decimal @default(0) @db.Decimal(18, 2)
+  cost_amount  Decimal @default(0) @db.Decimal(18, 2)
+  aux_value    Decimal @default(0) @db.Decimal(18, 2)
+  value        Decimal @default(0) @db.Decimal(18, 2)
+  to_bucket_id Int?
+
+  work     PrdWork   @relation(fields: [work_id], references: [id], onDelete: Cascade)
+  employee MEmployee @relation(fields: [employee_id], references: [id])
+
+  @@unique([work_id, line_no])
+  @@index([bucket_id])
+  @@index([job_id])
+  @@index([employee_id])
+  @@map("prd_work_line")
+}
+
+/// Bahan penolong used in an execution (W75): it adds value, not gram (W19).
+model PrdAuxUse {
+  id         Int     @id @default(autoincrement())
+  grading_id Int?
+  work_id    Int?
+  line_no    Int
+  bucket_id  Int
+  /// On a Pengerjaan Unit, the No. Job it went into.
+  job_id     Int?
+  qty        Decimal @db.Decimal(18, 6)
+  value      Decimal @default(0) @db.Decimal(18, 2)
+
+  grading PrdGrading? @relation(fields: [grading_id], references: [id], onDelete: Cascade)
+  work    PrdWork?    @relation(fields: [work_id], references: [id], onDelete: Cascade)
+
+  @@index([grading_id])
+  @@index([work_id])
+  @@map("prd_aux_use")
+}
+
+enum PrdQcDecision {
+  Pass
+  Return
+}
+
+/// QC Check (W65): one document, one partai (W76); each row decided whole.
+model PrdQcCheck {
+  id            Int          @id @default(autoincrement())
+  /// `QCK_<unit>_<ddmmyy>_<NNNNN>` (W11).
+  qc_no         String       @unique
+  qc_date       DateTime     @db.Date
+  unit_id       Int
+  status        PrdDocStatus @default(Draft)
+  inspector     String?
+  note          String?
+  status_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  unit  RefUnit          @relation(fields: [unit_id], references: [id])
+  lines PrdQcCheckLine[]
+
+  @@index([unit_id])
+  @@map("prd_qc_check")
+}
+
+model PrdQcCheckLine {
+  id           Int            @id @default(autoincrement())
+  qc_check_id  Int
+  line_no      Int
+  bucket_id    Int
+  /// The whole row as it stood; a change in it refuses Posting (W87).
+  qty          Decimal        @db.Decimal(18, 6)
+  value        Decimal        @default(0) @db.Decimal(18, 2)
+  /// Empty on a Draft until QC decides.
+  decision     PrdQcDecision?
+  reason       String?
+  to_bucket_id Int?
+
+  qc_check PrdQcCheck @relation(fields: [qc_check_id], references: [id], onDelete: Cascade)
+
+  @@unique([qc_check_id, line_no])
+  @@index([bucket_id])
+  @@map("prd_qc_check_line")
 }
 
 enum PrdMovement {

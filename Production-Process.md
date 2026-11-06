@@ -6,7 +6,7 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **06/11/2026 — P240** (one No. Job rule for every move; a Unit only marks where it is released).
+> Last updated: **06/11/2026 — P241** (Dokumen Grading, Pengerjaan Unit and QC Check).
 >
 > **What follows describes what is on `main`.** The agreed target is in
 > `Produksi Walet (Real).md`; its build steps add the documents back.
@@ -90,6 +90,7 @@ plan's steps 1–13.
 | 05/11/2026 | P230 | A routing is only the order of Units; Keluar Lewat and No. Job saat Keluar move to the Unit. |
 | 05/11/2026 | P231 | The plan compared with the 45 field SOPs in `walet sop.md`; W41–W56 agreed, no change to what is built. |
 | 05/11/2026 | P232 | W57–W63 agreed: Dokumen Push, the list of moves, a new No. Stok per grading, a pack as a kotak's contents; no change to what is built. |
+| 06/11/2026 | P241 | Dokumen Grading, Pengerjaan Unit and QC Check built; goods wait in Stand By until Dokumen Push and BSTB Transfer arrive. |
 | 06/11/2026 | P240 | One No. Job rule: a move carries the No. Job or makes one; the Unit keeps only Lepas No. Job and Terbitkan Job Order. No document uses them yet. |
 | 06/11/2026 | P239 | Masters of the plan up to Barcoding: one Tipe per Unit, QC Check on the Unit, Keluar Lewat worked out, 14 Units and REG-1 up to UP5. No document uses them yet. |
 | 05/11/2026 | P236 | W64–W76 agreed from the simulation: Push inside a Workstation and BSTB across, QC Check in the unit, Moulding split in two without Mix, CCP-1 and Sortir as units, the checkpoint only at Barcoding, one process per Unit; no change to what is built. |

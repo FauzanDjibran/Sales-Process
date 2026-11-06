@@ -146,6 +146,9 @@ const DOC_TYPES: [label: string, table: string][] = [
   // Production (P200): the journals, the stock and production ledgers and the payment name them.
   ["Tagihan Biaya", "prd_cost_bill"],
   ["BSTB Issue", "log_stock_issue"],
+  ["Dokumen Grading", "prd_grading"],
+  ["Pengerjaan Unit", "prd_work"],
+  ["QC Check", "prd_qc_check"],
 ];
 
 /**

@@ -3,7 +3,7 @@
 > **Dokumen informasi utama produksi ERP.** Setiap keputusan dan perubahan produksi diperbarui di sini dalam commit yang sama (W63). Disusun 04/11/2026 dari tiga sumber dan seluruh jawaban user, sehingga
 > tidak ada pertanyaan yang harus dijawab sebelum build. Yang sengaja ditunda ada di bagian 15.
 >
-> **Status:** langkah D dan 1–3 sudah dibangun (P218, P225–P230), dan penyesuaian master langkah 4 selesai (P239); dokumen langkah 4 berikutnya. Konsep Grading Halus sampai Barcoding diperbarui oleh W64–W80 dan belum dibangun; bagian 12 mencatat yang harus berubah. Dokumen ini menggantikan keputusan produksi
+> **Status:** langkah D dan 1–3 sudah dibangun (P218, P225–P230), penyesuaian master langkah 4 selesai (P239), dan Dokumen Grading, Pengerjaan Unit serta QC Check dibangun (P241); perpindahan antar unit berikutnya. Konsep Grading Halus sampai Barcoding diperbarui oleh W64–W80 dan belum dibangun; bagian 12 mencatat yang harus berubah. Dokumen ini menggantikan keputusan produksi
 > `Production-Plan.md` sebatas yang tercantum di bagian 12.
 >
 > **Putaran kedua, 04/11/2026:** W25–W32 (grading per No. Stok, karyawan di pengerjaan unit, checkpoint partai,
@@ -202,6 +202,9 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | W90 | **Checklist Closing juga menolak Dokumen Grading, Pengerjaan Unit, QC Check, Dokumen Reproses, dan BSTB Pengeluaran yang belum selesai**, selain BSTB dan Dokumen Push. Berlaku juga untuk hasil proses yang masih menunggu QC Check | User |
 | W91 | **"Boleh dilewati" pada routing tersimpan tetapi belum berpengaruh**; tidak ada langkah Reguler yang memakainya, dan akibatnya dibahas bila kelak dibutuhkan | User |
 | W92 | **Aturan No. Job berlaku sama di setiap perpindahan antar unit** (P240). Saat Dokumen Push atau BSTB Transfer, termasuk BSTB Penyebaran: bila barang punya No. Job, No. Job itu diteruskan; bila tidak punya, dibuat baru per pengambilan (W31). Karena itu Unit tidak lagi menyimpan "No. Job saat keluar", cukup tanda **Lepas No. Job**, hanya untuk Tipe Grading dan berlaku saat grading di unit itu: UPY, UMG, UDB. UGH tidak perlu ditandai karena belum ada Job. **Job Order bukan bagian aturan ini:** tanda sendiri **Terbitkan Job Order** di Unit (UMG), dan tiap No. Job yang keluar tetap mendapat Job Order sendiri (W69). Dengan aturan ini barang Reproses yang belum punya No. Job otomatis mendapatkannya di perpindahan berikutnya. **Di luar aturan:** BSTB Issue (No. Job pertama baru lahir keluar Grading Halus, W38), BSTB Pengeluaran, dan keluar Unit Assembly (No. Job berakhir di komposisi; ditinjau bersama Packing, O-12). **Menggantikan kebijakan No. Job di W33 dan W40.** | User |
+| W93 | **Gram dibaca dari satuan dasar Item** (P241). Item bersatuan GR: qty adalah gramnya. Item bersatuan lain: 1 No. Stok = 1 keping (W16) dan gramnya disimpan di `prd_tracking_info`. Output grading cukup mengisi gram | Disetujui |
+| W94 | **Baris QC Check adalah satu bucket** (P241). Dua Pengerjaan Unit atas No. Stok dan Job yang sama, yang menunggu QC bersamaan, diputuskan sebagai satu baris. Dipecah per eksekusi bila kelak QC perlu memutuskannya terpisah | Disetujui |
+| W95 | **Catatan Hasil tampil di unit Pass Through sebelum partai**, tidak menyebut Pre Cleaning di kode, dan dibaca Dokumen Grading dari No. Job yang sama (W42). Bahan penolong ditandai pada bucket-nya, bukan dibaca dari tujuan BSTB Issue | Disetujui |
 
 ---
 

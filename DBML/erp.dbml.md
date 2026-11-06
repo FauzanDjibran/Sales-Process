@@ -601,6 +601,7 @@ table prd_cost_entry {
   grams                       decimal(18,6) [not null]
   rate                        decimal(18,6) [not null]
   amount                      decimal(18,2) [not null]
+  is_rework                   boolean [not null, default: false] // W66
 
   created_by                  int [not null]
   created_at                  timestamptz [not null, default: `now()`]
@@ -2828,12 +2829,124 @@ table prd_cost_bill_line {
 
 // A production bucket (P227): one No. Stok · Unit · stage · Partai · Job, the last two optional; Σ value_balance is WIP.
 // Written only by production-ledger.ts, beside its ledger row
+// The documents of work at a Unit (P241). A bucket is the book's, named by id (§3.1).
+table prd_grading {
+  id                          int [pk, increment]
+  grading_no                  text [unique, not null] // NG_<unit>_<ddmmyy>_<NNNNN>
+  grading_date                date [not null]
+  unit_id                     int [not null, ref: > ref_unit.id]
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  bucket_id                   int [not null]
+  qty                         decimal(18,6) [not null]
+  grams                       decimal(18,6) [not null, default: 0]
+  rate                        decimal(18,6) [not null, default: 0]
+  input_value                 decimal(18,2) [not null, default: 0]
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  aux_value                   decimal(18,2) [not null, default: 0]
+  scrap_amount                decimal(18,2) [not null, default: 0]
+  journal_id                  int
+  note                        text
+  status_reason               text
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null]
+  updated_at                  timestamptz [not null]
+}
+
+table prd_grading_output {
+  id                          int [pk, increment]
+  grading_id                  int [not null, ref: > prd_grading.id]
+  line_no                     int [not null]
+  item_id                     int [not null, ref: > m_item.id]
+  qty                         decimal(18,6) [not null]
+  grams                       decimal(18,6) [not null]
+  is_bjl                      boolean [not null, default: false]
+  tracking_id                 int
+  tracking_no                 text
+  value                       decimal(18,2) [not null, default: 0]
+  to_bucket_id                int
+}
+
+table prd_work {
+  id                          int [pk, increment]
+  work_no                     text [unique, not null] // KRJ_<unit>_<ddmmyy>_<NNNNN>
+  work_date                   date [not null]
+  unit_id                     int [not null, ref: > ref_unit.id]
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  result_note                 text // read at Penyebaran (W42)
+  rate                        decimal(18,6) [not null, default: 0]
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  aux_value                   decimal(18,2) [not null, default: 0]
+  scrap_amount                decimal(18,2) [not null, default: 0]
+  journal_id                  int
+  note                        text
+  status_reason               text
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null]
+  updated_at                  timestamptz [not null]
+}
+
+table prd_work_line {
+  id                          int [pk, increment]
+  work_id                     int [not null, ref: > prd_work.id]
+  line_no                     int [not null]
+  bucket_id                   int [not null]
+  job_id                      int
+  employee_id                 int [not null, ref: > m_employee.id]
+  qty                         decimal(18,6) [not null]
+  grams                       decimal(18,6) [not null, default: 0]
+  input_value                 decimal(18,2) [not null, default: 0]
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  aux_value                   decimal(18,2) [not null, default: 0]
+  value                       decimal(18,2) [not null, default: 0]
+  to_bucket_id                int
+}
+
+table prd_aux_use {
+  id                          int [pk, increment]
+  grading_id                  int [ref: > prd_grading.id] // exactly one of the two
+  work_id                     int [ref: > prd_work.id]
+  line_no                     int [not null]
+  bucket_id                   int [not null]
+  job_id                      int
+  qty                         decimal(18,6) [not null]
+  value                       decimal(18,2) [not null, default: 0]
+}
+
+table prd_qc_check {
+  id                          int [pk, increment]
+  qc_no                       text [unique, not null] // QCK_<unit>_<ddmmyy>_<NNNNN>
+  qc_date                     date [not null]
+  unit_id                     int [not null, ref: > ref_unit.id]
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  inspector                   text
+  note                        text
+  status_reason               text
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null]
+  updated_at                  timestamptz [not null]
+}
+
+table prd_qc_check_line {
+  id                          int [pk, increment]
+  qc_check_id                 int [not null, ref: > prd_qc_check.id]
+  line_no                     int [not null]
+  bucket_id                   int [not null]
+  qty                         decimal(18,6) [not null]
+  value                       decimal(18,2) [not null, default: 0]
+  decision                    enum('Pass', 'Return')
+  reason                      text
+  to_bucket_id                int
+}
+
 table prd_balance {
   id                          int [pk, increment, not null]
 
   tracking_id                      int [not null, ref : > log_stock_tracking.id] // the one lot register (P120)
   unit_id              int [not null, ref : > ref_unit.id]
-  stage                       enum('Preparation', 'StandBy') [not null, default: 'Preparation'] // Persiapan, Stand By (W29)
+  stage                       enum('Preparation', 'QcCheck', 'StandBy') [not null, default: 'Preparation'] // Persiapan, Stand By (W29)
   partai_id                   int [ref : > prd_partai.id]
   job_id                      int [ref : > prd_job.id]
   item_id                     int [not null, ref : > m_item.id]
@@ -2841,6 +2954,8 @@ table prd_balance {
 
   qty_balance                 decimal(18,6) [not null, default: 0]
   value_balance               decimal(18,2) [not null, default: 0] // CHECK ≥ 0; 0 when the bucket is empty
+  auxiliary                   boolean [not null, default: false] // bahan penolong (V8)
+  qc_check_id                 int // the QC Check that turned it back (W66)
 
   created_by                  int [not null]
   updated_by                  int
@@ -2869,7 +2984,7 @@ table prd_ledger {
   bucket_id                   int [not null, ref : > prd_balance.id]
   tracking_id                      int [not null, ref : > log_stock_tracking.id]
   unit_id              int [not null, ref : > ref_unit.id]
-  stage                       enum('Preparation', 'StandBy') [not null]
+  stage                       enum('Preparation', 'QcCheck', 'StandBy') [not null]
   partai_id                   int [ref : > prd_partai.id]
   job_id                      int [ref : > prd_job.id]
   item_id                     int [not null, ref : > m_item.id]

@@ -20,6 +20,10 @@ import { costedPeriodRefusal } from "./period-lock";
  * - **Taking** q from a bucket releases round(V × q ÷ Q), or V whole when q
  *   empties it, so a bucket always ends at 0 / 0 (as P114's pools).
  * - **Advancing** moves goods from Persiapan to Stand By at the same Unit.
+ * - **Consuming** takes an execution's input out of Persiapan, and **producing**
+ *   places its result in QC Check or Stand By (W65).
+ * - **Deciding** moves a whole QC Check row to Stand By, or back to Persiapan
+ *   as a row of its own that says which QC Check turned it back (W66).
  * - **Transferring** sends Stand By goods to another Unit's Persiapan, at the
  *   value released (R7).
  *
@@ -34,6 +38,9 @@ import { costedPeriodRefusal } from "./period-lock";
  * never the reverse (§3.1). It writes no journal — the document posts WIP
  * beside it.
  */
+
+/** The unit a bulk item is held in, so its quantity is its gram (W19). */
+const GRAM_UOM = "GR";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 type Tx = Prisma.TransactionClient;
@@ -73,15 +80,27 @@ async function activeUnit(tx: Tx, id: number) {
 
 // ------------------------------------------------------------- locking
 
-type Stage = "Preparation" | "StandBy";
-type Bucket = { id: number; lotId: number; unitId: number; stage: Stage; partaiId: number | null; jobId: number | null; itemId: number; qty: Dec; value: Dec };
-type BucketKey = { lotId: number; unitId: number; stage: Stage; partaiId: number | null; jobId: number | null; itemId: number; uomId: number };
+type Stage = "Preparation" | "QcCheck" | "StandBy";
+type Bucket = {
+  id: number;
+  lotId: number;
+  unitId: number;
+  stage: Stage;
+  partaiId: number | null;
+  jobId: number | null;
+  qcCheckId: number | null;
+  auxiliary: boolean;
+  itemId: number;
+  qty: Dec;
+  value: Dec;
+};
+type BucketKey = { lotId: number; unitId: number; stage: Stage; partaiId: number | null; jobId: number | null; qcCheckId?: number | null; auxiliary?: boolean; itemId: number; uomId: number };
 
 async function lockBucketById(tx: Tx, id: number): Promise<Bucket | null> {
   const [row] = await tx.$queryRaw<
-    { id: number; tracking_id: number; unit_id: number; stage: Stage; partai_id: number | null; job_id: number | null; item_id: number; qty_balance: Dec; value_balance: Dec }[]
+    { id: number; tracking_id: number; unit_id: number; stage: Stage; partai_id: number | null; job_id: number | null; qc_check_id: number | null; auxiliary: boolean; item_id: number; qty_balance: Dec; value_balance: Dec }[]
   >`
-    SELECT "id", "tracking_id", "unit_id", "stage"::text AS "stage", "partai_id", "job_id", "item_id", "qty_balance", "value_balance"
+    SELECT "id", "tracking_id", "unit_id", "stage"::text AS "stage", "partai_id", "job_id", "qc_check_id", "auxiliary", "item_id", "qty_balance", "value_balance"
       FROM "prd_balance" WHERE "id" = ${id} FOR UPDATE`;
   return row
     ? {
@@ -91,6 +110,8 @@ async function lockBucketById(tx: Tx, id: number): Promise<Bucket | null> {
         stage: row.stage,
         partaiId: row.partai_id,
         jobId: row.job_id,
+        qcCheckId: row.qc_check_id,
+        auxiliary: row.auxiliary,
         itemId: row.item_id,
         qty: new D(row.qty_balance),
         value: new D(row.value_balance),
@@ -100,14 +121,16 @@ async function lockBucketById(tx: Tx, id: number): Promise<Bucket | null> {
 
 /** The bucket of this identity, created empty if missing, and locked. */
 async function openBucket(tx: Tx, k: BucketKey, actorId: number): Promise<Bucket> {
+  const qcCheckId = k.qcCheckId ?? null;
   await tx.$executeRaw`
-    INSERT INTO "prd_balance" ("tracking_id", "unit_id", "stage", "partai_id", "job_id", "item_id", "uom_id", "qty_balance", "value_balance", "created_by", "updated_at")
-    VALUES (${k.lotId}, ${k.unitId}, ${k.stage}::"PrdStage", ${k.partaiId}::int, ${k.jobId}::int, ${k.itemId}, ${k.uomId}, 0, 0, ${actorId}, now())
-    ON CONFLICT ("tracking_id", "unit_id", "stage", "partai_id", "job_id") DO NOTHING`;
+    INSERT INTO "prd_balance" ("tracking_id", "unit_id", "stage", "partai_id", "job_id", "qc_check_id", "auxiliary", "item_id", "uom_id", "qty_balance", "value_balance", "created_by", "updated_at")
+    VALUES (${k.lotId}, ${k.unitId}, ${k.stage}::"PrdStage", ${k.partaiId}::int, ${k.jobId}::int, ${qcCheckId}::int, ${k.auxiliary ?? false}, ${k.itemId}, ${k.uomId}, 0, 0, ${actorId}, now())
+    ON CONFLICT ("tracking_id", "unit_id", "stage", "partai_id", "job_id", "qc_check_id") DO NOTHING`;
   const [row] = await tx.$queryRaw<{ id: number }[]>`
     SELECT "id" FROM "prd_balance"
      WHERE "tracking_id" = ${k.lotId} AND "unit_id" = ${k.unitId} AND "stage" = ${k.stage}::"PrdStage"
-       AND "partai_id" IS NOT DISTINCT FROM ${k.partaiId}::int AND "job_id" IS NOT DISTINCT FROM ${k.jobId}::int`;
+       AND "partai_id" IS NOT DISTINCT FROM ${k.partaiId}::int AND "job_id" IS NOT DISTINCT FROM ${k.jobId}::int
+       AND "qc_check_id" IS NOT DISTINCT FROM ${qcCheckId}::int`;
   return (await lockBucketById(tx, row.id))!;
 }
 
@@ -200,6 +223,8 @@ export type ProductionEntry = {
   baseQty: number | string | Dec;
   /** Whole rupiah — what the stock issue released. */
   value: number | string | Dec;
+  /** Bahan penolong: a balance of the Unit, never goods being worked (V8). */
+  auxiliary?: boolean;
   date: Date;
   source: ProductionSource;
   actorId: number;
@@ -216,7 +241,14 @@ export async function enterProduction(tx: Tx, e: ProductionEntry): Promise<{ buc
   await activeUnit(tx, e.unitId);
   const lot = await tx.logStockTracking.findFirst({ where: { id: e.lotId, item_id: e.itemId }, select: { id: true } });
   if (!lot) throw new ProductionRefusal(`Lot ${item.item_label} tidak ditemukan.`);
-  const bucket = await openBucket(tx, { lotId: lot.id, unitId: e.unitId, stage: "Preparation", partaiId: null, jobId: null, itemId: e.itemId, uomId: item.base_uom_id }, e.actorId);
+  const bucket = await openBucket(
+    tx,
+    { lotId: lot.id, unitId: e.unitId, stage: "Preparation", partaiId: null, jobId: null, auxiliary: e.auxiliary, itemId: e.itemId, uomId: item.base_uom_id },
+    e.actorId
+  );
+  if (bucket.auxiliary !== Boolean(e.auxiliary)) {
+    throw new ProductionRefusal(`${item.item_label} sudah ada di unit ini dengan tujuan pemakaian yang lain.`);
+  }
   await write(tx, bucket, { movement: "Issued", qty, value, date: e.date, source: e.source, actorId: e.actorId });
   return { bucketId: bucket.id };
 }
@@ -268,6 +300,140 @@ export async function advanceToStandBy(tx: Tx, t: ProductionTake): Promise<{ val
   const value = await takeLocked(tx, from, new D(t.baseQty), "Consumed", t.date, t.source, t.actorId);
   await write(tx, to, { movement: "Produced", qty: new D(t.baseQty), value, date: t.date, source: t.source, actorId: t.actorId });
   return { value: value.toNumber(), toBucketId: to.id };
+}
+
+export type TakenInput = { value: number; lotId: number; itemId: number; unitId: number; partaiId: number | null; jobId: number | null; qcCheckId: number | null; expiry: Date | null };
+
+/** Takes an execution's input out of Persiapan (W30), or bahan penolong out of the Unit's balance. */
+export async function consumeBucket(tx: Tx, t: ProductionTake): Promise<TakenInput> {
+  const b = await lockBucketById(tx, t.bucketId);
+  if (!b) throw new ProductionRefusal("Saldo produksi tidak ditemukan. Pilih ulang.");
+  if (b.stage !== "Preparation") throw new ProductionRefusal("Hanya barang di Persiapan yang dapat dikerjakan.");
+  const value = await takeLocked(tx, b, new D(t.baseQty), "Consumed", t.date, t.source, t.actorId);
+  const lot = await tx.logStockTracking.findUniqueOrThrow({ where: { id: b.lotId }, select: { expiry_date: true } });
+  return { value: value.toNumber(), lotId: b.lotId, itemId: b.itemId, unitId: b.unitId, partaiId: b.partaiId, jobId: b.jobId, qcCheckId: b.qcCheckId, expiry: lot.expiry_date };
+}
+
+/** Places an execution's result at its Unit: QC Check, or Stand By where the Unit has none (W65). */
+export async function produceIntoBucket(
+  tx: Tx,
+  p: { lotId: number; itemId: number; unitId: number; stage: "QcCheck" | "StandBy"; partaiId: number | null; jobId: number | null; baseQty: number | string | Dec; value: number; date: Date; source: ProductionSource; actorId: number }
+): Promise<{ bucketId: number }> {
+  const item = await productionItem(tx, p.itemId);
+  const bucket = await openBucket(tx, { lotId: p.lotId, unitId: p.unitId, stage: p.stage, partaiId: p.partaiId, jobId: p.jobId, itemId: p.itemId, uomId: item.base_uom_id }, p.actorId);
+  await write(tx, bucket, { movement: "Produced", qty: new D(p.baseQty), value: new D(p.value), date: p.date, source: p.source, actorId: p.actorId });
+  return { bucketId: bucket.id };
+}
+
+/**
+ * QC's decision on one whole row (W65, W87): Lulus to Stand By, Balik to
+ * Persiapan as a row of its own naming the QC Check (W66). The row must still be
+ * exactly what the document holds.
+ */
+export async function decideQcBucket(
+  tx: Tx,
+  d: { bucketId: number; baseQty: number | string | Dec; decision: "Pass" | "Return"; qcCheckId: number; date: Date; source: ProductionSource; actorId: number }
+): Promise<{ value: number; toBucketId: number }> {
+  const from = await lockBucketById(tx, d.bucketId);
+  if (!from) throw new ProductionRefusal("Saldo produksi tidak ditemukan. Pilih ulang.");
+  const qty = new D(d.baseQty);
+  if (from.stage !== "QcCheck" || !from.qty.eq(qty)) throw new ProductionRefusal("Baris ini sudah berubah sejak dokumen dibuat. Buat QC Check baru.");
+  const item = await productionItem(tx, from.itemId);
+  const to = await openBucket(
+    tx,
+    {
+      lotId: from.lotId,
+      unitId: from.unitId,
+      stage: d.decision === "Pass" ? "StandBy" : "Preparation",
+      partaiId: from.partaiId,
+      jobId: from.jobId,
+      qcCheckId: d.decision === "Pass" ? null : d.qcCheckId,
+      itemId: from.itemId,
+      uomId: item.base_uom_id,
+    },
+    d.actorId
+  );
+  const value = await takeLocked(tx, from, qty, "Consumed", d.date, d.source, d.actorId);
+  await write(tx, to, { movement: "Produced", qty, value, date: d.date, source: d.source, actorId: d.actorId });
+  return { value: value.toNumber(), toBucketId: to.id };
+}
+
+/**
+ * Registers a grading output: every one is a new No. Stok `<induk>-<n>`, its n
+ * running on across pickups of the same parent (W60), keeping the parent's
+ * expiry and made by the document that graded it.
+ */
+export async function registerDerivedStock(
+  tx: Tx,
+  r: { parentLotId: number; itemId: number; date: Date; source: ProductionSource; actorId: number }
+): Promise<{ id: number; no: string }> {
+  await productionItem(tx, r.itemId);
+  const parent = await tx.logStockTracking.findUniqueOrThrow({ where: { id: r.parentLotId }, select: { tracking_no: true, expiry_date: true } });
+  const stem = `${parent.tracking_no}-`;
+  await lockSeries(tx, stem);
+  const siblings = await tx.logStockTracking.findMany({ where: { tracking_no: { startsWith: stem } }, select: { tracking_no: true } });
+  const n = siblings.reduce((max, s) => {
+    const rest = s.tracking_no.slice(stem.length);
+    return /^\d+$/.test(rest) ? Math.max(max, Number(rest)) : max;
+  }, 0);
+  const no = `${stem}${n + 1}`;
+  const row = await tx.logStockTracking.create({
+    data: {
+      tracking_no: no,
+      tracking_date: r.date,
+      item_id: r.itemId,
+      source_doc_type_id: r.source.docTypeId,
+      source_doc_id: r.source.docId,
+      source_no: r.source.no,
+      expiry_date: parent.expiry_date,
+      created_by: r.actorId,
+    },
+  });
+  return { id: row.id, no };
+}
+
+/** Genealogy: what one input gave one output (read by Kartu Lot and Telusur). */
+export async function linkTracking(
+  tx: Tx,
+  l: { fromBucketId: number; fromLotId: number; toLotId: number; qty: number | string | Dec; value: number; source: ProductionSource }
+): Promise<void> {
+  await tx.prdTrackingLink.create({
+    data: {
+      source_doc_type_id: l.source.docTypeId,
+      source_doc_id: l.source.docId,
+      source_no: l.source.no,
+      from_bucket_id: l.fromBucketId,
+      from_tracking_id: l.fromLotId,
+      to_tracking_id: l.toLotId,
+      qty: new D(l.qty),
+      value: l.value,
+    },
+  });
+}
+
+/**
+ * The gram of a quantity (W19): for an item held in GR its quantity, otherwise
+ * quantity × the gram its No. Stok was made with. Nothing else counts gram, so
+ * an item with neither is refused rather than costed as 0.
+ */
+export async function gramsOf(tx: Tx, b: { lotId: number; itemId: number; qty: number | string | Dec }): Promise<Dec> {
+  const item = await tx.mItem.findUniqueOrThrow({ where: { id: b.itemId }, select: { item_label: true, base_uom: { select: { uom_label: true } } } });
+  if (item.base_uom.uom_label === GRAM_UOM) return new D(b.qty);
+  const info = await tx.prdTrackingInfo.findUnique({ where: { tracking_id: b.lotId }, select: { grams: true } });
+  if (!info?.grams) throw new ProductionRefusal(`${item.item_label} tidak bersatuan ${GRAM_UOM} dan No. Stok-nya tidak punya gram.`);
+  return new D(b.qty).mul(info.grams);
+}
+
+/**
+ * The Standard Cost version goods are costed at: their partai's, or before a
+ * partai the one their No. Stok locked (§7), locked here the first time a No.
+ * Stok is worked (W36). Also says the segment it follows, for its outputs.
+ */
+export async function lockRateVersion(tx: Tx, b: { lotId: number; partaiId: number | null; actorId: number }): Promise<{ rateVersionId: number; routingId: number | null }> {
+  const info = await recordTrackingInfo(tx, { lotId: b.lotId, actorId: b.actorId });
+  if (!b.partaiId) return info;
+  const partai = await tx.prdPartai.findUniqueOrThrow({ where: { id: b.partaiId }, select: { rate_version_id: true } });
+  return { rateVersionId: partai.rate_version_id, routingId: info.routingId };
 }
 
 /**
@@ -419,7 +585,7 @@ export async function recordTrackingInfo(
  */
 export async function recordCostEntry(
   tx: Tx,
-  c: { unitId: number; rateVersionId: number; lotId: number; partaiId?: number | null; grams: number | string | Dec; date: Date; source: ProductionSource; actorId: number }
+  c: { unitId: number; rateVersionId: number; lotId: number; partaiId?: number | null; grams: number | string | Dec; isRework?: boolean; date: Date; source: ProductionSource; actorId: number }
 ): Promise<{ amount: number; rate: number }> {
   const costed = await costedPeriodRefusal(c.date, tx);
   if (costed) throw new ProductionRefusal(costed);
@@ -443,6 +609,7 @@ export async function recordCostEntry(
       grams,
       rate,
       amount,
+      is_rework: c.isRework ?? false,
       created_by: c.actorId,
     },
   });
@@ -467,14 +634,21 @@ export type BucketView = {
   partaiNo: string | null;
   jobId: number | null;
   jobNo: string | null;
+  /** Bahan penolong (V8). */
+  auxiliary: boolean;
+  /** Turned back by this QC Check (W66). */
+  qcCheckId: number | null;
+  /** Gram held; null for an item with no gram of its own to read (`gramsOf`). */
+  grams: number | null;
+  isBjl: boolean;
   expiry: string | null;
   qty: number;
   value: number;
 };
 
 const bucketInclude = {
-  tracking: { select: { tracking_no: true, expiry_date: true } },
-  item: { select: { item_label: true, item_name: true } },
+  tracking: { select: { tracking_no: true, expiry_date: true, prd_info: { select: { grams: true } } } },
+  item: { select: { item_label: true, item_name: true, is_bjl: true } },
   uom: { select: { uom_label: true } },
   unit: { select: { unit_label: true, unit_name: true } },
   partai: { select: { partai_no: true } },
@@ -482,6 +656,12 @@ const bucketInclude = {
 } as const;
 
 type BucketRow = Prisma.PrdBalanceGetPayload<{ include: typeof bucketInclude }>;
+
+function bucketGrams(b: BucketRow): number | null {
+  if (b.uom.uom_label === GRAM_UOM) return b.qty_balance.toNumber();
+  const each = b.tracking.prd_info?.grams;
+  return each ? b.qty_balance.mul(each).toNumber() : null;
+}
 
 const view = (b: BucketRow): BucketView => ({
   id: b.id,
@@ -499,6 +679,10 @@ const view = (b: BucketRow): BucketView => ({
   partaiNo: b.partai?.partai_no ?? null,
   jobId: b.job_id,
   jobNo: b.job?.job_no ?? null,
+  auxiliary: b.auxiliary,
+  qcCheckId: b.qc_check_id,
+  grams: bucketGrams(b),
+  isBjl: b.item.is_bjl,
   expiry: iso(b.tracking.expiry_date),
   qty: b.qty_balance.toNumber(),
   value: b.value_balance.toNumber(),
@@ -510,7 +694,7 @@ const view = (b: BucketRow): BucketView => ({
  * `withIds` brings in buckets a stored document names, whatever they hold now.
  */
 export async function availableBuckets(
-  filter: { unitIds?: number[]; itemIds?: number[]; withIds?: number[] } = {},
+  filter: { unitIds?: number[]; itemIds?: number[]; withIds?: number[]; stage?: Stage } = {},
   db: Db = prisma
 ): Promise<BucketView[]> {
   const rows = await db.prdBalance.findMany({
@@ -518,6 +702,7 @@ export async function availableBuckets(
       OR: [
         {
           qty_balance: { gt: 0 },
+          ...(filter.stage ? { stage: filter.stage } : {}),
           ...(filter.unitIds?.length ? { unit_id: { in: filter.unitIds } } : {}),
           ...(filter.itemIds?.length ? { item_id: { in: filter.itemIds } } : {}),
         },
@@ -538,6 +723,23 @@ export async function bucketsByIds(ids: number[], db: Db = prisma): Promise<Map<
   return new Map(rows.map((r) => [r.id, view(r)]));
 }
 
+/** The rate each bucket would be costed at today, by bucket id, without locking anything (a form's preview). */
+export async function ratesOfBuckets(rows: { id: number; lotId: number; partaiId: number | null; unitId: number }[], db: Db = prisma): Promise<Map<number, number>> {
+  if (!rows.length) return new Map();
+  const [partais, infos, active] = await Promise.all([
+    db.prdPartai.findMany({ where: { id: { in: rows.flatMap((r) => (r.partaiId ? [r.partaiId] : [])) } }, select: { id: true, rate_version_id: true } }),
+    db.prdTrackingInfo.findMany({ where: { tracking_id: { in: rows.map((r) => r.lotId) } }, select: { tracking_id: true, rate_version_id: true } }),
+    db.prdRateVersion.findFirst({ where: { status: "Active" }, select: { id: true } }),
+  ]);
+  const byPartai = new Map(partais.map((p) => [p.id, p.rate_version_id]));
+  const byLot = new Map(infos.map((i) => [i.tracking_id, i.rate_version_id]));
+  const versionOf = (r: (typeof rows)[number]) => (r.partaiId ? byPartai.get(r.partaiId) : (byLot.get(r.lotId) ?? active?.id)) ?? null;
+  const versions = [...new Set(rows.flatMap((r) => versionOf(r) ?? []))];
+  const lines = await db.prdRateVersionLine.findMany({ where: { version_id: { in: versions } }, select: { version_id: true, unit_id: true, rate: true } });
+  const rate = new Map(lines.map((l) => [`${l.version_id}:${l.unit_id}`, l.rate.toNumber()]));
+  return new Map(rows.map((r) => [r.id, rate.get(`${versionOf(r)}:${r.unitId}`) ?? 0]));
+}
+
 /** Σ value held in production now, per item — what the WIP accounts should hold. */
 export async function wipByItem(db: Db = prisma): Promise<Map<number, number>> {
   const rows = await db.prdBalance.groupBy({ by: ["item_id"], _sum: { value_balance: true }, where: { value_balance: { not: 0 } } });
@@ -556,6 +758,15 @@ export async function firstProductionUnit(db: Db = prisma): Promise<number | nul
     select: { steps: { orderBy: { seq: "asc" }, take: 1, select: { unit_id: true } } },
   });
   return segment?.steps[0]?.unit_id ?? null;
+}
+
+/** The Pass Through Units before the partai: they carry a result note to Penyebaran (W42). */
+export async function preparationNoteUnits(db: Db = prisma): Promise<Set<number>> {
+  const steps = await db.prdRoutingStep.findMany({
+    where: { routing: { line_id: null, status: "Active" }, unit: { process: "PassThrough" } },
+    select: { unit_id: true },
+  });
+  return new Set(steps.map((s) => s.unit_id));
 }
 
 /** Whether a partai or a started No. Stok follows this routing: its steps may no longer change. */

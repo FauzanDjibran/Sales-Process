@@ -20,12 +20,15 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
+  const [unit, setUnit] = useState("");
+  const units = useMemo(() => [...new Map(issues.filter((o) => o.unitLabel).map((o) => [o.unitLabel, o.unitName])).entries()], [issues]);
 
   const q = query.trim().toLowerCase();
   const rows = useMemo(() => {
     const out = issues.filter(
       (o) =>
         (!status || o.status === status) &&
+        (!unit || o.unitLabel === unit) &&
         (!q ||
           o.issueNo.toLowerCase().includes(q) ||
           o.warehouseLabel.toLowerCase().includes(q) ||
@@ -35,8 +38,8 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
     );
     const open = (s: StockIssueStatus) => Number(s === "Draft" || s === "Submitted");
     return out.sort((a, b) => open(b.status) - open(a.status));
-  }, [issues, q, status]);
-  const paging = usePaging(rows, `${q}|${status}`);
+  }, [issues, q, status, unit]);
+  const paging = usePaging(rows, `${q}|${status}|${unit}`);
 
   return (
     <>
@@ -79,6 +82,13 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
               ...(["Draft", "Submitted", "Posted", "Cancelled"] as StockIssueStatus[]).map((s) => ({ value: s, label: STOCK_ISSUE_STATUS_TEXT[s] })),
             ]}
             onChange={setStatus}
+          />
+          <Select
+            variant="toolbar"
+            value={unit}
+            set={Boolean(unit)}
+            options={[{ value: "", label: "Unit: semua" }, ...units.map(([label, name]) => ({ value: label, label: `${label} · ${name}` }))]}
+            onChange={setUnit}
           />
           <span className="tspace" />
           <span className="count">
@@ -141,7 +151,7 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
             <div className="ic">
               <Icon name="layers" size={20} />
             </div>
-            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada BSTB Issue"}</h4>
+            <h4>{q || status || unit ? "Tidak ada yang cocok" : "Belum ada BSTB Issue"}</h4>
             <p>
               {q || status
                 ? "Tidak ada BSTB Issue yang sesuai dengan pencarian atau filter."
@@ -154,6 +164,7 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
                   onClick={() => {
                     setQuery("");
                     setStatus("");
+                    setUnit("");
                   }}
                 >
                   Bersihkan filter

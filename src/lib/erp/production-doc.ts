@@ -4,9 +4,12 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { InventoryRefusal } from "./inventory";
 import { PeriodLockRefusal } from "./period-lock";
-import { PostingDryRun, type JournalLineInput } from "./journal";
-import { ProductionRefusal, availableBuckets, type BucketView } from "./production-ledger";
+import { PostingDryRun, describeJournalLines, type JournalLineInput, type JournalPreviewResult } from "./journal";
+import { ProductionRefusal, availableBuckets, bucketsByIds, ratesOfBuckets, type BucketView } from "./production-ledger";
 import { accountsForItems } from "./item-account";
+import { fallbackAccounts } from "./system-settings";
+import { dailySeries, nextDailyNumber } from "./document-number";
+import { BASE_CURRENCY_LABEL } from "./currency";
 
 /**
  * What the production documents share (R5, R7, R8): the units and the
@@ -18,7 +21,10 @@ import { accountsForItems } from "./item-account";
 export type Db = Prisma.TransactionClient | typeof prisma;
 
 /** A bucket as a picker offers it (client-safe shape). */
-export type BucketOption = Pick<BucketView, "id" | "lotId" | "lotNo" | "itemId" | "itemLabel" | "itemName" | "uomLabel" | "unitId" | "qty" | "value" | "expiry">;
+export type BucketOption = Pick<BucketView, "id" | "lotId" | "lotNo" | "itemId" | "itemLabel" | "itemName" | "uomLabel" | "unitId" | "partaiId" | "partaiNo" | "jobId" | "jobNo" | "auxiliary" | "qcCheckId" | "grams" | "isBjl" | "qty" | "value" | "expiry"> & {
+  /** Rp per gram it would be costed at. */
+  rate?: number;
+};
 
 export type Place = { id: number; label: string; name: string; active: boolean };
 
@@ -60,10 +66,64 @@ export async function bucketOptions(withIds: number[] = [], db: Db = prisma): Pr
     itemName: b.itemName,
     uomLabel: b.uomLabel,
     unitId: b.unitId,
+    partaiId: b.partaiId,
+    partaiNo: b.partaiNo,
+    jobId: b.jobId,
+    jobNo: b.jobNo,
+    auxiliary: b.auxiliary,
+    qcCheckId: b.qcCheckId,
+    grams: b.grams,
+    isBjl: b.isBjl,
     qty: b.qty,
     value: b.value,
     expiry: b.expiry,
   }));
+}
+
+async function optionsOf(buckets: BucketView[], db: Db): Promise<BucketOption[]> {
+  const rates = await ratesOfBuckets(buckets, db);
+  return buckets.map((b) => ({ ...b, rate: rates.get(b.id) ?? 0 }));
+}
+
+/** What the Units may work: goods in Persiapan, and any row a stored document names. */
+export async function persiapanOptions(unitIds: number[], keep: number[] = [], db: Db = prisma): Promise<BucketOption[]> {
+  const rows = await availableBuckets({ unitIds, stage: "Preparation", withIds: keep }, db);
+  return optionsOf(rows.filter((b) => !b.auxiliary), db);
+}
+
+/** Bahan penolong the Units hold (V8). */
+export async function auxOptions(unitIds: number[], keep: number[] = [], db: Db = prisma): Promise<BucketOption[]> {
+  const rows = await availableBuckets({ unitIds, stage: "Preparation", withIds: keep }, db);
+  return optionsOf(rows.filter((b) => b.auxiliary), db);
+}
+
+export type AuxInput = { bucket_id: number | null; qty: number | string; job_id?: number | null };
+
+/** Bahan penolong used by an execution: a balance of its Unit, each once (V8, W75). Errors keyed `aux.<i>.<field>`. */
+export async function checkAuxLines(raw: AuxInput[] | undefined, unitId: number | null, errors: Record<string, string>, db: Db = prisma) {
+  const rows = Array.isArray(raw) ? raw : [];
+  const buckets = await bucketsByIds(rows.flatMap((a) => (a.bucket_id ? [Number(a.bucket_id)] : [])), db);
+  const out: { line_no: number; bucket_id: number; job_id: number | null; qty: number; bucket: BucketView }[] = [];
+  const seen = new Set<number>();
+  rows.forEach((a, i) => {
+    const key = (f: string) => `aux.${i}.${f}`;
+    const b = buckets.get(Number(a.bucket_id));
+    if (!b || b.unitId !== unitId || !b.auxiliary) {
+      errors[key("bucket_id")] = "Pilih bahan penolong dari saldo unit ini.";
+      return;
+    }
+    if (seen.has(b.id)) {
+      errors[key("bucket_id")] = `${b.itemLabel} dipilih lebih dari sekali.`;
+      return;
+    }
+    seen.add(b.id);
+    const qty = parseQty(a.qty);
+    if (!(qty > 0)) errors[key("qty")] = "Isi jumlah lebih dari 0.";
+    else if (!fourDecimals(qty)) errors[key("qty")] = "Paling banyak 4 angka desimal.";
+    else if (units(qty) > units(b.qty)) errors[key("qty")] = `Melebihi saldo (${b.qty} ${b.uomLabel}).`;
+    else out.push({ line_no: out.length + 1, bucket_id: b.id, job_id: Number(a.job_id) || null, qty: fromUnits(units(qty)), bucket: b });
+  });
+  return out;
 }
 
 export type BucketLineInput = { bucket_id: number | null; qty: number | string };
@@ -144,6 +204,44 @@ export async function itemAccounts(
   return { ok: true, accounts: out };
 }
 
+/** The next daily number of a unit's document series (W11): `<KIND>_<unit>_<ddmmyy>_<NNNNN>`. */
+export const unitSeries = (kind: string, unitLabel: string, date: Date) => dailySeries(`${kind}_${unitLabel}`, date);
+export { nextDailyNumber };
+
+export type ValueMove = { accountId: number; amount: number };
+
+/**
+ * The journal of an execution, net per account, because WIP moves only where
+ * the accounts differ (§7): `moves` are what each WIP account gained or lost,
+ * the unit cost is credited to Biaya Produksi Dibebankan, and value with no
+ * receiver is debited to Beban Pemusnahan Produksi (W32). Nothing to move is no
+ * journal.
+ */
+export async function executionJournalLines(
+  moves: ValueMove[],
+  cost: number,
+  scrap: number,
+  description: string,
+  db: Db = prisma
+): Promise<JournalLineInput[]> {
+  const net = new Map<number, number>();
+  for (const m of moves) net.set(m.accountId, (net.get(m.accountId) ?? 0) + m.amount);
+  const accounts = await fallbackAccounts(["production_absorbed_account", "production_scrap_account"] as const);
+  const add = (key: "production_absorbed_account" | "production_scrap_account", name: string, amount: number) => {
+    if (!amount) return;
+    const id = accounts[key];
+    if (!id) throw new Refused({ _form: `Lengkapi Account Mapping dulu: ${name}.` });
+    net.set(id, (net.get(id) ?? 0) + amount);
+  };
+  add("production_absorbed_account", "Biaya Produksi Dibebankan", -cost);
+  add("production_scrap_account", "Beban Pemusnahan Produksi", scrap);
+  const lines = [...net].filter(([, amount]) => amount !== 0);
+  if (!lines.length) return [];
+  const currency = await db.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
+  if (!currency) throw new Refused({ _form: "Mata uang dasar tidak ditemukan." });
+  return lines.map(([accountId, amount]) => ({ accountId, currencyId: currency.id, rate: 1, debit: Math.max(amount, 0), credit: Math.max(-amount, 0), description }));
+}
+
 /** Rules failing inside a transaction roll it back and come out as errors. */
 export class Refused extends Error {
   constructor(readonly errors: Record<string, string>) {
@@ -165,6 +263,13 @@ export async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: fal
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;
     throw e;
   }
+}
+
+/** A posting's dry run as the confirmation reads it (P103). */
+export async function journalPreview(run: () => Promise<{ ok: true; journal?: JournalLineInput[] } | { ok: false; errors: Record<string, string> }>): Promise<JournalPreviewResult> {
+  const r = await run();
+  if (!r.ok) return r;
+  return { ok: true, lines: await describeJournalLines(r.journal ?? []) };
 }
 
 /** The first message of a failed recheck, as a posting refusal. */

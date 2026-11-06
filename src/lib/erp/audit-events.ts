@@ -33,6 +33,7 @@ import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
 import { RECEIPT_NOTE_TRANSITIONS } from "./receipt-note-workflow";
 import { COST_BILL_TRANSITIONS } from "./production-cost-bill-workflow";
 import { STOCK_ISSUE_TRANSITIONS } from "./stock-issue-workflow";
+import { GRADING_WORKFLOW, QC_CHECK_WORKFLOW, WORK_WORKFLOW } from "./production-execution-workflow";
 import { PURCHASE_INVOICE_TRANSITIONS } from "./ap-invoice-workflow";
 import { PURCHASE_REQUEST_TRANSITIONS } from "./purchase-request-workflow";
 import { PURCHASE_ORDER_TRANSITIONS } from "./purchase-order-workflow";
@@ -192,6 +193,27 @@ const COST_BILL_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(COST_BILL_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
+const GRADING_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Dokumen Grading dibuat", icon: "layers", tone: "neutral" },
+  post: fromTransition(GRADING_WORKFLOW.transitions.post, "Diposting — output menjadi No. Stok baru"),
+  cancel: fromTransition(GRADING_WORKFLOW.transitions.cancel, "Dibatalkan"),
+};
+
+const WORK_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Pengerjaan Unit dibuat", icon: "check", tone: "neutral" },
+  post: fromTransition(WORK_WORKFLOW.transitions.post, "Diposting — biaya unit masuk"),
+  cancel: fromTransition(WORK_WORKFLOW.transitions.cancel, "Dibatalkan"),
+};
+
+const QC_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "QC Check dibuat", icon: "check", tone: "neutral" },
+  post: fromTransition(QC_CHECK_WORKFLOW.transitions.post, "Diposting — keputusan QC berlaku"),
+  cancel: fromTransition(QC_CHECK_WORKFLOW.transitions.cancel, "Dibatalkan"),
+};
+
 /** BSTB Issue: Draft → Diajukan → Diterima, or Dibatalkan. */
 const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
@@ -335,6 +357,9 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   log_receipt_note: RECEIPT_NOTE_EVENTS,
   prd_cost_bill: COST_BILL_EVENTS,
   log_stock_issue: STOCK_ISSUE_EVENTS,
+  prd_grading: GRADING_EVENTS,
+  prd_work: WORK_EVENTS,
+  prd_qc_check: QC_EVENTS,
   pur_request: PURCHASE_REQUEST_EVENTS,
   pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,

@@ -129,6 +129,13 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logStockIssueLine: ["src/lib/erp/stock-issue.ts"],
   logStockIssueTracking: ["src/lib/erp/stock-issue.ts"],
   // The production documents (R5, R7, R8): each named only by its module.
+  prdGrading: ["src/lib/erp/production-grading.ts"],
+  prdGradingOutput: ["src/lib/erp/production-grading.ts"],
+  prdWork: ["src/lib/erp/production-work.ts"],
+  prdWorkLine: ["src/lib/erp/production-work.ts"],
+  prdAuxUse: ["src/lib/erp/production-grading.ts", "src/lib/erp/production-work.ts"],
+  prdQcCheck: ["src/lib/erp/production-qc.ts"],
+  prdQcCheckLine: ["src/lib/erp/production-qc.ts"],
   // The production ledger (R3): a book, written only by its module and read by its reports (R18).
   prdBalance: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   prdLedger: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],

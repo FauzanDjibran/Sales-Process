@@ -22,6 +22,9 @@ import { deliveryNoteNumbersByIds } from "./delivery-note";
 import { receiptNoteNumbersByIds } from "./receipt-note";
 import { costBillNumbersByIds } from "./production-cost-bill";
 import { stockIssueNumbersByIds } from "./stock-issue";
+import { gradingNumbersByIds } from "./production-grading";
+import { workNumbersByIds } from "./production-work";
+import { qcNumbersByIds } from "./production-qc";
 import { invoiceNumbersByIds } from "./ar-invoice";
 import { purchaseInvoiceNumbersByIds } from "./ap-invoice";
 import { fakturNumbersByIds, slipNumbersByIds } from "./tax-document";
@@ -91,6 +94,9 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   log_receipt_note: { label: "Receipt Note", resolve: receiptNoteNumbersByIds },
   prd_cost_bill: { label: "Tagihan Biaya", resolve: costBillNumbersByIds },
   log_stock_issue: { label: "Stock Issue", resolve: stockIssueNumbersByIds },
+  prd_grading: { label: "Dokumen Grading", resolve: gradingNumbersByIds },
+  prd_work: { label: "Pengerjaan Unit", resolve: workNumbersByIds },
+  prd_qc_check: { label: "QC Check", resolve: qcNumbersByIds },
   pur_request: { label: "Purchase Request", resolve: purchaseRequestNumbersByIds },
   pur_order: { label: "Purchase Order", resolve: purchaseOrderNumbersByIds },
   fin_ar_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },
