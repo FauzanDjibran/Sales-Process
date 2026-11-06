@@ -259,6 +259,10 @@ async function applicableFields(
       if (values.item_type === "Barang") applies.add(field.name);
       continue;
     }
+    if (field.visibleWhen === "unitIsGrading") {
+      if (values.process === "Grading") applies.add(field.name);
+      continue;
+    }
     if (field.visibleWhen === "partnerIsCustomer" || field.visibleWhen === "partnerIsSupplier") {
       const categoryId = refValue(values, "category_id");
       const label = categoryId ? await refLabel("sys_partner_category", categoryId) : null;

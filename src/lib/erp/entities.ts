@@ -9,7 +9,7 @@
  */
 import type { IconName } from "@/components/icon";
 import { isBaseCurrency } from "./currency";
-import { JOB_POLICIES, JOB_POLICY_LABEL, PROCESS_KINDS, PROCESS_KIND_LABEL } from "./production-master-shape";
+import { PROCESS_KINDS, PROCESS_KIND_LABEL } from "./production-master-shape";
 
 /** A value a create form's field can start on (P61). */
 export type FieldPreset = "base_currency";
@@ -141,7 +141,9 @@ export type Field = {
      * The Item is a Barang. Stock and expiry mean nothing for a Jasa, so the
      * flags are not offered and are stored false.
      */
-    | "itemIsGoods";
+    | "itemIsGoods"
+    /** The Unit grades: only a grading releases a No. Job (W92); stored false elsewhere. */
+    | "unitIsGrading";
   /**
    * `segment` only. The ref fields whose chosen row supplies the code this
    * segment continues, in priority order — the first one filled wins. Chart of
@@ -1043,15 +1045,21 @@ export const ENTITIES: Entity[] = [
         captionDetail: "hasil proses diperiksa QC sebelum Stand By",
       },
       {
-        name: "job_policy",
-        label: "No. Job saat Keluar",
-        type: "select",
-        required: true,
-        span: 6,
-        options: [...JOB_POLICIES],
-        optionLabels: JOB_POLICY_LABEL,
-        defaultValue: "Carried",
-        help: "apa yang terjadi pada No. Job saat barang keluar",
+        name: "releases_job",
+        label: "No. Job",
+        type: "bool",
+        span: 4,
+        visibleWhen: "unitIsGrading",
+        caption: "Lepas No. Job",
+        captionDetail: "grading di unit ini melepas No. Job; saat keluar dibuat yang baru",
+      },
+      {
+        name: "issues_job_order",
+        label: "Job Order",
+        type: "bool",
+        span: 4,
+        caption: "Terbitkan Job Order",
+        captionDetail: "tiap No. Job yang keluar dari unit ini mendapat Job Order sendiri",
       },
       STATUS_FIELD,
       NOTE_FIELD,
@@ -1840,6 +1848,9 @@ export function fieldApplies(
   }
   if (field.visibleWhen === "itemIsGoods") {
     return values.item_type === "Barang";
+  }
+  if (field.visibleWhen === "unitIsGrading") {
+    return values.process === "Grading";
   }
   if (field.visibleWhen === "partnerIsCustomer") {
     return refLabelOf?.("category_id", values.category_id) === CUSTOMER_CATEGORY;

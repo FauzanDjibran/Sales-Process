@@ -107,40 +107,42 @@ Menu admin untuk mendefinisikan tempat kerja produksi dan perilakunya. Satu unit
 | Bagian/Komponen | Fungsi | Data yang ditampilkan/diinput |
 | --- | --- | --- |
 | Daftar Unit | Menampilkan unit per Workstation | Kode, Nama, Workstation, Tipe, QC Check, Status |
-| Form Unit | Membuat dan mengubah | Kode, Nama, Workstation, Tipe, QC Check, No. Job saat keluar |
+| Form Unit | Membuat dan mengubah | Kode, Nama, Workstation, Tipe, QC Check, Lepas No. Job (Tipe Grading saja), Terbitkan Job Order |
 
 **[Cara Kerja Menu]**
 
 1. Admin membuat Unit dan memilih Workstation.
 2. Tipe tepat satu: Pass Through, Grading, atau Assembly (W73, W86).
-3. Admin menandai QC Check dan No. Job saat keluar. Keduanya atribut Unit, bukan langkah routing (§5).
+3. Admin menandai QC Check, Lepas No. Job dan Terbitkan Job Order. Semuanya atribut Unit, bukan langkah routing (§5, W92).
 4. Kode unit masuk ke nomor dokumen (W11), jadi dibuat pendek dan tetap.
 
 Isi awal, dari §5 dan W81:
 
-| Workstation | Unit | Tipe | QC Check | No. Job saat keluar |
-| --- | --- | --- | --- | --- |
-| BB + PPIC | UGH Grading Halus | Grading | Ya | Terbit di Dokumen Push |
-| BB + PPIC | UPC Pre Cleaning | Pass Through | Ya | Dibawa |
-| BB + PPIC | UPY Penyebaran | Grading | — | Lepas saat grading, terbit di BSTB |
-| Cleaning | UPW Pre Wash | Pass Through | Ya | Dibawa |
-| Cleaning | UCL Cleaning | Pass Through | Ya | Dibawa |
-| Cleaning | UC1 CCP-1 | Pass Through | — | Dibawa |
-| Cleaning | USR Sortir | Pass Through | — | Dibawa |
-| Moulding | UDA Dry A | Grading | Ya | Dibawa |
-| Moulding | UMG Moulding (grading) | Grading | Ya | Lepas saat grading, Job Moulding terbit di Dokumen Push |
-| Moulding | UMP Moulding (process) | Pass Through | — | Dibawa |
-| Moulding | UDB Dry B | Grading | Ya | Lepas saat grading, terbit di BSTB |
-| WIP Packing | UWP Wrapping | Pass Through | Ya | Dibawa |
-| WIP Packing | UBC Barcoding | Grading | Ya | Dibawa |
-| WIP Packing | UP5 Packing 95 | Assembly | Belum ditinjau | Hanya tujuan akhir plan ini (W81) |
+| Workstation | Unit | Tipe | QC Check | Lepas No. Job | Job Order |
+| --- | --- | --- | --- | --- | --- |
+| BB + PPIC | UGH Grading Halus | Grading | Ya | — | — |
+| BB + PPIC | UPC Pre Cleaning | Pass Through | Ya | — | — |
+| BB + PPIC | UPY Penyebaran | Grading | — | Ya | — |
+| Cleaning | UPW Pre Wash | Pass Through | Ya | — | — |
+| Cleaning | UCL Cleaning | Pass Through | Ya | — | — |
+| Cleaning | UC1 CCP-1 | Pass Through | — | — | — |
+| Cleaning | USR Sortir | Pass Through | — | — | — |
+| Moulding | UDA Dry A | Grading | Ya | — | — |
+| Moulding | UMG Moulding (grading) | Grading | Ya | Ya | Ya |
+| Moulding | UMP Moulding (process) | Pass Through | — | — | — |
+| Moulding | UDB Dry B | Grading | Ya | Ya | — |
+| WIP Packing | UWP Wrapping | Pass Through | Ya | — | — |
+| WIP Packing | UBC Barcoding | Grading | Ya | — | — |
+| WIP Packing | UP5 Packing 95 | Assembly | Belum ditinjau | — | — |
+
+UP5 hanya tujuan akhir plan ini (W81). Setiap Push atau BSTB antar unit meneruskan No. Job yang ada, atau membuat yang baru bila barang belum punya (W92).
 
 Output: unit untuk Routing dan semua menu dokumen.
 
 **[Plan UI & UX]**
 
 - **Layout:** daftar dengan filter Workstation dan Tipe; form satu kartu.
-- **Isian tertutup:** Tipe dan No. Job saat keluar berupa pilihan, bukan teks bebas.
+- **Isian tertutup:** Tipe berupa pilihan, bukan teks bebas; Lepas No. Job hanya tampil untuk Tipe Grading.
 - **Validasi:** Workstation dan Tipe wajib; kode ganda tampil di field.
 - **Kosong:** bila Workstation belum ada, form mengarahkan ke menu Workstation.
 

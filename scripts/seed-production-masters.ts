@@ -10,7 +10,7 @@
  * Run it after `db:seed`, and again after nothing: it changes only what differs.
  */
 import { prisma } from "../src/lib/prisma";
-import type { PrdJobPolicy, PrdProcessKind } from "../src/generated/prisma/client";
+import type { PrdProcessKind } from "../src/generated/prisma/client";
 import { routingInUse } from "../src/lib/erp/production-ledger";
 import { exitRoutes, stepRuleErrors, type RouteUnit } from "../src/lib/erp/production-master-shape";
 
@@ -22,21 +22,21 @@ const WORKSTATIONS = [
 ] as const;
 
 // The table of §5, column for column, Packing 98 waiting for its plan (W81).
-const UNITS: [label: string, name: string, workstation: string, process: PrdProcessKind, qc: boolean, job: PrdJobPolicy][] = [
-  ["UGH", "Grading Halus", "BB + PPIC", "Grading", true, "Issued"],
-  ["UPC", "Pre Cleaning", "BB + PPIC", "PassThrough", true, "Carried"],
-  ["UPY", "Penyebaran", "BB + PPIC", "Grading", false, "Released"],
-  ["UPW", "Pre Wash", "CL", "PassThrough", true, "Carried"],
-  ["UCL", "Cleaning", "CL", "PassThrough", true, "Carried"],
-  ["UC1", "CCP-1", "CL", "PassThrough", false, "Carried"],
-  ["USR", "Sortir", "CL", "PassThrough", false, "Carried"],
-  ["UDA", "Dry A", "ML", "Grading", true, "Carried"],
-  ["UMG", "Moulding (grading)", "ML", "Grading", true, "ReleasedWithOrder"],
-  ["UMP", "Moulding (process)", "ML", "PassThrough", false, "Carried"],
-  ["UDB", "Dry B", "ML", "Grading", true, "Released"],
-  ["UWP", "Wrapping", "WP", "PassThrough", true, "Carried"],
-  ["UBC", "Barcoding", "WP", "Grading", true, "Carried"],
-  ["UP5", "Packing 95", "WP", "Assembly", false, "None"],
+const UNITS: [label: string, name: string, workstation: string, process: PrdProcessKind, qc: boolean, releasesJob: boolean, jobOrder: boolean][] = [
+  ["UGH", "Grading Halus", "BB + PPIC", "Grading", true, false, false],
+  ["UPC", "Pre Cleaning", "BB + PPIC", "PassThrough", true, false, false],
+  ["UPY", "Penyebaran", "BB + PPIC", "Grading", false, true, false],
+  ["UPW", "Pre Wash", "CL", "PassThrough", true, false, false],
+  ["UCL", "Cleaning", "CL", "PassThrough", true, false, false],
+  ["UC1", "CCP-1", "CL", "PassThrough", false, false, false],
+  ["USR", "Sortir", "CL", "PassThrough", false, false, false],
+  ["UDA", "Dry A", "ML", "Grading", true, false, false],
+  ["UMG", "Moulding (grading)", "ML", "Grading", true, true, true],
+  ["UMP", "Moulding (process)", "ML", "PassThrough", false, false, false],
+  ["UDB", "Dry B", "ML", "Grading", true, true, false],
+  ["UWP", "Wrapping", "WP", "PassThrough", true, false, false],
+  ["UBC", "Barcoding", "WP", "Grading", true, false, false],
+  ["UP5", "Packing 95", "WP", "Assembly", false, false, false],
 ];
 
 type Step = [unit: string, flags?: { checkpoint?: boolean; skippable?: boolean }];
@@ -84,10 +84,10 @@ async function main() {
 
   const unitId = new Map<string, number>();
   const units = new Map<number, RouteUnit>();
-  for (const [label, name, workstation, process, has_qc, job_policy] of UNITS) {
+  for (const [label, name, workstation, process, has_qc, releases_job, issues_job_order] of UNITS) {
     const legacy = label === "UMG" ? [{ unit_label: "UML" }] : [];
     const known = await prisma.refUnit.findFirst({ where: { OR: [{ unit_label: label }, { unit_name: name }, ...legacy] } });
-    const data = { unit_label: label, unit_name: name, workstation_id: wsId.get(workstation)!, process, has_qc, job_policy };
+    const data = { unit_label: label, unit_name: name, workstation_id: wsId.get(workstation)!, process, has_qc, releases_job, issues_job_order };
     const row = known
       ? await prisma.refUnit.update({ where: { id: known.id }, data: { ...data, updated_by: actor } })
       : await prisma.refUnit.create({

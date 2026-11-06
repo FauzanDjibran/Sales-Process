@@ -18,15 +18,6 @@ export const PROCESS_KIND_LABEL: Record<string, string> = {
   Assembly: "Assembly",
 };
 
-export const JOB_POLICIES = ["Issued", "Carried", "Released", "ReleasedWithOrder", "None"] as const;
-export const JOB_POLICY_LABEL: Record<string, string> = {
-  Issued: "Terbit saat keluar",
-  Carried: "Dibawa",
-  Released: "Dilepas, terbit baru saat keluar",
-  ReleasedWithOrder: "Dilepas, terbit dengan Job Order",
-  None: "Tidak ada",
-};
-
 export type StepDraft = {
   id?: number;
   key: string;

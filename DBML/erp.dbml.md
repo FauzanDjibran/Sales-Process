@@ -427,7 +427,8 @@ table ref_unit {
   workstation_id              int [ref : > ref_workstation.id]
   process                     enum('PassThrough', 'Grading', 'Assembly') [not null, default: 'PassThrough'] // one Unit, one process (W73)
   has_qc                      boolean [not null, default: false] // goods pass a QC Check before Stand By (W65)
-  job_policy                  enum('Issued', 'Carried', 'Released', 'ReleasedWithOrder', 'None') [not null, default: 'Carried']
+  releases_job                boolean [not null, default: false]
+  issues_job_order            boolean [not null, default: false]
 
   note                        varchar
 

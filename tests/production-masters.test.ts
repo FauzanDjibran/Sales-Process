@@ -1,7 +1,7 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { ENTITIES } from "../src/lib/erp/entities";
+import { ENTITIES, fieldApplies } from "../src/lib/erp/entities";
 import { checkItemBjl } from "../src/lib/erp/item";
 import { abilitiesFor } from "../src/lib/erp/entity-access";
 import { checkRateCollections, checkRoutingCollections, routingCollections, writeRateCollections, writeRoutingCollections } from "../src/lib/erp/production-master";
@@ -63,6 +63,16 @@ describe("Unit, Workstation and the masters around them", () => {
     assert.equal(m.process, "Assembly");
     assert.equal(m.has_qc, false);
     assert.equal(m.workstation?.id, f.ws);
+  });
+
+  test("only a grading Unit may release a No. Job; a Job Order is not tied to it (W92)", () => {
+    const fields = ENTITIES.find((e) => e.key === "ref_unit")!.fields;
+    const releases = fields.find((x) => x.name === "releases_job")!;
+    const order = fields.find((x) => x.name === "issues_job_order")!;
+    assert.equal(fieldApplies(releases, { process: "Grading" }), true);
+    assert.equal(fieldApplies(releases, { process: "PassThrough" }), false);
+    assert.equal(fieldApplies(releases, { process: "Assembly" }), false);
+    assert.equal(fieldApplies(order, { process: "PassThrough" }), true);
   });
 
   test("every master is a registry entity with its permissions", () => {

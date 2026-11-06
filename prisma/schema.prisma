@@ -838,17 +838,6 @@ enum PrdProcessKind {
   Assembly
 }
 
-/// How goods leave a Unit (§5, §8 Siklus BSTB).
-/// What happens to the No. Job when goods leave a Unit (§5). A No. Job exists
-/// because goods need telling apart, first on leaving Grading Halus (W38).
-enum PrdJobPolicy {
-  Issued
-  Carried
-  Released
-  ReleasedWithOrder
-  None
-}
-
 /// A Unit (P225): where goods are held in production, and the engines its work
 /// may use. The old `ref_workstation` (P201), renamed in place so its id, its
 /// buckets and its Stock Issues keep pointing at it.
@@ -862,7 +851,10 @@ model RefUnit {
   process        PrdProcessKind       @default(PassThrough)
   /// Goods pass a QC Check here before Stand By (W65).
   has_qc         Boolean              @default(false)
-  job_policy     PrdJobPolicy         @default(Carried)
+  /// Grading here releases the No. Job (W92); a move carries a No. Job or makes one.
+  releases_job   Boolean              @default(false)
+  /// Each No. Job leaving here gets its own Job Order (W69).
+  issues_job_order Boolean            @default(false)
   note           String?
   status         ActiveStatus     @default(Active)
 
