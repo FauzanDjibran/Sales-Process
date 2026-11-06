@@ -10,19 +10,20 @@
 export const STEPS_KEY = "_steps";
 export const RATES_KEY = "_rates";
 
-export const EXIT_MODES = ["Direct", "NoQc", "WithQc", "PerCarton"] as const;
-export const EXIT_MODE_LABEL: Record<string, string> = {
-  Direct: "Langsung",
-  NoQc: "Tanpa QC",
-  WithQc: "Dengan QC",
-  PerCarton: "Per Kotak",
+/** The kinds of work an engine in code knows (W33); a Unit does one of them (W73). */
+export const PROCESS_KINDS = ["PassThrough", "Grading", "Assembly"] as const;
+export const PROCESS_KIND_LABEL: Record<string, string> = {
+  PassThrough: "Pass Through",
+  Grading: "Grading",
+  Assembly: "Assembly",
 };
 
-export const JOB_POLICIES = ["Issued", "Carried", "Released", "None"] as const;
+export const JOB_POLICIES = ["Issued", "Carried", "Released", "ReleasedWithOrder", "None"] as const;
 export const JOB_POLICY_LABEL: Record<string, string> = {
-  Issued: "Terbit",
+  Issued: "Terbit saat keluar",
   Carried: "Dibawa",
-  Released: "Dilepas",
+  Released: "Dilepas, terbit baru saat keluar",
+  ReleasedWithOrder: "Dilepas, terbit dengan Job Order",
   None: "Tidak ada",
 };
 
@@ -62,33 +63,48 @@ export function rateErrors(r: Partial<RateDraft>, takenUnits: number[]): Record<
   return e;
 }
 
+export type RouteUnit = { id: number; process: string; workstation_id: number | null };
+
+/** Inside a Workstation always Push, across always BSTB (W64). */
+export type ExitRoute = "Push" | "BSTB";
+export const EXIT_ROUTE_LABEL: Record<ExitRoute, string> = { Push: "Dokumen Push", BSTB: "BSTB" };
+
 /**
- * The rules that need the Units' own kinds of work, shared by the Server
- * Action. A routing without a line is the segment before the partai: it ends
- * at the one Unit that forms the partai. A line's routing starts after it.
+ * How goods leave each step, worked out and never typed (W64). The last step of
+ * the segment before the partai leaves by the BSTB that forms the partai; a
+ * line's last step has no next Unit, so it says nothing.
+ */
+export function exitRoutes(workstations: (number | null)[], hasLine: boolean): (ExitRoute | null)[] {
+  return workstations.map((ws, i) => {
+    if (i === workstations.length - 1) return hasLine ? null : "BSTB";
+    return ws != null && ws === workstations[i + 1] ? "Push" : "BSTB";
+  });
+}
+
+/**
+ * The rules that need the Units themselves, shared by the Server Action and the
+ * seed. The segment before the partai ends at a Grading Unit, Penyebaran on the
+ * Reguler line, and the partai is born on the BSTB leaving it (W73). So a line's
+ * routing starts in another Workstation and never holds that Unit.
  */
 export function stepRuleErrors(
   steps: Pick<StepDraft, "unit_id" | "is_checkpoint">[],
   hasLine: boolean,
-  processesOf: (unitId: number) => string[]
+  unitOf: (unitId: number) => RouteUnit | undefined,
+  segmentEnd: RouteUnit | null
 ): string[] {
   const out: string[] = [];
   if (steps.length === 0) return ["Routing butuh minimal satu langkah."];
-  const former = (i: number) => processesOf(steps[i].unit_id!).includes("PartaiFormer");
-  const formers = steps.map((_, i) => i).filter(former);
-  if (hasLine && formers.length) out.push("Routing milik line dimulai sesudah partai terbentuk. Keluarkan unit Pembentuk Partai dari sini: tempatnya di routing tanpa line.");
-  if (!hasLine) {
-    if (formers.length !== 1 || formers[0] !== steps.length - 1) {
-      out.push("Routing tanpa line harus berakhir di satu unit Pembentuk Partai, tempat line dipilih. Unit sesudahnya masuk routing milik line.");
-    }
+  const units = steps.map((s) => unitOf(s.unit_id!));
+  if (!hasLine && units[units.length - 1]?.process !== "Grading") {
+    out.push("Routing tanpa line harus berakhir di unit Grading, tempat BSTB keluarnya melahirkan partai.");
+  }
+  if (hasLine && segmentEnd) {
+    if (units.some((u) => u?.id === segmentEnd.id)) out.push("Routing milik line dimulai sesudah partai lahir. Akhir segmen sebelum partai tidak boleh ada di sini.");
+    else if (units[0]?.workstation_id === segmentEnd.workstation_id) out.push("Langkah pertama harus di Workstation lain, karena partai lahir pada BSTB.");
   }
   const cps = steps.map((s, i) => (s.is_checkpoint ? i : -1)).filter((i) => i >= 0);
   if (cps.length > 1) out.push("Checkpoint hanya boleh satu per routing.");
   if (cps[0] === 0) out.push("Langkah pertama tidak bisa menjadi checkpoint.");
   return out;
-}
-
-/** A Unit's own rule: only Assembly makes kotak, so only it sends per kotak. */
-export function unitExitError(exitMode: string, processes: string[]): string | null {
-  return exitMode === "PerCarton" && !processes.includes("Assembly") ? "Per Kotak hanya untuk unit dengan pekerjaan Assembly." : null;
 }

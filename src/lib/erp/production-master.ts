@@ -3,7 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { parseList } from "./partner-shape";
-import { routingInUse } from "./production-ledger";
+import { routingInUse, routingsInUse } from "./production-ledger";
 import {
   RATES_KEY,
   STEPS_KEY,
@@ -11,6 +11,7 @@ import {
   stepErrors,
   stepRuleErrors,
   type RateDraft,
+  type RouteUnit,
   type StepDraft,
 } from "./production-master-shape";
 
@@ -45,12 +46,12 @@ export async function rateCollections(versionId: number): Promise<{ rates: RateD
 
 // --------------------------------------------------------------- validation
 
-type UnitInfo = { id: number; unit_label: string; status: string; processes: string[] };
+type UnitInfo = RouteUnit & { unit_label: string; status: string };
 
 async function unitsById(ids: number[]): Promise<Map<number, UnitInfo>> {
   const rows = await prisma.refUnit.findMany({
     where: { id: { in: ids } },
-    select: { id: true, unit_label: true, status: true, processes: true },
+    select: { id: true, unit_label: true, status: true, process: true, workstation_id: true },
   });
   return new Map(rows.map((r) => [r.id, r]));
 }
@@ -72,6 +73,16 @@ async function segmentClash(lineId: number | null, routingId: number | null): Pr
     select: { routing_label: true },
   });
   return other ? `Segmen sebelum partai sudah ada: ${other.routing_label}.` : null;
+}
+
+/** The last Unit of the segment before the partai, where every line's routing takes over. */
+export async function segmentEnd(): Promise<RouteUnit | null> {
+  const step = await prisma.prdRoutingStep.findFirst({
+    where: { routing: { line_id: null } },
+    orderBy: { seq: "desc" },
+    select: { unit: { select: { id: true, process: true, workstation_id: true } } },
+  });
+  return step?.unit ?? null;
 }
 
 /** A routing goods follow keeps its steps: a different order is a new routing (P227). */
@@ -117,7 +128,8 @@ export async function checkRoutingCollections(
   }
   if (!problems.length) {
     const hasLine = Number(values.line_id) > 0;
-    problems.push(...stepRuleErrors(clean.steps, hasLine, (id) => units.get(id)?.processes ?? []));
+    // shortcut: a segment saved after its lines is not rechecked against them; a used one is locked anyway.
+    problems.push(...stepRuleErrors(clean.steps, hasLine, (id) => units.get(id), hasLine ? await segmentEnd() : null));
   }
   const errors: Record<string, string> = problems.length ? { [STEPS_KEY]: problems.join(" ") } : {};
   const clash = await segmentClash(Number(values.line_id) || null, routingId);
@@ -159,6 +171,62 @@ export async function checkRateCollections(
     clean.rates.push({ unit_id: unit.id, rate: String(r.rate).trim() });
   }
   return { errors: problems.length ? { [RATES_KEY]: problems.join(" ") } : {}, clean };
+}
+
+// --------------------------------------------------------------- page facts
+
+/** Step counts and which routings are locked by the goods following them (P227). */
+export async function routingFacts(): Promise<Map<number, { steps: number; locked: boolean }>> {
+  const [steps, used] = await Promise.all([prisma.prdRoutingStep.groupBy({ by: ["routing_id"], _count: { _all: true } }), routingsInUse()]);
+  const out = new Map<number, { steps: number; locked: boolean }>();
+  for (const s of steps) out.set(s.routing_id, { steps: s._count._all, locked: used.has(s.routing_id) });
+  return out;
+}
+
+/** The rows a Workstation or a Line lists on its page: its Units, its Routings. */
+export async function unitsOfWorkstation(id: number) {
+  const rows = await prisma.refUnit.findMany({ where: { workstation_id: id }, orderBy: { unit_label: "asc" } });
+  return rows.map((r) => ({ id: r.id, label: r.unit_label, name: r.unit_name }));
+}
+
+export async function routingsOfLine(id: number) {
+  const rows = await prisma.prdRouting.findMany({ where: { line_id: id }, orderBy: { routing_label: "asc" } });
+  return rows.map((r) => ({ id: r.id, label: r.routing_label, name: r.routing_name }));
+}
+
+export async function unitCountsByWorkstation(): Promise<Map<number, number>> {
+  const groups = await prisma.refUnit.groupBy({ by: ["workstation_id"], _count: { _all: true } });
+  return new Map(groups.flatMap((g) => (g.workstation_id == null ? [] : [[g.workstation_id, g._count._all]])));
+}
+
+/** Units in the order goods meet them: the segment, then each line's routing, the rest after. */
+export async function unitRoutingOrder(): Promise<Map<number, number>> {
+  const steps = await prisma.prdRoutingStep.findMany({
+    orderBy: [{ routing: { line_id: { sort: "asc", nulls: "first" } } }, { routing_id: "asc" }, { seq: "asc" }],
+    select: { unit_id: true },
+  });
+  const order = new Map<number, number>();
+  for (const s of steps) if (!order.has(s.unit_id)) order.set(s.unit_id, order.size);
+  return order;
+}
+
+/** A copy of a routing's steps for a new routing; the source stays locked, the copy does not. */
+export async function routingCopy(id: number) {
+  const routing = await prisma.prdRouting.findUnique({ where: { id }, select: { line_id: true } });
+  if (!routing) return null;
+  const { steps } = await routingCollections(id);
+  return { lineId: routing.line_id, steps: steps.map((s, i) => ({ ...s, id: undefined, key: `c${i}` })) };
+}
+
+/** The label of the version saving a new one would close. */
+export async function activeRateVersion(): Promise<string | null> {
+  const row = await prisma.prdRateVersion.findFirst({ where: { status: "Active" }, select: { rate_label: true } });
+  return row?.rate_label ?? null;
+}
+
+/** Whether the Unit sits on any routing, so moving it changes that routing's moves. */
+export async function unitOnRouting(id: number): Promise<boolean> {
+  return (await prisma.prdRoutingStep.count({ where: { unit_id: id } })) > 0;
 }
 
 // ------------------------------------------------------------------- writes

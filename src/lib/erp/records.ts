@@ -7,6 +7,7 @@ import { compareCodes } from "./account-code";
 import { cashBankBalanceMap } from "./cash-bank";
 import { journalLineCountForAccount } from "./journal";
 import { type Entity, type Field, entityBySlug } from "./entities";
+import { routingFacts, unitCountsByWorkstation, unitRoutingOrder } from "./production-master";
 
 /**
  * Generic record access for registry-driven entities.
@@ -59,6 +60,8 @@ export type RefOption = {
   subcategoryId?: number;
   /** Kategori Item only: the Item Type it belongs to (P47). */
   itemType?: string;
+  /** Unit only: its Workstation decides Push or BSTB (W64). */
+  workstationId?: number | null;
 };
 
 /** Pass a transaction client to run the write inside someone else's transaction. */
@@ -83,7 +86,9 @@ export function serialize<T extends Record<string, unknown>>(row: T): Row {
 
 /** Every row of an entity, oldest first. */
 export async function listRows(entity: Entity): Promise<Row[]> {
-  const rows = await delegate(entity.key).findMany({ orderBy: { id: "asc" } });
+  // The active Standard Cost leads, the closed versions newest first.
+  const orderBy = entity.key === "prd_rate_version" ? [{ status: "asc" }, { id: "desc" }] : { id: "asc" };
+  const rows = await delegate(entity.key).findMany({ orderBy });
   return rows.map(serialize);
 }
 
@@ -133,6 +138,11 @@ export async function refOptions(
   }
   // The Units a routing step or a rate line picks from (P225).
   if (entity.key === "prd_routing" || entity.key === "prd_rate_version") result._units = await optionsFor("ref_unit");
+  if (entity.key === "prd_rate_version") {
+    const order = await unitRoutingOrder();
+    const at = (id: number) => order.get(id) ?? Number.MAX_SAFE_INTEGER;
+    result._units.sort((a, b) => at(a.id) - at(b.id));
+  }
   return result;
 }
 
@@ -226,7 +236,7 @@ export async function optionsFor(
     }
     case "ref_unit": {
       const rows = await prisma.refUnit.findMany({ orderBy: { unit_label: "asc" } });
-      return rows.map((r) => ({ id: r.id, label: r.unit_label, name: r.unit_name, active: r.status === "Active" }));
+      return rows.map((r) => ({ id: r.id, label: r.unit_label, name: r.unit_name, active: r.status === "Active", workstationId: r.workstation_id }));
     }
     case "ref_workstation": {
       const rows = await prisma.refWorkstation.findMany({ orderBy: { workstation_label: "asc" } });
@@ -279,6 +289,8 @@ function accountWhere(filter?: Field["refFilter"]) {
         children: { none: {} },
         account_subcategory: { subcategory_label: CASH_BANK_SUBCATEGORY },
       };
+    case "costOfSalesAccount":
+      return { is_postable: true, children: { none: {} }, account_subcategory: { subcategory_label: COST_OF_SALES_SUBCATEGORY } };
     case "postableAccount":
       // `children: none` rather than `is_postable` alone: the flag is what the
       // application writes when an account gains a sub-account, and the shape
@@ -309,6 +321,8 @@ function accountWhere(filter?: Field["refFilter"]) {
  * and everything below them all live in this group, at whatever depth.
  */
 export const CASH_BANK_SUBCATEGORY = "1.1.1";
+/** Harga Pokok Penjualan: where a line's variance lands (W23). */
+export const COST_OF_SALES_SUBCATEGORY = "5.1.1";
 
 /**
  * Whether an account is still a leaf, and so may still receive postings.
@@ -469,6 +483,23 @@ export async function computedValues(
         partner_count:
           partners.find((g) => g.category_id === r.id)?._count._all ?? 0,
       };
+    }
+  }
+
+  if (entity.key === "ref_unit") {
+    for (const r of rows) out[r.id] = { qc_check: r.has_qc ? "Ya" : "—" };
+  }
+
+  if (entity.key === "ref_workstation") {
+    const counts = await unitCountsByWorkstation();
+    for (const r of rows) out[r.id] = { unit_count: counts.get(r.id) ?? 0 };
+  }
+
+  if (entity.key === "prd_routing") {
+    const facts = await routingFacts();
+    for (const r of rows) {
+      const f = facts.get(r.id);
+      out[r.id] = { step_count: f?.steps ?? 0, lock_state: f?.locked ? "Terkunci" : "—" };
     }
   }
 

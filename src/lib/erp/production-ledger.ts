@@ -567,6 +567,15 @@ export async function routingInUse(routingId: number): Promise<boolean> {
   return partai + info > 0;
 }
 
+/** Every routing goods follow, for the list that marks them locked. */
+export async function routingsInUse(): Promise<Set<number>> {
+  const [partai, info] = await Promise.all([
+    prisma.prdPartai.findMany({ distinct: ["routing_id"], select: { routing_id: true } }),
+    prisma.prdTrackingInfo.findMany({ distinct: ["routing_id"], select: { routing_id: true } }),
+  ]);
+  return new Set([...partai, ...info].flatMap((r) => (r.routing_id == null ? [] : [r.routing_id])));
+}
+
 /** Whether any stock of the item has ever been in production — what locks its BJL flag (W32). */
 export async function itemUsedInProduction(itemId: number): Promise<boolean> {
   return (await prisma.prdLedger.count({ where: { tracking: { item_id: itemId } } })) > 0;

@@ -1,7 +1,7 @@
 # Plan Implementasi Produksi Walet: Sampai Barcoding
 
 > Sumber: `Produksi Walet (Real).md`. Rujukan W, V, A dan § menunjuk ke dokumen itu.
-> Disusun 05/11/2026, dipecah per menu 06/11/2026. **Status: rencana.** Berisi 24 menu dalam 9 kelompok, urut sesuai flow.
+> Disusun 05/11/2026, dipecah per menu 06/11/2026. **Status: menu 1–7 dibangun (P239), sisanya rencana.** Berisi 24 menu dalam 9 kelompok, urut sesuai flow.
 
 ---
 

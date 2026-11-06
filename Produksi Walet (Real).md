@@ -3,7 +3,7 @@
 > **Dokumen informasi utama produksi ERP.** Setiap keputusan dan perubahan produksi diperbarui di sini dalam commit yang sama (W63). Disusun 04/11/2026 dari tiga sumber dan seluruh jawaban user, sehingga
 > tidak ada pertanyaan yang harus dijawab sebelum build. Yang sengaja ditunda ada di bagian 15.
 >
-> **Status:** langkah D dan 1–3 sudah dibangun (P218, P225–P230); langkah 4 berikutnya. Konsep Grading Halus sampai Barcoding diperbarui oleh W64–W80 dan belum dibangun; bagian 12 mencatat yang harus berubah. Dokumen ini menggantikan keputusan produksi
+> **Status:** langkah D dan 1–3 sudah dibangun (P218, P225–P230), dan penyesuaian master langkah 4 selesai (P239); dokumen langkah 4 berikutnya. Konsep Grading Halus sampai Barcoding diperbarui oleh W64–W80 dan belum dibangun; bagian 12 mencatat yang harus berubah. Dokumen ini menggantikan keputusan produksi
 > `Production-Plan.md` sebatas yang tercantum di bagian 12.
 >
 > **Putaran kedua, 04/11/2026:** W25–W32 (grading per No. Stok, karyawan di pengerjaan unit, checkpoint partai,
@@ -453,11 +453,11 @@ Menu baru untuk PPIC, membaca baris Sales Order berstatus Open yang belum terkir
 | Tagihan Biaya, Pembayaran Biaya Produksi, Jenis Biaya, Account WIP | **Tetap** |
 | `inventory.ts`, buku stok, MAC | Tetap; `log_stock_tracking` unik seluruh sistem (W10). Nomor baru tiap penerimaan ditegakkan di Receipt Note dan `db:stock-inject`; `receiveStock` tetap menerima nomor yang sudah ada, karena BSTB ke Finish Goods dan Pengeluaran membawa No. Stok yang sama kembali ke Logistik |
 | `production-ledger.ts` | Tetap sebagai buku; kunci bucket jadi No. Stok · Unit · Tahap · Partai · Job (P227) |
-| `exit_mode` di `ref_unit`, seed P229 | Diubah: Keluar Lewat dihitung dari Workstation sampai Barcoding (W64), Packing belum ditinjau; seed menjadi 15 unit bagian 5 |
-| `ref_unit.processes`, `PrdProcessKind`, `entities.ts`, `production-master-shape.ts` | Diubah: satu jenis pekerjaan per Unit (W73). `GradingMix`, `JobOrder` dan `PartaiFormer` dibuang; aturan "pra-partai berakhir di unit Pembentuk Partai" diganti: berakhir di Penyebaran, yang keluar lewat BSTB |
-| `ref_unit` | Ditambah penanda QC Check (W65) |
+| `exit_mode` di `ref_unit`, seed P229 | **Selesai (P239).** Kolom dibuang, Keluar Lewat dihitung dari routing dan Workstation (W64); seed berisi 14 unit sampai UP5 (W81), UP8 menyusul bersama Packing |
+| `ref_unit.processes`, `PrdProcessKind`, `entities.ts`, `production-master-shape.ts` | **Selesai (P239).** Satu jenis pekerjaan per Unit (W73). `GradingMix`, `JobOrder` dan `PartaiFormer` dibuang; aturan "pra-partai berakhir di unit Pembentuk Partai" diganti: berakhir di Penyebaran, yang keluar lewat BSTB |
+| `ref_unit` | **Selesai (P239).** Ditambah penanda QC Check, `has_qc` (W65) |
 | `PrdStage`, `prd_balance`, `prd_ledger` | Ditambah tahap QC Check; bucket Balik QC harus terpisah dari saldo No. Stok yang sama (W66) |
-| Routing REG-1 di seed | Diubah: UPW → UCL → UC1 → USR → UDA → UMG → UMP → UDB → UWP → UBC, checkpoint pindah dari UDA ke UBC (W71), lalu berlanjut ke UP5 (W81). Routing yang sudah dipakai tetap terkunci, jadi ini routing baru |
+| Routing REG-1 di seed | **Selesai (P239).** UPW → UCL → UC1 → USR → UDA → UMG → UMP → UDB → UWP → UBC, checkpoint pindah dari UDA ke UBC (W71), lalu berlanjut ke UP5 (W81). Belum ada partai memakainya, jadi langkahnya diganti di tempat; routing yang sudah dipakai dibiarkan terkunci |
 | `prd_tracking_link` | Tetap; ditambah komposisi `prd_composition` |
 | `period-lock.ts`, checklist closing | Tetap. Guard tahun buku R28 ditulis ulang agar membaca `prd_ledger`, bukan Eksekusi |
 | Telusur, Kartu No. Stok (W86), Saldo Produksi | Tetap, diubah: Partai dan Job, himpunan supplier setelah mix, komposisi kotak |
@@ -525,7 +525,7 @@ Tiap langkah: satu commit ke `main`, migrasi dan DBML bersamaan, `npm run build`
 | 1 | **Selesai (P225), kecuali istilah Lot → No. Stok di layar, yang belum dikerjakan.** Istilah di layar; drop `ref_workstation` lama, Unit + Workstation baru dalam satu migrasi; Tipe Unit, Line, Routing versi, flag BJL pada master Item (terkunci setelah dipakai), Standard Cost versi; master Karyawan; tanda checkpoint pada langkah Routing; No. Stok unik | Master bisa dibuat di browser; penerimaan kedua jenis sama mendapat nomor baru |
 | 2 | **Selesai (P227).** Identitas dan buku: bucket baru, Partai, Job, `prd_tracking_info`, `prd_cost_entry` | Test buku hijau |
 | 3 | **Selesai (P228).** BSTB Issue + Terima; bahan penolong ke unit | Skenario A1 |
-| 4 | Penyesuaian master dulu: satu proses per Unit, 15 unit, QC Check pada Unit, Keluar Lewat otomatis, tahap QC Check di bucket (W64, W65, W73). Lalu Grading Halus (1 No. Grading per No. Stok, parsial), Pre Cleaning dengan pilih Job dan karyawan, QC Check dengan Balik QC, Dokumen Push dari Stand By | Job terbit di Dokumen Push; V1–V3 benar (BJL 0, non-BJL menurut gram); skenario A11, A13, A14, A21, A23, A25, A26 |
+| 4 | Penyesuaian master **selesai (P239)**, kecuali tahap QC Check di bucket yang ikut dokumen QC Check. Lalu Grading Halus (1 No. Grading per No. Stok, parsial), Pre Cleaning dengan pilih Job dan karyawan, QC Check dengan Balik QC, Dokumen Push dari Stand By | Job terbit di Dokumen Push; V1–V3 benar (BJL 0, non-BJL menurut gram); skenario A11, A13, A14, A21, A23, A25, A26 |
 | 5 | Penyebaran, BSTB tanpa QC, pembentukan partai saat kirim | Skenario A2, A22 |
 | 6 | Pre Wash, Cleaning, CCP-1, Sortir, Dry A, BSTB parsial | Angka sampai Dry A sama simulasi; skenario A27 |
 | 7 | Moulding (grading), Moulding (process), Job Order pada No. Job, Dry B, Wrapping, bahan penolong pada Pengerjaan Unit | Angka sampai Wrapping sama simulasi; skenario A15, A28 |

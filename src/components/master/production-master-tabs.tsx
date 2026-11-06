@@ -8,11 +8,13 @@ import { Field, FormRow } from "@/components/ui/form";
 import { RateInput } from "@/components/ui/rate-input";
 import { CollectionCard, RowActions, newKey, type CollectionTabProps } from "@/components/master/collection-tab";
 import {
-  rateErrors,
+  EXIT_ROUTE_LABEL,
+  exitRoutes,
   stepErrors,
   type RateDraft,
   type StepDraft,
 } from "@/lib/erp/production-master-shape";
+import { formatPrice } from "@/lib/format";
 import type { RefOption } from "@/lib/erp/records";
 
 /**
@@ -36,9 +38,13 @@ const offered = (units: RefOption[], keep: number | null) => units.filter((u) =>
 
 // ------------------------------------------------------------- routing steps
 
-export function RoutingStepsTab({ editing, items, error, onChange, context }: CollectionTabProps<StepDraft>) {
+export function RoutingStepsTab({ editing, locked, items, error, onChange, context }: CollectionTabProps<StepDraft>) {
   const [open, setOpen] = useState<StepDraft | null>(null);
   const units = context?.refs._units ?? [];
+  const routes = exitRoutes(
+    items.map((s) => units.find((u) => u.id === s.unit_id)?.workstationId ?? null),
+    Number(context?.values.line_id) > 0
+  );
 
   const blank = (): StepDraft => ({ key: newKey("s"), unit_id: null, is_checkpoint: false, is_skippable: false });
   const apply = (s: StepDraft) => {
@@ -55,8 +61,9 @@ export function RoutingStepsTab({ editing, items, error, onChange, context }: Co
     <CollectionCard
       icon="tree"
       title="Langkah"
-      desc="Unit berurutan yang dilalui barang. Cara barang keluar diatur di masing-masing Unit."
+      desc="Unit berurutan yang dilalui barang. Keluar Lewat dihitung dari Workstation: satu Workstation Dokumen Push, lintas Workstation BSTB."
       editing={editing}
+      locked={locked}
       addLabel="Tambah Langkah"
       onAdd={() => setOpen(blank())}
       error={error}
@@ -71,11 +78,12 @@ export function RoutingStepsTab({ editing, items, error, onChange, context }: Co
         </div>
       ) : (
         <div className="tw">
-          <table className="grid coll" style={{ minWidth: 560 }}>
+          <table className="grid coll" style={{ minWidth: 700 }}>
             <thead>
               <tr>
                 <th style={{ width: 44 }}>No</th>
                 <th>Unit</th>
+                <th style={{ width: 130 }}>Keluar Lewat</th>
                 <th style={{ width: 110 }}>Checkpoint</th>
                 <th style={{ width: 110 }}>Boleh Dilewati</th>
                 {editing && <th style={{ width: 130 }} />}
@@ -88,6 +96,7 @@ export function RoutingStepsTab({ editing, items, error, onChange, context }: Co
                   <td>
                     <UnitCell units={units} id={s.unit_id} />
                   </td>
+                  <td>{routes[i] ? EXIT_ROUTE_LABEL[routes[i]] : "—"}</td>
                   <td>{s.is_checkpoint ? "Ya" : "—"}</td>
                   <td>{s.is_skippable ? "Ya" : "—"}</td>
                   {editing && (
@@ -194,7 +203,7 @@ function StepDialog({
             }}
           />
         </Field>
-        <Field label="Checkpoint" span={6} help="dari langkah ini partai berpindah utuh">
+        <Field label="Checkpoint" span={6} help="keluar langkah ini seluruh isi partai harus lengkap">
           <label className="chk sm">
             <input type="checkbox" checked={s.is_checkpoint} onChange={(e) => setS((x) => ({ ...x, is_checkpoint: e.target.checked }))} />
             <span>
@@ -217,33 +226,39 @@ function StepDialog({
 
 // -------------------------------------------------------------------- rates
 
+/**
+ * One row per Unit in routing order, typed in place: the version is written once,
+ * so the whole of it is on one screen. A Unit left empty has no row, and costs 0.
+ */
 export function RateLinesTab({ editing, items, error, onChange, context }: CollectionTabProps<RateDraft>) {
-  const [open, setOpen] = useState<RateDraft | null>(null);
   const units = context?.refs._units ?? [];
+  const rateOf = (unitId: number) => items.find((r) => r.unit_id === unitId)?.rate ?? "";
+  const rows = units.filter((u) => (editing ? u.active : rateOf(u.id) !== ""));
 
-  const blank = (): RateDraft => ({ key: newKey("r"), unit_id: null, rate: "" });
-  const apply = (r: RateDraft) => {
-    onChange(items.some((x) => x.key === r.key) ? items.map((x) => (x.key === r.key ? r : x)) : [...items, r]);
-    setOpen(null);
-  };
+  const type = (unitId: number, rate: string) =>
+    onChange(
+      rate === ""
+        ? items.filter((r) => r.unit_id !== unitId)
+        : items.some((r) => r.unit_id === unitId)
+          ? items.map((r) => (r.unit_id === unitId ? { ...r, rate } : r))
+          : [...items, { key: newKey("r"), unit_id: unitId, rate }]
+    );
 
   return (
     <CollectionCard
       icon="calc"
       title="Rate per Unit"
-      desc="Rate biaya per gram input. Unit yang tidak diisi berarti rate 0. Versi tidak dapat diubah setelah disimpan."
+      desc="Rate biaya per gram input, urut routing. Unit yang kosong berarti rate 0. Versi tidak dapat diubah setelah disimpan."
       editing={editing}
-      addLabel="Tambah Rate"
-      onAdd={() => setOpen(blank())}
       error={error}
     >
-      {items.length === 0 ? (
+      {rows.length === 0 ? (
         <div className="empty sm">
           <div className="ic">
             <Icon name="calc" size={18} />
           </div>
-          <h4>Belum ada rate</h4>
-          <p>Unit yang tidak diisi membebankan 0.</p>
+          <h4>{editing ? "Belum ada unit aktif" : "Semua unit berate 0"}</h4>
+          <p>{editing ? "Buat Unit lebih dulu." : "Versi ini tidak mengisi rate untuk unit mana pun."}</p>
         </div>
       ) : (
         <div className="tw">
@@ -252,112 +267,27 @@ export function RateLinesTab({ editing, items, error, onChange, context }: Colle
               <tr>
                 <th style={{ width: 44 }}>No</th>
                 <th>Unit</th>
-                <th className="num" style={{ width: 180 }}>
+                <th className="num" style={{ width: 220 }}>
                   Rate per Gram
                 </th>
-                {editing && <th style={{ width: 72 }} />}
               </tr>
             </thead>
             <tbody>
-              {items.map((r, i) => (
-                <tr key={r.key} className={editing ? "ed" : undefined} onClick={editing ? () => setOpen(r) : undefined}>
+              {rows.map((u, i) => (
+                <tr key={u.id}>
                   <td className="no">{i + 1}</td>
                   <td>
-                    <UnitCell units={units} id={r.unit_id} />
+                    <span className="lab">{u.label}</span> {u.name}
                   </td>
-                  <td className="num mono">{r.rate}</td>
-                  {editing && (
-                    <td>
-                      <RowActions onEdit={() => setOpen(r)} onRemove={() => onChange(items.filter((x) => x.key !== r.key))} />
-                    </td>
-                  )}
+                  <td className="num mono">
+                    {editing ? <RateInput value={rateOf(u.id)} pairLabel="Rp/g" onChange={(v) => type(u.id, v)} /> : formatPrice(rateOf(u.id))}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {open && (
-        <RateDialog
-          initial={open}
-          isNew={!items.some((x) => x.key === open.key)}
-          units={units}
-          takenUnits={items.filter((x) => x.key !== open.key).flatMap((x) => (x.unit_id ? [x.unit_id] : []))}
-          onCancel={() => setOpen(null)}
-          onApply={apply}
-        />
-      )}
     </CollectionCard>
-  );
-}
-
-function RateDialog({
-  initial,
-  isNew,
-  units,
-  takenUnits,
-  onCancel,
-  onApply,
-}: {
-  initial: RateDraft;
-  isNew: boolean;
-  units: RefOption[];
-  takenUnits: number[];
-  onCancel: () => void;
-  onApply: (r: RateDraft) => void;
-}) {
-  const [r, setR] = useState<RateDraft>(initial);
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const submit = () => {
-    const found = rateErrors(r, takenUnits);
-    if (Object.keys(found).length) setErrors(found);
-    else onApply(r);
-  };
-  return (
-    <Dialog
-      open
-      icon="calc"
-      title={isNew ? "Tambah Rate" : "Ubah Rate"}
-      subtitle="Rate biaya per gram input untuk satu unit."
-      width={560}
-      onClose={onCancel}
-      foot={
-        <>
-          <span className="fnote">Tersimpan ke database saat versi disimpan.</span>
-          <button className="btn" onClick={onCancel}>
-            Batal
-          </button>
-          <button className="btn primary" onClick={submit}>
-            <Icon name="check" size={15} /> {isNew ? "Tambahkan" : "Perbarui"}
-          </button>
-        </>
-      }
-    >
-      <FormRow>
-        <Field label="Unit" span={8} required error={errors.unit_id}>
-          <Combobox
-            value={r.unit_id}
-            options={offered(units, initial.unit_id)}
-            placeholder="Pilih Unit…"
-            invalid={Boolean(errors.unit_id)}
-            onChange={(v) => {
-              setR((x) => ({ ...x, unit_id: v == null ? null : Number(v) }));
-              setErrors((e) => ({ ...e, unit_id: "" }));
-            }}
-          />
-        </Field>
-        <Field label="Rate per Gram" span={4} required error={errors.rate}>
-          <RateInput
-            value={r.rate}
-            pairLabel="Rp/g"
-            invalid={Boolean(errors.rate)}
-            onChange={(v) => {
-              setR((x) => ({ ...x, rate: v }));
-              setErrors((e) => ({ ...e, rate: "" }));
-            }}
-          />
-        </Field>
-      </FormRow>
-    </Dialog>
   );
 }

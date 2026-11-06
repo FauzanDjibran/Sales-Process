@@ -12,7 +12,6 @@ import {
 } from "@/lib/erp/header-actions";
 import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
-import { MultiSelect } from "@/components/ui/multi-select";
 import { Select } from "@/components/ui/select";
 import { MoneyInput } from "@/components/ui/money-input";
 import { PercentInput } from "@/components/ui/percent-input";
@@ -79,6 +78,8 @@ export function EntityForm({
   defaults,
   lockedFields,
   lockNote,
+  lockedTabs,
+  saveConfirm,
   collections: initialCollections,
 }: {
   entity: Entity;
@@ -116,6 +117,10 @@ export function EntityForm({
   lockedFields?: string[];
   /** Why those fields are locked, as a closing note at the foot of the card. */
   lockNote?: string;
+  /** Custom tabs shown read-only on an edit, because what they hold is locked. */
+  lockedTabs?: string[];
+  /** Said and confirmed before saving, for a save that cannot be taken back. */
+  saveConfirm?: string;
   /** What each `custom` tab starts with, by tab key — a Partner's addresses. */
   collections?: Record<string, unknown[]>;
 }) {
@@ -134,6 +139,7 @@ export function EntityForm({
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [confirmToggle, setConfirmToggle] = useState(false);
+  const [confirmSave, setConfirmSave] = useState(false);
   const [busyToggle, setBusyToggle] = useState(false);
 
   // A form is a header card, its remaining content in tabs, then the record
@@ -381,7 +387,8 @@ export function EntityForm({
       if (!Custom) return null;
       return (
         <Custom
-          editing={editing}
+          editing={editing && !lockedTabs?.includes(tab.key)}
+          locked={lockedTabs?.includes(tab.key)}
           items={collections[tab.key] ?? []}
           error={errors[`_${tab.key}`]}
           context={{ values, refs }}
@@ -478,7 +485,7 @@ export function EntityForm({
             {editing ? (
               <>
                 <CancelButton href={mode === "new" ? basePath : `${basePath}/${row!.id}`} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
+                <button className="btn primary" onClick={saveConfirm ? () => setConfirmSave(true) : onSave} disabled={saving}>
                   <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
                 </button>
               </>
@@ -549,6 +556,25 @@ export function EntityForm({
           )}
         </div>
       </div>
+
+      {saveConfirm && (
+        <ConfirmDialog
+          open={confirmSave}
+          icon="warn"
+          tone="brand"
+          title={`Simpan ${entity.name}`}
+          subject={String(values[entity.nameField ?? ""] ?? "")}
+          body={saveConfirm}
+          confirmLabel="Ya, Simpan"
+          confirmTone="primary"
+          busy={saving}
+          onConfirm={() => {
+            setConfirmSave(false);
+            void onSave();
+          }}
+          onCancel={() => setConfirmSave(false)}
+        />
+      )}
 
       <ConfirmDialog
         open={confirmToggle}
@@ -725,19 +751,6 @@ function readOnlyBody({
       <div className="ro nil">tidak diisi</div>
     );
   }
-  if (field.type === "multi") {
-    const list = Array.isArray(raw) ? (raw as string[]) : [];
-    if (!list.length) return <div className="ro nil">tidak diisi</div>;
-    return (
-      <div className="ro">
-        {list.map((o) => (
-          <span key={o} className="bdg t-slate" style={{ marginRight: 4 }}>
-            {field.optionLabels?.[o] ?? o}
-          </span>
-        ))}
-      </div>
-    );
-  }
   if (field.type === "select") {
     if (raw == null || raw === "") return <div className="ro nil">tidak diisi</div>;
     const s = String(raw);
@@ -879,24 +892,6 @@ function editableControl({
         invalid={Boolean(error)}
         waitingFor={waitingFor}
         onChange={(v) => onChange(v == null ? null : String(v))}
-      />
-    );
-  }
-  if (field.type === "multi") {
-    // MultiSelect works in ids; a field option is its 1-based position.
-    const opts = (field.options ?? []).map((o, i) => ({ id: i + 1, label: field.optionLabels?.[o] ?? o, name: "", active: true }));
-    const chosen = String(value ?? "")
-      .split(",")
-      .map((o) => (field.options ?? []).indexOf(o) + 1)
-      .filter((n) => n > 0);
-    return (
-      <MultiSelect
-        value={chosen}
-        options={opts}
-        placeholder={`Tambah ${field.label}…`}
-        emptyPlaceholder={`Pilih ${field.label}…`}
-        invalid={Boolean(error)}
-        onChange={(ids) => onChange(ids.map((n) => (field.options ?? [])[n - 1]).join(","))}
       />
     );
   }

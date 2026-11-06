@@ -315,6 +315,29 @@ export function EntityList({
             />
           )}
 
+          {entity.columns
+            .filter((c) => c.toolbarFilter)
+            .map((c) => {
+              const field = entity.fields.find((f) => f.name === c.field);
+              const options = c.isRef
+                ? refFor(c).map((o) => ({ value: String(o.id), label: o.label }))
+                : (field?.options ?? []).map((o) => ({ value: o, label: field?.optionLabels?.[o] ?? o }));
+              return (
+                <Select
+                  key={c.field}
+                  variant="toolbar"
+                  value={filters[c.field] ?? ""}
+                  set={Boolean(filters[c.field])}
+                  ariaLabel={`Filter ${c.label}`}
+                  options={[{ value: "", label: `${c.label}: semua` }, ...options]}
+                  onChange={(v) => {
+                    setFilters((f) => ({ ...f, [c.field]: v }));
+                    setPage(1);
+                  }}
+                />
+              );
+            })}
+
           {activeFilters > 0 && (
             <button className="btn sm ghost" onClick={clearAll}>
               Bersihkan filter ({activeFilters})
@@ -427,7 +450,7 @@ export function EntityList({
               <p>
                 {rows.length
                   ? "Ubah kata kunci atau bersihkan filter yang sedang aktif."
-                  : `Data akan muncul di sini setelah ${entity.single ?? entity.name} pertama dibuat.`}
+                  : (entity.emptyHint ?? `Data akan muncul di sini setelah ${entity.single ?? entity.name} pertama dibuat.`)}
               </p>
               {/* A CTA only when the user can actually act on it. */}
               {(rows.length > 0 || canCreate) && (

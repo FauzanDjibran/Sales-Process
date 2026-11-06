@@ -425,9 +425,9 @@ table ref_unit {
   unit_label                  varchar [not null] // the short code used in document numbers, e.g. UGH
   unit_name                   varchar [not null]
   workstation_id              int [ref : > ref_workstation.id]
-  processes                   varchar // PrdProcessKind[]: PassThrough, Grading, PartaiFormer, GradingMix, JobOrder, Assembly
-  exit_mode                   enum('Direct', 'NoQc', 'WithQc', 'PerCarton') [not null, default: 'WithQc'] // how goods leave (§5, P230)
-  job_policy                  enum('Issued', 'Carried', 'Released', 'None') [not null, default: 'Carried']
+  process                     enum('PassThrough', 'Grading', 'Assembly') [not null, default: 'PassThrough'] // one Unit, one process (W73)
+  has_qc                      boolean [not null, default: false] // goods pass a QC Check before Stand By (W65)
+  job_policy                  enum('Issued', 'Carried', 'Released', 'ReleasedWithOrder', 'None') [not null, default: 'Carried']
 
   note                        varchar
 

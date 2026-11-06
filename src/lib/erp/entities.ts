@@ -9,7 +9,7 @@
  */
 import type { IconName } from "@/components/icon";
 import { isBaseCurrency } from "./currency";
-import { EXIT_MODES, EXIT_MODE_LABEL, JOB_POLICIES, JOB_POLICY_LABEL } from "./production-master-shape";
+import { JOB_POLICIES, JOB_POLICY_LABEL, PROCESS_KINDS, PROCESS_KIND_LABEL } from "./production-master-shape";
 
 /** A value a create form's field can start on (P61). */
 export type FieldPreset = "base_currency";
@@ -19,7 +19,6 @@ export type FieldType =
   | "textarea"
   | "select"
   /** Several values of `options`, held in the form as one comma-joined string and stored as an enum array. */
-  | "multi"
   | "ref"
   | "bool"
   | "date"
@@ -110,6 +109,7 @@ export type Field = {
   refFilter?:
     | "cashBankAccount"
     | "postableAccount"
+    | "costOfSalesAccount"
     | "parentAccount"
     /** Kategori Item of the Tipe the form currently holds (P47). */
     | "itemCategoryByType";
@@ -228,6 +228,8 @@ export type Column = {
   /** Value comes from the server-computed map rather than the row. */
   computed?: boolean;
   filter?: "text" | "ref" | "enum" | "bool";
+  /** Offered as a dropdown beside the search box, like the status filter. */
+  toolbarFilter?: boolean;
 };
 
 /**
@@ -248,6 +250,8 @@ export type StatusModel = {
 };
 
 export type Entity = {
+  /** Why an empty list matters, shown under "Belum ada …". */
+  emptyHint?: string;
   key: string;
   slug: string;
   module: string;
@@ -293,17 +297,6 @@ const FISCAL_STATUS: StatusModel = {
   kind: "enum",
   options: ["Draft", "Open", "Closed"],
   toggle: false,
-};
-
-/** The kinds of work an engine in code knows (W33); a Unit is allowed some of them. */
-export const PROCESS_KINDS = ["PassThrough", "Grading", "PartaiFormer", "GradingMix", "JobOrder", "Assembly"];
-export const PROCESS_KIND_LABEL: Record<string, string> = {
-  PassThrough: "Pass Through",
-  Grading: "Grading",
-  PartaiFormer: "Pembentuk Partai",
-  GradingMix: "Grading Mix",
-  JobOrder: "Job Order",
-  Assembly: "Assembly",
 };
 
 const STATUS_FIELD: Field = {
@@ -667,7 +660,7 @@ export const ENTITIES: Entity[] = [
         span: 3,
         visibleWhen: "itemIsGoods",
         caption: "BJL",
-        captionDetail: "nilainya selalu 0 di produksi; terkunci setelah dipakai",
+        captionDetail: "selalu bernilai 0, gram tetap dihitung",
       },
       STATUS_FIELD,
       NOTE_FIELD,
@@ -988,14 +981,14 @@ export const ENTITIES: Entity[] = [
   },
 
   {
-    // Where goods are held in production, the kinds of work done there and how
-    // goods leave (P230, §5). A routing step names a Unit; nothing in code names one.
+    // Where goods are held in production and the one kind of work done there
+    // (W73, §5). A routing step names a Unit; nothing in code names one.
     key: "ref_unit",
     slug: "unit",
     module: "master",
     name: "Unit",
     icon: "gear",
-    desc: "Tempat barang berada selama produksi — Grading Halus, Pre Wash, Moulding. Jenis pekerjaan yang boleh dilakukan di sini dipilih dari yang dikenal sistem; urutan antarunit ada di Routing.",
+    desc: "Tempat barang berada selama produksi — Grading Halus, Pre Wash, Barcoding. Satu unit menjalankan satu jenis proses; urutan antarunit ada di Routing.",
     codeField: "unit_code",
     codePrefix: "unit",
     labelField: "unit_label",
@@ -1031,36 +1024,34 @@ export const ENTITIES: Entity[] = [
         help: "kelompok unit",
       },
       {
-        name: "processes",
-        label: "Jenis Pekerjaan",
-        type: "multi",
-        required: true,
-        span: 8,
-        options: PROCESS_KINDS,
-        optionLabels: PROCESS_KIND_LABEL,
-        help: "Moulding memakai Grading Mix dan Job Order",
-      },
-      {
-        name: "exit_mode",
-        label: "Keluar Lewat",
+        name: "process",
+        label: "Tipe",
         type: "select",
         required: true,
         span: 4,
-        options: [...EXIT_MODES],
-        optionLabels: EXIT_MODE_LABEL,
-        defaultValue: "WithQc",
-        help: "cara barang meninggalkan unit ini",
+        options: [...PROCESS_KINDS],
+        optionLabels: PROCESS_KIND_LABEL,
+        defaultValue: "PassThrough",
+        help: "satu unit satu proses",
+      },
+      {
+        name: "has_qc",
+        label: "QC Check",
+        type: "bool",
+        span: 4,
+        caption: "Ada QC Check",
+        captionDetail: "hasil proses diperiksa QC sebelum Stand By",
       },
       {
         name: "job_policy",
         label: "No. Job saat Keluar",
         type: "select",
         required: true,
-        span: 4,
+        span: 6,
         options: [...JOB_POLICIES],
         optionLabels: JOB_POLICY_LABEL,
         defaultValue: "Carried",
-        help: "Terbit bila barang perlu identitas baru di sini",
+        help: "apa yang terjadi pada No. Job saat barang keluar",
       },
       STATUS_FIELD,
       NOTE_FIELD,
@@ -1068,9 +1059,9 @@ export const ENTITIES: Entity[] = [
     columns: [
       { field: "unit_label", label: "Kode", isLabel: true, width: "110px", filter: "text" },
       { field: "unit_name", label: "Nama Unit", primary: true, filter: "text" },
-      { field: "workstation_id", label: "Workstation", isRef: true, width: "200px" },
-      { field: "exit_mode", label: "Keluar Lewat", isStatus: true, width: "130px" },
-      { field: "job_policy", label: "No. Job", isStatus: true, width: "110px" },
+      { field: "workstation_id", label: "Workstation", isRef: true, width: "200px", filter: "ref", toolbarFilter: true },
+      { field: "process", label: "Tipe", isTag: true, width: "120px", filter: "enum", toolbarFilter: true },
+      { field: "qc_check", label: "QC Check", computed: true, width: "100px" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
   },
@@ -1082,7 +1073,8 @@ export const ENTITIES: Entity[] = [
     module: "master",
     name: "Workstation",
     icon: "build",
-    desc: "Pengelompok unit produksi — Cleaning, Moulding, WIP Packing.",
+    desc: "Pengelompok unit produksi — Cleaning, Moulding, WIP Packing. Antar unit satu Workstation barang pindah dengan Dokumen Push, lintas Workstation dengan BSTB.",
+    emptyHint: "Buat Workstation lebih dulu; tiap Unit wajib berada di satu Workstation.",
     codeField: "workstation_code",
     codePrefix: "ws",
     labelField: "workstation_label",
@@ -1113,6 +1105,7 @@ export const ENTITIES: Entity[] = [
     columns: [
       { field: "workstation_label", label: "Label", isLabel: true, width: "170px", filter: "text" },
       { field: "workstation_name", label: "Nama Workstation", primary: true, filter: "text" },
+      { field: "unit_count", label: "Jumlah Unit", computed: true, numeric: true, width: "120px" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
       { field: "note", label: "Catatan", muted: true, truncate: true },
     ],
@@ -1125,6 +1118,7 @@ export const ENTITIES: Entity[] = [
     name: "Line Produksi",
     icon: "layers",
     desc: "Satu lini produksi, mis. Reguler. Routing-nya mengikuti line; selisih biaya bulanan masuk ke account varians line ini.",
+    emptyHint: "BSTB Penyebaran membutuhkan Line untuk melahirkan partai.",
     codeField: "line_code",
     codePrefix: "line",
     labelField: "line_label",
@@ -1154,9 +1148,9 @@ export const ENTITIES: Entity[] = [
         label: "Account Varians",
         type: "ref",
         ref: "acc_account",
-        refFilter: "postableAccount",
+        refFilter: "costOfSalesAccount",
         span: 6,
-        help: "akun HPP milik line; menampung varians saat penutupan bulan",
+        help: "kelompok Harga Pokok Penjualan; menampung varians saat Closing",
       },
       STATUS_FIELD,
       NOTE_FIELD,
@@ -1177,10 +1171,11 @@ export const ENTITIES: Entity[] = [
     module: "master",
     name: "Routing",
     icon: "tree",
-    desc: "Urutan unit yang dilalui barang. Ada dua macam: tanpa line, dari unit pertama sampai unit Pembentuk Partai; dan milik line, dari unit sesudahnya sampai akhir. Langkah terkunci begitu dipakai partai.",
+    desc: "Urutan unit yang dilalui barang. Ada dua macam: tanpa line, dari unit pertama sampai unit tempat partai lahir saat keluar; dan milik line, dari unit sesudahnya sampai akhir. Langkah terkunci begitu dipakai partai.",
     codeField: "routing_code",
     codePrefix: "rout",
     labelField: "routing_label",
+    emptyHint: "Routing tersusun dari Unit, jadi buat Unit lebih dulu.",
     nameField: "routing_name",
     statusModel: ACTIVE_STATUS,
     fields: [
@@ -1199,7 +1194,7 @@ export const ENTITIES: Entity[] = [
         label: "Nama Routing",
         type: "text",
         required: true,
-        placeholder: "Reguler dari Dry A sampai Packing",
+        placeholder: "Reguler dari Pre Wash sampai Packing 95",
         help: "nama lengkap",
       },
       {
@@ -1219,7 +1214,7 @@ export const ENTITIES: Entity[] = [
         key: "steps",
         label: "Langkah",
         icon: "tree",
-        desc: "Unit berurutan. Unit tujuan BSTB selalu langkah berikutnya.",
+        desc: "Unit berurutan. Unit tujuan selalu langkah berikutnya.",
         kind: "custom",
       },
     ],
@@ -1227,6 +1222,8 @@ export const ENTITIES: Entity[] = [
       { field: "routing_label", label: "Label", isLabel: true, width: "170px", filter: "text" },
       { field: "routing_name", label: "Nama Routing", primary: true, filter: "text" },
       { field: "line_id", label: "Line", isRef: true, width: "200px" },
+      { field: "step_count", label: "Langkah", computed: true, numeric: true, width: "100px" },
+      { field: "lock_state", label: "Terkunci", computed: true, width: "110px" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
   },
@@ -1244,6 +1241,7 @@ export const ENTITIES: Entity[] = [
     codeField: "rate_code",
     codePrefix: "rate",
     labelField: "rate_label",
+    emptyHint: "Selama belum ada versi aktif, biaya unit tidak bisa dihitung.",
     nameField: "rate_name",
     statusModel: RATE_VERSION_STATUS,
     fields: [
@@ -1274,7 +1272,7 @@ export const ENTITIES: Entity[] = [
         key: "rates",
         label: "Rate per Unit",
         icon: "calc",
-        desc: "Rate per gram input untuk tiap unit. Unit yang tidak diisi berarti rate 0. Tidak dapat diubah setelah disimpan.",
+        desc: "Rate per gram input untuk tiap unit, urut routing. Yang kosong berarti 0. Tidak dapat diubah setelah disimpan.",
         kind: "custom",
       },
     ],
@@ -1296,6 +1294,7 @@ export const ENTITIES: Entity[] = [
     codeField: "employee_code",
     codePrefix: "emp",
     labelField: "employee_label",
+    emptyHint: "Pengerjaan Unit tidak bisa diposting tanpa karyawan.",
     nameField: "employee_name",
     statusModel: ACTIVE_STATUS,
     fields: [

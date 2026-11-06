@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Icon } from "@/components/icon";
 import { AccountTree } from "@/components/master/account-tree";
 import { FiscalPeriods } from "@/components/accounting/fiscal-periods";
 import { FiscalYearActions } from "@/components/accounting/fiscal-year-actions";
@@ -21,7 +23,17 @@ import { cashBankBookSummary } from "@/lib/erp/cash-bank";
 import { partnerCollections } from "@/lib/erp/partner";
 import { itemCollections } from "@/lib/erp/item";
 import { warehouseCollections } from "@/lib/erp/warehouse";
-import { rateCollections, routingCollections } from "@/lib/erp/production-master";
+import {
+  rateCollections,
+  routingCollections,
+  routingCopy,
+  routingsOfLine,
+  unitOnRouting,
+  unitsOfWorkstation,
+} from "@/lib/erp/production-master";
+import { itemUsedInProduction, routingInUse } from "@/lib/erp/production-ledger";
+import { activeRateVersion } from "@/lib/erp/production-master";
+import { RelatedRecordsCard } from "@/components/master/related-records-card";
 import { fiscalYearPeriods } from "@/lib/erp/fiscal";
 import { fiscalPeriodAbilities } from "@/lib/erp/fiscal-workflow";
 import { baseCurrencyId } from "@/lib/erp/system-settings";
@@ -125,9 +137,12 @@ export async function EntityListPage({
 export async function EntityNewPage({
   module: moduleKey,
   slug,
+  copyOf,
 }: {
   module: string;
   slug: string;
+  /** A routing to start from: a locked one changes by being copied (W35). */
+  copyOf?: number;
 }) {
   const entity = resolve(moduleKey, slug);
 
@@ -136,6 +151,7 @@ export async function EntityNewPage({
   const actor = await requirePermission(create, `/${entity.module}/${entity.slug}/new`);
 
   const refs = await refOptions(entity);
+  const copy = entity.key === "prd_routing" && copyOf ? await routingCopy(copyOf) : null;
 
   return (
     <EntityForm
@@ -144,8 +160,9 @@ export async function EntityNewPage({
       row={null}
       refs={refs}
       can={abilitiesFor(entity.key, actor.permissions)}
-      defaults={{ base_currency: await baseCurrencyId() }}
-      collections={await collectionsOf(entity, null)}
+      defaults={{ base_currency: await baseCurrencyId(), ...(copy?.lineId ? { line_id: copy.lineId } : {}) }}
+      collections={copy ? { steps: copy.steps } : await collectionsOf(entity, null)}
+      saveConfirm={entity.key === "prd_rate_version" ? await rateSaveNote() : undefined}
     />
   );
 }
@@ -175,6 +192,7 @@ export async function EntityDetailPage({
   // which is what generates its periods. Everything else here is registry-driven.
   const fiscalStatus = String(row.status ?? "Draft") as FiscalYearStatus;
   const fiscalCan = fiscalYearAbilities(actor.permissions);
+  const canCreate = abilitiesFor(entity.key, actor.permissions).create;
   const headerActions =
     entity.key === "acc_fiscal_year" ? (
       <FiscalYearActions
@@ -183,6 +201,10 @@ export async function EntityDetailPage({
         status={fiscalStatus}
         can={fiscalCan}
       />
+    ) : entity.key === "prd_routing" && canCreate ? (
+      <Link className="btn" href={`/${entity.module}/${entity.slug}/new?copy=${row.id}`}>
+        <Icon name="copy" size={15} /> Salin
+      </Link>
     ) : undefined;
 
   // A header carries one primary and it is the rightmost button. Activating a
@@ -195,7 +217,7 @@ export async function EntityDetailPage({
       ? "neutral"
       : "primary";
 
-  const parentLock = await accountParentLock(entity, row);
+  const parentLock = await recordLock(entity, row);
 
   const form = (
     <EntityForm
@@ -235,6 +257,12 @@ export async function EntityDetailPage({
     return (
       <>
         {form}
+        {entity.key === "ref_workstation" && (
+          <RelatedRecordsCard title="Unit Anggota" icon="gear" desc="Unit di Workstation ini." href={(id) => `/master/unit/${id}`} empty="Belum ada unit di Workstation ini." rows={await unitsOfWorkstation(row.id)} />
+        )}
+        {entity.key === "prd_line" && (
+          <RelatedRecordsCard title="Routing Milik Line" icon="tree" desc="Urutan unit yang boleh diikuti partai line ini." href={(id) => `/master/routing/${id}`} empty="Line ini belum punya routing." rows={await routingsOfLine(row.id)} />
+        )}
         <RecordHistoryCard entityKey={entity.key} rowId={row.id} />
       </>
     );
@@ -289,11 +317,39 @@ export async function EntityEditPage({
         refs={refs}
         can={abilitiesFor(entity.key, actor.permissions)}
         collections={await collectionsOf(entity, row.id)}
-        {...(await accountParentLock(entity, row))}
+        {...(await recordLock(entity, row))}
       />
       <RecordHistoryCard entityKey={entity.key} rowId={row.id} />
     </>
   );
+}
+
+/** What a record cannot change any more, and why; decided per row, so not in the registry. */
+async function recordLock(
+  entity: Entity,
+  row: { id: number }
+): Promise<{ lockNote?: string; lockedTabs?: string[]; lockedFields?: string[] }> {
+  if (entity.key === "prd_routing" && (await routingInUse(row.id))) {
+    return {
+      lockedTabs: ["steps"],
+      lockNote: "Routing ini sudah dipakai partai, jadi langkahnya terkunci. Urutan baru berarti routing baru: pakai Salin.",
+    };
+  }
+  if (entity.key === "ref_unit" && (await unitOnRouting(row.id))) {
+    return { lockNote: "Unit ini ada di routing. Mengganti Workstation mengubah jalur keluar: Dokumen Push atau BSTB." };
+  }
+  if (entity.key === "m_item" && (await itemUsedInProduction(row.id))) {
+    return { lockedFields: ["is_bjl"] };
+  }
+  return accountParentLock(entity, row);
+}
+
+/** What saving a Standard Cost closes for good (W36). */
+async function rateSaveNote(): Promise<string> {
+  const active = await activeRateVersion();
+  return active
+    ? `Versi aktif ${active} akan ditutup permanen dan versi ini menggantikannya. Versi tidak dapat diubah setelah disimpan.`
+    : "Versi ini menjadi versi aktif. Versi tidak dapat diubah setelah disimpan.";
 }
 
 /**

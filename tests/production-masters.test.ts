@@ -5,16 +5,17 @@ import { ENTITIES } from "../src/lib/erp/entities";
 import { checkItemBjl } from "../src/lib/erp/item";
 import { abilitiesFor } from "../src/lib/erp/entity-access";
 import { checkRateCollections, checkRoutingCollections, routingCollections, writeRateCollections, writeRoutingCollections } from "../src/lib/erp/production-master";
-import { STEPS_KEY, stepRuleErrors, unitExitError } from "../src/lib/erp/production-master-shape";
+import { STEPS_KEY, exitRoutes, stepRuleErrors } from "../src/lib/erp/production-master-shape";
 import { InventoryRefusal, injectStock, receiveStock } from "../src/lib/erp/inventory";
 import { enterProduction } from "../src/lib/erp/production-ledger";
 import { FIXTURE_PREFIX, cleanupFixtures, disconnect, prisma, systemUserId } from "./helpers";
 import { makeProductionFixture, sourceOf } from "./production-helpers";
 
 /**
- * The production masters (P225, W33): Unit and Workstation are data, a routing
- * is the order of Units with the rules of each step, the BJL flag locks once
- * used, and a No. Stok is one stock in the whole system (W10).
+ * The production masters (P225, W33): Unit and Workstation are data, a Unit does
+ * one kind of work, a routing is the order of Units and how goods leave is worked
+ * out from it (W64), the BJL flag locks once used, and a No. Stok is one stock in
+ * the whole system (W10).
  */
 
 let actor = 0;
@@ -27,12 +28,12 @@ let activeBefore: number[] = [];
 before(async () => {
   actor = await systemUserId();
   f.ws = (await prisma.refWorkstation.create({ data: { workstation_code: `test.${key("W")}`, workstation_label: key("W"), workstation_name: "Uji", created_by: actor } })).id;
-  const unit = async (tag: string, processes: ("PassThrough" | "Grading" | "PartaiFormer" | "GradingMix" | "JobOrder" | "Assembly")[]) =>
-    (await prisma.refUnit.create({ data: { unit_code: `test.${key(tag)}`, unit_label: key(tag), unit_name: tag, workstation_id: f.ws, processes, created_by: actor } })).id;
-  f.grade = await unit("G", ["Grading"]);
-  f.former = await unit("F", ["PartaiFormer", "Grading"]);
-  f.mould = await unit("M", ["GradingMix", "JobOrder"]);
-  f.pack = await unit("P", ["Assembly"]);
+  const unit = async (tag: string, process: "PassThrough" | "Grading" | "Assembly") =>
+    (await prisma.refUnit.create({ data: { unit_code: `test.${key(tag)}`, unit_label: key(tag), unit_name: tag, workstation_id: f.ws, process, created_by: actor } })).id;
+  f.grade = await unit("G", "Grading");
+  f.former = await unit("F", "PassThrough");
+  f.mould = await unit("M", "PassThrough");
+  f.pack = await unit("P", "Assembly");
   const line = async (tag: string) =>
     (await prisma.prdLine.create({ data: { line_code: `test.${key(tag)}`, line_label: key(tag), line_name: "Uji", created_by: actor } })).id;
   f.line = await line("L");
@@ -57,9 +58,10 @@ after(async () => {
 const step = (unit: number, over: Record<string, unknown> = {}) => ({ unit_id: unit, is_checkpoint: false, is_skippable: false, ...over });
 
 describe("Unit, Workstation and the masters around them", () => {
-  test("a Unit belongs to a Workstation and holds several kinds of work", async () => {
-    const m = await prisma.refUnit.findUniqueOrThrow({ where: { id: f.mould }, include: { workstation: true } });
-    assert.deepEqual(m.processes.sort(), ["GradingMix", "JobOrder"]);
+  test("a Unit belongs to a Workstation and does one kind of work", async () => {
+    const m = await prisma.refUnit.findUniqueOrThrow({ where: { id: f.pack }, include: { workstation: true } });
+    assert.equal(m.process, "Assembly");
+    assert.equal(m.has_qc, false);
     assert.equal(m.workstation?.id, f.ws);
   });
 
@@ -85,28 +87,34 @@ describe("a routing is the order of Units (P230)", () => {
     assert.equal(back[2].is_skippable, true);
   });
 
-  test("a Unit appears once in a routing; Per Kotak is for an Assembly Unit", async () => {
+  test("a Unit appears once in a routing", async () => {
     const twice = await checkRoutingCollections({ line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.grade), step(f.grade)]) }, null);
     assert.match(twice.errors[STEPS_KEY], /sudah ada di routing/);
-    assert.match(unitExitError("PerCarton", ["Grading"]) ?? "", /Assembly/);
-    assert.equal(unitExitError("PerCarton", ["Assembly"]), null);
-    assert.equal(unitExitError("WithQc", ["Grading"]), null);
   });
 
-  test("the segment before the partai ends at the one Unit that forms it; a line's starts after", async () => {
-    const ok = await checkRoutingCollections({ [STEPS_KEY]: JSON.stringify([step(f.grade), step(f.former)]) }, null);
-    assert.equal(ok.errors[STEPS_KEY], undefined);
-    const noFormer = await checkRoutingCollections({ [STEPS_KEY]: JSON.stringify([step(f.grade)]) }, null);
-    assert.match(noFormer.errors[STEPS_KEY], /Pembentuk Partai/);
-    const inLine = await checkRoutingCollections({ line_id: f.line, [STEPS_KEY]: JSON.stringify([step(f.former)]) }, null);
-    assert.match(inLine.errors[STEPS_KEY], /sesudah partai terbentuk/);
+  test("Keluar Lewat is worked out: Push inside a Workstation, BSTB across (W64)", () => {
+    assert.deepEqual(exitRoutes([1, 1, 2, 2], true), ["Push", "BSTB", "Push", null]);
+    assert.deepEqual(exitRoutes([1, 1], false), ["Push", "BSTB"], "the segment leaves by the BSTB that forms the partai");
+    assert.deepEqual(exitRoutes([null, null], true), ["BSTB", null], "no Workstation is never taken for the same one");
+  });
+
+  test("the segment before the partai ends at a Grading Unit; a line starts in another Workstation (W73)", () => {
+    const u = (id: number, process: string, workstation_id: number) => ({ id, process, workstation_id });
+    const units = new Map([[1, u(1, "PassThrough", 7)], [2, u(2, "Grading", 7)], [3, u(3, "PassThrough", 8)], [4, u(4, "PassThrough", 7)]]);
+    const of = (id: number) => units.get(id);
+    assert.deepEqual(stepRuleErrors([step(1), step(2)] as never, false, of, null), []);
+    assert.match(stepRuleErrors([step(1)] as never, false, of, null).join(" "), /unit Grading/);
+    const end = units.get(2)!;
+    assert.deepEqual(stepRuleErrors([step(3), step(4)] as never, true, of, end), []);
+    assert.match(stepRuleErrors([step(4)] as never, true, of, end).join(" "), /Workstation lain/);
+    assert.match(stepRuleErrors([step(3), step(2)] as never, true, of, end).join(" "), /sesudah partai lahir/);
   });
 
   test("one checkpoint at most, and never the first step", () => {
-    const processes = () => ["Grading"];
-    assert.match(stepRuleErrors([step(1, { is_checkpoint: true }), step(2, { is_checkpoint: true })] as never, true, processes).join(" "), /hanya boleh satu/);
-    assert.match(stepRuleErrors([step(1, { is_checkpoint: true }), step(2)] as never, true, processes).join(" "), /pertama/);
-    assert.deepEqual(stepRuleErrors([step(1), step(2, { is_checkpoint: true })] as never, true, processes), []);
+    const of = (id: number) => ({ id, process: "Grading", workstation_id: 1 });
+    assert.match(stepRuleErrors([step(1, { is_checkpoint: true }), step(2, { is_checkpoint: true })] as never, true, of, null).join(" "), /hanya boleh satu/);
+    assert.match(stepRuleErrors([step(1, { is_checkpoint: true }), step(2)] as never, true, of, null).join(" "), /pertama/);
+    assert.deepEqual(stepRuleErrors([step(1), step(2, { is_checkpoint: true })] as never, true, of, null), []);
   });
 
   test("another line's routing is only data: a different order of the same Units is accepted", async () => {

@@ -69,6 +69,7 @@ export const STARTER_ACCOUNTS: AccountSpec[] = [
   // ---- costs and expenses
   { key: "cogs", sub: "5.1.1", name: "HPP Barang", normal: "Debit" },
   { key: "cogsTrade", sub: "5.1.1", name: "HPP Barang Dagangan", normal: "Debit" },
+  { key: "prodVariance", sub: "5.1.1", name: "Varians Produksi", normal: "Debit", control: true, note: "Selisih biaya aktual dan standar, dijurnal Closing Costing Produksi" },
   { key: "toll", sub: "5.1.1", name: "Biaya Jasa Maklon", normal: "Debit" },
   { key: "permitCost", sub: "5.1.1", name: "Biaya Perizinan", normal: "Debit", note: "Biaya pengurusan perizinan yang dibayar sebesar realisasinya, tanpa pajak" },
   // Production cost (R9, R10): not Control Accounts, so a manual journal (e.g.

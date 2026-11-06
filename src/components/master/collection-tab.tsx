@@ -12,6 +12,8 @@ import type { RefOption } from "@/lib/erp/records";
 
 export type CollectionTabProps<T> = {
   editing: boolean;
+  /** What the tab holds is locked for this record (a routing goods follow). */
+  locked?: boolean;
   items: T[];
   error?: string;
   onChange: (items: T[]) => void;
@@ -30,6 +32,7 @@ export function CollectionCard({
   title,
   desc,
   editing,
+  locked,
   addLabel,
   onAdd,
   error,
@@ -39,8 +42,10 @@ export function CollectionCard({
   title: string;
   desc: string;
   editing: boolean;
-  addLabel: string;
-  onAdd: () => void;
+  locked?: boolean;
+  /** Left out when the rows are not added one by one. */
+  addLabel?: string;
+  onAdd?: () => void;
   error?: string;
   children: React.ReactNode;
 }) {
@@ -54,7 +59,8 @@ export function CollectionCard({
           <h3>{title}</h3>
           <p>{desc}</p>
         </div>
-        {editing && (
+        {locked && <span className="lockb">Terkunci</span>}
+        {editing && onAdd && (
           <button className="btn sm" onClick={onAdd}>
             <Icon name="plus" size={14} /> {addLabel}
           </button>
