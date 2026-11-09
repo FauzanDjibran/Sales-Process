@@ -1349,3 +1349,44 @@ table.ltab tr.clk{cursor:pointer}
 .impact .ir.ok b{color:var(--ok)}
 /* A group heading row inside a picker table — the Faktur's Delivery Note per group. */
 table.ltab tr.grp td{background:var(--line-3);font-weight:700;padding-top:7px;padding-bottom:7px}
+
+/* ---------- Workspace Unit (P242) ----------
+   Unit cards, queue tabs and the selection chip, as the agreed simulation drew them. */
+.uw-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(286px,1fr));gap:12px;margin-bottom:16px}
+.uw-ws{display:flex;align-items:center;gap:9px;margin:4px 2px 9px;font-size:9.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--muted-2)}
+.uw-ws::after{content:"";flex:1 1 auto;height:1px;background:var(--line)}
+.uw-card{display:flex;flex-direction:column;gap:11px;min-width:0;padding:13px 14px;background:#fff;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--sh-sm);cursor:pointer;text-align:left}
+.uw-card:hover{box-shadow:var(--sh-md);border-color:var(--muted-3)}
+.uw-card-h{display:flex;align-items:center;gap:8px;min-width:0}
+.uw-card-h b{flex:1 1 auto;min-width:0;font-size:13.5px;font-weight:800;color:var(--brand);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.uw-nums{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line-2);border:1px solid var(--line-2);border-radius:var(--r);overflow:hidden}
+.uw-nums div{background:#fff;padding:6px 8px;min-width:0}
+.uw-nums label{display:block;font-size:8.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--muted-2);white-space:nowrap}
+.uw-nums b{font-family:var(--f-mono);font-size:15px;font-weight:700;color:var(--brand)}
+.uw-nums b.z{color:var(--muted-3);font-weight:500}
+.uw-nums .hot b{color:var(--warn)}
+.uw-hint{font-size:11.5px;color:var(--muted);min-width:0}
+.uw-hint.bad{color:var(--bad);font-weight:600}
+td.uw-note{white-space:normal;max-width:260px;font-size:11.5px;color:var(--muted)}
+.qtabs{display:flex;align-items:flex-end;gap:2px;padding:0 13px;border-bottom:1px solid var(--line-2);overflow-x:auto}
+.qtabs button{display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 12px;border:0;background:none;font:inherit;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px}
+.qtabs button:hover{color:var(--ink)}
+.qtabs button.act{color:var(--brand);font-weight:800;border-bottom-color:var(--accent-s)}
+.qtabs .n{min-width:20px;height:18px;padding:0 6px;border-radius:9px;background:var(--line-2);color:var(--muted);font-size:10.5px;font-weight:800;display:inline-flex;align-items:center;justify-content:center}
+.qtabs button.act .n{background:var(--accent-100);color:var(--brand)}
+table.grid th.selchk,table.grid td.selchk{width:34px;text-align:center;padding-left:8px;padding-right:4px}
+table.grid .selchk input{width:15px;height:15px;accent-color:var(--brand);cursor:pointer;vertical-align:middle;margin:0}
+table.grid tbody tr.sel td{background:var(--accent-50)}
+.selcount{display:inline-flex;align-items:center;gap:7px;height:33px;padding:0 6px 0 11px;border-radius:var(--r);border:1px solid var(--accent-100);background:var(--accent-50);color:var(--brand);font-size:11.5px;font-weight:700;white-space:nowrap}
+.selcount button{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border:0;border-radius:5px;background:none;color:var(--muted);cursor:pointer}
+.selcount button:hover{background:var(--accent-100);color:var(--ink)}
+.kpi .i.t-acc{background:var(--accent-50);color:#8A6D08}
+.uw-tags{display:flex;flex-wrap:wrap;gap:5px}
+.uw-nums small{display:block;font-family:var(--f-mono);font-size:10px;color:var(--muted-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The scan field: a scanner types like a keyboard, so this is an ordinary input that keeps the focus. */
+.scanbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 13px;border-bottom:1px solid var(--line-2);background:var(--accent-50)}
+.scanbar label{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#8A6D08}
+.scanbar input{flex:1 1 280px;min-width:0;height:34px;border:1px solid var(--accent-100);border-radius:var(--r);padding:0 11px;background:#fff;font-family:var(--f-mono);font-size:13px}
+.scanbar input:focus{border-color:var(--accent-s);outline:none;box-shadow:0 0 0 3px var(--accent-100)}
+table.grid tbody tr.flash td{animation:uwflash 1.2s}
+@keyframes uwflash{from{background:var(--accent-100)}}

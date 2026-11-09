@@ -12,8 +12,10 @@ async function jobNotes(options: Awaited<ReturnType<typeof gradingOptions>>) {
   return Object.fromEntries(notes);
 }
 
-export default async function Page() {
+/** `?bucket=` is the row a scan in the Workspace Unit opened it on. */
+export default async function Page({ searchParams }: { searchParams: Promise<{ bucket?: string }> }) {
+  const { bucket } = await searchParams;
   const actor = await requirePermission("PRODUCTION_GRADING_CREATE", `${GRADING_PATH}/new`);
   const options = await gradingOptions();
-  return <GradingForm mode="new" grading={null} options={options} notes={await jobNotes(options)} can={GRADING_WORKFLOW.abilities(actor.permissions)} />;
+  return <GradingForm mode="new" grading={null} options={options} notes={await jobNotes(options)} can={GRADING_WORKFLOW.abilities(actor.permissions)} initialBucketId={Number(bucket) || undefined} />;
 }

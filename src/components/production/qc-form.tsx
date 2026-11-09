@@ -25,17 +25,31 @@ type Decided = { decision: QcDecision | null; reason: string };
 /** One partai at a time (W76); goods before a partai share one group. */
 const partaiKey = (r: QcRow) => r.partaiId ?? 0;
 
-export function QcForm({ mode, check, options, can }: { mode: "new" | "edit" | "view"; check: QcView | null; options: QcOptions; can: ProdDocAbilities }) {
+export function QcForm({
+  mode,
+  check,
+  options,
+  can,
+  initialBucketId,
+}: {
+  mode: "new" | "edit" | "view";
+  check: QcView | null;
+  options: QcOptions;
+  can: ProdDocAbilities;
+  /** The row a scan in the Workspace Unit opened this form on. */
+  initialBucketId?: number;
+}) {
   const router = useRouter();
   const toast = useToast();
   const editing = mode !== "view";
-  const [unitId, setUnitId] = useState<number | null>(check?.unitId ?? null);
+  const scanned = options.rows.find((r) => r.id === initialBucketId);
+  const [unitId, setUnitId] = useState<number | null>(check?.unitId ?? scanned?.unitId ?? null);
   const [date, setDate] = useState(check?.date ?? todayIso());
   const [inspector, setInspector] = useState(check?.inspector ?? "");
   const [note, setNote] = useState(check?.note ?? "");
   const byId = new Map(options.rows.map((r) => [r.id, r]));
   const [partai, setPartai] = useState<number | null>(() => {
-    const first = check?.lines[0] ? byId.get(check.lines[0].bucketId) : undefined;
+    const first = check?.lines[0] ? byId.get(check.lines[0].bucketId) : scanned;
     return first ? partaiKey(first) : null;
   });
   const [decided, setDecided] = useState<Record<number, Decided>>(() => Object.fromEntries((check?.lines ?? []).map((l) => [l.bucketId, { decision: l.decision, reason: l.reason ?? "" }])));

@@ -29,15 +29,29 @@ type Picked = { bucket_id: number; qty: string; employee_id: number | null };
 /** A Job's group key: goods without a No. Job stand alone. */
 const groupOf = (b: BucketOption) => (b.jobId ? `j${b.jobId}` : `b${b.id}`);
 
-export function WorkForm({ mode, work, options, can }: { mode: "new" | "edit" | "view"; work: WorkView | null; options: WorkOptions; can: ProdDocAbilities }) {
+export function WorkForm({
+  mode,
+  work,
+  options,
+  can,
+  initialBucketIds = [],
+}: {
+  mode: "new" | "edit" | "view";
+  work: WorkView | null;
+  options: WorkOptions;
+  can: ProdDocAbilities;
+  /** The rows a scan in the Workspace Unit opened this form on. */
+  initialBucketIds?: number[];
+}) {
   const router = useRouter();
   const toast = useToast();
   const editing = mode !== "view";
-  const [unitId, setUnitId] = useState<number | null>(work?.unitId ?? null);
+  const scanned = options.inputs.filter((b) => initialBucketIds.includes(b.id));
+  const [unitId, setUnitId] = useState<number | null>(work?.unitId ?? scanned[0]?.unitId ?? null);
   const [date, setDate] = useState(work?.date ?? todayIso());
   const [resultNote, setResultNote] = useState(work?.resultNote ?? "");
   const [note, setNote] = useState(work?.note ?? "");
-  const [picked, setPicked] = useState<Picked[]>(() => work?.lines.map((l) => ({ bucket_id: l.bucketId, qty: String(l.qty), employee_id: l.employeeId })) ?? []);
+  const [picked, setPicked] = useState<Picked[]>(() => work?.lines.map((l) => ({ bucket_id: l.bucketId, qty: String(l.qty), employee_id: l.employeeId })) ?? scanned.map((b) => ({ bucket_id: b.id, qty: String(b.qty), employee_id: null })));
   const [aux, setAux] = useState<AuxRow[]>(() => work?.aux.map((a) => ({ key: newKey(), bucket_id: a.bucketId, qty: String(a.qty), job_id: a.jobId })) ?? []);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);

@@ -677,6 +677,32 @@ export async function listStockIssues(): Promise<StockIssueListRow[]> {
   }));
 }
 
+/** A BSTB Issue sent to a Unit and waiting for Terima: the Workspace's *Masuk* (W20). */
+export type IncomingIssue = {
+  id: number;
+  issueNo: string;
+  issueDate: string;
+  unitId: number;
+  warehouseLabel: string;
+  lines: { lotNo: string; itemLabel: string; itemName: string; qty: number; uomLabel: string }[];
+};
+
+export async function incomingStockIssues(): Promise<IncomingIssue[]> {
+  const rows = await prisma.logStockIssue.findMany({
+    where: { status: "Submitted", unit_id: { not: null } },
+    orderBy: [{ issue_date: "asc" }, { id: "asc" }],
+    include: { warehouse: true, lines: { orderBy: { line_no: "asc" }, include: { item: true, uom: true, trackings: true } } },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    issueNo: r.issue_no,
+    issueDate: isoDay(r.issue_date),
+    unitId: r.unit_id!,
+    warehouseLabel: r.warehouse.warehouse_label,
+    lines: r.lines.flatMap((l) => l.trackings.map((p) => ({ lotNo: p.tracking_no, itemLabel: l.item.item_label, itemName: l.item.item_name, qty: p.qty.toNumber(), uomLabel: l.uom.uom_label }))),
+  }));
+}
+
 export type StockIssueView = {
   id: number;
   issueNo: string;

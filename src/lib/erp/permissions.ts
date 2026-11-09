@@ -272,6 +272,7 @@ export const PERMISSIONS = [
 
   // ------------------------------------------------------------- production
   { code: "MENU_PRODUCTION_ACCESS", name: "Akses menu Produksi", module: "production" },
+  { code: "PRODUCTION_UNIT_VIEW", name: "Buka Workspace Unit", module: "production", description: "Daftar Unit dan antreannya; dokumen dibuat dengan izin dokumennya sendiri." },
   { code: "PRODUCTION_GRADING_VIEW", name: "Lihat Dokumen Grading", module: "production", description: "Termasuk yang masih Draft dan yang dibatalkan." },
   { code: "PRODUCTION_GRADING_CREATE", name: "Buat Dokumen Grading", module: "production" },
   { code: "PRODUCTION_GRADING_EDIT", name: "Ubah Dokumen Grading", module: "production", description: "Hanya selama masih Draft." },

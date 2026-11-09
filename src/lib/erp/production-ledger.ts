@@ -746,6 +746,25 @@ export async function wipByItem(db: Db = prisma): Promise<Map<number, number>> {
   return new Map(rows.map((r) => [r.item_id, r._sum.value_balance?.toNumber() ?? 0]));
 }
 
+/**
+ * What each Unit holds per stage, for the Workspace's cards: rows and grams, never the rows
+ * themselves. Bahan penolong is a balance of the Unit, not goods being worked, so it is left out (V8).
+ */
+export async function unitStageSummary(db: Db = prisma): Promise<Map<string, { rows: number; grams: number }>> {
+  const rows = await db.prdBalance.findMany({
+    where: { qty_balance: { gt: 0 }, auxiliary: false },
+    select: { unit_id: true, stage: true, qty_balance: true, uom: { select: { uom_label: true } }, tracking: { select: { prd_info: { select: { grams: true } } } } },
+  });
+  const out = new Map<string, { rows: number; grams: number }>();
+  for (const r of rows) {
+    const key = `${r.unit_id}:${r.stage}`;
+    const grams = r.uom.uom_label === GRAM_UOM ? r.qty_balance.toNumber() : r.tracking.prd_info?.grams ? r.qty_balance.mul(r.tracking.prd_info.grams).toNumber() : 0;
+    const sum = out.get(key) ?? { rows: 0, grams: 0 };
+    out.set(key, { rows: sum.rows + 1, grams: sum.grams + grams });
+  }
+  return out;
+}
+
 /** Whether anything moved in production between two dates — what the year-end guard asks (R28). */
 export async function hasProductionMovement(from: Date, to: Date, db: Db = prisma): Promise<boolean> {
   return Boolean(await db.prdLedger.findFirst({ where: { posting_date: { gte: from, lte: to } }, select: { id: true } }));

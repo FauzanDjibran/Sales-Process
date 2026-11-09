@@ -31,10 +31,13 @@ export function GradingForm({
   options,
   notes,
   can,
+  initialBucketId,
 }: {
   mode: "new" | "edit" | "view";
   grading: GradingView | null;
   options: GradingOptions;
+  /** The row a scan in the Workspace Unit opened this form on. */
+  initialBucketId?: number;
   /** Pre Cleaning's notes by No. Job (W42). */
   notes: Record<number, string[]>;
   can: ProdDocAbilities;
@@ -42,10 +45,11 @@ export function GradingForm({
   const router = useRouter();
   const toast = useToast();
   const editing = mode !== "view";
-  const [unitId, setUnitId] = useState<number | null>(grading?.unitId ?? (options.units.length === 1 ? options.units[0].id : null));
+  const scanned = options.inputs.find((b) => b.id === initialBucketId);
+  const [unitId, setUnitId] = useState<number | null>(grading?.unitId ?? scanned?.unitId ?? (options.units.length === 1 ? options.units[0].id : null));
   const [date, setDate] = useState(grading?.date ?? todayIso());
-  const [bucketId, setBucketId] = useState<number | null>(grading?.bucketId ?? null);
-  const [qty, setQty] = useState(grading ? String(grading.qty) : "");
+  const [bucketId, setBucketId] = useState<number | null>(grading?.bucketId ?? scanned?.id ?? null);
+  const [qty, setQty] = useState(grading ? String(grading.qty) : scanned ? String(scanned.qty) : "");
   const [note, setNote] = useState(grading?.note ?? "");
   const [outputs, setOutputs] = useState<OutputRow[]>(() => grading?.outputs.map((o) => ({ key: newKey(), item_id: o.itemId, grams: String(o.grams) })) ?? []);
   const [aux, setAux] = useState<AuxRow[]>(() => grading?.aux.map((a) => ({ key: newKey(), bucket_id: a.bucketId, qty: String(a.qty), job_id: null })) ?? []);

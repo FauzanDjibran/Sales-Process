@@ -170,6 +170,7 @@ export const MODULES: NavModule[] = [
         key: "work",
         name: "Pengerjaan",
         entities: [
+          { key: "prd_unit", slug: "workspace", name: "Workspace Unit", icon: "layers", desc: "Pilih Unit, scan label, kerjakan satu form untuk satu pekerjaan.", permission: "PRODUCTION_UNIT_VIEW" },
           { key: "prd_grading", slug: "grading", name: "Dokumen Grading", icon: "layers", desc: "Satu No. Stok dari Persiapan menjadi output baru; di sinilah jenis dan gram berubah.", permission: "PRODUCTION_GRADING_VIEW" },
           { key: "prd_work", slug: "work", name: "Pengerjaan Unit", icon: "check", desc: "No. Job yang dikerjakan di unit Pass Through dan oleh siapa; barang dan gram tetap.", permission: "PRODUCTION_WORK_VIEW" },
           { key: "prd_qc_check", slug: "qc-check", name: "QC Check", icon: "check", desc: "QC memvalidasi hasil proses: Lulus ke Stand By, Balik ke Persiapan.", permission: "PRODUCTION_QC_VIEW" },
