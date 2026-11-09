@@ -483,10 +483,10 @@ export function CashReceiptForm({
                 const hasWht = b.withholdings.some((w) => w.amount > 0);
                 const typed = Number(l?.input.cash) || 0;
                 const over = Boolean(l && typed > l.max);
-                // What the money typed books as DPP and PPN; an Invoice's PPN was booked at the Invoice (P243).
+                // The PPN the money typed books; an Invoice's PPN was booked at the Invoice (P243).
                 const split = !isInvoiceKind(b.kind) && s.ppn > 0 && (
                   <span className="fulltag">
-                    DPP {money(s.dpp)} · PPN {money(s.ppn)}
+                    PPN {money(s.ppn)}
                   </span>
                 );
                 return (

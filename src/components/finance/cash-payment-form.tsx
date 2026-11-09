@@ -454,10 +454,10 @@ export function CashPaymentForm({
                 const hasWht = b.withholdings.some((w) => w.amount > 0);
                 const typed = Number(l?.input.cash) || 0;
                 const over = Boolean(l && typed > l.max);
-                // What the money typed books as DPP and PPN; only an advance bill books PPN here (P243).
+                // The PPN the money typed books; only an advance bill books PPN here (P243).
                 const split = b.kind === "fin_ap_advance" && s.ppn > 0 && (
                   <span className="fulltag">
-                    DPP {money(s.dpp)} · PPN {money(s.ppn)}
+                    PPN {money(s.ppn)}
                   </span>
                 );
                 return (
