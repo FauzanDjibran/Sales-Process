@@ -11,6 +11,8 @@ import type { Paged } from "@/lib/erp/register-query";
 import { formatDate, formatMoney } from "@/lib/format";
 import type { CashReceiptListRow } from "@/lib/erp/cash-bank-tx";
 import { cashBankPurpose } from "@/lib/erp/cash-bank-purposes";
+import { CashBalanceTile } from "@/components/finance/cash-balance-tile";
+import type { CashBookSummary } from "@/lib/erp/cash-bank";
 import {
   CASH_BANK_TX_STATUS_BADGE,
   CASH_BANK_TX_STATUS_TEXT,
@@ -19,7 +21,7 @@ import {
 } from "@/lib/erp/cash-bank-tx-workflow";
 
 /** The Penerimaan Kas & Bank register. Drafts first, then newest first. */
-export function CashReceiptList({ paged, can }: { paged: Paged<CashReceiptListRow>; can: CashReceiptAbilities }) {
+export function CashReceiptList({ paged, can, cash }: { paged: Paged<CashReceiptListRow>; can: CashReceiptAbilities; cash: CashBookSummary }) {
   const router = useRouter();
   const reg = useRegisterParams();
   const filtered = Boolean(reg.q || reg.status);
@@ -54,6 +56,10 @@ export function CashReceiptList({ paged, can }: { paged: Paged<CashReceiptListRo
           Setiap dana yang masuk ke kas atau bank. Tujuannya menentukan dokumen yang dilunasi; satu penerimaan dapat
           melunasi beberapa tagihan partner yang sama. Posting membentuk journal dan mencatat dana di Buku Kas & Bank.
         </p>
+      </div>
+
+      <div className="kpis bud">
+        <CashBalanceTile cash={cash} />
       </div>
 
       <div className="card">

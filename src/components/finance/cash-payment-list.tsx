@@ -11,6 +11,8 @@ import type { Paged } from "@/lib/erp/register-query";
 import { formatDate, formatMoney } from "@/lib/format";
 import type { CashPaymentListRow } from "@/lib/erp/cash-payment";
 import { cashBankPurpose } from "@/lib/erp/cash-bank-purposes";
+import { CashBalanceTile } from "@/components/finance/cash-balance-tile";
+import type { CashBookSummary } from "@/lib/erp/cash-bank";
 import {
   CASH_BANK_TX_STATUS_BADGE,
   CASH_BANK_TX_STATUS_TEXT,
@@ -19,7 +21,7 @@ import {
 } from "@/lib/erp/cash-bank-tx-workflow";
 
 /** The Pengeluaran Kas & Bank register. Drafts first, then newest first. */
-export function CashPaymentList({ paged, can }: { paged: Paged<CashPaymentListRow>; can: CashPaymentAbilities }) {
+export function CashPaymentList({ paged, can, cash }: { paged: Paged<CashPaymentListRow>; can: CashPaymentAbilities; cash: CashBookSummary }) {
   const router = useRouter();
   const reg = useRegisterParams();
   const filtered = Boolean(reg.q || reg.status);
@@ -54,6 +56,10 @@ export function CashPaymentList({ paged, can }: { paged: Paged<CashPaymentListRo
           Setiap dana yang keluar dari kas atau bank. Tujuannya menentukan dokumen yang dilunasi; satu pengeluaran dapat
           melunasi beberapa tagihan partner yang sama. Posting membentuk journal dan mengeluarkan dana dari Buku Kas & Bank.
         </p>
+      </div>
+
+      <div className="kpis bud">
+        <CashBalanceTile cash={cash} />
       </div>
 
       <div className="card">

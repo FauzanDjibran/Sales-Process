@@ -3,8 +3,6 @@
 import { useState } from "react";
 import { Icon } from "@/components/icon";
 import { Dialog } from "@/components/ui/dialog";
-import { Field, FormRow } from "@/components/ui/form";
-import { MoneyInput } from "@/components/ui/money-input";
 import { cashToClear } from "@/lib/erp/sales-tax";
 import type { OpenPayable } from "@/lib/erp/cash-payment";
 import { PAID_DOC_TEXT, type PaidDocKind } from "@/lib/erp/cash-bank-purposes";
@@ -17,10 +15,8 @@ export type PickedPayment = { key: string; kind: PaidDocKind; docId: number; cas
  * The partner's open bills — advance bills and Invoices together (P83), oldest
  * due first — to tick the ones being paid. What helps choose —
  * dates, totals, what earlier receipts paid — lives here, so the page holds
- * only the bills being settled. A bill already on the page keeps its figures.
- *
- * *Bagikan Dana* spreads one transfer over the ticked bills, oldest first,
- * each up to what clears it; a bill the money does not reach is left out.
+ * only the bills being settled. A bill already on the page keeps its figures;
+ * a new one starts on what clears it (P243).
  */
 export function PaymentBillPicker({
   bills,
@@ -40,7 +36,6 @@ export function PaymentBillPicker({
   onClose: () => void;
 }) {
   const [on, setOn] = useState<Set<string>>(() => new Set(current.map((l) => l.key)));
-  const [spread, setSpread] = useState("");
   const allOn = bills.length > 0 && bills.every((b) => on.has(b.key));
   const toggle = (id: string, v: boolean) =>
     setOn((x) => {
@@ -54,24 +49,11 @@ export function PaymentBillPicker({
   const clearOf = (b: OpenPayable) => cashToClear(b, b.paid, withhold ? kept(b)?.withhold ?? true : false);
   const chosen = bills.filter((b) => on.has(b.key));
   const clearTotal = chosen.reduce((a, b) => a + clearOf(b), 0);
-  const amount = Number(spread) || 0;
 
-  const apply = () => {
-    let left = amount;
-    const out: PickedPayment[] = [];
-    for (const b of chosen) {
-      const w = kept(b)?.withhold ?? true;
-      if (amount > 0) {
-        const take = Math.min(left, clearOf(b));
-        if (take <= 0) continue;
-        left -= take;
-        out.push({ key: b.key, kind: b.kind, docId: b.id, cash: String(take), withhold: w });
-      } else {
-        out.push(kept(b) ?? { key: b.key, kind: b.kind, docId: b.id, cash: String(clearOf(b)), withhold: w });
-      }
-    }
-    onApply(out);
-  };
+  const apply = () =>
+    onApply(
+      chosen.map((b) => kept(b) ?? { key: b.key, kind: b.kind, docId: b.id, cash: String(clearOf(b)), withhold: true })
+    );
 
   return (
     <Dialog
@@ -166,20 +148,6 @@ export function PaymentBillPicker({
           </tbody>
         </table>
       </div>
-      <FormRow>
-        <Field label="Bagikan Dana" span={6} help="opsional — dibagi ke tagihan terpilih dari yang terlama">
-          <MoneyInput value={spread} currencyLabel="IDR" ariaLabel="Bagikan Dana" onChange={setSpread} />
-        </Field>
-        <Field label="Artinya" span={6}>
-          <div className="ro">
-            {!amount
-              ? "Setiap tagihan terpilih diisi nilai yang melunasinya."
-              : amount >= clearTotal
-                ? "Cukup melunasi semua tagihan terpilih."
-                : `Kurang ${formatMoney(clearTotal - amount, "IDR")} — tagihan terakhir yang terjangkau dibayar sebagian.`}
-          </div>
-        </Field>
-      </FormRow>
     </Dialog>
   );
 }

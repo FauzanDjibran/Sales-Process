@@ -641,6 +641,8 @@ td.acts{width:88px;padding-right:7px}
 .kpi .more{margin-left:auto;font-size:10px;font-weight:700;color:var(--muted-2);display:inline-flex;align-items:center;gap:2px}
 .kpi:hover .more{color:var(--brand)}
 .kpi[data-fs]{cursor:pointer}
+button.kpi{text-align:left;font:inherit;display:block;width:100%}
+.kpi .v.stack{display:grid;gap:3px;font-size:18px;letter-spacing:-.4px;line-height:1.15}
 .tsel{height:32px;border:1px solid var(--line);border-radius:var(--r);background:#fff;padding:0 26px 0 10px;
   font-size:12px;font-weight:600;color:var(--ink-2);cursor:pointer;appearance:none;box-shadow:var(--sh-xs);max-width:180px;
   background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='11' height='11' viewBox='0 0 24 24' fill='none' stroke='%2364748B' stroke-width='3' stroke-linecap='round'><polyline points='6 9 12 15 18 9'/></svg>");
@@ -1342,8 +1344,6 @@ table.ltab tr.unpicked td{color:var(--muted-2)}
 table.ltab tr.unpicked .mny{color:var(--muted-3)}
 table.ltab td.pick,table.ltab th.pick{width:40px;text-align:center;padding-left:8px;padding-right:8px}
 table.ltab td.pick input,table.ltab th.pick input{width:15px;height:15px;accent-color:var(--brand);cursor:pointer}
-button.fulltag.lnk{border:0;background:none;padding:0;cursor:pointer;color:var(--brand);font-family:inherit;text-align:right;margin-left:auto}
-button.fulltag.lnk:hover{text-decoration:underline}
 table.ltab tr.clk{cursor:pointer}
 .impact .ir.diff b{color:var(--bad)}
 .impact .ir.ok b{color:var(--ok)}
@@ -1390,3 +1390,16 @@ table.grid tbody tr.sel td{background:var(--accent-50)}
 .scanbar input:focus{border-color:var(--accent-s);outline:none;box-shadow:0 0 0 3px var(--accent-100)}
 table.grid tbody tr.flash td{animation:uwflash 1.2s}
 @keyframes uwflash{from{background:var(--accent-100)}}
+
+/* Dampak Transaksi on a Penerimaan / Pengeluaran (P243): the money of the whole
+   document in one strip, labels over figures as SIBA's .lsum, with Biaya Bank
+   typed in place beside the bills it is charged on. */
+.txsum{margin-left:auto;display:flex;align-items:stretch;flex-wrap:wrap;row-gap:10px}
+.txsum > span{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:4px;padding:0 18px;border-left:1px solid var(--line)}
+.txsum > span:first-child{border-left:0}
+.txsum > span:last-child{padding-right:0}
+.txsum i{font-style:normal;font-size:9.5px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:var(--muted-2)}
+.txsum b{font-family:var(--f-mono);font-size:14px;font-weight:700;white-space:nowrap;color:var(--ink)}
+.txsum .k b{font-size:16px}
+.txsum .neg b{color:var(--bad)}
+.txsum .mi{width:150px}

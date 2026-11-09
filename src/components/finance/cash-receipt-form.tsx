@@ -15,7 +15,7 @@ import { CashReceiptActions } from "@/components/finance/cash-receipt-actions";
 import { BillPicker, type PickedLine } from "@/components/finance/cash-receipt-bill-picker";
 import { createCashReceiptAction, updateCashReceiptAction } from "@/app/actions/cash-receipt";
 import { cashToClear, settleBillFromCash, type SettlementLine } from "@/lib/erp/sales-tax";
-import { SETTLED_DOC_ROUTE, SETTLED_DOC_TEXT, billKey, cashBankPurpose } from "@/lib/erp/cash-bank-purposes";
+import { SETTLED_DOC_ROUTE, SETTLED_DOC_TEXT, billKey, cashBankPurpose, isInvoiceKind } from "@/lib/erp/cash-bank-purposes";
 import {
   CASH_BANK_TX_STATUS_BADGE,
   CASH_BANK_TX_STATUS_TEXT,
@@ -312,14 +312,14 @@ export function CashReceiptForm({
                 )
               )}
             </Field>
-            <Field label="Tanggal Terima" span={3} required={editing} error={errors.tx_date}>
+            <Field label="Tanggal Terima" span={4} required={editing} error={errors.tx_date}>
               {editing ? (
                 <DateInput value={h.tx_date} invalid={Boolean(errors.tx_date)} onChange={(v) => set("tx_date", v)} />
               ) : (
                 ro(formatDate(h.tx_date))
               )}
             </Field>
-            <Field label="Referensi Bank" span={3} help={editing ? "nomor di mutasi rekening" : undefined}>
+            <Field label="Referensi Bank" span={8} help={editing ? "nomor di mutasi rekening" : undefined}>
               {editing ? (
                 <input
                   className="inp idf"
@@ -333,24 +333,6 @@ export function CashReceiptForm({
               ) : (
                 nil()
               )}
-            </Field>
-            <Field label="Biaya Bank" span={3} help={editing ? "ditanggung perusahaan" : undefined} error={errors.bank_charge}>
-              {editing ? (
-                <MoneyInput
-                  value={h.bank_charge}
-                  currencyLabel="IDR"
-                  invalid={Boolean(errors.bank_charge)}
-                  ariaLabel="Biaya Bank"
-                  onChange={(v) => set("bank_charge", v)}
-                />
-              ) : charge ? (
-                ro(<span className="mny">{money(charge)}</span>)
-              ) : (
-                nil("tidak ada")
-              )}
-            </Field>
-            <Field label="Dana Masuk ke Bank" span={3} help={editing ? "diterima − biaya bank" : undefined}>
-              {ro(<span className="mny">{money(Math.max(0, intoBank))}</span>)}
             </Field>
             <Field label="Catatan" span={12}>
               {editing ? (
@@ -479,7 +461,7 @@ export function CashReceiptForm({
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: editing ? 820 : 700 }}>
+          <table className="grid ltab" style={{ minWidth: editing ? 680 : 560 }}>
             <thead>
               <tr>
                 <th style={{ minWidth: 220 }}>{noun}</th>
@@ -492,9 +474,6 @@ export function CashReceiptForm({
                   Diterima
                 </th>
                 {canWithhold && <th style={{ width: 170 }}>PPh Dipotong</th>}
-                <th className="num" style={{ width: 150 }}>
-                  {editing ? "Setelah Ini" : "Dilunasi"}
-                </th>
                 {editing && <th style={{ width: 44 }} />}
               </tr>
             </thead>
@@ -506,7 +485,12 @@ export function CashReceiptForm({
                 const hasWht = b.withholdings.some((w) => w.amount > 0);
                 const typed = Number(l?.input.cash) || 0;
                 const over = Boolean(l && typed > l.max);
-                const left = b.open - s.settled;
+                // What the money typed books as DPP and PPN; an Invoice's PPN was booked at the Invoice (P243).
+                const split = !isInvoiceKind(b.kind) && s.ppn > 0 && (
+                  <span className="fulltag">
+                    DPP {money(s.dpp)} · PPN {money(s.ppn)}
+                  </span>
+                );
                 return (
                   <tr key={b.key} className={err || over ? "overrow" : undefined}>
                     <td>
@@ -538,14 +522,13 @@ export function CashReceiptForm({
                             ariaLabel={`Diterima ${b.no}`}
                             onChange={(v) => setLine(b.key, { cash: v })}
                           />
-                          {typed !== l.max && (
-                            <button type="button" className="fulltag lnk" onClick={() => setLine(b.key, { cash: String(l.max) })}>
-                              lunas bila {money(l.max)}
-                            </button>
-                          )}
+                          {split}
                         </>
                       ) : (
-                        <span className="mny">{money(s.cash)}</span>
+                        <>
+                          <span className="mny">{money(s.cash)}</span>
+                          {split}
+                        </>
                       )}
                     </td>
                     {canWithhold && (
@@ -577,22 +560,6 @@ export function CashReceiptForm({
                         )}
                       </td>
                     )}
-                    <td className="num">
-                      {!editing ? (
-                        <span className="mny">{money(s.settled)}</span>
-                      ) : over ? (
-                        <span className="bdg t-bad">Melebihi</span>
-                      ) : !(s.settled > 0) ? (
-                        <span className="dash">—</span>
-                      ) : left <= 0 ? (
-                        <span className="bdg t-ok">Lunas</span>
-                      ) : (
-                        <span className="dstack">
-                          <span className="mny">{money(left)}</span>
-                          <span className="d2">masih terbuka</span>
-                        </span>
-                      )}
-                    </td>
                     {editing && (
                       <td>
                         <button type="button" className="iact del" title={`Hapus ${b.no}`} onClick={() => removeLine(b.key)}>
@@ -604,75 +571,68 @@ export function CashReceiptForm({
                 );
               })}
             </tbody>
-            <tfoot>
-              <tr className="totrow">
-                <td colSpan={editing ? 2 : 1} style={{ textAlign: "right" }}>
-                  Total Diterima · {shown.length} {noun.toLowerCase()}
-                </td>
-                <td className="num">
-                  <span className="mny big">{money(received)}</span>
-                </td>
-                {canWithhold && (
-                  <td>
-                    <span className="mny">{money(pph)}</span>
-                  </td>
-                )}
-                <td className="num">{!editing && <span className="mny big">{money(settled)}</span>}</td>
-                {editing && <td />}
-              </tr>
-            </tfoot>
           </table>
-        </div>
-      )}
-      {editing && lines.length > 0 && <ExplainBox lines={lines} whtLabel={whtLabel} />}
-      {shown.length > 0 && (
-        <div className="cardfoot multi">
-          <div className="impact">
-            <div className="ttl">Bagian yang Dibukukan</div>
-            {shown.map((x) =>
-              x.bill.kind === "fin_ar_invoice" || x.bill.kind === "fin_ar_permit_invoice" ? (
-                // An Invoice's PPN was booked at the Invoice: what it settles clears Piutang (U25).
-                <div className="ir" key={x.bill.key}>
-                  <span>{x.bill.no} · Piutang Usaha</span>
-                  <b>{money(x.settled)}</b>
-                </div>
-              ) : (
-                <div className="ir" key={x.bill.key}>
-                  <span>
-                    {x.bill.no} · DPP {money(x.dpp)} + PPN
-                  </span>
-                  <b>{money(x.ppn)}</b>
-                </div>
-              )
-            )}
-          </div>
-          <div className="impact">
-            <div className="ttl">Penyelesaian Tagihan</div>
-            <div className="ir">
-              <span>Dana masuk ke bank</span>
-              <b>{money(intoBank)}</b>
-            </div>
-            {charge > 0 && (
-              <div className="ir">
-                <span>Biaya bank</span>
-                <b>{money(charge)}</b>
-              </div>
-            )}
-            {whtTotals(shown.map((l) => l.whts)).map((w) => (
-              <div className="ir" key={w.key}>
-                <span>{whtLabel(w.key)} dipotong customer</span>
-                <b>{money(w.amount)}</b>
-              </div>
-            ))}
-            <div className="ir tot">
-              <span>Tagihan yang diselesaikan</span>
-              <b>{money(settled)}</b>
-            </div>
-          </div>
         </div>
       )}
     </div>
   );
+
+  // ============================================== Dampak Transaksi card
+  // The money of the whole receipt in one strip (P243): the bills it settles, less the bank charge typed
+  // here beside them and the PPh withheld, is what reaches the bank.
+  const impactCard = shown.length > 0 && (
+    <div className="card" style={{ marginTop: 14 }}>
+      <div className="card-h" style={{ borderBottom: 0 }}>
+        <span className="ci">
+          <Icon name="down" size={15} />
+        </span>
+        <div className="ct">
+          <h3>
+            Dampak Transaksi (Penerimaan): {cashBank ? <span className="lab">{cashBank.label}</span> : null}
+          </h3>
+          <p>{cashBank ? cashBank.name : "Pilih Kas & Bank dulu…"}</p>
+          <p>
+            ({shown.length} {noun.toLowerCase()})
+          </p>
+        </div>
+        <span className="txsum">
+          <span>
+            <i>Tagihan Diselesaikan</i>
+            <b>{money(settled)}</b>
+          </span>
+          <span>
+            <i>Biaya Bank</i>
+            {editing ? (
+              <span className="mi">
+                <MoneyInput
+                  size="sm"
+                  value={h.bank_charge}
+                  currencyLabel="IDR"
+                  invalid={Boolean(errors.bank_charge)}
+                  ariaLabel="Biaya Bank"
+                  onChange={(v) => set("bank_charge", v)}
+                />
+              </span>
+            ) : (
+              <b>{money(charge)}</b>
+            )}
+          </span>
+          {canWithhold && (
+            <span>
+              <i>PPh Dipotong</i>
+              <b>{money(pph)}</b>
+            </span>
+          )}
+          <span className={intoBank < 0 ? "k neg" : "k"}>
+            <i>Dana Masuk ke Bank</i>
+            <b>{money(intoBank)}</b>
+          </span>
+        </span>
+      </div>
+      {errors.bank_charge && <p className="fnote">{errors.bank_charge}</p>}
+    </div>
+  );
+
 
   // ============================================================ page
   return (
@@ -726,6 +686,7 @@ export function CashReceiptForm({
         <div>
           {headerCard}
           {linesCard}
+          {impactCard}
         </div>
       </div>
       {cashBank && !cashBank.active && editing && (
@@ -746,64 +707,3 @@ export function CashReceiptForm({
   );
 }
 
-/** PPh summed per Jenis PPh across lines. */
-function whtTotals(groups: { key: string; amount: number }[][]): { key: string; amount: number }[] {
-  const m = new Map<string, number>();
-  for (const g of groups) for (const w of g) m.set(w.key, (m.get(w.key) ?? 0) + w.amount);
-  return [...m.entries()].map(([key, amount]) => ({ key, amount }));
-}
-
-/** What the gap between the open bills and the money is made of, in words (the simulation's explain box). */
-function ExplainBox({ lines, whtLabel }: { lines: LiveLine[]; whtLabel: (key: string) => string }) {
-  const over = lines.filter((l) => (Number(l.input.cash) || 0) > l.max);
-  const partial = lines.filter((l) => l.line.settled < l.bill.open);
-  const pph = lines.reduce((a, l) => a + l.line.pph, 0);
-  const parts = whtTotals(lines.map((l) => l.line.withholdings))
-    .map((w) => `${whtLabel(w.key)} ${formatMoney(w.amount, "IDR")}`)
-    .join(", ");
-  if (over.length) {
-    return (
-      <div className="nbox bad slim">
-        <Icon name="warn" size={15} className="ni" />
-        <div>
-          <b>Dana melebihi yang melunasi {over.map((l) => l.bill.no).join(", ")}.</b>
-          <p>Kurangi dana diterima — kelebihan bayar belum ditangani penerimaan ini.</p>
-        </div>
-      </div>
-    );
-  }
-  if (partial.length) {
-    const open = partial.reduce((a, l) => a + l.bill.open - l.line.settled, 0);
-    return (
-      <div className="nbox warn slim">
-        <Icon name="warn" size={15} className="ni" />
-        <div>
-          <b>
-            Pembayaran sebagian — {formatMoney(open, "IDR")} tetap terbuka pada {partial.map((l) => l.bill.no).join(", ")}.
-          </b>
-          <p>
-            {parts ? `Potongan pajak dihitung sebanding dengan dana diterima: ${parts}. ` : ""}
-            Bila kekurangannya dipotong bank, isi Diterima sebesar yang ditransfer customer dan catat potongannya sebagai Biaya Bank.
-          </p>
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="nbox slim">
-      <Icon name="check" size={15} className="ni" />
-      <div>
-        {pph ? (
-          <>
-            <b>
-              Selisih {formatMoney(pph, "IDR")} antara sisa tagihan dan dana diterima adalah {parts}.
-            </b>
-            <p>Dihitung dari tarif setiap jenis PPh. Tagihan lunas setelah penerimaan ini.</p>
-          </>
-        ) : (
-          <b>Dana diterima menutup seluruh sisa tagihan.</b>
-        )}
-      </div>
-    </div>
-  );
-}

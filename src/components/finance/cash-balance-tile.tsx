@@ -1,0 +1,106 @@
+"use client";
+
+import { useState } from "react";
+import { Icon } from "@/components/icon";
+import { Dialog } from "@/components/ui/dialog";
+import { KpiTile } from "@/components/ui/kpi-tile";
+import { formatDate, formatMoney } from "@/lib/format";
+import type { CashBookSummary } from "@/lib/erp/cash-bank";
+
+/**
+ * The "Saldo Kas & Bank" tile above the Penerimaan and Pengeluaran registers —
+ * one line per currency — and its Rincian (SIBA's, without the Company column, P243).
+ */
+export function CashBalanceTile({ cash }: { cash: CashBookSummary }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <KpiTile
+        icon="wallet2"
+        tone="t-ok"
+        label="Saldo Kas & Bank"
+        more="Rincian"
+        wide
+        lines={cash.byCurrency.map((c) => formatMoney(c.balance, c.currencyLabel))}
+        detail={`${cash.resources} resource aktif`}
+        onClick={() => setOpen(true)}
+      />
+      {open && <CashBalanceDialog cash={cash} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+/**
+ * Every figure comes from the Cash Bank Book's balance, so it is the resource's
+ * actual balance. Balances are per currency and never added across them.
+ */
+function CashBalanceDialog({ cash, onClose }: { cash: CashBookSummary; onClose: () => void }) {
+  return (
+    <Dialog
+      open
+      icon="wallet2"
+      tone="ok"
+      width={640}
+      title="Saldo Kas & Bank"
+      subtitle="Saldo per resource menurut Buku Kas & Bank"
+      onClose={onClose}
+      foot={
+        <button className="btn primary" onClick={onClose}>
+          Tutup
+        </button>
+      }
+    >
+      {cash.rows.length ? (
+        <div className="tw boxed">
+          <table className="grid">
+            <thead>
+              <tr>
+                <th>Resource</th>
+                <th style={{ width: 132 }}>Entri Terakhir</th>
+                <th className="num" style={{ width: 176 }}>
+                  Saldo
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {cash.rows.map((r) => (
+                <tr key={r.cashBankId} style={{ cursor: "default" }}>
+                  <td>
+                    <span className="idc">
+                      <span className="lab">{r.label}</span>
+                      <span className="nm">{r.name}</span>
+                    </span>
+                  </td>
+                  <td className="mut" style={{ fontSize: "11.5px" }}>
+                    {r.lastEntryDate ? formatDate(r.lastEntryDate) : <span className="dash">belum ada entri</span>}
+                  </td>
+                  <td className="num">
+                    <span className={`mny${r.balance ? "" : " z"}`}>{formatMoney(r.balance, r.currencyLabel)}</span>
+                  </td>
+                </tr>
+              ))}
+              {cash.byCurrency.map((c) => (
+                <tr className="totrow" key={c.currencyId}>
+                  <td colSpan={2}>
+                    Total {c.currencyLabel} · {c.resources} resource
+                  </td>
+                  <td className="num">
+                    <span className="mny">{formatMoney(c.balance, c.currencyLabel)}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="empty sm">
+          <div className="ic">
+            <Icon name="wallet2" size={20} />
+          </div>
+          <h4>Belum ada resource Kas &amp; Bank</h4>
+          <p>Daftarkan resource pada Master · Kas &amp; Bank, lengkap dengan saldo awalnya.</p>
+        </div>
+      )}
+    </Dialog>
+  );
+}
