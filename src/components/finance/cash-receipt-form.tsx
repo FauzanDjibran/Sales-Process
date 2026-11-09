@@ -599,10 +599,13 @@ export function CashReceiptForm({
               )}
             </div>
             {errors.bank_charge && <p className="fnote">{errors.bank_charge}</p>}
-            <div className="ir tot">
-              <span>Dana masuk ke bank</span>
-              <b>{money(intoBank)}</b>
-            </div>
+            {/* While the Dampak Transaksi card shows it, the box does not repeat it (P243). */}
+            {!(status === "Draft" && cashBank) && (
+              <div className="ir tot">
+                <span>Dana masuk ke bank</span>
+                <b>{money(intoBank)}</b>
+              </div>
+            )}
           </div>
         </div>
       )}
