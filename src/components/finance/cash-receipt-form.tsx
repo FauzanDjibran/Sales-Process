@@ -231,8 +231,6 @@ export function CashReceiptForm({
           : [];
       });
   const received = shown.reduce((a, l) => a + l.cash, 0);
-  const settled = shown.reduce((a, l) => a + l.settled, 0);
-  const pph = shown.reduce((a, l) => a + l.pph, 0);
   const intoBank = received - charge;
 
   // ======================================================= header card
@@ -421,6 +419,46 @@ export function CashReceiptForm({
           </div>
         )}
       </div>
+      {shown.length > 0 && (
+        // What this receipt moves (P243): the money received, the bank charge typed here, and what reaches the bank.
+        <div className="lsum">
+          <span className="txsum">
+            <span>
+              <i>Total Diterima</i>
+              <b>{money(received)}</b>
+            </span>
+            <span>
+              <i>Biaya Bank</i>
+              {editing ? (
+                <span className="mi">
+                  <MoneyInput
+                    size="sm"
+                    value={h.bank_charge}
+                    currencyLabel="IDR"
+                    invalid={Boolean(errors.bank_charge)}
+                    ariaLabel="Biaya Bank"
+                    onChange={(v) => set("bank_charge", v)}
+                  />
+                </span>
+              ) : (
+                <b>{money(charge)}</b>
+              )}
+            </span>
+            <span className={intoBank < 0 ? "k neg" : "k"}>
+              <i>Dana Masuk ke Bank</i>
+              <b>{money(intoBank)}</b>
+            </span>
+          </span>
+        </div>
+      )}
+      {errors.bank_charge && (
+        <div className="nbox bad slim">
+          <Icon name="warn" size={15} className="ni" />
+          <div>
+            <b>{errors.bank_charge}</b>
+          </div>
+        </div>
+      )}
       {errors._lines && (
         <div className="nbox bad slim">
           <Icon name="warn" size={15} className="ni" />
@@ -578,9 +616,10 @@ export function CashReceiptForm({
   );
 
   // ============================================== Dampak Transaksi card
-  // The money of the whole receipt in one strip (P243): the bills it settles, less the bank charge typed
-  // here beside them and the PPh withheld, is what reaches the bank.
-  const impactCard = shown.length > 0 && (
+  // What posting does to the Kas & Bank (P243): its balance now, the money coming in, and its balance after.
+  // Only before posting: a posted document is already in the balance.
+  const afterPost = cashBank ? cashBank.balance + intoBank : 0;
+  const impactCard = shown.length > 0 && status === "Draft" && cashBank && (
     <div className="card" style={{ marginTop: 14 }}>
       <div className="card-h" style={{ borderBottom: 0 }}>
         <span className="ci">
@@ -588,51 +627,28 @@ export function CashReceiptForm({
         </span>
         <div className="ct">
           <h3>
-            Dampak Transaksi (Penerimaan): {cashBank ? <span className="lab">{cashBank.label}</span> : null}
+            Dampak Transaksi (Penerimaan): <span className="lab">{cashBank.label}</span>
           </h3>
-          <p>{cashBank ? cashBank.name : "Pilih Kas & Bank dulu…"}</p>
-          <p>
-            ({shown.length} {noun.toLowerCase()})
-          </p>
+          <p>{cashBank.name}</p>
+          <p>(1 entri Buku Kas & Bank)</p>
         </div>
         <span className="txsum">
           <span>
-            <i>Tagihan Diselesaikan</i>
-            <b>{money(settled)}</b>
+            <i>Saldo Saat Ini</i>
+            <b>{money(cashBank.balance)}</b>
           </span>
           <span>
-            <i>Biaya Bank</i>
-            {editing ? (
-              <span className="mi">
-                <MoneyInput
-                  size="sm"
-                  value={h.bank_charge}
-                  currencyLabel="IDR"
-                  invalid={Boolean(errors.bank_charge)}
-                  ariaLabel="Biaya Bank"
-                  onChange={(v) => set("bank_charge", v)}
-                />
-              </span>
-            ) : (
-              <b>{money(charge)}</b>
-            )}
-          </span>
-          {canWithhold && (
-            <span>
-              <i>PPh Dipotong</i>
-              <b>{money(pph)}</b>
-            </span>
-          )}
-          <span className={intoBank < 0 ? "k neg" : "k"}>
             <i>Dana Masuk ke Bank</i>
             <b>{money(intoBank)}</b>
           </span>
+          <span className={afterPost < 0 ? "k neg" : "k"}>
+            <i>{afterPost < 0 ? "Kekurangan" : "Saldo Setelah Posting"}</i>
+            <b>{money(Math.abs(afterPost))}</b>
+          </span>
         </span>
       </div>
-      {errors.bank_charge && <p className="fnote">{errors.bank_charge}</p>}
     </div>
   );
-
 
   // ============================================================ page
   return (

@@ -1391,9 +1391,11 @@ table.grid tbody tr.sel td{background:var(--accent-50)}
 table.grid tbody tr.flash td{animation:uwflash 1.2s}
 @keyframes uwflash{from{background:var(--accent-100)}}
 
-/* Dampak Transaksi on a Penerimaan / Pengeluaran (P243): the money of the whole
-   document in one strip, labels over figures as SIBA's .lsum, with Biaya Bank
-   typed in place beside the bills it is charged on. */
+/* A Penerimaan / Pengeluaran's money (P243), labels over figures as SIBA's .lsum:
+   above the lines what the document moves, with Biaya Bank typed in place;
+   in the Dampak Transaksi card what posting does to the Kas & Bank. */
+/* The strip between a lines card's header and its table, as SIBA's .lsum. */
+.lsum{display:flex;justify-content:flex-end;padding:10px 16px;border-bottom:1px solid var(--line-2);background:var(--bg)}
 .txsum{margin-left:auto;display:flex;align-items:stretch;flex-wrap:wrap;row-gap:10px}
 .txsum > span{display:flex;flex-direction:column;align-items:flex-end;justify-content:center;gap:4px;padding:0 18px;border-left:1px solid var(--line)}
 .txsum > span:first-child{border-left:0}

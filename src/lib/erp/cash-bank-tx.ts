@@ -317,7 +317,7 @@ async function openBills(
 // ---------------------------------------------------------------- options
 
 export type ReceiptPartnerOption = { id: number; label: string; name: string; active: boolean; category: string };
-export type ReceiptCashBankOption = { id: number; label: string; name: string; active: boolean; type: string };
+export type ReceiptCashBankOption = { id: number; label: string; name: string; active: boolean; type: string; balance: number };
 
 export type CashReceiptOptions = {
   purposes: CashBankPurpose[];
@@ -346,6 +346,7 @@ export async function cashReceiptOptions(
     }),
     prisma.mCashBank.findMany({
       where: { currency: { currency_label: BASE_CURRENCY_LABEL } },
+      include: { book_balance: true },
       orderBy: { cash_bank_label: "asc" },
     }),
     prisma.refWithholdingTax.findMany({ select: { id: true, wht_label: true } }),
@@ -379,6 +380,7 @@ export async function cashReceiptOptions(
       name: c.cash_bank_name,
       active: c.status === "Active",
       type: c.cash_bank_type,
+      balance: c.book_balance?.balance.toNumber() ?? 0,
     })),
     bills: [...issued.filter((b) => b.open > 0 || mine.has(b.key)), ...own],
     withholdingLabels: Object.fromEntries(taxes.map((t) => [String(t.id), t.wht_label])),
