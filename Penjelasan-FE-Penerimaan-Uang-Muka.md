@@ -134,22 +134,51 @@ hasil       DPP 900.901, PPN 99.099
 
 ### 4.1 Data dari server
 
-Untuk setiap tagihan yang dipilih, server memberi:
+Untuk setiap tagihan yang dipilih, server memberi tiga angka. Ketiganya dibaca
+dari tabel, tidak dihitung ulang:
 
-| Field | Arti |
-| --- | --- |
-| `total` | total tagihan, termasuk PPN |
-| `ppn` | PPN tagihan |
-| `paid` | yang sudah dibayar Penerimaan yang sudah di-posting |
+| Field | Arti | Uang Muka diambil dari | Invoice diambil dari |
+| --- | --- | --- | --- |
+| `total` | total tagihan, termasuk PPN | `fin_ar_advance.total_amount` | `fin_ar_invoice.total_amount` |
+| `ppn` | PPN tagihan | `fin_ar_advance.ppn_amount` | `fin_ar_invoice.ppn_amount` |
+| `paid` | yang sudah dibayar | `fin_ar_item.paid_amount` milik tagihan itu | `fin_ar_item.paid_amount` milik Invoice itu |
 
-Draft lain tidak dihitung sebagai `paid`.
+Catatan per kolom:
+
+- **`total` dan `ppn` tagihan uang muka** adalah angka saat tagihan diterbitkan
+  (§3). Penerimaan tidak menghitung ulang dari Customer Order, jadi Include atau
+  Exclude tidak berpengaruh lagi di sini.
+- **`total` Invoice sudah bersih dari uang muka**, dan `ppn` Invoice adalah PPN
+  penuh dikurangi PPN uang muka yang dipakai. Jadi yang ditagih ke customer
+  memang angka ini, bukan nilai bruto Invoice.
+- **`paid` tidak disimpan di tagihan atau di Invoice.** Tempatnya di AR item
+  milik dokumen itu (satu dokumen, satu item). Item dicari lewat pasangan
+  sumbernya:
+
+  ```sql
+  SELECT i.paid_amount
+  FROM fin_ar_item i
+  JOIN sys_doc_type t ON t.id = i.source_doc_type_id
+  WHERE t.doc_table = 'fin_ar_advance'   -- atau 'fin_ar_invoice'
+    AND i.source_doc_id = :id_tagihan;
+  ```
+
+  Bila tidak ada baris, `paid = 0`. Itu normal untuk tagihan uang muka yang
+  belum pernah dibayar, karena item Uang Muka baru lahir di pembayaran pertama.
+  Item Invoice lahir saat Invoice di-posting, jadi `paid`-nya mulai dari 0.
+- **`paid` hanya naik saat Posting.** Penerimaan yang masih Draft belum
+  menambahnya, jadi Draft lain tidak ikut dihitung.
+
+Di kode, ketiga angka ini disiapkan oleh `settlementAdvances` (`ar-advance.ts`),
+`settlementInvoices` (`ar-invoice.ts`) dan `arPaidByDocument` (`ar-item.ts`),
+lalu digabung `openBills` di `cash-bank-tx.ts`.
 
 ### 4.2 Input user
 
-| Input | Level |
-| --- | --- |
-| Diterima | per baris |
-| Biaya Bank | header |
+| Input | Level | Disimpan di |
+| --- | --- | --- |
+| Diterima | per baris | `fin_cash_bank_tx_line.settled_amount` (tanpa PPh, Diterima = Dilunasi) |
+| Biaya Bank | header | `fin_cash_bank_tx.bank_charge` |
 
 ### 4.3 Hitungan per baris
 
@@ -164,6 +193,47 @@ Bagian PPN     = round(ppn × after / total) − round(ppn × paid / total)
 Bagian DPP     = Dilunasi − Bagian PPN
 Sisa setelah   = Sisa sekarang − Dilunasi
 ```
+
+Asal dan tujuan setiap angka:
+
+| Angka | Rumus | Asal data | Disimpan di |
+| --- | --- | --- | --- |
+| `total` | dibaca | `total_amount` tagihan atau Invoice | tidak disimpan ulang |
+| `ppn` | dibaca | `ppn_amount` tagihan atau Invoice | tidak disimpan ulang |
+| `paid` | dibaca | `fin_ar_item.paid_amount` | tidak disimpan ulang |
+| Sisa sekarang | `total − paid` | hitungan layar | tidak disimpan; batas atas Diterima |
+| Dilunasi | `= Diterima` | input user | `fin_cash_bank_tx_line.settled_amount` |
+| `after` | `paid + Dilunasi` | hitungan layar | tidak disimpan; jadi `paid_amount` baru saat Posting |
+| Bagian PPN | rumus kumulatif | hitungan layar | `fin_cash_bank_tx_line.ppn_part` |
+| Bagian DPP | `Dilunasi − Bagian PPN` | hitungan layar | `fin_cash_bank_tx_line.dpp_part` |
+| Sisa setelah | `Sisa sekarang − Dilunasi` | hitungan layar | tidak disimpan; tampil di baris |
+
+Langkah demi langkah, dengan angka contoh B bayar kedua (§5): tagihan Exclude
+`ARA/2026/11/0001`, sudah dibayar 1.000.000.
+
+1. **Baca tagihan.** `fin_ar_advance`: `total_amount` 3.330.000,
+   `ppn_amount` 330.000.
+2. **Baca yang sudah dibayar.** `fin_ar_item` dengan sumber tagihan itu:
+   `paid_amount` 1.000.000.
+3. **Sisa sekarang** = 3.330.000 − 1.000.000 = 2.330.000. Diterima tidak boleh
+   lebih dari ini.
+4. **User mengetik Diterima** 2.330.000, jadi Dilunasi = 2.330.000.
+5. **after** = 1.000.000 + 2.330.000 = 3.330.000, yaitu posisi tagihan setelah
+   pembayaran ini.
+6. **Bagian PPN** = PPN tagihan sampai `after` dikurangi PPN tagihan sampai
+   `paid`:
+   `round(330.000 × 3.330.000 / 3.330.000) − round(330.000 × 1.000.000 / 3.330.000)`
+   = 330.000 − 99.099 = 230.901.
+   Angka 99.099 sama dengan Bagian PPN bayar pertama, jadi cicilan tidak
+   menghitung PPN yang sudah dihitung cicilan sebelumnya.
+7. **Bagian DPP** = 2.330.000 − 230.901 = 2.099.099.
+8. **Sisa setelah** = 2.330.000 − 2.330.000 = 0, tagihan lunas.
+
+Saat **Simpan**, baris `fin_cash_bank_tx_line` ditulis dengan
+`settled_amount` 2.330.000, `ppn_part` 230.901 dan `dpp_part` 2.099.099.
+Saat **Posting**, server menghitung ulang semuanya dari `paid` terbaru, lalu
+`fin_ar_item.paid_amount` naik menjadi 3.330.000 dan saldo item Uang Muka naik
+sebesar `dpp_part`. Rinciannya ada di `Penjelasan-AR-Item-dan-Buku-Piutang.md`.
 
 **Bagian DPP dihitung dengan pengurangan, bukan dibagi sendiri**, supaya
 `Bagian DPP + Bagian PPN = Dilunasi` selalu tepat.
