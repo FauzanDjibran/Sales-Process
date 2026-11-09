@@ -1402,13 +1402,3 @@ table.grid tbody tr.flash td{animation:uwflash 1.2s}
 .txsum .k b{font-size:16px}
 .txsum .neg b{color:var(--bad)}
 .txsum .mi{width:150px}
-
-/* Above a Penerimaan / Pengeluaran's lines (P243): what the document moves, read
-   as one line of arithmetic at the size of a table row, so it does not compete
-   with the Dampak Transaksi card below. */
-.txline{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:6px 8px;padding:8px 16px;border-bottom:1px solid var(--line-2);font-size:12px;color:var(--muted)}
-.txline .mny{font-family:var(--f-mono);color:var(--ink)}
-.txline b.mny{font-weight:700}
-.txline .neg{color:var(--bad)}
-.txline .op{color:var(--muted-2);padding:0 2px}
-.txline .mi{width:130px}

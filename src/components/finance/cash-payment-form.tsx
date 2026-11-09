@@ -390,40 +390,6 @@ export function CashPaymentForm({
           </div>
         )}
       </div>
-      {shown.length > 0 && (
-        // What this payment moves (P243): the money paid, the bank charge typed here, and what leaves the bank.
-        <div className="txline">
-          <span>Total Dibayar</span>
-          <span className="mny">{money(received)}</span>
-          <span className="op">+</span>
-          <span>Biaya Bank</span>
-          {editing ? (
-            <span className="mi">
-              <MoneyInput
-                size="sm"
-                value={h.bank_charge}
-                currencyLabel="IDR"
-                invalid={Boolean(errors.bank_charge)}
-                ariaLabel="Biaya Bank"
-                onChange={(v) => set("bank_charge", v)}
-              />
-            </span>
-          ) : (
-            <span className="mny">{money(charge)}</span>
-          )}
-          <span className="op">=</span>
-          <span>Dana Keluar dari Bank</span>
-          <b className={intoBank < 0 ? "mny neg" : "mny"}>{money(intoBank)}</b>
-        </div>
-      )}
-      {errors.bank_charge && (
-        <div className="nbox bad slim">
-          <Icon name="warn" size={15} className="ni" />
-          <div>
-            <b>{errors.bank_charge}</b>
-          </div>
-        </div>
-      )}
       {errors._lines && (
         <div className="nbox bad slim">
           <Icon name="warn" size={15} className="ni" />
@@ -575,6 +541,40 @@ export function CashPaymentForm({
               })}
             </tbody>
           </table>
+        </div>
+      )}
+      {shown.length > 0 && (
+        // What this payment moves (P243), as an Invoice states its total: the money paid on the bills,
+        // the bank charge typed under it, and what leaves the bank.
+        <div className="cardfoot">
+          <div className="impact">
+            <div className="ttl">Pengeluaran</div>
+            <div className="ir">
+              <span>Total dibayar untuk tagihan</span>
+              <b>{money(received)}</b>
+            </div>
+            <div className="ir">
+              <span>Biaya bank (ditanggung perusahaan)</span>
+              {editing ? (
+                <span style={{ width: 160 }}>
+                  <MoneyInput
+                    size="sm"
+                    value={h.bank_charge}
+                    invalid={Boolean(errors.bank_charge)}
+                    ariaLabel="Biaya Bank"
+                    onChange={(v) => set("bank_charge", v)}
+                  />
+                </span>
+              ) : (
+                <b>+{money(charge)}</b>
+              )}
+            </div>
+            {errors.bank_charge && <p className="fnote">{errors.bank_charge}</p>}
+            <div className="ir tot">
+              <span>Dana keluar dari bank</span>
+              <b>{money(intoBank)}</b>
+            </div>
+          </div>
         </div>
       )}
     </div>
