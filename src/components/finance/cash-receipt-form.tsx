@@ -421,34 +421,28 @@ export function CashReceiptForm({
       </div>
       {shown.length > 0 && (
         // What this receipt moves (P243): the money received, the bank charge typed here, and what reaches the bank.
-        <div className="lsum">
-          <span className="txsum">
-            <span>
-              <i>Total Diterima</i>
-              <b>{money(received)}</b>
+        <div className="txline">
+          <span>Total Diterima</span>
+          <span className="mny">{money(received)}</span>
+          <span className="op">−</span>
+          <span>Biaya Bank</span>
+          {editing ? (
+            <span className="mi">
+              <MoneyInput
+                size="sm"
+                value={h.bank_charge}
+                currencyLabel="IDR"
+                invalid={Boolean(errors.bank_charge)}
+                ariaLabel="Biaya Bank"
+                onChange={(v) => set("bank_charge", v)}
+              />
             </span>
-            <span>
-              <i>Biaya Bank</i>
-              {editing ? (
-                <span className="mi">
-                  <MoneyInput
-                    size="sm"
-                    value={h.bank_charge}
-                    currencyLabel="IDR"
-                    invalid={Boolean(errors.bank_charge)}
-                    ariaLabel="Biaya Bank"
-                    onChange={(v) => set("bank_charge", v)}
-                  />
-                </span>
-              ) : (
-                <b>{money(charge)}</b>
-              )}
-            </span>
-            <span className={intoBank < 0 ? "k neg" : "k"}>
-              <i>Dana Masuk ke Bank</i>
-              <b>{money(intoBank)}</b>
-            </span>
-          </span>
+          ) : (
+            <span className="mny">{money(charge)}</span>
+          )}
+          <span className="op">=</span>
+          <span>Dana Masuk ke Bank</span>
+          <b className={intoBank < 0 ? "mny neg" : "mny"}>{money(intoBank)}</b>
         </div>
       )}
       {errors.bank_charge && (
