@@ -48,6 +48,7 @@ only (PROTOCOL §4, answer D).
 | Concept | Rule departed from | Project decision | Why |
 | --- | --- | --- | --- |
 | engineering/data-conventions | `doc-numbering=prefix-yyyy-mm-seq`: a series per prefix per month, for every document and journal | P216: production documents tied to a unit are numbered daily per unit, e.g. `BSTB_UGH_190526_00001`, `NG_UGH_180526_00001`; every other document and journal stays on the choice | The user's answer D, 04/11/2026: follows the numbering in Walet's production simulation |
+| ui/design-convention | §3.2 Topbar: "Show which app this is and give access to the user's account. Nothing else goes here." | P259: a user holding both applications (ERP and Produksi, P254) has a *Pilih aplikasi* icon beside the brand block, leading to `/apps` | The user's answer D, 11/11/2026: tried here first; to be proposed for every project once it proves itself (Harvest queue) |
 
 ## Harvest queue
 
@@ -57,6 +58,7 @@ Project decisions that look reusable and are waiting to be folded into the KB
 | Project decision | Target concept | Proposed change | Status |
 | --- | --- | --- | --- |
 | P233 | `accounting/open-items` | Report receivable and advance as two books, each signed on its own movement, with a balance report per partner listing each item's source and progress | Offered |
+| P245, P254, P259 | `ui/design-convention` (and `engineering/security-rbac`) | Several applications behind one sign-in: a picker after login, a derived app access (no app table), one shell per application with modules on its rail, and the *Pilih aplikasi* icon in the topbar — offered once it has been used in ERP for a while (the user, 11/11/2026) | Waiting |
 
 Processed 04/11/2026: P106 → `engineering/app-architecture` 1.2; P109 →
 `engineering/data-conventions` 1.1; P110, P223 → `accounting/books-and-posting`
