@@ -79,6 +79,27 @@ Pola layar Pengajuan Budget di SIBA:
 - `actor.unitIds` dimuat bersama sesi. Satu penjaga `requireUnit(actor, unitId)` dipanggil di **setiap** halaman dan Server Action, termasuk saat dokumen dibuka lewat id, supaya mengganti URL tidak menembus batas.
 - Register di menu Dokumen difilter ke Unit milik user; supervisor melihat semua.
 
+## 3a. Dua aplikasi dalam satu SSO (P245, usulan menu)
+
+Niat user: saat diimplementasikan, ERP dan Produksi menjadi **dua aplikasi dengan satu SSO**. Setelah login user memilih aplikasi sesuai permission; yang hanya punya satu langsung masuk. Kelak tiap aplikasi punya database sendiri, tetapi **repo ini tetap satu aplikasi dan satu database** (batas Vercel dan Neon). Pemisahannya cukup di tampilan (simulasi putaran kelima) dan di `DBML/erp.dbml.md`, yang menandai tabel milik tiap aplikasi.
+
+**Pola ERP mainstream.** SAP S/4HANA memegang master, order, biaya, dan goods movement, sedangkan SAP Digital Manufacturing (MES) memegang eksekusi di work center. Dynamics 365 memisahkan Production floor execution dari Supply Chain. Oracle punya Production Supervisor Workbench terpisah. Odoo memakai satu database, tetapi app Shop Floor terpisah dari Manufacturing dan Inventory. Pola yang sama: **ERP memegang uang, rencana, dan stok; aplikasi lantai produksi memegang eksekusi dan perpindahan.** Barang menyeberang lewat dokumen batas, dengan satu sisi menyerahkan dan sisi lain menerima.
+
+| Aplikasi | Menu | Isi |
+| --- | --- | --- |
+| Produksi | Pengerjaan | Workspace Unit |
+| Produksi | Dokumen | Dokumen Grading, Pengerjaan Unit, QC Check, Isi Wadah, Assembly Kotak, Dokumen Push, BSTB antar Unit, Dokumen Reproses, Job Order |
+| Produksi | Laporan | Saldo Produksi per Unit (gram), Kartu No. Stok, Telusur Produksi, Rekap Susut per Partai |
+| Produksi | Master | Unit dan Workstation, Line dan Routing, Karyawan, BoM Packing |
+| ERP | Persediaan › Serah Terima Produksi | Dokumen batas: BSTB Issue diajukan Gudang dan diterima Unit; BSTB Pengeluaran dan BSTB ke Finish Goods diajukan Unit dan diterima Gudang |
+| ERP | Produksi (sisi uang) | Perencanaan (Sales Planning, Rencana Produksi), Biaya (Tagihan Biaya, Pembayaran Biaya Produksi, Closing Costing Produksi), Master Biaya (Standard Cost per Unit, Line dan Akun Varians, Jenis Biaya), Laporan (Nilai WIP per Unit, Varians per Line, Telusur) |
+| Keduanya | Item, Gudang, User dan Role | Milik ERP; Produksi membacanya |
+
+**Catatan untuk saat database benar-benar dipisah** (bukan pekerjaan sekarang):
+- Posting yang kini satu transaksi akan terbelah antara dua aplikasi: biaya unit, perubahan akun WIP di grading, Terima BSTB Issue, dan Finish Goods. Produksi harus mengirim kejadian, lalu ERP yang menjurnal (pola outbox).
+- Standard Cost per Unit dan akun varians tinggal di ERP, sementara Unit dan Line ada di Produksi, jadi kode Unit perlu direplikasi.
+- Nilai di layar Produksi tetap di balik satu syarat (`canSeeValue`), dibaca dari ERP.
+
 ## 4. Beban data: pilihan solusi
 
 | # | Solusi | Kelebihan | Kekurangan | Putusan |
