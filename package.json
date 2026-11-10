@@ -14,6 +14,8 @@
     "db:tax-backfill": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/tax-backfill.ts",
     "db:neon-tax-backfill": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/tax-backfill.ts",
     "db:neon-reconcile": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/reconcile.ts",
+    "db:reset-production": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/reset-production-data.ts",
+    "db:neon-reset-production": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/reset-production-data.ts",
     "db:truncate-transactions": "node --env-file-if-exists=.env --import tsx scripts/truncate-transactions.ts",
     "db:stock-inject": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/stock-inject.ts",
     "db:neon-stock-inject": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/stock-inject.ts",

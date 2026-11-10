@@ -165,7 +165,9 @@ async function write(tx: Tx, b: Bucket, m: { movement: Movement; qty: Dec; value
   const value = b.value.add(m.value);
   if (qty.lt(0) || value.lt(0)) throw new ProductionRefusal("Saldo produksi tidak boleh negatif.");
   if (qty.isZero() && !value.isZero()) throw new ProductionRefusal("Saldo produksi yang kosong tidak boleh bernilai.");
-  await tx.prdBalance.update({ where: { id: b.id }, data: { qty_balance: qty, value_balance: value, updated_by: m.actorId } });
+  // A bucket rising from empty starts its *Sejak* again (W111).
+  const entered = b.qty.isZero() && qty.gt(0) ? { entered_at: m.date } : {};
+  await tx.prdBalance.update({ where: { id: b.id }, data: { qty_balance: qty, value_balance: value, ...entered, updated_by: m.actorId } });
   await tx.prdLedger.create({
     data: {
       ...(await position(tx, m.date, m.source)),
@@ -225,6 +227,8 @@ export type ProductionEntry = {
   value: number | string | Dec;
   /** Bahan penolong: a balance of the Unit, never goods being worked (V8). */
   auxiliary?: boolean;
+  /** The No. Job the goods enter under: one per pickup at the BSTB Issue (W98, P262). */
+  jobId?: number | null;
   date: Date;
   source: ProductionSource;
   actorId: number;
@@ -243,7 +247,7 @@ export async function enterProduction(tx: Tx, e: ProductionEntry): Promise<{ buc
   if (!lot) throw new ProductionRefusal(`No. Stok ${item.item_label} tidak ditemukan.`);
   const bucket = await openBucket(
     tx,
-    { lotId: lot.id, unitId: e.unitId, stage: "Preparation", partaiId: null, jobId: null, auxiliary: e.auxiliary, itemId: e.itemId, uomId: item.base_uom_id },
+    { lotId: lot.id, unitId: e.unitId, stage: "Preparation", partaiId: null, jobId: e.jobId ?? null, auxiliary: e.auxiliary, itemId: e.itemId, uomId: item.base_uom_id },
     e.actorId
   );
   if (bucket.auxiliary !== Boolean(e.auxiliary)) {
@@ -524,7 +528,8 @@ export async function formPartai(
 /** A No. Job: one pickup of one No. Stok at the Unit issuing it (W31). */
 export async function issueJob(
   tx: Tx,
-  j: { unitId: number; lotId: number; partaiId?: number | null; date: Date; source: ProductionSource; actorId: number }
+  /** `lotId`: the No. Stok picked up; none for a Job of several (W103). */
+  j: { unitId: number; lotId?: number | null; partaiId?: number | null; date: Date; source: ProductionSource; actorId: number }
 ): Promise<{ id: number; no: string }> {
   const unit = await activeUnit(tx, j.unitId);
   const series = dailySeries(unit.unit_label, j.date);
@@ -536,7 +541,7 @@ export async function issueJob(
       job_no: no,
       job_date: j.date,
       unit_id: j.unitId,
-      tracking_id: j.lotId,
+      tracking_id: j.lotId ?? null,
       partai_id: j.partaiId ?? null,
       source_doc_type_id: j.source.docTypeId,
       source_doc_id: j.source.docId,

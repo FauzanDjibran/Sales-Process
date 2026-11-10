@@ -613,7 +613,7 @@ model MItem {
   prd_balances           PrdBalance[]              @relation("PrdBalanceItem")
   stock_issue_lines      LogStockIssueLine[]
   prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
-  grading_outputs PrdGradingOutput[]
+  grading_outputs        PrdGradingOutput[]
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -843,21 +843,21 @@ enum PrdProcessKind {
 /// may use. The old `ref_workstation` (P201), renamed in place so its id, its
 /// buckets and its Stock Issues keep pointing at it.
 model RefUnit {
-  id             Int              @id @default(autoincrement())
-  unit_code      String           @unique
-  unit_label     String
-  unit_name      String
-  workstation_id Int?
+  id               Int            @id @default(autoincrement())
+  unit_code        String         @unique
+  unit_label       String
+  unit_name        String
+  workstation_id   Int?
   /// One Unit does one kind of work (W73).
-  process        PrdProcessKind       @default(PassThrough)
+  process          PrdProcessKind @default(PassThrough)
   /// Goods pass a QC Check here before Stand By (W65).
-  has_qc         Boolean              @default(false)
+  has_qc           Boolean        @default(false)
   /// Grading here releases the No. Job (W92); a move carries a No. Job or makes one.
-  releases_job   Boolean              @default(false)
+  releases_job     Boolean        @default(false)
   /// Each No. Job leaving here gets its own Job Order (W69).
-  issues_job_order Boolean            @default(false)
-  note           String?
-  status         ActiveStatus     @default(Active)
+  issues_job_order Boolean        @default(false)
+  note             String?
+  status           ActiveStatus   @default(Active)
 
   created_by Int
   updated_by Int?
@@ -1031,8 +1031,9 @@ model PrdJob {
   job_date           DateTime @db.Date
   /// The Unit that issued it.
   unit_id            Int
-  /// The No. Stok it was picked up from.
-  tracking_id        Int
+  /// The No. Stok it was picked up from; empty for a Job of several No. Stok,
+  /// which may also span partai (W103, P262).
+  tracking_id        Int?
   partai_id          Int?
   source_doc_type_id Int
   source_doc_id      Int
@@ -1040,9 +1041,9 @@ model PrdJob {
   created_by         Int
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
-  unit     RefUnit          @relation(fields: [unit_id], references: [id])
-  tracking LogStockTracking @relation(fields: [tracking_id], references: [id])
-  partai   PrdPartai?       @relation(fields: [partai_id], references: [id])
+  unit     RefUnit           @relation(fields: [unit_id], references: [id])
+  tracking LogStockTracking? @relation(fields: [tracking_id], references: [id], onDelete: Restrict)
+  partai   PrdPartai?        @relation(fields: [partai_id], references: [id])
   balances PrdBalance[]
   ledger   PrdLedger[]
 
@@ -4049,21 +4050,23 @@ enum PrdStage {
 /// item's base unit and value in whole rupiah; Σ value is WIP. Written only by
 /// `production-ledger.ts`, beside its ledger row.
 model PrdBalance {
-  id            Int      @id @default(autoincrement())
+  id            Int       @id @default(autoincrement())
   tracking_id   Int
   unit_id       Int
-  stage         PrdStage @default(Preparation)
+  stage         PrdStage  @default(Preparation)
   partai_id     Int?
   job_id        Int?
   item_id       Int
   /// The item's base unit.
   uom_id        Int
-  qty_balance   Decimal  @default(0) @db.Decimal(18, 6)
-  value_balance Decimal  @default(0) @db.Decimal(18, 2)
+  qty_balance   Decimal   @default(0) @db.Decimal(18, 6)
+  value_balance Decimal   @default(0) @db.Decimal(18, 2)
   /// Bahan penolong: a balance of the Unit, not goods being worked (V8).
-  auxiliary     Boolean  @default(false)
+  auxiliary     Boolean   @default(false)
   /// The QC Check that turned these goods back: their own row in Persiapan (W66).
   qc_check_id   Int?
+  /// When the bucket last rose from empty: the Workspace's *Sejak* (W111, P262).
+  entered_at    DateTime? @db.Date
 
   created_by Int
   updated_by Int?
@@ -4081,6 +4084,8 @@ model PrdBalance {
 
   /// NULLS NOT DISTINCT, hand-written in the migration.
   @@unique([tracking_id, unit_id, stage, partai_id, job_id, qc_check_id])
+  /// Also `prd_balance_held_idx` (unit_id, stage, job_id) WHERE qty_balance > 0,
+  /// hand-written in the migration: the Workspace reads only buckets holding goods (W111).
   @@index([unit_id])
   @@index([item_id])
   @@index([partai_id])

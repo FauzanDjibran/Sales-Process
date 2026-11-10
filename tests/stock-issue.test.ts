@@ -13,6 +13,7 @@ import {
 } from "../src/lib/erp/stock-issue";
 import { cleanupFiscalYear, cleanupFixtures, disconnect, openFiscalYear, prisma } from "./helpers";
 import { makeProductionFixture, type ProductionFixture } from "./production-helpers";
+import { firstProductionUnit } from "../src/lib/erp/production-ledger";
 
 /**
  * The BSTB Issue (P228): material leaves a warehouse lot by lot into a Unit, at
@@ -166,6 +167,34 @@ describe("which Unit takes what", () => {
         assert.ok(right.ok, JSON.stringify(right));
         await transitionStockIssue(right.id, "cancel", f.actor, "uji");
       }
+    } finally {
+      if (own) {
+        await prisma.prdRoutingStep.deleteMany({ where: { routing_id: own.id } });
+        await prisma.prdRouting.delete({ where: { id: own.id } });
+      }
+    }
+  });
+
+  test("goods to be worked enter under a No. Job of their own, with their Sejak (W98, W111, P262)", async () => {
+    const existing = await prisma.prdRouting.findFirst({ where: { line_id: null, status: "Active" } });
+    const own = existing
+      ? null
+      : await prisma.prdRouting.create({
+          data: { routing_code: `test.${f.key("SJ")}`, routing_label: f.key("SJ"), routing_name: "Segmen", created_by: f.actor, steps: { create: [{ seq: 1, unit_id: f.wsB }] } },
+        });
+    try {
+      const first = (await firstProductionUnit())!;
+      const r = await create(header({ purpose: "production_issue", unit_id: first }), [line(2, [{ lot: f.lot, qty: 2 }])]);
+      assert.ok(r.ok, JSON.stringify(r));
+      ids.push(r.id);
+      assert.ok((await transitionStockIssue(r.id, "submit", f.actor)).ok);
+      assert.ok((await transitionStockIssue(r.id, "post", f.actor)).ok);
+      const bucket = await prisma.prdBalance.findFirstOrThrow({ where: { tracking_id: f.lot, unit_id: first }, include: { job: true } });
+      assert.ok(bucket.job, "one No. Job for the pickup");
+      assert.deepEqual([bucket.job!.tracking_id, bucket.job!.unit_id], [f.lot, first]);
+      assert.equal(bucket.entered_at?.toISOString().slice(0, 10), today, "Sejak is the day it entered");
+      const aux = await prisma.prdBalance.findFirstOrThrow({ where: { tracking_id: f.lot, unit_id: f.wsA, auxiliary: true } });
+      assert.equal(aux.job_id, null, "bahan penolong takes no No. Job");
     } finally {
       if (own) {
         await prisma.prdRoutingStep.deleteMany({ where: { routing_id: own.id } });

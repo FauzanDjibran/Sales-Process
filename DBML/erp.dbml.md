@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20261102090000_drop_redundant_ledger_columns`
+- **As of migration:** `20261111180000_workspace_foundation`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout: three parts, one per owner** (P254, `production_app_plan.md` §5):
@@ -2961,7 +2961,7 @@ table prd_job {
   job_no                      varchar [not null, unique] // <kode unit>_<ddmmyy>_<NNNNN> (W11)
   job_date                    date [not null]
   unit_id                     int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP · the Unit that issued it
-  tracking_id                 int [not null, ref : > log_stock_tracking.id] // lintas aplikasi → ERP · the No. Stok picked up from
+  tracking_id                 int [ref : > log_stock_tracking.id] // lintas aplikasi → ERP · the No. Stok picked up from; empty for a Job of several (W103, P262)
   partai_id                   int [ref : > prd_partai.id]
 
   source_doc_type_id          int [not null]
@@ -3007,6 +3007,7 @@ table prd_balance {
   value_balance               decimal(18,2) [not null, default: 0] // CHECK ≥ 0; 0 when the bucket is empty
   auxiliary                   boolean [not null, default: false] // bahan penolong (V8)
   qc_check_id                 int // the QC Check that turned it back (W66)
+  entered_at                  date // when it last rose from empty: the Workspace's Sejak (W111, P262)
 
   created_by                  int [not null]
   updated_by                  int
@@ -3016,6 +3017,7 @@ table prd_balance {
 
   indexes {
     (tracking_id, unit_id, stage, partai_id, job_id) [unique] // NULLS NOT DISTINCT
+    (unit_id, stage, job_id) [name: 'prd_balance_held_idx'] // WHERE qty_balance > 0, hand-written (W111, P262)
     unit_id
     item_id
   }

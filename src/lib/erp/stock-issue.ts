@@ -8,7 +8,7 @@ import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { InventoryRefusal, issueStock, locationLabelsByIds, lotKey, lotOptions, lotTrackedItems, releaseReservation, reserveStock, type LotOption } from "./inventory";
-import { ProductionRefusal, enterProduction, firstProductionUnit } from "./production-ledger";
+import { ProductionRefusal, enterProduction, issueJob, firstProductionUnit } from "./production-ledger";
 import { fallbackAccounts } from "./system-settings";
 import { accountsForItems } from "./item-account";
 import { DEFAULT_STOCK_ISSUE_PURPOSE, stockIssuePurpose } from "./stock-issue-purposes";
@@ -591,8 +591,15 @@ export async function transitionStockIssue(
             source,
             actorId,
           });
+          // Goods to be worked enter under a No. Job of their own, one per pickup of
+          // one No. Stok: the first No. Job is born here (W98, P262). Bahan penolong has none.
+          const job =
+            issue.purpose === "auxiliary_issue"
+              ? null
+              : await issueJob(tx, { unitId: r.c.data.unit_id!, lotId: p.tracking_id, date, source, actorId });
           // The lot keeps its number inside production (R3).
           const entered = await enterProduction(tx, {
+            jobId: job?.id ?? null,
             lotId: p.tracking_id,
             itemId: line.item_id,
             unitId: r.c.data.unit_id!,
