@@ -221,6 +221,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | W109 | **QC Check lewat form**, seperti Dokumen Push: centang Job, Periksa, lalu Lulus atau Balik dipilih per baris (alasan Balik opsional), dan Posting setelah semua baris diputuskan. Keputusan tetap utuh per baris (W65) | User |
 | W110 | **Halaman unit tanpa kartu ringkasan (KPI)**; hitungan cukup di tab. **Isi Wadah (W101) ditahan**: arah user satu kali kerja satu kotak (pilih Nama Jual, buat rekomendasi satu kotak, selesai, mulai lagi); alur lapangan yang paling realistis direncanakan dulu sebelum simulasi diubah | User |
 | W111 | **Tiap tab Workspace punya dua tabel berformat tetap** (opsi B, menggantikan W108). **Tabel Job**: satu baris satu Job — No. Job, Partai (Lintas partai bila lebih dari satu), jumlah No. Stok, Gram, Sejak — dan isinya dibuka di modal, dimuat saat dibuka. **Tabel No. Stok tanpa Job**: satu baris satu No. Stok — No. Stok, Item, Partai, Gram, Sejak — dipilih satu per satu dan boleh diambil sebagian saat dikirim. Tabel kedua muncul hanya bila ada barangnya; tiap tabel berhalaman sendiri. Klik baris di unit grading membuka grading Job atau No. Stok itu. Dampak database ada di `Production-Unit-Workspace-Plan.md` §3b | User |
+| W112 | **Packing 95 kembali satu Unit, `UP5`, dengan alur B2: pilah dulu, lalu satu kotak sekali kerja.** Keping keluar Barcoding sudah bernomor yang bisa di-scan dan secara fisik hanya dikumpulkan per partai, satu kotak partai, tanpa sekat. **Pilah Partai**: tiap keping partai di-scan sekali, layar menyebut baki A–E, dan batas baki dihitung dari sebaran gram partai itu sendiri (isi baki kira-kira sama banyak); satu partai dipilah sekali dan dipakai untuk semua Nama Jual. **Kotak**: pilih Nama Jual dan partai sumber (atau lintas partai), sistem membuat rekomendasi satu kotak dari isi baki (subset-sum terdekat target BoM), layar menunjuk baki dan keping berikutnya; keping lain boleh dipakai dan sisa rekomendasi disesuaikan; tiap keping di-scan dan dipasangi CAIQ (unik); Tutup Kotak setelah gram dalam toleransi, jumlah keping sesuai BoM, dan semua CAIQ terisi; No. Stok Kotak lahir dengan isi dan partai tiap keping, lalu kotak berikutnya langsung dimulai. Kotak lahir tanpa No. Job; Push ke Packing 98 memberinya No. Job menurut W92. **Menggantikan W101, W104 dan bagian Job wadah W103**: Isi Wadah dan Pemberian CAIQ bukan unit, Job wadah tidak ada. W102 tetap (UBC melepas Job) | User |
 
 ---
 
@@ -265,9 +266,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | Moulding | Dry B | UDB | Grading | Ya | Ya, Job Order ikut lepas | BSTB |
 | WIP Packing | Wrapping | UWP | Pass Through | Ya | — | Dokumen Push |
 | WIP Packing | Barcoding | UBC | Grading (output pcs) | Ya, QC Final Grading | Ya (W102) | Dokumen Push, checkpoint |
-| WIP Packing | Isi Wadah | UIW | Isi Wadah (W101) | Belum ditinjau | Job wadah lahir di sini | Dokumen Push |
-| WIP Packing | Pemberian CAIQ | UCQ | Pass Through | Belum ditinjau | — | Dokumen Push |
-| WIP Packing | Kotak (Packing 95) | UP5 | Assembly | Belum ditinjau | Kotak meneruskan Job wadah (W104) | Dokumen Push per kotak |
+| WIP Packing | Packing 95 | UP5 | Assembly: Pilah Partai lalu Kotak (W112) | Belum ditinjau | Pcs masuk tanpa Job; kotak lahir tanpa Job | Dokumen Push per kotak |
 | WIP Packing | Packing 98 | UP8 | Assembly box dan karton | Belum ditinjau | — | BSTB ke Finish Goods + QC |
 
 **No. Job tidak diatur per unit saat keluar (W92):** setiap Push atau BSTB antar unit meneruskan No. Job yang ada, atau membuat yang baru bila barang belum punya. No. Job hanya hilang di unit bertanda Lepas No. Job.
@@ -615,7 +614,7 @@ Tidak ada yang tersisa. OD-1 (lingkup penyerapan BJL dan reject) dan OD-2 (pembo
 | --- | --- | --- |
 | O-01 | Selisih data BSTB, misalnya BSTB 10 Job tetapi data 11 | Ditutup untuk sekarang, W57 |
 | O-02 | Barang retur dan tukar barang di Cabut | Di luar scope, W62 |
-| O-03 | Barcode dan sistem scan yang berjalan sekarang | **Open**, menunggu penjelasan konsep |
+| O-03 | Barcode dan sistem scan yang berjalan sekarang | Sebagian ditutup (W112): keping keluar Barcoding bernomor yang bisa di-scan. Format label dan alat scan masih terbuka |
 | O-04 | Kadar air sebagai data | Dilewati, W62 |
 | O-05 | Karantina sesudah FG | Dilewati, W62 |
 | O-06 | Cabut, Rambang, Titil, CCP1, Sortir: satu Unit atau Unit sendiri | Ditutup, W72 |
