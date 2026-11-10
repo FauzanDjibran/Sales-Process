@@ -81,6 +81,8 @@ Pola layar Pengajuan Budget di SIBA:
 
 ## 3a. Dua aplikasi dalam satu SSO (P245, usulan menu)
 
+> Rencana lengkapnya (skema, pembagian menu, kepemilikan tabel, tahapan) ada di `production_app_plan.md` (P253). Di sana `sys_user_unit` diusulkan menjadi `prd_user_unit`.
+
 Niat user: saat diimplementasikan, ERP dan Produksi menjadi **dua aplikasi dengan satu SSO**. Setelah login user memilih aplikasi sesuai permission; yang hanya punya satu langsung masuk. Kelak tiap aplikasi punya database sendiri, tetapi **repo ini tetap satu aplikasi dan satu database** (batas Vercel dan Neon). Pemisahannya cukup di tampilan (simulasi putaran kelima) dan di `DBML/erp.dbml.md`, yang menandai tabel milik tiap aplikasi.
 
 **Pola ERP mainstream.** SAP S/4HANA memegang master, order, biaya, dan goods movement, sedangkan SAP Digital Manufacturing (MES) memegang eksekusi di work center. Dynamics 365 memisahkan Production floor execution dari Supply Chain. Oracle punya Production Supervisor Workbench terpisah. Odoo memakai satu database, tetapi app Shop Floor terpisah dari Manufacturing dan Inventory. Pola yang sama: **ERP memegang uang, rencana, dan stok; aplikasi lantai produksi memegang eksekusi dan perpindahan.** Barang menyeberang lewat dokumen batas, dengan satu sisi menyerahkan dan sisi lain menerima.
