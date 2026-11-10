@@ -81,7 +81,7 @@ Pola layar Pengajuan Budget di SIBA:
 
 ## 3a. Dua aplikasi dalam satu SSO (P245, usulan menu)
 
-> Rencana lengkapnya (skema, pembagian menu, kepemilikan tabel, tahapan) ada di `production_app_plan.md` (P253). Di sana `sys_user_unit` diusulkan menjadi `prd_user_unit`.
+> Rencana lengkapnya (skema, pembagian menu, kepemilikan tabel, tahapan) ada di `production_app_plan.md` (P253). Di sana `sys_user_unit` menjadi `prd_user_unit`, dan **tabel menu di bawah ini digantikan §4 dokumen itu** (P254): master Unit, Workstation, Line, dan Routing tetap di ERP, dan BSTB Issue tetap menu bernama BSTB Issue.
 
 Niat user: saat diimplementasikan, ERP dan Produksi menjadi **dua aplikasi dengan satu SSO**. Setelah login user memilih aplikasi sesuai permission; yang hanya punya satu langsung masuk. Kelak tiap aplikasi punya database sendiri, tetapi **repo ini tetap satu aplikasi dan satu database** (batas Vercel dan Neon). Pemisahannya cukup di tampilan (simulasi putaran kelima) dan di `DBML/erp.dbml.md`, yang menandai tabel milik tiap aplikasi.
 
