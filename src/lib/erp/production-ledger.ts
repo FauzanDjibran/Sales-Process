@@ -204,7 +204,7 @@ async function takeLocked(tx: Tx, b: Bucket, qty: Dec, movement: Movement, date:
     const lot = await tx.logStockTracking.findUnique({ where: { id: b.lotId }, select: { tracking_no: true, item: { select: { item_label: true } } } });
     const ws = await tx.refUnit.findUnique({ where: { id: b.unitId }, select: { unit_label: true } });
     throw new ProductionRefusal(
-      `Saldo produksi ${lot?.item.item_label ?? ""} lot ${lot?.tracking_no ?? ""} di ${ws?.unit_label ?? ""} tidak cukup: tersedia ${qtyText(b.qty)}, diminta ${qtyText(qty)}.`
+      `Saldo produksi ${lot?.item.item_label ?? ""} No. Stok ${lot?.tracking_no ?? ""} di ${ws?.unit_label ?? ""} tidak cukup: tersedia ${qtyText(b.qty)}, diminta ${qtyText(qty)}.`
     );
   }
   const value = release(b, qty);
@@ -240,7 +240,7 @@ export async function enterProduction(tx: Tx, e: ProductionEntry): Promise<{ buc
   const item = await productionItem(tx, e.itemId);
   await activeUnit(tx, e.unitId);
   const lot = await tx.logStockTracking.findFirst({ where: { id: e.lotId, item_id: e.itemId }, select: { id: true } });
-  if (!lot) throw new ProductionRefusal(`Lot ${item.item_label} tidak ditemukan.`);
+  if (!lot) throw new ProductionRefusal(`No. Stok ${item.item_label} tidak ditemukan.`);
   const bucket = await openBucket(
     tx,
     { lotId: lot.id, unitId: e.unitId, stage: "Preparation", partaiId: null, jobId: null, auxiliary: e.auxiliary, itemId: e.itemId, uomId: item.base_uom_id },

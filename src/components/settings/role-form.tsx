@@ -1,5 +1,6 @@
 "use client";
 
+import { APPS, appOfModule } from "@/lib/erp/nav";
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -334,13 +335,17 @@ export function RoleForm({
             </div>
           )}
 
-          {MODULE_ORDER.map((module) => {
+          {MODULE_ORDER.map((module, i) => {
             const defs = catalogue[module];
             if (!defs.length) return null;
             const on = defs.filter((d) => held.has(d.code)).length;
+            // The matrix lists the ERP's modules, then the Produksi application's (P254).
+            const app = appOfModule(module);
+            const firstOfApp = i === 0 || appOfModule(MODULE_ORDER[i - 1]) !== app;
 
             return (
               <div className="pmod" key={module}>
+                {firstOfApp && <div className="pmod-app">Aplikasi {APPS[app].name}</div>}
                 <div className="pmod-h">
                   <span className="mt">{MODULE_LABELS[module]}</span>
                   <span className="mc">

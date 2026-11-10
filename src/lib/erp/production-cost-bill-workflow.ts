@@ -24,7 +24,7 @@ export type CostBillAction = "post" | "cancel";
 
 export const COST_BILL_ACTIONS: CostBillAction[] = ["cancel", "post"];
 
-export const COST_BILL_PATH = "/production/cost-bill";
+export const COST_BILL_PATH = "/costing/cost-bill";
 
 export type CostBillTransition = {
   label: string;

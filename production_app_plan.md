@@ -129,7 +129,7 @@ Urutan rail tidak berubah. Yang berubah:
 | --- | --- | --- |
 | **Produksi** (URL `/costing`) › Biaya | Tagihan Biaya; kelak Closing Costing Produksi, Proyeksi Varians | Tagihan Biaya pindah dari `/production/cost-bill` |
 | Produksi › Master Biaya | Standard Cost, Jenis Biaya | Pindah dari Master › Produksi dan Master › Referensi |
-| Produksi › Laporan | Telusur Produksi; kelak Nilai WIP per Unit, Varians per Line | Telusur memakai halaman yang sama dengan aplikasi Produksi |
+| Produksi › Laporan | Telusur Produksi; kelak Nilai WIP per Unit, Varians per Line | Telusur memakai halaman yang sama dengan aplikasi Produksi **Belum dibangun (P257):** halaman Telusur terikat ke URL `/production`, jadi entri ERP menunggu laporan Nilai WIP dan Varians dibangun bersama Closing. User yang punya kedua aplikasi membukanya di Produksi |
 | Produksi › Perencanaan | Sales Planning, Rencana Produksi | Muncul saat dibangun (PWR §11) |
 | Persediaan › Operasi Gudang | Receipt Note, **BSTB Issue**, Delivery Note | **Tidak berubah.** BSTB Pengeluaran dan BSTB ke Finish Goods kelak menjadi menu sendiri di kelompok ini, dengan namanya masing-masing |
 | Master › Produksi | Workstation, Unit, Line Produksi, Routing | Tetap empat menu terpisah; Standard Cost dan Karyawan keluar dari kelompok ini |
@@ -303,7 +303,7 @@ Tiap tahap satu commit ke `main`: build, lint, dan test hijau, DBML bersamaan de
 | --- | --- | --- | --- |
 | 1 | **Selesai (P255).** **Pembatas DBML**: `erp.dbml.md` disusun menjadi Bagian A, B, C dengan komentar lintas aplikasi. Peta kepemilikan tabel di `tests/module-boundaries.test.ts`, dengan tes bahwa tiap model di `schema.prisma` punya tepat satu pemilik | tidak | Tes gagal bila ada tabel baru tanpa pemilik |
 | 2 | **Selesai (P256).** **Dua pintu**: `APPS`, `requireApp`, route group `(erp)` dan `(production)`, halaman `/apps`, `landingHref` per aplikasi, tanda merek dan ikon *Pilih aplikasi* di topbar, rail kelompok untuk Produksi | tidak | User dua aplikasi melihat pemilih; user satu aplikasi langsung masuk; URL aplikasi yang tidak dimiliki ditolak |
-| 3 | **Pindah menu** menurut §4: Tagihan Biaya, Standard Cost, dan Jenis Biaya ke `/costing`; Karyawan ke `/production/employee`; kelompok Pengerjaan, Dokumen, Laporan, Master di Produksi; *No. Grading* dan *Kartu No. Stok*; Lot menjadi No. Stok di layar Produksi; redirect dari URL lama; matriks role per aplikasi; `MENU_COSTING_ACCESS` | ya (permission) | Tiap menu di §4 terbuka di aplikasinya; URL lama dialihkan; role lama tidak kehilangan akses |
+| 3 | **Selesai (P257), kecuali entri Telusur di ERP.** **Pindah menu** menurut §4: Tagihan Biaya, Standard Cost, dan Jenis Biaya ke `/costing`; Karyawan ke `/production/employee`; kelompok Pengerjaan, Dokumen, Laporan, Master di Produksi; *No. Grading* dan *Kartu No. Stok*; Lot menjadi No. Stok di layar Produksi; redirect dari URL lama; matriks role per aplikasi; `MENU_COSTING_ACCESS` | ya (permission) | Tiap menu di §4 terbuka di aplikasinya; URL lama dialihkan; role lama tidak kehilangan akses |
 | 4 | **Penugasan Unit**: `prd_user_unit`, tab Unit di form User, `actor.unitIds`, `requireUnit`, `PRODUCTION_UNIT_ALL`, register Dokumen difilter ke Unit user | ya | Admin Unit tidak bisa membuka Unit lain walau mengganti URL atau id dokumen |
 | 5 | **Workspace Unit lanjutan** menurut `Production-Unit-Workspace-Plan.md` §5 dan PWR §13, di dalam aplikasi Produksi: perubahan W111, lalu Dokumen Push, BSTB antar Unit, Reproses, dan seterusnya | ya, per langkah | Menurut dokumen sumbernya |
 | 6 | **Dokumen batas keluar**: `log_production_receipt` untuk BSTB Pengeluaran, lalu BSTB ke Finish Goods bersama Packing | ya | Barang kembali ke stok dengan No. Stok yang sama; jurnal dan buku stok cocok di `db:reconcile` |
@@ -327,7 +327,7 @@ Tahap 1–3 tidak mengubah satu pun angka atau posting. Tahap 3 membutuhkan taha
 | 3 | Standard Cost dan Jenis Biaya di ERP › Produksi › Master Biaya | Saran disetujui |
 | 4 | Akun Varians **tetap di Line**; `acc_production_line_account` tidak dibuat | Gugur oleh #9 |
 | 5 | Penugasan Unit bernama `prd_user_unit` | Saran disetujui |
-| 6 | Telusur muncul di kedua aplikasi, satu halaman | Saran disetujui |
+| 6 | Telusur muncul di kedua aplikasi, satu halaman | Saran disetujui; entri ERP-nya ditunda (P257) |
 | 7 | Menu **BSTB Issue** tetap dengan nama dan letaknya; bukan satu halaman Serah Terima Produksi | Jawaban user |
 | 8 | Pembayaran Biaya Produksi tanpa menu sendiri | Jawaban user |
 | 9 | Workstation, Unit, Line Produksi, Routing **di ERP**, empat menu terpisah; Karyawan di Produksi | Identifikasi atas permintaan user (§4.3) |

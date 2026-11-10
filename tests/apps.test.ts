@@ -33,6 +33,15 @@ describe("the application a user has decides where they land", () => {
     assert.equal(landingHref([]), "/settings/profile");
   });
 
+  test("the money side of production is the ERP's, Karyawan is Produksi's (P257)", () => {
+    const costing = ["MENU_COSTING_ACCESS", "PRODUCTION_COST_BILL_VIEW", "RATE_VERSION_VIEW"];
+    assert.deepEqual(appsOf(costing), ["erp"]);
+    assert.equal(landingHref(costing), "/costing/cost-bill");
+    const floor = ["MENU_PRODUCTION_ACCESS", "EMPLOYEE_VIEW"];
+    assert.deepEqual(appsOf(floor), ["production"]);
+    assert.equal(landingHref(floor), "/production/employee");
+  });
+
   test("each shell lists only its own application's modules", () => {
     assert.deepEqual(visibleModules(BOTH, "production").map((m) => m.key), ["production"]);
     assert.ok(!visibleModules(BOTH, "erp").some((m) => m.key === "production"));

@@ -43,18 +43,18 @@ export function ProductionReportParams({
       router.push(reportHref(slug, where));
     });
   };
-  useReportRun(run, { blocked: missing, hint: "Isi nomor lot terlebih dahulu.", pending });
+  useReportRun(run, { blocked: missing, hint: "Isi No. Stok terlebih dahulu.", pending });
 
   if (mode === "lot") {
     return (
       <div className="rrow">
-        <span className="rl">Lot</span>
+        <span className="rl">No. Stok</span>
         <div className="rf wide">
           <input
             className="inp mono"
             value={text}
-            placeholder="Nomor lot…"
-            aria-label="Nomor lot"
+            placeholder="No. Stok…"
+            aria-label="No. Stok"
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") run();

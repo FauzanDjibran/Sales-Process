@@ -160,29 +160,17 @@ export const MODULES: NavModule[] = [
     ],
   },
   {
-    // Production (P200, `Produksi Walet (Real).md`): what is left while its
-    // documents are rebuilt (P218).
-    key: "production",
+    // The money side of production (P254): an ERP module whose URL space is
+    // `/costing`, because `/production/*` is the Produksi application.
+    key: "costing",
     name: "Produksi",
     icon: "gear",
-    desc: "Barang di produksi per lot dan unit, dan biaya produksi per Jenis Biaya.",
-    permission: "MENU_PRODUCTION_ACCESS",
+    desc: "Sisi uang produksi: rencana, biaya, Standard Cost, Closing, dan nilai WIP.",
+    permission: "MENU_COSTING_ACCESS",
     groups: [
-      {
-        key: "work",
-        name: "Pengerjaan",
-        icon: "layers",
-        entities: [
-          { key: "prd_unit", slug: "workspace", name: "Workspace Unit", icon: "layers", desc: "Pilih Unit, scan label, kerjakan satu form untuk satu pekerjaan.", permission: "PRODUCTION_UNIT_VIEW" },
-          { key: "prd_grading", slug: "grading", name: "Dokumen Grading", icon: "layers", desc: "Satu No. Stok dari Persiapan menjadi output baru; di sinilah jenis dan gram berubah.", permission: "PRODUCTION_GRADING_VIEW" },
-          { key: "prd_work", slug: "work", name: "Pengerjaan Unit", icon: "check", desc: "No. Job yang dikerjakan di unit Pass Through dan oleh siapa; barang dan gram tetap.", permission: "PRODUCTION_WORK_VIEW" },
-          { key: "prd_qc_check", slug: "qc-check", name: "QC Check", icon: "check", desc: "QC memvalidasi hasil proses: Lulus ke Stand By, Balik ke Persiapan.", permission: "PRODUCTION_QC_VIEW" },
-        ],
-      },
       {
         key: "cost",
         name: "Biaya",
-        icon: "file",
         entities: [
           {
             key: "prd_cost_bill",
@@ -195,6 +183,57 @@ export const MODULES: NavModule[] = [
         ],
       },
       {
+        key: "cost-master",
+        name: "Master Biaya",
+        entities: [
+          {
+            key: "prd_rate_version",
+            slug: "rate-version",
+            name: "Standard Cost",
+            icon: "calc",
+            desc: "Rate biaya per gram tiap unit, dalam versi.",
+            permission: "RATE_VERSION_VIEW",
+          },
+          {
+            key: "acc_cost_type",
+            slug: "cost-type",
+            name: "Jenis Biaya",
+            icon: "coin",
+            desc: "Biaya produksi beserta account biayanya; dipilih di Tagihan Biaya.",
+            permission: "COST_TYPE_VIEW",
+          },
+        ],
+      },
+    ],
+  },
+  {
+    // The Produksi application (P254, `production_app_plan.md` §4.1): the shop
+    // floor only; its masters but Karyawan are the ERP's.
+    key: "production",
+    name: "Produksi",
+    icon: "gear",
+    desc: "Lantai produksi: pengerjaan, perpindahan antar Unit, dan telusur. Biaya dan Closing ada di ERP.",
+    permission: "MENU_PRODUCTION_ACCESS",
+    groups: [
+      {
+        key: "work",
+        name: "Pengerjaan",
+        icon: "layers",
+        entities: [
+          { key: "prd_unit", slug: "workspace", name: "Workspace Unit", icon: "layers", desc: "Pilih Unit, scan label, kerjakan satu form untuk satu pekerjaan.", permission: "PRODUCTION_UNIT_VIEW" },
+        ],
+      },
+      {
+        key: "document",
+        name: "Dokumen",
+        icon: "file",
+        entities: [
+          { key: "prd_grading", slug: "grading", name: "No. Grading", icon: "layers", desc: "Satu No. Stok dari Persiapan menjadi output baru; di sinilah jenis dan gram berubah.", permission: "PRODUCTION_GRADING_VIEW" },
+          { key: "prd_work", slug: "work", name: "Pengerjaan Unit", icon: "check", desc: "No. Job yang dikerjakan di unit Pass Through dan oleh siapa; barang dan gram tetap.", permission: "PRODUCTION_WORK_VIEW" },
+          { key: "prd_qc_check", slug: "qc-check", name: "QC Check", icon: "check", desc: "QC memvalidasi hasil proses: Lulus ke Stand By, Balik ke Persiapan.", permission: "PRODUCTION_QC_VIEW" },
+        ],
+      },
+      {
         key: "report",
         name: "Laporan",
         icon: "trend",
@@ -204,15 +243,15 @@ export const MODULES: NavModule[] = [
             slug: "report/wip-balance",
             name: "Saldo Produksi",
             icon: "layers",
-            desc: "Barang di produksi per unit dan lot pada satu tanggal.",
+            desc: "Barang di produksi per unit dan No. Stok pada satu tanggal.",
             permission: "REPORT_WIP_BALANCE_VIEW",
           },
           {
             key: "report_lot_card",
             slug: "report/lot-card",
-            name: "Kartu Lot",
+            name: "Kartu No. Stok",
             icon: "book",
-            desc: "Seluruh mutasi satu lot di produksi dan di stok.",
+            desc: "Seluruh mutasi satu No. Stok di produksi dan di stok.",
             permission: "REPORT_LOT_CARD_VIEW",
           },
           {
@@ -220,8 +259,23 @@ export const MODULES: NavModule[] = [
             slug: "report/trace",
             name: "Telusur Produksi",
             icon: "tree",
-            desc: "Silsilah satu lot: mundur sampai supplier, maju sampai customer.",
+            desc: "Silsilah satu No. Stok: mundur sampai supplier, maju sampai customer.",
             permission: "REPORT_PRODUCTION_TRACE_VIEW",
+          },
+        ],
+      },
+      {
+        key: "master",
+        name: "Master",
+        icon: "tags",
+        entities: [
+          {
+            key: "m_employee",
+            slug: "employee",
+            name: "Karyawan",
+            icon: "users",
+            desc: "Pekerja yang mengerjakan No. Job di unit Pass Through.",
+            permission: "EMPLOYEE_VIEW",
           },
         ],
       },
@@ -727,22 +781,6 @@ export const MODULES: NavModule[] = [
             desc: "Urutan unit yang dilalui barang, per line dan per versi.",
             permission: "ROUTING_VIEW",
           },
-          {
-            key: "prd_rate_version",
-            slug: "rate-version",
-            name: "Standard Cost",
-            icon: "calc",
-            desc: "Rate biaya per gram tiap unit, dalam versi.",
-            permission: "RATE_VERSION_VIEW",
-          },
-          {
-            key: "m_employee",
-            slug: "employee",
-            name: "Karyawan",
-            icon: "users",
-            desc: "Pekerja yang mengerjakan No. Job di unit Pass Through.",
-            permission: "EMPLOYEE_VIEW",
-          },
         ],
       },
       {
@@ -788,14 +826,6 @@ export const MODULES: NavModule[] = [
             icon: "clip",
             desc: "Perizinan yang diurus untuk produk customer maklon, beserta estimasi harga standarnya.",
             permission: "PERMIT_TYPE_VIEW",
-          },
-          {
-            key: "acc_cost_type",
-            slug: "cost-type",
-            name: "Jenis Biaya",
-            icon: "coin",
-            desc: "Biaya produksi beserta account biayanya; dipilih di Tagihan Biaya.",
-            permission: "COST_TYPE_VIEW",
           },
         ],
       },

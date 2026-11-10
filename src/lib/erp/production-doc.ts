@@ -148,7 +148,7 @@ export function checkBucketLines(
     const key = (f: string) => `${prefix}.${i}.${f}`;
     const b = byId.get(Number(l.bucket_id));
     if (!b) {
-      errors[key("bucket_id")] = "Pilih lot.";
+      errors[key("bucket_id")] = "Pilih No. Stok.";
       continue;
     }
     if (unitId && b.unitId !== unitId) {

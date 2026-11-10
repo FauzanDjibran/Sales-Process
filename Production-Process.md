@@ -6,7 +6,7 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **06/11/2026 — P241** (Dokumen Grading, Pengerjaan Unit and QC Check).
+> Last updated: **11/11/2026 — P257** (menus split between the ERP and the Produksi application).
 >
 > **What follows describes what is on `main`.** The agreed target is in
 > `Produksi Walet (Real).md`; its build steps add the documents back.
@@ -43,10 +43,10 @@ plan's steps 1–13.
 | **Workstation** | Label, name. Only groups Units. | Master › Produksi | ✅ P225 |
 | **Line Produksi** | Label, name, the variance account. | Master › Produksi | ✅ P225 |
 | **Routing** | The ordered Units, each routing naming its line; several per line for now, and one without a line = the segment before the partai. Only the order, with a checkpoint and skippable mark per step. Steps lock once goods follow it. | Master › Produksi | ✅ P230 |
-| **Standard Cost** | Versions of the rate per gram per Unit; empty = 0. **Never edited once saved; one active**: saving a new one closes the old. A partai keeps the id it started on. | Master › Produksi | ✅ P226 |
-| **Karyawan** | Who worked a No. Job at a Pass Through Unit. | Master › Produksi | ✅ P225 |
+| **Standard Cost** | Versions of the rate per gram per Unit; empty = 0. **Never edited once saved; one active**: saving a new one closes the old. A partai keeps the id it started on. | ERP › Produksi › Master Biaya | ✅ P226 |
+| **Karyawan** | Who worked a No. Job at a Pass Through Unit. | Aplikasi Produksi › Master | ✅ P225 |
 | **BJL** | A flag on the Item; valued 0 in production; locked once used. | Master › Item | ✅ P225 |
-| **Jenis Biaya** | Label, name and the **expense account** a Tagihan Biaya line debits (fixed once chosen). The close pools the net debit on these accounts. Starter rows by `db:seed-accounts`: upah langsung / tidak langsung, listrik, penyusutan, pemeliharaan, overhead lain. | Master › Referensi | ✅ P201 |
+| **Jenis Biaya** | Label, name and the **expense account** a Tagihan Biaya line debits (fixed once chosen). The close pools the net debit on these accounts. Starter rows by `db:seed-accounts`: upah langsung / tidak langsung, listrik, penyusutan, pemeliharaan, overhead lain. | ERP › Produksi › Master Biaya | ✅ P201 |
 | **Account WIP** | A column on Account Kategori Item (Barang). **No fallback**: a production posting is refused naming the category without one (R16). `db:seed-accounts` points every Barang category at *Persediaan Barang Dalam Proses*. | Accounting › Pengaturan › Account Kategori Item | ✅ P201 |
 | **Account Mapping › Produksi** | *Hutang Biaya Produksi* (credit of every Tagihan Biaya), *Beban Pemusnahan Produksi* (scrap), *Biaya Produksi Dibebankan* (credit of the month-end close). | Accounting › Pengaturan › Account Mapping | ✅ P201 |
 
@@ -56,10 +56,10 @@ plan's steps 1–13.
 
 | Step | Document | What it does | Journal | Status |
 | --- | --- | --- | --- | --- |
-| 2 | **Tagihan Biaya** `TBP/…` (Produksi › Biaya) | A production cost recognised in its month. Supplier required; each line a Jenis Biaya and an amount. Draft → Posting → Posted; Batalkan a Draft with a reason. | Dr each Jenis Biaya's expense account / Cr Hutang Biaya Produksi (copied onto the bill) | ✅ P202 |
+| 2 | **Tagihan Biaya** `TBP/…` (ERP › Produksi › Biaya, `/costing/cost-bill`) | A production cost recognised in its month. Supplier required; each line a Jenis Biaya and an amount. Draft → Posting → Posted; Batalkan a Draft with a reason. | Dr each Jenis Biaya's expense account / Cr Hutang Biaya Produksi (copied onto the bill) | ✅ P202 |
 | 2 | **Pembayaran Biaya Produksi** `BKK/…` (Finance › Kas & Bank › Pengeluaran) | Pays posted Tagihan Biaya of one supplier, in parts if wanted, never beyond the bill. No tax. The bill keeps what it was paid. | Dr Hutang Biaya Produksi / Cr Kas & Bank | ✅ P202 |
 | 3 | **BSTB Issue** `BSTB_<unit>_<ddmmyy>_<NNNNN>` (Persediaan › Operasi Gudang) | Draft → **Ajukan** (goods locked at the warehouse, books untouched) → **Terima** (goods leave at moving average into the Unit's Persiapan, same lot number, dated Tanggal). *Bahan ke Produksi* goes to the first Unit of the routing; *Bahan Penolong ke Unit* to any Unit, as that Unit's balance, not a partai's contents. No QC. | Dr WIP / Cr Persediaan, at Terima | ✅ P228 |
-| 8 | Reports (Produksi › Laporan): **Saldo Produksi** (per workstation and lot as of a date), **Kartu Lot** (a lot in production and in stock). | Read from the ledgers; a past date as it stood. | none | ✅ P209 |
+| 8 | Reports (Produksi › Laporan): **Saldo Produksi** (per workstation and lot as of a date), **Kartu No. Stok** (formerly Kartu Lot) (a lot in production and in stock). | Read from the ledgers; a past date as it stood. | none | ✅ P209 |
 | 11 | Report: **Telusur Produksi** (Produksi › Laporan) | From a lot number: backward through every execution (number, workstation, quantity, value) to the lots that came from a supplier or an injection; forward to every lot made from it and where each is now — at a workstation, in stock, or delivered to a customer. | none | ✅ P212 |
 
 ---
@@ -91,6 +91,7 @@ plan's steps 1–13.
 | 05/11/2026 | P231 | The plan compared with the 45 field SOPs in `walet sop.md`; W41–W56 agreed, no change to what is built. |
 | 05/11/2026 | P232 | W57–W63 agreed: Dokumen Push, the list of moves, a new No. Stok per grading, a pack as a kotak's contents; no change to what is built. |
 | 06/11/2026 | P241 | Dokumen Grading, Pengerjaan Unit and QC Check built; goods wait in Stand By until Dokumen Push and BSTB Transfer arrive. |
+| 11/11/2026 | P253–P257 | ERP and Produksi as two applications behind one login: Workspace Unit, the floor documents, the reports and Karyawan in Produksi (`/production`); Tagihan Biaya, Standard Cost and Jenis Biaya in ERP › Produksi (`/costing`); Workstation, Unit, Line and Routing stay in ERP › Master. |
 | 06/11/2026 | P240 | One No. Job rule: a move carries the No. Job or makes one; the Unit keeps only Lepas No. Job and Terbitkan Job Order. No document uses them yet. |
 | 06/11/2026 | P239 | Masters of the plan up to Barcoding: one Tipe per Unit, QC Check on the Unit, Keluar Lewat worked out, 14 Units and REG-1 up to UP5. No document uses them yet. |
 | 05/11/2026 | P236 | W64–W76 agreed from the simulation: Push inside a Workstation and BSTB across, QC Check in the unit, Moulding split in two without Mix, CCP-1 and Sortir as units, the checkpoint only at Barcoding, one process per Unit; no change to what is built. |

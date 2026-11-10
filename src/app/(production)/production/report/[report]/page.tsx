@@ -49,22 +49,22 @@ export default async function Page({
   if (!text) {
     return (
       <ReportView report={report} filter={filter} runAt={runAt}>
-        <ReportNeedsSubject icon="book" title="Isi nomor lot" body="Ketik nomornya di atas, lalu tekan Tampilkan." />
+        <ReportNeedsSubject icon="book" title="Isi No. Stok" body="Ketik nomornya di atas, lalu tekan Tampilkan." />
       </ReportView>
     );
   }
   if (report.key === "trace") {
     const trace = await traceReport(text);
     return (
-      <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Dibaca dari silsilah lot; jumlah dan nilai tiap langkah dari buku produksi.</>}>
-        {trace ? <TraceBody report={trace} /> : <ReportNeedsSubject icon="tree" title="Lot tidak ditemukan" body={`Tidak ada lot bernomor ${text}.`} />}
+      <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Dibaca dari silsilah No. Stok; jumlah dan nilai tiap langkah dari buku produksi.</>}>
+        {trace ? <TraceBody report={trace} /> : <ReportNeedsSubject icon="tree" title="No. Stok tidak ditemukan" body={`Tidak ada No. Stok ${text}.`} />}
       </ReportView>
     );
   }
   const cards = await lotCardReport(text);
   return (
-    <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Satu lot, satu register: sama di produksi dan di stok. Nomor lot unik per barang, jadi satu nomor bisa menunjuk lot beberapa barang.</>}>
-      {cards.length ? <LotCardBody cards={cards} /> : <ReportNeedsSubject icon="book" title="Lot tidak ditemukan" body={`Tidak ada lot bernomor ${text}.`} />}
+    <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Satu No. Stok, satu register: sama di produksi dan di stok.</>}>
+      {cards.length ? <LotCardBody cards={cards} /> : <ReportNeedsSubject icon="book" title="No. Stok tidak ditemukan" body={`Tidak ada No. Stok ${text}.`} />}
     </ReportView>
   );
 }

@@ -51,7 +51,7 @@ export function WipBalanceBody({ blocks, asOf }: { blocks: WipBlock[]; asOf: str
               <h3>
                 <span className="lab">{b.stationLabel}</span> {b.stationName}
               </h3>
-              <p>{b.rows.length} lot</p>
+              <p>{b.rows.length} No. Stok</p>
             </div>
             <span className="mny">{money(b.value)}</span>
           </div>
@@ -60,7 +60,7 @@ export function WipBalanceBody({ blocks, asOf }: { blocks: WipBlock[]; asOf: str
               <thead>
                 <tr>
                   <th>Barang</th>
-                  <th style={{ width: 200 }}>Lot</th>
+                  <th style={{ width: 200 }}>No. Stok</th>
                   <th className="num" style={{ width: 130 }}>Qty</th>
                   <th className="num" style={{ width: 150 }}>Nilai</th>
                   <th className="num" style={{ width: 130 }}>Per Unit</th>
@@ -140,7 +140,7 @@ export function LotCardBody({ cards }: { cards: LotCard[] }) {
             <div className="card-h">
               <div className="ct">
                 <h3>Di Produksi</h3>
-                <p>Setiap mutasi buku produksi atas lot ini, dengan saldo dan nilainya setelah itu, per unit.</p>
+                <p>Setiap mutasi buku produksi atas No. Stok ini, dengan saldo dan nilainya setelah itu, per unit.</p>
               </div>
             </div>
             {card.inProduction.length ? (
@@ -192,7 +192,7 @@ export function LotCardBody({ cards }: { cards: LotCard[] }) {
               </div>
             ) : (
               <div className="empty sm">
-                <h4>Lot ini belum pernah di produksi</h4>
+                <h4>No. Stok ini belum pernah di produksi</h4>
               </div>
             )}
           </div>
@@ -201,7 +201,7 @@ export function LotCardBody({ cards }: { cards: LotCard[] }) {
             <div className="card-h">
               <div className="ct">
                 <h3>Di Stok</h3>
-                <p>Mutasi buku stok atas lot ini — masuk dari penerimaan atau hasil produksi, keluar ke produksi atau pengiriman.</p>
+                <p>Mutasi buku stok atas No. Stok ini — masuk dari penerimaan atau hasil produksi, keluar ke produksi atau pengiriman.</p>
               </div>
             </div>
             {card.inStock.length ? (
@@ -244,7 +244,7 @@ export function LotCardBody({ cards }: { cards: LotCard[] }) {
               </div>
             ) : (
               <div className="empty sm">
-                <h4>Lot ini belum pernah di stok</h4>
+                <h4>No. Stok ini belum pernah di stok</h4>
               </div>
             )}
           </div>
@@ -271,7 +271,7 @@ function TraceTable({ title, lead, nodes, dir }: { title: string; lead: string; 
                 <th className="num" style={{ width: 70 }}>
                   Langkah
                 </th>
-                <th style={{ width: 200 }}>Lot</th>
+                <th style={{ width: 200 }}>No. Stok</th>
                 <th>Barang</th>
                 {dir !== "start" && <th style={{ width: 300 }}>{dir === "back" ? "Dipakai oleh" : "Dibuat oleh"}</th>}
                 <th style={{ width: 320 }}>{dir === "back" ? "Asal" : "Sekarang"}</th>
@@ -347,14 +347,14 @@ function TraceTable({ title, lead, nodes, dir }: { title: string; lead: string; 
 export function TraceBody({ report }: { report: TraceReport }) {
   return (
     <>
-      <TraceTable title="Lot yang Ditelusuri" lead="Lot dengan nomor ini — satu per barang — dan di mana ia sekarang." nodes={report.start} dir="start" />
-      <TraceTable title="Asal (Mundur)" lead="Lewat setiap eksekusi sampai lot yang masuk dari supplier atau injeksi." nodes={report.backward} dir="back" />
+      <TraceTable title="No. Stok yang Ditelusuri" lead="No. Stok dengan nomor ini — satu per barang — dan di mana ia sekarang." nodes={report.start} dir="start" />
+      <TraceTable title="Asal (Mundur)" lead="Lewat setiap eksekusi sampai No. Stok yang masuk dari supplier atau injeksi." nodes={report.backward} dir="back" />
       <TraceTable title="Tujuan (Maju)" lead="Lewat setiap eksekusi sampai barang di unit, di stok, atau terkirim ke customer." nodes={report.forward} dir="fwd" />
       {report.truncated && (
         <div className="nbox warn slim" style={{ marginTop: 14 }}>
           <Icon name="warn" size={15} className="ni" />
           <div>
-            <b>Penelusuran dipotong.</b> Terlalu banyak lot; telusuri dari lot yang lebih dekat ke ujung yang dicari.
+            <b>Penelusuran dipotong.</b> Terlalu banyak No. Stok; telusuri dari No. Stok yang lebih dekat ke ujung yang dicari.
           </div>
         </div>
       )}

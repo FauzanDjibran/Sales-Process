@@ -22,7 +22,7 @@ const ROUTES: Record<string, string> = {
   sal_delivery_order: "/sales/delivery-order",
   log_delivery_note: "/inventory/delivery-note",
   log_receipt_note: "/inventory/receipt-note",
-  prd_cost_bill: "/production/cost-bill",
+  prd_cost_bill: "/costing/cost-bill",
   log_stock_issue: "/inventory/stock-issue",
   prd_grading: "/production/grading",
   prd_work: "/production/work",

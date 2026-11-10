@@ -22,6 +22,7 @@ export type PermissionModule =
   | "master"
   | "sales"
   | "purchasing"
+  | "costing"
   | "production"
   | "inventory"
   | "accounting"
@@ -109,13 +110,6 @@ export const PERMISSIONS = [
   { code: "ROUTING_EDIT", name: "Ubah Routing", module: "master" },
   { code: "ROUTING_ACTIVATE", name: "Aktifkan Routing", module: "master" },
   { code: "ROUTING_DEACTIVATE", name: "Nonaktifkan Routing", module: "master" },
-  { code: "RATE_VERSION_VIEW", name: "Lihat Standard Cost", module: "master" },
-  { code: "RATE_VERSION_CREATE", name: "Tambah Standard Cost", module: "master" },
-  { code: "EMPLOYEE_VIEW", name: "Lihat Karyawan", module: "master" },
-  { code: "EMPLOYEE_CREATE", name: "Tambah Karyawan", module: "master" },
-  { code: "EMPLOYEE_EDIT", name: "Ubah Karyawan", module: "master" },
-  { code: "EMPLOYEE_ACTIVATE", name: "Aktifkan Karyawan", module: "master" },
-  { code: "EMPLOYEE_DEACTIVATE", name: "Nonaktifkan Karyawan", module: "master" },
 
   { code: "WITHHOLDING_TAX_VIEW", name: "Lihat Jenis PPh", module: "master" },
   { code: "WITHHOLDING_TAX_CREATE", name: "Tambah Jenis PPh", module: "master" },
@@ -127,11 +121,6 @@ export const PERMISSIONS = [
   { code: "PERMIT_TYPE_EDIT", name: "Ubah Jenis Perizinan", module: "master" },
   { code: "PERMIT_TYPE_ACTIVATE", name: "Aktifkan Jenis Perizinan", module: "master" },
   { code: "PERMIT_TYPE_DEACTIVATE", name: "Nonaktifkan Jenis Perizinan", module: "master" },
-  { code: "COST_TYPE_VIEW", name: "Lihat Jenis Biaya", module: "master" },
-  { code: "COST_TYPE_CREATE", name: "Tambah Jenis Biaya", module: "master" },
-  { code: "COST_TYPE_EDIT", name: "Ubah Jenis Biaya", module: "master" },
-  { code: "COST_TYPE_ACTIVATE", name: "Aktifkan Jenis Biaya", module: "master" },
-  { code: "COST_TYPE_DEACTIVATE", name: "Nonaktifkan Jenis Biaya", module: "master" },
 
   { code: "PARTNER_CATEGORY_VIEW", name: "Lihat Partner Category", module: "settings" },
   { code: "PARTNER_CATEGORY_CREATE", name: "Tambah Partner Category", module: "settings" },
@@ -271,7 +260,12 @@ export const PERMISSIONS = [
   { code: "PURCHASE_ORDER_CLOSE", name: "Tutup Purchase Order", module: "purchasing", description: "Mengembalikan sisa yang belum diterima ke Purchase Request, dengan alasan." },
 
   // ------------------------------------------------------------- production
-  { code: "MENU_PRODUCTION_ACCESS", name: "Akses menu Produksi", module: "production" },
+  { code: "MENU_PRODUCTION_ACCESS", name: "Akses aplikasi Produksi", module: "production" },
+  { code: "EMPLOYEE_VIEW", name: "Lihat Karyawan", module: "production" },
+  { code: "EMPLOYEE_CREATE", name: "Tambah Karyawan", module: "production" },
+  { code: "EMPLOYEE_EDIT", name: "Ubah Karyawan", module: "production" },
+  { code: "EMPLOYEE_ACTIVATE", name: "Aktifkan Karyawan", module: "production" },
+  { code: "EMPLOYEE_DEACTIVATE", name: "Nonaktifkan Karyawan", module: "production" },
   { code: "PRODUCTION_UNIT_VIEW", name: "Buka Workspace Unit", module: "production", description: "Daftar Unit dan antreannya; dokumen dibuat dengan izin dokumennya sendiri." },
   { code: "PRODUCTION_GRADING_VIEW", name: "Lihat Dokumen Grading", module: "production", description: "Termasuk yang masih Draft dan yang dibatalkan." },
   { code: "PRODUCTION_GRADING_CREATE", name: "Buat Dokumen Grading", module: "production" },
@@ -288,13 +282,21 @@ export const PERMISSIONS = [
   { code: "PRODUCTION_QC_EDIT", name: "Ubah QC Check", module: "production", description: "Hanya selama masih Draft." },
   { code: "PRODUCTION_QC_POST", name: "Posting QC Check", module: "production", description: "Lulus ke Stand By, Balik ke Persiapan." },
   { code: "PRODUCTION_QC_CANCEL", name: "Batalkan QC Check", module: "production", description: "Hanya Draft, dengan alasan." },
-  { code: "PRODUCTION_COST_BILL_VIEW", name: "Lihat Tagihan Biaya", module: "production", description: "Termasuk yang masih Draft dan yang dibatalkan." },
-  { code: "PRODUCTION_COST_BILL_CREATE", name: "Buat Tagihan Biaya", module: "production" },
-  { code: "PRODUCTION_COST_BILL_EDIT", name: "Ubah Tagihan Biaya", module: "production", description: "Hanya selama masih Draft." },
-  { code: "PRODUCTION_COST_BILL_POST", name: "Posting Tagihan Biaya", module: "production", description: "Menjurnal biaya ke account Jenis Biaya dan Hutang Biaya Produksi." },
-  { code: "PRODUCTION_COST_BILL_CANCEL", name: "Batalkan Tagihan Biaya", module: "production", description: "Hanya Draft, dengan alasan." },
+  { code: "MENU_COSTING_ACCESS", name: "Akses menu Produksi di ERP", module: "costing", description: "Sisi uang produksi: Tagihan Biaya, Standard Cost, Jenis Biaya." },
+  { code: "RATE_VERSION_VIEW", name: "Lihat Standard Cost", module: "costing" },
+  { code: "RATE_VERSION_CREATE", name: "Tambah Standard Cost", module: "costing" },
+  { code: "COST_TYPE_VIEW", name: "Lihat Jenis Biaya", module: "costing" },
+  { code: "COST_TYPE_CREATE", name: "Tambah Jenis Biaya", module: "costing" },
+  { code: "COST_TYPE_EDIT", name: "Ubah Jenis Biaya", module: "costing" },
+  { code: "COST_TYPE_ACTIVATE", name: "Aktifkan Jenis Biaya", module: "costing" },
+  { code: "COST_TYPE_DEACTIVATE", name: "Nonaktifkan Jenis Biaya", module: "costing" },
+  { code: "PRODUCTION_COST_BILL_VIEW", name: "Lihat Tagihan Biaya", module: "costing", description: "Termasuk yang masih Draft dan yang dibatalkan." },
+  { code: "PRODUCTION_COST_BILL_CREATE", name: "Buat Tagihan Biaya", module: "costing" },
+  { code: "PRODUCTION_COST_BILL_EDIT", name: "Ubah Tagihan Biaya", module: "costing", description: "Hanya selama masih Draft." },
+  { code: "PRODUCTION_COST_BILL_POST", name: "Posting Tagihan Biaya", module: "costing", description: "Menjurnal biaya ke account Jenis Biaya dan Hutang Biaya Produksi." },
+  { code: "PRODUCTION_COST_BILL_CANCEL", name: "Batalkan Tagihan Biaya", module: "costing", description: "Hanya Draft, dengan alasan." },
   { code: "REPORT_WIP_BALANCE_VIEW", name: "Lihat Saldo Produksi", module: "production", description: "Barang di produksi per unit dan lot pada satu tanggal." },
-  { code: "REPORT_LOT_CARD_VIEW", name: "Lihat Kartu Lot", module: "production", description: "Seluruh mutasi satu lot di produksi dan di stok." },
+  { code: "REPORT_LOT_CARD_VIEW", name: "Lihat Kartu No. Stok", module: "production", description: "Seluruh mutasi satu No. Stok di produksi dan di stok." },
   { code: "REPORT_PRODUCTION_TRACE_VIEW", name: "Lihat Telusur Produksi", module: "production", description: "Silsilah satu lot mundur sampai supplier dan maju sampai customer." },
 
   // -------------------------------------------------------------- inventory
@@ -463,6 +465,7 @@ export const MODULE_LABELS: Record<PermissionModule, string> = {
   master: "Master",
   sales: "Penjualan",
   purchasing: "Pembelian",
+  costing: "Produksi",
   production: "Produksi",
   inventory: "Persediaan",
   accounting: "Accounting",
@@ -476,13 +479,15 @@ export const MODULE_ORDER: PermissionModule[] = [
   "dashboard",
   "sales",
   "purchasing",
-  "production",
+  "costing",
   "inventory",
   "finance",
   "tax",
   "accounting",
   "master",
   "settings",
+  // The Produksi application's module comes last: the matrix lists the ERP's, then Produksi's (P254).
+  "production",
 ];
 
 export function permissionsByModule(): Record<PermissionModule, PermissionDef[]> {

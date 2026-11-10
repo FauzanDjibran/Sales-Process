@@ -1242,7 +1242,7 @@ export const ENTITIES: Entity[] = [
     // permission at all, so neither operation exists (P226).
     key: "prd_rate_version",
     slug: "rate-version",
-    module: "master",
+    module: "costing",
     name: "Standard Cost",
     icon: "calc",
     desc: "Rate biaya per gram tiap unit. Setelah disimpan versi tidak dapat diubah, dan menjadi satu-satunya yang aktif: versi sebelumnya otomatis ditutup. Partai tetap memakai versi yang dipakainya sejak mulai.",
@@ -1295,7 +1295,7 @@ export const ENTITIES: Entity[] = [
     // Who worked a No. Job at a Pass Through Unit (W26).
     key: "m_employee",
     slug: "employee",
-    module: "master",
+    module: "production",
     name: "Karyawan",
     icon: "users",
     desc: "Pekerja yang mengerjakan No. Job di unit Pass Through. Hanya catatan; tanpa biaya tenaga kerja.",
@@ -1497,7 +1497,7 @@ export const ENTITIES: Entity[] = [
     // The account is fixed once chosen; several Jenis Biaya may share it.
     key: "acc_cost_type",
     slug: "cost-type",
-    module: "master",
+    module: "costing",
     name: "Jenis Biaya",
     icon: "coin",
     desc: "Biaya produksi — listrik pabrik, upah, pemeliharaan mesin — beserta account biayanya. Tagihan Biaya memilih Jenis Biaya, bukan account; penutupan bulan membebankan saldo account-account ini ke produksi.",

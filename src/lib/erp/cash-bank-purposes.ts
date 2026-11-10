@@ -69,7 +69,7 @@ export const PAID_DOC_ROUTE: Record<PaidDocKind, string> = {
   fin_ap_advance: "/finance/advance/purchase",
   fin_ap_invoice: "/finance/invoice/purchase",
   sal_permit_request: "/sales/permit",
-  prd_cost_bill: "/production/cost-bill",
+  prd_cost_bill: "/costing/cost-bill",
 };
 
 /** One paid document's key, unique across both kinds. */

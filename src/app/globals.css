@@ -1417,3 +1417,5 @@ table.grid tbody tr.flash td{animation:uwflash 1.2s}
 .sso-app .t{flex:1 1 auto;min-width:0}
 .sso-app b{display:block;font-size:14px;font-weight:800;color:var(--brand)}
 .sso-app small{display:block;font-size:11.5px;color:var(--muted);line-height:1.45}
+/* The role matrix lists the ERP's modules, then Produksi's: a heading over each run. */
+.pmod-app{padding:14px 16px 2px;font-size:10px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--brand)}
