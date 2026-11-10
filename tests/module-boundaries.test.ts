@@ -271,6 +271,60 @@ describe("the dependency graph points one way", () => {
   });
 });
 
+// ------------------------------------------------------------- applications
+
+/**
+ * Which application owns each table (P254, `production_app_plan.md` §5): one
+ * database holds all three today, so nothing else would notice a production
+ * table landing in the ERP's part or a new table owned by nobody. Every table
+ * not named here is the ERP's.
+ */
+const SHARED_TABLES = [
+  "sys_user", "sys_role", "sys_permission", "sys_user_role", "sys_role_permission",
+  "sys_session", "sys_setting", "sys_doc_type", "audit_log",
+];
+const PRODUCTION_TABLES = [
+  "m_employee",
+  "prd_partai", "prd_job", "prd_tracking_info",
+  "prd_balance", "prd_ledger", "prd_tracking_link",
+  "prd_grading", "prd_grading_output", "prd_work", "prd_work_line", "prd_aux_use",
+  "prd_qc_check", "prd_qc_check_line",
+];
+
+describe("every table belongs to one application", () => {
+  const schemaTables = [
+    ...readFileSync(join(process.cwd(), "prisma/schema.prisma"), "utf8").matchAll(/@@map\("([a-z_0-9]+)"\)/g),
+  ].map((m) => m[1]);
+  const ownerOf = (t: string) =>
+    SHARED_TABLES.includes(t) ? "A" : PRODUCTION_TABLES.includes(t) ? "C" : "B";
+
+  test("the ownership lists name only tables that exist", () => {
+    const stale = [...SHARED_TABLES, ...PRODUCTION_TABLES].filter((t) => !schemaTables.includes(t));
+    assert.deepEqual(stale, [], "Remove a dropped table from SHARED_TABLES / PRODUCTION_TABLES.");
+  });
+
+  test("the DBML holds each table once, in its owner's part", () => {
+    const dbml = readFileSync(join(process.cwd(), "DBML/erp.dbml.md"), "utf8");
+    const where = new Map<string, string[]>();
+    let part = "";
+    for (const line of dbml.split(/\r?\n/)) {
+      const banner = line.match(/^\/\/ {2}BAGIAN ([ABC]) /);
+      if (banner) part = banner[1];
+      const table = line.match(/^table ([a-z_0-9]+) /);
+      if (table) where.set(table[1], [...(where.get(table[1]) ?? []), part]);
+    }
+    const wrong = schemaTables
+      .filter((t) => (where.get(t) ?? []).join() !== ownerOf(t))
+      .map((t) => `${t}: in ${where.get(t)?.join() || "none"}, owner ${ownerOf(t)}`);
+    assert.deepEqual(
+      wrong,
+      [],
+      "Put each table once under its owner's banner in DBML/erp.dbml.md " +
+        "(A Bersama, B ERP, C Produksi); a new production table goes in PRODUCTION_TABLES too."
+    );
+  });
+});
+
 // ------------------------------------------------------------- numbering
 
 describe("document numbers come from one place", () => {

@@ -6,11 +6,22 @@ migration updates this file in the same change (Claude-ERP.md §9).
 - **As of migration:** `20261102090000_drop_redundant_ledger_columns`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
-- **Layout:** tables are grouped in sections by prefix — System (`sys_`),
-  Master Referensi (`ref_`), Master Data (`m_`), Accounting (`acc_`), Finance
-  (`fin_`, the Cash Bank Book), Sales (`sal_`), Pembelian (`pur_`), Logistik (`log_`, the stock books
-  among them) and Pajak (`tax_`). What a table is for is the `//` comment above it; what a column
-  holds, the `//` comment after it.
+- **Layout: three parts, one per owner** (P254, `production_app_plan.md` §5):
+  **Bagian A — Bersama** (login, roles, permissions, settings, document types,
+  audit), **Bagian B — ERP** and **Bagian C — Produksi**. One database still
+  holds all three; the banners say which application a table belongs to.
+  `tests/module-boundaries.test.ts` fails when a table sits in the wrong part
+  or belongs to none. Inside a part, tables are grouped in sections by prefix —
+  System (`sys_`), Master Referensi (`ref_`), Master Data (`m_`), Accounting
+  (`acc_`), Finance (`fin_`, the Cash Bank Book), Sales (`sal_`), Pembelian
+  (`pur_`), Logistik (`log_`, the stock books among them) and Pajak (`tax_`) —
+  and in ERP three sections of production tables it owns: Struktur Produksi
+  (masters Produksi reads), BSTB Issue (the boundary document) and Costing
+  Produksi. A `prd_` table may be the ERP's. What a table is for is the `//`
+  comment above it; what a column holds, the `//` comment after it.
+- **A foreign key into another part** says so: `// lintas aplikasi → <part>`.
+  It stays a foreign key while the database is one (`production_app_plan.md`
+  §5.4).
 - **References are inline** (`ref : > table.id`, `ref : -` for one-to-one).
   A pair `(doc_type_id, doc_id)` or an id with no `ref` is a weak reference
   across modules, deliberately without a foreign key (Claude-ERP.md §3.1).
@@ -28,11 +39,12 @@ migration updates this file in the same change (Claude-ERP.md §9).
 Paste the block below into <https://dbdiagram.io> to draw it.
 
 ```dbml
-//////////////////////////////////
+//////////////////////////////////////////////////////////////////
 //
-// System
+//  BAGIAN A — BERSAMA (login, akses, audit)
+//  Dipakai kedua aplikasi. Kelak milik Portal / SSO (P254).
 //
-/////////////////////////////////
+//////////////////////////////////////////////////////////////////
 
 // Users, roles, permissions and sessions: SIBA's own auth, carried as is (P29)
 table sys_user {
@@ -155,6 +167,26 @@ table sys_setting {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
+// the main reference when a row points at a document: the weak (doc_type_id, doc_id) pair
+table sys_doc_type {
+  id                          int [pk, increment, not null]
+
+  doc_code                    varchar [not null, unique]
+
+  doc_label                   varchar [not null]
+  doc_name                    varchar [not null]
+
+  doc_table                   varchar [not null]
+
+  note                        varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
 // every create / update, with an event for lifecycle steps
 table audit_log {
   id                          int [pk, increment, not null]
@@ -173,6 +205,19 @@ table audit_log {
   }
 }
 
+//////////////////////////////////////////////////////////////////
+//
+//  BAGIAN B — APLIKASI ERP
+//  Uang, rencana, stok, pajak, master, costing produksi (P254).
+//
+//////////////////////////////////////////////////////////////////
+
+//////////////////////////////////
+//
+// System
+//
+/////////////////////////////////
+
 // asset, liability, equity, revenue, expense — seeded
 table sys_account_type {
   id                          int [pk, increment, not null]
@@ -184,26 +229,6 @@ table sys_account_type {
 
   section                     enum('BalanceSheet', 'ProfitLoss') [not null]
   normal_balance              enum('Debit', 'Kredit') [not null]
-
-  note                        varchar
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-}
-
-// the main reference when a row points at a document: the weak (doc_type_id, doc_id) pair
-table sys_doc_type {
-  id                          int [pk, increment, not null]
-
-  doc_code                    varchar [not null, unique]
-
-  doc_label                   varchar [not null]
-  doc_name                    varchar [not null]
-
-  doc_table                   varchar [not null]
 
   note                        varchar
 
@@ -383,260 +408,6 @@ table ref_payment_term {
   term_name                   varchar [not null]
 
   due_days                    int [not null]
-
-  note                        varchar
-
-  status                      enum('Active', 'Inactive') [not null, default: 'Active']
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-}
-
-// Workstation (P225, W33): only groups Units; holds no goods and no rate
-table ref_workstation {
-  id                          int [pk, increment, not null]
-
-  workstation_code            varchar [not null, unique]
-
-  workstation_label           varchar [not null]
-  workstation_name            varchar [not null]
-
-  note                        varchar
-
-  status                      enum('Active', 'Inactive') [not null, default: 'Active']
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-}
-
-// Unit (P225, W33): where goods are held in production, and the kinds of work done there;
-// the old ref_workstation (P201) renamed in place
-table ref_unit {
-  id                          int [pk, increment, not null]
-
-  unit_code                   varchar [not null, unique]
-
-  unit_label                  varchar [not null] // the short code used in document numbers, e.g. UGH
-  unit_name                   varchar [not null]
-  workstation_id              int [ref : > ref_workstation.id]
-  process                     enum('PassThrough', 'Grading', 'Assembly') [not null, default: 'PassThrough'] // one Unit, one process (W73)
-  has_qc                      boolean [not null, default: false] // goods pass a QC Check before Stand By (W65)
-  releases_job                boolean [not null, default: false]
-  issues_job_order            boolean [not null, default: false]
-
-  note                        varchar
-
-  status                      enum('Active', 'Inactive') [not null, default: 'Active']
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-}
-
-// Line Produksi (P225): a routing hangs on it; the month's variance goes to its account
-table prd_line {
-  id                          int [pk, increment, not null]
-
-  line_code                   varchar [not null, unique]
-
-  line_label                  varchar [not null]
-  line_name                   varchar [not null]
-  variance_account_id         int [ref : > acc_account.id]
-
-  note                        varchar
-
-  status                      enum('Active', 'Inactive') [not null, default: 'Active']
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-}
-
-// Routing (P227): the ordered Units; several per line for now, each naming its line;
-// one row with no line = the segment before the partai (partial unique index prd_routing_one_segment)
-table prd_routing {
-  id                          int [pk, increment, not null]
-
-  routing_code                varchar [not null, unique]
-
-  routing_label               varchar [not null]
-  routing_name                varchar [not null]
-  line_id                     int [ref : > prd_line.id]
-
-  note                        varchar
-
-  status                      enum('Active', 'Inactive') [not null, default: 'Active']
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-}
-
-table prd_routing_step {
-  id                          int [pk, increment, not null]
-
-  routing_id                  int [not null, ref : > prd_routing.id]
-  seq                         int [not null]
-  unit_id                     int [not null, ref : > ref_unit.id]
-  is_checkpoint               boolean [not null, default: false] // from here a partai moves whole (W28)
-  is_skippable                boolean [not null, default: false]
-
-  indexes {
-    (routing_id, seq) [unique]
-    (routing_id, unit_id) [unique]
-    unit_id
-  }
-}
-
-// Standard Cost (P226): the rate per gram of each Unit; never edited once saved, one Active (partial unique index);
-// saving a new version closes the active one, and a partai keeps the id it started on
-table prd_rate_version {
-  id                          int [pk, increment, not null]
-
-  rate_code                   varchar [not null, unique]
-
-  rate_label                  varchar [not null]
-  rate_name                   varchar [not null]
-
-  note                        varchar
-
-  status                      enum('Active', 'Inactive') [not null, default: 'Active']
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-}
-
-table prd_rate_version_line {
-  id                          int [pk, increment, not null]
-
-  version_id                  int [not null, ref : > prd_rate_version.id]
-  unit_id                     int [not null, ref : > ref_unit.id]
-  rate                        decimal(18,6) [not null]
-
-  indexes {
-    (version_id, unit_id) [unique]
-    unit_id
-  }
-}
-
-// A partai (P227): names its line, the routing it follows and the Standard Cost it started on
-table prd_partai {
-  id                          int [pk, increment, not null]
-
-  partai_no                   varchar [not null, unique] // P_<ddmmyy>_<NNNNN> (W11)
-  partai_date                 date [not null]
-  line_id                     int [not null, ref : > prd_line.id]
-  routing_id                  int [not null, ref : > prd_routing.id]
-  rate_version_id             int [not null, ref : > prd_rate_version.id]
-
-  source_doc_type_id          int [not null] // the document that formed it, weak
-  source_doc_id               int [not null]
-  source_no                   varchar [not null]
-
-  created_by                  int [not null]
-  created_at                  timestamptz [not null, default: `now()`]
-}
-
-// A No. Job (P227): one pickup of one No. Stok when made (W31)
-table prd_job {
-  id                          int [pk, increment, not null]
-
-  job_no                      varchar [not null, unique] // <kode unit>_<ddmmyy>_<NNNNN> (W11)
-  job_date                    date [not null]
-  unit_id                     int [not null, ref : > ref_unit.id] // the Unit that issued it
-  tracking_id                 int [not null, ref : > log_stock_tracking.id] // the No. Stok picked up from
-  partai_id                   int [ref : > prd_partai.id]
-
-  source_doc_type_id          int [not null]
-  source_doc_id               int [not null]
-  source_no                   varchar [not null]
-
-  created_by                  int [not null]
-  created_at                  timestamptz [not null, default: `now()`]
-}
-
-// What a No. Stok locked when it started production (P227)
-table prd_tracking_info {
-  id                          int [pk, increment, not null]
-
-  tracking_id                 int [not null, unique, ref : > log_stock_tracking.id]
-  rate_version_id             int [not null, ref : > prd_rate_version.id]
-  routing_id                  int [ref : > prd_routing.id]
-  grams                       decimal(18,6)
-  form                        enum('Bulk', 'Piece', 'Box') [not null, default: 'Bulk']
-
-  created_by                  int [not null]
-  created_at                  timestamptz [not null, default: `now()`]
-}
-
-// Standard cost absorbed (P227, V1): grams × rate at one Unit, append-only
-table prd_cost_entry {
-  id                          int [pk, increment, not null]
-
-  posting_date                date [not null]
-  source_doc_type_id          int [not null]
-  source_doc_id               int [not null]
-  source_no                   varchar [not null]
-
-  unit_id                     int [not null, ref : > ref_unit.id]
-  rate_version_id             int [not null, ref : > prd_rate_version.id]
-  tracking_id                 int [not null, ref : > log_stock_tracking.id]
-  partai_id                   int [ref : > prd_partai.id]
-  line_id                     int [ref : > prd_line.id]
-  grams                       decimal(18,6) [not null]
-  rate                        decimal(18,6) [not null]
-  amount                      decimal(18,2) [not null]
-  is_rework                   boolean [not null, default: false] // W66
-
-  created_by                  int [not null]
-  created_at                  timestamptz [not null, default: `now()`]
-}
-
-// Karyawan (P225, W26): who worked a No. Job at a Pass Through Unit
-table m_employee {
-  id                          int [pk, increment, not null]
-
-  employee_code               varchar [not null, unique]
-
-  employee_label              varchar [not null]
-  employee_name               varchar [not null]
-
-  note                        varchar
-
-  status                      enum('Active', 'Inactive') [not null, default: 'Active']
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-}
-
-// Jenis Biaya (R9): a Tagihan Biaya line's cost and the expense account it books to;
-// the month-end close pools the net debit on these accounts (R10)
-table acc_cost_type {
-  id                          int [pk, increment, not null]
-
-  cost_type_code              varchar [not null, unique]
-
-  cost_type_label             varchar [not null]
-  cost_type_name              varchar [not null]
-  expense_account_id          int [not null, ref : > acc_account.id] // fixed once chosen
 
   note                        varchar
 
@@ -934,6 +705,117 @@ table m_cash_bank {
 
 //////////////////////////////////
 //
+// Struktur Produksi — master, dibaca aplikasi Produksi
+//
+/////////////////////////////////
+
+// Workstation (P225, W33): only groups Units; holds no goods and no rate
+table ref_workstation {
+  id                          int [pk, increment, not null]
+
+  workstation_code            varchar [not null, unique]
+
+  workstation_label           varchar [not null]
+  workstation_name            varchar [not null]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// Unit (P225, W33): where goods are held in production, and the kinds of work done there;
+// the old ref_workstation (P201) renamed in place
+table ref_unit {
+  id                          int [pk, increment, not null]
+
+  unit_code                   varchar [not null, unique]
+
+  unit_label                  varchar [not null] // the short code used in document numbers, e.g. UGH
+  unit_name                   varchar [not null]
+  workstation_id              int [ref : > ref_workstation.id]
+  process                     enum('PassThrough', 'Grading', 'Assembly') [not null, default: 'PassThrough'] // one Unit, one process (W73)
+  has_qc                      boolean [not null, default: false] // goods pass a QC Check before Stand By (W65)
+  releases_job                boolean [not null, default: false]
+  issues_job_order            boolean [not null, default: false]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// Line Produksi (P225): a routing hangs on it; the month's variance goes to its account
+table prd_line {
+  id                          int [pk, increment, not null]
+
+  line_code                   varchar [not null, unique]
+
+  line_label                  varchar [not null]
+  line_name                   varchar [not null]
+  variance_account_id         int [ref : > acc_account.id]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// Routing (P227): the ordered Units; several per line for now, each naming its line;
+// one row with no line = the segment before the partai (partial unique index prd_routing_one_segment)
+table prd_routing {
+  id                          int [pk, increment, not null]
+
+  routing_code                varchar [not null, unique]
+
+  routing_label               varchar [not null]
+  routing_name                varchar [not null]
+  line_id                     int [ref : > prd_line.id]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+table prd_routing_step {
+  id                          int [pk, increment, not null]
+
+  routing_id                  int [not null, ref : > prd_routing.id]
+  seq                         int [not null]
+  unit_id                     int [not null, ref : > ref_unit.id]
+  is_checkpoint               boolean [not null, default: false] // from here a partai moves whole (W28)
+  is_skippable                boolean [not null, default: false]
+
+  indexes {
+    (routing_id, seq) [unique]
+    (routing_id, unit_id) [unique]
+    unit_id
+  }
+}
+
+//////////////////////////////////
+//
 // Accounting
 //
 /////////////////////////////////
@@ -1110,7 +992,7 @@ table acc_journal {
   journal_no                  varchar [not null, unique]
   posting_date                date
 
-  source_doc_type_id          int [ref : > sys_doc_type.id]
+  source_doc_type_id          int [ref : > sys_doc_type.id] // lintas aplikasi → Bersama
   source_doc_id               int
 
   description                 varchar [not null]
@@ -1204,6 +1086,17 @@ table acc_opening_balance_line {
   }
 }
 
+// The period lock (R15): accounts a costed period takes no journal line on.
+table acc_fiscal_period_lock {
+  id                          int [pk, increment, not null]
+  period_id                   int [not null, ref : > acc_fiscal_period.id] // cascade
+  account_id                  int [not null]
+
+  indexes {
+    (period_id, account_id) [unique]
+  }
+}
+
 //////////////////////////////////
 //
 // Finance
@@ -1225,7 +1118,7 @@ table cash_bank_ledger {
   rate                        decimal(18,6) [not null]
   base_movement               decimal(18,2) [not null] // movement in base currency, signed the same way
 
-  source_doc_type_id          int [ref : > sys_doc_type.id]
+  source_doc_type_id          int [ref : > sys_doc_type.id] // lintas aplikasi → Bersama
   source_doc_id               int
 
   note                        varchar
@@ -1320,7 +1213,7 @@ table fin_cash_bank_tx_line {
   tx_id                       int [not null, ref : > fin_cash_bank_tx.id] // deleted with its parent
   line_no                     int [not null]
 
-  doc_type_id                 int [not null, ref : > sys_doc_type.id] // weak reference to the settled document: fin_ar_advance or fin_ar_invoice
+  doc_type_id                 int [not null, ref : > sys_doc_type.id] // lintas aplikasi → Bersama · weak reference to the settled document: fin_ar_advance or fin_ar_invoice
   doc_id                      int [not null]
 
   settled_amount              decimal(18,2) [not null] // what the line cleared of the document: the cash received for it + its PPh (P76)
@@ -1371,10 +1264,10 @@ table fin_ar_item {
   item_date                   date [not null]
   due_date                    date // Invoice only; Umur Piutang ages from it
 
-  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // what it is about: the advance bill, the Faktur
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // lintas aplikasi → Bersama · what it is about: the advance bill, the Faktur
   source_doc_id               int [not null]
   source_no                   varchar [not null]
-  scope_doc_type_id           int [ref : > sys_doc_type.id] // the agreement it is settled within: Customer Order or Pengajuan Perizinan (P137)
+  scope_doc_type_id           int [ref : > sys_doc_type.id] // lintas aplikasi → Bersama · the agreement it is settled within: Customer Order or Pengajuan Perizinan (P137)
   scope_doc_id                int // weak: an invoice uses only its own agreement's advances
   original_amount             decimal(18,2) [not null, default: 0] // what it was born at: an Uang Muka its DPP, an Invoice its face (P116)
   paid_amount                 decimal(18,2) [not null, default: 0] // what its source document has been paid, cash + PPh; a receipt's `before`, raised at posting; CHECK ≥ 0 (P214)
@@ -1406,7 +1299,7 @@ table fin_ar_ledger {
   entry_date                  date [not null]
   movement                    decimal(18,2) [not null] // signed on the item balance: + grows, − falls; the one figure of the entry (P213)
 
-  doc_type_id                 int [not null, ref : > sys_doc_type.id]
+  doc_type_id                 int [not null, ref : > sys_doc_type.id] // lintas aplikasi → Bersama
   doc_id                      int [not null]
   doc_no                      varchar [not null]
   counter_item_id             int [ref : > fin_ar_item.id] // the Invoice item that used an advance
@@ -1438,7 +1331,7 @@ table fin_ap_item {
   item_date                   date [not null]
   due_date                    date
 
-  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // what the item is about
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // lintas aplikasi → Bersama · what the item is about
   source_doc_id               int [not null]
   source_no                   varchar [not null]
   purchase_order_id           int // weak: the settlement scope
@@ -1469,7 +1362,7 @@ table fin_ap_ledger {
   entry_date                  date [not null]
   movement                    decimal(18,2) [not null] // signed on the item balance: + grows, − falls (P213)
 
-  doc_type_id                 int [not null, ref : > sys_doc_type.id]
+  doc_type_id                 int [not null, ref : > sys_doc_type.id] // lintas aplikasi → Bersama
   doc_id                      int [not null]
   doc_no                      varchar [not null]
   counter_item_id             int [ref : > fin_ap_item.id]
@@ -2305,7 +2198,7 @@ table log_receipt_note {
   status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
 
   purpose                     varchar [not null] // purchase_receipt
-  source_doc_type_id          int [not null, ref : > sys_doc_type.id]
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // lintas aplikasi → Bersama
   source_doc_id               int [not null] // weak: pur_order.id
   source_no                   varchar [not null]
   partner_id                  int [not null, ref : > m_partner.id] // the supplier
@@ -2384,7 +2277,7 @@ table log_delivery_note {
   status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
 
   purpose                     varchar [not null] // sales_delivery; later purchase_return
-  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // weak source: a Delivery Order
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // lintas aplikasi → Bersama · weak source: a Delivery Order
   source_doc_id               int [not null]
   source_no                   varchar [not null]
   partner_id                  int [not null, ref : > m_partner.id]
@@ -2503,7 +2396,7 @@ table log_stock_tracking {
 
   item_id                     int [not null, ref : > m_item.id]
 
-  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // the receipt that made it, weak
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // lintas aplikasi → Bersama · the receipt that made it, weak
   source_doc_id               int [not null]
   source_no                   varchar [not null]
 
@@ -2532,7 +2425,7 @@ table log_stock_ledger {
 
   posting_date                date [not null] // the document's date
 
-  source_doc_type_id          int [not null, ref : > sys_doc_type.id]
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // lintas aplikasi → Bersama
   source_doc_id               int [not null]
   source_no                   varchar [not null]
 
@@ -2595,7 +2488,7 @@ table log_stock_valuation_ledger {
 
   posting_date                date [not null]
 
-  source_doc_type_id          int [not null, ref : > sys_doc_type.id]
+  source_doc_type_id          int [not null, ref : > sys_doc_type.id] // lintas aplikasi → Bersama
   source_doc_id               int [not null]
   source_no                   varchar [not null]
 
@@ -2779,7 +2672,168 @@ table tax_withholding_slip {
   }
 }
 
-// ------------------------------------------------------------- production (P200)
+//////////////////////////////////
+//
+// BSTB Issue — dokumen batas ke Produksi
+//
+/////////////////////////////////
+
+// BSTB Issue (P228; R4): Draft → Ajukan (goods reserved) → Terima (goods move, W20); into a Unit's Persiapan — Dr WIP /
+// Cr Persediaan; standalone by purpose (P106), SI/YYYY/MM/NNNN
+table log_stock_issue {
+  id                          int [pk, increment, not null]
+
+  issue_no                    varchar [not null, unique]
+  issue_date                  date [not null]
+  status                      enum('Draft', 'Submitted', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  purpose                     varchar [not null] // production_issue
+  warehouse_id                int [not null, ref : > ref_warehouse.id]
+  unit_id              int [ref : > ref_unit.id] // required by production_issue
+  note                        varchar
+
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  journal_id                  int // no FK
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (purpose, status)
+    (status, issue_date)
+  }
+}
+
+table log_stock_issue_line {
+  id                          int [pk, increment, not null]
+
+  stock_issue_id              int [not null, ref : > log_stock_issue.id]
+  line_no                     int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id] // the base unit, factor 1
+  uom_factor                  decimal(18,4) [not null, default: 1]
+  qty                         decimal(18,4) [not null]
+  base_qty                    decimal(18,4) [not null, default: 0]
+  unit_cost                   decimal(18,6) [not null, default: 0]
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  note                        varchar
+
+  indexes {
+    (stock_issue_id, line_no) [unique]
+    (stock_issue_id, item_id) [unique]
+    item_id
+  }
+}
+
+table log_stock_issue_tracking {
+  id                          int [pk, increment, not null]
+
+  stock_issue_line_id         int [not null, ref : > log_stock_issue_line.id]
+  pick_no                     int [not null]
+  tracking_id                      int [not null] // log_stock_tracking.id, no FK
+  location_id                 int // ref_warehouse_location.id, no FK
+  tracking_no                      varchar [not null]
+  expiry_date                 date
+  qty                         decimal(18,4) [not null]
+  base_qty                    decimal(18,4) [not null, default: 0]
+  unit_cost                   decimal(18,6) [not null, default: 0]
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  prd_bucket_id               int // the production bucket it entered, weak
+
+  indexes {
+    (stock_issue_line_id, pick_no) [unique]
+    (stock_issue_line_id, tracking_id, location_id) [unique] // NULLS NOT DISTINCT
+    tracking_id
+  }
+}
+
+//////////////////////////////////
+//
+// Costing Produksi
+//
+/////////////////////////////////
+
+// Standard Cost (P226): the rate per gram of each Unit; never edited once saved, one Active (partial unique index);
+// saving a new version closes the active one, and a partai keeps the id it started on
+table prd_rate_version {
+  id                          int [pk, increment, not null]
+
+  rate_code                   varchar [not null, unique]
+
+  rate_label                  varchar [not null]
+  rate_name                   varchar [not null]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+table prd_rate_version_line {
+  id                          int [pk, increment, not null]
+
+  version_id                  int [not null, ref : > prd_rate_version.id]
+  unit_id                     int [not null, ref : > ref_unit.id]
+  rate                        decimal(18,6) [not null]
+
+  indexes {
+    (version_id, unit_id) [unique]
+    unit_id
+  }
+}
+
+// Standard cost absorbed (P227, V1): grams × rate at one Unit, append-only
+table prd_cost_entry {
+  id                          int [pk, increment, not null]
+
+  posting_date                date [not null]
+  source_doc_type_id          int [not null]
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+
+  unit_id                     int [not null, ref : > ref_unit.id]
+  rate_version_id             int [not null, ref : > prd_rate_version.id]
+  tracking_id                 int [not null, ref : > log_stock_tracking.id]
+  partai_id                   int [ref : > prd_partai.id] // lintas aplikasi → Produksi
+  line_id                     int [ref : > prd_line.id]
+  grams                       decimal(18,6) [not null]
+  rate                        decimal(18,6) [not null]
+  amount                      decimal(18,2) [not null]
+  is_rework                   boolean [not null, default: false] // W66
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+}
+
+// Jenis Biaya (R9): a Tagihan Biaya line's cost and the expense account it books to;
+// the month-end close pools the net debit on these accounts (R10)
+table acc_cost_type {
+  id                          int [pk, increment, not null]
+
+  cost_type_code              varchar [not null, unique]
+
+  cost_type_label             varchar [not null]
+  cost_type_name              varchar [not null]
+  expense_account_id          int [not null, ref : > acc_account.id] // fixed once chosen
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
 
 // Tagihan Biaya (R9): Dr each line's Jenis Biaya expense account / Cr Account Mapping's
 // Hutang Biaya Produksi, copied at posting; paid by Pembayaran Biaya Produksi (P132)
@@ -2826,6 +2880,193 @@ table prd_cost_bill_line {
     bill_id
   }
 }
+
+//////////////////////////////////////////////////////////////////
+//
+//  BAGIAN C — APLIKASI PRODUKSI
+//  Identitas, buku produksi, dokumen lantai produksi (P254).
+//
+//////////////////////////////////////////////////////////////////
+
+//////////////////////////////////
+//
+// Master
+//
+/////////////////////////////////
+
+// Karyawan (P225, W26): who worked a No. Job at a Pass Through Unit
+table m_employee {
+  id                          int [pk, increment, not null]
+
+  employee_code               varchar [not null, unique]
+
+  employee_label              varchar [not null]
+  employee_name               varchar [not null]
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
+//////////////////////////////////
+//
+// Identitas
+//
+/////////////////////////////////
+
+// A partai (P227): names its line, the routing it follows and the Standard Cost it started on
+table prd_partai {
+  id                          int [pk, increment, not null]
+
+  partai_no                   varchar [not null, unique] // P_<ddmmyy>_<NNNNN> (W11)
+  partai_date                 date [not null]
+  line_id                     int [not null, ref : > prd_line.id] // lintas aplikasi → ERP
+  routing_id                  int [not null, ref : > prd_routing.id] // lintas aplikasi → ERP
+  rate_version_id             int [not null, ref : > prd_rate_version.id] // lintas aplikasi → ERP
+
+  source_doc_type_id          int [not null] // the document that formed it, weak
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+}
+
+// A No. Job (P227): one pickup of one No. Stok when made (W31)
+table prd_job {
+  id                          int [pk, increment, not null]
+
+  job_no                      varchar [not null, unique] // <kode unit>_<ddmmyy>_<NNNNN> (W11)
+  job_date                    date [not null]
+  unit_id                     int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP · the Unit that issued it
+  tracking_id                 int [not null, ref : > log_stock_tracking.id] // lintas aplikasi → ERP · the No. Stok picked up from
+  partai_id                   int [ref : > prd_partai.id]
+
+  source_doc_type_id          int [not null]
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+}
+
+// What a No. Stok locked when it started production (P227)
+table prd_tracking_info {
+  id                          int [pk, increment, not null]
+
+  tracking_id                 int [not null, unique, ref : > log_stock_tracking.id] // lintas aplikasi → ERP
+  rate_version_id             int [not null, ref : > prd_rate_version.id] // lintas aplikasi → ERP
+  routing_id                  int [ref : > prd_routing.id] // lintas aplikasi → ERP
+  grams                       decimal(18,6)
+  form                        enum('Bulk', 'Piece', 'Box') [not null, default: 'Bulk']
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+}
+
+//////////////////////////////////
+//
+// Buku Produksi
+//
+/////////////////////////////////
+
+table prd_balance {
+  id                          int [pk, increment, not null]
+
+  tracking_id                      int [not null, ref : > log_stock_tracking.id] // lintas aplikasi → ERP · the one lot register (P120)
+  unit_id              int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
+  stage                       enum('Preparation', 'QcCheck', 'StandBy') [not null, default: 'Preparation'] // Persiapan, Stand By (W29)
+  partai_id                   int [ref : > prd_partai.id]
+  job_id                      int [ref : > prd_job.id]
+  item_id                     int [not null, ref : > m_item.id] // lintas aplikasi → ERP
+  uom_id                      int [not null, ref : > ref_uom.id] // lintas aplikasi → ERP · the item's base unit
+
+  qty_balance                 decimal(18,6) [not null, default: 0]
+  value_balance               decimal(18,2) [not null, default: 0] // CHECK ≥ 0; 0 when the bucket is empty
+  auxiliary                   boolean [not null, default: false] // bahan penolong (V8)
+  qc_check_id                 int // the QC Check that turned it back (W66)
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (tracking_id, unit_id, stage, partai_id, job_id) [unique] // NULLS NOT DISTINCT
+    unit_id
+    item_id
+  }
+}
+
+// The production ledger (R3): append-only, the balances after each row; MP/… per posting (P110)
+table prd_ledger {
+  id                          int [pk, increment, not null]
+
+  ledger_no                   varchar [not null]
+  line_no                     int [not null]
+  posting_date                date [not null]
+  source_doc_type_id          int [not null] // weak source pair (§3.1)
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+  movement                    enum('Issued', 'Consumed', 'Produced', 'TransferOut', 'TransferIn', 'Released') [not null]
+  bucket_id                   int [not null, ref : > prd_balance.id]
+  tracking_id                      int [not null, ref : > log_stock_tracking.id] // lintas aplikasi → ERP
+  unit_id              int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
+  stage                       enum('Preparation', 'QcCheck', 'StandBy') [not null]
+  partai_id                   int [ref : > prd_partai.id]
+  job_id                      int [ref : > prd_job.id]
+  item_id                     int [not null, ref : > m_item.id] // lintas aplikasi → ERP
+
+  qty_change                  decimal(18,6) [not null]
+  qty_balance                 decimal(18,6) [not null]
+  value_change                decimal(18,2) [not null]
+  value_balance               decimal(18,2) [not null]
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (ledger_no, line_no) [unique]
+    (bucket_id, posting_date)
+    tracking_id
+    (source_doc_type_id, source_doc_id)
+  }
+}
+
+// Genealogy (R12): what each input of an execution gave each output lot
+table prd_tracking_link {
+  id                          int [pk, increment, not null]
+
+  source_doc_type_id          int [not null]
+  source_doc_id               int [not null]
+  source_no                   varchar [not null]
+  from_bucket_id              int [not null, ref : > prd_balance.id]
+  from_tracking_id                 int [not null, ref : > log_stock_tracking.id] // lintas aplikasi → ERP
+  to_tracking_id                   int [not null, ref : > log_stock_tracking.id] // lintas aplikasi → ERP
+  qty                         decimal(18,6) [not null]
+  value                       decimal(18,2) [not null]
+
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (source_doc_type_id, source_doc_id)
+    from_tracking_id
+    to_tracking_id
+  }
+}
+
+//////////////////////////////////
+//
+// Dokumen Lantai Produksi
+//
+/////////////////////////////////
 
 // A production bucket (P227): one No. Stok · Unit · stage · Partai · Job, the last two optional; Σ value_balance is WIP.
 // Written only by production-ledger.ts, beside its ledger row
@@ -2940,174 +3181,4 @@ table prd_qc_check_line {
   reason                      text
   to_bucket_id                int
 }
-
-table prd_balance {
-  id                          int [pk, increment, not null]
-
-  tracking_id                      int [not null, ref : > log_stock_tracking.id] // the one lot register (P120)
-  unit_id              int [not null, ref : > ref_unit.id]
-  stage                       enum('Preparation', 'QcCheck', 'StandBy') [not null, default: 'Preparation'] // Persiapan, Stand By (W29)
-  partai_id                   int [ref : > prd_partai.id]
-  job_id                      int [ref : > prd_job.id]
-  item_id                     int [not null, ref : > m_item.id]
-  uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
-
-  qty_balance                 decimal(18,6) [not null, default: 0]
-  value_balance               decimal(18,2) [not null, default: 0] // CHECK ≥ 0; 0 when the bucket is empty
-  auxiliary                   boolean [not null, default: false] // bahan penolong (V8)
-  qc_check_id                 int // the QC Check that turned it back (W66)
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    (tracking_id, unit_id, stage, partai_id, job_id) [unique] // NULLS NOT DISTINCT
-    unit_id
-    item_id
-  }
-}
-
-// The production ledger (R3): append-only, the balances after each row; MP/… per posting (P110)
-table prd_ledger {
-  id                          int [pk, increment, not null]
-
-  ledger_no                   varchar [not null]
-  line_no                     int [not null]
-  posting_date                date [not null]
-  source_doc_type_id          int [not null] // weak source pair (§3.1)
-  source_doc_id               int [not null]
-  source_no                   varchar [not null]
-  movement                    enum('Issued', 'Consumed', 'Produced', 'TransferOut', 'TransferIn', 'Released') [not null]
-  bucket_id                   int [not null, ref : > prd_balance.id]
-  tracking_id                      int [not null, ref : > log_stock_tracking.id]
-  unit_id              int [not null, ref : > ref_unit.id]
-  stage                       enum('Preparation', 'QcCheck', 'StandBy') [not null]
-  partai_id                   int [ref : > prd_partai.id]
-  job_id                      int [ref : > prd_job.id]
-  item_id                     int [not null, ref : > m_item.id]
-
-  qty_change                  decimal(18,6) [not null]
-  qty_balance                 decimal(18,6) [not null]
-  value_change                decimal(18,2) [not null]
-  value_balance               decimal(18,2) [not null]
-
-  created_by                  int [not null]
-  created_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    (ledger_no, line_no) [unique]
-    (bucket_id, posting_date)
-    tracking_id
-    (source_doc_type_id, source_doc_id)
-  }
-}
-
-// Genealogy (R12): what each input of an execution gave each output lot
-table prd_tracking_link {
-  id                          int [pk, increment, not null]
-
-  source_doc_type_id          int [not null]
-  source_doc_id               int [not null]
-  source_no                   varchar [not null]
-  from_bucket_id              int [not null, ref : > prd_balance.id]
-  from_tracking_id                 int [not null, ref : > log_stock_tracking.id]
-  to_tracking_id                   int [not null, ref : > log_stock_tracking.id]
-  qty                         decimal(18,6) [not null]
-  value                       decimal(18,2) [not null]
-
-  created_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    (source_doc_type_id, source_doc_id)
-    from_tracking_id
-    to_tracking_id
-  }
-}
-
-// BSTB Issue (P228; R4): Draft → Ajukan (goods reserved) → Terima (goods move, W20); into a Unit's Persiapan — Dr WIP /
-// Cr Persediaan; standalone by purpose (P106), SI/YYYY/MM/NNNN
-table log_stock_issue {
-  id                          int [pk, increment, not null]
-
-  issue_no                    varchar [not null, unique]
-  issue_date                  date [not null]
-  status                      enum('Draft', 'Submitted', 'Posted', 'Cancelled') [not null, default: 'Draft']
-  purpose                     varchar [not null] // production_issue
-  warehouse_id                int [not null, ref : > ref_warehouse.id]
-  unit_id              int [ref : > ref_unit.id] // required by production_issue
-  note                        varchar
-
-  cost_amount                 decimal(18,2) [not null, default: 0]
-  journal_id                  int // no FK
-  cancel_reason               varchar
-
-  created_by                  int [not null]
-  updated_by                  int
-
-  created_at                  timestamptz [not null, default: `now()`]
-  updated_at                  timestamptz [not null, default: `now()`]
-
-  indexes {
-    (purpose, status)
-    (status, issue_date)
-  }
-}
-
-table log_stock_issue_line {
-  id                          int [pk, increment, not null]
-
-  stock_issue_id              int [not null, ref : > log_stock_issue.id]
-  line_no                     int [not null]
-  item_id                     int [not null, ref : > m_item.id]
-  uom_id                      int [not null, ref : > ref_uom.id] // the base unit, factor 1
-  uom_factor                  decimal(18,4) [not null, default: 1]
-  qty                         decimal(18,4) [not null]
-  base_qty                    decimal(18,4) [not null, default: 0]
-  unit_cost                   decimal(18,6) [not null, default: 0]
-  cost_amount                 decimal(18,2) [not null, default: 0]
-  note                        varchar
-
-  indexes {
-    (stock_issue_id, line_no) [unique]
-    (stock_issue_id, item_id) [unique]
-    item_id
-  }
-}
-
-table log_stock_issue_tracking {
-  id                          int [pk, increment, not null]
-
-  stock_issue_line_id         int [not null, ref : > log_stock_issue_line.id]
-  pick_no                     int [not null]
-  tracking_id                      int [not null] // log_stock_tracking.id, no FK
-  location_id                 int // ref_warehouse_location.id, no FK
-  tracking_no                      varchar [not null]
-  expiry_date                 date
-  qty                         decimal(18,4) [not null]
-  base_qty                    decimal(18,4) [not null, default: 0]
-  unit_cost                   decimal(18,6) [not null, default: 0]
-  cost_amount                 decimal(18,2) [not null, default: 0]
-  prd_bucket_id               int // the production bucket it entered, weak
-
-  indexes {
-    (stock_issue_line_id, pick_no) [unique]
-    (stock_issue_line_id, tracking_id, location_id) [unique] // NULLS NOT DISTINCT
-    tracking_id
-  }
-}
-
-// The period lock (R15): accounts a costed period takes no journal line on.
-table acc_fiscal_period_lock {
-  id                          int [pk, increment, not null]
-  period_id                   int [not null, ref : > acc_fiscal_period.id] // cascade
-  account_id                  int [not null]
-
-  indexes {
-    (period_id, account_id) [unique]
-  }
-}
-
 ```
