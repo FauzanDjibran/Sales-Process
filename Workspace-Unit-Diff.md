@@ -1,6 +1,6 @@
 # Tahap 5.0: Artifact vs Aplikasi, Layar Produksi
 
-> Disusun 11/11/2026 untuk tahap 5.0 `production_app_plan.md`. **Belum ada yang dibangun.**
+> Disusun 11/11/2026 untuk tahap 5.0 `production_app_plan.md`. **Disetujui user 11/11/2026, D1–D6 menurut saran (P261).** Belum ada yang dibangun.
 > Sumber: artifact Workspace Unit (TR9at…, versi `1794319641-bf3b`) dan aplikasi di `main` (`2734869`).
 > Setelah disetujui, daftar ini menjadi acuan 5.1–5.5: yang dibangun persis seperti tertulis.
 
