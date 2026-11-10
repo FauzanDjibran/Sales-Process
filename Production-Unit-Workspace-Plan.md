@@ -100,6 +100,25 @@ Niat user: saat diimplementasikan, ERP dan Produksi menjadi **dua aplikasi denga
 - Standard Cost per Unit dan akun varians tinggal di ERP, sementara Unit dan Line ada di Produksi, jadi kode Unit perlu direplikasi.
 - Nilai di layar Produksi tetap di balik satu syarat (`canSeeValue`), dibaca dari ERP.
 
+## 3b. Dampak database dua tabel Workspace (W111)
+
+**Tidak ada tabel baru untuk tampilannya.** Kedua tabel dibaca dari `prd_balance`, yang sudah menyimpan `job_id` (boleh kosong) per bucket No. Stok · Unit · tahap · Partai · Job:
+
+| Bagian layar | Query | Beban |
+| --- | --- | --- |
+| Tabel Job | `prd_balance` per `unit_id`, `stage`, `qty_balance > 0`, `job_id IS NOT NULL`, `GROUP BY job_id`: jumlah No. Stok, Σ gram, Σ nilai, partai tunggal atau lintas, tanggal tertua; berhalaman per Job | Satu baris per Job, bukan per No. Stok |
+| Tabel No. Stok tanpa Job | Filter sama dengan `job_id IS NULL`, berhalaman (keyset) | Barisnya paling banyak di Isi Wadah (pcs) |
+| Modal isi Job | `WHERE job_id = ? AND unit_id = ? AND stage = ?`, hanya saat dibuka | Kecil |
+| Hitungan tab | Dua `COUNT`: Job (distinct) dan No. Stok tanpa Job | Pindah ke tabel ringkasan bila perlu (tahap 2 di bawah) |
+
+**Yang perlu ditambah atau diubah saat dibangun:**
+1. **Indeks parsial** `prd_balance (unit_id, stage, job_id) WHERE qty_balance > 0`. Ini menggantikan usulan `(unit_id, stage)` di §4 dan melayani kedua tabel; baris kosong yang menumpuk tidak terbaca.
+2. **Kolom "Sejak"**: `prd_balance` belum punya tanggal masuk tahap. Usul `entered_at` (date), diisi saat saldo bucket naik dari 0. Bucket dipakai ulang, jadi `created_at` tidak cukup.
+3. **Job selalu utuh ditegakkan di server.** Form mengirim `job_id`, bukan daftar bucket. Server membaca semua bucket Job itu di unit dan tahapnya dan memindahkan qty penuh, jadi Job tidak bisa terpecah walau request diubah. Hanya bucket tanpa `job_id` yang menerima qty sebagian.
+4. **Grading per Job (W97, W107)**: `prd_grading` yang kini satu pick satu bucket (P241) menjadi header ber-`job_id` dengan anak `prd_grading_input` (banyak bucket input); outputnya tetap `prd_grading_output`, dan genealogi di `prd_tracking_link` sudah banyak-ke-banyak.
+5. **QC Check (W109)**: baris tetap per bucket, dengan keputusan yang harus sama untuk semua bucket satu Job (dicek server).
+6. **Job wadah (W103)**: `prd_job.tracking_id` dan `prd_job.partai_id` menjadi boleh kosong; partai tetap per bucket.
+
 ## 4. Beban data: pilihan solusi
 
 | # | Solusi | Kelebihan | Kekurangan | Putusan |
