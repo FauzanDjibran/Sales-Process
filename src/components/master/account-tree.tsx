@@ -8,7 +8,7 @@ import { ExpandAll } from "@/components/ui/expand-all";
 import { SearchField } from "@/components/ui/search-field";
 import type { EntityAbilities } from "@/lib/erp/entity-access";
 import { TAG_CLASS, createLabel, type Entity } from "@/lib/erp/entities";
-import { moduleByKey } from "@/lib/erp/nav";
+import { moduleNameAt } from "@/lib/erp/nav";
 import type { TreeAccount, TreeCategory } from "@/lib/erp/records";
 
 /**
@@ -32,7 +32,7 @@ export function AccountTree({
 }) {
   const router = useRouter();
   const basePath = `/${entity.module}/${entity.slug}`;
-  const moduleName = moduleByKey(entity.module)?.name ?? entity.module;
+  const moduleName = moduleNameAt(entity.module, entity.slug);
 
   const [query, setQuery] = useState("");
   /** Collapsed keys. Every branch starts open. */

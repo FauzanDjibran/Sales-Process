@@ -1404,10 +1404,9 @@ table.grid tbody tr.flash td{animation:uwflash 1.2s}
 .txsum .mi{width:150px}
 
 /* ---------- two applications (P254) ----------
-   The Produksi mark swaps the brand's two colours, so the topbar says which
-   application is open. The picker is the login card, wider, with the two
-   applications stacked as buttons. */
-.brand-mark.prd{background:var(--accent);color:var(--brand)}
+   The picker is the login card, wider, with the two applications stacked as
+   buttons. The brand block tells the open application by its mark and name;
+   it keeps the brand colours, since the accent fill means "selected" (P258). */
 .sso-card{max-width:540px}
 .sso-apps{display:flex;flex-direction:column;gap:10px}
 .sso-app{display:flex;align-items:center;gap:13px;width:100%;padding:13px 14px;border:1px solid var(--line);

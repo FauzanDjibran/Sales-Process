@@ -1,6 +1,6 @@
 import { Icon } from "@/components/icon";
 import { formatTimestamp } from "@/lib/format";
-import { moduleByKey } from "@/lib/erp/nav";
+import { moduleNameAt } from "@/lib/erp/nav";
 import type { ReportDef } from "@/lib/erp/reports";
 import { ReportRunButton, ReportRunProvider } from "./report-run";
 
@@ -63,8 +63,13 @@ export function ReportView({
       <ReportRunProvider>
         <div className="ph">
           <div className="crumb">
-            <span>{moduleByKey(report.module)?.name ?? report.module}</span>
-            <span>/</span>
+            {/* MODUL / LAPORAN / NAMA; Produksi's reports have a module of their own named Laporan (P258), said once. */}
+            {moduleNameAt(report.module, `report/${report.slug}`) !== "Laporan" && (
+              <>
+                <span>{moduleNameAt(report.module, `report/${report.slug}`)}</span>
+                <span>/</span>
+              </>
+            )}
             <span>Laporan</span>
             <span>/</span>
             <span className="cur">{report.name}</span>

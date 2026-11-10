@@ -1,6 +1,6 @@
 import test, { describe } from "node:test";
 import assert from "node:assert/strict";
-import { appsOf, landingHref, visibleModules } from "../src/lib/erp/nav";
+import { appsOf, entityHref, landingHref, moduleNameAt, modulePath, resolvePath, visibleModules } from "../src/lib/erp/nav";
 
 /**
  * Two applications behind one sign-in (P254): which a user has, and where they
@@ -43,7 +43,17 @@ describe("the application a user has decides where they land", () => {
   });
 
   test("each shell lists only its own application's modules", () => {
-    assert.deepEqual(visibleModules(BOTH, "production").map((m) => m.key), ["production"]);
-    assert.ok(!visibleModules(BOTH, "erp").some((m) => m.key === "production"));
+    assert.deepEqual(visibleModules(BOTH, "production").map((m) => m.key), ["production-work"]);
+    assert.ok(!visibleModules(BOTH, "erp").some((m) => modulePath(m) === "production"));
+  });
+
+  test("Produksi's modules share /production, and the leaf decides which is open (P258)", () => {
+    assert.equal(resolvePath("/production/grading/3").module?.key, "production-document");
+    assert.equal(resolvePath("/production/report/lot-card").module?.key, "production-report");
+    assert.equal(resolvePath("/production/workspace/UGH").module?.key, "production-work");
+    assert.equal(resolvePath("/production/profile").module, undefined);
+    assert.equal(entityHref("production-master", "employee"), "/production/employee");
+    assert.equal(moduleNameAt("production", "employee"), "Master");
+    assert.equal(moduleNameAt("costing", "rate-version"), "Produksi");
   });
 });

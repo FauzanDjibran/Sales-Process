@@ -38,7 +38,7 @@ import {
   type Entity,
   type Field,
 } from "@/lib/erp/entities";
-import { moduleByKey } from "@/lib/erp/nav";
+import { moduleNameAt } from "@/lib/erp/nav";
 import type { RefOption, Row } from "@/lib/erp/records";
 import type { FieldPreset } from "@/lib/erp/entities";
 import { formatDate, formatMoney, formatPct, formatRate, todayIso } from "@/lib/format";
@@ -128,7 +128,7 @@ export function EntityForm({
   const toast = useToast();
   const editing = mode === "new" || mode === "edit";
   const basePath = `/${entity.module}/${entity.slug}`;
-  const moduleName = moduleByKey(entity.module)?.name ?? entity.module;
+  const moduleName = moduleNameAt(entity.module, entity.slug);
   const canEdit = can.edit;
   const statusModel = entity.statusModel;
 

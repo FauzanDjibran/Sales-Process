@@ -10,7 +10,7 @@ export default async function Page() {
   const rows = await listWorks();
   return (
     <ProdDocList
-      crumb="Produksi"
+      crumb="Dokumen"
       title="Pengerjaan Unit"
       icon="check"
       sub="No. Job yang dikerjakan di unit Pass Through dan oleh siapa. Barang dan gram tetap; biaya unit menambah nilainya."

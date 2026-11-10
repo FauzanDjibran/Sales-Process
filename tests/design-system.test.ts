@@ -1,6 +1,6 @@
 import test, { describe } from "node:test";
 import assert from "node:assert/strict";
-import { MODULES, appOfModule } from "../src/lib/erp/nav";
+import { MODULES, appOfModule, modulePath } from "../src/lib/erp/nav";
 import { entityBySlug } from "../src/lib/erp/entities";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -940,16 +940,16 @@ describe("a menu destination always renders", () => {
             // in entity-pages.tsx calls notFound().
             assert.equal(
               entity.module,
-              mod.key,
+              modulePath(mod),
               `${entry.slug} is a ${entity.module} entity but the menu lists it under ${mod.key}, ` +
                 "so its route resolves it to a 404"
             );
             return;
           }
           assert.ok(
-            ownRouteExists(mod.key, entry.slug),
+            ownRouteExists(modulePath(mod), entry.slug),
             `${entry.slug} is in no registry and has no route of its own under ` +
-              `src/app/(${appOfModule(mod.key)})/${mod.key} — the menu links to a 404`
+              `src/app/(${appOfModule(mod.key)})/${modulePath(mod)} — the menu links to a 404`
           );
         });
       }
@@ -959,7 +959,7 @@ describe("a menu destination always renders", () => {
   test("a module with no groups is a page of its own", () => {
     for (const mod of MODULES.filter((m) => !m.groups)) {
       assert.ok(
-        existsSync(join(appDir(mod.key), mod.key, "page.tsx")),
+        existsSync(join(appDir(mod.key), modulePath(mod), "page.tsx")),
         `${mod.key} is a single page and needs one`
       );
     }

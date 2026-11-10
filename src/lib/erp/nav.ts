@@ -26,8 +26,6 @@ export type NavEntity = {
 export type NavGroup = {
   key: string;
   name: string;
-  /** The rail icon, for an application whose rail lists groups (Produksi, P254). */
-  icon?: IconName;
   entities: NavEntity[];
 };
 
@@ -38,6 +36,12 @@ export type NavModule = {
   desc: string;
   /** Menu access is its own permission, separate from any action inside. */
   permission?: PermissionCode;
+  /**
+   * The URL segment, when it is not the key. The Produksi application's modules
+   * all live under `/production` (P258), so they share it; a module is then
+   * told from its siblings by the leaf the path names.
+   */
+  path?: string;
   /** A module with no groups is a single page (the dashboard). */
   groups?: NavGroup[];
 };
@@ -206,37 +210,55 @@ export const MODULES: NavModule[] = [
       },
     ],
   },
+  // The Produksi application (P254, P258): modules on the rail like the ERP's,
+  // each opening only its own menu. They share the URL segment `/production`.
   {
-    // The Produksi application (P254, `production_app_plan.md` §4.1): the shop
-    // floor only; its masters but Karyawan are the ERP's.
-    key: "production",
-    name: "Produksi",
-    icon: "gear",
-    desc: "Lantai produksi: pengerjaan, perpindahan antar Unit, dan telusur. Biaya dan Closing ada di ERP.",
+    key: "production-work",
+    path: "production",
+    name: "Pengerjaan",
+    icon: "layers",
+    desc: "Kerja di Unit: barang masuk, dikerjakan, diperiksa, lalu siap dikirim.",
     permission: "MENU_PRODUCTION_ACCESS",
     groups: [
       {
-        key: "work",
-        name: "Pengerjaan",
-        icon: "layers",
+        key: "production-work-main",
+        name: "Workspace",
         entities: [
           { key: "prd_unit", slug: "workspace", name: "Workspace Unit", icon: "layers", desc: "Pilih Unit, scan label, kerjakan satu form untuk satu pekerjaan.", permission: "PRODUCTION_UNIT_VIEW" },
         ],
       },
+    ],
+  },
+  {
+    key: "production-document",
+    path: "production",
+    name: "Dokumen",
+    icon: "file",
+    desc: "Dokumen pengerjaan di Unit: grading, pengerjaan, dan QC.",
+    permission: "MENU_PRODUCTION_ACCESS",
+    groups: [
       {
-        key: "document",
-        name: "Dokumen",
-        icon: "file",
+        key: "production-document-main",
+        name: "Pengerjaan di Unit",
         entities: [
           { key: "prd_grading", slug: "grading", name: "No. Grading", icon: "layers", desc: "Satu No. Stok dari Persiapan menjadi output baru; di sinilah jenis dan gram berubah.", permission: "PRODUCTION_GRADING_VIEW" },
           { key: "prd_work", slug: "work", name: "Pengerjaan Unit", icon: "check", desc: "No. Job yang dikerjakan di unit Pass Through dan oleh siapa; barang dan gram tetap.", permission: "PRODUCTION_WORK_VIEW" },
           { key: "prd_qc_check", slug: "qc-check", name: "QC Check", icon: "check", desc: "QC memvalidasi hasil proses: Lulus ke Stand By, Balik ke Persiapan.", permission: "PRODUCTION_QC_VIEW" },
         ],
       },
+    ],
+  },
+  {
+    key: "production-report",
+    path: "production",
+    name: "Laporan",
+    icon: "trend",
+    desc: "Saldo, mutasi, dan silsilah No. Stok di produksi.",
+    permission: "MENU_PRODUCTION_ACCESS",
+    groups: [
       {
-        key: "report",
+        key: "production-report-main",
         name: "Laporan",
-        icon: "trend",
         entities: [
           {
             key: "report_wip_balance",
@@ -264,10 +286,19 @@ export const MODULES: NavModule[] = [
           },
         ],
       },
+    ],
+  },
+  {
+    key: "production-master",
+    path: "production",
+    name: "Master",
+    icon: "tags",
+    desc: "Data pendukung lantai produksi.",
+    permission: "MENU_PRODUCTION_ACCESS",
+    groups: [
       {
-        key: "master",
-        name: "Master",
-        icon: "tags",
+        key: "production-master-main",
+        name: "Master Pendukung",
         entities: [
           {
             key: "m_employee",
@@ -929,8 +960,18 @@ export const APPS: Record<AppKey, { name: string; mark: string; desc: string }> 
   },
 };
 
+/** A module's URL segment. */
+export function modulePath(m: Pick<NavModule, "key" | "path">): string {
+  return m.path ?? m.key;
+}
+
+/**
+ * The application a module belongs to, by its key or its URL segment: the
+ * permission catalogue names one `production` module for the four on the rail.
+ */
 export function appOfModule(moduleKey: string): AppKey {
-  return moduleKey === "production" ? "production" : "erp";
+  const mod = MODULES.find((m) => m.key === moduleKey);
+  return (mod ? modulePath(mod) : moduleKey) === "production" ? "production" : "erp";
 }
 
 /**
@@ -994,7 +1035,17 @@ export function landingHref(permissions: Iterable<string>, app?: AppKey): string
 }
 
 export function entityHref(moduleKey: string, slug: string): string {
-  return `/${moduleKey}/${slug}`;
+  const mod = moduleByKey(moduleKey);
+  return `/${mod ? modulePath(mod) : moduleKey}/${slug}`;
+}
+
+/**
+ * The name of the module a page belongs to, for its breadcrumb: the one owning
+ * the leaf at `/<segment>/<slug>`, so Karyawan reads *Master* and a report
+ * *Laporan* in Produksi, whose modules share one segment.
+ */
+export function moduleNameAt(segment: string, slug: string): string {
+  return resolvePath(`/${segment}/${slug}`).module?.name ?? moduleByKey(segment)?.name ?? segment;
 }
 
 /**
@@ -1008,24 +1059,28 @@ export function entityHref(moduleKey: string, slug: string): string {
  * swallow it.
  */
 export function resolvePath(pathname: string) {
-  const [, moduleKey, ...rest] = pathname.split("/");
-  const mod = moduleByKey(moduleKey ?? "");
-  if (!mod) return { module: undefined, group: undefined, entity: undefined };
+  const [, segment, ...rest] = pathname.split("/");
+  // Several modules may share a segment (Produksi, P258): the leaf decides.
+  const candidates = MODULES.filter((m) => modulePath(m) === (segment ?? ""));
+  if (!candidates.length) return { module: undefined, group: undefined, entity: undefined };
 
   const tail = rest.join("/");
-  let best: { group: NavGroup; entity: NavEntity } | null = null;
+  let best: { module: NavModule; group: NavGroup; entity: NavEntity } | null = null;
 
-  for (const group of mod.groups ?? []) {
-    for (const entity of group.entities) {
-      const matches = tail === entity.slug || tail.startsWith(`${entity.slug}/`);
-      if (!matches) continue;
-      if (!best || entity.slug.length > best.entity.slug.length) {
-        best = { group, entity };
+  for (const mod of candidates) {
+    for (const group of mod.groups ?? []) {
+      for (const entity of group.entities) {
+        const matches = tail === entity.slug || tail.startsWith(`${entity.slug}/`);
+        if (!matches) continue;
+        if (!best || entity.slug.length > best.entity.slug.length) {
+          best = { module: mod, group, entity };
+        }
       }
     }
   }
 
-  return best
-    ? { module: mod, group: best.group, entity: best.entity }
-    : { module: mod, group: undefined, entity: undefined };
+  if (best) return best;
+  // A page no leaf names (Profil Saya in Produksi) has no module when the
+  // segment is shared, so no submenu claims it.
+  return { module: candidates.length === 1 ? candidates[0] : undefined, group: undefined, entity: undefined };
 }

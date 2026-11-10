@@ -20,7 +20,7 @@ import {
   type Column,
   type Entity,
 } from "@/lib/erp/entities";
-import { moduleByKey } from "@/lib/erp/nav";
+import { moduleNameAt } from "@/lib/erp/nav";
 import { formatDate, formatPct } from "@/lib/format";
 import type { RefOption, Row } from "@/lib/erp/records";
 import { recordTitle } from "@/lib/erp/record-title";
@@ -234,7 +234,7 @@ export function EntityList({
   };
 
   const basePath = `/${entity.module}/${entity.slug}`;
-  const moduleName = moduleByKey(entity.module)?.name ?? entity.module;
+  const moduleName = moduleNameAt(entity.module, entity.slug);
   const pendingActive = pendingToggle ? rowIsActive(pendingToggle) : false;
 
   const head = (

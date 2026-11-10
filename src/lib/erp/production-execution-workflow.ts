@@ -9,7 +9,7 @@ export const WORK_PATH = "/production/work";
 export const QC_CHECK_PATH = "/production/qc-check";
 
 export const GRADING_WORKFLOW = prodDocWorkflow({
-  noun: "Dokumen Grading",
+  noun: "No. Grading",
   prefix: "PRODUCTION_GRADING",
   path: GRADING_PATH,
   journal: true,

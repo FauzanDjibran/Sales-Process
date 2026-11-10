@@ -6,7 +6,7 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **11/11/2026 — P257** (menus split between the ERP and the Produksi application).
+> Last updated: **11/11/2026 — P258** (Produksi navigates like the ERP: four modules on its rail).
 >
 > **What follows describes what is on `main`.** The agreed target is in
 > `Produksi Walet (Real).md`; its build steps add the documents back.

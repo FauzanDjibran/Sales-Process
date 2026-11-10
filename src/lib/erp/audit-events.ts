@@ -195,7 +195,7 @@ const COST_BILL_EVENTS: Record<string, AuditEventLabel> = {
 
 const GRADING_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
-  create: { label: "Dokumen Grading dibuat", icon: "layers", tone: "neutral" },
+  create: { label: "No. Grading dibuat", icon: "layers", tone: "neutral" },
   post: fromTransition(GRADING_WORKFLOW.transitions.post, "Diposting — output menjadi No. Stok baru"),
   cancel: fromTransition(GRADING_WORKFLOW.transitions.cancel, "Dibatalkan"),
 };

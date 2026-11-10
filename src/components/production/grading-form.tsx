@@ -18,7 +18,7 @@ import type { GradingOptions, GradingView } from "@/lib/erp/production-grading";
 import { formatDate, formatPrice, todayIso } from "@/lib/format";
 
 /**
- * Dokumen Grading in all three modes. A new one starts on the Unit's Persiapan;
+ * No. Grading in all three modes. A new one starts on the Unit's Persiapan;
  * picking a row opens it with the input filled, then the outputs are typed and
  * the summary follows at once (W25, V3).
  */
@@ -86,7 +86,7 @@ export function GradingForm({
       return;
     }
     setDirty(false);
-    toast("Dokumen Grading disimpan", `${result.no} · Draft`, "ok");
+    toast("No. Grading disimpan", `${result.no} · Draft`, "ok");
     router.push(`${GRADING_PATH}/${result.id}`);
   }
 
@@ -376,7 +376,7 @@ export function GradingForm({
   return (
     <>
       <ExecutionHeader
-        noun="Dokumen Grading"
+        noun="No. Grading"
         path={GRADING_PATH}
         icon="layers"
         no={grading?.no ?? null}

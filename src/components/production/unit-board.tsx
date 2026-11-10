@@ -87,7 +87,7 @@ export function UnitBoard({
   /** What this row's work is: one form, opened with the row already in it. */
   function open(row: BoardRow) {
     if (row.stage === "Preparation") {
-      if (unit.process === "Grading") return can.grading ? router.push(`/production/grading/new?bucket=${row.id}`) : toast("Tidak diizinkan", "Anda tidak boleh membuat Dokumen Grading.", "err");
+      if (unit.process === "Grading") return can.grading ? router.push(`/production/grading/new?bucket=${row.id}`) : toast("Tidak diizinkan", "Anda tidak boleh membuat No. Grading.", "err");
       if (unit.process === "Assembly") return toast("Belum ada dokumen", "Assembly Kotak belum dibangun.", "err");
       const group = row.jobId ? prep.filter((r) => r.jobId === row.jobId) : [row];
       const on = group.every((r) => selected.includes(r.id));
@@ -130,7 +130,7 @@ export function UnitBoard({
   const hint =
     tab === "persiapan"
       ? unit.process === "Grading"
-        ? "Scan No. Stok atau klik barisnya: satu No. Stok, satu Dokumen Grading."
+        ? "Scan No. Stok atau klik barisnya: satu No. Stok, satu No. Grading."
         : unit.process === "PassThrough"
           ? multiPartai
             ? "Satu dokumen untuk satu partai."
@@ -144,7 +144,7 @@ export function UnitBoard({
     <>
       <div className="ph">
         <div className="crumb">
-          <span>Produksi</span>
+          <span>Pengerjaan</span>
           <span>/</span>
           <Link href="/production/workspace">Workspace Unit</Link>
           <span>/</span>

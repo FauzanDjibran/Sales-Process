@@ -27,7 +27,7 @@ export default async function AppsPage() {
       <div className="sso-apps">
         {apps.map((key) => (
           <Link key={key} className="sso-app" href={landingHref(actor.permissions, key)}>
-            <span className={`brand-mark${key === "production" ? " prd" : ""}`}>{APPS[key].mark}</span>
+            <span className="brand-mark">{APPS[key].mark}</span>
             <span className="t">
               <b>{APPS[key].name}</b>
               <small>{APPS[key].desc}</small>

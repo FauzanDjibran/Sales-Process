@@ -10,8 +10,8 @@ export default async function Page() {
   const rows = await listGradings();
   return (
     <ProdDocList
-      crumb="Produksi"
-      title="Dokumen Grading"
+      crumb="Dokumen"
+      title="No. Grading"
       icon="layers"
       sub="Satu No. Stok dari Persiapan menjadi output baru. Jenis dan gram berubah di sini, dan biaya unit masuk saat Posting."
       path={GRADING_PATH}
@@ -19,7 +19,7 @@ export default async function Page() {
       placeColumns={["Unit"]}
       valueColumn="Nilai Diolah"
       canCreate={GRADING_WORKFLOW.abilities(actor.permissions).create}
-      emptyText="Dokumen Grading mencatat pengambilan dari Persiapan unit Grading dan hasilnya."
+      emptyText="No. Grading mencatat pengambilan dari Persiapan unit Grading dan hasilnya."
     />
   );
 }

@@ -27,7 +27,7 @@ export function AppShell({
   modules,
   children,
 }: {
-  /** Which application this shell is (P254): its mark, its profile route, its rail. */
+  /** Which application this shell is (P254): its mark and its profile route. */
   app: AppKey;
   /** The user holds both applications, so the topbar offers the picker. */
   canSwitch: boolean;
@@ -74,26 +74,16 @@ export function AppShell({
   const visibleModule = modules.find((m) => m.key === activeModule?.key);
   const hasSub = Boolean(visibleModule?.groups?.length);
 
-  // The ERP's rail lists modules. Produksi is one module, so its rail lists
-  // that module's groups instead, each landing on its first menu (P254 §3.3).
-  const railItems =
-    app === "production"
-      ? (modules[0]?.groups ?? []).map((g) => ({
-          key: g.key,
-          name: g.name,
-          icon: g.icon ?? modules[0].icon,
-          href: entityHref(modules[0].key, g.entities[0].slug),
-          on: g.entities.some((e) => e.key === activeEntity?.key),
-          opensSub: true,
-        }))
-      : modules.map((m) => ({
-          key: m.key,
-          name: m.name,
-          icon: m.icon,
-          href: m.groups ? firstLeafHref(modules, m.key) : `/${m.key}`,
-          on: activeModule?.key === m.key,
-          opensSub: Boolean(m.groups),
-        }));
+
+  // One rail item per module, in either application (convention §3.3).
+  const railItems = modules.map((m) => ({
+    key: m.key,
+    name: m.name,
+    icon: m.icon,
+    href: m.groups ? firstLeafHref(modules, m.key) : `/${m.key}`,
+    on: activeModule?.key === m.key,
+    opensSub: Boolean(m.groups),
+  }));
   const showSub = hasSub && subOpen;
 
   // Below 860px the rail and submenu are a drawer, driven by classes on
@@ -119,7 +109,7 @@ export function AppShell({
           <Icon name="menu" size={17} />
         </button>
         <div className="brand">
-          <div className={`brand-mark${app === "production" ? " prd" : ""}`}>{APPS[app].mark}</div>
+          <div className="brand-mark">{APPS[app].mark}</div>
           <div className="brand-txt">{APPS[app].name}</div>
           <span className="brand-ver">0.1</span>
         </div>

@@ -10,7 +10,7 @@ export default async function Page() {
   const rows = await listQcChecks();
   return (
     <ProdDocList
-      crumb="Produksi"
+      crumb="Dokumen"
       title="QC Check"
       icon="check"
       sub="QC memvalidasi hasil proses: Lulus masuk Stand By, Balik kembali ke Persiapan unit itu. Tanpa journal."
