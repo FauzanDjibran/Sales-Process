@@ -156,6 +156,8 @@ Ini ditemukan dari membaca kode, dan semuanya tetap perlu dibereskan apa pun pil
 2. **Laporan Produksi untuk Admin Unit:** dibatasi ke Unit-nya, atau tetap lintas Unit? Saran: dibatasi, kecuali Telusur, karena Telusur memang melintasi Unit.
 3. **Masih terbuka di simulasi:** satu Dokumen Push untuk banyak kotak, dan OK per kotak atau sekaligus.
 
+Putaran keempat 10/11/2026 (P244, PWR W96–W106): 1 baris = 1 Job dan isinya lewat modal; grading per Job, diambil utuh, dengan input bergaya timbangan; barang tanpa Job boleh diambil sebagian di form kirim; tab Dalam Perjalanan (tampilan saja); Packing 95 menjadi Isi Wadah, Pemberian CAIQ, dan Kotak; UMG ditandai O-13. Ini menggantikan "Dokumen Grading berisi banyak No. Grading, satu per No. Stok" di bawah: kini satu per Job.
+
 Putaran ketiga 07/11/2026: grading berupa daftar baris dengan pop up per baris; QC centang lalu Reject atau Pass; Push dan BSTB lewat form; tombol tambah baris di tiap form pengerjaan dan pengiriman. Nilai dan journal tetap tampil di bagiannya sendiri, sehingga bisa dimatikan nanti tanpa mengubah layar (keputusan user; konvensi §9.1 tetap diikuti).
 
 Sudah diputuskan lewat review simulasi 07/11/2026: konsep Workspace disetujui; daftar Unit berupa kartu; dokumen punya menu sendiri tanpa Riwayat di Workspace; kartu ringkasan dan tab navigasi mengikuti SIBA; Dokumen Grading berisi banyak No. Grading; bahan penolong ditambah lewat tombol; Assembly dimulai dari Nama Jual dan jumlah kotak; line terlihat di partai dan menjadi filter daftar Unit.

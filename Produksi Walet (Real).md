@@ -205,6 +205,17 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | W93 | **Gram dibaca dari satuan dasar Item** (P241). Item bersatuan GR: qty adalah gramnya. Item bersatuan lain: 1 No. Stok = 1 keping (W16) dan gramnya disimpan di `prd_tracking_info`. Output grading cukup mengisi gram | Disetujui |
 | W94 | **Baris QC Check adalah satu bucket** (P241). Dua Pengerjaan Unit atas No. Stok dan Job yang sama, yang menunggu QC bersamaan, diputuskan sebagai satu baris. Dipecah per eksekusi bila kelak QC perlu memutuskannya terpisah | Disetujui |
 | W95 | **Catatan Hasil tampil di unit Pass Through sebelum partai**, tidak menyebut Pre Cleaning di kode, dan dibaca Dokumen Grading dari No. Job yang sama (W42). Bahan penolong ditandai pada bucket-nya, bukan dibaca dari tujuan BSTB Issue | Disetujui |
+| W96 | **1 No. Job selalu bergerak utuh, dan layar menampilkan 1 baris = 1 Job.** No. Stok di dalam Job adalah informasi kedua, dibuka dari barisnya. Job tidak pernah diambil sebagian di perpindahan, pengerjaan, grading, atau QC. **Barang tanpa No. Job** (Stand By unit Lepas No. Job, baris Balik QC di unit itu, bahan penolong) tampil per No. Stok dan **selalu boleh diambil sebagian**; tiap pengambilan menjadi No. Job baru (W31, W92). Pcs di Isi Wadah tetap utuh per keping. Tidak ada tabel isi Job: isinya `prd_balance.job_id` | User |
+| W97 | **Grading per Job: 1 Job = 1 No. Grading, diambil utuh**, di semua unit grading. Menggantikan "1 No. Stok input = 1 No. Grading" dan grading parsial di W25. Nilai semua input Job dijumlah, ditambah biaya unit dan bahan penolong, lalu dibagi per gram ke output bukan BJL (V3, lingkupnya satu Job). Output tetap No. Stok baru `<asal>-<n>` (W60), **berinduk No. Stok asal Job**, n berlanjut; tiap output terhubung ke semua input Job di `prd_tracking_link`. Karena Job lahir dari satu pengambilan satu No. Stok (W31), telusur ke No. Stok asal tetap utuh | User |
+| W98 | **Input grading bergaya timbangan:** pilih jenis, ketik gram, Tambah (Enter); jenis tetap terpilih untuk baris berikutnya. Timbangan belum ada, jadi gram diketik; nanti timbangan cukup mengisi kolom gram. Berlaku di semua grading, termasuk Barcoding (satu Tambah = satu pcs, W16) | User |
+| W99 | **No. Job pertama lahir di BSTB Issue ke Grading Halus**, satu per No. Stok, saat Terima. **UGH menjadi Lepas No. Job**: Job dilepas saat grading, lalu Push keluar UGH membuat No. Job baru (W92), seperti Penyebaran. Mengubah W38, W58 dan pengecualian BSTB Issue di W92. Bahan penolong tetap tanpa Job | User |
+| W100 | **Tab Dalam Perjalanan, tampilan saja.** BSTB yang sudah Diajukan dan belum diterima pindah dari tab Stand By ke tab ini. Barangnya tetap tercatat di unit asal sampai Terima (W20 tetap). Tujuan akhirnya tempat transit sungguhan, dibahas bersama BSTB Transfer | User |
+| W101 | **Packing 95 dipecah menjadi tiga unit di Workstation WIP Packing, sesudah Barcoding:** **Isi Wadah `UIW`**: satu operator menyusun satu wadah untuk satu kotak, dari pcs tanpa No. Job dan sisa partai mana pun; wadah menjadi **No. Job biasa, bukan Item**, berisi beberapa No. Stok; rencananya memakai `planBoxes` per Nama Jual. **Pemberian CAIQ `UCQ`** (Pass Through): per Job, tiap No. Stok diberi No. CAIQ. **Kotak `UP5`** (Assembly): satu Job menjadi satu No. Stok Kotak Nama Jual (W61 tetap). Tipe Unit baru **Isi Wadah**, mengubah W86. Mengubah §5, W14 dan W92 | User |
+| W102 | **UBC menjadi Lepas No. Job.** Pcs keluar Barcoding tanpa No. Job; Push UBC → UIW (checkpoint, seluruh isi partai) tidak membuat Job, karena Job dibentuk di Isi Wadah. Pengecualian atas W92 | User |
+| W103 | **Mulai Isi Wadah satu Job boleh lintas partai; tiap No. Stok tetap membawa partainya.** Satu wadah boleh berisi 10 No. Stok dari 10 partai; partai disimpan per bucket, jadi `prd_job.partai_id` dan `prd_job.tracking_id` menjadi boleh kosong untuk Job wadah. Batas satu dokumen satu partai (W76) berhenti di Barcoding | User |
+| W104 | **Aturan No. Job berlaku sampai keluar produksi.** Kotak meneruskan No. Job wadahnya (satu Job = satu wadah = satu kotak) ke Packing 98 sampai BSTB ke Finish Goods diterima; di Logistik Job berakhir. BSTB Pengeluaran juga mengakhiri Job. Mengubah "di luar aturan" di W92 | User |
+| W105 | **Nilai kotak mengikuti gram aktualnya.** Kotak sedikit lebih berat lebih mahal, sedikit lebih ringan lebih murah; tidak ada hitungan untung rugi gram. Toleransi BoM tetap simetris. Di Finish Goods kotak masuk pool MAC Nama Jual (P114, P120), jadi HPP saat dijual tetap rata-rata; nilai per kotak terbaca lewat telusur | User |
+| W106 | **BSTB Pengeluaran tidak dibangun sekarang.** Nanti ada dua keadaan: keluar membawa nilai (Dr Persediaan / Cr WIP) dan keluar tanpa nilai (nilai ditinggal di produksi). Catatan saat dibangun: barang bernilai 0 yang masuk Logistik menurunkan rata-rata MAC Item yang sama. **Adjustment** di posisi mana pun akan ada, sebagai dokumen sendiri | User |
 
 ---
 
@@ -236,7 +247,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 
 | Workstation | Unit | Kode | Tipe | QC Check | Lepas No. Job | Keluar lewat |
 | --- | --- | --- | --- | --- | --- | --- |
-| BB + PPIC | Grading Halus | UGH | Grading | Ya | — | Dokumen Push |
+| BB + PPIC | Grading Halus | UGH | Grading | Ya | Ya (W99) | Dokumen Push |
 | BB + PPIC | Pre Cleaning | UPC | Pass Through | Ya | — | Dokumen Push |
 | BB + PPIC | Penyebaran | UPY | Grading | — | Ya | BSTB Penyebaran, melahirkan partai (W73) |
 | Cleaning | Pre Wash | UPW | Pass Through | Ya | — | Dokumen Push |
@@ -248,8 +259,10 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | Moulding | Moulding (process) | UMP | Pass Through | — | — | Dokumen Push |
 | Moulding | Dry B | UDB | Grading | Ya | Ya, Job Order ikut lepas | BSTB |
 | WIP Packing | Wrapping | UWP | Pass Through | Ya | — | Dokumen Push |
-| WIP Packing | Barcoding | UBC | Grading (output pcs) | Ya, QC Final Grading | — | Dokumen Push, checkpoint |
-| WIP Packing | Packing 95 | UP5 | Assembly | Belum ditinjau | Berakhir di komposisi | Dokumen Push per kotak |
+| WIP Packing | Barcoding | UBC | Grading (output pcs) | Ya, QC Final Grading | Ya (W102) | Dokumen Push, checkpoint |
+| WIP Packing | Isi Wadah | UIW | Isi Wadah (W101) | Belum ditinjau | Job wadah lahir di sini | Dokumen Push |
+| WIP Packing | Pemberian CAIQ | UCQ | Pass Through | Belum ditinjau | — | Dokumen Push |
+| WIP Packing | Kotak (Packing 95) | UP5 | Assembly | Belum ditinjau | Kotak meneruskan Job wadah (W104) | Dokumen Push per kotak |
 | WIP Packing | Packing 98 | UP8 | Assembly box dan karton | Belum ditinjau | — | BSTB ke Finish Goods + QC |
 
 **No. Job tidak diatur per unit saat keluar (W92):** setiap Push atau BSTB antar unit meneruskan No. Job yang ada, atau membuat yang baru bila barang belum punya. No. Job hanya hilang di unit bertanda Lepas No. Job.
@@ -269,7 +282,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | Identitas | Aturan |
 | --- | --- |
 | **No. Stok** | Unik seluruh sistem (W10), 1 jenis, universal di Logistik dan Produksi. No. Stok akar lahir di Receipt Note: 1 lot, 1 supplier. Setiap hasil grading dan transformasi melahirkan nomor baru `<induk>-<n>`, walau jenisnya sama (W60). Mulai Barcoding 1 No. Stok = 1 pcs dengan gram final |
-| **No. Job** | Pengelompok No. Stok yang bergerak. **Saat dibuat, 1 No. Job = 1 pengambilan 1 No. Stok** (W31); sesudah digrading ia boleh berisi beberapa No. Stok turunan. Format `<kode unit>_<ddmmyy>_<NNNNN>`. Terbit pertama di Dokumen Push keluar Grading Halus (W58). Dilepas saat grading Penyebaran dan terbit lagi di BSTB Penyebaran. Dilepas saat grading Moulding, terbit sebagai **No. Job Moulding** di Dokumen Push keluar UMG, dilepas saat grading Dry B, dan terbit lagi di BSTB keluar Dry B (W68). |
+| **No. Job** | Pengelompok No. Stok yang bergerak **utuh** (W96). **Saat dibuat, 1 No. Job = 1 pengambilan 1 No. Stok** (W31); sesudah digrading ia boleh berisi beberapa No. Stok turunan. Pengecualian: **Job wadah** di Isi Wadah berisi beberapa pcs dari partai mana pun (W101, W103). Format `<kode unit>_<ddmmyy>_<NNNNN>`. Terbit pertama di BSTB Issue ke Grading Halus saat Terima (W99) dan dilepas saat grading UGH; terbit lagi di Dokumen Push keluar Grading Halus (W58). Dilepas saat grading Penyebaran dan terbit lagi di BSTB Penyebaran. Dilepas saat grading Moulding, terbit sebagai **No. Job Moulding** di Dokumen Push keluar UMG, dilepas saat grading Dry B, dan terbit lagi di BSTB keluar Dry B (W68). |
 | **No. Partai** | Lahir dari BSTB Penyebaran saat Terima (W88): 1 BSTB = 1 partai = 1 line, dan yang dikirim bersama menjadi 1 partai (W73); format `P_<ddmmyy>_<NNNNN>`. **Tidak pernah lepas dari No. Stok** sampai Packing (W68). Satu dokumen satu partai (W76). Tidak diasumsikan 1 supplier. Menyimpan id routing yang diikuti (milik line-nya, W35) dan id Standard Cost yang aktif (W36) |
 | **No. Grading** | Dokumen `NG_<unit>_<ddmmyy>_<NNNNN>`; penghubung stok lama dan baru. **1 No. Stok input = 1 No. Grading** (W25); satu No. Stok yang diambil beberapa kali menghasilkan No. Grading tiap pengambilan dan sisanya tetap saldo. Grading ulang sesudah Reproses punya No. Grading sendiri |
 | **Dokumen QC Check** | `QCK_<unit>_<ddmmyy>_<NNNNN>`; mencatat No. Stok yang diperiksa, hasilnya, dan alasan bila Balik (W65) |
@@ -606,7 +619,8 @@ Tidak ada yang tersisa. OD-1 (lingkup penyerapan BJL dan reject) dan OD-2 (pembo
 | O-09 | No. Job pertama bila Grading Halus ke Pre Cleaning tanpa BSTB | Ditutup, W58 |
 | O-10 | Rambang dan Titil: mekanisme khusus | **Open**, diabaikan dulu (W72) |
 | O-11 | Reproses: aturan dan hubungannya dengan checkpoint | Ditutup, W78–W80. Aturan lapangan belum baku, jadi bisa ditinjau lagi |
-| O-12 | Packing 95 ke atas: QC Packing, aturan Push, BSTB dan QC ke Finish Goods | **Open**, requirement sedang digali; bagian ini belum disesuaikan dengan W64–W76 |
+| O-12 | Packing 95 ke atas: QC Packing, aturan Push, BSTB dan QC ke Finish Goods | **Open**, requirement sedang digali; Packing 95 dipecah lewat W101–W104, QC Packing dan Packing 98 belum |
+| O-13 | **UMG: di lapangan beberapa Job satu partai dicampur lalu digrading**; hasilnya No. Stok + partai tanpa Job, lalu No. Job Moulding dan Job Order terbit di Push ke UMP. Mencampur menghapus telusur ke No. Stok asal, jadi **sementara UMG tetap digrading per Job** seperti unit lain (W97) | **Ditandai**, user ingin telusur utuh; perlu dipastikan lapangan bisa menjaga wadah per Job |
 
 **Scope terpisah (tidak menghalangi build)**
 
