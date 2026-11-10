@@ -1,30 +1,31 @@
 import { AppShell } from "@/components/shell/app-shell";
 import { ToastProvider } from "@/components/ui/toast";
-import { requireAuth } from "@/lib/erp/auth";
-import { visibleModules } from "@/lib/erp/nav";
+import { requireApp } from "@/lib/erp/auth";
+import { appsOf, visibleModules } from "@/lib/erp/nav";
 
 /**
- * Every application route sits under this layout, and nothing renders until a
- * session is proven. The pages below add their own permission checks — this
- * only answers "is anyone signed in?".
+ * The ERP application (P254). Nothing renders until a session is proven and the
+ * user holds the ERP; the pages below add their own permission checks.
  */
-export default async function AppLayout({
+export default async function ErpLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const actor = await requireAuth();
+  const actor = await requireApp("erp");
 
   return (
     <ToastProvider>
       <AppShell
+        app="erp"
+        canSwitch={appsOf(actor.permissions).length > 1}
         user={{
           name: actor.user.name,
           initials: actor.user.initials,
           email: actor.user.email,
           roles: actor.roles.map((r) => r.name),
         }}
-        modules={visibleModules(actor.permissions)}
+        modules={visibleModules(actor.permissions, "erp")}
       >
         {children}
       </AppShell>

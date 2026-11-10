@@ -1,6 +1,6 @@
 import test, { describe } from "node:test";
 import assert from "node:assert/strict";
-import { MODULES } from "../src/lib/erp/nav";
+import { MODULES, appOfModule } from "../src/lib/erp/nav";
 import { entityBySlug } from "../src/lib/erp/entities";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
@@ -900,7 +900,10 @@ describe("several of something is one component", () => {
  * both match, or a route directory of its own. Nothing else counts.
  */
 describe("a menu destination always renders", () => {
-  const appDir = join(process.cwd(), "src/app/(app)");
+  // Each application has its own route group (P254): Produksi's is
+  // `(production)`, every other module's `(erp)`.
+  const appDir = (moduleKey: string) =>
+    join(process.cwd(), `src/app/(${appOfModule(moduleKey)})`);
 
   /**
    * A route of the entry's own — not the registry's `[entity]`.
@@ -915,7 +918,7 @@ describe("a menu destination always renders", () => {
    */
   const ownRouteExists = (moduleKey: string, slug: string): boolean => {
     const segments = slug.split("/");
-    let dir = join(appDir, moduleKey, segments[0]);
+    let dir = join(appDir(moduleKey), moduleKey, segments[0]);
     if (!existsSync(dir)) return false;
     for (const segment of segments.slice(1)) {
       const entries = readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory());
@@ -946,7 +949,7 @@ describe("a menu destination always renders", () => {
           assert.ok(
             ownRouteExists(mod.key, entry.slug),
             `${entry.slug} is in no registry and has no route of its own under ` +
-              `src/app/(app)/${mod.key} — the menu links to a 404`
+              `src/app/(${appOfModule(mod.key)})/${mod.key} — the menu links to a 404`
           );
         });
       }
@@ -956,7 +959,7 @@ describe("a menu destination always renders", () => {
   test("a module with no groups is a page of its own", () => {
     for (const mod of MODULES.filter((m) => !m.groups)) {
       assert.ok(
-        existsSync(join(appDir, mod.key, "page.tsx")),
+        existsSync(join(appDir(mod.key), mod.key, "page.tsx")),
         `${mod.key} is a single page and needs one`
       );
     }
@@ -1191,13 +1194,13 @@ const DOCUMENT_SCREENS: {
     name: "Journal",
     form: "src/components/accounting/journal-form.tsx",
     list: "src/components/accounting/journal-list.tsx",
-    routes: "src/app/(app)/accounting/journal",
+    routes: "src/app/(erp)/accounting/journal",
   },
   {
     name: "Opening Balance",
     form: "src/components/accounting/opening-balance-detail.tsx",
     list: "src/components/accounting/opening-balance-list.tsx",
-    routes: "src/app/(app)/accounting/opening-balance",
+    routes: "src/app/(erp)/accounting/opening-balance",
     editable: false,
     lifecycle: false,
   },

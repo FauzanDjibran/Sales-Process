@@ -1402,3 +1402,18 @@ table.grid tbody tr.flash td{animation:uwflash 1.2s}
 .txsum .k b{font-size:16px}
 .txsum .neg b{color:var(--bad)}
 .txsum .mi{width:150px}
+
+/* ---------- two applications (P254) ----------
+   The Produksi mark swaps the brand's two colours, so the topbar says which
+   application is open. The picker is the login card, wider, with the two
+   applications stacked as buttons. */
+.brand-mark.prd{background:var(--accent);color:var(--brand)}
+.sso-card{max-width:540px}
+.sso-apps{display:flex;flex-direction:column;gap:10px}
+.sso-app{display:flex;align-items:center;gap:13px;width:100%;padding:13px 14px;border:1px solid var(--line);
+  border-radius:var(--r-lg);background:var(--surface);color:var(--muted-2)}
+.sso-app:hover{border-color:var(--accent-s);box-shadow:var(--sh-md)}
+.sso-app .brand-mark{width:38px;height:38px;font-size:13px;flex:0 0 auto}
+.sso-app .t{flex:1 1 auto;min-width:0}
+.sso-app b{display:block;font-size:14px;font-weight:800;color:var(--brand)}
+.sso-app small{display:block;font-size:11.5px;color:var(--muted);line-height:1.45}

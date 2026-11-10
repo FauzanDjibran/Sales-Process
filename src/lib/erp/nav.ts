@@ -26,6 +26,8 @@ export type NavEntity = {
 export type NavGroup = {
   key: string;
   name: string;
+  /** The rail icon, for an application whose rail lists groups (Produksi, P254). */
+  icon?: IconName;
   entities: NavEntity[];
 };
 
@@ -169,6 +171,7 @@ export const MODULES: NavModule[] = [
       {
         key: "work",
         name: "Pengerjaan",
+        icon: "layers",
         entities: [
           { key: "prd_unit", slug: "workspace", name: "Workspace Unit", icon: "layers", desc: "Pilih Unit, scan label, kerjakan satu form untuk satu pekerjaan.", permission: "PRODUCTION_UNIT_VIEW" },
           { key: "prd_grading", slug: "grading", name: "Dokumen Grading", icon: "layers", desc: "Satu No. Stok dari Persiapan menjadi output baru; di sinilah jenis dan gram berubah.", permission: "PRODUCTION_GRADING_VIEW" },
@@ -179,6 +182,7 @@ export const MODULES: NavModule[] = [
       {
         key: "cost",
         name: "Biaya",
+        icon: "file",
         entities: [
           {
             key: "prd_cost_bill",
@@ -193,6 +197,7 @@ export const MODULES: NavModule[] = [
       {
         key: "report",
         name: "Laporan",
+        icon: "trend",
         entities: [
           {
             key: "report_wip_balance",
@@ -875,18 +880,44 @@ export function moduleByKey(key: string): NavModule | undefined {
 }
 
 /**
- * The navigation a given set of permissions can see.
+ * The two applications behind one sign-in (P245, P254): a catalogue in code,
+ * like the cash & bank purposes. Every module is the ERP's but `production`,
+ * whose URL space `/production/*` is the Produksi application.
+ */
+export type AppKey = "erp" | "production";
+
+export const APPS: Record<AppKey, { name: string; mark: string; desc: string }> = {
+  erp: {
+    name: "ERP",
+    mark: "ER",
+    desc: "Penjualan, Pembelian, Persediaan, Finance, Pajak, Accounting, dan sisi biaya produksi.",
+  },
+  production: {
+    name: "Produksi",
+    mark: "PR",
+    desc: "Workspace Unit, dokumen pengerjaan, perpindahan antar Unit, dan telusur.",
+  },
+};
+
+export function appOfModule(moduleKey: string): AppKey {
+  return moduleKey === "production" ? "production" : "erp";
+}
+
+/**
+ * The navigation a given set of permissions can see, in one application or in
+ * both.
  *
  * Menu visibility mirrors authorization but never substitutes for it: every
  * page and every Server Action behind these links checks for itself. A module
  * whose leaves are all hidden disappears rather than leading to a refusal.
  */
-export function visibleModules(permissions: Iterable<string>): NavModule[] {
+export function visibleModules(permissions: Iterable<string>, app?: AppKey): NavModule[] {
   const held = permissions instanceof Set ? permissions : new Set(permissions);
   const allowed = (code?: string) => !code || held.has(code);
 
   const out: NavModule[] = [];
   for (const mod of MODULES) {
+    if (app && appOfModule(mod.key) !== app) continue;
     if (!allowed(mod.permission)) continue;
     if (!mod.groups) {
       out.push(mod);
@@ -900,10 +931,32 @@ export function visibleModules(permissions: Iterable<string>): NavModule[] {
   return out;
 }
 
-/** Where a signed-in user should land, given what they can see. */
-export function landingHref(permissions: Iterable<string>): string {
-  const visible = visibleModules(permissions);
-  const first = visible[0];
+/**
+ * The applications a user has: one where some menu they may open asks for a
+ * permission. Profil Saya asks for none, so it alone gives nobody the ERP.
+ * There is no app table and no `APP_*` permission (P254 §9.1).
+ */
+export function appsOf(permissions: Iterable<string>): AppKey[] {
+  const held = [...permissions];
+  return (Object.keys(APPS) as AppKey[]).filter((app) =>
+    visibleModules(held, app).some((m) =>
+      m.groups ? m.groups.some((g) => g.entities.some((e) => e.permission)) : Boolean(m.permission)
+    )
+  );
+}
+
+/**
+ * Where a signed-in user should land: the first menu of the application asked
+ * for, or, with none asked, the picker for a user holding both (`/apps`).
+ */
+export function landingHref(permissions: Iterable<string>, app?: AppKey): string {
+  const held = [...permissions];
+  if (!app) {
+    const apps = appsOf(held);
+    if (apps.length > 1) return "/apps";
+    app = apps[0] ?? "erp";
+  }
+  const first = visibleModules(held, app)[0];
   if (!first) return "/settings/profile";
   if (!first.groups) return `/${first.key}`;
   const leaf = first.groups[0]?.entities[0];

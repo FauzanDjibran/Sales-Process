@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { logout } from "@/app/actions/auth";
-import { type NavModule, resolvePath, entityHref } from "@/lib/erp/nav";
+import { APPS, type AppKey, type NavModule, resolvePath, entityHref } from "@/lib/erp/nav";
 
 export type ShellUser = {
   name: string;
@@ -21,10 +21,16 @@ export type ShellUser = {
  * again on the server.
  */
 export function AppShell({
+  app,
+  canSwitch,
   user,
   modules,
   children,
 }: {
+  /** Which application this shell is (P254): its mark, its profile route, its rail. */
+  app: AppKey;
+  /** The user holds both applications, so the topbar offers the picker. */
+  canSwitch: boolean;
   user: ShellUser;
   modules: NavModule[];
   children: React.ReactNode;
@@ -67,6 +73,27 @@ export function AppShell({
   // leaves are all hidden never reaches the rail in the first place.
   const visibleModule = modules.find((m) => m.key === activeModule?.key);
   const hasSub = Boolean(visibleModule?.groups?.length);
+
+  // The ERP's rail lists modules. Produksi is one module, so its rail lists
+  // that module's groups instead, each landing on its first menu (P254 §3.3).
+  const railItems =
+    app === "production"
+      ? (modules[0]?.groups ?? []).map((g) => ({
+          key: g.key,
+          name: g.name,
+          icon: g.icon ?? modules[0].icon,
+          href: entityHref(modules[0].key, g.entities[0].slug),
+          on: g.entities.some((e) => e.key === activeEntity?.key),
+          opensSub: true,
+        }))
+      : modules.map((m) => ({
+          key: m.key,
+          name: m.name,
+          icon: m.icon,
+          href: m.groups ? firstLeafHref(modules, m.key) : `/${m.key}`,
+          on: activeModule?.key === m.key,
+          opensSub: Boolean(m.groups),
+        }));
   const showSub = hasSub && subOpen;
 
   // Below 860px the rail and submenu are a drawer, driven by classes on
@@ -92,10 +119,15 @@ export function AppShell({
           <Icon name="menu" size={17} />
         </button>
         <div className="brand">
-          <div className="brand-mark">ER</div>
-          <div className="brand-txt">ERP</div>
+          <div className={`brand-mark${app === "production" ? " prd" : ""}`}>{APPS[app].mark}</div>
+          <div className="brand-txt">{APPS[app].name}</div>
           <span className="brand-ver">0.1</span>
         </div>
+        {canSwitch && (
+          <Link className="ticon" href="/apps" title="Pilih aplikasi" aria-label="Pilih aplikasi">
+            <Icon name="grid" size={15} />
+          </Link>
+        )}
 
         <div className="tb-spacer" />
 
@@ -131,7 +163,7 @@ export function AppShell({
               </div>
               <Link
                 className="umenu-i"
-                href="/settings/profile"
+                href={app === "production" ? "/production/profile" : "/settings/profile"}
                 onClick={() => setUserOpen(false)}
                 role="menuitem"
               >
@@ -159,23 +191,20 @@ export function AppShell({
                 area sat underneath the sticky page header, where nobody could
                 reach it. Pressing a module always *opens* its menu rather than
                 toggling it, so one press never has two outcomes. */}
-            {modules.map((m) => {
-              const href = m.groups ? firstLeafHref(modules, m.key) : `/${m.key}`;
-              return (
-                <Link
-                  key={m.key}
-                  href={href}
-                  className={`ri${activeModule?.key === m.key ? " on" : ""}`}
-                  onClick={() => {
-                    setSubOpen(true);
-                    if (narrow && m.groups) setRailTarget(href);
-                  }}
-                >
-                  <Icon name={m.icon} size={18} />
-                  <span className="ri-tip">{m.name}</span>
-                </Link>
-              );
-            })}
+            {railItems.map((r) => (
+              <Link
+                key={r.key}
+                href={r.href}
+                className={`ri${r.on ? " on" : ""}`}
+                onClick={() => {
+                  setSubOpen(true);
+                  if (narrow && r.opensSub) setRailTarget(r.href);
+                }}
+              >
+                <Icon name={r.icon} size={18} />
+                <span className="ri-tip">{r.name}</span>
+              </Link>
+            ))}
           </div>
         </nav>
 

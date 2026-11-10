@@ -16,7 +16,7 @@ import type { ProfileView as Profile } from "@/lib/erp/profile";
  * that writes a role or a permission, and the actions this page calls cannot
  * change access even if one were added.
  */
-export function ProfileView({ profile }: { profile: Profile }) {
+export function ProfileView({ profile, section = "Pengaturan" }: { profile: Profile; section?: string }) {
   const toast = useToast();
 
   const [name, setName] = useState(profile.name);
@@ -72,7 +72,7 @@ export function ProfileView({ profile }: { profile: Profile }) {
     <>
       <div className="ph">
         <div className="crumb">
-          <span>Pengaturan</span>
+          <span>{section}</span>
           <span>/</span>
           <span className="cur">Profil Saya</span>
         </div>

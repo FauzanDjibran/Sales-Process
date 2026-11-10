@@ -2,7 +2,7 @@ import Link from "next/link";
 
 /**
  * The root refusal boundary, for a `forbidden()` raised outside the application
- * shell. Everything inside the shell is answered by `(app)/forbidden.tsx`,
+ * shell. Everything inside the shell is answered by `(erp)/forbidden.tsx` and `(production)/forbidden.tsx`,
  * which keeps the navigation; this one stands alone and only offers a way back.
  */
 export default function Forbidden() {

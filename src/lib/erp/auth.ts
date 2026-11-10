@@ -5,6 +5,7 @@ import { cookies } from "next/headers";
 import { forbidden, redirect } from "next/navigation";
 import { actorFor, actorCan, type Actor } from "./access";
 import { AccessDeniedError } from "./auth-errors";
+import { appsOf, type AppKey } from "./nav";
 import {
   SESSION_COOKIE,
   issueSession,
@@ -55,6 +56,19 @@ export async function requirePermission(
 ): Promise<Actor> {
   const actor = await requireAuth(nextPath);
   if (!actorCan(actor, code)) forbidden();
+  return actor;
+}
+
+/**
+ * Requires the application a layout belongs to (P254). A user holding neither
+ * application still reaches the ERP shell, where Profil Saya is all they see,
+ * as before the split; only a user who has the other application is refused.
+ * Every page behind the layout still asks for its own permission.
+ */
+export async function requireApp(app: AppKey): Promise<Actor> {
+  const actor = await requireAuth();
+  const apps = appsOf(actor.permissions);
+  if (apps.length && !apps.includes(app)) forbidden();
   return actor;
 }
 
