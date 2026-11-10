@@ -155,8 +155,14 @@ export async function transitionQcCheck(id: number, action: ProdDocAction, actor
 
 export type QcListRow = { id: number; no: string; date: string; status: ProdDocStatus; unitLabel: string; unitName: string; lines: number };
 
-export async function listQcChecks(): Promise<QcListRow[]> {
-  const rows = await prisma.prdQcCheck.findMany({ orderBy: [{ qc_date: "desc" }, { id: "desc" }], include: { unit: true, _count: { select: { lines: true } } } });
+/** The Unit a document is at, for the actions' Unit check (P260). */
+export async function qcCheckUnitId(id: number): Promise<number | null> {
+  return (await prisma.prdQcCheck.findUnique({ where: { id }, select: { unit_id: true } }))?.unit_id ?? null;
+}
+
+/** `units`: the actor's Units, or null for all (P260). */
+export async function listQcChecks(units: number[] | null = null): Promise<QcListRow[]> {
+  const rows = await prisma.prdQcCheck.findMany({ where: units ? { unit_id: { in: units } } : undefined, orderBy: [{ qc_date: "desc" }, { id: "desc" }], include: { unit: true, _count: { select: { lines: true } } } });
   return rows.map((r) => ({ id: r.id, no: r.qc_no, date: isoDay(r.qc_date), status: r.status as ProdDocStatus, unitLabel: r.unit.unit_label, unitName: r.unit.unit_name, lines: r._count.lines }));
 }
 

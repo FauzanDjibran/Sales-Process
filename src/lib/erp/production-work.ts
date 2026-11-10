@@ -278,8 +278,14 @@ export async function workPreview(id: number, actorId: number): Promise<JournalP
 
 export type WorkListRow = { id: number; no: string; date: string; status: ProdDocStatus; unitLabel: string; unitName: string; lines: number; value: number };
 
-export async function listWorks(): Promise<WorkListRow[]> {
-  const rows = await prisma.prdWork.findMany({ orderBy: [{ work_date: "desc" }, { id: "desc" }], include: { unit: true, _count: { select: { lines: true } } } });
+/** The Unit a document is at, for the actions' Unit check (P260). */
+export async function workUnitId(id: number): Promise<number | null> {
+  return (await prisma.prdWork.findUnique({ where: { id }, select: { unit_id: true } }))?.unit_id ?? null;
+}
+
+/** `units`: the actor's Units, or null for all (P260). */
+export async function listWorks(units: number[] | null = null): Promise<WorkListRow[]> {
+  const rows = await prisma.prdWork.findMany({ where: units ? { unit_id: { in: units } } : undefined, orderBy: [{ work_date: "desc" }, { id: "desc" }], include: { unit: true, _count: { select: { lines: true } } } });
   return rows.map((r) => ({
     id: r.id,
     no: r.work_no,

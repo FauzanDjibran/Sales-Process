@@ -1,5 +1,6 @@
 import { ProdDocList } from "@/components/production/production-doc-list";
 import { requirePermission } from "@/lib/erp/auth";
+import { unitIdsOf } from "@/lib/erp/production-access";
 import { listGradings } from "@/lib/erp/production-grading";
 import { GRADING_PATH, GRADING_WORKFLOW } from "@/lib/erp/production-execution-workflow";
 
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const actor = await requirePermission("PRODUCTION_GRADING_VIEW", GRADING_PATH);
-  const rows = await listGradings();
+  const rows = await listGradings(await unitIdsOf(actor));
   return (
     <ProdDocList
       crumb="Dokumen"

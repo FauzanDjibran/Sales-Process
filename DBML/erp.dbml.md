@@ -2914,6 +2914,22 @@ table m_employee {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
+// Which Units a user may open in the Produksi application (P260): permission says
+// what, this says where; PRODUCTION_UNIT_ALL needs no row. user_id has no foreign key
+table prd_user_unit {
+  id                          int [pk, increment, not null]
+  user_id                     int [not null] // sys_user.id, no foreign key
+  unit_id                     int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, unit_id) [unique]
+    unit_id
+  }
+}
+
 //////////////////////////////////
 //
 // Identitas

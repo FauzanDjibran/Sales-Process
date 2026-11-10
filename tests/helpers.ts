@@ -98,6 +98,7 @@ export async function cleanup(): Promise<void> {
   if (ids.length) {
     await prisma.sysSession.deleteMany({ where: { user_id: { in: ids } } });
     await prisma.sysUserRole.deleteMany({ where: { user_id: { in: ids } } });
+    await prisma.prdUserUnit.deleteMany({ where: { user_id: { in: ids } } });
     await prisma.auditLog.deleteMany({ where: { by: { in: ids } } });
     await prisma.auditLog.deleteMany({
       where: { entity_key: "sys_user", row_id: { in: ids } },

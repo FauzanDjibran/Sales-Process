@@ -13,6 +13,7 @@ import {
   createUserAction,
   resetUserPasswordAction,
   setUserRolesAction,
+  setUserUnitsAction,
   setUserStatusAction,
   updateUserAction,
 } from "@/app/actions/users";
@@ -27,6 +28,9 @@ export type AssignableRole = {
   name: string;
   status: string;
 };
+
+/** A Unit offered on the Unit Produksi tab (P260). */
+export type AssignableUnitOption = { id: number; label: string; name: string; workstation: string | null; active: boolean };
 
 export type UserFormAbilities = {
   edit: boolean;
@@ -43,12 +47,18 @@ export type UserFormAbilities = {
  * because they are three separate permissions on the server. A user who may
  * edit names but not grant access simply never sees the role section — and
  * would be refused by `setUserRoles` if they called it anyway.
+ *
+ * Identity is the header card; Role and Unit Produksi are tabs under it (P38).
+ * The Units say where in Produksi the user may work (P260) and are granted by
+ * the same permission as roles, in their own submission.
  */
 export function UserForm({
   mode,
   user,
   roles,
   assignedRoleIds,
+  units,
+  assignedUnitIds,
   isSelf,
   can,
 }: {
@@ -56,6 +66,8 @@ export function UserForm({
   user: UserRow | null;
   roles: AssignableRole[];
   assignedRoleIds: number[];
+  units: AssignableUnitOption[];
+  assignedUnitIds: number[];
   isSelf: boolean;
   can: UserFormAbilities;
 }) {
@@ -70,6 +82,8 @@ export function UserForm({
     password: "",
   });
   const [roleIds, setRoleIds] = useState<number[]>(assignedRoleIds);
+  const [unitIds, setUnitIds] = useState<number[]>(assignedUnitIds);
+  const [tab, setTab] = useState<"role" | "unit">("role");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -95,6 +109,11 @@ export function UserForm({
     setDirty(true);
   };
 
+  const toggleUnit = (id: number) => {
+    setUnitIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+    setDirty(true);
+  };
+
   const onSave = async () => {
     setSaving(true);
     setErrors({});
@@ -106,6 +125,10 @@ export function UserForm({
         setErrors(result.errors);
         toast("Belum bisa disimpan", firstError(result.errors), "err");
         return;
+      }
+      if (can.assignRoles && unitIds.length) {
+        const placed = await setUserUnitsAction(result.id, unitIds);
+        if (!placed.ok) toast("Unit tidak disimpan", firstError(placed.errors), "err");
       }
       setDirty(false);
       toast("User dibuat", `${values.name} sekarang dapat masuk ke aplikasi.`, "ok");
@@ -129,6 +152,17 @@ export function UserForm({
         setSaving(false);
         setErrors(access.errors);
         toast("Role tidak diubah", firstError(access.errors), "err");
+        return;
+      }
+    }
+
+    if (can.assignRoles && !sameSet(unitIds, assignedUnitIds)) {
+      const placed = await setUserUnitsAction(user!.id, unitIds);
+      if (!placed.ok) {
+        setSaving(false);
+        setErrors(placed.errors);
+        setTab("unit");
+        toast("Unit tidak diubah", firstError(placed.errors), "err");
         return;
       }
     }
@@ -325,9 +359,28 @@ export function UserForm({
               </FormRow>
             </FormSection>
 
-            {/* Role assignment is its own permission, so it is its own section. */}
-            {(can.assignRoles || mode === "view") && (
-              <FormSection title="Role" hint="Satu-satunya jalur pemberian akses">
+            </FormBody>
+          </div>
+
+          {/* Access is its own permission, so it is its own tabs (P38): Role, and the Units in Produksi (P260). */}
+          {(can.assignRoles || mode === "view") && (
+            <>
+              <div className="tabs" role="tablist">
+                <button type="button" role="tab" aria-selected={tab === "role"} className={`tab${tab === "role" ? " on" : ""}`} onClick={() => setTab("role")}>
+                  <Icon name="users" size={14} />
+                  Role
+                  <span className="tc">{mode === "view" ? user?.role_names.length ?? 0 : roleIds.length}</span>
+                </button>
+                <button type="button" role="tab" aria-selected={tab === "unit"} className={`tab${tab === "unit" ? " on" : ""}${errors.unitIds ? " bad" : ""}`} onClick={() => setTab("unit")}>
+                  <Icon name="gear" size={14} />
+                  Unit Produksi
+                  <span className="tc">{unitIds.length}</span>
+                </button>
+              </div>
+              <div className="card">
+                <FormBody>
+                  {tab === "role" ? (
+                    <FormSection hint="Satu-satunya jalur pemberian akses">
                 <FormRow>
                   <div className="fld full">
                     {errors._form && (
@@ -383,10 +436,58 @@ export function UserForm({
                     )}
                   </div>
                 </FormRow>
-              </FormSection>
-            )}
-            </FormBody>
-          </div>
+                    </FormSection>
+                  ) : (
+                    <FormSection hint="Unit yang boleh dibuka di aplikasi Produksi">
+                      <FormRow>
+                        <div className="fld full">
+                          {errors.unitIds && (
+                            <div className="err" style={{ marginBottom: 8 }}>
+                              <Icon name="warn" size={11} />
+                              {errors.unitIds}
+                            </div>
+                          )}
+                          <p className="help" style={{ marginBottom: 8 }}>
+                            Kosong berarti tidak membuka Unit mana pun, kecuali Role-nya memberi <b>Buka semua Unit</b>.
+                          </p>
+                          {editing && can.assignRoles && !isSelf ? (
+                            <div className="pgrid" style={{ padding: 0 }}>
+                              {units.map((u) => (
+                                <label className="pitem" key={u.id}>
+                                  <input type="checkbox" checked={unitIds.includes(u.id)} onChange={() => toggleUnit(u.id)} />
+                                  <span>
+                                    <span className="pn">{u.name}</span>
+                                    <span className="pc">{u.label}{u.workstation ? ` · ${u.workstation}` : ""}</span>
+                                    {!u.active && <span className="pd">Unit nonaktif — tidak tampil di Workspace selama nonaktif.</span>}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="ro">
+                              {unitIds.length ? (
+                                <span className="rchips">
+                                  {units
+                                    .filter((u) => unitIds.includes(u.id))
+                                    .map((u) => (
+                                      <span className="bdg t-slate" key={u.id}>
+                                        {u.label} · {u.name}
+                                      </span>
+                                    ))}
+                                </span>
+                              ) : (
+                                <span className="bdg s-mute">Tanpa Unit</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </FormRow>
+                    </FormSection>
+                  )}
+                </FormBody>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

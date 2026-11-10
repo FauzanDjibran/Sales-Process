@@ -872,6 +872,7 @@ model RefUnit {
   stock_issues  LogStockIssue[]
   prd_ledger    PrdLedger[]          @relation("PrdLedgerUnit")
   routing_steps PrdRoutingStep[]
+  user_units    PrdUserUnit[]
   rate_lines    PrdRateVersionLine[]
   jobs          PrdJob[]
   cost_entries  PrdCostEntry[]
@@ -4345,6 +4346,23 @@ model PrdQcCheckLine {
   @@unique([qc_check_id, line_no])
   @@index([bucket_id])
   @@map("prd_qc_check_line")
+}
+
+/// Which Units a user may open in the Produksi application (P260,
+/// production_app_plan.md §6.1). Permission says what, this says where; a user
+/// holding PRODUCTION_UNIT_ALL needs no row. `user_id` has no foreign key, as
+/// `created_by` has none, so no shared table points into Produksi.
+model PrdUserUnit {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  unit_id    Int
+  unit       RefUnit  @relation(fields: [unit_id], references: [id])
+  created_by Int
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([user_id, unit_id])
+  @@index([unit_id])
+  @@map("prd_user_unit")
 }
 
 enum PrdMovement {

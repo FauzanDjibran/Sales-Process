@@ -267,6 +267,7 @@ export const PERMISSIONS = [
   { code: "EMPLOYEE_ACTIVATE", name: "Aktifkan Karyawan", module: "production" },
   { code: "EMPLOYEE_DEACTIVATE", name: "Nonaktifkan Karyawan", module: "production" },
   { code: "PRODUCTION_UNIT_VIEW", name: "Buka Workspace Unit", module: "production", description: "Daftar Unit dan antreannya; dokumen dibuat dengan izin dokumennya sendiri." },
+  { code: "PRODUCTION_UNIT_ALL", name: "Buka semua Unit", module: "production", description: "Tanpa ini, user hanya membuka Unit yang ditugaskan kepadanya di form User." },
   { code: "PRODUCTION_GRADING_VIEW", name: "Lihat No. Grading", module: "production", description: "Termasuk yang masih Draft dan yang dibatalkan." },
   { code: "PRODUCTION_GRADING_CREATE", name: "Buat No. Grading", module: "production" },
   { code: "PRODUCTION_GRADING_EDIT", name: "Ubah No. Grading", module: "production", description: "Hanya selama masih Draft." },

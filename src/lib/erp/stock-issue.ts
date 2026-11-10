@@ -678,6 +678,11 @@ export async function listStockIssues(): Promise<StockIssueListRow[]> {
 }
 
 /** A BSTB Issue sent to a Unit and waiting for Terima: the Workspace's *Masuk* (W20). */
+/** The Unit an issue goes to: Terima is the Unit's half of it, checked per Unit (P260). */
+export async function stockIssueUnitId(id: number): Promise<number | null> {
+  return (await prisma.logStockIssue.findUnique({ where: { id }, select: { unit_id: true } }))?.unit_id ?? null;
+}
+
 export type IncomingIssue = {
   id: number;
   issueNo: string;

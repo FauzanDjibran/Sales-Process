@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { requirePermission } from "@/lib/erp/auth";
+import { unitIdsOf } from "@/lib/erp/production-access";
 import { incomingStockIssues } from "@/lib/erp/stock-issue";
 import { unitCards } from "@/lib/erp/production-workspace";
 import { formatNumber } from "@/lib/format";
@@ -12,8 +14,12 @@ const gram = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 
 /** One door to every Unit; adding a Unit adds a card, never a menu. */
 export default async function Page() {
-  await requirePermission("PRODUCTION_UNIT_VIEW", "/production/workspace");
-  const [units, incoming] = await Promise.all([unitCards(), incomingStockIssues()]);
+  const actor = await requirePermission("PRODUCTION_UNIT_VIEW", "/production/workspace");
+  // Only the Units assigned on the User form, unless PRODUCTION_UNIT_ALL (P260).
+  const own = await unitIdsOf(actor);
+  const [units, incoming] = await Promise.all([unitCards(own), incomingStockIssues()]);
+  // A user with exactly one Unit goes straight to it (production_app_plan.md §3.3).
+  if (own && units.length === 1) redirect(`/production/workspace/${encodeURIComponent(units[0].label)}`);
   const masuk = new Map<number, number>();
   for (const i of incoming) masuk.set(i.unitId, (masuk.get(i.unitId) ?? 0) + 1);
   const groups = [...new Set(units.map((u) => u.workstation ?? "Tanpa Workstation"))];
@@ -36,6 +42,18 @@ export default async function Page() {
         </div>
         <p className="ph-sub">Pilih Unit untuk bekerja. Di dalam Unit, scan label No. Stok atau No. Job: layar langsung membuka satu form untuk satu pekerjaan.</p>
       </div>
+
+      {!units.length && (
+        <div className="card">
+          <div className="empty">
+            <div className="ic">
+              <Icon name="layers" size={18} />
+            </div>
+            <h4>Belum ada Unit untuk Anda</h4>
+            <p>{own ? "Minta administrator menugaskan Unit di form User, tab Unit Produksi." : "Belum ada Unit yang aktif. Unit dibuat di ERP › Master › Produksi."}</p>
+          </div>
+        </div>
+      )}
 
       {groups.map((g) => (
         <section key={g}>

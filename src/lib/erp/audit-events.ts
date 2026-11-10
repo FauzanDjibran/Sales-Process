@@ -327,6 +327,7 @@ const FISCAL_CLOSING_EVENTS: Record<string, AuditEventLabel> = {
 const USER_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   roles: { label: "Role diubah", icon: "users", tone: "neutral" },
+  units: { label: "Unit Produksi diubah", icon: "gear", tone: "neutral" },
   password: { label: "Password diubah", icon: "lock", tone: "neutral" },
   reset: { label: "Password direset admin", icon: "lock", tone: "danger" },
 };

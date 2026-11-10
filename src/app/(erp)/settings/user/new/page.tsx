@@ -1,6 +1,7 @@
 import { UserForm } from "@/components/settings/user-form";
 import { actorCan } from "@/lib/erp/access";
 import { requirePermission } from "@/lib/erp/auth";
+import { assignableUnits } from "@/lib/erp/production-access";
 import { assignableRoles } from "@/lib/erp/user-admin";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ export default async function NewUserPage() {
   // never offers roles and `createUser` would refuse them anyway.
   const canAssign = actorCan(actor, "USER_ROLE_ASSIGN");
   const roles = canAssign ? await assignableRoles(actor) : [];
+  const units = canAssign ? await assignableUnits() : [];
 
   return (
     <UserForm
@@ -19,6 +21,8 @@ export default async function NewUserPage() {
       user={null}
       roles={roles}
       assignedRoleIds={[]}
+      units={units}
+      assignedUnitIds={[]}
       isSelf={false}
       can={{
         edit: true,

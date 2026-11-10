@@ -294,8 +294,14 @@ export type GradingListRow = {
   value: number;
 };
 
-export async function listGradings(): Promise<GradingListRow[]> {
-  const rows = await prisma.prdGrading.findMany({ orderBy: [{ grading_date: "desc" }, { id: "desc" }], include: { unit: true, _count: { select: { outputs: true } } } });
+/** The Unit a document is at, for the actions' Unit check (P260). */
+export async function gradingUnitId(id: number): Promise<number | null> {
+  return (await prisma.prdGrading.findUnique({ where: { id }, select: { unit_id: true } }))?.unit_id ?? null;
+}
+
+/** `units`: the actor's Units, or null for all (P260). */
+export async function listGradings(units: number[] | null = null): Promise<GradingListRow[]> {
+  const rows = await prisma.prdGrading.findMany({ where: units ? { unit_id: { in: units } } : undefined, orderBy: [{ grading_date: "desc" }, { id: "desc" }], include: { unit: true, _count: { select: { outputs: true } } } });
   return rows.map((r) => ({
     id: r.id,
     no: r.grading_no,

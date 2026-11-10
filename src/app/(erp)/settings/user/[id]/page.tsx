@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { UserForm } from "@/components/settings/user-form";
 import { actorCan } from "@/lib/erp/access";
 import { requirePermission } from "@/lib/erp/auth";
+import { assignableUnits, unitIdsOfUser } from "@/lib/erp/production-access";
 import { assignableRoles, getUser } from "@/lib/erp/user-admin";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 
@@ -23,6 +24,8 @@ export default async function UserDetailPage({
   const canAssign = actorCan(actor, "USER_ROLE_ASSIGN");
   const roles = canAssign ? await assignableRoles(actor) : [];
   const assigned = roles.filter((r) => user.role_labels.includes(r.label)).map((r) => r.id);
+  // Shown on the view either way; changed only by whoever may grant access (P260).
+  const [units, assignedUnits] = await Promise.all([assignableUnits(), unitIdsOfUser(user.id)]);
 
   return (
     <>
@@ -31,6 +34,8 @@ export default async function UserDetailPage({
         user={user}
         roles={roles}
         assignedRoleIds={assigned}
+        units={units}
+        assignedUnitIds={assignedUnits}
         isSelf={user.id === actor.user.id}
         can={{
           edit: actorCan(actor, "USER_EDIT"),

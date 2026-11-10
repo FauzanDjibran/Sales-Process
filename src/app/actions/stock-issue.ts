@@ -4,9 +4,11 @@ import { revalidatePath } from "next/cache";
 import { type Actor } from "@/lib/erp/access";
 import { authorizeAction } from "@/lib/erp/auth";
 import { isAccessDenied } from "@/lib/erp/auth-errors";
+import { assertUnit } from "@/lib/erp/production-access";
 import {
   createStockIssue,
   stockIssuePreview,
+  stockIssueUnitId,
   transitionStockIssue,
   updateStockIssue,
   type StockIssueHeaderInput,
@@ -57,10 +59,23 @@ export async function updateStockIssueAction(id: number, header: StockIssueHeade
   return result;
 }
 
+async function receivingUnitDenial(actor: Actor, id: number): Promise<{ ok: false; errors: Record<string, string> } | null> {
+  try {
+    const unitId = await stockIssueUnitId(id);
+    if (unitId != null) await assertUnit(actor, unitId);
+    return null;
+  } catch (error) {
+    if (isAccessDenied(error)) return { ok: false, errors: { _form: error.message } };
+    throw error;
+  }
+}
+
 /** The journal Posting would write, for the confirmation dialog: a dry run, rolled back (P103). */
 export async function previewStockIssuePostingAction(id: number): Promise<JournalPreviewResult> {
   const g = await authorize(STOCK_ISSUE_TRANSITIONS.post.permission);
   if (!g.ok) return g.denial;
+  const denied = await receivingUnitDenial(g.actor, id);
+  if (denied) return denied;
   return stockIssuePreview(id, g.actor.user.id);
 }
 
@@ -71,6 +86,11 @@ export async function transitionStockIssueAction(id: number, action: StockIssueA
   if (!transition) return { ok: false, errors: { _form: "Aksi tidak dikenal." } };
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
+  // Gudang makes and submits the issue; Terima is the receiving Unit's (P260).
+  if (action === "post") {
+    const denied = await receivingUnitDenial(g.actor, id);
+    if (denied) return denied;
+  }
   try {
     const result = await transitionStockIssue(id, action, g.actor.user.id, reason);
     if (!result.ok) return result;

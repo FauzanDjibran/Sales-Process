@@ -284,7 +284,7 @@ const SHARED_TABLES = [
   "sys_session", "sys_setting", "sys_doc_type", "audit_log",
 ];
 const PRODUCTION_TABLES = [
-  "m_employee",
+  "m_employee", "prd_user_unit",
   "prd_partai", "prd_job", "prd_tracking_info",
   "prd_balance", "prd_ledger", "prd_tracking_link",
   "prd_grading", "prd_grading_output", "prd_work", "prd_work_line", "prd_aux_use",

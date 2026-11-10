@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { UnitBoard } from "@/components/production/unit-board";
 import { requirePermission } from "@/lib/erp/auth";
+import { requireUnit } from "@/lib/erp/production-access";
 import { GRADING_WORKFLOW, QC_CHECK_WORKFLOW, WORK_WORKFLOW } from "@/lib/erp/production-execution-workflow";
 import { availableBuckets } from "@/lib/erp/production-ledger";
 import { unitByLabel } from "@/lib/erp/production-workspace";
@@ -17,6 +18,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
   const actor = await requirePermission("PRODUCTION_UNIT_VIEW", `/production/workspace/${encodeURIComponent(label)}`);
   const unit = await unitByLabel(label);
   if (!unit) notFound();
+  await requireUnit(actor, unit.id);
 
   const [buckets, issues] = await Promise.all([availableBuckets({ unitIds: [unit.id] }), incomingStockIssues()]);
   const rows = buckets

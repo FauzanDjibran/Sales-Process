@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { GradingForm } from "@/components/production/grading-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
+import { narrowToUnits, requireUnit } from "@/lib/erp/production-access";
 import { getGrading, gradingOptions } from "@/lib/erp/production-grading";
 import { resultNotesOfJobs } from "@/lib/erp/production-work";
 import { GRADING_PATH, GRADING_WORKFLOW } from "@/lib/erp/production-execution-workflow";
@@ -19,8 +20,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const actor = await requirePermission("PRODUCTION_GRADING_EDIT", `${GRADING_PATH}/${id}/edit`);
   const doc = await getGrading(Number(id));
   if (!doc) notFound();
+  await requireUnit(actor, doc.unitId);
   if (doc.status !== "Draft") redirect(`${GRADING_PATH}/${doc.id}`);
-  const options = await gradingOptions([doc.bucketId, ...doc.aux.map((a) => a.bucketId)]);
+  const options = await narrowToUnits(actor, await gradingOptions([doc.bucketId, ...doc.aux.map((a) => a.bucketId)]));
   return (
     <>
       <GradingForm mode="edit" grading={doc} options={options} notes={await jobNotes(options)} can={GRADING_WORKFLOW.abilities(actor.permissions)} />

@@ -1,5 +1,6 @@
 import { ProdDocList } from "@/components/production/production-doc-list";
 import { requirePermission } from "@/lib/erp/auth";
+import { unitIdsOf } from "@/lib/erp/production-access";
 import { listQcChecks } from "@/lib/erp/production-qc";
 import { QC_CHECK_PATH, QC_CHECK_WORKFLOW } from "@/lib/erp/production-execution-workflow";
 
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const actor = await requirePermission("PRODUCTION_QC_VIEW", QC_CHECK_PATH);
-  const rows = await listQcChecks();
+  const rows = await listQcChecks(await unitIdsOf(actor));
   return (
     <ProdDocList
       crumb="Dokumen"

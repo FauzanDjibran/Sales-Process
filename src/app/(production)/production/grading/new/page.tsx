@@ -1,5 +1,6 @@
 import { GradingForm } from "@/components/production/grading-form";
 import { requirePermission } from "@/lib/erp/auth";
+import { narrowToUnits } from "@/lib/erp/production-access";
 import { gradingOptions } from "@/lib/erp/production-grading";
 import { resultNotesOfJobs } from "@/lib/erp/production-work";
 import { GRADING_PATH, GRADING_WORKFLOW } from "@/lib/erp/production-execution-workflow";
@@ -16,6 +17,6 @@ async function jobNotes(options: Awaited<ReturnType<typeof gradingOptions>>) {
 export default async function Page({ searchParams }: { searchParams: Promise<{ bucket?: string }> }) {
   const { bucket } = await searchParams;
   const actor = await requirePermission("PRODUCTION_GRADING_CREATE", `${GRADING_PATH}/new`);
-  const options = await gradingOptions();
+  const options = await narrowToUnits(actor, await gradingOptions());
   return <GradingForm mode="new" grading={null} options={options} notes={await jobNotes(options)} can={GRADING_WORKFLOW.abilities(actor.permissions)} initialBucketId={Number(bucket) || undefined} />;
 }

@@ -29,10 +29,13 @@ const toUnit = (u: { id: number; unit_label: string; unit_name: string; process:
   hasQc: u.has_qc,
 });
 
-/** Active Units with what each holds per stage; Masuk is composed by the page from the BSTB module. */
-export async function unitCards(): Promise<(WorkspaceUnit & { preparation: UnitCounts; qc: UnitCounts; standBy: UnitCounts })[]> {
+/**
+ * Active Units with what each holds per stage; Masuk is composed by the page
+ * from the BSTB module. `only`: the actor's Units, or null for all (P260).
+ */
+export async function unitCards(only: number[] | null = null): Promise<(WorkspaceUnit & { preparation: UnitCounts; qc: UnitCounts; standBy: UnitCounts })[]> {
   const [units, held] = await Promise.all([
-    prisma.refUnit.findMany({ where: { status: "Active" }, orderBy: { unit_code: "asc" }, include: { workstation: true } }),
+    prisma.refUnit.findMany({ where: { status: "Active", ...(only ? { id: { in: only } } : {}) }, orderBy: { unit_code: "asc" }, include: { workstation: true } }),
     unitStageSummary(),
   ]);
   const at = (id: number, stage: string) => held.get(`${id}:${stage}`) ?? { rows: 0, grams: 0 };

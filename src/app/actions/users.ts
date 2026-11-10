@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { actorOrDeny } from "@/lib/erp/auth";
 import { isAccessDenied } from "@/lib/erp/auth-errors";
+import { setUserUnits } from "@/lib/erp/production-access";
 import {
   type AdminResult,
   createRole,
@@ -76,6 +77,16 @@ export async function setUserRolesAction(
   roleIds: number[]
 ): Promise<AdminResult> {
   const result = await run(async () => setUserRoles(await actorOrDeny(), id, roleIds));
+  if (result.ok) revalidateUsers(id);
+  return result;
+}
+
+/** The Units a user may open in Produksi (P260): granted like a role, never to oneself. */
+export async function setUserUnitsAction(id: number, unitIds: number[]): Promise<AdminResult> {
+  const result = await run(async () => {
+    const r = await setUserUnits(await actorOrDeny(), id, unitIds);
+    return r.ok ? { ok: true, id } : r;
+  });
   if (result.ok) revalidateUsers(id);
   return result;
 }

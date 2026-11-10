@@ -1,5 +1,6 @@
 import { ProdDocList } from "@/components/production/production-doc-list";
 import { requirePermission } from "@/lib/erp/auth";
+import { unitIdsOf } from "@/lib/erp/production-access";
 import { listWorks } from "@/lib/erp/production-work";
 import { WORK_PATH, WORK_WORKFLOW } from "@/lib/erp/production-execution-workflow";
 
@@ -7,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const actor = await requirePermission("PRODUCTION_WORK_VIEW", WORK_PATH);
-  const rows = await listWorks();
+  const rows = await listWorks(await unitIdsOf(actor));
   return (
     <ProdDocList
       crumb="Dokumen"
