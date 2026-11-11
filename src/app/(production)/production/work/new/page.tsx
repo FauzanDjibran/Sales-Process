@@ -6,7 +6,7 @@ import { WORK_PATH, WORK_WORKFLOW } from "@/lib/erp/production-execution-workflo
 
 export const dynamic = "force-dynamic";
 
-/** `?bucket=` lists the rows a scan in the Workspace Unit opened it on. */
+/** `?bucket=` lists the rows ticked in the Workspace Unit. */
 export default async function Page({ searchParams }: { searchParams: Promise<{ bucket?: string }> }) {
   const { bucket } = await searchParams;
   const actor = await requirePermission("PRODUCTION_WORK_CREATE", `${WORK_PATH}/new`);

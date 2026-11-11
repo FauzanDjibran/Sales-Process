@@ -10,7 +10,7 @@ import { prodDocTransitionAllowed, type ProdDocAction, type ProdDocStatus } from
 
 /**
  * QC Check (W65, W77): QC says only go on or redo. One document per Unit and
- * partai (W76), its rows decided whole (W87), no journal: Lulus goes to Stand
+ * partai (W76), a Job decided whole, every row of it at once (A4.2, W87), no journal: Lulus goes to Stand
  * By, Balik back to Persiapan as a row of its own naming this document (W66).
  * Its tables are `prd_qc_check` and `prd_qc_check_line`.
  *
@@ -54,6 +54,17 @@ async function check(db: Db, input: QcInput, strict: boolean) {
     lines.push({ line_no: lines.length + 1, bucket_id: b.id, qty: fromUnits(units(b.qty)), value: b.value, decision, reason: decision === "Return" ? text(l.reason) : null, bucket: b });
   });
   if (!raw.length) errors._lines = "Pilih barang yang diperiksa.";
+  // A Job is decided whole (A4.2): every row of it waiting here, one decision.
+  const jobs = new Map<number, typeof lines>();
+  for (const l of lines) if (l.bucket.jobId) jobs.set(l.bucket.jobId, [...(jobs.get(l.bucket.jobId) ?? []), l]);
+  if (jobs.size && unitId && !errors._lines) {
+    const waiting = await availableBuckets({ unitIds: [unitId], stage: "QcCheck" }, db);
+    for (const [jobId, rows] of jobs) {
+      const missing = waiting.filter((b) => b.jobId === jobId && !rows.some((r) => r.bucket_id === b.id));
+      if (missing.length) errors._lines = `No. Job ${rows[0].bucket.jobNo} diperiksa utuh: ${missing.map((b) => b.lotNo).join(", ")} belum ikut.`;
+      else if (new Set(rows.map((r) => r.decision)).size > 1) errors._lines = `No. Job ${rows[0].bucket.jobNo} diputuskan sekali untuk seluruh isinya.`;
+    }
+  }
   if (Object.keys(errors).length) return { ok: false as const, errors };
   return { ok: true as const, data: { unit_id: unitId!, qc_date: asDate(input.qc_date), inspector: text(input.inspector), note: text(input.note) }, unit: unit!, lines };
 }
@@ -153,7 +164,7 @@ export async function transitionQcCheck(id: number, action: ProdDocAction, actor
 
 // ------------------------------------------------------------------- reads
 
-export type QcListRow = { id: number; no: string; date: string; status: ProdDocStatus; unitLabel: string; unitName: string; lines: number };
+export type QcListRow = { id: number; no: string; date: string; status: ProdDocStatus; unitLabel: string; unitName: string; partaiNo: string | null; lines: number; grams: number };
 
 /** The buckets a Draft of this document names: *Ada di Draft* in the Workspace (P263). */
 export async function qcDraftBucketIds(): Promise<number[]> {
@@ -167,8 +178,27 @@ export async function qcCheckUnitId(id: number): Promise<number | null> {
 
 /** `units`: the actor's Units, or null for all (P260). */
 export async function listQcChecks(units: number[] | null = null): Promise<QcListRow[]> {
-  const rows = await prisma.prdQcCheck.findMany({ where: units ? { unit_id: { in: units } } : undefined, orderBy: [{ qc_date: "desc" }, { id: "desc" }], include: { unit: true, _count: { select: { lines: true } } } });
-  return rows.map((r) => ({ id: r.id, no: r.qc_no, date: isoDay(r.qc_date), status: r.status as ProdDocStatus, unitLabel: r.unit.unit_label, unitName: r.unit.unit_name, lines: r._count.lines }));
+  const rows = await prisma.prdQcCheck.findMany({
+    where: units ? { unit_id: { in: units } } : undefined,
+    orderBy: [{ qc_date: "desc" }, { id: "desc" }],
+    include: { unit: true, lines: { select: { bucket_id: true, qty: true } } },
+  });
+  const buckets = await bucketsByIds(rows.flatMap((r) => r.lines.map((l) => l.bucket_id)));
+  return rows.map((r) => {
+    const held = r.lines.map((l) => ({ l, b: buckets.get(l.bucket_id) }));
+    return {
+      id: r.id,
+      no: r.qc_no,
+      date: isoDay(r.qc_date),
+      status: r.status as ProdDocStatus,
+      unitLabel: r.unit.unit_label,
+      unitName: r.unit.unit_name,
+      partaiNo: held.find((x) => x.b?.partaiNo)?.b?.partaiNo ?? null,
+      // A row is a Job, or a No. Stok without one (A4.2).
+      lines: new Set(held.map(({ l, b }) => (b?.jobId ? `j${b.jobId}` : `b${l.bucket_id}`))).size,
+      grams: held.reduce((a, { l, b }) => a + l.qty.toNumber() * (b?.gramsEach ?? 0), 0),
+    };
+  });
 }
 
 export type QcView = {
@@ -203,7 +233,7 @@ export async function getQcCheck(id: number): Promise<QcView | null> {
   };
 }
 
-export type QcRow = Pick<BucketView, "id" | "lotNo" | "itemLabel" | "itemName" | "uomLabel" | "unitId" | "partaiId" | "partaiNo" | "jobNo" | "grams" | "isBjl" | "qty" | "value">;
+export type QcRow = Pick<BucketView, "id" | "lotNo" | "itemLabel" | "itemName" | "uomLabel" | "unitId" | "partaiId" | "partaiNo" | "jobId" | "jobNo" | "grams" | "isBjl" | "qty" | "value">;
 
 export type QcOptions = { units: { id: number; label: string; name: string; waiting: number }[]; rows: QcRow[] };
 
@@ -216,6 +246,7 @@ const row = (b: BucketView): QcRow => ({
   unitId: b.unitId,
   partaiId: b.partaiId,
   partaiNo: b.partaiNo,
+  jobId: b.jobId,
   jobNo: b.jobNo,
   grams: b.grams,
   isBjl: b.isBjl,

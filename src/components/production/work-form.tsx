@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { Combobox } from "@/components/ui/combobox";
@@ -9,6 +10,7 @@ import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
 import { AuxCard, ErrorBox, ExecutionHeader, idc, money, newKey, qtyText, refs, ro, type AuxRow } from "@/components/production/execution-parts";
+import { JobPicker } from "@/components/production/job-picker";
 import { ProdDocActions } from "@/components/production/production-doc-actions";
 import { previewWorkAction, saveWorkAction, transitionWorkAction } from "@/app/actions/production-execution";
 import { unitCost } from "@/lib/erp/production-execution";
@@ -19,15 +21,22 @@ import type { WorkOptions, WorkView } from "@/lib/erp/production-work";
 import { formatDate, todayIso } from "@/lib/format";
 
 /**
- * Pengerjaan Unit in all three modes: the Unit's Persiapan grouped by partai and
- * Job, a tick per Job, its karyawan on the row (W74). Once a Job of one partai
- * is ticked the others switch off, so W76 never ends as a refusal.
+ * Pengerjaan Unit in all three modes (W74, A5): opened from the Workspace with
+ * the Jobs ticked there, more added by *Tambah No. Job*. A row is one Job, taken
+ * whole (W96), or one No. Stok without a Job, which may be taken in part; each
+ * row has exactly one karyawan. One partai per document (W76).
  */
 
 type Picked = { bucket_id: number; qty: string; employee_id: number | null };
+type Group = { key: string; members: BucketOption[] };
 
 /** A Job's group key: goods without a No. Job stand alone. */
 const groupOf = (b: BucketOption) => (b.jobId ? `j${b.jobId}` : `b${b.id}`);
+const groupsOf = (rows: BucketOption[]): Group[] => {
+  const out = new Map<string, BucketOption[]>();
+  for (const b of rows) out.set(groupOf(b), [...(out.get(groupOf(b)) ?? []), b]);
+  return [...out].map(([key, members]) => ({ key, members }));
+};
 
 export function WorkForm({
   mode,
@@ -35,24 +44,28 @@ export function WorkForm({
   options,
   can,
   initialBucketIds = [],
+  autoPost = false,
 }: {
   mode: "new" | "edit" | "view";
   work: WorkView | null;
   options: WorkOptions;
   can: ProdDocAbilities;
-  /** The rows a scan in the Workspace Unit opened this form on. */
+  /** The rows ticked in the Workspace Unit. */
   initialBucketIds?: number[];
+  /** The form's *Posting* just saved this Draft: open the confirmation (D2). */
+  autoPost?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
   const editing = mode !== "view";
   const scanned = options.inputs.filter((b) => initialBucketIds.includes(b.id));
-  const [unitId, setUnitId] = useState<number | null>(work?.unitId ?? scanned[0]?.unitId ?? null);
+  const [unitId, setUnitId] = useState<number | null>(work?.unitId ?? scanned[0]?.unitId ?? (options.units.length === 1 ? options.units[0].id : null));
   const [date, setDate] = useState(work?.date ?? todayIso());
   const [resultNote, setResultNote] = useState(work?.resultNote ?? "");
   const [note, setNote] = useState(work?.note ?? "");
   const [picked, setPicked] = useState<Picked[]>(() => work?.lines.map((l) => ({ bucket_id: l.bucketId, qty: String(l.qty), employee_id: l.employeeId })) ?? scanned.map((b) => ({ bucket_id: b.id, qty: String(b.qty), employee_id: null })));
   const [aux, setAux] = useState<AuxRow[]>(() => work?.aux.map((a) => ({ key: newKey(), bucket_id: a.bucketId, qty: String(a.qty), job_id: a.jobId })) ?? []);
+  const [adding, setAdding] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -62,28 +75,30 @@ export function WorkForm({
     setErrors({});
   };
   const unit = options.units.find((u) => u.id === unitId);
+  const workspace = unit ? `/production/workspace/${encodeURIComponent(unit.label)}?tab=persiapan` : null;
   const byId = new Map(options.inputs.map((b) => [b.id, b]));
   const pickOf = new Map(picked.map((p) => [p.bucket_id, p]));
-  const rows = options.inputs.filter((b) => b.unitId === unitId && (editing ? b.qty > 0 || pickOf.has(b.id) : pickOf.has(b.id)));
   const chosen = picked.flatMap((p) => byId.get(p.bucket_id) ?? []);
+  const lines = groupsOf(chosen);
   const partai = chosen.find((b) => b.partaiId)?.partaiId ?? null;
   const posted = work?.status === "Posted" ? work : null;
+  // What else waits here, of the same partai once one is chosen (W76).
+  const waiting = groupsOf(options.inputs.filter((b) => b.unitId === unitId && b.qty > 0 && !pickOf.has(b.id)));
+  const addable = waiting.filter((g) => !partai || !g.members[0].partaiId || g.members[0].partaiId === partai);
 
-  const groups = new Map<string, BucketOption[]>();
-  for (const b of rows) groups.set(groupOf(b), [...(groups.get(groupOf(b)) ?? []), b]);
-
-  const toggle = (members: BucketOption[], on: boolean) => {
-    const ids = new Set(members.map((b) => b.id));
-    setPicked((p) => (on ? [...p, ...members.filter((b) => !pickOf.has(b.id)).map((b) => ({ bucket_id: b.id, qty: String(b.qty), employee_id: null }))] : p.filter((x) => !ids.has(x.bucket_id))));
-    touched();
-  };
   const setWorker = (members: BucketOption[], employee_id: number | null) => {
     const ids = new Set(members.map((b) => b.id));
     setPicked((p) => p.map((x) => (ids.has(x.bucket_id) ? { ...x, employee_id } : x)));
     touched();
   };
+  const remove = (members: BucketOption[]) => {
+    const ids = new Set(members.map((b) => b.id));
+    setPicked((p) => p.filter((x) => !ids.has(x.bucket_id)));
+    touched();
+  };
+  const firstWorker = lines.length ? (pickOf.get(lines[0].members[0].id)?.employee_id ?? null) : null;
 
-  async function onSave() {
+  async function save(post: boolean) {
     setSaving(true);
     const result = await saveWorkAction(work?.id ?? null, {
       unit_id: unitId,
@@ -96,17 +111,18 @@ export function WorkForm({
     setSaving(false);
     if (!result.ok) {
       setErrors(result.errors);
-      toast(result.errors._form ? "Tidak diizinkan" : "Belum bisa disimpan", result.errors._form ?? "Periksa kembali isian.", "err");
+      toast(result.errors._form ? "Tidak diizinkan" : "Belum bisa disimpan", result.errors._form ?? result.errors._lines ?? "Periksa kembali isian.", "err");
       return;
     }
     setDirty(false);
-    toast("Pengerjaan Unit disimpan", `${result.no} · Draft`, "ok");
-    router.push(`${WORK_PATH}/${result.id}`);
+    if (!post) toast("Pengerjaan Unit disimpan", `${result.no} · Draft`, "ok");
+    router.push(`${WORK_PATH}/${result.id}${post ? "?post=1" : ""}`);
   }
 
   const gramsOf = (b: BucketOption, qty: number) => (b.qty > 0 ? ((b.grams ?? 0) * qty) / b.qty : 0);
-  const totalGrams = posted ? posted.lines.reduce((a, l) => a + l.grams, 0) : chosen.reduce((a, b) => a + gramsOf(b, Number(pickOf.get(b.id)?.qty) || 0), 0);
-  const cost = posted ? posted.cost : chosen.reduce((a, b) => a + unitCost(gramsOf(b, Number(pickOf.get(b.id)?.qty) || 0), b.rate ?? 0), 0);
+  const gramOfPick = (b: BucketOption) => gramsOf(b, Number(pickOf.get(b.id)?.qty) || 0);
+  const totalGrams = posted ? posted.lines.reduce((a, l) => a + l.grams, 0) : chosen.reduce((a, b) => a + gramOfPick(b), 0);
+  const cost = posted ? posted.cost : chosen.reduce((a, b) => a + unitCost(gramOfPick(b), b.rate ?? 0), 0);
   const auxValue = posted
     ? posted.auxValue
     : aux.reduce((sum, a) => {
@@ -132,8 +148,9 @@ export function WorkForm({
         isEdit={mode === "edit"}
         dirty={dirty}
         saving={saving}
-        onSave={onSave}
-        backHref={work ? `${WORK_PATH}/${work.id}` : WORK_PATH}
+        onSave={() => save(false)}
+        onPost={can.post ? () => save(true) : undefined}
+        backHref={work ? `${WORK_PATH}/${work.id}` : (workspace ?? WORK_PATH)}
         actions={
           work && (
             <ProdDocActions
@@ -144,6 +161,8 @@ export function WorkForm({
               can={can}
               run={(action, reason) => transitionWorkAction(work.id, action, reason)}
               preview={() => previewWorkAction(work.id)}
+              autoPost={autoPost}
+              doneHref={workspace ?? undefined}
             />
           )
         }
@@ -154,8 +173,8 @@ export function WorkForm({
             <FormBody>
               <FormSection title="Pengerjaan">
                 <FormRow>
-                  <Field label="Unit" span={5} required={editing} locked={mode === "edit"} error={errors.unit_id}>
-                    {mode === "new" ? (
+                  <Field label="Unit" span={4} required={editing} locked={editing && (mode === "edit" || picked.length > 0)} error={errors.unit_id}>
+                    {mode === "new" && !picked.length ? (
                       <Combobox
                         value={unitId}
                         options={refs(options.units)}
@@ -169,7 +188,7 @@ export function WorkForm({
                         }}
                       />
                     ) : (
-                      ro(idc(work?.unitLabel ?? "", work?.unitName ?? ""))
+                      ro(idc(work?.unitLabel ?? unit?.label ?? "", work?.unitName ?? unit?.name ?? ""))
                     )}
                   </Field>
                   <Field label="Tanggal" span={3} required={editing} help={editing ? "biaya masuk periode ini" : undefined} error={errors.work_date}>
@@ -186,6 +205,9 @@ export function WorkForm({
                       ro(formatDate(date))
                     )}
                   </Field>
+                  <Field label="Partai" span={3}>
+                    {chosen[0]?.partaiNo ? ro(<span className="mono">{chosen.find((b) => b.partaiNo)!.partaiNo}</span>) : <div className="ro nil">{chosen.length ? "sebelum partai" : "mengikuti baris"}</div>}
+                  </Field>
                   {(unit?.resultNote || resultNote) && (
                     <Field label="Catatan Hasil" span={12} help={editing ? "jenis dan berat, dibawa ke Penyebaran" : undefined}>
                       {editing ? (
@@ -201,6 +223,19 @@ export function WorkForm({
                         />
                       ) : (
                         <div className="ro multi">{resultNote}</div>
+                      )}
+                    </Field>
+                  )}
+                  {posted && (
+                    <Field label="Journal" span={4}>
+                      {posted.journalId ? (
+                        ro(
+                          <Link className="drl" href={`/accounting/journal/${posted.journalId}`}>
+                            <span className="mono">{posted.journalNo}</span>
+                          </Link>
+                        )
+                      ) : (
+                        <div className="ro nil">tanpa journal</div>
                       )}
                     </Field>
                   )}
@@ -239,102 +274,99 @@ export function WorkForm({
               </span>
               <div className="ct">
                 <h3>Daftar Job</h3>
-                <p>Satu dokumen satu partai, dan tiap No. Job tepat satu karyawan.</p>
+                <p>Satu No. Job dikerjakan utuh, tepat satu karyawan. Satu dokumen satu partai.</p>
               </div>
-              {editing && picked.length > 1 && (
-                <Combobox
-                  size="sm"
-                  value={null}
-                  options={refs(options.employees)}
-                  placeholder="Isi semua karyawan…"
-                  onChange={(v) => setWorker(chosen, v)}
-                />
+              {editing && lines.length > 1 && (
+                <button className="btn sm" disabled={!firstWorker} onClick={() => setWorker(chosen, firstWorker)}>
+                  Samakan dengan Baris Pertama
+                </button>
+              )}
+              {editing && (
+                <button className="btn sm primary" disabled={!unitId} onClick={() => setAdding(true)}>
+                  <Icon name="plus" size={14} /> Tambah No. Job
+                </button>
               )}
             </div>
             <ErrorBox text={errors._lines} />
-            {rows.length ? (
+            {lines.length ? (
               <div className="tw">
-                <table className="grid ltab" style={{ minWidth: 860 }}>
+                <table className="grid ltab" style={{ minWidth: 820 }}>
                   <thead>
                     <tr>
-                      {editing && <th style={{ width: 36 }} />}
-                      <th style={{ width: 190 }}>No. Job</th>
-                      <th>No. Stok</th>
-                      <th className="num" style={{ width: 170 }}>
+                      <th>No. Job / No. Stok</th>
+                      <th className="num" style={{ width: 190 }}>
+                        Jumlah
+                      </th>
+                      <th className="num" style={{ width: 120 }}>
                         Gram
                       </th>
-                      <th style={{ width: 220 }}>Karyawan</th>
+                      <th style={{ width: 230 }}>Karyawan</th>
+                      {editing && <th style={{ width: 40 }} />}
                     </tr>
                   </thead>
                   <tbody>
-                    {[...groups.values()].map((members) =>
-                      members.map((b, i) => {
-                        const pick = pickOf.get(b.id);
-                        const blocked = !pick && Boolean(partai) && b.partaiId !== partai;
-                        const err = errorOf(b.id);
-                        return (
-                          <tr key={b.id} className={err ? "overrow" : undefined}>
-                            {editing && (
-                              <td>
-                                {i === 0 && (
-                                  <input
-                                    type="checkbox"
-                                    aria-label={`Pilih ${b.jobNo ?? b.lotNo}`}
-                                    checked={Boolean(pick)}
-                                    disabled={blocked}
-                                    title={blocked ? "Partai lain: satu dokumen satu partai" : undefined}
-                                    onChange={(e) => toggle(members, e.target.checked)}
-                                  />
-                                )}
-                              </td>
+                    {lines.map(({ key, members }) => {
+                      const head = members[0];
+                      const pick = pickOf.get(head.id);
+                      const err = members.map((b) => errorOf(b.id)).find(Boolean);
+                      return (
+                        <tr key={key} className={err ? "overrow" : undefined}>
+                          <td>
+                            {head.jobNo && <div className="mono">{head.jobNo}</div>}
+                            {members.map((b) => (
+                              <div key={b.id}>
+                                {idc(b.lotNo, b.itemName)}
+                                {b.isBjl && <span className="bdg s-mute">BJL</span>}
+                                {b.qcCheckId && <span className="bdg s-warn">Balik QC · biaya unit masuk lagi</span>}
+                              </div>
+                            ))}
+                            {err && <span className="overtag">{err}</span>}
+                          </td>
+                          <td className="num">
+                            {editing && !head.jobId && pick ? (
+                              <div className="qcell">
+                                <MoneyInput
+                                  size="sm"
+                                  decimals={4}
+                                  value={pick.qty}
+                                  over={Number(pick.qty) > head.qty}
+                                  ariaLabel={`Jumlah ${head.lotNo}`}
+                                  onChange={(v) => {
+                                    setPicked((p) => p.map((x) => (x.bucket_id === head.id ? { ...x, qty: v } : x)));
+                                    touched();
+                                  }}
+                                />
+                                <span className="qu">{head.uomLabel}</span>
+                              </div>
+                            ) : (
+                              members.map((b) => <div key={b.id}>{`${qtyText(Number(pickOf.get(b.id)?.qty ?? b.qty))} ${b.uomLabel}`}</div>)
                             )}
-                            <td className="mono">
-                              {i === 0 ? (b.jobNo ?? "—") : ""}
-                              {i === 0 && b.partaiNo && <span className="mut"> {b.partaiNo}</span>}
-                            </td>
+                          </td>
+                          <td className="num">{qtyText(members.reduce((a, b) => a + gramOfPick(b), 0))}</td>
+                          <td>
+                            {editing ? (
+                              <Combobox size="sm" value={pick?.employee_id ?? null} options={refs(options.employees)} placeholder="Pilih karyawan…" emptyText="Belum ada Karyawan." onChange={(v) => setWorker(members, v)} />
+                            ) : (
+                              worker(pick?.employee_id ?? null) && idc(worker(pick!.employee_id)!.label, worker(pick!.employee_id)!.name)
+                            )}
+                          </td>
+                          {editing && (
                             <td>
-                              {idc(b.lotNo, b.itemName)}
-                              {b.isBjl && <span className="bdg s-mute">BJL</span>}
-                              {b.qcCheckId && <span className="bdg s-warn">Balik QC · biaya unit masuk lagi</span>}
-                              {err && <span className="overtag">{err}</span>}
+                              <button className="iact del" title="Keluarkan baris" onClick={() => remove(members)}>
+                                <Icon name="trash" size={14} />
+                              </button>
                             </td>
-                            <td className="num">
-                              {editing && pick ? (
-                                <div className="qcell">
-                                  <MoneyInput
-                                    size="sm"
-                                    decimals={4}
-                                    value={pick.qty}
-                                    over={Number(pick.qty) > b.qty}
-                                    ariaLabel={`Jumlah ${b.lotNo}`}
-                                    onChange={(v) => {
-                                      setPicked((p) => p.map((x) => (x.bucket_id === b.id ? { ...x, qty: v } : x)));
-                                      touched();
-                                    }}
-                                  />
-                                  <span className="qu">{b.uomLabel}</span>
-                                </div>
-                              ) : (
-                                `${qtyText(pick ? Number(pick.qty) : b.qty)} ${b.uomLabel}`
-                              )}
-                            </td>
-                            <td>
-                              {i > 0 || !pick ? null : editing ? (
-                                <Combobox size="sm" value={pick.employee_id} options={refs(options.employees)} placeholder="Pilih karyawan…" emptyText="Belum ada Karyawan." onChange={(v) => setWorker(members, v)} />
-                              ) : (
-                                worker(pick.employee_id) && idc(worker(pick.employee_id)!.label, worker(pick.employee_id)!.name)
-                              )}
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
+                          )}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             ) : (
               <div className="empty">
-                <h4>{unitId ? "Belum ada barang di Persiapan unit ini" : "Pilih Unit dulu…"}</h4>
+                <h4>{unitId ? "Belum ada No. Job" : "Pilih Unit dulu…"}</h4>
+                {unitId && <p>Tambahkan No. Job dari Persiapan dengan Tambah No. Job.</p>}
               </div>
             )}
           </div>
@@ -354,13 +386,20 @@ export function WorkForm({
             />
           )}
 
-          <div className="card" style={{ marginTop: 14, padding: 14 }}>
+          <div className="uw-pair card" style={{ marginTop: 14 }}>
             <div className="impact">
-              <div className="ttl">Ringkasan Biaya</div>
+              <div className="ttl">Gram</div>
               <div className="ir">
+                <span>No. Job</span>
+                <b>{lines.length}</b>
+              </div>
+              <div className="ir tot">
                 <span>Total gram</span>
                 <b>{qtyText(totalGrams)} g</b>
               </div>
+            </div>
+            <div className="impact">
+              <div className="ttl">Nilai</div>
               <div className="ir">
                 <span>Biaya unit</span>
                 <b>{money(cost)}</b>
@@ -377,6 +416,30 @@ export function WorkForm({
           </div>
         </div>
       </div>
+
+      {adding && (
+        <JobPicker
+          title="Tambah No. Job"
+          subtitle={`Yang menunggu di Persiapan ${unit?.label ?? ""}${partai ? ", partai yang sama" : ""}.`}
+          choices={addable.map((g) => ({
+            key: g.key,
+            jobNo: g.members[0].jobNo,
+            lotNo: g.members[0].lotNo,
+            itemName: g.members[0].itemName,
+            count: g.members.length,
+            partaiId: g.members[0].partaiId,
+            partaiNo: g.members[0].partaiNo,
+            grams: g.members.reduce((a, b) => a + (b.grams ?? 0), 0),
+          }))}
+          onAdd={(keys) => {
+            const add = addable.filter((g) => keys.includes(g.key)).flatMap((g) => g.members);
+            setPicked((p) => [...p, ...add.map((b) => ({ bucket_id: b.id, qty: String(b.qty), employee_id: null }))]);
+            setAdding(false);
+            touched();
+          }}
+          onClose={() => setAdding(false)}
+        />
+      )}
     </>
   );
 }

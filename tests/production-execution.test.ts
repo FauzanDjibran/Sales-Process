@@ -307,6 +307,8 @@ describe("Pengerjaan Unit", () => {
     const b = await sendToPasser(other.id);
     const r = await work({ lines: [{ bucket_id: a.toBucketId, qty: 10, employee_id: ids.ani }, { bucket_id: b.toBucketId, qty: 10, employee_id: ids.budi }] });
     assert.ok(!r.ok && /satu partai/.test(r.errors["lines.1.bucket_id"]));
+    const part = await work({ lines: [{ bucket_id: a.toBucketId, qty: 10, employee_id: ids.ani }] });
+    assert.ok(!part.ok && /utuh/.test(part.errors._lines), "a Job is worked whole (W96)");
   });
 
   test("bahan penolong adds value to its Job, not gram (A28)", async () => {
@@ -383,5 +385,18 @@ describe("No. Grading per Job (W97)", () => {
     assert.equal(links.length, 4, "every output from every input");
     assert.equal(links.reduce((a, l) => a + l.value.toNumber(), 0), 110_000);
     assert.equal(links.filter((l) => l.from_tracking_id === second.id).reduce((a, l) => a + l.qty.toNumber(), 0), 66.5, "95 g of output, 70 % of it from the second input by gram");
+  });
+
+  test("QC decides a Job whole: every row of it, one decision (A4.2)", async () => {
+    const rows = (await inQc(f.wsA)).filter((b) => b.jobId != null);
+    assert.equal(rows.length, 2);
+    const qc = (lines: { bucket_id: number; decision: "Pass" | "Return" }[]) =>
+      createQcCheck({ unit_id: f.wsA, qc_date: today, inspector: "", note: "", lines: lines.map((l) => ({ ...l, reason: "" })) }, f.actor);
+    const half = await qc([{ bucket_id: rows[0].id, decision: "Pass" }]);
+    assert.ok(!half.ok && /utuh/.test(half.errors._lines));
+    const split = await qc([{ bucket_id: rows[0].id, decision: "Pass" }, { bucket_id: rows[1].id, decision: "Return" }]);
+    assert.ok(!split.ok && /sekali/.test(split.errors._lines));
+    await decide(f.wsA, rows.map((b) => [b.id, "Pass"]));
+    assert.equal((await standBy(f.wsA)).filter((b) => b.jobId === rows[0].jobId).length, 2);
   });
 });

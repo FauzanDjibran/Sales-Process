@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { Combobox } from "@/components/ui/combobox";
@@ -576,6 +577,19 @@ export function GradingForm({
                   <Field label="Partai" span={3}>
                     {partaiNo ? ro(<span className="mono">{partaiNo}</span>) : <div className="ro nil">sebelum partai</div>}
                   </Field>
+                  {posted && (
+                    <Field label="Journal" span={4}>
+                      {posted.journalId ? (
+                        ro(
+                          <Link className="drl" href={`/accounting/journal/${posted.journalId}`}>
+                            <span className="mono">{posted.journalNo}</span>
+                          </Link>
+                        )
+                      ) : (
+                        <div className="ro nil">tanpa journal</div>
+                      )}
+                    </Field>
+                  )}
                   <Field label="Catatan" span={12}>
                     {editing ? (
                       <textarea

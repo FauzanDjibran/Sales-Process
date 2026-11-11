@@ -8,15 +8,16 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const actor = await requirePermission("PRODUCTION_QC_VIEW", QC_CHECK_PATH);
-  const rows = await listQcChecks(await unitIdsOf(actor));
+  const own = await unitIdsOf(actor);
+  const rows = await listQcChecks(own);
   return (
     <ProdDocList
       crumb="Dokumen"
       title="QC Check"
       icon="check"
-      sub="QC memvalidasi hasil proses: Lulus masuk Stand By, Balik kembali ke Persiapan unit itu. Tanpa journal."
+      sub={own ? "Dokumen dari Unit yang ditugaskan ke Anda. Dokumen dibuat dari Workspace Unit." : "Dokumen dibuat dari Workspace Unit."}
       path={QC_CHECK_PATH}
-      rows={rows.map((r) => ({ id: r.id, no: r.no, date: r.date, status: r.status, places: [{ label: r.unitLabel, name: r.unitName }], lines: r.lines, value: null }))}
+      rows={rows.map((r) => ({ id: r.id, no: r.no, date: r.date, status: r.status, places: [{ label: r.unitLabel, name: r.unitName }], partai: r.partaiNo, lines: r.lines, grams: r.grams, value: null }))}
       placeColumns={["Unit"]}
       
       canCreate={QC_CHECK_WORKFLOW.abilities(actor.permissions).create}

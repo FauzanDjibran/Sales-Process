@@ -8,15 +8,16 @@ export const dynamic = "force-dynamic";
 
 export default async function Page() {
   const actor = await requirePermission("PRODUCTION_GRADING_VIEW", GRADING_PATH);
-  const rows = await listGradings(await unitIdsOf(actor));
+  const own = await unitIdsOf(actor);
+  const rows = await listGradings(own);
   return (
     <ProdDocList
       crumb="Dokumen"
       title="No. Grading"
       icon="layers"
-      sub="Satu No. Stok dari Persiapan menjadi output baru. Jenis dan gram berubah di sini, dan biaya unit masuk saat Posting."
+      sub={own ? "Dokumen dari Unit yang ditugaskan ke Anda. Dokumen dibuat dari Workspace Unit." : "Dokumen dibuat dari Workspace Unit."}
       path={GRADING_PATH}
-      rows={rows.map((r) => ({ id: r.id, no: r.no, date: r.date, status: r.status, places: [{ label: r.unitLabel, name: r.unitName }], lines: r.lines, value: r.value }))}
+      rows={rows.map((r) => ({ id: r.id, no: r.no, date: r.date, status: r.status, places: [{ label: r.unitLabel, name: r.unitName }], partai: r.partaiNo, lines: r.lines, grams: r.grams, value: r.value }))}
       placeColumns={["Unit"]}
       valueColumn="Nilai Diolah"
       canCreate={GRADING_WORKFLOW.abilities(actor.permissions).create}

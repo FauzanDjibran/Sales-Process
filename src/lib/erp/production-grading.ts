@@ -3,7 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { holdPostingPeriod } from "./fiscal";
-import { PostingDryRun, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
+import { PostingDryRun, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { shareByWeight, shareGrading, shareQty } from "./production-execution";
 import {
   Refused,
@@ -405,6 +405,9 @@ export type GradingView = {
   scrap: number;
   note: string | null;
   reason: string | null;
+  /** The journal Posting wrote (A7.4); none when nothing changed in the books. */
+  journalId: number | null;
+  journalNo: string | null;
   outputs: { itemId: number; grams: number; qty: number; isBjl: boolean; trackingNo: string | null; value: number }[];
   aux: { bucketId: number; qty: number; value: number }[];
 };
@@ -415,7 +418,10 @@ export async function getGrading(id: number): Promise<GradingView | null> {
     include: { unit: true, inputs: { orderBy: { line_no: "asc" } }, outputs: { orderBy: { line_no: "asc" } }, aux: { orderBy: { line_no: "asc" } } },
   });
   if (!g) return null;
-  const job = g.job_id ? (await jobsByIds([g.job_id])).get(g.job_id) : null;
+  const [job, journalNo] = await Promise.all([
+    g.job_id ? jobsByIds([g.job_id]).then((m) => m.get(g.job_id!)) : null,
+    g.journal_id ? journalNumbersByIds([g.journal_id]).then((m) => m.get(g.journal_id!) ?? null) : null,
+  ]);
   return {
     id: g.id,
     no: g.grading_no,
@@ -435,6 +441,8 @@ export async function getGrading(id: number): Promise<GradingView | null> {
     scrap: g.scrap_amount.toNumber(),
     note: g.note,
     reason: g.status_reason,
+    journalId: g.journal_id,
+    journalNo,
     outputs: g.outputs.map((o) => ({ itemId: o.item_id, grams: o.grams.toNumber(), qty: o.qty.toNumber(), isBjl: o.is_bjl, trackingNo: o.tracking_no, value: o.value.toNumber() })),
     aux: g.aux.map((a) => ({ bucketId: a.bucket_id, qty: a.qty.toNumber(), value: a.value.toNumber() })),
   };

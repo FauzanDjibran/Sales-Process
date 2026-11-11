@@ -6,8 +6,7 @@ import { useRouter } from "next/navigation";
 import { Icon, type IconName } from "@/components/icon";
 import { Pager, usePaging } from "@/components/ui/pager";
 import { SearchField } from "@/components/ui/search-field";
-import { Select } from "@/components/ui/select";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate, formatMoney, formatNumber } from "@/lib/format";
 import { PROD_DOC_STATUS_BADGE, PROD_DOC_STATUS_TEXT, type ProdDocStatus } from "@/lib/erp/production-doc-workflow";
 
 /** One register row: what every production document shows, then its own places and value. */
@@ -20,15 +19,27 @@ export type ProdDocListRow = {
   places: { label: string; name: string }[];
   /** A short tag, e.g. the release's purpose; empty for none. */
   tag?: string;
+  /** The partai it is about (W76); none before a partai. */
+  partai?: string | null;
   lines: number;
+  /** Gram it holds (A7.2); posted documents show what they took. */
+  grams?: number | null;
   /** Shown for a posted document only. */
   value: number | null;
 };
 
 /**
- * The register every production document shares (R5, R7, R8). Drafts sort
- * first — goods not yet moved — then newest first.
+ * The register every production document shares (R5, R7, R8, A7): status tabs
+ * with their counts, then Nomor, Status, Tanggal, Unit, Partai, Baris, Gram and
+ * the value in its own column (D6). Drafts sort first, then newest first.
  */
+const TABS: [ProdDocStatus | "", string][] = [
+  ["Draft", PROD_DOC_STATUS_TEXT.Draft],
+  ["Posted", PROD_DOC_STATUS_TEXT.Posted],
+  ["Cancelled", PROD_DOC_STATUS_TEXT.Cancelled],
+  ["", "Semua"],
+];
+
 export function ProdDocList({
   crumb,
   title,
@@ -56,7 +67,8 @@ export function ProdDocList({
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("");
+  // A queue opens on its Drafts, when there are any.
+  const [status, setStatus] = useState<string>(() => (all.some((o) => o.status === "Draft") ? "Draft" : ""));
   const q = query.trim().toLowerCase();
   const rows = useMemo(
     () =>
@@ -64,12 +76,14 @@ export function ProdDocList({
         .filter(
           (o) =>
             (!status || o.status === status) &&
-            (!q || [o.no, o.tag ?? "", ...o.places.flatMap((p) => [p.label, p.name])].some((s) => s.toLowerCase().includes(q)))
+            (!q || [o.no, o.tag ?? "", o.partai ?? "", ...o.places.flatMap((p) => [p.label, p.name])].some((s) => s.toLowerCase().includes(q)))
         )
         .sort((a, b) => Number(b.status === "Draft") - Number(a.status === "Draft")),
     [all, q, status]
   );
   const paging = usePaging(rows, `${q}|${status}`);
+  const hasPartai = all.some((o) => o.partai !== undefined);
+  const hasGrams = all.some((o) => o.grams !== undefined);
   const newButton = canCreate && (
     <Link className="btn primary" href={`${path}/new`}>
       <Icon name="plus" size={15} /> {title} Baru
@@ -97,18 +111,16 @@ export function ProdDocList({
       </div>
 
       <div className="card">
+        <div className="qtabs" role="tablist">
+          {TABS.map(([value, label]) => (
+            <button key={value || "all"} type="button" role="tab" aria-selected={status === value} className={status === value ? "act" : ""} onClick={() => setStatus(value)}>
+              {label}
+              <span className="n">{value ? all.filter((o) => o.status === value).length : all.length}</span>
+            </button>
+          ))}
+        </div>
         <div className="toolbar">
-          <SearchField value={query} onChange={setQuery} placeholder={`Cari nomor atau ${placeColumns.join(" / ").toLowerCase()}…`} />
-          <Select
-            variant="toolbar"
-            value={status}
-            set={Boolean(status)}
-            options={[
-              { value: "", label: "Status: semua" },
-              ...(["Draft", "Posted", "Cancelled"] as ProdDocStatus[]).map((s) => ({ value: s, label: PROD_DOC_STATUS_TEXT[s] })),
-            ]}
-            onChange={setStatus}
-          />
+          <SearchField value={query} onChange={setQuery} placeholder={`Cari nomor, partai atau ${placeColumns.join(" / ").toLowerCase()}…`} />
           <span className="tspace" />
           <span className="count">
             <b>{rows.length}</b> dokumen
@@ -128,9 +140,15 @@ export function ProdDocList({
                     {placeColumns.map((c) => (
                       <th key={c}>{c}</th>
                     ))}
+                    {hasPartai && <th style={{ width: 160 }}>Partai</th>}
                     <th className="num" style={{ width: 70 }}>
                       Baris
                     </th>
+                    {hasGrams && (
+                      <th className="num" style={{ width: 120 }}>
+                        Gram
+                      </th>
+                    )}
                     {valueColumn && (
                       <th className="num" style={{ width: 150 }}>
                         {valueColumn}
@@ -163,7 +181,9 @@ export function ProdDocList({
                           )}
                         </td>
                       ))}
+                      {hasPartai && <td className="mono">{o.partai ?? <span className="dash">—</span>}</td>}
                       <td className="num">{o.lines}</td>
+                      {hasGrams && <td className="num">{o.grams != null ? formatNumber(o.grams, o.grams % 1 ? 2 : 0) : <span className="dash">—</span>}</td>}
                       {valueColumn && (
                         <td className="num">
                           {o.status === "Posted" && o.value != null ? <span className="mny">{formatMoney(o.value, "IDR")}</span> : <span className="dash">—</span>}

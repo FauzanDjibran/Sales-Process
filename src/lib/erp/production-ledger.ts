@@ -649,6 +649,8 @@ export type BucketView = {
   qcCheckId: number | null;
   /** Gram held; null for an item with no gram of its own to read (`gramsOf`). */
   grams: number | null;
+  /** Gram of one base unit: 1 for an item held in GR; for a document line of this bucket. */
+  gramsEach: number | null;
   isBjl: boolean;
   expiry: string | null;
   qty: number;
@@ -696,6 +698,7 @@ const view = (b: BucketRow): BucketView => ({
   auxiliary: b.auxiliary,
   qcCheckId: b.qc_check_id,
   grams: bucketGrams(b),
+  gramsEach: b.uom.uom_label === GRAM_UOM ? 1 : (b.tracking.prd_info?.grams?.toNumber() ?? null),
   isBjl: b.item.is_bjl,
   expiry: iso(b.tracking.expiry_date),
   qty: b.qty_balance.toNumber(),

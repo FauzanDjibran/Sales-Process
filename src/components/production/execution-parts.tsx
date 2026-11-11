@@ -41,6 +41,7 @@ export function ExecutionHeader({
   saving,
   onSave,
   onPost,
+  postDisabled = false,
   backHref,
   actions,
 }: {
@@ -56,6 +57,8 @@ export function ExecutionHeader({
   onSave: () => void;
   /** Saves the Draft and opens Posting's confirmation in one click (D2). */
   onPost?: () => void;
+  /** Posting waits on the form, e.g. every QC row decided (A4.2). */
+  postDisabled?: boolean;
   backHref: string;
   actions: ReactNode;
 }) {
@@ -97,7 +100,7 @@ export function ExecutionHeader({
                   <button className="btn" onClick={onSave} disabled={saving}>
                     <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan Draft"}
                   </button>
-                  <button className="btn primary" onClick={onPost} disabled={saving}>
+                  <button className="btn primary" onClick={onPost} disabled={saving || postDisabled}>
                     <Icon name="check" size={15} /> Posting
                   </button>
                 </>

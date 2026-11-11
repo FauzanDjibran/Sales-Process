@@ -8,8 +8,10 @@ import { QC_CHECK_PATH, QC_CHECK_WORKFLOW } from "@/lib/erp/production-execution
 
 export const dynamic = "force-dynamic";
 
-export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+/** `?post=1`: the form's *Posting* just saved this Draft, so its confirmation opens (D2). */
+export default async function Page({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ post?: string }> }) {
   const { id } = await params;
+  const { post } = await searchParams;
   const actor = await requirePermission("PRODUCTION_QC_VIEW", QC_CHECK_PATH);
   const doc = await getQcCheck(Number(id));
   if (!doc) notFound();
@@ -17,7 +19,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const options = await narrowToUnits(actor, await qcOptions(doc.lines.map((l) => l.bucketId)));
   return (
     <>
-      <QcForm mode="view" check={doc} options={options} can={QC_CHECK_WORKFLOW.abilities(actor.permissions)} />
+      <QcForm mode="view" check={doc} options={options} can={QC_CHECK_WORKFLOW.abilities(actor.permissions)} autoPost={post === "1"} />
       <RecordHistoryCard entityKey="prd_qc_check" rowId={doc.id} />
     </>
   );

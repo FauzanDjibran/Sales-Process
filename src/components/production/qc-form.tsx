@@ -8,6 +8,7 @@ import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
 import { ErrorBox, ExecutionHeader, idc, qtyText, refs, ro } from "@/components/production/execution-parts";
+import { JobPicker } from "@/components/production/job-picker";
 import { ProdDocActions } from "@/components/production/production-doc-actions";
 import { saveQcCheckAction, transitionQcCheckAction } from "@/app/actions/production-execution";
 import { QC_CHECK_PATH, QC_CHECK_WORKFLOW, QC_DECISION_TEXT, type QcDecision } from "@/lib/erp/production-execution-workflow";
@@ -16,43 +17,66 @@ import type { QcOptions, QcRow, QcView } from "@/lib/erp/production-qc";
 import { formatDate, todayIso } from "@/lib/format";
 
 /**
- * QC Check in all three modes (W65): the Unit's waiting rows of one partai, each
- * decided Lulus or Balik whole, the reason optional. Posting waits for every row.
+ * QC Check in all three modes (W65, A4): opened from the Workspace's QC tab with
+ * the rows ticked there. A row is one Job — its No. Stok under it — or one No.
+ * Stok without a Job, decided Lulus or Balik whole, the reason optional. One
+ * partai per document; Posting waits for every row.
  */
 
 type Decided = { decision: QcDecision | null; reason: string };
+type Row = { key: string; jobNo: string | null; partaiId: number | null; partaiNo: string | null; buckets: QcRow[] };
 
-/** One partai at a time (W76); goods before a partai share one group. */
-const partaiKey = (r: QcRow) => r.partaiId ?? 0;
+const keyOf = (r: QcRow) => (r.jobId ? `j${r.jobId}` : `b${r.id}`);
+const rowsOf = (buckets: QcRow[]): Row[] => {
+  const out = new Map<string, Row>();
+  for (const b of buckets) {
+    const k = keyOf(b);
+    const r = out.get(k) ?? { key: k, jobNo: b.jobNo, partaiId: b.partaiId, partaiNo: b.partaiNo, buckets: [] };
+    r.buckets.push(b);
+    out.set(k, r);
+  }
+  return [...out.values()];
+};
+const gramOf = (r: Row) => r.buckets.reduce((a, b) => a + (b.grams ?? 0), 0);
 
 export function QcForm({
   mode,
   check,
   options,
   can,
-  initialBucketId,
+  initialBucketIds = [],
+  autoPost = false,
 }: {
   mode: "new" | "edit" | "view";
   check: QcView | null;
   options: QcOptions;
   can: ProdDocAbilities;
-  /** The row a scan in the Workspace Unit opened this form on. */
-  initialBucketId?: number;
+  /** The rows ticked in the Workspace's QC tab. */
+  initialBucketIds?: number[];
+  /** The form's *Posting* just saved this Draft: open the confirmation (D2). */
+  autoPost?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
   const editing = mode !== "view";
-  const scanned = options.rows.find((r) => r.id === initialBucketId);
-  const [unitId, setUnitId] = useState<number | null>(check?.unitId ?? scanned?.unitId ?? null);
+  const byId = new Map(options.rows.map((r) => [r.id, r]));
+  const stored = (check?.lines ?? []).flatMap((l) => byId.get(l.bucketId) ?? []);
+  const opened = initialBucketIds.flatMap((id) => byId.get(id) ?? []);
+  const start = stored.length ? stored : opened;
+  const [unitId, setUnitId] = useState<number | null>(check?.unitId ?? start[0]?.unitId ?? (options.units.length === 1 ? options.units[0].id : null));
   const [date, setDate] = useState(check?.date ?? todayIso());
   const [inspector, setInspector] = useState(check?.inspector ?? "");
   const [note, setNote] = useState(check?.note ?? "");
-  const byId = new Map(options.rows.map((r) => [r.id, r]));
-  const [partai, setPartai] = useState<number | null>(() => {
-    const first = check?.lines[0] ? byId.get(check.lines[0].bucketId) : scanned;
-    return first ? partaiKey(first) : null;
+  const [keys, setKeys] = useState<string[]>(() => [...new Set(start.map(keyOf))]);
+  const [decided, setDecided] = useState<Record<string, Decided>>(() => {
+    const out: Record<string, Decided> = {};
+    for (const l of check?.lines ?? []) {
+      const b = byId.get(l.bucketId);
+      if (b) out[keyOf(b)] = { decision: l.decision, reason: l.reason ?? "" };
+    }
+    return out;
   });
-  const [decided, setDecided] = useState<Record<number, Decided>>(() => Object.fromEntries((check?.lines ?? []).map((l) => [l.bucketId, { decision: l.decision, reason: l.reason ?? "" }])));
+  const [adding, setAdding] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -61,22 +85,28 @@ export function QcForm({
     setDirty(true);
     setErrors({});
   };
-  const waiting = options.rows.filter((r) => r.unitId === unitId);
-  const groups = [...new Map(waiting.map((r) => [partaiKey(r), r])).entries()].map(([id, r]) => ({ id, label: r.partaiNo ?? "Sebelum partai", name: `${waiting.filter((x) => partaiKey(x) === id).length} baris` }));
-  const rows = editing ? waiting.filter((r) => partai != null && partaiKey(r) === partai) : (check?.lines ?? []).flatMap((l) => byId.get(l.bucketId) ?? []);
-  const setRow = (id: number, patch: Partial<Decided>) => {
-    setDecided((d) => ({ ...d, [id]: { decision: d[id]?.decision ?? null, reason: d[id]?.reason ?? "", ...patch } }));
+  const unit = options.units.find((u) => u.id === unitId);
+  const workspace = unit ? `/production/workspace/${encodeURIComponent(unit.label)}?tab=qc` : null;
+  // While a Draft, a Job is what waits here now; once posted, what the document held.
+  const waiting = rowsOf(options.rows.filter((r) => r.unitId === unitId && r.qty > 0));
+  const rows: Row[] = check?.status === "Posted" || !editing ? rowsOf(stored) : keys.flatMap((k) => waiting.find((w) => w.key === k) ?? []);
+  const partai = rows[0]?.partaiId;
+  const addable = waiting.filter((w) => !keys.includes(w.key) && (!rows.length || w.partaiId === partai));
+  const undecided = rows.filter((r) => !decided[r.key]?.decision).length;
+
+  const decide = (key: string, patch: Partial<Decided>) => {
+    setDecided((d) => ({ ...d, [key]: { decision: d[key]?.decision ?? null, reason: d[key]?.reason ?? "", ...patch } }));
     touched();
   };
 
-  async function onSave() {
+  async function save(post: boolean) {
     setSaving(true);
     const result = await saveQcCheckAction(check?.id ?? null, {
       unit_id: unitId,
       qc_date: date,
       inspector,
       note,
-      lines: rows.map((r) => ({ bucket_id: r.id, decision: decided[r.id]?.decision ?? null, reason: decided[r.id]?.reason ?? "" })),
+      lines: rows.flatMap((r) => r.buckets.map((b) => ({ bucket_id: b.id, decision: decided[r.key]?.decision ?? null, reason: decided[r.key]?.reason ?? "" }))),
     });
     setSaving(false);
     if (!result.ok) {
@@ -85,11 +115,9 @@ export function QcForm({
       return;
     }
     setDirty(false);
-    toast("QC Check disimpan", `${result.no} · Draft`, "ok");
-    router.push(`${QC_CHECK_PATH}/${result.id}`);
+    if (!post) toast("QC Check disimpan", `${result.no} · Draft`, "ok");
+    router.push(`${QC_CHECK_PATH}/${result.id}${post ? "?post=1" : ""}`);
   }
-
-  const undecided = rows.filter((r) => !decided[r.id]?.decision).length;
 
   return (
     <>
@@ -103,9 +131,24 @@ export function QcForm({
         isEdit={mode === "edit"}
         dirty={dirty}
         saving={saving}
-        onSave={onSave}
-        backHref={check ? `${QC_CHECK_PATH}/${check.id}` : QC_CHECK_PATH}
-        actions={check && <ProdDocActions workflow={QC_CHECK_WORKFLOW} id={check.id} subject={check.no} status={check.status} can={can} run={(action, reason) => transitionQcCheckAction(check.id, action, reason)} />}
+        onSave={() => save(false)}
+        onPost={can.post ? () => save(true) : undefined}
+        postDisabled={!rows.length || undecided > 0}
+        backHref={check ? `${QC_CHECK_PATH}/${check.id}` : (workspace ?? QC_CHECK_PATH)}
+        actions={
+          check && (
+            <ProdDocActions
+              workflow={QC_CHECK_WORKFLOW}
+              id={check.id}
+              subject={check.no}
+              status={check.status}
+              can={can}
+              run={(action, reason) => transitionQcCheckAction(check.id, action, reason)}
+              autoPost={autoPost}
+              doneHref={workspace ?? undefined}
+            />
+          )
+        }
       />
       <div className="fgrid solo">
         <div>
@@ -113,8 +156,8 @@ export function QcForm({
             <FormBody>
               <FormSection title="Pemeriksaan">
                 <FormRow>
-                  <Field label="Unit" span={5} required={editing} locked={mode === "edit"} error={errors.unit_id}>
-                    {mode === "new" ? (
+                  <Field label="Unit" span={4} required={editing} locked={editing && (mode === "edit" || rows.length > 0)} error={errors.unit_id}>
+                    {mode === "new" && !rows.length ? (
                       <Combobox
                         value={unitId}
                         options={refs(options.units.map((u) => ({ id: u.id, label: u.label, name: `${u.name} · ${u.waiting} menunggu` })))}
@@ -122,29 +165,12 @@ export function QcForm({
                         emptyText="Belum ada unit ber-QC."
                         onChange={(v) => {
                           setUnitId(v);
-                          setPartai(null);
+                          setKeys([]);
                           touched();
                         }}
                       />
                     ) : (
-                      ro(idc(check?.unitLabel ?? "", check?.unitName ?? ""))
-                    )}
-                  </Field>
-                  <Field label="Partai" span={4} required={editing} locked={mode === "edit"} help={editing ? "satu dokumen satu partai" : undefined}>
-                    {mode === "new" ? (
-                      <Combobox
-                        value={partai}
-                        options={refs(groups)}
-                        placeholder="Pilih Partai…"
-                        waitingFor={unitId ? undefined : "Pilih Unit dulu…"}
-                        emptyText="Tidak ada hasil yang menunggu QC di unit ini."
-                        onChange={(v) => {
-                          setPartai(v);
-                          touched();
-                        }}
-                      />
-                    ) : (
-                      ro(<span className="mono">{rows[0]?.partaiNo ?? "Sebelum partai"}</span>)
+                      ro(idc(check?.unitLabel ?? unit?.label ?? "", check?.unitName ?? unit?.name ?? ""))
                     )}
                   </Field>
                   <Field label="Tanggal" span={3} required={editing} error={errors.qc_date}>
@@ -161,7 +187,10 @@ export function QcForm({
                       ro(formatDate(date))
                     )}
                   </Field>
-                  <Field label="Pemeriksa" span={4}>
+                  <Field label="Partai" span={3}>
+                    {rows[0]?.partaiNo ? ro(<span className="mono">{rows[0].partaiNo}</span>) : <div className="ro nil">{rows.length ? "sebelum partai" : "mengikuti baris"}</div>}
+                  </Field>
+                  <Field label="Pemeriksa" span={6}>
                     {editing ? (
                       <input
                         className="inp"
@@ -210,53 +239,65 @@ export function QcForm({
               </span>
               <div className="ct">
                 <h3>Hasil yang Diperiksa</h3>
-                <p>{editing ? `Satu baris diputuskan utuh. ${undecided ? `${undecided} baris belum diputuskan.` : "Semua baris sudah diputuskan."}` : "Lulus masuk Stand By; Balik kembali ke Persiapan unit ini."}</p>
+                <p>
+                  {editing
+                    ? `Satu baris satu No. Job, diputuskan utuh. ${rows.length ? (undecided ? `${undecided} baris belum diputuskan.` : "Semua baris sudah diputuskan.") : ""}`
+                    : "Lulus masuk Stand By; Balik kembali ke Persiapan unit ini."}
+                </p>
               </div>
-              {editing && undecided > 0 && rows.length > 0 && (
+              {editing && rows.length > 0 && undecided > 0 && (
                 <button
                   className="btn sm"
                   onClick={() => {
-                    setDecided((d) => ({ ...d, ...Object.fromEntries(rows.filter((r) => !d[r.id]?.decision).map((r) => [r.id, { decision: "Pass" as const, reason: "" }])) }));
+                    setDecided((d) => ({ ...d, ...Object.fromEntries(rows.filter((r) => !d[r.key]?.decision).map((r) => [r.key, { decision: "Pass" as const, reason: "" }])) }));
                     touched();
                   }}
                 >
-                  Sisanya Lulus
+                  Lulus Semua
+                </button>
+              )}
+              {editing && (
+                <button className="btn sm primary" disabled={!unitId} onClick={() => setAdding(true)}>
+                  <Icon name="plus" size={14} /> Tambah Baris
                 </button>
               )}
             </div>
             <ErrorBox text={errors._lines} />
             {rows.length ? (
               <div className="tw">
-                <table className="grid ltab" style={{ minWidth: 760 }}>
+                <table className="grid ltab" style={{ minWidth: 780 }}>
                   <thead>
                     <tr>
-                      <th>No. Stok</th>
-                      <th style={{ width: 170 }}>No. Job</th>
+                      <th>No. Job / No. Stok</th>
                       <th className="num" style={{ width: 120 }}>
-                        Jumlah
+                        Gram
                       </th>
                       <th style={{ width: 170 }}>Keputusan</th>
-                      <th style={{ width: 220 }}>Alasan</th>
+                      <th style={{ width: 220 }}>Alasan Balik</th>
+                      {editing && <th style={{ width: 40 }} />}
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((r, i) => {
-                      const d = decided[r.id];
-                      const err = errors[`lines.${i}.bucket_id`] ?? errors[`lines.${i}.decision`];
+                    {rows.map((r) => {
+                      const d = decided[r.key];
                       return (
-                        <tr key={r.id} className={err || d?.decision === "Return" ? "overrow" : undefined}>
+                        <tr key={r.key} className={d?.decision === "Return" ? "overrow" : undefined}>
                           <td>
-                            {idc(r.lotNo, r.itemName)}
-                            {r.isBjl && <span className="bdg s-mute">BJL</span>}
-                            {err && <span className="overtag">{err}</span>}
+                            {r.jobNo ? <div className="mono">{r.jobNo}</div> : null}
+                            {r.buckets.map((b) => (
+                              <div key={b.id}>
+                                {idc(b.lotNo, b.itemName)}
+                                {b.isBjl && <span className="bdg s-mute">BJL</span>}
+                                <span className="mut"> · {`${qtyText(check?.lines.find((l) => l.bucketId === b.id)?.qty ?? b.qty)} ${b.uomLabel}`}</span>
+                              </div>
+                            ))}
                           </td>
-                          <td className="mono">{r.jobNo ?? "—"}</td>
-                          <td className="num">{`${qtyText(check?.lines.find((l) => l.bucketId === r.id)?.qty ?? r.qty)} ${r.uomLabel}`}</td>
+                          <td className="num">{qtyText(gramOf(r))}</td>
                           <td>
                             {editing ? (
-                              <span className="dtog" role="group" aria-label={`Keputusan ${r.lotNo}`}>
+                              <span className="dtog" role="group" aria-label={`Keputusan ${r.jobNo ?? r.buckets[0].lotNo}`}>
                                 {(["Pass", "Return"] as QcDecision[]).map((v) => (
-                                  <button key={v} type="button" className={d?.decision === v ? "on" : undefined} onClick={() => setRow(r.id, { decision: v })}>
+                                  <button key={v} type="button" className={d?.decision === v ? "on" : undefined} onClick={() => decide(r.key, { decision: v })}>
                                     {QC_DECISION_TEXT[v]}
                                   </button>
                                 ))}
@@ -269,11 +310,25 @@ export function QcForm({
                           </td>
                           <td>
                             {editing && d?.decision === "Return" ? (
-                              <input className="inp sm" value={d.reason} placeholder="opsional" onChange={(e) => setRow(r.id, { reason: e.target.value })} />
+                              <input className="inp sm" value={d.reason} placeholder="opsional" onChange={(e) => decide(r.key, { reason: e.target.value })} />
                             ) : (
                               <span className="mut">{d?.reason || <span className="dash">—</span>}</span>
                             )}
                           </td>
+                          {editing && (
+                            <td>
+                              <button
+                                className="iact del"
+                                title="Keluarkan baris"
+                                onClick={() => {
+                                  setKeys((k) => k.filter((x) => x !== r.key));
+                                  touched();
+                                }}
+                              >
+                                <Icon name="trash" size={14} />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -282,12 +337,27 @@ export function QcForm({
               </div>
             ) : (
               <div className="empty">
-                <h4>{partai == null ? "Pilih Partai dulu…" : "Tidak ada hasil yang menunggu QC di unit ini"}</h4>
+                <h4>{unitId ? "Belum ada baris" : "Pilih Unit dulu…"}</h4>
+                {unitId && <p>Tambahkan No. Job yang menunggu QC dengan Tambah Baris.</p>}
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {adding && (
+        <JobPicker
+          title="Tambah Baris"
+          subtitle={rows.length ? `Yang menunggu QC di ${unit?.label ?? ""}, partai yang sama.` : `Yang menunggu QC di ${unit?.label ?? ""}.`}
+          choices={addable.map((w) => ({ key: w.key, jobNo: w.jobNo, lotNo: w.buckets[0].lotNo, itemName: w.buckets[0].itemName, count: w.buckets.length, partaiId: w.partaiId, partaiNo: w.partaiNo, grams: gramOf(w) }))}
+          onAdd={(k) => {
+            setKeys((x) => [...x, ...k]);
+            setAdding(false);
+            touched();
+          }}
+          onClose={() => setAdding(false)}
+        />
+      )}
     </>
   );
 }

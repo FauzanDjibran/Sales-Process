@@ -208,7 +208,7 @@ export function UnitBoard({
     }
     if (tab === "qc" && can.qc) {
       out.push(
-        <button key="qc" className="btn primary" disabled={!picked.length || mixed} onClick={() => router.push(`/production/qc-check/new?bucket=${pickedRows[0].id}`)}>
+        <button key="qc" className="btn primary" disabled={!picked.length || mixed} onClick={() => router.push(`/production/qc-check/new?bucket=${pickedRows.map((r) => r.id).join(",")}`)}>
           <Icon name="check" size={14} /> Periksa{picked.length > 1 ? ` (${picked.length})` : ""}
         </button>
       );

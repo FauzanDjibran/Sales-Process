@@ -3,7 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { holdPostingPeriod } from "./fiscal";
-import { PostingDryRun, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
+import { PostingDryRun, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { shareWork } from "./production-execution";
 import {
   DAY,
@@ -30,7 +30,7 @@ import {
   type BucketOption,
   type ValueMove,
 } from "./production-doc";
-import { bucketsByIds, consumeBucket, gramsOf, lockRateVersion, preparationNoteUnits, produceIntoBucket, recordCostEntry, type BucketView } from "./production-ledger";
+import { availableBuckets, bucketsByIds, consumeBucket, gramsOf, lockRateVersion, preparationNoteUnits, produceIntoBucket, recordCostEntry, type BucketView } from "./production-ledger";
 import { WORK_WORKFLOW } from "./production-execution-workflow";
 import { prodDocTransitionAllowed, type ProdDocAction, type ProdDocStatus } from "./production-doc-workflow";
 
@@ -100,6 +100,13 @@ async function check(db: Db, input: WorkInput, strict: boolean) {
     if (qty > 0 && employee) lines.push({ line_no: lines.length + 1, bucket_id: b.id, job_id: b.jobId, employee_id: employeeId, qty: fromUnits(units(qty)), bucket: b });
   });
   if (strict && !raw.length) errors._lines = "Pilih minimal satu No. Job.";
+  // A Job is worked whole (W96, A5.1): every No. Stok of it here, all of each.
+  const jobIds = [...new Set(lines.flatMap((l) => (l.job_id ? [l.job_id] : [])))];
+  if (jobIds.length && unitId && !errors._lines) {
+    const held = (await availableBuckets({ unitIds: [unitId], stage: "Preparation" }, db)).filter((b) => b.jobId && jobIds.includes(b.jobId) && !b.auxiliary && b.qty > 0);
+    const short = held.find((b) => units(lines.find((l) => l.bucket_id === b.id)?.qty ?? 0) !== units(b.qty));
+    if (short) errors._lines = `No. Job ${short.jobNo} dikerjakan utuh: ${short.lotNo} ${short.qty} ${short.uomLabel}.`;
+  }
 
   const aux = await checkAuxLines(input.aux, unitId, errors, db);
   if (Object.keys(errors).length) return { ok: false as const, errors };
@@ -276,7 +283,7 @@ export async function workPreview(id: number, actorId: number): Promise<JournalP
 
 // ------------------------------------------------------------------- reads
 
-export type WorkListRow = { id: number; no: string; date: string; status: ProdDocStatus; unitLabel: string; unitName: string; lines: number; value: number };
+export type WorkListRow = { id: number; no: string; date: string; status: ProdDocStatus; unitLabel: string; unitName: string; partaiNo: string | null; lines: number; grams: number; value: number };
 
 /** The buckets a Draft of this document names: *Ada di Draft* in the Workspace (P263). */
 export async function workDraftBucketIds(): Promise<number[]> {
@@ -290,17 +297,28 @@ export async function workUnitId(id: number): Promise<number | null> {
 
 /** `units`: the actor's Units, or null for all (P260). */
 export async function listWorks(units: number[] | null = null): Promise<WorkListRow[]> {
-  const rows = await prisma.prdWork.findMany({ where: units ? { unit_id: { in: units } } : undefined, orderBy: [{ work_date: "desc" }, { id: "desc" }], include: { unit: true, _count: { select: { lines: true } } } });
-  return rows.map((r) => ({
-    id: r.id,
-    no: r.work_no,
-    date: isoDay(r.work_date),
-    status: r.status as ProdDocStatus,
-    unitLabel: r.unit.unit_label,
-    unitName: r.unit.unit_name,
-    lines: r._count.lines,
-    value: r.cost_amount.add(r.aux_value).toNumber(),
-  }));
+  const rows = await prisma.prdWork.findMany({
+    where: units ? { unit_id: { in: units } } : undefined,
+    orderBy: [{ work_date: "desc" }, { id: "desc" }],
+    include: { unit: true, lines: { select: { bucket_id: true, job_id: true, qty: true, grams: true } } },
+  });
+  const buckets = await bucketsByIds(rows.flatMap((r) => r.lines.map((l) => l.bucket_id)));
+  return rows.map((r) => {
+    const held = r.lines.map((l) => ({ l, b: buckets.get(l.bucket_id) }));
+    return {
+      id: r.id,
+      no: r.work_no,
+      date: isoDay(r.work_date),
+      status: r.status as ProdDocStatus,
+      unitLabel: r.unit.unit_label,
+      unitName: r.unit.unit_name,
+      partaiNo: held.find((x) => x.b?.partaiNo)?.b?.partaiNo ?? null,
+      // A row is a Job, or a No. Stok without one (A5.1).
+      lines: new Set(r.lines.map((l) => (l.job_id ? `j${l.job_id}` : `b${l.bucket_id}`))).size,
+      grams: held.reduce((a, { l, b }) => a + (r.status === "Posted" ? l.grams.toNumber() : l.qty.toNumber() * (b?.gramsEach ?? 0)), 0),
+      value: r.cost_amount.add(r.aux_value).toNumber(),
+    };
+  });
 }
 
 export type WorkView = {
@@ -314,6 +332,9 @@ export type WorkView = {
   resultNote: string | null;
   note: string | null;
   reason: string | null;
+  /** The journal Posting wrote (A7.4). */
+  journalId: number | null;
+  journalNo: string | null;
   rate: number;
   cost: number;
   auxValue: number;
@@ -325,9 +346,12 @@ export type WorkView = {
 export async function getWork(id: number): Promise<WorkView | null> {
   const w = await prisma.prdWork.findUnique({ where: { id }, include: { unit: true, lines: { orderBy: { line_no: "asc" } }, aux: { orderBy: { line_no: "asc" } } } });
   if (!w) return null;
+  const journalNo = w.journal_id ? ((await journalNumbersByIds([w.journal_id])).get(w.journal_id) ?? null) : null;
   return {
     id: w.id,
     no: w.work_no,
+    journalId: w.journal_id,
+    journalNo,
     date: isoDay(w.work_date),
     status: w.status as ProdDocStatus,
     unitId: w.unit_id,

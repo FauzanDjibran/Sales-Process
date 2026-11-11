@@ -8,8 +8,10 @@ import { WORK_PATH, WORK_WORKFLOW } from "@/lib/erp/production-execution-workflo
 
 export const dynamic = "force-dynamic";
 
-export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+/** `?post=1`: the form's *Posting* just saved this Draft, so its confirmation opens (D2). */
+export default async function Page({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ post?: string }> }) {
   const { id } = await params;
+  const { post } = await searchParams;
   const actor = await requirePermission("PRODUCTION_WORK_VIEW", WORK_PATH);
   const doc = await getWork(Number(id));
   if (!doc) notFound();
@@ -17,7 +19,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const options = await narrowToUnits(actor, await workOptions([...doc.lines.map((l) => l.bucketId), ...doc.aux.map((a) => a.bucketId)]));
   return (
     <>
-      <WorkForm mode="view" work={doc} options={options} can={WORK_WORKFLOW.abilities(actor.permissions)} />
+      <WorkForm mode="view" work={doc} options={options} can={WORK_WORKFLOW.abilities(actor.permissions)} autoPost={post === "1"} />
       <RecordHistoryCard entityKey="prd_work" rowId={doc.id} />
     </>
   );
