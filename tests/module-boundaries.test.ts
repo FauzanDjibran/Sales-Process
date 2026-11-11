@@ -69,6 +69,7 @@ function sibaImports(text: string): string[] {
 const TABLE_OWNERS: Record<string, string[]> = {
   // A module is its data module *and* its Server Action — two layers of one
   // building block, not two modules.
+  sysNumberCounter: ["src/lib/erp/number-counter.ts"],
   cashBankLedger: ["src/lib/erp/cash-bank.ts"],
   cashBankBalance: ["src/lib/erp/cash-bank.ts"],
   cashBankPeriod: ["src/lib/erp/cash-bank.ts"],
@@ -281,7 +282,7 @@ describe("the dependency graph points one way", () => {
  */
 const SHARED_TABLES = [
   "sys_user", "sys_role", "sys_permission", "sys_user_role", "sys_role_permission",
-  "sys_session", "sys_setting", "sys_doc_type", "audit_log",
+  "sys_session", "sys_setting", "sys_doc_type", "sys_number_counter", "audit_log",
 ];
 const PRODUCTION_TABLES = [
   "m_employee", "prd_user_unit",

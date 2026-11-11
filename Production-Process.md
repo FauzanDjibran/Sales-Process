@@ -6,7 +6,7 @@
 > its decisions R1–R19 are in `Production-Plan.md`; each built step is a
 > P2xx decision in `Claude-ERP.md` §12.
 >
-> Last updated: **12/11/2026 — P265** (QC Check and Pengerjaan Unit per Job; status tabs on the registers).
+> Last updated: **12/11/2026 — P266** (the production ledger asks its period and number once per posting).
 >
 > **What follows describes what is on `main`.** The agreed target is in
 > `Produksi Walet (Real).md`; its build steps add the documents back.
@@ -97,6 +97,7 @@ plan's steps 1–13.
 | 11/11/2026 | P263 | Workspace Unit list with Line tabs and groups; Unit page with Masuk, Persiapan, QC Check, Stand By and Dalam Perjalanan, the Job and No. Stok tanpa Job tables, the next Unit on Stand By and one search field; the first round's scan bar and bucket lines removed. |
 | 12/11/2026 | P264 | No. Grading per Job: `prd_grading.job_id` and `prd_grading_input`, the Job taken whole and read again at Posting, outputs `<asal>-n` linked to every input, UGH releases the Job; scale-style output entry; Posting from the form opens its confirmation, and returns to the Unit. |
 | 12/11/2026 | P265 | QC Check rows per Job, decided whole by the server; Pengerjaan Unit per Job, worked whole, with Samakan and Tambah No. Job; registers with status tabs, Partai and Gram; Journal linked on posted documents. |
+| 12/11/2026 | P266 | Production ledger: period and MP number asked once per posting, `sys_number_counter`, BRIN on `prd_ledger.posting_date`; stage moves keep their rows; summary table and scheduled reconcile set aside. |
 | 06/11/2026 | P240 | One No. Job rule: a move carries the No. Job or makes one; the Unit keeps only Lepas No. Job and Terbitkan Job Order. No document uses them yet. |
 | 06/11/2026 | P239 | Masters of the plan up to Barcoding: one Tipe per Unit, QC Check on the Unit, Keluar Lewat worked out, 14 Units and REG-1 up to UP5. No document uses them yet. |
 | 05/11/2026 | P236 | W64–W76 agreed from the simulation: Push inside a Workstation and BSTB across, QC Check in the unit, Moulding split in two without Mix, CCP-1 and Sortir as units, the checkpoint only at Barcoding, one process per Unit; no change to what is built. |

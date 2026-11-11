@@ -7,7 +7,7 @@ migration updates this file in the same change (Claude-ERP.md §9).
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout: three parts, one per owner** (P254, `production_app_plan.md` §5):
-  **Bagian A — Bersama** (login, roles, permissions, settings, document types,
+  **Bagian A — Bersama** (login, roles, permissions, settings, document types and number counters,
   audit), **Bagian B — ERP** and **Bagian C — Produksi**. One database still
   holds all three; the banners say which application a table belongs to.
   `tests/module-boundaries.test.ts` fails when a table sits in the wrong part
@@ -165,6 +165,13 @@ table sys_setting {
 
   created_at                  timestamptz [not null, default: `now()`]
   updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// the last number claimed per document series PREFIX/YYYY/MM; claimed inside the posting, so a rollback gives it back (5.4)
+table sys_number_counter {
+  id                          int [pk, increment]
+  series                      text [unique, not null]
+  last_no                     int [not null]
 }
 
 // the main reference when a row points at a document: the weak (doc_type_id, doc_id) pair
@@ -3051,6 +3058,7 @@ table prd_ledger {
   created_at                  timestamptz [not null, default: `now()`]
 
   indexes {
+    posting_date [type: brin] // date ranges over the ledger (5.4)
     (ledger_no, line_no) [unique]
     (bucket_id, posting_date)
     tracking_id

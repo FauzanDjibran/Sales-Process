@@ -2,7 +2,8 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
-import { dailySeries, nextDailyNumber, nextDocumentNumber } from "./document-number";
+import { dailySeries, nextDailyNumber } from "./document-number";
+import { claimDocumentNumber } from "./number-counter";
 import { costedPeriodRefusal } from "./period-lock";
 
 /**
@@ -138,28 +139,50 @@ async function openBucket(tx: Tx, k: BucketKey, actorId: number): Promise<Bucket
 
 /** One ledger number per posting (P110): the rows a document writes share it, a line each. */
 async function position(tx: Tx, date: Date, s: ProductionSource) {
-  const last = await tx.prdLedger.findFirst({
-    where: { source_doc_type_id: s.docTypeId, source_doc_id: s.docId },
-    orderBy: { line_no: "desc" },
-    select: { ledger_no: true, line_no: true },
-  });
-  if (last) return { ledger_no: last.ledger_no, line_no: last.line_no + 1 };
-  const ledger_no = await nextDocumentNumber("MP", date, async (series) => {
-    const row = await tx.prdLedger.findFirst({
-      where: { ledger_no: { startsWith: series }, line_no: 1 },
-      orderBy: { id: "desc" },
-      select: { ledger_no: true },
+  const positions = postingOf(tx).positions;
+  const key = `${s.docTypeId}:${s.docId}`;
+  let at = positions.get(key);
+  if (!at) {
+    const last = await tx.prdLedger.findFirst({
+      where: { source_doc_type_id: s.docTypeId, source_doc_id: s.docId },
+      orderBy: { line_no: "desc" },
+      select: { ledger_no: true, line_no: true },
     });
-    return row?.ledger_no ?? null;
-  });
-  return { ledger_no, line_no: 1 };
+    at = last ?? { line_no: 0, ledger_no: await claimDocumentNumber(tx, "MP", date, highestLedgerNo(tx)) };
+    positions.set(key, at);
+  }
+  at.line_no += 1;
+  return { ledger_no: at.ledger_no, line_no: at.line_no };
+}
+
+/** Where an MP series stood before it had a counter; read once, when the counter is first made. */
+const highestLedgerNo = (tx: Tx) => async (series: string) =>
+  (await tx.prdLedger.findFirst({ where: { ledger_no: { startsWith: series }, line_no: 1 }, orderBy: { id: "desc" }, select: { ledger_no: true } }))?.ledger_no ?? null;
+
+/**
+ * What one posting has already asked, so a document of many rows asks its
+ * period and its ledger number once, not per row (Workspace plan §4). Keyed by
+ * the transaction, so it ends with it, a dry run included.
+ */
+const postings = new WeakMap<Tx, { periods: Map<string, Promise<string | null>>; positions: Map<string, { ledger_no: string; line_no: number }> }>();
+function postingOf(tx: Tx) {
+  let p = postings.get(tx);
+  if (!p) postings.set(tx, (p = { periods: new Map(), positions: new Map() }));
+  return p;
+}
+
+/** A costed period takes no production posting (R15); asked once per date per posting. */
+function costedRefusal(tx: Tx, date: Date): Promise<string | null> {
+  const periods = postingOf(tx).periods;
+  const key = date.toISOString().slice(0, 10);
+  if (!periods.has(key)) periods.set(key, costedPeriodRefusal(date, tx));
+  return periods.get(key)!;
 }
 
 // -------------------------------------------------------------- writing
 
 async function write(tx: Tx, b: Bucket, m: { movement: Movement; qty: Dec; value: Dec; date: Date; source: ProductionSource; actorId: number }) {
-  // A costed period takes no production posting (R15).
-  const costed = await costedPeriodRefusal(m.date, tx);
+  const costed = await costedRefusal(tx, m.date);
   if (costed) throw new ProductionRefusal(costed);
   const qty = b.qty.add(m.qty);
   const value = b.value.add(m.value);
@@ -592,7 +615,7 @@ export async function recordCostEntry(
   tx: Tx,
   c: { unitId: number; rateVersionId: number; lotId: number; partaiId?: number | null; grams: number | string | Dec; isRework?: boolean; date: Date; source: ProductionSource; actorId: number }
 ): Promise<{ amount: number; rate: number }> {
-  const costed = await costedPeriodRefusal(c.date, tx);
+  const costed = await costedRefusal(tx, c.date);
   if (costed) throw new ProductionRefusal(costed);
   const grams = new D(c.grams);
   if (!grams.gt(0)) throw new ProductionRefusal("Gram harus lebih dari 0.");

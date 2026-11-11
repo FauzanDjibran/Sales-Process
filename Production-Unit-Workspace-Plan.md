@@ -194,7 +194,7 @@ Ini ditemukan dari membaca kode, dan semuanya tetap perlu dibereskan apa pun pil
 
 ## 6. Keputusan yang dibutuhkan
 
-1. **Perpindahan stage tanpa baris ledger?** Saran: ya, diputuskan di tahap 2.
+1. **Perpindahan stage tanpa baris ledger?** Diputuskan 12/11/2026 (P266): **tidak**, baris tetap ditulis; ditimbang lagi bersama grain pcs.
 2. **Laporan Produksi untuk Admin Unit:** dibatasi ke Unit-nya, atau tetap lintas Unit? Saran: dibatasi, kecuali Telusur, karena Telusur memang melintasi Unit.
 3. **Masih terbuka di simulasi:** satu Dokumen Push untuk banyak kotak, dan OK per kotak atau sekaligus.
 

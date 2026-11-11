@@ -308,6 +308,16 @@ model SysPermission {
 /// says how to read them — a `ref` setting stores a row id.
 ///
 /// Not in the source DBML, which has no settings table at all.
+/// The last number claimed per document series (`PREFIX/YYYY/MM`), so a
+/// posting asks its counter instead of searching the numbers written (5.4).
+model SysNumberCounter {
+  id      Int    @id @default(autoincrement())
+  series  String @unique
+  last_no Int
+
+  @@map("sys_number_counter")
+}
+
 model SysSetting {
   id            Int     @id @default(autoincrement())
   setting_key   String  @unique
@@ -4130,6 +4140,8 @@ model PrdLedger {
   @@unique([ledger_no, line_no])
   @@index([partai_id])
   @@index([bucket_id, posting_date])
+  /// Date ranges over the whole ledger (the year-end guard, reports) without a btree on every row (5.4).
+  @@index([posting_date], type: Brin)
   @@index([tracking_id])
   @@index([source_doc_type_id, source_doc_id])
   @@map("prd_ledger")
