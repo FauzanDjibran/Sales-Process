@@ -278,6 +278,11 @@ export async function workPreview(id: number, actorId: number): Promise<JournalP
 
 export type WorkListRow = { id: number; no: string; date: string; status: ProdDocStatus; unitLabel: string; unitName: string; lines: number; value: number };
 
+/** The buckets a Draft of this document names: *Ada di Draft* in the Workspace (P263). */
+export async function workDraftBucketIds(): Promise<number[]> {
+  return (await prisma.prdWorkLine.findMany({ where: { work: { status: "Draft" } }, select: { bucket_id: true } })).map((r) => r.bucket_id);
+}
+
 /** The Unit a document is at, for the actions' Unit check (P260). */
 export async function workUnitId(id: number): Promise<number | null> {
   return (await prisma.prdWork.findUnique({ where: { id }, select: { unit_id: true } }))?.unit_id ?? null;

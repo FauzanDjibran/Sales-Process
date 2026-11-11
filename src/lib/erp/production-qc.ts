@@ -155,6 +155,11 @@ export async function transitionQcCheck(id: number, action: ProdDocAction, actor
 
 export type QcListRow = { id: number; no: string; date: string; status: ProdDocStatus; unitLabel: string; unitName: string; lines: number };
 
+/** The buckets a Draft of this document names: *Ada di Draft* in the Workspace (P263). */
+export async function qcDraftBucketIds(): Promise<number[]> {
+  return (await prisma.prdQcCheckLine.findMany({ where: { qc_check: { status: "Draft" } }, select: { bucket_id: true } })).map((r) => r.bucket_id);
+}
+
 /** The Unit a document is at, for the actions' Unit check (P260). */
 export async function qcCheckUnitId(id: number): Promise<number | null> {
   return (await prisma.prdQcCheck.findUnique({ where: { id }, select: { unit_id: true } }))?.unit_id ?? null;

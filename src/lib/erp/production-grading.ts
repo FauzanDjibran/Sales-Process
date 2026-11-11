@@ -294,6 +294,11 @@ export type GradingListRow = {
   value: number;
 };
 
+/** The buckets a Draft of this document names: *Ada di Draft* in the Workspace (P263). */
+export async function gradingDraftBucketIds(): Promise<number[]> {
+  return (await prisma.prdGrading.findMany({ where: { status: "Draft" }, select: { bucket_id: true } })).map((r) => r.bucket_id);
+}
+
 /** The Unit a document is at, for the actions' Unit check (P260). */
 export async function gradingUnitId(id: number): Promise<number | null> {
   return (await prisma.prdGrading.findUnique({ where: { id }, select: { unit_id: true } }))?.unit_id ?? null;

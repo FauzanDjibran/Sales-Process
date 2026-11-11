@@ -261,3 +261,33 @@ export async function writeRateCollections(
     });
   }
 }
+
+export type RouteMap = {
+  /** Active lines, for the Workspace's Line tabs. */
+  lines: { id: number; label: string; name: string }[];
+  routings: { id: number; lineId: number | null; steps: { unitId: number; workstationId: number | null; checkpoint: boolean }[] }[];
+};
+
+/**
+ * Every active routing in order, with the Workstation of each step: which lines
+ * a Unit serves, and where goods go next (P263). The routing and its Units are
+ * the ERP's masters; the Workspace only reads them.
+ */
+export async function routeMap(): Promise<RouteMap> {
+  const [lines, routings] = await Promise.all([
+    prisma.prdLine.findMany({ where: { status: "Active" }, orderBy: { line_code: "asc" }, select: { id: true, line_label: true, line_name: true } }),
+    prisma.prdRouting.findMany({
+      where: { status: "Active" },
+      orderBy: { id: "asc" },
+      select: { id: true, line_id: true, steps: { orderBy: { seq: "asc" }, select: { unit_id: true, is_checkpoint: true, unit: { select: { workstation_id: true } } } } },
+    }),
+  ]);
+  return {
+    lines: lines.map((l) => ({ id: l.id, label: l.line_label, name: l.line_name })),
+    routings: routings.map((r) => ({
+      id: r.id,
+      lineId: r.line_id,
+      steps: r.steps.map((s) => ({ unitId: s.unit_id, workstationId: s.unit.workstation_id, checkpoint: s.is_checkpoint })),
+    })),
+  };
+}

@@ -1382,14 +1382,10 @@ table.grid tbody tr.sel td{background:var(--accent-50)}
 .selcount button:hover{background:var(--accent-100);color:var(--ink)}
 .kpi .i.t-acc{background:var(--accent-50);color:#8A6D08}
 .uw-tags{display:flex;flex-wrap:wrap;gap:5px}
+/* A heading over each of the Unit page's two tables, Job and No. Stok tanpa Job (W111). */
+.uw-sec{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:14px 16px 6px;font-size:9.5px;font-weight:800;letter-spacing:.11em;text-transform:uppercase;color:var(--muted-2)}
+.uw-sec span{margin-left:auto;font-size:10.5px;font-weight:500;letter-spacing:0;text-transform:none}
 .uw-nums small{display:block;font-family:var(--f-mono);font-size:10px;color:var(--muted-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* The scan field: a scanner types like a keyboard, so this is an ordinary input that keeps the focus. */
-.scanbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 13px;border-bottom:1px solid var(--line-2);background:var(--accent-50)}
-.scanbar label{display:flex;align-items:center;gap:6px;font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase;color:#8A6D08}
-.scanbar input{flex:1 1 280px;min-width:0;height:34px;border:1px solid var(--accent-100);border-radius:var(--r);padding:0 11px;background:#fff;font-family:var(--f-mono);font-size:13px}
-.scanbar input:focus{border-color:var(--accent-s);outline:none;box-shadow:0 0 0 3px var(--accent-100)}
-table.grid tbody tr.flash td{animation:uwflash 1.2s}
-@keyframes uwflash{from{background:var(--accent-100)}}
 
 /* The Dampak Transaksi card of a Penerimaan / Pengeluaran (P243): what posting
    does to the Kas & Bank, labels over figures as SIBA's .lsum. */

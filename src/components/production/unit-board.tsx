@@ -1,144 +1,261 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
+import { Amount } from "@/components/ui/amount";
+import { Dialog } from "@/components/ui/dialog";
 import { Pager, usePaging } from "@/components/ui/pager";
 import { SearchField } from "@/components/ui/search-field";
+import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
+import { StockIssueActions } from "@/components/inventory/stock-issue-actions";
 import { idc } from "@/components/production/execution-parts";
+import { PROCESS_TEXT } from "@/components/production/unit-cards";
+import type { BoardRow } from "@/lib/erp/production-workspace";
+import type { StockIssueAbilities } from "@/lib/erp/stock-issue-workflow";
 import { formatDate, formatNumber } from "@/lib/format";
 
 /**
- * One Unit's work (`Production-Unit-Workspace-Plan.md`): four queues by stage and a
- * scan field. A scan — or a click on the row — does the same thing: it opens the
- * one form that row's work needs, so a form is one action: one grading, one
- * Pengerjaan, one QC Check. The scale is not part of this: grams are typed.
+ * One Unit's work (`Workspace-Unit-Diff.md` A2, P263). Five tabs by where the
+ * goods are; goods with a No. Job are one row per Job and always move whole,
+ * goods without one are a row per No. Stok (W111). The actions sit in the page
+ * header and follow the tab and the rows chosen. A No. Job or No. Stok typed in
+ * the search and confirmed with Enter opens its work, so a scanner works too (D1).
  */
 
-export type BoardRow = {
-  id: number;
-  lotNo: string;
-  itemLabel: string;
-  itemName: string;
-  uomLabel: string;
-  stage: "Preparation" | "QcCheck" | "StandBy";
-  partaiId: number | null;
-  partaiNo: string | null;
-  jobId: number | null;
-  jobNo: string | null;
-  grams: number | null;
-  isBjl: boolean;
-  qcCheckId: number | null;
+export type BoardIncoming = { id: number; issueNo: string; issueDate: string; warehouseLabel: string; auxiliary: boolean; lines: { lotNo: string; qty: number; uomLabel: string }[] };
+export type BoardUnit = {
+  label: string;
+  name: string;
+  process: "PassThrough" | "Grading" | "Assembly";
+  hasQc: boolean;
+  workstation: string | null;
+  pre: boolean;
+  checkpoint: boolean;
+  releasesJob: boolean;
+  /** After the checkpoint a Job may hold several partai (W103). */
+  afterCheckpoint: boolean;
+  lines: { id: number; name: string }[];
 };
 
-export type BoardIncoming = { id: number; issueNo: string; issueDate: string; warehouseLabel: string; lines: { lotNo: string; qty: number; uomLabel: string }[] };
+type Tab = "masuk" | "persiapan" | "qc" | "standby" | "transit";
+/** `grams` is null when none of its goods has a gram to read. */
+type Group = { key: string; job: { id: number; no: string } | null; rows: BoardRow[]; grams: number | null; value: number };
 
-type Tab = "masuk" | "persiapan" | "qc" | "standby";
-const TAB_OF = { Preparation: "persiapan", QcCheck: "qc", StandBy: "standby" } as const;
+const STAGE: Record<"persiapan" | "qc" | "standby", BoardRow["stage"]> = { persiapan: "Preparation", qc: "QcCheck", standby: "StandBy" };
+const TAB_OF: Record<BoardRow["stage"], Tab> = { Preparation: "persiapan", QcCheck: "qc", StandBy: "standby" };
 const gram = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
-const sumG = (rows: BoardRow[]) => rows.reduce((a, r) => a + (r.grams ?? 0), 0);
-const partais = (rows: BoardRow[]) => new Set(rows.flatMap((r) => (r.partaiId ? [r.partaiId] : []))).size;
+
+function groupsOf(rows: BoardRow[]): Group[] {
+  const out = new Map<string, Group>();
+  for (const r of rows) {
+    const key = r.jobId ? `j${r.jobId}` : `b${r.id}`;
+    const g: Group = out.get(key) ?? { key, job: r.jobId ? { id: r.jobId, no: r.jobNo ?? "" } : null, rows: [], grams: null, value: 0 };
+    g.rows.push(r);
+    if (r.grams != null) g.grams = (g.grams ?? 0) + r.grams;
+    g.value += r.value;
+    out.set(key, g);
+  }
+  return [...out.values()];
+}
+
+const oldest = (rows: BoardRow[]) => rows.map((r) => r.since).filter(Boolean).sort()[0] ?? null;
+
+function PartaiCell({ rows }: { rows: BoardRow[] }) {
+  const partais = [...new Map(rows.filter((r) => r.partaiNo).map((r) => [r.partaiId, r])).values()];
+  if (!partais.length) return <span className="dash">Sebelum partai</span>;
+  return (
+    <>
+      {partais.map((r) => (
+        <div key={r.partaiId}>
+          <span className="mono" style={{ fontSize: 11.5 }}>
+            {r.partaiNo}
+          </span>{" "}
+          {r.lineName && <span className="bdg t-acc">{r.lineName}</span>}
+        </div>
+      ))}
+    </>
+  );
+}
+
+function Notes({ rows }: { rows: BoardRow[] }) {
+  const notes = [...new Set(rows.flatMap((r) => r.notes))];
+  const parts = [
+    rows.some((r) => r.balikQc) && <span key="b" className="bdg t-bad">Balik QC</span>,
+    rows.some((r) => r.inDraft) && <span key="d" className="bdg t-slate">Ada di Draft</span>,
+    ...notes.map((n) => <span key={n}>{n}</span>),
+  ].filter(Boolean);
+  return parts.length ? <>{parts.reduce<React.ReactNode[]>((a, p, i) => (i ? [...a, " ", p] : [p]), [])}</> : <span className="dash">—</span>;
+}
+
+function Next({ row }: { row: BoardRow }) {
+  return row.next ? (
+    <>
+      <span className="lab">{row.next.label}</span> <span className="uw-hint">{row.next.exit === "Push" ? "Push" : "BSTB"}</span>
+    </>
+  ) : (
+    <span className="dash">—</span>
+  );
+}
 
 export function UnitBoard({
   unit,
   rows,
   incoming,
   can,
+  issueCan,
   initialTab,
 }: {
-  unit: { label: string; name: string; process: "PassThrough" | "Grading" | "Assembly"; hasQc: boolean };
+  unit: BoardUnit;
   rows: BoardRow[];
   incoming: BoardIncoming[];
   can: { grading: boolean; work: boolean; qc: boolean };
+  issueCan: StockIssueAbilities;
   initialTab: Tab;
 }) {
   const router = useRouter();
   const toast = useToast();
-  const scanRef = useRef<HTMLInputElement>(null);
   const [tab, setTab] = useState<Tab>(initialTab);
-  const [selected, setSelected] = useState<number[]>([]);
   const [query, setQuery] = useState("");
-  const [flash, setFlash] = useState<number | null>(null);
+  const [lineFilter, setLineFilter] = useState("");
+  const [partaiFilter, setPartaiFilter] = useState("");
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [inside, setInside] = useState<Group | null>(null);
 
-  useEffect(() => scanRef.current?.focus(), [tab]);
+  const all = groupsOf(rows);
+  const byStage = (s: BoardRow["stage"]) => all.filter((g) => g.rows[0].stage === s);
+  const stageTab = tab === "persiapan" || tab === "qc" || tab === "standby" ? tab : null;
+  const here = stageTab ? byStage(STAGE[stageTab]) : [];
+  const onePartai = !unit.afterCheckpoint;
 
-  const by = (stage: BoardRow["stage"]) => rows.filter((r) => r.stage === stage);
-  const prep = by("Preparation");
-  const qc = by("QcCheck");
-  const standBy = by("StandBy");
-  const inGrams = incoming.reduce((a, d) => a + d.lines.reduce((s, l) => s + (l.uomLabel === "GR" ? l.qty : 0), 0), 0);
+  const q = query.trim().toLowerCase();
+  const hit = (g: Group) => !q || g.rows.some((r) => `${r.lotNo} ${r.jobNo ?? ""} ${r.itemLabel} ${r.itemName}`.toLowerCase().includes(q));
+  const filtered = here.filter((g) => hit(g) && (!lineFilter || g.rows.some((r) => String(r.lineId) === lineFilter)) && (!partaiFilter || g.rows.some((r) => String(r.partaiId) === partaiFilter)));
+  const jobs = filtered.filter((g) => g.job);
+  const loose = filtered.filter((g) => !g.job);
+  const resetOn = `${tab}|${q}|${lineFilter}|${partaiFilter}`;
+  const jobPage = usePaging(jobs, resetOn);
+  const loosePage = usePaging(loose, resetOn);
+  const onPage = [...jobPage.pageRows, ...loosePage.pageRows];
+
+  const picked = here.filter((g) => chosen.has(g.key));
+  const pickedRows = picked.flatMap((g) => g.rows);
+  const pickedPartais = new Set(pickedRows.map((r) => r.partaiId));
+  const mixed = onePartai && pickedPartais.size > 1;
+  const partaiOptions = [...new Map(here.flatMap((g) => g.rows).filter((r) => r.partaiNo).map((r) => [r.partaiId, r.partaiNo!])).entries()];
+
+  const goTab = (t: Tab) => {
+    setTab(t);
+    setChosen(new Set());
+  };
+  const toggle = (g: Group) =>
+    setChosen((s) => {
+      const n = new Set(s);
+      if (n.has(g.key)) n.delete(g.key);
+      else n.add(g.key);
+      return n;
+    });
+
+  /** A Grading Unit grades a Job whole: its row opens that grading (W97). */
+  function openGrading(g: Group) {
+    if (!can.grading) return toast("Tidak diizinkan", "Anda tidak boleh membuat No. Grading.", "err");
+    router.push(`/production/grading/new?bucket=${g.rows[0].id}`);
+  }
+
+  function onRow(g: Group) {
+    if (tab === "persiapan" && unit.process === "Grading") return openGrading(g);
+    toggle(g);
+  }
+
+  /** Enter on an exact No. Job or No. Stok opens its work, wherever it waits (D1). */
+  function onEnter() {
+    const code = query.trim().toUpperCase();
+    if (!code) return;
+    const g = all.find((x) => x.job?.no.toUpperCase() === code || x.rows.some((r) => r.lotNo.toUpperCase() === code));
+    if (g) {
+      const t = TAB_OF[g.rows[0].stage];
+      if (t === "persiapan" && unit.process === "Grading") return openGrading(g);
+      setTab(t);
+      setChosen(new Set([g.key]));
+      setQuery("");
+      return;
+    }
+    if (incoming.some((d) => d.issueNo.toUpperCase() === code || d.lines.some((l) => l.lotNo.toUpperCase() === code))) {
+      setQuery("");
+      return goTab("masuk");
+    }
+    toast("Tidak ditemukan", `${query.trim()} tidak ada di ${unit.label}.`, "err");
+  }
 
   const tabs: [Tab, string, number][] = [
     ["masuk", "Masuk", incoming.length],
-    ["persiapan", "Persiapan", prep.length],
-    ...(unit.hasQc ? ([["qc", "QC Check", qc.length]] as [Tab, string, number][]) : []),
-    ["standby", "Stand By", standBy.length],
+    ["persiapan", "Persiapan", byStage("Preparation").length],
+    ...(unit.hasQc ? ([["qc", "QC Check", byStage("QcCheck").length]] as [Tab, string, number][]) : []),
+    ["standby", "Stand By", byStage("StandBy").length],
+    ["transit", "Dalam Perjalanan", 0],
   ];
 
-  const q = query.trim().toLowerCase();
-  const shown = (tab === "persiapan" ? prep : tab === "qc" ? qc : standBy).filter((r) => !q || `${r.lotNo} ${r.jobNo ?? ""} ${r.itemLabel} ${r.itemName}`.toLowerCase().includes(q));
-  const paging = usePaging(shown, `${tab}|${q}`);
-  const chosen = prep.filter((r) => selected.includes(r.id));
-  const multiPartai = new Set(chosen.map((r) => r.partaiId)).size > 1;
-  const pickable = unit.process === "PassThrough" && tab === "persiapan";
-
-  /** What this row's work is: one form, opened with the row already in it. */
-  function open(row: BoardRow) {
-    if (row.stage === "Preparation") {
-      if (unit.process === "Grading") return can.grading ? router.push(`/production/grading/new?bucket=${row.id}`) : toast("Tidak diizinkan", "Anda tidak boleh membuat No. Grading.", "err");
-      if (unit.process === "Assembly") return toast("Belum ada dokumen", "Assembly Kotak belum dibangun.", "err");
-      const group = row.jobId ? prep.filter((r) => r.jobId === row.jobId) : [row];
-      const on = group.every((r) => selected.includes(r.id));
-      setSelected((s) => (on ? s.filter((id) => !group.some((r) => r.id === id)) : [...new Set([...s, ...group.map((r) => r.id)])]));
-      return;
+  const actions = (() => {
+    const out: React.ReactNode[] = [];
+    if (tab === "persiapan" && unit.process === "PassThrough" && can.work) {
+      out.push(
+        <button key="work" className="btn primary" disabled={!picked.length || mixed} onClick={() => router.push(`/production/work/new?bucket=${pickedRows.map((r) => r.id).join(",")}`)}>
+          <Icon name="check" size={14} /> Catat Pengerjaan{picked.length > 1 ? ` (${picked.length} Job)` : ""}
+        </button>
+      );
     }
-    if (row.stage === "QcCheck") return can.qc ? router.push(`/production/qc-check/new?bucket=${row.id}`) : toast("Tidak diizinkan", "Anda tidak boleh membuat QC Check.", "err");
-    setFlash(row.id);
-    toast("Siap dikirim", `${row.lotNo} menunggu di Stand By; Dokumen Push dan BSTB Transfer belum dibangun.`, "ok");
-  }
-
-  /** A scanner types the label and presses Enter. */
-  function scan(raw: string) {
-    const code = raw.trim().toUpperCase();
-    if (!code) return;
-    const row = rows.find((r) => r.lotNo.toUpperCase() === code || r.jobNo?.toUpperCase() === code);
-    if (row) {
-      setTab(TAB_OF[row.stage]);
-      setFlash(row.id);
-      return open(row);
+    if (tab === "qc" && can.qc) {
+      out.push(
+        <button key="qc" className="btn primary" disabled={!picked.length || mixed} onClick={() => router.push(`/production/qc-check/new?bucket=${pickedRows[0].id}`)}>
+          <Icon name="check" size={14} /> Periksa{picked.length > 1 ? ` (${picked.length})` : ""}
+        </button>
+      );
     }
-    const doc = incoming.find((d) => d.issueNo.toUpperCase() === code || d.lines.some((l) => l.lotNo.toUpperCase() === code));
-    if (doc) return router.push(`/inventory/stock-issue/${doc.id}`);
-    toast("Tidak ditemukan", `${raw.trim()} tidak ada di ${unit.label}.`, "err");
-  }
-
-  const kpi = (icon: "truck" | "clip" | "check" | "send", tone: string, label: string, value: string, d: string, to: Tab) => (
-    <button type="button" className="kpi" style={{ textAlign: "left" }} onClick={() => setTab(to)}>
-      <div className="h">
-        <span className={`i ${tone}`}>
-          <Icon name={icon} size={14} />
-        </span>
-        <span className="l">{label}</span>
-      </div>
-      <div className="v">{value}</div>
-      <div className="d">{d}</div>
-    </button>
-  );
+    return out;
+  })();
 
   const hint =
     tab === "persiapan"
       ? unit.process === "Grading"
-        ? "Scan No. Stok atau klik barisnya: satu No. Stok, satu No. Grading."
+        ? "Klik baris untuk langsung menggrading Job itu."
         : unit.process === "PassThrough"
-          ? multiPartai
+          ? mixed
             ? "Satu dokumen untuk satu partai."
-            : "Scan atau centang No. Job yang dikerjakan, dari satu partai."
-          : "Assembly Kotak belum dibangun."
+            : "Pilih No. Job yang dikerjakan, dari satu partai."
+          : "Assembly dibangun bersama Packing."
       : tab === "qc"
-        ? "Scan No. Stok atau klik barisnya: QC Check dibuka untuk partainya."
-        : "Dokumen Push dan BSTB Transfer belum dibangun; hasil menunggu di sini.";
+        ? mixed
+          ? "Satu QC Check untuk satu partai."
+          : "Centang Job yang diperiksa, lalu Periksa."
+        : tab === "standby"
+          ? "Tujuan mengikuti routing line tiap partai."
+          : "";
+
+  const sub = [
+    unit.workstation,
+    unit.pre ? "Sebelum partai, semua line" : unit.lines.length ? `Line ${unit.lines.map((l) => l.name).join(", ")}` : null,
+    unit.hasQc ? "Ada QC Check" : "Tanpa QC Check",
+    unit.checkpoint ? "Checkpoint: seluruh isi partai" : null,
+    unit.releasesJob ? "Lepas No. Job" : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const check = (g: Group) => (
+    <td
+      className="selchk"
+      onClick={(e) => {
+        e.stopPropagation();
+        toggle(g);
+      }}
+    >
+      <input type="checkbox" checked={chosen.has(g.key)} readOnly tabIndex={-1} aria-label={`Pilih ${g.job?.no ?? g.rows[0].lotNo}`} />
+    </td>
+  );
+  const sejak = (g: Group) => <td>{oldest(g.rows) ? formatDate(oldest(g.rows)) : <span className="dash">—</span>}</td>;
+  const allOn = onPage.length > 0 && onPage.every((g) => chosen.has(g.key));
 
   return (
     <>
@@ -153,98 +270,231 @@ export function UnitBoard({
         <div className="ph-row">
           <h1>
             <span className="ph-ico">
-              <Icon name="layers" size={16} />
+              <Icon name={unit.process === "Grading" ? "layers" : unit.process === "Assembly" ? "box" : "check"} size={16} />
             </span>
-            {unit.name}
-            <span className="bdg t-info">{{ PassThrough: "Pass Through", Grading: "Grading", Assembly: "Assembly" }[unit.process]}</span>
+            {unit.name} <span className="bdg t-info">{PROCESS_TEXT[unit.process]}</span>
           </h1>
           <div className="ph-act">
-            {pickable && chosen.length > 0 && (
+            {picked.length > 0 && (
               <span className="selcount">
-                {chosen.length} dipilih · {gram(sumG(chosen))} g
-                <button aria-label="Hapus pilihan" onClick={() => setSelected([])}>
+                {picked.length} dipilih · {gram(pickedRows.reduce((a, r) => a + (r.grams ?? 0), 0))} g
+                <button type="button" aria-label="Hapus pilihan" onClick={() => setChosen(new Set())}>
                   <Icon name="block" size={13} />
                 </button>
               </span>
             )}
-            {pickable && can.work && (
-              <button className="btn primary" disabled={!chosen.length || multiPartai} onClick={() => router.push(`/production/work/new?bucket=${chosen.map((r) => r.id).join(",")}`)}>
-                <Icon name="check" size={14} /> Catat Pengerjaan{chosen.length > 1 ? ` (${chosen.length})` : ""}
-              </button>
-            )}
+            {actions}
           </div>
         </div>
-        <p className="ph-sub">
-          {unit.hasQc ? "Ada QC Check" : "Tanpa QC Check"} · scan label No. Stok atau No. Job untuk membuka form pekerjaannya.
-        </p>
-      </div>
-
-      <div className="kpis bud">
-        {kpi("truck", "t-warn", "Kiriman Masuk", `${gram(inGrams)} g`, incoming.length ? `${incoming.length} dokumen menunggu Terima` : "Tidak ada yang menunggu", "masuk")}
-        {kpi("clip", "t-info", "Persiapan", `${gram(sumG(prep))} g`, prep.length ? `${prep.length} baris · ${partais(prep)} partai` : "Kosong", "persiapan")}
-        {unit.hasQc && kpi("check", "t-acc", "QC Check", `${gram(sumG(qc))} g`, qc.length ? `${qc.length} baris menunggu keputusan` : "Tidak ada yang menunggu", "qc")}
-        {kpi("send", "t-ok", "Stand By", `${gram(sumG(standBy))} g`, standBy.length ? `${standBy.length} baris` : "Kosong", "standby")}
+        <p className="ph-sub">{sub}</p>
       </div>
 
       <div className="card">
         <div className="qtabs" role="tablist">
-          {tabs.map(([k, label, n]) => (
-            <button key={k} role="tab" aria-selected={k === tab} className={k === tab ? "act" : ""} onClick={() => setTab(k)}>
-              {label}
+          {tabs.map(([t, name, n]) => (
+            <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "act" : ""} onClick={() => goTab(t)}>
+              {name}
               <span className="n">{n}</span>
             </button>
           ))}
         </div>
 
-        <div className="scanbar">
-          <label htmlFor="scan">
-            <Icon name="srch" size={14} /> Scan
-          </label>
-          <input
-            id="scan"
-            className="inp idf"
-            ref={scanRef}
-            autoComplete="off"
-            placeholder="Scan label No. Stok, No. Job atau nomor BSTB, lalu Enter…"
-            onKeyDown={(e) => {
-              if (e.key !== "Enter") return;
-              e.preventDefault();
-              scan(e.currentTarget.value);
-              e.currentTarget.value = "";
-            }}
-          />
-        </div>
+        {stageTab && (
+          <>
+            <div className="toolbar">
+              <form
+                style={{ display: "contents" }}
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  onEnter();
+                }}
+              >
+                <SearchField value={query} onChange={setQuery} placeholder="Cari No. Job, No. Stok, atau Item…" />
+              </form>
+              {unit.lines.length > 1 && (
+                <div style={{ width: 170 }}>
+                  <Select variant="toolbar" value={lineFilter} onChange={setLineFilter} set={Boolean(lineFilter)} options={[{ value: "", label: "Line: semua" }, ...unit.lines.map((l) => ({ value: String(l.id), label: `Line: ${l.name}` }))]} />
+                </div>
+              )}
+              {partaiOptions.length > 1 && (
+                <div style={{ width: 220 }}>
+                  <Select variant="toolbar" value={partaiFilter} onChange={setPartaiFilter} set={Boolean(partaiFilter)} options={[{ value: "", label: "Partai: semua" }, ...partaiOptions.map(([id, no]) => ({ value: String(id), label: no }))]} />
+                </div>
+              )}
+              {onPage.length > 0 && !(tab === "persiapan" && unit.process === "Grading") && (
+                <label className="uw-hint" style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
+                  <input type="checkbox" checked={allOn} onChange={() => setChosen((s) => (allOn ? new Set([...s].filter((k) => !onPage.some((g) => g.key === k))) : new Set([...s, ...onPage.map((g) => g.key)])))} /> Pilih semua di halaman
+                </label>
+              )}
+              <span className={`uw-hint${mixed ? " bad" : ""}`}>{hint}</span>
+              <span className="tspace" />
+              <span className="count">
+                <b>{jobs.length}</b> Job · <b>{loose.length}</b> No. Stok tanpa Job · <b>{gram(filtered.reduce((a, g) => a + (g.grams ?? 0), 0))}</b> g
+              </span>
+            </div>
 
-        {tab === "masuk" ? (
-          incoming.length ? (
+            {!filtered.length ? (
+              <div className="empty">
+                <div className="ic">
+                  <Icon name={tab === "qc" ? "check" : tab === "standby" ? "send" : "clip"} size={18} />
+                </div>
+                <h4>{tab === "persiapan" ? "Persiapan kosong" : tab === "qc" ? "Tidak ada barang menunggu QC" : "Stand By kosong"}</h4>
+                <p>{tab === "persiapan" ? "Barang yang diterima muncul di sini." : tab === "qc" ? "Hasil pekerjaan Unit ini masuk ke sini." : unit.hasQc ? "Barang yang lulus QC muncul di sini." : "Barang selesai dikerjakan muncul di sini."}</p>
+              </div>
+            ) : (
+              <>
+                {jobs.length > 0 && (
+                  <>
+                    <div className="uw-sec">
+                      Job <span>{jobs.length} Job · isi tiap Job dibuka dari kolom No. Stok</span>
+                    </div>
+                    <div className="tw">
+                      <table className="grid" style={{ minWidth: tab === "standby" ? 1000 : 880 }}>
+                        <thead>
+                          <tr>
+                            <th className="selchk" />
+                            <th style={{ width: 200 }}>No. Job</th>
+                            <th style={{ width: 230 }}>Partai</th>
+                            <th style={{ width: 130 }}>No. Stok</th>
+                            <th className="num" style={{ width: 96 }}>Gram</th>
+                            <th className="num" style={{ width: 130 }}>Nilai</th>
+                            {tab === "standby" && <th style={{ width: 130 }}>Tujuan</th>}
+                            <th style={{ width: 96 }}>Sejak</th>
+                            <th>Keterangan</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {jobPage.pageRows.map((g) => (
+                            <tr key={g.key} className={chosen.has(g.key) ? "sel" : ""} onClick={() => onRow(g)}>
+                              {check(g)}
+                              <td>
+                                <span className="mono">{g.job!.no}</span>
+                              </td>
+                              <td>
+                                <PartaiCell rows={g.rows} />
+                              </td>
+                              <td>
+                                <button
+                                  type="button"
+                                  className="btn sm ghost"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setInside(g);
+                                  }}
+                                >
+                                  {g.rows.length} · lihat isi
+                                </button>
+                              </td>
+                              <td className="num">{g.grams != null ? gram(g.grams) : <span className="dash">—</span>}</td>
+                              <td className="num">
+                                <Amount value={g.value} />
+                              </td>
+                              {tab === "standby" && (
+                                <td>
+                                  <Next row={g.rows[0]} />
+                                </td>
+                              )}
+                              {sejak(g)}
+                              <td className="uw-note">
+                                <Notes rows={g.rows} />
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <Pager page={jobPage.page} pages={jobPage.pages} total={jobPage.total} perPage={jobPage.perPage} onPage={jobPage.setPage} onPerPage={jobPage.setPerPage} />
+                  </>
+                )}
+                {loose.length > 0 && (
+                  <>
+                    <div className="uw-sec">
+                      No. Stok tanpa Job <span>{loose.length} No. Stok · dipilih satu per satu</span>
+                    </div>
+                    <div className="tw">
+                      <table className="grid" style={{ minWidth: tab === "standby" ? 1000 : 880 }}>
+                        <thead>
+                          <tr>
+                            <th className="selchk" />
+                            <th style={{ width: 160 }}>No. Stok</th>
+                            <th style={{ width: 250 }}>Item</th>
+                            <th style={{ width: 220 }}>Partai</th>
+                            <th className="num" style={{ width: 96 }}>Gram</th>
+                            <th className="num" style={{ width: 130 }}>Nilai</th>
+                            {tab === "standby" && <th style={{ width: 130 }}>Tujuan</th>}
+                            <th style={{ width: 96 }}>Sejak</th>
+                            <th>Keterangan</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {loosePage.pageRows.map((g) => {
+                            const r = g.rows[0];
+                            return (
+                              <tr key={g.key} className={chosen.has(g.key) ? "sel" : ""} onClick={() => onRow(g)}>
+                                {check(g)}
+                                <td className="mono">{r.lotNo}</td>
+                                <td>
+                                  {idc(r.itemLabel, r.itemName)}
+                                  {r.isBjl && <span className="bdg s-mute">BJL</span>}
+                                </td>
+                                <td>
+                                  <PartaiCell rows={g.rows} />
+                                </td>
+                                <td className="num">{r.grams != null ? gram(r.grams) : <span className="dash">—</span>}</td>
+                                <td className="num">
+                                  <Amount value={r.value} />
+                                </td>
+                                {tab === "standby" && (
+                                  <td>
+                                    <Next row={r} />
+                                  </td>
+                                )}
+                                {sejak(g)}
+                                <td className="uw-note">
+                                  <Notes rows={g.rows} />
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                    <Pager page={loosePage.page} pages={loosePage.pages} total={loosePage.total} perPage={loosePage.perPage} onPage={loosePage.setPage} onPerPage={loosePage.setPerPage} />
+                  </>
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {tab === "masuk" &&
+          (incoming.length ? (
             <div className="tw">
-              <table className="grid" style={{ minWidth: 760 }}>
+              <table className="grid" style={{ minWidth: 860 }}>
                 <thead>
                   <tr>
-                    <th style={{ width: 250 }}>Nomor</th>
-                    <th style={{ width: 120 }}>Gudang</th>
+                    <th style={{ width: 230 }}>Nomor</th>
+                    <th>Jenis</th>
+                    <th style={{ width: 120 }}>Dari</th>
                     <th style={{ width: 100 }}>Tanggal</th>
-                    <th className="num" style={{ width: 70 }}>
-                      Baris
-                    </th>
-                    <th>No. Stok</th>
-                    <th style={{ width: 90 }} />
+                    <th className="num" style={{ width: 70 }}>Baris</th>
+                    <th className="num" style={{ width: 96 }}>Gram</th>
+                    <th style={{ width: 110 }} />
                   </tr>
                 </thead>
                 <tbody>
                   {incoming.map((d) => (
-                    <tr key={d.id} className="clk" onClick={() => router.push(`/inventory/stock-issue/${d.id}`)}>
+                    <tr key={d.id} onClick={() => router.push(`/inventory/stock-issue/${d.id}`)}>
                       <td>
                         <span className="lab">{d.issueNo}</span>
                       </td>
-                      <td className="mono">{d.warehouseLabel}</td>
+                      <td>BSTB Issue · {d.auxiliary ? "Bahan Penolong" : "Bahan ke Produksi"}</td>
+                      <td>{d.warehouseLabel}</td>
                       <td>{formatDate(d.issueDate)}</td>
                       <td className="num">{d.lines.length}</td>
-                      <td className="uw-note">{d.lines.map((l) => l.lotNo).join(", ")}</td>
-                      <td>
-                        <Link className="btn sm primary" href={`/inventory/stock-issue/${d.id}`} onClick={(e) => e.stopPropagation()}>
-                          Terima
-                        </Link>
+                      <td className="num">{gram(d.lines.reduce((a, l) => a + (l.uomLabel === "GR" ? l.qty : 0), 0))}</td>
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <StockIssueActions id={d.id} subject={d.issueNo} status="Submitted" can={issueCan} />
                       </td>
                     </tr>
                   ))}
@@ -257,71 +507,59 @@ export function UnitBoard({
                 <Icon name="truck" size={18} />
               </div>
               <h4>Tidak ada kiriman yang menunggu</h4>
-              <p>Kiriman muncul di sini setelah pengirim menekan Ajukan.</p>
+              <p>{unit.pre ? "Kiriman baru muncul di sini setelah pengirim menekan Ajukan." : "Barang dari Unit sebelumnya dalam Workstation yang sama masuk lewat Dokumen Push, langsung ke Persiapan tanpa Terima."}</p>
             </div>
-          )
-        ) : (
-          <>
-            <div className="toolbar">
-              <SearchField value={query} onChange={setQuery} placeholder="Cari No. Stok, No. Job atau Item…" />
-              <span className={`uw-hint ${tab === "persiapan" && multiPartai ? "bad" : ""}`}>{hint}</span>
-              <span className="tspace" />
-              <span className="count">
-                <b>{shown.length}</b> baris · <b>{gram(sumG(shown))}</b> g
-              </span>
+          ))}
+
+        {tab === "transit" && (
+          <div className="empty">
+            <div className="ic">
+              <Icon name="truck" size={18} />
             </div>
-            {shown.length ? (
-              <div className="tw">
-                <table className="grid" style={{ minWidth: 980 }}>
-                  <thead>
-                    <tr>
-                      {pickable && <th className="selchk" />}
-                      <th style={{ width: 170 }}>No. Stok</th>
-                      <th style={{ width: 260 }}>Item</th>
-                      <th style={{ width: 170 }}>Partai</th>
-                      <th style={{ width: 170 }}>No. Job</th>
-                      <th className="num" style={{ width: 110 }}>
-                        Gram
-                      </th>
-                      <th>Keterangan</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {paging.pageRows.map((r) => (
-                      <tr key={r.id} className={`clk${selected.includes(r.id) ? " sel" : ""}${flash === r.id ? " flash" : ""}`} onClick={() => open(r)}>
-                        {pickable && (
-                          <td className="selchk">
-                            <input type="checkbox" aria-label={`Pilih ${r.lotNo}`} checked={selected.includes(r.id)} readOnly tabIndex={-1} />
-                          </td>
-                        )}
-                        <td className="mono" style={{ fontWeight: 600 }}>
-                          {r.lotNo}
-                        </td>
-                        <td>
-                          {idc(r.itemLabel, r.itemName)}
-                          {r.isBjl && <span className="bdg s-mute">BJL</span>}
-                        </td>
-                        <td className="mono">{r.partaiNo ?? <span className="dash">Sebelum partai</span>}</td>
-                        <td className="mono">{r.jobNo ?? <span className="dash">—</span>}</td>
-                        <td className="num">
-                          <span className="mny">{r.grams == null ? "—" : gram(r.grams)}</span>
-                        </td>
-                        <td className="uw-note">{r.qcCheckId ? <span className="bdg t-bad">Balik QC</span> : <span className="dash">—</span>}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="empty">
-                <h4>{tab === "persiapan" ? "Persiapan kosong" : tab === "qc" ? "Tidak ada barang menunggu QC" : "Stand By kosong"}</h4>
-                <p>{query ? "Tidak ada baris yang cocok dengan pencarian." : "Barang muncul di sini setelah diterima atau dikerjakan."}</p>
-              </div>
-            )}
-            <Pager page={paging.page} pages={paging.pages} total={paging.total} perPage={paging.perPage} onPage={paging.setPage} onPerPage={paging.setPerPage} />
-          </>
+            <h4>Tidak ada barang dalam perjalanan</h4>
+            <p>BSTB yang sudah diajukan dan belum diterima muncul di sini, bukan di Stand By. Dokumen Push tidak pernah ada di sini karena barangnya langsung pindah.</p>
+          </div>
         )}
       </div>
+
+      <Dialog
+        open={inside !== null}
+        icon="layers"
+        title={inside?.job ? `Isi ${inside.job.no}` : "Isi Job"}
+        subtitle={inside ? `${inside.rows.length} No. Stok${inside.grams != null ? ` · ${gram(inside.grams)} g` : ""}` : undefined}
+        width={640}
+        onClose={() => setInside(null)}
+      >
+        {inside && (
+          <div className="tw boxed">
+            <table className="grid" style={{ minWidth: 560 }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 160 }}>No. Stok</th>
+                  <th>Item</th>
+                  <th className="num" style={{ width: 96 }}>Gram</th>
+                  <th className="num" style={{ width: 130 }}>Nilai</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inside.rows.map((r) => (
+                  <tr key={r.id} style={{ cursor: "default" }}>
+                    <td className="mono">{r.lotNo}</td>
+                    <td>
+                      {idc(r.itemLabel, r.itemName)}
+                      {r.isBjl && <span className="bdg s-mute">BJL</span>}
+                    </td>
+                    <td className="num">{r.grams != null ? gram(r.grams) : <span className="dash">—</span>}</td>
+                    <td className="num">
+                      <Amount value={r.value} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Dialog>
     </>
   );
 }

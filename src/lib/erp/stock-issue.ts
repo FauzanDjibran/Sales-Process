@@ -684,7 +684,6 @@ export async function listStockIssues(): Promise<StockIssueListRow[]> {
   }));
 }
 
-/** A BSTB Issue sent to a Unit and waiting for Terima: the Workspace's *Masuk* (W20). */
 /** The Unit an issue goes to: Terima is the Unit's half of it, checked per Unit (P260). */
 export async function stockIssueUnitId(id: number): Promise<number | null> {
   return (await prisma.logStockIssue.findUnique({ where: { id }, select: { unit_id: true } }))?.unit_id ?? null;
@@ -696,9 +695,12 @@ export type IncomingIssue = {
   issueDate: string;
   unitId: number;
   warehouseLabel: string;
+  /** Bahan penolong comes without a No. Job; goods to be worked get theirs at Terima. */
+  auxiliary: boolean;
   lines: { lotNo: string; itemLabel: string; itemName: string; qty: number; uomLabel: string }[];
 };
 
+/** A BSTB Issue sent to a Unit and waiting for Terima: the Workspace's *Masuk* (W20). */
 export async function incomingStockIssues(): Promise<IncomingIssue[]> {
   const rows = await prisma.logStockIssue.findMany({
     where: { status: "Submitted", unit_id: { not: null } },
@@ -711,6 +713,7 @@ export async function incomingStockIssues(): Promise<IncomingIssue[]> {
     issueDate: isoDay(r.issue_date),
     unitId: r.unit_id!,
     warehouseLabel: r.warehouse.warehouse_label,
+    auxiliary: r.purpose === "auxiliary_issue",
     lines: r.lines.flatMap((l) => l.trackings.map((p) => ({ lotNo: p.tracking_no, itemLabel: l.item.item_label, itemName: l.item.item_name, qty: p.qty.toNumber(), uomLabel: l.uom.uom_label }))),
   }));
 }
