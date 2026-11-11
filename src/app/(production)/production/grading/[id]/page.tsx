@@ -15,16 +15,18 @@ async function jobNotes(options: Awaited<ReturnType<typeof gradingOptions>>) {
   return Object.fromEntries(notes);
 }
 
-export default async function Page({ params }: { params: Promise<{ id: string }> }) {
+/** `?post=1`: the form's *Posting* just saved this Draft, so its confirmation opens (D2). */
+export default async function Page({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ post?: string }> }) {
   const { id } = await params;
+  const { post } = await searchParams;
   const actor = await requirePermission("PRODUCTION_GRADING_VIEW", GRADING_PATH);
   const doc = await getGrading(Number(id));
   if (!doc) notFound();
   await requireUnit(actor, doc.unitId);
-  const options = await narrowToUnits(actor, await gradingOptions([doc.bucketId, ...doc.aux.map((a) => a.bucketId)]));
+  const options = await narrowToUnits(actor, await gradingOptions([...doc.inputs.map((i) => i.bucketId), ...doc.aux.map((a) => a.bucketId)]));
   return (
     <>
-      <GradingForm mode="view" grading={doc} options={options} notes={await jobNotes(options)} can={GRADING_WORKFLOW.abilities(actor.permissions)} />
+      <GradingForm mode="view" grading={doc} options={options} notes={await jobNotes(options)} can={GRADING_WORKFLOW.abilities(actor.permissions)} autoPost={post === "1"} />
       <RecordHistoryCard entityKey="prd_grading" rowId={doc.id} />
     </>
   );

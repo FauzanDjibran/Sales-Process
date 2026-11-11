@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { JournalPreview } from "@/components/ui/journal-preview";
@@ -35,6 +36,8 @@ export function ProdDocActions({
   can,
   run,
   preview,
+  autoPost = false,
+  doneHref,
 }: {
   workflow: ProdDocWorkflow;
   id: number;
@@ -43,14 +46,20 @@ export function ProdDocActions({
   can: ProdDocAbilities;
   run: (action: ProdDocAction, reason: string) => Promise<ProdDocRunResult>;
   preview?: () => Promise<JournalPreviewResult>;
+  /** Opens Posting's confirmation at once: a form's *Posting* just saved the Draft (D2). */
+  autoPost?: boolean;
+  /** Where a finished Posting goes: the Unit's tab it came from (D4). */
+  doneHref?: string;
 }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<ProdDocAction | null>(null);
+  const router = useRouter();
+  const T = workflow.transitions;
+  const opensPost = autoPost && status === "Draft" && can.post;
+  const [confirm, setConfirm] = useState<ProdDocAction | null>(opensPost ? "post" : null);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [postable, setPostable] = useState(false);
-  const T = workflow.transitions;
+  const [postable, setPostable] = useState(!(opensPost && workflow.journal && preview));
 
   const go = async (action: ProdDocAction) => {
     if (T[action].reason && !reason.trim()) {
@@ -72,6 +81,7 @@ export function ProdDocActions({
     setConfirm(null);
     setReason("");
     toast(result.message, subject, "ok");
+    if (action === "post" && doneHref) router.push(doneHref);
   };
 
   const buttons = orderForHeader(

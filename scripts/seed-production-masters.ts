@@ -23,7 +23,7 @@ const WORKSTATIONS = [
 
 // The table of §5, column for column, Packing 98 waiting for its plan (W81).
 const UNITS: [label: string, name: string, workstation: string, process: PrdProcessKind, qc: boolean, releasesJob: boolean, jobOrder: boolean][] = [
-  ["UGH", "Grading Halus", "BB + PPIC", "Grading", true, false, false],
+  ["UGH", "Grading Halus", "BB + PPIC", "Grading", true, true, false], // releases the Job born at the BSTB Issue (W98)
   ["UPC", "Pre Cleaning", "BB + PPIC", "PassThrough", true, false, false],
   ["UPY", "Penyebaran", "BB + PPIC", "Grading", false, true, false],
   ["UPW", "Pre Wash", "CL", "PassThrough", true, false, false],

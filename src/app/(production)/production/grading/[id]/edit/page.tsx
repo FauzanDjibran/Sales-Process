@@ -22,7 +22,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   if (!doc) notFound();
   await requireUnit(actor, doc.unitId);
   if (doc.status !== "Draft") redirect(`${GRADING_PATH}/${doc.id}`);
-  const options = await narrowToUnits(actor, await gradingOptions([doc.bucketId, ...doc.aux.map((a) => a.bucketId)]));
+  const options = await narrowToUnits(actor, await gradingOptions([...doc.inputs.map((i) => i.bucketId), ...doc.aux.map((a) => a.bucketId)]));
   return (
     <>
       <GradingForm mode="edit" grading={doc} options={options} notes={await jobNotes(options)} can={GRADING_WORKFLOW.abilities(actor.permissions)} />

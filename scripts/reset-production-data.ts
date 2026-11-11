@@ -8,7 +8,7 @@
  *   npm run db:reset-production -- --apply   deletes, in one transaction
  *
  * WHAT IT DELETES
- *   prd_qc_check(_line), prd_work(_line), prd_grading(_output), prd_aux_use
+ *   prd_qc_check(_line), prd_work(_line), prd_grading(_input, _output), prd_aux_use
  *   prd_tracking_link, prd_cost_entry, prd_ledger, prd_balance,
  *   prd_tracking_info, prd_job, prd_partai          the production books
  *   log_stock_issue(_line, _tracking)                BSTB Issue

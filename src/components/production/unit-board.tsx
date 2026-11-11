@@ -161,7 +161,7 @@ export function UnitBoard({
   /** A Grading Unit grades a Job whole: its row opens that grading (W97). */
   function openGrading(g: Group) {
     if (!can.grading) return toast("Tidak diizinkan", "Anda tidak boleh membuat No. Grading.", "err");
-    router.push(`/production/grading/new?bucket=${g.rows[0].id}`);
+    router.push(`/production/grading/new?${g.job ? `job=${g.job.id}` : `bucket=${g.rows[0].id}`}`);
   }
 
   function onRow(g: Group) {

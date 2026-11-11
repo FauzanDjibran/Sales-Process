@@ -3095,8 +3095,7 @@ table prd_grading {
   grading_date                date [not null]
   unit_id                     int [not null, ref: > ref_unit.id]
   status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
-  bucket_id                   int [not null]
-  qty                         decimal(18,6) [not null]
+  job_id                      int [ref: > prd_job.id] // the Job taken whole (W97); empty: one No. Stok without a Job, in part (W96)
   grams                       decimal(18,6) [not null, default: 0]
   rate                        decimal(18,6) [not null, default: 0]
   input_value                 decimal(18,2) [not null, default: 0]
@@ -3110,6 +3109,18 @@ table prd_grading {
   updated_by                  int
   created_at                  timestamptz [not null]
   updated_at                  timestamptz [not null]
+}
+
+// What a No. Grading takes from Persiapan; value, gram and cost written at Posting.
+table prd_grading_input {
+  id                          int [pk, increment]
+  grading_id                  int [not null, ref: > prd_grading.id]
+  line_no                     int [not null]
+  bucket_id                   int [not null]
+  qty                         decimal(18,6) [not null]
+  grams                       decimal(18,6) [not null, default: 0]
+  value                       decimal(18,2) [not null, default: 0]
+  cost_amount                 decimal(18,2) [not null, default: 0]
 }
 
 table prd_grading_output {

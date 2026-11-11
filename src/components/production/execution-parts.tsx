@@ -40,6 +40,7 @@ export function ExecutionHeader({
   dirty,
   saving,
   onSave,
+  onPost,
   backHref,
   actions,
 }: {
@@ -53,6 +54,8 @@ export function ExecutionHeader({
   dirty: boolean;
   saving: boolean;
   onSave: () => void;
+  /** Saves the Draft and opens Posting's confirmation in one click (D2). */
+  onPost?: () => void;
   backHref: string;
   actions: ReactNode;
 }) {
@@ -89,9 +92,20 @@ export function ExecutionHeader({
                 </span>
               )}
               <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-              <button className="btn primary" onClick={onSave} disabled={saving}>
-                <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-              </button>
+              {onPost ? (
+                <>
+                  <button className="btn" onClick={onSave} disabled={saving}>
+                    <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan Draft"}
+                  </button>
+                  <button className="btn primary" onClick={onPost} disabled={saving}>
+                    <Icon name="check" size={15} /> Posting
+                  </button>
+                </>
+              ) : (
+                <button className="btn primary" onClick={onSave} disabled={saving}>
+                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
+                </button>
+              )}
             </>
           ) : (
             actions

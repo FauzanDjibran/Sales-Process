@@ -1046,6 +1046,7 @@ model PrdJob {
   partai   PrdPartai?        @relation(fields: [partai_id], references: [id])
   balances PrdBalance[]
   ledger   PrdLedger[]
+  gradings PrdGrading[]
 
   @@index([tracking_id])
   @@index([partai_id])
@@ -4174,9 +4175,10 @@ model PrdGrading {
   grading_date  DateTime     @db.Date
   unit_id       Int
   status        PrdDocStatus @default(Draft)
-  bucket_id     Int
-  qty           Decimal      @db.Decimal(18, 6)
-  /// Gram of the input, at Posting.
+  /// The Job taken whole (W97); empty for goods without one, one No. Stok
+  /// taken in part (W96).
+  job_id        Int?
+  /// Gram of the inputs, at Posting.
   grams         Decimal      @default(0) @db.Decimal(18, 6)
   rate          Decimal      @default(0) @db.Decimal(18, 6)
   input_value   Decimal      @default(0) @db.Decimal(18, 2)
@@ -4194,12 +4196,33 @@ model PrdGrading {
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
   unit    RefUnit            @relation(fields: [unit_id], references: [id])
+  job     PrdJob?            @relation(fields: [job_id], references: [id], onDelete: Restrict)
+  inputs  PrdGradingInput[]
   outputs PrdGradingOutput[]
   aux     PrdAuxUse[]
 
   @@index([unit_id])
-  @@index([bucket_id])
+  @@index([job_id])
   @@map("prd_grading")
+}
+
+/// What a No. Grading takes from Persiapan: every bucket of its Job, or one
+/// bucket without a Job. Value, gram and cost are written at Posting.
+model PrdGradingInput {
+  id          Int     @id @default(autoincrement())
+  grading_id  Int
+  line_no     Int
+  bucket_id   Int
+  qty         Decimal @db.Decimal(18, 6)
+  grams       Decimal @default(0) @db.Decimal(18, 6)
+  value       Decimal @default(0) @db.Decimal(18, 2)
+  cost_amount Decimal @default(0) @db.Decimal(18, 2)
+
+  grading PrdGrading @relation(fields: [grading_id], references: [id], onDelete: Cascade)
+
+  @@unique([grading_id, line_no])
+  @@index([bucket_id])
+  @@map("prd_grading_input")
 }
 
 model PrdGradingOutput {

@@ -1,7 +1,8 @@
+import { redirect } from "next/navigation";
 import { GradingForm } from "@/components/production/grading-form";
 import { requirePermission } from "@/lib/erp/auth";
 import { narrowToUnits } from "@/lib/erp/production-access";
-import { gradingOptions } from "@/lib/erp/production-grading";
+import { gradingDraftOfJob, gradingOptions } from "@/lib/erp/production-grading";
 import { resultNotesOfJobs } from "@/lib/erp/production-work";
 import { GRADING_PATH, GRADING_WORKFLOW } from "@/lib/erp/production-execution-workflow";
 
@@ -13,10 +14,22 @@ async function jobNotes(options: Awaited<ReturnType<typeof gradingOptions>>) {
   return Object.fromEntries(notes);
 }
 
-/** `?bucket=` is the row a scan in the Workspace Unit opened it on. */
-export default async function Page({ searchParams }: { searchParams: Promise<{ bucket?: string }> }) {
-  const { bucket } = await searchParams;
+/** `?job=` or `?bucket=` is what the Workspace Unit opened it on; a Job already in a Draft opens that Draft. */
+export default async function Page({ searchParams }: { searchParams: Promise<{ job?: string; bucket?: string }> }) {
+  const { job, bucket } = await searchParams;
   const actor = await requirePermission("PRODUCTION_GRADING_CREATE", `${GRADING_PATH}/new`);
+  const draft = Number(job) ? await gradingDraftOfJob(Number(job)) : null;
+  if (draft) redirect(`${GRADING_PATH}/${draft}/edit`);
   const options = await narrowToUnits(actor, await gradingOptions());
-  return <GradingForm mode="new" grading={null} options={options} notes={await jobNotes(options)} can={GRADING_WORKFLOW.abilities(actor.permissions)} initialBucketId={Number(bucket) || undefined} />;
+  return (
+    <GradingForm
+      mode="new"
+      grading={null}
+      options={options}
+      notes={await jobNotes(options)}
+      can={GRADING_WORKFLOW.abilities(actor.permissions)}
+      initialJobId={Number(job) || undefined}
+      initialBucketId={Number(bucket) || undefined}
+    />
+  );
 }

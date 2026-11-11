@@ -835,3 +835,10 @@ export async function routingsInUse(): Promise<Set<number>> {
 export async function itemUsedInProduction(itemId: number): Promise<boolean> {
   return (await prisma.prdLedger.count({ where: { tracking: { item_id: itemId } } })) > 0;
 }
+
+/** The Jobs by id: their number and the No. Stok each was picked up from (W98). */
+export async function jobsByIds(ids: number[], db: Db = prisma): Promise<Map<number, { no: string; trackingId: number | null }>> {
+  if (!ids.length) return new Map();
+  const rows = await db.prdJob.findMany({ where: { id: { in: [...new Set(ids)] } }, select: { id: true, job_no: true, tracking_id: true } });
+  return new Map(rows.map((r) => [r.id, { no: r.job_no, trackingId: r.tracking_id }]));
+}
