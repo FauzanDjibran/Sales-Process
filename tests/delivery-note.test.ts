@@ -155,7 +155,7 @@ const line = (qty: number | string, lineId = order.goods): DeliveryNoteLineInput
   source_doc_line_id: lineId,
   qty,
   note: "",
-  picks: Number(qty) > 0 ? [{ tracking_id: lineId === order.other ? f.lotO1 : f.lotG1, qty }] : [],
+  picks: Number(qty) > 0 ? [{ tracking_id: lineId === order.other ? f.lotO1 : f.lotG1, base_qty: qty }] : [],
 });
 
 async function create(h = header(), lines = [line(40)]) {
@@ -191,7 +191,7 @@ before(async () => {
   // A warehouse with Gunakan Lokasi, its stock picked by lot and location.
   f.located = (
     await prisma.refWarehouse.create({
-      data: { warehouse_code: `test.${key("WHL")}`, warehouse_label: key("WHL"), warehouse_name: "Gudang Berlokasi", use_location: true, created_by: actor },
+      data: { warehouse_code: `test.${key("WHL")}`, warehouse_label: key("WHL"), warehouse_name: "Gudang Berlokasi", created_by: actor },
     })
   ).id;
   const location = async (label: string) =>
@@ -349,7 +349,7 @@ describe("Posting issues the goods and books HPP only", () => {
     assert.ok(r.ok, JSON.stringify(r));
     const note = (await getDeliveryNote(first))!;
     assert.equal(note.status, "Posted");
-    assert.deepEqual(note.lines.map((l) => [l.qty, l.baseQty, l.unitCost, l.cost]), [[40, 40, 30_000, 1_200_000]]);
+    assert.deepEqual(note.lines.map((l) => [l.qty, l.baseQty, (l.baseQty ? Math.round((l.cost / l.baseQty) * 1e6) / 1e6 : 0), l.cost]), [[40, 40, 30_000, 1_200_000]]);
     assert.equal(note.cost, 1_200_000);
     const journalLines = await prisma.accJournalLine.findMany({ where: { journal_id: note.journalId! }, orderBy: { sequence_no: "asc" } });
     assert.deepEqual(
@@ -382,7 +382,7 @@ describe("Posting issues the goods and books HPP only", () => {
     assert.ok(!(await transitionDeliveryNote(first, "cancel", actor, "x")).ok);
     // 100 more at 42.000 lift the average to 33.000.000 ÷ 1.060.
     await stockIn(f.goods, f.warehouse, key("G2"), 100, 4_200_000);
-    assert.equal((await getDeliveryNote(first))!.lines[0].unitCost, 30_000);
+    assert.equal((await getDeliveryNote(first))!.lines[0].cost / 40, 30_000);
   });
 
   test("posting records what left on the Delivery Order and the Sales Order", async () => {
@@ -434,7 +434,7 @@ describe("orders close themselves once fully delivered (U14)", () => {
   test("closing by hand after a partial delivery releases what never left", async () => {
     const second = await issuedDeliveryOrder();
     const r = await create(header({ source_doc_id: second.doId }), [
-      { source_doc_line_id: second.goods, qty: 30, note: "", picks: [{ tracking_id: f.lotG1, qty: 30 }] },
+      { source_doc_line_id: second.goods, qty: 30, note: "", picks: [{ tracking_id: f.lotG1, base_qty: 30 }] },
     ]);
     assert.ok(r.ok);
     assert.ok((await transitionDeliveryNote(r.id, "post", actor)).ok);
@@ -465,7 +465,7 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
     source_doc_line_id: lotted.goods,
     qty,
     note: "",
-    picks: picks.map(([tracking_id, q]) => ({ tracking_id, qty: q })),
+    picks: picks.map(([tracking_id, q]) => ({ tracking_id, base_qty: q })),
   });
   const lotHeader = () => header({ source_doc_id: lotted.doId });
 
@@ -503,7 +503,7 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
     const onPlain = await checkDeliveryNote(
       prisma,
       header({ source_doc_id: plain.doId }),
-      [{ source_doc_line_id: plain.goods, qty: 1, note: "", picks: [{ tracking_id: lot.early, qty: 1 }] }],
+      [{ source_doc_line_id: plain.goods, qty: 1, note: "", picks: [{ tracking_id: lot.early, base_qty: 1 }] }],
       null
     );
     assert.ok(!onPlain.ok && /tidak dikelola per lot/.test(onPlain.errors["lines.0.picks"]));
@@ -517,7 +517,7 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
   test("a Draft may be picked in part; Posting refuses it, naming the line", async () => {
     const r = await create(lotHeader(), [pick(30, [[lot.early, 10]])]);
     assert.ok(r.ok, JSON.stringify(r));
-    assert.deepEqual((await getDeliveryNote(r.id))!.lines[0].pickedLots.map((p) => [p.lotId, p.qty, p.expiry]), [[lot.early, 10, "2030-06-30"]]);
+    assert.deepEqual((await getDeliveryNote(r.id))!.lines[0].pickedLots.map((p) => [p.lotId, p.baseQty, p.expiry, p.statusLabel]), [[lot.early, 10, "2030-06-30", "TERSEDIA"]], "a tracking row names its bucket, status included (P268)");
     const preview = await deliveryNotePreview(r.id, actor);
     assert.ok(!preview.ok && /Pilih lot sampai penuh/.test(preview.errors._form), "the dialog refuses in Posting's own words");
     const refused = await transitionDeliveryNote(r.id, "post", actor);
@@ -534,8 +534,8 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
     const r = await transitionDeliveryNote(id, "post", actor);
     assert.ok(r.ok, JSON.stringify(r));
     const note = (await getDeliveryNote(id))!;
-    assert.deepEqual(note.lines.map((l) => [l.qty, l.baseQty, l.unitCost, l.cost]), [[30, 30, 1_500, 45_000]]);
-    assert.deepEqual(note.lines[0].pickedLots.map((p) => [p.lotId, p.qty, p.cost]), [
+    assert.deepEqual(note.lines.map((l) => [l.qty, l.baseQty, (l.baseQty ? Math.round((l.cost / l.baseQty) * 1e6) / 1e6 : 0), l.cost]), [[30, 30, 1_500, 45_000]]);
+    assert.deepEqual(note.lines[0].pickedLots.map((p) => [p.lotId, p.baseQty, p.cost]), [
       [lot.early, 20, 30_000],
       [lot.late, 10, 15_000],
     ]);
@@ -574,7 +574,7 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
     lot.odd = await stockIn(f.lotted, f.warehouse, key("odd"), 7, 8_642, "2032-01-31");
     const again = await issuedDeliveryOrder([[f.lotted, f.pcs, 7]]);
     const r = await create(header({ source_doc_id: again.doId }), [
-      { source_doc_line_id: again.goods, qty: 7, note: "", picks: [{ tracking_id: lot.early, qty: 4 }, { tracking_id: lot.odd, qty: 3 }] },
+      { source_doc_line_id: again.goods, qty: 7, note: "", picks: [{ tracking_id: lot.early, base_qty: 4 }, { tracking_id: lot.odd, base_qty: 3 }] },
     ]);
     assert.ok(r.ok, JSON.stringify(r));
     assert.ok((await transitionDeliveryNote(r.id, "post", actor)).ok);
@@ -582,7 +582,7 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
     // round(271.142 × 4 ÷ 182) = 5.959; then round(265.183 × 3 ÷ 178) = 4.469.
     assert.deepEqual(note.lines[0].pickedLots.map((p) => p.cost), [5_959, 4_469]);
     assert.equal(note.lines[0].cost, 10_428, "the line is the sum of its lots");
-    assert.equal(note.lines[0].unitCost, 1_489.714286, "10.428 ÷ 7, a description of the line");
+    assert.equal(Math.round((note.lines[0].cost / note.lines[0].baseQty) * 1e6) / 1e6, 1_489.714286, "10.428 ÷ 7, a description of the line");
   });
 
   test("an item's Kategori Item names its own HPP; Persediaan left empty falls back to Account Mapping (P122)", async () => {
@@ -598,7 +598,7 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
     try {
       const again = await issuedDeliveryOrder([[f.lotted, f.pcs, 1]]);
       const r = await create(header({ source_doc_id: again.doId }), [
-        { source_doc_line_id: again.goods, qty: 1, note: "", picks: [{ tracking_id: lot.early, qty: 1 }] },
+        { source_doc_line_id: again.goods, qty: 1, note: "", picks: [{ tracking_id: lot.early, base_qty: 1 }] },
       ]);
       assert.ok(r.ok && (await transitionDeliveryNote(r.id, "post", actor)).ok);
       const note = (await getDeliveryNote(r.id))!;
@@ -613,12 +613,12 @@ describe("a Barang with Kelola Stok leaves lot by lot (U15, P120)", () => {
   test("stock taken by another note after a Draft was picked stops the Draft from posting", async () => {
     const big = await issuedDeliveryOrder([[f.lotted, f.pcs, 90]]);
     const r = await create(header({ source_doc_id: big.doId }), [
-      { source_doc_line_id: big.goods, qty: 90, note: "", picks: [{ tracking_id: lot.late, qty: 90 }] },
+      { source_doc_line_id: big.goods, qty: 90, note: "", picks: [{ tracking_id: lot.late, base_qty: 90 }] },
     ]);
     assert.ok(r.ok, JSON.stringify(r));
     const small = await issuedDeliveryOrder([[f.lotted, f.pcs, 5]]);
     const first = await create(header({ source_doc_id: small.doId }), [
-      { source_doc_line_id: small.goods, qty: 5, note: "", picks: [{ tracking_id: lot.late, qty: 5 }] },
+      { source_doc_line_id: small.goods, qty: 5, note: "", picks: [{ tracking_id: lot.late, base_qty: 5 }] },
     ]);
     assert.ok(first.ok && (await transitionDeliveryNote(first.id, "post", actor)).ok);
     const refused = await transitionDeliveryNote(r.id, "post", actor);
@@ -648,16 +648,16 @@ describe("picking by location in a warehouse with Gunakan Lokasi", () => {
       ]
     );
 
-    const lineOf = (picks: { tracking_id: number; location_id?: number | null; qty: number }[]) => [
+    const lineOf = (picks: { tracking_id: number; location_id?: number | null; base_qty: number }[]) => [
       { source_doc_line_id: located.goods, qty: 5, note: "", picks },
     ];
-    const noLocation = await create(header({ source_doc_id: located.doId }), lineOf([{ tracking_id: lotX, qty: 5 }]));
+    const noLocation = await create(header({ source_doc_id: located.doId }), lineOf([{ tracking_id: lotX, base_qty: 5 }]));
     assert.ok(!noLocation.ok && /Pilih ulang lotnya/.test(noLocation.errors["lines.0.picks"]), "a pick names its location");
     const twice = await create(
       header({ source_doc_id: located.doId }),
       lineOf([
-        { tracking_id: lotX, location_id: f.a01, qty: 2 },
-        { tracking_id: lotX, location_id: f.a01, qty: 1 },
+        { tracking_id: lotX, location_id: f.a01, base_qty: 2 },
+        { tracking_id: lotX, location_id: f.a01, base_qty: 1 },
       ])
     );
     assert.ok(!twice.ok && /dipilih lebih dari sekali/.test(twice.errors["lines.0.picks"]));
@@ -665,8 +665,8 @@ describe("picking by location in a warehouse with Gunakan Lokasi", () => {
     const r = await create(
       header({ source_doc_id: located.doId }),
       lineOf([
-        { tracking_id: lotX, location_id: f.a01, qty: 3 },
-        { tracking_id: lotX, location_id: f.a02, qty: 2 },
+        { tracking_id: lotX, location_id: f.a01, base_qty: 3 },
+        { tracking_id: lotX, location_id: f.a02, base_qty: 2 },
       ])
     );
     assert.ok(r.ok, JSON.stringify(r));
@@ -677,7 +677,7 @@ describe("picking by location in a warehouse with Gunakan Lokasi", () => {
       [f.a02, 2],
     ]);
     const view = (await getDeliveryNote(r.id))!;
-    assert.deepEqual(view.lines[0].pickedLots.map((p) => [p.locationLabel, p.qty]), [
+    assert.deepEqual(view.lines[0].pickedLots.map((p) => [p.locationLabel, p.baseQty]), [
       [`${key("WHL")}-A-01`, 3],
       [`${key("WHL")}-A-02`, 2],
     ]);

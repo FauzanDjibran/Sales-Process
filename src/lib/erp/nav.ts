@@ -774,6 +774,14 @@ export const MODULES: NavModule[] = [
             desc: "Tempat barang disimpan. Stok dicatat per gudang, lot dan status di Persediaan.",
             permission: "WAREHOUSE_VIEW",
           },
+          {
+            key: "ref_warehouse_location",
+            slug: "warehouse-location",
+            name: "Lokasi Gudang",
+            icon: "layers",
+            desc: "Tempat di dalam gudang — rak, baris, bin — tempat stok disimpan.",
+            permission: "WAREHOUSE_LOCATION_VIEW",
+          },
         ],
       },
       {

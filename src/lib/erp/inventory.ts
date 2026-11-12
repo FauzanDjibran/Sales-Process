@@ -15,8 +15,8 @@ import { locationDisplayLabel, lotKey } from "./warehouse-location";
  *
  * - **Quantity** — `log_stock_ledger` / `log_stock_balance`: how much of which
  *   lot is in which warehouse — and where in it — in which status. One bucket
- *   per warehouse, location, lot and status; never negative. A warehouse with
- *   Gunakan Lokasi names a location on every row; any other names none (null).
+ *   per warehouse, location, lot and status; never negative. A warehouse
+ *   that has locations names a location on every row; any other names none (null).
  * - **Value** — `log_stock_valuation_ledger` / `log_stock_valuation_balance`:
  *   one moving-average pool per item (one company, one valuation area), kept
  *   as quantity Q and value V in whole rupiah. A receipt adds its own value;
@@ -78,7 +78,11 @@ export type LotOption = {
   /** `<warehouse>-<location>` (`locationDisplayLabel`), null without a location. */
   locationLabel: string | null;
   locationName: string | null;
-  /** Quantity available (Tersedia) in the warehouse, in the item's base unit. */
+  /** The bucket's stock status (P268). */
+  statusId: number;
+  statusLabel: string;
+  statusName: string;
+  /** Quantity available in this bucket, in the item's base unit. */
   available: number;
   /** Offered to a picker: something is available. */
   active: boolean;
@@ -97,14 +101,17 @@ export async function lotOptions(
   itemIds: number[],
   warehouseIds: number[],
   db: Db = prisma,
-  withIds: number[] = []
+  withIds: number[] = [],
+  /** The stock statuses offered (P268); Tersedia unless a purpose says otherwise. */
+  statusLabels: string[] = [AVAILABLE_STATUS]
 ): Promise<Map<number, Map<number, LotOption[]>>> {
   const out = new Map<number, Map<number, LotOption[]>>();
   if (!itemIds.length || !warehouseIds.length) return out;
-  const status = await statusId(db);
   const balances = await db.logStockBalance.findMany({
-    where: { item_id: { in: itemIds }, warehouse_id: { in: warehouseIds }, stock_status_id: status },
+    where: { item_id: { in: itemIds }, warehouse_id: { in: warehouseIds }, stock_status: { status_label: { in: statusLabels } } },
     select: {
+      stock_status_id: true,
+      stock_status: { select: { status_label: true, status_name: true, sort_order: true } },
       warehouse_id: true,
       location_id: true,
       tracking_id: true,
@@ -127,13 +134,16 @@ export async function lotOptions(
     const byItem = out.get(b.warehouse_id) ?? new Map<number, LotOption[]>();
     const list = byItem.get(t.item_id) ?? [];
     list.push({
-      key: lotKey(t.id, b.location_id),
+      key: lotKey(t.id, b.location_id, b.stock_status_id),
       id: t.id,
       lotNo: t.tracking_no,
       expiry: t.expiry_date ? t.expiry_date.toISOString().slice(0, 10) : null,
       locationId: b.location_id,
       locationLabel: b.location ? locationDisplayLabel(b.warehouse.warehouse_label, b.location.location_label) : null,
       locationName: b.location?.location_name ?? null,
+      statusId: b.stock_status_id,
+      statusLabel: b.stock_status.status_label,
+      statusName: b.stock_status.status_name,
       available,
       active: available > 0,
     });
@@ -147,7 +157,8 @@ export async function lotOptions(
         (a, b) =>
           (a.expiry ?? "9999").localeCompare(b.expiry ?? "9999") ||
           a.lotNo.localeCompare(b.lotNo) ||
-          (a.locationLabel ?? "").localeCompare(b.locationLabel ?? "")
+          (a.locationLabel ?? "").localeCompare(b.locationLabel ?? "") ||
+          a.statusId - b.statusId
       );
     }
   }
@@ -159,13 +170,13 @@ export type WarehouseLocationOption = { id: number; label: string; name: string;
 /**
  * Each warehouse's locations for a picker, by warehouse id, in label order —
  * inactive ones included, marked, so a stored document still reads its own.
- * A warehouse without Gunakan Lokasi has none.
+ * A warehouse without locations has none (P267).
  */
 export async function warehouseLocationOptions(warehouseIds: number[], db: Db = prisma): Promise<Map<number, WarehouseLocationOption[]>> {
   const out = new Map<number, WarehouseLocationOption[]>();
   if (!warehouseIds.length) return out;
   const rows = await db.refWarehouseLocation.findMany({
-    where: { warehouse_id: { in: warehouseIds }, warehouse: { use_location: true } },
+    where: { warehouse_id: { in: warehouseIds } },
     orderBy: { location_label: "asc" },
     include: { warehouse: { select: { warehouse_label: true } } },
   });
@@ -177,7 +188,7 @@ export async function warehouseLocationOptions(warehouseIds: number[], db: Db = 
   return out;
 }
 
-/** Whether a warehouse holds any stock now — Gunakan Lokasi may not change while it does. */
+/** Whether a warehouse holds any stock now — its first location may not be added while it does (P267). */
 export async function warehouseHoldsStock(warehouseId: number, db: Db = prisma): Promise<boolean> {
   return (await db.logStockBalance.count({ where: { warehouse_id: warehouseId, qty_balance: { not: 0 } } })) > 0;
 }
@@ -210,14 +221,18 @@ export async function locationLabelsByIds(ids: number[], db: Db = prisma): Promi
 }
 
 /**
- * The warehouse and location a movement names, checked (Gunakan Lokasi): a
- * warehouse with locations needs one of its own — active, for goods coming in
- * — and one without takes none.
+ * The warehouse and location a movement names, checked (P267): a warehouse
+ * that has any location — active or not — needs one of its own, active for
+ * goods coming in; one without takes none. So stock in one warehouse is never
+ * mixed with and without a location.
  */
 async function stockPlace(tx: Tx, warehouseId: number, locationId: number | null | undefined, receiving: boolean) {
-  const warehouse = await tx.refWarehouse.findUnique({ where: { id: warehouseId }, select: { warehouse_label: true, use_location: true } });
+  const warehouse = await tx.refWarehouse.findUnique({
+    where: { id: warehouseId },
+    select: { warehouse_label: true, _count: { select: { locations: true } } },
+  });
   if (!warehouse) throw new InventoryRefusal("Gudang tidak ditemukan.");
-  if (!warehouse.use_location) {
+  if (!warehouse._count.locations) {
     if (locationId) throw new InventoryRefusal(`Gudang ${warehouse.warehouse_label} tidak memakai lokasi: kosongkan lokasinya.`);
     return { locationId: null, where: `gudang ${warehouse.warehouse_label}` };
   }
@@ -411,7 +426,7 @@ async function move(
 export type StockReceipt = {
   itemId: number;
   warehouseId: number;
-  /** Required in a warehouse with Gunakan Lokasi, null in any other. */
+  /** Required in a warehouse that has locations, null in any other. */
   locationId?: number | null;
   /** The lot it comes in as; a lot the item already has is added to. */
   lotNo: string;
@@ -499,10 +514,12 @@ export async function receiveStock(tx: Tx, r: StockReceipt): Promise<{ trackingI
 export type StockIssue = {
   itemId: number;
   warehouseId: number;
-  /** The location it leaves from: required in a warehouse with Gunakan Lokasi, null in any other. */
+  /** The location it leaves from: required in a warehouse that has locations, null in any other. */
   locationId?: number | null;
   /** The lot it leaves from. */
   lotId: number | null | undefined;
+  /** The stock status it leaves from (P268); Tersedia when omitted. */
+  statusId?: number;
   /** In the item's base unit. */
   baseQty: number;
   date: Date;
@@ -525,7 +542,7 @@ export async function issueStock(tx: Tx, issue: StockIssue): Promise<{ unitCost:
   if (!tracking) throw new InventoryRefusal(`Lot ${item.item_label} tidak ditemukan. Pilih ulang lotnya.`);
   const place = await stockPlace(tx, issue.warehouseId, issue.locationId, false);
 
-  const status = await statusId(tx);
+  const status = issue.statusId ?? (await statusId(tx));
   // Pool before bucket, as receiveStock does, so two postings never lock in opposite orders.
   const pool = await lockPool(tx, issue.itemId, item.base_uom_id, issue.actorId);
   const bucket = await lockBucket(
@@ -605,7 +622,7 @@ export async function releaseReservation(tx: Tx, r: StockReservation, actorId: n
 export type InjectionRow = {
   itemId: number;
   warehouseId: number;
-  /** Required in a warehouse with Gunakan Lokasi. */
+  /** Required in a warehouse that has locations. */
   locationId?: number | null;
   lotNo: string;
   expiry: Date | null;

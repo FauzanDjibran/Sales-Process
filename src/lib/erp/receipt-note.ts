@@ -51,7 +51,7 @@ export type ReceiptNoteHeaderInput = {
   note: string;
 };
 
-/** One lot a line comes in as — and, in a warehouse with Gunakan Lokasi, where it is put. */
+/** One lot a line comes in as — and, in a warehouse that has locations, where it is put. */
 export type ReceiptNoteLotInput = { tracking_no: string; expiry_date: string; location_id?: number | null; qty: number | string };
 
 export type ReceiptNoteLineInput = {
@@ -107,7 +107,7 @@ export type ReceiptNoteOptions = {
     label: string;
     name: string;
     active: boolean;
-    /** Gunakan Lokasi: each lot row names one of `locations`. */
+    /** The warehouse has locations (P267): each lot row names one of `locations`. */
     useLocation: boolean;
     locations: WarehouseLocationOption[];
   }[];
@@ -127,7 +127,7 @@ export async function receiptNoteOptions(current: { id: number; sourceId: number
       : sourceOptions(prisma, { openOnly: true }, null).then((os) => os.filter((o) => o.lines.some((l) => units(l.qty) > units(l.held)))),
     prisma.refWarehouse.findMany({ orderBy: { warehouse_label: "asc" } }),
   ]);
-  const locations = await warehouseLocationOptions(warehouses.filter((w) => w.use_location).map((w) => w.id));
+  const locations = await warehouseLocationOptions(warehouses.map((w) => w.id));
   return {
     orders,
     warehouses: warehouses.map((w) => ({
@@ -135,7 +135,7 @@ export async function receiptNoteOptions(current: { id: number; sourceId: number
       label: w.warehouse_label,
       name: w.warehouse_name,
       active: w.status === "Active",
-      useLocation: w.use_location,
+      useLocation: (locations.get(w.id)?.length ?? 0) > 0,
       locations: locations.get(w.id) ?? [],
     })),
   };
@@ -206,11 +206,12 @@ export async function checkReceiptNote(
     warehouseId = Number(header.warehouse_id) || null;
     if (!warehouseId) errors.warehouse_id = "Pilih Gudang.";
     else {
-      const w = await db.refWarehouse.findUnique({ where: { id: warehouseId }, select: { status: true, use_location: true } });
+      const w = await db.refWarehouse.findUnique({ where: { id: warehouseId }, select: { status: true } });
       if (!w || w.status !== "Active") errors.warehouse_id = "Gudang tidak ditemukan atau nonaktif.";
-      else if (w.use_location) {
-        place.useLocation = true;
-        place.locations = new Map((await warehouseLocationOptions([warehouseId], db)).get(warehouseId)?.map((l) => [l.id, l]) ?? []);
+      else {
+        const own = (await warehouseLocationOptions([warehouseId], db)).get(warehouseId) ?? [];
+        place.useLocation = own.length > 0;
+        place.locations = new Map(own.map((l) => [l.id, l]));
       }
     }
   }
@@ -291,7 +292,7 @@ export async function checkReceiptNote(
  * A line's lots (B19). A Kelola Stok line comes in as one or more lots, each
  * more than 0, an expiry where the item has one; together never more than the
  * line, and to be posted exactly the line. Any other line takes none. In a
- * warehouse with Gunakan Lokasi each lot row names one of its active locations
+ * warehouse that has locations each lot row names one of its active locations
  * (a Draft may leave it empty; posting may not), and one lot may be split over
  * several locations, once in each.
  */
@@ -696,7 +697,7 @@ export async function getReceiptNote(id: number): Promise<ReceiptNoteView | null
 }
 
 /**
- * For the Gudang master (Gunakan Lokasi): how many Draft Receipt Notes bring
+ * For the Lokasi Gudang master (P267): how many Draft Receipt Notes bring
  * goods into the warehouse, and which of the locations named a lot row of any
  * note puts goods in.
  */

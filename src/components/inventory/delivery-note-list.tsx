@@ -4,10 +4,12 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
+import { Amount } from "@/components/ui/amount";
+import { DocumentHeader } from "@/components/ui/document-header";
 import { Pager, usePaging } from "@/components/ui/pager";
 import { SearchField } from "@/components/ui/search-field";
 import { Select } from "@/components/ui/select";
-import { formatDate, formatMoney } from "@/lib/format";
+import { formatDate } from "@/lib/format";
 import type { DeliveryNoteListRow } from "@/lib/erp/delivery-note";
 import {
   DELIVERY_NOTE_STATUS_BADGE,
@@ -45,32 +47,18 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
 
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Persediaan</span>
-          <span>/</span>
-          <span className="cur">Delivery Note</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="truck" size={16} />
-            </span>
-            Delivery Note
-          </h1>
-          <div className="ph-act">
-            {can.create && (
-              <Link className="btn primary" href="/inventory/delivery-note/new">
-                <Icon name="plus" size={15} /> Delivery Note Baru
-              </Link>
-            )}
-          </div>
-        </div>
-        <p className="ph-sub">
-          Surat jalan: barang yang benar-benar keluar dari gudang, dibuat dari Delivery Order yang sudah diterbitkan.
-          Posting mengakui HPP dan mengurangi Persediaan; piutang baru diakui di Invoice Penjualan.
-        </p>
-      </div>
+      <DocumentHeader
+        module="Persediaan"
+        icon="truck"
+        title="Delivery Note"
+        sub="Surat jalan: barang yang benar-benar keluar dari gudang menurut tujuannya. Untuk penjualan dibuat dari Delivery Order yang sudah diterbitkan; Posting mengakui HPP dan mengurangi Persediaan, piutang baru diakui di Invoice Penjualan."
+      >
+        {can.create && (
+          <Link className="btn primary" href="/inventory/delivery-note/new">
+            <Icon name="plus" size={15} /> Delivery Note Baru
+          </Link>
+        )}
+      </DocumentHeader>
 
       <div className="card">
         <div className="toolbar">
@@ -100,6 +88,7 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
               <table className="grid">
                 <thead>
                   <tr>
+                    <th style={{ width: 40 }}>No</th>
                     <th style={{ width: 160 }}>Nomor</th>
                     <th style={{ width: 120 }}>Status</th>
                     <th style={{ width: 106 }}>Tanggal Kirim</th>
@@ -108,11 +97,13 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
                     <th>Customer</th>
                     <th className="num" style={{ width: 70 }}>Baris</th>
                     <th className="num" style={{ width: 140 }}>HPP</th>
+                    <th style={{ width: 52 }} />
                   </tr>
                 </thead>
                 <tbody>
-                  {paging.pageRows.map((o) => (
+                  {paging.pageRows.map((o, i) => (
                     <tr key={o.id} onClick={() => router.push(`/inventory/delivery-note/${o.id}`)}>
+                      <td className="no">{(paging.page - 1) * paging.perPage + i + 1}</td>
                       <td>
                         <Link className="lab" href={`/inventory/delivery-note/${o.id}`}>
                           {o.dnNo}
@@ -140,7 +131,14 @@ export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[
                       </td>
                       <td className="num">{o.lines}</td>
                       <td className="num">
-                        {o.status === "Posted" ? <span className="mny">{formatMoney(o.cost, "IDR")}</span> : <span className="dash">—</span>}
+                        {o.status === "Posted" ? <Amount value={o.cost} /> : <span className="dash">—</span>}
+                      </td>
+                      <td className="acts">
+                        <span className="ract">
+                          <Link className="iact" href={`/inventory/delivery-note/${o.id}`} title="Lihat detail" onClick={(e) => e.stopPropagation()}>
+                            <Icon name="eye" size={15} />
+                          </Link>
+                        </span>
                       </td>
                     </tr>
                   ))}

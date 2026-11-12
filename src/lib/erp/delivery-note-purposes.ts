@@ -5,7 +5,8 @@
  * A Delivery Note is standalone: it belongs to no business module, because the
  * same paper carries goods out for a sale, for a purchase return and, later,
  * other flows. Its purpose says what its source is, which partner it goes to,
- * how Post books it and what it writes back to the source. A purpose is
+ * how Post books it and what it writes back to the source — each purpose has
+ * its own posting in `delivery-note.ts` (P268), never one forced logic. A purpose is
  * behaviour, not data, so the list lives here; one a user could add at runtime
  * would be a row no code knows how to post.
  *
@@ -25,6 +26,14 @@ export type DeliveryNotePurpose = {
   sourceNoun: string;
   /** The partner category the goods go to (P30). */
   partnerCategory: "Customer" | "Supplier";
+  /** What a line's source line belongs to, as the line table's Sumber column names it. */
+  sourceLineNoun: string;
+  /** The Draft-only column of what the source still has to send (P269). */
+  remainingLabel: string;
+  /** The stock statuses goods may leave from (`sys_stock_status.status_label`, P268). */
+  statusLabels: string[];
+  /** Whether an invoice bills the lines afterwards (the Ditagih column). */
+  billed: boolean;
 };
 
 export const DELIVERY_NOTE_PURPOSES: readonly DeliveryNotePurpose[] = [
@@ -37,6 +46,11 @@ export const DELIVERY_NOTE_PURPOSES: readonly DeliveryNotePurpose[] = [
     sourceTable: "sal_delivery_order",
     sourceNoun: "Delivery Order",
     partnerCategory: "Customer",
+    sourceLineNoun: "Sales Order",
+    remainingLabel: "Sisa DO",
+    // A customer is sent only what may be sold; a purchase return will take any status.
+    statusLabels: ["TERSEDIA"],
+    billed: true,
   },
 ];
 

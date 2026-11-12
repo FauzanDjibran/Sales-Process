@@ -3,6 +3,13 @@
 > Agreed and **built 07/10/2026** as `Claude-ERP.md` P136. L1–L4 as recommended;
 > L5 and L6 as the user answered (§8); Gudang and Lokasi are separate columns in
 > the reports (§6).
+>
+> **Amended 12/11/2026 by P267:** there is no switch any more. A location is its
+> own master, *Lokasi Gudang* (a tree one level deep, Gudang → Lokasi), and a
+> warehouse uses locations when it has any. The rules below on a switch now
+> read: the first location is added only while the warehouse holds no stock and
+> no Draft names it; stock in a warehouse is never mixed with and without a
+> location. Moving stock between locations is the Transfer menu, built later.
 
 ## 1. The request
 

@@ -345,7 +345,7 @@ export const CHECKS: Check[] = [
   },
   {
     area: "goods",
-    name: "a posted note's cost equals its lines, its picks and, since P120, what the stock books released for it",
+    name: "a posted note's cost equals its lines, each line Σ its tracking rows (value and base quantity, P268), and, since P120, what the stock books released for it",
     sql: `SELECT n.dn_no, n.cost_amount, (SELECT SUM(cost_amount) FROM log_delivery_note_line WHERE delivery_note_id = n.id) AS lines,
                  (SELECT -SUM(value_change) FROM log_stock_valuation_ledger WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id) AS issued
           FROM log_delivery_note n WHERE n.status = 'Posted' AND (
@@ -353,9 +353,9 @@ export const CHECKS: Check[] = [
             OR (EXISTS (SELECT 1 FROM log_stock_valuation_ledger WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id)
                 AND n.cost_amount <> (SELECT -SUM(value_change) FROM log_stock_valuation_ledger WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id)))
           UNION ALL
-          SELECT n.dn_no, l.cost_amount, SUM(p.cost_amount), SUM(p.qty) - l.qty
+          SELECT n.dn_no, l.cost_amount, SUM(p.cost_amount), SUM(p.base_qty) - l.base_qty
           FROM log_delivery_note n JOIN log_delivery_note_line l ON l.delivery_note_id = n.id JOIN log_delivery_note_tracking p ON p.delivery_note_line_id = l.id
-          WHERE n.status = 'Posted' GROUP BY n.dn_no, l.id HAVING l.cost_amount <> SUM(p.cost_amount) OR SUM(p.qty) <> l.qty`,
+          WHERE n.status = 'Posted' GROUP BY n.dn_no, l.id HAVING l.cost_amount <> SUM(p.cost_amount) OR SUM(p.base_qty) <> l.base_qty`,
   },
   {
     area: "goods",
@@ -729,15 +729,14 @@ export const CHECKS: Check[] = [
   },
   {
     area: "stock",
-    name: "stock held in a warehouse with Gunakan Lokasi names one of its own locations, and stock elsewhere names none",
-    // Held stock only: a warehouse may switch Gunakan Lokasi on once empty, so its past rows may have none.
-    sql: `SELECT b.id, w.warehouse_label, w.use_location, b.location_id, loc.warehouse_id AS location_warehouse, b.qty_balance
+    name: "stock held in a warehouse that has locations names one of its own, and stock elsewhere names none",
+    // Held stock only: a warehouse takes its first location once empty (P267), so its past rows may have none.
+    sql: `SELECT b.id, w.warehouse_label, b.location_id, loc.warehouse_id AS location_warehouse, b.qty_balance
           FROM log_stock_balance b
           JOIN ref_warehouse w ON w.id = b.warehouse_id
           LEFT JOIN ref_warehouse_location loc ON loc.id = b.location_id
           WHERE b.qty_balance <> 0
-            AND ((w.use_location AND b.location_id IS NULL)
-              OR (NOT w.use_location AND b.location_id IS NOT NULL)
+            AND ((EXISTS (SELECT 1 FROM ref_warehouse_location o WHERE o.warehouse_id = w.id) AND b.location_id IS NULL)
               OR (b.location_id IS NOT NULL AND loc.warehouse_id <> b.warehouse_id))`,
   },
   // ------------------------------------------------------------ production

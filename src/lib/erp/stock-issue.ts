@@ -7,7 +7,7 @@ import { formatNumber } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
-import { InventoryRefusal, issueStock, locationLabelsByIds, lotKey, lotOptions, lotTrackedItems, releaseReservation, reserveStock, type LotOption } from "./inventory";
+import { InventoryRefusal, issueStock, locationLabelsByIds, lotOptions, lotTrackedItems, releaseReservation, reserveStock, type LotOption } from "./inventory";
 import { ProductionRefusal, enterProduction, issueJob, firstProductionUnit } from "./production-ledger";
 import { fallbackAccounts } from "./system-settings";
 import { accountsForItems } from "./item-account";
@@ -316,12 +316,12 @@ function checkPicks(
   forPosting: boolean
 ): { ok: true; picks: CheckedPick[] } | { ok: false; error: string } {
   const list = Array.isArray(raw) ? raw : [];
-  const byKey = new Map(lots.map((l) => [l.key, l]));
   const seen = new Set<string>();
   const picks: CheckedPick[] = [];
   let total = 0;
   for (const p of list) {
-    const lot = byKey.get(lotKey(Number(p.tracking_id), Number(p.location_id) || null));
+    // Stock Issue takes Tersedia only, so a lot in a location names its bucket.
+    const lot = lots.find((o) => o.id === Number(p.tracking_id) && o.locationId === (Number(p.location_id) || null));
     if (!lot) return { ok: false, error: `Lot tidak ada di gudang ini untuk ${item.label}. Pilih ulang lotnya.` };
     const where = lot.locationLabel ? ` di ${lot.locationLabel}` : "";
     if (seen.has(lot.key)) return { ok: false, error: `Lot ${lot.lotNo}${where} dipilih lebih dari sekali.` };
@@ -788,7 +788,7 @@ export async function stockIssueNumbersByIds(ids: number[]): Promise<Map<number,
 }
 
 /**
- * For the Gudang master (Gunakan Lokasi): how many Draft BSTB Issues take goods
+ * For the Lokasi Gudang master (P267): how many Draft BSTB Issues take goods
  * out of the warehouse, and which of the locations a pick of any issue names.
  */
 export async function stockIssueLocationUse(warehouseId: number, locationIds: number[]): Promise<{ drafts: number; named: Set<number> }> {

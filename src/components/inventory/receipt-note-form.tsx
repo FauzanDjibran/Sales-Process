@@ -69,7 +69,7 @@ export function ReceiptNoteForm({
   const order = options.orders.find((o) => o.id === header.source_doc_id) ?? null;
   const poLine = useMemo(() => new Map((order?.lines ?? []).map((l) => [l.id, l])), [order]);
   const goods = order ? order.itemType === "Barang" : true;
-  // A warehouse with Gunakan Lokasi puts each lot row in one of its locations.
+  // A warehouse that has locations puts each lot row in one of its locations.
   const warehouse = options.warehouses.find((w) => w.id === header.warehouse_id) ?? null;
   const located = goods && Boolean(warehouse?.useLocation);
   const locationLabel = new Map((warehouse?.locations ?? []).map((x) => [x.id, x.label]));

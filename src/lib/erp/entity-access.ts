@@ -71,6 +71,13 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "WAREHOUSE_ACTIVATE",
     deactivate: "WAREHOUSE_DEACTIVATE",
   },
+  ref_warehouse_location: {
+    view: "WAREHOUSE_LOCATION_VIEW",
+    create: "WAREHOUSE_LOCATION_CREATE",
+    edit: "WAREHOUSE_LOCATION_EDIT",
+    activate: "WAREHOUSE_LOCATION_ACTIVATE",
+    deactivate: "WAREHOUSE_LOCATION_DEACTIVATE",
+  },
   ref_withholding_tax: {
     view: "WITHHOLDING_TAX_VIEW",
     create: "WITHHOLDING_TAX_CREATE",

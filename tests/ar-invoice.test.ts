@@ -96,7 +96,7 @@ const lotOf = (doLineId: number) => (doLineId === order.doLines[0] ? f.lotA : f.
 async function postedNote(doLineQty: [number, number][]) {
   const r = await createDeliveryNote(
     { source_doc_id: f.do, dn_date: today, vehicle_no: "", driver_name: "", note: "" },
-    doLineQty.map(([id, qty]) => ({ source_doc_line_id: id, qty, note: "", picks: [{ tracking_id: lotOf(id), qty }] })),
+    doLineQty.map(([id, qty]) => ({ source_doc_line_id: id, qty, note: "", picks: [{ tracking_id: lotOf(id), base_qty: qty }] })),
     actor
   );
   assert.ok(r.ok, JSON.stringify(r));

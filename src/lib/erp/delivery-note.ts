@@ -18,7 +18,7 @@ import {
   type DeliveryNoteSourceLine,
 } from "./delivery-order";
 import { DEFAULT_DELIVERY_NOTE_PURPOSE, deliveryNotePurpose } from "./delivery-note-purposes";
-import { InventoryRefusal, issueStock, locationLabelsByIds, lotKey, lotOptions, lotTrackedItems, type LotOption } from "./inventory";
+import { InventoryRefusal, issueStock, locationLabelsByIds, lotOptions, lotTrackedItems, type LotOption } from "./inventory";
 import { fallbackAccounts } from "./system-settings";
 import { accountsForItems } from "./item-account";
 import {
@@ -46,11 +46,15 @@ import {
  * issued Delivery Order — whose Customer Order, customer, warehouse and address
  * it copies — and takes a quantity of some of its lines; a Delivery Order may
  * be sent in several notes, never more than its lines in total. A Barang with
- * Kelola Stok is picked by lot on the note (U15). Posting issues the goods —
- * lot by lot where picked — through the inventory module, which says what they
- * cost, and
- * writes one journal: Dr HPP / Cr Persediaan. **Cost of goods only** — Piutang
- * is born at the Invoice, which will take this note's lines whole.
+ * Kelola Stok is picked by bucket on the note (U15): lot, location and stock
+ * status, in the item's base unit. **The tracking row is the detail and holds
+ * the value; the line is its summary** (P268): the stock owns the value, so
+ * what each bucket released is stored on its tracking row and the line keeps
+ * only the sum. Posting issues every tracking row through the inventory module,
+ * then runs **its purpose's own posting** (`PURPOSE_POSTING`): for a sale,
+ * Dr HPP / Cr Persediaan and what left written back to the Delivery Order.
+ * **Cost of goods only** — Piutang is born at the Invoice, which will take this
+ * note's lines whole.
  *
  * The Delivery Order is read through `deliveryNoteSources` and told what left
  * through `recordDeliveryOrderDelivery`; its Customer Order is locked through
@@ -76,10 +80,16 @@ export type DeliveryNoteHeaderInput = {
 };
 
 /**
- * One lot a line takes goods from — the stock picking (U15) — and, in a
- * warehouse with Gunakan Lokasi, the location it is taken from.
+ * One bucket a line takes goods from — the stock picking (U15, P268): a lot,
+ * the location it is taken from in a warehouse that has locations, and its
+ * stock status, counted in the item's base unit.
  */
-export type DeliveryNotePickInput = { tracking_id: number | null; location_id?: number | null; qty: number | string };
+export type DeliveryNotePickInput = {
+  tracking_id: number | null;
+  location_id?: number | null;
+  stock_status_id?: number | null;
+  base_qty: number | string;
+};
 
 export type DeliveryNoteLineInput = {
   /** The source line: for `sales_delivery` a Delivery Order line. */
@@ -137,6 +147,8 @@ export type DnSourceLine = DeliveryNoteSourceLine & {
   held: number;
   /** The item leaves by lot (Kelola Stok, U15): the line must be picked. */
   lotTracked: boolean;
+  /** The item's base unit: what its tracking rows are counted in (P268). */
+  baseUomLabel: string;
 };
 
 export type DnSourceOption = Omit<DeliveryNoteSource, "lines"> & {
@@ -156,13 +168,19 @@ async function sourceOptions(
 ): Promise<DnSourceOption[]> {
   const sources = await deliveryNoteSources(filter, db);
   const held = await heldByLines(db, SALES_DELIVERY, sources.flatMap((s) => s.lines.map((l) => l.id)), exceptId);
-  const tracked = await lotTrackedItems([...new Set(sources.flatMap((s) => s.lines.map((l) => l.itemId)))], db);
+  const itemIds = [...new Set(sources.flatMap((s) => s.lines.map((l) => l.itemId)))];
+  const [tracked, baseUoms] = await Promise.all([
+    lotTrackedItems(itemIds, db),
+    db.mItem.findMany({ where: { id: { in: itemIds } }, select: { id: true, base_uom: { select: { uom_label: true } } } }),
+  ]);
+  const baseUomOf = new Map(baseUoms.map((i) => [i.id, i.base_uom.uom_label]));
   // Every source's lots in one read, keyed by warehouse, instead of one per source.
   const lotsByWarehouse = await lotOptions(
-    [...new Set(sources.flatMap((s) => s.lines.map((l) => l.itemId)).filter((id) => tracked.has(id)))],
+    itemIds.filter((id) => tracked.has(id)),
     [...new Set(sources.map((s) => s.warehouseId))],
     db,
-    withLotIds
+    withLotIds,
+    deliveryNotePurpose(SALES_DELIVERY)!.statusLabels
   );
   const out: DnSourceOption[] = [];
   for (const s of sources) {
@@ -170,7 +188,12 @@ async function sourceOptions(
     const lots = new Map([...(lotsByWarehouse.get(s.warehouseId) ?? new Map<number, LotOption[]>()).entries()].filter(([item]) => lotItems.has(item)));
     out.push({
       ...s,
-      lines: s.lines.map((l) => ({ ...l, held: held.get(l.id) ?? 0, lotTracked: tracked.has(l.itemId) })),
+      lines: s.lines.map((l) => ({
+        ...l,
+        held: held.get(l.id) ?? 0,
+        lotTracked: tracked.has(l.itemId),
+        baseUomLabel: baseUomOf.get(l.itemId) ?? l.uomLabel,
+      })),
       lots: Object.fromEntries([...lots.entries()]),
     });
   }
@@ -194,7 +217,15 @@ export async function deliveryNoteOptions(
 
 // ------------------------------------------------------------- validation
 
-type CheckedPick = { pick_no: number; tracking_id: number; location_id: number | null; tracking_no: string; expiry_date: Date | null; qty: number };
+type CheckedPick = {
+  pick_no: number;
+  tracking_id: number;
+  location_id: number | null;
+  stock_status_id: number;
+  tracking_no: string;
+  expiry_date: Date | null;
+  base_qty: number;
+};
 
 type CheckedLine = {
   line_no: number;
@@ -284,7 +315,8 @@ export async function checkDeliveryNote(
     else if (units(qty) > units(left)) {
       errors[lineKey(i, "qty")] = `Melebihi sisa Delivery Order (${qtyText(left)} ${doLine.uomLabel}).`;
     } else {
-      const picks = checkPicks(l.picks, doLine, source!.lots[doLine.itemId] ?? [], fromUnits(units(qty)), forPosting);
+      const baseQty = fromUnits(units(qty * doLine.uomFactor));
+      const picks = checkPicks(l.picks, doLine, source!.lots[doLine.itemId] ?? [], baseQty, forPosting);
       if (!picks.ok) {
         errors[lineKey(i, "picks")] = picks.error;
         continue;
@@ -297,7 +329,7 @@ export async function checkDeliveryNote(
         uom_id: doLine.uomId,
         uom_factor: doLine.uomFactor,
         qty: fromUnits(units(qty)),
-        base_qty: fromUnits(units(qty * doLine.uomFactor)),
+        base_qty: baseQty,
         note: text(l.note),
         picks: picks.picks,
       });
@@ -331,15 +363,16 @@ export async function checkDeliveryNote(
 }
 
 /**
- * A line's picking (U15). A lot-tracked line takes lots of its item in the
- * note's warehouse, each once, each more than 0, together never more than the
- * line — and, to be posted, exactly the line. Any other line takes none.
+ * A line's picking (U15, P268). A lot-tracked line takes buckets of its item in
+ * the note's warehouse — lot, location, status — each once, each more than 0,
+ * in the base unit, together never more than the line's base quantity — and,
+ * to be posted, exactly it. Any other line takes none.
  */
 function checkPicks(
   raw: DeliveryNotePickInput[] | undefined,
   line: DnSourceLine,
   lots: LotOption[],
-  lineQty: number,
+  lineBaseQty: number,
   forPosting: boolean
 ): { ok: true; picks: CheckedPick[] } | { ok: false; error: string } {
   const list = Array.isArray(raw) ? raw : [];
@@ -350,18 +383,23 @@ function checkPicks(
     if (forPosting) return { ok: false, error: `${line.itemLabel} tidak dikelola stok (Kelola Stok tidak aktif), jadi tidak bisa dikeluarkan.` };
     return { ok: true, picks: [] };
   }
-  // A pick is a lot in a location — a bucket — so a lot kept in two locations is two picks.
-  const byKey = new Map(lots.map((l) => [l.key, l]));
+  // A pick is a bucket — a lot in a location and a status — so a lot kept in two places is two picks.
   const seen = new Set<string>();
   const picks: CheckedPick[] = [];
   let total = 0;
+  const unit = line.baseUomLabel;
   for (const p of list) {
-    const lot = byKey.get(lotKey(Number(p.tracking_id), Number(p.location_id) || null));
+    const lot = lots.find(
+      (o) =>
+        o.id === Number(p.tracking_id) &&
+        o.locationId === (Number(p.location_id) || null) &&
+        (p.stock_status_id == null || o.statusId === Number(p.stock_status_id))
+    );
     if (!lot) return { ok: false, error: `Lot tidak ada di gudang ini untuk ${line.itemLabel}. Pilih ulang lotnya.` };
     const where = lot.locationLabel ? ` di ${lot.locationLabel}` : "";
     if (seen.has(lot.key)) return { ok: false, error: `Lot ${lot.lotNo}${where} dipilih lebih dari sekali.` };
     seen.add(lot.key);
-    const qty = Number(String(p.qty ?? "").replace(",", "."));
+    const qty = Number(String(p.base_qty ?? "").replace(",", "."));
     if (!Number.isFinite(qty) || !(qty > 0)) return { ok: false, error: `Isi jumlah lot ${lot.lotNo} lebih dari 0.` };
     if (Math.abs(qty * QTY_SCALE - units(qty)) > 1e-6) return { ok: false, error: "Jumlah lot paling banyak 4 angka desimal." };
     total += units(qty);
@@ -369,16 +407,17 @@ function checkPicks(
       pick_no: picks.length + 1,
       tracking_id: lot.id,
       location_id: lot.locationId,
+      stock_status_id: lot.statusId,
       tracking_no: lot.lotNo,
       expiry_date: lot.expiry ? asDate(lot.expiry) : null,
-      qty: fromUnits(units(qty)),
+      base_qty: fromUnits(units(qty)),
     });
   }
-  if (total > units(lineQty)) {
-    return { ok: false, error: `Lot yang dipilih (${qtyText(fromUnits(total))}) melebihi Qty baris (${qtyText(lineQty)} ${line.uomLabel}).` };
+  if (total > units(lineBaseQty)) {
+    return { ok: false, error: `Lot yang dipilih (${qtyText(fromUnits(total))} ${unit}) melebihi Qty baris (${qtyText(lineBaseQty)} ${unit}).` };
   }
-  if (forPosting && total !== units(lineQty)) {
-    return { ok: false, error: `${line.itemLabel}: lot baru ${qtyText(fromUnits(total))} dari ${qtyText(lineQty)} ${line.uomLabel}. Pilih lot sampai penuh.` };
+  if (forPosting && total !== units(lineBaseQty)) {
+    return { ok: false, error: `${line.itemLabel}: lot baru ${qtyText(fromUnits(total))} dari ${qtyText(lineBaseQty)} ${unit}. Pilih lot sampai penuh.` };
   }
   return { ok: true, picks };
 }
@@ -508,7 +547,12 @@ function asInput(n: StoredNote): {
         source_doc_line_id: l.source_doc_line_id,
         qty: l.qty.toNumber(),
         note: l.note ?? "",
-        picks: l.trackings.map((p) => ({ tracking_id: p.tracking_id, location_id: p.location_id, qty: p.qty.toNumber() })),
+        picks: l.trackings.map((p) => ({
+          tracking_id: p.tracking_id,
+          location_id: p.location_id,
+          stock_status_id: p.stock_status_id,
+          base_qty: p.base_qty.toNumber(),
+        })),
       })),
   };
 }
@@ -585,28 +629,15 @@ export async function transitionDeliveryNote(
 
   const period = await checkTransactionDate(isoDay(note.dn_date));
   if (!period.ok) return { ok: false, errors: { _form: period.message } };
-  // Each item posts to its Kategori Item's HPP and Persediaan, or to Account
-  // Mapping's where the category names none (P122).
-  const fallback = await fallbackAccounts(["cogs_account", "inventory_account"] as const);
-  const byCategory = await accountsForItems([...new Set(note.lines.map((l) => l.item_id))]);
-  const lineAccounts = new Map<number, { cogs: number; inventory: number }>();
-  for (const itemId of byCategory.keys()) {
-    const c = byCategory.get(itemId)!;
-    const cogs = c.cogs ?? fallback.cogs_account;
-    const inventory = c.inventory ?? fallback.inventory_account;
-    if (!cogs || !inventory) {
-      const missing = [!cogs && "Account HPP", !inventory && "Account Persediaan"].filter(Boolean).join(", ");
-      return { ok: false, errors: { _form: `Lengkapi Account Mapping atau Account Kategori Item dulu: ${missing}.` } };
-    }
-    lineAccounts.set(itemId, { cogs, inventory });
-  }
-  const baseCurrency = await prisma.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
-  if (!baseCurrency) return { ok: false, errors: { _form: "Mata uang dasar tidak ditemukan." } };
+  const posting = PURPOSE_POSTING[note.purpose];
+  if (!posting) return { ok: false, errors: { _form: "Tujuan Delivery Note ini belum bisa diposting." } };
+  const ready = await posting.prepare([...new Set(note.lines.map((l) => l.item_id))]);
+  if (!ready.ok) return { ok: false, errors: { _form: ready.error } };
 
   return refusable(async () => {
     const closed = await prisma.$transaction(async (tx) => {
       await holdPostingPeriod(tx, isoDay(note.dn_date));
-      await lockDeliveryOrderScope(tx, note.source_doc_id);
+      await posting.lock(tx, note.source_doc_id);
       const input = asInput(note);
       const r = await checkDeliveryNote(tx, input.header, input.lines, id, true);
       if (!r.ok) {
@@ -616,78 +647,136 @@ export async function transitionDeliveryNote(
       const done = await tx.logDeliveryNote.updateMany({ where: { id, status: "Draft" }, data: { status: "Posted", updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: moved });
 
+      // Common to every purpose: each tracking row leaves the stock on its own
+      // and stores what its bucket released; the line and the header keep the sums.
       const typeId = await docTypeId(tx, "log_delivery_note");
-      const byId = new Map(r.c.source.lines.map((l) => [l.id, l]));
-      const journalLines: Parameters<typeof postJournal>[1]["lines"] = [];
-      const sent = new Map<number, number>();
-      let total = 0;
+      const source = { docTypeId: typeId, docId: id, no: note.dn_no };
+      const issued: IssuedLine[] = [];
       for (const line of r.c.lines) {
-        const d = byId.get(line.source_doc_line_id)!;
-        const baseQty = line.base_qty;
         const where = { delivery_note_id_source_doc_line_id: { delivery_note_id: id, source_doc_line_id: line.source_doc_line_id } };
-        const source = { docTypeId: typeId, docId: id, no: note.dn_no };
-        // Every line leaves lot by lot, one stock movement per pick (U15, P120);
-        // the line's cost is what its picks cost.
-        const issued = { cost: 0 };
         const stored = await tx.logDeliveryNoteLine.findUniqueOrThrow({ where, select: { id: true } });
+        let cost = 0;
         for (const p of line.picks) {
-          const pickBase = fromUnits(units(p.qty * line.uom_factor));
           const out = await issueStock(tx, {
-            itemId: d.itemId,
-            warehouseId: r.c.source.warehouseId,
+            itemId: line.item_id,
+            warehouseId: r.c.data.warehouse_id,
             locationId: p.location_id,
             lotId: p.tracking_id,
-            baseQty: pickBase,
+            statusId: p.stock_status_id,
+            baseQty: p.base_qty,
             date: r.c.data.dn_date,
             source,
             actorId,
           });
           await tx.logDeliveryNoteTracking.update({
             where: { delivery_note_line_id_pick_no: { delivery_note_line_id: stored.id, pick_no: p.pick_no } },
-            data: { base_qty: pickBase, unit_cost: out.unitCost, cost_amount: out.cost },
+            data: { cost_amount: out.cost },
           });
-          issued.cost += out.cost;
+          cost += out.cost;
         }
-        // The line's unit cost describes what it left at — its value ÷ its base
-        // quantity, at six decimals — and is never read back into a calculation (P114).
-        const unitCost = baseQty > 0 ? Math.round((issued.cost / baseQty) * 1_000_000) / 1_000_000 : 0;
-        await tx.logDeliveryNoteLine.update({ where, data: { base_qty: baseQty, unit_cost: unitCost, cost_amount: issued.cost } });
-        sent.set(line.source_doc_line_id, line.qty);
-        total += issued.cost;
-        if (issued.cost > 0) {
-          const what = `${d.itemLabel} · ${qtyText(line.qty)} ${d.uomLabel}`;
-          journalLines.push(
-            { accountId: lineAccounts.get(d.itemId)!.cogs, currencyId: baseCurrency.id, rate: 1, debit: issued.cost, credit: 0, description: `HPP ${what}` },
-            {
-              accountId: lineAccounts.get(d.itemId)!.inventory,
-              currencyId: baseCurrency.id,
-              rate: 1,
-              debit: 0,
-              credit: issued.cost,
-              description: `Keluar ${r.c.source.warehouseLabel} · ${what}`,
-            }
-          );
-        }
+        await tx.logDeliveryNoteLine.update({ where, data: { base_qty: line.base_qty, cost_amount: cost } });
+        issued.push({ line, cost });
       }
+      const total = issued.reduce((s, l) => s + l.cost, 0);
+
+      // The purpose's own books: its journal and what it writes back to its source.
+      const booked = posting.journal({ checked: r.c, issued, dnNo: note.dn_no, accounts: ready.accounts });
       // Stock carried at no value leaves with no journal: nothing moves in the books.
-      const journal = !journalLines.length ? null : await postJournal(tx, {
-        description: `${note.dn_no} · Pengiriman ${r.c.source.doNo} — ${r.c.source.customerName}`,
-        sourceDocTypeId: typeId,
-        sourceDocId: id,
-        postingDate: r.c.data.dn_date,
-        actorId,
-        lines: journalLines,
-      });
+      const journal = !booked.lines.length
+        ? null
+        : await postJournal(tx, {
+            description: booked.description,
+            sourceDocTypeId: typeId,
+            sourceDocId: id,
+            postingDate: r.c.data.dn_date,
+            actorId,
+            lines: booked.lines,
+          });
       await tx.logDeliveryNote.update({ where: { id }, data: { journal_id: journal?.id ?? null, cost_amount: total } });
       await audit(tx, id, "UPDATE", "post", actorId);
-      // What the purpose writes back to its source (P106): for a sale, what left.
-      const closed = await recordDeliveryOrderDelivery(tx, note.source_doc_id, sent, actorId);
-      if (options.dryRun) throw new PostingDryRun(journalLines);
+      const closed = await posting.writeBack(tx, { checked: r.c, issued, sourceId: note.source_doc_id, actorId });
+      if (options.dryRun) throw new PostingDryRun(booked.lines);
       return closed;
     });
     return { ok: true as const, closed };
   });
 }
+
+// ------------------------------------------------------- posting per purpose
+
+/** One line as it left: its checked content and what its tracking rows released. */
+type IssuedLine = { line: CheckedLine; cost: number };
+
+type ItemAccounts = Map<number, { debit: number; credit: number }>;
+
+/**
+ * What one purpose does at Posting (P268). The stock leaving is the same for
+ * every purpose; what it is booked against and what it tells its source is
+ * not — a sale books HPP and tells its Delivery Order what left, a purchase
+ * return will book against the supplier at its receipt's value. So each
+ * purpose brings its own posting rather than sharing one forced logic.
+ */
+type PurposePosting = {
+  /** The accounts it needs, read before the transaction; a missing one refuses. */
+  prepare(itemIds: number[]): Promise<{ ok: true; accounts: ItemAccounts } | { ok: false; error: string }>;
+  /** The lock every document on the source takes. */
+  lock(tx: Prisma.TransactionClient, sourceId: number): Promise<void>;
+  journal(c: { checked: Checked; issued: IssuedLine[]; dnNo: string; accounts: ItemAccounts }): {
+    description: string;
+    lines: JournalLineInput[];
+  };
+  writeBack(tx: Prisma.TransactionClient, c: { checked: Checked; issued: IssuedLine[]; sourceId: number; actorId: number }): Promise<string[] | undefined>;
+};
+
+let baseCurrencyId: number | null = null;
+async function baseCurrency(): Promise<number | null> {
+  baseCurrencyId ??= (await prisma.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } }))?.id ?? null;
+  return baseCurrencyId;
+}
+
+const SALES_DELIVERY_POSTING: PurposePosting = {
+  // Each item posts to its Kategori Item's HPP and Persediaan, or to Account
+  // Mapping's where the category names none (P122).
+  async prepare(itemIds) {
+    const fallback = await fallbackAccounts(["cogs_account", "inventory_account"] as const);
+    const byCategory = await accountsForItems(itemIds);
+    const accounts: ItemAccounts = new Map();
+    for (const itemId of byCategory.keys()) {
+      const c = byCategory.get(itemId)!;
+      const cogs = c.cogs ?? fallback.cogs_account;
+      const inventory = c.inventory ?? fallback.inventory_account;
+      if (!cogs || !inventory) {
+        const missing = [!cogs && "Account HPP", !inventory && "Account Persediaan"].filter(Boolean).join(", ");
+        return { ok: false, error: `Lengkapi Account Mapping atau Account Kategori Item dulu: ${missing}.` };
+      }
+      accounts.set(itemId, { debit: cogs, credit: inventory });
+    }
+    if (!(await baseCurrency())) return { ok: false, error: "Mata uang dasar tidak ditemukan." };
+    return { ok: true, accounts };
+  },
+  lock: (tx, sourceId) => lockDeliveryOrderScope(tx, sourceId),
+  // Dr HPP / Cr Persediaan per line, at what its tracking rows released.
+  journal({ checked, issued, dnNo, accounts }) {
+    const byId = new Map(checked.source.lines.map((l) => [l.id, l]));
+    const currencyId = baseCurrencyId!;
+    const lines = issued.flatMap(({ line, cost }) => {
+      if (cost <= 0) return [];
+      const d = byId.get(line.source_doc_line_id)!;
+      const a = accounts.get(line.item_id)!;
+      const what = `${d.itemLabel} · ${qtyText(line.qty)} ${d.uomLabel}`;
+      return [
+        { accountId: a.debit, currencyId, rate: 1, debit: cost, credit: 0, description: `HPP ${what}` },
+        { accountId: a.credit, currencyId, rate: 1, debit: 0, credit: cost, description: `Keluar ${checked.source.warehouseLabel} · ${what}` },
+      ];
+    });
+    return { description: `${dnNo} · Pengiriman ${checked.source.doNo} — ${checked.source.customerName}`, lines };
+  },
+  // What left, told to the Delivery Order — which may close it and its Sales Orders.
+  writeBack: (tx, { issued, sourceId, actorId }) =>
+    recordDeliveryOrderDelivery(tx, sourceId, new Map(issued.map(({ line }) => [line.source_doc_line_id, line.qty])), actorId),
+};
+
+const PURPOSE_POSTING: Record<string, PurposePosting> = { [SALES_DELIVERY]: SALES_DELIVERY_POSTING };
 
 /**
  * Why a Delivery Order may not be closed yet, or null: a Delivery Note on it is
@@ -760,10 +849,21 @@ export type DeliveryNoteView = {
     /** The stored line's id — what an Invoice names (U17). */
     id: number;
     baseQty: number;
-    unitCost: number;
+    /** Σ its tracking rows' cost — the summary of what the stock released. */
     cost: number;
-    /** The lots picked, as stored on the note (snapshotted lot no and expiry). */
-    pickedLots: { lotId: number; locationId: number | null; locationLabel: string | null; lotNo: string; expiry: string | null; qty: number; cost: number }[];
+    /** The tracking rows, as stored on the note (snapshotted lot no and expiry): the detail and its value. */
+    pickedLots: {
+      lotId: number;
+      locationId: number | null;
+      locationLabel: string | null;
+      statusId: number;
+      statusLabel: string;
+      statusName: string;
+      lotNo: string;
+      expiry: string | null;
+      baseQty: number;
+      cost: number;
+    }[];
   })[];
   cost: number;
   journalId: number | null;
@@ -772,7 +872,12 @@ export type DeliveryNoteView = {
 };
 
 export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | null> {
-  const n = await prisma.logDeliveryNote.findUnique({ where: { id }, include: WITH_PICKS });
+  const n = await prisma.logDeliveryNote.findUnique({
+    where: { id },
+    include: {
+      lines: { include: { trackings: { orderBy: { pick_no: "asc" }, include: { stock_status: { select: { status_label: true, status_name: true } } } } } },
+    },
+  });
   if (!n) return null;
   const input = asInput(n);
   const sorted = [...n.lines].sort((a, b) => a.line_no - b.line_no);
@@ -787,15 +892,17 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
       ...l,
       id: sorted[i].id,
       baseQty: sorted[i].base_qty.toNumber(),
-      unitCost: sorted[i].unit_cost.toNumber(),
       cost: sorted[i].cost_amount.toNumber(),
       pickedLots: sorted[i].trackings.map((p) => ({
         lotId: p.tracking_id,
         locationId: p.location_id,
         locationLabel: p.location_id ? (locations.get(p.location_id) ?? null) : null,
+        statusId: p.stock_status_id,
+        statusLabel: p.stock_status.status_label,
+        statusName: p.stock_status.status_name,
         lotNo: p.tracking_no,
         expiry: p.expiry_date ? isoDay(p.expiry_date) : null,
-        qty: p.qty.toNumber(),
+        baseQty: p.base_qty.toNumber(),
         cost: p.cost_amount.toNumber(),
       })),
     })),
@@ -808,7 +915,7 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
 
 /** Delivery Note numbers by id, for the audit panel. */
 /**
- * For the Gudang master (Gunakan Lokasi): how many Draft Delivery Notes take
+ * For the Lokasi Gudang master (P267): how many Draft Delivery Notes take
  * goods out of the warehouse, and which of the locations named a pick of any
  * note takes goods from.
  */

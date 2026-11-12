@@ -150,7 +150,7 @@ describe("receiving goods", () => {
 
   test("into a warehouse with Gunakan Lokasi each lot row names its location; one lot may be split over two", async () => {
     const wh = await prisma.refWarehouse.create({
-      data: { warehouse_code: `test.${w.key("LW")}`, warehouse_label: w.key("LW"), warehouse_name: "Gudang Berlokasi", use_location: true, created_by: w.actor },
+      data: { warehouse_code: `test.${w.key("LW")}`, warehouse_label: w.key("LW"), warehouse_name: "Gudang Berlokasi", created_by: w.actor },
     });
     located.warehouse = wh.id;
     const loc = async (label: string) =>

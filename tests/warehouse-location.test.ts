@@ -3,17 +3,16 @@ import assert from "node:assert/strict";
 
 import { InventoryRefusal, issueStock, lotOptions, receiveStock, warehouseLocationOptions } from "../src/lib/erp/inventory";
 import { stockBalanceReport, stockBooksReconcile, stockLedgerReport } from "../src/lib/erp/stock-report";
-import { checkWarehouseCollections } from "../src/lib/erp/warehouse";
-import { LOCATIONS_KEY, locationErrors } from "../src/lib/erp/warehouse-shape";
+import { checkWarehouseLocation, locationDeactivateRefusal } from "../src/lib/erp/warehouse";
 import { FIXTURE_PREFIX, cleanupStock, disconnect, prisma, systemUserId } from "./helpers";
 
 /**
- * Warehouse locations (Gunakan Lokasi): a warehouse that keeps them names one
- * of its own on every stock movement, any other names none; the bucket is
+ * Warehouse locations (P136, P267): a warehouse that has any location names
+ * one of its own on every stock movement, any other names none; the bucket is
  * warehouse · location · lot · status, one bucket per lot where there is no
  * location; a lot may sit in two locations and is picked from each; the
- * Gudang master refuses a switch, a removal or a deactivation that would
- * break the books.
+ * Lokasi Gudang master refuses a first location in a stocked warehouse and a
+ * deactivation that would strand stock.
  */
 
 let actor = 0;
@@ -41,11 +40,12 @@ before(async () => {
       },
     })
   ).id;
-  const wh = async (l: string, use_location: boolean) =>
-    (await prisma.refWarehouse.create({ data: { warehouse_code: `test.${key(l)}`, warehouse_label: key(l), warehouse_name: l, use_location, created_by: actor } })).id;
-  f.plain = await wh("PL", false);
-  f.loc = await wh("LC", true);
-  f.other = await wh("OT", true);
+  const wh = async (l: string) =>
+    (await prisma.refWarehouse.create({ data: { warehouse_code: `test.${key(l)}`, warehouse_label: key(l), warehouse_name: l, created_by: actor } })).id;
+  f.plain = await wh("PL");
+  f.loc = await wh("LC");
+  f.other = await wh("OT");
+  f.idle = await wh("ID");
   const location = async (warehouse_id: number, label: string, status: "Active" | "Inactive" = "Active") =>
     (
       await prisma.refWarehouseLocation.create({
@@ -56,6 +56,7 @@ before(async () => {
   f.a02 = await location(f.loc, "A-02");
   f.off = await location(f.loc, "Z-99", "Inactive");
   f.elsewhere = await location(f.other, "B-01");
+  f.idleLoc = await location(f.idle, "C-01", "Inactive");
   const type = await prisma.sysDocType.findFirstOrThrow({ where: { doc_table: "log_stock_injection" } });
   src = { docTypeId: type.id, docId: 800_000 + Number(stamp), no: key("SRC") };
 });
@@ -63,8 +64,8 @@ before(async () => {
 after(async () => {
   await cleanupStock([f.item]);
   await prisma.mItem.deleteMany({ where: { id: f.item } });
-  await prisma.refWarehouseLocation.deleteMany({ where: { warehouse_id: { in: [f.plain, f.loc, f.other] } } });
-  await prisma.refWarehouse.deleteMany({ where: { id: { in: [f.plain, f.loc, f.other] } } });
+  await prisma.refWarehouseLocation.deleteMany({ where: { warehouse_id: { in: [f.plain, f.loc, f.other, f.idle] } } });
+  await prisma.refWarehouse.deleteMany({ where: { id: { in: [f.plain, f.loc, f.other, f.idle] } } });
   await prisma.refUom.deleteMany({ where: { id: f.pcs } });
   await disconnect();
 });
@@ -77,12 +78,17 @@ const issue = (warehouseId: number, locationId: number | null, lotId: number, qt
   prisma.$transaction((tx) => issueStock(tx, { itemId: f.item, warehouseId, locationId, lotId, baseQty: qty, date: day("2026-10-01"), source: src, actorId: actor }));
 
 describe("the inventory book keeps the location rule", () => {
-  test("a warehouse with Gunakan Lokasi needs one of its own active locations; any other takes none", async () => {
+  test("a warehouse with locations needs one of its own active locations; any other takes none", async () => {
     await assert.rejects(receive(f.loc, null, "L1", 1, 100), /memakai lokasi: pilih lokasinya/);
     await assert.rejects(receive(f.plain, f.a01, "L1", 1, 100), /tidak memakai lokasi/);
     await assert.rejects(receive(f.loc, f.elsewhere, "L1", 1, 100), /Lokasi tidak ada di gudang/);
     await assert.rejects(receive(f.loc, f.off, "L1", 1, 100), (e) => e instanceof InventoryRefusal && /nonaktif/.test(e.message));
     assert.equal(await prisma.logStockLedger.count({ where: { item_id: f.item } }), 0, "nothing written");
+  });
+
+  test("a warehouse whose locations are all inactive still has locations: nothing comes in until one is active", async () => {
+    await assert.rejects(receive(f.idle, null, "L9", 1, 100), /pilih lokasinya/);
+    await assert.rejects(receive(f.idle, f.idleLoc, "L9", 1, 100), /nonaktif/);
   });
 
   test("one lot in two locations is two buckets; without locations one lot is one bucket", async () => {
@@ -112,12 +118,13 @@ describe("the inventory book keeps the location rule", () => {
   });
 
   test("a picker sees each lot in each location, shown <gudang>-<lokasi>", async () => {
+    f.tersedia = (await prisma.sysStockStatus.findUniqueOrThrow({ where: { status_label: "TERSEDIA" } })).id;
     const lots = await lotOptions([f.item], [f.loc, f.plain]);
     assert.deepEqual(
       lots.get(f.loc)?.get(f.item)?.map((l) => [l.key, l.locationLabel, l.available]),
       [
-        [`${f.lot}:${f.a01}`, `${key("LC")}-A-01`, 4],
-        [`${f.lot}:${f.a02}`, `${key("LC")}-A-02`, 5],
+        [`${f.lot}:${f.a01}:${f.tersedia}`, `${key("LC")}-A-01`, 4],
+        [`${f.lot}:${f.a02}:${f.tersedia}`, `${key("LC")}-A-02`, 5],
       ]
     );
     assert.deepEqual(lots.get(f.plain)?.get(f.item)?.map((l) => [l.locationId, l.available]), [[null, 5]]);
@@ -127,7 +134,7 @@ describe("the inventory book keeps the location rule", () => {
       [`${key("LC")}-A-02`, true],
       [`${key("LC")}-Z-99`, false],
     ]);
-    assert.equal(options.get(f.plain), undefined, "a warehouse without Gunakan Lokasi has none");
+    assert.equal(options.get(f.plain), undefined, "a warehouse without locations has none");
   });
 });
 
@@ -150,38 +157,23 @@ describe("the reports show Gudang and Lokasi apart", () => {
   });
 });
 
-describe("the Gudang master guards the switch and its locations", () => {
-  const drafts = async () =>
-    (await prisma.refWarehouseLocation.findMany({ where: { warehouse_id: f.loc }, orderBy: { id: "asc" } })).map((l) => ({
-      id: l.id,
-      key: `l${l.id}`,
-      code: l.location_code,
-      label: l.location_label,
-      name: l.location_name,
-      status: l.status,
-    }));
-  const check = async (use_location: boolean, list: unknown[]) =>
-    (await checkWarehouseCollections({ use_location, [LOCATIONS_KEY]: JSON.stringify(list) }, f.loc)).errors;
+describe("the Lokasi Gudang master guards the books", () => {
+  const values = (warehouse_id: number, location_label: string, status = "Active") => ({ warehouse_id, location_label, location_name: "Rak", status });
 
-  test("Gunakan Lokasi does not change while the warehouse holds stock", async () => {
-    const errors = await check(false, await drafts());
-    assert.match(errors.use_location ?? "", /masih menyimpan stok/);
+  test("the first location of a warehouse waits until the warehouse holds no stock", async () => {
+    const errors = await checkWarehouseLocation(values(f.plain, "A-01"), null);
+    assert.match(errors.warehouse_id ?? "", /lokasi pertama hanya bisa ditambahkan saat gudang kosong/);
+    assert.deepEqual(await checkWarehouseLocation(values(f.loc, "A-03"), null), {}, "a warehouse that already has locations takes another");
   });
 
-  test("a location stock moved through is not removed, and one holding stock is not deactivated", async () => {
-    const list = await drafts();
-    const removed = await check(true, list.filter((l) => l.id !== f.a02));
-    assert.match(removed[LOCATIONS_KEY] ?? "", /A-02 sudah dipakai stok atau dokumen/);
-    const off = await check(true, list.map((l) => (l.id === f.a01 ? { ...l, status: "Inactive" } : l)));
-    assert.match(off[LOCATIONS_KEY] ?? "", /A-01 masih menyimpan stok/);
-    // An unused, inactive one may go.
-    assert.deepEqual(await check(true, list.filter((l) => l.id !== f.off)), {});
+  test("a location holding stock is not deactivated; an empty one may be", async () => {
+    const errors = await checkWarehouseLocation(values(f.loc, "A-01", "Inactive"), f.a01);
+    assert.match(errors.status ?? "", /masih menyimpan stok/);
+    assert.match((await locationDeactivateRefusal(f.a01)) ?? "", /masih menyimpan stok/);
+    assert.equal(await locationDeactivateRefusal(f.off), null);
   });
 
-  test("labels are unique within the warehouse, a name is required, and Ya needs an active location", async () => {
-    assert.deepEqual(Object.keys(locationErrors({ label: "a-01", name: "" }, ["A-01"])).sort(), ["label", "name"]);
-    assert.match(locationErrors({ label: "A 01", name: "x" }, []).label ?? "", /tanpa spasi/);
-    const fresh = await checkWarehouseCollections({ use_location: true, [LOCATIONS_KEY]: "[]" }, null);
-    assert.match(fresh.errors[LOCATIONS_KEY] ?? "", /minimal satu lokasi aktif/);
+  test("a label has no spaces", async () => {
+    assert.match((await checkWarehouseLocation(values(f.loc, "A 01"), null)).location_label ?? "", /tanpa spasi/);
   });
 });

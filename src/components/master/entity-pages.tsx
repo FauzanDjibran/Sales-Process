@@ -22,7 +22,8 @@ import {
 import { cashBankBookSummary } from "@/lib/erp/cash-bank";
 import { partnerCollections } from "@/lib/erp/partner";
 import { itemCollections } from "@/lib/erp/item";
-import { warehouseCollections } from "@/lib/erp/warehouse";
+import { locationTree, locationsOfWarehouse } from "@/lib/erp/warehouse";
+import { LocationTree } from "@/components/master/location-tree";
 import {
   rateCollections,
   routingCollections,
@@ -69,10 +70,6 @@ async function collectionsOf(
     if (id == null) return { uoms: [] };
     return itemCollections(id);
   }
-  if (entity.key === "ref_warehouse") {
-    if (id == null) return { locations: [] };
-    return warehouseCollections(id);
-  }
   if (entity.key === "prd_routing") {
     if (id == null) return { steps: [] };
     return routingCollections(id);
@@ -105,6 +102,10 @@ export async function EntityListPage({
     `/${entity.module}/${entity.slug}`
   );
   const can = abilitiesFor(entity.key, actor.permissions);
+
+  if (entity.key === "ref_warehouse_location") {
+    return <LocationTree entity={entity} warehouses={await locationTree()} can={can} />;
+  }
 
   if (entity.view === "tree") {
     const tree = await accountTree();
@@ -259,6 +260,16 @@ export async function EntityDetailPage({
         {form}
         {entity.key === "ref_workstation" && (
           <RelatedRecordsCard title="Unit Anggota" icon="gear" desc="Unit di Workstation ini." href={(id) => `/master/unit/${id}`} empty="Belum ada unit di Workstation ini." rows={await unitsOfWorkstation(row.id)} />
+        )}
+        {entity.key === "ref_warehouse" && (
+          <RelatedRecordsCard
+            title="Lokasi"
+            icon="layers"
+            desc="Lokasi di dalam gudang ini. Diubah di menu Lokasi Gudang."
+            href={(id) => `/master/warehouse-location/${id}`}
+            empty="Gudang ini tanpa lokasi: stoknya dicatat per gudang saja."
+            rows={await locationsOfWarehouse(row.id)}
+          />
         )}
         {entity.key === "prd_line" && (
           <RelatedRecordsCard title="Routing Milik Line" icon="tree" desc="Urutan unit yang boleh diikuti partai line ini." href={(id) => `/master/routing/${id}`} empty="Line ini belum punya routing." rows={await routingsOfLine(row.id)} />

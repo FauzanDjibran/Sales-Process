@@ -10,5 +10,5 @@ export function locationDisplayLabel(warehouseLabel: string, locationLabel: stri
   return `${warehouseLabel}-${locationLabel}`;
 }
 
-/** The key of a lot in a location — a stock bucket within a warehouse — as `LotOption.key`. */
-export const lotKey = (lotId: number, locationId: number | null | undefined) => `${lotId}:${locationId ?? 0}`;
+/** The key of a lot in a location and a status — a stock bucket within a warehouse — as `LotOption.key`. */
+export const lotKey = (lotId: number, locationId: number | null | undefined, statusId: number) => `${lotId}:${locationId ?? 0}:${statusId}`;

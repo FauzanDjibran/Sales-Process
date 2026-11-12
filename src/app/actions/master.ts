@@ -45,7 +45,7 @@ import {
   checkItemCollections,
   writeItemCollections,
 } from "@/lib/erp/item";
-import { checkWarehouseCollections, writeWarehouseCollections } from "@/lib/erp/warehouse";
+import { checkWarehouseLocation, locationDeactivateRefusal } from "@/lib/erp/warehouse";
 import {
   checkRateCollections,
   checkRoutingCollections,
@@ -343,6 +343,9 @@ async function validate(
       }
     }
   }
+  if (entity.key === "ref_warehouse_location") {
+    for (const [k, v] of Object.entries(await checkWarehouseLocation(values, currentId))) errors[k] ??= v;
+  }
   if (entity.key === "m_item") {
     for (const [k, v] of Object.entries({
       ...(await checkItemCategory(values, currentId)),
@@ -537,7 +540,7 @@ type CollectionWriter = (
 
 /**
  * The collections a record owns and saves with itself — a Partner's addresses
- * and contacts, an Item's unit conversions, a Gudang's locations — checked, with their problems
+ * and contacts, an Item's unit conversions — checked, with their problems
  * added to `errors`. Returns the writer to run inside the save's transaction,
  * or null for an entity that owns none.
  */
@@ -556,11 +559,6 @@ async function ownCollections(
     const checked = await checkItemCollections(values, id);
     Object.assign(errors, checked.errors);
     return (tx, recordId, actorId) => writeItemCollections(tx, recordId, checked.clean, actorId);
-  }
-  if (entity.key === "ref_warehouse") {
-    const checked = await checkWarehouseCollections(values, id);
-    Object.assign(errors, checked.errors);
-    return (tx, recordId, actorId) => writeWarehouseCollections(tx, recordId, checked.clean, actorId);
   }
   if (entity.key === "prd_routing") {
     const checked = await checkRoutingCollections(values, id);
@@ -748,6 +746,12 @@ export async function toggleStatus(
   const guard = await authorize(entity.key, nextActive ? "activate" : "deactivate");
   if (!guard.ok) return { ok: false, message: guard.denial.errors._form };
   const actor = guard.actor;
+
+  // A location still holding stock keeps its stock reachable (P267).
+  if (entity.key === "ref_warehouse_location" && !nextActive) {
+    const refusal = await locationDeactivateRefusal(id);
+    if (refusal) return { ok: false, message: refusal };
+  }
 
   // Deactivating an account that a Cash & Bank resource or a Jenis PPh posts
   // to would leave it pointing at an account it could no longer have chosen.

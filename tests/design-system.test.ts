@@ -1204,6 +1204,12 @@ const DOCUMENT_SCREENS: {
     editable: false,
     lifecycle: false,
   },
+  {
+    name: "Delivery Note",
+    form: "src/components/inventory/delivery-note-form.tsx",
+    list: "src/components/inventory/delivery-note-list.tsx",
+    routes: "src/app/(erp)/inventory/delivery-note",
+  },
 ];
 
 const fileText = (rel: string) => {

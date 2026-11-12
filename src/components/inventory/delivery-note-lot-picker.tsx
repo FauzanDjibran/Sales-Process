@@ -5,7 +5,6 @@ import { Icon } from "@/components/icon";
 import { Dialog } from "@/components/ui/dialog";
 import { MoneyInput } from "@/components/ui/money-input";
 import type { LotOption } from "@/lib/erp/inventory";
-import { lotKey } from "@/lib/erp/warehouse-location";
 import { formatDate, formatNumber } from "@/lib/format";
 
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
@@ -15,8 +14,11 @@ const units = (v: string | number) => Math.round((Number(String(v).replace(",", 
 /** What the picker needs to know of the line it picks for — a Delivery Note's or a Stock Issue's. */
 export type LotPickerLine = { itemLabel: string; itemName: string; uomLabel: string };
 
-/** A lot in a location (`location_id` null where the warehouse keeps none). */
-export type LotPick = { tracking_id: number; location_id: number | null; qty: string };
+/**
+ * A bucket picked: a lot in a location (`location_id` null where the warehouse
+ * keeps none) and a stock status, with the quantity taken in the item's base unit.
+ */
+export type LotPick = { tracking_id: number; location_id: number | null; stock_status_id?: number | null; qty: string };
 
 /**
  * The stock picking of one Delivery Note line (U15, P120): the item's lots
@@ -52,7 +54,14 @@ export function DeliveryNoteLotPicker({
   onClose: () => void;
 }) {
   const [qty, setQty] = useState<Record<string, string>>(() =>
-    Object.fromEntries(current.map((p) => [lotKey(p.tracking_id, p.location_id), p.qty]))
+    Object.fromEntries(
+      current.flatMap((p) => {
+        const lot = lots.find(
+          (l) => l.id === p.tracking_id && l.locationId === p.location_id && (p.stock_status_id == null || l.statusId === p.stock_status_id)
+        );
+        return lot ? [[lot.key, p.qty]] : [];
+      })
+    )
   );
   const shown = lots.filter((l) => l.active || qty[l.key] !== undefined);
   const total = shown.reduce((s, l) => s + units(qty[l.key] ?? 0), 0);
@@ -79,7 +88,9 @@ export function DeliveryNoteLotPicker({
 
   const apply = () =>
     onApply(
-      shown.flatMap((l) => (units(qty[l.key] ?? 0) > 0 ? [{ tracking_id: l.id, location_id: l.locationId, qty: String(units(qty[l.key]) / SCALE) }] : []))
+      shown.flatMap((l) =>
+        units(qty[l.key] ?? 0) > 0 ? [{ tracking_id: l.id, location_id: l.locationId, stock_status_id: l.statusId, qty: String(units(qty[l.key]) / SCALE) }] : []
+      )
     );
 
   return (
@@ -124,12 +135,13 @@ export function DeliveryNoteLotPicker({
             </button>
           </div>
           <div className="tw">
-            <table className="grid ltab" style={{ minWidth: 700 }}>
+            <table className="grid ltab" style={{ minWidth: 810 }}>
               <thead>
                 <tr>
                   {located && <th style={{ width: 170 }}>Lokasi</th>}
                   <th>No. Lot</th>
                   <th style={{ width: 150 }}>Kadaluarsa</th>
+                  <th style={{ width: 110 }}>Status</th>
                   <th className="num" style={{ width: 120 }}>Tersedia</th>
                   <th style={{ width: 220 }}>Qty Diambil</th>
                 </tr>
@@ -152,6 +164,9 @@ export function DeliveryNoteLotPicker({
                       <td>
                         {l.expiry ? <span className="mono">{formatDate(l.expiry)}</span> : <span className="dash">—</span>}
                         {expired && <span className="overtag">Kadaluarsa sebelum {dateLabel}</span>}
+                      </td>
+                      <td>
+                        <span className={`bdg ${l.statusLabel === "TERSEDIA" ? "t-slate" : "t-warn"}`}>{l.statusName}</span>
                       </td>
                       <td className="num">
                         <span className="mny">{qtyText(l.available)}</span>

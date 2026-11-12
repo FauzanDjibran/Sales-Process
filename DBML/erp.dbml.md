@@ -493,7 +493,6 @@ table ref_warehouse {
   warehouse_label             varchar [not null]
   warehouse_name              varchar [not null]
 
-  use_location                boolean [not null, default: false] // Gunakan Lokasi: every stock row here names one of its locations; changed only while empty
 
   note                        varchar
 
@@ -506,7 +505,8 @@ table ref_warehouse {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
-// a place inside a warehouse with Gunakan Lokasi; shown as <warehouse label>-<location label>; never deleted once used
+// Lokasi Gudang (P267), its own master: a place inside one warehouse, one level; a warehouse that has any location keeps every stock row in one
+// of them, one without keeps none; shown as <warehouse label>-<location label>; never deleted, deactivated instead (not while holding stock)
 table ref_warehouse_location {
   id                          int [pk, increment, not null]
 
@@ -2266,7 +2266,7 @@ table log_receipt_note_tracking {
   base_qty                    decimal(18,4) [not null, default: 0]
   value_amount                decimal(18,2) [not null, default: 0] // cumulative share of the line's value
   tracking_id                 int // weak: log_stock_tracking.id, set at Posting
-  location_id                 int // weak: ref_warehouse_location.id — where it is put, in a warehouse with Gunakan Lokasi
+  location_id                 int // weak: ref_warehouse_location.id — where it is put, in a warehouse that has locations
 
   indexes {
     (line_id, tracking_seq) [unique]
@@ -2313,8 +2313,8 @@ table log_delivery_note {
   }
 }
 
-// one quantity of one source line; carries its own item, unit and factor (P106)
-// unit cost and cost are set at Posting
+// the summary of what leaves (P268): one quantity of one source line in the document's unit; carries its own item, unit and factor (P106)
+// cost_amount is Σ its tracking rows, set at Posting; a unit cost is derived on read, never stored
 table log_delivery_note_line {
   id                          int [pk, increment, not null]
 
@@ -2327,9 +2327,8 @@ table log_delivery_note_line {
   uom_factor                  decimal(18,4) [not null, default: 1]
 
   qty                         decimal(18,4) [not null] // in uom_id
-  base_qty                    decimal(18,4) [not null, default: 0] // qty x uom_factor
-  unit_cost                   decimal(18,6) [not null, default: 0] // what the inventory issued at (a description, P114)
-  cost_amount                 decimal(18,2) [not null, default: 0]
+  base_qty                    decimal(18,4) [not null, default: 0] // qty x uom_factor = Σ its tracking rows' base_qty
+  cost_amount                 decimal(18,2) [not null, default: 0] // Σ its tracking rows' cost_amount
 
   note                        varchar
 
@@ -2341,8 +2340,8 @@ table log_delivery_note_line {
   }
 }
 
-// stock picking by lot for a Barang with Kelola Stok, one row per lot (P95)
-// tracking_id names a log_stock_tracking lot without a foreign key
+// the detail (P268): one stock bucket a line takes goods from — lot, location, status — in the base unit, with the value the stock released
+// for a Barang with Kelola Stok (P95); tracking_id and location_id named without a foreign key
 table log_delivery_note_tracking {
   id                          int [pk, increment, not null]
 
@@ -2351,18 +2350,17 @@ table log_delivery_note_tracking {
   pick_no                     int [not null]
 
   tracking_id                      int [not null] // the inventory's lot (log_stock_tracking); no FK
-  location_id                 int // the location it is taken from, in a warehouse with Gunakan Lokasi; no FK
+  location_id                 int // the location it is taken from, in a warehouse that has locations; no FK
+  stock_status_id             int [not null, ref : > sys_stock_status.id] // the bucket's status (P268); a purpose says which it may take
 
   tracking_no                      varchar [not null] // as printed on the note
   expiry_date                 date
-  qty                         decimal(18,4) [not null] // in the line unit
-  base_qty                    decimal(18,4) [not null, default: 0] // set at Posting
-  unit_cost                   decimal(18,6) [not null, default: 0] // a description of the movement, never an input (P114)
-  cost_amount                 decimal(18,2) [not null, default: 0]
+  base_qty                    decimal(18,4) [not null] // in the item's base unit — what the stock books move
+  cost_amount                 decimal(18,2) [not null, default: 0] // round(V × q ÷ Q) released at Posting (P114)
 
   indexes {
     (delivery_note_line_id, pick_no) [unique]
-    (delivery_note_line_id, tracking_id, location_id) [unique] // NULLS NOT DISTINCT: a pick is a lot in a location
+    (delivery_note_line_id, tracking_id, location_id, stock_status_id) [unique] // NULLS NOT DISTINCT: a pick is a bucket
     tracking_id
   }
 }
@@ -2437,7 +2435,7 @@ table log_stock_ledger {
   source_no                   varchar [not null]
 
   warehouse_id                int [not null, ref : > ref_warehouse.id]
-  location_id                 int [ref : > ref_warehouse_location.id] // required in a warehouse with Gunakan Lokasi, null otherwise
+  location_id                 int [ref : > ref_warehouse_location.id] // required in a warehouse that has locations, null otherwise (P267)
   tracking_id                 int [not null, ref : > log_stock_tracking.id]
   item_id                     int [not null, ref : > m_item.id]
   uom_id                      int [not null, ref : > ref_uom.id] // the item's base unit
@@ -2464,7 +2462,7 @@ table log_stock_balance {
   id                          int [pk, increment, not null]
 
   warehouse_id                int [not null, ref : > ref_warehouse.id]
-  location_id                 int [ref : > ref_warehouse_location.id] // required in a warehouse with Gunakan Lokasi, null otherwise
+  location_id                 int [ref : > ref_warehouse_location.id] // required in a warehouse that has locations, null otherwise (P267)
   tracking_id                 int [not null, ref : > log_stock_tracking.id]
   item_id                     int [not null, ref : > m_item.id]
   uom_id                      int [not null, ref : > ref_uom.id]

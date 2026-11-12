@@ -27,6 +27,7 @@ const DELEGATES = {
   ref_uom: (db: Client) => db.refUom,
   ref_payment_term: (db: Client) => db.refPaymentTerm,
   ref_warehouse: (db: Client) => db.refWarehouse,
+  ref_warehouse_location: (db: Client) => db.refWarehouseLocation,
   ref_withholding_tax: (db: Client) => db.refWithholdingTax,
   ref_permit_type: (db: Client) => db.refPermitType,
   ref_unit: (db: Client) => db.refUnit,

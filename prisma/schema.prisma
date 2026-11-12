@@ -685,10 +685,6 @@ model RefWarehouse {
   warehouse_code  String       @unique
   warehouse_label String
   warehouse_name  String
-  /// Gunakan Lokasi: when on, every stock row in this warehouse names one of
-  /// its locations; when off, the location is null. Changed only while the
-  /// warehouse holds no stock and no Draft note names it.
-  use_location    Boolean      @default(false)
   note            String?
   status          ActiveStatus @default(Active)
 
@@ -711,8 +707,9 @@ model RefWarehouse {
   @@map("ref_warehouse")
 }
 
-/// A place inside a warehouse that keeps stock by location (Gunakan Lokasi).
-/// Its label is unique within its warehouse and shown as
+/// A place inside a warehouse (P267), its own master (Lokasi Gudang). A
+/// warehouse that has any location keeps every stock row in one of them; one
+/// without keeps none. The label is unique within its warehouse and shown as
 /// <warehouse label>-<location label>. Never deleted; deactivated instead.
 model RefWarehouseLocation {
   id             Int          @id @default(autoincrement())
@@ -2443,13 +2440,13 @@ model LogDeliveryNoteLine {
   /// Base units in one `uom_id`, copied from the source at save.
   uom_factor         Decimal @default(1) @db.Decimal(18, 4)
   qty                Decimal @db.Decimal(18, 4)
-  /// qty × uom_factor.
+  /// qty × uom_factor; equals Σ its trackings' base_qty for a lot-tracked item.
   base_qty           Decimal @default(0) @db.Decimal(18, 4)
-  unit_cost          Decimal @default(0) @db.Decimal(18, 6)
+  /// Σ its trackings' cost at Posting — a summary; the value is the stock's (P268).
   cost_amount        Decimal @default(0) @db.Decimal(18, 2)
   note               String?
 
-  delivery_note LogDeliveryNote           @relation(fields: [delivery_note_id], references: [id])
+  delivery_note LogDeliveryNote          @relation(fields: [delivery_note_id], references: [id])
   item          MItem                     @relation(fields: [item_id], references: [id])
   uom           RefUom                    @relation(fields: [uom_id], references: [id])
   /// For an item with Kelola Stok: which lots the line's quantity is taken
@@ -2463,32 +2460,34 @@ model LogDeliveryNoteLine {
   @@map("log_delivery_note_line")
 }
 
-/// One lot a Delivery Note line takes goods from (U15) — the stock picking.
-/// Written with the note while it is a Draft; at Posting each pick is issued
-/// on its own and stores what it cost. The lot is the inventory's, named by id
-/// without a foreign key (the inventory behind it is a stand-in today), with
-/// its number and expiry copied as printed on the note.
+/// One bucket a Delivery Note line takes goods from (U15, P268): lot,
+/// location and stock status — the detail of the line, and where its value
+/// lives. Written with the note while it is a Draft; at Posting each row is
+/// issued on its own and stores what the stock released. The lot and location
+/// are named by id without a foreign key, their number and expiry copied as
+/// printed on the note.
 model LogDeliveryNoteTracking {
   id                    Int       @id @default(autoincrement())
   delivery_note_line_id Int
   pick_no               Int
   tracking_id           Int
-  /// The location it is taken from, in a warehouse with Gunakan Lokasi.
+  /// The location it is taken from, in a warehouse that has locations.
   location_id           Int?
+  stock_status_id       Int
   tracking_no           String
   expiry_date           DateTime? @db.Date
-  /// In the line's unit.
-  qty                   Decimal   @db.Decimal(18, 4)
-  base_qty              Decimal   @default(0) @db.Decimal(18, 4)
-  unit_cost             Decimal   @default(0) @db.Decimal(18, 6)
+  /// In the item's base unit — the quantity the stock books move.
+  base_qty              Decimal   @db.Decimal(18, 4)
+  /// What the stock released at Posting (round(V × q ÷ Q), P114).
   cost_amount           Decimal   @default(0) @db.Decimal(18, 2)
 
-  line LogDeliveryNoteLine @relation(fields: [delivery_note_line_id], references: [id])
+  line         LogDeliveryNoteLine @relation(fields: [delivery_note_line_id], references: [id])
+  stock_status SysStockStatus      @relation(fields: [stock_status_id], references: [id])
 
   @@unique([delivery_note_line_id, pick_no])
-  /// A pick is a lot in a location: unique on (line, lot, location) NULLS NOT
+  /// A pick is a bucket: unique on (line, lot, location, status) NULLS NOT
   /// DISTINCT, the NULLS NOT DISTINCT added in the migration by hand.
-  @@unique([delivery_note_line_id, tracking_id, location_id], map: "log_delivery_note_tracking_pick_key")
+  @@unique([delivery_note_line_id, tracking_id, location_id, stock_status_id], map: "log_delivery_note_tracking_pick_key")
   @@index([tracking_id])
   @@map("log_delivery_note_tracking")
 }
@@ -2648,8 +2647,9 @@ model SysStockStatus {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  ledger   LogStockLedger[]
-  balances LogStockBalance[]
+  ledger                  LogStockLedger[]
+  balances                LogStockBalance[]
+  delivery_note_trackings LogDeliveryNoteTracking[]
 
   @@map("sys_stock_status")
 }

@@ -203,8 +203,6 @@ export type EntityTab = {
   /** One line under the card title saying what the tab holds. */
   desc: string;
   kind: "fields" | "custom";
-  /** A custom tab shown only while the form's values call for it (`tabApplies`). */
-  shownWhen?: "warehouseUsesLocation";
 };
 
 export type Column = {
@@ -928,7 +926,7 @@ export const ENTITIES: Entity[] = [
     module: "master",
     name: "Gudang",
     icon: "build",
-    desc: "Tempat stok disimpan. Gudang dengan Gunakan Lokasi mencatat stok per lokasi di dalamnya.",
+    desc: "Tempat stok disimpan. Gudang yang punya lokasi (menu Lokasi Gudang) mencatat stok per lokasi di dalamnya.",
     codeField: "warehouse_code",
     codePrefix: "whse",
     labelField: "warehouse_label",
@@ -953,32 +951,69 @@ export const ENTITIES: Entity[] = [
         placeholder: "Gudang Cikarang",
         help: "nama lengkap",
       },
-      {
-        name: "use_location",
-        label: "Lokasi",
-        type: "bool",
-        span: 4,
-        caption: "Gunakan Lokasi",
-        help: "stok dicatat per lokasi; hanya bisa diubah saat gudang kosong",
-      },
       STATUS_FIELD,
       NOTE_FIELD,
-    ],
-    tabs: [
-      {
-        key: "locations",
-        label: "Lokasi",
-        icon: "layers",
-        desc: "Tempat di dalam gudang — rak, baris, bin — tempat stok disimpan. Ditampilkan sebagai Gudang-Lokasi, mis. GD-CKR-A-01.",
-        kind: "custom",
-        shownWhen: "warehouseUsesLocation",
-      },
     ],
     columns: [
       { field: "warehouse_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
       { field: "warehouse_name", label: "Nama Gudang", primary: true, filter: "text" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
       { field: "note", label: "Catatan", muted: true, truncate: true },
+    ],
+  },
+
+  {
+    // A place inside one warehouse, one level deep (P267). A warehouse uses
+    // locations when it has any; the list is a tree, Gudang over its Lokasi.
+    key: "ref_warehouse_location",
+    slug: "warehouse-location",
+    module: "master",
+    name: "Lokasi Gudang",
+    single: "Lokasi",
+    icon: "layers",
+    desc: "Tempat di dalam gudang — rak, baris, bin. Gudang yang punya lokasi mencatat setiap stoknya di salah satu lokasinya; gudang tanpa lokasi tidak.",
+    codeField: "location_code",
+    codePrefix: "loc",
+    labelField: "location_label",
+    nameField: "location_name",
+    view: "tree",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "warehouse_id",
+        label: "Gudang",
+        type: "ref",
+        ref: "ref_warehouse",
+        required: true,
+        locked: true,
+        help: "terkunci setelah disimpan",
+      },
+      {
+        name: "location_label",
+        label: "Label",
+        type: "text",
+        required: true,
+        unique: true,
+        uniqueWithin: "warehouse_id",
+        ident: true,
+        placeholder: "A-01",
+        help: "ditampilkan Gudang-Label, mis. GD-CKR-A-01",
+      },
+      {
+        name: "location_name",
+        label: "Nama Lokasi",
+        type: "text",
+        required: true,
+        placeholder: "Rak A baris 1",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "warehouse_id", label: "Gudang", isRef: true, refLabelOnly: true, width: "130px", filter: "ref" },
+      { field: "location_label", label: "Label", isLabel: true, width: "130px", filter: "text" },
+      { field: "location_name", label: "Nama Lokasi", primary: true, filter: "text" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
   },
 
@@ -1826,12 +1861,6 @@ export function waitingClause(missing: Field[]): string | null {
       ? `${names.slice(0, -1).join(", ")} dan ${names[names.length - 1]}`
       : names[0];
   return `Pilih ${list} dulu…`;
-}
-
-/** Whether a tab is in play, given the values currently entered — a Gudang's Lokasi tab only with Gunakan Lokasi. */
-export function tabApplies(tab: EntityTab, values: Record<string, unknown>): boolean {
-  if (tab.shownWhen === "warehouseUsesLocation") return values.use_location === true || values.use_location === "true";
-  return true;
 }
 
 /** Whether a field applies, given the values currently entered. */

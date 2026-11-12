@@ -14,7 +14,7 @@
  *   item       the item's Label or Kode (must be a Barang with Kelola Stok)
  *   warehouse  the Gudang's Label or Kode
  *   location   the location's Label or Kode within that Gudang — required for a
- *              Gudang with Gunakan Lokasi, empty for any other. The column may
+ *              Gudang that has locations, empty for any other. The column may
  *              be left out of a file that names no such Gudang.
  *   lot        lot number; an existing lot of the item is added to
  *   expiry     YYYY-MM-DD or DD/MM/YYYY; required for Memiliki Kadaluarsa

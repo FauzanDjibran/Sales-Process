@@ -4,14 +4,16 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
+import { Amount } from "@/components/ui/amount";
 import { CancelButton } from "@/components/ui/cancel-button";
 import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
+import { DocumentHeader } from "@/components/ui/document-header";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
 import { DEFAULT_DELIVERY_NOTE_PURPOSE, deliveryNotePurpose } from "@/lib/erp/delivery-note-purposes";
-import { DeliveryNoteActions } from "@/components/inventory/delivery-note-actions";
+import { DeliveryNoteActions } from "./delivery-note-actions";
 import { DeliveryNoteLinePicker } from "@/components/inventory/delivery-note-line-picker";
 import { DeliveryNoteLotPicker, type LotPick } from "@/components/inventory/delivery-note-lot-picker";
 import { createDeliveryNoteAction, updateDeliveryNoteAction } from "@/app/actions/delivery-note";
@@ -26,27 +28,37 @@ import type {
   DeliveryNoteView,
   DnSourceLine,
 } from "@/lib/erp/delivery-note";
-import { formatDate, formatMoney, formatNumber, formatPrice, todayIso } from "@/lib/format";
+import { formatDate, formatNumber, formatPrice, todayIso } from "@/lib/format";
 
 /**
  * A Delivery Note in all three modes: `new`, `edit` (Draft only) and `view`
- * (C28, U11–U14).
+ * (C28, U11–U15, P268, P269).
  *
- * It starts from an issued Delivery Order, chosen once and locked: the
- * Customer Order, customer, warehouse and address all come from it and are
- * shown, not chosen. The user sets the day the goods leave, the vehicle and the
- * driver, and picks which of the order's lines leave now and how much — and,
- * for an item kept by lot, which lots they leave from (U15). Once posted, each line shows the moving-average cost it left at (P114, P120) and the HPP it booked.
+ * Its purpose decides its source and the words around it — for a sale, an
+ * issued Delivery Order chosen once and locked, whose Customer Order, customer,
+ * warehouse and address are shown, not chosen. The user sets the day the goods
+ * leave, the vehicle and the driver, and picks which source lines leave now and
+ * how much.
+ *
+ * A line is the summary: its quantity in the document's unit, large, with the
+ * base quantity under it when the unit is not the base one. The detail is its
+ * tracking rows — lot, location, status and base quantity, picked in *Pilih
+ * Lot* — and, once posted, what each released from stock: the value is the
+ * stock's, so it is shown per tracking row and the line shows only the sum.
+ * What the source still has to send is its own column while the note is a
+ * Draft, and gone once posted.
  */
 
 export type DeliveryNoteMode = "new" | "edit" | "view";
 
+/** `picks[].qty` is in the item's base unit (P268). */
 type LineState = { key: string; source_doc_line_id: number | null; qty: string; picks: LotPick[] };
 
 let seq = 0;
 const newKey = () => `l${Date.now().toString(36)}${seq++}`;
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
-const money = (n: number) => formatMoney(n, "IDR");
+const SCALE = 10_000;
+const units = (v: string | number) => Math.round((Number(String(v).replace(",", ".")) || 0) * SCALE);
 
 export function DeliveryNoteForm({
   mode,
@@ -82,7 +94,12 @@ export function DeliveryNoteForm({
         key: newKey(),
         source_doc_line_id: Number(l.source_doc_line_id),
         qty: String(l.qty),
-        picks: (l.picks ?? []).map((p) => ({ tracking_id: Number(p.tracking_id), location_id: p.location_id ?? null, qty: String(p.qty) })),
+        picks: (l.picks ?? []).map((p) => ({
+          tracking_id: Number(p.tracking_id),
+          location_id: p.location_id ?? null,
+          stock_status_id: p.stock_status_id ?? null,
+          qty: String(p.base_qty),
+        })),
       }));
     }
     return (preset?.lines ?? [])
@@ -95,9 +112,14 @@ export function DeliveryNoteForm({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [lotsFor, setLotsFor] = useState<string | null>(null);
 
+  const purpose = deliveryNotePurpose(header.purpose ?? DEFAULT_DELIVERY_NOTE_PURPOSE)!;
   const source = header.source_doc_id ? orderById.get(header.source_doc_id) : undefined;
   const doLineById = useMemo(() => new Map((source?.lines ?? []).map((l) => [l.id, l])), [source]);
-  const posted = note?.status === "Posted";
+  const status = note?.status ?? "Draft";
+  const posted = status === "Posted";
+  /** What the source still has to send means something only until the note posts (P269). */
+  const draft = status === "Draft";
+  const billed = posted && purpose.billed && billing !== null;
 
   const touch = (...names: string[]) => {
     setDirty(true);
@@ -134,7 +156,12 @@ export function DeliveryNoteForm({
     // Every line was picked on purpose, so a blank quantity is sent and refused
     // on its row rather than quietly dropped.
     const sent = lines;
-    const payload = sent.map((l) => ({ source_doc_line_id: l.source_doc_line_id, qty: l.qty, note: "", picks: l.picks }));
+    const payload = sent.map((l) => ({
+      source_doc_line_id: l.source_doc_line_id,
+      qty: l.qty,
+      note: "",
+      picks: l.picks.map((p) => ({ tracking_id: p.tracking_id, location_id: p.location_id, stock_status_id: p.stock_status_id ?? null, base_qty: p.qty })),
+    }));
     const result =
       mode === "edit" ? await updateDeliveryNoteAction(note!.id, header, payload) : await createDeliveryNoteAction(header, payload);
     setSaving(false);
@@ -158,26 +185,23 @@ export function DeliveryNoteForm({
     router.push(`/inventory/delivery-note/${result.id}`);
   }
 
-  const status = note?.status ?? "Draft";
   const backHref = note ? `/inventory/delivery-note/${note.id}` : "/inventory/delivery-note";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
   const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
-  const waitOrder = "menunggu Delivery Order";
+  const waitSource = `menunggu ${purpose.sourceNoun}`;
   const lineErr = (key: string, f: string) => errors[`lines.${key}.${f}`];
 
   // ======================================================= header card
   const headerCard = (
     <div className="card">
       <FormBody>
-        <FormSection title="Delivery Order">
+        <FormSection title="Sumber">
           <FormRow>
             <Field label="Tujuan" span={4} locked={mode !== "view"} help={mode !== "view" ? "menentukan sumber dan jurnalnya" : undefined}>
-              {ro(deliveryNotePurpose(header.purpose ?? DEFAULT_DELIVERY_NOTE_PURPOSE)?.name ?? header.purpose)}
+              {ro(purpose.name)}
             </Field>
-          </FormRow>
-          <FormRow>
             <Field
-              label="Delivery Order"
+              label={purpose.sourceNoun}
               span={4}
               required={mode === "new"}
               locked={mode === "edit"}
@@ -190,8 +214,8 @@ export function DeliveryNoteForm({
                   options={options.orders
                     .filter((o) => o.status === "Issued")
                     .map((o) => ({ id: o.id, label: o.doNo, name: o.customerName, active: true }))}
-                  placeholder="Pilih Delivery Order…"
-                  emptyText="Belum ada Delivery Order yang diterbitkan."
+                  placeholder={`Pilih ${purpose.sourceNoun}…`}
+                  emptyText={`Belum ada ${purpose.sourceNoun} yang diterbitkan.`}
                   invalid={Boolean(errors.source_doc_id)}
                   onChange={pickOrder}
                 />
@@ -205,7 +229,7 @@ export function DeliveryNoteForm({
                 nil()
               )}
             </Field>
-            <Field label="Customer Order" span={3}>
+            <Field label="Customer Order" span={4}>
               {source ? (
                 ro(
                   <Link className="drl" href={`/sales/customer-order/${source.customerOrderId}`}>
@@ -213,10 +237,10 @@ export function DeliveryNoteForm({
                   </Link>
                 )
               ) : (
-                nil(waitOrder)
+                nil(waitSource)
               )}
             </Field>
-            <Field label="Customer" span={5}>
+            <Field label="Customer" span={12}>
               {source ? (
                 ro(
                   <>
@@ -225,27 +249,21 @@ export function DeliveryNoteForm({
                   </>
                 )
               ) : (
-                nil(waitOrder)
+                nil(waitSource)
               )}
             </Field>
           </FormRow>
         </FormSection>
         <FormSection title="Pengiriman">
           <FormRow>
-            <Field
-              label="Tanggal Kirim"
-              span={3}
-              required={editing}
-              help={editing ? "hari barang keluar" : undefined}
-              error={errors.dn_date}
-            >
+            <Field label="Tanggal Kirim" span={3} required={editing} help={editing ? "hari barang keluar" : undefined} error={errors.dn_date}>
               {editing ? (
                 <DateInput value={header.dn_date} invalid={Boolean(errors.dn_date)} onChange={(v) => set("dn_date", v)} />
               ) : (
                 ro(formatDate(header.dn_date))
               )}
             </Field>
-            <Field label="Gudang" span={3} help={editing ? "dari Delivery Order" : undefined}>
+            <Field label="Gudang" span={3} help={editing ? `dari ${purpose.sourceNoun}` : undefined}>
               {source ? (
                 ro(
                   <>
@@ -254,17 +272,12 @@ export function DeliveryNoteForm({
                   </>
                 )
               ) : (
-                nil(waitOrder)
+                nil(waitSource)
               )}
             </Field>
             <Field label="No. Kendaraan" span={3}>
               {editing ? (
-                <input
-                  className="inp"
-                  value={header.vehicle_no}
-                  placeholder="B 1234 XYZ"
-                  onChange={(e) => set("vehicle_no", e.target.value)}
-                />
+                <input className="inp" value={header.vehicle_no} placeholder="B 1234 XYZ" onChange={(e) => set("vehicle_no", e.target.value)} />
               ) : header.vehicle_no ? (
                 ro(<span className="mono">{header.vehicle_no}</span>)
               ) : (
@@ -273,41 +286,19 @@ export function DeliveryNoteForm({
             </Field>
             <Field label="Pengemudi" span={3}>
               {editing ? (
-                <input
-                  className="inp"
-                  value={header.driver_name}
-                  placeholder="Nama pengemudi"
-                  onChange={(e) => set("driver_name", e.target.value)}
-                />
+                <input className="inp" value={header.driver_name} placeholder="Nama pengemudi" onChange={(e) => set("driver_name", e.target.value)} />
               ) : header.driver_name ? (
                 ro(header.driver_name)
               ) : (
                 nil()
               )}
             </Field>
-            <Field label="Alamat Kirim" span={posted ? 8 : 12} help={editing ? "dari Delivery Order" : undefined}>
-              {source ? <div className="ro multi">{source.addressText}</div> : nil(waitOrder)}
+            <Field label="Alamat Kirim" span={12} help={editing ? `dari ${purpose.sourceNoun}` : undefined}>
+              {source ? <div className="ro multi">{source.addressText}</div> : nil(waitSource)}
             </Field>
-            {posted && (
-              <Field label="Journal" span={4}>
-                {note?.journalId
-                  ? ro(
-                      <Link className="drl" href={`/accounting/journal/${note.journalId}`}>
-                        <span className="mono">{note.journalNo}</span>
-                      </Link>
-                    )
-                  : nil()}
-              </Field>
-            )}
             <Field label="Catatan" span={12}>
               {editing ? (
-                <textarea
-                  className="ta"
-                  rows={2}
-                  value={header.note}
-                  placeholder="Catatan pada surat jalan…"
-                  onChange={(e) => set("note", e.target.value)}
-                />
+                <textarea className="ta" rows={2} value={header.note} placeholder="Catatan pada surat jalan…" onChange={(e) => set("note", e.target.value)} />
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
@@ -316,9 +307,30 @@ export function DeliveryNoteForm({
             </Field>
           </FormRow>
         </FormSection>
-        {note?.cancelReason && status === "Cancelled" && (
+        {posted && (
+          <FormSection title="Referensi">
+            <FormRow>
+              <Field label="Journal" span={4}>
+                {note?.journalId
+                  ? ro(
+                      <Link className="drl" href={`/accounting/journal/${note.journalId}`}>
+                        <span className="mono">{note.journalNo}</span>
+                      </Link>
+                    )
+                  : nil("tanpa journal — stok bernilai nol")}
+              </Field>
+            </FormRow>
+          </FormSection>
+        )}
+        {note?.cancelReason && status === "Cancelled" ? (
           <p className="fnote">
             <b>Dibatalkan:</b> {note.cancelReason}
+          </p>
+        ) : (
+          <p className="fnote">
+            {posted
+              ? "Diposting: barang sudah keluar dari stok dan tidak dapat diubah. Koreksi dengan dokumen baru."
+              : "Draft belum mengubah stok maupun journal; Posting mengeluarkan setiap lot dari stok."}
           </p>
         )}
       </FormBody>
@@ -332,53 +344,56 @@ export function DeliveryNoteForm({
     </button>
   );
   const viewLines = note?.lines ?? [];
+  const baseOf = (l: LineState, d: DnSourceLine | undefined) => (units(l.qty) * (d?.uomFactor ?? 1)) / SCALE;
+
   /**
-   * The Lot cell: for an item kept by lot, what is picked against the line's
-   * quantity — a button in a Draft being edited, the lots themselves otherwise.
+   * The Lot cell: the line's tracking rows — a button and how far it is picked
+   * while editing, the rows themselves otherwise, each with its base quantity,
+   * expiry, location, a status other than Tersedia and, once posted, its value.
    */
   const lotCell = (l: LineState, d: DnSourceLine | undefined, stored?: DeliveryNoteView["lines"][number]) => {
     if (!d) return null;
     if (!d.lotTracked) return <span className="dash">tanpa lot</span>;
-    const lineQty = Number(String(l.qty).replace(",", ".")) || 0;
-    const picked = l.picks.reduce((s, p) => s + Math.round(Number(p.qty) * 10_000), 0) / 10_000;
-    const full = lineQty > 0 && Math.abs(picked - lineQty) < 1e-9;
+    const lineBase = baseOf(l, d);
+    const picked = l.picks.reduce((s, p) => s + units(p.qty), 0) / SCALE;
+    const full = lineBase > 0 && units(picked) === units(lineBase);
     if (editing) {
       return (
         <>
-          <button className="btn sm" disabled={!(lineQty > 0)} title={lineQty > 0 ? undefined : "Isi Qty dulu"} onClick={() => setLotsFor(l.key)}>
+          <button className="btn sm" disabled={!(lineBase > 0)} title={lineBase > 0 ? undefined : "Isi Qty dulu"} onClick={() => setLotsFor(l.key)}>
             <Icon name="layers" size={14} /> {l.picks.length ? `${l.picks.length} lot` : "Pilih Lot"}
           </button>
           <span className={full ? "fulltag" : "overtag"}>
-            {lineQty > 0 ? `${qtyText(picked)} / ${qtyText(lineQty)} ${d.uomLabel}${full ? "" : " · belum penuh"}` : "isi Qty dulu"}
+            {lineBase > 0 ? `${qtyText(picked)} / ${qtyText(lineBase)} ${d.baseUomLabel}${full ? "" : " · belum penuh"}` : "isi Qty dulu"}
           </span>
         </>
       );
     }
     const lots = stored?.pickedLots ?? [];
-    const names = new Map((source?.lots[d.itemId] ?? []).map((x) => [x.id, x]));
     if (!lots.length) return <span className="overtag">Belum dipilih</span>;
     return (
-      <span className="dstack" style={{ gap: 4 }}>
-        {lots.map((p) => {
-          const expiry = p.expiry ?? names.get(p.lotId)?.expiry ?? null;
-          return (
-            <span key={`${p.lotId}:${p.locationId ?? 0}`} className="dstack">
-              <span className="lab" title={p.lotNo}>
-                {p.lotNo}
-              </span>
-              {/* The quantity goes under the lot, so a long lot number never hides it; the location after it. */}
-              <span className="d2">
-                {qtyText(p.qty)} {d.uomLabel}
-                {expiry ? ` · ED ${formatDate(expiry)}` : ""}
-                {p.locationLabel ? ` · ${p.locationLabel}` : ""}
-              </span>
+      <span className="dstack" style={{ gap: 6 }}>
+        {lots.map((p) => (
+          <span key={`${p.lotId}:${p.locationId ?? 0}:${p.statusId}`} className="dstack">
+            <span className="lab" title={p.lotNo}>
+              {p.lotNo}
             </span>
-          );
-        })}
-        {!posted && !full && <span className="overtag">{qtyText(picked)} dari {qtyText(lineQty)} · belum penuh</span>}
+            {/* The quantity goes under the lot, so a long lot number never hides it. */}
+            <span className="d2">
+              {qtyText(p.baseQty)} {d.baseUomLabel}
+              {p.expiry ? ` · ED ${formatDate(p.expiry)}` : ""}
+              {p.locationLabel ? ` · ${p.locationLabel}` : ""}
+            </span>
+            {p.statusLabel !== "TERSEDIA" && <span className="bdg t-warn">{p.statusName}</span>}
+            {posted && <Amount value={p.cost} />}
+          </span>
+        ))}
+        {draft && !full && <span className="overtag">{qtyText(picked)} dari {qtyText(lineBase)} · belum penuh</span>}
       </span>
     );
   };
+
+  const columns = 4 + (draft ? 1 : 0) + 1 + (posted ? 2 : 0) + (billed ? 1 : 0) + (editing ? 1 : 0);
   const linesCard = (
     <div className="card" style={{ marginTop: 14 }}>
       <div className="card-h">
@@ -389,10 +404,10 @@ export function DeliveryNoteForm({
           <h3>Barang Keluar</h3>
           <p>
             {editing
-              ? "Pilih barang dari Delivery Order lewat Tambah Item, isi Qty yang keluar, lalu pilih lotnya untuk barang yang dikelola per lot."
+              ? `Pilih barang dari ${purpose.sourceNoun} lewat Tambah Item, isi Qty yang keluar, lalu pilih lotnya dalam satuan dasar.`
               : posted
-                ? "Jumlah yang keluar dan lotnya, dengan Harga Pokok saat diposting dan HPP yang dijurnal."
-                : "Jumlah per barang dari Delivery Order, dalam satuannya, dan lot yang dipilih."}{" "}
+                ? "Setiap lot dengan nilai yang dilepas stok saat Posting; baris menunjukkan jumlahnya."
+                : `Jumlah per barang dari ${purpose.sourceNoun} dan lot yang dipilih.`}{" "}
             Harga jual dan pajak tetap di Customer Order.
           </p>
         </div>
@@ -411,24 +426,29 @@ export function DeliveryNoteForm({
           <div className="ic">
             <Icon name="box" size={18} />
           </div>
-          <h4>{source ? "Belum ada barang" : "Pilih Delivery Order dulu…"}</h4>
+          <h4>{source ? "Belum ada barang" : `Pilih ${purpose.sourceNoun} dulu…`}</h4>
           <p>
             {source
-              ? "Pilih barang Delivery Order yang keluar dengan Delivery Note ini."
-              : "Barang yang dapat dikirim mengikuti baris Delivery Order yang sudah diterbitkan."}
+              ? `Pilih barang ${purpose.sourceNoun} yang keluar dengan Delivery Note ini.`
+              : `Barang yang dapat dikirim mengikuti baris ${purpose.sourceNoun} yang sudah diterbitkan.`}
           </p>
           {editing && source && addButton(true)}
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: posted ? (billing ? 1000 : 900) : 900 }}>
+          <table className="grid ltab" style={{ minWidth: 640 + (draft ? 110 : 0) + (posted ? 250 : 0) + (billed ? 140 : 0) }}>
             <thead>
               <tr>
                 <th style={{ width: 40 }}>No</th>
-                <th style={{ width: 130 }}>Sales Order</th>
+                <th style={{ width: 130 }}>{purpose.sourceLineNoun}</th>
                 <th>Barang</th>
-                <th style={{ width: editing ? 220 : 110 }}>Qty</th>
-                <th style={{ width: editing ? 170 : 190 }}>Lot</th>
+                {draft && (
+                  <th className="num" style={{ width: 110 }}>
+                    {purpose.remainingLabel}
+                  </th>
+                )}
+                <th style={{ width: editing ? 200 : 120 }}>Qty</th>
+                <th style={{ width: editing ? 180 : 200 }}>Lot</th>
                 {posted && (
                   <>
                     <th className="num" style={{ width: 120 }}>
@@ -437,9 +457,9 @@ export function DeliveryNoteForm({
                     <th className="num" style={{ width: 130 }}>
                       HPP
                     </th>
-                    {billing && <th style={{ width: 140 }}>Ditagih</th>}
                   </>
                 )}
+                {billed && <th style={{ width: 140 }}>Ditagih</th>}
                 {editing && <th style={{ width: 40 }} />}
               </tr>
             </thead>
@@ -447,10 +467,13 @@ export function DeliveryNoteForm({
               {lines.map((l, i) => {
                 const d = l.source_doc_line_id ? doLineById.get(l.source_doc_line_id) : undefined;
                 const left = d ? d.qty - d.held : 0;
-                const typed = Number(l.qty) || 0;
-                const over = Boolean(d && typed > left + 1e-9);
+                const typed = Number(String(l.qty).replace(",", ".")) || 0;
+                const over = Boolean(d && units(typed) > units(left));
                 const lineError = lineErr(l.key, "source_doc_line_id") ?? lineErr(l.key, "qty") ?? lineErr(l.key, "picks");
                 const stored = viewLines[i];
+                const baseQty = baseOf(l, d);
+                // The base quantity speaks only when the document's unit is not the base one.
+                const showBase = Boolean(d && d.uomLabel !== d.baseUomLabel && typed > 0);
                 return (
                   <tr key={l.key} className={lineError || over ? "overrow" : undefined}>
                     <td className="no">{i + 1}</td>
@@ -468,30 +491,38 @@ export function DeliveryNoteForm({
                       </span>
                       {lineError && <span className="overtag">{lineError}</span>}
                     </td>
+                    {draft && (
+                      <td className="num">
+                        {d && (
+                          <span className="qview">
+                            <span className="mny">{qtyText(left)}</span>
+                            <span className="lab">{d.uomLabel}</span>
+                          </span>
+                        )}
+                      </td>
+                    )}
                     <td>
                       {editing ? (
-                        <>
-                          <div className="qcell">
-                            <MoneyInput
-                              size="sm"
-                              decimals={4}
-                              value={l.qty}
-                              over={over}
-                              ariaLabel={`Qty ${d?.itemLabel ?? ""}`}
-                              onChange={(v) => setLine(l.key, { qty: v })}
-                            />
-                            <span className="qu">{d?.uomLabel}</span>
-                          </div>
-                          {d && (
-                            <span className="fulltag">
-                              maks. {qtyText(left)} {d.uomLabel}
-                            </span>
-                          )}
-                        </>
+                        <div className="qcell">
+                          <MoneyInput
+                            size="sm"
+                            decimals={4}
+                            value={l.qty}
+                            over={over}
+                            ariaLabel={`Qty ${d?.itemLabel ?? ""}`}
+                            onChange={(v) => setLine(l.key, { qty: v })}
+                          />
+                          <span className="qu">{d?.uomLabel}</span>
+                        </div>
                       ) : (
                         <span className="qview">
-                          <span className="mny">{qtyText(Number(l.qty))}</span>
+                          <span className="mny">{qtyText(typed)}</span>
                           <span className="lab">{d?.uomLabel}</span>
+                        </span>
+                      )}
+                      {showBase && (
+                        <span className="d2">
+                          = {qtyText(baseQty)} {d!.baseUomLabel}
                         </span>
                       )}
                     </td>
@@ -499,23 +530,24 @@ export function DeliveryNoteForm({
                     {posted && (
                       <>
                         <td className="num">
-                          <span className="mny">{formatPrice(stored?.unitCost ?? 0)}</span>
+                          {/* Derived on read — the line's value over its base quantity (P114, P268). */}
+                          <span className="mny">{formatPrice(stored && stored.baseQty > 0 ? stored.cost / stored.baseQty : 0)}</span>
                         </td>
                         <td className="num">
-                          <span className="mny">{money(stored?.cost ?? 0)}</span>
+                          <Amount value={stored?.cost ?? 0} />
                         </td>
-                        {billing && (
-                          <td>
-                            {stored && billing[stored.id] ? (
-                              <Link className="lab" href={`/finance/invoice/sales/${billing[stored.id].id}`}>
-                                {billing[stored.id].no}
-                              </Link>
-                            ) : (
-                              <span className="dash">Belum ditagih</span>
-                            )}
-                          </td>
-                        )}
                       </>
+                    )}
+                    {billed && (
+                      <td>
+                        {stored && billing![stored.id] ? (
+                          <Link className="lab" href={`/finance/invoice/sales/${billing![stored.id].id}`}>
+                            {billing![stored.id].no}
+                          </Link>
+                        ) : (
+                          <span className="dash">Belum ditagih</span>
+                        )}
+                      </td>
                     )}
                     {editing && (
                       <td>
@@ -538,39 +570,41 @@ export function DeliveryNoteForm({
             {posted && (
               <tfoot>
                 <tr className="totrow">
-                  <td colSpan={6} style={{ textAlign: "right" }}>
+                  <td colSpan={columns - 1 - (billed ? 1 : 0)} style={{ textAlign: "right" }}>
                     Total HPP
                   </td>
                   <td className="num">
-                    <span className="mny">{money(note?.cost ?? 0)}</span>
+                    <Amount value={note?.cost ?? 0} big />
                   </td>
-                  {billing && <td />}
+                  {billed && <td />}
                 </tr>
               </tfoot>
             )}
           </table>
         </div>
       )}
-      {lotsFor && source && (() => {
-        const l = lines.find((x) => x.key === lotsFor);
-        const d = l?.source_doc_line_id ? doLineById.get(l.source_doc_line_id) : undefined;
-        if (!l || !d) return null;
-        return (
-          <DeliveryNoteLotPicker
-            line={d}
-            lots={source.lots[d.itemId] ?? []}
-            lineQty={Number(String(l.qty).replace(",", ".")) || 0}
-            current={l.picks}
-            shipDate={header.dn_date}
-            onApply={(picks) => {
-              setLine(l.key, { picks });
-              touch(`lines.${l.key}.picks`);
-              setLotsFor(null);
-            }}
-            onClose={() => setLotsFor(null)}
-          />
-        );
-      })()}
+      {lotsFor &&
+        source &&
+        (() => {
+          const l = lines.find((x) => x.key === lotsFor);
+          const d = l?.source_doc_line_id ? doLineById.get(l.source_doc_line_id) : undefined;
+          if (!l || !d) return null;
+          return (
+            <DeliveryNoteLotPicker
+              line={{ itemLabel: d.itemLabel, itemName: d.itemName, uomLabel: d.baseUomLabel }}
+              lots={source.lots[d.itemId] ?? []}
+              lineQty={baseOf(l, d)}
+              current={l.picks}
+              shipDate={header.dn_date}
+              onApply={(picks) => {
+                setLine(l.key, { picks });
+                touch(`lines.${l.key}.picks`);
+                setLotsFor(null);
+              }}
+              onClose={() => setLotsFor(null)}
+            />
+          );
+        })()}
       {pickerOpen && source && (
         <DeliveryNoteLinePicker
           lines={source.lines}
@@ -586,48 +620,28 @@ export function DeliveryNoteForm({
   // ============================================================ page
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Persediaan</span>
-          <span>/</span>
-          <Link href="/inventory/delivery-note">Delivery Note</Link>
-          <span>/</span>
-          <span className="cur">{note ? note.dnNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="truck" size={16} />
-            </span>
-            {note ? (
-              <>
-                <span className="docno">{note.dnNo}</span>
-                <span className={`bdg ${DELIVERY_NOTE_STATUS_BADGE[status]}`}>{DELIVERY_NOTE_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Delivery Note Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
-              </>
-            ) : (
-              <DeliveryNoteActions id={note!.id} subject={note!.dnNo} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Persediaan"
+        trail={[{ label: "Delivery Note", href: "/inventory/delivery-note" }]}
+        icon="truck"
+        number={note?.dnNo}
+        placeholder="Delivery Note Baru"
+        status={note ? status : null}
+        statusLabel={note ? { text: DELIVERY_NOTE_STATUS_TEXT[status], tone: DELIVERY_NOTE_STATUS_BADGE[status] } : undefined}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <button className="btn primary" onClick={onSave} disabled={saving}>
+              <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
+            </button>
+          </>
+        ) : (
+          <DeliveryNoteActions id={note!.id} subject={note!.dnNo} status={status} can={can} />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>
