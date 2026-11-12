@@ -6,7 +6,7 @@ PPN Include dan Exclude, **tanpa PPh**.
 
 Sumber kebenarannya `src/lib/erp/sales-tax.ts`. Kode di §7 sudah dibandingkan
 dengan fungsi aslinya pada 300.000 kasus acak dan hasilnya sama. Aturan bisnisnya
-ada di `tax_concept.md` dan `Cash-Bank-Tx-Line-Logic.md`.
+ada di `tax_concept.md` dan `Script Penjelasan/02 Kas & Bank - Cara Pakai dan Logika Baris.md`.
 
 ---
 
@@ -233,7 +233,7 @@ Saat **Simpan**, baris `fin_cash_bank_tx_line` ditulis dengan
 `settled_amount` 2.330.000, `ppn_part` 230.901 dan `dpp_part` 2.099.099.
 Saat **Posting**, server menghitung ulang semuanya dari `paid` terbaru, lalu
 `fin_ar_item.paid_amount` naik menjadi 3.330.000 dan saldo item Uang Muka naik
-sebesar `dpp_part`. Rinciannya ada di `03 AR Item dan Buku Piutang - Uang Muka dan Invoice.md`.
+sebesar `dpp_part`. Rinciannya ada di `05 AR Item dan Buku Piutang - Uang Muka dan Invoice.md`.
 
 **Bagian DPP dihitung dengan pengurangan, bukan dibagi sendiri**, supaya
 `Bagian DPP + Bagian PPN = Dilunasi` selalu tepat.

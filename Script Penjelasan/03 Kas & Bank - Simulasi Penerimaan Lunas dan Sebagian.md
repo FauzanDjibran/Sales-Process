@@ -9,7 +9,7 @@ Semua angka dihitung ulang dengan fungsi aplikasi sendiri
 (`src/lib/erp/sales-tax.ts`: `computeSalesTotals`, `computeAdvance`,
 `computeInvoice`, `cashToClear`, `settleBillFromCash`), jadi sama persis dengan
 yang ditulis Posting. Logika dan tabelnya dijelaskan di
-`Cash-Bank-Tx-Line-Logic.md`; keputusan terkait P66–P69, P76, P98, P113,
+`Script Penjelasan/02 Kas & Bank - Cara Pakai dan Logika Baris.md`; keputusan terkait P66–P69, P76, P98, P113,
 P116–P119, P132, P133.
 
 > File ini diperbarui setiap kali simulasi ditambah atau aturan berubah.

@@ -220,6 +220,6 @@ The user consents to a reset, so **no data is merged**.
 8. **Docs:**
    - `Claude-ERP.md`: P133 built, and §10.2 rule 12;
    - `Sales-Process-Concept.md` §8 and `Purchasing-Concept.md`;
-   - `Cash-Bank-Tx-Line-Logic.md`;
+   - `Script Penjelasan/02 Kas & Bank - Cara Pakai dan Logika Baris.md`;
    - the harvest queue entry.
 9. **Run the reset** locally (`db:fresh`) and tell you to run the Neon reset.
