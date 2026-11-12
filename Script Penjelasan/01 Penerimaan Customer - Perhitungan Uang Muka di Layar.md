@@ -233,7 +233,7 @@ Saat **Simpan**, baris `fin_cash_bank_tx_line` ditulis dengan
 `settled_amount` 2.330.000, `ppn_part` 230.901 dan `dpp_part` 2.099.099.
 Saat **Posting**, server menghitung ulang semuanya dari `paid` terbaru, lalu
 `fin_ar_item.paid_amount` naik menjadi 3.330.000 dan saldo item Uang Muka naik
-sebesar `dpp_part`. Rinciannya ada di `Penjelasan-AR-Item-dan-Buku-Piutang.md`.
+sebesar `dpp_part`. Rinciannya ada di `03 AR Item dan Buku Piutang - Uang Muka dan Invoice.md`.
 
 **Bagian DPP dihitung dengan pengurangan, bukan dibagi sendiri**, supaya
 `Bagian DPP + Bagian PPN = Dilunasi` selalu tepat.

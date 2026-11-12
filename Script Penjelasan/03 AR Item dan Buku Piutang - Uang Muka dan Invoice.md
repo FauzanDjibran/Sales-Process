@@ -10,7 +10,7 @@ dan urutan barisnya hasil keluaran sebenarnya.
 
 Aturan bisnisnya ada di keputusan P71–P73, P110, P116–P118, P133 dan P214
 (`Claude-ERP.md`). Perhitungan DPP dan PPN penerimaannya ada di
-`Penjelasan-FE-Penerimaan-Uang-Muka.md`.
+`01 Penerimaan Customer - Perhitungan Uang Muka di Layar.md`.
 
 ---
 
