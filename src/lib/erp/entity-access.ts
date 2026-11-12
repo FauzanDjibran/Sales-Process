@@ -50,6 +50,13 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     activate: "CURRENCY_ACTIVATE",
     deactivate: "CURRENCY_DEACTIVATE",
   },
+  ref_exchange_rate: {
+    view: "EXCHANGE_RATE_VIEW",
+    create: "EXCHANGE_RATE_CREATE",
+    edit: "EXCHANGE_RATE_EDIT",
+    activate: "EXCHANGE_RATE_ACTIVATE",
+    deactivate: "EXCHANGE_RATE_DEACTIVATE",
+  },
   ref_uom: {
     view: "UOM_VIEW",
     create: "UOM_CREATE",

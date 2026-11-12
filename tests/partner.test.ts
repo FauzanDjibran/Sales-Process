@@ -380,9 +380,9 @@ describe("Supplier is switched on for purchasing (P122; was off by P41)", () => 
 describe("a customer's sales defaults (P51)", () => {
   const partner = ENTITIES.find((e) => e.key === "m_partner")!;
 
-  test("the Penjualan tab holds default Termin and mode harga, for Customers only", () => {
+  test("the Penjualan tab holds default Termin, mode harga and currency, for Customers only", () => {
     const sales = partner.fields.filter((f) => f.tab === "sales");
-    assert.deepEqual(sales.map((f) => f.name).sort(), ["default_price_mode", "default_term_id"]);
+    assert.deepEqual(sales.map((f) => f.name).sort(), ["default_price_mode", "default_term_id", "sales_currency_id"]);
     for (const f of sales) {
       assert.equal(f.visibleWhen, "partnerIsCustomer");
       assert.ok(!f.required, "a default is never required");

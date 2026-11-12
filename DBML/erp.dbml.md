@@ -385,6 +385,35 @@ table ref_currency {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
+// Kurs: a foreign currency's rate to IDR on a date (Multi-Currency-Plan MC6).
+// Only suggests a Customer Order / Purchase Order rate; never a carrying rate,
+// never read by cash movements. One Active row per currency, type and date
+// (partial unique index ref_exchange_rate_one_active).
+table ref_exchange_rate {
+  id                          int [pk, increment, not null]
+
+  rate_code                   varchar [not null, unique]
+
+  currency_id                 int [not null, ref : > ref_currency.id]
+  rate_type                   enum('Transaction') [not null, default: 'Transaction'] // closing and KMK later
+  rate_date                   date [not null]
+  rate                        decimal(18,6) [not null, note: 'CHECK > 0']
+
+  note                        varchar
+
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (currency_id, rate_type, rate_date)
+  }
+}
+
 // a unit only; conversions belong to the Item (P43)
 table ref_uom {
   id                          int [pk, increment, not null]
@@ -624,6 +653,8 @@ table m_partner {
 
   purchase_term_id            int [ref : > ref_payment_term.id] // supplier's purchase defaults (P122)
   purchase_price_mode         enum('Exclude', 'Include')
+  sales_currency_id           int [ref : > ref_currency.id] // currency a new Customer Order starts in; empty = IDR (Multi-Currency-Plan OD-11)
+  purchase_currency_id        int [ref : > ref_currency.id] // currency a new Purchase Order starts in
 
   created_by                  int [not null]
   updated_by                  int

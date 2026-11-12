@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { formatMoney } from "@/lib/format";
 import { compareCodes } from "./account-code";
+import { isBaseCurrency } from "./currency";
 import { cashBankBalanceMap } from "./cash-bank";
 import { journalLineCountForAccount } from "./journal";
 import { type Entity, type Field, entityBySlug } from "./entities";
@@ -24,6 +25,7 @@ const DELEGATES = {
   sys_item_category: (db: Client) => db.sysItemCategory,
   m_cash_bank: (db: Client) => db.mCashBank,
   ref_currency: (db: Client) => db.refCurrency,
+  ref_exchange_rate: (db: Client) => db.refExchangeRate,
   ref_uom: (db: Client) => db.refUom,
   ref_payment_term: (db: Client) => db.refPaymentTerm,
   ref_warehouse: (db: Client) => db.refWarehouse,
@@ -205,7 +207,7 @@ export async function optionsFor(
     }
     case "ref_currency": {
       const rows = await prisma.refCurrency.findMany({ orderBy: { id: "asc" } });
-      return rows.map((r) => ({
+      return rows.filter((r) => filter !== "foreignCurrency" || !isBaseCurrency(r.currency_label)).map((r) => ({
         id: r.id,
         label: r.currency_label,
         name: r.currency_name,

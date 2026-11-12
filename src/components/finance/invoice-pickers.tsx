@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/icon";
 import { Dialog } from "@/components/ui/dialog";
+import { TAX_MODULE_HIDDEN } from "@/lib/erp/nav";
 import type { InvoiceAdvance, InvoiceNoteLine } from "@/lib/erp/ar-invoice";
 import { formatDate, formatMoney, formatNumber } from "@/lib/format";
 
@@ -222,7 +223,7 @@ export function InvoiceAdvancePicker({
                 <th style={{ width: 150 }}>AR Item</th>
                 <th style={{ width: 96 }}>Diterima</th>
                 <th>Tagihan · Penerimaan</th>
-                <th style={{ width: 150 }}>No. Faktur Pajak</th>
+                {!TAX_MODULE_HIDDEN && <th style={{ width: 150 }}>No. Faktur Pajak</th>}
                 <th className="num" style={{ width: 130 }}>
                   Sisa (DPP)
                 </th>
@@ -258,7 +259,7 @@ export function InvoiceAdvancePicker({
                     <td>
                       <span className="lab">{a.sourceNo}</span> <span className="mut">· {a.createdByNo}</span>
                     </td>
-                    <td>{nsfp[a.id] ? <span className="mono">{nsfp[a.id]}</span> : <span className="dash">{taxable ? "belum diisi" : "tidak kena PPN"}</span>}</td>
+                    {!TAX_MODULE_HIDDEN && <td>{nsfp[a.id] ? <span className="mono">{nsfp[a.id]}</span> : <span className="dash">{taxable ? "belum diisi" : "tidak kena PPN"}</span>}</td>}
                     <td className="num">
                       <span className="mny">{money(a.balance)}</span>
                     </td>

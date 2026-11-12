@@ -72,6 +72,11 @@ export const PERMISSIONS = [
   { code: "CURRENCY_EDIT", name: "Ubah Currency", module: "master" },
   { code: "CURRENCY_ACTIVATE", name: "Aktifkan Currency", module: "master" },
   { code: "CURRENCY_DEACTIVATE", name: "Nonaktifkan Currency", module: "master" },
+  { code: "EXCHANGE_RATE_VIEW", name: "Lihat Kurs", module: "master" },
+  { code: "EXCHANGE_RATE_CREATE", name: "Tambah Kurs", module: "master" },
+  { code: "EXCHANGE_RATE_EDIT", name: "Ubah Kurs", module: "master" },
+  { code: "EXCHANGE_RATE_ACTIVATE", name: "Aktifkan Kurs", module: "master" },
+  { code: "EXCHANGE_RATE_DEACTIVATE", name: "Nonaktifkan Kurs", module: "master" },
 
   { code: "UOM_VIEW", name: "Lihat Satuan", module: "master" },
   { code: "UOM_CREATE", name: "Tambah Satuan", module: "master" },

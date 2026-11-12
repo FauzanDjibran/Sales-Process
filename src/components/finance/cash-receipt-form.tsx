@@ -22,6 +22,7 @@ import {
   type CashReceiptAbilities,
 } from "@/lib/erp/cash-bank-tx-workflow";
 import type { CashReceiptOptions, CashReceiptView, OpenBill } from "@/lib/erp/cash-bank-tx";
+import { TAX_MODULE_HIDDEN } from "@/lib/erp/nav";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
 
@@ -355,7 +356,7 @@ export function CashReceiptForm({
                     <Link className="drl" href={`/accounting/journal/${receipt.journal.id}`}>
                       <span className="mono">{receipt.journal.journalNo}</span>
                     </Link>
-                    {taxDocs?.fakturs.map((f) => (
+                    {!TAX_MODULE_HIDDEN && taxDocs?.fakturs.map((f) => (
                       <Fragment key={`f${f.id}`}>
                         <span className="rx">· Faktur Pajak</span>
                         <Link className="drl" href={`/tax/faktur/${f.id}`}>
@@ -363,7 +364,7 @@ export function CashReceiptForm({
                         </Link>
                       </Fragment>
                     ))}
-                    {taxDocs?.slips.map((x) => (
+                    {!TAX_MODULE_HIDDEN && taxDocs?.slips.map((x) => (
                       <Fragment key={`s${x.id}`}>
                         <span className="rx">· Bukti Potong</span>
                         <Link className="drl" href={`/tax/withholding-slip/${x.id}`}>

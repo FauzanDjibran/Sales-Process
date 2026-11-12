@@ -57,6 +57,13 @@ enum ActiveStatus {
   Inactive
 }
 
+/// What a Kurs row is for (Multi-Currency-Plan MC6). Only the transaction
+/// rate exists today; the closing rate (revaluation) and Kurs KMK (the tax
+/// module) join when they are built.
+enum ExchangeRateType {
+  Transaction
+}
+
 enum CashBankType {
   Cash
   Bank
@@ -484,7 +491,38 @@ model RefCurrency {
 
   ap_items FinApItem[] @relation("ApItemCurrency")
 
+  exchange_rates    RefExchangeRate[]
+  sales_partners    MPartner[]        @relation("PartnerSalesCurrency")
+  purchase_partners MPartner[]        @relation("PartnerPurchaseCurrency")
+
   @@map("ref_currency")
+}
+
+/// Kurs — a foreign currency's rate to the base currency on a date
+/// (Multi-Currency-Plan MC6). It only **suggests** the rate a Customer Order or
+/// Purchase Order starts with; the document keeps its own. A carrying rate is
+/// never written here (multi_currency_concept §4.2), and cash movements never
+/// read it (MC11). One active row per currency, type and date (partial unique
+/// index in the migration).
+model RefExchangeRate {
+  id          Int              @id @default(autoincrement())
+  rate_code   String           @unique
+  currency_id Int
+  rate_type   ExchangeRateType @default(Transaction)
+  rate_date   DateTime         @db.Date
+  rate        Decimal          @db.Decimal(18, 6)
+  note        String?
+  status      ActiveStatus     @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  currency RefCurrency @relation(fields: [currency_id], references: [id])
+
+  @@index([currency_id, rate_type, rate_date])
+  @@map("ref_exchange_rate")
 }
 
 /// Satuan — a unit an item is counted in (PCS, BOX, SET). Only the unit; how
@@ -1206,14 +1244,21 @@ model MPartner {
   purchase_term_id    Int?
   purchase_price_mode PriceMode?
 
+  // ---- Currency a new Customer Order / Purchase Order starts in (OD-11).
+  // Defaults only; empty means the base currency.
+  sales_currency_id    Int?
+  purchase_currency_id Int?
+
   created_by Int
   updated_by Int?
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  category      SysPartnerCategory @relation(fields: [category_id], references: [id])
-  default_term  RefPaymentTerm?    @relation("PartnerSalesTerm", fields: [default_term_id], references: [id])
-  purchase_term RefPaymentTerm?    @relation("PartnerPurchaseTerm", fields: [purchase_term_id], references: [id])
+  category          SysPartnerCategory @relation(fields: [category_id], references: [id])
+  default_term      RefPaymentTerm?    @relation("PartnerSalesTerm", fields: [default_term_id], references: [id])
+  purchase_term     RefPaymentTerm?    @relation("PartnerPurchaseTerm", fields: [purchase_term_id], references: [id])
+  sales_currency    RefCurrency?       @relation("PartnerSalesCurrency", fields: [sales_currency_id], references: [id])
+  purchase_currency RefCurrency?       @relation("PartnerPurchaseCurrency", fields: [purchase_currency_id], references: [id])
 
   addresses       MPartnerAddress[]
   purchase_orders PurOrder[]        @relation("PurOrderSupplier")
@@ -2446,7 +2491,7 @@ model LogDeliveryNoteLine {
   cost_amount        Decimal @default(0) @db.Decimal(18, 2)
   note               String?
 
-  delivery_note LogDeliveryNote          @relation(fields: [delivery_note_id], references: [id])
+  delivery_note LogDeliveryNote           @relation(fields: [delivery_note_id], references: [id])
   item          MItem                     @relation(fields: [item_id], references: [id])
   uom           RefUom                    @relation(fields: [uom_id], references: [id])
   /// For an item with Kelola Stok: which lots the line's quantity is taken

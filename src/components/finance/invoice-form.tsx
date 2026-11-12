@@ -24,6 +24,7 @@ import {
 } from "@/lib/erp/ar-invoice-workflow";
 import type { InvoiceHeaderInput, InvoiceOptions, InvoiceView, InvoiceNoteLine, InvoiceOrderOption } from "@/lib/erp/ar-invoice";
 import { advancePpnUsed, computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine, type PriceMode } from "@/lib/erp/sales-tax";
+import { TAX_MODULE_HIDDEN } from "@/lib/erp/nav";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso, formatPrice } from "@/lib/format";
 
@@ -389,6 +390,7 @@ export function InvoiceForm({
                       )
                     : nil(posted ? "tidak ada" : "saat posting")}
                 </Field>
+                {!TAX_MODULE_HIDDEN && (
                 <Field label="Faktur Pajak" span={4}>
                   {taxDocs?.fakturs.length
                     ? ro(
@@ -405,6 +407,7 @@ export function InvoiceForm({
                       ? ro(<span className="mono">{invoice.taxInvoiceNo}</span>)
                       : nil(posted ? (order && !order.taxable ? "tidak kena PPN" : "tidak ada") : "saat posting")}
                 </Field>
+                )}
                 {posted && pay && (
                   <Field label="Pembayaran" span={12}>
                     {ro(
@@ -422,7 +425,7 @@ export function InvoiceForm({
                             <span className="rx">{p.status === "Posted" ? money(p.settled) : p.status === "Draft" ? "draft" : "dibatalkan"}</span>
                           </Fragment>
                         ))}
-                        {taxDocs?.slips.map((x) => (
+                        {!TAX_MODULE_HIDDEN && taxDocs?.slips.map((x) => (
                           <Fragment key={`s${x.id}`}>
                             <span className="rx">· Bukti Potong</span>
                             <Link className="drl" href={`/tax/withholding-slip/${x.id}`}>
@@ -653,7 +656,7 @@ export function InvoiceForm({
               <tr>
                 <th style={{ width: 160 }}>AR Item</th>
                 <th>Tagihan · Penerimaan</th>
-                <th style={{ width: 150 }}>No. Faktur Pajak</th>
+                {!TAX_MODULE_HIDDEN && <th style={{ width: 150 }}>No. Faktur Pajak</th>}
                 {/* The item's balance belongs to the AR item: shown while choosing, not on a saved Invoice. */}
                 {editing && (
                   <th className="num" style={{ width: 130 }}>
@@ -692,6 +695,7 @@ export function InvoiceForm({
                         </span>
                       </span>
                     </td>
+                    {!TAX_MODULE_HIDDEN && (
                     <td>
                       {a && advanceNsfp[a.id] ? (
                         <span className="mono">{advanceNsfp[a.id]}</span>
@@ -700,6 +704,7 @@ export function InvoiceForm({
                         <span className="dash">{!order?.taxable ? "tidak kena PPN" : "belum diisi"}</span>
                       )}
                     </td>
+                    )}
                     {editing && (
                       <td className="num">
                         <span className="mny">{money(free)}</span>

@@ -44,7 +44,15 @@ export type NavModule = {
   path?: string;
   /** A module with no groups is a single page (the dashboard). */
   groups?: NavGroup[];
+  /**
+   * Kept but not shown (Multi-Currency-Plan MC19): its pages, permissions and
+   * data stay, and taking the flag off brings it back.
+   */
+  hidden?: boolean;
 };
+
+/** The Pajak module is hidden while multi-currency is built (MC19). */
+export const TAX_MODULE_HIDDEN = true;
 
 export const MODULES: NavModule[] = [
   {
@@ -573,6 +581,7 @@ export const MODULES: NavModule[] = [
   },
   {
     key: "tax",
+    hidden: TAX_MODULE_HIDDEN,
     name: "Pajak",
     icon: "scale",
     desc: "Faktur pajak keluaran dan bukti potong PPh yang terbentuk otomatis dari penerimaan dan invoice.",
@@ -835,6 +844,14 @@ export const MODULES: NavModule[] = [
             permission: "CURRENCY_VIEW",
           },
           {
+            key: "ref_exchange_rate",
+            slug: "exchange-rate",
+            name: "Kurs",
+            icon: "coin",
+            desc: "Kurs mata uang asing ke IDR per tanggal. Hanya usulan untuk Customer Order dan Purchase Order; dokumen menyimpan kursnya sendiri.",
+            permission: "EXCHANGE_RATE_VIEW",
+          },
+          {
             key: "ref_uom",
             slug: "uom",
             name: "Satuan",
@@ -997,6 +1014,7 @@ export function visibleModules(permissions: Iterable<string>, app?: AppKey): Nav
   const out: NavModule[] = [];
   for (const mod of MODULES) {
     if (app && appOfModule(mod.key) !== app) continue;
+    if (mod.hidden) continue;
     if (!allowed(mod.permission)) continue;
     if (!mod.groups) {
       out.push(mod);

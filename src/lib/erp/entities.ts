@@ -111,6 +111,8 @@ export type Field = {
     | "postableAccount"
     | "costOfSalesAccount"
     | "parentAccount"
+    /** Every currency but the base one: a rate is always to the base. */
+    | "foreignCurrency"
     /** Kategori Item of the Tipe the form currently holds (P47). */
     | "itemCategoryByType";
   /**
@@ -224,6 +226,8 @@ export type Column = {
   isDate?: boolean;
   /** A stored percentage, shown `1,5%`. */
   isPercent?: boolean;
+  /** An exchange rate, shown as `formatRate` does. */
+  isRate?: boolean;
   truncate?: boolean;
   /** Value comes from the server-computed map rather than the row. */
   computed?: boolean;
@@ -497,6 +501,15 @@ export const ENTITIES: Entity[] = [
         optionLabels: { Exclude: "Exclude PPN", Include: "Include PPN" },
         help: "harga diketik sebelum PPN atau sudah termasuk PPN",
       },
+      {
+        name: "sales_currency_id",
+        label: "Currency Default",
+        type: "ref",
+        ref: "ref_currency",
+        tab: "sales",
+        visibleWhen: "partnerIsCustomer",
+        help: "kosong = IDR; diisikan ke Customer Order baru",
+      },
 
       // ---- tab Pembelian: what a new Purchase Order starts from (B2, P122).
       {
@@ -517,6 +530,15 @@ export const ENTITIES: Entity[] = [
         options: ["Exclude", "Include"],
         optionLabels: { Exclude: "Exclude PPN", Include: "Include PPN" },
         help: "harga supplier sebelum PPN atau sudah termasuk PPN",
+      },
+      {
+        name: "purchase_currency_id",
+        label: "Currency Default",
+        type: "ref",
+        ref: "ref_currency",
+        tab: "purchase",
+        visibleWhen: "partnerIsSupplier",
+        help: "kosong = IDR; diisikan ke Purchase Order baru",
       },
     ],
     tabs: [
@@ -821,6 +843,67 @@ export const ENTITIES: Entity[] = [
       { field: "currency_label", label: "Label", isLabel: true, width: "118px", filter: "text" },
       { field: "currency_name", label: "Nama Currency", primary: true, filter: "text" },
       { field: "cash_bank_count", label: "Cash & Bank", computed: true, numeric: true, width: "112px" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+      { field: "note", label: "Catatan", muted: true, truncate: true },
+    ],
+  },
+
+  {
+    key: "ref_exchange_rate",
+    slug: "exchange-rate",
+    module: "master",
+    name: "Kurs",
+    icon: "coin",
+    desc: "Kurs mata uang asing ke IDR per tanggal. Hanya usulan untuk Customer Order dan Purchase Order; dokumen menyimpan kursnya sendiri.",
+    emptyHint: "Tanpa kurs di sini, kurs Customer Order dan Purchase Order valas diketik sendiri.",
+    codeField: "rate_code",
+    codePrefix: "kurs",
+    titleRefs: ["currency_id"],
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      {
+        name: "currency_id",
+        label: "Currency",
+        type: "ref",
+        ref: "ref_currency",
+        refFilter: "foreignCurrency",
+        required: true,
+        help: "mata uang asing; kurs selalu ke IDR",
+      },
+      {
+        name: "rate_type",
+        label: "Tipe",
+        type: "select",
+        required: true,
+        options: ["Transaction"],
+        optionLabels: { Transaction: "Transaksi" },
+        defaultValue: "Transaction",
+        help: "kurs penutup dan Kurs KMK menyusul",
+      },
+      {
+        name: "rate_date",
+        label: "Tanggal",
+        type: "date",
+        required: true,
+        help: "berlaku sampai ada kurs tanggal sesudahnya",
+      },
+      {
+        name: "rate",
+        label: "Kurs",
+        type: "rate",
+        currencyFrom: "currency_id",
+        required: true,
+        placeholder: "0",
+        help: "IDR untuk 1 unit mata uang asing",
+      },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    columns: [
+      { field: "currency_id", label: "Currency", isRef: true, refLabelOnly: true, width: "110px", filter: "ref" },
+      { field: "rate_type", label: "Tipe", isTag: true, width: "120px", filter: "enum" },
+      { field: "rate_date", label: "Tanggal", isDate: true, width: "126px" },
+      { field: "rate", label: "Kurs", isRate: true, numeric: true, width: "150px" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
       { field: "note", label: "Catatan", muted: true, truncate: true },
     ],

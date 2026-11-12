@@ -319,6 +319,29 @@ async function validate(
   if (entity.key === "m_cash_bank") {
     Object.assign(errors, await validateCashBank(values, errors));
   }
+  if (entity.key === "ref_exchange_rate") {
+    // The picker offers foreign currencies only; a crafted request could still
+    // name the base currency, whose rate is 1 by definition.
+    const currencyId = refValue(values, "currency_id");
+    const currency = currencyId ? await prisma.refCurrency.findUnique({ where: { id: currencyId }, select: { currency_label: true } }) : null;
+    if (currencyId && (!currency || isBaseCurrency(currency.currency_label))) errors.currency_id ??= "Pilih mata uang asing.";
+    const rate = numberValue(values, "rate");
+    if (!errors.rate && rate != null && !(rate > 0)) errors.rate = "Kurs harus lebih dari 0.";
+    const date = String(values.rate_date ?? "");
+    if (currencyId && date && !errors.rate_date) {
+      const clash = await prisma.refExchangeRate.findFirst({
+        where: {
+          currency_id: currencyId,
+          rate_type: "Transaction",
+          rate_date: new Date(`${date}T00:00:00Z`),
+          status: "Active",
+          ...(currentId ? { id: { not: currentId } } : {}),
+        },
+        select: { id: true },
+      });
+      if (clash) errors.rate_date = "Kurs aktif untuk mata uang dan tanggal ini sudah ada.";
+    }
+  }
   if (entity.key === "acc_account") {
     Object.assign(errors, await validateAccount(values, currentId, errors, applies));
   }

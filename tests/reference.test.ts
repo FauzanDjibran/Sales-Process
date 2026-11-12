@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { ENTITIES } from "../src/lib/erp/entities";
 import { entityPermissions } from "../src/lib/erp/entity-access";
-import { MODULES } from "../src/lib/erp/nav";
+import { MODULES, visibleModules } from "../src/lib/erp/nav";
 import { PERMISSIONS } from "../src/lib/erp/permissions";
 import { paymentTermDaysError, withholdingRateError } from "../src/lib/erp/reference-rules";
 import { formatPct } from "../src/lib/format";
@@ -19,7 +19,7 @@ import { disconnect, prisma } from "./helpers";
  * fully wired, the two value rules hold, and Jenis PPh starts seeded.
  */
 
-const KEYS = ["ref_uom", "ref_payment_term", "ref_warehouse", "ref_withholding_tax"];
+const KEYS = ["ref_uom", "ref_payment_term", "ref_warehouse", "ref_withholding_tax", "ref_exchange_rate"];
 
 after(disconnect);
 
@@ -44,6 +44,30 @@ describe("each reference master is wired end to end", () => {
 
   test("there is no tax-code table: PPN or not is an enum on the transaction", () => {
     assert.ok(!ENTITIES.some((e) => /tax_code|kode_pajak/.test(e.key)));
+  });
+});
+
+describe("Kurs (Multi-Currency-Plan MC6, MC19)", () => {
+  test("one active rate per currency, type and day; an inactive one may repeat it", async () => {
+    const usd = await prisma.refCurrency.findFirstOrThrow({ where: { currency_label: "USD" } });
+    const row = (code: string, status: "Active" | "Inactive" = "Active") => ({
+      rate_code: code, currency_id: usd.id, rate_date: new Date("2099-01-02T00:00:00Z"), rate: 16000, status, created_by: 1,
+    });
+    const a = await prisma.refExchangeRate.create({ data: row("test.kurs.a") });
+    try {
+      await assert.rejects(prisma.refExchangeRate.create({ data: row("test.kurs.b") }));
+      const c = await prisma.refExchangeRate.create({ data: row("test.kurs.c", "Inactive") });
+      await prisma.refExchangeRate.delete({ where: { id: c.id } });
+      await assert.rejects(prisma.refExchangeRate.create({ data: { ...row("test.kurs.d"), rate_date: new Date("2099-01-03T00:00:00Z"), rate: 0 } }));
+    } finally {
+      await prisma.refExchangeRate.delete({ where: { id: a.id } });
+    }
+  });
+
+  test("the Pajak module is hidden from the menu while multi-currency is built", () => {
+    const all = PERMISSIONS.map((p) => p.code);
+    assert.ok(MODULES.some((m) => m.key === "tax"), "kept, not deleted");
+    assert.ok(!visibleModules(all).some((m) => m.key === "tax"), "not shown even to a user holding every permission");
   });
 });
 
