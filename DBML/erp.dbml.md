@@ -1292,6 +1292,40 @@ table fin_cash_bank_tx_line_wht {
   }
 }
 
+// Penukaran Valas, PVL/… (Multi-Currency-Plan MC11a, P272): one rupiah and one
+// foreign Kas & Bank; Pembelian when rupiah leaves, Pencairan when it arrives.
+// The rate is from_amount ÷ to_amount (or the reverse), shown, never stored.
+table fin_cash_exchange {
+  id                          int [pk, increment, not null]
+
+  exchange_no                 varchar [not null, unique]
+  exchange_date               date [not null]
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+
+  from_cash_bank_id           int [not null, ref : > m_cash_bank.id]
+  to_cash_bank_id             int [not null, ref : > m_cash_bank.id, note: 'CHECK <> from_cash_bank_id']
+  from_amount                 decimal(18,2) [not null, note: 'CHECK > 0'] // what left, in the source's currency
+  to_amount                   decimal(18,2) [not null, note: 'CHECK > 0'] // what arrived, in the destination's
+  reference                   varchar // the bank's reference
+  note                        varchar
+
+  from_base                   decimal(18,2) // posted: what the source pool released
+  to_base                     decimal(18,2) // posted: a purchase brings from_base exactly, a sale the rupiah credited
+  fx_difference               decimal(18,2) [not null, default: 0] // to_base − from_base: + gain, − loss
+  journal_id                  int [ref : > acc_journal.id]
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, exchange_date)
+  }
+}
+
 // AR items: Uang Muka and Invoice, ARI/… (P71–P75, P96)
 // source = the document it is about (the advance bill, the Invoice); what created it is its Create entry
 // current_balance = the sum of its Buku Piutang entries; there is no allocation table

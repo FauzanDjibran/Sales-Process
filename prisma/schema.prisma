@@ -1448,10 +1448,12 @@ model MCashBank {
   currency RefCurrency @relation(fields: [currency_id], references: [id])
   account  AccAccount  @relation(fields: [account_id], references: [id])
 
-  ledger       CashBankLedger[]
-  book_balance CashBankBalance?
-  periods      CashBankPeriod[]
-  transactions FinCashBankTx[]
+  ledger        CashBankLedger[]
+  book_balance  CashBankBalance?
+  periods       CashBankPeriod[]
+  transactions  FinCashBankTx[]
+  exchanges_out FinCashExchange[] @relation("ExchangeFrom")
+  exchanges_in  FinCashExchange[] @relation("ExchangeTo")
 
   /// Advance bills that print this account as where to pay (P56).
   sales_advances  FinArAdvance[]
@@ -1962,9 +1964,10 @@ model AccJournal {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  source_doc_type SysDocType?      @relation(fields: [source_doc_type_id], references: [id])
+  source_doc_type SysDocType?       @relation(fields: [source_doc_type_id], references: [id])
   lines           AccJournalLine[]
   cash_bank_txs   FinCashBankTx[]
+  cash_exchanges  FinCashExchange[]
 
   @@index([posting_date])
   @@index([source_doc_type_id, source_doc_id])
@@ -3151,6 +3154,56 @@ model FinArPermitInvoiceAdvanceDeduction {
 // `lib/erp/cash-bank-purposes.ts` — decides what it settles and how it posts.
 // A Draft touches no book; posting writes the journal and the Cash Bank Book
 // together.
+
+/// Penukaran Valas (Multi-Currency-Plan MC11a): one Kas & Bank in rupiah and
+/// one in a foreign currency, money moving from one to the other. What kind it
+/// is follows from which side is rupiah — Pembelian Valas when rupiah leaves,
+/// Pencairan Valas when it arrives. The two amounts are the bank's, typed; the
+/// rate is their quotient, shown and never stored. Posting writes both Cash
+/// Bank Book entries and one journal: the foreign side leaves at its pool's
+/// moving average, a purchase brings exactly the rupiah paid into the pool, and
+/// a sale's difference is selisih kurs.
+model FinCashExchange {
+  id            Int                @id @default(autoincrement())
+  /// `PVL/YYYY/MM/NNNN`, in the month of its date.
+  exchange_no   String             @unique
+  exchange_date DateTime           @db.Date
+  status        CashExchangeStatus @default(Draft)
+
+  from_cash_bank_id Int
+  to_cash_bank_id   Int
+  /// What left, in the source's currency, and what arrived, in the destination's.
+  from_amount       Decimal @db.Decimal(18, 2)
+  to_amount         Decimal @db.Decimal(18, 2)
+  /// The bank's own reference for the deal, as printed.
+  reference         String?
+  note              String?
+
+  /// Written at posting: the base each side moved and their difference.
+  from_base     Decimal? @db.Decimal(18, 2)
+  to_base       Decimal? @db.Decimal(18, 2)
+  fx_difference Decimal  @default(0) @db.Decimal(18, 2)
+  journal_id    Int?
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  from_cash_bank MCashBank   @relation("ExchangeFrom", fields: [from_cash_bank_id], references: [id])
+  to_cash_bank   MCashBank   @relation("ExchangeTo", fields: [to_cash_bank_id], references: [id])
+  journal        AccJournal? @relation(fields: [journal_id], references: [id])
+
+  @@index([status, exchange_date])
+  @@map("fin_cash_exchange")
+}
+
+enum CashExchangeStatus {
+  Draft
+  Posted
+  Cancelled
+}
 
 enum CashBankTxStatus {
   Draft

@@ -13,6 +13,7 @@ const ROUTES: Record<string, string> = {
   acc_opening_balance: "/accounting/opening-balance",
   // Only Penerimaan exists yet; Pengeluaran will need the direction to route.
   fin_cash_bank_tx: "/finance/cash-bank/receipt",
+  fin_cash_exchange: "/finance/cash-bank/exchange",
   fin_ar_advance: "/finance/advance/sales",
   fin_ar_permit_advance: "/finance/advance/permit",
   fin_ap_advance: "/finance/advance/purchase",

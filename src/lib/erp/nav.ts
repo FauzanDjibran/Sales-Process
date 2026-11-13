@@ -489,6 +489,14 @@ export const MODULES: NavModule[] = [
             desc: "Dana keluar dari kas atau bank. Tujuannya menentukan dokumen yang diselesaikan dan journal yang dibentuk.",
             permission: "CASH_PAYMENT_VIEW",
           },
+          {
+            key: "fin_cash_exchange",
+            slug: "cash-bank/exchange",
+            name: "Penukaran Valas",
+            icon: "coin",
+            desc: "Pembelian valas dari rupiah dan pencairan valas ke rupiah, antara dua Kas & Bank.",
+            permission: "CASH_EXCHANGE_VIEW",
+          },
         ],
       },
       {

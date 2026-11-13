@@ -21,6 +21,7 @@ import { deliveryOrderNumbersByIds } from "./delivery-order";
 import { deliveryNoteNumbersByIds } from "./delivery-note";
 import { receiptNoteNumbersByIds } from "./receipt-note";
 import { costBillNumbersByIds } from "./production-cost-bill";
+import { cashExchangeNumbersByIds } from "./cash-exchange";
 import { stockIssueNumbersByIds } from "./stock-issue";
 import { gradingNumbersByIds } from "./production-grading";
 import { workNumbersByIds } from "./production-work";
@@ -93,6 +94,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   log_delivery_note: { label: "Delivery Note", resolve: deliveryNoteNumbersByIds },
   log_receipt_note: { label: "Receipt Note", resolve: receiptNoteNumbersByIds },
   prd_cost_bill: { label: "Tagihan Biaya", resolve: costBillNumbersByIds },
+  fin_cash_exchange: { label: "Penukaran Valas", resolve: cashExchangeNumbersByIds },
   log_stock_issue: { label: "Stock Issue", resolve: stockIssueNumbersByIds },
   prd_grading: { label: "No. Grading", resolve: gradingNumbersByIds },
   prd_work: { label: "Pengerjaan Unit", resolve: workNumbersByIds },

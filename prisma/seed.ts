@@ -149,6 +149,9 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Dokumen Grading", "prd_grading"],
   ["Pengerjaan Unit", "prd_work"],
   ["QC Check", "prd_qc_check"],
+  // Rupiah to a foreign Kas & Bank or back (Multi-Currency-Plan MC11a).
+  // Always appended: a type's code follows its place in this list.
+  ["Penukaran Valas", "fin_cash_exchange"],
 ];
 
 /**

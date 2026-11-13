@@ -56,7 +56,10 @@ type EntryCommon = {
  * (Claude-ERP.md P37) — so a caller cannot state one, and the type says so.
  */
 export type NewEntry =
-  | (EntryCommon & { direction: "In"; rate: number })
+  // `base`, when stated, is the exact base the money arrives with: currency
+  // bought brings the rupiah paid for it, conserved rather than recomputed
+  // (multi_currency_concept §5.8). `rate` is then a description of it.
+  | (EntryCommon & { direction: "In"; rate: number; base?: number })
   | (EntryCommon & { direction: "Out"; rate?: never });
 
 const asDate = (d: string) => new Date(`${d}T00:00:00Z`);
@@ -351,7 +354,7 @@ export async function recordCashBankEntry(db: Db, entry: NewEntry) {
   let rate: number;
   if (entry.direction === "In") {
     rate = entry.rate;
-    base = roundBase(amount * rate);
+    base = entry.base ?? roundBase(amount * rate);
   } else {
     base = relieve({ foreign: before, base: beforeBase }, amount).base;
     rate = averageRate(before, beforeBase);

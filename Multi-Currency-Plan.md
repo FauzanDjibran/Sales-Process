@@ -1,6 +1,6 @@
 # Multi-Currency Plan — ERP
 
-> Status: **disetujui 12/11/2026** (Claude-ERP.md P270). Tahap 1 dibangun 12/11/2026 (P270), tahap 2 13/11/2026 (P271); tahap berikutnya belum.
+> Status: **disetujui 12/11/2026** (Claude-ERP.md P270). Tahap 1 dibangun 12/11/2026 (P270), tahap 2 dan 2a 13/11/2026 (P271, P272); tahap berikutnya belum.
 > Acuan: `knowledge/multi_currency_concept.md` (KB `accounting/multi-currency` 1.1,
 > diadopsi sebagai `core`), `knowledge/ar_ap_open_item_concept.md`, `tax_concept.md` §8,
 > P13, P37, P105 (branch `wip-multi-currency`, diparkir).
@@ -194,9 +194,9 @@ review pengguna. Tahap 1–2 tidak mengubah satu angka pun.
 | 0 | Keputusan | Menjawab §8 (OD-1, 2, 3, 5, 10 sudah); catat di §12 | Semua OD terjawab |
 | 1 | Master dan sembunyikan Pajak | Modul Pajak disembunyikan (MC19); menu Kurs bertipe, permission, Currency Default di Partner | **Selesai 12/11/2026.** Kurs bisa diisi; belum dipakai dokumen |
 | 2 | Fondasi skema | Kolom `currency_id`, kurs dan `base_` di semua tabel §4.2 dengan isi MC17; AR / AP item dan bukunya menulis gerakan dasar; cek MC18 di `db:reconcile` | **Selesai 13/11/2026.** Semua tes lama lulus; reconcile setuju (78 cek) |
-| 2a | Penukaran Valas | Dokumen Pembelian Valas dan Pencairan Valas (MC11a); `maySettle` dipersempit ke currency sama | Bank USD terisi dari bank IDR; pencairan memposting selisih kurs; reconcile setuju |
+| 2a | Penukaran Valas | Dokumen Pembelian Valas dan Pencairan Valas (MC11a) | **Selesai 13/11/2026 (P272).** Bank USD terisi dari bank IDR; pencairan memposting selisih kurs; reconcile setuju (79 cek). `maySettle` dipersempit di tahap 4, bersama pemanggil pertamanya; biaya bank belum ada |
 | 3 | Penjualan valas | Customer Order, Uang Muka Penjualan, Invoice Penjualan dalam USD; semua baris jurnal pada kurs order; tanpa faktur pajak | Invoice USD terposting; Piutang di GL = saldo dasar item |
-| 4 | Penerimaan valas | Penerimaan dari Customer untuk tagihan USD ke bank USD; selisih kurs; PPh pada kurs terima, tanpa Bukti Potong | Skenario lampiran konsep tanpa langkah bank IDR menjadi tes dan lulus |
+| 4 | Penerimaan valas | Penerimaan dari Customer untuk tagihan USD ke bank USD; `maySettle` dipersempit ke currency sama; selisih kurs; PPh pada kurs terima, tanpa Bukti Potong | Skenario lampiran konsep tanpa langkah bank IDR menjadi tes dan lulus |
 | 5 | Pembelian valas | Purchase Order, Receipt Note mewarisi, Uang Muka Pembelian, Invoice Pembelian | *Barang Diterima Belum Ditagih* habis persis pada kurs PO |
 | 6 | Pengeluaran valas | Pembayaran ke Supplier dari bank USD pada rata-ratanya; selisih kurs | Bank USD berkurang pada rata-ratanya; reconcile setuju |
 | 7 | Laporan | Laporan piutang, hutang dan uang muka per currency dengan setara IDR; XLSX yang sudah ada mengikuti | Tiap laporan cocok dengan GL |
