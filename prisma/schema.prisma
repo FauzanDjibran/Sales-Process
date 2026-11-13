@@ -491,9 +491,16 @@ model RefCurrency {
 
   ap_items FinApItem[] @relation("ApItemCurrency")
 
-  exchange_rates    RefExchangeRate[]
-  sales_partners    MPartner[]        @relation("PartnerSalesCurrency")
-  purchase_partners MPartner[]        @relation("PartnerPurchaseCurrency")
+  exchange_rates     RefExchangeRate[]
+  coCurrency         SalCustomerOrder[] @relation("CoCurrency")
+  arInvoiceCurrency  FinArInvoice[]     @relation("ArInvoiceCurrency")
+  arAdvanceCurrency  FinArAdvance[]     @relation("ArAdvanceCurrency")
+  cashBankTxCurrency FinCashBankTx[]    @relation("CashBankTxCurrency")
+  poCurrency         PurOrder[]         @relation("PoCurrency")
+  apAdvanceCurrency  FinApAdvance[]     @relation("ApAdvanceCurrency")
+  apInvoiceCurrency  FinApInvoice[]     @relation("ApInvoiceCurrency")
+  sales_partners     MPartner[]         @relation("PartnerSalesCurrency")
+  purchase_partners  MPartner[]         @relation("PartnerPurchaseCurrency")
 
   @@map("ref_currency")
 }
@@ -2077,13 +2084,19 @@ model SalCustomerOrder {
   note        String?
 
   // ---- totals, from `lib/erp/sales-tax.ts`, whole rupiah.
-  gross_amount     Decimal @default(0) @db.Decimal(18, 2)
-  discount_amount  Decimal @default(0) @db.Decimal(18, 2)
-  dpp_amount       Decimal @default(0) @db.Decimal(18, 2)
+  gross_amount          Decimal @default(0) @db.Decimal(18, 2)
+  base_gross_amount     Decimal @db.Decimal(18, 2)
+  discount_amount       Decimal @default(0) @db.Decimal(18, 2)
+  base_discount_amount  Decimal @db.Decimal(18, 2)
+  dpp_amount            Decimal @default(0) @db.Decimal(18, 2)
+  base_dpp_amount       Decimal @db.Decimal(18, 2)
   /// DPP Nilai Lain, the sum of the lines' (P60).
-  dpp_other_amount Decimal @default(0) @db.Decimal(18, 2)
-  ppn_amount       Decimal @default(0) @db.Decimal(18, 2)
-  total_amount     Decimal @default(0) @db.Decimal(18, 2)
+  dpp_other_amount      Decimal @default(0) @db.Decimal(18, 2)
+  base_dpp_other_amount Decimal @db.Decimal(18, 2)
+  ppn_amount            Decimal @default(0) @db.Decimal(18, 2)
+  base_ppn_amount       Decimal @db.Decimal(18, 2)
+  total_amount          Decimal @default(0) @db.Decimal(18, 2)
+  base_total_amount     Decimal @db.Decimal(18, 2)
 
   /// Why the order was cancelled, rejected or closed by hand — the one final
   /// step it took (P63). Null for an order closed because it was fulfilled.
@@ -2107,6 +2120,12 @@ model SalCustomerOrder {
   /// The Delivery Orders that send this order's goods, and the notes they leave on.
   delivery_orders SalDeliveryOrder[]
 
+  /// The document's currency (MC3); a dependent document takes its source's.
+  currency_id   Int
+  /// The rate this document originates its base figures at (MC6); 1 in the base currency.
+  exchange_rate Decimal     @default(1) @db.Decimal(18, 6)
+  currency      RefCurrency @relation("CoCurrency", fields: [currency_id], references: [id])
+
   @@index([customer_id])
   @@index([status, order_date])
   @@map("sal_customer_order")
@@ -2128,16 +2147,21 @@ model SalCustomerOrderLine {
   /// Per `uom_id`, typed in the order's price mode.
   price      Decimal @db.Decimal(18, 6)
 
-  discount_type    DiscountType?
+  discount_type         DiscountType?
   /// A percent (`Percent`) or an amount (`Amount`), as typed.
-  discount_value   Decimal?      @db.Decimal(18, 4)
-  discount_amount  Decimal       @default(0) @db.Decimal(18, 2)
+  discount_value        Decimal?      @db.Decimal(18, 4)
+  discount_amount       Decimal       @default(0) @db.Decimal(18, 2)
+  base_discount_amount  Decimal       @db.Decimal(18, 2)
   /// qty × price − discount, whole rupiah.
-  amount           Decimal       @db.Decimal(18, 2)
-  dpp_amount       Decimal       @db.Decimal(18, 2)
+  amount                Decimal       @db.Decimal(18, 2)
+  base_amount           Decimal       @db.Decimal(18, 2)
+  dpp_amount            Decimal       @db.Decimal(18, 2)
+  base_dpp_amount       Decimal       @db.Decimal(18, 2)
   /// DPP Nilai Lain of this line; PPN is computed per line from it (P60).
-  dpp_other_amount Decimal       @default(0) @db.Decimal(18, 2)
-  ppn_amount       Decimal       @db.Decimal(18, 2)
+  dpp_other_amount      Decimal       @default(0) @db.Decimal(18, 2)
+  base_dpp_other_amount Decimal       @db.Decimal(18, 2)
+  ppn_amount            Decimal       @db.Decimal(18, 2)
+  base_ppn_amount       Decimal       @db.Decimal(18, 2)
 
   /// The PPh the customer is expected to withhold on this line, or null (P52).
   withholding_tax_id Int?
@@ -2575,21 +2599,31 @@ model FinArInvoice {
 
   // ---- totals, from `lib/erp/sales-tax.ts` (`computeInvoice`), whole rupiah.
   /// Σ of the lines' gross and discount (P111); amount = gross − discount.
-  gross_amount       Decimal @default(0) @db.Decimal(18, 2)
-  discount_amount    Decimal @default(0) @db.Decimal(18, 2)
-  amount             Decimal @default(0) @db.Decimal(18, 2)
+  gross_amount            Decimal @default(0) @db.Decimal(18, 2)
+  base_gross_amount       Decimal @db.Decimal(18, 2)
+  discount_amount         Decimal @default(0) @db.Decimal(18, 2)
+  base_discount_amount    Decimal @db.Decimal(18, 2)
+  amount                  Decimal @default(0) @db.Decimal(18, 2)
+  base_amount             Decimal @db.Decimal(18, 2)
   /// DPP of the goods billed.
-  dpp_amount         Decimal @default(0) @db.Decimal(18, 2)
+  dpp_amount              Decimal @default(0) @db.Decimal(18, 2)
+  base_dpp_amount         Decimal @db.Decimal(18, 2)
   /// Uang Muka used, in DPP (U8).
-  advance_dpp_amount Decimal @default(0) @db.Decimal(18, 2)
+  advance_dpp_amount      Decimal @default(0) @db.Decimal(18, 2)
+  base_advance_dpp_amount Decimal @db.Decimal(18, 2)
   /// The PPN of the Uang Muka used, deducted once from the full PPN (P113,
   /// settlement-ppn = full-less-advance); ppn_amount = Σ lines − this.
-  advance_ppn_amount Decimal @default(0) @db.Decimal(18, 2)
-  net_dpp_amount     Decimal @default(0) @db.Decimal(18, 2)
-  dpp_other_amount   Decimal @default(0) @db.Decimal(18, 2)
-  ppn_amount         Decimal @default(0) @db.Decimal(18, 2)
+  advance_ppn_amount      Decimal @default(0) @db.Decimal(18, 2)
+  base_advance_ppn_amount Decimal @db.Decimal(18, 2)
+  net_dpp_amount          Decimal @default(0) @db.Decimal(18, 2)
+  base_net_dpp_amount     Decimal @db.Decimal(18, 2)
+  dpp_other_amount        Decimal @default(0) @db.Decimal(18, 2)
+  base_dpp_other_amount   Decimal @db.Decimal(18, 2)
+  ppn_amount              Decimal @default(0) @db.Decimal(18, 2)
+  base_ppn_amount         Decimal @db.Decimal(18, 2)
   /// Net Piutang: net DPP + PPN.
-  total_amount       Decimal @default(0) @db.Decimal(18, 2)
+  total_amount            Decimal @default(0) @db.Decimal(18, 2)
+  base_total_amount       Decimal @db.Decimal(18, 2)
 
   /// Coretax number of its faktur pajak, typed after upload (U10).
   tax_invoice_no String?
@@ -2610,6 +2644,10 @@ model FinArInvoice {
   lines      FinArInvoiceLine[]
   deductions FinArInvoiceAdvanceDeduction[]
 
+  /// The document's currency (MC3); a dependent document takes its source's.
+  currency_id Int
+  currency    RefCurrency @relation("ArInvoiceCurrency", fields: [currency_id], references: [id])
+
   @@index([customer_order_id])
   @@index([status, invoice_date])
   @@map("fin_ar_invoice")
@@ -2619,31 +2657,39 @@ model FinArInvoice {
 /// Customer Order line. A Delivery Note line is billed by at most one live
 /// Faktur, checked under the order's lock.
 model FinArInvoiceLine {
-  id                     Int           @id @default(autoincrement())
-  invoice_id             Int
-  line_no                Int
-  delivery_note_line_id  Int
-  customer_order_line_id Int
+  id                      Int           @id @default(autoincrement())
+  invoice_id              Int
+  line_no                 Int
+  delivery_note_line_id   Int
+  customer_order_line_id  Int
   /// The Delivery Note line's, in the order line's unit.
-  qty                    Decimal       @db.Decimal(18, 4)
+  qty                     Decimal       @db.Decimal(18, 4)
   /// The order line's unit price, unrounded (P111).
-  price                  Decimal       @db.Decimal(18, 6)
+  price                   Decimal       @db.Decimal(18, 6)
   /// This line's gross and discount, its cumulative share of the order line's
   /// (P112, `tax_concept.md` §7.5); amount = gross − discount.
-  gross_amount           Decimal       @default(0) @db.Decimal(18, 2)
-  discount_type          DiscountType?
-  discount_value         Decimal?      @db.Decimal(18, 4)
-  discount_amount        Decimal       @default(0) @db.Decimal(18, 2)
-  amount                 Decimal       @db.Decimal(18, 2)
-  dpp_amount             Decimal       @db.Decimal(18, 2)
+  gross_amount            Decimal       @default(0) @db.Decimal(18, 2)
+  base_gross_amount       Decimal       @db.Decimal(18, 2)
+  discount_type           DiscountType?
+  discount_value          Decimal?      @db.Decimal(18, 4)
+  discount_amount         Decimal       @default(0) @db.Decimal(18, 2)
+  base_discount_amount    Decimal       @db.Decimal(18, 2)
+  amount                  Decimal       @db.Decimal(18, 2)
+  base_amount             Decimal       @db.Decimal(18, 2)
+  dpp_amount              Decimal       @db.Decimal(18, 2)
+  base_dpp_amount         Decimal       @db.Decimal(18, 2)
   /// Its share of the Uang Muka used.
-  advance_dpp_amount     Decimal       @default(0) @db.Decimal(18, 2)
-  net_dpp_amount         Decimal       @db.Decimal(18, 2)
-  dpp_other_amount       Decimal       @default(0) @db.Decimal(18, 2)
-  ppn_amount             Decimal       @default(0) @db.Decimal(18, 2)
+  advance_dpp_amount      Decimal       @default(0) @db.Decimal(18, 2)
+  base_advance_dpp_amount Decimal       @db.Decimal(18, 2)
+  net_dpp_amount          Decimal       @db.Decimal(18, 2)
+  base_net_dpp_amount     Decimal       @db.Decimal(18, 2)
+  dpp_other_amount        Decimal       @default(0) @db.Decimal(18, 2)
+  base_dpp_other_amount   Decimal       @db.Decimal(18, 2)
+  ppn_amount              Decimal       @default(0) @db.Decimal(18, 2)
+  base_ppn_amount         Decimal       @db.Decimal(18, 2)
   /// The order line's, carried for the PPh the receipt will expect.
-  withholding_tax_id     Int?
-  withholding_rate       Decimal?      @db.Decimal(9, 4)
+  withholding_tax_id      Int?
+  withholding_rate        Decimal?      @db.Decimal(9, 4)
 
   invoice         FinArInvoice       @relation(fields: [invoice_id], references: [id])
   withholding_tax RefWithholdingTax? @relation(fields: [withholding_tax_id], references: [id])
@@ -2658,13 +2704,15 @@ model FinArInvoiceLine {
 /// An Uang Muka the Faktur uses (U8, U10): the AR item, by id — the AR items
 /// are a book — and the DPP typed from it.
 model FinArInvoiceAdvanceDeduction {
-  id         Int     @id @default(autoincrement())
-  invoice_id Int
-  ar_item_id Int
-  ar_item_no String
-  dpp_used   Decimal @db.Decimal(18, 2)
+  id            Int     @id @default(autoincrement())
+  invoice_id    Int
+  ar_item_id    Int
+  ar_item_no    String
+  dpp_used      Decimal @db.Decimal(18, 2)
+  base_dpp_used Decimal @db.Decimal(18, 2)
   /// Its cumulative share of the item's PPN (tax_ppn), P113 / tax_concept §7.5.
-  ppn_used   Decimal @default(0) @db.Decimal(18, 2)
+  ppn_used      Decimal @default(0) @db.Decimal(18, 2)
+  base_ppn_used Decimal @db.Decimal(18, 2)
 
   invoice FinArInvoice @relation(fields: [invoice_id], references: [id])
 
@@ -2936,6 +2984,10 @@ model FinArAdvance {
   customer  MPartner  @relation(fields: [customer_id], references: [id])
   cash_bank MCashBank @relation(fields: [cash_bank_id], references: [id])
 
+  /// The document's currency (MC3); a dependent document takes its source's.
+  currency_id Int
+  currency    RefCurrency @relation("ArAdvanceCurrency", fields: [currency_id], references: [id])
+
   @@index([customer_order_id])
   @@index([customer_id])
   @@index([status, advance_date])
@@ -3145,6 +3197,12 @@ model FinCashBankTx {
   journal   AccJournal?         @relation(fields: [journal_id], references: [id])
   lines     FinCashBankTxLine[]
 
+  /// The document's currency (MC3); a dependent document takes its source's.
+  currency_id   Int
+  /// The rate money arriving was received at (MC11); 1 in the base currency.
+  exchange_rate Decimal     @default(1) @db.Decimal(18, 6)
+  currency      RefCurrency @relation("CashBankTxCurrency", fields: [currency_id], references: [id])
+
   @@index([direction, status, tx_date])
   @@index([partner_id])
   @@map("fin_cash_bank_tx")
@@ -3176,6 +3234,14 @@ model FinCashBankTxLine {
   tx       FinCashBankTx          @relation(fields: [tx_id], references: [id], onDelete: Cascade)
   doc_type SysDocType             @relation(fields: [doc_type_id], references: [id])
   whts     FinCashBankTxLineWht[]
+
+  /// What the line released from the document it settles, in base (the
+  /// settlement base), what the money and PPh brought in base (the
+  /// transaction base), and the balancing figure between them (MC12; 0 within
+  /// one currency).
+  base_settled_amount     Decimal @db.Decimal(18, 2)
+  transaction_base_amount Decimal @db.Decimal(18, 2)
+  fx_difference           Decimal @default(0) @db.Decimal(18, 2)
 
   @@unique([tx_id, doc_type_id, doc_id])
   @@index([doc_type_id, doc_id])
@@ -3280,6 +3346,11 @@ model FinArItem {
   entries         FinArLedger[] @relation("ArItemEntries")
   counter_entries FinArLedger[] @relation("ArItemCounter")
 
+  /// The same balance in base currency (MC10): created by what originated it,
+  /// relieved at its own carrying rate; never re-derived from a rate.
+  base_original_amount Decimal @db.Decimal(18, 2)
+  base_current_balance Decimal @db.Decimal(18, 2)
+
   @@unique([source_doc_type_id, source_doc_id])
   @@index([partner_id, item_type])
   @@index([scope_doc_type_id, scope_doc_id])
@@ -3315,6 +3386,9 @@ model FinArLedger {
   item         FinArItem  @relation("ArItemEntries", fields: [item_id], references: [id])
   counter_item FinArItem? @relation("ArItemCounter", fields: [counter_item_id], references: [id])
   doc_type     SysDocType @relation(fields: [doc_type_id], references: [id])
+
+  /// The movement in base currency, signed like `movement` (MC10).
+  base_movement Decimal @db.Decimal(18, 2)
 
   @@unique([ledger_no, line_no])
   @@index([item_id, entry_date])
@@ -3617,12 +3691,18 @@ model PurOrder {
 
   note String?
 
-  gross_amount     Decimal @default(0) @db.Decimal(18, 2)
-  discount_amount  Decimal @default(0) @db.Decimal(18, 2)
-  dpp_amount       Decimal @default(0) @db.Decimal(18, 2)
-  dpp_other_amount Decimal @default(0) @db.Decimal(18, 2)
-  ppn_amount       Decimal @default(0) @db.Decimal(18, 2)
-  total_amount     Decimal @default(0) @db.Decimal(18, 2)
+  gross_amount          Decimal @default(0) @db.Decimal(18, 2)
+  base_gross_amount     Decimal @db.Decimal(18, 2)
+  discount_amount       Decimal @default(0) @db.Decimal(18, 2)
+  base_discount_amount  Decimal @db.Decimal(18, 2)
+  dpp_amount            Decimal @default(0) @db.Decimal(18, 2)
+  base_dpp_amount       Decimal @db.Decimal(18, 2)
+  dpp_other_amount      Decimal @default(0) @db.Decimal(18, 2)
+  base_dpp_other_amount Decimal @db.Decimal(18, 2)
+  ppn_amount            Decimal @default(0) @db.Decimal(18, 2)
+  base_ppn_amount       Decimal @db.Decimal(18, 2)
+  total_amount          Decimal @default(0) @db.Decimal(18, 2)
+  base_total_amount     Decimal @db.Decimal(18, 2)
 
   /// Why it was cancelled, rejected or closed by hand; null when fulfilled.
   status_reason String?
@@ -3636,6 +3716,12 @@ model PurOrder {
   term      RefPaymentTerm @relation("PurOrderTerm", fields: [term_id], references: [id])
   warehouse RefWarehouse?  @relation("PurOrderWarehouse", fields: [warehouse_id], references: [id])
   lines     PurOrderLine[]
+
+  /// The document's currency (MC3); a dependent document takes its source's.
+  currency_id   Int
+  /// The rate this document originates its base figures at (MC6); 1 in the base currency.
+  exchange_rate Decimal     @default(1) @db.Decimal(18, 6)
+  currency      RefCurrency @relation("PoCurrency", fields: [currency_id], references: [id])
 
   @@index([supplier_id])
   @@index([item_type, status])
@@ -3654,13 +3740,18 @@ model PurOrderLine {
   qty        Decimal @db.Decimal(18, 4)
   price      Decimal @db.Decimal(18, 6)
 
-  discount_type    DiscountType?
-  discount_value   Decimal?      @db.Decimal(18, 4)
-  discount_amount  Decimal       @default(0) @db.Decimal(18, 2)
-  amount           Decimal       @db.Decimal(18, 2)
-  dpp_amount       Decimal       @db.Decimal(18, 2)
-  dpp_other_amount Decimal       @default(0) @db.Decimal(18, 2)
-  ppn_amount       Decimal       @db.Decimal(18, 2)
+  discount_type         DiscountType?
+  discount_value        Decimal?      @db.Decimal(18, 4)
+  discount_amount       Decimal       @default(0) @db.Decimal(18, 2)
+  base_discount_amount  Decimal       @db.Decimal(18, 2)
+  amount                Decimal       @db.Decimal(18, 2)
+  base_amount           Decimal       @db.Decimal(18, 2)
+  dpp_amount            Decimal       @db.Decimal(18, 2)
+  base_dpp_amount       Decimal       @db.Decimal(18, 2)
+  dpp_other_amount      Decimal       @default(0) @db.Decimal(18, 2)
+  base_dpp_other_amount Decimal       @db.Decimal(18, 2)
+  ppn_amount            Decimal       @db.Decimal(18, 2)
+  base_ppn_amount       Decimal       @db.Decimal(18, 2)
 
   /// A purchase Jenis PPh (P122), or null.
   withholding_tax_id Int?
@@ -3840,6 +3931,10 @@ model FinApAdvance {
 
   supplier MPartner @relation("ApAdvanceSupplier", fields: [supplier_id], references: [id])
 
+  /// The document's currency (MC3); a dependent document takes its source's.
+  currency_id Int
+  currency    RefCurrency @relation("ApAdvanceCurrency", fields: [currency_id], references: [id])
+
   @@index([purchase_order_id])
   @@index([supplier_id])
   @@index([status, advance_date])
@@ -3887,6 +3982,11 @@ model FinApItem {
   entries         FinApLedger[] @relation("ApItemEntries")
   counter_entries FinApLedger[] @relation("ApItemCounter")
 
+  /// The same balance in base currency (MC10): created by what originated it,
+  /// relieved at its own carrying rate; never re-derived from a rate.
+  base_original_amount Decimal @db.Decimal(18, 2)
+  base_current_balance Decimal @db.Decimal(18, 2)
+
   @@unique([source_doc_type_id, source_doc_id])
   @@index([partner_id, item_type])
   @@index([purchase_order_id])
@@ -3917,6 +4017,9 @@ model FinApLedger {
   item         FinApItem  @relation("ApItemEntries", fields: [item_id], references: [id])
   counter_item FinApItem? @relation("ApItemCounter", fields: [counter_item_id], references: [id])
   doc_type     SysDocType @relation("ApLedgerDocType", fields: [doc_type_id], references: [id])
+
+  /// The movement in base currency, signed like `movement` (MC10).
+  base_movement Decimal @db.Decimal(18, 2)
 
   @@unique([ledger_no, line_no])
   @@index([item_id, entry_date])
@@ -3953,23 +4056,34 @@ model FinApInvoice {
   ppn_dpp_other_numerator   Int?
   ppn_dpp_other_denominator Int?
 
-  dpp_amount         Decimal  @default(0) @db.Decimal(18, 2)
-  advance_dpp_amount Decimal  @default(0) @db.Decimal(18, 2)
-  advance_ppn_amount Decimal  @default(0) @db.Decimal(18, 2)
-  net_dpp_amount     Decimal  @default(0) @db.Decimal(18, 2)
-  dpp_other_amount   Decimal  @default(0) @db.Decimal(18, 2)
+  dpp_amount              Decimal  @default(0) @db.Decimal(18, 2)
+  base_dpp_amount         Decimal  @db.Decimal(18, 2)
+  advance_dpp_amount      Decimal  @default(0) @db.Decimal(18, 2)
+  base_advance_dpp_amount Decimal  @db.Decimal(18, 2)
+  advance_ppn_amount      Decimal  @default(0) @db.Decimal(18, 2)
+  base_advance_ppn_amount Decimal  @db.Decimal(18, 2)
+  net_dpp_amount          Decimal  @default(0) @db.Decimal(18, 2)
+  base_net_dpp_amount     Decimal  @db.Decimal(18, 2)
+  dpp_other_amount        Decimal  @default(0) @db.Decimal(18, 2)
+  base_dpp_other_amount   Decimal  @db.Decimal(18, 2)
   /// Full PPN less the advances' PPN (P113).
-  ppn_amount         Decimal  @default(0) @db.Decimal(18, 2)
+  ppn_amount              Decimal  @default(0) @db.Decimal(18, 2)
+  base_ppn_amount         Decimal  @db.Decimal(18, 2)
   /// Our total: net DPP + PPN, before PPh.
-  total_amount       Decimal  @default(0) @db.Decimal(18, 2)
+  total_amount            Decimal  @default(0) @db.Decimal(18, 2)
+  base_total_amount       Decimal  @db.Decimal(18, 2)
   /// The PPh the company withholds, on the DPP after the advance (B31).
-  pph_amount         Decimal  @default(0) @db.Decimal(18, 2)
+  pph_amount              Decimal  @default(0) @db.Decimal(18, 2)
+  base_pph_amount         Decimal  @db.Decimal(18, 2)
   /// Total Tagihan Supplier as typed (B29b); null when not compared.
-  supplier_total     Decimal? @db.Decimal(18, 2)
+  supplier_total          Decimal? @db.Decimal(18, 2)
+  base_supplier_total     Decimal? @db.Decimal(18, 2)
   /// Supplier total − ours, posted to Selisih Tagihan Supplier within the tolerance.
-  difference_amount  Decimal  @default(0) @db.Decimal(18, 2)
+  difference_amount       Decimal  @default(0) @db.Decimal(18, 2)
+  base_difference_amount  Decimal  @db.Decimal(18, 2)
   /// What Hutang Usaha is born at: full DPP + full PPN + difference − PPh.
-  payable_amount     Decimal  @default(0) @db.Decimal(18, 2)
+  payable_amount          Decimal  @default(0) @db.Decimal(18, 2)
+  base_payable_amount     Decimal  @db.Decimal(18, 2)
 
   journal_id    Int?
   ap_item_id    Int?
@@ -3985,6 +4099,10 @@ model FinApInvoice {
   lines      FinApInvoiceLine[]
   deductions FinApInvoiceAdvanceDeduction[]
 
+  /// The document's currency (MC3); a dependent document takes its source's.
+  currency_id Int
+  currency    RefCurrency @relation("ApInvoiceCurrency", fields: [currency_id], references: [id])
+
   @@index([purchase_order_id])
   @@index([supplier_id, supplier_invoice_no])
   @@index([status, invoice_date])
@@ -3992,23 +4110,28 @@ model FinApInvoice {
 }
 
 model FinApInvoiceLine {
-  id                     Int      @id @default(autoincrement())
-  invoice_id             Int
-  line_no                Int
+  id                      Int      @id @default(autoincrement())
+  invoice_id              Int
+  line_no                 Int
   /// A posted Receipt Note line, weak; each billed by at most one live invoice.
-  receipt_note_line_id   Int
-  purchase_order_line_id Int
-  qty                    Decimal  @db.Decimal(18, 4)
+  receipt_note_line_id    Int
+  purchase_order_line_id  Int
+  qty                     Decimal  @db.Decimal(18, 4)
   /// The PO line's price, for the record (B29a).
-  price                  Decimal  @db.Decimal(18, 6)
+  price                   Decimal  @db.Decimal(18, 6)
   /// The receipt's value — the PO's DPP for this quantity.
-  dpp_amount             Decimal  @db.Decimal(18, 2)
-  advance_dpp_amount     Decimal  @default(0) @db.Decimal(18, 2)
-  net_dpp_amount         Decimal  @db.Decimal(18, 2)
-  dpp_other_amount       Decimal  @default(0) @db.Decimal(18, 2)
-  ppn_amount             Decimal  @default(0) @db.Decimal(18, 2)
-  withholding_tax_id     Int?
-  withholding_rate       Decimal? @db.Decimal(9, 4)
+  dpp_amount              Decimal  @db.Decimal(18, 2)
+  base_dpp_amount         Decimal  @db.Decimal(18, 2)
+  advance_dpp_amount      Decimal  @default(0) @db.Decimal(18, 2)
+  base_advance_dpp_amount Decimal  @db.Decimal(18, 2)
+  net_dpp_amount          Decimal  @db.Decimal(18, 2)
+  base_net_dpp_amount     Decimal  @db.Decimal(18, 2)
+  dpp_other_amount        Decimal  @default(0) @db.Decimal(18, 2)
+  base_dpp_other_amount   Decimal  @db.Decimal(18, 2)
+  ppn_amount              Decimal  @default(0) @db.Decimal(18, 2)
+  base_ppn_amount         Decimal  @db.Decimal(18, 2)
+  withholding_tax_id      Int?
+  withholding_rate        Decimal? @db.Decimal(9, 4)
 
   invoice FinApInvoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
 
@@ -4020,12 +4143,14 @@ model FinApInvoiceLine {
 }
 
 model FinApInvoiceAdvanceDeduction {
-  id         Int     @id @default(autoincrement())
-  invoice_id Int
-  ap_item_id Int
-  ap_item_no String
-  dpp_used   Decimal @db.Decimal(18, 2)
-  ppn_used   Decimal @default(0) @db.Decimal(18, 2)
+  id            Int     @id @default(autoincrement())
+  invoice_id    Int
+  ap_item_id    Int
+  ap_item_no    String
+  dpp_used      Decimal @db.Decimal(18, 2)
+  base_dpp_used Decimal @db.Decimal(18, 2)
+  ppn_used      Decimal @default(0) @db.Decimal(18, 2)
+  base_ppn_used Decimal @db.Decimal(18, 2)
 
   invoice FinApInvoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
 

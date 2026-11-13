@@ -46,8 +46,29 @@
  */
 import { prisma } from "../src/lib/prisma";
 import type { Prisma } from "../src/generated/prisma/client";
+import { BASE_CURRENCY_LABEL } from "../src/lib/erp/currency";
 
 type Check = { area: string; name: string; sql: string };
+
+// Every money figure with a base twin (Multi-Currency-Plan §4.2), and the header
+// whose currency it is in.
+const SELF = (table: string, rate = false) => ({ table, key: "id", rate });
+const BASE_TWINS: { table: string; head: { table: string; key: string; rate: boolean }; cols: string[] }[] = [
+  { table: "sal_customer_order", head: SELF("sal_customer_order", true), cols: ["gross_amount", "discount_amount", "dpp_amount", "dpp_other_amount", "ppn_amount", "total_amount"] },
+  { table: "sal_customer_order_line", head: { table: "sal_customer_order", key: "order_id", rate: false }, cols: ["discount_amount", "amount", "dpp_amount", "dpp_other_amount", "ppn_amount"] },
+  { table: "pur_order", head: SELF("pur_order", true), cols: ["gross_amount", "discount_amount", "dpp_amount", "dpp_other_amount", "ppn_amount", "total_amount"] },
+  { table: "pur_order_line", head: { table: "pur_order", key: "order_id", rate: false }, cols: ["discount_amount", "amount", "dpp_amount", "dpp_other_amount", "ppn_amount"] },
+  { table: "fin_ar_invoice", head: SELF("fin_ar_invoice"), cols: ["gross_amount", "discount_amount", "amount", "dpp_amount", "advance_dpp_amount", "advance_ppn_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount", "total_amount"] },
+  { table: "fin_ar_invoice_line", head: { table: "fin_ar_invoice", key: "invoice_id", rate: false }, cols: ["gross_amount", "discount_amount", "amount", "dpp_amount", "advance_dpp_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount"] },
+  { table: "fin_ar_invoice_advance_deduction", head: { table: "fin_ar_invoice", key: "invoice_id", rate: false }, cols: ["dpp_used", "ppn_used"] },
+  { table: "fin_ap_invoice", head: SELF("fin_ap_invoice"), cols: ["dpp_amount", "advance_dpp_amount", "advance_ppn_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount", "total_amount", "pph_amount", "supplier_total", "difference_amount", "payable_amount"] },
+  { table: "fin_ap_invoice_line", head: { table: "fin_ap_invoice", key: "invoice_id", rate: false }, cols: ["dpp_amount", "advance_dpp_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount"] },
+  { table: "fin_ap_invoice_advance_deduction", head: { table: "fin_ap_invoice", key: "invoice_id", rate: false }, cols: ["dpp_used", "ppn_used"] },
+  { table: "fin_ar_item", head: SELF("fin_ar_item"), cols: ["original_amount", "current_balance"] },
+  { table: "fin_ap_item", head: SELF("fin_ap_item"), cols: ["original_amount", "current_balance"] },
+  { table: "fin_cash_bank_tx", head: SELF("fin_cash_bank_tx", true), cols: [] },
+  { table: "fin_cash_bank_tx_line", head: { table: "fin_cash_bank_tx", key: "tx_id", rate: false }, cols: ["settled_amount"] },
+];
 
 /** Accounts from Account Mapping, by key; `-1` matches nothing when unset. */
 /** The Uang Muka applied to an invoice's item (P117); 0 for one posted before P117. */
@@ -185,7 +206,7 @@ export const CHECKS: Check[] = [
     area: "ar",
     name: "Uang Muka items equal the Uang Muka Penjualan account, per customer",
     sql: `SELECT p.partner_label, COALESCE(items.bal, 0) AS items, COALESCE(-gl.bal, 0) AS gl FROM m_partner p
-          LEFT JOIN (SELECT partner_id, SUM(current_balance) AS bal FROM fin_ar_item
+          LEFT JOIN (SELECT partner_id, SUM(base_current_balance) AS bal FROM fin_ar_item
                      WHERE item_type = 'Advance' AND source_doc_type_id = ${docType("fin_ar_advance")} GROUP BY partner_id) items ON items.partner_id = p.id
           LEFT JOIN (${glByPartner(acc("sales_advance_account"))}) gl ON gl.partner_id = p.id
           WHERE COALESCE(items.bal, 0) <> COALESCE(-gl.bal, 0)`,
@@ -194,7 +215,7 @@ export const CHECKS: Check[] = [
     area: "ar",
     name: "Uang Muka Perizinan items equal the Uang Muka Perizinan account, per customer (P137)",
     sql: `SELECT p.partner_label, COALESCE(items.bal, 0) AS items, COALESCE(-gl.bal, 0) AS gl FROM m_partner p
-          LEFT JOIN (SELECT partner_id, SUM(current_balance) AS bal FROM fin_ar_item
+          LEFT JOIN (SELECT partner_id, SUM(base_current_balance) AS bal FROM fin_ar_item
                      WHERE item_type = 'Advance' AND source_doc_type_id = ${docType("fin_ar_permit_advance")} GROUP BY partner_id) items ON items.partner_id = p.id
           LEFT JOIN (${glByPartner(acc("permit_advance_account"))}) gl ON gl.partner_id = p.id
           WHERE COALESCE(items.bal, 0) <> COALESCE(-gl.bal, 0)`,
@@ -203,7 +224,7 @@ export const CHECKS: Check[] = [
     area: "ar",
     name: "Invoice items equal the Piutang Usaha account, per customer",
     sql: `SELECT p.partner_label, COALESCE(items.bal, 0) AS items, COALESCE(gl.bal, 0) AS gl FROM m_partner p
-          LEFT JOIN (SELECT partner_id, SUM(current_balance) AS bal FROM fin_ar_item WHERE item_type = 'Invoice' GROUP BY partner_id) items ON items.partner_id = p.id
+          LEFT JOIN (SELECT partner_id, SUM(base_current_balance) AS bal FROM fin_ar_item WHERE item_type = 'Invoice' GROUP BY partner_id) items ON items.partner_id = p.id
           LEFT JOIN (${glByPartner(acc("receivable_account"))}) gl ON gl.partner_id = p.id
           WHERE COALESCE(items.bal, 0) <> COALESCE(gl.bal, 0)`,
   },
@@ -570,7 +591,7 @@ export const CHECKS: Check[] = [
     area: "ap",
     name: "Invoice AP items equal the Hutang Usaha account, per supplier (P128)",
     sql: `SELECT p.partner_label, COALESCE(items.bal, 0) AS items, COALESCE(-gl.bal, 0) AS gl FROM m_partner p
-          LEFT JOIN (SELECT partner_id, SUM(current_balance) AS bal FROM fin_ap_item WHERE item_type = 'Invoice' GROUP BY partner_id) items ON items.partner_id = p.id
+          LEFT JOIN (SELECT partner_id, SUM(base_current_balance) AS bal FROM fin_ap_item WHERE item_type = 'Invoice' GROUP BY partner_id) items ON items.partner_id = p.id
           LEFT JOIN (${glByPartner(acc("payable_account"))}) gl ON gl.partner_id = p.id
           WHERE COALESCE(items.bal, 0) <> COALESCE(-gl.bal, 0)`,
   },
@@ -578,7 +599,7 @@ export const CHECKS: Check[] = [
     area: "ap",
     name: "Uang Muka AP items equal the Uang Muka Pembelian account, per supplier (P127)",
     sql: `SELECT p.partner_label, COALESCE(items.bal, 0) AS items, COALESCE(gl.bal, 0) AS gl FROM m_partner p
-          LEFT JOIN (SELECT partner_id, SUM(current_balance) AS bal FROM fin_ap_item WHERE item_type = 'Advance' GROUP BY partner_id) items ON items.partner_id = p.id
+          LEFT JOIN (SELECT partner_id, SUM(base_current_balance) AS bal FROM fin_ap_item WHERE item_type = 'Advance' GROUP BY partner_id) items ON items.partner_id = p.id
           LEFT JOIN (${glByPartner(acc("purchase_advance_account"))}) gl ON gl.partner_id = p.id
           WHERE COALESCE(items.bal, 0) <> COALESCE(gl.bal, 0)`,
   },
@@ -905,6 +926,37 @@ export const CHECKS: Check[] = [
             JOIN acc_fiscal_period fp ON j.posting_date BETWEEN fp.start_date AND fp.end_date
             JOIN acc_fiscal_period_lock k ON k.period_id = fp.id AND k.account_id = l.account_id
            WHERE l.created_at > fp.production_costed_at`,
+  },
+  // ------------------------------------------------------------------ fx (MC18)
+  {
+    area: "fx",
+    name: "a document in the base currency carries rate 1 and base figures equal to its own (MC2, MC17)",
+    sql: BASE_TWINS.map(({ table, head, cols }) => {
+      const cur = `(SELECT currency_id FROM ${head.table} h WHERE h.id = t.${head.key})`;
+      const off = [...cols.map((c) => `t.base_${c} IS DISTINCT FROM t.${c}`), ...(head.rate ? ["t.exchange_rate <> 1"] : [])].join(" OR ");
+      return `SELECT '${table}' AS tbl, t.id FROM ${table} t
+               WHERE ${cur} = (SELECT id FROM ref_currency WHERE currency_label = '${BASE_CURRENCY_LABEL}') AND (${off})`;
+    }).join("\nUNION ALL\n"),
+  },
+  ...(["ar", "ap"] as const).flatMap((s) => [
+    {
+      area: "fx",
+      name: `every ${s.toUpperCase()} item's base balance equals its entries' base movements (MC10)`,
+      sql: `SELECT i.${s}_item_no, i.base_current_balance, SUM(e.base_movement) AS entries FROM fin_${s}_item i
+              JOIN fin_${s}_ledger e ON e.item_id = i.id GROUP BY i.id HAVING i.base_current_balance <> SUM(e.base_movement)`,
+    },
+    {
+      area: "fx",
+      name: `an ${s.toUpperCase()} item holding nothing holds no base either (concept §9.2)`,
+      sql: `SELECT ${s}_item_no, base_current_balance FROM fin_${s}_item WHERE current_balance = 0 AND base_current_balance <> 0`,
+    },
+  ]),
+  {
+    area: "fx",
+    name: "a payment line's selisih kurs is its settlement base less its transaction base (MC12)",
+    sql: `SELECT t.tx_no, l.line_no, l.base_settled_amount, l.transaction_base_amount, l.fx_difference
+            FROM fin_cash_bank_tx_line l JOIN fin_cash_bank_tx t ON t.id = l.tx_id
+           WHERE l.fx_difference <> l.base_settled_amount - l.transaction_base_amount`,
   },
 ];
 

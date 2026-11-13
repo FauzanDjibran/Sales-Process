@@ -1,6 +1,6 @@
 # Multi-Currency Plan — ERP
 
-> Status: **disetujui 12/11/2026** (Claude-ERP.md P270). Tahap 1 dibangun 12/11/2026; tahap berikutnya belum.
+> Status: **disetujui 12/11/2026** (Claude-ERP.md P270). Tahap 1 dibangun 12/11/2026 (P270), tahap 2 13/11/2026 (P271); tahap berikutnya belum.
 > Acuan: `knowledge/multi_currency_concept.md` (KB `accounting/multi-currency` 1.1,
 > diadopsi sebagai `core`), `knowledge/ar_ap_open_item_concept.md`, `tax_concept.md` §8,
 > P13, P37, P105 (branch `wip-multi-currency`, diparkir).
@@ -54,7 +54,7 @@ Semua mengikuti konsep KB; nomor di kurung menunjuk bagian konsepnya.
 - **MC2.** Dokumen IDR memakai jalur yang sama dengan kurs `1`, sehingga `base_x = x` dan selisih kurs pasti nol (§2.4). Tidak ada cabang kode "jika valas".
 - **MC3.** Satu dokumen, satu currency, dipilih di header dan terkunci setelah ada baris. Dokumen turunan mengikuti currency sumbernya dan tidak bisa mengubahnya.
 - **MC4.** Semua komponen satu baris dikonversi pada kurs yang sama; total dokumen adalah jumlah nilai baris yang tersimpan (§3.1, §9.4).
-- **MC5.** Pembulatan: nominal valas dua desimal, nominal dasar rupiah utuh, kurs `Decimal(18,6)` seperti yang sudah dipakai buku Kas & Bank.
+- **MC5.** Pembulatan: nominal valas dua desimal; nominal dasar dua desimal (sen) lewat `roundBase` di `fx.ts`, sama dengan buku Kas & Bank; kurs `Decimal(18,6)`. Angka pajak tetap rupiah utuh (`tax_concept.md` §7).
 
 **Asal nilai dasar**
 
@@ -125,11 +125,11 @@ di migrasi tiap tahap dan di `DBML/erp.dbml.md`.
 | Tabel | Tambahan |
 | --- | --- |
 | `sal_customer_order(_line)` | `currency_id`, `exchange_rate`; `base_` untuk bruto, diskon, DPP, PPN, total |
-| `fin_ar_advance` | `currency_id`; `base_` terisi saat dibayar (MC9) |
+| `fin_ar_advance` | `currency_id` saja: tagihan tidak melahirkan nilai dasar; nilai dasar uang muka ada di item AR yang lahir dari pembayaran (MC9) |
 | `fin_ar_invoice(_line, _advance_deduction)` | `currency_id` (tanpa `exchange_rate`: nilai dasar diwarisi, MC8); `base_` semua nominal; nilai dasar Uang Muka yang dipakai |
 | `pur_order(_line)` | seperti Customer Order |
 | `log_receipt_note(_line, _tracking)` | Tidak ada kolom baru: nilainya sudah rupiah, kini dihitung dari `base_` PO |
-| `fin_ap_advance` | seperti `fin_ar_advance` |
+| `fin_ap_advance` | `currency_id` saja, seperti `fin_ar_advance` |
 | `fin_ap_invoice(_line, _advance_deduction)` | seperti Invoice Penjualan |
 | `fin_ar_item`, `fin_ap_item` | `base_original_amount`, `base_current_balance` |
 | `fin_ar_ledger`, `fin_ap_ledger` | `base_movement` |
@@ -193,7 +193,7 @@ review pengguna. Tahap 1–2 tidak mengubah satu angka pun.
 | --- | --- | --- | --- |
 | 0 | Keputusan | Menjawab §8 (OD-1, 2, 3, 5, 10 sudah); catat di §12 | Semua OD terjawab |
 | 1 | Master dan sembunyikan Pajak | Modul Pajak disembunyikan (MC19); menu Kurs bertipe, permission, Currency Default di Partner | **Selesai 12/11/2026.** Kurs bisa diisi; belum dipakai dokumen |
-| 2 | Fondasi skema | Kolom `currency_id`, kurs dan `base_` di semua tabel §4.2 dengan isi MC17; AR / AP item dan bukunya menulis gerakan dasar; cek MC18 di `db:reconcile` | Semua tes lama lulus; reconcile setuju |
+| 2 | Fondasi skema | Kolom `currency_id`, kurs dan `base_` di semua tabel §4.2 dengan isi MC17; AR / AP item dan bukunya menulis gerakan dasar; cek MC18 di `db:reconcile` | **Selesai 13/11/2026.** Semua tes lama lulus; reconcile setuju (78 cek) |
 | 2a | Penukaran Valas | Dokumen Pembelian Valas dan Pencairan Valas (MC11a); `maySettle` dipersempit ke currency sama | Bank USD terisi dari bank IDR; pencairan memposting selisih kurs; reconcile setuju |
 | 3 | Penjualan valas | Customer Order, Uang Muka Penjualan, Invoice Penjualan dalam USD; semua baris jurnal pada kurs order; tanpa faktur pajak | Invoice USD terposting; Piutang di GL = saldo dasar item |
 | 4 | Penerimaan valas | Penerimaan dari Customer untuk tagihan USD ke bank USD; selisih kurs; PPh pada kurs terima, tanpa Bukti Potong | Skenario lampiran konsep tanpa langkah bank IDR menjadi tes dan lulus |

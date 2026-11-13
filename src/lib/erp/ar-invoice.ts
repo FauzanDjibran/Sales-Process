@@ -21,7 +21,16 @@ import {
 } from "./ar-item";
 import { advancePpnUsed, computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine } from "./sales-tax";
 import { advanceRatesByIds } from "./ar-advance";
-import { postingAccounts } from "./system-settings";
+import { postingAccounts, requireBaseCurrencyId } from "./system-settings";
+import { withBaseOf } from "./fx";
+
+// shortcut: rupiah at rate 1 until Multi-Currency-Plan stage 3, when an
+// Invoice takes its base figures from its order's (MC8).
+const RATE = 1;
+const HEAD_MONEY = ["gross_amount", "discount_amount", "amount", "dpp_amount", "advance_dpp_amount", "advance_ppn_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount", "total_amount"] as const;
+const LINE_MONEY = ["gross_amount", "discount_amount", "amount", "dpp_amount", "advance_dpp_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount"] as const;
+const DEDUCTION_MONEY = ["dpp_used", "ppn_used"] as const;
+const headData = (c: CheckedInvoice) => ({ ...c.data, ...withBaseOf(c.data, HEAD_MONEY, RATE) });
 import {
   INVOICE_HOLDS,
   INVOICE_TRANSITIONS,
@@ -560,8 +569,8 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
 async function writeRows(tx: Prisma.TransactionClient, id: number, c: CheckedInvoice) {
   await tx.finArInvoiceLine.deleteMany({ where: { invoice_id: id } });
   await tx.finArInvoiceAdvanceDeduction.deleteMany({ where: { invoice_id: id } });
-  for (const l of c.lines) await tx.finArInvoiceLine.create({ data: { ...l, invoice_id: id } });
-  for (const d of c.deductions) await tx.finArInvoiceAdvanceDeduction.create({ data: { ...d, invoice_id: id } });
+  for (const l of c.lines) await tx.finArInvoiceLine.create({ data: { ...l, ...withBaseOf(l, LINE_MONEY, RATE), invoice_id: id } });
+  for (const d of c.deductions) await tx.finArInvoiceAdvanceDeduction.create({ data: { ...d, ...withBaseOf(d, DEDUCTION_MONEY, RATE), invoice_id: id } });
 }
 
 export async function createInvoice(
@@ -577,7 +586,12 @@ export async function createInvoice(
       const r = await checkInvoice(tx, header, lines, deductions, null);
       if (!r.ok) throw new Refused(r.errors);
       const row = await tx.finArInvoice.create({
-        data: { ...r.c.data, invoice_no: await nextInvoiceNo(tx, r.c.data.invoice_date, r.c.data.is_taxable), created_by: actorId },
+        data: {
+          ...headData(r.c),
+          currency_id: await requireBaseCurrencyId(tx),
+          invoice_no: await nextInvoiceNo(tx, r.c.data.invoice_date, r.c.data.is_taxable),
+          created_by: actorId,
+        },
       });
       await writeRows(tx, row.id, r.c);
       await audit(tx, row.id, "TAMBAH", "create", actorId);
@@ -611,7 +625,7 @@ export async function updateInvoice(
       await lockCustomerOrder(tx, current.customer_order_id);
       const r = await checkInvoice(tx, header, lines, deductions, id, keep);
       if (!r.ok) throw new Refused(r.errors);
-      const done = await tx.finArInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, updated_by: actorId } });
+      const done = await tx.finArInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...headData(r.c), updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: "Invoice berubah saat diproses. Muat ulang halaman." });
       await writeRows(tx, id, r.c);
       await audit(tx, id, "UPDATE", "update", actorId);
@@ -796,7 +810,7 @@ export async function transitionInvoice(
       const p = await buildPosting(tx, n.invoice_no, r.c);
       if (!p.ok) throw new Refused({ _form: `Lengkapi Account Mapping dulu: ${p.missing.join(", ")}.` });
 
-      const done = await tx.finArInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, status: "Posted", updated_by: actorId } });
+      const done = await tx.finArInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...headData(r.c), status: "Posted", updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: moved });
       await writeRows(tx, id, r.c);
 
@@ -837,6 +851,7 @@ export async function transitionInvoice(
         createdBy: doc,
         scope: { docTypeId: await docTypeId(tx, "sal_customer_order"), docId: r.c.order.id },
         amount: invoiceFace(r.c.figures),
+        base: invoiceFace(r.c.figures) * RATE,
         note: `Invoice ${n.invoice_no} diposting`,
         actorId,
       });

@@ -586,6 +586,7 @@ export async function transitionPermitInvoice(
         createdBy: doc,
         scope: { docTypeId: await docTypeId(tx, "sal_permit_request"), docId: r.c.source.id },
         amount: face(r.c.figures),
+        base: face(r.c.figures), // Perizinan stays rupiah (Multi-Currency-Plan §1)
         note: `Invoice ${n.invoice_no} diposting`,
         actorId,
       });

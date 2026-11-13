@@ -48,7 +48,7 @@ after(async () => {
   await disconnect();
 });
 
-async function make(type: "Advance" | "Invoice", date: string, amount: number, dueDate: string | null = null) {
+async function make(type: "Advance" | "Invoice", date: string, amount: number, dueDate: string | null = null, base = amount) {
   const id = await createArItem(prisma, {
     type,
     partnerId: f.customer,
@@ -60,6 +60,7 @@ async function make(type: "Advance" | "Invoice", date: string, amount: number, d
     createdBy: { docTypeId: f.receiptType, docId: f.doc, no: `${FIXTURE_PREFIX}/R/${items.length}` },
     scope: { docTypeId: f.receiptType, docId: 1 },
     amount,
+    base,
     actorId: actor,
   });
   items.push(id);
@@ -146,6 +147,22 @@ describe("an AR item's balance moves only through Buku Piutang", () => {
     assert.deepEqual(later.subjects[0].items.map((i) => [i.opening, i.closing]), [[600_000, 600_000]]);
     const none = await arBook("Invoice", { from: "2026-09-01", to: "2026-09-02" }, [f.customer]);
     assert.deepEqual(none.subjects, []);
+  });
+
+  test("its base is relieved at its own carrying rate, and the last relief empties it exactly (MC10)", async () => {
+    // 100 carried at 1.501.234 (a carrying rate no deal quoted): 30 releases
+    // round(30 × 1.501.234 / 100) to the sen, the rest releases what is left.
+    // Dated after the other tests' report ranges.
+    const inv = await make("Invoice", "2027-01-12", 100, "2027-02-12", 1_501_234);
+    const settle = (amount: number, no: string) =>
+      prisma.$transaction((tx) =>
+        settleArItem(tx, { itemId: inv, event: "Payment", amount, date: "2027-01-13", doc: { docTypeId: f.billType, docId: f.doc, no }, actorId: actor })
+      );
+    assert.equal(await settle(30, "BKM/FX1"), 450_370.2);
+    assert.equal(await settle(70, "BKM/FX2"), 1_050_863.8);
+    const row = await prisma.finArItem.findUniqueOrThrow({ where: { id: inv }, include: { entries: { orderBy: { id: "asc" } } } });
+    assert.deepEqual([row.current_balance.toNumber(), row.base_current_balance.toNumber()], [0, 0]);
+    assert.deepEqual(row.entries.map((e) => e.base_movement.toNumber()), [1_501_234, -450_370.2, -1_050_863.8]);
   });
 });
 

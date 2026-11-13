@@ -92,6 +92,25 @@ export function roundBase(value: number): number {
   return (value < 0 ? -rounded : rounded) / MINOR_UNIT;
 }
 
+type WithBase<T> = T & { [K in keyof T & string as `base_${K}`]: T[K] };
+
+/**
+ * A document's money figures with their base twins (`x` → `base_x`), every one
+ * at the same rate and rounded once (MC1, MC4; concept §3.1). A null figure
+ * stays null. Rate 1 gives the figures back unchanged.
+ */
+export function withBase<T extends Record<string, number | null>>(figures: T, rate: number): WithBase<T> {
+  const out: Record<string, number | null> = { ...figures };
+  for (const [k, v] of Object.entries(figures)) out[`base_${k}`] = v == null ? null : roundBase(v * rate);
+  return out as WithBase<T>;
+}
+
+/** `withBase` over the named money figures of a larger row. */
+export function withBaseOf<T, K extends keyof T & string>(row: T, keys: readonly K[], rate: number): WithBase<Pick<T, K>> {
+  const figures = Object.fromEntries(keys.map((k) => [k, row[k]])) as Record<string, number | null>;
+  return withBase(figures, rate) as unknown as WithBase<Pick<T, K>>;
+}
+
 /**
  * A balance: how much foreign currency, and what it is carried at in base.
  *

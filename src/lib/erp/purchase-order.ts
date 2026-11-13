@@ -4,7 +4,8 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { SUPPLIER_CATEGORY } from "./entities";
-import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
+import { PPN_SETTINGS_MISSING, ppnRates, requireBaseCurrencyId } from "./system-settings";
+import { withBase } from "./fx";
 import { computeSalesTotals, lineProblem, type AdvanceBasis, type DiscountType, type PpnRates, type PriceMode, type SalesTotals } from "./sales-tax";
 import { lockPurchaseRequestLines, purchaseOrderSourceLines, recordPurchaseRequestOrdered, type PoSourceLine } from "./purchase-request";
 import {
@@ -390,14 +391,22 @@ const rateData = (r: PpnRates | null) => ({
   ppn_dpp_other_denominator: r?.otherDen ?? null,
 });
 
-const totalsData = (t: SalesTotals) => ({
-  gross_amount: t.gross,
-  discount_amount: t.discount,
-  dpp_amount: t.dpp,
-  dpp_other_amount: t.dppOther,
-  ppn_amount: t.ppn,
-  total_amount: t.total,
-});
+// shortcut: every order is rupiah at rate 1 until Multi-Currency-Plan stage 5
+// gives it a currency and its own rate.
+const RATE = 1;
+
+const totalsData = (t: SalesTotals) =>
+  withBase(
+    {
+      gross_amount: t.gross,
+      discount_amount: t.discount,
+      dpp_amount: t.dpp,
+      dpp_other_amount: t.dppOther,
+      ppn_amount: t.ppn,
+      total_amount: t.total,
+    },
+    RATE
+  );
 
 function lineData(l: CheckedLine, t: SalesTotals, i: number) {
   const r = t.lines[i];
@@ -410,11 +419,7 @@ function lineData(l: CheckedLine, t: SalesTotals, i: number) {
     price: l.price,
     discount_type: l.discount_type,
     discount_value: l.discount_value,
-    discount_amount: r.discount,
-    amount: r.amount,
-    dpp_amount: r.dpp,
-    dpp_other_amount: r.dppOther,
-    ppn_amount: r.ppn,
+    ...withBase({ discount_amount: r.discount, amount: r.amount, dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn }, RATE),
     withholding_tax_id: l.withholding_tax_id,
     withholding_rate: l.withholding_rate,
     note: l.note,
@@ -436,6 +441,7 @@ export async function createPurchaseOrder(header: PurchaseOrderHeaderInput, line
         ...totalsData(c.totals),
         ...rateData(c.rates),
         order_no: await nextOrderNo(tx, c.header.order_date, c.header.is_taxable),
+        currency_id: await requireBaseCurrencyId(tx),
         created_by: actorId,
         lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i)) },
       },
@@ -560,7 +566,7 @@ export async function transitionPurchaseOrder(
         const r = c.totals.lines[i];
         await tx.purOrderLine.update({
           where: { id: sorted[i].id },
-          data: { dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn, withholding_rate: l.withholding_rate },
+          data: { ...withBase({ dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn }, RATE), withholding_rate: l.withholding_rate },
         });
         for (const [reqId, q] of l.shares) {
           await tx.purOrderLineRequest.updateMany({ where: { order_line_id: sorted[i].id, request_line_id: reqId }, data: { base_qty: q } });

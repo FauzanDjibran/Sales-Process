@@ -1232,6 +1232,9 @@ table fin_cash_bank_tx {
 
   cancel_reason               varchar
 
+  currency_id                 int [not null, ref : > ref_currency.id] // the document's currency (MC3)
+  exchange_rate               decimal(18,6) [not null, default: 1] // the rate money arriving was received at (MC11)
+
   created_by                  int [not null]
   updated_by                  int
 
@@ -1255,6 +1258,9 @@ table fin_cash_bank_tx_line {
   doc_id                      int [not null]
 
   settled_amount              decimal(18,2) [not null] // what the line cleared of the document: the cash received for it + its PPh (P76)
+  base_settled_amount         decimal(18,2) [not null] // what the line released from the document, in base (MC12)
+  transaction_base_amount     decimal(18,2) [not null] // what the money and PPh brought, in base
+  fx_difference               decimal(18,2) [not null, default: 0] // base_settled_amount − transaction_base_amount; 0 within one currency
   withhold                    boolean [not null, default: true]
   dpp_part                    decimal(18,2) [not null, default: 0]
   ppn_part                    decimal(18,2) [not null, default: 0]
@@ -1308,9 +1314,11 @@ table fin_ar_item {
   scope_doc_type_id           int [ref : > sys_doc_type.id] // lintas aplikasi → Bersama · the agreement it is settled within: Customer Order or Pengajuan Perizinan (P137)
   scope_doc_id                int // weak: an invoice uses only its own agreement's advances
   original_amount             decimal(18,2) [not null, default: 0] // what it was born at: an Uang Muka its DPP, an Invoice its face (P116)
+  base_original_amount        decimal(18,2) [not null] // original_amount in base currency (MC1)
   paid_amount                 decimal(18,2) [not null, default: 0] // what its source document has been paid, cash + PPh; a receipt's `before`, raised at posting; CHECK ≥ 0 (P214)
 
   current_balance             decimal(18,2) [not null] // sum of its fin_ar_ledger entries
+  base_current_balance        decimal(18,2) [not null] // current_balance in base currency (MC1)
 
   created_by                  int [not null]
 
@@ -1336,6 +1344,7 @@ table fin_ar_ledger {
   event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied', 'AdvanceReceived') [not null] // AdvanceReceived: a later payment raising a bill's one Uang Muka item (P133)
   entry_date                  date [not null]
   movement                    decimal(18,2) [not null] // signed on the item balance: + grows, − falls; the one figure of the entry (P213)
+  base_movement               decimal(18,2) [not null] // movement in base currency (MC1)
 
   doc_type_id                 int [not null, ref : > sys_doc_type.id] // lintas aplikasi → Bersama
   doc_id                      int [not null]
@@ -1375,7 +1384,9 @@ table fin_ap_item {
   purchase_order_id           int // weak: the settlement scope
 
   current_balance             decimal(18,2) [not null] // Σ its Buku Hutang entries
+  base_current_balance        decimal(18,2) [not null] // current_balance in base currency (MC1)
   original_amount             decimal(18,2) [not null, default: 0]
+  base_original_amount        decimal(18,2) [not null] // original_amount in base currency (MC1)
   paid_amount                 decimal(18,2) [not null, default: 0] // what its source document has been paid; a payment's `before`, raised at posting; CHECK ≥ 0 (P214)
 
   created_by                  int [not null]
@@ -1399,6 +1410,7 @@ table fin_ap_ledger {
   event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied', 'AdvanceReceived') [not null] // AdvanceReceived: a later payment raising a bill's one Uang Muka item (P133)
   entry_date                  date [not null]
   movement                    decimal(18,2) [not null] // signed on the item balance: + grows, − falls (P213)
+  base_movement               decimal(18,2) [not null] // movement in base currency (MC1)
 
   doc_type_id                 int [not null, ref : > sys_doc_type.id] // lintas aplikasi → Bersama
   doc_id                      int [not null]
@@ -1446,6 +1458,8 @@ table fin_ar_advance {
   total_amount                decimal(18,2) [not null]
 
   cancel_reason               varchar
+
+  currency_id                 int [not null, ref : > ref_currency.id] // the document's currency (MC3)
 
   created_by                  int [not null]
   updated_by                  int
@@ -1603,6 +1617,8 @@ table fin_ap_advance {
 
   cancel_reason               varchar
 
+  currency_id                 int [not null, ref : > ref_currency.id] // the document's currency (MC3)
+
   created_by                  int [not null]
   updated_by                  int
 
@@ -1641,21 +1657,34 @@ table fin_ap_invoice {
   ppn_dpp_other_denominator   int
 
   dpp_amount                  decimal(18,2) [not null, default: 0]
+  base_dpp_amount             decimal(18,2) [not null] // dpp_amount in base currency (MC1)
   advance_dpp_amount          decimal(18,2) [not null, default: 0]
+  base_advance_dpp_amount     decimal(18,2) [not null] // advance_dpp_amount in base currency (MC1)
   advance_ppn_amount          decimal(18,2) [not null, default: 0]
+  base_advance_ppn_amount     decimal(18,2) [not null] // advance_ppn_amount in base currency (MC1)
   net_dpp_amount              decimal(18,2) [not null, default: 0]
+  base_net_dpp_amount         decimal(18,2) [not null] // net_dpp_amount in base currency (MC1)
   dpp_other_amount            decimal(18,2) [not null, default: 0]
+  base_dpp_other_amount       decimal(18,2) [not null] // dpp_other_amount in base currency (MC1)
   ppn_amount                  decimal(18,2) [not null, default: 0] // full PPN − the advances' PPN (P113)
+  base_ppn_amount             decimal(18,2) [not null] // ppn_amount in base currency (MC1)
   total_amount                decimal(18,2) [not null, default: 0] // net DPP + PPN, before PPh
+  base_total_amount           decimal(18,2) [not null] // total_amount in base currency (MC1)
   pph_amount                  decimal(18,2) [not null, default: 0] // the company's PPh, on the DPP after the advance
+  base_pph_amount             decimal(18,2) [not null] // pph_amount in base currency (MC1)
   supplier_total              decimal(18,2) // Total Tagihan Supplier as typed; null = not compared
+  base_supplier_total         decimal(18,2) // supplier_total in base currency (MC1)
   difference_amount           decimal(18,2) [not null, default: 0] // within the tolerance, to Selisih Tagihan Supplier
+  base_difference_amount      decimal(18,2) [not null] // difference_amount in base currency (MC1)
   payable_amount              decimal(18,2) [not null, default: 0] // Hutang born at: full DPP + full PPN + difference − PPh
+  base_payable_amount         decimal(18,2) [not null] // payable_amount in base currency (MC1)
 
   journal_id                  int
   ap_item_id                  int
   note                        varchar
   cancel_reason               varchar
+
+  currency_id                 int [not null, ref : > ref_currency.id] // the document's currency (MC3)
 
   created_by                  int [not null]
   updated_by                  int
@@ -1681,10 +1710,15 @@ table fin_ap_invoice_line {
   qty                         decimal(18,4) [not null]
   price                       decimal(18,6) [not null] // the PO's
   dpp_amount                  decimal(18,2) [not null] // the receipt's value
+  base_dpp_amount             decimal(18,2) [not null] // dpp_amount in base currency (MC1)
   advance_dpp_amount          decimal(18,2) [not null, default: 0]
+  base_advance_dpp_amount     decimal(18,2) [not null] // advance_dpp_amount in base currency (MC1)
   net_dpp_amount              decimal(18,2) [not null]
+  base_net_dpp_amount         decimal(18,2) [not null] // net_dpp_amount in base currency (MC1)
   dpp_other_amount            decimal(18,2) [not null, default: 0]
+  base_dpp_other_amount       decimal(18,2) [not null] // dpp_other_amount in base currency (MC1)
   ppn_amount                  decimal(18,2) [not null, default: 0]
+  base_ppn_amount             decimal(18,2) [not null] // ppn_amount in base currency (MC1)
   withholding_tax_id          int // weak: a purchase Jenis PPh
   withholding_rate            decimal(9,4)
 
@@ -1704,7 +1738,9 @@ table fin_ap_invoice_advance_deduction {
   ap_item_id                  int [not null] // weak: fin_ap_item.id
   ap_item_no                  varchar [not null]
   dpp_used                    decimal(18,2) [not null]
+  base_dpp_used               decimal(18,2) [not null] // dpp_used in base currency (MC1)
   ppn_used                    decimal(18,2) [not null, default: 0]
+  base_ppn_used               decimal(18,2) [not null] // ppn_used in base currency (MC1)
 
   indexes {
     (invoice_id, ap_item_id) [unique]
@@ -1734,15 +1770,25 @@ table fin_ar_invoice {
   ppn_dpp_other_numerator     int
   ppn_dpp_other_denominator   int
   gross_amount                decimal(18,2) [not null, default: 0] // Σ lines (P111)
+  base_gross_amount           decimal(18,2) [not null] // gross_amount in base currency (MC1)
   discount_amount             decimal(18,2) [not null, default: 0] // Σ lines; amount = gross − discount
+  base_discount_amount        decimal(18,2) [not null] // discount_amount in base currency (MC1)
   amount                      decimal(18,2) [not null, default: 0]
+  base_amount                 decimal(18,2) [not null] // amount in base currency (MC1)
   dpp_amount                  decimal(18,2) [not null, default: 0] // DPP of the goods billed
+  base_dpp_amount             decimal(18,2) [not null] // dpp_amount in base currency (MC1)
   advance_dpp_amount          decimal(18,2) [not null, default: 0] // Uang Muka used
+  base_advance_dpp_amount     decimal(18,2) [not null] // advance_dpp_amount in base currency (MC1)
   advance_ppn_amount          decimal(18,2) [not null, default: 0] // the PPN of the Uang Muka used, deducted once (P113)
+  base_advance_ppn_amount     decimal(18,2) [not null] // advance_ppn_amount in base currency (MC1)
   net_dpp_amount              decimal(18,2) [not null, default: 0]
+  base_net_dpp_amount         decimal(18,2) [not null] // net_dpp_amount in base currency (MC1)
   dpp_other_amount            decimal(18,2) [not null, default: 0] // Σ lines, on the full DPP
+  base_dpp_other_amount       decimal(18,2) [not null] // dpp_other_amount in base currency (MC1)
   ppn_amount                  decimal(18,2) [not null, default: 0] // Σ lines' full PPN − advance_ppn_amount (P113)
+  base_ppn_amount             decimal(18,2) [not null] // ppn_amount in base currency (MC1)
   total_amount                decimal(18,2) [not null, default: 0] // net Piutang
+  base_total_amount           decimal(18,2) [not null] // total_amount in base currency (MC1)
   tax_invoice_no              varchar // Coretax number, typed after upload
 
   journal_id                  int
@@ -1750,6 +1796,8 @@ table fin_ar_invoice {
 
   note                        varchar
   cancel_reason               varchar
+
+  currency_id                 int [not null, ref : > ref_currency.id] // the document's currency (MC3)
 
   created_by                  int [not null]
   updated_by                  int
@@ -1776,15 +1824,23 @@ table fin_ar_invoice_line {
   qty                         decimal(18,4) [not null]
   price                       decimal(18,6) [not null] // the order line's, unrounded (P111)
   gross_amount                decimal(18,2) [not null, default: 0] // cumulative share of the order line's gross (P112, §7.5)
+  base_gross_amount           decimal(18,2) [not null] // gross_amount in base currency (MC1)
   discount_type               enum('Percent', 'Amount') // the order line's
   discount_value              decimal(18,4)
   discount_amount             decimal(18,2) [not null, default: 0] // cumulative share of the order line's discount (P112)
+  base_discount_amount        decimal(18,2) [not null] // discount_amount in base currency (MC1)
   amount                      decimal(18,2) [not null] // gross − discount
+  base_amount                 decimal(18,2) [not null] // amount in base currency (MC1)
   dpp_amount                  decimal(18,2) [not null]
+  base_dpp_amount             decimal(18,2) [not null] // dpp_amount in base currency (MC1)
   advance_dpp_amount          decimal(18,2) [not null, default: 0] // its share of the Uang Muka used
+  base_advance_dpp_amount     decimal(18,2) [not null] // advance_dpp_amount in base currency (MC1)
   net_dpp_amount              decimal(18,2) [not null]
+  base_net_dpp_amount         decimal(18,2) [not null] // net_dpp_amount in base currency (MC1)
   dpp_other_amount            decimal(18,2) [not null, default: 0]
+  base_dpp_other_amount       decimal(18,2) [not null] // dpp_other_amount in base currency (MC1)
   ppn_amount                  decimal(18,2) [not null, default: 0]
+  base_ppn_amount             decimal(18,2) [not null] // ppn_amount in base currency (MC1)
 
   withholding_tax_id          int [ref : > ref_withholding_tax.id]
 
@@ -1807,7 +1863,9 @@ table fin_ar_invoice_advance_deduction {
 
   ar_item_no                  varchar [not null]
   dpp_used                    decimal(18,2) [not null]
+  base_dpp_used               decimal(18,2) [not null] // dpp_used in base currency (MC1)
   ppn_used                    decimal(18,2) [not null, default: 0] // cumulative share of the item's tax_ppn (P113, §7.5)
+  base_ppn_used               decimal(18,2) [not null] // ppn_used in base currency (MC1)
 
   indexes {
     (invoice_id, ar_item_id) [unique]
@@ -1845,14 +1903,23 @@ table sal_customer_order {
   salesperson                 varchar
   note                        varchar
   gross_amount                decimal(18,2) [not null, default: 0]
+  base_gross_amount           decimal(18,2) [not null] // gross_amount in base currency (MC1)
   discount_amount             decimal(18,2) [not null, default: 0]
+  base_discount_amount        decimal(18,2) [not null] // discount_amount in base currency (MC1)
   dpp_amount                  decimal(18,2) [not null, default: 0]
+  base_dpp_amount             decimal(18,2) [not null] // dpp_amount in base currency (MC1)
   dpp_other_amount            decimal(18,2) [not null, default: 0]
+  base_dpp_other_amount       decimal(18,2) [not null] // dpp_other_amount in base currency (MC1)
   ppn_amount                  decimal(18,2) [not null, default: 0]
+  base_ppn_amount             decimal(18,2) [not null] // ppn_amount in base currency (MC1)
   total_amount                decimal(18,2) [not null, default: 0]
+  base_total_amount           decimal(18,2) [not null] // total_amount in base currency (MC1)
   status_reason               varchar // why it was cancelled, rejected or closed by hand
 
   copied_from_id              int [ref : > sal_customer_order.id]
+
+  currency_id                 int [not null, ref : > ref_currency.id] // the document's currency (MC3)
+  exchange_rate               decimal(18,6) [not null, default: 1] // the rate it originates base figures at (MC6)
 
   created_by                  int [not null]
   updated_by                  int
@@ -1882,10 +1949,15 @@ table sal_customer_order_line {
   discount_type               enum('Percent', 'Amount')
   discount_value              decimal(18,4)
   discount_amount             decimal(18,2) [not null, default: 0]
+  base_discount_amount        decimal(18,2) [not null] // discount_amount in base currency (MC1)
   amount                      decimal(18,2) [not null]
+  base_amount                 decimal(18,2) [not null] // amount in base currency (MC1)
   dpp_amount                  decimal(18,2) [not null]
+  base_dpp_amount             decimal(18,2) [not null] // dpp_amount in base currency (MC1)
   dpp_other_amount            decimal(18,2) [not null, default: 0]
+  base_dpp_other_amount       decimal(18,2) [not null] // dpp_other_amount in base currency (MC1)
   ppn_amount                  decimal(18,2) [not null]
+  base_ppn_amount             decimal(18,2) [not null] // ppn_amount in base currency (MC1)
 
   withholding_tax_id          int [ref : > ref_withholding_tax.id]
 
@@ -2151,13 +2223,22 @@ table pur_order {
   note                        varchar
 
   gross_amount                decimal(18,2) [not null, default: 0]
+  base_gross_amount           decimal(18,2) [not null] // gross_amount in base currency (MC1)
   discount_amount             decimal(18,2) [not null, default: 0]
+  base_discount_amount        decimal(18,2) [not null] // discount_amount in base currency (MC1)
   dpp_amount                  decimal(18,2) [not null, default: 0]
+  base_dpp_amount             decimal(18,2) [not null] // dpp_amount in base currency (MC1)
   dpp_other_amount            decimal(18,2) [not null, default: 0]
+  base_dpp_other_amount       decimal(18,2) [not null] // dpp_other_amount in base currency (MC1)
   ppn_amount                  decimal(18,2) [not null, default: 0]
+  base_ppn_amount             decimal(18,2) [not null] // ppn_amount in base currency (MC1)
   total_amount                decimal(18,2) [not null, default: 0]
+  base_total_amount           decimal(18,2) [not null] // total_amount in base currency (MC1)
 
   status_reason               varchar
+
+  currency_id                 int [not null, ref : > ref_currency.id] // the document's currency (MC3)
+  exchange_rate               decimal(18,6) [not null, default: 1] // the rate it originates base figures at (MC6)
 
   created_by                  int [not null]
   updated_by                  int
@@ -2187,10 +2268,15 @@ table pur_order_line {
   discount_type               enum('Percent', 'Amount')
   discount_value              decimal(18,4)
   discount_amount             decimal(18,2) [not null, default: 0]
+  base_discount_amount        decimal(18,2) [not null] // discount_amount in base currency (MC1)
   amount                      decimal(18,2) [not null]
+  base_amount                 decimal(18,2) [not null] // amount in base currency (MC1)
   dpp_amount                  decimal(18,2) [not null]
+  base_dpp_amount             decimal(18,2) [not null] // dpp_amount in base currency (MC1)
   dpp_other_amount            decimal(18,2) [not null, default: 0]
+  base_dpp_other_amount       decimal(18,2) [not null] // dpp_other_amount in base currency (MC1)
   ppn_amount                  decimal(18,2) [not null]
+  base_ppn_amount             decimal(18,2) [not null] // ppn_amount in base currency (MC1)
 
   withholding_tax_id          int [ref : > ref_withholding_tax.id] // a purchase Jenis PPh
   withholding_rate            decimal(9,4) // the master's, doubled without an NPWP (B12)

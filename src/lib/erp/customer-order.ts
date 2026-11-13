@@ -5,7 +5,8 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { formatAddress } from "./partner-shape";
 import { CUSTOMER_CATEGORY } from "./entities";
-import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
+import { PPN_SETTINGS_MISSING, ppnRates, requireBaseCurrencyId } from "./system-settings";
+import { withBase } from "./fx";
 import {
   computeSalesTotals,
   lineProblem,
@@ -451,15 +452,22 @@ function rateData(r: PpnRates | null) {
   };
 }
 
+// shortcut: every order is rupiah at rate 1 until Multi-Currency-Plan stage 3
+// gives it a currency and its own rate.
+const RATE = 1;
+
 function totalsData(t: SalesTotals) {
-  return {
-    gross_amount: t.gross,
-    discount_amount: t.discount,
-    dpp_amount: t.dpp,
-    dpp_other_amount: t.dppOther,
-    ppn_amount: t.ppn,
-    total_amount: t.total,
-  };
+  return withBase(
+    {
+      gross_amount: t.gross,
+      discount_amount: t.discount,
+      dpp_amount: t.dpp,
+      dpp_other_amount: t.dppOther,
+      ppn_amount: t.ppn,
+      total_amount: t.total,
+    },
+    RATE
+  );
 }
 
 function lineData(l: CheckedLine, t: SalesTotals, i: number) {
@@ -473,11 +481,7 @@ function lineData(l: CheckedLine, t: SalesTotals, i: number) {
     price: l.price,
     discount_type: l.discount_type,
     discount_value: l.discount_value,
-    discount_amount: r.discount,
-    amount: r.amount,
-    dpp_amount: r.dpp,
-    dpp_other_amount: r.dppOther,
-    ppn_amount: r.ppn,
+    ...withBase({ discount_amount: r.discount, amount: r.amount, dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn }, RATE),
     withholding_tax_id: l.withholding_tax_id,
     withholding_rate: l.withholding_rate,
     note: l.note,
@@ -504,6 +508,7 @@ export async function createCustomerOrder(
         ...totalsData(c.totals),
         ...rateData(c.rates),
         order_no: await nextOrderNo(tx, c.header.order_date, c.header.is_taxable),
+        currency_id: await requireBaseCurrencyId(tx),
         copied_from_id: copiedFromId,
         created_by: actorId,
         lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i)) },
@@ -680,7 +685,7 @@ export async function transitionCustomerOrder(
       const r = c.totals.lines[i];
       await tx.salCustomerOrderLine.updateMany({
         where: { order_id: id, line_no: l.line_no },
-        data: { dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn, withholding_rate: l.withholding_rate },
+        data: { ...withBase({ dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn }, RATE), withholding_rate: l.withholding_rate },
       });
     }
     await audit(tx, id, "UPDATE", STEP_EVENT[action], actorId);

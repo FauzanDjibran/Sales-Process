@@ -3,6 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber } from "./document-number";
+import { relieve } from "./fx";
 import { bookEventText, foldPartnerBook, type BookEntry, type BookKind, type PartnerBook } from "./partner-book";
 import type { PeriodRange } from "./period";
 import { ENTRY_PAGE_SIZE, afterBookCursor, type BookCursor } from "./register-query";
@@ -81,6 +82,8 @@ export type NewArItem = {
   scope?: { docTypeId: number; docId: number } | null;
   /** What it is born at — also kept as its original amount (P116). */
   amount: number;
+  /** The same in base currency, as its originating posting valued it (MC9, MC10). */
+  base: number;
   /** What of the source document this posting settles — the item holds it (P214). */
   paid?: number;
   note?: string | null;
@@ -146,6 +149,8 @@ export async function createArItem(db: Db, item: NewArItem): Promise<number> {
       scope_doc_id: item.scope?.docId ?? null,
       current_balance: item.amount,
       original_amount: item.amount,
+      base_current_balance: item.base,
+      base_original_amount: item.base,
       paid_amount: item.paid ?? 0,
       created_by: item.actorId,
     },
@@ -158,6 +163,7 @@ export async function createArItem(db: Db, item: NewArItem): Promise<number> {
       event: "Create",
       entry_date: date,
       movement: item.amount,
+      base_movement: item.base,
       doc_type_id: item.createdBy.docTypeId,
       doc_id: item.createdBy.docId,
       doc_no: item.createdBy.no,
@@ -191,12 +197,23 @@ export async function receiveAdvance(
     return createArItem(db, { ...item, type: "Advance" });
   }
   const id = found[0].id;
-  const row = await db.finArItem.findUniqueOrThrow({ where: { id }, select: { current_balance: true, original_amount: true, paid_amount: true } });
-  const after = (cents(row.current_balance.toNumber()) + cents(item.amount)) / 100;
-  const original = (cents(row.original_amount.toNumber()) + cents(item.amount)) / 100;
+  const row = await db.finArItem.findUniqueOrThrow({
+    where: { id },
+    select: { current_balance: true, original_amount: true, paid_amount: true, base_current_balance: true, base_original_amount: true },
+  });
+  const add = (n: Prisma.Decimal, by: number) => (cents(n.toNumber()) + cents(by)) / 100;
   const paid = cents(row.paid_amount.toNumber()) + cents(item.paid);
   if (paid > cents(item.documentTotal)) throw new Error(`Pembayaran melebihi sisa ${item.source.no}.`);
-  await db.finArItem.update({ where: { id }, data: { current_balance: after, original_amount: original, paid_amount: paid / 100 } });
+  await db.finArItem.update({
+    where: { id },
+    data: {
+      current_balance: add(row.current_balance, item.amount),
+      original_amount: add(row.original_amount, item.amount),
+      base_current_balance: add(row.base_current_balance, item.base),
+      base_original_amount: add(row.base_original_amount, item.base),
+      paid_amount: paid / 100,
+    },
+  });
   if (!(item.amount > 0)) return id; // paid only in its PPN share: no balance moves
   await db.finArLedger.create({
     data: {
@@ -205,6 +222,7 @@ export async function receiveAdvance(
       event: "AdvanceReceived",
       entry_date: asDate(item.date),
       movement: item.amount,
+      base_movement: item.base,
       doc_type_id: item.createdBy.docTypeId,
       doc_id: item.createdBy.docId,
       doc_no: item.createdBy.no,
@@ -241,16 +259,27 @@ export async function settleArItem(
     note?: string | null;
     actorId: number;
   }
-): Promise<void> {
+): Promise<number> {
   if (!(move.amount > 0)) throw new Error("Nilai penyelesaian AR item harus lebih besar dari nol.");
   await db.$queryRaw`SELECT id FROM fin_ar_item WHERE id = ${move.itemId} FOR UPDATE`;
-  const item = await db.finArItem.findUniqueOrThrow({ where: { id: move.itemId }, select: { current_balance: true, paid_amount: true } });
+  const item = await db.finArItem.findUniqueOrThrow({
+    where: { id: move.itemId },
+    select: { current_balance: true, paid_amount: true, base_current_balance: true },
+  });
   const balance = item.current_balance.toNumber();
   if (cents(move.amount) > cents(balance)) throw new ArItemOverdrawn(move.itemId, balance, move.amount);
   const after = (cents(balance) - cents(move.amount)) / 100;
+  // Relieved at the item's own carrying rate; the last relief takes what is left exactly (MC10).
+  const relief = relieve(
+    { foreign: balance, base: item.base_current_balance.toNumber() },
+    cents(move.amount) === cents(balance) ? balance : move.amount
+  );
   // A payment is what the source document has been paid (P214); an advance used or applied is not.
   const paid = move.event === "Payment" ? { paid_amount: (cents(item.paid_amount.toNumber()) + cents(move.amount)) / 100 } : {};
-  await db.finArItem.update({ where: { id: move.itemId }, data: { current_balance: after, ...paid } });
+  await db.finArItem.update({
+    where: { id: move.itemId },
+    data: { current_balance: after, base_current_balance: relief.remaining.base, ...paid },
+  });
   await db.finArLedger.create({
     data: {
       ...(await ledgerPosition(db, asDate(move.date), move.doc.docTypeId, move.doc.docId)),
@@ -258,6 +287,7 @@ export async function settleArItem(
       event: move.event,
       entry_date: asDate(move.date),
       movement: -move.amount,
+      base_movement: -relief.base,
       doc_type_id: move.doc.docTypeId,
       doc_id: move.doc.docId,
       doc_no: move.doc.no,
@@ -266,6 +296,7 @@ export async function settleArItem(
       created_by: move.actorId,
     },
   });
+  return relief.base;
 }
 
 // ------------------------------------------------------------------- reads

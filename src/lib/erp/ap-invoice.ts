@@ -13,7 +13,16 @@ import { apInvoiceSourceLines, postedReceiptLineIds, type ApInvoiceSourceLine } 
 import { ApItemOverdrawn, apAdvanceItems, apPaidByDocument, createApItem, settleApItem, type ApAdvanceItem } from "./ap-item";
 import { advancePpnUsed } from "./sales-tax";
 import { advanceRatesByIds } from "./ap-advance";
-import { postingAccounts, supplierInvoiceTolerance } from "./system-settings";
+import { postingAccounts, requireBaseCurrencyId, supplierInvoiceTolerance } from "./system-settings";
+import { withBaseOf } from "./fx";
+
+// shortcut: rupiah at rate 1 until Multi-Currency-Plan stage 5, when an
+// Invoice takes its base figures from its receipts (MC7).
+const RATE = 1;
+const HEAD_MONEY = ["dpp_amount", "advance_dpp_amount", "advance_ppn_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount", "total_amount", "pph_amount", "supplier_total", "difference_amount", "payable_amount"] as const;
+const LINE_MONEY = ["dpp_amount", "advance_dpp_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount"] as const;
+const DEDUCTION_MONEY = ["dpp_used", "ppn_used"] as const;
+const headData = (c: CheckedPurchaseInvoice) => ({ ...c.data, ...withBaseOf(c.data, HEAD_MONEY, RATE) });
 import {
   INVOICE_HOLDS,
   PURCHASE_INVOICE_TRANSITIONS,
@@ -452,8 +461,8 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
 async function writeRows(tx: Prisma.TransactionClient, id: number, c: CheckedPurchaseInvoice) {
   await tx.finApInvoiceLine.deleteMany({ where: { invoice_id: id } });
   await tx.finApInvoiceAdvanceDeduction.deleteMany({ where: { invoice_id: id } });
-  for (const l of c.lines) await tx.finApInvoiceLine.create({ data: { ...l, invoice_id: id } });
-  for (const d of c.deductions) await tx.finApInvoiceAdvanceDeduction.create({ data: { ...d, invoice_id: id } });
+  for (const l of c.lines) await tx.finApInvoiceLine.create({ data: { ...l, ...withBaseOf(l, LINE_MONEY, RATE), invoice_id: id } });
+  for (const d of c.deductions) await tx.finApInvoiceAdvanceDeduction.create({ data: { ...d, ...withBaseOf(d, DEDUCTION_MONEY, RATE), invoice_id: id } });
 }
 
 export async function createPurchaseInvoice(
@@ -468,7 +477,13 @@ export async function createPurchaseInvoice(
       if (orderId) await lockPurchaseOrder(tx, orderId);
       const r = await checkPurchaseInvoice(tx, header, lines, deductions, null);
       if (!r.ok) throw new Refused(r.errors);
-      const row = await tx.finApInvoice.create({ data: { ...r.c.data, invoice_no: await nextInvoiceNo(tx, r.c.data.invoice_date, r.c.data.is_taxable), created_by: actorId } });
+      const row = await tx.finApInvoice.create({ data: {
+          ...headData(r.c),
+          currency_id: await requireBaseCurrencyId(tx),
+          invoice_no: await nextInvoiceNo(tx, r.c.data.invoice_date, r.c.data.is_taxable),
+          created_by: actorId,
+        },
+      });
       await writeRows(tx, row.id, r.c);
       await audit(tx, row.id, "TAMBAH", "create", actorId);
       return row;
@@ -499,7 +514,7 @@ export async function updatePurchaseInvoice(
       await lockPurchaseOrder(tx, current.purchase_order_id);
       const r = await checkPurchaseInvoice(tx, header, lines, deductions, id, keep);
       if (!r.ok) throw new Refused(r.errors);
-      const done = await tx.finApInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, updated_by: actorId } });
+      const done = await tx.finApInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...headData(r.c), updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: "Invoice berubah saat diproses. Muat ulang halaman." });
       await writeRows(tx, id, r.c);
       await audit(tx, id, "UPDATE", "update", actorId);
@@ -652,7 +667,7 @@ export async function transitionPurchaseInvoice(
       }
       const p = await buildPosting(tx, n.invoice_no, r.c, currency.id);
       if (!p.ok) throw new Refused({ _form: p.message });
-      const done = await tx.finApInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, status: "Posted", updated_by: actorId } });
+      const done = await tx.finApInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...headData(r.c), status: "Posted", updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: moved });
       await writeRows(tx, id, r.c);
 
@@ -670,6 +685,7 @@ export async function transitionPurchaseInvoice(
         createdBy: doc,
         orderId: r.c.order.id,
         amount: r.c.figures.payable,
+        base: r.c.figures.payable * RATE,
         note: `Invoice ${n.invoice_no} (supplier ${r.c.data.supplier_invoice_no}) diposting`,
         actorId,
       });

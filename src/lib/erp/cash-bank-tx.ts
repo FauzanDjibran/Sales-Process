@@ -22,7 +22,7 @@ import {
   type PpnRates,
   type SettlementLine,
 } from "./sales-tax";
-import { postingAccounts } from "./system-settings";
+import { postingAccounts, requireBaseCurrencyId } from "./system-settings";
 import {
   CASH_BANK_PREFIX,
   cashBankPurpose,
@@ -600,6 +600,10 @@ function lineRows(typeIds: Record<SettledDocKind, number>, lines: CheckedLine[],
     doc_type_id: typeIds[l.kind],
     doc_id: l.docId,
     settled_amount: l.settled,
+    // shortcut: one currency at rate 1 until Multi-Currency-Plan stage 4 writes
+    // the relief and the transaction base apart, with their difference.
+    base_settled_amount: l.settled,
+    transaction_base_amount: l.settled,
     withhold: l.withhold,
     dpp_part: l.dppPart,
     ppn_part: l.ppnPart,
@@ -645,6 +649,7 @@ export async function createCashReceipt(input: CashReceiptInput, actorId: number
       data: {
         ...r.c.data,
         tx_no: await nextTxNo(tx, r.c.data.direction, r.c.data.tx_date),
+        currency_id: await requireBaseCurrencyId(tx),
         created_by: actorId,
         lines: { create: lineRows(typeIds, r.c.lines, actorId) },
       },
@@ -1024,6 +1029,7 @@ export async function transitionCashReceipt(
           createdBy: { docTypeId: typeId, docId: id, no: t.tx_no },
           scope: { docTypeId: await docTypeId(tx, SCOPE_OF_KIND[l.kind]), docId: l.bill.orderId },
           amount: l.dppPart,
+          base: l.dppPart,
           note: `Uang muka ${l.bill.no} diterima`,
           actorId,
         });

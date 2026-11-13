@@ -7,7 +7,7 @@ import type { Prisma } from "@/generated/prisma/client";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { advanceSourceOrders, customerOrderNumbersByIds, lockCustomerOrder, type AdvanceSourceOrder } from "./customer-order";
-import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
+import { PPN_SETTINGS_MISSING, ppnRates, requireBaseCurrencyId } from "./system-settings";
 import {
   advanceAmountProblem,
   computeAdvance,
@@ -300,6 +300,8 @@ export async function createSalesAdvance(input: SalesAdvanceInput, actorId: numb
           ...figureData(r.c.figures),
           ...rateData(r.c.rates),
           advance_no: await nextAdvanceNo(tx, r.c.data.advance_date, r.c.data.is_taxable),
+          // shortcut: rupiah until Multi-Currency-Plan stage 3 / 5 takes the order's currency.
+          currency_id: await requireBaseCurrencyId(tx),
           created_by: actorId,
         },
       });

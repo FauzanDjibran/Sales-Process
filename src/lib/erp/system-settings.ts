@@ -97,6 +97,17 @@ export async function baseCurrency(): Promise<{ id: number; label: string; name:
     : null;
 }
 
+/**
+ * The base currency's id for a document being written (Multi-Currency-Plan
+ * stage 2). Refused when the master lacks the row, since every document and
+ * book names its currency.
+ */
+export async function requireBaseCurrencyId(db: { refCurrency: typeof prisma.refCurrency } = prisma): Promise<number> {
+  const row = await db.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
+  if (!row) throw new Error(`Currency ${BASE_CURRENCY_LABEL} belum ada pada master Currency.`);
+  return row.id;
+}
+
 /** The base currency's id when it can be offered in a picker, else null. */
 export async function baseCurrencyId(): Promise<number | null> {
   const c = await baseCurrency();

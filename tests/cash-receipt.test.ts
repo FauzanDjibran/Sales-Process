@@ -242,7 +242,7 @@ describe("what one receipt may settle (P67)", () => {
       data: {
         ar_item_no: key("ARI-P214-"), item_type: "Advance", direction: "Decrease", partner_id: bill.customer_id,
         currency_id: (await prisma.refCurrency.findFirstOrThrow({ where: { currency_label: "IDR" } })).id, item_date: bill.advance_date, source_doc_type_id: docType.id, source_doc_id: bill.id,
-        source_no: bill.advance_no, current_balance: 0, original_amount: 0, paid_amount: 400_000, created_by: bill.created_by,
+        source_no: bill.advance_no, current_balance: 0, original_amount: 0, base_current_balance: 0, base_original_amount: 0, paid_amount: 400_000, created_by: bill.created_by,
       },
     });
     try {

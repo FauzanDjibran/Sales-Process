@@ -14,7 +14,7 @@ import { cashBankTxPage } from "./cash-bank-tx";
 import { checkAccountIsLeaf } from "./records";
 import { lockPurchaseAdvances, purchaseAdvanceNumbersByIds, settlementAdvances, unpaidAdvanceIds } from "./ap-advance";
 import { cashToClear, receivedProblem, settleBillFromCash, type SettlementLine } from "./sales-tax";
-import { postingAccounts } from "./system-settings";
+import { postingAccounts, requireBaseCurrencyId } from "./system-settings";
 import { CASH_BANK_PREFIX, cashBankPurpose, paidKey, purposesFor, type CashBankPurpose, type PaidDocKind } from "./cash-bank-purposes";
 import { lockPermitRequests, permitCostDocs, permitRequestNumbersByIds, recordPermitCostPaid } from "./permit-request";
 import { costBillNumbersByIds, lockCostBills, payableCostBills, recordCostBillPaid } from "./production-cost-bill";
@@ -448,6 +448,10 @@ async function lineRows(db: Db, lines: CheckedLine[], actorId: number) {
     doc_type_id: typeIds[l.kind]!,
     doc_id: l.docId,
     settled_amount: l.settled,
+    // shortcut: one currency at rate 1 until Multi-Currency-Plan stage 6 writes
+    // the relief and the transaction base apart, with their difference.
+    base_settled_amount: l.settled,
+    transaction_base_amount: l.settled,
     withhold: l.withhold,
     dpp_part: l.dppPart,
     ppn_part: l.ppnPart,
@@ -480,7 +484,7 @@ export async function createCashPayment(input: CashPaymentInput, actorId: number
   if (!r.ok) return r;
   const made = await prisma.$transaction(async (tx) => {
     const row = await tx.finCashBankTx.create({
-      data: { ...r.c.data, tx_no: await nextTxNo(tx, r.c.data.tx_date), created_by: actorId, lines: { create: await lineRows(tx, r.c.lines, actorId) } },
+      data: { ...r.c.data, tx_no: await nextTxNo(tx, r.c.data.tx_date), currency_id: await requireBaseCurrencyId(tx), created_by: actorId, lines: { create: await lineRows(tx, r.c.lines, actorId) } },
     });
     await audit(tx, row.id, "TAMBAH", "create", actorId);
     return row;
@@ -732,6 +736,7 @@ export async function transitionCashPayment(
           createdBy: { docTypeId: typeId, docId: id, no: t.tx_no },
           orderId: l.bill.orderId,
           amount: l.dppPart,
+          base: l.dppPart,
           note: `Uang muka ${l.bill.no} dibayar`,
           actorId,
         });
