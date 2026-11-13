@@ -4,10 +4,10 @@ import { prisma } from "@/lib/prisma";
 import { arPaidByDocument } from "./ar-item";
 import { formatMoney } from "@/lib/format";
 import type { Prisma } from "@/generated/prisma/client";
-import { BASE_CURRENCY_LABEL } from "./currency";
+import { taxScale } from "./sales-tax";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { advanceSourceOrders, customerOrderNumbersByIds, lockCustomerOrder, type AdvanceSourceOrder } from "./customer-order";
-import { PPN_SETTINGS_MISSING, ppnRates, requireBaseCurrencyId } from "./system-settings";
+import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
 import {
   advanceAmountProblem,
   computeAdvance,
@@ -94,7 +94,8 @@ export type AdvanceOrderOption = AdvanceSourceOrder & {
   left: number;
 };
 
-export type AdvanceBankOption = { id: number; label: string; name: string; active: boolean };
+/** A bank a bill can print; only one in the order's currency is offered (MC14). */
+export type AdvanceBankOption = { id: number; label: string; name: string; active: boolean; currency: string };
 
 export type SalesAdvanceOptions = {
   orders: AdvanceOrderOption[];
@@ -112,8 +113,9 @@ export async function salesAdvanceOptions(current: { id: number; orderId: number
   const [orders, banks, rates] = await Promise.all([
     advanceSourceOrders(current ? { ids: [current.orderId] } : { openOnly: true }),
     prisma.mCashBank.findMany({
-      where: { cash_bank_type: "Bank", currency: { currency_label: BASE_CURRENCY_LABEL } },
+      where: { cash_bank_type: "Bank" },
       orderBy: { cash_bank_label: "asc" },
+      include: { currency: true },
     }),
     ppnRates(),
   ]);
@@ -134,6 +136,7 @@ export async function salesAdvanceOptions(current: { id: number; orderId: number
       label: b.cash_bank_label,
       name: b.cash_bank_name,
       active: b.status === "Active",
+      currency: b.currency.currency_label,
     })),
     ppnRates: rates,
   };
@@ -148,6 +151,7 @@ type Checked = {
     advance_date: Date;
     due_date: Date;
     cash_bank_id: number;
+    currency_id: number;
     description: string;
     note: string | null;
     price_mode: "Exclude" | "Include";
@@ -191,7 +195,7 @@ export async function checkSalesAdvance(
     const b = await db.mCashBank.findUnique({ where: { id: bankId }, include: { currency: true } });
     if (!b) errors.cash_bank_id = "Rekening tidak ditemukan.";
     else if (b.cash_bank_type !== "Bank") errors.cash_bank_id = "Pilih rekening bank, bukan kas.";
-    else if (b.currency.currency_label !== BASE_CURRENCY_LABEL) errors.cash_bank_id = "Rekening harus dalam Rupiah.";
+    else if (order && b.currency.currency_label !== order.currency) errors.cash_bank_id = `Rekening harus dalam ${order.currency}, currency Customer Order.`;
     else if (b.status !== "Active") errors.cash_bank_id = "Rekening tersebut sudah nonaktif.";
   }
 
@@ -208,9 +212,10 @@ export async function checkSalesAdvance(
   else if (order && !errors.order_id) {
     const value = orderAdvanceValue(order.basis);
     const drawn = await drawnByOthers(db, order.id, selfId);
-    const problem = advanceAmountProblem(type, typed, value, value - drawn);
+    const scale = taxScale(order.currency);
+    const problem = advanceAmountProblem(type, typed, value, value - drawn, scale);
     if (problem) errors.amount_value = problem;
-    else figures = computeAdvance({ basis: order.basis, type, typed, rates });
+    else figures = computeAdvance({ basis: order.basis, type, typed, rates, scale });
   }
 
   if (Object.keys(errors).length || !order || !figures) return { ok: false, errors };
@@ -223,6 +228,7 @@ export async function checkSalesAdvance(
         advance_date: asDate(date),
         due_date: asDate(due),
         cash_bank_id: bankId!,
+        currency_id: order.currencyId,
         description,
         note: String(input.note ?? "").trim() || null,
         price_mode: order.basis.mode,
@@ -300,8 +306,6 @@ export async function createSalesAdvance(input: SalesAdvanceInput, actorId: numb
           ...figureData(r.c.figures),
           ...rateData(r.c.rates),
           advance_no: await nextAdvanceNo(tx, r.c.data.advance_date, r.c.data.is_taxable),
-          // shortcut: rupiah until Multi-Currency-Plan stage 3 / 5 takes the order's currency.
-          currency_id: await requireBaseCurrencyId(tx),
           created_by: actorId,
         },
       });
@@ -437,6 +441,8 @@ export async function transitionSalesAdvance(
 
 export type SalesAdvanceListRow = {
   id: number;
+  /** The document's currency, every figure on the row is in (MC3). */
+  currency: string;
   advanceNo: string;
   advanceDate: string;
   dueDate: string;
@@ -456,13 +462,14 @@ export type SalesAdvanceListRow = {
 export async function listSalesAdvances(): Promise<SalesAdvanceListRow[]> {
   const rows = await prisma.finArAdvance.findMany({
     orderBy: [{ advance_date: "desc" }, { id: "desc" }],
-    include: { customer: true },
+    include: { customer: true, currency: true },
   });
   // The Customer Order is another module's document (P107): its number is asked for.
   const orderNos = await customerOrderNumbersByIds([...new Set(rows.map((r) => r.customer_order_id))]);
   const paidOf = await arPaidByDocument(prisma, "fin_ar_advance", rows.map((r) => r.id));
   return rows.map((r) => ({
     id: r.id,
+    currency: r.currency.currency_label,
     advanceNo: r.advance_no,
     advanceDate: isoDay(r.advance_date),
     dueDate: isoDay(r.due_date),
@@ -579,6 +586,8 @@ export type SettlementAdvance = {
   ppn: number;
   /** The PPN rate and DPP Nilai Lain factor the bill was issued with; null without PPN. */
   rates: PpnRates | null;
+  /** The bill's currency, its order's (MC3): only a bank in it settles it (MC14). */
+  currency: string;
   withholdings: { key: string; rate: number; base: number; amount: number }[];
   /** What posted payments settled of it before — a payment's `before`, read from its item (P214). */
   paid: number;
@@ -620,6 +629,7 @@ export async function settlementAdvances(
       type: a.amount_type as AdvanceAmountType,
       typed: a.amount_value.toNumber(),
       rates,
+      scale: taxScale(order.currency),
     });
     return {
       id: a.id,
@@ -636,6 +646,7 @@ export async function settlementAdvances(
       dpp: a.dpp_amount.toNumber(),
       ppn: a.ppn_amount.toNumber(),
       rates: a.ppn_amount.toNumber() > 0 ? rates : null,
+      currency: order.currency,
       withholdings: f.withholdings,
       paid: paidOf.get(a.id) ?? 0,
     };

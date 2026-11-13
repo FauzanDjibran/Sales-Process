@@ -431,6 +431,7 @@ export async function transitionPermitAdvance(
 
 export type PermitAdvanceListRow = {
   id: number;
+  currency: string;
   advanceNo: string;
   advanceDate: string;
   dueDate: string;
@@ -457,6 +458,7 @@ export async function listPermitAdvances(): Promise<PermitAdvanceListRow[]> {
   const paidOf = await arPaidByDocument(prisma, "fin_ar_permit_advance", rows.map((r) => r.id));
   return rows.map((r) => ({
     id: r.id,
+    currency: "IDR", // Perizinan stays rupiah (§6.1)
     advanceNo: r.advance_no,
     advanceDate: isoDay(r.advance_date),
     dueDate: isoDay(r.due_date),

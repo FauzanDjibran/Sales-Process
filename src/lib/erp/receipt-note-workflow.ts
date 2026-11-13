@@ -109,9 +109,10 @@ const u = (n: number) => Math.round(n * U);
  * once, less the amount for what came before. So the receipts of one PO line
  * add up to its DPP exactly, and never drift by more than Rp1 on the way.
  */
-export function cumulativeShare(amount: number, total: number, before: number, qty: number): number {
+export function cumulativeShare(amount: number, total: number, before: number, qty: number, scale = 1): number {
   const t = u(total);
   if (t <= 0) return 0;
-  const upTo = (q: number) => Math.round((amount * Math.min(u(q), t)) / t);
-  return upTo(before + qty) - upTo(before);
+  // `scale` rounds to a currency's minor unit (MC5): 100 keeps the cents of a USD DPP.
+  const upTo = (q: number) => Math.round((amount * scale * Math.min(u(q), t)) / t);
+  return (upTo(before + qty) - upTo(before)) / scale;
 }

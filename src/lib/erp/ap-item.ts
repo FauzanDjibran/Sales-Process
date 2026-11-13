@@ -179,6 +179,12 @@ export class ApItemOverdrawn extends Error {
   }
 }
 
+/** What an item holds now, in both measures — its carrying rate is base ÷ foreign (MC10, MC13). */
+export async function apItemHeld(db: Prisma.TransactionClient, itemId: number): Promise<{ foreign: number; base: number }> {
+  const i = await db.finApItem.findUniqueOrThrow({ where: { id: itemId }, select: { current_balance: true, base_current_balance: true } });
+  return { foreign: i.current_balance.toNumber(), base: i.base_current_balance.toNumber() };
+}
+
 /** Lowers an item's balance with the row locked, and writes the entry. */
 export async function settleApItem(
   db: Prisma.TransactionClient,
@@ -261,6 +267,8 @@ export type ApAdvanceItem = {
   sourceId: number;
   createdByNo: string;
   balance: number;
+  /** The balance in base: an Uang Muka used is relieved at its carrying rate (MC13). */
+  baseBalance: number;
   original: number;
 };
 
@@ -283,6 +291,7 @@ export async function apAdvanceItems(filter: { orderIds?: number[]; ids?: number
     sourceId: i.source_doc_id,
     createdByNo: i.entries[0]?.doc_no ?? "",
     balance: i.current_balance.toNumber(),
+    baseBalance: i.base_current_balance.toNumber(),
     original: i.original_amount.toNumber(),
   }));
 }

@@ -25,6 +25,8 @@
  * PPN whatever its price mode: its prices are its amounts.
  */
 
+import { isBaseCurrency } from "./currency";
+
 export type PriceMode = "Exclude" | "Include";
 export type DiscountType = "Percent" | "Amount";
 
@@ -36,6 +38,45 @@ export type PpnRates = {
   otherNum: number;
   otherDen: number;
 };
+
+// ------------------------------------------------------------- currency
+
+/**
+ * The minor units a document's figures round to (Multi-Currency-Plan MC5,
+ * §6.1): whole rupiah for the base currency, cents for any other. Every money
+ * function below takes it as `scale`; at 1 it is exactly the rupiah
+ * arithmetic, so no IDR figure changes.
+ */
+export function taxScale(currencyLabel: string | null | undefined): number {
+  return !currencyLabel || isBaseCurrency(currencyLabel) ? 1 : 100;
+}
+
+/** Inputs and outputs that are counts, rates or flags — never scaled. */
+const NOT_MONEY = new Set(["qty", "orderQty", "billedQtyBefore", "rate", "withholdingRate", "percent", "key", "scale", "rates"]);
+
+function scaled<T>(v: T, by: (n: number) => number): T {
+  if (typeof v === "number") return by(v) as T;
+  if (Array.isArray(v)) return v.map((x) => scaled(x, by)) as T;
+  if (!v || typeof v !== "object") return v;
+  const o = v as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(o)) {
+    const percent = (k === "discountValue" && o.discountType === "Percent") || (k === "typed" && o.type === "Percent");
+    out[k] = NOT_MONEY.has(k) || percent ? x : scaled(x, by);
+  }
+  return out as T;
+}
+
+/**
+ * Runs a money function in a currency's minor units: the figures in are
+ * multiplied up, the same half-up rules run on whole units, the figures out
+ * are divided back. One path for every currency (MC2).
+ */
+function inMinor<I extends { scale?: number }, O>(input: I, run: (i: I) => O): O {
+  const s = input.scale!;
+  return scaled(run({ ...scaled(input, (n) => n * s), scale: 1 }), (n) => n / s);
+}
+const foreign = (scale: number | undefined) => scale != null && scale !== 1;
 
 // ------------------------------------------------------------- rounding
 
@@ -212,7 +253,7 @@ export function lineProblem(l: Pick<SalesLineInput, "qty" | "price" | "discountT
 }
 
 /** PPh per Jenis PPh on the DPP of the lines each covers, half up. */
-export function withholdingsOf(bases: { key: string | null; rate: number | null; dpp: number }[]): WithholdingEstimate[] {
+export function withholdingsOf(bases: { key: string | null; rate: number | null; dpp: number }[], scale = 1): WithholdingEstimate[] {
   const groups = new Map<string, WithholdingEstimate>();
   for (const b of bases) {
     if (!b.key || !b.rate) continue;
@@ -220,7 +261,7 @@ export function withholdingsOf(bases: { key: string | null; rate: number | null;
     g.base += b.dpp;
     groups.set(b.key, g);
   }
-  return [...groups.values()].map((g) => ({ ...g, amount: percentOf(g.base, g.rate) }));
+  return [...groups.values()].map((g) => ({ ...g, amount: percentOf(Math.round(g.base * scale), g.rate) / scale }));
 }
 
 export function computeSalesTotals(input: {
@@ -231,7 +272,10 @@ export function computeSalesTotals(input: {
   vatCollector: boolean;
   /** Needed when `taxable`; the document's snapshot of the System Default. */
   rates: PpnRates | null;
+  /** `taxScale` of the document's currency; 1 when omitted. */
+  scale?: number;
 }): SalesTotals {
+  if (foreign(input.scale)) return inMinor(input, computeSalesTotals);
   const lines: SalesLineResult[] = input.lines.map((l) => {
     const b = lineAmount(l);
     return { ...b, ...taxOf(b.amount, input.mode, input.taxable, input.rates) };
@@ -317,19 +361,19 @@ export function orderAdvanceValue(b: Pick<AdvanceBasis, "mode" | "taxable" | "dp
 }
 
 /** The drawn value a typed percent or flat value comes to, whole rupiah. */
-export function advanceAmountOf(type: AdvanceAmountType, typed: number, value: number): number {
+export function advanceAmountOf(type: AdvanceAmountType, typed: number, value: number, scale = 1): number {
   const v = Number(typed) || 0;
-  return type === "Percent" ? Math.round((value * v) / 100) : Math.round(v);
+  return (type === "Percent" ? Math.round((value * scale * v) / 100) : Math.round(v * scale)) / scale;
 }
 
 /** Why a typed advance cannot stand, or null. `left` is the order's room. */
-export function advanceAmountProblem(type: AdvanceAmountType, typed: number, value: number, left: number): string | null {
+export function advanceAmountProblem(type: AdvanceAmountType, typed: number, value: number, left: number, scale = 1): string | null {
   const v = Number(typed);
   if (!Number.isFinite(v) || !(v > 0)) return "Isi nilai uang muka.";
   if (type === "Percent" && v > 100) return "Persentase tidak boleh lebih dari 100%.";
-  const amount = advanceAmountOf(type, v, value);
+  const amount = advanceAmountOf(type, v, value, scale);
   if (!(amount > 0)) return "Nilai uang muka terlalu kecil.";
-  if (amount > left) return "Melebihi sisa nilai Customer Order yang dapat ditagih.";
+  if (Math.round(amount * scale) > Math.round(left * scale)) return "Melebihi sisa nilai Customer Order yang dapat ditagih.";
   return null;
 }
 
@@ -339,7 +383,9 @@ export function computeAdvance(input: {
   typed: number;
   /** Needed when the order is taxable; the bill's own snapshot (P60). */
   rates: PpnRates | null;
+  scale?: number;
 }): AdvanceFigures {
+  if (foreign(input.scale)) return inMinor(input, computeAdvance);
   const b = input.basis;
   const value = orderAdvanceValue(b);
   const amount = advanceAmountOf(input.type, input.typed, value);
@@ -421,7 +467,9 @@ export function settleBill(input: {
   before: number;
   settled: number;
   withhold: boolean;
+  scale?: number;
 }): SettlementLine {
+  if (foreign(input.scale)) return inMinor(input, settleBill);
   const { bill } = input;
   const settled = Math.max(0, Math.round(input.settled));
   const before = Math.max(0, Math.round(input.before));
@@ -442,7 +490,8 @@ export function settleBill(input: {
  * What still has to arrive in the bank to clear a bill: what is left of it less
  * the PPh still to be withheld on it (none when the Potong PPh switch is off).
  */
-export function cashToClear(bill: SettlementBill, before: number, withhold: boolean): number {
+export function cashToClear(bill: SettlementBill, before: number, withhold: boolean, scale = 1): number {
+  if (scale !== 1) return Math.round(cashToClear(scaled(bill, (n) => n * scale), before * scale, withhold)) / scale;
   const b = Math.max(0, Math.round(before));
   const open = Math.max(0, bill.total - b);
   return open - settleBill({ bill, before: b, settled: open, withhold }).pph;
@@ -469,7 +518,9 @@ export function settleBillFromCash(input: {
   /** What was received for this bill. */
   cash: number;
   withhold: boolean;
+  scale?: number;
 }): SettlementLine {
+  if (foreign(input.scale)) return inMinor(input, settleBillFromCash);
   const { bill, withhold } = input;
   const before = Math.max(0, Math.round(input.before));
   const cash = Math.max(0, Math.round(input.cash));
@@ -493,10 +544,11 @@ export function settleBillFromCash(input: {
 }
 
 /** Why a line's Diterima cannot stand, or null. `max` is what clears the bill. */
-export function receivedProblem(cash: number, max: number): string | null {
+export function receivedProblem(cash: number, max: number, scale = 1): string | null {
   if (!(cash > 0)) return "Isi nilai yang diterima.";
-  if (cash !== Math.round(cash)) return "Nilai diterima harus dalam rupiah penuh.";
-  if (cash > max) return "Melebihi sisa tagihan.";
+  const minor = Math.round(cash * scale);
+  if (Math.abs(minor - cash * scale) > 1e-6) return scale === 1 ? "Nilai diterima harus dalam rupiah penuh." : "Nilai diterima paling banyak dua desimal.";
+  if (minor > Math.round(max * scale)) return "Melebihi sisa tagihan.";
   return null;
 }
 
@@ -550,8 +602,9 @@ export type InvoiceLineInput = {
  * Rp1 (the receipt splits a bill positionally); the user accepted this (P118).
  * None without PPN rates.
  */
-export function advancePpnUsed(a: { rates: PpnRates | null; usedBefore: number; used: number }): number {
+export function advancePpnUsed(a: { rates: PpnRates | null; usedBefore: number; used: number; scale?: number }): number {
   if (!a.rates) return 0;
+  if (foreign(a.scale)) return inMinor(a, advancePpnUsed);
   const before = Math.max(0, Math.round(a.usedBefore));
   const after = before + Math.max(0, Math.round(a.used));
   const upTo = (u: number) => (u > 0 ? ppnChain(u, a.rates!).ppn : 0);
@@ -640,7 +693,9 @@ export function computeInvoice(input: {
   advanceUsed: number;
   /** Σ PPN of the Uang Muka used (`advancePpnUsed` per item). */
   advancePpn?: number;
+  scale?: number;
 }): InvoiceFigures {
+  if (foreign(input.scale)) return inMinor(input, computeInvoice);
   const parts = input.lines.map(invoiceLineFigures);
   const amounts = parts.map((p) => p.amount);
   const full = amounts.map((a) => taxOf(a, input.mode, input.taxable, input.rates).dpp);

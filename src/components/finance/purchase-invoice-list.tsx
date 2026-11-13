@@ -122,7 +122,7 @@ export function PurchaseInvoiceList({ rows: all, can }: { rows: PurchaseInvoiceL
                         <span className="mono">{r.orderNo}</span>
                       </td>
                       <td className="num">
-                        <span className="mny">{formatMoney(r.total, "IDR")}</span>
+                        <span className="mny">{formatMoney(r.total, r.currency)}</span>
                       </td>
                     </tr>
                   ))}

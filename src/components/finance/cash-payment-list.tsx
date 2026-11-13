@@ -25,7 +25,7 @@ export function CashPaymentList({ paged, can, cash }: { paged: Paged<CashPayment
   const router = useRouter();
   const reg = useRegisterParams();
   const filtered = Boolean(reg.q || reg.status);
-  const money = (n: number) => formatMoney(n, "IDR");
+  const money = (n: number, currency = "IDR") => formatMoney(n, currency);
 
   return (
     <>
@@ -128,10 +128,10 @@ export function CashPaymentList({ paged, can, cash }: { paged: Paged<CashPayment
                         <span className="lab">{r.cashBankLabel}</span>
                       </td>
                       <td className="num">
-                        <span className="mny">{r.pph ? money(r.pph) : "—"}</span>
+                        <span className="mny">{r.pph ? money(r.pph, r.currency) : "—"}</span>
                       </td>
                       <td className="num">
-                        <span className="mny">{money(r.cash)}</span>
+                        <span className="mny">{money(r.cash, r.currency)}</span>
                       </td>
                     </tr>
                   ))}

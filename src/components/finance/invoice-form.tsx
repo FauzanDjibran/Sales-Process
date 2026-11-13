@@ -23,7 +23,7 @@ import {
   type InvoicePayState,
 } from "@/lib/erp/ar-invoice-workflow";
 import type { InvoiceHeaderInput, InvoiceOptions, InvoiceView, InvoiceNoteLine, InvoiceOrderOption } from "@/lib/erp/ar-invoice";
-import { advancePpnUsed, computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine, type PriceMode } from "@/lib/erp/sales-tax";
+import { advancePpnUsed, computeInvoice, taxScale, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine, type PriceMode } from "@/lib/erp/sales-tax";
 import { TAX_MODULE_HIDDEN } from "@/lib/erp/nav";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso, formatPrice } from "@/lib/format";
@@ -49,7 +49,6 @@ type DedState = { key: string; ar_item_id: number; dpp_used: string };
 let seq = 0;
 const newKey = () => `d${Date.now().toString(36)}${seq++}`;
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
-const money = (n: number) => formatMoney(n, "IDR");
 const MODE_TEXT: Record<PriceMode, string> = { Exclude: "Exclude PPN", Include: "Include PPN" };
 
 function addDays(iso: string, days: number): string {
@@ -140,6 +139,11 @@ export function InvoiceForm({
   const noteById = useMemo(() => new Map((order?.noteLines ?? []).map((l) => [l.id, l])), [order]);
   const advanceById = useMemo(() => new Map((order?.advances ?? []).map((a) => [a.id, a])), [order]);
   const orderLineById = useMemo(() => new Map((order?.lines ?? []).map((l) => [l.id, l])), [order]);
+  // The Invoice is in its order's currency (MC3, MC8); figures round to its minor unit.
+  const currency = order?.currency ?? "IDR";
+  const scale = taxScale(currency);
+  const money = (n: number) => formatMoney(n, currency);
+  const banks = options.banks.filter((b) => b.currency === currency);
   const picked = lineIds.map((id) => noteById.get(id)).filter((l): l is InvoiceNoteLine => Boolean(l));
   const posted = invoice?.status === "Posted";
 
@@ -152,15 +156,15 @@ export function InvoiceForm({
   const dedPpn = (d: DedState): number => {
     if (!editing) return invoice?.deductions.find((x) => x.ar_item_id === d.ar_item_id)?.ppn_used ?? 0;
     const a = advanceById.get(d.ar_item_id);
-    return a && order?.taxable ? advancePpnUsed({ rates: order.rates, usedBefore: a.original - a.balance, used: Number(d.dpp_used) || 0 }) : 0;
+    return a && order?.taxable ? advancePpnUsed({ rates: order.rates, usedBefore: a.original - a.balance, used: Number(d.dpp_used) || 0, scale }) : 0;
   };
   const advancePpn = deds.reduce((a, d) => a + dedPpn(d), 0);
 
   // Editing: worked out live. View: as stored — what was saved or posted.
-  const figures: InvoiceFigures | null = useMemo(() => {
+  const figures: InvoiceFigures | null = (() => {
     if (!order) return null;
     if (editing) {
-      return computeInvoice({ lines: pricedLines(order, picked), mode: order.mode, taxable: order.taxable, rates: order.rates, advanceUsed: used, advancePpn });
+      return computeInvoice({ lines: pricedLines(order, picked), mode: order.mode, taxable: order.taxable, rates: order.rates, advanceUsed: used, advancePpn, scale: taxScale(order.currency) });
     }
     const s = invoice!.stored;
     const byLine = new Map(s.lines.map((l) => [l.delivery_note_line_id, l]));
@@ -168,7 +172,8 @@ export function InvoiceForm({
       picked.map((n) => {
         const o = orderLineById.get(n.customerOrderLineId);
         return { key: o?.withholdingTaxId ? String(o.withholdingTaxId) : null, rate: o?.withholdingRate ?? null, dpp: byLine.get(n.id)?.netDpp ?? 0 };
-      })
+      }),
+      taxScale(order.currency)
     );
     const withholdingTotal = withholdings.reduce((a, w) => a + w.amount, 0);
     return {
@@ -200,7 +205,7 @@ export function InvoiceForm({
       withholdingTotal,
       expectedReceipt: s.total - withholdingTotal,
     };
-  }, [order, editing, picked, used, advancePpn, invoice, orderLineById]);
+  })();
 
   const touch = (...names: string[]) => {
     setDirty(true);
@@ -363,7 +368,7 @@ export function InvoiceForm({
               {editing ? (
                 <Combobox
                   value={header.cash_bank_id}
-                  options={options.banks}
+                  options={banks}
                   placeholder="Pilih Rekening…"
                   invalid={Boolean(errors.cash_bank_id)}
                   onChange={(v) => set("cash_bank_id", v)}
@@ -715,6 +720,7 @@ export function InvoiceForm({
                         <>
                           <MoneyInput
                             size="sm"
+                            decimals={scale === 1 ? 0 : 2}
                             value={d.dpp_used}
                             over={Number(d.dpp_used) > free}
                             ariaLabel={`DPP dipakai ${a?.arItemNo ?? ""}`}
@@ -758,6 +764,7 @@ export function InvoiceForm({
       {picking === "advances" && order && (
         <InvoiceAdvancePicker
           advances={order.advances}
+          currency={order.currency}
           taxable={order.taxable}
           nsfp={advanceNsfp}
           current={deds.map((d) => d.ar_item_id)}

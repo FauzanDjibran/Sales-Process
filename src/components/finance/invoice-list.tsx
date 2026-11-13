@@ -135,7 +135,7 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
                         </span>
                       </td>
                       <td className="num">
-                        <span className="mny">{formatMoney(o.total, "IDR")}</span>
+                        <span className="mny">{formatMoney(o.total, o.currency)}</span>
                       </td>
                       <td>
                         {o.pay ? (
@@ -144,7 +144,7 @@ export function InvoiceList({ rows: orders, can }: { rows: InvoiceListRow[]; can
                               <span className={`bdg ${INVOICE_PAY_BADGE[o.pay.state]}`}>{INVOICE_PAY_TEXT[o.pay.state]}</span>
                               {o.pay.overdue && <span className="bdg t-bad" style={{ marginLeft: 4 }}>Lewat tempo</span>}
                             </span>
-                            {o.pay.state === "Partial" && <span className="d2">sisa {formatMoney(o.pay.open, "IDR")}</span>}
+                            {o.pay.state === "Partial" && <span className="d2">sisa {formatMoney(o.pay.open, o.currency)}</span>}
                           </span>
                         ) : (
                           <span className="dash">—</span>

@@ -3,7 +3,8 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { windowOf, type Paged, type RegisterQuery } from "./register-query";
-import { BASE_CURRENCY_LABEL } from "./currency";
+import { BASE_CURRENCY_LABEL, isBaseCurrency } from "./currency";
+import { roundBase, shareBase } from "./fx";
 import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
@@ -22,7 +23,7 @@ import {
   type PpnRates,
   type SettlementLine,
 } from "./sales-tax";
-import { postingAccounts, requireBaseCurrencyId } from "./system-settings";
+import { postingAccounts } from "./system-settings";
 import {
   CASH_BANK_PREFIX,
   cashBankPurpose,
@@ -43,6 +44,7 @@ import {
   type CashBankTxStatus,
 } from "./cash-bank-tx-workflow";
 import { formatMoney } from "@/lib/format";
+import { taxScale } from "./sales-tax";
 
 /**
  * Penerimaan (and, later, Pengeluaran) Kas & Bank — the one document every
@@ -105,6 +107,8 @@ export type CashReceiptInput = {
   note: string;
   /** The company's bank charge on the transfer (P68). */
   bank_charge: number;
+  /** Kurs Terima of a foreign Kas & Bank (MC11); 1 for rupiah. */
+  exchange_rate?: number | string;
   lines: CashReceiptLineInput[];
 };
 
@@ -115,7 +119,6 @@ export type CashReceiptResult =
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const asDate = (d: string) => new Date(`${d}T00:00:00Z`);
 const isoDay = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
-const money = (n: number) => formatMoney(n, BASE_CURRENCY_LABEL);
 const lineKey = (i: number, f: string) => `lines.${i}.${f}`;
 
 // ------------------------------------------------------------ settlements
@@ -179,6 +182,8 @@ export type OpenBill = {
   /** Settled before this receipt. */
   paid: number;
   open: number;
+  /** Its currency: only a Kas & Bank in it settles it (MC14). */
+  currency: string;
 };
 
 
@@ -241,6 +246,7 @@ async function openBills(
         arItemId: null,
         paid: p,
         open: b.total - p,
+        currency: b.currency,
       };
     }),
     ...invoices.map((i) => {
@@ -265,6 +271,7 @@ async function openBills(
         arItemId: i.arItemId,
         paid: i.paid,
         open,
+        currency: i.currency,
       };
     }),
     ...permitAdvances.map((b) => ({
@@ -287,6 +294,8 @@ async function openBills(
       arItemId: null,
       paid: b.paid,
       open: b.total - b.paid,
+      // Perizinan stays rupiah (MC, §6.1).
+      currency: BASE_CURRENCY_LABEL,
     })),
     ...permitInvoices.map((i) => ({
       kind: "fin_ar_permit_invoice" as const,
@@ -308,6 +317,7 @@ async function openBills(
       arItemId: i.arItemId,
       paid: i.paid,
       open: i.total - i.paid,
+      currency: BASE_CURRENCY_LABEL,
     })),
   ];
   // Oldest due first: the order the picker lists them and Bagikan Dana spends in.
@@ -317,7 +327,7 @@ async function openBills(
 // ---------------------------------------------------------------- options
 
 export type ReceiptPartnerOption = { id: number; label: string; name: string; active: boolean; category: string };
-export type ReceiptCashBankOption = { id: number; label: string; name: string; active: boolean; type: string; balance: number };
+export type ReceiptCashBankOption = { id: number; label: string; name: string; active: boolean; type: string; balance: number; currency: string };
 
 export type CashReceiptOptions = {
   purposes: CashBankPurpose[];
@@ -345,8 +355,7 @@ export async function cashReceiptOptions(
       orderBy: { partner_label: "asc" },
     }),
     prisma.mCashBank.findMany({
-      where: { currency: { currency_label: BASE_CURRENCY_LABEL } },
-      include: { book_balance: true },
+      include: { book_balance: true, currency: true },
       orderBy: { cash_bank_label: "asc" },
     }),
     prisma.refWithholdingTax.findMany({ select: { id: true, wht_label: true } }),
@@ -381,6 +390,7 @@ export async function cashReceiptOptions(
       active: c.status === "Active",
       type: c.cash_bank_type,
       balance: c.book_balance?.balance.toNumber() ?? 0,
+      currency: c.currency.currency_label,
     })),
     bills: [...issued.filter((b) => b.open > 0 || mine.has(b.key)), ...own],
     withholdingLabels: Object.fromEntries(taxes.map((t) => [String(t.id), t.wht_label])),
@@ -405,6 +415,8 @@ type Checked = {
     tx_date: Date;
     partner_id: number;
     cash_bank_id: number;
+    currency_id: number;
+    exchange_rate: number;
     bank_ref: string | null;
     note: string | null;
     cash_amount: number;
@@ -445,18 +457,32 @@ export async function checkCashReceipt(
 
   const cashBankId = Number(input.cash_bank_id) || null;
   let cashBankAccountId = 0;
+  // The receipt is in its Kas & Bank's currency, and settles only bills in it (MC14).
+  let currency = BASE_CURRENCY_LABEL;
+  let currencyId = 0;
   if (!cashBankId) errors.cash_bank_id = "Pilih kas atau bank penerima.";
   else {
     const cb = await db.mCashBank.findUnique({ where: { id: cashBankId }, include: { currency: true } });
     if (!cb) errors.cash_bank_id = "Kas & Bank tidak ditemukan.";
-    else if (cb.currency.currency_label !== BASE_CURRENCY_LABEL) errors.cash_bank_id = "Hanya kas & bank Rupiah untuk saat ini.";
     else if (cb.status !== "Active") errors.cash_bank_id = "Kas & Bank tersebut sudah nonaktif.";
-    else cashBankAccountId = cb.account_id;
+    else {
+      cashBankAccountId = cb.account_id;
+      currency = cb.currency.currency_label;
+      currencyId = cb.currency_id;
+    }
+  }
+  const scale = taxScale(currency);
+  const money = (n: number) => formatMoney(n, currency);
+  // Money arriving in a foreign Kas & Bank states the rate it came at (MC11).
+  let rate = 1;
+  if (!isBaseCurrency(currency)) {
+    rate = Number(String(input.exchange_rate ?? "").replace(",", "."));
+    if (!Number.isFinite(rate) || !(rate > 0)) errors.exchange_rate = `Isi Kurs Terima ${currency} ke ${BASE_CURRENCY_LABEL}.`;
   }
 
   const charge = Number(input.bank_charge) || 0;
-  if (!Number.isFinite(charge) || charge < 0 || charge !== Math.round(charge)) {
-    errors.bank_charge = "Biaya bank harus rupiah penuh, nol atau lebih.";
+  if (!Number.isFinite(charge) || charge < 0 || Math.abs(charge * scale - Math.round(charge * scale)) > 1e-6) {
+    errors.bank_charge = scale === 1 ? "Biaya bank harus rupiah penuh, nol atau lebih." : "Biaya bank paling banyak dua desimal, nol atau lebih.";
   }
 
   // ---- lines: documents of the purpose's kind, owed by the partner (P67)
@@ -498,6 +524,10 @@ export async function checkCashReceipt(
       errors[lineKey(i, "doc_id")] = `${bill.no} bukan tagihan partner ini.`;
       continue;
     }
+    if (cashBankId && bill.currency !== currency) {
+      errors[lineKey(i, "doc_id")] = `${bill.no} dalam ${bill.currency}: lunasi dari Kas & Bank ${bill.currency}.`;
+      continue;
+    }
     if (isAdvanceKind(kind) && bill.status !== "Issued") {
       errors[lineKey(i, "doc_id")] = `${bill.no} tidak berstatus Diterbitkan.`;
       continue;
@@ -512,17 +542,17 @@ export async function checkCashReceipt(
     }
     const received = Number(l.cash);
     const withhold = purpose?.withholding ? l.withhold !== false : false;
-    const max = cashToClear(bill, bill.paid, withhold);
-    const problem = receivedProblem(received, max);
+    const max = cashToClear(bill, bill.paid, withhold, scale);
+    const problem = receivedProblem(received, max, scale);
     if (problem) {
       errors[lineKey(i, "cash")] = problem === "Melebihi sisa tagihan." ? `Melebihi yang melunasi ${bill.no} (${money(max)}).` : problem;
       continue;
     }
-    const settled = settleBillFromCash({ bill, before: bill.paid, cash: received, withhold });
+    const settled = settleBillFromCash({ bill, before: bill.paid, cash: received, withhold, scale });
     if (settled.cash !== received) {
       // Two PPh shares moving on the same rupiah can skip a figure; one rupiah
       // either way always lands.
-      errors[lineKey(i, "cash")] = `Nilai ini tidak dapat dibagi tepat dengan PPh-nya; ubah Rp1 (mis. ${money(settled.cash)}).`;
+      errors[lineKey(i, "cash")] = `Nilai ini tidak dapat dibagi tepat dengan PPh-nya; ubah satu satuan terkecil (mis. ${money(settled.cash)}).`;
       continue;
     }
     lines.push({ ...settled, kind, docId: id, withhold, bill });
@@ -531,13 +561,15 @@ export async function checkCashReceipt(
     errors._lines = "Ada tagihan yang perlu diperbaiki.";
   }
 
-  const received = lines.reduce((a, l) => a + l.cash, 0);
+  const c100 = (n: number) => Math.round(n * 100);
+  const sum = (f: (l: CheckedLine) => number) => lines.reduce((a, l) => a + c100(f(l)), 0) / 100;
+  const received = sum((l) => l.cash);
   const balance: ReceiptTotals = {
     received,
     bankCharge: charge,
-    cash: received - charge,
-    settled: lines.reduce((a, l) => a + l.settled, 0),
-    pph: lines.reduce((a, l) => a + l.pph, 0),
+    cash: (c100(received) - c100(charge)) / 100,
+    settled: sum((l) => l.settled),
+    pph: sum((l) => l.pph),
   };
   if (!errors.bank_charge && !errors._lines && lines.length && charge >= received) {
     errors.bank_charge = "Biaya bank harus lebih kecil dari total diterima.";
@@ -553,6 +585,8 @@ export async function checkCashReceipt(
         tx_date: asDate(date),
         partner_id: partnerId!,
         cash_bank_id: cashBankId!,
+        currency_id: currencyId,
+        exchange_rate: rate,
         bank_ref: String(input.bank_ref ?? "").trim() || null,
         note: String(input.note ?? "").trim() || null,
         cash_amount: balance.cash,
@@ -594,16 +628,19 @@ async function kindTypeIds(db: Db): Promise<Record<SettledDocKind, number>> {
   };
 }
 
-function lineRows(typeIds: Record<SettledDocKind, number>, lines: CheckedLine[], actorId: number) {
+/** One line's base (MC12): what the money and its PPh brought, and what the bill's balance released. */
+export type LineBase = { tx: number; settled: number; ppn: number; pph: number[] };
+
+function lineRows(typeIds: Record<SettledDocKind, number>, lines: CheckedLine[], actorId: number, bases?: LineBase[]) {
   return lines.map((l, i) => ({
     line_no: i + 1,
     doc_type_id: typeIds[l.kind],
     doc_id: l.docId,
     settled_amount: l.settled,
-    // shortcut: one currency at rate 1 until Multi-Currency-Plan stage 4 writes
-    // the relief and the transaction base apart, with their difference.
-    base_settled_amount: l.settled,
-    transaction_base_amount: l.settled,
+    // A Draft carries no base: it is worked out when it posts.
+    base_settled_amount: bases?.[i].settled ?? l.settled,
+    transaction_base_amount: bases?.[i].tx ?? l.settled,
+    fx_difference: bases ? (Math.round(bases[i].settled * 100) - Math.round(bases[i].tx * 100)) / 100 : 0,
     withhold: l.withhold,
     dpp_part: l.dppPart,
     ppn_part: l.ppnPart,
@@ -649,7 +686,6 @@ export async function createCashReceipt(input: CashReceiptInput, actorId: number
       data: {
         ...r.c.data,
         tx_no: await nextTxNo(tx, r.c.data.direction, r.c.data.tx_date),
-        currency_id: await requireBaseCurrencyId(tx),
         created_by: actorId,
         lines: { create: lineRows(typeIds, r.c.lines, actorId) },
       },
@@ -703,6 +739,7 @@ function asInput(t: StoredReceipt): CashReceiptInput {
     bank_ref: t.bank_ref ?? "",
     note: t.note ?? "",
     bank_charge: t.bank_charge.toNumber(),
+    exchange_rate: t.exchange_rate.toNumber(),
     lines: [...t.lines]
       .sort((a, b) => a.line_no - b.line_no)
       .map((l) => ({
@@ -724,8 +761,38 @@ export type PostingLine = {
   partnerId: number | null;
   debit: number;
   credit: number;
+  /** Its base in rupiah (MC12); selisih kurs is base only. */
+  base?: number;
+  inBase?: boolean;
   description: string;
 };
+
+/** What the receipt brings in base (MC11, MC12): each line's money and PPh at Kurs Terima, what each bill released. */
+type ReceiptBases = { bank: number; charge: number; lines: LineBase[] };
+
+const c100 = (n: number) => Math.round(n * 100);
+
+/**
+ * The transaction's base at Kurs Terima: the money received and the charge at
+ * the rate, the received base spread over the lines by their money to the cent,
+ * each PPh at the rate, an advance's PPN at the rate. An Invoice line's
+ * `settled` is filled once its item is relieved.
+ */
+function receiptBases(c: Checked): ReceiptBases {
+  const rate = c.data.exchange_rate;
+  const received = roundBase(c.balance.received * rate);
+  const charge = roundBase(c.balance.bankCharge * rate);
+  const cash = shareBase(received, c.lines.map((l) => c100(l.cash)));
+  return {
+    bank: (c100(received) - c100(charge)) / 100,
+    charge,
+    lines: c.lines.map((l, i) => {
+      const pph = l.withholdings.map((w) => roundBase(w.amount * rate));
+      const tx = (c100(cash[i]) + pph.reduce((a, x) => a + c100(x), 0)) / 100;
+      return { tx, settled: tx, ppn: isAdvanceKind(l.kind) ? roundBase(l.ppnPart * rate) : 0, pph };
+    }),
+  };
+}
 
 type Posting = { ok: true; description: string; lines: PostingLine[] } | { ok: false; message: string };
 
@@ -742,20 +809,22 @@ type Posting = { ok: true; description: string; lines: PostingLine[] } | { ok: f
  * Every account is resolved against the master; a missing or unusable one
  * refuses the posting by name, never falls back.
  */
-async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Posting> {
+async function buildPosting(db: Db, c: Checked, partnerName: string, b: ReceiptBases): Promise<Posting> {
+  const fx = b.lines.reduce((a, l) => a + c100(l.settled) - c100(l.tx), 0) / 100;
   const needCharge = c.data.bank_charge > 0;
   const advances = c.lines.filter((l) => isAdvanceKind(l.kind));
   const invoices = c.lines.filter((l) => isInvoiceKind(l.kind));
   // An account is asked for only where it is used: a setting blocks only there.
   // Each advance bill sits in its own liability: goods on Uang Muka Penjualan,
   // Perizinan on Uang Muka Perizinan (P137).
-  type Key = "sales_advance_account" | "permit_advance_account" | "output_vat_account" | "bank_charge_account" | "receivable_account";
+  type Key = "sales_advance_account" | "permit_advance_account" | "output_vat_account" | "bank_charge_account" | "receivable_account" | "fx_account";
   const keys: Key[] = [
     ...(advances.some((l) => l.kind === "fin_ar_advance") ? (["sales_advance_account"] as const) : []),
     ...(advances.some((l) => l.kind === "fin_ar_permit_advance") ? (["permit_advance_account"] as const) : []),
     ...(advances.length ? (["output_vat_account"] as const) : []),
     ...(invoices.length ? (["receivable_account"] as const) : []),
     ...(needCharge ? (["bank_charge_account"] as const) : []),
+    ...(fx !== 0 ? (["fx_account"] as const) : []),
   ];
   const mapped = await postingAccounts<Key>(keys);
   const missing: string[] = mapped.ok ? [] : [...mapped.missing];
@@ -789,7 +858,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
       await db.accAccount.findMany({
         where: {
           id: {
-            in: [c.cashBankAccountId, advanceAcc, permitAdvanceAcc, vatAcc, arAcc, ids.bank_charge_account, ...[...taxes.values()].map((t) => t.account_id)].filter(
+            in: [c.cashBankAccountId, advanceAcc, permitAdvanceAcc, vatAcc, arAcc, ids.bank_charge_account, ids.fx_account, ...[...taxes.values()].map((t) => t.account_id)].filter(
               (x): x is number => Boolean(x)
             ),
           },
@@ -804,7 +873,7 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
       return { ok: false, message: `Account ${a.account_label} mewajibkan partner ${a.partner_category.category_label}, bukan Customer.` };
     }
   }
-  const line = (accountId: number, debit: number, credit: number, description: string, partnerId: number | null = null): PostingLine => {
+  const line = (accountId: number, debit: number, credit: number, description: string, partnerId: number | null = null, base?: number): PostingLine => {
     const a = accounts.get(accountId)!;
     return {
       accountId,
@@ -814,37 +883,46 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<Po
       partnerId: a.require_partner ? partnerId : null,
       debit,
       credit,
+      base,
       description,
     };
   };
 
   const ref = c.data.bank_ref ? ` · ref ${c.data.bank_ref}` : "";
-  const out: PostingLine[] = [line(c.cashBankAccountId, c.data.cash_amount, 0, `Dana diterima dari ${partnerName}${ref}`)];
+  const baseOf = new Map(c.lines.map((l, i) => [l, b.lines[i]]));
+  const out: PostingLine[] = [line(c.cashBankAccountId, c.data.cash_amount, 0, `Dana diterima dari ${partnerName}${ref}`, null, b.bank)];
   if (needCharge) {
-    out.push(line(ids.bank_charge_account!, c.data.bank_charge, 0, "Biaya transfer dipotong bank"));
+    out.push(line(ids.bank_charge_account!, c.data.bank_charge, 0, "Biaya transfer dipotong bank", null, b.charge));
   }
-  const pphByType = new Map<number, { amount: number; rate: number }>();
+  const pphByType = new Map<number, { amount: number; base: number }>();
   for (const l of c.lines) {
-    for (const w of l.withholdings) {
+    for (const [j, w] of l.withholdings.entries()) {
       const k = Number(w.key);
-      const g = pphByType.get(k) ?? { amount: 0, rate: w.rate };
-      g.amount += w.amount;
+      const g = pphByType.get(k) ?? { amount: 0, base: 0 };
+      g.amount = (c100(g.amount) + c100(w.amount)) / 100;
+      g.base = (c100(g.base) + c100(baseOf.get(l)!.pph[j])) / 100;
       pphByType.set(k, g);
     }
   }
   for (const [k, g] of pphByType) {
     const t = taxes.get(k)!;
-    out.push(line(t.account_id!, g.amount, 0, `${t.wht_label} dipotong ${partnerName} — bukti potong menunggu`, c.data.partner_id));
+    out.push(line(t.account_id!, g.amount, 0, `${t.wht_label} dipotong ${partnerName} — bukti potong menunggu`, c.data.partner_id, g.base));
   }
+  // An advance's DPP part is what the line brought less its PPN at Kurs Terima: no selisih kurs (MC9).
   for (const l of advances) {
-    if (l.dppPart > 0) out.push(line(advanceAccOf(l.kind), 0, l.dppPart, `Uang muka ${l.bill.no} (${l.bill.orderNo})`, c.data.partner_id));
+    const x = baseOf.get(l)!;
+    if (l.dppPart > 0) out.push(line(advanceAccOf(l.kind), 0, l.dppPart, `Uang muka ${l.bill.no} (${l.bill.orderNo})`, c.data.partner_id, (c100(x.tx) - c100(x.ppn)) / 100));
   }
-  const ppn = advances.reduce((a, l) => a + l.ppnPart, 0);
-  if (ppn > 0) out.push(line(vatAcc, 0, ppn, `PPN uang muka terutang saat diterima — ${advances.filter((l) => l.ppnPart > 0).map((l) => l.bill.no).join(", ")}`));
-  // An Invoice's PPN was booked at the Invoice: all it settles clears Piutang (U25).
+  const ppn = advances.reduce((a, l) => a + c100(l.ppnPart), 0) / 100;
+  const ppnBase = advances.reduce((a, l) => a + c100(baseOf.get(l)!.ppn), 0) / 100;
+  if (ppn > 0) out.push(line(vatAcc, 0, ppn, `PPN uang muka terutang saat diterima — ${advances.filter((l) => l.ppnPart > 0).map((l) => l.bill.no).join(", ")}`, null, ppnBase));
+  // An Invoice's PPN was booked at the Invoice: all it settles clears Piutang (U25), at its own carrying rate (MC10).
   for (const l of invoices) {
-    out.push(line(arAcc, 0, l.settled, `Pelunasan ${l.bill.no}${l.settled < l.bill.open ? " (sebagian)" : ""} (${l.bill.orderNo})`, c.data.partner_id));
+    out.push(line(arAcc, 0, l.settled, `Pelunasan ${l.bill.no}${l.settled < l.bill.open ? " (sebagian)" : ""} (${l.bill.orderNo})`, c.data.partner_id, baseOf.get(l)!.settled));
   }
+  // Piutang released at its own rate, the money at Kurs Terima: the rest is
+  // selisih kurs (MC12) — a loss when more Piutang left than the money brought.
+  if (fx !== 0) out.push({ ...line(ids.fx_account!, Math.max(0, fx), Math.max(0, -fx), `Selisih kurs pelunasan — ${invoices.map((l) => l.bill.no).join(", ")}`), inBase: true });
 
   return {
     ok: true,
@@ -956,9 +1034,6 @@ export async function transitionCashReceipt(
       }
       const r = await checkCashReceipt(tx, stored);
       if (!r.ok) throw new Refused({ _form: `Belum bisa diposting: ${Object.values(r.errors)[0]}` });
-      const posting = await buildPosting(tx, r.c, t.partner.partner_name);
-      if (!posting.ok) throw new Refused({ _form: posting.message });
-
       const done = await tx.finCashBankTx.updateMany({
         where: { id, status: "Draft" },
         data: {
@@ -972,14 +1047,58 @@ export async function transitionCashReceipt(
       if (done.count !== 1) throw new Refused({ _form: "Penerimaan berubah saat diproses. Muat ulang halaman." });
 
       const typeId = await docTypeId(tx, "fin_cash_bank_tx");
+      const typeIds = await kindTypeIds(tx);
+      const date = isoDay(t.tx_date);
+      const fmt = (v: number) => formatMoney(v, r.c.lines[0]?.bill.currency ?? BASE_CURRENCY_LABEL);
+      const bases = receiptBases(r.c);
+      // The books move first, so the journal carries what they actually hold.
+      // Each bill paid is an Uang Muka the customer now holds, in the bill's
+      // one AR item (P133): the first payment creates it, a later one raises
+      // it, at the DPP part the Uang Muka account was credited with — in base,
+      // what the money brought less its PPN (MC9) — so the items reconcile
+      // with that account. The item also holds what the bill has been paid (P214).
+      for (const [i, l] of r.c.lines.entries()) {
+        if (!isAdvanceKind(l.kind)) continue;
+        await receiveAdvance(tx, {
+          paid: l.settled,
+          documentTotal: l.bill.total,
+          partnerId: t.partner_id,
+          currencyId: r.c.data.currency_id,
+          date,
+          source: { docTypeId: typeIds[l.kind], docId: l.docId, no: l.bill.no },
+          createdBy: { docTypeId: typeId, docId: id, no: t.tx_no },
+          scope: { docTypeId: await docTypeId(tx, SCOPE_OF_KIND[l.kind]), docId: l.bill.orderId },
+          amount: l.dppPart,
+          base: (c100(bases.lines[i].tx) - c100(bases.lines[i].ppn)) / 100,
+          note: `Uang muka ${l.bill.no} diterima`,
+          actorId,
+        });
+      }
+      // Each Invoice paid lowers its Invoice item by all it settles (P72), at its own carrying rate (MC10).
+      for (const [i, l] of r.c.lines.entries()) {
+        if (!isInvoiceKind(l.kind) || !l.bill.arItemId) continue;
+        bases.lines[i].settled = await settleArItem(tx, {
+          itemId: l.bill.arItemId,
+          event: "Payment",
+          amount: l.settled,
+          date,
+          doc: { docTypeId: typeId, docId: id, no: t.tx_no },
+          note: l.pph ? `Diterima ${fmt(l.cash)} + PPh ${fmt(l.pph)}` : `Diterima ${fmt(l.cash)}`,
+          actorId,
+        });
+      }
+
+      const posting = await buildPosting(tx, r.c, t.partner.partner_name, bases);
+      if (!posting.ok) throw new Refused({ _form: posting.message });
       const journalLines = posting.lines.map(
         (l): JournalLineInput => ({
           accountId: l.accountId,
           partnerId: l.partnerId,
-          currencyId: baseCurrency.id,
-          rate: 1,
+          currencyId: l.inBase ? baseCurrency.id : r.c.data.currency_id,
+          rate: l.inBase ? 1 : r.c.data.exchange_rate,
           debit: l.debit,
           credit: l.credit,
+          baseAmount: l.inBase ? undefined : l.base,
           description: l.description,
         })
       );
@@ -991,64 +1110,31 @@ export async function transitionCashReceipt(
         actorId,
         lines: journalLines,
       });
+      // The money joins the Kas & Bank at Kurs Terima (MC11).
       await recordCashBankEntry(tx, {
         cashBankId: t.cash_bank_id,
-        date: isoDay(t.tx_date),
+        date,
         type: "Transaction",
         direction: "In",
-        rate: 1,
+        rate: r.c.data.exchange_rate,
         amount: r.c.data.cash_amount,
+        base: bases.bank,
         sourceDocTypeId: typeId,
         sourceDocId: id,
         note: `${t.tx_no} · ${posting.description}`,
         actorId,
       });
-      await tx.finCashBankTx.update({ where: { id }, data: { journal_id: journal.id } });
+      await tx.finCashBankTx.update({ where: { id }, data: { journal_id: journal.id, currency_id: r.c.data.currency_id, exchange_rate: r.c.data.exchange_rate } });
 
       // The settled figures are restated as posted: another receipt may have
       // settled part of a bill since this Draft was saved.
-      const typeIds = await kindTypeIds(tx);
       await tx.finCashBankTxLine.deleteMany({ where: { tx_id: id } });
-      for (const line of lineRows(typeIds, r.c.lines, actorId)) {
+      for (const line of lineRows(typeIds, r.c.lines, actorId, bases.lines)) {
         await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
       }
-      // Each bill paid is an Uang Muka the customer now holds, in the bill's
-      // one AR item (P133): the first payment creates it, a later one raises
-      // it, at the DPP part the Uang Muka account was credited with, so the
-      // items reconcile with that account. The item also holds what the bill
-      // has been paid — the next receipt's `before` (P214).
-      for (const l of r.c.lines) {
-        if (!isAdvanceKind(l.kind)) continue;
-        await receiveAdvance(tx, {
-          paid: l.settled,
-          documentTotal: l.bill.total,
-          partnerId: t.partner_id,
-          currencyId: baseCurrency.id,
-          date: isoDay(t.tx_date),
-          source: { docTypeId: typeIds[l.kind], docId: l.docId, no: l.bill.no },
-          createdBy: { docTypeId: typeId, docId: id, no: t.tx_no },
-          scope: { docTypeId: await docTypeId(tx, SCOPE_OF_KIND[l.kind]), docId: l.bill.orderId },
-          amount: l.dppPart,
-          base: l.dppPart,
-          note: `Uang muka ${l.bill.no} diterima`,
-          actorId,
-        });
-      }
-      // Each Invoice paid lowers its Invoice item by all it settles (P72).
-      for (const l of r.c.lines) {
-        if (!isInvoiceKind(l.kind) || !l.bill.arItemId) continue;
-        await settleArItem(tx, {
-          itemId: l.bill.arItemId,
-          event: "Payment",
-          amount: l.settled,
-          date: isoDay(t.tx_date),
-          doc: { docTypeId: typeId, docId: id, no: t.tx_no },
-          note: l.pph ? `Diterima ${money(l.cash)} + PPh ${money(l.pph)}` : `Diterima ${money(l.cash)}`,
-          actorId,
-        });
-      }
       await audit(tx, id, "UPDATE", "post", actorId);
-      if (afterPost) await afterPost(tx);
+      // No faktur pajak or bukti potong for a foreign receipt while the tax module waits (MC15, OD-16).
+      if (afterPost && r.c.data.exchange_rate === 1 && isBaseCurrency(r.c.lines[0]?.bill.currency)) await afterPost(tx);
       if (options.dryRun) throw new PostingDryRun(journalLines);
     });
     return { ok: true as const };
@@ -1059,6 +1145,8 @@ export async function transitionCashReceipt(
 
 export type CashReceiptListRow = {
   id: number;
+  /** The document's currency, every figure on the row is in (MC3). */
+  currency: string;
   txNo: string;
   date: string;
   status: CashBankTxStatus;
@@ -1103,7 +1191,7 @@ export async function cashBankTxPage(direction: "In" | "Out", query: RegisterQue
     orderBy: [{ status: "asc" }, { tx_date: "desc" }, { id: "desc" }],
     skip: win.skip,
     take: win.take,
-    include: { partner: true, cash_bank: true, lines: { select: { doc_id: true, doc_type: { select: { doc_table: true } } } } },
+    include: { partner: true, cash_bank: true, currency: true, lines: { select: { doc_id: true, doc_type: { select: { doc_table: true } } } } },
   });
   return { rows, total, all, page: win.page, pages: win.pages, size: query.size };
 }
@@ -1130,6 +1218,7 @@ export async function listCashReceipts(query: RegisterQuery): Promise<Paged<Cash
     ...page,
     rows: rows.map((r) => ({
       id: r.id,
+      currency: r.currency.currency_label,
       txNo: r.tx_no,
       date: isoDay(r.tx_date),
       status: r.status as CashBankTxStatus,

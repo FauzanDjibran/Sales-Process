@@ -126,7 +126,7 @@ export function CustomerOrderList({ orders, can }: { orders: CustomerOrderListRo
                       </td>
                       <td className="num">{o.lines}</td>
                       <td className="num">
-                        <span className="mny">{formatMoney(o.total, "IDR")}</span>
+                        <span className="mny">{formatMoney(o.total, o.currency)}</span>
                       </td>
                     </tr>
                   ))}

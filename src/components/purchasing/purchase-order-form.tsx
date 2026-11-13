@@ -15,7 +15,10 @@ import { useToast } from "@/components/ui/toast";
 import { PurchaseOrderActions } from "@/components/purchasing/purchase-order-actions";
 import { PurchaseOrderRequestPicker } from "@/components/purchasing/purchase-order-request-picker";
 import { createPurchaseOrderAction, updatePurchaseOrderAction } from "@/app/actions/purchase-order";
-import { computeSalesTotals, type DiscountType, type PriceMode } from "@/lib/erp/sales-tax";
+import { computeSalesTotals, taxScale, type DiscountType, type PriceMode } from "@/lib/erp/sales-tax";
+import { CurrencyFields } from "@/components/finance/currency-fields";
+import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
+import { sumBase, withBase } from "@/lib/erp/fx";
 import {
   PURCHASE_ORDER_KINDS,
   PURCHASE_ORDER_REASON_TEXT,
@@ -57,7 +60,6 @@ type LineState = {
 let seq = 0;
 const newKey = () => `l${Date.now().toString(36)}${seq++}`;
 const MODE_TEXT: Record<PriceMode, string> = { Exclude: "Exclude PPN", Include: "Include PPN" };
-const money = (n: number) => formatMoney(n, "IDR");
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 const discountOf = (l: { discount_type: DiscountType; discount_value: string }) =>
   Number(l.discount_value) > 0 ? { type: l.discount_type, value: Number(l.discount_value) } : { type: null, value: null };
@@ -88,6 +90,8 @@ export function PurchaseOrderForm({
       : {
           item_type: k.itemType,
           order_date: today,
+          currency_id: options.currencies[0]?.id ?? null,
+          exchange_rate: "1",
           supplier_id: null,
           term_id: null,
           delivery_date: today,
@@ -118,6 +122,10 @@ export function PurchaseOrderForm({
   const [picking, setPicking] = useState(false);
 
   const supplier = options.suppliers.find((s) => s.id === header.supplier_id) ?? null;
+  // The order's currency (MC3): its figures round to its own minor unit (MC5).
+  const currencyLabel = options.currencies.find((c) => c.id === header.currency_id)?.label ?? BASE_CURRENCY_LABEL;
+  const scale = taxScale(currencyLabel);
+  const money = (n: number) => formatMoney(n, currencyLabel);
   const hasTaxId = Boolean(supplier?.taxId);
   const itemById = useMemo(() => new Map(options.items.map((i) => [i.id, i])), [options.items]);
   const srcById = useMemo(() => new Map(options.sources.map((s) => [s.id, s])), [options.sources]);
@@ -139,13 +147,20 @@ export function PurchaseOrderForm({
     const s = options.suppliers.find((x) => x.id === id) ?? null;
     setHeader((h) => ({
       ...h,
+      // The supplier's Currency Default starts the order, until it has lines (MC3).
+      ...(!lines.some((l) => l.item_id) && s?.defaultCurrencyId && s.defaultCurrencyId !== h.currency_id
+        ? {
+            currency_id: s.defaultCurrencyId,
+            exchange_rate: isBaseCurrency(options.currencies.find((c) => c.id === s.defaultCurrencyId)?.label) ? "1" : "",
+          }
+        : {}),
       supplier_id: id,
       term_id: s?.defaultTermId ?? h.term_id,
       price_mode: s?.defaultPriceMode ?? h.price_mode,
       // Only a PKP issues a faktur pajak (B10).
       is_taxable: s ? s.isPkp && h.is_taxable : h.is_taxable,
     }));
-    touch("supplier_id", "term_id", "price_mode", "is_taxable");
+    touch("supplier_id", "term_id", "price_mode", "is_taxable", "currency_id", "exchange_rate");
   };
   const setLine = (key: string, patch: Partial<LineState>) => {
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
@@ -223,7 +238,11 @@ export function PurchaseOrderForm({
     taxable: header.is_taxable,
     vatCollector: false,
     rates,
+    scale,
   });
+  // What the order is worth in base, as its save stores it (MC4).
+  const rateNum = Number(header.exchange_rate) || 0;
+  const baseOf = sumBase(totals.lines.map((l) => withBase({ dpp: l.dpp, ppn: l.ppn }, rateNum)), ["dpp", "ppn"] as const);
 
   async function onSave() {
     setSaving(true);
@@ -332,6 +351,22 @@ export function PurchaseOrderForm({
         </FormSection>
 
         <FormSection title="Harga & Pajak">
+          <FormRow>
+            <CurrencyFields
+              editing={editing}
+              currencies={options.currencies}
+              rates={options.exchangeRates}
+              date={header.order_date}
+              currencyId={header.currency_id ?? null}
+              rate={String(header.exchange_rate ?? "1")}
+              locked={lines.some((l) => l.item_id)}
+              errors={errors}
+              onChange={(currency_id, exchange_rate) => {
+                setHeader((h) => ({ ...h, currency_id, exchange_rate }));
+                touch("currency_id", "exchange_rate");
+              }}
+            />
+          </FormRow>
           <FormRow>
             <Field label="PPN" span={4} help={editing ? "hanya supplier PKP" : undefined} error={errors.is_taxable}>
               {editing ? (
@@ -536,7 +571,7 @@ export function PurchaseOrderForm({
                           {l.discount_type === "Percent" ? (
                             <PercentInput size="sm" value={l.discount_value} ariaLabel="Diskon persen" onChange={(v) => setLine(l.key, { discount_value: v })} />
                           ) : (
-                            <MoneyInput size="sm" value={l.discount_value} ariaLabel="Nilai diskon" onChange={(v) => setLine(l.key, { discount_value: v })} />
+                            <MoneyInput size="sm" decimals={scale === 1 ? 0 : 2} value={l.discount_value} ariaLabel="Nilai diskon" onChange={(v) => setLine(l.key, { discount_value: v })} />
                           )}
                         </div>
                       ) : discountOf(l).type ? (
@@ -652,6 +687,12 @@ export function PurchaseOrderForm({
             <span>Total Purchase Order</span>
             <b>{money(totals.total)}</b>
           </div>
+          {scale !== 1 && rateNum > 0 && (
+            <div className="ir est">
+              <span>Setara {BASE_CURRENCY_LABEL} (kurs {String(header.exchange_rate)})</span>
+              <b>{formatMoney(baseOf.base_dpp + baseOf.base_ppn, BASE_CURRENCY_LABEL)}</b>
+            </div>
+          )}
         </div>
       </div>
     </div>

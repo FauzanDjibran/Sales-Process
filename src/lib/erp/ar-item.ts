@@ -241,6 +241,12 @@ export class ArItemOverdrawn extends Error {
   }
 }
 
+/** What an item holds now, in both measures — its carrying rate is base ÷ foreign (MC10, MC13). */
+export async function arItemHeld(db: Prisma.TransactionClient, itemId: number): Promise<{ foreign: number; base: number }> {
+  const i = await db.finArItem.findUniqueOrThrow({ where: { id: itemId }, select: { current_balance: true, base_current_balance: true } });
+  return { foreign: i.current_balance.toNumber(), base: i.base_current_balance.toNumber() };
+}
+
 /**
  * Lowers an item's balance by `amount` — a payment on an Invoice, an advance
  * used by an Invoice — with the row locked, and writes the entry. Thrown
@@ -540,6 +546,8 @@ export type AdvanceItemForInvoice = {
   /** The receipt, from the Create entry. */
   createdByNo: string;
   balance: number;
+  /** The balance in base: an Uang Muka used is relieved at its carrying rate (MC13). */
+  baseBalance: number;
   /** The DPP it was born at; what posted Invoices used of it is original − balance. */
   original: number;
 };
@@ -578,6 +586,7 @@ export async function advanceItemsForInvoice(
     sourceId: i.source_doc_id,
     createdByNo: i.entries[0]?.doc_no ?? "",
     balance: i.current_balance.toNumber(),
+    baseBalance: i.base_current_balance.toNumber(),
     original: i.original_amount.toNumber(),
   }));
 }

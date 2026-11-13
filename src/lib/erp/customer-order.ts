@@ -5,8 +5,8 @@ import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { formatAddress } from "./partner-shape";
 import { CUSTOMER_CATEGORY } from "./entities";
-import { PPN_SETTINGS_MISSING, ppnRates, requireBaseCurrencyId } from "./system-settings";
-import { withBase } from "./fx";
+import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
+import { checkDocumentCurrency, documentCurrencyOptions, orderLineBase, orderTotalsData, type CurrencyOption, type TransactionRate } from "./document-currency";
 import {
   computeSalesTotals,
   lineProblem,
@@ -45,6 +45,10 @@ type Db = Prisma.TransactionClient | typeof prisma;
 
 export type CustomerOrderHeaderInput = {
   order_date: string;
+  /** The order's currency (MC3); empty means the base currency. */
+  currency_id?: number | null;
+  /** Its rate to base (MC6): 1 for the base currency. */
+  exchange_rate?: number | string;
   customer_id: number | null;
   address_id: number | null;
   term_id: number | null;
@@ -86,6 +90,8 @@ export type SoCustomerOption = {
   addresses: { id: number; text: string; isBilling: boolean; isShipping: boolean }[];
   defaultTermId: number | null;
   defaultPriceMode: PriceMode | null;
+  /** Currency Default (P270); null = the base currency. */
+  defaultCurrencyId: number | null;
   collectsPph22: boolean;
   vatCollector: boolean;
   isPkp: boolean;
@@ -114,6 +120,9 @@ export type CustomerOrderOptions = {
   withholdingTaxes: SoWhtOption[];
   /** The PPN rate and factor a Draft is computed with now (P60); null when unset. */
   ppnRates: PpnRates | null;
+  currencies: CurrencyOption[];
+  /** The Kurs master's Transaction rates, for the suggestion (MC6). */
+  exchangeRates: TransactionRate[];
 };
 
 /** Why a customer cannot be ordered for, or an empty list. */
@@ -135,7 +144,7 @@ function customerProblems(c: {
 }
 
 export async function customerOrderOptions(): Promise<CustomerOrderOptions> {
-  const [partners, items, terms, taxes, rates] = await Promise.all([
+  const [partners, items, terms, taxes, rates, money] = await Promise.all([
     prisma.mPartner.findMany({
       where: { category: { category_label: CUSTOMER_CATEGORY } },
       orderBy: { partner_label: "asc" },
@@ -155,6 +164,7 @@ export async function customerOrderOptions(): Promise<CustomerOrderOptions> {
     prisma.refPaymentTerm.findMany({ orderBy: { due_days: "asc" } }),
     prisma.refWithholdingTax.findMany({ where: { usage: "Sales" }, orderBy: { wht_label: "asc" } }),
     ppnRates(),
+    documentCurrencyOptions(),
   ]);
 
   return {
@@ -181,6 +191,7 @@ export async function customerOrderOptions(): Promise<CustomerOrderOptions> {
       }),
       defaultTermId: p.default_term_id,
       defaultPriceMode: p.default_price_mode,
+      defaultCurrencyId: p.sales_currency_id,
       collectsPph22: p.collects_pph22,
       vatCollector: p.vat_collector === "Government",
       isPkp: p.is_pkp,
@@ -206,6 +217,8 @@ export async function customerOrderOptions(): Promise<CustomerOrderOptions> {
       rate: t.rate.toNumber(),
     })),
     ppnRates: rates,
+    currencies: money.currencies,
+    exchangeRates: money.rates,
   };
 }
 
@@ -230,6 +243,8 @@ export type CustomerOrderCheck =
       ok: true;
       header: {
         order_date: Date;
+        currency_id: number;
+        exchange_rate: number;
         customer_id: number;
         address_id: number;
         term_id: number;
@@ -266,6 +281,9 @@ export async function checkCustomerOrder(
   else if (poDate && DAY.test(orderDate) && poDate > orderDate) {
     errors.po_date = "Tidak boleh setelah tanggal CO.";
   }
+
+  // ---- currency and rate (MC3, MC6)
+  const currency = await checkDocumentCurrency(prisma, header, errors);
 
   // ---- customer and what hangs off it
   const customerId = Number(header.customer_id) || null;
@@ -394,7 +412,7 @@ export async function checkCustomerOrder(
   const rates = taxable ? await ppnRates() : null;
   if (taxable && !rates) errors._form = PPN_SETTINGS_MISSING;
 
-  if (Object.keys(errors).length) return { ok: false, errors };
+  if (Object.keys(errors).length || !currency) return { ok: false, errors };
 
   const totals = computeSalesTotals({
     lines: checked.map((l) => ({
@@ -409,12 +427,15 @@ export async function checkCustomerOrder(
     taxable,
     vatCollector,
     rates,
+    scale: currency!.scale,
   });
 
   return {
     ok: true,
     header: {
       order_date: asDate(orderDate),
+      currency_id: currency!.currencyId,
+      exchange_rate: currency!.rate,
       customer_id: customerId!,
       address_id: Number(header.address_id),
       term_id: termId!,
@@ -452,26 +473,7 @@ function rateData(r: PpnRates | null) {
   };
 }
 
-// shortcut: every order is rupiah at rate 1 until Multi-Currency-Plan stage 3
-// gives it a currency and its own rate.
-const RATE = 1;
-
-function totalsData(t: SalesTotals) {
-  return withBase(
-    {
-      gross_amount: t.gross,
-      discount_amount: t.discount,
-      dpp_amount: t.dpp,
-      dpp_other_amount: t.dppOther,
-      ppn_amount: t.ppn,
-      total_amount: t.total,
-    },
-    RATE
-  );
-}
-
-function lineData(l: CheckedLine, t: SalesTotals, i: number) {
-  const r = t.lines[i];
+function lineData(l: CheckedLine, t: SalesTotals, i: number, rate: number) {
   return {
     line_no: l.line_no,
     item_id: l.item_id,
@@ -481,7 +483,7 @@ function lineData(l: CheckedLine, t: SalesTotals, i: number) {
     price: l.price,
     discount_type: l.discount_type,
     discount_value: l.discount_value,
-    ...withBase({ discount_amount: r.discount, amount: r.amount, dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn }, RATE),
+    ...orderLineBase(t, i, rate),
     withholding_tax_id: l.withholding_tax_id,
     withholding_rate: l.withholding_rate,
     note: l.note,
@@ -505,13 +507,12 @@ export async function createCustomerOrder(
     const order = await tx.salCustomerOrder.create({
       data: {
         ...c.header,
-        ...totalsData(c.totals),
+        ...orderTotalsData(c.totals, c.header.exchange_rate),
         ...rateData(c.rates),
         order_no: await nextOrderNo(tx, c.header.order_date, c.header.is_taxable),
-        currency_id: await requireBaseCurrencyId(tx),
         copied_from_id: copiedFromId,
         created_by: actorId,
-        lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i)) },
+        lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i, c.header.exchange_rate)) },
       },
     });
     await audit(tx, order.id, "TAMBAH", "create", actorId);
@@ -546,11 +547,11 @@ export async function updateCustomerOrder(
       where: { id },
       data: {
         ...c.header,
-        ...totalsData(c.totals),
+        ...orderTotalsData(c.totals, c.header.exchange_rate),
         ...rateData(c.rates),
         ...(renumbered ? { order_no: renumbered } : {}),
         updated_by: actorId,
-        lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i)) },
+        lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i, c.header.exchange_rate)) },
       },
     });
     await audit(tx, id, "UPDATE", "update", actorId);
@@ -563,6 +564,8 @@ export async function updateCustomerOrder(
 function asInput(o: Prisma.SalCustomerOrderGetPayload<{ include: { lines: true } }>) {
   const header: CustomerOrderHeaderInput = {
     order_date: isoDay(o.order_date),
+    currency_id: o.currency_id,
+    exchange_rate: o.exchange_rate.toNumber(),
     customer_id: o.customer_id,
     address_id: o.address_id,
     term_id: o.term_id,
@@ -676,16 +679,15 @@ export async function transitionCustomerOrder(
   await prisma.$transaction(async (tx) => {
     const done = await tx.salCustomerOrder.updateMany({
       where: { id, status: from },
-      data: { status: t.to, ...totalsData(c.totals), ...rateData(c.rates), updated_by: actorId },
+      data: { status: t.to, ...orderTotalsData(c.totals, c.header.exchange_rate), ...rateData(c.rates), updated_by: actorId },
     });
     if (done.count !== 1) throw new Error(moved);
     // Ajukan freezes the snapshot (P60): the lines are restated with the rate
     // in force now, in case the setting changed since the Draft was saved.
     for (const [i, l] of c.lines.entries()) {
-      const r = c.totals.lines[i];
       await tx.salCustomerOrderLine.updateMany({
         where: { order_id: id, line_no: l.line_no },
-        data: { ...withBase({ dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn }, RATE), withholding_rate: l.withholding_rate },
+        data: { ...orderLineBase(c.totals, i, c.header.exchange_rate), withholding_rate: l.withholding_rate },
       });
     }
     await audit(tx, id, "UPDATE", STEP_EVENT[action], actorId);
@@ -697,6 +699,8 @@ export async function transitionCustomerOrder(
 
 export type CustomerOrderListRow = {
   id: number;
+  /** The document's currency, every figure on the row is in (MC3). */
+  currency: string;
   orderNo: string;
   orderDate: string;
   customerLabel: string;
@@ -709,10 +713,11 @@ export type CustomerOrderListRow = {
 export async function listCustomerOrders(): Promise<CustomerOrderListRow[]> {
   const rows = await prisma.salCustomerOrder.findMany({
     orderBy: [{ order_date: "desc" }, { id: "desc" }],
-    include: { customer: true, _count: { select: { lines: true } } },
+    include: { customer: true, currency: true, _count: { select: { lines: true } } },
   });
   return rows.map((r) => ({
     id: r.id,
+    currency: r.currency.currency_label,
     orderNo: r.order_no,
     orderDate: isoDay(r.order_date),
     customerLabel: r.customer.partner_label,
@@ -858,6 +863,9 @@ export type AdvanceSourceOrder = {
   salesperson: string | null;
   /** How many lines the order has, for the bill's one-line summary of it. */
   lineCount: number;
+  /** The order's currency (MC3): its bills follow it. */
+  currencyId: number;
+  currency: string;
   basis: AdvanceBasis;
   /** Jenis PPh label by the basis's withholding key. */
   withholdingLabels: Record<string, string>;
@@ -877,6 +885,7 @@ export async function advanceSourceOrders(
     include: {
       customer: true,
       term: true,
+      currency: true,
       address: { include: { village: { include: { district: { include: { city: { include: { province: true } } } } } } } },
       lines: { include: { withholding_tax: true } },
     },
@@ -920,6 +929,8 @@ export async function advanceSourceOrders(
       termName: o.term.term_name,
       salesperson: o.salesperson,
       lineCount: o.lines.length,
+      currencyId: o.currency_id,
+      currency: o.currency.currency_label,
       basis: {
         mode: o.price_mode as PriceMode,
         taxable: o.is_taxable,
@@ -958,6 +969,10 @@ export type InvoiceSourceOrder = {
   mode: PriceMode;
   taxable: boolean;
   rates: PpnRates | null;
+  /** The order's currency and rate: its Invoices value every line at it (MC8). */
+  currencyId: number;
+  currency: string;
+  exchangeRate: number;
   lines: {
     id: number;
     lineNo: number;
@@ -984,6 +999,7 @@ export async function invoiceSourceOrders(filter: { ids?: number[] }, db: Db = p
     include: {
       customer: true,
       term: true,
+      currency: true,
       lines: { include: { item: true, uom: true, withholding_tax: true }, orderBy: { line_no: "asc" } },
     },
   });
@@ -1006,6 +1022,9 @@ export async function invoiceSourceOrders(filter: { ids?: number[] }, db: Db = p
       o.is_taxable && o.ppn_rate && o.ppn_dpp_other_numerator && o.ppn_dpp_other_denominator
         ? { rate: o.ppn_rate.toNumber(), otherNum: o.ppn_dpp_other_numerator, otherDen: o.ppn_dpp_other_denominator }
         : null,
+    currencyId: o.currency_id,
+    currency: o.currency.currency_label,
+    exchangeRate: o.exchange_rate.toNumber(),
     lines: o.lines.map((l) => ({
       id: l.id,
       lineNo: l.line_no,

@@ -21,6 +21,7 @@ import {
   type ReceiptNoteAction,
   type ReceiptNoteStatus,
 } from "./receipt-note-workflow";
+import { taxScale } from "./sales-tax";
 
 /**
  * The Receipt Note module (P125, Purchasing-Concept.md B17–B22): its tables are
@@ -534,7 +535,10 @@ export async function transitionReceiptNote(
       let total = 0;
       for (const line of r.c.lines) {
         const po = byId.get(line.source_doc_line_id)!;
-        const value = cumulativeShare(po.dpp, po.qty, po.received, line.qty);
+        // The stock comes in at the PO's DPP in base, at the order's rate (MC7); the
+        // same quantity's DPP in the order's currency is kept for the Invoice that bills it.
+        const value = cumulativeShare(po.baseDpp, po.qty, po.received, line.qty);
+        const orderDpp = cumulativeShare(po.dpp, po.qty, po.received, line.qty, taxScale(r.c.source.currency));
         const stored = await tx.logReceiptNoteLine.findUniqueOrThrow({
           where: { receipt_note_id_source_doc_line_id: { receipt_note_id: id, source_doc_line_id: line.source_doc_line_id } },
           select: { id: true },
@@ -568,7 +572,7 @@ export async function transitionReceiptNote(
             });
           }
         }
-        await tx.logReceiptNoteLine.update({ where: { id: stored.id }, data: { value_amount: value } });
+        await tx.logReceiptNoteLine.update({ where: { id: stored.id }, data: { value_amount: value, order_dpp_amount: orderDpp } });
         received.set(line.source_doc_line_id, line.qty);
         total += value;
         if (value > 0) {
@@ -743,6 +747,8 @@ export type ApInvoiceSourceLine = {
   purchaseOrderLineId: number;
   qty: number;
   value: number;
+  /** The PO DPP for this quantity in the PO currency (MC7). */
+  orderDpp: number;
 };
 
 /** Every posted receipt line, ids only, with its PO — to find the POs with something to bill. */
@@ -773,6 +779,7 @@ export async function apInvoiceSourceLines(filter: { orderIds?: number[]; lineId
     purchaseOrderLineId: l.source_doc_line_id,
     qty: l.qty.toNumber(),
     value: l.value_amount.toNumber(),
+    orderDpp: l.order_dpp_amount.toNumber(),
   }));
 }
 

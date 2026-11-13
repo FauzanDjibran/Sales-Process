@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/icon";
 import { Dialog } from "@/components/ui/dialog";
-import { cashToClear } from "@/lib/erp/sales-tax";
+import { cashToClear, taxScale } from "@/lib/erp/sales-tax";
 import type { OpenPayable } from "@/lib/erp/cash-payment";
 import { PAID_DOC_TEXT, type PaidDocKind } from "@/lib/erp/cash-bank-purposes";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -20,6 +20,7 @@ export type PickedPayment = { key: string; kind: PaidDocKind; docId: number; cas
  */
 export function PaymentBillPicker({
   bills,
+  currency = "IDR",
   current,
   noun,
   partnerName,
@@ -28,6 +29,8 @@ export function PaymentBillPicker({
   onClose,
 }: {
   bills: OpenPayable[];
+  /** The Kas & Bank's currency, which every bill shown is in (MC14). */
+  currency?: string;
   current: PickedPayment[];
   noun: string;
   partnerName: string;
@@ -46,7 +49,7 @@ export function PaymentBillPicker({
     });
 
   const kept = (b: OpenPayable) => current.find((l) => l.key === b.key);
-  const clearOf = (b: OpenPayable) => cashToClear(b, b.paid, withhold ? kept(b)?.withhold ?? true : false);
+  const clearOf = (b: OpenPayable) => cashToClear(b, b.paid, withhold ? kept(b)?.withhold ?? true : false, taxScale(currency));
   const chosen = bills.filter((b) => on.has(b.key));
   const clearTotal = chosen.reduce((a, b) => a + clearOf(b), 0);
 
@@ -67,7 +70,7 @@ export function PaymentBillPicker({
         <>
           <span className="fnote">
             {chosen.length
-              ? `${chosen.length} dipilih · lunas bila dibayar ${formatMoney(clearTotal, "IDR")}`
+              ? `${chosen.length} dipilih · lunas bila dibayar ${formatMoney(clearTotal, currency)}`
               : "Centang tagihan yang dibayar ke supplier."}
           </span>
           <button className="btn" onClick={onClose}>
@@ -134,13 +137,13 @@ export function PaymentBillPicker({
                     </span>
                   </td>
                   <td className="num">
-                    <span className="mny">{formatMoney(b.total, "IDR")}</span>
+                    <span className="mny">{formatMoney(b.total, currency)}</span>
                   </td>
                   <td className="num">
-                    {b.paid ? <span className="mny">{formatMoney(b.paid, "IDR")}</span> : <span className="dash">—</span>}
+                    {b.paid ? <span className="mny">{formatMoney(b.paid, currency)}</span> : <span className="dash">—</span>}
                   </td>
                   <td className="num">
-                    <span className="mny">{formatMoney(b.open, "IDR")}</span>
+                    <span className="mny">{formatMoney(b.open, currency)}</span>
                   </td>
                 </tr>
               );

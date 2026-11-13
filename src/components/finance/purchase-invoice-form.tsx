@@ -13,7 +13,7 @@ import { useToast } from "@/components/ui/toast";
 import { PurchaseInvoiceActions } from "@/components/finance/purchase-invoice-actions";
 import { PurchaseInvoicePicker } from "@/components/finance/purchase-invoice-pickers";
 import { createPurchaseInvoiceAction, updatePurchaseInvoiceAction } from "@/app/actions/ap-invoice";
-import { advancePpnUsed } from "@/lib/erp/sales-tax";
+import { advancePpnUsed, taxScale } from "@/lib/erp/sales-tax";
 import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, computePurchaseInvoice, type InvoiceAbilities } from "@/lib/erp/ap-invoice-workflow";
 import type { PiAdvance, PiReceiptLine, PurchaseInvoiceHeaderInput, PurchaseInvoiceOptions, PurchaseInvoiceView } from "@/lib/erp/ap-invoice";
 import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso } from "@/lib/format";
@@ -27,7 +27,6 @@ import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso
  * figure is `computePurchaseInvoice`, which Posting books from.
  */
 
-const money = (n: number) => formatMoney(n, "IDR");
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 type Ded = { ap_item_id: number; dpp_used: string };
 
@@ -62,6 +61,10 @@ export function PurchaseInvoiceForm({
   const lineById = useMemo(() => new Map((order?.receiptLines ?? []).map((l) => [l.id, l])), [order]);
   const advById = useMemo(() => new Map((order?.advances ?? []).map((a) => [a.id, a])), [order]);
   const poLine = useMemo(() => new Map((order?.lines ?? []).map((l) => [l.id, l])), [order]);
+  // The invoice is in its order's currency (MC3, MC7); figures round to its minor unit.
+  const currency = order?.currency ?? "IDR";
+  const scale = taxScale(currency);
+  const money = (n: number) => formatMoney(n, currency);
   const touch = (...names: string[]) => {
     setDirty(true);
     setErrors((e) => {
@@ -80,14 +83,14 @@ export function PurchaseInvoiceForm({
     .map((d) => {
       const a = advById.get(d.ap_item_id);
       const used = Number(d.dpp_used) || 0;
-      return a ? { a, used, ppn: order?.taxable ? advancePpnUsed({ rates: order.rates, usedBefore: a.original - a.balance, used }) : 0 } : null;
+      return a ? { a, used, ppn: order?.taxable ? advancePpnUsed({ rates: order.rates, usedBefore: a.original - a.balance, used, scale }) : 0 } : null;
     })
     .filter((x): x is { a: PiAdvance; used: number; ppn: number } => Boolean(x));
   const supplierTotal = h.supplier_total === null || String(h.supplier_total).trim() === "" ? null : Number(h.supplier_total);
   const f = computePurchaseInvoice({
     lines: picked.map((l) => {
       const p = poLine.get(l.purchaseOrderLineId);
-      return { dpp: l.value, withholdingRate: p?.withholdingRate ?? null, withholdingKey: p?.withholdingTaxId ? String(p.withholdingTaxId) : null };
+      return { dpp: l.orderDpp, withholdingRate: p?.withholdingRate ?? null, withholdingKey: p?.withholdingTaxId ? String(p.withholdingTaxId) : null };
     }),
     taxable: order?.taxable ?? false,
     rates: order?.rates ?? null,
@@ -95,6 +98,8 @@ export function PurchaseInvoiceForm({
     advancePpn: usedDeds.reduce((s, d) => s + d.ppn, 0),
     supplierTotal,
     tolerance: options.tolerance,
+    scale,
+    rate: order?.exchangeRate ?? 1,
   });
   const whtLabel = (key: string) => order?.lines.find((l) => String(l.withholdingTaxId) === key)?.withholdingLabel ?? "PPh";
 
@@ -285,7 +290,7 @@ export function PurchaseInvoiceForm({
                   </td>
                   <td>{l.withholdingLabel ? <span className="lab">{l.withholdingLabel}</span> : <span className="dash">—</span>}</td>
                   <td className="num">
-                    <span className="mny">{money(l.value)}</span>
+                    <span className="mny">{money(l.orderDpp)}</span>
                   </td>
                   {editing && (
                     <td>
@@ -350,6 +355,7 @@ export function PurchaseInvoiceForm({
                     {editing ? (
                       <MoneyInput
                         size="sm"
+                        decimals={scale === 1 ? 0 : 2}
                         value={deds[i].dpp_used}
                         ariaLabel={`DPP dipakai ${a.apItemNo}`}
                         onChange={(v) => {
@@ -395,7 +401,7 @@ export function PurchaseInvoiceForm({
             <span>Total tagihan supplier</span>
             {editing ? (
               <span style={{ width: 180 }}>
-                <MoneyInput size="sm" value={h.supplier_total == null ? "" : String(h.supplier_total)} ariaLabel="Total tagihan supplier" onChange={(v) => set("supplier_total", v === "" ? null : v)} />
+                <MoneyInput size="sm" decimals={scale === 1 ? 0 : 2} value={h.supplier_total == null ? "" : String(h.supplier_total)} ariaLabel="Total tagihan supplier" onChange={(v) => set("supplier_total", v === "" ? null : v)} />
               </span>
             ) : (
               <b>{invoice?.header.supplier_total != null ? money(Number(invoice.header.supplier_total)) : "tidak dibandingkan"}</b>
@@ -403,7 +409,7 @@ export function PurchaseInvoiceForm({
           </div>
           {(supplierTotal !== null || shown.difference !== 0) && (
             <div className={`ir ${f.withinTolerance || mode === "view" ? "" : "est"}`}>
-              <span>Selisih (toleransi {money(options.tolerance)})</span>
+              <span>Selisih (toleransi {formatMoney(options.tolerance, "IDR")})</span>
               <b>
                 {money(shown.difference)} {mode !== "view" && !f.withinTolerance && <span className="bdg t-bad">melebihi toleransi</span>}
               </b>
@@ -512,6 +518,7 @@ export function PurchaseInvoiceForm({
       </div>
       {picker && order && (
         <PurchaseInvoicePicker
+          currency={currency}
           kind={picker}
           lines={order.receiptLines}
           advances={order.advances}

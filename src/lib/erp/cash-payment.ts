@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import type { Paged, RegisterQuery } from "./register-query";
 import { BASE_CURRENCY_LABEL } from "./currency";
+import { roundBase, shareBase } from "./fx";
 import { nextDocumentNumber } from "./document-number";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
@@ -13,8 +14,8 @@ import { lockPurchaseInvoices, purchaseInvoiceNumbersByIds, settlementPurchaseIn
 import { cashBankTxPage } from "./cash-bank-tx";
 import { checkAccountIsLeaf } from "./records";
 import { lockPurchaseAdvances, purchaseAdvanceNumbersByIds, settlementAdvances, unpaidAdvanceIds } from "./ap-advance";
-import { cashToClear, receivedProblem, settleBillFromCash, type SettlementLine } from "./sales-tax";
-import { postingAccounts, requireBaseCurrencyId } from "./system-settings";
+import { cashToClear, receivedProblem, settleBillFromCash, taxScale, type SettlementLine } from "./sales-tax";
+import { postingAccounts } from "./system-settings";
 import { CASH_BANK_PREFIX, cashBankPurpose, paidKey, purposesFor, type CashBankPurpose, type PaidDocKind } from "./cash-bank-purposes";
 import { lockPermitRequests, permitCostDocs, permitRequestNumbersByIds, recordPermitCostPaid } from "./permit-request";
 import { costBillNumbersByIds, lockCostBills, payableCostBills, recordCostBillPaid } from "./production-cost-bill";
@@ -65,8 +66,8 @@ export type CashPaymentResult = { ok: true; id: number; txNo: string } | { ok: f
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const asDate = (d: string) => new Date(`${d}T00:00:00Z`);
 const isoDay = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");
-const money = (n: number) => formatMoney(n, BASE_CURRENCY_LABEL);
 const lineKey = (i: number, f: string) => `lines.${i}.${f}`;
+const c100 = (n: number) => Math.round(n * 100);
 
 async function docTypeId(db: Db, table: string): Promise<number> {
   const row = await db.sysDocType.findFirst({ where: { doc_table: table }, select: { id: true } });
@@ -96,6 +97,8 @@ export type OpenPayable = {
   payableAccountId?: number;
   paid: number;
   open: number;
+  /** Its currency: only a Kas & Bank in it pays it (MC14). */
+  currency: string;
 };
 
 async function openPayables(
@@ -146,6 +149,7 @@ async function openPayables(
         apItemId: null,
         paid: p,
         open: b.total - p,
+        currency: b.currency,
       };
     }),
     // An Invoice's PPh and PPN were booked at the invoice, so it is paid in cash only (B27).
@@ -169,6 +173,7 @@ async function openPayables(
         apItemId: i.apItemId,
         paid: i.paid,
         open,
+        currency: i.currency,
       };
     }),
     ...costs.map((d) => ({
@@ -189,6 +194,8 @@ async function openPayables(
       apItemId: null,
       paid: d.paid,
       open: d.cost - d.paid,
+      // Biaya Perizinan and Tagihan Biaya stay rupiah (§6.1).
+      currency: BASE_CURRENCY_LABEL,
     })),
     ...bills.map((b) => ({
       kind: "prd_cost_bill" as const,
@@ -209,6 +216,7 @@ async function openPayables(
       payableAccountId: b.payableAccountId,
       paid: b.paid,
       open: b.total - b.paid,
+      currency: BASE_CURRENCY_LABEL,
     })),
   ];
   return out.sort((a, b) => (a.dueDate === b.dueDate ? a.id - b.id : a.dueDate < b.dueDate ? -1 : 1));
@@ -219,7 +227,7 @@ async function openPayables(
 export type CashPaymentOptions = {
   purposes: CashBankPurpose[];
   partners: { id: number; label: string; name: string; active: boolean; category: string }[];
-  cashBanks: { id: number; label: string; name: string; active: boolean; type: string; balance: number }[];
+  cashBanks: { id: number; label: string; name: string; active: boolean; type: string; balance: number; currency: string }[];
   bills: OpenPayable[];
   withholdingLabels: Record<string, string>;
 };
@@ -232,7 +240,7 @@ export async function cashPaymentOptions(current: { id: number; docs: { kind: Pa
       include: { category: true },
       orderBy: { partner_label: "asc" },
     }),
-    prisma.mCashBank.findMany({ where: { currency: { currency_label: BASE_CURRENCY_LABEL } }, include: { book_balance: true }, orderBy: { cash_bank_label: "asc" } }),
+    prisma.mCashBank.findMany({ include: { book_balance: true, currency: true }, orderBy: { cash_bank_label: "asc" } }),
     prisma.refWithholdingTax.findMany({ select: { id: true, wht_label: true } }),
   ]);
   const open = await openPayables(prisma, { openOnly: true });
@@ -256,6 +264,7 @@ export async function cashPaymentOptions(current: { id: number; docs: { kind: Pa
       active: c.status === "Active",
       type: c.cash_bank_type,
       balance: c.book_balance?.balance.toNumber() ?? 0,
+      currency: c.currency.currency_label,
     })),
     bills: [...open.filter((b) => b.open > 0 || mine.has(b.key)), ...own],
     withholdingLabels: Object.fromEntries(taxes.map((t) => [String(t.id), t.wht_label])),
@@ -275,6 +284,7 @@ type Checked = {
     tx_date: Date;
     partner_id: number;
     cash_bank_id: number;
+    currency_id: number;
     bank_ref: string | null;
     note: string | null;
     cash_amount: number;
@@ -306,17 +316,27 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput): Promise
 
   const cashBankId = Number(input.cash_bank_id) || null;
   let cashBankAccountId = 0;
+  // The payment is in its Kas & Bank's currency, and pays only bills in it (MC14).
+  let currency = BASE_CURRENCY_LABEL;
+  let currencyId = 0;
   if (!cashBankId) errors.cash_bank_id = "Pilih kas atau bank pembayar.";
   else {
     const cb = await db.mCashBank.findUnique({ where: { id: cashBankId }, include: { currency: true } });
     if (!cb) errors.cash_bank_id = "Kas & Bank tidak ditemukan.";
-    else if (cb.currency.currency_label !== BASE_CURRENCY_LABEL) errors.cash_bank_id = "Hanya kas & bank Rupiah untuk saat ini.";
     else if (cb.status !== "Active") errors.cash_bank_id = "Kas & Bank tersebut sudah nonaktif.";
-    else cashBankAccountId = cb.account_id;
+    else {
+      cashBankAccountId = cb.account_id;
+      currency = cb.currency.currency_label;
+      currencyId = cb.currency_id;
+    }
   }
+  const scale = taxScale(currency);
+  const money = (n: number) => formatMoney(n, currency);
 
   const charge = Number(input.bank_charge) || 0;
-  if (!Number.isFinite(charge) || charge < 0 || charge !== Math.round(charge)) errors.bank_charge = "Biaya bank harus rupiah penuh, nol atau lebih.";
+  if (!Number.isFinite(charge) || charge < 0 || Math.abs(charge * scale - Math.round(charge * scale)) > 1e-6) {
+    errors.bank_charge = scale === 1 ? "Biaya bank harus rupiah penuh, nol atau lebih." : "Biaya bank paling banyak dua desimal, nol atau lebih.";
+  }
 
   const raw = Array.isArray(input.lines) ? input.lines : [];
   const lines: CheckedLine[] = [];
@@ -357,6 +377,10 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput): Promise
       errors[lineKey(i, "doc_id")] = `${bill.no} bukan tagihan partner ini.`;
       continue;
     }
+    if (cashBankId && bill.currency !== currency) {
+      errors[lineKey(i, "doc_id")] = `${bill.no} dalam ${bill.currency}: bayar dari Kas & Bank ${bill.currency}.`;
+      continue;
+    }
     if (kind === "fin_ap_advance" && bill.status !== "Issued") {
       errors[lineKey(i, "doc_id")] = `${bill.no} belum dicatat.`;
       continue;
@@ -379,29 +403,30 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput): Promise
     }
     const cash = Number(l.cash);
     const withhold = purpose?.withholding ? l.withhold !== false : false;
-    const max = cashToClear(bill, bill.paid, withhold);
-    const problem = receivedProblem(cash, max);
+    const max = cashToClear(bill, bill.paid, withhold, scale);
+    const problem = receivedProblem(cash, max, scale);
     if (problem) {
       errors[lineKey(i, "cash")] = problem === "Melebihi sisa tagihan." ? `Melebihi yang melunasi ${bill.no} (${money(max)}).` : problem;
       continue;
     }
-    const settled = settleBillFromCash({ bill, before: bill.paid, cash, withhold });
+    const settled = settleBillFromCash({ bill, before: bill.paid, cash, withhold, scale });
     if (settled.cash !== cash) {
-      errors[lineKey(i, "cash")] = `Nilai ini tidak dapat dibagi tepat dengan PPh-nya; ubah Rp1 (mis. ${money(settled.cash)}).`;
+      errors[lineKey(i, "cash")] = `Nilai ini tidak dapat dibagi tepat dengan PPh-nya; ubah satu satuan terkecil (mis. ${money(settled.cash)}).`;
       continue;
     }
     lines.push({ ...settled, kind, docId: bill.id, withhold, bill });
   }
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) errors._lines = "Ada tagihan yang perlu diperbaiki.";
 
-  const paid = lines.reduce((a, l) => a + l.cash, 0);
+  const sum = (f: (l: CheckedLine) => number) => lines.reduce((a, l) => a + c100(f(l)), 0) / 100;
+  const paid = sum((l) => l.cash);
   // What leaves the bank is what the supplier gets plus the bank's charge (B25).
   const balance: PaymentTotals = {
     paid,
     bankCharge: charge,
-    cash: paid + charge,
-    settled: lines.reduce((a, l) => a + l.settled, 0),
-    pph: lines.reduce((a, l) => a + l.pph, 0),
+    cash: (c100(paid) + c100(charge)) / 100,
+    settled: sum((l) => l.settled),
+    pph: sum((l) => l.pph),
   };
   if (Object.keys(errors).length || !purpose) return { ok: false, errors };
   return {
@@ -413,6 +438,7 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput): Promise
         tx_date: asDate(date),
         partner_id: partnerId!,
         cash_bank_id: cashBankId!,
+        currency_id: currencyId,
         bank_ref: String(input.bank_ref ?? "").trim() || null,
         note: String(input.note ?? "").trim() || null,
         cash_amount: balance.cash,
@@ -440,7 +466,7 @@ async function audit(db: Db, id: number, action: "TAMBAH" | "UPDATE", event: str
   await db.auditLog.create({ data: { entity_key: "fin_cash_bank_tx", row_id: id, action, event, by } });
 }
 
-async function lineRows(db: Db, lines: CheckedLine[], actorId: number) {
+async function lineRows(db: Db, lines: CheckedLine[], actorId: number, bases?: PaymentLineBase[]) {
   const typeIds: Partial<Record<PaidDocKind, number>> = {};
   for (const l of lines) typeIds[l.kind] ??= await docTypeId(db, l.kind);
   return lines.map((l, i) => ({
@@ -448,10 +474,10 @@ async function lineRows(db: Db, lines: CheckedLine[], actorId: number) {
     doc_type_id: typeIds[l.kind]!,
     doc_id: l.docId,
     settled_amount: l.settled,
-    // shortcut: one currency at rate 1 until Multi-Currency-Plan stage 6 writes
-    // the relief and the transaction base apart, with their difference.
-    base_settled_amount: l.settled,
-    transaction_base_amount: l.settled,
+    // A Draft carries no base: it is worked out when it posts.
+    base_settled_amount: bases?.[i].settled ?? l.settled,
+    transaction_base_amount: bases?.[i].tx ?? l.settled,
+    fx_difference: bases ? (c100(bases[i].settled) - c100(bases[i].tx)) / 100 : 0,
     withhold: l.withhold,
     dpp_part: l.dppPart,
     ppn_part: l.ppnPart,
@@ -484,7 +510,7 @@ export async function createCashPayment(input: CashPaymentInput, actorId: number
   if (!r.ok) return r;
   const made = await prisma.$transaction(async (tx) => {
     const row = await tx.finCashBankTx.create({
-      data: { ...r.c.data, tx_no: await nextTxNo(tx, r.c.data.tx_date), currency_id: await requireBaseCurrencyId(tx), created_by: actorId, lines: { create: await lineRows(tx, r.c.lines, actorId) } },
+      data: { ...r.c.data, tx_no: await nextTxNo(tx, r.c.data.tx_date), created_by: actorId, lines: { create: await lineRows(tx, r.c.lines, actorId) } },
     });
     await audit(tx, row.id, "TAMBAH", "create", actorId);
     return row;
@@ -539,26 +565,63 @@ async function accountProblem(db: Db, id: number): Promise<string | null> {
   return checkAccountIsLeaf(id);
 }
 
+/** One line's base (MC12): what the money and its PPh took from the bank, and what the bill's balance released. */
+type PaymentLineBase = { tx: number; settled: number; ppn: number; pph: number[] };
+/** What the payment took in base: the bank at its average (P37), shared over the lines and the charge. */
+type PaymentBases = { bank: number; charge: number; rate: number; lines: PaymentLineBase[] };
+
 /**
- * The journal a checked payment writes (B26):
+ * The payment's base once the bank released it at its moving average (MC11):
+ * that base spread over the lines' money and the charge to the cent, each PPh
+ * and each advance's PPN at the same effective rate. An Invoice line's
+ * `settled` is filled once its item is relieved.
+ */
+function paymentBases(c: Checked, bankBase: number): PaymentBases {
+  const rate = c.data.cash_amount > 0 ? bankBase / c.data.cash_amount : 1;
+  const shares = shareBase(bankBase, [...c.lines.map((l) => c100(l.cash)), c100(c.data.bank_charge)]);
+  return {
+    bank: bankBase,
+    charge: shares[c.lines.length],
+    rate,
+    lines: c.lines.map((l, i) => {
+      const pph = l.withholdings.map((w) => roundBase(w.amount * rate));
+      const tx = (c100(shares[i]) + pph.reduce((a, x) => a + c100(x), 0)) / 100;
+      return { tx, settled: tx, ppn: l.kind === "fin_ap_advance" ? roundBase(l.ppnPart * rate) : 0, pph };
+    }),
+  };
+}
+
+/**
+ * The journal a checked payment writes (B26), each line in the payment's
+ * currency at its base:
  *
  *   Dr Uang Muka Pembelian   per advance bill, its DPP part, naming the supplier
  *   Dr PPN Masukan           the advance bills' PPN parts
+ *   Dr Hutang Usaha          per Invoice, at its own carrying rate (MC10)
  *   Dr Beban Bank            biaya bank
- *      Cr Kas & Bank            what left the bank
+ *      Cr Kas & Bank            what left the bank, at its average
  *      Cr Hutang PPh            per Jenis PPh the company withheld
+ *   ± Selisih Kurs           Hutang released less what the bank paid (MC12)
  */
-async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ ok: true; description: string; lines: JournalLineInput[] } | { ok: false; message: string }> {
+async function buildPosting(
+  db: Db,
+  c: Checked,
+  partnerName: string,
+  b: PaymentBases
+): Promise<{ ok: true; description: string; lines: JournalLineInput[] } | { ok: false; message: string }> {
   const advances = c.lines.filter((l) => l.kind === "fin_ap_advance");
   const invoices = c.lines.filter((l) => l.kind === "fin_ap_invoice");
   const costs = c.lines.filter((l) => l.kind === "sal_permit_request");
   const productionBills = c.lines.filter((l) => l.kind === "prd_cost_bill");
-  type Key = "purchase_advance_account" | "input_vat_account" | "bank_charge_account" | "payable_account" | "permit_cost_account";
+  const baseOf = new Map(c.lines.map((l, i) => [l, b.lines[i]]));
+  const fx = b.lines.reduce((a, l) => a + c100(l.settled) - c100(l.tx), 0) / 100;
+  type Key = "purchase_advance_account" | "input_vat_account" | "bank_charge_account" | "payable_account" | "permit_cost_account" | "fx_account";
   const keys: Key[] = [
     ...(costs.length ? (["permit_cost_account"] as const) : []),
     ...(advances.length ? (["purchase_advance_account", "input_vat_account"] as const) : []),
     ...(invoices.length ? (["payable_account"] as const) : []),
     ...(c.data.bank_charge > 0 ? (["bank_charge_account"] as const) : []),
+    ...(fx !== 0 ? (["fx_account"] as const) : []),
   ];
   const mapped = await postingAccounts<Key>(keys);
   const missing: string[] = mapped.ok ? [] : [...mapped.missing];
@@ -584,41 +647,66 @@ async function buildPosting(db: Db, c: Checked, partnerName: string): Promise<{ 
       })
     ).map((a) => [a.id, a])
   );
-  const currency = await db.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
-  const line = (accountId: number, debit: number, credit: number, description: string, partnerId: number | null = null): JournalLineInput => ({
+  const base = await db.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
+  // The rate a journal line states is the bank's effective one; its base is given exactly.
+  const rate = Math.round(b.rate * 1e6) / 1e6 || 1;
+  const line = (accountId: number, debit: number, credit: number, baseAmount: number, description: string, partnerId: number | null = null): JournalLineInput => ({
     accountId,
     partnerId: accounts.get(accountId)?.require_partner ? partnerId : null,
-    currencyId: currency!.id,
-    rate: 1,
+    currencyId: c.data.currency_id,
+    rate,
     debit,
     credit,
+    baseAmount,
     description,
   });
   const out: JournalLineInput[] = [];
   for (const l of advances) {
-    if (l.dppPart > 0) out.push(line(ids.purchase_advance_account!, l.dppPart, 0, `Uang muka ${l.bill.no} (${l.bill.orderNo})`, c.data.partner_id));
+    const x = baseOf.get(l)!;
+    if (l.dppPart > 0) out.push(line(ids.purchase_advance_account!, l.dppPart, 0, (c100(x.tx) - c100(x.ppn)) / 100, `Uang muka ${l.bill.no} (${l.bill.orderNo})`, c.data.partner_id));
   }
-  const ppn = advances.reduce((a, l) => a + l.ppnPart, 0);
-  if (ppn > 0) out.push(line(ids.input_vat_account!, ppn, 0, `PPN Masukan uang muka — ${advances.filter((l) => l.ppnPart > 0).map((l) => l.bill.no).join(", ")}`));
+  const ppn = advances.reduce((a, l) => a + c100(l.ppnPart), 0) / 100;
+  const ppnBase = advances.reduce((a, l) => a + c100(baseOf.get(l)!.ppn), 0) / 100;
+  if (ppn > 0) out.push(line(ids.input_vat_account!, ppn, 0, ppnBase, `PPN Masukan uang muka — ${advances.filter((l) => l.ppnPart > 0).map((l) => l.bill.no).join(", ")}`));
   for (const l of invoices) {
-    out.push(line(ids.payable_account!, l.settled, 0, `Pelunasan ${l.bill.no}${l.settled < l.bill.open ? " (sebagian)" : ""} (${l.bill.orderNo})`, c.data.partner_id));
+    out.push(line(ids.payable_account!, l.settled, 0, baseOf.get(l)!.settled, `Pelunasan ${l.bill.no}${l.settled < l.bill.open ? " (sebagian)" : ""} (${l.bill.orderNo})`, c.data.partner_id));
   }
   // Biaya Perizinan: the realised cost, expensed without tax (Z13).
   for (const l of costs) {
-    out.push(line(ids.permit_cost_account!, l.settled, 0, `Biaya perizinan realisasi ${l.bill.no} (${l.bill.orderNo})${l.settled < l.bill.open ? " — sebagian" : ""}`));
+    out.push(line(ids.permit_cost_account!, l.settled, 0, baseOf.get(l)!.tx, `Biaya perizinan realisasi ${l.bill.no} (${l.bill.orderNo})${l.settled < l.bill.open ? " — sebagian" : ""}`));
   }
   // Tagihan Biaya: the cost is already recorded; only the payable clears.
   for (const l of productionBills) {
-    out.push(line(l.bill.payableAccountId!, l.settled, 0, `Pembayaran ${l.bill.no} — ${l.bill.orderNo}${l.settled < l.bill.open ? " (sebagian)" : ""}`, c.data.partner_id));
+    out.push(line(l.bill.payableAccountId!, l.settled, 0, baseOf.get(l)!.tx, `Pembayaran ${l.bill.no} — ${l.bill.orderNo}${l.settled < l.bill.open ? " (sebagian)" : ""}`, c.data.partner_id));
   }
-  if (c.data.bank_charge > 0) out.push(line(ids.bank_charge_account!, c.data.bank_charge, 0, "Biaya transfer bank"));
+  if (c.data.bank_charge > 0) out.push(line(ids.bank_charge_account!, c.data.bank_charge, 0, b.charge, "Biaya transfer bank"));
   const ref = c.data.bank_ref ? ` · ref ${c.data.bank_ref}` : "";
-  out.push(line(c.cashBankAccountId, 0, c.data.cash_amount, `Dana dibayar ke ${partnerName}${ref}`));
-  const pphByType = new Map<number, number>();
-  for (const l of c.lines) for (const w of l.withholdings) pphByType.set(Number(w.key), (pphByType.get(Number(w.key)) ?? 0) + w.amount);
-  for (const [k, amount] of pphByType) {
+  out.push(line(c.cashBankAccountId, 0, c.data.cash_amount, b.bank, `Dana dibayar ke ${partnerName}${ref}`));
+  const pphByType = new Map<number, { amount: number; base: number }>();
+  for (const l of c.lines) {
+    for (const [j, w] of l.withholdings.entries()) {
+      const g = pphByType.get(Number(w.key)) ?? { amount: 0, base: 0 };
+      g.amount = (c100(g.amount) + c100(w.amount)) / 100;
+      g.base = (c100(g.base) + c100(baseOf.get(l)!.pph[j])) / 100;
+      pphByType.set(Number(w.key), g);
+    }
+  }
+  for (const [k, g] of pphByType) {
     const t = taxes.get(k)!;
-    if (amount > 0) out.push(line(t.account_id!, 0, amount, `${t.wht_label} dipotong atas ${partnerName}`, c.data.partner_id));
+    if (g.amount > 0) out.push(line(t.account_id!, 0, g.amount, g.base, `${t.wht_label} dipotong atas ${partnerName}`, c.data.partner_id));
+  }
+  // Hutang released at its own rate, the bank at its average: the rest is
+  // selisih kurs (MC12) — a gain when more Hutang left than the bank paid.
+  if (fx !== 0) {
+    out.push({
+      accountId: ids.fx_account!,
+      partnerId: null,
+      currencyId: base!.id,
+      rate: 1,
+      debit: Math.max(0, -fx),
+      credit: Math.max(0, fx),
+      description: `Selisih kurs pelunasan — ${invoices.map((l) => l.bill.no).join(", ")}`,
+    });
   }
   return { ok: true, description: `Pembayaran ${c.lines.map((l) => l.bill.no).join(", ")} — ${partnerName}`, lines: out };
 }
@@ -682,8 +770,6 @@ export async function transitionCashPayment(
       if (invoiceIds.length) await lockApItems(tx, (await settlementPurchaseInvoices({ ids: invoiceIds }, tx)).flatMap((i) => (i.apItemId ? [i.apItemId] : [])));
       const r = await checkCashPayment(tx, stored);
       if (!r.ok) throw new Refused({ _form: `Belum bisa diposting: ${Object.values(r.errors)[0]}` });
-      const posting = await buildPosting(tx, r.c, t.partner.partner_name);
-      if (!posting.ok) throw new Refused({ _form: posting.message });
       const done = await tx.finCashBankTx.updateMany({
         where: { id, status: "Draft" },
         data: { status: "Posted", cash_amount: r.c.data.cash_amount, settled_amount: r.c.balance.settled, pph_amount: r.c.balance.pph, updated_by: actorId },
@@ -691,28 +777,23 @@ export async function transitionCashPayment(
       if (done.count !== 1) throw new Refused({ _form: "Pengeluaran berubah saat diproses. Muat ulang halaman." });
 
       const typeId = await docTypeId(tx, "fin_cash_bank_tx");
-      const journal = await postJournal(tx, {
-        description: `${t.tx_no} · ${posting.description}`,
-        sourceDocTypeId: typeId,
-        sourceDocId: id,
-        postingDate: t.tx_date,
-        actorId,
-        lines: posting.lines,
-      });
-      await recordCashBankEntry(tx, {
+      const date = isoDay(t.tx_date);
+      const note = `${t.tx_no} · Pembayaran ${r.c.lines.map((l) => l.bill.no).join(", ")} — ${t.partner.partner_name}`;
+      const fmt = (v: number) => formatMoney(v, r.c.lines[0]?.bill.currency ?? BASE_CURRENCY_LABEL);
+      // The money leaves first, at the bank's moving average (P37, MC11): what
+      // it released in base is what every line and the charge are worth.
+      const out = await recordCashBankEntry(tx, {
         cashBankId: t.cash_bank_id,
-        date: isoDay(t.tx_date),
+        date,
         type: "Transaction",
         direction: "Out",
         amount: r.c.data.cash_amount,
         sourceDocTypeId: typeId,
         sourceDocId: id,
-        note: `${t.tx_no} · ${posting.description}`,
+        note,
         actorId,
       });
-      await tx.finCashBankTx.update({ where: { id }, data: { journal_id: journal.id } });
-      await tx.finCashBankTxLine.deleteMany({ where: { tx_id: id } });
-      for (const line of await lineRows(tx, r.c.lines, actorId)) await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
+      const bases = paymentBases(r.c, -out.base_movement.toNumber());
       // The Biaya Perizinan and the Tagihan Biaya still record what they were
       // paid on themselves (P132); an advance bill and an Invoice have it held
       // by their AP item, below (P214).
@@ -721,41 +802,60 @@ export async function transitionCashPayment(
         else if (l.kind === "prd_cost_bill") await recordCostBillPaid(tx, l.docId, l.settled);
       }
       // Each advance bill paid is an Uang Muka the company now holds with the
-      // supplier, in the bill's one AP item (P133), at its DPP part; the item
-      // also holds what the bill has been paid (P214).
+      // supplier, in the bill's one AP item (P133), at its DPP part — in base,
+      // what the money took less its PPN (MC9); the item also holds what the
+      // bill has been paid (P214).
       const advanceType = r.c.lines.some((l) => l.kind === "fin_ap_advance") ? await docTypeId(tx, "fin_ap_advance") : 0;
-      for (const l of r.c.lines) {
+      for (const [i, l] of r.c.lines.entries()) {
         if (l.kind !== "fin_ap_advance") continue;
         await payAdvance(tx, {
           paid: l.settled,
           documentTotal: l.bill.total,
           partnerId: t.partner_id,
-          currencyId: currency.id,
-          date: isoDay(t.tx_date),
+          currencyId: r.c.data.currency_id,
+          date,
           source: { docTypeId: advanceType, docId: l.docId, no: l.bill.no },
           createdBy: { docTypeId: typeId, docId: id, no: t.tx_no },
           orderId: l.bill.orderId,
           amount: l.dppPart,
-          base: l.dppPart,
+          base: (c100(bases.lines[i].tx) - c100(bases.lines[i].ppn)) / 100,
           note: `Uang muka ${l.bill.no} dibayar`,
           actorId,
         });
       }
-      // Each Invoice paid lowers its AP item by all it settles (B27).
-      for (const l of r.c.lines) {
+      // Each Invoice paid lowers its AP item by all it settles (B27), at its own carrying rate (MC10).
+      for (const [i, l] of r.c.lines.entries()) {
         if (l.kind !== "fin_ap_invoice" || !l.bill.apItemId) continue;
-        await settleApItem(tx, {
+        bases.lines[i].settled = await settleApItem(tx, {
           itemId: l.bill.apItemId,
           event: "Payment",
           amount: l.settled,
-          date: isoDay(t.tx_date),
+          date,
           doc: { docTypeId: typeId, docId: id, no: t.tx_no },
-          note: `Dibayar ${money(l.cash)}`,
+          note: `Dibayar ${fmt(l.cash)}`,
           actorId,
         });
       }
+
+      const posting = await buildPosting(tx, r.c, t.partner.partner_name, bases);
+      if (!posting.ok) throw new Refused({ _form: posting.message });
+      const journalLines = posting.lines;
+      const journal = await postJournal(tx, {
+        description: `${t.tx_no} · ${posting.description}`,
+        sourceDocTypeId: typeId,
+        sourceDocId: id,
+        postingDate: t.tx_date,
+        actorId,
+        lines: journalLines,
+      });
+      await tx.finCashBankTx.update({
+        where: { id },
+        data: { journal_id: journal.id, currency_id: r.c.data.currency_id, exchange_rate: Math.round(bases.rate * 1e6) / 1e6 || 1 },
+      });
+      await tx.finCashBankTxLine.deleteMany({ where: { tx_id: id } });
+      for (const line of await lineRows(tx, r.c.lines, actorId, bases.lines)) await tx.finCashBankTxLine.create({ data: { ...line, tx_id: id } });
       await audit(tx, id, "UPDATE", "post", actorId);
-      if (options.dryRun) throw new PostingDryRun(posting.lines);
+      if (options.dryRun) throw new PostingDryRun(journalLines);
     });
     return { ok: true as const };
   });
@@ -765,6 +865,8 @@ export async function transitionCashPayment(
 
 export type CashPaymentListRow = {
   id: number;
+  /** The document's currency, every figure on the row is in (MC3). */
+  currency: string;
   txNo: string;
   date: string;
   status: CashBankTxStatus;
@@ -799,6 +901,7 @@ export async function listCashPayments(query: RegisterQuery): Promise<Paged<Cash
     ...page,
     rows: rows.map((r) => ({
       id: r.id,
+      currency: r.currency.currency_label,
       txNo: r.tx_no,
       date: isoDay(r.tx_date),
       status: r.status as CashBankTxStatus,

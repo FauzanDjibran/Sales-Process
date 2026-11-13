@@ -15,22 +15,50 @@ import {
   ArItemOverdrawn,
   advanceItemsForInvoice,
   arPaidByDocument,
+  arItemHeld,
   createArItem,
   settleArItem,
   type AdvanceItemForInvoice,
 } from "./ar-item";
 import { advancePpnUsed, computeInvoice, withholdingsOf, type InvoiceFigures, type InvoiceLineInput as TaxLine } from "./sales-tax";
 import { advanceRatesByIds } from "./ar-advance";
-import { postingAccounts, requireBaseCurrencyId } from "./system-settings";
-import { withBaseOf } from "./fx";
+import { postingAccounts } from "./system-settings";
+import { carryingRate, relieve, roundBase, sumBase, withBaseOf } from "./fx";
+import { isBaseCurrency } from "./currency";
+import { taxScale } from "./sales-tax";
+import { formatMoney } from "@/lib/format";
 
-// shortcut: rupiah at rate 1 until Multi-Currency-Plan stage 3, when an
-// Invoice takes its base figures from its order's (MC8).
-const RATE = 1;
-const HEAD_MONEY = ["gross_amount", "discount_amount", "amount", "dpp_amount", "advance_dpp_amount", "advance_ppn_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount", "total_amount"] as const;
 const LINE_MONEY = ["gross_amount", "discount_amount", "amount", "dpp_amount", "advance_dpp_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount"] as const;
-const DEDUCTION_MONEY = ["dpp_used", "ppn_used"] as const;
-const headData = (c: CheckedInvoice) => ({ ...c.data, ...withBaseOf(c.data, HEAD_MONEY, RATE) });
+const cents = (n: number) => Math.round(n * 100);
+
+/**
+ * The Invoice's base (MC8, MC4): every line at its order's rate, each Uang Muka
+ * used at its own carrying rate (MC13), the header the sum — so the Piutang the
+ * journal books is what its lines and deductions say.
+ */
+function headData(c: CheckedInvoice) {
+  const lb = sumBase(
+    c.lines.map((l) => withBaseOf(l, LINE_MONEY, c.order.exchangeRate)),
+    ["gross_amount", "discount_amount", "amount", "dpp_amount", "dpp_other_amount", "ppn_amount"] as const
+  );
+  const advDpp = c.deductions.reduce((t, d) => t + cents(d.base_dpp_used), 0);
+  const advPpn = c.deductions.reduce((t, d) => t + cents(d.base_ppn_used), 0);
+  const netDpp = cents(lb.base_dpp_amount) - advDpp;
+  const ppn = cents(lb.base_ppn_amount) - advPpn;
+  return {
+    ...c.data,
+    base_gross_amount: lb.base_gross_amount,
+    base_discount_amount: lb.base_discount_amount,
+    base_amount: lb.base_amount,
+    base_dpp_amount: lb.base_dpp_amount,
+    base_advance_dpp_amount: advDpp / 100,
+    base_advance_ppn_amount: advPpn / 100,
+    base_net_dpp_amount: netDpp / 100,
+    base_dpp_other_amount: lb.base_dpp_other_amount,
+    base_ppn_amount: ppn / 100,
+    base_total_amount: (netDpp + ppn) / 100,
+  };
+}
 import {
   INVOICE_HOLDS,
   INVOICE_TRANSITIONS,
@@ -160,7 +188,8 @@ export type InvoiceOrderOption = InvoiceSourceOrder & {
   billedBefore: Record<number, { qty: number }>;
 };
 
-export type InvoiceBankOption = { id: number; label: string; name: string; active: boolean };
+/** A bank an Invoice can print; only one in the order's currency is offered (MC14). */
+export type InvoiceBankOption = { id: number; label: string; name: string; active: boolean; currency: string };
 
 export type InvoiceOptions = { orders: InvoiceOrderOption[]; banks: InvoiceBankOption[] };
 
@@ -246,8 +275,9 @@ export async function invoiceOptions(
   const [all, banks] = await Promise.all([
     current ? Promise.resolve([]) : invoiceSourceOrders({ ids: await ordersWithUnbilledLines() }),
     prisma.mCashBank.findMany({
-      where: { cash_bank_type: "Bank", currency: { currency_label: BASE_CURRENCY_LABEL } },
+      where: { cash_bank_type: "Bank" },
       orderBy: { cash_bank_label: "asc" },
+      include: { currency: true },
     }),
   ]);
   // A saved Invoice's Customer Order is locked: its page needs only that one.
@@ -258,7 +288,7 @@ export async function invoiceOptions(
       );
   return {
     orders,
-    banks: banks.map((b) => ({ id: b.id, label: b.cash_bank_label, name: b.cash_bank_name, active: b.status === "Active" })),
+    banks: banks.map((b) => ({ id: b.id, label: b.cash_bank_label, name: b.cash_bank_name, active: b.status === "Active", currency: b.currency.currency_label })),
   };
 }
 
@@ -284,7 +314,16 @@ type CheckedLine = {
   withholding_rate: number | null;
 };
 
-type CheckedDeduction = { ar_item_id: number; ar_item_no: string; dpp_used: number; ppn_used: number };
+type CheckedDeduction = {
+  ar_item_id: number;
+  ar_item_no: string;
+  dpp_used: number;
+  ppn_used: number;
+  /** At the item's carrying rate — what Posting relieves, restated by it (MC13). */
+  base_dpp_used: number;
+  base_ppn_used: number;
+  fx_difference: number;
+};
 
 export type CheckedInvoice = {
   order: InvoiceOrderOption;
@@ -294,6 +333,7 @@ export type CheckedInvoice = {
     customer_id: number;
     address_id: number;
     cash_bank_id: number;
+    currency_id: number;
     invoice_date: Date;
     tax_date: Date;
     due_date: Date;
@@ -380,7 +420,7 @@ export async function checkInvoice(
     const b = await db.mCashBank.findUnique({ where: { id: bankId }, include: { currency: true } });
     if (!b) errors.cash_bank_id = "Rekening tidak ditemukan.";
     else if (b.cash_bank_type !== "Bank") errors.cash_bank_id = "Pilih rekening bank, bukan kas.";
-    else if (b.currency.currency_label !== BASE_CURRENCY_LABEL) errors.cash_bank_id = "Rekening harus dalam Rupiah.";
+    else if (order && b.currency.currency_label !== order.currency) errors.cash_bank_id = `Rekening harus dalam ${order.currency}, currency Customer Order.`;
     else if (b.status !== "Active") errors.cash_bank_id = "Rekening tersebut sudah nonaktif.";
   }
 
@@ -406,7 +446,8 @@ export async function checkInvoice(
     });
     running.set(o.id, before + n.qty);
   }
-  const before = computeInvoice({ lines: priced, mode: order?.mode ?? "Exclude", taxable: order?.taxable ?? false, rates: order?.rates ?? null, advanceUsed: 0 });
+  const scale = taxScale(order?.currency);
+  const before = computeInvoice({ lines: priced, mode: order?.mode ?? "Exclude", taxable: order?.taxable ?? false, rates: order?.rates ?? null, advanceUsed: 0, scale });
 
   // ---- Uang Muka used (U8): the order's own items, each up to what is free of it
   const rawDeds = Array.isArray(deductions) ? deductions : [];
@@ -430,13 +471,22 @@ export async function checkInvoice(
     const used = Number(String(d.dpp_used ?? "").replace(",", "."));
     const free = Math.max(0, item.balance - item.reserved);
     if (!Number.isFinite(used) || !(used > 0)) errors[key] = "Isi DPP yang dipakai lebih dari 0.";
-    else if (used !== Math.round(used)) errors[key] = "DPP dipakai harus dalam rupiah penuh.";
+    else if (Math.abs(used * scale - Math.round(used * scale)) > 1e-6) errors[key] = scale === 1 ? "DPP dipakai harus dalam rupiah penuh." : "DPP dipakai paling banyak dua desimal.";
     else if (used > free) errors[key] = `Melebihi sisa uang muka (${money(free)}${item.reserved ? `; ${money(item.reserved)} dicadangkan Invoice Draft lain` : ""}).`;
     else {
       // The PPN of the part used, recalculated from the DPP after what posted
       // Invoices used of the item (P118, §7.5): the item keeps its DPP only.
-      const ppnUsed = order?.taxable ? advancePpnUsed({ rates: order.rates, usedBefore: item.original - item.balance, used }) : 0;
-      checkedDeds.push({ ar_item_id: id, ar_item_no: item.arItemNo, dpp_used: used, ppn_used: ppnUsed });
+      const ppnUsed = order?.taxable ? advancePpnUsed({ rates: order.rates, usedBefore: item.original - item.balance, used, scale }) : 0;
+      const held = { foreign: item.balance, base: item.baseBalance };
+      checkedDeds.push({
+        ar_item_id: id,
+        ar_item_no: item.arItemNo,
+        dpp_used: used,
+        ppn_used: ppnUsed,
+        base_dpp_used: relieve(held, used).base,
+        base_ppn_used: roundBase(ppnUsed * (carryingRate(held) ?? 1)),
+        fx_difference: 0,
+      });
       dedIndex.push(i);
     }
   }
@@ -454,8 +504,8 @@ export async function checkInvoice(
       }
     });
   }
-  const used = checkedDeds.reduce((a, d) => a + d.dpp_used, 0);
-  if (used > before.dpp) errors._deductions = `Uang muka dipakai (${money(used)}) melebihi DPP invoice (${money(before.dpp)}).`;
+  const used = checkedDeds.reduce((a, d) => a + cents(d.dpp_used), 0) / 100;
+  if (cents(used) > cents(before.dpp)) errors._deductions = `Uang muka dipakai (${money(used)}) melebihi DPP invoice (${money(before.dpp)}).`;
   else if (!errors._deductions && Object.keys(errors).some((k) => k.startsWith("deductions."))) {
     errors._deductions = "Ada uang muka yang perlu diperbaiki.";
   }
@@ -469,7 +519,8 @@ export async function checkInvoice(
     taxable: order.taxable,
     rates: order.rates,
     advanceUsed: used,
-    advancePpn: checkedDeds.reduce((a, d) => a + d.ppn_used, 0),
+    advancePpn: checkedDeds.reduce((a, d) => a + cents(d.ppn_used), 0) / 100,
+    scale,
   });
   return {
     ok: true,
@@ -481,6 +532,7 @@ export async function checkInvoice(
         customer_id: order.customerId,
         address_id: addressId!,
         cash_bank_id: bankId!,
+        currency_id: order.currencyId,
         invoice_date: asDate(invoiceDate),
         tax_date: asDate(taxDate),
         due_date: asDate(addDays(taxDate, order.termDays)),
@@ -569,8 +621,8 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
 async function writeRows(tx: Prisma.TransactionClient, id: number, c: CheckedInvoice) {
   await tx.finArInvoiceLine.deleteMany({ where: { invoice_id: id } });
   await tx.finArInvoiceAdvanceDeduction.deleteMany({ where: { invoice_id: id } });
-  for (const l of c.lines) await tx.finArInvoiceLine.create({ data: { ...l, ...withBaseOf(l, LINE_MONEY, RATE), invoice_id: id } });
-  for (const d of c.deductions) await tx.finArInvoiceAdvanceDeduction.create({ data: { ...d, ...withBaseOf(d, DEDUCTION_MONEY, RATE), invoice_id: id } });
+  for (const l of c.lines) await tx.finArInvoiceLine.create({ data: { ...l, ...withBaseOf(l, LINE_MONEY, c.order.exchangeRate), invoice_id: id } });
+  for (const d of c.deductions) await tx.finArInvoiceAdvanceDeduction.create({ data: { ...d, invoice_id: id } });
 }
 
 export async function createInvoice(
@@ -588,7 +640,6 @@ export async function createInvoice(
       const row = await tx.finArInvoice.create({
         data: {
           ...headData(r.c),
-          currency_id: await requireBaseCurrencyId(tx),
           invoice_no: await nextInvoiceNo(tx, r.c.data.invoice_date, r.c.data.is_taxable),
           created_by: actorId,
         },
@@ -661,21 +712,30 @@ export type InvoicePostingLine = {
   partnerId: number | null;
   debit: number;
   credit: number;
+  /** The line's base, where it is not its amount at the order's rate. */
+  base?: number;
+  /** Selisih kurs: in base currency, at rate 1. */
+  inBase?: boolean;
   description: string;
 };
+
+/** What Posting relieved and booked in base, per Uang Muka used (MC13). */
+type PostingBases = { face: number; dpp: number; ppn: number; deds: { um: number; ppn: number; inv: number }[] };
 
 type InvoicePosting =
   | { ok: true; description: string; lines: InvoicePostingLine[] }
   | { ok: false; missing: string[] };
 
 /** The journal a checked Invoice writes — shown by the Posting dialog and written by Posting. */
-async function buildPosting(db: Db, invoiceNo: string, c: CheckedInvoice): Promise<InvoicePosting> {
+async function buildPosting(db: Db, invoiceNo: string, c: CheckedInvoice, b: PostingBases): Promise<InvoicePosting> {
   const f = c.figures;
+  const fxOf = b.deds.map((d) => (cents(d.inv) - cents(d.um) - cents(d.ppn)) / 100);
   const keys = [
     "receivable_account",
     "sales_revenue_account",
     ...(f.advanceUsed > 0 ? (["sales_advance_account"] as const) : []),
     ...(f.fullPpn > 0 ? (["output_vat_account"] as const) : []),
+    ...(fxOf.some((x) => x !== 0) ? (["fx_account"] as const) : []),
   ] as const;
   const mapped = await postingAccounts([...keys]);
   if (!mapped.ok) return { ok: false, missing: mapped.missing };
@@ -691,9 +751,9 @@ async function buildPosting(db: Db, invoiceNo: string, c: CheckedInvoice): Promi
     if (p) problems.push(`${k}: ${p}`);
   }
   if (problems.length) return { ok: false, missing: problems };
-  const line = (accountId: number, debit: number, credit: number, description: string, partnerId: number | null = null): InvoicePostingLine => {
+  const line = (accountId: number, debit: number, credit: number, description: string, partnerId: number | null = null, base?: number): InvoicePostingLine => {
     const a = accounts.get(accountId)!;
-    return { accountId, accountNo: a.account_label, accountName: a.account_name, partnerId, debit, credit, description };
+    return { accountId, accountNo: a.account_label, accountName: a.account_name, partnerId, debit, credit, base, description };
   };
   const customer = c.order.customerId;
   const notes = [...new Set(c.noteNos)].join(", ");
@@ -703,20 +763,26 @@ async function buildPosting(db: Db, invoiceNo: string, c: CheckedInvoice): Promi
   // Piutang. Piutang moves exactly as the Invoice item does; every account nets
   // to what the Invoice owes and reports.
   const out: InvoicePostingLine[] = [];
-  out.push(line(ids.receivable_account, invoiceFace(f), 0, `Piutang ${invoiceNo} — jatuh tempo ${isoDay(c.data.due_date).split("-").reverse().join("/")}`, customer));
-  out.push(line(ids.sales_revenue_account, 0, f.dpp, `Penjualan barang ${notes} (${c.order.orderNo})`));
-  if (f.fullPpn > 0) out.push(line(ids.output_vat_account, 0, f.fullPpn, `PPN atas penyerahan — ${invoiceNo}`));
-  for (const d of c.deductions) {
-    out.push(line(ids.sales_advance_account, d.dpp_used, 0, `Uang muka ${d.ar_item_no} dipakai ${invoiceNo}`, customer));
-    if (d.ppn_used > 0) out.push(line(ids.output_vat_account, d.ppn_used, 0, `PPN uang muka ${d.ar_item_no} sudah dilaporkan — ${invoiceNo}`));
-    out.push(line(ids.receivable_account, 0, d.dpp_used + d.ppn_used, `Uang muka ${d.ar_item_no} diterapkan ke ${invoiceNo}`, customer));
+  out.push(line(ids.receivable_account, invoiceFace(f), 0, `Piutang ${invoiceNo} — jatuh tempo ${isoDay(c.data.due_date).split("-").reverse().join("/")}`, customer, b.face));
+  out.push(line(ids.sales_revenue_account, 0, f.dpp, `Penjualan barang ${notes} (${c.order.orderNo})`, null, b.dpp));
+  if (f.fullPpn > 0) out.push(line(ids.output_vat_account, 0, f.fullPpn, `PPN atas penyerahan — ${invoiceNo}`, null, b.ppn));
+  for (const [k, d] of c.deductions.entries()) {
+    const x = b.deds[k];
+    out.push(line(ids.sales_advance_account, d.dpp_used, 0, `Uang muka ${d.ar_item_no} dipakai ${invoiceNo}`, customer, x.um));
+    if (d.ppn_used > 0) out.push(line(ids.output_vat_account, d.ppn_used, 0, `PPN uang muka ${d.ar_item_no} sudah dilaporkan — ${invoiceNo}`, null, x.ppn));
+    out.push(line(ids.receivable_account, 0, (cents(d.dpp_used) + cents(d.ppn_used)) / 100, `Uang muka ${d.ar_item_no} diterapkan ke ${invoiceNo}`, customer, x.inv));
+    // Piutang relieved at the Invoice's rate, the advance at its own: the rest is
+    // selisih kurs (MC13) — a loss when more Piutang left than the advance brought.
+    if (fxOf[k] !== 0) {
+      out.push({ ...line(ids.fx_account, Math.max(0, fxOf[k]), Math.max(0, -fxOf[k]), `Selisih kurs uang muka ${d.ar_item_no} — ${invoiceNo}`), inBase: true });
+    }
   }
   return { ok: true, description: `${invoiceNo} · Invoice Penjualan ${c.order.orderNo} — ${c.order.customerName}`, lines: out };
 }
 
 /** What an Invoice is born at in Piutang (P117): its full DPP and full PPN. */
 function invoiceFace(f: InvoiceFigures): number {
-  return f.dpp + f.fullPpn;
+  return (cents(f.dpp) + cents(f.fullPpn)) / 100;
 }
 
 /** Why an account may not be posted to, or null. */
@@ -807,22 +873,85 @@ export async function transitionInvoice(
         const first = Object.entries(r.errors).find(([k]) => !k.startsWith("_"))?.[1] ?? Object.values(r.errors)[0];
         throw new Refused({ _form: `Belum bisa diposting: ${first}` });
       }
-      const p = await buildPosting(tx, n.invoice_no, r.c);
-      if (!p.ok) throw new Refused({ _form: `Lengkapi Account Mapping dulu: ${p.missing.join(", ")}.` });
-
       const done = await tx.finArInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...headData(r.c), status: "Posted", updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: moved });
       await writeRows(tx, id, r.c);
 
+      // The Invoice item at its face, about this Invoice (U1, P117) — always,
+      // even when its Uang Muka covers it whole — at its lines' base (MC8);
+      // then, per Uang Muka used, the advance lowered by its DPP at its own
+      // carrying rate and the Invoice lowered by that DPP and the PPN already
+      // reported on it, each naming the other (MC13). The books move first, so
+      // the journal carries what they actually relieved.
       const typeId = await docTypeId(tx, "fin_ar_invoice");
+      const doc = { docTypeId: typeId, docId: id, no: n.invoice_no };
+      const date = isoDay(r.c.data.invoice_date);
+      const lineBases = sumBase(r.c.lines.map((l) => withBaseOf(l, LINE_MONEY, r.c.order.exchangeRate)), ["dpp_amount", "ppn_amount"] as const);
+      const bases: PostingBases = {
+        face: (cents(lineBases.base_dpp_amount) + cents(lineBases.base_ppn_amount)) / 100,
+        dpp: lineBases.base_dpp_amount,
+        ppn: lineBases.base_ppn_amount,
+        deds: [],
+      };
+      const itemId = await createArItem(tx, {
+        type: "Invoice",
+        partnerId: r.c.order.customerId,
+        currencyId: r.c.order.currencyId,
+        date,
+        dueDate: isoDay(r.c.data.due_date),
+        source: doc,
+        createdBy: doc,
+        scope: { docTypeId: await docTypeId(tx, "sal_customer_order"), docId: r.c.order.id },
+        amount: invoiceFace(r.c.figures),
+        base: bases.face,
+        note: `Invoice ${n.invoice_no} diposting`,
+        actorId,
+      });
+      const fmt = (v: number) => formatMoney(v, r.c.order.currency);
+      for (const d of r.c.deductions) {
+        const ppnBase = roundBase(d.ppn_used * (carryingRate(await arItemHeld(tx, d.ar_item_id)) ?? 1));
+        const um = await settleArItem(tx, {
+          itemId: d.ar_item_id,
+          event: "AdvanceUsed",
+          amount: d.dpp_used,
+          date,
+          doc,
+          counterItemId: itemId,
+          note: `Dipakai ${n.invoice_no}`,
+          actorId,
+        });
+        const inv = await settleArItem(tx, {
+          itemId,
+          event: "AdvanceApplied",
+          amount: (cents(d.dpp_used) + cents(d.ppn_used)) / 100,
+          date,
+          doc,
+          counterItemId: d.ar_item_id,
+          note: `Uang muka ${d.ar_item_no} — DPP ${fmt(d.dpp_used)}${d.ppn_used ? ` + PPN ${fmt(d.ppn_used)}` : ""}`,
+          actorId,
+        });
+        bases.deds.push({ um, ppn: ppnBase, inv });
+        await tx.finArInvoiceAdvanceDeduction.updateMany({
+          where: { invoice_id: id, ar_item_id: d.ar_item_id },
+          data: { base_dpp_used: um, base_ppn_used: ppnBase, fx_difference: (cents(inv) - cents(um) - cents(ppnBase)) / 100 },
+        });
+        d.base_dpp_used = um;
+        d.base_ppn_used = ppnBase;
+      }
+      // The header's base restated from what was relieved.
+      await tx.finArInvoice.update({ where: { id }, data: headData(r.c) });
+
+      const p = await buildPosting(tx, n.invoice_no, r.c, bases);
+      if (!p.ok) throw new Refused({ _form: `Lengkapi Account Mapping dulu: ${p.missing.join(", ")}.` });
       const journalLines = p.lines.map(
         (l): JournalLineInput => ({
           accountId: l.accountId,
           partnerId: l.partnerId,
-          currencyId: baseCurrency.id,
-          rate: 1,
+          currencyId: l.inBase ? baseCurrency.id : r.c.order.currencyId,
+          rate: l.inBase ? 1 : r.c.order.exchangeRate,
           debit: l.debit,
           credit: l.credit,
+          baseAmount: l.inBase ? undefined : l.base,
           description: l.description,
         })
       );
@@ -834,52 +963,10 @@ export async function transitionInvoice(
         actorId,
         lines: journalLines,
       });
-
-      // The Invoice item at its face, about this Invoice (U1, P117) — always,
-      // even when its Uang Muka covers it whole — then, per Uang Muka used, the
-      // advance lowered by its DPP and the Invoice lowered by that DPP and the
-      // PPN already reported on it, each naming the other.
-      const doc = { docTypeId: typeId, docId: id, no: n.invoice_no };
-      const date = isoDay(r.c.data.invoice_date);
-      const itemId = await createArItem(tx, {
-        type: "Invoice",
-        partnerId: r.c.order.customerId,
-        currencyId: baseCurrency.id,
-        date,
-        dueDate: isoDay(r.c.data.due_date),
-        source: doc,
-        createdBy: doc,
-        scope: { docTypeId: await docTypeId(tx, "sal_customer_order"), docId: r.c.order.id },
-        amount: invoiceFace(r.c.figures),
-        base: invoiceFace(r.c.figures) * RATE,
-        note: `Invoice ${n.invoice_no} diposting`,
-        actorId,
-      });
-      for (const d of r.c.deductions) {
-        await settleArItem(tx, {
-          itemId: d.ar_item_id,
-          event: "AdvanceUsed",
-          amount: d.dpp_used,
-          date,
-          doc,
-          counterItemId: itemId,
-          note: `Dipakai ${n.invoice_no}`,
-          actorId,
-        });
-        await settleArItem(tx, {
-          itemId,
-          event: "AdvanceApplied",
-          amount: d.dpp_used + d.ppn_used,
-          date,
-          doc,
-          counterItemId: d.ar_item_id,
-          note: `Uang muka ${d.ar_item_no} — DPP ${money(d.dpp_used)}${d.ppn_used ? ` + PPN ${money(d.ppn_used)}` : ""}`,
-          actorId,
-        });
-      }
       await tx.finArInvoice.update({ where: { id }, data: { journal_id: journal.id, ar_item_id: itemId } });
       await audit(tx, id, "UPDATE", "post", actorId);
-      if (afterPost) await afterPost(tx);
+      // No faktur pajak for a foreign Invoice while the tax module waits (MC15, OD-16).
+      if (afterPost && isBaseCurrency(r.c.order.currency)) await afterPost(tx);
       if (options.dryRun) throw new PostingDryRun(journalLines);
     });
     return { ok: true as const };
@@ -890,6 +977,8 @@ export async function transitionInvoice(
 
 export type InvoiceListRow = {
   id: number;
+  /** The document's currency, every figure on the row is in (MC3). */
+  currency: string;
   /** A posted Invoice's standing with its customer (U26). */
   pay: { state: InvoicePayState; open: number; overdue: boolean } | null;
   invoiceNo: string;
@@ -907,7 +996,7 @@ export type InvoiceListRow = {
 export async function listInvoices(): Promise<InvoiceListRow[]> {
   const rows = await prisma.finArInvoice.findMany({
     orderBy: [{ invoice_date: "desc" }, { id: "desc" }],
-    include: { customer: true, _count: { select: { lines: true } } },
+    include: { customer: true, currency: true, _count: { select: { lines: true } } },
   });
   // Numbers only: a list shows which Customer Order, not the order itself.
   const [orders, pay] = await Promise.all([
@@ -916,6 +1005,7 @@ export async function listInvoices(): Promise<InvoiceListRow[]> {
   ]);
   return rows.map((r) => ({
     id: r.id,
+    currency: r.currency.currency_label,
     pay: pay[r.id] ?? null,
     invoiceNo: r.invoice_no,
     invoiceDate: isoDay(r.invoice_date),
@@ -1081,6 +1171,8 @@ export type SettlementInvoice = {
   arItemId: number | null;
   /** What posted receipts settled of it — a receipt's `before` (P133). */
   paid: number;
+  /** Its order's currency: only a bank in it settles it (MC14). */
+  currency: string;
 };
 
 /** Posted Invoices (with `postedOnly`), or the ones named, whatever their state. */
@@ -1093,12 +1185,13 @@ export async function settlementInvoices(
       ...(filter.ids ? { id: { in: filter.ids } } : {}),
       ...(filter.postedOnly ? { status: "Posted", ar_item_id: { not: null } } : {}),
     },
-    include: { lines: true },
+    include: { lines: true, currency: true },
     orderBy: [{ due_date: "asc" }, { id: "asc" }],
   });
   const orders = new Map(
     (await invoiceSourceOrders({ ids: [...new Set(rows.map((r) => r.customer_order_id))] }, db)).map((o) => [o.id, o.orderNo])
   );
+  const scaleOf = (r: (typeof rows)[number]) => taxScale(r.currency.currency_label);
   const paidOf = await arPaidByDocument(db, "fin_ar_invoice", rows.map((r) => r.id));
   return rows.map((r) => ({
     id: r.id,
@@ -1117,10 +1210,12 @@ export async function settlementInvoices(
         key: l.withholding_tax_id ? String(l.withholding_tax_id) : null,
         rate: l.withholding_rate?.toNumber() ?? null,
         dpp: l.net_dpp_amount.toNumber(),
-      }))
+      })),
+      scaleOf(r)
     ),
     arItemId: r.ar_item_id,
     paid: paidOf.get(r.id) ?? 0,
+    currency: r.currency.currency_label,
   }));
 }
 

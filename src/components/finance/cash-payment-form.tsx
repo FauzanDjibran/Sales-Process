@@ -14,7 +14,8 @@ import { useToast } from "@/components/ui/toast";
 import { CashPaymentActions } from "@/components/finance/cash-payment-actions";
 import { PaymentBillPicker, type PickedPayment } from "@/components/finance/cash-payment-bill-picker";
 import { createCashPaymentAction, updateCashPaymentAction } from "@/app/actions/cash-payment";
-import { cashToClear, settleBillFromCash, type SettlementLine } from "@/lib/erp/sales-tax";
+import { cashToClear, settleBillFromCash, taxScale, type SettlementLine } from "@/lib/erp/sales-tax";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import { PAID_DOC_ROUTE, PAID_DOC_TEXT, paidKey, cashBankPurpose } from "@/lib/erp/cash-bank-purposes";
 import {
   CASH_BANK_TX_STATUS_BADGE,
@@ -48,7 +49,6 @@ type Header = {
 
 type LiveLine = { bill: OpenPayable; input: Line; withhold: boolean; max: number; line: SettlementLine };
 
-const money = (n: number) => formatMoney(n, "IDR");
 
 /** Where a settled document opens. */
 const billHref = (b: OpenPayable) => `${PAID_DOC_ROUTE[b.kind]}/${b.id}`;
@@ -118,32 +118,35 @@ export function CashPaymentForm({
     touch(k);
   };
 
+  // ---- the payment is in its Kas & Bank's currency, and pays only bills in it (MC14);
+  // a foreign bank pays at its moving average, so no rate is typed (MC11).
+  const cashBank = options.cashBanks.find((c) => c.id === h.cash_bank_id) ?? null;
+  const currency = cashBank?.currency ?? BASE_CURRENCY_LABEL;
+  const scale = taxScale(currency);
+  const money = (n: number) => formatMoney(n, currency);
   // ---- what may be settled: the purpose's documents, owed by the partner
-  const partnerBills = useMemo(
-    // Already oldest due first (the server sorts), advance bills and Invoices together.
-    () => (purpose && h.partner_id ? options.bills.filter((b) => b.supplierId === h.partner_id && purpose.settles.includes(b.kind)) : []),
-    [options.bills, purpose, h.partner_id]
-  );
+  // Already oldest due first (the server sorts), advance bills and Invoices together.
+  const partnerBills =
+    purpose && h.partner_id
+      ? options.bills.filter((b) => b.supplierId === h.partner_id && purpose.settles.includes(b.kind) && b.currency === currency)
+      : [];
   const billByKey = useMemo(() => new Map(options.bills.map((b) => [b.key, b])), [options.bills]);
   const canWithhold = Boolean(purpose?.withholding);
 
   // ---- every line's figures, exactly as the Server Action will store them
-  const lines = useMemo(() => {
-    const out: LiveLine[] = [];
-    for (const l of picked) {
-      const bill = billByKey.get(l.key);
-      if (!bill) continue;
-      const withhold = canWithhold ? l.withhold : false;
-      out.push({
-        bill,
-        input: l,
-        withhold,
-        max: cashToClear(bill, bill.paid, withhold),
-        line: settleBillFromCash({ bill, before: bill.paid, cash: Number(l.cash) || 0, withhold }),
-      });
-    }
-    return out;
-  }, [picked, billByKey, canWithhold]);
+  const lines: LiveLine[] = [];
+  for (const l of picked) {
+    const bill = billByKey.get(l.key);
+    if (!bill) continue;
+    const withhold = canWithhold ? l.withhold : false;
+    lines.push({
+      bill,
+      input: l,
+      withhold,
+      max: cashToClear(bill, bill.paid, withhold, scale),
+      line: settleBillFromCash({ bill, before: bill.paid, cash: Number(l.cash) || 0, withhold, scale }),
+    });
+  }
   const charge = Number(h.bank_charge) || 0;
 
   const setLine = (key: string, patch: Partial<Line>) => {
@@ -197,7 +200,6 @@ export function CashPaymentForm({
   const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
   const partners = options.partners.filter((p) => !purpose || p.category === purpose.partnerCategory);
   const partner = options.partners.find((p) => p.id === h.partner_id) ?? null;
-  const cashBank = options.cashBanks.find((c) => c.id === h.cash_bank_id) ?? null;
   const whtLabel = (key: string) => options.withholdingLabels[key] ?? "PPh";
 
   // The live figures while editing, the stored ones in view mode.
@@ -286,7 +288,12 @@ export function CashPaymentForm({
                   options={options.cashBanks}
                   placeholder="Pilih Kas & Bank…"
                   invalid={Boolean(errors.cash_bank_id)}
-                  onChange={(v) => set("cash_bank_id", v)}
+                  onChange={(v) => {
+                    // Another currency pays other bills: the lines picked go (MC14).
+                    const next = options.cashBanks.find((c) => c.id === v);
+                    if (next && next.currency !== currency) setPicked([]);
+                    set("cash_bank_id", v);
+                  }}
                 />
               ) : (
                 ro(
@@ -486,6 +493,7 @@ export function CashPaymentForm({
                         <>
                           <MoneyInput
                             size="sm"
+                            decimals={scale === 1 ? 0 : 2}
                             value={l.input.cash}
                             over={over}
                             ariaLabel={`Dibayar ${b.no}`}
@@ -559,6 +567,7 @@ export function CashPaymentForm({
                 <span style={{ width: 160 }}>
                   <MoneyInput
                     size="sm"
+                    decimals={scale === 1 ? 0 : 2}
                     value={h.bank_charge}
                     invalid={Boolean(errors.bank_charge)}
                     ariaLabel="Biaya Bank"
@@ -679,6 +688,7 @@ export function CashPaymentForm({
       {pickerOpen && (
         <PaymentBillPicker
           bills={partnerBills}
+          currency={currency}
           current={picked}
           noun={noun}
           partnerName={partner?.name ?? ""}

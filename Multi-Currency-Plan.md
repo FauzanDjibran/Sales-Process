@@ -54,7 +54,7 @@ Semua mengikuti konsep KB; nomor di kurung menunjuk bagian konsepnya.
 - **MC2.** Dokumen IDR memakai jalur yang sama dengan kurs `1`, sehingga `base_x = x` dan selisih kurs pasti nol (§2.4). Tidak ada cabang kode "jika valas".
 - **MC3.** Satu dokumen, satu currency, dipilih di header dan terkunci setelah ada baris. Dokumen turunan mengikuti currency sumbernya dan tidak bisa mengubahnya.
 - **MC4.** Semua komponen satu baris dikonversi pada kurs yang sama; total dokumen adalah jumlah nilai baris yang tersimpan (§3.1, §9.4).
-- **MC5.** Pembulatan: nominal valas dua desimal; nominal dasar dua desimal (sen) lewat `roundBase` di `fx.ts`, sama dengan buku Kas & Bank; kurs `Decimal(18,6)`. Angka pajak tetap rupiah utuh (`tax_concept.md` §7).
+- **MC5.** Pembulatan: nominal valas dua desimal; nominal dasar dua desimal (sen) lewat `roundBase` di `fx.ts`, sama dengan buku Kas & Bank; kurs `Decimal(18,6)`. Angka pajak dibulatkan setengah ke atas pada satuan terkecil currency dokumen: rupiah utuh untuk IDR (`tax_concept.md` §7), sen untuk valas (§6.1).
 
 **Asal nilai dasar**
 
@@ -128,7 +128,7 @@ di migrasi tiap tahap dan di `DBML/erp.dbml.md`.
 | `fin_ar_advance` | `currency_id` saja: tagihan tidak melahirkan nilai dasar; nilai dasar uang muka ada di item AR yang lahir dari pembayaran (MC9) |
 | `fin_ar_invoice(_line, _advance_deduction)` | `currency_id` (tanpa `exchange_rate`: nilai dasar diwarisi, MC8); `base_` semua nominal; nilai dasar Uang Muka yang dipakai |
 | `pur_order(_line)` | seperti Customer Order |
-| `log_receipt_note(_line, _tracking)` | Tidak ada kolom baru: nilainya sudah rupiah, kini dihitung dari `base_` PO |
+| `log_receipt_note(_line, _tracking)` | `order_dpp_amount` di baris: bagian DPP PO dalam currency PO (§6.1); nilai stok tetap rupiah, kini dari `base_` PO |
 | `fin_ap_advance` | `currency_id` saja, seperti `fin_ar_advance` |
 | `fin_ap_invoice(_line, _advance_deduction)` | seperti Invoice Penjualan |
 | `fin_ar_item`, `fin_ap_item` | `base_original_amount`, `base_current_balance` |
@@ -195,15 +195,53 @@ review pengguna. Tahap 1–2 tidak mengubah satu angka pun.
 | 1 | Master dan sembunyikan Pajak | Modul Pajak disembunyikan (MC19); menu Kurs bertipe, permission, Currency Default di Partner | **Selesai 12/11/2026.** Kurs bisa diisi; belum dipakai dokumen |
 | 2 | Fondasi skema | Kolom `currency_id`, kurs dan `base_` di semua tabel §4.2 dengan isi MC17; AR / AP item dan bukunya menulis gerakan dasar; cek MC18 di `db:reconcile` | **Selesai 13/11/2026.** Semua tes lama lulus; reconcile setuju (78 cek) |
 | 2a | Penukaran Valas | Dokumen Pembelian Valas dan Pencairan Valas (MC11a) | **Selesai 13/11/2026 (P272).** Bank USD terisi dari bank IDR; pencairan memposting selisih kurs; reconcile setuju (79 cek). `maySettle` dipersempit di tahap 4, bersama pemanggil pertamanya; biaya bank belum ada |
-| 3 | Penjualan valas | Customer Order, Uang Muka Penjualan, Invoice Penjualan dalam USD; semua baris jurnal pada kurs order; tanpa faktur pajak | Invoice USD terposting; Piutang di GL = saldo dasar item |
-| 4 | Penerimaan valas | Penerimaan dari Customer untuk tagihan USD ke bank USD; `maySettle` dipersempit ke currency sama; selisih kurs; PPh pada kurs terima, tanpa Bukti Potong | Skenario lampiran konsep tanpa langkah bank IDR menjadi tes dan lulus |
-| 5 | Pembelian valas | Purchase Order, Receipt Note mewarisi, Uang Muka Pembelian, Invoice Pembelian | *Barang Diterima Belum Ditagih* habis persis pada kurs PO |
-| 6 | Pengeluaran valas | Pembayaran ke Supplier dari bank USD pada rata-ratanya; selisih kurs | Bank USD berkurang pada rata-ratanya; reconcile setuju |
+| 3 | Penjualan valas | Customer Order, Uang Muka Penjualan, Invoice Penjualan dalam USD; semua baris jurnal pada kurs order; tanpa faktur pajak | **Selesai 13/11/2026 (P273, bersama 4–6).** Invoice USD terposting; Piutang di GL = saldo dasar item |
+| 4 | Penerimaan valas | Penerimaan dari Customer untuk tagihan USD ke bank USD; `maySettle` dipersempit ke currency sama; selisih kurs; PPh pada kurs terima, tanpa Bukti Potong | **Selesai 13/11/2026 (P273).** `tests/multi-currency-flow.test.ts` lulus |
+| 5 | Pembelian valas | Purchase Order, Receipt Note mewarisi, Uang Muka Pembelian, Invoice Pembelian | **Selesai 13/11/2026 (P273).** *Barang Diterima Belum Ditagih* habis persis pada kurs PO |
+| 6 | Pengeluaran valas | Pembayaran ke Supplier dari bank USD pada rata-ratanya; selisih kurs | **Selesai 13/11/2026 (P273).** Bank USD berkurang pada rata-ratanya; reconcile setuju (82 cek) |
 | 7 | Laporan | Laporan piutang, hutang dan uang muka per currency dengan setara IDR; XLSX yang sudah ada mengikuti | Tiap laporan cocok dengan GL |
 | 8 | Penutup | Showcase USD, `Script Penjelasan`, DBML, `KNOWLEDGE.md` (harvest), migrasi Neon | Neon siap direview |
 | 9 | Revaluasi akhir periode (opsional, OD-9) | Dokumen Revaluasi untuk Piutang, Hutang dan bank valas pada kurs penutup | Diputuskan terpisah |
 
 Ketergantungan: 1 → 2 → 2a → (3 → 4) dan (5 → 6) → 7 → 8. Tahap 2a hanya butuh tahap 1 (Kas & Bank sudah punya kolom dasar), jadi bisa dikerjakan paralel dengan tahap 2. Jalur penjualan dan pembelian tidak saling menunggu setelah tahap 2.
+
+
+### 6.1 Desain tahap 3–6, dikerjakan bersama (13/11/2026)
+
+Keempat tahap memakai satu fondasi dan satu pola jurnal, jadi dibangun dalam satu putaran dan diuji dengan satu alur (CO USD → Uang Muka → Invoice → Penerimaan; PO USD → Receipt Note → Uang Muka → Invoice → Pengeluaran).
+
+**Fondasi**
+
+- **Aritmetika pajak dalam satuan terkecil currency dokumen** (menegaskan MC5). `sales-tax.ts` tetap satu tempat; setiap fungsi uangnya menerima `scale` dari `taxScale(currency)`: 1 untuk IDR (rupiah utuh, seperti sekarang), 100 untuk valas (sen). Angka masuk dikalikan ke satuan terkecil, aturan bulat-setengah-ke-atas yang sama dijalankan, hasil dibagi kembali. Dokumen IDR tidak berubah satu angka pun.
+- **Nilai dasar dokumen = Σ nilai dasar barisnya** (MC4). Baris dikonversi `roundBase(x × kurs)`; header tidak dikonversi sendiri.
+- **Usulan kurs** dari menu Kurs: kurs Transaksi aktif terakhir pada atau sebelum tanggal dokumen, dikirim ke form sebagai daftar kecil dan dipilih di klien (MC6).
+
+**Penjualan (tahap 3)**
+
+- **Customer Order**: Currency (awal dari Currency Default customer, terkunci setelah ada baris) dan Kurs (IDR terkunci 1). Uang Muka Penjualan mengikuti currency order; rekening pembayarannya bank currency itu.
+- **Invoice Penjualan** memakai **kurs order** untuk setiap barisnya (MC8, MC16): `base_` baris = `roundBase(x × kurs order)`; Piutang (muka), Penjualan dan PPN penuh = Σ dasar baris.
+- **Uang Muka dipakai** (MC13): Uang Muka dilepas pada rata-rata itemnya (`settleArItem`), PPN uang muka pada rata-rata item yang sama (OD-4), Piutang dilepas pada rata-rata item Invoice; bedanya **selisih kurs** per baris potongan, disimpan di `fx_difference` baris potongan (kolom baru). Item AR dibuat dan dilepas **sebelum** jurnal ditulis, supaya jurnal memakai angka pelepasan yang sebenarnya.
+
+**Penerimaan (tahap 4)**
+
+- Bank USD diizinkan; **Kurs Terima** wajib untuk bank valas (IDR terkunci 1) dan disimpan di `exchange_rate`. Tagihan hanya satu currency dengan bank (MC14); `maySettle` dipersempit ke currency sama.
+- Nilai dasar: total diterima × kurs, dibagi ke baris menurut uang yang diterima (sisa sen ke baris terbesar); PPh × kurs. `transaction_base_amount` = dasar uang + PPh baris.
+- Tagihan uang muka: PPN × kurs; Uang Muka = dasar baris − PPN, tanpa selisih kurs (MC9). Invoice: Piutang dilepas pada rata-rata itemnya (`base_settled_amount`), `fx_difference` = pelepasan − dasar transaksi; satu baris jurnal Selisih Kurs (bersih) per Penerimaan.
+- Tujuan lain dan dokumen Perizinan tetap rupiah.
+
+**Pembelian (tahap 5)**
+
+- **Purchase Order** seperti Customer Order (Currency dari Currency Default supplier).
+- **Receipt Note**: nilai stok (rupiah) = bagian kumulatif `base_dpp` baris PO; **kolom baru `order_dpp_amount`** menyimpan bagian DPP PO dalam currency PO untuk jumlah yang sama (menggantikan "tanpa kolom baru" di §4.2), karena Invoice Pembelian menagih baris Receipt Note utuh dan perlu kedua angka itu.
+- **Invoice Pembelian**: DPP baris = `order_dpp_amount`, dasar DPP = nilai Receipt Note, sehingga *Barang Diterima Belum Ditagih* habis persis; PPN, PPh dan selisih tagihan pada kurs PO. Toleransi dibandingkan pada nilai dasar (OD-7). Uang muka dipakai seperti penjualan, sisi sebaliknya.
+
+**Pengeluaran (tahap 6)**
+
+- Bank USD keluar pada rata-ratanya (P37): Buku Kas & Bank ditulis dulu, dasar yang dilepas dibagi ke baris dan biaya bank menurut nominal; PPh pada kurs efektif itu. `exchange_rate` menyimpan kurs efektif (informasi).
+- Tagihan uang muka pembelian: PPN × kurs efektif, Uang Muka = sisanya. Invoice Pembelian: Hutang dilepas pada rata-rata itemnya; bedanya selisih kurs.
+- Pembayaran Biaya Produksi dan Biaya Perizinan tetap rupiah.
+
+**Tidak dibangun di putaran ini:** laporan per currency (tahap 7), showcase (tahap 8), Faktur Pajak dan Bukti Potong untuk dokumen valas (MC15; hook `afterPost` dilewati untuk dokumen valas).
 
 ---
 

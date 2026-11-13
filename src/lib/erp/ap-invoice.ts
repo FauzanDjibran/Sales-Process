@@ -10,19 +10,51 @@ import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, 
 import { checkAccountIsLeaf } from "./records";
 import { lockPurchaseOrder, purchaseInvoiceSources, purchaseOrderNumbersByIds, type PurchaseInvoiceSource } from "./purchase-order";
 import { apInvoiceSourceLines, postedReceiptLineIds, type ApInvoiceSourceLine } from "./receipt-note";
-import { ApItemOverdrawn, apAdvanceItems, apPaidByDocument, createApItem, settleApItem, type ApAdvanceItem } from "./ap-item";
-import { advancePpnUsed } from "./sales-tax";
+import { ApItemOverdrawn, apAdvanceItems, apItemHeld, apPaidByDocument, createApItem, settleApItem, type ApAdvanceItem } from "./ap-item";
+import { advancePpnUsed, taxScale } from "./sales-tax";
+import { formatMoney } from "@/lib/format";
 import { advanceRatesByIds } from "./ap-advance";
-import { postingAccounts, requireBaseCurrencyId, supplierInvoiceTolerance } from "./system-settings";
-import { withBaseOf } from "./fx";
+import { postingAccounts, supplierInvoiceTolerance } from "./system-settings";
+import { carryingRate, relieve, roundBase, sumBase, withBaseOf } from "./fx";
 
-// shortcut: rupiah at rate 1 until Multi-Currency-Plan stage 5, when an
-// Invoice takes its base figures from its receipts (MC7).
-const RATE = 1;
-const HEAD_MONEY = ["dpp_amount", "advance_dpp_amount", "advance_ppn_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount", "total_amount", "pph_amount", "supplier_total", "difference_amount", "payable_amount"] as const;
-const LINE_MONEY = ["dpp_amount", "advance_dpp_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount"] as const;
-const DEDUCTION_MONEY = ["dpp_used", "ppn_used"] as const;
-const headData = (c: CheckedPurchaseInvoice) => ({ ...c.data, ...withBaseOf(c.data, HEAD_MONEY, RATE) });
+/** Line figures valued at the order's rate; the DPP's base is the receipt's value instead (MC7). */
+const LINE_AT_RATE = ["advance_dpp_amount", "net_dpp_amount", "dpp_other_amount", "ppn_amount"] as const;
+const cents = (n: number) => Math.round(n * 100);
+
+/**
+ * The invoice's base (MC7, MC4): each line's DPP at its receipt's value, its
+ * PPN at the order's rate, each Uang Muka used at its own carrying rate
+ * (MC13), PPh and the supplier difference at the order's rate, the header the
+ * sum — so the Hutang the journal books is what the rows say.
+ */
+function headData(c: CheckedPurchaseInvoice) {
+  const rate = c.order.exchangeRate;
+  const lb = sumBase(
+    c.lines.map((l) => ({ base_dpp_amount: l.base_dpp_amount, ...withBaseOf(l, LINE_AT_RATE, rate) })),
+    ["dpp_amount", "dpp_other_amount", "ppn_amount"] as const
+  );
+  const advDpp = c.deductions.reduce((t, d) => t + cents(d.base_dpp_used), 0);
+  const advPpn = c.deductions.reduce((t, d) => t + cents(d.base_ppn_used), 0);
+  const f = c.figures;
+  const pph = f.withholdings.reduce((t, w) => t + cents(roundBase(w.amount * rate)), 0);
+  const diff = cents(roundBase(f.difference * rate));
+  const netDpp = cents(lb.base_dpp_amount) - advDpp;
+  const ppn = cents(lb.base_ppn_amount) - advPpn;
+  return {
+    ...c.data,
+    base_dpp_amount: lb.base_dpp_amount,
+    base_advance_dpp_amount: advDpp / 100,
+    base_advance_ppn_amount: advPpn / 100,
+    base_net_dpp_amount: netDpp / 100,
+    base_dpp_other_amount: lb.base_dpp_other_amount,
+    base_ppn_amount: ppn / 100,
+    base_total_amount: (netDpp + ppn) / 100,
+    base_pph_amount: pph / 100,
+    base_supplier_total: c.data.supplier_total == null ? null : roundBase(c.data.supplier_total * rate),
+    base_difference_amount: diff / 100,
+    base_payable_amount: (cents(lb.base_dpp_amount) + cents(lb.base_ppn_amount) + diff - pph) / 100,
+  };
+}
 import {
   INVOICE_HOLDS,
   PURCHASE_INVOICE_TRANSITIONS,
@@ -196,6 +228,8 @@ type CheckedLine = {
   qty: number;
   price: number;
   dpp_amount: number;
+  /** The Receipt Note's value: the DPP in base, so Barang Diterima Belum Ditagih clears exactly (MC7). */
+  base_dpp_amount: number;
   advance_dpp_amount: number;
   net_dpp_amount: number;
   dpp_other_amount: number;
@@ -203,7 +237,16 @@ type CheckedLine = {
   withholding_tax_id: number | null;
   withholding_rate: number | null;
 };
-type CheckedDeduction = { ap_item_id: number; ap_item_no: string; dpp_used: number; ppn_used: number };
+type CheckedDeduction = {
+  ap_item_id: number;
+  ap_item_no: string;
+  dpp_used: number;
+  ppn_used: number;
+  /** At the item's carrying rate — what Posting relieves, restated by it (MC13). */
+  base_dpp_used: number;
+  base_ppn_used: number;
+  fx_difference: number;
+};
 
 export type CheckedPurchaseInvoice = {
   order: PiOrderOption;
@@ -211,6 +254,7 @@ export type CheckedPurchaseInvoice = {
   data: {
     purchase_order_id: number;
     supplier_id: number;
+    currency_id: number;
     invoice_date: Date;
     due_date: Date;
     supplier_invoice_no: string;
@@ -302,8 +346,9 @@ export async function checkPurchaseInvoice(
   }
   const rawTotal = header.supplier_total;
   const supplierTotal = rawTotal === null || rawTotal === undefined || String(rawTotal).trim() === "" ? null : Number(String(rawTotal).replace(",", "."));
-  if (supplierTotal !== null && (!Number.isFinite(supplierTotal) || supplierTotal < 0 || supplierTotal !== Math.round(supplierTotal))) {
-    errors.supplier_total = "Total tagihan supplier harus rupiah penuh.";
+  const scale = taxScale(order?.currency);
+  if (supplierTotal !== null && (!Number.isFinite(supplierTotal) || supplierTotal < 0 || Math.abs(supplierTotal * scale - Math.round(supplierTotal * scale)) > 1e-6)) {
+    errors.supplier_total = scale === 1 ? "Total tagihan supplier harus rupiah penuh." : "Total tagihan supplier paling banyak dua desimal.";
   }
 
   // ---- Uang Muka used: the PO's own items, each up to what is free of it (B30)
@@ -328,11 +373,20 @@ export async function checkPurchaseInvoice(
     const free = Math.max(0, item.balance - item.reserved);
     const key = `deductions.${i}.dpp_used`;
     if (!Number.isFinite(used) || !(used > 0)) errors[key] = "Isi DPP yang dipakai lebih dari 0.";
-    else if (used !== Math.round(used)) errors[key] = "DPP dipakai harus dalam rupiah penuh.";
+    else if (Math.abs(used * scale - Math.round(used * scale)) > 1e-6) errors[key] = scale === 1 ? "DPP dipakai harus dalam rupiah penuh." : "DPP dipakai paling banyak dua desimal.";
     else if (used > free) errors[key] = `Melebihi sisa uang muka (${money(free)}${item.reserved ? `; ${money(item.reserved)} dicadangkan Invoice Draft lain` : ""}).`;
     else {
-      const ppnUsed = order?.taxable ? advancePpnUsed({ rates: order.rates, usedBefore: item.original - item.balance, used }) : 0;
-      checkedDeds.push({ ap_item_id: item.id, ap_item_no: item.apItemNo, dpp_used: used, ppn_used: ppnUsed });
+      const ppnUsed = order?.taxable ? advancePpnUsed({ rates: order.rates, usedBefore: item.original - item.balance, used, scale }) : 0;
+      const held = { foreign: item.balance, base: item.baseBalance };
+      checkedDeds.push({
+        ap_item_id: item.id,
+        ap_item_no: item.apItemNo,
+        dpp_used: used,
+        ppn_used: ppnUsed,
+        base_dpp_used: relieve(held, used).base,
+        base_ppn_used: roundBase(ppnUsed * (carryingRate(held) ?? 1)),
+        fx_difference: 0,
+      });
       dedIndex.push(i);
     }
   }
@@ -351,20 +405,23 @@ export async function checkPurchaseInvoice(
 
   const poLine = new Map((order?.lines ?? []).map((l) => [l.id, l]));
   const tolerance = await supplierInvoiceTolerance();
-  const used = checkedDeds.reduce((a, d) => a + d.dpp_used, 0);
+  const used = checkedDeds.reduce((a, d) => a + cents(d.dpp_used), 0) / 100;
   const figures = computePurchaseInvoice({
+    // A line bills its receipt's DPP in the order's currency; its base is the receipt's value (MC7).
     lines: picked.map((n) => {
       const p = poLine.get(n.purchaseOrderLineId);
-      return { dpp: n.value, withholdingRate: p?.withholdingRate ?? null, withholdingKey: p?.withholdingTaxId ? String(p.withholdingTaxId) : null };
+      return { dpp: n.orderDpp, withholdingRate: p?.withholdingRate ?? null, withholdingKey: p?.withholdingTaxId ? String(p.withholdingTaxId) : null };
     }),
     taxable: order?.taxable ?? false,
     rates: order?.rates ?? null,
     advanceUsed: used,
-    advancePpn: checkedDeds.reduce((a, d) => a + d.ppn_used, 0),
+    advancePpn: checkedDeds.reduce((a, d) => a + cents(d.ppn_used), 0) / 100,
     supplierTotal: errors.supplier_total ? null : supplierTotal,
     tolerance,
+    scale,
+    rate: order?.exchangeRate ?? 1,
   });
-  if (used > figures.dpp) errors._deductions = `Uang muka dipakai (${money(used)}) melebihi DPP invoice (${money(figures.dpp)}).`;
+  if (cents(used) > cents(figures.dpp)) errors._deductions = `Uang muka dipakai (${money(used)}) melebihi DPP invoice (${money(figures.dpp)}).`;
   else if (Object.keys(errors).some((k) => k.startsWith("deductions."))) errors._deductions = "Ada uang muka yang perlu diperbaiki.";
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) errors._lines = "Ada baris yang perlu diperbaiki.";
   if (forPosting && supplierTotal !== null && !figures.withinTolerance) {
@@ -380,6 +437,7 @@ export async function checkPurchaseInvoice(
       data: {
         purchase_order_id: order.id,
         supplier_id: order.supplierId,
+        currency_id: order.currencyId,
         invoice_date: asDate(invoiceDate),
         due_date: asDate(addDays(supplierDate, order.termDays)),
         supplier_invoice_no: supplierNo,
@@ -413,6 +471,7 @@ export async function checkPurchaseInvoice(
           qty: n.qty,
           price: n.price,
           dpp_amount: f.dpp,
+          base_dpp_amount: n.value,
           advance_dpp_amount: f.advanceDpp,
           net_dpp_amount: f.netDpp,
           dpp_other_amount: f.dppOther,
@@ -461,8 +520,8 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
 async function writeRows(tx: Prisma.TransactionClient, id: number, c: CheckedPurchaseInvoice) {
   await tx.finApInvoiceLine.deleteMany({ where: { invoice_id: id } });
   await tx.finApInvoiceAdvanceDeduction.deleteMany({ where: { invoice_id: id } });
-  for (const l of c.lines) await tx.finApInvoiceLine.create({ data: { ...l, ...withBaseOf(l, LINE_MONEY, RATE), invoice_id: id } });
-  for (const d of c.deductions) await tx.finApInvoiceAdvanceDeduction.create({ data: { ...d, ...withBaseOf(d, DEDUCTION_MONEY, RATE), invoice_id: id } });
+  for (const l of c.lines) await tx.finApInvoiceLine.create({ data: { ...l, ...withBaseOf(l, LINE_AT_RATE, c.order.exchangeRate), invoice_id: id } });
+  for (const d of c.deductions) await tx.finApInvoiceAdvanceDeduction.create({ data: { ...d, invoice_id: id } });
 }
 
 export async function createPurchaseInvoice(
@@ -479,7 +538,6 @@ export async function createPurchaseInvoice(
       if (!r.ok) throw new Refused(r.errors);
       const row = await tx.finApInvoice.create({ data: {
           ...headData(r.c),
-          currency_id: await requireBaseCurrencyId(tx),
           invoice_no: await nextInvoiceNo(tx, r.c.data.invoice_date, r.c.data.is_taxable),
           created_by: actorId,
         },
@@ -553,16 +611,27 @@ async function accountProblem(db: Db, id: number): Promise<string | null> {
   return checkAccountIsLeaf(id);
 }
 
-/** The journal a checked invoice writes (B31). */
-async function buildPosting(db: Db, invoiceNo: string, c: CheckedPurchaseInvoice, currencyId: number): Promise<{ ok: true; description: string; lines: JournalLineInput[] } | { ok: false; message: string }> {
+/** What Posting booked and relieved in base (MC7, MC13). */
+type PostingBases = { dpp: number; ppn: number; diff: number; payable: number; pph: Map<string, number>; deds: { um: number; ppn: number; inv: number }[] };
+
+/** The journal a checked invoice writes (B31), each line in the order's currency at its base. */
+async function buildPosting(
+  db: Db,
+  invoiceNo: string,
+  c: CheckedPurchaseInvoice,
+  baseCurrencyId: number,
+  b: PostingBases
+): Promise<{ ok: true; description: string; lines: JournalLineInput[] } | { ok: false; message: string }> {
   const f = c.figures;
-  type Key = "goods_received_account" | "payable_account" | "input_vat_account" | "purchase_advance_account" | "supplier_invoice_diff_account";
+  const fxOf = b.deds.map((d) => (cents(d.inv) - cents(d.um) - cents(d.ppn)) / 100);
+  type Key = "goods_received_account" | "payable_account" | "input_vat_account" | "purchase_advance_account" | "supplier_invoice_diff_account" | "fx_account";
   const keys: Key[] = [
     "goods_received_account",
     "payable_account",
     ...(f.fullPpn > 0 ? (["input_vat_account"] as const) : []),
     ...(f.advanceUsed > 0 ? (["purchase_advance_account"] as const) : []),
     ...(f.difference !== 0 ? (["supplier_invoice_diff_account"] as const) : []),
+    ...(fxOf.some((x) => x !== 0) ? (["fx_account"] as const) : []),
   ];
   const mapped = await postingAccounts<Key>(keys);
   const missing: string[] = mapped.ok ? [] : [...mapped.missing];
@@ -578,30 +647,45 @@ async function buildPosting(db: Db, invoiceNo: string, c: CheckedPurchaseInvoice
   const ids = mapped.ids as Partial<Record<Key, number>>;
   const req = new Map((await db.accAccount.findMany({ where: { id: { in: Object.values(ids).filter(Boolean) as number[] } }, select: { id: true, require_partner: true } })).map((a) => [a.id, a.require_partner]));
   const supplier = c.order.supplierId;
-  const line = (accountId: number, debit: number, credit: number, description: string, partnerId: number | null = null): JournalLineInput => ({
+  const line = (accountId: number, debit: number, credit: number, base: number, description: string, partnerId: number | null = null): JournalLineInput => ({
     accountId,
     partnerId: req.get(accountId) || partnerId ? partnerId : null,
-    currencyId,
-    rate: 1,
+    currencyId: c.order.currencyId,
+    rate: c.order.exchangeRate,
     debit,
     credit,
+    baseAmount: base,
     description,
   });
   const rn = [...new Set(c.rnNos)].join(", ");
   const out: JournalLineInput[] = [];
-  out.push(line(ids.goods_received_account!, f.dpp, 0, `Ditagih ${rn} (${c.order.orderNo})`, supplier));
-  if (f.fullPpn > 0) out.push(line(ids.input_vat_account!, f.fullPpn, 0, `PPN Masukan ${invoiceNo} · faktur ${c.data.supplier_tax_invoice_no ?? "—"}`));
-  if (f.difference > 0) out.push(line(ids.supplier_invoice_diff_account!, f.difference, 0, `Selisih tagihan supplier ${c.data.supplier_invoice_no}`));
-  if (f.difference < 0) out.push(line(ids.supplier_invoice_diff_account!, 0, -f.difference, `Selisih tagihan supplier ${c.data.supplier_invoice_no}`));
-  out.push(line(ids.payable_account!, 0, f.payable, `Hutang ${invoiceNo} · invoice supplier ${c.data.supplier_invoice_no} — jatuh tempo ${dmy(isoDay(c.data.due_date))}`, supplier));
+  out.push(line(ids.goods_received_account!, f.dpp, 0, b.dpp, `Ditagih ${rn} (${c.order.orderNo})`, supplier));
+  if (f.fullPpn > 0) out.push(line(ids.input_vat_account!, f.fullPpn, 0, b.ppn, `PPN Masukan ${invoiceNo} · faktur ${c.data.supplier_tax_invoice_no ?? "—"}`));
+  if (f.difference > 0) out.push(line(ids.supplier_invoice_diff_account!, f.difference, 0, Math.abs(b.diff), `Selisih tagihan supplier ${c.data.supplier_invoice_no}`));
+  if (f.difference < 0) out.push(line(ids.supplier_invoice_diff_account!, 0, -f.difference, Math.abs(b.diff), `Selisih tagihan supplier ${c.data.supplier_invoice_no}`));
+  out.push(line(ids.payable_account!, 0, f.payable, b.payable, `Hutang ${invoiceNo} · invoice supplier ${c.data.supplier_invoice_no} — jatuh tempo ${dmy(isoDay(c.data.due_date))}`, supplier));
   for (const w of pph) {
     const t = taxes.get(Number(w.key))!;
-    out.push(line(t.account_id!, 0, w.amount, `${t.wht_label} dipotong atas ${invoiceNo}`, supplier));
+    out.push(line(t.account_id!, 0, w.amount, b.pph.get(w.key) ?? 0, `${t.wht_label} dipotong atas ${invoiceNo}`, supplier));
   }
-  for (const d of c.deductions) {
-    out.push(line(ids.payable_account!, d.dpp_used + d.ppn_used, 0, `Uang muka ${d.ap_item_no} diterapkan ke ${invoiceNo}`, supplier));
-    out.push(line(ids.purchase_advance_account!, 0, d.dpp_used, `Uang muka ${d.ap_item_no} dipakai ${invoiceNo}`, supplier));
-    if (d.ppn_used > 0) out.push(line(ids.input_vat_account!, 0, d.ppn_used, `PPN uang muka ${d.ap_item_no} sudah dikreditkan — ${invoiceNo}`));
+  for (const [k, d] of c.deductions.entries()) {
+    const x = b.deds[k];
+    out.push(line(ids.payable_account!, (cents(d.dpp_used) + cents(d.ppn_used)) / 100, 0, x.inv, `Uang muka ${d.ap_item_no} diterapkan ke ${invoiceNo}`, supplier));
+    out.push(line(ids.purchase_advance_account!, 0, d.dpp_used, x.um, `Uang muka ${d.ap_item_no} dipakai ${invoiceNo}`, supplier));
+    if (d.ppn_used > 0) out.push(line(ids.input_vat_account!, 0, d.ppn_used, x.ppn, `PPN uang muka ${d.ap_item_no} sudah dikreditkan — ${invoiceNo}`));
+    // Hutang relieved at the invoice's rate, the advance at its own: the rest is
+    // selisih kurs (MC13) — a gain when more Hutang left than the advance carried.
+    if (fxOf[k] !== 0) {
+      out.push({
+        accountId: ids.fx_account!,
+        partnerId: null,
+        currencyId: baseCurrencyId,
+        rate: 1,
+        debit: Math.max(0, -fxOf[k]),
+        credit: Math.max(0, fxOf[k]),
+        description: `Selisih kurs uang muka ${d.ap_item_no} — ${invoiceNo}`,
+      });
+    }
   }
   return { ok: true, description: `${invoiceNo} · Invoice Pembelian ${c.order.orderNo} — ${c.order.supplierName}`, lines: out };
 }
@@ -665,46 +749,72 @@ export async function transitionPurchaseInvoice(
         const first = Object.entries(r.errors).find(([k]) => !k.startsWith("_"))?.[1] ?? Object.values(r.errors)[0];
         throw new Refused({ _form: `Belum bisa diposting: ${first}` });
       }
-      const p = await buildPosting(tx, n.invoice_no, r.c, currency.id);
-      if (!p.ok) throw new Refused({ _form: p.message });
       const done = await tx.finApInvoice.updateMany({ where: { id, status: "Draft" }, data: { ...headData(r.c), status: "Posted", updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: moved });
       await writeRows(tx, id, r.c);
 
+      // The Invoice item at its face and its base (MC7), then each Uang Muka
+      // applied at its own carrying rate (MC13) — the books move first, so the
+      // journal carries what they actually relieved.
       const typeId = await docTypeId(tx, "fin_ap_invoice");
-      const journal = await postJournal(tx, { description: p.description, sourceDocTypeId: typeId, sourceDocId: id, postingDate: r.c.data.invoice_date, actorId, lines: p.lines });
       const doc = { docTypeId: typeId, docId: id, no: n.invoice_no };
       const date = isoDay(r.c.data.invoice_date);
+      const head = headData(r.c);
+      const rate = r.c.order.exchangeRate;
+      const bases: PostingBases = {
+        dpp: head.base_dpp_amount,
+        ppn: (cents(head.base_ppn_amount) + cents(head.base_advance_ppn_amount)) / 100,
+        diff: head.base_difference_amount,
+        payable: head.base_payable_amount,
+        pph: new Map(r.c.figures.withholdings.map((w) => [w.key, roundBase(w.amount * rate)])),
+        deds: [],
+      };
       const itemId = await createApItem(tx, {
         type: "Invoice",
         partnerId: r.c.order.supplierId,
-        currencyId: currency.id,
+        currencyId: r.c.order.currencyId,
         date,
         dueDate: isoDay(r.c.data.due_date),
         source: doc,
         createdBy: doc,
         orderId: r.c.order.id,
         amount: r.c.figures.payable,
-        base: r.c.figures.payable * RATE,
+        base: bases.payable,
         note: `Invoice ${n.invoice_no} (supplier ${r.c.data.supplier_invoice_no}) diposting`,
         actorId,
       });
+      const fmt = (v: number) => formatMoney(v, r.c.order.currency);
       for (const d of r.c.deductions) {
-        await settleApItem(tx, { itemId: d.ap_item_id, event: "AdvanceUsed", amount: d.dpp_used, date, doc, counterItemId: itemId, note: `Dipakai ${n.invoice_no}`, actorId });
-        await settleApItem(tx, {
+        const ppnBase = roundBase(d.ppn_used * (carryingRate(await apItemHeld(tx, d.ap_item_id)) ?? 1));
+        const um = await settleApItem(tx, { itemId: d.ap_item_id, event: "AdvanceUsed", amount: d.dpp_used, date, doc, counterItemId: itemId, note: `Dipakai ${n.invoice_no}`, actorId });
+        const inv = await settleApItem(tx, {
           itemId,
           event: "AdvanceApplied",
-          amount: d.dpp_used + d.ppn_used,
+          amount: (cents(d.dpp_used) + cents(d.ppn_used)) / 100,
           date,
           doc,
           counterItemId: d.ap_item_id,
-          note: `Uang muka ${d.ap_item_no} — DPP ${money(d.dpp_used)}${d.ppn_used ? ` + PPN ${money(d.ppn_used)}` : ""}`,
+          note: `Uang muka ${d.ap_item_no} — DPP ${fmt(d.dpp_used)}${d.ppn_used ? ` + PPN ${fmt(d.ppn_used)}` : ""}`,
           actorId,
         });
+        bases.deds.push({ um, ppn: ppnBase, inv });
+        await tx.finApInvoiceAdvanceDeduction.updateMany({
+          where: { invoice_id: id, ap_item_id: d.ap_item_id },
+          data: { base_dpp_used: um, base_ppn_used: ppnBase, fx_difference: (cents(inv) - cents(um) - cents(ppnBase)) / 100 },
+        });
+        d.base_dpp_used = um;
+        d.base_ppn_used = ppnBase;
       }
+      // The header's base restated from what was relieved.
+      await tx.finApInvoice.update({ where: { id }, data: headData(r.c) });
+
+      const p = await buildPosting(tx, n.invoice_no, r.c, currency.id, bases);
+      if (!p.ok) throw new Refused({ _form: p.message });
+      const journalLines = p.lines;
+      const journal = await postJournal(tx, { description: p.description, sourceDocTypeId: typeId, sourceDocId: id, postingDate: r.c.data.invoice_date, actorId, lines: journalLines });
       await tx.finApInvoice.update({ where: { id }, data: { journal_id: journal.id, ap_item_id: itemId } });
       await audit(tx, id, "UPDATE", "post", actorId);
-      if (options.dryRun) throw new PostingDryRun(p.lines);
+      if (options.dryRun) throw new PostingDryRun(journalLines);
     });
     return { ok: true as const };
   });
@@ -714,6 +824,8 @@ export async function transitionPurchaseInvoice(
 
 export type PurchaseInvoiceListRow = {
   id: number;
+  /** The document's currency, every figure on the row is in (MC3). */
+  currency: string;
   pay: { state: InvoicePayState; open: number; overdue: boolean } | null;
   invoiceNo: string;
   invoiceDate: string;
@@ -727,13 +839,14 @@ export type PurchaseInvoiceListRow = {
 };
 
 export async function listPurchaseInvoices(): Promise<PurchaseInvoiceListRow[]> {
-  const rows = await prisma.finApInvoice.findMany({ orderBy: [{ invoice_date: "desc" }, { id: "desc" }], include: { supplier: true } });
+  const rows = await prisma.finApInvoice.findMany({ orderBy: [{ invoice_date: "desc" }, { id: "desc" }], include: { supplier: true, currency: true } });
   const [orders, pay] = await Promise.all([
     purchaseOrderNumbersByIds([...new Set(rows.map((r) => r.purchase_order_id))]),
     purchaseInvoicePayStates(rows.filter((r) => r.status === "Posted").map((r) => r.id)),
   ]);
   return rows.map((r) => ({
     id: r.id,
+    currency: r.currency.currency_label,
     pay: pay[r.id] ?? null,
     invoiceNo: r.invoice_no,
     invoiceDate: isoDay(r.invoice_date),
@@ -840,6 +953,8 @@ export type SettlementPurchaseInvoice = {
   apItemId: number | null;
   /** What posted payments settled of it — a payment's `before` (P133). */
   paid: number;
+  /** Its order's currency: only a bank in it pays it (MC14). */
+  currency: string;
 };
 
 /** Posted invoices not yet paid in full, ids only (P133). */
@@ -863,6 +978,7 @@ export async function settlementPurchaseInvoices(filter: { ids?: number[] }, db:
   const rows = await db.finApInvoice.findMany({
     where: filter.ids ? { id: { in: filter.ids } } : {},
     orderBy: [{ due_date: "asc" }, { id: "asc" }],
+    include: { currency: true },
   });
   const orders = await purchaseOrderNumbersByIds([...new Set(rows.map((r) => r.purchase_order_id))]);
   const paidOf = await apPaidByDocument(db, "fin_ap_invoice", rows.map((r) => r.id));
@@ -878,6 +994,7 @@ export async function settlementPurchaseInvoices(filter: { ids?: number[] }, db:
     owed: owedOf(r),
     apItemId: r.ap_item_id,
     paid: paidOf.get(r.id) ?? 0,
+    currency: r.currency.currency_label,
   }));
 }
 

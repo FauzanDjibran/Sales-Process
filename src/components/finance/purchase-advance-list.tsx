@@ -66,7 +66,7 @@ export function PurchaseAdvanceList({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [all, q, status, today, paid]);
   const paging = usePaging(rows, `${q}|${status}`);
-  const money = (n: number) => formatMoney(n, "IDR");
+  const money = (n: number, currency = "IDR") => formatMoney(n, currency);
 
   return (
     <>
@@ -172,17 +172,17 @@ export function PurchaseAdvanceList({
                         </span>
                       </td>
                       <td className="num">
-                        <span className="mny">{money(r.dpp)}</span>
+                        <span className="mny">{money(r.dpp, r.currency)}</span>
                       </td>
                       <td className="num">
-                        <span className="mny">{r.isTaxable ? money(r.ppn) : "—"}</span>
+                        <span className="mny">{r.isTaxable ? money(r.ppn, r.currency) : "—"}</span>
                       </td>
                       <td className="num">
-                        <span className="mny">{money(r.total)}</span>
+                        <span className="mny">{money(r.total, r.currency)}</span>
                       </td>
                       <td>
                         {r.status === "Issued" ? (
-                          <span className={`bdg ${PAY_TAG[stateOf(r)]}`} title={paid[r.id] ? `dibayar ${money(paid[r.id])}` : undefined}>
+                          <span className={`bdg ${PAY_TAG[stateOf(r)]}`} title={paid[r.id] ? `dibayar ${money(paid[r.id], r.currency)}` : undefined}>
                             {stateOf(r)}
                           </span>
                         ) : (

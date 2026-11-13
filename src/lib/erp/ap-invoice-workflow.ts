@@ -8,6 +8,7 @@
  * shows exactly what Posting books.
  */
 import { computeInvoice, type InvoiceFigures, type PpnRates } from "./sales-tax";
+import { roundBase } from "./fx";
 import type { InvoiceAction, InvoiceStatus, InvoiceTransition } from "./ar-invoice-workflow";
 
 export {
@@ -97,8 +98,14 @@ export function computePurchaseInvoice(input: {
   advanceUsed: number;
   advancePpn: number;
   supplierTotal: number | null;
+  /** In base currency: the difference is compared at the order's rate (OD-7). */
   tolerance: number;
+  /** `taxScale` of the order's currency, and its rate to base. */
+  scale?: number;
+  rate?: number;
 }): PurchaseInvoiceFigures {
+  const scale = input.scale ?? 1;
+  const m = (n: number) => Math.round(n * scale);
   const f = computeInvoice({
     lines: input.lines.map((l) => ({
       qty: 1,
@@ -117,13 +124,14 @@ export function computePurchaseInvoice(input: {
     rates: input.rates,
     advanceUsed: input.advanceUsed,
     advancePpn: input.advancePpn,
+    scale,
   });
-  const difference = input.supplierTotal == null ? 0 : Math.round(input.supplierTotal) - f.total;
+  const difference = input.supplierTotal == null ? 0 : (m(input.supplierTotal) - m(f.total)) / scale;
   return {
     ...f,
     pph: f.withholdingTotal,
     difference,
-    withinTolerance: Math.abs(difference) <= Math.max(0, input.tolerance),
-    payable: f.dpp + f.fullPpn + difference - f.withholdingTotal,
+    withinTolerance: Math.abs(roundBase(difference * (input.rate ?? 1))) <= Math.max(0, input.tolerance),
+    payable: (m(f.dpp) + m(f.fullPpn) + m(difference) - m(f.withholdingTotal)) / scale,
   };
 }

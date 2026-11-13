@@ -1775,6 +1775,7 @@ table fin_ap_invoice_advance_deduction {
   base_dpp_used               decimal(18,2) [not null] // dpp_used in base currency (MC1)
   ppn_used                    decimal(18,2) [not null, default: 0]
   base_ppn_used               decimal(18,2) [not null] // ppn_used in base currency (MC1)
+  fx_difference               decimal(18,2) [not null, default: 0] // Hutang relieved less the advance and its PPN relieved (MC13)
 
   indexes {
     (invoice_id, ap_item_id) [unique]
@@ -1900,6 +1901,7 @@ table fin_ar_invoice_advance_deduction {
   base_dpp_used               decimal(18,2) [not null] // dpp_used in base currency (MC1)
   ppn_used                    decimal(18,2) [not null, default: 0] // cumulative share of the item's tax_ppn (P113, §7.5)
   base_ppn_used               decimal(18,2) [not null] // ppn_used in base currency (MC1)
+  fx_difference               decimal(18,2) [not null, default: 0] // Piutang relieved less the advance and its PPN relieved (MC13)
 
   indexes {
     (invoice_id, ar_item_id) [unique]
@@ -2395,7 +2397,8 @@ table log_receipt_note_line {
   qty                         decimal(18,4) [not null]
   base_qty                    decimal(18,4) [not null]
   is_stock                    boolean [not null, default: false] // Barang with Kelola Stok
-  value_amount                decimal(18,2) [not null, default: 0] // cumulative share of the PO line's DPP (B20)
+  order_dpp_amount            decimal(18,2) [not null, default: 0] // the PO line DPP for this quantity, in the PO currency (MC7)
+  value_amount                decimal(18,2) [not null, default: 0] // cumulative share of the PO line's base DPP (B20, MC7)
   note                        varchar
 
   indexes {

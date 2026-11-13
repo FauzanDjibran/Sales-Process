@@ -14,7 +14,9 @@ import { useToast } from "@/components/ui/toast";
 import { CashReceiptActions } from "@/components/finance/cash-receipt-actions";
 import { BillPicker, type PickedLine } from "@/components/finance/cash-receipt-bill-picker";
 import { createCashReceiptAction, updateCashReceiptAction } from "@/app/actions/cash-receipt";
-import { cashToClear, settleBillFromCash, type SettlementLine } from "@/lib/erp/sales-tax";
+import { cashToClear, settleBillFromCash, taxScale, type SettlementLine } from "@/lib/erp/sales-tax";
+import { RateInput } from "@/components/ui/rate-input";
+import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
 import { SETTLED_DOC_ROUTE, SETTLED_DOC_TEXT, billKey, cashBankPurpose, isInvoiceKind } from "@/lib/erp/cash-bank-purposes";
 import {
   CASH_BANK_TX_STATUS_BADGE,
@@ -24,7 +26,7 @@ import {
 import type { CashReceiptOptions, CashReceiptView, OpenBill } from "@/lib/erp/cash-bank-tx";
 import { TAX_MODULE_HIDDEN } from "@/lib/erp/nav";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
-import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
+import { formatDate, formatMoney, formatPct, formatRate, todayIso } from "@/lib/format";
 
 /**
  * Penerimaan Kas & Bank, in all three modes: `new`, `edit` (Draft only) and
@@ -55,11 +57,12 @@ type Header = {
   bank_ref: string;
   note: string;
   bank_charge: string;
+  /** Kurs Terima of a foreign Kas & Bank (MC11). */
+  exchange_rate: string;
 };
 
 type LiveLine = { bill: OpenBill; input: Line; withhold: boolean; max: number; line: SettlementLine };
 
-const money = (n: number) => formatMoney(n, "IDR");
 
 /** Where a settled document opens. */
 const billHref = (b: OpenBill) => `${SETTLED_DOC_ROUTE[b.kind]}/${b.id}`;
@@ -93,6 +96,7 @@ export function CashReceiptForm({
         bank_ref: i.bank_ref,
         note: i.note,
         bank_charge: i.bank_charge ? String(i.bank_charge) : "",
+        exchange_rate: String(i.exchange_rate ?? "1"),
       };
     }
     const purposes = options.purposes;
@@ -105,6 +109,7 @@ export function CashReceiptForm({
       bank_ref: "",
       note: "",
       bank_charge: "",
+      exchange_rate: "1",
     };
   });
   const [picked, setPicked] = useState<Line[]>(() =>
@@ -132,32 +137,35 @@ export function CashReceiptForm({
     touch(k);
   };
 
+  // ---- the receipt is in its Kas & Bank's currency, and settles only bills in it (MC14)
+  const cashBank = options.cashBanks.find((c) => c.id === h.cash_bank_id) ?? null;
+  const currency = cashBank?.currency ?? BASE_CURRENCY_LABEL;
+  const foreign = !isBaseCurrency(currency);
+  const scale = taxScale(currency);
+  const money = (n: number) => formatMoney(n, currency);
   // ---- what may be settled: the purpose's documents, owed by the partner
-  const partnerBills = useMemo(
-    // Already oldest due first (the server sorts), advance bills and Invoices together.
-    () => (purpose && h.partner_id ? options.bills.filter((b) => b.customerId === h.partner_id && purpose.settles.includes(b.kind)) : []),
-    [options.bills, purpose, h.partner_id]
-  );
+  // Already oldest due first (the server sorts), advance bills and Invoices together.
+  const partnerBills =
+    purpose && h.partner_id
+      ? options.bills.filter((b) => b.customerId === h.partner_id && purpose.settles.includes(b.kind) && b.currency === currency)
+      : [];
   const billByKey = useMemo(() => new Map(options.bills.map((b) => [b.key, b])), [options.bills]);
   const canWithhold = Boolean(purpose?.withholding);
 
   // ---- every line's figures, exactly as the Server Action will store them
-  const lines = useMemo(() => {
-    const out: LiveLine[] = [];
-    for (const l of picked) {
-      const bill = billByKey.get(l.key);
-      if (!bill) continue;
-      const withhold = canWithhold ? l.withhold : false;
-      out.push({
-        bill,
-        input: l,
-        withhold,
-        max: cashToClear(bill, bill.paid, withhold),
-        line: settleBillFromCash({ bill, before: bill.paid, cash: Number(l.cash) || 0, withhold }),
-      });
-    }
-    return out;
-  }, [picked, billByKey, canWithhold]);
+  const lines: LiveLine[] = [];
+  for (const l of picked) {
+    const bill = billByKey.get(l.key);
+    if (!bill) continue;
+    const withhold = canWithhold ? l.withhold : false;
+    lines.push({
+      bill,
+      input: l,
+      withhold,
+      max: cashToClear(bill, bill.paid, withhold, scale),
+      line: settleBillFromCash({ bill, before: bill.paid, cash: Number(l.cash) || 0, withhold, scale }),
+    });
+  }
   const charge = Number(h.bank_charge) || 0;
 
   const setLine = (key: string, patch: Partial<Line>) => {
@@ -179,6 +187,7 @@ export function CashReceiptForm({
     const input = {
       ...h,
       bank_charge: charge,
+      exchange_rate: foreign ? h.exchange_rate : 1,
       lines: lines.map((l) => ({ doc_type: l.bill.kind, doc_id: l.bill.id, cash: Number(l.input.cash) || 0, withhold: l.withhold })),
     };
     const result =
@@ -211,7 +220,6 @@ export function CashReceiptForm({
   const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
   const partners = options.partners.filter((p) => !purpose || p.category === purpose.partnerCategory);
   const partner = options.partners.find((p) => p.id === h.partner_id) ?? null;
-  const cashBank = options.cashBanks.find((c) => c.id === h.cash_bank_id) ?? null;
   const whtLabel = (key: string) => options.withholdingLabels[key] ?? "PPh";
 
   // The live figures while editing, the stored ones in view mode.
@@ -300,7 +308,13 @@ export function CashReceiptForm({
                   options={options.cashBanks}
                   placeholder="Pilih Kas & Bank…"
                   invalid={Boolean(errors.cash_bank_id)}
-                  onChange={(v) => set("cash_bank_id", v)}
+                  onChange={(v) => {
+                    // Another currency settles other bills: the lines picked go (MC14).
+                    const next = options.cashBanks.find((c) => c.id === v);
+                    if (next && next.currency !== currency) setPicked([]);
+                    setH((x) => ({ ...x, cash_bank_id: v, exchange_rate: next && !isBaseCurrency(next.currency) ? "" : "1" }));
+                    touch("cash_bank_id", "exchange_rate", "_lines");
+                  }}
                 />
               ) : (
                 ro(
@@ -311,6 +325,15 @@ export function CashReceiptForm({
                 )
               )}
             </Field>
+            {foreign && (
+              <Field label="Kurs Terima" span={4} required={editing} help={editing ? `${BASE_CURRENCY_LABEL} per 1 ${currency}, dari rekening koran` : undefined} error={errors.exchange_rate}>
+                {editing ? (
+                  <RateInput value={h.exchange_rate} pairLabel={`${currency} → ${BASE_CURRENCY_LABEL}`} invalid={Boolean(errors.exchange_rate)} onChange={(v) => set("exchange_rate", v)} />
+                ) : (
+                  ro(<span className="mny">{formatRate(Number(h.exchange_rate))}</span>)
+                )}
+              </Field>
+            )}
             <Field label="Tanggal Terima" span={4} required={editing} error={errors.tx_date}>
               {editing ? (
                 <DateInput value={h.tx_date} invalid={Boolean(errors.tx_date)} onChange={(v) => set("tx_date", v)} />
@@ -515,6 +538,7 @@ export function CashReceiptForm({
                       {editing && l ? (
                         <>
                           <MoneyInput
+                    decimals={scale === 1 ? 0 : 2}
                             size="sm"
                             value={l.input.cash}
                             over={over}
@@ -588,6 +612,7 @@ export function CashReceiptForm({
               {editing ? (
                 <span style={{ width: 160 }}>
                   <MoneyInput
+                    decimals={scale === 1 ? 0 : 2}
                     size="sm"
                     value={h.bank_charge}
                     invalid={Boolean(errors.bank_charge)}
@@ -709,6 +734,7 @@ export function CashReceiptForm({
       {pickerOpen && (
         <BillPicker
           bills={partnerBills}
+          currency={currency}
           current={picked}
           noun={noun}
           partnerName={partner?.name ?? ""}

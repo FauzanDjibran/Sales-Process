@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
@@ -17,6 +17,7 @@ import { createPermitAdvanceAction, updatePermitAdvanceAction } from "@/app/acti
 import {
   advanceAmountProblem,
   computeAdvance,
+  taxScale,
   type AdvanceAmountType,
   type PriceMode,
 } from "@/lib/erp/sales-tax";
@@ -30,6 +31,7 @@ import type { SalesAdvanceOptions, SalesAdvanceView } from "@/lib/erp/ar-advance
 import type { PermitAdvanceOptions, PermitAdvanceView } from "@/lib/erp/permit-advance";
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
+import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 
 /**
  * Uang Muka Penjualan — the AR advance bill, in all three modes: `new`,
@@ -63,7 +65,6 @@ type State = {
 };
 
 const MODE_TEXT: Record<PriceMode, string> = { Exclude: "Exclude PPN", Include: "Include PPN" };
-const money = (n: number) => formatMoney(n, "IDR");
 const DUE_DAYS = 7;
 
 function addDays(iso: string, days: number): string {
@@ -166,6 +167,12 @@ export function AdvanceForm({
   const [saving, setSaving] = useState(false);
 
   const order = orders.find((o) => o.id === s.order_id) ?? null;
+  // The bill follows its order's currency (MC3); a Perizinan one is always rupiah.
+  const currency = (order && "currency" in order ? order.currency : null) ?? BASE_CURRENCY_LABEL;
+  const scale = taxScale(currency);
+  const money = (n: number) => formatMoney(n, currency);
+  // Only a bank in the bill's currency can print on it (MC14).
+  const banks = options.banks.filter((b) => !("currency" in b) || b.currency === currency);
 
   const touch = (...names: string[]) => {
     setDirty(true);
@@ -206,15 +213,12 @@ export function AdvanceForm({
   // A stored bill shows the rate it carries; one being edited previews the
   // rate in force, which its save will snapshot (P60).
   const rates = mode === "view" ? (advance?.rates ?? null) : options.ppnRates;
-  const figures = useMemo(
-    () => (order ? computeAdvance({ basis: order.basis, type: s.amount_type, typed, rates }) : null),
-    [order, s.amount_type, typed, rates]
-  );
+  const figures = order ? computeAdvance({ basis: order.basis, type: s.amount_type, typed, rates, scale }) : null;
   const factor = rates ? `${rates.otherNum}/${rates.otherDen}` : "—";
   const ratePct = rates ? formatPct(rates.rate) : "—";
   const over =
     editing && order && typed > 0
-      ? advanceAmountProblem(s.amount_type, typed, order.value, order.left) !== null
+      ? advanceAmountProblem(s.amount_type, typed, order.value, order.left, scale) !== null
       : false;
 
   const fillRest = () => {
@@ -423,7 +427,7 @@ export function AdvanceForm({
               {editing ? (
                 <Combobox
                   value={s.cash_bank_id}
-                  options={options.banks}
+                  options={banks}
                   placeholder="Pilih Rekening…"
                   invalid={Boolean(errors.cash_bank_id)}
                   onChange={(v) => set("cash_bank_id", v)}
@@ -636,6 +640,7 @@ export function AdvanceForm({
                     ) : (
                       <MoneyInput
                         value={s.amount_value}
+                        decimals={scale === 1 ? 0 : 2}
                         invalid={Boolean(errors.amount_value)}
                         over={over}
                         ariaLabel={valueLabel}

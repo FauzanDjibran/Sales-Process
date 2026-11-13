@@ -4,8 +4,8 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { SUPPLIER_CATEGORY } from "./entities";
-import { PPN_SETTINGS_MISSING, ppnRates, requireBaseCurrencyId } from "./system-settings";
-import { withBase } from "./fx";
+import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
+import { checkDocumentCurrency, documentCurrencyOptions, orderLineBase, orderTotalsData, type CurrencyOption, type TransactionRate } from "./document-currency";
 import { computeSalesTotals, lineProblem, type AdvanceBasis, type DiscountType, type PpnRates, type PriceMode, type SalesTotals } from "./sales-tax";
 import { lockPurchaseRequestLines, purchaseOrderSourceLines, recordPurchaseRequestOrdered, type PoSourceLine } from "./purchase-request";
 import {
@@ -37,6 +37,9 @@ type Db = Prisma.TransactionClient | typeof prisma;
 export type PurchaseOrderHeaderInput = {
   item_type: "Barang" | "Jasa";
   order_date: string;
+  /** The order's currency (MC3); empty means the base currency. */
+  currency_id?: number | null;
+  exchange_rate?: number | string;
   supplier_id: number | null;
   term_id: number | null;
   delivery_date: string;
@@ -78,6 +81,8 @@ export type PoSupplierOption = {
   active: boolean;
   defaultTermId: number | null;
   defaultPriceMode: PriceMode | null;
+  /** Currency Default (P270); null = the base currency. */
+  defaultCurrencyId: number | null;
   isPkp: boolean;
   taxIdType: string | null;
   taxId: string | null;
@@ -102,16 +107,19 @@ export type PurchaseOrderOptions = {
   /** Open request lines with something left, plus those the order names. */
   sources: PoSourceLine[];
   ppnRates: PpnRates | null;
+  currencies: CurrencyOption[];
+  exchangeRates: TransactionRate[];
 };
 
 export async function purchaseOrderOptions(itemType: "Barang" | "Jasa", withRequestLineIds: number[] = []): Promise<PurchaseOrderOptions> {
-  const [suppliers, terms, warehouses, taxes, sources, rates] = await Promise.all([
+  const [suppliers, terms, warehouses, taxes, sources, rates, money] = await Promise.all([
     prisma.mPartner.findMany({ where: { category: { category_label: SUPPLIER_CATEGORY } }, orderBy: { partner_label: "asc" } }),
     prisma.refPaymentTerm.findMany({ orderBy: { due_days: "asc" } }),
     prisma.refWarehouse.findMany({ orderBy: { warehouse_label: "asc" } }),
     prisma.refWithholdingTax.findMany({ where: { usage: "Purchase" }, orderBy: { wht_label: "asc" } }),
     purchaseOrderSourceLines({ itemType, ids: withRequestLineIds }),
     ppnRates(),
+    documentCurrencyOptions(),
   ]);
   const items = await prisma.mItem.findMany({
     where: { id: { in: [...new Set(sources.map((s) => s.itemId))] } },
@@ -125,6 +133,7 @@ export async function purchaseOrderOptions(itemType: "Barang" | "Jasa", withRequ
       active: p.status === "Active",
       defaultTermId: p.purchase_term_id,
       defaultPriceMode: p.purchase_price_mode,
+      defaultCurrencyId: p.purchase_currency_id,
       isPkp: p.is_pkp,
       taxIdType: p.tax_id_type,
       taxId: p.tax_id,
@@ -143,6 +152,8 @@ export async function purchaseOrderOptions(itemType: "Barang" | "Jasa", withRequ
     withholdingTaxes: taxes.map((t) => ({ id: t.id, label: t.wht_label, name: t.wht_name, active: t.status === "Active", rate: t.rate.toNumber() })),
     sources,
     ppnRates: rates,
+    currencies: money.currencies,
+    exchangeRates: money.rates,
   };
 }
 
@@ -170,6 +181,8 @@ export type PurchaseOrderCheck =
       header: {
         item_type: "Barang" | "Jasa";
         order_date: Date;
+        currency_id: number;
+        exchange_rate: number;
         supplier_id: number;
         term_id: number;
         delivery_date: Date;
@@ -339,7 +352,8 @@ export async function checkPurchaseOrder(
 
   const rates = taxable ? await ppnRates() : null;
   if (taxable && !rates) errors._form = PPN_SETTINGS_MISSING;
-  if (Object.keys(errors).length) return { ok: false, errors };
+  const currency = await checkDocumentCurrency(prisma, header, errors);
+  if (Object.keys(errors).length || !currency) return { ok: false, errors };
 
   const totals = computeSalesTotals({
     lines: checked.map((l) => ({
@@ -354,6 +368,7 @@ export async function checkPurchaseOrder(
     taxable,
     vatCollector: false,
     rates,
+    scale: currency.scale,
   });
 
   return {
@@ -361,6 +376,8 @@ export async function checkPurchaseOrder(
     header: {
       item_type: itemType,
       order_date: asDate(orderDate),
+      currency_id: currency.currencyId,
+      exchange_rate: currency.rate,
       supplier_id: supplierId!,
       term_id: termId!,
       delivery_date: asDate(deliveryDate),
@@ -391,25 +408,7 @@ const rateData = (r: PpnRates | null) => ({
   ppn_dpp_other_denominator: r?.otherDen ?? null,
 });
 
-// shortcut: every order is rupiah at rate 1 until Multi-Currency-Plan stage 5
-// gives it a currency and its own rate.
-const RATE = 1;
-
-const totalsData = (t: SalesTotals) =>
-  withBase(
-    {
-      gross_amount: t.gross,
-      discount_amount: t.discount,
-      dpp_amount: t.dpp,
-      dpp_other_amount: t.dppOther,
-      ppn_amount: t.ppn,
-      total_amount: t.total,
-    },
-    RATE
-  );
-
-function lineData(l: CheckedLine, t: SalesTotals, i: number) {
-  const r = t.lines[i];
+function lineData(l: CheckedLine, t: SalesTotals, i: number, rate: number) {
   return {
     line_no: l.line_no,
     item_id: l.item_id,
@@ -419,7 +418,7 @@ function lineData(l: CheckedLine, t: SalesTotals, i: number) {
     price: l.price,
     discount_type: l.discount_type,
     discount_value: l.discount_value,
-    ...withBase({ discount_amount: r.discount, amount: r.amount, dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn }, RATE),
+    ...orderLineBase(t, i, rate),
     withholding_tax_id: l.withholding_tax_id,
     withholding_rate: l.withholding_rate,
     note: l.note,
@@ -438,12 +437,11 @@ export async function createPurchaseOrder(header: PurchaseOrderHeaderInput, line
     const order = await tx.purOrder.create({
       data: {
         ...c.header,
-        ...totalsData(c.totals),
+        ...orderTotalsData(c.totals, c.header.exchange_rate),
         ...rateData(c.rates),
         order_no: await nextOrderNo(tx, c.header.order_date, c.header.is_taxable),
-        currency_id: await requireBaseCurrencyId(tx),
         created_by: actorId,
-        lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i)) },
+        lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i, c.header.exchange_rate)) },
       },
     });
     await audit(tx, order.id, "TAMBAH", "create", actorId);
@@ -466,11 +464,11 @@ export async function updatePurchaseOrder(id: number, header: PurchaseOrderHeade
       where: { id },
       data: {
         ...c.header,
-        ...totalsData(c.totals),
+        ...orderTotalsData(c.totals, c.header.exchange_rate),
         ...rateData(c.rates),
         ...(renumbered ? { order_no: renumbered } : {}),
         updated_by: actorId,
-        lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i)) },
+        lines: { create: c.lines.map((l, i) => lineData(l, c.totals, i, c.header.exchange_rate)) },
       },
     });
     await audit(tx, id, "UPDATE", "update", actorId);
@@ -485,6 +483,8 @@ function asInput(o: StoredOrder) {
   const header: PurchaseOrderHeaderInput = {
     item_type: o.item_type,
     order_date: isoDay(o.order_date),
+    currency_id: o.currency_id,
+    exchange_rate: o.exchange_rate.toNumber(),
     supplier_id: o.supplier_id,
     term_id: o.term_id,
     delivery_date: isoDay(o.delivery_date),
@@ -557,16 +557,15 @@ export async function transitionPurchaseOrder(
       }
       const done = await tx.purOrder.updateMany({
         where: { id, status: from },
-        data: { status: t.to, ...totalsData(c.totals), ...rateData(c.rates), updated_by: actorId },
+        data: { status: t.to, ...orderTotalsData(c.totals, c.header.exchange_rate), ...rateData(c.rates), updated_by: actorId },
       });
       if (done.count !== 1) throw new Error(moved);
       const ordered = new Map<number, number>();
       const sorted = [...order.lines].sort((a, b) => a.line_no - b.line_no);
       for (const [i, l] of c.lines.entries()) {
-        const r = c.totals.lines[i];
         await tx.purOrderLine.update({
           where: { id: sorted[i].id },
-          data: { ...withBase({ dpp_amount: r.dpp, dpp_other_amount: r.dppOther, ppn_amount: r.ppn }, RATE), withholding_rate: l.withholding_rate },
+          data: { ...orderLineBase(c.totals, i, c.header.exchange_rate), withholding_rate: l.withholding_rate },
         });
         for (const [reqId, q] of l.shares) {
           await tx.purOrderLineRequest.updateMany({ where: { order_line_id: sorted[i].id, request_line_id: reqId }, data: { base_qty: q } });
@@ -625,6 +624,8 @@ export async function transitionPurchaseOrder(
 
 export type PurchaseOrderListRow = {
   id: number;
+  /** The document's currency, every figure on the row is in (MC3). */
+  currency: string;
   orderNo: string;
   orderDate: string;
   deliveryDate: string;
@@ -639,10 +640,11 @@ export async function listPurchaseOrders(itemType: "Barang" | "Jasa"): Promise<P
   const rows = await prisma.purOrder.findMany({
     where: { item_type: itemType },
     orderBy: [{ order_date: "desc" }, { id: "desc" }],
-    include: { supplier: true, _count: { select: { lines: true } } },
+    include: { supplier: true, currency: true, _count: { select: { lines: true } } },
   });
   return rows.map((r) => ({
     id: r.id,
+    currency: r.currency.currency_label,
     orderNo: r.order_no,
     orderDate: isoDay(r.order_date),
     deliveryDate: isoDay(r.delivery_date),
@@ -770,6 +772,8 @@ export type ReceiptNoteSource = {
   status: PurchaseOrderStatus;
   itemType: "Barang" | "Jasa";
   isTaxable: boolean;
+  /** The order's currency: a receipt keeps its DPP share in it beside the stock value (MC7). */
+  currency: string;
   supplierId: number;
   supplierLabel: string;
   supplierName: string;
@@ -786,7 +790,9 @@ export type ReceiptNoteSource = {
     uomFactor: number;
     qty: number;
     received: number;
+    /** The line's DPP in the order's currency, and in base at the order's rate (MC7). */
     dpp: number;
+    baseDpp: number;
     /** Barang with Kelola Stok: it comes in by lot (P120). */
     isStock: boolean;
     hasExpiry: boolean;
@@ -797,7 +803,7 @@ export async function receiptNoteSources(filter: { ids?: number[]; openOnly?: bo
   const rows = await db.purOrder.findMany({
     where: { ...(filter.ids ? { id: { in: filter.ids } } : {}), ...(filter.openOnly ? { status: "Open" } : {}) },
     orderBy: [{ order_date: "desc" }, { id: "desc" }],
-    include: { supplier: true, lines: { include: { item: true, uom: true }, orderBy: { line_no: "asc" } } },
+    include: { supplier: true, currency: true, lines: { include: { item: true, uom: true }, orderBy: { line_no: "asc" } } },
   });
   return rows.map((o) => ({
     id: o.id,
@@ -806,6 +812,7 @@ export async function receiptNoteSources(filter: { ids?: number[]; openOnly?: bo
     status: o.status as PurchaseOrderStatus,
     itemType: o.item_type,
     isTaxable: o.is_taxable,
+    currency: o.currency.currency_label,
     supplierId: o.supplier_id,
     supplierLabel: o.supplier.partner_label,
     supplierName: o.supplier.partner_name,
@@ -823,6 +830,7 @@ export async function receiptNoteSources(filter: { ids?: number[]; openOnly?: bo
       qty: l.qty.toNumber(),
       received: l.received_qty.toNumber(),
       dpp: l.dpp_amount.toNumber(),
+      baseDpp: l.base_dpp_amount.toNumber(),
       isStock: l.item.item_type === "Barang" && l.item.track_stock,
       hasExpiry: l.item.has_expiry,
     })),
@@ -880,6 +888,9 @@ export type PurchaseAdvanceSource = {
   termLabel: string;
   termName: string;
   lineCount: number;
+  /** The order's currency (MC3): its bills follow it. */
+  currencyId: number;
+  currency: string;
   basis: AdvanceBasis;
   withholdingLabels: Record<string, string>;
 };
@@ -888,7 +899,7 @@ export async function purchaseAdvanceSources(filter: { ids?: number[]; openOnly?
   const rows = await db.purOrder.findMany({
     where: { ...(filter.ids ? { id: { in: filter.ids } } : {}), ...(filter.openOnly ? { status: "Open" } : {}) },
     orderBy: [{ order_date: "desc" }, { id: "desc" }],
-    include: { supplier: true, term: true, lines: { include: { withholding_tax: true } } },
+    include: { supplier: true, term: true, currency: true, lines: { include: { withholding_tax: true } } },
   });
   return rows.map((o) => {
     const groups = new Map<string, { key: string; rate: number; base: number }>();
@@ -918,6 +929,8 @@ export async function purchaseAdvanceSources(filter: { ids?: number[]; openOnly?
       termLabel: o.term.term_label,
       termName: o.term.term_name,
       lineCount: o.lines.length,
+      currencyId: o.currency_id,
+      currency: o.currency.currency_label,
       basis: {
         mode: o.price_mode as PriceMode,
         taxable: o.is_taxable,
@@ -953,6 +966,10 @@ export type PurchaseInvoiceSource = {
   mode: PriceMode;
   taxable: boolean;
   rates: PpnRates | null;
+  /** The order's currency and rate: its Invoices value PPN, PPh and the difference at it (MC7). */
+  currencyId: number;
+  currency: string;
+  exchangeRate: number;
   lines: {
     id: number;
     itemLabel: string;
@@ -970,7 +987,7 @@ export async function purchaseInvoiceSources(filter: { ids: number[] }, db: Db =
   const rows = await db.purOrder.findMany({
     where: { id: { in: filter.ids } },
     orderBy: [{ order_date: "desc" }, { id: "desc" }],
-    include: { supplier: true, term: true, lines: { include: { item: true, uom: true, withholding_tax: true }, orderBy: { line_no: "asc" } } },
+    include: { supplier: true, term: true, currency: true, lines: { include: { item: true, uom: true, withholding_tax: true }, orderBy: { line_no: "asc" } } },
   });
   return rows.map((o) => ({
     id: o.id,
@@ -990,6 +1007,9 @@ export async function purchaseInvoiceSources(filter: { ids: number[] }, db: Db =
       o.is_taxable && o.ppn_rate && o.ppn_dpp_other_numerator && o.ppn_dpp_other_denominator
         ? { rate: o.ppn_rate.toNumber(), otherNum: o.ppn_dpp_other_numerator, otherDen: o.ppn_dpp_other_denominator }
         : null,
+    currencyId: o.currency_id,
+    currency: o.currency.currency_label,
+    exchangeRate: o.exchange_rate.toNumber(),
     lines: o.lines.map((l) => ({
       id: l.id,
       itemLabel: l.item.item_label,

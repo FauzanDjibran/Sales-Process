@@ -6,7 +6,7 @@ import { Dialog } from "@/components/ui/dialog";
 import type { PiAdvance, PiReceiptLine } from "@/lib/erp/ap-invoice";
 import { formatDate, formatMoney, formatNumber } from "@/lib/format";
 
-const money = (n: number) => formatMoney(n, "IDR");
+const moneyIn = (currency: string) => (n: number) => formatMoney(n, currency);
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 
 /** Tick receipt lines, or the PO's Uang Muka items, to put on the invoice. */
@@ -16,6 +16,7 @@ export function PurchaseInvoicePicker({
   advances,
   currentLines,
   currentAdvances,
+  currency = "IDR",
   onApply,
   onClose,
 }: {
@@ -24,16 +25,18 @@ export function PurchaseInvoicePicker({
   advances: PiAdvance[];
   currentLines: number[];
   currentAdvances: number[];
+  /** The order's currency, in which the lines and advances are held. */
+  currency?: string;
   onApply: (ids: number[]) => void;
   onClose: () => void;
 }) {
   const [on, setOn] = useState<Set<number>>(() => new Set(kind === "lines" ? currentLines : currentAdvances));
   const rows =
     kind === "lines"
-      ? lines.map((l) => ({ id: l.id, can: !l.billedBy || currentLines.includes(l.id), a: `${l.rnNo} · ${formatDate(l.rnDate)}`, b: `${l.itemLabel} — ${qtyText(l.qty)} ${l.uomLabel}`, c: l.billedBy ? `ditagih ${l.billedBy.no}` : money(l.value) }))
+      ? lines.map((l) => ({ id: l.id, can: !l.billedBy || currentLines.includes(l.id), a: `${l.rnNo} · ${formatDate(l.rnDate)}`, b: `${l.itemLabel} — ${qtyText(l.qty)} ${l.uomLabel}`, c: l.billedBy ? `ditagih ${l.billedBy.no}` : moneyIn(currency)(l.orderDpp) }))
       : advances.map((a) => {
           const free = Math.max(0, a.balance - a.reserved);
-          return { id: a.id, can: free > 0 || currentAdvances.includes(a.id), a: a.apItemNo, b: `${a.sourceNo} · dibayar ${a.createdByNo}`, c: money(free) };
+          return { id: a.id, can: free > 0 || currentAdvances.includes(a.id), a: a.apItemNo, b: `${a.sourceNo} · dibayar ${a.createdByNo}`, c: moneyIn(currency)(free) };
         });
   const toggle = (id: number) =>
     setOn((x) => {

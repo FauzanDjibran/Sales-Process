@@ -62,9 +62,18 @@ export function maySettle(
   const resource = resourceCurrency.trim().toUpperCase();
   if (document === resource) return true;
   // A foreign document may be paid from a base-currency resource, converting
-  // at the rate the bank actually used. Nothing else crosses.
-  return isBaseCurrency(resource);
+  // at the rate the bank actually used. Nothing else crosses — and for now not
+  // even that (Multi-Currency-Plan MC11, MC14): money changes currency only
+  // through Penukaran Valas, so a bill is settled from its own currency alone.
+  return CROSS_TO_BASE && isBaseCurrency(resource);
 }
+
+/**
+ * Whether a foreign document may be settled from a base-currency resource.
+ * Off while Multi-Currency-Plan MC11 holds; the `entered` rate path below is
+ * kept for when it is switched on.
+ */
+const CROSS_TO_BASE = false;
 
 /**
  * Why a pairing was refused, in Indonesian, or null when it is allowed.
@@ -85,8 +94,8 @@ export function settlementRefusal(
   }
   return (
     `Dokumen dalam ${documentCurrency.trim().toUpperCase()} hanya dapat ` +
-    `diselesaikan dari Cash & Bank ${documentCurrency.trim().toUpperCase()} ` +
-    `atau ${BASE_CURRENCY_LABEL}, bukan ${resourceCurrency.trim().toUpperCase()}.`
+    `diselesaikan dari Cash & Bank ${documentCurrency.trim().toUpperCase()}, ` +
+    `bukan ${resourceCurrency.trim().toUpperCase()}.`
   );
 }
 
@@ -148,4 +157,18 @@ export function needsEnteredRate(
   resourceCurrency: string
 ): boolean {
   return rateSource(direction, documentCurrency, resourceCurrency) === "entered";
+}
+
+/**
+ * The Kurs master's suggestion for a document (Multi-Currency-Plan MC6): the
+ * latest Transaction rate of the currency on or before the date, or null.
+ * Client-safe: the form picks it from the rows the page sends.
+ */
+export function suggestRate(rates: { currencyId: number; date: string; rate: number }[], currencyId: number | null, date: string): number | null {
+  let best: { date: string; rate: number } | null = null;
+  for (const r of rates) {
+    if (r.currencyId !== currencyId || (date && r.date > date)) continue;
+    if (!best || r.date > best.date) best = r;
+  }
+  return best?.rate ?? null;
 }

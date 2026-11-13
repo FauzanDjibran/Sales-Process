@@ -2716,6 +2716,8 @@ model FinArInvoiceAdvanceDeduction {
   /// Its cumulative share of the item's PPN (tax_ppn), P113 / tax_concept §7.5.
   ppn_used      Decimal @default(0) @db.Decimal(18, 2)
   base_ppn_used Decimal @db.Decimal(18, 2)
+  /// Selisih kurs of applying this Uang Muka: Piutang relieved less the advance and its PPN relieved (MC13).
+  fx_difference Decimal @default(0) @db.Decimal(18, 2)
 
   invoice FinArInvoice @relation(fields: [invoice_id], references: [id])
 
@@ -3895,16 +3897,18 @@ model LogReceiptNoteLine {
   /// The source line, weak: for `purchase_receipt` a Purchase Order line.
   source_doc_line_id Int
 
-  item_id      Int
-  uom_id       Int
-  uom_factor   Decimal @db.Decimal(18, 4)
-  qty          Decimal @db.Decimal(18, 4)
-  base_qty     Decimal @db.Decimal(18, 4)
+  item_id          Int
+  uom_id           Int
+  uom_factor       Decimal @db.Decimal(18, 4)
+  qty              Decimal @db.Decimal(18, 4)
+  base_qty         Decimal @db.Decimal(18, 4)
   /// Enters the stock books (Barang with Kelola Stok); otherwise an expense.
-  is_stock     Boolean @default(false)
+  is_stock         Boolean @default(false)
+  /// The PO line DPP for this quantity, in the PO currency: what the Invoice Pembelian bills (MC7).
+  order_dpp_amount Decimal @default(0) @db.Decimal(18, 2)
   /// Its share of the source line's DPP, cumulative (B20); set at Posting.
-  value_amount Decimal @default(0) @db.Decimal(18, 2)
-  note         String?
+  value_amount     Decimal @default(0) @db.Decimal(18, 2)
+  note             String?
 
   receipt_note LogReceiptNote           @relation(fields: [receipt_note_id], references: [id], onDelete: Cascade)
   item         MItem                    @relation("ReceiptNoteLineItem", fields: [item_id], references: [id])
@@ -4204,6 +4208,8 @@ model FinApInvoiceAdvanceDeduction {
   base_dpp_used Decimal @db.Decimal(18, 2)
   ppn_used      Decimal @default(0) @db.Decimal(18, 2)
   base_ppn_used Decimal @db.Decimal(18, 2)
+  /// Selisih kurs of applying this Uang Muka: Hutang relieved less the advance and its PPN relieved (MC13).
+  fx_difference Decimal @default(0) @db.Decimal(18, 2)
 
   invoice FinApInvoice @relation(fields: [invoice_id], references: [id], onDelete: Cascade)
 

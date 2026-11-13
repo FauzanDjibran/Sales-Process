@@ -111,6 +111,27 @@ export function withBaseOf<T, K extends keyof T & string>(row: T, keys: readonly
   return withBase(figures, rate) as unknown as WithBase<Pick<T, K>>;
 }
 
+/** Σ each named `base_` figure over a document's lines: its base is the sum of theirs (MC4). */
+export function sumBase<K extends string>(rows: Record<string, unknown>[], keys: readonly K[]): { [P in K as `base_${P}`]: number } {
+  const out: Record<string, number> = {};
+  for (const k of keys) out[`base_${k}`] = rows.reduce((t, r) => t + Math.round(Number(r[`base_${k}`] ?? 0) * 100), 0) / 100;
+  return out as { [P in K as `base_${P}`]: number };
+}
+
+/**
+ * A base figure shared over weights to the cent, the largest weight absorbing
+ * what flooring leaves, so the shares add up to it exactly — one bank entry's
+ * base spread over the bills it paid.
+ */
+export function shareBase(total: number, weights: number[]): number[] {
+  const t = Math.round(total * 100);
+  const sum = weights.reduce((a, b) => a + b, 0);
+  if (!sum) return weights.map(() => 0);
+  const out = weights.map((w) => Math.floor((t * w) / sum));
+  out[weights.indexOf(Math.max(...weights))] += t - out.reduce((a, b) => a + b, 0);
+  return out.map((c) => c / 100);
+}
+
 /**
  * A balance: how much foreign currency, and what it is carried at in base.
  *

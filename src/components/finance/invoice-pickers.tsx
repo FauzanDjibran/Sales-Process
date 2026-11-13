@@ -8,7 +8,6 @@ import type { InvoiceAdvance, InvoiceNoteLine } from "@/lib/erp/ar-invoice";
 import { formatDate, formatMoney, formatNumber } from "@/lib/format";
 
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
-const money = (n: number) => formatMoney(n, "IDR");
 
 function toggled(set: Set<number>, ids: number[], on: boolean): Set<number> {
   const next = new Set(set);
@@ -169,10 +168,13 @@ export function InvoiceAdvancePicker({
   nsfp,
   current,
   orderNo,
+  currency = "IDR",
   onApply,
   onClose,
 }: {
   advances: InvoiceAdvance[];
+  /** The order's currency, in which the advances are held. */
+  currency?: string;
   /** The order's Kena PPN: an advance without PPN has no faktur pajak. */
   taxable: boolean;
   /** Faktur uang muka NSFP by item, from the tax module (P116). */
@@ -182,6 +184,7 @@ export function InvoiceAdvancePicker({
   onApply: (ids: number[]) => void;
   onClose: () => void;
 }) {
+  const money = (n: number) => formatMoney(n, currency);
   const [on, setOn] = useState<Set<number>>(() => new Set(current));
   const freeOf = (a: InvoiceAdvance) => Math.max(0, a.balance - a.reserved);
   const can = (a: InvoiceAdvance) => freeOf(a) > 0 || current.includes(a.id);

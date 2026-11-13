@@ -972,6 +972,31 @@ export const CHECKS: Check[] = [
             FROM fin_cash_bank_tx_line l JOIN fin_cash_bank_tx t ON t.id = l.tx_id
            WHERE l.fx_difference <> l.base_settled_amount - l.transaction_base_amount`,
   },
+  {
+    area: "fx",
+    name: "an Invoice Pembelian line bills its Receipt Note line: the PO's DPP in its currency, the receipt's value in base (MC7)",
+    sql: `SELECT i.invoice_no, l.line_no, l.dpp_amount, l.base_dpp_amount, r.order_dpp_amount, r.value_amount
+            FROM fin_ap_invoice_line l JOIN fin_ap_invoice i ON i.id = l.invoice_id
+            JOIN log_receipt_note_line r ON r.id = l.receipt_note_line_id
+           WHERE i.status = 'Posted' AND (l.base_dpp_amount <> r.value_amount OR l.dpp_amount <> r.order_dpp_amount)`,
+  },
+  {
+    area: "fx",
+    name: "a rupiah Receipt Note line's PO DPP is its value (MC2)",
+    sql: `SELECT n.rn_no, r.line_no, r.order_dpp_amount, r.value_amount
+            FROM log_receipt_note_line r JOIN log_receipt_note n ON n.id = r.receipt_note_id
+            JOIN pur_order o ON o.id = n.source_doc_id JOIN ref_currency c ON c.id = o.currency_id
+           WHERE n.status = 'Posted' AND c.currency_label = 'IDR' AND r.order_dpp_amount <> r.value_amount`,
+  },
+  {
+    area: "fx",
+    name: "an Uang Muka applied in rupiah gives no selisih kurs (MC2)",
+    sql: `SELECT i.invoice_no, d.fx_difference FROM fin_ar_invoice_advance_deduction d JOIN fin_ar_invoice i ON i.id = d.invoice_id
+            JOIN ref_currency c ON c.id = i.currency_id WHERE c.currency_label = 'IDR' AND d.fx_difference <> 0
+          UNION ALL
+          SELECT i.invoice_no, d.fx_difference FROM fin_ap_invoice_advance_deduction d JOIN fin_ap_invoice i ON i.id = d.invoice_id
+            JOIN ref_currency c ON c.id = i.currency_id WHERE c.currency_label = 'IDR' AND d.fx_difference <> 0`,
+  },
 ];
 
 export type CheckResult = { area: string; name: string; rows: Record<string, unknown>[] };

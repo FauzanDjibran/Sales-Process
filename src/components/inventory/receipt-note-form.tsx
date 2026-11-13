@@ -122,7 +122,7 @@ export function ReceiptNoteForm({
   const valueOf = (l: LineState, i: number) => {
     if (mode === "view") return note?.lines[i]?.value ?? 0;
     const p = poLine.get(l.source_doc_line_id);
-    return p ? cumulativeShare(p.dpp, p.qty, p.received, Math.min(Number(l.qty) || 0, Math.max(0, p.qty - p.received))) : 0;
+    return p ? cumulativeShare(p.baseDpp, p.qty, p.received, Math.min(Number(l.qty) || 0, Math.max(0, p.qty - p.received))) : 0;
   };
   const total = lines.reduce((s, l, i) => s + valueOf(l, i), 0);
 

@@ -416,11 +416,11 @@ describe("crossing goes through the base currency only", () => {
     assert.equal(isBaseCurrency(null), false);
   });
 
-  test("a foreign document settles from its own currency or from base", () => {
+  test("a foreign document settles from its own currency alone, for now (MC11, MC14)", () => {
     assert.equal(maySettle("USD", "USD"), true);
-    assert.equal(maySettle("USD", "IDR"), true);
+    assert.equal(maySettle("USD", "IDR"), false);
     assert.equal(maySettle("EUR", "EUR"), true);
-    assert.equal(maySettle("EUR", "IDR"), true);
+    assert.equal(maySettle("EUR", "IDR"), false);
   });
 
   test("one foreign currency never settles another", () => {
@@ -435,7 +435,7 @@ describe("crossing goes through the base currency only", () => {
   });
 
   test("a refusal names both currencies", () => {
-    assert.equal(settlementRefusal("USD", "IDR"), null);
+    assert.equal(settlementRefusal("USD", "USD"), null);
     const cross = settlementRefusal("USD", "EUR");
     assert.ok(cross?.includes("USD") && cross.includes("EUR"));
     const fromBase = settlementRefusal("IDR", "USD");
@@ -462,9 +462,9 @@ describe("where a kurs comes from", () => {
     assert.equal(needsEnteredRate("In", "USD", "USD"), true);
   });
 
-  test("a foreign document through a base resource states its rate both ways", () => {
-    assert.equal(rateSource("Out", "USD", "IDR"), "entered");
-    assert.equal(rateSource("In", "USD", "IDR"), "entered");
+  test("a foreign document through a base resource has no kurs while crossing is off (MC11)", () => {
+    assert.equal(rateSource("Out", "USD", "IDR"), null);
+    assert.equal(rateSource("In", "USD", "IDR"), null);
   });
 
   test("an impossible pairing has no kurs at all", () => {

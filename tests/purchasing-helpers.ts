@@ -19,7 +19,7 @@ export type PurchasingWorld = {
   /** An Open PO (submitted and approved) for these items, each from its own request line. */
   openPO: (
     lines: { item: number; qty: number; price: number; uom?: number; wht?: number | null }[],
-    over?: { itemType?: "Barang" | "Jasa"; taxable?: boolean; supplier?: number; date?: string }
+    over?: { itemType?: "Barang" | "Jasa"; taxable?: boolean; supplier?: number; date?: string; currencyId?: number; rate?: number }
   ) => Promise<{ id: number; orderNo: string; lineIds: number[] }>;
   setMapping: (k: string, v: string | null) => Promise<void>;
   teardown: () => Promise<void>;
@@ -115,6 +115,8 @@ export async function purchasingWorld(tag: string): Promise<PurchasingWorld> {
       {
         item_type: itemType,
         order_date: date,
+        currency_id: over.currencyId ?? null,
+        exchange_rate: over.rate ?? 1,
         supplier_id: over.supplier ?? f.supplier,
         term_id: f.term,
         delivery_date: date,

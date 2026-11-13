@@ -6,10 +6,11 @@ import { formatMoney } from "@/lib/format";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { purchaseAdvanceSources, purchaseOrderNumbersByIds, lockPurchaseOrder, type PurchaseAdvanceSource } from "./purchase-order";
-import { PPN_SETTINGS_MISSING, ppnRates, requireBaseCurrencyId } from "./system-settings";
+import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
 import {
   advanceAmountProblem,
   computeAdvance,
+  taxScale,
   orderAdvanceValue,
   type AdvanceAmountType,
   type AdvanceFigures,
@@ -130,6 +131,7 @@ type Checked = {
     advance_date: Date;
     due_date: Date;
     supplier_ref_no: string | null;
+    currency_id: number;
     description: string;
     note: string | null;
     price_mode: "Exclude" | "Include";
@@ -180,9 +182,10 @@ export async function checkPurchaseAdvance(
   else if (order && !errors.order_id) {
     const value = orderAdvanceValue(order.basis);
     const drawn = await drawnByOthers(db, order.id, selfId);
-    const problem = advanceAmountProblem(type, typed, value, value - drawn);
+    const scale = taxScale(order.currency);
+    const problem = advanceAmountProblem(type, typed, value, value - drawn, scale);
     if (problem) errors.amount_value = problem;
-    else figures = computeAdvance({ basis: order.basis, type, typed, rates });
+    else figures = computeAdvance({ basis: order.basis, type, typed, rates, scale });
   }
 
   if (Object.keys(errors).length || !order || !figures) return { ok: false, errors };
@@ -195,6 +198,7 @@ export async function checkPurchaseAdvance(
         advance_date: asDate(date),
         due_date: asDate(due),
         supplier_ref_no: String(input.supplier_ref_no ?? "").trim() || null,
+        currency_id: order.currencyId,
         description,
         note: String(input.note ?? "").trim() || null,
         price_mode: order.basis.mode,
@@ -272,8 +276,6 @@ export async function createPurchaseAdvance(input: PurchaseAdvanceInput, actorId
           ...figureData(r.c.figures),
           ...rateData(r.c.rates),
           advance_no: await nextAdvanceNo(tx, r.c.data.advance_date, r.c.data.is_taxable),
-          // shortcut: rupiah until Multi-Currency-Plan stage 3 / 5 takes the order's currency.
-          currency_id: await requireBaseCurrencyId(tx),
           created_by: actorId,
         },
       });
@@ -408,6 +410,8 @@ export async function transitionPurchaseAdvance(
 
 export type PurchaseAdvanceListRow = {
   id: number;
+  /** The document's currency, every figure on the row is in (MC3). */
+  currency: string;
   advanceNo: string;
   advanceDate: string;
   dueDate: string;
@@ -427,13 +431,14 @@ export type PurchaseAdvanceListRow = {
 export async function listPurchaseAdvances(): Promise<PurchaseAdvanceListRow[]> {
   const rows = await prisma.finApAdvance.findMany({
     orderBy: [{ advance_date: "desc" }, { id: "desc" }],
-    include: { supplier: true },
+    include: { supplier: true, currency: true },
   });
   // The Purchase Order is another module's document (P107): its number is asked for.
   const orderNos = await purchaseOrderNumbersByIds([...new Set(rows.map((r) => r.purchase_order_id))]);
   const paidOf = await apPaidByDocument(prisma, "fin_ap_advance", rows.map((r) => r.id));
   return rows.map((r) => ({
     id: r.id,
+    currency: r.currency.currency_label,
     advanceNo: r.advance_no,
     advanceDate: isoDay(r.advance_date),
     dueDate: isoDay(r.due_date),
@@ -546,6 +551,8 @@ export type SettlementAdvance = {
   ppn: number;
   /** The PPN rate and DPP Nilai Lain factor the bill was issued with; null without PPN. */
   rates: PpnRates | null;
+  /** The bill's currency, its order's (MC3): only a bank in it pays it (MC14). */
+  currency: string;
   withholdings: { key: string; rate: number; base: number; amount: number }[];
   /** What posted payments settled of it before — a payment's `before`, read from its item (P214). */
   paid: number;
@@ -587,6 +594,7 @@ export async function settlementAdvances(
       type: a.amount_type as AdvanceAmountType,
       typed: a.amount_value.toNumber(),
       rates,
+      scale: taxScale(order.currency),
     });
     return {
       id: a.id,
@@ -603,6 +611,7 @@ export async function settlementAdvances(
       dpp: a.dpp_amount.toNumber(),
       ppn: a.ppn_amount.toNumber(),
       rates: a.ppn_amount.toNumber() > 0 ? rates : null,
+      currency: order.currency,
       withholdings: f.withholdings,
       paid: paidOf.get(a.id) ?? 0,
     };

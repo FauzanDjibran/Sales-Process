@@ -14,7 +14,10 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { CustomerOrderActions } from "@/components/sales/customer-order-actions";
 import { createCustomerOrderAction, updateCustomerOrderAction } from "@/app/actions/customer-order";
-import { computeSalesTotals, type DiscountType, type PriceMode } from "@/lib/erp/sales-tax";
+import { computeSalesTotals, taxScale, type DiscountType, type PriceMode } from "@/lib/erp/sales-tax";
+import { CurrencyFields } from "@/components/finance/currency-fields";
+import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
+import { sumBase, withBase } from "@/lib/erp/fx";
 import {
   CUSTOMER_ORDER_REASON_TEXT,
   CUSTOMER_ORDER_STATUS_BADGE,
@@ -65,6 +68,8 @@ type LineState = {
 
 type HeaderState = {
   order_date: string;
+  currency_id: number | null;
+  exchange_rate: string;
   customer_id: number | null;
   address_id: number | null;
   term_id: number | null;
@@ -79,7 +84,6 @@ type HeaderState = {
 let seq = 0;
 const newKey = () => `l${Date.now().toString(36)}${seq++}`;
 const MODE_TEXT: Record<PriceMode, string> = { Exclude: "Exclude PPN", Include: "Include PPN" };
-const money = (n: number) => formatMoney(n, "IDR");
 /** A line's discount as stored: none unless a value above zero is typed. */
 const discountOf = (l: { discount_type: DiscountType; discount_value: string }) =>
   Number(l.discount_value) > 0
@@ -126,6 +130,8 @@ export function CustomerOrderForm({
         // A copy is a new order dated today, without the customer's PO (the
         // simulation's Salin).
         order_date: copyFrom ? today : h.order_date,
+        currency_id: h.currency_id ? Number(h.currency_id) : null,
+        exchange_rate: String(h.exchange_rate ?? "1"),
         customer_id: Number(h.customer_id),
         address_id: Number(h.address_id),
         term_id: Number(h.term_id),
@@ -140,6 +146,8 @@ export function CustomerOrderForm({
     const today = todayIso();
     return {
       order_date: today,
+      currency_id: options.currencies[0]?.id ?? null,
+      exchange_rate: "1",
       customer_id: null,
       address_id: null,
       term_id: null,
@@ -170,6 +178,11 @@ export function CustomerOrderForm({
   const [saving, setSaving] = useState(false);
 
   const customer = options.customers.find((c) => c.id === header.customer_id) ?? null;
+  // The order's currency (MC3): its figures round to its own minor unit (MC5).
+  const currencyLabel = options.currencies.find((c) => c.id === header.currency_id)?.label ?? BASE_CURRENCY_LABEL;
+  const scale = taxScale(currencyLabel);
+  const money = (n: number) => formatMoney(n, currencyLabel);
+  const currencyLocked = lines.some((l) => l.item_id);
   const itemById = useMemo(() => new Map(options.items.map((i) => [i.id, i])), [options.items]);
   const whtById = useMemo(
     () => new Map(options.withholdingTaxes.map((t) => [t.id, t])),
@@ -193,14 +206,20 @@ export function CustomerOrderForm({
   /** Choosing a customer fills what depends on it (the simulation's applyCustomer). */
   const pickCustomer = (id: number | null) => {
     const c = options.customers.find((x) => x.id === id) ?? null;
-    setHeader((h) => ({
+    setHeader((h) => {
+      // The customer's Currency Default starts the order, until it has lines (MC3).
+      const cur = !currencyLocked && c?.defaultCurrencyId ? c.defaultCurrencyId : null;
+      const curLabel = cur ? options.currencies.find((x) => x.id === cur)?.label : null;
+      return {
       ...h,
+      ...(cur && cur !== h.currency_id ? { currency_id: cur, exchange_rate: isBaseCurrency(curLabel) ? "1" : "" } : {}),
       customer_id: id,
       address_id: c?.addresses[0]?.id ?? null,
       term_id: c?.defaultTermId ?? h.term_id,
       price_mode: c?.defaultPriceMode ?? h.price_mode,
-    }));
-    touch("customer_id", "address_id", "term_id", "price_mode");
+      };
+    });
+    touch("customer_id", "address_id", "term_id", "price_mode", "currency_id", "exchange_rate");
   };
 
   const setLine = (key: string, patch: Partial<LineState>) => {
@@ -233,9 +252,7 @@ export function CustomerOrderForm({
   // shows the rate it carries; one being edited previews the rate in force,
   // which its save will snapshot (P60).
   const rates = mode === "view" ? (order?.rates ?? null) : options.ppnRates;
-  const totals = useMemo(
-    () =>
-      computeSalesTotals({
+  const totals = computeSalesTotals({
         lines: lines.map((l) => {
           const t = l.withholding_tax_id ? whtById.get(l.withholding_tax_id) : null;
           return {
@@ -251,9 +268,12 @@ export function CustomerOrderForm({
         taxable: header.is_taxable,
         vatCollector: customer?.vatCollector ?? false,
         rates,
-      }),
-    [lines, priceMode, header.is_taxable, customer, whtById, rates]
-  );
+        scale,
+      });
+  // What the order is worth in base, as its save stores it: each line at the rate, summed (MC4).
+  const rateNum = Number(header.exchange_rate) || 0;
+  const baseOf = sumBase(totals.lines.map((l) => withBase({ dpp: l.dpp, ppn: l.ppn }, rateNum)), ["dpp", "ppn"] as const);
+  const baseTotal = baseOf.base_dpp + baseOf.base_ppn;
 
   const payloadLines = (): CustomerOrderLineInput[] =>
     lines.map((l) => ({
@@ -488,6 +508,22 @@ export function CustomerOrderForm({
         </FormSection>
 
         <FormSection title="Harga & Pajak">
+          <FormRow>
+            <CurrencyFields
+              editing={editing}
+              currencies={options.currencies}
+              rates={options.exchangeRates}
+              date={header.order_date}
+              currencyId={header.currency_id}
+              rate={header.exchange_rate}
+              locked={currencyLocked}
+              errors={errors}
+              onChange={(currency_id, exchange_rate) => {
+                setHeader((h) => ({ ...h, currency_id, exchange_rate }));
+                touch("currency_id", "exchange_rate");
+              }}
+            />
+          </FormRow>
           <FormRow>
             <Field label="PPN" span={4} help={editing ? "berlaku untuk seluruh baris" : undefined}>
               {editing ? (
@@ -752,6 +788,7 @@ export function CustomerOrderForm({
                           ) : (
                             <MoneyInput
                               size="sm"
+                              decimals={scale === 1 ? 0 : 2}
                               value={l.discount_value}
                               ariaLabel="Nilai diskon"
                               onChange={(v) => setLine(l.key, { discount_value: v })}
@@ -885,6 +922,12 @@ export function CustomerOrderForm({
             <span>Total Customer Order</span>
             <b>{money(totals.total)}</b>
           </div>
+          {scale !== 1 && rateNum > 0 && (
+            <div className="ir est">
+              <span>Setara {BASE_CURRENCY_LABEL} (kurs {header.exchange_rate})</span>
+              <b>{formatMoney(baseTotal, BASE_CURRENCY_LABEL)}</b>
+            </div>
+          )}
         </div>
       </div>
     </div>
