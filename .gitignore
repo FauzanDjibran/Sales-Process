@@ -51,3 +51,7 @@ walet/*.xlsx
 
 # Gathered source material for production, kept local
 /walet/
+
+# local, not project content
+/Walet SOP/
+/.claude/settings.json
