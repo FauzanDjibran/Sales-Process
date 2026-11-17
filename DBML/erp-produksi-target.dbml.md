@@ -3,8 +3,8 @@
 **Ini bukan skema yang berlaku.** Skema yang berlaku ada di `erp.dbml.md`
 (migrasi `20261111180000_workspace_foundation` dan sesudahnya). File ini
 menunjukkan bentuk tabel produksi **kalau putaran 8–10 Simulasi Workspace Unit
-diterapkan**
-(<https://claude.ai/artifact/TR9atVSRmuRUyh9nn9hHU7>, versi 19).
+diterapkan** (sampai putaran 11)
+(<https://claude.ai/artifact/TR9atVSRmuRUyh9nn9hHU7>, versi 20).
 Isinya rencana: belum dicatat di Claude-ERP §12 atau PWR, dan belum ada
 migrasinya.
 
@@ -39,6 +39,7 @@ migrasinya.
 | T10 | **Reproses = pindah ke Unit sebelumnya**, hanya kalau Unit mengizinkan, dan tidak melewati checkpoint yang sudah dilewati partai (r8) | **baru `prd_reproses`, `prd_reproses_line`** |
 | T11 | **BSTB Pengeluaran** ke Logistik: Draft → Ajukan → Terima (P238) | **baru `log_production_return`, `_line`** |
 | T12 | **Packing 95 memakai BoM per Nama Jual**: keping menurut gram, bahan kemas per kotak, satu versi aktif (r10) | **baru `prd_bom`, `prd_bom_component`** (ERP); **baru `prd_box`, `prd_box_piece`, `prd_box_component`** (Produksi) |
+| T13 | **Proses Kerja (Mulai → Selesai)** menggantikan Assign di Cleaning: Mulai mencatat jam dan karyawan per Job, Selesai per Job (gram tetap) membebankan biaya dan memindah barang, Batal Mulai mengembalikan tanpa biaya. Semua dokumen diisi lewat satu baris input; tabel Workspace tanpa centang (r11) | **baru `prd_kerja`, `prd_kerja_line`**; proses `Kerja` di `ref_unit_step`; stage `Working` |
 
 Tidak berubah: `ref_workstation`, `prd_line`, `prd_routing`, `prd_cost_bill`,
 `acc_cost_type`, `m_employee`, `prd_user_unit`, `prd_partai`, `prd_job`,
@@ -97,7 +98,7 @@ table ref_unit_step {
   id                          int [pk, increment, not null]
   unit_id                     int [not null, ref : > ref_unit.id]
   seq                         int [not null] // 1 = the step goods are received into
-  process                     enum('Grading', 'JobOrder', 'Assign', 'QC', 'Assembly') [not null]
+  process                     enum('Grading', 'JobOrder', 'Assign', 'Kerja', 'QC', 'Assembly') [not null] // Kerja: Mulai, lalu Selesai per Job (T13)
 
   indexes {
     (unit_id, seq) [unique]
@@ -432,7 +433,7 @@ table prd_balance {
   id                          int [pk, increment, not null]
   tracking_id                 int [not null, ref : > log_stock_tracking.id] // lintas aplikasi → ERP
   unit_id                     int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
-  stage                       enum('Preparation', 'StandBy', 'InTransit') [not null, default: 'Preparation'] // QcCheck dropped: QC is a step
+  stage                       enum('Preparation', 'Working', 'StandBy', 'InTransit') [not null, default: 'Preparation'] // QcCheck dropped: QC is a step
   unit_step_id                int [ref : > ref_unit_step.id] // lintas aplikasi → ERP · set exactly when stage = Preparation
   partai_id                   int [ref : > prd_partai.id]
   job_id                      int [ref : > prd_job.id]
@@ -467,7 +468,7 @@ table prd_ledger {
   bucket_id                   int [not null, ref : > prd_balance.id]
   tracking_id                 int [not null, ref : > log_stock_tracking.id] // lintas aplikasi → ERP
   unit_id                     int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
-  stage                       enum('Preparation', 'StandBy', 'InTransit') [not null]
+  stage                       enum('Preparation', 'Working', 'StandBy', 'InTransit') [not null]
   unit_step_id                int [ref : > ref_unit_step.id] // lintas aplikasi → ERP
   partai_id                   int [ref : > prd_partai.id]
   job_id                      int [ref : > prd_job.id]
@@ -625,6 +626,41 @@ table prd_job_order_input {
   bucket_id                   int [not null]
   grams                       decimal(18,6) [not null] // what is taken; the rest stays
   value                       decimal(18,2) [not null, default: 0]
+}
+
+// Kerja (T13): Mulai moves the Jobs to Working and records the time; each Job is finished on its own (Selesai: grams
+// unchanged, unit rate charged, on to the next step) or put back (Batal Mulai, no cost). KJ_<unit>_<ddmmyy>_<NNNNN>;
+// Berjalan while any line runs, then Selesai (Dibatalkan when every line was put back)
+table prd_kerja {
+  id                          int [pk, increment]
+  kerja_no                    varchar [unique, not null]
+  kerja_date                  date [not null]
+  unit_id                     int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
+  unit_step_id                int [not null, ref : > ref_unit_step.id] // lintas aplikasi → ERP · its Kerja step
+  partai_id                   int [ref : > prd_partai.id]
+  status                      enum('Running', 'Finished', 'Cancelled') [not null, default: 'Running']
+  journal_id                  int // grows as Jobs finish
+  created_by                  int [not null]
+  created_at                  timestamptz [not null]
+}
+
+table prd_kerja_line {
+  id                          int [pk, increment]
+  kerja_id                    int [not null, ref : > prd_kerja.id]
+  line_no                     int [not null]
+  job_id                      int [ref : > prd_job.id]
+  employee_id                 int [not null, ref : > m_employee.id]
+  grams                       decimal(18,6) [not null]
+  started_at                  timestamptz [not null]
+  finished_at                 timestamptz // set by Selesai
+  cancelled_at                timestamptz // set by Batal Mulai
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  finished_by                 int
+
+  indexes {
+    (kerja_id, line_no) [unique]
+    (employee_id, started_at) // productivity per karyawan
+  }
 }
 
 // Assign (P241, unchanged tables): Pengerjaan Unit, one karyawan per Job, Jobs taken whole
