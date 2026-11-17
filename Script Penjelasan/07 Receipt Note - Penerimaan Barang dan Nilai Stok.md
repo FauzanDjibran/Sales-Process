@@ -186,7 +186,7 @@ Sesudah   Q = 175 KG, V = 7.300.000        rata-rata 41.714,29
 ```
 
 Penerimaan tidak pernah menyesuaikan barang yang sudah keluar. Rincian nilai
-keluar ada di `04 Delivery Note - Pengiriman Barang dan Stok.md`.
+keluar ada di `04 Delivery Note dan Invoice Penjualan - Nilai Keluar, Potongan Uang Muka dan Jurnal.md`.
 
 ---
 
