@@ -925,11 +925,27 @@ model RefUnit {
   routing_steps PrdRoutingStep[]
   user_units    PrdUserUnit[]
   steps         RefUnitStep[]
+  transfers_out PrdTransfer[] @relation("PrdTransferFrom")
+  transfers_in  PrdTransfer[] @relation("PrdTransferTo")
   jobs          PrdJob[]
   cost_entries  PrdCostEntry[]
 
   @@index([workstation_id])
   @@map("ref_unit")
+}
+
+/// How goods leave a Unit for another (P277, T8): a Push inside a Workstation moves
+/// them at once; a BSTB travels as Dalam Perjalanan until the receiving Unit presses
+/// Terima; a BSTB Partai also forms the partai at Terima (W83).
+enum PrdTransferKind {
+  Push
+  Bstb
+  BstbPartai
+}
+
+enum PrdTransferStatus {
+  Submitted
+  Posted
 }
 
 /// A step of a Unit (P274, T1): the ordered work done there. Goods received enter
@@ -971,6 +987,7 @@ model PrdLine {
   variance_account AccAccount?    @relation("PrdLineVariance", fields: [variance_account_id], references: [id])
   routings         PrdRouting[]
   partais          PrdPartai[]
+  transfers        PrdTransfer[]
   cost_entries     PrdCostEntry[]
 
   @@map("prd_line")
@@ -1085,6 +1102,7 @@ model PrdPartai {
   routing      PrdRouting     @relation(fields: [routing_id], references: [id])
   rate_version PrdRateVersion @relation(fields: [rate_version_id], references: [id])
   jobs         PrdJob[]
+  transfers    PrdTransfer[]
   balances     PrdBalance[]
   ledger       PrdLedger[]
   cost_entries PrdCostEntry[]
@@ -1119,6 +1137,7 @@ model PrdJob {
   balances PrdBalance[]
   ledger   PrdLedger[]
   gradings PrdGrading[]
+  transfer_lines PrdTransferLine[]
 
   @@index([tracking_id])
   @@index([partai_id])
@@ -4364,6 +4383,71 @@ model PrdBalance {
   @@index([partai_id])
   @@index([job_id])
   @@map("prd_balance")
+}
+
+/// A Dokumen Push or a BSTB between Units (P277, T8): `PSH_<from>_…` for a Push,
+/// `BST_<to>_…` for a BSTB. Made and posted or submitted in one step, never a Draft;
+/// a BSTB is received by the Unit it goes to. No journal: the value stays in WIP.
+model PrdTransfer {
+  id            Int               @id @default(autoincrement())
+  transfer_no   String            @unique
+  kind          PrdTransferKind
+  transfer_date DateTime          @db.Date
+  from_unit_id  Int
+  to_unit_id    Int
+  /// The partai of the goods; empty before a partai exists, and born at Terima for a BSTB Partai.
+  partai_id     Int?
+  /// A BSTB Partai: the line, and the routing of it, the new partai follows.
+  line_id       Int?
+  routing_id    Int?
+  status        PrdTransferStatus
+  received_at   DateTime?         @db.Date
+  received_by   Int?
+  note          String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  from_unit RefUnit            @relation("PrdTransferFrom", fields: [from_unit_id], references: [id])
+  to_unit   RefUnit            @relation("PrdTransferTo", fields: [to_unit_id], references: [id])
+  partai    PrdPartai?         @relation(fields: [partai_id], references: [id])
+  line      PrdLine?           @relation(fields: [line_id], references: [id])
+  lines     PrdTransferLine[]
+
+  @@index([from_unit_id])
+  @@index([to_unit_id, status])
+  @@map("prd_transfer")
+}
+
+/// One pickup of a transfer (T8): a Job sent whole, or the quantity taken from a No. Stok that
+/// has no Job, which gets a new No. Job of its own.
+model PrdTransferLine {
+  id               Int      @id @default(autoincrement())
+  transfer_id      Int
+  line_no          Int
+  from_bucket_id   Int
+  tracking_id      Int
+  /// The Job sent, or the one this pickup made.
+  job_id           Int?
+  is_new_job       Boolean  @default(false)
+  /// In the item base unit.
+  qty              Decimal  @db.Decimal(18, 6)
+  /// Gram moved, when the item has a gram to read.
+  grams            Decimal? @db.Decimal(18, 6)
+  /// Whole rupiah the move carried; read in the ERP, never shown on a Produksi screen (P275).
+  value            Decimal  @default(0) @db.Decimal(18, 2)
+  /// The Dalam Perjalanan bucket of a BSTB.
+  transit_bucket_id Int?
+  /// The bucket the goods now sit in at the receiving Unit.
+  to_bucket_id     Int?
+
+  transfer PrdTransfer @relation(fields: [transfer_id], references: [id], onDelete: Cascade)
+  job      PrdJob?     @relation(fields: [job_id], references: [id])
+
+  @@unique([transfer_id, line_no])
+  @@map("prd_transfer_line")
 }
 
 /// The production ledger (R3): append-only, one row per bucket movement with

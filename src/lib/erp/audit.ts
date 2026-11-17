@@ -26,6 +26,7 @@ import { stockIssueNumbersByIds } from "./stock-issue";
 import { gradingNumbersByIds } from "./production-grading";
 import { workNumbersByIds } from "./production-work";
 import { qcNumbersByIds } from "./production-qc";
+import { transferNumbersByIds } from "./production-transfer";
 import { invoiceNumbersByIds } from "./ar-invoice";
 import { purchaseInvoiceNumbersByIds } from "./ap-invoice";
 import { fakturNumbersByIds, slipNumbersByIds } from "./tax-document";
@@ -99,6 +100,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   prd_grading: { label: "No. Grading", resolve: gradingNumbersByIds },
   prd_work: { label: "Pengerjaan Unit", resolve: workNumbersByIds },
   prd_qc_check: { label: "QC Check", resolve: qcNumbersByIds },
+  prd_transfer: { label: "Push dan BSTB", resolve: transferNumbersByIds },
   pur_request: { label: "Purchase Request", resolve: purchaseRequestNumbersByIds },
   pur_order: { label: "Purchase Order", resolve: purchaseOrderNumbersByIds },
   fin_ar_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },

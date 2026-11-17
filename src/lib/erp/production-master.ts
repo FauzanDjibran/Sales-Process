@@ -333,6 +333,25 @@ export type RouteMap = {
 };
 
 /**
+ * Where goods at a Unit go next, by the routing they follow: their partai's, or
+ * the segment before the partai. The last Unit of the segment hands over to a
+ * line's first Unit by the BSTB that forms the partai; with several lines that
+ * line is chosen on the BSTB, so no single next Unit is named (W83).
+ */
+export function nextStep(map: RouteMap, unitId: number, routingId: number | null): { unitId: number; exit: "Push" | "BSTB" } | null {
+  const routing = routingId ? map.routings.find((r) => r.id === routingId) : map.routings.find((r) => r.lineId === null);
+  if (!routing) return null;
+  const i = routing.steps.findIndex((s) => s.unitId === unitId);
+  if (i < 0) return null;
+  const here = routing.steps[i];
+  const next = routing.steps[i + 1];
+  if (next) return { unitId: next.unitId, exit: here.workstationId != null && here.workstationId === next.workstationId ? "Push" : "BSTB" };
+  if (routing.lineId !== null) return null;
+  const lines = map.routings.filter((r) => r.lineId !== null && r.steps.length);
+  return lines.length === 1 ? { unitId: lines[0].steps[0].unitId, exit: "BSTB" } : null;
+}
+
+/**
  * Every active routing in order, with the Workstation of each step: which lines
  * a Unit serves, and where goods go next (P263). The routing and its Units are
  * the ERP's masters; the Workspace only reads them.

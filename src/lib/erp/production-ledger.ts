@@ -529,12 +529,15 @@ export async function lockRateVersion(tx: Tx, b: { lotId: number; partaiId: numb
  */
 export async function transferBucket(
   tx: Tx,
-  t: ProductionTake & { toUnitId: number; partaiId?: number | null; jobId?: number | null }
+  /** `fromStage`: Stand By for a Push or a BSTB sent, Dalam Perjalanan for a BSTB received (T4). */
+  t: ProductionTake & { toUnitId: number; partaiId?: number | null; jobId?: number | null; fromStage?: "StandBy" | "InTransit" }
 ): Promise<{ value: number; toBucketId: number; lotId: number; itemId: number }> {
   const from = await lockBucketById(tx, t.bucketId);
   if (!from) throw new ProductionRefusal("Saldo produksi tidak ditemukan. Pilih ulang.");
   if (from.unitId === t.toUnitId) throw new ProductionRefusal("Unit tujuan sama dengan asalnya.");
-  if (from.stage !== "StandBy") throw new ProductionRefusal("Hanya barang di Stand By yang dapat dikirim: barang Persiapan belum dikerjakan.");
+  if (from.stage !== (t.fromStage ?? "StandBy")) {
+    throw new ProductionRefusal(t.fromStage === "InTransit" ? "Barang ini tidak lagi Dalam Perjalanan." : "Hanya barang di Stand By yang dapat dikirim: barang Persiapan belum dikerjakan.");
+  }
   await activeUnit(tx, t.toUnitId);
   const item = await productionItem(tx, from.itemId);
   const entry = await firstStep(tx, t.toUnitId);
@@ -555,6 +558,31 @@ export async function transferBucket(
   );
   const value = await takeLocked(tx, from, new D(t.baseQty), "TransferOut", t.date, t.source, t.actorId);
   await write(tx, to, { movement: "TransferIn", qty: new D(t.baseQty), value, date: t.date, source: t.source, actorId: t.actorId });
+  return { value: value.toNumber(), toBucketId: to.id, lotId: from.lotId, itemId: from.itemId };
+}
+
+/**
+ * Sends q of a Stand By bucket on a BSTB: the goods stay at the sending Unit as
+ * Dalam Perjalanan, a status rather than a reservation, until the receiving Unit
+ * presses Terima (T4). `jobId` gives them the No. Job the pickup made; left out
+ * they keep theirs.
+ */
+export async function sendInTransit(
+  tx: Tx,
+  t: ProductionTake & { jobId?: number | null; doc: ProductionSource }
+): Promise<{ value: number; toBucketId: number; lotId: number; itemId: number }> {
+  const from = await lockBucketById(tx, t.bucketId);
+  if (!from) throw new ProductionRefusal("Saldo produksi tidak ditemukan. Pilih ulang.");
+  if (from.stage !== "StandBy") throw new ProductionRefusal("Hanya barang di Stand By yang dapat dikirim: barang Persiapan belum dikerjakan.");
+  const item = await productionItem(tx, from.itemId);
+  const to = await openBucket(
+    tx,
+    { lotId: from.lotId, unitId: from.unitId, stage: "InTransit", partaiId: from.partaiId, jobId: t.jobId === undefined ? from.jobId : t.jobId, itemId: from.itemId, uomId: item.base_uom_id },
+    t.actorId
+  );
+  const value = await takeLocked(tx, from, new D(t.baseQty), "TransferOut", t.date, t.source, t.actorId);
+  await write(tx, to, { movement: "TransferIn", qty: new D(t.baseQty), value, date: t.date, source: t.source, actorId: t.actorId });
+  await tx.prdBalance.update({ where: { id: to.id }, data: { transit_doc_type_id: t.doc.docTypeId, transit_doc_id: t.doc.docId } });
   return { value: value.toNumber(), toBucketId: to.id, lotId: from.lotId, itemId: from.itemId };
 }
 
@@ -928,6 +956,19 @@ export async function routingsInUse(): Promise<Set<number>> {
 export async function unitStepHasHistory(stepId: number): Promise<boolean> {
   const [bal, cost] = await Promise.all([prisma.prdBalance.count({ where: { unit_step_id: stepId } }), prisma.prdCostEntry.count({ where: { unit_step_id: stepId } })]);
   return bal + cost > 0;
+}
+
+/**
+ * Whether a Unit is a checkpoint of the routing a partai follows (T5): leaving it
+ * takes the whole partai at once. Says where the rest of the partai is, so the
+ * caller can name it.
+ */
+export async function partaiHoldings(partaiId: number, db: Db = prisma): Promise<{ id: number; unitId: number; unitLabel: string; stage: Stage; qty: number; lotNo: string }[]> {
+  const rows = await db.prdBalance.findMany({
+    where: { partai_id: partaiId, qty_balance: { gt: 0 }, auxiliary: false },
+    select: { id: true, unit_id: true, stage: true, qty_balance: true, unit: { select: { unit_label: true } }, tracking: { select: { tracking_no: true } } },
+  });
+  return rows.map((r) => ({ id: r.id, unitId: r.unit_id, unitLabel: r.unit.unit_label, stage: r.stage, qty: r.qty_balance.toNumber(), lotNo: r.tracking.tracking_no }));
 }
 
 /** Whether any stock of the item has ever been in production — what locks its BJL flag (W32). */

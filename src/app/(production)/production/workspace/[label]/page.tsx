@@ -45,7 +45,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
         grading: GRADING_WORKFLOW.abilities(actor.permissions).create,
         work: WORK_WORKFLOW.abilities(actor.permissions).create,
         qc: QC_CHECK_WORKFLOW.abilities(actor.permissions).create,
-        transfer: false,
+        transfer: actor.permissions.has("PRODUCTION_TRANSFER_CREATE"),
       }}
       issueCan={stockIssueAbilities(actor.permissions)}
       initialTab={initial}

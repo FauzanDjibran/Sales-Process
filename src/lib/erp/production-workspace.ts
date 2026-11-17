@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { availableBuckets, unitStageTotals, type UnitStageTotal, type UnitStep } from "./production-ledger";
-import { routeMap, type RouteMap } from "./production-master";
+import { nextStep, routeMap, type RouteMap } from "./production-master";
 import { gradingDraftBucketIds } from "./production-grading";
 import { resultNotesOfJobs, workDraftBucketIds } from "./production-work";
 import { qcDraftBucketIds } from "./production-qc";
@@ -51,7 +51,7 @@ function placesOf(map: RouteMap, unitId: number) {
     checkpoint: on.some((r) => r.steps.some((s) => s.unitId === unitId && s.checkpoint)),
     // Past the checkpoint a Job may hold several partai (W103).
     afterCheckpoint: on.some((r) => {
-      const cp = r.steps.findIndex((s) => s.checkpoint);
+      const cp = r.steps.map((s) => s.checkpoint).lastIndexOf(true);
       return cp >= 0 && r.steps.findIndex((s) => s.unitId === unitId) > cp;
     }),
   };
@@ -84,25 +84,6 @@ export async function unitByLabel(label: string): Promise<(WorkspaceUnit & Retur
   const map = await routeMap();
   const places = placesOf(map, u.id);
   return { ...toUnit(u), ...places, lines: map.lines.filter((l) => places.lineIds.includes(l.id)) };
-}
-
-/**
- * Where goods at a Unit go next, by the routing they follow: their partai's, or
- * the segment before the partai. The last Unit of the segment hands over to a
- * line's first Unit by the BSTB that forms the partai; with several lines that
- * line is chosen on the BSTB, so no single next Unit is named (W83).
- */
-function nextStep(map: RouteMap, unitId: number, routingId: number | null): { unitId: number; exit: "Push" | "BSTB" } | null {
-  const routing = routingId ? map.routings.find((r) => r.id === routingId) : map.routings.find((r) => r.lineId === null);
-  if (!routing) return null;
-  const i = routing.steps.findIndex((s) => s.unitId === unitId);
-  if (i < 0) return null;
-  const here = routing.steps[i];
-  const next = routing.steps[i + 1];
-  if (next) return { unitId: next.unitId, exit: here.workstationId != null && here.workstationId === next.workstationId ? "Push" : "BSTB" };
-  if (routing.lineId !== null) return null;
-  const lines = map.routings.filter((r) => r.lineId !== null && r.steps.length);
-  return lines.length === 1 ? { unitId: lines[0].steps[0].unitId, exit: "BSTB" } : null;
 }
 
 export type BoardRow = {

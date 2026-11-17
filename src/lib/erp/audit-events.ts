@@ -215,6 +215,14 @@ const WORK_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(WORK_WORKFLOW.transitions.cancel, "Dibatalkan"),
 };
 
+/** Push and BSTB: sent in one step, a BSTB received later. */
+const TRANSFER_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Push diposting", icon: "truck", tone: "neutral" },
+  send: { label: "BSTB diajukan — barang Dalam Perjalanan", icon: "truck", tone: "neutral" },
+  receive: { label: "BSTB diterima — barang masuk Persiapan", icon: "check", tone: "neutral" },
+};
+
 const QC_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   create: { label: "QC Check dibuat", icon: "check", tone: "neutral" },
@@ -370,6 +378,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   prd_grading: GRADING_EVENTS,
   prd_work: WORK_EVENTS,
   prd_qc_check: QC_EVENTS,
+  prd_transfer: TRANSFER_EVENTS,
   pur_request: PURCHASE_REQUEST_EVENTS,
   pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,

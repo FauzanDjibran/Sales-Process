@@ -152,6 +152,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   // Rupiah to a foreign Kas & Bank or back (Multi-Currency-Plan MC11a).
   // Always appended: a type's code follows its place in this list.
   ["Penukaran Valas", "fin_cash_exchange"],
+  // Push and BSTB between Units (P277).
+  ["Push dan BSTB", "prd_transfer"],
 ];
 
 /**
