@@ -883,6 +883,12 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "goods wait at a step only in Persiapan or Sedang Dikerjakan, and then always at a step of their own Unit (T4)",
+    sql: `SELECT b.id FROM prd_balance b LEFT JOIN ref_unit_step s ON s.id = b.unit_step_id
+          WHERE (b.stage IN ('Preparation', 'Working')) <> (b.unit_step_id IS NOT NULL) OR (b.unit_step_id IS NOT NULL AND s.unit_id <> b.unit_id)`,
+  },
+  {
+    area: "production",
     name: "each production ledger row names its bucket's identity: No. Stok, Unit, stage, Partai, Job (P227)",
     sql: `SELECT l.ledger_no, l.line_no FROM prd_ledger l JOIN prd_balance b ON b.id = l.bucket_id
           WHERE l.tracking_id <> b.tracking_id OR l.unit_id <> b.unit_id OR l.stage <> b.stage
@@ -897,7 +903,7 @@ export const CHECKS: Check[] = [
     area: "production",
     name: "a standard cost entry is round(grams × rate), its rate that of its version (V1)",
     sql: `SELECT e.id, e.amount FROM prd_cost_entry e
-          LEFT JOIN prd_rate_version_line v ON v.version_id = e.rate_version_id AND v.unit_id = e.unit_id
+          LEFT JOIN prd_rate_version_line v ON v.version_id = e.rate_version_id AND v.unit_step_id = e.unit_step_id
           WHERE e.rate <> COALESCE(v.rate, 0) OR e.amount <> ROUND(e.grams * e.rate)`,
   },
   {

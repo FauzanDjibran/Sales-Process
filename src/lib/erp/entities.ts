@@ -9,7 +9,6 @@
  */
 import type { IconName } from "@/components/icon";
 import { isBaseCurrency } from "./currency";
-import { PROCESS_KINDS, PROCESS_KIND_LABEL } from "./production-master-shape";
 
 /** A value a create form's field can start on (P61). */
 export type FieldPreset = "base_currency";
@@ -145,7 +144,7 @@ export type Field = {
      */
     | "itemIsGoods"
     /** The Unit grades: only a grading releases a No. Job (W92); stored false elsewhere. */
-    | "unitIsGrading";
+    ;
   /**
    * `segment` only. The ref fields whose chosen row supplies the code this
    * segment continues, in priority order — the first one filled wins. Chart of
@@ -1101,14 +1100,14 @@ export const ENTITIES: Entity[] = [
   },
 
   {
-    // Where goods are held in production and the one kind of work done there
-    // (W73, §5). A routing step names a Unit; nothing in code names one.
+    // Where goods are held in production and the ordered steps of work done there
+    // (T1, §5). A routing step names a Unit; nothing in code names one.
     key: "ref_unit",
     slug: "unit",
     module: "master",
     name: "Unit",
     icon: "gear",
-    desc: "Tempat barang berada selama produksi — Grading Halus, Pre Wash, Barcoding. Satu unit menjalankan satu jenis proses; urutan antarunit ada di Routing.",
+    desc: "Tempat barang berada selama produksi — Grading Halus, Pre Wash, Barcoding. Satu unit menjalankan beberapa proses berurutan (tab Proses); urutan antarunit ada di Routing.",
     codeField: "unit_code",
     codePrefix: "unit",
     labelField: "unit_label",
@@ -1144,50 +1143,30 @@ export const ENTITIES: Entity[] = [
         help: "kelompok unit",
       },
       {
-        name: "process",
-        label: "Tipe",
-        type: "select",
-        required: true,
-        span: 4,
-        options: [...PROCESS_KINDS],
-        optionLabels: PROCESS_KIND_LABEL,
-        defaultValue: "PassThrough",
-        help: "satu unit satu proses",
-      },
-      {
-        name: "has_qc",
-        label: "QC Check",
+        name: "allow_reproses",
+        label: "Reproses",
         type: "bool",
         span: 4,
-        caption: "Ada QC Check",
-        captionDetail: "hasil proses diperiksa QC sebelum Stand By",
-      },
-      {
-        name: "releases_job",
-        label: "No. Job",
-        type: "bool",
-        span: 4,
-        visibleWhen: "unitIsGrading",
-        caption: "Lepas No. Job",
-        captionDetail: "grading di unit ini melepas No. Job; saat keluar dibuat yang baru",
-      },
-      {
-        name: "issues_job_order",
-        label: "Job Order",
-        type: "bool",
-        span: 4,
-        caption: "Terbitkan Job Order",
-        captionDetail: "tiap No. Job yang keluar dari unit ini mendapat Job Order sendiri",
+        caption: "Boleh Reproses",
+        captionDetail: "barang boleh dikirim kembali ke unit sebelumnya pada routing partainya",
       },
       STATUS_FIELD,
       NOTE_FIELD,
+    ],
+    tabs: [
+      {
+        key: "unit_steps",
+        label: "Proses",
+        icon: "tree",
+        desc: "Pekerjaan di unit ini, berurutan. Barang masuk ke proses pertama, pindah ke proses berikutnya tanpa Push, dan menunggu di Stand By sesudah proses terakhir.",
+        kind: "custom",
+      },
     ],
     columns: [
       { field: "unit_label", label: "Kode", isLabel: true, width: "110px", filter: "text" },
       { field: "unit_name", label: "Nama Unit", primary: true, filter: "text" },
       { field: "workstation_id", label: "Workstation", isRef: true, width: "200px", filter: "ref", toolbarFilter: true },
-      { field: "process", label: "Tipe", isTag: true, width: "120px", filter: "enum", toolbarFilter: true },
-      { field: "qc_check", label: "QC Check", computed: true, width: "100px" },
+      { field: "step_list", label: "Proses", computed: true, width: "260px" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
     ],
   },
@@ -1960,9 +1939,6 @@ export function fieldApplies(
   }
   if (field.visibleWhen === "itemIsGoods") {
     return values.item_type === "Barang";
-  }
-  if (field.visibleWhen === "unitIsGrading") {
-    return values.process === "Grading";
   }
   if (field.visibleWhen === "partnerIsCustomer") {
     return refLabelOf?.("category_id", values.category_id) === CUSTOMER_CATEGORY;

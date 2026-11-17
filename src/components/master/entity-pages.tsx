@@ -27,6 +27,7 @@ import { LocationTree } from "@/components/master/location-tree";
 import {
   rateCollections,
   routingCollections,
+  unitCollections,
   routingCopy,
   routingsOfLine,
   unitOnRouting,
@@ -69,6 +70,10 @@ async function collectionsOf(
   if (entity.key === "m_item") {
     if (id == null) return { uoms: [] };
     return itemCollections(id);
+  }
+  if (entity.key === "ref_unit") {
+    if (id == null) return { unit_steps: [] };
+    return unitCollections(id);
   }
   if (entity.key === "prd_routing") {
     if (id == null) return { steps: [] };

@@ -30,7 +30,7 @@ import {
   type BucketOption,
   type ValueMove,
 } from "./production-doc";
-import { availableBuckets, bucketsByIds, consumeBucket, jobsByIds, type BucketView, gramsOf, linkTracking, lockRateVersion, produceIntoBucket, recordCostEntry, recordTrackingInfo, registerDerivedStock } from "./production-ledger";
+import { availableBuckets, bucketsByIds, consumeBucket, jobsByIds, unitStepsOf, type BucketView, gramsOf, linkTracking, lockRateVersion, produceIntoBucket, recordCostEntry, recordTrackingInfo, registerDerivedStock } from "./production-ledger";
 import { GRADING_WORKFLOW } from "./production-execution-workflow";
 import { prodDocTransitionAllowed, type ProdDocAction, type ProdDocStatus } from "./production-doc-workflow";
 
@@ -45,9 +45,8 @@ import { prodDocTransitionAllowed, type ProdDocAction, type ProdDocStatus } from
  * **Posting**, in one transaction: each input leaves Persiapan at its value and
  * pays gram × its locked rate (V1, again for goods QC turned back, W66), the
  * bahan penolong leaves the Unit's balance, and the whole is shared over the
- * non-BJL outputs by gram. Outputs go to QC Check, or Stand By at a Unit
- * without one (W65). A Unit marked Lepas No. Job drops the No. Job here (W92);
- * the partai stays. With only BJL outputs the value is Beban Pemusnahan (W32).
+ * non-BJL outputs by gram. Outputs go to the next step of the Unit, or Stand By
+ * after the last (T4). Grading always drops the No. Job (T2); the partai stays. With only BJL outputs the value is Beban Pemusnahan (W32).
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -81,8 +80,9 @@ async function check(db: Db, input: GradingInput, strict: boolean, selfId: numbe
   const errors: Record<string, string> = {};
   const unitId = Number(input.unit_id) || null;
   const unit = unitId ? await db.refUnit.findUnique({ where: { id: unitId } }) : null;
+  const step = unit ? (await unitStepsOf(db, unit.id)).find((x) => x.process === "Grading") : null;
   if (!unit) errors.unit_id = "Pilih Unit.";
-  else if (unit.process !== "Grading") errors.unit_id = `${unit.unit_label} bukan unit Grading.`;
+  else if (!step) errors.unit_id = `${unit.unit_label} tidak punya proses Grading.`;
   else if (unit.status !== "Active") errors.unit_id = `Unit ${unit.unit_label} nonaktif.`;
   if (!DAY.test(input.grading_date)) errors.grading_date = "Isi tanggal.";
 
@@ -91,7 +91,7 @@ async function check(db: Db, input: GradingInput, strict: boolean, selfId: numbe
   let parentLotId: number | null = null;
   if (jobId) {
     const job = (await jobsByIds([jobId], db)).get(jobId);
-    const held = unitId ? (await availableBuckets({ unitIds: [unitId], stage: "Preparation" }, db)).filter((b) => b.jobId === jobId && !b.auxiliary && b.qty > 0) : [];
+    const held = unitId ? (await availableBuckets({ unitIds: [unitId], stage: "Preparation" }, db)).filter((b) => b.jobId === jobId && b.stepId === step?.id && !b.auxiliary && b.qty > 0) : [];
     const twin = job && !strict ? await db.prdGrading.findFirst({ where: { job_id: jobId, status: "Draft", ...(selfId ? { id: { not: selfId } } : {}) }, select: { grading_no: true } }) : null;
     if (!job) errors.job_id = "No. Job tidak ditemukan.";
     else if (!held.length) errors.job_id = `No. Job ${job.no} tidak ada di Persiapan unit ini.`;
@@ -107,7 +107,7 @@ async function check(db: Db, input: GradingInput, strict: boolean, selfId: numbe
     const bucket = bucketId ? (await bucketsByIds([bucketId], db)).get(bucketId) : null;
     const qty = parseQty(input.qty);
     if (!bucket) errors.bucket_id = "Pilih barang dari Persiapan.";
-    else if (bucket.unitId !== unitId || bucket.stage !== "Preparation" || bucket.auxiliary) errors.bucket_id = `No. Stok ${bucket.lotNo} tidak ada di Persiapan unit ini.`;
+    else if (bucket.unitId !== unitId || bucket.stage !== "Preparation" || bucket.stepId !== step?.id || bucket.auxiliary) errors.bucket_id = `No. Stok ${bucket.lotNo} tidak ada di Persiapan unit ini.`;
     else if (bucket.jobId) errors.bucket_id = `No. Stok ${bucket.lotNo} ada di No. Job ${bucket.jobNo}: grading mengambil Job itu utuh.`;
     else if (!(qty > 0)) errors.qty = "Isi jumlah yang diambil.";
     else if (!fourDecimals(qty)) errors.qty = "Paling banyak 4 angka desimal.";
@@ -139,6 +139,7 @@ async function check(db: Db, input: GradingInput, strict: boolean, selfId: numbe
     ok: true as const,
     data: { unit_id: unitId!, grading_date: asDate(input.grading_date), job_id: jobId, note: text(input.note) },
     unit: unit!,
+    step: step!,
     inputs,
     parentLotId: parentLotId!,
     outputs,
@@ -245,16 +246,14 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
       const moves: ValueMove[] = [];
       const taken: { bucketId: number; lotId: number; grams: number; value: number; cost: number; rate: number; rateVersionId: number; routingId: number | null }[] = [];
       let partaiId: number | null = null;
-      let jobId: number | null = null;
       for (const i of c.inputs) {
         const t = await consumeBucket(tx, { bucketId: i.bucket_id, baseQty: i.qty, ...common });
         const grams = await gramsOf(tx, { lotId: t.lotId, itemId: t.itemId, qty: i.qty });
         const locked = await lockRateVersion(tx, { lotId: t.lotId, partaiId: t.partaiId, actorId });
-        const cost = await recordCostEntry(tx, { unitId: c.data.unit_id, rateVersionId: locked.rateVersionId, lotId: t.lotId, partaiId: t.partaiId, grams, isRework: t.qcCheckId != null, ...common });
+        const cost = await recordCostEntry(tx, { unitId: c.data.unit_id, stepId: c.step.id, rateVersionId: locked.rateVersionId, lotId: t.lotId, partaiId: t.partaiId, grams, isRework: t.qcCheckId != null, ...common });
         moves.push({ accountId: wip(t.itemId), amount: -t.value });
         taken.push({ bucketId: i.bucket_id, lotId: t.lotId, grams: grams.toNumber(), value: t.value, cost: cost.amount, rate: Number(cost.rate), ...locked });
         partaiId = t.partaiId;
-        jobId = t.jobId;
       }
       let auxValue = 0;
       for (const a of c.aux) {
@@ -270,7 +269,6 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
       const total = inputValue + auxValue + costAmount;
       const flagged = c.outputs.map((o) => ({ ...o, isBjl: c.items.get(o.item_id)!.is_bjl }));
       const share = shareGrading(total, flagged);
-      const stage = c.unit.has_qc ? ("QcCheck" as const) : ("StandBy" as const);
       const weights = taken.map((t) => t.grams);
       for (const [i, o] of flagged.entries()) {
         const made = await registerDerivedStock(tx, { parentLotId: c.parentLotId, itemId: o.item_id, ...common });
@@ -286,9 +284,10 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
           lotId: made.id,
           itemId: o.item_id,
           unitId: c.data.unit_id,
-          stage,
+          afterStepId: c.step.id,
           partaiId,
-          jobId: c.unit.releases_job ? null : jobId,
+          // Grading always releases the No. Job; the partai stays (T2).
+          jobId: null,
           baseQty: o.qty,
           value: share.values[i],
           ...common,
@@ -457,10 +456,10 @@ export type GradingOptions = {
 };
 
 export async function gradingOptions(keep: number[] = []): Promise<GradingOptions> {
-  const units = await prisma.refUnit.findMany({ where: { process: "Grading", status: "Active" }, orderBy: { unit_label: "asc" } });
+  const units = await prisma.refUnit.findMany({ where: { steps: { some: { process: "Grading" } }, status: "Active" }, orderBy: { unit_label: "asc" } });
   const ids = units.map((u) => u.id);
   const [inputs, aux, items] = await Promise.all([
-    persiapanOptions(ids, keep),
+    persiapanOptions(ids, keep, prisma, "Grading"),
     auxOptions(ids, keep),
     prisma.mItem.findMany({ where: { item_type: "Barang", track_stock: true, status: "Active" }, orderBy: { item_label: "asc" }, include: { base_uom: true } }),
   ]);

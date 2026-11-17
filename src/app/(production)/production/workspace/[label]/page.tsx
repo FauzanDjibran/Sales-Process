@@ -9,7 +9,7 @@ import { stockIssueAbilities } from "@/lib/erp/stock-issue-workflow";
 
 export const dynamic = "force-dynamic";
 
-const TABS = ["masuk", "persiapan", "qc", "standby", "transit"] as const;
+/** `masuk`, `standby`, `transit`, or a step tab `p<id>` / `w<id>` of this Unit. */
 
 /** The page composes the BSTB module's waiting issues beside the ledger's rows (§3.1). */
 export default async function Page({ params, searchParams }: { params: Promise<{ label: string }>; searchParams: Promise<{ tab?: string }> }) {
@@ -24,20 +24,19 @@ export default async function Page({ params, searchParams }: { params: Promise<{
   const incoming = issues
     .filter((i) => i.unitId === unit.id)
     .map((i) => ({ id: i.id, issueNo: i.issueNo, issueDate: i.issueDate, warehouseLabel: i.warehouseLabel, auxiliary: i.auxiliary, lines: i.lines.map((l) => ({ lotNo: l.lotNo, qty: l.qty, uomLabel: l.uomLabel })) }));
-  const initial = (TABS as readonly string[]).includes(tab ?? "") && !(tab === "qc" && !unit.hasQc) ? (tab as (typeof TABS)[number]) : "persiapan";
+  const stepTabs = unit.steps.flatMap((s) => [`p${s.id}`, `w${s.id}`]);
+  const initial = tab && ["masuk", "standby", "transit", ...stepTabs].includes(tab) ? tab : `p${unit.steps[0]?.id ?? 0}`;
 
   return (
     <UnitBoard
       unit={{
         label: unit.label,
         name: unit.name,
-        process: unit.process,
-        hasQc: unit.hasQc,
         workstation: unit.workstation,
         pre: unit.pre,
         checkpoint: unit.checkpoint,
-        releasesJob: unit.releasesJob,
         afterCheckpoint: unit.afterCheckpoint,
+        steps: unit.steps,
         lines: unit.lines.map((l) => ({ id: l.id, name: l.name })),
       }}
       rows={rows}
@@ -46,6 +45,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
         grading: GRADING_WORKFLOW.abilities(actor.permissions).create,
         work: WORK_WORKFLOW.abilities(actor.permissions).create,
         qc: QC_CHECK_WORKFLOW.abilities(actor.permissions).create,
+        transfer: false,
       }}
       issueCan={stockIssueAbilities(actor.permissions)}
       initialTab={initial}

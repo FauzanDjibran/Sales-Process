@@ -30,7 +30,7 @@ import {
   type BucketOption,
   type ValueMove,
 } from "./production-doc";
-import { availableBuckets, bucketsByIds, consumeBucket, gramsOf, lockRateVersion, preparationNoteUnits, produceIntoBucket, recordCostEntry, type BucketView } from "./production-ledger";
+import { availableBuckets, bucketsByIds, consumeBucket, gramsOf, unitStepsOf, lockRateVersion, preparationNoteUnits, produceIntoBucket, recordCostEntry, type BucketView } from "./production-ledger";
 import { WORK_WORKFLOW } from "./production-execution-workflow";
 import { prodDocTransitionAllowed, type ProdDocAction, type ProdDocStatus } from "./production-doc-workflow";
 
@@ -55,8 +55,9 @@ async function check(db: Db, input: WorkInput, strict: boolean) {
   const errors: Record<string, string> = {};
   const unitId = Number(input.unit_id) || null;
   const unit = unitId ? await db.refUnit.findUnique({ where: { id: unitId } }) : null;
+  const step = unit ? (await unitStepsOf(db, unit.id)).find((x) => x.process === "Assign") : null;
   if (!unit) errors.unit_id = "Pilih Unit.";
-  else if (unit.process !== "PassThrough") errors.unit_id = `${unit.unit_label} bukan unit Pass Through.`;
+  else if (!step) errors.unit_id = `${unit.unit_label} tidak punya proses Assign.`;
   else if (unit.status !== "Active") errors.unit_id = `Unit ${unit.unit_label} nonaktif.`;
   if (!DAY.test(input.work_date)) errors.work_date = "Isi tanggal.";
 
@@ -72,7 +73,7 @@ async function check(db: Db, input: WorkInput, strict: boolean) {
   raw.forEach((l, i) => {
     const key = (f: string) => `lines.${i}.${f}`;
     const b = buckets.get(Number(l.bucket_id));
-    if (!b || b.unitId !== unitId || b.stage !== "Preparation" || b.auxiliary) {
+    if (!b || b.unitId !== unitId || b.stage !== "Preparation" || b.stepId !== step?.id || b.auxiliary) {
       errors[key("bucket_id")] = "Barang tidak ada di Persiapan unit ini.";
       return;
     }
@@ -103,7 +104,7 @@ async function check(db: Db, input: WorkInput, strict: boolean) {
   // A Job is worked whole (W96, A5.1): every No. Stok of it here, all of each.
   const jobIds = [...new Set(lines.flatMap((l) => (l.job_id ? [l.job_id] : [])))];
   if (jobIds.length && unitId && !errors._lines) {
-    const held = (await availableBuckets({ unitIds: [unitId], stage: "Preparation" }, db)).filter((b) => b.jobId && jobIds.includes(b.jobId) && !b.auxiliary && b.qty > 0);
+    const held = (await availableBuckets({ unitIds: [unitId], stage: "Preparation" }, db)).filter((b) => b.jobId && jobIds.includes(b.jobId) && b.stepId === step?.id && !b.auxiliary && b.qty > 0);
     const short = held.find((b) => units(lines.find((l) => l.bucket_id === b.id)?.qty ?? 0) !== units(b.qty));
     if (short) errors._lines = `No. Job ${short.jobNo} dikerjakan utuh: ${short.lotNo} ${short.qty} ${short.uomLabel}.`;
   }
@@ -114,6 +115,7 @@ async function check(db: Db, input: WorkInput, strict: boolean) {
     ok: true as const,
     data: { unit_id: unitId!, work_date: asDate(input.work_date), result_note: text(input.result_note), note: text(input.note) },
     unit: unit!,
+    step: step!,
     lines,
     aux,
   };
@@ -218,6 +220,7 @@ export async function transitionWork(id: number, action: ProdDocAction, actorId:
         const locked = await lockRateVersion(tx, { lotId: input.lotId, partaiId: input.partaiId, actorId });
         const cost = await recordCostEntry(tx, {
           unitId: c.data.unit_id,
+          stepId: c.step.id,
           rateVersionId: locked.rateVersionId,
           lotId: input.lotId,
           partaiId: input.partaiId,
@@ -244,13 +247,12 @@ export async function transitionWork(id: number, action: ProdDocAction, actorId:
         worked.map((x) => ({ key: String(x.line.job_id ?? `b${x.line.bucket_id}`), grams: x.grams.toNumber(), isBjl: x.line.bucket.isBjl, input: x.input.value, cost: x.cost })),
         aux
       );
-      const stage = c.unit.has_qc ? ("QcCheck" as const) : ("StandBy" as const);
       for (const [i, x] of worked.entries()) {
         const placed = await produceIntoBucket(tx, {
           lotId: x.input.lotId,
           itemId: x.input.itemId,
           unitId: c.data.unit_id,
-          stage,
+          afterStepId: c.step.id,
           partaiId: x.input.partaiId,
           jobId: x.input.jobId,
           baseQty: x.line.qty,
@@ -377,10 +379,10 @@ export type WorkOptions = {
 };
 
 export async function workOptions(keep: number[] = []): Promise<WorkOptions> {
-  const units = await prisma.refUnit.findMany({ where: { process: "PassThrough", status: "Active" }, orderBy: { unit_label: "asc" } });
+  const units = await prisma.refUnit.findMany({ where: { steps: { some: { process: "Assign" } }, status: "Active" }, orderBy: { unit_label: "asc" } });
   const ids = units.map((u) => u.id);
   const [inputs, aux, employees, noted] = await Promise.all([
-    persiapanOptions(ids, keep),
+    persiapanOptions(ids, keep, prisma, "Assign"),
     auxOptions(ids, keep),
     prisma.mEmployee.findMany({ where: { status: "Active" }, orderBy: { employee_label: "asc" } }),
     preparationNoteUnits(),

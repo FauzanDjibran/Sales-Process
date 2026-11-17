@@ -1,11 +1,11 @@
 import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
-import { ENTITIES, fieldApplies } from "../src/lib/erp/entities";
+import { ENTITIES } from "../src/lib/erp/entities";
 import { checkItemBjl } from "../src/lib/erp/item";
 import { abilitiesFor } from "../src/lib/erp/entity-access";
-import { checkRateCollections, checkRoutingCollections, routingCollections, writeRateCollections, writeRoutingCollections } from "../src/lib/erp/production-master";
-import { STEPS_KEY, exitRoutes, stepRuleErrors } from "../src/lib/erp/production-master-shape";
+import { checkRateCollections, checkRoutingCollections, checkUnitCollections, routingCollections, writeRateCollections, writeRoutingCollections, writeUnitCollections } from "../src/lib/erp/production-master";
+import { STEPS_KEY, exitRoutes, stepRuleErrors, unitStepRuleErrors } from "../src/lib/erp/production-master-shape";
 import { InventoryRefusal, injectStock, receiveStock } from "../src/lib/erp/inventory";
 import { enterProduction } from "../src/lib/erp/production-ledger";
 import { FIXTURE_PREFIX, cleanupFixtures, disconnect, prisma, systemUserId } from "./helpers";
@@ -28,12 +28,16 @@ let activeBefore: number[] = [];
 before(async () => {
   actor = await systemUserId();
   f.ws = (await prisma.refWorkstation.create({ data: { workstation_code: `test.${key("W")}`, workstation_label: key("W"), workstation_name: "Uji", created_by: actor } })).id;
-  const unit = async (tag: string, process: "PassThrough" | "Grading" | "Assembly") =>
-    (await prisma.refUnit.create({ data: { unit_code: `test.${key(tag)}`, unit_label: key(tag), unit_name: tag, workstation_id: f.ws, process, created_by: actor } })).id;
-  f.grade = await unit("G", "Grading");
-  f.former = await unit("F", "PassThrough");
-  f.mould = await unit("M", "PassThrough");
-  f.pack = await unit("P", "Assembly");
+  const unit = async (tag: string, processes: ("Grading" | "Assign" | "QC" | "Assembly")[]) =>
+    (
+      await prisma.refUnit.create({
+        data: { unit_code: `test.${key(tag)}`, unit_label: key(tag), unit_name: tag, workstation_id: f.ws, created_by: actor, steps: { create: processes.map((process, i) => ({ seq: i + 1, process })) } },
+      })
+    ).id;
+  f.grade = await unit("G", ["Grading", "QC"]);
+  f.former = await unit("F", ["Assign"]);
+  f.mould = await unit("M", ["Assign"]);
+  f.pack = await unit("P", ["Assembly"]);
   const line = async (tag: string) =>
     (await prisma.prdLine.create({ data: { line_code: `test.${key(tag)}`, line_label: key(tag), line_name: "Uji", created_by: actor } })).id;
   f.line = await line("L");
@@ -44,7 +48,7 @@ before(async () => {
 after(async () => {
   await prisma.prdRoutingStep.deleteMany({ where: { unit_id: { in: [f.grade, f.former, f.mould, f.pack] } } });
   await prisma.prdRouting.deleteMany({ where: { routing_label: { startsWith: FIXTURE_PREFIX } } });
-  await prisma.prdRateVersionLine.deleteMany({ where: { unit_id: { in: [f.grade, f.former, f.mould, f.pack] } } });
+  await prisma.prdRateVersionLine.deleteMany({ where: { step: { unit_id: { in: [f.grade, f.former, f.mould, f.pack] } } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "prd_rate_version", row_id: { in: activeBefore } } });
   await prisma.prdRateVersion.deleteMany({ where: { rate_label: { startsWith: FIXTURE_PREFIX } } });
   await prisma.prdRateVersion.updateMany({ where: { id: { in: activeBefore } }, data: { status: "Active" } });
@@ -58,21 +62,34 @@ after(async () => {
 const step = (unit: number, over: Record<string, unknown> = {}) => ({ unit_id: unit, is_checkpoint: false, is_skippable: false, ...over });
 
 describe("Unit, Workstation and the masters around them", () => {
-  test("a Unit belongs to a Workstation and does one kind of work", async () => {
-    const m = await prisma.refUnit.findUniqueOrThrow({ where: { id: f.pack }, include: { workstation: true } });
-    assert.equal(m.process, "Assembly");
-    assert.equal(m.has_qc, false);
+  test("a Unit belongs to a Workstation and does its steps in order (T1)", async () => {
+    const m = await prisma.refUnit.findUniqueOrThrow({ where: { id: f.grade }, include: { workstation: true, steps: { orderBy: { seq: "asc" } } } });
+    assert.deepEqual(m.steps.map((x) => x.process), ["Grading", "QC"]);
     assert.equal(m.workstation?.id, f.ws);
   });
 
-  test("only a grading Unit may release a No. Job; a Job Order is not tied to it (W92)", () => {
-    const fields = ENTITIES.find((e) => e.key === "ref_unit")!.fields;
-    const releases = fields.find((x) => x.name === "releases_job")!;
-    const order = fields.find((x) => x.name === "issues_job_order")!;
-    assert.equal(fieldApplies(releases, { process: "Grading" }), true);
-    assert.equal(fieldApplies(releases, { process: "PassThrough" }), false);
-    assert.equal(fieldApplies(releases, { process: "Assembly" }), false);
-    assert.equal(fieldApplies(order, { process: "PassThrough" }), true);
+  test("a Unit's steps: each process once, QC last, Assembly alone (T1)", () => {
+    const of = (...p: string[]) => unitStepRuleErrors(p.map((process) => ({ process })) as never);
+    assert.deepEqual(of("Grading", "QC"), []);
+    assert.deepEqual(of("Grading", "JobOrder", "Assign", "QC"), []);
+    assert.match(of().join(" "), /minimal satu/);
+    assert.match(of("Grading", "Grading").join(" "), /sekali per Unit/);
+    assert.match(of("QC", "Grading").join(" "), /QC harus proses terakhir/);
+    assert.match(of("Assembly", "QC").join(" "), /Assembly berdiri sendiri/);
+  });
+
+  test("the Unit form saves its steps with it and keeps the id of a step that stays", async () => {
+    const before = await prisma.refUnitStep.findFirstOrThrow({ where: { unit_id: f.grade, process: "Grading" } });
+    const draft = (...p: string[]) => ({ _unit_steps: JSON.stringify(p.map((process, i) => ({ key: `s${i}`, process }))) });
+    const bad = await checkUnitCollections(draft("QC", "Grading"), f.grade);
+    assert.match(bad.errors._unit_steps, /QC harus proses terakhir/);
+    const ok = await checkUnitCollections(draft("Grading", "Assign", "QC"), f.grade);
+    assert.deepEqual(ok.errors, {});
+    await prisma.$transaction((tx) => writeUnitCollections(tx, f.grade, ok.clean));
+    const after = await prisma.refUnitStep.findMany({ where: { unit_id: f.grade }, orderBy: { seq: "asc" } });
+    assert.deepEqual(after.map((x) => x.process), ["Grading", "Assign", "QC"]);
+    assert.equal(after[0].id, before.id, "a step that stays keeps its id: buckets and rates name it");
+    await prisma.$transaction((tx) => writeUnitCollections(tx, f.grade, { steps: [{ process: "Grading" }, { process: "QC" }] }));
   });
 
   test("every master is a registry entity with its permissions", () => {
@@ -109,8 +126,8 @@ describe("a routing is the order of Units (P230)", () => {
   });
 
   test("the segment before the partai ends at a Grading Unit; a line starts in another Workstation (W73)", () => {
-    const u = (id: number, process: string, workstation_id: number) => ({ id, process, workstation_id });
-    const units = new Map([[1, u(1, "PassThrough", 7)], [2, u(2, "Grading", 7)], [3, u(3, "PassThrough", 8)], [4, u(4, "PassThrough", 7)]]);
+    const u = (id: number, process: string, workstation_id: number) => ({ id, processes: [process], workstation_id });
+    const units = new Map([[1, u(1, "Assign", 7)], [2, u(2, "Grading", 7)], [3, u(3, "Assign", 8)], [4, u(4, "Assign", 7)]]);
     const of = (id: number) => units.get(id);
     assert.deepEqual(stepRuleErrors([step(1), step(2)] as never, false, of, null), []);
     assert.match(stepRuleErrors([step(1)] as never, false, of, null).join(" "), /unit Grading/);
@@ -120,9 +137,9 @@ describe("a routing is the order of Units (P230)", () => {
     assert.match(stepRuleErrors([step(3), step(2)] as never, true, of, end).join(" "), /sesudah partai lahir/);
   });
 
-  test("one checkpoint at most, and never the first step", () => {
-    const of = (id: number) => ({ id, process: "Grading", workstation_id: 1 });
-    assert.match(stepRuleErrors([step(1, { is_checkpoint: true }), step(2, { is_checkpoint: true })] as never, true, of, null).join(" "), /hanya boleh satu/);
+  test("several checkpoints are allowed, but never the first step (T5)", () => {
+    const of = (id: number) => ({ id, processes: ["Grading"], workstation_id: 1 });
+    assert.deepEqual(stepRuleErrors([step(1), step(2, { is_checkpoint: true }), step(3, { is_checkpoint: true })] as never, true, of, null), []);
     assert.match(stepRuleErrors([step(1, { is_checkpoint: true }), step(2)] as never, true, of, null).join(" "), /pertama/);
     assert.deepEqual(stepRuleErrors([step(1), step(2, { is_checkpoint: true })] as never, true, of, null), []);
   });
@@ -141,13 +158,18 @@ describe("a routing is the order of Units (P230)", () => {
 });
 
 describe("Standard Cost versions", () => {
-  test("a rate is 0 or more with at most six decimals, once per Unit", async () => {
-    const ok = await checkRateCollections({ _rates: JSON.stringify([{ unit_id: f.grade, rate: "182.8637" }, { unit_id: f.mould, rate: "0" }]) });
+  const stepId = async (unit: number, process: string) => (await prisma.refUnitStep.findFirstOrThrow({ where: { unit_id: unit, process: process as never } })).id;
+
+  test("a rate is 0 or more with at most six decimals, once per Unit step; QC carries none (T3)", async () => {
+    const grade = await stepId(f.grade, "Grading");
+    const ok = await checkRateCollections({ _rates: JSON.stringify([{ unit_step_id: grade, rate: "182.8637" }, { unit_step_id: await stepId(f.mould, "Assign"), rate: "0" }]) });
     assert.deepEqual(ok.errors, {});
-    const bad = await checkRateCollections({ _rates: JSON.stringify([{ unit_id: f.grade, rate: "-1" }]) });
+    const bad = await checkRateCollections({ _rates: JSON.stringify([{ unit_step_id: grade, rate: "-1" }]) });
     assert.match(bad.errors._rates, /0 atau lebih/);
-    const dup = await checkRateCollections({ _rates: JSON.stringify([{ unit_id: f.grade, rate: "1" }, { unit_id: f.grade, rate: "2" }]) });
+    const dup = await checkRateCollections({ _rates: JSON.stringify([{ unit_step_id: grade, rate: "1" }, { unit_step_id: grade, rate: "2" }]) });
     assert.match(dup.errors._rates, /sudah punya rate/);
+    const qc = await checkRateCollections({ _rates: JSON.stringify([{ unit_step_id: await stepId(f.grade, "QC"), rate: "1" }]) });
+    assert.match(qc.errors._rates, /tidak membebankan biaya/);
   });
 
   test("a saved version has no edit and no toggle, for anyone", () => {
@@ -159,7 +181,8 @@ describe("Standard Cost versions", () => {
     const save = async (tag: string, rate: string) => {
       const v = await prisma.prdRateVersion.create({ data: { rate_code: `test.${key(tag)}`, rate_label: key(tag), rate_name: tag, created_by: actor } });
       assert.equal(v.status, "Inactive", "born closed, made active by saving");
-      await prisma.$transaction((tx) => writeRateCollections(tx, v.id, { rates: [{ unit_id: f.grade, rate }] }, actor));
+      const grade = await stepId(f.grade, "Grading");
+      await prisma.$transaction((tx) => writeRateCollections(tx, v.id, { rates: [{ unit_step_id: grade, rate }] }, actor));
       return v.id;
     };
     const first = await save("V1", "10");

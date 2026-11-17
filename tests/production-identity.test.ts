@@ -41,7 +41,7 @@ before(async () => {
   const version = async (tag: string, rate: number, status: "Active" | "Inactive") =>
     (
       await prisma.prdRateVersion.create({
-        data: { rate_code: `test.${f.key(tag)}`, rate_label: f.key(tag), rate_name: tag, status, created_by: a, lines: { create: [{ unit_id: f.wsA, rate }] } },
+        data: { rate_code: `test.${f.key(tag)}`, rate_label: f.key(tag), rate_name: tag, status, created_by: a, lines: { create: [{ unit_step_id: (await prisma.refUnitStep.findFirstOrThrow({ where: { unit_id: f.wsA } })).id, rate }] } },
       })
     ).id;
   ids.v1 = await version("V1", 182.8637, "Active");
@@ -146,11 +146,13 @@ describe("what a No. Stok locked, and standard cost", () => {
   });
 
   test("grams × the locked version's rate, rounded once; a Unit left out costs 0 (V1, W17)", async () => {
-    const paid = await tx((t) => recordCostEntry(t, { unitId: f.wsA, rateVersionId: ids.v1, lotId: f.lot, partaiId: ids.partai, grams: 41_865, date, source: s, actorId: f.actor }));
+    const stepA = (await prisma.refUnitStep.findFirstOrThrow({ where: { unit_id: f.wsA } })).id;
+    const stepB = (await prisma.refUnitStep.findFirstOrThrow({ where: { unit_id: f.wsB } })).id;
+    const paid = await tx((t) => recordCostEntry(t, { unitId: f.wsA, stepId: stepA, rateVersionId: ids.v1, lotId: f.lot, partaiId: ids.partai, grams: 41_865, date, source: s, actorId: f.actor }));
     assert.deepEqual(paid, { amount: 7_655_589, rate: 182.8637 });
     const row = await prisma.prdCostEntry.findFirstOrThrow({ where: { tracking_id: f.lot, unit_id: f.wsA } });
     assert.equal(row.line_id, ids.line);
-    const free = await tx((t) => recordCostEntry(t, { unitId: f.wsB, rateVersionId: ids.v1, lotId: f.lot, grams: 100, date, source: s, actorId: f.actor }));
+    const free = await tx((t) => recordCostEntry(t, { unitId: f.wsB, stepId: stepB, rateVersionId: ids.v1, lotId: f.lot, grams: 100, date, source: s, actorId: f.actor }));
     assert.deepEqual(free, { amount: 0, rate: 0 });
   });
 });

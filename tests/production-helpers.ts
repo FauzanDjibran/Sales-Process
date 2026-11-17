@@ -50,7 +50,7 @@ export async function makeProductionFixture(tag: string): Promise<ProductionFixt
   const byproduct = await item("SISA");
   const warehouse = (await prisma.refWarehouse.create({ data: { warehouse_code: `test.${key("WH")}`, warehouse_label: key("WH"), warehouse_name: "Gudang Uji Produksi", created_by: actor } })).id;
   const ws = async (label: string) =>
-    (await prisma.refUnit.create({ data: { unit_code: `test.${key(label)}`, unit_label: key(label), unit_name: label, created_by: actor } })).id;
+    (await prisma.refUnit.create({ data: { unit_code: `test.${key(label)}`, unit_label: key(label), unit_name: label, created_by: actor, steps: { create: [{ seq: 1, process: "Assign" }] } } })).id;
   const wsA = await ws("WSA");
   const wsB = await ws("WSB");
   const lot = await stockIn(material, warehouse, key("L1"), 1_000, 1_000_000);

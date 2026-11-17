@@ -79,14 +79,60 @@ async function activeUnit(tx: Tx, id: number) {
   return ws;
 }
 
+// ---------------------------------------------------------------- steps
+
+/** One step of a Unit (T1); seq 1 is where goods received enter. */
+export type UnitStep = { id: number; seq: number; process: "Grading" | "JobOrder" | "Assign" | "Kerja" | "QC" | "Assembly" };
+
+const stepCache = new WeakMap<object, Map<number, UnitStep[]>>();
+
+/** A Unit's steps in order, asked once per transaction. */
+export async function unitStepsOf(db: Db, unitId: number): Promise<UnitStep[]> {
+  let byUnit = stepCache.get(db);
+  if (!byUnit) stepCache.set(db, (byUnit = new Map()));
+  let steps = byUnit.get(unitId);
+  if (!steps) {
+    steps = await db.refUnitStep.findMany({ where: { unit_id: unitId }, orderBy: { seq: "asc" }, select: { id: true, seq: true, process: true } });
+    byUnit.set(unitId, steps);
+  }
+  return steps;
+}
+
+/** The step of a Unit that does this process, or a refusal naming the Unit. */
+export async function stepOfProcess(db: Db, unitId: number, process: UnitStep["process"]): Promise<UnitStep> {
+  const step = (await unitStepsOf(db, unitId)).find((s) => s.process === process);
+  if (!step) {
+    const unit = await db.refUnit.findUnique({ where: { id: unitId }, select: { unit_label: true } });
+    throw new ProductionRefusal(`Unit ${unit?.unit_label ?? ""} tidak punya proses ${process}.`);
+  }
+  return step;
+}
+
+async function firstStep(tx: Tx, unitId: number): Promise<UnitStep> {
+  const first = (await unitStepsOf(tx, unitId))[0];
+  if (!first) {
+    const unit = await tx.refUnit.findUnique({ where: { id: unitId }, select: { unit_label: true } });
+    throw new ProductionRefusal(`Unit ${unit?.unit_label ?? ""} belum punya proses. Isi tab Proses di Master › Unit.`);
+  }
+  return first;
+}
+
+/** Where goods go when a step is done: the next Persiapan, or Stand By after the last (T4). */
+export async function destinationAfter(tx: Tx, stepId: number): Promise<{ stage: "Preparation" | "StandBy"; stepId: number | null }> {
+  const step = await tx.refUnitStep.findUniqueOrThrow({ where: { id: stepId }, select: { unit_id: true, seq: true } });
+  const next = (await unitStepsOf(tx, step.unit_id)).find((s) => s.seq > step.seq);
+  return next ? { stage: "Preparation", stepId: next.id } : { stage: "StandBy", stepId: null };
+}
+
 // ------------------------------------------------------------- locking
 
-type Stage = "Preparation" | "QcCheck" | "StandBy";
+type Stage = "Preparation" | "Working" | "StandBy" | "InTransit";
 type Bucket = {
   id: number;
   lotId: number;
   unitId: number;
   stage: Stage;
+  stepId: number | null;
   partaiId: number | null;
   jobId: number | null;
   qcCheckId: number | null;
@@ -95,13 +141,13 @@ type Bucket = {
   qty: Dec;
   value: Dec;
 };
-type BucketKey = { lotId: number; unitId: number; stage: Stage; partaiId: number | null; jobId: number | null; qcCheckId?: number | null; auxiliary?: boolean; itemId: number; uomId: number };
+type BucketKey = { lotId: number; unitId: number; stage: Stage; stepId?: number | null; partaiId: number | null; jobId: number | null; qcCheckId?: number | null; auxiliary?: boolean; itemId: number; uomId: number };
 
 async function lockBucketById(tx: Tx, id: number): Promise<Bucket | null> {
   const [row] = await tx.$queryRaw<
-    { id: number; tracking_id: number; unit_id: number; stage: Stage; partai_id: number | null; job_id: number | null; qc_check_id: number | null; auxiliary: boolean; item_id: number; qty_balance: Dec; value_balance: Dec }[]
+    { id: number; tracking_id: number; unit_id: number; stage: Stage; unit_step_id: number | null; partai_id: number | null; job_id: number | null; qc_check_id: number | null; auxiliary: boolean; item_id: number; qty_balance: Dec; value_balance: Dec }[]
   >`
-    SELECT "id", "tracking_id", "unit_id", "stage"::text AS "stage", "partai_id", "job_id", "qc_check_id", "auxiliary", "item_id", "qty_balance", "value_balance"
+    SELECT "id", "tracking_id", "unit_id", "stage"::text AS "stage", "unit_step_id", "partai_id", "job_id", "qc_check_id", "auxiliary", "item_id", "qty_balance", "value_balance"
       FROM "prd_balance" WHERE "id" = ${id} FOR UPDATE`;
   return row
     ? {
@@ -109,6 +155,7 @@ async function lockBucketById(tx: Tx, id: number): Promise<Bucket | null> {
         lotId: row.tracking_id,
         unitId: row.unit_id,
         stage: row.stage,
+        stepId: row.unit_step_id,
         partaiId: row.partai_id,
         jobId: row.job_id,
         qcCheckId: row.qc_check_id,
@@ -123,13 +170,17 @@ async function lockBucketById(tx: Tx, id: number): Promise<Bucket | null> {
 /** The bucket of this identity, created empty if missing, and locked. */
 async function openBucket(tx: Tx, k: BucketKey, actorId: number): Promise<Bucket> {
   const qcCheckId = k.qcCheckId ?? null;
+  const stepId = k.stepId ?? null;
+  // Goods wait at a step only while they are Persiapan or Sedang Dikerjakan (T4).
+  if ((k.stage === "Preparation" || k.stage === "Working") !== (stepId != null)) throw new ProductionRefusal("Barang di Persiapan harus punya proses, dan tahap lain tidak.");
   await tx.$executeRaw`
-    INSERT INTO "prd_balance" ("tracking_id", "unit_id", "stage", "partai_id", "job_id", "qc_check_id", "auxiliary", "item_id", "uom_id", "qty_balance", "value_balance", "created_by", "updated_at")
-    VALUES (${k.lotId}, ${k.unitId}, ${k.stage}::"PrdStage", ${k.partaiId}::int, ${k.jobId}::int, ${qcCheckId}::int, ${k.auxiliary ?? false}, ${k.itemId}, ${k.uomId}, 0, 0, ${actorId}, now())
-    ON CONFLICT ("tracking_id", "unit_id", "stage", "partai_id", "job_id", "qc_check_id") DO NOTHING`;
+    INSERT INTO "prd_balance" ("tracking_id", "unit_id", "stage", "unit_step_id", "partai_id", "job_id", "qc_check_id", "auxiliary", "item_id", "uom_id", "qty_balance", "value_balance", "created_by", "updated_at")
+    VALUES (${k.lotId}, ${k.unitId}, ${k.stage}::"PrdStage", ${stepId}::int, ${k.partaiId}::int, ${k.jobId}::int, ${qcCheckId}::int, ${k.auxiliary ?? false}, ${k.itemId}, ${k.uomId}, 0, 0, ${actorId}, now())
+    ON CONFLICT ("tracking_id", "unit_id", "stage", "unit_step_id", "partai_id", "job_id", "qc_check_id") DO NOTHING`;
   const [row] = await tx.$queryRaw<{ id: number }[]>`
     SELECT "id" FROM "prd_balance"
      WHERE "tracking_id" = ${k.lotId} AND "unit_id" = ${k.unitId} AND "stage" = ${k.stage}::"PrdStage"
+       AND "unit_step_id" IS NOT DISTINCT FROM ${stepId}::int
        AND "partai_id" IS NOT DISTINCT FROM ${k.partaiId}::int AND "job_id" IS NOT DISTINCT FROM ${k.jobId}::int
        AND "qc_check_id" IS NOT DISTINCT FROM ${qcCheckId}::int`;
   return (await lockBucketById(tx, row.id))!;
@@ -203,6 +254,7 @@ async function write(tx: Tx, b: Bucket, m: { movement: Movement; qty: Dec; value
       tracking_id: b.lotId,
       unit_id: b.unitId,
       stage: b.stage,
+      unit_step_id: b.stepId,
       partai_id: b.partaiId,
       job_id: b.jobId,
       item_id: b.itemId,
@@ -268,9 +320,10 @@ export async function enterProduction(tx: Tx, e: ProductionEntry): Promise<{ buc
   await activeUnit(tx, e.unitId);
   const lot = await tx.logStockTracking.findFirst({ where: { id: e.lotId, item_id: e.itemId }, select: { id: true } });
   if (!lot) throw new ProductionRefusal(`No. Stok ${item.item_label} tidak ditemukan.`);
+  const first = await firstStep(tx, e.unitId);
   const bucket = await openBucket(
     tx,
-    { lotId: lot.id, unitId: e.unitId, stage: "Preparation", partaiId: null, jobId: e.jobId ?? null, auxiliary: e.auxiliary, itemId: e.itemId, uomId: item.base_uom_id },
+    { lotId: lot.id, unitId: e.unitId, stage: "Preparation", stepId: first.id, partaiId: null, jobId: e.jobId ?? null, auxiliary: e.auxiliary, itemId: e.itemId, uomId: item.base_uom_id },
     e.actorId
   );
   if (bucket.auxiliary !== Boolean(e.auxiliary)) {
@@ -329,7 +382,7 @@ export async function advanceToStandBy(tx: Tx, t: ProductionTake): Promise<{ val
   return { value: value.toNumber(), toBucketId: to.id };
 }
 
-export type TakenInput = { value: number; lotId: number; itemId: number; unitId: number; partaiId: number | null; jobId: number | null; qcCheckId: number | null; expiry: Date | null };
+export type TakenInput = { value: number; stepId: number | null; lotId: number; itemId: number; unitId: number; partaiId: number | null; jobId: number | null; qcCheckId: number | null; expiry: Date | null };
 
 /** Takes an execution's input out of Persiapan (W30), or bahan penolong out of the Unit's balance. */
 export async function consumeBucket(tx: Tx, t: ProductionTake): Promise<TakenInput> {
@@ -338,16 +391,17 @@ export async function consumeBucket(tx: Tx, t: ProductionTake): Promise<TakenInp
   if (b.stage !== "Preparation") throw new ProductionRefusal("Hanya barang di Persiapan yang dapat dikerjakan.");
   const value = await takeLocked(tx, b, new D(t.baseQty), "Consumed", t.date, t.source, t.actorId);
   const lot = await tx.logStockTracking.findUniqueOrThrow({ where: { id: b.lotId }, select: { expiry_date: true } });
-  return { value: value.toNumber(), lotId: b.lotId, itemId: b.itemId, unitId: b.unitId, partaiId: b.partaiId, jobId: b.jobId, qcCheckId: b.qcCheckId, expiry: lot.expiry_date };
+  return { value: value.toNumber(), stepId: b.stepId, lotId: b.lotId, itemId: b.itemId, unitId: b.unitId, partaiId: b.partaiId, jobId: b.jobId, qcCheckId: b.qcCheckId, expiry: lot.expiry_date };
 }
 
-/** Places an execution's result at its Unit: QC Check, or Stand By where the Unit has none (W65). */
+/** Places a step result at its Unit: the next step Persiapan, or Stand By after the last (T4). */
 export async function produceIntoBucket(
   tx: Tx,
-  p: { lotId: number; itemId: number; unitId: number; stage: "QcCheck" | "StandBy"; partaiId: number | null; jobId: number | null; baseQty: number | string | Dec; value: number; date: Date; source: ProductionSource; actorId: number }
+  p: { lotId: number; itemId: number; unitId: number; afterStepId: number; partaiId: number | null; jobId: number | null; baseQty: number | string | Dec; value: number; date: Date; source: ProductionSource; actorId: number }
 ): Promise<{ bucketId: number }> {
   const item = await productionItem(tx, p.itemId);
-  const bucket = await openBucket(tx, { lotId: p.lotId, unitId: p.unitId, stage: p.stage, partaiId: p.partaiId, jobId: p.jobId, itemId: p.itemId, uomId: item.base_uom_id }, p.actorId);
+  const to = await destinationAfter(tx, p.afterStepId);
+  const bucket = await openBucket(tx, { lotId: p.lotId, unitId: p.unitId, stage: to.stage, stepId: to.stepId, partaiId: p.partaiId, jobId: p.jobId, itemId: p.itemId, uomId: item.base_uom_id }, p.actorId);
   await write(tx, bucket, { movement: "Produced", qty: new D(p.baseQty), value: new D(p.value), date: p.date, source: p.source, actorId: p.actorId });
   return { bucketId: bucket.id };
 }
@@ -364,14 +418,18 @@ export async function decideQcBucket(
   const from = await lockBucketById(tx, d.bucketId);
   if (!from) throw new ProductionRefusal("Saldo produksi tidak ditemukan. Pilih ulang.");
   const qty = new D(d.baseQty);
-  if (from.stage !== "QcCheck" || !from.qty.eq(qty)) throw new ProductionRefusal("Baris ini sudah berubah sejak dokumen dibuat. Buat QC Check baru.");
+  const qcStep = from.stepId != null ? (await unitStepsOf(tx, from.unitId)).find((x) => x.id === from.stepId) : null;
+  if (from.stage !== "Preparation" || !qcStep || qcStep.process !== "QC" || !from.qty.eq(qty)) throw new ProductionRefusal("Baris ini sudah berubah sejak dokumen dibuat. Buat QC Check baru.");
   const item = await productionItem(tx, from.itemId);
+  // Lulus goes on past QC; Balik returns to the first step of the Unit (T9).
+  const dest = d.decision === "Pass" ? await destinationAfter(tx, qcStep.id) : { stage: "Preparation" as const, stepId: (await firstStep(tx, from.unitId)).id };
   const to = await openBucket(
     tx,
     {
       lotId: from.lotId,
       unitId: from.unitId,
-      stage: d.decision === "Pass" ? "StandBy" : "Preparation",
+      stage: dest.stage,
+      stepId: dest.stepId,
       partaiId: from.partaiId,
       jobId: from.jobId,
       qcCheckId: d.decision === "Pass" ? null : d.qcCheckId,
@@ -479,6 +537,7 @@ export async function transferBucket(
   if (from.stage !== "StandBy") throw new ProductionRefusal("Hanya barang di Stand By yang dapat dikirim: barang Persiapan belum dikerjakan.");
   await activeUnit(tx, t.toUnitId);
   const item = await productionItem(tx, from.itemId);
+  const entry = await firstStep(tx, t.toUnitId);
   // The destination exists before either is locked twice; locks then follow id order.
   const to = await openBucket(
     tx,
@@ -486,6 +545,7 @@ export async function transferBucket(
       lotId: from.lotId,
       unitId: t.toUnitId,
       stage: "Preparation",
+      stepId: entry.id,
       partaiId: t.partaiId === undefined ? from.partaiId : t.partaiId,
       jobId: t.jobId === undefined ? from.jobId : t.jobId,
       itemId: from.itemId,
@@ -613,13 +673,13 @@ export async function recordTrackingInfo(
  */
 export async function recordCostEntry(
   tx: Tx,
-  c: { unitId: number; rateVersionId: number; lotId: number; partaiId?: number | null; grams: number | string | Dec; isRework?: boolean; date: Date; source: ProductionSource; actorId: number }
+  c: { unitId: number; stepId: number; rateVersionId: number; lotId: number; partaiId?: number | null; grams: number | string | Dec; isRework?: boolean; date: Date; source: ProductionSource; actorId: number }
 ): Promise<{ amount: number; rate: number }> {
   const costed = await costedRefusal(tx, c.date);
   if (costed) throw new ProductionRefusal(costed);
   const grams = new D(c.grams);
   if (!grams.gt(0)) throw new ProductionRefusal("Gram harus lebih dari 0.");
-  const line = await tx.prdRateVersionLine.findUnique({ where: { version_id_unit_id: { version_id: c.rateVersionId, unit_id: c.unitId } }, select: { rate: true } });
+  const line = await tx.prdRateVersionLine.findUnique({ where: { version_id_unit_step_id: { version_id: c.rateVersionId, unit_step_id: c.stepId } }, select: { rate: true } });
   const rate = line ? new D(line.rate) : new D(0);
   const amount = grams.mul(rate).toDecimalPlaces(0, D.ROUND_HALF_UP);
   const partai = c.partaiId ? await tx.prdPartai.findUnique({ where: { id: c.partaiId }, select: { line_id: true } }) : null;
@@ -630,6 +690,7 @@ export async function recordCostEntry(
       source_doc_id: c.source.docId,
       source_no: c.source.no,
       unit_id: c.unitId,
+      unit_step_id: c.stepId,
       rate_version_id: c.rateVersionId,
       tracking_id: c.lotId,
       partai_id: c.partaiId ?? null,
@@ -658,6 +719,9 @@ export type BucketView = {
   unitLabel: string;
   unitName: string;
   stage: Stage;
+  /** The step goods wait at (Persiapan / Sedang Dikerjakan), and what it does. */
+  stepId: number | null;
+  stepProcess: UnitStep["process"] | null;
   partaiId: number | null;
   partaiNo: string | null;
   /** The partai's line and routing: where its goods go next (P263). */
@@ -687,6 +751,7 @@ const bucketInclude = {
   item: { select: { item_label: true, item_name: true, is_bjl: true } },
   uom: { select: { uom_label: true } },
   unit: { select: { unit_label: true, unit_name: true } },
+  step: { select: { process: true } },
   partai: { select: { partai_no: true, line_id: true, routing_id: true, line: { select: { line_name: true } } } },
   job: { select: { job_no: true } },
 } as const;
@@ -711,6 +776,8 @@ const view = (b: BucketRow): BucketView => ({
   unitLabel: b.unit.unit_label,
   unitName: b.unit.unit_name,
   stage: b.stage,
+  stepId: b.unit_step_id,
+  stepProcess: b.step?.process ?? null,
   partaiId: b.partai_id,
   partaiNo: b.partai?.partai_no ?? null,
   partaiLineId: b.partai?.line_id ?? null,
@@ -765,7 +832,7 @@ export async function bucketsByIds(ids: number[], db: Db = prisma): Promise<Map<
 }
 
 /** The rate each bucket would be costed at today, by bucket id, without locking anything (a form's preview). */
-export async function ratesOfBuckets(rows: { id: number; lotId: number; partaiId: number | null; unitId: number }[], db: Db = prisma): Promise<Map<number, number>> {
+export async function ratesOfBuckets(rows: { id: number; lotId: number; partaiId: number | null; stepId: number | null }[], db: Db = prisma): Promise<Map<number, number>> {
   if (!rows.length) return new Map();
   const [partais, infos, active] = await Promise.all([
     db.prdPartai.findMany({ where: { id: { in: rows.flatMap((r) => (r.partaiId ? [r.partaiId] : [])) } }, select: { id: true, rate_version_id: true } }),
@@ -776,9 +843,9 @@ export async function ratesOfBuckets(rows: { id: number; lotId: number; partaiId
   const byLot = new Map(infos.map((i) => [i.tracking_id, i.rate_version_id]));
   const versionOf = (r: (typeof rows)[number]) => (r.partaiId ? byPartai.get(r.partaiId) : (byLot.get(r.lotId) ?? active?.id)) ?? null;
   const versions = [...new Set(rows.flatMap((r) => versionOf(r) ?? []))];
-  const lines = await db.prdRateVersionLine.findMany({ where: { version_id: { in: versions } }, select: { version_id: true, unit_id: true, rate: true } });
-  const rate = new Map(lines.map((l) => [`${l.version_id}:${l.unit_id}`, l.rate.toNumber()]));
-  return new Map(rows.map((r) => [r.id, rate.get(`${versionOf(r)}:${r.unitId}`) ?? 0]));
+  const lines = await db.prdRateVersionLine.findMany({ where: { version_id: { in: versions } }, select: { version_id: true, unit_step_id: true, rate: true } });
+  const rate = new Map(lines.map((l) => [`${l.version_id}:${l.unit_step_id}`, l.rate.toNumber()]));
+  return new Map(rows.map((r) => [r.id, rate.get(`${versionOf(r)}:${r.stepId}`) ?? 0]));
 }
 
 /** Σ value held in production now, per item — what the WIP accounts should hold. */
@@ -791,7 +858,7 @@ export async function wipByItem(db: Db = prisma): Promise<Map<number, number>> {
  * What each Unit holds per stage, for the Workspace's cards: rows and grams, never the rows
  * themselves. Bahan penolong is a balance of the Unit, not goods being worked, so it is left out (V8).
  */
-export type UnitStageTotal = { unitId: number; stage: Stage; lineId: number | null; rows: number; grams: number };
+export type UnitStageTotal = { unitId: number; stage: Stage; /** The process of the step goods wait at (Persiapan, Sedang Dikerjakan). */ stepProcess: UnitStep["process"] | null; lineId: number | null; rows: number; grams: number };
 
 /**
  * What every Unit holds per stage and per partai line (goods before a partai
@@ -801,14 +868,14 @@ export type UnitStageTotal = { unitId: number; stage: Stage; lineId: number | nu
 export async function unitStageTotals(db: Db = prisma): Promise<UnitStageTotal[]> {
   const rows = await db.prdBalance.findMany({
     where: { qty_balance: { gt: 0 }, auxiliary: false },
-    select: { unit_id: true, stage: true, qty_balance: true, partai: { select: { line_id: true } }, uom: { select: { uom_label: true } }, tracking: { select: { prd_info: { select: { grams: true } } } } },
+    select: { unit_id: true, stage: true, qty_balance: true, step: { select: { process: true } }, partai: { select: { line_id: true } }, uom: { select: { uom_label: true } }, tracking: { select: { prd_info: { select: { grams: true } } } } },
   });
   const out = new Map<string, UnitStageTotal>();
   for (const r of rows) {
     const lineId = r.partai?.line_id ?? null;
-    const key = `${r.unit_id}:${r.stage}:${lineId ?? ""}`;
+    const key = `${r.unit_id}:${r.stage}:${r.step?.process ?? ""}:${lineId ?? ""}`;
     const grams = r.uom.uom_label === GRAM_UOM ? r.qty_balance.toNumber() : r.tracking.prd_info?.grams ? r.qty_balance.mul(r.tracking.prd_info.grams).toNumber() : 0;
-    const t = out.get(key) ?? { unitId: r.unit_id, stage: r.stage, lineId, rows: 0, grams: 0 };
+    const t = out.get(key) ?? { unitId: r.unit_id, stage: r.stage, stepProcess: r.step?.process ?? null, lineId, rows: 0, grams: 0 };
     t.rows += 1;
     t.grams += grams;
     out.set(key, t);
@@ -833,7 +900,7 @@ export async function firstProductionUnit(db: Db = prisma): Promise<number | nul
 /** The Pass Through Units before the partai: they carry a result note to Penyebaran (W42). */
 export async function preparationNoteUnits(db: Db = prisma): Promise<Set<number>> {
   const steps = await db.prdRoutingStep.findMany({
-    where: { routing: { line_id: null, status: "Active" }, unit: { process: "PassThrough" } },
+    where: { routing: { line_id: null, status: "Active" }, unit: { steps: { some: { process: "Assign" } } } },
     select: { unit_id: true },
   });
   return new Set(steps.map((s) => s.unit_id));
@@ -855,6 +922,12 @@ export async function routingsInUse(): Promise<Set<number>> {
     prisma.prdTrackingInfo.findMany({ distinct: ["routing_id"], select: { routing_id: true } }),
   ]);
   return new Set([...partai, ...info].flatMap((r) => (r.routing_id == null ? [] : [r.routing_id])));
+}
+
+/** Whether goods have waited at this Unit step or it has been costed: what keeps its Unit from dropping it (T1). */
+export async function unitStepHasHistory(stepId: number): Promise<boolean> {
+  const [bal, cost] = await Promise.all([prisma.prdBalance.count({ where: { unit_step_id: stepId } }), prisma.prdCostEntry.count({ where: { unit_step_id: stepId } })]);
+  return bal + cost > 0;
 }
 
 /** Whether any stock of the item has ever been in production — what locks its BJL flag (W32). */

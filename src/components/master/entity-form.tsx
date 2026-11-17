@@ -45,7 +45,7 @@ import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
 import { recordTitle } from "@/lib/erp/record-title";
 import { AddressesTab, ContactsTab } from "@/components/master/partner-tabs";
 import { UomConversionsTab } from "@/components/master/item-tabs";
-import { RateLinesTab, RoutingStepsTab } from "@/components/master/production-master-tabs";
+import { RateLinesTab, RoutingStepsTab, UnitStepsTab } from "@/components/master/production-master-tabs";
 import type { CollectionTabProps } from "@/components/master/collection-tab";
 
 /**
@@ -58,6 +58,7 @@ const CUSTOM_TABS: Record<string, (props: CollectionTabProps<any>) => React.Reac
   "m_partner.addresses": AddressesTab,
   "m_partner.contacts": ContactsTab,
   "m_item.uoms": UomConversionsTab,
+  "ref_unit.unit_steps": UnitStepsTab,
   "prd_routing.steps": RoutingStepsTab,
   "prd_rate_version.rates": RateLinesTab,
 };

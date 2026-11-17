@@ -9,6 +9,7 @@ import { cashBankBalanceMap } from "./cash-bank";
 import { journalLineCountForAccount } from "./journal";
 import { type Entity, type Field, entityBySlug } from "./entities";
 import { routingFacts, unitCountsByWorkstation, unitRoutingOrder } from "./production-master";
+import { STEP_PROCESS_LABEL } from "./production-master-shape";
 
 /**
  * Generic record access for registry-driven entities.
@@ -140,11 +141,18 @@ export async function refOptions(
     result[field.name] = await optionsFor(field.ref, field.refFilter);
   }
   // The Units a routing step or a rate line picks from (P225).
-  if (entity.key === "prd_routing" || entity.key === "prd_rate_version") result._units = await optionsFor("ref_unit");
+  if (entity.key === "prd_routing") result._units = await optionsFor("ref_unit");
   if (entity.key === "prd_rate_version") {
+    // One option per costing step of an active Unit, in routing order: label the Unit, name its process (T3).
     const order = await unitRoutingOrder();
     const at = (id: number) => order.get(id) ?? Number.MAX_SAFE_INTEGER;
-    result._units.sort((a, b) => at(a.id) - at(b.id));
+    const steps = await prisma.refUnitStep.findMany({
+      where: { process: { in: ["Grading", "Assign", "Kerja", "Assembly"] }, unit: { status: "Active" } },
+      select: { id: true, process: true, unit_id: true, unit: { select: { unit_label: true, unit_name: true } } },
+    });
+    result._steps = steps
+      .sort((a, b) => at(a.unit_id) - at(b.unit_id) || a.id - b.id)
+      .map((s) => ({ id: s.id, label: s.unit.unit_label, name: `${s.unit.unit_name} · ${STEP_PROCESS_LABEL[s.process]}`, active: true }));
   }
   return result;
 }
@@ -490,7 +498,8 @@ export async function computedValues(
   }
 
   if (entity.key === "ref_unit") {
-    for (const r of rows) out[r.id] = { qc_check: r.has_qc ? "Ya" : "—" };
+    const steps = await prisma.refUnitStep.findMany({ where: { unit_id: { in: rows.map((r) => r.id) } }, orderBy: [{ unit_id: "asc" }, { seq: "asc" }], select: { unit_id: true, process: true } });
+    for (const r of rows) out[r.id] = { step_list: steps.filter((s) => s.unit_id === r.id).map((s) => STEP_PROCESS_LABEL[s.process] ?? s.process).join(" › ") || "—" };
   }
 
   if (entity.key === "ref_workstation") {

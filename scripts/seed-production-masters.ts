@@ -10,9 +10,9 @@
  * Run it after `db:seed`, and again after nothing: it changes only what differs.
  */
 import { prisma } from "../src/lib/prisma";
-import type { PrdProcessKind } from "../src/generated/prisma/client";
 import { routingInUse } from "../src/lib/erp/production-ledger";
-import { exitRoutes, stepRuleErrors, type RouteUnit } from "../src/lib/erp/production-master-shape";
+import { checkUnitCollections, writeUnitCollections } from "../src/lib/erp/production-master";
+import { UNIT_STEPS_KEY, exitRoutes, stepRuleErrors, type RouteUnit } from "../src/lib/erp/production-master-shape";
 
 const WORKSTATIONS = [
   ["BB + PPIC", "Bahan Baku & PPIC"],
@@ -21,23 +21,26 @@ const WORKSTATIONS = [
   ["WP", "WIP Packing"],
 ] as const;
 
-// The table of §5, column for column, Packing 98 waiting for its plan (W81).
-const UNITS: [label: string, name: string, workstation: string, process: PrdProcessKind, qc: boolean, releasesJob: boolean, jobOrder: boolean][] = [
-  ["UGH", "Grading Halus", "BB + PPIC", "Grading", true, true, false], // releases the Job born at the BSTB Issue (W98)
-  ["UPC", "Pre Cleaning", "BB + PPIC", "PassThrough", true, false, false],
-  ["UPY", "Penyebaran", "BB + PPIC", "Grading", false, true, false],
-  ["UPW", "Pre Wash", "CL", "PassThrough", true, false, false],
-  ["UCL", "Cleaning", "CL", "PassThrough", true, false, false],
-  ["UC1", "CCP-1", "CL", "PassThrough", false, false, false],
-  ["USR", "Sortir", "CL", "PassThrough", false, false, false],
-  ["UDA", "Dry A", "ML", "Grading", true, false, false],
-  ["UMG", "Moulding (grading)", "ML", "Grading", true, true, true],
-  ["UMP", "Moulding (process)", "ML", "PassThrough", false, false, false],
-  ["UDB", "Dry B", "ML", "Grading", true, true, false],
-  ["UWP", "Wrapping", "WP", "PassThrough", true, false, false],
-  ["UBC", "Barcoding", "WP", "Grading", true, false, false],
-  ["UP5", "Packing 95", "WP", "Assembly", false, false, false],
+// The units of the Workspace simulation (P274): each an ordered list of steps, a
+// grading always releasing the No. Job. Packing 98 waits for its plan (W81).
+const UNITS: [label: string, name: string, workstation: string, steps: string][] = [
+  ["UGH", "Grading Halus", "BB + PPIC", "Grading>QC"],
+  ["UPC", "Pre Cleaning", "BB + PPIC", "Assign>QC"],
+  ["UPY", "Penyebaran", "BB + PPIC", "Grading"],
+  ["UPW", "Pre Wash", "CL", "Assign>QC"],
+  // shortcut: Cleaning is Kerja › QC and Moulding Grading › Job Order › Assign › QC in the simulation; Kerja (6.5) and Job Order (6.6) are not built, so goods would stop there. Seeded without them until they are.
+  ["UCL", "Cleaning", "CL", "Assign>QC"],
+  ["UC1", "CCP-1", "CL", "Assign"],
+  ["USR", "Sortir", "CL", "Assign"],
+  ["UDA", "Dry A", "ML", "Grading>QC"],
+  ["UML", "Moulding", "ML", "Grading>Assign>QC"],
+  ["UDB", "Dry B", "ML", "Grading>QC"],
+  ["UWP", "Wrapping", "WP", "Assign>QC"],
+  ["UBC", "Barcoding", "WP", "Grading>QC"],
+  ["UP5", "Packing 95", "WP", "Assembly"],
 ];
+// Moulding was two units, UMG and UMP, until the simulation merged them into UML (T1).
+const RETIRED = ["UMP"];
 
 type Step = [unit: string, flags?: { checkpoint?: boolean; skippable?: boolean }];
 
@@ -52,7 +55,7 @@ const ROUTINGS: { label: string; name: string; line: string | null; steps: Step[
     label: "REG-1",
     name: "Reguler, Pre Wash sampai Packing 95",
     line: "REG",
-    steps: [["UPW"], ["UCL"], ["UC1"], ["USR"], ["UDA"], ["UMG"], ["UMP"], ["UDB"], ["UWP"], ["UBC", { checkpoint: true }], ["UP5"]],
+    steps: [["UPW"], ["UCL"], ["UC1"], ["USR"], ["UDA", { checkpoint: true }], ["UML"], ["UDB"], ["UWP"], ["UBC", { checkpoint: true }], ["UP5"]],
   },
 ];
 
@@ -84,18 +87,28 @@ async function main() {
 
   const unitId = new Map<string, number>();
   const units = new Map<number, RouteUnit>();
-  for (const [label, name, workstation, process, has_qc, releases_job, issues_job_order] of UNITS) {
-    const legacy = label === "UMG" ? [{ unit_label: "UML" }] : [];
+  for (const [label, name, workstation, stepList] of UNITS) {
+    const legacy = label === "UML" ? [{ unit_label: "UMG" }, { unit_name: "Moulding (grading)" }] : [];
     const known = await prisma.refUnit.findFirst({ where: { OR: [{ unit_label: label }, { unit_name: name }, ...legacy] } });
-    const data = { unit_label: label, unit_name: name, workstation_id: wsId.get(workstation)!, process, has_qc, releases_job, issues_job_order };
+    const data = { unit_label: label, unit_name: name, workstation_id: wsId.get(workstation)!, allow_reproses: stepList.includes("QC") };
     const row = known
       ? await prisma.refUnit.update({ where: { id: known.id }, data: { ...data, updated_by: actor } })
       : await prisma.refUnit.create({
           data: { ...data, unit_code: await nextCode("unit", (await prisma.refUnit.findMany({ select: { unit_code: true } })).map((u) => u.unit_code)), created_by: actor },
         });
     unitId.set(label, row.id);
-    units.set(row.id, row);
+    // The same check and writer as the form: a process goods have passed is never taken away.
+    const wanted = stepList.split(">");
+    const stored = (await prisma.refUnitStep.findMany({ where: { unit_id: row.id }, orderBy: { seq: "asc" } })).map((s) => s.process as string);
+    if (stored.join(">") !== wanted.join(">")) {
+      const checked = await checkUnitCollections({ [UNIT_STEPS_KEY]: JSON.stringify(wanted.map((process, i) => ({ key: `s${i}`, process }))) }, row.id);
+      if (Object.keys(checked.errors).length) console.log(`  ${label}: proses dibiarkan (${Object.values(checked.errors)[0]})`);
+      else await prisma.$transaction((tx) => writeUnitCollections(tx, row.id, checked.clean));
+    }
+    const now = await prisma.refUnitStep.findMany({ where: { unit_id: row.id }, select: { process: true } });
+    units.set(row.id, { id: row.id, workstation_id: row.workstation_id, processes: now.map((s) => s.process) });
   }
+  for (const label of RETIRED) await prisma.refUnit.updateMany({ where: { unit_label: label, status: "Active" }, data: { status: "Inactive", updated_by: actor } });
 
   // The account is the starter chart's, when it has been seeded; the Line form sets it otherwise.
   const variance = await prisma.accAccount.findFirst({ where: { account_name: "Varians Produksi" }, select: { id: true } });

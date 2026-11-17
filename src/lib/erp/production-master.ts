@@ -3,16 +3,22 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { parseList } from "./partner-shape";
-import { routingInUse, routingsInUse } from "./production-ledger";
+import { routingInUse, routingsInUse, unitStepHasHistory } from "./production-ledger";
 import {
+  COSTING_PROCESSES,
   RATES_KEY,
   STEPS_KEY,
+  STEP_PROCESSES,
+  UNIT_STEPS_KEY,
   rateErrors,
   stepErrors,
   stepRuleErrors,
+  unitStepRuleErrors,
   type RateDraft,
   type RouteUnit,
   type StepDraft,
+  type StepProcess,
+  type UnitStepDraft,
 } from "./production-master-shape";
 
 /**
@@ -41,7 +47,7 @@ export async function routingCollections(routingId: number): Promise<{ steps: St
 
 export async function rateCollections(versionId: number): Promise<{ rates: RateDraft[] }> {
   const rows = await prisma.prdRateVersionLine.findMany({ where: { version_id: versionId }, orderBy: { id: "asc" } });
-  return { rates: rows.map((r) => ({ id: r.id, key: `r${r.id}`, unit_id: r.unit_id, rate: r.rate.toString() })) };
+  return { rates: rows.map((r) => ({ id: r.id, key: `r${r.id}`, unit_step_id: r.unit_step_id, rate: r.rate.toString() })) };
 }
 
 // --------------------------------------------------------------- validation
@@ -51,9 +57,9 @@ type UnitInfo = RouteUnit & { unit_label: string; status: string };
 async function unitsById(ids: number[]): Promise<Map<number, UnitInfo>> {
   const rows = await prisma.refUnit.findMany({
     where: { id: { in: ids } },
-    select: { id: true, unit_label: true, status: true, process: true, workstation_id: true },
+    select: { id: true, unit_label: true, status: true, workstation_id: true, steps: { select: { process: true } } },
   });
-  return new Map(rows.map((r) => [r.id, r]));
+  return new Map(rows.map((r) => [r.id, { id: r.id, unit_label: r.unit_label, status: r.status, workstation_id: r.workstation_id, processes: r.steps.map((s) => s.process) }]));
 }
 
 export type RoutingCollections = { steps: (Omit<StepDraft, "key" | "id" | "unit_id"> & { unit_id: number })[] };
@@ -80,9 +86,9 @@ export async function segmentEnd(): Promise<RouteUnit | null> {
   const step = await prisma.prdRoutingStep.findFirst({
     where: { routing: { line_id: null } },
     orderBy: { seq: "desc" },
-    select: { unit: { select: { id: true, process: true, workstation_id: true } } },
+    select: { unit: { select: { id: true, workstation_id: true, steps: { select: { process: true } } } } },
   });
-  return step?.unit ?? null;
+  return step ? { id: step.unit.id, workstation_id: step.unit.workstation_id, processes: step.unit.steps.map((s) => s.process) } : null;
 }
 
 /** A routing goods follow keeps its steps: a different order is a new routing (P227). */
@@ -140,7 +146,7 @@ export async function checkRoutingCollections(
   return { errors, clean };
 }
 
-export type RateCollections = { rates: { unit_id: number; rate: string }[] };
+export type RateCollections = { rates: { unit_step_id: number; rate: string }[] };
 
 export async function checkRateCollections(
   values: Record<string, unknown>
@@ -149,28 +155,86 @@ export async function checkRateCollections(
   const list = parseList<Partial<RateDraft>>(values[RATES_KEY]);
   if (list === null) return { errors: { [RATES_KEY]: "Data rate tidak terbaca." }, clean };
 
-  const units = await unitsById(list.map((r) => Number(r.unit_id)).filter(Boolean));
+  const stepRows = await prisma.refUnitStep.findMany({
+    where: { id: { in: list.map((r) => Number(r.unit_step_id)).filter(Boolean) } },
+    select: { id: true, process: true, unit: { select: { unit_label: true, status: true } } },
+  });
+  const steps = new Map(stepRows.map((s) => [s.id, s]));
   const problems: string[] = [];
   const taken: number[] = [];
   for (const [i, r] of list.entries()) {
-    const found = rateErrors({ ...r, unit_id: Number(r.unit_id) || null }, taken);
+    const found = rateErrors({ ...r, unit_step_id: Number(r.unit_step_id) || null }, taken);
     if (Object.keys(found).length) {
       problems.push(`Rate ${i + 1}: ${Object.values(found)[0]}`);
       continue;
     }
-    const unit = units.get(Number(r.unit_id));
-    if (!unit) {
-      problems.push(`Rate ${i + 1}: unit tidak ditemukan.`);
+    const step = steps.get(Number(r.unit_step_id));
+    if (!step) {
+      problems.push(`Rate ${i + 1}: proses unit tidak ditemukan.`);
       continue;
     }
-    if (unit.status !== "Active") {
-      problems.push(`Rate ${i + 1}: unit ${unit.unit_label} nonaktif.`);
+    if (step.unit.status !== "Active") {
+      problems.push(`Rate ${i + 1}: unit ${step.unit.unit_label} nonaktif.`);
       continue;
     }
-    taken.push(unit.id);
-    clean.rates.push({ unit_id: unit.id, rate: String(r.rate).trim() });
+    if (!COSTING_PROCESSES.includes(step.process)) {
+      problems.push(`Rate ${i + 1}: ${step.process} tidak membebankan biaya.`);
+      continue;
+    }
+    taken.push(step.id);
+    clean.rates.push({ unit_step_id: step.id, rate: String(r.rate).trim() });
   }
   return { errors: problems.length ? { [RATES_KEY]: problems.join(" ") } : {}, clean };
+}
+
+// ------------------------------------------------------------ unit steps
+
+export async function unitCollections(unitId: number): Promise<{ unit_steps: UnitStepDraft[] }> {
+  const rows = await prisma.refUnitStep.findMany({ where: { unit_id: unitId }, orderBy: { seq: "asc" } });
+  return { unit_steps: rows.map((r) => ({ id: r.id, key: `u${r.id}`, process: r.process })) };
+}
+
+export type UnitCollections = { steps: { process: StepProcess }[] };
+
+/** A step goods have waited at, been costed at or been rated for cannot be taken away. */
+async function stepInUse(stepId: number): Promise<boolean> {
+  return (await unitStepHasHistory(stepId)) || (await prisma.prdRateVersionLine.count({ where: { unit_step_id: stepId } })) > 0;
+}
+
+export async function checkUnitCollections(
+  values: Record<string, unknown>,
+  unitId: number | null
+): Promise<{ errors: Record<string, string>; clean: UnitCollections }> {
+  const clean: UnitCollections = { steps: [] };
+  const list = parseList<Partial<UnitStepDraft>>(values[UNIT_STEPS_KEY]);
+  if (list === null) return { errors: { [UNIT_STEPS_KEY]: "Data proses tidak terbaca." }, clean };
+  const valid = list.map((s) => ({ process: (STEP_PROCESSES as readonly string[]).includes(String(s.process)) ? (s.process as StepProcess) : null }));
+  const problems = unitStepRuleErrors(valid);
+  if (!problems.length && unitId) {
+    // A process goods have passed, or a Standard Cost rates, stays: buckets and rates name its step.
+    const stored = await prisma.refUnitStep.findMany({ where: { unit_id: unitId }, orderBy: { seq: "asc" } });
+    const next = valid.map((s) => s.process);
+    for (const row of stored) {
+      if (!next.includes(row.process) && (await stepInUse(row.id))) problems.push(`Proses ${row.process} sudah dipakai barang atau Standard Cost: tidak dapat dihapus.`);
+    }
+  }
+  if (!problems.length) clean.steps = valid.map((s) => ({ process: s.process! }));
+  return { errors: problems.length ? { [UNIT_STEPS_KEY]: problems.join(" ") } : {}, clean };
+}
+
+/** Keeps the id of a process that stays (buckets and rates name it), moves the order, adds and removes the rest. */
+export async function writeUnitCollections(tx: Prisma.TransactionClient, unitId: number, clean: UnitCollections): Promise<void> {
+  const stored = await tx.refUnitStep.findMany({ where: { unit_id: unitId } });
+  const keep = new Set(clean.steps.map((s) => s.process));
+  const gone = stored.filter((r) => !keep.has(r.process)).map((r) => r.id);
+  if (gone.length) await tx.refUnitStep.deleteMany({ where: { id: { in: gone } } });
+  // Park the survivors out of the way so a reorder never meets its own unique (unit_id, seq).
+  for (const r of stored.filter((x) => keep.has(x.process))) await tx.refUnitStep.update({ where: { id: r.id }, data: { seq: -r.id } });
+  for (const [i, s] of clean.steps.entries()) {
+    const row = stored.find((r) => r.process === s.process);
+    if (row) await tx.refUnitStep.update({ where: { id: row.id }, data: { seq: i + 1 } });
+    else await tx.refUnitStep.create({ data: { unit_id: unitId, seq: i + 1, process: s.process } });
+  }
 }
 
 // --------------------------------------------------------------- page facts

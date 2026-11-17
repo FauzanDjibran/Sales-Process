@@ -1,7 +1,7 @@
 import "server-only";
 
 import { prisma } from "@/lib/prisma";
-import { availableBuckets, unitStageTotals, type UnitStageTotal } from "./production-ledger";
+import { availableBuckets, unitStageTotals, type UnitStageTotal, type UnitStep } from "./production-ledger";
 import { routeMap, type RouteMap } from "./production-master";
 import { gradingDraftBucketIds } from "./production-grading";
 import { resultNotesOfJobs, workDraftBucketIds } from "./production-work";
@@ -12,24 +12,25 @@ import { qcDraftBucketIds } from "./production-qc";
  * work. It reads only; the documents it opens are made in their own menus.
  */
 
+/** The ordered steps of a Unit (T1): the tabs of its page. */
+export type WorkspaceStep = { id: number; process: UnitStep["process"] };
+
 export type WorkspaceUnit = {
   id: number;
   label: string;
   name: string;
   workstation: string | null;
-  process: "PassThrough" | "Grading" | "Assembly";
-  hasQc: boolean;
-  releasesJob: boolean;
+  steps: WorkspaceStep[];
+  allowReproses: boolean;
 };
 
 type UnitRow = {
   id: number;
   unit_label: string;
   unit_name: string;
-  process: WorkspaceUnit["process"];
-  has_qc: boolean;
-  releases_job: boolean;
+  allow_reproses: boolean;
   workstation: { workstation_name: string } | null;
+  steps: { id: number; seq: number; process: UnitStep["process"] }[];
 };
 
 const toUnit = (u: UnitRow): WorkspaceUnit => ({
@@ -37,9 +38,8 @@ const toUnit = (u: UnitRow): WorkspaceUnit => ({
   label: u.unit_label,
   name: u.unit_name,
   workstation: u.workstation?.workstation_name ?? null,
-  process: u.process,
-  hasQc: u.has_qc,
-  releasesJob: u.releases_job,
+  steps: u.steps.slice().sort((a, b) => a.seq - b.seq).map((s) => ({ id: s.id, process: s.process })),
+  allowReproses: u.allow_reproses,
 });
 
 /** Where a Unit sits on the routings: the lines it serves, or the segment before the partai. */
@@ -63,7 +63,7 @@ export type WorkspaceCards = { units: CardUnit[]; lines: RouteMap["lines"]; tota
 /** Active Units, where each sits, and what each holds per stage and line. `only`: the actor's Units, or null for all (P260). */
 export async function unitCards(only: number[] | null = null): Promise<WorkspaceCards> {
   const [units, totals, map] = await Promise.all([
-    prisma.refUnit.findMany({ where: { status: "Active", ...(only ? { id: { in: only } } : {}) }, orderBy: { unit_code: "asc" }, include: { workstation: true } }),
+    prisma.refUnit.findMany({ where: { status: "Active", ...(only ? { id: { in: only } } : {}) }, orderBy: { unit_code: "asc" }, include: { workstation: true, steps: true } }),
     unitStageTotals(),
     routeMap(),
   ]);
@@ -79,7 +79,7 @@ export async function unitCards(only: number[] | null = null): Promise<Workspace
 }
 
 export async function unitByLabel(label: string): Promise<(WorkspaceUnit & ReturnType<typeof placesOf> & { lines: RouteMap["lines"] }) | null> {
-  const u = await prisma.refUnit.findFirst({ where: { unit_label: label }, include: { workstation: true } });
+  const u = await prisma.refUnit.findFirst({ where: { unit_label: label }, include: { workstation: true, steps: true } });
   if (!u) return null;
   const map = await routeMap();
   const places = placesOf(map, u.id);
@@ -110,7 +110,9 @@ export type BoardRow = {
   lotNo: string;
   itemLabel: string;
   itemName: string;
-  stage: "Preparation" | "QcCheck" | "StandBy";
+  stage: "Preparation" | "Working" | "StandBy" | "InTransit";
+  /** The step goods wait at, for the Persiapan and Sedang Dikerjakan tabs. */
+  stepId: number | null;
   partaiId: number | null;
   partaiNo: string | null;
   lineId: number | null;
@@ -156,6 +158,7 @@ export async function unitBoard(unitId: number): Promise<BoardRow[]> {
       itemLabel: b.itemLabel,
       itemName: b.itemName,
       stage: b.stage,
+      stepId: b.stepId,
       partaiId: b.partaiId,
       partaiNo: b.partaiNo,
       lineId: b.partaiLineId,

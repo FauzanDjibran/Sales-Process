@@ -13,7 +13,7 @@ import type { CardUnit, WorkspaceCards } from "@/lib/erp/production-workspace";
  * the Units of that line's routing and the segment's, and counts only that
  * line's goods; goods before a partai belong to every line.
  */
-export const PROCESS_TEXT = { PassThrough: "Pass Through", Grading: "Grading", Assembly: "Assembly" } as const;
+export const PROCESS_TEXT = { Grading: "Grading", JobOrder: "Job Order", Assign: "Assign", Kerja: "Kerja", QC: "QC", Assembly: "Assembly" } as const;
 const gram = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 
 export function UnitCards({ data, incoming, own }: { data: WorkspaceCards; incoming: Record<number, { docs: number; grams: number }>; own: boolean }) {
@@ -27,9 +27,10 @@ export function UnitCards({ data, incoming, own }: { data: WorkspaceCards; incom
   const post = shown.filter((u) => !u.pre);
   const groups = [...new Set(post.map((u) => u.workstation ?? "Tanpa Workstation"))];
 
-  const held = (u: CardUnit, stage: string) =>
+  /** `qc`: Persiapan at the QC step; Persiapan counts every other step. */
+  const held = (u: CardUnit, stage: string, qc?: boolean) =>
     data.totals
-      .filter((t) => t.unitId === u.id && t.stage === stage && (line === null || t.lineId === null || t.lineId === line))
+      .filter((t) => t.unitId === u.id && t.stage === stage && (qc === undefined || (t.stepProcess === "QC") === qc) && (line === null || t.lineId === null || t.lineId === line))
       .reduce((a, t) => ({ rows: a.rows + t.rows, grams: a.grams + t.grams }), { rows: 0, grams: 0 });
 
   const num = (label: string, rows: number, grams: number, hot = false) => (
@@ -42,8 +43,9 @@ export function UnitCards({ data, incoming, own }: { data: WorkspaceCards; incom
 
   const card = (u: CardUnit) => {
     const masuk = incoming[u.id] ?? { docs: 0, grams: 0 };
-    const p = held(u, "Preparation");
-    const qc = held(u, "QcCheck");
+    const hasQc = u.steps.some((s) => s.process === "QC");
+    const p = held(u, "Preparation", false);
+    const qc = held(u, "Preparation", true);
     const sb = held(u, "StandBy");
     return (
       <Link key={u.id} className="uw-card" href={`/production/workspace/${encodeURIComponent(u.label)}`}>
@@ -52,7 +54,7 @@ export function UnitCards({ data, incoming, own }: { data: WorkspaceCards; incom
           <b>{u.name}</b>
         </span>
         <span className="uw-tags">
-          <span className="bdg t-info">{PROCESS_TEXT[u.process]}</span>
+          <span className="bdg t-info">{u.steps.map((s) => PROCESS_TEXT[s.process]).join(" › ")}</span>
           {u.pre ? (
             <span className="bdg t-slate">Sebelum Partai</span>
           ) : (
@@ -62,12 +64,11 @@ export function UnitCards({ data, incoming, own }: { data: WorkspaceCards; incom
               </span>
             ))
           )}
-          {u.hasQc && <span className="bdg t-ok">QC</span>}
         </span>
         <span className="uw-nums">
           {num("Masuk", masuk.docs, masuk.grams, true)}
           {num("Persiapan", p.rows, p.grams)}
-          {u.hasQc ? (
+          {hasQc ? (
             num("QC", qc.rows, qc.grams, true)
           ) : (
             <div>

@@ -885,9 +885,14 @@ model RefWorkstation {
 
 /// The kinds of work an engine in code knows (W33). A Unit is allowed some of
 /// them; a new kind is new code, a new Unit is not.
-enum PrdProcessKind {
-  PassThrough
+/// What a step of a Unit does (P274, T1). Grading and Assign cost gram × rate; QC and
+/// Job Order carry no rate; Kerja is Mulai then Selesai; Assembly stands alone.
+enum PrdStepProcess {
   Grading
+  JobOrder
+  Assign
+  Kerja
+  QC
   Assembly
 }
 
@@ -900,14 +905,8 @@ model RefUnit {
   unit_label       String
   unit_name        String
   workstation_id   Int?
-  /// One Unit does one kind of work (W73).
-  process          PrdProcessKind @default(PassThrough)
-  /// Goods pass a QC Check here before Stand By (W65).
-  has_qc           Boolean        @default(false)
-  /// Grading here releases the No. Job (W92); a move carries a No. Job or makes one.
-  releases_job     Boolean        @default(false)
-  /// Each No. Job leaving here gets its own Job Order (W69).
-  issues_job_order Boolean        @default(false)
+  /// May send goods back to an earlier Unit of the partai's routing (T10).
+  allow_reproses   Boolean        @default(false)
   note             String?
   status           ActiveStatus   @default(Active)
 
@@ -925,12 +924,32 @@ model RefUnit {
   prd_ledger    PrdLedger[]          @relation("PrdLedgerUnit")
   routing_steps PrdRoutingStep[]
   user_units    PrdUserUnit[]
-  rate_lines    PrdRateVersionLine[]
+  steps         RefUnitStep[]
   jobs          PrdJob[]
   cost_entries  PrdCostEntry[]
 
   @@index([workstation_id])
   @@map("ref_unit")
+}
+
+/// A step of a Unit (P274, T1): the ordered work done there. Goods received enter
+/// step 1; a posted step document moves them to the next step's Persiapan without a
+/// Push; after the last step they wait in Stand By. A process appears once per Unit
+/// and QC is last (rules in code).
+model RefUnitStep {
+  id      Int            @id @default(autoincrement())
+  unit_id Int
+  seq     Int
+  process PrdStepProcess
+
+  unit         RefUnit              @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+  rate_lines   PrdRateVersionLine[]
+  cost_entries PrdCostEntry[]
+  balances     PrdBalance[]         @relation("PrdBalanceStep")
+
+  @@unique([unit_id, seq])
+  @@unique([unit_id, process])
+  @@map("ref_unit_step")
 }
 
 /// A production line (P225). The routing hangs on it; the variance of the
@@ -1032,14 +1051,15 @@ model PrdRateVersion {
 model PrdRateVersionLine {
   id         Int     @id @default(autoincrement())
   version_id Int
-  unit_id    Int
+  /// A rate per gram per Unit step (T3); QC and Job Order carry none.
+  unit_step_id Int
   rate       Decimal @db.Decimal(18, 6)
 
   version PrdRateVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
-  unit    RefUnit        @relation(fields: [unit_id], references: [id])
+  step    RefUnitStep    @relation(fields: [unit_step_id], references: [id])
 
-  @@unique([version_id, unit_id])
-  @@index([unit_id])
+  @@unique([version_id, unit_step_id])
+  @@index([unit_step_id])
   @@map("prd_rate_version_line")
 }
 
@@ -1142,6 +1162,8 @@ model PrdCostEntry {
   source_doc_id      Int
   source_no          String
   unit_id            Int
+  /// The step that earned it (T3); empty on entries written before P274.
+  unit_step_id       Int?
   rate_version_id    Int
   tracking_id        Int
   partai_id          Int?
@@ -1156,6 +1178,7 @@ model PrdCostEntry {
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
   unit         RefUnit          @relation(fields: [unit_id], references: [id])
+  step         RefUnitStep?     @relation(fields: [unit_step_id], references: [id])
   rate_version PrdRateVersion   @relation(fields: [rate_version_id], references: [id])
   tracking     LogStockTracking @relation(fields: [tracking_id], references: [id])
   partai       PrdPartai?       @relation(fields: [partai_id], references: [id])
@@ -4280,10 +4303,14 @@ enum ProductionCostBillStatus {
 /// Each Unit holds goods in Persiapan (received, not worked), then QC Check where
 /// the Unit has one (W65), then Stand By (waiting to be sent). Only an execution
 /// takes goods out of Persiapan (W29).
+/// Where goods are in a Unit (P274, T4): Persiapan of one step, Sedang Dikerjakan (Kerja),
+/// Stand By after the last step, or Dalam Perjalanan on a submitted BSTB (a status, still
+/// held by the sending Unit).
 enum PrdStage {
   Preparation
-  QcCheck
+  Working
   StandBy
+  InTransit
 }
 
 /// A production bucket (P227): one No. Stok · Unit · stage · Partai · Job, the last two optional, quantity in the
@@ -4294,6 +4321,8 @@ model PrdBalance {
   tracking_id   Int
   unit_id       Int
   stage         PrdStage  @default(Preparation)
+  /// The step goods wait at: set exactly when stage is Preparation or Working.
+  unit_step_id  Int?
   partai_id     Int?
   job_id        Int?
   item_id       Int
@@ -4305,6 +4334,9 @@ model PrdBalance {
   auxiliary     Boolean   @default(false)
   /// The QC Check that turned these goods back: their own row in Persiapan (W66).
   qc_check_id   Int?
+  /// The document an InTransit row travels on, weak (T4).
+  transit_doc_type_id Int?
+  transit_doc_id      Int?
   /// When the bucket last rose from empty: the Workspace's *Sejak* (W111, P262).
   entered_at    DateTime? @db.Date
 
@@ -4315,6 +4347,7 @@ model PrdBalance {
 
   tracking   LogStockTracking  @relation(fields: [tracking_id], references: [id])
   unit       RefUnit           @relation("PrdBalanceUnit", fields: [unit_id], references: [id])
+  step       RefUnitStep?      @relation("PrdBalanceStep", fields: [unit_step_id], references: [id])
   item       MItem             @relation("PrdBalanceItem", fields: [item_id], references: [id])
   uom        RefUom            @relation("PrdBalanceUom", fields: [uom_id], references: [id])
   partai     PrdPartai?        @relation(fields: [partai_id], references: [id])
@@ -4323,8 +4356,8 @@ model PrdBalance {
   links_from PrdTrackingLink[]
 
   /// NULLS NOT DISTINCT, hand-written in the migration.
-  @@unique([tracking_id, unit_id, stage, partai_id, job_id, qc_check_id])
-  /// Also `prd_balance_held_idx` (unit_id, stage, job_id) WHERE qty_balance > 0,
+  @@unique([tracking_id, unit_id, stage, unit_step_id, partai_id, job_id, qc_check_id])
+  /// Also `prd_balance_held_idx` (unit_id, stage, unit_step_id, job_id) WHERE qty_balance > 0,
   /// hand-written in the migration: the Workspace reads only buckets holding goods (W111).
   @@index([unit_id])
   @@index([item_id])
@@ -4348,6 +4381,7 @@ model PrdLedger {
   tracking_id        Int
   unit_id            Int
   stage              PrdStage
+  unit_step_id       Int?
   partai_id          Int?
   job_id             Int?
   item_id            Int

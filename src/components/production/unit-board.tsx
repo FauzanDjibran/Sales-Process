@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
-import { Amount } from "@/components/ui/amount";
 import { Dialog } from "@/components/ui/dialog";
 import { Pager, usePaging } from "@/components/ui/pager";
 import { SearchField } from "@/components/ui/search-field";
@@ -18,44 +17,43 @@ import type { StockIssueAbilities } from "@/lib/erp/stock-issue-workflow";
 import { formatDate, formatNumber } from "@/lib/format";
 
 /**
- * One Unit's work (`Workspace-Unit-Diff.md` A2, P263). Five tabs by where the
- * goods are; goods with a No. Job are one row per Job and always move whole,
- * goods without one are a row per No. Stok (W111). The actions sit in the page
- * header and follow the tab and the rows chosen. A No. Job or No. Stok typed in
- * the search and confirmed with Enter opens its work, so a scanner works too (D1).
+ * One Unit's work (`Workspace-Unit-Plan-r11.md`, P274). Tabs follow the Unit
+ * steps — Penerimaan, a Persiapan per step, Stand By, Dalam Perjalanan — and
+ * each tab is one table: a row is a Job, or a No. Stok that has none. There are
+ * no tick boxes: a row opens its own work (grading, Pengerjaan, QC Check, or a
+ * Push / BSTB from Stand By), and a No. Job or No. Stok typed in the search and
+ * confirmed with Enter does the same, so a scanner works. No prices anywhere
+ * (P275).
  */
 
 export type BoardIncoming = { id: number; issueNo: string; issueDate: string; warehouseLabel: string; auxiliary: boolean; lines: { lotNo: string; qty: number; uomLabel: string }[] };
 export type BoardUnit = {
   label: string;
   name: string;
-  process: "PassThrough" | "Grading" | "Assembly";
-  hasQc: boolean;
   workstation: string | null;
   pre: boolean;
   checkpoint: boolean;
-  releasesJob: boolean;
   /** After the checkpoint a Job may hold several partai (W103). */
   afterCheckpoint: boolean;
   lines: { id: number; name: string }[];
+  steps: { id: number; process: BoardProcess }[];
 };
+type BoardProcess = keyof typeof PROCESS_TEXT;
 
-type Tab = "masuk" | "persiapan" | "qc" | "standby" | "transit";
+/** `masuk`, `p<step>` (Persiapan), `w<step>` (Sedang Dikerjakan), `standby`, `transit`. */
+export type BoardTab = string;
 /** `grams` is null when none of its goods has a gram to read. */
-type Group = { key: string; job: { id: number; no: string } | null; rows: BoardRow[]; grams: number | null; value: number };
+type Group = { key: string; job: { id: number; no: string } | null; rows: BoardRow[]; grams: number | null };
 
-const STAGE: Record<"persiapan" | "qc" | "standby", BoardRow["stage"]> = { persiapan: "Preparation", qc: "QcCheck", standby: "StandBy" };
-const TAB_OF: Record<BoardRow["stage"], Tab> = { Preparation: "persiapan", QcCheck: "qc", StandBy: "standby" };
 const gram = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 
 function groupsOf(rows: BoardRow[]): Group[] {
   const out = new Map<string, Group>();
   for (const r of rows) {
     const key = r.jobId ? `j${r.jobId}` : `b${r.id}`;
-    const g: Group = out.get(key) ?? { key, job: r.jobId ? { id: r.jobId, no: r.jobNo ?? "" } : null, rows: [], grams: null, value: 0 };
+    const g: Group = out.get(key) ?? { key, job: r.jobId ? { id: r.jobId, no: r.jobNo ?? "" } : null, rows: [], grams: null };
     g.rows.push(r);
     if (r.grams != null) g.grams = (g.grams ?? 0) + r.grams;
-    g.value += r.value;
     out.set(key, g);
   }
   return [...out.values()];
@@ -100,6 +98,15 @@ function Next({ row }: { row: BoardRow }) {
   );
 }
 
+const EMPTY: Record<string, [string, string]> = {
+  Grading: ["Tidak ada barang untuk digrading", "Barang yang diterima unit ini muncul di sini. Klik barisnya untuk menggrading."],
+  JobOrder: ["Tidak ada barang untuk Job Order", "Hasil grading muncul di sini."],
+  Assign: ["Tidak ada barang untuk dikerjakan", "Barang yang diterima unit ini muncul di sini. Klik barisnya untuk mencatat pengerjaan."],
+  Kerja: ["Tidak ada barang untuk dikerjakan", "Barang yang diterima unit ini muncul di sini."],
+  QC: ["Tidak ada barang menunggu QC", "Hasil pekerjaan unit ini masuk ke sini. Klik barisnya untuk memeriksa."],
+  Assembly: ["Tidak ada barang untuk dirakit", "Assembly dibangun bersama Packing."],
+};
+
 export function UnitBoard({
   unit,
   rows,
@@ -111,62 +118,65 @@ export function UnitBoard({
   unit: BoardUnit;
   rows: BoardRow[];
   incoming: BoardIncoming[];
-  can: { grading: boolean; work: boolean; qc: boolean };
+  can: { grading: boolean; work: boolean; qc: boolean; transfer: boolean };
   issueCan: StockIssueAbilities;
-  initialTab: Tab;
+  initialTab: BoardTab;
 }) {
   const router = useRouter();
   const toast = useToast();
-  const [tab, setTab] = useState<Tab>(initialTab);
+  const [tab, setTab] = useState<BoardTab>(initialTab);
   const [query, setQuery] = useState("");
   const [lineFilter, setLineFilter] = useState("");
   const [partaiFilter, setPartaiFilter] = useState("");
-  const [chosen, setChosen] = useState<Set<string>>(new Set());
   const [inside, setInside] = useState<Group | null>(null);
 
   const all = groupsOf(rows);
-  const byStage = (s: BoardRow["stage"]) => all.filter((g) => g.rows[0].stage === s);
-  const stageTab = tab === "persiapan" || tab === "qc" || tab === "standby" ? tab : null;
-  const here = stageTab ? byStage(STAGE[stageTab]) : [];
-  const onePartai = !unit.afterCheckpoint;
+  const stepOf = (id: number) => unit.steps.find((s) => s.id === id);
+  const tabRows = (t: BoardTab): Group[] => {
+    if (t === "standby") return all.filter((g) => g.rows[0].stage === "StandBy");
+    if (t === "transit") return all.filter((g) => g.rows[0].stage === "InTransit");
+    const id = Number(t.slice(1));
+    const stage = t[0] === "w" ? "Working" : "Preparation";
+    return all.filter((g) => g.rows[0].stage === stage && g.rows[0].stepId === id);
+  };
+  const tabOfGroup = (g: Group): BoardTab => {
+    const r = g.rows[0];
+    if (r.stage === "StandBy") return "standby";
+    if (r.stage === "InTransit") return "transit";
+    return `${r.stage === "Working" ? "w" : "p"}${r.stepId}`;
+  };
+  const here = tab === "masuk" ? [] : tabRows(tab);
+  const stepProcess = tab[0] === "p" || tab[0] === "w" ? stepOf(Number(tab.slice(1)))?.process : null;
 
   const q = query.trim().toLowerCase();
   const hit = (g: Group) => !q || g.rows.some((r) => `${r.lotNo} ${r.jobNo ?? ""} ${r.itemLabel} ${r.itemName}`.toLowerCase().includes(q));
   const filtered = here.filter((g) => hit(g) && (!lineFilter || g.rows.some((r) => String(r.lineId) === lineFilter)) && (!partaiFilter || g.rows.some((r) => String(r.partaiId) === partaiFilter)));
-  const jobs = filtered.filter((g) => g.job);
-  const loose = filtered.filter((g) => !g.job);
-  const resetOn = `${tab}|${q}|${lineFilter}|${partaiFilter}`;
-  const jobPage = usePaging(jobs, resetOn);
-  const loosePage = usePaging(loose, resetOn);
-  const onPage = [...jobPage.pageRows, ...loosePage.pageRows];
-
-  const picked = here.filter((g) => chosen.has(g.key));
-  const pickedRows = picked.flatMap((g) => g.rows);
-  const pickedPartais = new Set(pickedRows.map((r) => r.partaiId));
-  const mixed = onePartai && pickedPartais.size > 1;
+  const page = usePaging(filtered, `${tab}|${q}|${lineFilter}|${partaiFilter}`);
   const partaiOptions = [...new Map(here.flatMap((g) => g.rows).filter((r) => r.partaiNo).map((r) => [r.partaiId, r.partaiNo!])).entries()];
 
-  const goTab = (t: Tab) => {
-    setTab(t);
-    setChosen(new Set());
-  };
-  const toggle = (g: Group) =>
-    setChosen((s) => {
-      const n = new Set(s);
-      if (n.has(g.key)) n.delete(g.key);
-      else n.add(g.key);
-      return n;
-    });
-
-  /** A Grading Unit grades a Job whole: its row opens that grading (W97). */
-  function openGrading(g: Group) {
-    if (!can.grading) return toast("Tidak diizinkan", "Anda tidak boleh membuat No. Grading.", "err");
-    router.push(`/production/grading/new?${g.job ? `job=${g.job.id}` : `bucket=${g.rows[0].id}`}`);
-  }
-
-  function onRow(g: Group) {
-    if (tab === "persiapan" && unit.process === "Grading") return openGrading(g);
-    toggle(g);
+  /** A row opens the work of the step it waits at, or sends it on from Stand By (D1). */
+  function open(g: Group) {
+    const t = tabOfGroup(g);
+    const ids = g.rows.map((r) => r.id).join(",");
+    if (t === "standby") {
+      if (!can.transfer) return toast("Tidak diizinkan", "Anda tidak boleh membuat Push atau BSTB.", "err");
+      return router.push(`/production/transfer/new?unit=${encodeURIComponent(unit.label)}&bucket=${ids}`);
+    }
+    if (t === "transit") return toast("Dalam perjalanan", "Barang ini menunggu diterima unit tujuan.");
+    const p = stepOf(g.rows[0].stepId ?? 0)?.process;
+    if (p === "Grading") {
+      if (!can.grading) return toast("Tidak diizinkan", "Anda tidak boleh membuat No. Grading.", "err");
+      return router.push(`/production/grading/new?${g.job ? `job=${g.job.id}` : `bucket=${g.rows[0].id}`}`);
+    }
+    if (p === "Assign") {
+      if (!can.work) return toast("Tidak diizinkan", "Anda tidak boleh mencatat pengerjaan.", "err");
+      return router.push(`/production/work/new?bucket=${ids}`);
+    }
+    if (p === "QC") {
+      if (!can.qc) return toast("Tidak diizinkan", "Anda tidak boleh membuat QC Check.", "err");
+      return router.push(`/production/qc-check/new?bucket=${ids}`);
+    }
+    toast("Belum tersedia", `Proses ${p ? PROCESS_TEXT[p] : ""} belum dibangun.`);
   }
 
   /** Enter on an exact No. Job or No. Stok opens its work, wherever it waits (D1). */
@@ -175,87 +185,38 @@ export function UnitBoard({
     if (!code) return;
     const g = all.find((x) => x.job?.no.toUpperCase() === code || x.rows.some((r) => r.lotNo.toUpperCase() === code));
     if (g) {
-      const t = TAB_OF[g.rows[0].stage];
-      if (t === "persiapan" && unit.process === "Grading") return openGrading(g);
-      setTab(t);
-      setChosen(new Set([g.key]));
       setQuery("");
-      return;
+      return open(g);
     }
     if (incoming.some((d) => d.issueNo.toUpperCase() === code || d.lines.some((l) => l.lotNo.toUpperCase() === code))) {
       setQuery("");
-      return goTab("masuk");
+      return setTab("masuk");
     }
     toast("Tidak ditemukan", `${query.trim()} tidak ada di ${unit.label}.`, "err");
   }
 
-  const tabs: [Tab, string, number][] = [
-    ["masuk", "Masuk", incoming.length],
-    ["persiapan", "Persiapan", byStage("Preparation").length],
-    ...(unit.hasQc ? ([["qc", "QC Check", byStage("QcCheck").length]] as [Tab, string, number][]) : []),
-    ["standby", "Stand By", byStage("StandBy").length],
-    ["transit", "Dalam Perjalanan", 0],
+  const tabs: [BoardTab, string, number][] = [
+    ["masuk", "Penerimaan", incoming.length],
+    ...unit.steps.flatMap((s): [BoardTab, string, number][] => {
+      const out: [BoardTab, string, number][] = [[`p${s.id}`, `Persiapan ${PROCESS_TEXT[s.process]}`, tabRows(`p${s.id}`).length]];
+      if (s.process === "Kerja") out.push([`w${s.id}`, "Sedang Dikerjakan", tabRows(`w${s.id}`).length]);
+      return out;
+    }),
+    ["standby", "Stand By", tabRows("standby").length],
+    ["transit", "Dalam Perjalanan", tabRows("transit").length],
   ];
-
-  const actions = (() => {
-    const out: React.ReactNode[] = [];
-    if (tab === "persiapan" && unit.process === "PassThrough" && can.work) {
-      out.push(
-        <button key="work" className="btn primary" disabled={!picked.length || mixed} onClick={() => router.push(`/production/work/new?bucket=${pickedRows.map((r) => r.id).join(",")}`)}>
-          <Icon name="check" size={14} /> Catat Pengerjaan{picked.length > 1 ? ` (${picked.length} Job)` : ""}
-        </button>
-      );
-    }
-    if (tab === "qc" && can.qc) {
-      out.push(
-        <button key="qc" className="btn primary" disabled={!picked.length || mixed} onClick={() => router.push(`/production/qc-check/new?bucket=${pickedRows.map((r) => r.id).join(",")}`)}>
-          <Icon name="check" size={14} /> Periksa{picked.length > 1 ? ` (${picked.length})` : ""}
-        </button>
-      );
-    }
-    return out;
-  })();
-
-  const hint =
-    tab === "persiapan"
-      ? unit.process === "Grading"
-        ? "Klik baris untuk langsung menggrading Job itu."
-        : unit.process === "PassThrough"
-          ? mixed
-            ? "Satu dokumen untuk satu partai."
-            : "Pilih No. Job yang dikerjakan, dari satu partai."
-          : "Assembly dibangun bersama Packing."
-      : tab === "qc"
-        ? mixed
-          ? "Satu QC Check untuk satu partai."
-          : "Centang Job yang diperiksa, lalu Periksa."
-        : tab === "standby"
-          ? "Tujuan mengikuti routing line tiap partai."
-          : "";
 
   const sub = [
     unit.workstation,
     unit.pre ? "Sebelum partai, semua line" : unit.lines.length ? `Line ${unit.lines.map((l) => l.name).join(", ")}` : null,
-    unit.hasQc ? "Ada QC Check" : "Tanpa QC Check",
+    unit.steps.map((s) => PROCESS_TEXT[s.process]).join(" › "),
     unit.checkpoint ? "Checkpoint: seluruh isi partai" : null,
-    unit.releasesJob ? "Lepas No. Job" : null,
   ]
     .filter(Boolean)
     .join(" · ");
 
-  const check = (g: Group) => (
-    <td
-      className="selchk"
-      onClick={(e) => {
-        e.stopPropagation();
-        toggle(g);
-      }}
-    >
-      <input type="checkbox" checked={chosen.has(g.key)} readOnly tabIndex={-1} aria-label={`Pilih ${g.job?.no ?? g.rows[0].lotNo}`} />
-    </td>
-  );
-  const sejak = (g: Group) => <td>{oldest(g.rows) ? formatDate(oldest(g.rows)) : <span className="dash">—</span>}</td>;
-  const allOn = onPage.length > 0 && onPage.every((g) => chosen.has(g.key));
+  const standby = tab === "standby";
+  const empty = tab === "standby" ? ["Stand By kosong", "Barang selesai dikerjakan muncul di sini. Klik barisnya untuk mengirim."] : tab === "transit" ? ["Tidak ada barang dalam perjalanan", "BSTB yang sudah diajukan dan belum diterima muncul di sini."] : EMPTY[stepProcess ?? "Assign"];
 
   return (
     <>
@@ -270,21 +231,10 @@ export function UnitBoard({
         <div className="ph-row">
           <h1>
             <span className="ph-ico">
-              <Icon name={unit.process === "Grading" ? "layers" : unit.process === "Assembly" ? "box" : "check"} size={16} />
+              <Icon name="layers" size={16} />
             </span>
-            {unit.name} <span className="bdg t-info">{PROCESS_TEXT[unit.process]}</span>
+            {unit.name}
           </h1>
-          <div className="ph-act">
-            {picked.length > 0 && (
-              <span className="selcount">
-                {picked.length} dipilih · {gram(pickedRows.reduce((a, r) => a + (r.grams ?? 0), 0))} g
-                <button type="button" aria-label="Hapus pilihan" onClick={() => setChosen(new Set())}>
-                  <Icon name="block" size={13} />
-                </button>
-              </span>
-            )}
-            {actions}
-          </div>
         </div>
         <p className="ph-sub">{sub}</p>
       </div>
@@ -292,14 +242,14 @@ export function UnitBoard({
       <div className="card">
         <div className="qtabs" role="tablist">
           {tabs.map(([t, name, n]) => (
-            <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "act" : ""} onClick={() => goTab(t)}>
+            <button key={t} type="button" role="tab" aria-selected={tab === t} className={tab === t ? "act" : ""} onClick={() => setTab(t)}>
               {name}
               <span className="n">{n}</span>
             </button>
           ))}
         </div>
 
-        {stageTab && (
+        {tab !== "masuk" && (
           <>
             <div className="toolbar">
               <form
@@ -309,7 +259,7 @@ export function UnitBoard({
                   onEnter();
                 }}
               >
-                <SearchField value={query} onChange={setQuery} placeholder="Cari No. Job, No. Stok, atau Item…" />
+                <SearchField value={query} onChange={setQuery} placeholder="Cari atau scan No. Job, No. Stok, atau Item…" />
               </form>
               {unit.lines.length > 1 && (
                 <div style={{ width: 170 }}>
@@ -321,59 +271,49 @@ export function UnitBoard({
                   <Select variant="toolbar" value={partaiFilter} onChange={setPartaiFilter} set={Boolean(partaiFilter)} options={[{ value: "", label: "Partai: semua" }, ...partaiOptions.map(([id, no]) => ({ value: String(id), label: no }))]} />
                 </div>
               )}
-              {onPage.length > 0 && !(tab === "persiapan" && unit.process === "Grading") && (
-                <label className="uw-hint" style={{ display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer" }}>
-                  <input type="checkbox" checked={allOn} onChange={() => setChosen((s) => (allOn ? new Set([...s].filter((k) => !onPage.some((g) => g.key === k))) : new Set([...s, ...onPage.map((g) => g.key)])))} /> Pilih semua di halaman
-                </label>
-              )}
-              <span className={`uw-hint${mixed ? " bad" : ""}`}>{hint}</span>
+              <span className="uw-hint">{standby ? "Tujuan mengikuti routing line tiap partai." : "Klik baris untuk membuka pekerjaannya."}</span>
               <span className="tspace" />
               <span className="count">
-                <b>{jobs.length}</b> Job · <b>{loose.length}</b> No. Stok tanpa Job · <b>{gram(filtered.reduce((a, g) => a + (g.grams ?? 0), 0))}</b> g
+                <b>{filtered.length}</b> baris · <b>{gram(filtered.reduce((a, g) => a + (g.grams ?? 0), 0))}</b> g
               </span>
             </div>
 
             {!filtered.length ? (
               <div className="empty">
                 <div className="ic">
-                  <Icon name={tab === "qc" ? "check" : tab === "standby" ? "send" : "clip"} size={18} />
+                  <Icon name={tab === "transit" ? "truck" : standby ? "send" : "clip"} size={18} />
                 </div>
-                <h4>{tab === "persiapan" ? "Persiapan kosong" : tab === "qc" ? "Tidak ada barang menunggu QC" : "Stand By kosong"}</h4>
-                <p>{tab === "persiapan" ? "Barang yang diterima muncul di sini." : tab === "qc" ? "Hasil pekerjaan Unit ini masuk ke sini." : unit.hasQc ? "Barang yang lulus QC muncul di sini." : "Barang selesai dikerjakan muncul di sini."}</p>
+                <h4>{empty[0]}</h4>
+                <p>{empty[1]}</p>
               </div>
             ) : (
               <>
-                {jobs.length > 0 && (
-                  <>
-                    <div className="uw-sec">
-                      Job <span>{jobs.length} Job · isi tiap Job dibuka dari kolom No. Stok</span>
-                    </div>
-                    <div className="tw">
-                      <table className="grid" style={{ minWidth: tab === "standby" ? 1000 : 880 }}>
-                        <thead>
-                          <tr>
-                            <th className="selchk" />
-                            <th style={{ width: 200 }}>No. Job</th>
-                            <th style={{ width: 230 }}>Partai</th>
-                            <th style={{ width: 130 }}>No. Stok</th>
-                            <th className="num" style={{ width: 96 }}>Gram</th>
-                            <th className="num" style={{ width: 130 }}>Nilai</th>
-                            {tab === "standby" && <th style={{ width: 130 }}>Tujuan</th>}
-                            <th style={{ width: 96 }}>Sejak</th>
-                            <th>Keterangan</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {jobPage.pageRows.map((g) => (
-                            <tr key={g.key} className={chosen.has(g.key) ? "sel" : ""} onClick={() => onRow(g)}>
-                              {check(g)}
-                              <td>
-                                <span className="mono">{g.job!.no}</span>
-                              </td>
-                              <td>
-                                <PartaiCell rows={g.rows} />
-                              </td>
-                              <td>
+                <div className="tw">
+                  <table className="grid" style={{ minWidth: standby ? 980 : 860 }}>
+                    <thead>
+                      <tr>
+                        <th style={{ width: 200 }}>No. Job / No. Stok</th>
+                        <th style={{ width: 230 }}>Partai</th>
+                        <th style={{ width: 200 }}>Isi</th>
+                        <th className="num" style={{ width: 96 }}>Gram</th>
+                        {standby && <th style={{ width: 130 }}>Tujuan</th>}
+                        <th style={{ width: 96 }}>Sejak</th>
+                        <th>Keterangan</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {page.pageRows.map((g) => {
+                        const r = g.rows[0];
+                        return (
+                          <tr key={g.key} onClick={() => open(g)}>
+                            <td>
+                              <span className="mono">{g.job ? g.job.no : r.lotNo}</span>
+                            </td>
+                            <td>
+                              <PartaiCell rows={g.rows} />
+                            </td>
+                            <td>
+                              {g.job ? (
                                 <button
                                   type="button"
                                   className="btn sm ghost"
@@ -382,86 +322,32 @@ export function UnitBoard({
                                     setInside(g);
                                   }}
                                 >
-                                  {g.rows.length} · lihat isi
+                                  {g.rows.length} No. Stok · lihat isi
                                 </button>
-                              </td>
-                              <td className="num">{g.grams != null ? gram(g.grams) : <span className="dash">—</span>}</td>
-                              <td className="num">
-                                <Amount value={g.value} />
-                              </td>
-                              {tab === "standby" && (
-                                <td>
-                                  <Next row={g.rows[0]} />
-                                </td>
-                              )}
-                              {sejak(g)}
-                              <td className="uw-note">
-                                <Notes rows={g.rows} />
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                    <Pager page={jobPage.page} pages={jobPage.pages} total={jobPage.total} perPage={jobPage.perPage} onPage={jobPage.setPage} onPerPage={jobPage.setPerPage} />
-                  </>
-                )}
-                {loose.length > 0 && (
-                  <>
-                    <div className="uw-sec">
-                      No. Stok tanpa Job <span>{loose.length} No. Stok · dipilih satu per satu</span>
-                    </div>
-                    <div className="tw">
-                      <table className="grid" style={{ minWidth: tab === "standby" ? 1000 : 880 }}>
-                        <thead>
-                          <tr>
-                            <th className="selchk" />
-                            <th style={{ width: 160 }}>No. Stok</th>
-                            <th style={{ width: 250 }}>Item</th>
-                            <th style={{ width: 220 }}>Partai</th>
-                            <th className="num" style={{ width: 96 }}>Gram</th>
-                            <th className="num" style={{ width: 130 }}>Nilai</th>
-                            {tab === "standby" && <th style={{ width: 130 }}>Tujuan</th>}
-                            <th style={{ width: 96 }}>Sejak</th>
-                            <th>Keterangan</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {loosePage.pageRows.map((g) => {
-                            const r = g.rows[0];
-                            return (
-                              <tr key={g.key} className={chosen.has(g.key) ? "sel" : ""} onClick={() => onRow(g)}>
-                                {check(g)}
-                                <td className="mono">{r.lotNo}</td>
-                                <td>
+                              ) : (
+                                <>
                                   {idc(r.itemLabel, r.itemName)}
                                   {r.isBjl && <span className="bdg s-mute">BJL</span>}
-                                </td>
-                                <td>
-                                  <PartaiCell rows={g.rows} />
-                                </td>
-                                <td className="num">{r.grams != null ? gram(r.grams) : <span className="dash">—</span>}</td>
-                                <td className="num">
-                                  <Amount value={r.value} />
-                                </td>
-                                {tab === "standby" && (
-                                  <td>
-                                    <Next row={r} />
-                                  </td>
-                                )}
-                                {sejak(g)}
-                                <td className="uw-note">
-                                  <Notes rows={g.rows} />
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                    <Pager page={loosePage.page} pages={loosePage.pages} total={loosePage.total} perPage={loosePage.perPage} onPage={loosePage.setPage} onPerPage={loosePage.setPerPage} />
-                  </>
-                )}
+                                </>
+                              )}
+                            </td>
+                            <td className="num">{g.grams != null ? gram(g.grams) : <span className="dash">—</span>}</td>
+                            {standby && (
+                              <td>
+                                <Next row={r} />
+                              </td>
+                            )}
+                            <td>{oldest(g.rows) ? formatDate(oldest(g.rows)) : <span className="dash">—</span>}</td>
+                            <td className="uw-note">
+                              <Notes rows={g.rows} />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <Pager page={page.page} pages={page.pages} total={page.total} perPage={page.perPage} onPage={page.setPage} onPerPage={page.setPerPage} />
               </>
             )}
           </>
@@ -507,19 +393,9 @@ export function UnitBoard({
                 <Icon name="truck" size={18} />
               </div>
               <h4>Tidak ada kiriman yang menunggu</h4>
-              <p>{unit.pre ? "Kiriman baru muncul di sini setelah pengirim menekan Ajukan." : "Barang dari Unit sebelumnya dalam Workstation yang sama masuk lewat Dokumen Push, langsung ke Persiapan tanpa Terima."}</p>
+              <p>{unit.pre ? "Kiriman baru muncul di sini setelah pengirim menekan Ajukan." : "Barang dari Unit lain dalam Workstation yang sama masuk lewat Dokumen Push, langsung ke Persiapan tanpa Terima. Kiriman BSTB muncul di sini sampai diterima."}</p>
             </div>
           ))}
-
-        {tab === "transit" && (
-          <div className="empty">
-            <div className="ic">
-              <Icon name="truck" size={18} />
-            </div>
-            <h4>Tidak ada barang dalam perjalanan</h4>
-            <p>BSTB yang sudah diajukan dan belum diterima muncul di sini, bukan di Stand By. Dokumen Push tidak pernah ada di sini karena barangnya langsung pindah.</p>
-          </div>
-        )}
       </div>
 
       <Dialog
@@ -532,13 +408,12 @@ export function UnitBoard({
       >
         {inside && (
           <div className="tw boxed">
-            <table className="grid" style={{ minWidth: 560 }}>
+            <table className="grid" style={{ minWidth: 480 }}>
               <thead>
                 <tr>
                   <th style={{ width: 160 }}>No. Stok</th>
                   <th>Item</th>
                   <th className="num" style={{ width: 96 }}>Gram</th>
-                  <th className="num" style={{ width: 130 }}>Nilai</th>
                 </tr>
               </thead>
               <tbody>
@@ -550,9 +425,6 @@ export function UnitBoard({
                       {r.isBjl && <span className="bdg s-mute">BJL</span>}
                     </td>
                     <td className="num">{r.grams != null ? gram(r.grams) : <span className="dash">—</span>}</td>
-                    <td className="num">
-                      <Amount value={r.value} />
-                    </td>
                   </tr>
                 ))}
               </tbody>

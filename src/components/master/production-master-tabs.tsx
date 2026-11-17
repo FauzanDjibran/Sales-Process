@@ -7,12 +7,18 @@ import { Dialog } from "@/components/ui/dialog";
 import { Field, FormRow } from "@/components/ui/form";
 import { RateInput } from "@/components/ui/rate-input";
 import { CollectionCard, RowActions, newKey, type CollectionTabProps } from "@/components/master/collection-tab";
+import { Select } from "@/components/ui/select";
 import {
   EXIT_ROUTE_LABEL,
+  STEP_PROCESSES,
+  STEP_PROCESS_LABEL,
   exitRoutes,
   stepErrors,
+  unitStepRuleErrors,
   type RateDraft,
   type StepDraft,
+  type StepProcess,
+  type UnitStepDraft,
 } from "@/lib/erp/production-master-shape";
 import { formatPrice } from "@/lib/format";
 import type { RefOption } from "@/lib/erp/records";
@@ -224,31 +230,191 @@ function StepDialog({
   );
 }
 
+// ---------------------------------------------------------------- unit steps
+
+/**
+ * The Unit's Proses tab: its ordered steps (T1). Rules as the Server Action
+ * applies them: each process once, QC last, Assembly alone.
+ */
+export function UnitStepsTab({ editing, locked, items, error, onChange }: CollectionTabProps<UnitStepDraft>) {
+  const [open, setOpen] = useState<UnitStepDraft | null>(null);
+  const blank = (): UnitStepDraft => ({ key: newKey("u"), process: null });
+  const apply = (s: UnitStepDraft) => {
+    onChange(items.some((x) => x.key === s.key) ? items.map((x) => (x.key === s.key ? s : x)) : [...items, s]);
+    setOpen(null);
+  };
+  const move = (i: number, by: -1 | 1) => {
+    const next = [...items];
+    [next[i], next[i + by]] = [next[i + by], next[i]];
+    onChange(next);
+  };
+  const problems = items.length ? unitStepRuleErrors(items) : [];
+
+  return (
+    <CollectionCard
+      icon="tree"
+      title="Proses"
+      desc="Pekerjaan di unit ini, berurutan. Barang masuk ke proses pertama, pindah ke berikutnya tanpa Push, dan menunggu di Stand By sesudah proses terakhir."
+      editing={editing}
+      locked={locked}
+      addLabel="Tambah Proses"
+      onAdd={() => setOpen(blank())}
+      error={error ?? (editing && problems.length ? problems.join(" ") : undefined)}
+    >
+      {items.length === 0 ? (
+        <div className="empty sm">
+          <div className="ic">
+            <Icon name="tree" size={18} />
+          </div>
+          <h4>Belum ada proses</h4>
+          <p>Tambahkan proses pertama yang dikerjakan di unit ini.</p>
+        </div>
+      ) : (
+        <div className="tw">
+          <table className="grid coll" style={{ minWidth: 460 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 44 }}>No</th>
+                <th>Proses</th>
+                {editing && <th style={{ width: 130 }} />}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((s, i) => (
+                <tr key={s.key} className={editing ? "ed" : undefined} onClick={editing ? () => setOpen(s) : undefined}>
+                  <td className="no">{i + 1}</td>
+                  <td>{s.process ? STEP_PROCESS_LABEL[s.process] : <span className="mut">—</span>}</td>
+                  {editing && (
+                    <td>
+                      <div className="ract">
+                        <button
+                          className="iact"
+                          title="Naik"
+                          disabled={i === 0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            move(i, -1);
+                          }}
+                        >
+                          <Icon name="collapse" size={14} />
+                        </button>
+                        <button
+                          className="iact"
+                          title="Turun"
+                          disabled={i === items.length - 1}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            move(i, 1);
+                          }}
+                        >
+                          <Icon name="expand" size={14} />
+                        </button>
+                        <RowActions onEdit={() => setOpen(s)} onRemove={() => onChange(items.filter((x) => x.key !== s.key))} />
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {open && (
+        <UnitStepDialog
+          initial={open}
+          isNew={!items.some((x) => x.key === open.key)}
+          taken={items.filter((x) => x.key !== open.key).flatMap((x) => (x.process ? [x.process] : []))}
+          onCancel={() => setOpen(null)}
+          onApply={apply}
+        />
+      )}
+    </CollectionCard>
+  );
+}
+
+function UnitStepDialog({
+  initial,
+  isNew,
+  taken,
+  onCancel,
+  onApply,
+}: {
+  initial: UnitStepDraft;
+  isNew: boolean;
+  taken: StepProcess[];
+  onCancel: () => void;
+  onApply: (s: UnitStepDraft) => void;
+}) {
+  const [process, setProcess] = useState<StepProcess | null>(initial.process);
+  const [error, setError] = useState("");
+  const options = STEP_PROCESSES.filter((p) => !taken.includes(p)).map((p) => ({ value: p, label: STEP_PROCESS_LABEL[p] }));
+  const submit = () => {
+    if (!process) setError("Pilih proses.");
+    else onApply({ ...initial, process });
+  };
+  return (
+    <Dialog
+      open
+      icon="tree"
+      title={isNew ? "Tambah Proses" : "Ubah Proses"}
+      subtitle="Satu proses dalam urutan unit."
+      width={520}
+      onClose={onCancel}
+      foot={
+        <>
+          <span className="fnote">Tersimpan ke database saat Unit disimpan.</span>
+          <button className="btn" onClick={onCancel}>
+            Batal
+          </button>
+          <button className="btn primary" onClick={submit}>
+            <Icon name="check" size={15} /> {isNew ? "Tambahkan" : "Perbarui"}
+          </button>
+        </>
+      }
+    >
+      <FormRow>
+        <Field label="Proses" span={12} required error={error} help="QC selalu terakhir; Assembly berdiri sendiri">
+          <Select
+            value={process ?? ""}
+            options={options}
+            placeholder="Pilih proses…"
+            onChange={(v) => {
+              setProcess(v as StepProcess);
+              setError("");
+            }}
+          />
+        </Field>
+      </FormRow>
+    </Dialog>
+  );
+}
+
 // -------------------------------------------------------------------- rates
 
 /**
- * One row per Unit in routing order, typed in place: the version is written once,
- * so the whole of it is on one screen. A Unit left empty has no row, and costs 0.
+ * One row per costing step of a Unit in routing order, typed in place: the version
+ * is written once, so the whole of it is on one screen. A step left empty has no
+ * row, and costs 0 (T3); QC and Job Order are not offered.
  */
 export function RateLinesTab({ editing, items, error, onChange, context }: CollectionTabProps<RateDraft>) {
-  const units = context?.refs._units ?? [];
-  const rateOf = (unitId: number) => items.find((r) => r.unit_id === unitId)?.rate ?? "";
+  const units = context?.refs._steps ?? [];
+  const rateOf = (stepId: number) => items.find((r) => r.unit_step_id === stepId)?.rate ?? "";
   const rows = units.filter((u) => (editing ? u.active : rateOf(u.id) !== ""));
 
-  const type = (unitId: number, rate: string) =>
+  const type = (stepId: number, rate: string) =>
     onChange(
       rate === ""
-        ? items.filter((r) => r.unit_id !== unitId)
-        : items.some((r) => r.unit_id === unitId)
-          ? items.map((r) => (r.unit_id === unitId ? { ...r, rate } : r))
-          : [...items, { key: newKey("r"), unit_id: unitId, rate }]
+        ? items.filter((r) => r.unit_step_id !== stepId)
+        : items.some((r) => r.unit_step_id === stepId)
+          ? items.map((r) => (r.unit_step_id === stepId ? { ...r, rate } : r))
+          : [...items, { key: newKey("r"), unit_step_id: stepId, rate }]
     );
 
   return (
     <CollectionCard
       icon="calc"
       title="Rate per Unit"
-      desc="Rate biaya per gram input, urut routing. Unit yang kosong berarti rate 0. Versi tidak dapat diubah setelah disimpan."
+      desc="Rate biaya per gram input, per proses unit, urut routing. Yang kosong berarti rate 0. Versi tidak dapat diubah setelah disimpan."
       editing={editing}
       error={error}
     >
@@ -257,8 +423,8 @@ export function RateLinesTab({ editing, items, error, onChange, context }: Colle
           <div className="ic">
             <Icon name="calc" size={18} />
           </div>
-          <h4>{editing ? "Belum ada unit aktif" : "Semua unit berate 0"}</h4>
-          <p>{editing ? "Buat Unit lebih dulu." : "Versi ini tidak mengisi rate untuk unit mana pun."}</p>
+          <h4>{editing ? "Belum ada proses berbiaya" : "Semua proses berate 0"}</h4>
+          <p>{editing ? "Isi tab Proses di Master › Unit lebih dulu." : "Versi ini tidak mengisi rate untuk proses mana pun."}</p>
         </div>
       ) : (
         <div className="tw">
@@ -266,7 +432,7 @@ export function RateLinesTab({ editing, items, error, onChange, context }: Colle
             <thead>
               <tr>
                 <th style={{ width: 44 }}>No</th>
-                <th>Unit</th>
+                <th>Unit · Proses</th>
                 <th className="num" style={{ width: 220 }}>
                   Rate per Gram
                 </th>

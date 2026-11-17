@@ -49,6 +49,7 @@ only (PROTOCOL §4, answer D).
 | --- | --- | --- | --- |
 | engineering/data-conventions | `doc-numbering=prefix-yyyy-mm-seq`: a series per prefix per month, for every document and journal | P216: production documents tied to a unit are numbered daily per unit, e.g. `BSTB_UGH_190526_00001`, `NG_UGH_180526_00001`; every other document and journal stays on the choice | The user's answer D, 04/11/2026: follows the numbering in Walet's production simulation |
 | ui/design-convention | §3.2 Topbar: "Show which app this is and give access to the user's account. Nothing else goes here." | P259: a user holding both applications (ERP and Produksi, P254) has a *Pilih aplikasi* icon beside the brand block, leading to `/apps` | The user's answer D, 11/11/2026: tried here first; to be proposed for every project once it proves itself (Harvest queue) |
+| ui/design-convention | §9.1 Post confirmation states the journal it will write | P275: Produksi screens show no prices and no journal in the Post confirmation; the journal and values are read in the ERP application | The user's answer D, 17/11/2026 (decided 13/11/2026 for the simulation): the shop-floor operator needs grams and counts, not money; ERP screens keep §9.1 |
 
 ## Harvest queue
 

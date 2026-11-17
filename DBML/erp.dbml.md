@@ -767,8 +767,8 @@ table ref_workstation {
   updated_at                  timestamptz [not null, default: `now()`]
 }
 
-// Unit (P225, W33): where goods are held in production, and the kinds of work done there;
-// the old ref_workstation (P201) renamed in place
+// Unit (P225, W33): where goods are held in production; the work done there is its ordered steps
+// (ref_unit_step, P274); the old ref_workstation (P201) renamed in place
 table ref_unit {
   id                          int [pk, increment, not null]
 
@@ -777,10 +777,7 @@ table ref_unit {
   unit_label                  varchar [not null] // the short code used in document numbers, e.g. UGH
   unit_name                   varchar [not null]
   workstation_id              int [ref : > ref_workstation.id]
-  process                     enum('PassThrough', 'Grading', 'Assembly') [not null, default: 'PassThrough'] // one Unit, one process (W73)
-  has_qc                      boolean [not null, default: false] // goods pass a QC Check before Stand By (W65)
-  releases_job                boolean [not null, default: false]
-  issues_job_order            boolean [not null, default: false]
+  allow_reproses              boolean [not null, default: false] // may send goods back to an earlier Unit of the partai routing (T10)
 
   note                        varchar
 
@@ -791,6 +788,22 @@ table ref_unit {
 
   created_at                  timestamptz [not null, default: `now()`]
   updated_at                  timestamptz [not null, default: `now()`]
+}
+
+// The steps of a Unit (P274, T1): goods received enter step 1; a posted step document moves them to the next
+// Persiapan without a Push; after the last they wait in Stand By. Rules in code: each process once per
+// Unit, QC last, Assembly alone. Replaces the single process and the QC flag of the Unit.
+table ref_unit_step {
+  id                          int [pk, increment, not null]
+
+  unit_id                     int [not null, ref : > ref_unit.id]
+  seq                         int [not null]
+  process                     enum('Grading', 'JobOrder', 'Assign', 'Kerja', 'QC', 'Assembly') [not null]
+
+  indexes {
+    (unit_id, seq) [unique]
+    (unit_id, process) [unique]
+  }
 }
 
 // Line Produksi (P225): a routing hangs on it; the month's variance goes to its account
@@ -2940,12 +2953,12 @@ table prd_rate_version_line {
   id                          int [pk, increment, not null]
 
   version_id                  int [not null, ref : > prd_rate_version.id]
-  unit_id                     int [not null, ref : > ref_unit.id]
+  unit_step_id                int [not null, ref : > ref_unit_step.id] // a rate per Unit step (T3); QC and Job Order carry none
   rate                        decimal(18,6) [not null]
 
   indexes {
-    (version_id, unit_id) [unique]
-    unit_id
+    (version_id, unit_step_id) [unique]
+    unit_step_id
   }
 }
 
@@ -2959,6 +2972,7 @@ table prd_cost_entry {
   source_no                   varchar [not null]
 
   unit_id                     int [not null, ref : > ref_unit.id]
+  unit_step_id                int [ref : > ref_unit_step.id] // the step that earned it (T3); empty before P274
   rate_version_id             int [not null, ref : > prd_rate_version.id]
   tracking_id                 int [not null, ref : > log_stock_tracking.id]
   partai_id                   int [ref : > prd_partai.id] // lintas aplikasi → Produksi
@@ -3156,7 +3170,8 @@ table prd_balance {
 
   tracking_id                      int [not null, ref : > log_stock_tracking.id] // lintas aplikasi → ERP · the one lot register (P120)
   unit_id              int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
-  stage                       enum('Preparation', 'QcCheck', 'StandBy') [not null, default: 'Preparation'] // Persiapan, Stand By (W29)
+  stage                       enum('Preparation', 'Working', 'StandBy', 'InTransit') [not null, default: 'Preparation'] // Persiapan of a step, Sedang Dikerjakan (Kerja), Stand By, Dalam Perjalanan (T4)
+  unit_step_id                int [ref : > ref_unit_step.id] // lintas aplikasi → ERP · the step goods wait at; set exactly when stage is Preparation or Working
   partai_id                   int [ref : > prd_partai.id]
   job_id                      int [ref : > prd_job.id]
   item_id                     int [not null, ref : > m_item.id] // lintas aplikasi → ERP
@@ -3166,6 +3181,8 @@ table prd_balance {
   value_balance               decimal(18,2) [not null, default: 0] // CHECK ≥ 0; 0 when the bucket is empty
   auxiliary                   boolean [not null, default: false] // bahan penolong (V8)
   qc_check_id                 int // the QC Check that turned it back (W66)
+  transit_doc_type_id         int // the document an InTransit row travels on, weak (T4)
+  transit_doc_id              int
   entered_at                  date // when it last rose from empty: the Workspace's Sejak (W111, P262)
 
   created_by                  int [not null]
@@ -3175,8 +3192,8 @@ table prd_balance {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
-    (tracking_id, unit_id, stage, partai_id, job_id) [unique] // NULLS NOT DISTINCT
-    (unit_id, stage, job_id) [name: 'prd_balance_held_idx'] // WHERE qty_balance > 0, hand-written (W111, P262)
+    (tracking_id, unit_id, stage, unit_step_id, partai_id, job_id, qc_check_id) [unique] // NULLS NOT DISTINCT
+    (unit_id, stage, unit_step_id, job_id) [name: 'prd_balance_held_idx'] // WHERE qty_balance > 0, hand-written (W111, P262)
     unit_id
     item_id
   }
@@ -3196,7 +3213,8 @@ table prd_ledger {
   bucket_id                   int [not null, ref : > prd_balance.id]
   tracking_id                      int [not null, ref : > log_stock_tracking.id] // lintas aplikasi → ERP
   unit_id              int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
-  stage                       enum('Preparation', 'QcCheck', 'StandBy') [not null]
+  stage                       enum('Preparation', 'Working', 'StandBy', 'InTransit') [not null]
+  unit_step_id                int [ref : > ref_unit_step.id] // lintas aplikasi → ERP
   partai_id                   int [ref : > prd_partai.id]
   job_id                      int [ref : > prd_job.id]
   item_id                     int [not null, ref : > m_item.id] // lintas aplikasi → ERP

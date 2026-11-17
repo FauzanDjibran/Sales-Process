@@ -21,7 +21,7 @@ import { BASE_CURRENCY_LABEL } from "./currency";
 export type Db = Prisma.TransactionClient | typeof prisma;
 
 /** A bucket as a picker offers it (client-safe shape). */
-export type BucketOption = Pick<BucketView, "id" | "lotId" | "lotNo" | "itemId" | "itemLabel" | "itemName" | "uomLabel" | "unitId" | "partaiId" | "partaiNo" | "jobId" | "jobNo" | "auxiliary" | "qcCheckId" | "grams" | "isBjl" | "qty" | "value" | "expiry"> & {
+export type BucketOption = Pick<BucketView, "id" | "lotId" | "lotNo" | "itemId" | "itemLabel" | "itemName" | "uomLabel" | "unitId" | "stepId" | "stepProcess" | "partaiId" | "partaiNo" | "jobId" | "jobNo" | "auxiliary" | "qcCheckId" | "grams" | "isBjl" | "qty" | "value" | "expiry"> & {
   /** Rp per gram it would be costed at. */
   rate?: number;
 };
@@ -66,6 +66,8 @@ export async function bucketOptions(withIds: number[] = [], db: Db = prisma): Pr
     itemName: b.itemName,
     uomLabel: b.uomLabel,
     unitId: b.unitId,
+    stepId: b.stepId,
+    stepProcess: b.stepProcess,
     partaiId: b.partaiId,
     partaiNo: b.partaiNo,
     jobId: b.jobId,
@@ -85,10 +87,13 @@ async function optionsOf(buckets: BucketView[], db: Db): Promise<BucketOption[]>
   return buckets.map((b) => ({ ...b, rate: rates.get(b.id) ?? 0 }));
 }
 
-/** What the Units may work: goods in Persiapan, and any row a stored document names. */
-export async function persiapanOptions(unitIds: number[], keep: number[] = [], db: Db = prisma): Promise<BucketOption[]> {
+/**
+ * What the Units may work: goods in the Persiapan of one process (a document works
+ * the step of its own kind, T1), and any row a stored document names.
+ */
+export async function persiapanOptions(unitIds: number[], keep: number[] = [], db: Db = prisma, process?: BucketView["stepProcess"]): Promise<BucketOption[]> {
   const rows = await availableBuckets({ unitIds, stage: "Preparation", withIds: keep }, db);
-  return optionsOf(rows.filter((b) => !b.auxiliary), db);
+  return optionsOf(rows.filter((b) => !b.auxiliary && (!process || b.stepProcess === process || keep.includes(b.id))), db);
 }
 
 /** Bahan penolong the Units hold (V8). */

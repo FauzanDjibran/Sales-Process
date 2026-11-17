@@ -20,7 +20,7 @@ before(async () => {
   const by = await systemUserId();
   const tag = `UA${Date.now() % 100000}`;
   for (const n of [1, 2]) {
-    units.push((await prisma.refUnit.create({ data: { unit_code: `test.${tag}${n}`, unit_label: `${tag}${n}`, unit_name: `Uji ${n}`, process: "PassThrough", created_by: by } })).id);
+    units.push((await prisma.refUnit.create({ data: { unit_code: `test.${tag}${n}`, unit_label: `${tag}${n}`, unit_name: `Uji ${n}`, created_by: by, steps: { create: [{ seq: 1, process: "Assign" }] } } })).id);
   }
   admin = (await makeUser({ permissions: ["USER_ROLE_ASSIGN", "PRODUCTION_UNIT_VIEW"] })).id;
   worker = (await makeUser({ permissions: ["PRODUCTION_UNIT_VIEW", "PRODUCTION_GRADING_VIEW"] })).id;

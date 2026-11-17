@@ -51,6 +51,8 @@ import {
   checkRoutingCollections,
   writeRateCollections,
   writeRoutingCollections,
+  writeUnitCollections,
+  checkUnitCollections,
 } from "@/lib/erp/production-master";
 import type { Prisma } from "@/generated/prisma/client";
 import { paymentTermDaysError, withholdingRateError } from "@/lib/erp/reference-rules";
@@ -257,10 +259,6 @@ async function applicableFields(
     }
     if (field.visibleWhen === "itemIsGoods") {
       if (values.item_type === "Barang") applies.add(field.name);
-      continue;
-    }
-    if (field.visibleWhen === "unitIsGrading") {
-      if (values.process === "Grading") applies.add(field.name);
       continue;
     }
     if (field.visibleWhen === "partnerIsCustomer" || field.visibleWhen === "partnerIsSupplier") {
@@ -587,6 +585,11 @@ async function ownCollections(
     const checked = await checkRoutingCollections(values, id);
     Object.assign(errors, checked.errors);
     return (tx, recordId) => writeRoutingCollections(tx, recordId, checked.clean);
+  }
+  if (entity.key === "ref_unit") {
+    const checked = await checkUnitCollections(values, id);
+    Object.assign(errors, checked.errors);
+    return (tx, recordId) => writeUnitCollections(tx, recordId, checked.clean);
   }
   if (entity.key === "prd_rate_version") {
     const checked = await checkRateCollections(values);

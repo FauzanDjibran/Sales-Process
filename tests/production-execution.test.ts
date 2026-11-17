@@ -39,8 +39,8 @@ async function work(over: Partial<WorkInput>) {
   if (r.ok) docs.work.push(r.id);
   return r;
 }
-const persiapan = (unit: number) => availableBuckets({ unitIds: [unit], stage: "Preparation" });
-const inQc = (unit: number) => availableBuckets({ unitIds: [unit], stage: "QcCheck" });
+const persiapan = async (unit: number) => (await availableBuckets({ unitIds: [unit], stage: "Preparation" })).filter((b) => b.stepProcess !== "QC");
+const inQc = async (unit: number) => (await availableBuckets({ unitIds: [unit], stage: "Preparation" })).filter((b) => b.stepProcess === "QC");
 const standBy = (unit: number) => availableBuckets({ unitIds: [unit], stage: "StandBy" });
 
 async function decide(unit: number, decisions: [number, "Pass" | "Return"][]) {
@@ -59,9 +59,11 @@ before(async () => {
   const a = f.actor;
   ids.grader = f.wsA;
   ids.passer = f.wsB;
-  await prisma.refUnit.update({ where: { id: f.wsA }, data: { process: "Grading", has_qc: true } });
-  await prisma.refUnit.update({ where: { id: f.wsB }, data: { process: "PassThrough", has_qc: false } });
-  ids.releaser = (await prisma.refUnit.create({ data: { unit_code: `test.${f.key("REL")}`, unit_label: f.key("REL"), unit_name: "Lepas", process: "Grading", releases_job: true, created_by: a } })).id;
+  // wsA grades then checks (Grading › QC); wsB only assigns; the releaser only grades (T1).
+  await prisma.refUnitStep.deleteMany({ where: { unit_id: f.wsA } });
+  await prisma.refUnitStep.createMany({ data: [{ unit_id: f.wsA, seq: 1, process: "Grading" }, { unit_id: f.wsA, seq: 2, process: "QC" }] });
+  ids.releaser = (await prisma.refUnit.create({ data: { unit_code: `test.${f.key("REL")}`, unit_label: f.key("REL"), unit_name: "Lepas", created_by: a, steps: { create: [{ seq: 1, process: "Grading" }] } } })).id;
+  const stepOf = async (unit: number, process: "Grading" | "Assign") => (await prisma.refUnitStep.findFirstOrThrow({ where: { unit_id: unit, process } })).id;
   await prisma.mItem.update({ where: { id: f.byproduct }, data: { is_bjl: true } });
 
   ids.absorbed = await makeAccount({ subcategoryLabel: "5.1.1" });
@@ -80,7 +82,7 @@ before(async () => {
         rate_name: "Uji",
         status: "Active",
         created_by: a,
-        lines: { create: [{ unit_id: f.wsA, rate: 100 }, { unit_id: f.wsB, rate: 10 }, { unit_id: ids.releaser, rate: 0 }] },
+        lines: { create: [{ unit_step_id: await stepOf(f.wsA, "Grading"), rate: 100 }, { unit_step_id: await stepOf(f.wsB, "Assign"), rate: 10 }, { unit_step_id: await stepOf(ids.releaser, "Grading"), rate: 0 }] },
       },
     })
   ).id;
@@ -326,7 +328,7 @@ describe("Pengerjaan Unit", () => {
     assert.equal(w.lines[0].grams, goods.qty);
   });
 
-  test("a Unit marked Lepas No. Job drops it at grading; the partai stays (W92)", async () => {
+  test("a grading drops the No. Job; the partai stays (W92, T2)", async () => {
     const b = (await availableBuckets({ unitIds: [f.wsB], stage: "Preparation" })).find((x) => !x.auxiliary)!;
     const standing = await tx(async (t) => {
       const j = await issueJob(t, { unitId: f.wsB, lotId: b.lotId, partaiId: b.partaiId, date, source: s, actorId: f.actor });
@@ -379,7 +381,7 @@ describe("No. Grading per Job (W97)", () => {
     const origin = (await prisma.logStockTracking.findUniqueOrThrow({ where: { id: f.lot } })).tracking_no;
     assert.ok(g.outputs.every((o) => o.trackingNo?.startsWith(`${origin}-`)), "numbered from the Job's origin No. Stok");
     assert.equal((await persiapan(f.wsA)).filter((b) => b.jobId === job.id).length, 0, "taken whole");
-    assert.equal((await inQc(f.wsA)).filter((b) => b.jobId === job.id).length, 2, "a Unit that does not release keeps the Job");
+    assert.equal((await inQc(f.wsA)).filter((b) => b.jobId === job.id).length, 0, "grading always releases the Job (T2)");
 
     const links = await prisma.prdTrackingLink.findMany({ where: { source_no: r.no } });
     assert.equal(links.length, 4, "every output from every input");
@@ -388,6 +390,11 @@ describe("No. Grading per Job (W97)", () => {
   });
 
   test("QC decides a Job whole: every row of it, one decision (A4.2)", async () => {
+    // Grading releases the Job (T2), so a Job reaches QC by being picked up again.
+    const loose = (await inQc(f.wsA)).filter((b) => b.jobId == null).slice(0, 2);
+    assert.equal(loose.length, 2);
+    const j = await tx((t) => issueJob(t, { unitId: f.wsA, lotId: loose[0].lotId, date, source: s, actorId: f.actor }));
+    await prisma.prdBalance.updateMany({ where: { id: { in: loose.map((b) => b.id) } }, data: { job_id: j.id } });
     const rows = (await inQc(f.wsA)).filter((b) => b.jobId != null);
     assert.equal(rows.length, 2);
     const qc = (lines: { bucket_id: number; decision: "Pass" | "Return" }[]) =>
