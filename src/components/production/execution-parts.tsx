@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { Icon, type IconName } from "@/components/icon";
 import { CancelButton } from "@/components/ui/cancel-button";
+import { Dialog } from "@/components/ui/dialog";
 import { Combobox } from "@/components/ui/combobox";
 import { MoneyInput } from "@/components/ui/money-input";
 import { formatMoney, formatNumber } from "@/lib/format";
@@ -43,6 +44,8 @@ export function ExecutionHeader({
   onPost,
   postDisabled = false,
   backHref,
+  unitLabel,
+  unitTab,
   actions,
 }: {
   noun: string;
@@ -60,17 +63,15 @@ export function ExecutionHeader({
   /** Posting waits on the form, e.g. every QC row decided (A4.2). */
   postDisabled?: boolean;
   backHref: string;
+  /** The Unit it is worked at: the breadcrumb leads back to its Workspace tab, so the flow never breaks (P286). */
+  unitLabel?: string | null;
+  /** The Workspace tab of that Unit (`p<step>`, `qc`, `standby`…). */
+  unitTab?: string;
   actions: ReactNode;
 }) {
   return (
     <div className="ph">
-      <div className="crumb">
-        <span>Dokumen</span>
-        <span>/</span>
-        <Link href={path}>{noun}</Link>
-        <span>/</span>
-        <span className="cur">{no ?? "Baru"}</span>
-      </div>
+      <WorkspaceCrumb path={path} noun={noun} no={no} unitLabel={unitLabel} unitTab={unitTab} />
       <div className="ph-row">
         <h1>
           <span className="ph-ico">
@@ -98,7 +99,7 @@ export function ExecutionHeader({
               {onPost ? (
                 <>
                   <button className="btn" onClick={onSave} disabled={saving}>
-                    <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan Draft"}
+                    <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
                   </button>
                   <button className="btn primary" onClick={onPost} disabled={saving || postDisabled}>
                     <Icon name="check" size={15} /> Posting
@@ -116,6 +117,67 @@ export function ExecutionHeader({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A production document's breadcrumb (P286): Produksi / Workspace Unit / <Unit> / <document>,
+ * so Batal, a saved Draft and a finished Posting all lead back to the Unit. Without a Unit
+ * (opened from a register) it names the register.
+ */
+export function WorkspaceCrumb({ path, noun, no, unitLabel, unitTab }: { path: string; noun: string; no: string | null; unitLabel?: string | null; unitTab?: string }) {
+  return unitLabel ? (
+    <div className="crumb">
+      <span>Produksi</span>
+      <span>/</span>
+      <Link href="/production/workspace">Workspace Unit</Link>
+      <span>/</span>
+      <Link href={workspaceHref(unitLabel, unitTab)}>{unitLabel}</Link>
+      <span>/</span>
+      <span className="cur">{no ?? `${noun} Baru`}</span>
+    </div>
+  ) : (
+    <div className="crumb">
+      <span>Dokumen</span>
+      <span>/</span>
+      <Link href={path}>{noun}</Link>
+      <span>/</span>
+      <span className="cur">{no ?? "Baru"}</span>
+    </div>
+  );
+}
+
+export const workspaceHref = (unitLabel: string, tab?: string) => `/production/workspace/${encodeURIComponent(unitLabel)}${tab ? `?tab=${tab}` : ""}`;
+
+/**
+ * After a Posting made from a form (P286, the artifact's afterPost): the number, then
+ * Selesai back to the Unit's tab or Buat Lagi for the next document of the same kind.
+ */
+export function PostedDialog({ no, done, again, onDone, onAgain }: { no: string | null; done: string; again?: string; onDone: () => void; onAgain?: () => void }) {
+  return (
+    <Dialog
+      open={no !== null}
+      icon="check"
+      tone="ok"
+      title="Dokumen diposting"
+      subtitle={no ?? ""}
+      width={460}
+      onClose={onDone}
+      foot={
+        <>
+          <button className="btn" onClick={onDone}>
+            {done}
+          </button>
+          {onAgain && (
+            <button className="btn primary" onClick={onAgain}>
+              <Icon name="plus" size={14} /> {again ?? "Buat Lagi"}
+            </button>
+          )}
+        </>
+      }
+    >
+      <p style={{ margin: 0 }}>{no} sudah diposting. Lanjut mencatat dokumen berikutnya?</p>
+    </Dialog>
   );
 }
 

@@ -90,6 +90,7 @@ async function main() {
       await tx.prdAuxUse.deleteMany({});
       await tx.prdWorkLine.deleteMany({});
       await tx.prdWork.deleteMany({});
+      await tx.prdGradingEmployee.deleteMany({});
       await tx.prdGradingOutput.deleteMany({});
       await tx.prdGrading.deleteMany({});
       await tx.prdTrackingLink.deleteMany({});

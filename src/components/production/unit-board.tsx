@@ -301,6 +301,13 @@ export function UnitBoard({
             </span>
             {unit.name}
           </h1>
+          {action?.allowed && (
+            <div className="ph-act">
+              <button className="btn primary" disabled={!here.length} onClick={() => router.push(action.href)}>
+                <Icon name={action.icon} size={15} /> {action.label}
+              </button>
+            </div>
+          )}
         </div>
         <p className="ph-sub">{sub}</p>
       </div>
@@ -337,13 +344,8 @@ export function UnitBoard({
                   <Select variant="toolbar" value={partaiFilter} onChange={setPartaiFilter} set={Boolean(partaiFilter)} options={[{ value: "", label: "Partai: semua" }, ...partaiOptions.map(([id, no]) => ({ value: String(id), label: no }))]} />
                 </div>
               )}
-              <span className="uw-hint">{standby ? "Tujuan mengikuti routing line tiap partai." : working ? "Centang Job yang selesai atau dibatalkan." : "Klik baris, atau tombol di kanan untuk mengisi lewat baris input."}</span>
+              <span className="uw-hint">{standby ? "Tujuan mengikuti routing line tiap partai." : working ? "Centang Job yang selesai atau dibatalkan." : "Klik baris, atau tombol di atas untuk mengisi lewat baris input."}</span>
               <span className="tspace" />
-              {action?.allowed && (
-                <button className="btn sm primary" disabled={!here.length} onClick={() => router.push(action.href)}>
-                  <Icon name={action.icon} size={14} /> {action.label}
-                </button>
-              )}
               {working && can.kerjaFinish && (
                 <>
                   <button className="btn sm" disabled={!picked.length || busy} onClick={() => setClosing("cancel")}>
@@ -355,7 +357,7 @@ export function UnitBoard({
                 </>
               )}
               <span className="count">
-                <b>{filtered.length}</b> baris · <b>{gram(filtered.reduce((a, g) => a + (g.grams ?? 0), 0))}</b> g
+                <b>{filtered.length}</b> baris · <b>{filtered.filter((g) => g.job).length}</b> Job · <b>{gram(filtered.reduce((a, g) => a + (g.grams ?? 0), 0))}</b> g
               </span>
             </div>
 
@@ -370,13 +372,14 @@ export function UnitBoard({
             ) : (
               <>
                 <div className="tw">
-                  <table className="grid" style={{ minWidth: standby ? 980 : 860 }}>
+                  <table className="grid" style={{ minWidth: standby ? 1100 : 980 }}>
                     <thead>
                       <tr>
                         {working && <th className="pick" />}
-                        <th style={{ width: 200 }}>No. Job / No. Stok</th>
-                        <th style={{ width: 230 }}>Partai</th>
-                        <th style={{ width: 200 }}>Isi</th>
+                        <th style={{ width: 190 }}>No. Job</th>
+                        <th style={{ width: 160 }}>No. Stok</th>
+                        <th>Item</th>
+                        <th style={{ width: 220 }}>Partai</th>
                         <th className="num" style={{ width: 96 }}>Gram</th>
                         {standby && <th style={{ width: 130 }}>Tujuan</th>}
                         <th style={{ width: 96 }}>Sejak</th>
@@ -393,14 +396,11 @@ export function UnitBoard({
                                 <input type="checkbox" checked={ticked.has(g.key)} readOnly aria-label={`Pilih ${g.job ? g.job.no : r.lotNo}`} />
                               </td>
                             )}
+                            <td>{g.job ? <span className="mono">{g.job.no}</span> : <span className="dash">Tanpa No. Job</span>}</td>
                             <td>
-                              <span className="mono">{g.job ? g.job.no : r.lotNo}</span>
-                            </td>
-                            <td>
-                              <PartaiCell rows={g.rows} />
-                            </td>
-                            <td>
-                              {g.job ? (
+                              {g.rows.length === 1 ? (
+                                <span className="mono">{r.lotNo}</span>
+                              ) : (
                                 <button
                                   type="button"
                                   className="btn sm ghost"
@@ -409,14 +409,20 @@ export function UnitBoard({
                                     setInside(g);
                                   }}
                                 >
-                                  {g.rows.length} No. Stok · lihat isi
+                                  {g.rows.length} · lihat isi
                                 </button>
-                              ) : (
-                                <>
-                                  {idc(r.itemLabel, r.itemName)}
-                                  {r.isBjl && <span className="bdg s-mute">BJL</span>}
-                                </>
                               )}
+                            </td>
+                            <td>
+                              {[...new Map(g.rows.map((x) => [x.itemLabel, x])).values()].map((x) => (
+                                <div key={x.itemLabel}>
+                                  {idc(x.itemLabel, x.itemName)}
+                                  {x.isBjl && <span className="bdg s-mute">BJL</span>}
+                                </div>
+                              ))}
+                            </td>
+                            <td>
+                              <PartaiCell rows={g.rows} />
                             </td>
                             <td className="num">{g.grams != null ? gram(g.grams) : <span className="dash">—</span>}</td>
                             {standby && (

@@ -33,7 +33,9 @@ export default async function Page({ params, searchParams }: { params: Promise<{
     .filter((i) => i.unitId === unit.id)
     .map((i) => ({ id: i.id, issueNo: i.issueNo, issueDate: i.issueDate, warehouseLabel: i.warehouseLabel, auxiliary: i.auxiliary, lines: i.lines.map((l) => ({ lotNo: l.lotNo, qty: l.qty, uomLabel: l.uomLabel })) }));
   const stepTabs = unit.steps.flatMap((s) => [`p${s.id}`, `w${s.id}`]);
-  const initial = tab && ["masuk", "qc", "standby", "transit", ...stepTabs].includes(tab) ? tab : `p${unit.steps[0]?.id ?? 0}`;
+  // A form returns to its process by name (`?tab=Grading`), since it does not know the step id (P286).
+  const byProcess = unit.steps.find((s) => s.process === tab);
+  const initial = byProcess ? `p${byProcess.id}` : tab && ["masuk", "qc", "standby", "transit", ...stepTabs].includes(tab) ? tab : `p${unit.steps[0]?.id ?? 0}`;
 
   return (
     <UnitBoard

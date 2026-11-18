@@ -27,9 +27,10 @@ export function UnitCards({ data, incoming, own }: { data: WorkspaceCards; incom
   const post = shown.filter((u) => !u.pre);
   const groups = [...new Set(post.map((u) => u.workstation ?? "Tanpa Workstation"))];
 
-  const held = (u: CardUnit, stage: string) =>
+  /** `process`: one Persiapan of the Unit, counted on its own (the artifact: one number per process). */
+  const held = (u: CardUnit, stage: string, process?: string) =>
     data.totals
-      .filter((t) => t.unitId === u.id && t.stage === stage && (line === null || t.lineId === null || t.lineId === line))
+      .filter((t) => t.unitId === u.id && t.stage === stage && (!process || t.stepProcess === process) && (line === null || t.lineId === null || t.lineId === line))
       .reduce((a, t) => ({ rows: a.rows + t.rows, grams: a.grams + t.grams }), { rows: 0, grams: 0 });
 
   const num = (label: string, rows: number, grams: number, hot = false) => (
@@ -42,8 +43,6 @@ export function UnitCards({ data, incoming, own }: { data: WorkspaceCards; incom
 
   const card = (u: CardUnit) => {
     const masuk = incoming[u.id] ?? { docs: 0, grams: 0 };
-    const hasQc = u.hasQc;
-    const p = held(u, "Preparation");
     const qc = held(u, "QcCheck");
     const sb = held(u, "StandBy");
     return (
@@ -64,18 +63,13 @@ export function UnitCards({ data, incoming, own }: { data: WorkspaceCards; incom
             ))
           )}
         </span>
-        <span className="uw-nums">
+        <span className="uw-nums" style={{ gridTemplateColumns: `repeat(${u.steps.length + (u.hasQc ? 1 : 0) + 2}, minmax(0, 1fr))` }}>
           {num("Masuk", masuk.docs, masuk.grams, true)}
-          {num("Persiapan", p.rows, p.grams)}
-          {hasQc ? (
-            num("QC", qc.rows, qc.grams, true)
-          ) : (
-            <div>
-              <label>QC</label>
-              <b className="z">—</b>
-              <small>tanpa QC</small>
-            </div>
-          )}
+          {u.steps.map((s) => {
+            const h = held(u, "Preparation", s.process);
+            return <span key={s.id} style={{ display: "contents" }}>{num(PROCESS_TEXT[s.process], h.rows, h.grams)}</span>;
+          })}
+          {u.hasQc && num("QC", qc.rows, qc.grams, true)}
           {num("Stand By", sb.rows, sb.grams)}
         </span>
       </Link>

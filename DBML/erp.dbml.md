@@ -3357,6 +3357,18 @@ table prd_grading_output {
   to_bucket_id                int
 }
 
+// Who graded (P286): optional, several Karyawan per No. Grading.
+table prd_grading_employee {
+  id                          int [pk, increment, not null]
+
+  grading_id                  int [not null, ref : > prd_grading.id]
+  employee_id                 int [not null, ref : > m_employee.id]
+
+  indexes {
+    (grading_id, employee_id) [unique]
+  }
+}
+
 table prd_work {
   id                          int [pk, increment]
   work_no                     text [unique, not null] // KRJ_<unit>_<ddmmyy>_<NNNNN>

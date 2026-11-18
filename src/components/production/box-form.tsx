@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { CancelButton } from "@/components/ui/cancel-button";
 import { Combobox } from "@/components/ui/combobox";
@@ -9,7 +8,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
-import { ErrorBox, qtyText, ro } from "@/components/production/execution-parts";
+import { ErrorBox, qtyText, ro, WorkspaceCrumb, workspaceHref } from "@/components/production/execution-parts";
 import { closeBoxAction } from "@/app/actions/production-box";
 import { boxRuleErrors, recommend } from "@/lib/erp/production-box-shape";
 import type { BoxOptions } from "@/lib/erp/production-box";
@@ -51,7 +50,7 @@ export function BoxForm({ options }: { options: BoxOptions }) {
   const problems = bom ? boxRuleErrors(bom, inBox.map((x) => ({ grams: byId.get(x.id)!.grams, caiq: x.caiq }))) : ["Pilih Nama Jual."];
   const short = bom?.components.filter((c) => (options.aux.find((a) => a.itemId === c.itemId)?.qty ?? 0) < c.qty) ?? [];
   const partais = [...new Map(options.pieces.filter((p) => p.partaiNo).map((p) => [p.partaiId, p.partaiNo!])).entries()];
-  const back = `/production/workspace/${encodeURIComponent(options.unit.label)}`;
+  const back = workspaceHref(options.unit.label, "Assembly");
 
   const put = (ids: number[], manual: boolean) => setInBox((b) => [...b, ...ids.filter((id) => !b.some((x) => x.id === id)).map((id) => ({ id, caiq: "", manual }))]);
 
@@ -83,13 +82,7 @@ export function BoxForm({ options }: { options: BoxOptions }) {
   return (
     <>
       <div className="ph">
-        <div className="crumb">
-          <span>Dokumen</span>
-          <span>/</span>
-          <Link href="/production/box">Kotak</Link>
-          <span>/</span>
-          <span className="cur">Baru</span>
-        </div>
+        <WorkspaceCrumb path="/production/box" noun="Kotak" no={null} unitLabel={options.unit.label} unitTab="Assembly" />
         <div className="ph-row">
           <h1>
             <span className="ph-ico">

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { CancelButton } from "@/components/ui/cancel-button";
@@ -10,7 +9,7 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
-import { ErrorBox, idc, qtyText, ro } from "@/components/production/execution-parts";
+import { ErrorBox, idc, qtyText, ro, PostedDialog, WorkspaceCrumb, workspaceHref } from "@/components/production/execution-parts";
 import { InputBar } from "@/components/production/input-bar";
 import { postJobOrderAction } from "@/app/actions/production-job-order";
 import type { JobOrderOptions } from "@/lib/erp/production-job-order";
@@ -39,6 +38,7 @@ export function JobOrderForm({ options, initialBucketIds }: { options: JobOrderO
   const [target, setTarget] = useState<number | null>(null);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [postedNo, setPostedNo] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const used = (id: number) => [...lines.flatMap((l) => l.parts), ...cart].filter((p) => p.bucketId === id).reduce((x, p) => x + p.qty, 0);
@@ -50,7 +50,7 @@ export function JobOrderForm({ options, initialBucketIds }: { options: JobOrderO
   const cartGrams = cart.reduce((a, p) => a + p.qty, 0);
   const targets = options.targets.map((t) => ({ id: t.id, label: t.label, name: t.name, active: true }));
   const label = (id: number) => options.targets.find((t) => t.id === id);
-  const back = `/production/workspace/${encodeURIComponent(options.unit.label)}`;
+  const back = workspaceHref(options.unit.label, "JobOrder");
 
   function makeJob() {
     if (!target || !cart.length) return;
@@ -70,20 +70,13 @@ export function JobOrderForm({ options, initialBucketIds }: { options: JobOrderO
       toast(result.errors._form ? "Tidak diizinkan" : "Belum bisa diposting", result.errors._form ?? result.errors._lines ?? Object.values(result.errors)[0] ?? "Periksa kembali isian.", "err");
       return;
     }
-    toast("Job Order diposting", `${result.no} · ${lines.length} Job baru`, "ok");
-    router.push(`/production/job-order/${result.id}`);
+    setPostedNo(`${result.no} · ${lines.length} Job baru`);
   }
 
   return (
     <>
       <div className="ph">
-        <div className="crumb">
-          <span>Dokumen</span>
-          <span>/</span>
-          <Link href="/production/job-order">Job Order</Link>
-          <span>/</span>
-          <span className="cur">Baru</span>
-        </div>
+        <WorkspaceCrumb path="/production/job-order" noun="Job Order" no={null} unitLabel={options.unit.label} unitTab="JobOrder" />
         <div className="ph-row">
           <h1>
             <span className="ph-ico">
@@ -249,6 +242,12 @@ export function JobOrderForm({ options, initialBucketIds }: { options: JobOrderO
         )}
       </div>
 
+      <PostedDialog
+        no={postedNo}
+        done="Selesai"
+        onDone={() => router.push(back)}
+        onAgain={() => router.push(`/production/job-order/new?unit=${encodeURIComponent(options.unit.label)}&n=${Date.now()}`)}
+      />
       <ConfirmDialog
         open={asking}
         icon="clip"

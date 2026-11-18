@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Icon } from "@/components/icon";
 import { Combobox } from "@/components/ui/combobox";
 import { MoneyInput } from "@/components/ui/money-input";
@@ -21,6 +21,7 @@ export function InputBar({
   partial = () => false,
   label = "No. Job / No. Stok",
   emptyText = "Tidak ada lagi yang menunggu.",
+  extra,
 }: {
   choices: JobChoice[];
   /** `grams` only for a choice that may be taken in part; null means all of it. */
@@ -29,10 +30,15 @@ export function InputBar({
   partial?: (c: JobChoice) => boolean;
   label?: string;
   emptyText?: string;
+  /** A control the row also needs before Tambah, e.g. Kerja's karyawan, kept between adds. */
+  extra?: ReactNode;
 }) {
   const [picked, setPicked] = useState<number | null>(null);
   const [gram, setGram] = useState("");
   const [error, setError] = useState("");
+  // After a pick the next key goes where it belongs, so a scanner's Enter adds the row (U3).
+  const gramBox = useRef<HTMLDivElement>(null);
+  const addButton = useRef<HTMLButtonElement>(null);
   const cur = picked ? choices[picked - 1] : undefined;
   const part = cur ? partial(cur) : false;
   const options = choices.map((c, i) => ({
@@ -76,15 +82,18 @@ export function InputBar({
             setPicked(v);
             setGram("");
             setError("");
+            const c = v ? choices[v - 1] : undefined;
+            setTimeout(() => (c && partial(c) ? gramBox.current?.querySelector("input") : addButton.current)?.focus(), 0);
           }}
         />
       </div>
       {part && (
-        <div style={{ width: 160 }}>
+        <div style={{ width: 160 }} ref={gramBox}>
           <MoneyInput size="sm" decimals={4} value={gram} placeholder={qtyText(cur!.grams)} ariaLabel="Gram diambil" onChange={setGram} />
         </div>
       )}
-      <button type="submit" className="btn sm primary" disabled={!cur}>
+      {extra}
+      <button ref={addButton} type="submit" className="btn sm primary" disabled={!cur}>
         <Icon name="plus" size={14} /> Tambah
       </button>
       <span className="uw-hint">{error || (part ? "Gram kosong = ambil semua; Enter = Tambah." : `${choices.length} tersedia. Job diambil utuh.`)}</span>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { CancelButton } from "@/components/ui/cancel-button";
@@ -10,7 +9,7 @@ import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
-import { ErrorBox, idc, qtyText, ro } from "@/components/production/execution-parts";
+import { ErrorBox, idc, qtyText, ro, WorkspaceCrumb, workspaceHref } from "@/components/production/execution-parts";
 import { InputBar } from "@/components/production/input-bar";
 import { startKerjaAction } from "@/app/actions/production-kerja";
 import type { KerjaOptions } from "@/lib/erp/production-kerja";
@@ -46,13 +45,15 @@ export function KerjaForm({ options, initialBucketIds }: { options: KerjaOptions
   const [note, setNote] = useState("");
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
+  /** The karyawan the next Job added gets; it stays chosen (the artifact's bar). */
+  const [nextWorker, setNextWorker] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const all = rowsOf(options.buckets);
   const rows = keys.flatMap((k) => all.find((w) => w.key === k) ?? []);
   const partai = rows[0]?.partaiId ?? null;
   const addable = all.filter((w) => !keys.includes(w.key) && (!rows.length || w.partaiId === partai));
-  const back = `/production/workspace/${encodeURIComponent(options.unit.label)}`;
+  const back = workspaceHref(options.unit.label, "Kerja");
   const employees = options.employees.map((e) => ({ value: String(e.id), label: `${e.label} · ${e.name}` }));
   const missing = rows.some((r) => !worker[r.key]);
 
@@ -78,13 +79,7 @@ export function KerjaForm({ options, initialBucketIds }: { options: KerjaOptions
   return (
     <>
       <div className="ph">
-        <div className="crumb">
-          <span>Dokumen</span>
-          <span>/</span>
-          <Link href="/production/kerja">Kerja</Link>
-          <span>/</span>
-          <span className="cur">Baru</span>
-        </div>
+        <WorkspaceCrumb path="/production/kerja" noun="Kerja" no={null} unitLabel={options.unit.label} unitTab="Kerja" />
         <div className="ph-row">
           <h1>
             <span className="ph-ico">
@@ -139,7 +134,16 @@ export function KerjaForm({ options, initialBucketIds }: { options: KerjaOptions
         <InputBar
           choices={addable.map((w) => ({ key: w.key, jobNo: w.jobNo, lotNo: w.buckets[0].lotNo, itemName: w.buckets[0].itemName, count: w.buckets.length, partaiId: w.partaiId, partaiNo: w.partaiNo, grams: gramOf(w) }))}
           emptyText={`Tidak ada lagi di Persiapan Kerja ${options.unit.label}${rows.length ? " untuk partai ini" : ""}.`}
-          onAdd={(k) => setKeys((x) => [...x, k])}
+          extra={
+            <div style={{ width: 220 }}>
+              <Select value={nextWorker} options={employees} placeholder="Karyawan…" onChange={setNextWorker} />
+            </div>
+          }
+          onAdd={(k) => {
+            if (!nextWorker) return toast("Pilih karyawan", "Satu Job dikerjakan satu karyawan.", "err");
+            setKeys((x) => [...x, k]);
+            setWorker((w) => ({ ...w, [k]: nextWorker }));
+          }}
         />
         <ErrorBox text={errors._lines} />
         {rows.length ? (

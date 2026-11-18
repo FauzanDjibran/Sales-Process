@@ -60,6 +60,8 @@ export type GradingInput = {
   note: string;
   items: GradingItemInput[];
   aux: AuxInput[];
+  /** Who graded: optional, several (P286). */
+  employee_ids?: number[];
 };
 export type GradingResult = { ok: true; id: number; no: string } | { ok: false; errors: Record<string, string> };
 
@@ -160,6 +162,9 @@ async function check(db: Db, input: GradingInput, strict: boolean, selfId: numbe
   if (partais.size > 1) errors._items = "Satu dokumen hanya untuk satu partai.";
 
   const aux = await checkAuxLines(input.aux, unitId, errors, db);
+  const wanted = [...new Set((Array.isArray(input.employee_ids) ? input.employee_ids : []).map(Number).filter((n) => n > 0))];
+  const employees = wanted.length ? await db.mEmployee.findMany({ where: { id: { in: wanted }, status: "Active" }, select: { id: true } }) : [];
+  if (employees.length !== wanted.length) errors.employee_ids = "Karyawan tidak ditemukan atau nonaktif.";
   if (Object.keys(errors).length) return { ok: false as const, errors };
   const single = groups.length === 1 ? groups[0].job_id : null;
   return {
@@ -167,6 +172,7 @@ async function check(db: Db, input: GradingInput, strict: boolean, selfId: numbe
     data: { unit_id: unitId!, grading_date: asDate(input.grading_date), job_id: single, note: text(input.note) },
     unit: unit!,
     step: step!,
+    employeeIds: wanted,
     groups,
     aux,
     items,
@@ -197,6 +203,7 @@ export async function createGrading(input: GradingInput, actorId: number): Promi
         inputs: { create: inputRows(c.groups) },
         outputs: { create: outputRows(c.groups) },
         aux: { create: auxRows(c.aux) },
+        employees: { create: c.employeeIds.map((employee_id) => ({ employee_id })) },
       },
     });
     await audit(tx, row.id, "TAMBAH", "create", actorId);
@@ -217,7 +224,11 @@ export async function updateGrading(id: number, input: GradingInput, actorId: nu
     await tx.prdGradingInput.deleteMany({ where: { grading_id: id } });
     await tx.prdGradingOutput.deleteMany({ where: { grading_id: id } });
     await tx.prdAuxUse.deleteMany({ where: { grading_id: id } });
-    await tx.prdGrading.update({ where: { id }, data: { ...c.data, grading_no, updated_by: actorId, inputs: { create: inputRows(c.groups) }, outputs: { create: outputRows(c.groups) }, aux: { create: auxRows(c.aux) } } });
+    await tx.prdGradingEmployee.deleteMany({ where: { grading_id: id } });
+    await tx.prdGrading.update({
+      where: { id },
+      data: { ...c.data, grading_no, updated_by: actorId, inputs: { create: inputRows(c.groups) }, outputs: { create: outputRows(c.groups) }, aux: { create: auxRows(c.aux) }, employees: { create: c.employeeIds.map((employee_id) => ({ employee_id })) } },
+    });
     await audit(tx, id, "UPDATE", "edit", actorId);
     return grading_no;
   });
@@ -226,7 +237,7 @@ export async function updateGrading(id: number, input: GradingInput, actorId: nu
 
 const auxRows = (aux: { line_no: number; bucket_id: number; qty: number }[]) => aux.map(({ line_no, bucket_id, qty }) => ({ line_no, bucket_id, qty }));
 
-const asInput = (g: Prisma.PrdGradingGetPayload<{ include: { inputs: true; outputs: true; aux: true } }>): GradingInput => {
+const asInput = (g: Prisma.PrdGradingGetPayload<{ include: { inputs: true; outputs: true; aux: true; employees: true } }>): GradingInput => {
   const groupNos = [...new Set(g.inputs.map((i) => i.group_no))].sort((x, y) => x - y);
   return {
     unit_id: g.unit_id,
@@ -243,11 +254,12 @@ const asInput = (g: Prisma.PrdGradingGetPayload<{ include: { inputs: true; outpu
       };
     }),
     aux: g.aux.sort((x, y) => x.line_no - y.line_no).map((a) => ({ bucket_id: a.bucket_id, qty: a.qty.toString() })),
+    employee_ids: g.employees.map((e) => e.employee_id),
   };
 };
 
 export async function transitionGrading(id: number, action: ProdDocAction, actorId: number, reason?: string, options: { dryRun?: boolean } = {}) {
-  const g = await prisma.prdGrading.findUnique({ where: { id }, include: { inputs: true, outputs: true, aux: true } });
+  const g = await prisma.prdGrading.findUnique({ where: { id }, include: { inputs: true, outputs: true, aux: true, employees: true } });
   if (!g) return { ok: false as const, errors: { _form: "Dokumen tidak ditemukan." } };
   if (!prodDocTransitionAllowed(GRADING_WORKFLOW, action, g.status as ProdDocStatus)) return { ok: false as const, errors: { _form: "Status dokumen sudah berubah. Muat ulang." } };
 
@@ -461,6 +473,8 @@ export type GradingView = {
   scrap: number;
   note: string | null;
   reason: string | null;
+  /** Who graded (P286). */
+  employeeIds: number[];
   /** The journal Posting wrote (A7.4); none when nothing changed in the books. */
   journalId: number | null;
   journalNo: string | null;
@@ -471,7 +485,7 @@ export type GradingView = {
 export async function getGrading(id: number): Promise<GradingView | null> {
   const g = await prisma.prdGrading.findUnique({
     where: { id },
-    include: { unit: true, inputs: { orderBy: { line_no: "asc" } }, outputs: { orderBy: { line_no: "asc" } }, aux: { orderBy: { line_no: "asc" } } },
+    include: { unit: true, inputs: { orderBy: { line_no: "asc" } }, outputs: { orderBy: { line_no: "asc" } }, aux: { orderBy: { line_no: "asc" } }, employees: true },
   });
   if (!g) return null;
   const jobMap = await jobsByIds(g.inputs.flatMap((i) => (i.job_id ? [i.job_id] : [])));
@@ -499,6 +513,7 @@ export async function getGrading(id: number): Promise<GradingView | null> {
     scrap: g.scrap_amount.toNumber(),
     note: g.note,
     reason: g.status_reason,
+    employeeIds: g.employees.map((e) => e.employee_id),
     journalId: g.journal_id,
     journalNo,
     outputs: g.outputs.map((o) => ({ groupNo: o.group_no, itemId: o.item_id, grams: o.grams.toNumber(), qty: o.qty.toNumber(), isBjl: o.is_bjl, trackingNo: o.tracking_no, value: o.value.toNumber() })),
@@ -512,20 +527,23 @@ export type GradingOptions = {
   inputs: BucketOption[];
   aux: BucketOption[];
   items: OutputItemOption[];
+  employees: { id: number; label: string; name: string }[];
 };
 
 export async function gradingOptions(keep: number[] = []): Promise<GradingOptions> {
   const units = await prisma.refUnit.findMany({ where: { steps: { some: { process: "Grading" } }, status: "Active" }, orderBy: { unit_label: "asc" } });
   const ids = units.map((u) => u.id);
-  const [inputs, aux, items] = await Promise.all([
+  const [inputs, aux, items, employees] = await Promise.all([
     persiapanOptions(ids, keep, prisma, "Grading"),
     auxOptions(ids, keep),
     prisma.mItem.findMany({ where: { item_type: "Barang", track_stock: true, status: "Active" }, orderBy: { item_label: "asc" }, include: { base_uom: true } }),
+    prisma.mEmployee.findMany({ where: { status: "Active" }, orderBy: { employee_name: "asc" }, select: { id: true, employee_label: true, employee_name: true } }),
   ]);
   return {
     units: units.map((u) => ({ id: u.id, label: u.unit_label, name: u.unit_name })),
     inputs,
     aux,
+    employees: employees.map((e) => ({ id: e.id, label: e.employee_label, name: e.employee_name })),
     items: items.map((i) => ({ id: i.id, label: i.item_label, name: i.item_name, uomLabel: i.base_uom.uom_label, isBjl: i.is_bjl })),
   };
 }

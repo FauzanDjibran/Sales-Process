@@ -1234,8 +1234,9 @@ model MEmployee {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  work_lines  PrdWorkLine[]
-  kerja_lines PrdKerjaLine[]
+  work_lines        PrdWorkLine[]
+  grading_employees PrdGradingEmployee[]
+  kerja_lines       PrdKerjaLine[]
 
   @@map("m_employee")
 }
@@ -4515,6 +4516,19 @@ model PrdBoxComponent {
   @@map("prd_box_component")
 }
 
+/// Who graded (P286): optional, several Karyawan per No. Grading.
+model PrdGradingEmployee {
+  id          Int @id @default(autoincrement())
+  grading_id  Int
+  employee_id Int
+
+  grading  PrdGrading @relation(fields: [grading_id], references: [id], onDelete: Cascade)
+  employee MEmployee  @relation(fields: [employee_id], references: [id])
+
+  @@unique([grading_id, employee_id])
+  @@map("prd_grading_employee")
+}
+
 /// Job Order (P283, T7): at a Unit's Job Order step, several No. Stok (in part, if wanted) and
 /// one target jenis become one new No. Stok `<largest input>-<n>` with its own No. Job and Job
 /// Order number `JO_<job no>`. `JOD_<unit>_<ddmmyy>_<NNNNN>`, posted in one step; no rate, gram
@@ -4812,11 +4826,12 @@ model PrdGrading {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  unit    RefUnit            @relation(fields: [unit_id], references: [id])
-  job     PrdJob?            @relation(fields: [job_id], references: [id], onDelete: Restrict)
-  inputs  PrdGradingInput[]
-  outputs PrdGradingOutput[]
-  aux     PrdAuxUse[]
+  unit      RefUnit              @relation(fields: [unit_id], references: [id])
+  job       PrdJob?              @relation(fields: [job_id], references: [id], onDelete: Restrict)
+  employees PrdGradingEmployee[]
+  inputs    PrdGradingInput[]
+  outputs   PrdGradingOutput[]
+  aux       PrdAuxUse[]
 
   @@index([unit_id])
   @@index([job_id])

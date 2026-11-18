@@ -131,6 +131,7 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logStockIssueTracking: ["src/lib/erp/stock-issue.ts"],
   // The production documents (R5, R7, R8): each named only by its module.
   prdGrading: ["src/lib/erp/production-grading.ts"],
+  prdGradingEmployee: ["src/lib/erp/production-grading.ts"],
   prdGradingOutput: ["src/lib/erp/production-grading.ts"],
   prdWork: ["src/lib/erp/production-work.ts"],
   prdWorkLine: ["src/lib/erp/production-work.ts"],
@@ -296,7 +297,7 @@ const PRODUCTION_TABLES = [
   "m_employee", "prd_user_unit",
   "prd_partai", "prd_job", "prd_tracking_info",
   "prd_balance", "prd_ledger", "prd_tracking_link",
-  "prd_grading", "prd_grading_input", "prd_grading_output", "prd_work", "prd_work_line", "prd_aux_use",
+  "prd_grading", "prd_grading_input", "prd_grading_output", "prd_grading_employee", "prd_work", "prd_work_line", "prd_aux_use",
   "prd_qc_check", "prd_qc_check_line", "prd_transfer", "prd_transfer_line", "prd_kerja", "prd_kerja_line", "prd_job_order", "prd_job_order_line", "prd_job_order_input", "prd_box", "prd_box_piece", "prd_box_component",
 ];
 

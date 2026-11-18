@@ -3,11 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
-import { ErrorBox, ExecutionHeader, idc, qtyText, refs, ro } from "@/components/production/execution-parts";
+import { ErrorBox, ExecutionHeader, idc, qtyText, refs, ro, PostedDialog, workspaceHref } from "@/components/production/execution-parts";
 import { InputBar } from "@/components/production/input-bar";
 import { ProdDocActions } from "@/components/production/production-doc-actions";
 import { saveQcCheckAction, transitionQcCheckAction } from "@/app/actions/production-execution";
@@ -46,7 +47,6 @@ export function QcForm({
   can,
   initialBucketIds = [],
   initialUnitId,
-  autoPost = false,
 }: {
   mode: "new" | "edit" | "view";
   check: QcView | null;
@@ -82,13 +82,16 @@ export function QcForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [postedNo, setPostedNo] = useState<string | null>(null);
 
   const touched = () => {
     setDirty(true);
     setErrors({});
   };
   const unit = options.units.find((u) => u.id === unitId);
-  const workspace = unit ? `/production/workspace/${encodeURIComponent(unit.label)}?tab=qc` : null;
+  const unitLabel = check?.unitLabel ?? unit?.label ?? null;
+  const backToUnit = unitLabel ? workspaceHref(unitLabel, "qc") : QC_CHECK_PATH;
   // While a Draft, a Job is what waits here now; once posted, what the document held.
   const waiting = rowsOf(options.rows.filter((r) => r.unitId === unitId && r.qty > 0));
   const rows: Row[] = check?.status === "Posted" || !editing ? rowsOf(stored) : keys.flatMap((k) => waiting.find((w) => w.key === k) ?? []);
@@ -110,15 +113,29 @@ export function QcForm({
       note,
       lines: rows.flatMap((r) => r.buckets.map((b) => ({ bucket_id: b.id, decision: decided[r.key]?.decision ?? null, reason: decided[r.key]?.reason ?? "" }))),
     });
-    setSaving(false);
     if (!result.ok) {
+      setSaving(false);
+      setAsking(false);
       setErrors(result.errors);
       toast(result.errors._form ? "Tidak diizinkan" : "Belum bisa disimpan", result.errors._form ?? result.errors._lines ?? "Periksa kembali isian.", "err");
       return;
     }
     setDirty(false);
-    if (!post) toast("QC Check disimpan", `${result.no} · Draft`, "ok");
-    router.push(`${QC_CHECK_PATH}/${result.id}${post ? "?post=1" : ""}`);
+    if (!post) {
+      setSaving(false);
+      toast("QC Check disimpan", `${result.no} · Draft`, "ok");
+      router.push(backToUnit);
+      return;
+    }
+    const done = await transitionQcCheckAction(result.id, "post", "");
+    setSaving(false);
+    setAsking(false);
+    if (!done.ok) {
+      toast("Draft disimpan, belum terposting", Object.values(done.errors)[0] ?? "Periksa kembali isian.", "err");
+      router.push(`${QC_CHECK_PATH}/${result.id}/edit`);
+      return;
+    }
+    setPostedNo(result.no);
   }
 
   return (
@@ -134,9 +151,11 @@ export function QcForm({
         dirty={dirty}
         saving={saving}
         onSave={() => save(false)}
-        onPost={can.post ? () => save(true) : undefined}
+        onPost={can.post ? () => setAsking(true) : undefined}
         postDisabled={!rows.length || undecided > 0}
-        backHref={check ? `${QC_CHECK_PATH}/${check.id}` : (workspace ?? QC_CHECK_PATH)}
+        backHref={backToUnit}
+        unitLabel={unitLabel}
+        unitTab="qc"
         actions={
           check && (
             <ProdDocActions
@@ -146,8 +165,7 @@ export function QcForm({
               status={check.status}
               can={can}
               run={(action, reason) => transitionQcCheckAction(check.id, action, reason)}
-              autoPost={autoPost}
-              doneHref={workspace ?? undefined}
+              doneHref={backToUnit}
             />
           )
         }
@@ -352,6 +370,24 @@ export function QcForm({
         </div>
       </div>
 
+      <ConfirmDialog
+        open={asking}
+        icon="check"
+        tone="brand"
+        title="Posting QC Check?"
+        subject={unitLabel ?? undefined}
+        body={`${rows.length} baris: Lulus ke Stand By, Balik ke Persiapan proses pertama. Dokumen yang sudah diposting tidak dapat diubah.`}
+        confirmLabel="Ya, Posting"
+        busy={saving}
+        onConfirm={() => save(true)}
+        onCancel={() => setAsking(false)}
+      />
+      <PostedDialog
+        no={postedNo}
+        done="Selesai"
+        onDone={() => router.push(backToUnit)}
+        onAgain={unitLabel ? () => router.push(`/production/qc-check/new?unit=${encodeURIComponent(unitLabel)}&n=${Date.now()}`) : undefined}
+      />
     </>
   );
 }

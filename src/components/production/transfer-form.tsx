@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { CancelButton } from "@/components/ui/cancel-button";
@@ -10,7 +9,7 @@ import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
-import { ErrorBox, idc, qtyText, ro } from "@/components/production/execution-parts";
+import { ErrorBox, idc, qtyText, ro, PostedDialog, WorkspaceCrumb, workspaceHref } from "@/components/production/execution-parts";
 import { InputBar } from "@/components/production/input-bar";
 import { sendTransferAction } from "@/app/actions/production-transfer";
 import { TRANSFER_KIND_TEXT } from "@/lib/erp/production-transfer-shape";
@@ -52,6 +51,7 @@ export function TransferForm({ options, initialBucketIds }: { options: TransferO
   const [routeKey, setRouteKey] = useState("");
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [posted, setPosted] = useState<{ no: string; push: boolean } | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const all = rowsOf(options.buckets);
@@ -63,7 +63,7 @@ export function TransferForm({ options, initialBucketIds }: { options: TransferO
   const routes = options.routes.filter((r) => !rows.length || r.routingId === routing);
   const routeId = (r: TransferRoute) => `${r.toUnitId}:${r.line?.id ?? ""}`;
   const route = routes.find((r) => routeId(r) === routeKey) ?? (routes.length === 1 ? routes[0] : null);
-  const back = `/production/workspace/${encodeURIComponent(options.unit.label)}?tab=standby`;
+  const back = workspaceHref(options.unit.label, "standby");
   const touched = () => setErrors({});
 
   const lines = rows.flatMap((r) => r.buckets.map((b) => ({ bucket_id: b.id, qty: r.jobNo ? b.qty : (qty[b.id] ?? String(b.qty)) })));
@@ -78,8 +78,7 @@ export function TransferForm({ options, initialBucketIds }: { options: TransferO
       toast(result.errors._form ? "Tidak diizinkan" : "Belum bisa dikirim", result.errors._form ?? result.errors._lines ?? result.errors.to_unit_id ?? result.errors.line_id ?? "Periksa kembali isian.", "err");
       return;
     }
-    toast(result.kind === "Push" ? "Dokumen Push diposting" : "BSTB diajukan", `${result.no}${result.kind === "Push" ? " · barang masuk Persiapan" : " · barang Dalam Perjalanan"}`, "ok");
-    router.push(`/production/transfer/${result.id}`);
+    setPosted({ no: result.no, push: result.kind === "Push" });
   }
 
   const kind = route?.kind ?? null;
@@ -87,20 +86,13 @@ export function TransferForm({ options, initialBucketIds }: { options: TransferO
   return (
     <>
       <div className="ph">
-        <div className="crumb">
-          <span>Dokumen</span>
-          <span>/</span>
-          <Link href="/production/transfer">Push dan BSTB</Link>
-          <span>/</span>
-          <span className="cur">Baru</span>
-        </div>
+        <WorkspaceCrumb path="/production/transfer" noun="Push dan BSTB" no={null} unitLabel={options.unit.label} unitTab="standby" />
         <div className="ph-row">
           <h1>
             <span className="ph-ico">
               <Icon name="truck" size={16} />
             </span>
-            Kirim dari {options.unit.label}
-            {kind && <span className="bdg t-info">{TRANSFER_KIND_TEXT[kind]}</span>}
+            {kind ? `${TRANSFER_KIND_TEXT[kind]} Baru` : `Kirim dari ${options.unit.label}`}
           </h1>
           <div className="ph-act">
             <CancelButton href={back} dirty={rows.length > 0} />
@@ -174,6 +166,22 @@ export function TransferForm({ options, initialBucketIds }: { options: TransferO
             <p>Job dikirim utuh. No. Stok tanpa Job dikirim sebanyak gram yang diisi, dan tiap ambilan mendapat No. Job sendiri.</p>
           </div>
         </div>
+        {addable.length > 0 && (
+          <div className="toolbar" style={{ paddingBottom: 0, borderBottom: 0 }}>
+            <span className="tspace" />
+            <button
+              className="btn sm"
+              onClick={() => {
+                // All of one partai at once: a Job whole, a No. Stok without a Job all of it (the checkpoint's way, T5).
+                const p = rows.length ? partai : addable[0].partaiId;
+                setKeys((x) => [...x, ...addable.filter((w) => w.partaiId === p).map((w) => w.key)]);
+                touched();
+              }}
+            >
+              Ambil Semua
+            </button>
+          </div>
+        )}
         <InputBar
           choices={addable.map((w) => ({ key: w.key, jobNo: w.jobNo, lotNo: w.buckets[0].lotNo, itemName: w.buckets[0].itemName, count: w.buckets.length, partaiId: w.partaiId, partaiNo: w.partaiNo, grams: gramOf(w) }))}
           partial={(c) => !c.jobNo}
@@ -253,6 +261,13 @@ export function TransferForm({ options, initialBucketIds }: { options: TransferO
       </div>
 
 
+      <PostedDialog
+        no={posted ? `${posted.no}${posted.push ? " · barang masuk Persiapan tujuan" : " · Dalam Perjalanan, menunggu Terima"}` : null}
+        done="Selesai"
+        again="Kirim Lagi"
+        onDone={() => router.push(back)}
+        onAgain={() => router.push(`/production/transfer/new?unit=${encodeURIComponent(options.unit.label)}&n=${Date.now()}`)}
+      />
       <ConfirmDialog
         open={asking}
         icon="send"

@@ -4,15 +4,16 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
-import { AuxCard, ErrorBox, ExecutionHeader, idc, money, newKey, qtyText, refs, ro, type AuxRow } from "@/components/production/execution-parts";
+import { PostedDialog, workspaceHref, AuxCard, ErrorBox, ExecutionHeader, idc, money, newKey, qtyText, refs, ro, type AuxRow } from "@/components/production/execution-parts";
 import { InputBar } from "@/components/production/input-bar";
 import { ProdDocActions } from "@/components/production/production-doc-actions";
-import { previewWorkAction, saveWorkAction, transitionWorkAction } from "@/app/actions/production-execution";
+import { saveWorkAction, transitionWorkAction } from "@/app/actions/production-execution";
 import { unitCost } from "@/lib/erp/production-execution";
 import { WORK_PATH, WORK_WORKFLOW } from "@/lib/erp/production-execution-workflow";
 import type { ProdDocAbilities } from "@/lib/erp/production-doc-workflow";
@@ -45,7 +46,6 @@ export function WorkForm({
   can,
   initialBucketIds = [],
   initialUnitId,
-  autoPost = false,
 }: {
   mode: "new" | "edit" | "view";
   work: WorkView | null;
@@ -71,13 +71,16 @@ export function WorkForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const [postedNo, setPostedNo] = useState<string | null>(null);
 
   const touched = () => {
     setDirty(true);
     setErrors({});
   };
   const unit = options.units.find((u) => u.id === unitId);
-  const workspace = unit ? `/production/workspace/${encodeURIComponent(unit.label)}?tab=persiapan` : null;
+  const unitLabel = work?.unitLabel ?? unit?.label ?? null;
+  const backToUnit = unitLabel ? workspaceHref(unitLabel, "Assign") : WORK_PATH;
   const byId = new Map(options.inputs.map((b) => [b.id, b]));
   const pickOf = new Map(picked.map((p) => [p.bucket_id, p]));
   const chosen = picked.flatMap((p) => byId.get(p.bucket_id) ?? []);
@@ -110,15 +113,29 @@ export function WorkForm({
       lines: picked.map((p) => ({ bucket_id: p.bucket_id, qty: p.qty, employee_id: p.employee_id })),
       aux: aux.map((a) => ({ bucket_id: a.bucket_id, qty: a.qty, job_id: a.job_id })),
     });
-    setSaving(false);
     if (!result.ok) {
+      setSaving(false);
+      setAsking(false);
       setErrors(result.errors);
       toast(result.errors._form ? "Tidak diizinkan" : "Belum bisa disimpan", result.errors._form ?? result.errors._lines ?? "Periksa kembali isian.", "err");
       return;
     }
     setDirty(false);
-    if (!post) toast("Pengerjaan Unit disimpan", `${result.no} · Draft`, "ok");
-    router.push(`${WORK_PATH}/${result.id}${post ? "?post=1" : ""}`);
+    if (!post) {
+      setSaving(false);
+      toast("Pengerjaan Unit disimpan", `${result.no} · Draft`, "ok");
+      router.push(backToUnit);
+      return;
+    }
+    const done = await transitionWorkAction(result.id, "post", "");
+    setSaving(false);
+    setAsking(false);
+    if (!done.ok) {
+      toast("Draft disimpan, belum terposting", Object.values(done.errors)[0] ?? "Periksa kembali isian.", "err");
+      router.push(`${WORK_PATH}/${result.id}/edit`);
+      return;
+    }
+    setPostedNo(result.no);
   }
 
   const gramsOf = (b: BucketOption, qty: number) => (b.qty > 0 ? ((b.grams ?? 0) * qty) / b.qty : 0);
@@ -151,8 +168,10 @@ export function WorkForm({
         dirty={dirty}
         saving={saving}
         onSave={() => save(false)}
-        onPost={can.post ? () => save(true) : undefined}
-        backHref={work ? `${WORK_PATH}/${work.id}` : (workspace ?? WORK_PATH)}
+        onPost={can.post ? () => setAsking(true) : undefined}
+        backHref={backToUnit}
+        unitLabel={unitLabel}
+        unitTab="Assign"
         actions={
           work && (
             <ProdDocActions
@@ -162,9 +181,7 @@ export function WorkForm({
               status={work.status}
               can={can}
               run={(action, reason) => transitionWorkAction(work.id, action, reason)}
-              preview={() => previewWorkAction(work.id)}
-              autoPost={autoPost}
-              doneHref={workspace ?? undefined}
+              doneHref={backToUnit}
             />
           )
         }
@@ -435,6 +452,24 @@ export function WorkForm({
         </div>
       </div>
 
+      <ConfirmDialog
+        open={asking}
+        icon="check"
+        tone="brand"
+        title="Posting Pengerjaan Unit?"
+        subject={unitLabel ?? undefined}
+        body={`${lines.length} No. Job dikerjakan. Gram dan No. Stok tetap; dokumen yang sudah diposting tidak dapat diubah.`}
+        confirmLabel="Ya, Posting"
+        busy={saving}
+        onConfirm={() => save(true)}
+        onCancel={() => setAsking(false)}
+      />
+      <PostedDialog
+        no={postedNo}
+        done="Selesai"
+        onDone={() => router.push(backToUnit)}
+        onAgain={unitLabel ? () => router.push(`/production/work/new?unit=${encodeURIComponent(unitLabel)}&n=${Date.now()}`) : undefined}
+      />
     </>
   );
 }

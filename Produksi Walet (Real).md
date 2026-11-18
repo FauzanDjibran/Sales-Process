@@ -250,6 +250,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | W138 | **Job Order dibangun** (P283). Moulding: Grading → Job Order → Assign + QC. Job Order mencampur beberapa No. Stok (boleh sebagian) menjadi satu No. Stok baru `<input terbesar>-<n>` dengan No. Job dan `JO_<no job>`; gram tetap, tanpa biaya Unit; biaya UML dibebankan saat Assign. |
 | W139 | **Packing 95 dibangun** (P284). BoM Packing per Nama Jual (Item kotak) di ERP, satu versi aktif. Kotak: rekomendasi keping dari seluruh Persiapan, scan atau Masukkan (Manual), CAIQ unik per keping, Tutup Kotak melahirkan No. Stok `KTK-<ddmmyy>-<nnn>` di Stand By tanpa Job, nilai keping + rate UP5 per gram + bahan penolong. |
 | W140 | **Satu baris input untuk semua form, satu aksi utama per tab** (P285). Grading, Pengerjaan, QC Check, Push / BSTB, Kerja dan Job Order diisi dengan memilih atau scan No. Job / No. Stok, mengisi gram bila boleh sebagian, lalu Tambah; satu dokumen bisa memuat banyak Job. Tiap tab Workspace punya tombol aksinya (Buat Grading, Buat Job Order, Catat Pengerjaan, Mulai Kerja, Buat Kotak, QC Check, Kirim). |
+| W141 | **Alur form produksi seperti artifact** (P286). No. Grading: pilih Job dulu, lalu tiap Job diisi di popup timbangan; satu form banyak grading; Karyawan opsional. Simpan = Draft, Posting = langsung dari form, lalu Buat Lagi / Selesai. Kirim dan BSTB: No. Stok tanpa Job per gram, Job utuh. Breadcrumb dan Batal kembali ke tab Unit di Workspace. Kartu Unit satu angka per proses. |
 
 ---
 
