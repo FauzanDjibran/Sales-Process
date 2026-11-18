@@ -10,13 +10,15 @@
  * Writes: two Gudang without locations, the production items (in grams, one BJL),
  * the kotak items per Nama Jual, bahan penolong, one supplier of sarang walet, and
  * a Standard Cost version with one rate per Unit (P281), made active, and a BoM
- * Packing per Nama Jual (P284).
+ * Packing per Nama Jual (P284), the current fiscal year Open (a PO and every
+ * posting need it) and two Karyawan for Pengerjaan Unit and Kerja.
  */
 import { prisma } from "../src/lib/prisma";
 import { ENTITIES } from "../src/lib/erp/entities";
 import { nextCode } from "../src/lib/erp/records";
 import { writeRateCollections } from "../src/lib/erp/production-master";
 import { SUPPLIER_CATEGORY } from "../src/lib/erp/entities";
+import { ensureFiscalPeriods, fiscalYearShape } from "../src/lib/erp/fiscal";
 
 const WAREHOUSES: [label: string, name: string][] = [
   ["GBB", "Gudang Bahan Baku"],
@@ -77,6 +79,25 @@ async function main() {
   const actor = sistem.id;
   const made: string[] = [];
   const audit = (entityKey: string, rowId: number) => prisma.auditLog.create({ data: { entity_key: entityKey, row_id: rowId, action: "TAMBAH", event: "create", by: actor } });
+
+  const year = new Date().getUTCFullYear();
+  if (!(await prisma.accFiscalYear.findFirst({ where: { year_label: String(year) } }))) {
+    const code = await nextCode(entity("acc_fiscal_year"));
+    const fy = await prisma.$transaction(async (tx) => {
+      const row = await tx.accFiscalYear.create({ data: { year_code: code, year_label: String(year), ...fiscalYearShape(year), status: "Open", created_by: actor } });
+      await ensureFiscalPeriods(tx, { fiscalYearId: row.id, year, actorId: actor });
+      return row;
+    });
+    await audit("acc_fiscal_year", fy.id);
+    made.push(`Tahun Buku ${year}`);
+  }
+
+  for (const [label, name] of [["ANI", "Ani"], ["BUDI", "Budi"]] as const) {
+    if (await prisma.mEmployee.findFirst({ where: { employee_label: label } })) continue;
+    const row = await prisma.mEmployee.create({ data: { employee_code: await nextCode(entity("m_employee")), employee_label: label, employee_name: name, created_by: actor } });
+    await audit("m_employee", row.id);
+    made.push(`Karyawan ${name}`);
+  }
 
   for (const [label, name] of WAREHOUSES) {
     if (await prisma.refWarehouse.findFirst({ where: { OR: [{ warehouse_label: label }, { warehouse_name: name }] } })) continue;
