@@ -52,15 +52,13 @@ import { prodDocTransitionAllowed, type ProdDocAction, type ProdDocStatus } from
 type Db = Prisma.TransactionClient | typeof prisma;
 
 export type GradingOutputInput = { item_id: number | null; grams: number | string };
+/** One document line: a Job taken whole, or one loose No. Stok taken in part (T6), with the outputs made from it. */
+export type GradingItemInput = { job_id: number | null; bucket_id: number | null; qty: number | string; outputs: GradingOutputInput[] };
 export type GradingInput = {
   unit_id: number | null;
   grading_date: string;
-  /** The Job taken whole; for goods without one, `bucket_id` and `qty`. */
-  job_id: number | null;
-  bucket_id: number | null;
-  qty: number | string;
   note: string;
-  outputs: GradingOutputInput[];
+  items: GradingItemInput[];
   aux: AuxInput[];
 };
 export type GradingResult = { ok: true; id: number; no: string } | { ok: false; errors: Record<string, string> };
@@ -76,6 +74,14 @@ async function outputItems(ids: number[], db: Db) {
   return new Map(rows.map((r) => [r.id, r]));
 }
 
+type CheckedGroup = {
+  group_no: number;
+  job_id: number | null;
+  parentLotId: number;
+  inputs: { line_no: number; bucket_id: number; qty: number; bucket: BucketView }[];
+  outputs: { line_no: number; item_id: number; qty: number; grams: number }[];
+};
+
 async function check(db: Db, input: GradingInput, strict: boolean, selfId: number | null = null) {
   const errors: Record<string, string> = {};
   const unitId = Number(input.unit_id) || null;
@@ -86,63 +92,82 @@ async function check(db: Db, input: GradingInput, strict: boolean, selfId: numbe
   else if (unit.status !== "Active") errors.unit_id = `Unit ${unit.unit_label} nonaktif.`;
   if (!DAY.test(input.grading_date)) errors.grading_date = "Isi tanggal.";
 
-  const inputs: { line_no: number; bucket_id: number; qty: number; bucket: BucketView }[] = [];
-  const jobId = Number(input.job_id) || null;
-  let parentLotId: number | null = null;
-  if (jobId) {
-    const job = (await jobsByIds([jobId], db)).get(jobId);
-    const held = unitId ? (await availableBuckets({ unitIds: [unitId], stage: "Preparation" }, db)).filter((b) => b.jobId === jobId && b.stepId === step?.id && !b.auxiliary && b.qty > 0) : [];
-    const twin = job && !strict ? await db.prdGrading.findFirst({ where: { job_id: jobId, status: "Draft", ...(selfId ? { id: { not: selfId } } : {}) }, select: { grading_no: true } }) : null;
-    if (!job) errors.job_id = "No. Job tidak ditemukan.";
-    else if (!held.length) errors.job_id = `No. Job ${job.no} tidak ada di Persiapan unit ini.`;
-    else if (new Set(held.map((b) => b.partaiId)).size > 1) errors.job_id = `No. Job ${job.no} memegang beberapa partai; satu No. Grading satu partai.`;
-    else if (twin) errors.job_id = `No. Job ${job.no} sudah ada di Draft ${twin.grading_no}.`;
-    else {
-      held.sort((a, b) => a.lotNo.localeCompare(b.lotNo));
-      held.forEach((b, i) => inputs.push({ line_no: i + 1, bucket_id: b.id, qty: b.qty, bucket: b }));
-      parentLotId = job.trackingId ?? held[0].lotId;
+  const rawItems = Array.isArray(input.items) ? input.items : [];
+  if (!rawItems.length) errors._items = "Pilih minimal satu No. Job atau No. Stok.";
+  const held = unitId && step ? (await availableBuckets({ unitIds: [unitId], stage: "Preparation" }, db)).filter((b) => b.stepId === step.id && !b.auxiliary && b.qty > 0) : [];
+  const allOutputs = rawItems.flatMap((it) => (Array.isArray(it.outputs) ? it.outputs : []).flatMap((o) => (o.item_id ? [Number(o.item_id)] : [])));
+  const items = await outputItems(allOutputs, db);
+
+  const groups: CheckedGroup[] = [];
+  const seenJobs = new Set<number>();
+  const seenBuckets = new Set<number>();
+  let lineNo = 0;
+  let outNo = 0;
+  for (const [g, it] of rawItems.entries()) {
+    const key = (f: string) => `items.${g}.${f}`;
+    const jobId = Number(it.job_id) || null;
+    const inputs: CheckedGroup["inputs"] = [];
+    let parentLotId: number | null = null;
+    if (jobId) {
+      const job = (await jobsByIds([jobId], db)).get(jobId);
+      const rows = held.filter((b) => b.jobId === jobId);
+      const twin = job && !strict ? await db.prdGradingInput.findFirst({ where: { job_id: jobId, grading: { status: "Draft", ...(selfId ? { id: { not: selfId } } : {}) } }, select: { grading: { select: { grading_no: true } } } }) : null;
+      if (!job) errors[key("job_id")] = "No. Job tidak ditemukan.";
+      else if (seenJobs.has(jobId)) errors[key("job_id")] = `No. Job ${job.no} dipilih lebih dari sekali.`;
+      else if (!rows.length) errors[key("job_id")] = `No. Job ${job.no} tidak ada di Persiapan Grading unit ini.`;
+      else if (new Set(rows.map((b) => b.partaiId)).size > 1) errors[key("job_id")] = `No. Job ${job.no} memegang beberapa partai; satu No. Grading satu partai.`;
+      else if (twin) errors[key("job_id")] = `No. Job ${job.no} sudah ada di Draft ${twin.grading.grading_no}.`;
+      else {
+        seenJobs.add(jobId);
+        rows.sort((x, y) => x.lotNo.localeCompare(y.lotNo));
+        for (const b of rows) inputs.push({ line_no: ++lineNo, bucket_id: b.id, qty: b.qty, bucket: b });
+        parentLotId = job.trackingId ?? rows[0].lotId;
+      }
+    } else {
+      const bucket = held.find((b) => b.id === Number(it.bucket_id)) ?? null;
+      const qty = parseQty(it.qty);
+      if (!bucket) errors[key("bucket_id")] = "Pilih barang dari Persiapan Grading unit ini.";
+      else if (bucket.jobId) errors[key("bucket_id")] = `No. Stok ${bucket.lotNo} ada di No. Job ${bucket.jobNo}: grading mengambil Job itu utuh.`;
+      else if (seenBuckets.has(bucket.id)) errors[key("bucket_id")] = `No. Stok ${bucket.lotNo} dipilih lebih dari sekali.`;
+      else if (!(qty > 0)) errors[key("qty")] = "Isi jumlah yang diambil.";
+      else if (!fourDecimals(qty)) errors[key("qty")] = "Paling banyak 4 angka desimal.";
+      else if (units(qty) > units(bucket.qty)) errors[key("qty")] = `Melebihi saldo (${bucket.qty} ${bucket.uomLabel}).`;
+      else {
+        seenBuckets.add(bucket.id);
+        inputs.push({ line_no: ++lineNo, bucket_id: bucket.id, qty: fromUnits(units(qty)), bucket });
+        parentLotId = bucket.lotId;
+      }
     }
-  } else {
-    const bucketId = Number(input.bucket_id) || null;
-    const bucket = bucketId ? (await bucketsByIds([bucketId], db)).get(bucketId) : null;
-    const qty = parseQty(input.qty);
-    if (!bucket) errors.bucket_id = "Pilih barang dari Persiapan.";
-    else if (bucket.unitId !== unitId || bucket.stage !== "Preparation" || bucket.stepId !== step?.id || bucket.auxiliary) errors.bucket_id = `No. Stok ${bucket.lotNo} tidak ada di Persiapan unit ini.`;
-    else if (bucket.jobId) errors.bucket_id = `No. Stok ${bucket.lotNo} ada di No. Job ${bucket.jobNo}: grading mengambil Job itu utuh.`;
-    else if (!(qty > 0)) errors.qty = "Isi jumlah yang diambil.";
-    else if (!fourDecimals(qty)) errors.qty = "Paling banyak 4 angka desimal.";
-    else if (units(qty) > units(bucket.qty)) errors.qty = `Melebihi saldo (${bucket.qty} ${bucket.uomLabel}).`;
-    else {
-      inputs.push({ line_no: 1, bucket_id: bucket.id, qty: fromUnits(units(qty)), bucket });
-      parentLotId = bucket.lotId;
-    }
+
+    const raw = Array.isArray(it.outputs) ? it.outputs : [];
+    const outputs: CheckedGroup["outputs"] = [];
+    raw.forEach((o, i) => {
+      const k = (f: string) => key(`outputs.${i}.${f}`);
+      const item = items.get(Number(o.item_id));
+      const grams = parseQty(o.grams);
+      if (!item) errors[k("item_id")] = "Pilih Item.";
+      else if (item.item_type !== "Barang" || !item.track_stock || item.status !== "Active") errors[k("item_id")] = `${item.item_label} bukan Barang aktif dengan Kelola Stok.`;
+      if (!(grams > 0)) errors[k("grams")] = "Isi gram lebih dari 0.";
+      else if (!fourDecimals(grams)) errors[k("grams")] = "Paling banyak 4 angka desimal.";
+      if (item && grams > 0) outputs.push({ line_no: ++outNo, item_id: item.id, qty: item.base_uom.uom_label === GRAM_UOM ? grams : 1, grams });
+    });
+    if (strict && !raw.length) errors[key("outputs")] = "Isi minimal satu output.";
+    if (inputs.length) groups.push({ group_no: g + 1, job_id: jobId, parentLotId: parentLotId!, inputs, outputs });
   }
 
-  const raw = Array.isArray(input.outputs) ? input.outputs : [];
-  const items = await outputItems(raw.flatMap((o) => (o.item_id ? [Number(o.item_id)] : [])), db);
-  const outputs: { line_no: number; item_id: number; qty: number; grams: number }[] = [];
-  raw.forEach((o, i) => {
-    const key = (f: string) => `outputs.${i}.${f}`;
-    const item = items.get(Number(o.item_id));
-    const grams = parseQty(o.grams);
-    if (!item) errors[key("item_id")] = "Pilih Item.";
-    else if (item.item_type !== "Barang" || !item.track_stock || item.status !== "Active") errors[key("item_id")] = `${item.item_label} bukan Barang aktif dengan Kelola Stok.`;
-    if (!(grams > 0)) errors[key("grams")] = "Isi gram lebih dari 0.";
-    else if (!fourDecimals(grams)) errors[key("grams")] = "Paling banyak 4 angka desimal.";
-    if (item && grams > 0) outputs.push({ line_no: outputs.length + 1, item_id: item.id, qty: item.base_uom.uom_label === GRAM_UOM ? grams : 1, grams });
-  });
-  if (strict && !raw.length) errors._outputs = "Isi minimal satu output.";
+  // One document, one partai (W76); before a partai the rule does not apply.
+  const partais = new Set(groups.flatMap((x) => x.inputs.map((i) => i.bucket.partaiId)));
+  if (partais.size > 1) errors._items = "Satu dokumen hanya untuk satu partai.";
 
   const aux = await checkAuxLines(input.aux, unitId, errors, db);
   if (Object.keys(errors).length) return { ok: false as const, errors };
+  const single = groups.length === 1 ? groups[0].job_id : null;
   return {
     ok: true as const,
-    data: { unit_id: unitId!, grading_date: asDate(input.grading_date), job_id: jobId, note: text(input.note) },
+    data: { unit_id: unitId!, grading_date: asDate(input.grading_date), job_id: single, note: text(input.note) },
     unit: unit!,
     step: step!,
-    inputs,
-    parentLotId: parentLotId!,
-    outputs,
+    groups,
     aux,
     items,
   };
@@ -157,6 +182,9 @@ async function nextNo(tx: Prisma.TransactionClient, series: string) {
   return nextDailyNumber(series, row?.grading_no ?? null);
 }
 
+const inputRows = (groups: CheckedGroup[]) => groups.flatMap((g) => g.inputs.map((i) => ({ line_no: i.line_no, group_no: g.group_no, job_id: g.job_id, bucket_id: i.bucket_id, qty: i.qty })));
+const outputRows = (groups: CheckedGroup[]) => groups.flatMap((g) => g.outputs.map((o) => ({ line_no: o.line_no, group_no: g.group_no, item_id: o.item_id, qty: o.qty, grams: o.grams })));
+
 export async function createGrading(input: GradingInput, actorId: number): Promise<GradingResult> {
   const c = await check(prisma, input, false);
   if (!c.ok) return c;
@@ -166,8 +194,8 @@ export async function createGrading(input: GradingInput, actorId: number): Promi
         ...c.data,
         grading_no: await nextNo(tx, unitSeries("NG", c.unit.unit_label, c.data.grading_date)),
         created_by: actorId,
-        inputs: { create: inputRows(c.inputs) },
-        outputs: { create: c.outputs },
+        inputs: { create: inputRows(c.groups) },
+        outputs: { create: outputRows(c.groups) },
         aux: { create: auxRows(c.aux) },
       },
     });
@@ -189,27 +217,34 @@ export async function updateGrading(id: number, input: GradingInput, actorId: nu
     await tx.prdGradingInput.deleteMany({ where: { grading_id: id } });
     await tx.prdGradingOutput.deleteMany({ where: { grading_id: id } });
     await tx.prdAuxUse.deleteMany({ where: { grading_id: id } });
-    await tx.prdGrading.update({ where: { id }, data: { ...c.data, grading_no, updated_by: actorId, inputs: { create: inputRows(c.inputs) }, outputs: { create: c.outputs }, aux: { create: auxRows(c.aux) } } });
+    await tx.prdGrading.update({ where: { id }, data: { ...c.data, grading_no, updated_by: actorId, inputs: { create: inputRows(c.groups) }, outputs: { create: outputRows(c.groups) }, aux: { create: auxRows(c.aux) } } });
     await audit(tx, id, "UPDATE", "edit", actorId);
     return grading_no;
   });
   return { ok: true, id, no };
 }
 
-const inputRows = (inputs: { line_no: number; bucket_id: number; qty: number }[]) => inputs.map(({ line_no, bucket_id, qty }) => ({ line_no, bucket_id, qty }));
-
 const auxRows = (aux: { line_no: number; bucket_id: number; qty: number }[]) => aux.map(({ line_no, bucket_id, qty }) => ({ line_no, bucket_id, qty }));
 
-const asInput = (g: Prisma.PrdGradingGetPayload<{ include: { inputs: true; outputs: true; aux: true } }>): GradingInput => ({
-  unit_id: g.unit_id,
-  grading_date: isoDay(g.grading_date),
-  job_id: g.job_id,
-  bucket_id: g.job_id ? null : (g.inputs[0]?.bucket_id ?? null),
-  qty: g.job_id ? "" : (g.inputs[0]?.qty.toString() ?? ""),
-  note: g.note ?? "",
-  outputs: g.outputs.sort((a, b) => a.line_no - b.line_no).map((o) => ({ item_id: o.item_id, grams: o.grams.toString() })),
-  aux: g.aux.sort((a, b) => a.line_no - b.line_no).map((a) => ({ bucket_id: a.bucket_id, qty: a.qty.toString() })),
-});
+const asInput = (g: Prisma.PrdGradingGetPayload<{ include: { inputs: true; outputs: true; aux: true } }>): GradingInput => {
+  const groupNos = [...new Set(g.inputs.map((i) => i.group_no))].sort((x, y) => x - y);
+  return {
+    unit_id: g.unit_id,
+    grading_date: isoDay(g.grading_date),
+    note: g.note ?? "",
+    items: groupNos.map((n) => {
+      const ins = g.inputs.filter((i) => i.group_no === n).sort((x, y) => x.line_no - y.line_no);
+      const job = ins[0].job_id;
+      return {
+        job_id: job,
+        bucket_id: job ? null : ins[0].bucket_id,
+        qty: job ? "" : ins[0].qty.toString(),
+        outputs: g.outputs.filter((o) => o.group_no === n).sort((x, y) => x.line_no - y.line_no).map((o) => ({ item_id: o.item_id, grams: o.grams.toString() })),
+      };
+    }),
+    aux: g.aux.sort((x, y) => x.line_no - y.line_no).map((a) => ({ bucket_id: a.bucket_id, qty: a.qty.toString() })),
+  };
+};
 
 export async function transitionGrading(id: number, action: ProdDocAction, actorId: number, reason?: string, options: { dryRun?: boolean } = {}) {
   const g = await prisma.prdGrading.findUnique({ where: { id }, include: { inputs: true, outputs: true, aux: true } });
@@ -238,22 +273,28 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
       const date = c.data.grading_date;
       const common = { date, source, actorId };
 
-      const accounts = await itemAccounts([...c.inputs.map((i) => i.bucket.itemId), ...c.outputs.map((o) => o.item_id), ...c.aux.map((a) => a.bucket.itemId)], ["wip"], null, tx);
+      const allInputs = c.groups.flatMap((x) => x.inputs);
+      const accounts = await itemAccounts([...allInputs.map((i) => i.bucket.itemId), ...c.groups.flatMap((x) => x.outputs.map((o) => o.item_id)), ...c.aux.map((a) => a.bucket.itemId)], ["wip"], null, tx);
       if (!accounts.ok) throw new Refused({ _form: accounts.message });
       const wip = (itemId: number) => accounts.accounts.get(itemId)!.wip;
 
       // Each input leaves at its value and pays gram × its own locked rate (V1, W66).
       const moves: ValueMove[] = [];
-      const taken: { bucketId: number; lotId: number; grams: number; value: number; cost: number; rate: number; rateVersionId: number; routingId: number | null }[] = [];
+      type Taken = { bucketId: number; lotId: number; grams: number; value: number; cost: number; rate: number; rateVersionId: number; routingId: number | null };
+      const takenBy = new Map<number, Taken[]>();
       let partaiId: number | null = null;
-      for (const i of c.inputs) {
-        const t = await consumeBucket(tx, { bucketId: i.bucket_id, baseQty: i.qty, ...common });
-        const grams = await gramsOf(tx, { lotId: t.lotId, itemId: t.itemId, qty: i.qty });
-        const locked = await lockRateVersion(tx, { lotId: t.lotId, partaiId: t.partaiId, actorId });
-        const cost = await recordCostEntry(tx, { unitId: c.data.unit_id, stepId: c.step.id, rateVersionId: locked.rateVersionId, lotId: t.lotId, partaiId: t.partaiId, grams, isRework: t.qcCheckId != null, ...common });
-        moves.push({ accountId: wip(t.itemId), amount: -t.value });
-        taken.push({ bucketId: i.bucket_id, lotId: t.lotId, grams: grams.toNumber(), value: t.value, cost: cost.amount, rate: Number(cost.rate), ...locked });
-        partaiId = t.partaiId;
+      for (const grp of c.groups) {
+        const list: Taken[] = [];
+        for (const i of grp.inputs) {
+          const t = await consumeBucket(tx, { bucketId: i.bucket_id, baseQty: i.qty, ...common });
+          const grams = await gramsOf(tx, { lotId: t.lotId, itemId: t.itemId, qty: i.qty });
+          const locked = await lockRateVersion(tx, { lotId: t.lotId, partaiId: t.partaiId, actorId });
+          const cost = await recordCostEntry(tx, { unitId: c.data.unit_id, stepId: c.step.id, rateVersionId: locked.rateVersionId, lotId: t.lotId, partaiId: t.partaiId, grams, isRework: t.qcCheckId != null, ...common });
+          moves.push({ accountId: wip(t.itemId), amount: -t.value });
+          list.push({ bucketId: i.bucket_id, lotId: t.lotId, grams: grams.toNumber(), value: t.value, cost: cost.amount, rate: Number(cost.rate), ...locked });
+          partaiId = t.partaiId;
+        }
+        takenBy.set(grp.group_no, list);
       }
       let auxValue = 0;
       for (const a of c.aux) {
@@ -263,56 +304,70 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
         auxValue += used.value;
       }
 
-      const inputValue = taken.reduce((a, t) => a + t.value, 0);
-      const costAmount = taken.reduce((a, t) => a + t.cost, 0);
-      const grams = taken.reduce((a, t) => a + t.grams, 0);
-      const total = inputValue + auxValue + costAmount;
-      const flagged = c.outputs.map((o) => ({ ...o, isBjl: c.items.get(o.item_id)!.is_bjl }));
-      const share = shareGrading(total, flagged);
-      const weights = taken.map((t) => t.grams);
-      for (const [i, o] of flagged.entries()) {
-        const made = await registerDerivedStock(tx, { parentLotId: c.parentLotId, itemId: o.item_id, ...common });
-        await recordTrackingInfo(tx, {
-          lotId: made.id,
-          grams: o.grams,
-          form: c.items.get(o.item_id)!.base_uom.uom_label === GRAM_UOM ? "Bulk" : "Piece",
-          rateVersionId: taken[0].rateVersionId,
-          routingId: taken[0].routingId,
-          actorId,
-        });
-        const placed = await produceIntoBucket(tx, {
-          lotId: made.id,
-          itemId: o.item_id,
-          unitId: c.data.unit_id,
-          afterStepId: c.step.id,
-          partaiId,
-          // Grading always releases the No. Job; the partai stays (T2).
-          jobId: null,
-          baseQty: o.qty,
-          value: share.values[i],
-          ...common,
-        });
-        // Every output comes from every input (W97), shared by the inputs' gram.
-        const qtys = shareQty(o.qty, weights);
-        const values = shareByWeight(share.values[i], weights);
-        for (const [k, t] of taken.entries()) await linkTracking(tx, { fromBucketId: t.bucketId, fromLotId: t.lotId, toLotId: made.id, qty: qtys[k], value: values[k], source });
-        await tx.prdGradingOutput.update({
-          where: { grading_id_line_no: { grading_id: id, line_no: o.line_no } },
-          data: { is_bjl: o.isBjl, tracking_id: made.id, tracking_no: made.no, value: share.values[i], to_bucket_id: placed.bucketId },
-        });
-        moves.push({ accountId: wip(o.item_id), amount: share.values[i] });
+      // Bahan penolong is shared over the lines by the gram each took, whole rupiah to the last.
+      const lineGrams = c.groups.map((grp) => takenBy.get(grp.group_no)!.reduce((x, t) => x + t.grams, 0));
+      const auxShare = shareByWeight(auxValue, lineGrams);
+      let scrapTotal = 0;
+      for (const [gi, grp] of c.groups.entries()) {
+        const taken = takenBy.get(grp.group_no)!;
+        const total = taken.reduce((x, t) => x + t.value + t.cost, 0) + auxShare[gi];
+        const flagged = grp.outputs.map((o) => ({ ...o, isBjl: c.items.get(o.item_id)!.is_bjl }));
+        const share = shareGrading(total, flagged);
+        scrapTotal += share.scrap;
+        const weights = taken.map((t) => t.grams);
+        for (const [i, o] of flagged.entries()) {
+          const made = await registerDerivedStock(tx, { parentLotId: grp.parentLotId, itemId: o.item_id, ...common });
+          await recordTrackingInfo(tx, {
+            lotId: made.id,
+            grams: o.grams,
+            form: c.items.get(o.item_id)!.base_uom.uom_label === GRAM_UOM ? "Bulk" : "Piece",
+            rateVersionId: taken[0].rateVersionId,
+            routingId: taken[0].routingId,
+            actorId,
+          });
+          const placed = await produceIntoBucket(tx, {
+            lotId: made.id,
+            itemId: o.item_id,
+            unitId: c.data.unit_id,
+            afterStepId: c.step.id,
+            partaiId,
+            // Grading always releases the No. Job; the partai stays (T2).
+            jobId: null,
+            baseQty: o.qty,
+            value: share.values[i],
+            ...common,
+          });
+          // Every output comes from every input of its line (W97), shared by the inputs gram.
+          const qtys = shareQty(o.qty, weights);
+          const values = shareByWeight(share.values[i], weights);
+          for (const [k, t] of taken.entries()) await linkTracking(tx, { fromBucketId: t.bucketId, fromLotId: t.lotId, toLotId: made.id, qty: qtys[k], value: values[k], source });
+          await tx.prdGradingOutput.update({
+            where: { grading_id_line_no: { grading_id: id, line_no: o.line_no } },
+            data: { is_bjl: o.isBjl, tracking_id: made.id, tracking_no: made.no, value: share.values[i], to_bucket_id: placed.bucketId },
+          });
+          moves.push({ accountId: wip(o.item_id), amount: share.values[i] });
+        }
       }
-      // What was taken, as taken: a Job's contents are read again at Posting.
+      // What was taken, as taken: a Job contents are read again at Posting.
       await tx.prdGradingInput.deleteMany({ where: { grading_id: id } });
       await tx.prdGradingInput.createMany({
-        data: c.inputs.map((x, k) => ({ grading_id: id, line_no: x.line_no, bucket_id: x.bucket_id, qty: x.qty, grams: taken[k].grams, value: taken[k].value, cost_amount: taken[k].cost })),
+        data: c.groups.flatMap((grp) =>
+          grp.inputs.map((x, k) => {
+            const t = takenBy.get(grp.group_no)![k];
+            return { grading_id: id, line_no: x.line_no, group_no: grp.group_no, job_id: grp.job_id, bucket_id: x.bucket_id, qty: x.qty, grams: t.grams, value: t.value, cost_amount: t.cost };
+          })
+        ),
       });
 
-      const lines = await executionJournalLines(moves, costAmount, share.scrap, `${g.grading_no} · Grading ${c.unit.unit_label}`, tx);
+      const flat = [...takenBy.values()].flat();
+      const inputValue = flat.reduce((x, t) => x + t.value, 0);
+      const costAmount = flat.reduce((x, t) => x + t.cost, 0);
+      const grams = flat.reduce((x, t) => x + t.grams, 0);
+      const lines = await executionJournalLines(moves, costAmount, scrapTotal, `${g.grading_no} · Grading ${c.unit.unit_label}`, tx);
       const journal = lines.length ? await postJournal(tx, { description: `${g.grading_no} · Grading ${c.unit.unit_label}`, sourceDocTypeId: source.docTypeId, sourceDocId: id, postingDate: date, actorId, lines }) : null;
       await tx.prdGrading.update({
         where: { id },
-        data: { grams, rate: taken[0].rate, input_value: inputValue, cost_amount: costAmount, aux_value: auxValue, scrap_amount: share.scrap, journal_id: journal?.id ?? null },
+        data: { grams, rate: flat[0].rate, input_value: inputValue, cost_amount: costAmount, aux_value: auxValue, scrap_amount: scrapTotal, journal_id: journal?.id ?? null },
       });
       await audit(tx, id, "UPDATE", "post", actorId);
       if (options.dryRun) throw new PostingDryRun(lines as JournalLineInput[]);
@@ -350,7 +405,7 @@ export async function gradingDraftBucketIds(): Promise<number[]> {
 
 /** The Draft that already takes this Job, so opening the Job again opens it. */
 export async function gradingDraftOfJob(jobId: number): Promise<number | null> {
-  return (await prisma.prdGrading.findFirst({ where: { job_id: jobId, status: "Draft" }, select: { id: true } }))?.id ?? null;
+  return (await prisma.prdGradingInput.findFirst({ where: { job_id: jobId, grading: { status: "Draft" } }, select: { grading_id: true } }))?.grading_id ?? null;
 }
 
 /** The Unit a document is at, for the actions' Unit check (P260). */
@@ -363,9 +418,9 @@ export async function listGradings(units: number[] | null = null): Promise<Gradi
   const rows = await prisma.prdGrading.findMany({
     where: units ? { unit_id: { in: units } } : undefined,
     orderBy: [{ grading_date: "desc" }, { id: "desc" }],
-    include: { unit: true, inputs: { select: { bucket_id: true, grams: true } }, _count: { select: { outputs: true } } },
+    include: { unit: true, inputs: { select: { bucket_id: true, grams: true, job_id: true } }, _count: { select: { outputs: true } } },
   });
-  const [buckets, jobs] = await Promise.all([bucketsByIds(rows.flatMap((r) => r.inputs.map((i) => i.bucket_id))), jobsByIds(rows.flatMap((r) => (r.job_id ? [r.job_id] : [])))]);
+  const [buckets, jobs] = await Promise.all([bucketsByIds(rows.flatMap((r) => r.inputs.map((i) => i.bucket_id))), jobsByIds(rows.flatMap((r) => r.inputs.flatMap((i) => (i.job_id ? [i.job_id] : []))))]);
   return rows.map((r) => {
     const held = r.inputs.map((i) => buckets.get(i.bucket_id));
     return {
@@ -375,7 +430,7 @@ export async function listGradings(units: number[] | null = null): Promise<Gradi
       status: r.status as ProdDocStatus,
       unitLabel: r.unit.unit_label,
       unitName: r.unit.unit_name,
-      jobNo: r.job_id ? (jobs.get(r.job_id)?.no ?? null) : null,
+      jobNo: [...new Set(r.inputs.flatMap((i) => (i.job_id ? [jobs.get(i.job_id)?.no ?? ""] : [])))].join(", ") || null,
       partaiNo: held.find((b) => b?.partaiNo)?.partaiNo ?? null,
       lines: r._count.outputs,
       grams: r.status === "Posted" ? r.grams.toNumber() : held.reduce((a, b) => a + (b?.grams ?? 0), 0),
@@ -394,8 +449,10 @@ export type GradingView = {
   unitName: string;
   jobId: number | null;
   jobNo: string | null;
-  /** What it takes: stored figures once posted. */
-  inputs: { bucketId: number; qty: number; grams: number; value: number; cost: number }[];
+  /** The number of each Job a line takes, by id. */
+  jobNos: Record<number, string>;
+  /** What it takes: stored figures once posted. `groupNo` is its document line, `jobId` that line Job. */
+  inputs: { bucketId: number; groupNo: number; jobId: number | null; qty: number; grams: number; value: number; cost: number }[];
   grams: number;
   rate: number;
   inputValue: number;
@@ -407,7 +464,7 @@ export type GradingView = {
   /** The journal Posting wrote (A7.4); none when nothing changed in the books. */
   journalId: number | null;
   journalNo: string | null;
-  outputs: { itemId: number; grams: number; qty: number; isBjl: boolean; trackingNo: string | null; value: number }[];
+  outputs: { groupNo: number; itemId: number; grams: number; qty: number; isBjl: boolean; trackingNo: string | null; value: number }[];
   aux: { bucketId: number; qty: number; value: number }[];
 };
 
@@ -417,6 +474,7 @@ export async function getGrading(id: number): Promise<GradingView | null> {
     include: { unit: true, inputs: { orderBy: { line_no: "asc" } }, outputs: { orderBy: { line_no: "asc" } }, aux: { orderBy: { line_no: "asc" } } },
   });
   if (!g) return null;
+  const jobMap = await jobsByIds(g.inputs.flatMap((i) => (i.job_id ? [i.job_id] : [])));
   const [job, journalNo] = await Promise.all([
     g.job_id ? jobsByIds([g.job_id]).then((m) => m.get(g.job_id!)) : null,
     g.journal_id ? journalNumbersByIds([g.journal_id]).then((m) => m.get(g.journal_id!) ?? null) : null,
@@ -431,7 +489,8 @@ export async function getGrading(id: number): Promise<GradingView | null> {
     unitName: g.unit.unit_name,
     jobId: g.job_id,
     jobNo: job?.no ?? null,
-    inputs: g.inputs.map((i) => ({ bucketId: i.bucket_id, qty: i.qty.toNumber(), grams: i.grams.toNumber(), value: i.value.toNumber(), cost: i.cost_amount.toNumber() })),
+    jobNos: Object.fromEntries([...jobMap].map(([k, v]) => [k, v.no])),
+    inputs: g.inputs.map((i) => ({ bucketId: i.bucket_id, groupNo: i.group_no, jobId: i.job_id, qty: i.qty.toNumber(), grams: i.grams.toNumber(), value: i.value.toNumber(), cost: i.cost_amount.toNumber() })),
     grams: g.grams.toNumber(),
     rate: g.rate.toNumber(),
     inputValue: g.input_value.toNumber(),
@@ -442,7 +501,7 @@ export async function getGrading(id: number): Promise<GradingView | null> {
     reason: g.status_reason,
     journalId: g.journal_id,
     journalNo,
-    outputs: g.outputs.map((o) => ({ itemId: o.item_id, grams: o.grams.toNumber(), qty: o.qty.toNumber(), isBjl: o.is_bjl, trackingNo: o.tracking_no, value: o.value.toNumber() })),
+    outputs: g.outputs.map((o) => ({ groupNo: o.group_no, itemId: o.item_id, grams: o.grams.toNumber(), qty: o.qty.toNumber(), isBjl: o.is_bjl, trackingNo: o.tracking_no, value: o.value.toNumber() })),
     aux: g.aux.map((a) => ({ bucketId: a.bucket_id, qty: a.qty.toNumber(), value: a.value.toNumber() })),
   };
 }

@@ -3294,6 +3294,8 @@ table prd_grading_input {
   id                          int [pk, increment]
   grading_id                  int [not null, ref: > prd_grading.id]
   line_no                     int [not null]
+  group_no                    int [not null, default: 1] // the document line: a Job whole or a loose No. Stok in part (T6)
+  job_id                      int // the Job of that line
   bucket_id                   int [not null]
   qty                         decimal(18,6) [not null]
   grams                       decimal(18,6) [not null, default: 0]
@@ -3305,6 +3307,7 @@ table prd_grading_output {
   id                          int [pk, increment]
   grading_id                  int [not null, ref: > prd_grading.id]
   line_no                     int [not null]
+  group_no                    int [not null, default: 1] // the document line whose inputs it comes from (T6)
   item_id                     int [not null, ref: > m_item.id]
   qty                         decimal(18,6) [not null]
   grams                       decimal(18,6) [not null]

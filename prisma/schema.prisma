@@ -4571,6 +4571,10 @@ model PrdGradingInput {
   id          Int     @id @default(autoincrement())
   grading_id  Int
   line_no     Int
+  /// The Job of the document line this input belongs to (empty for a loose No. Stok).
+  job_id      Int?
+  /// The line of the document: one Job taken whole, or one No. Stok taken in part (T6).
+  group_no    Int     @default(1)
   bucket_id   Int
   qty         Decimal @db.Decimal(18, 6)
   grams       Decimal @default(0) @db.Decimal(18, 6)
@@ -4581,6 +4585,7 @@ model PrdGradingInput {
 
   @@unique([grading_id, line_no])
   @@index([bucket_id])
+  @@index([job_id])
   @@map("prd_grading_input")
 }
 
@@ -4588,6 +4593,8 @@ model PrdGradingOutput {
   id           Int     @id @default(autoincrement())
   grading_id   Int
   line_no      Int
+  /// The document line whose inputs it comes from (T6).
+  group_no     Int     @default(1)
   item_id      Int
   /// In the item's base unit; gram for an item held in GR.
   qty          Decimal @db.Decimal(18, 6)

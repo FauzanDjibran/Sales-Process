@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { shareGrading, shareWork } from "../src/lib/erp/production-execution";
 import { availableBuckets, enterProduction, formPartai, issueJob, transferBucket } from "../src/lib/erp/production-ledger";
-import { createGrading, getGrading, gradingPreview, transitionGrading, updateGrading, type GradingInput } from "../src/lib/erp/production-grading";
+import { createGrading, getGrading, gradingPreview, transitionGrading, updateGrading, type GradingInput, type GradingItemInput } from "../src/lib/erp/production-grading";
 import { createWork, getWork, resultNotesOfJobs, transitionWork, workPreview, type WorkInput } from "../src/lib/erp/production-work";
 import { createQcCheck, getQcCheck, qcOptions, transitionQcCheck } from "../src/lib/erp/production-qc";
 import { cleanupFiscalYear, cleanupFixtures, disconnect, makeAccount, openFiscalYear, prisma } from "./helpers";
@@ -29,8 +29,17 @@ let ownSegment = false;
 
 const tx = <T,>(fn: (t: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => Promise<T>) => prisma.$transaction(fn as never) as Promise<T>;
 
-async function grade(over: Partial<GradingInput>) {
-  const r = await createGrading({ unit_id: ids.grader, grading_date: today, job_id: null, bucket_id: null, qty: 0, note: "", outputs: [], aux: [], ...over }, f.actor);
+/** One document line, written the short way: a Job or a loose No. Stok, with its outputs (T6). */
+type Short = { unit_id?: number | null; job_id?: number | null; bucket_id?: number | null; qty?: number | string; outputs?: GradingItemInput["outputs"]; aux?: GradingInput["aux"]; note?: string };
+const shape = (over: Short): GradingInput => ({
+  unit_id: over.unit_id === undefined ? ids.grader : over.unit_id,
+  grading_date: today,
+  note: over.note ?? "",
+  items: [{ job_id: over.job_id ?? null, bucket_id: over.bucket_id ?? null, qty: over.qty ?? 0, outputs: over.outputs ?? [] }],
+  aux: over.aux ?? [],
+});
+async function grade(over: Short) {
+  const r = await createGrading(shape(over), f.actor);
   if (r.ok) docs.grading.push(r.id);
   return r;
 }
@@ -153,7 +162,7 @@ describe("Dokumen Grading", () => {
   test("it refuses goods that are not in this unit's Persiapan, or more than the row holds", async () => {
     const [b] = await persiapan(f.wsA);
     const over = await grade({ bucket_id: b.id, qty: 2000 });
-    assert.ok(!over.ok && /Melebihi/.test(over.errors.qty));
+    assert.ok(!over.ok && /Melebihi/.test(over.errors["items.0.qty"]));
     const wrong = await grade({ unit_id: f.wsB, bucket_id: b.id, qty: 10 });
     assert.ok(!wrong.ok && wrong.errors.unit_id);
   });
@@ -211,7 +220,7 @@ describe("Dokumen Grading", () => {
     const before = b.qty;
     const r = await grade({ bucket_id: b.id, qty: 10, outputs: [{ item_id: f.product, grams: 10 }] });
     assert.ok(r.ok);
-    const u = await updateGrading(r.id, { unit_id: ids.grader, grading_date: today, job_id: null, bucket_id: b.id, qty: 20, note: "", outputs: [{ item_id: f.product, grams: 20 }], aux: [] }, f.actor);
+    const u = await updateGrading(r.id, shape({ bucket_id: b.id, qty: 20, outputs: [{ item_id: f.product, grams: 20 }] }), f.actor);
     assert.ok(u.ok);
     assert.equal((await getGrading(r.id))!.inputs[0].qty, 20);
     assert.ok(!(await transitionGrading(r.id, "cancel", f.actor)).ok, "a reason is required");
@@ -363,12 +372,12 @@ describe("No. Grading per Job (W97)", () => {
     });
     const held = (await persiapan(f.wsA)).filter((b) => b.jobId === job.id);
     const part = await grade({ bucket_id: held[0].id, qty: 10, outputs: [{ item_id: f.product, grams: 10 }] });
-    assert.ok(!part.ok && /utuh/.test(part.errors.bucket_id), "a Job's No. Stok is not graded alone");
+    assert.ok(!part.ok && /utuh/.test(part.errors["items.0.bucket_id"]), "a Job's No. Stok is not graded alone");
 
     const r = await grade({ job_id: job.id, outputs: [{ item_id: f.product, grams: 60 }, { item_id: f.product, grams: 35 }] });
     assert.ok(r.ok, JSON.stringify(r));
     const twin = await grade({ job_id: job.id, outputs: [] });
-    assert.ok(!twin.ok && /Draft/.test(twin.errors.job_id), "one Draft per Job");
+    assert.ok(!twin.ok && /Draft/.test(twin.errors["items.0.job_id"]), "one Draft per Job");
     const p = await transitionGrading(r.id, "post", f.actor);
     assert.ok(p.ok, JSON.stringify(p));
 
@@ -387,6 +396,55 @@ describe("No. Grading per Job (W97)", () => {
     assert.equal(links.length, 4, "every output from every input");
     assert.equal(links.reduce((a, l) => a + l.value.toNumber(), 0), 110_000);
     assert.equal(links.filter((l) => l.from_tracking_id === second.id).reduce((a, l) => a + l.qty.toNumber(), 0), 66.5, "95 g of output, 70 % of it from the second input by gram");
+  });
+
+  test("one No. Grading holds many Jobs, each with its own results from its own inputs (T6)", async () => {
+    const mk = async (tag: string, qty: number) => {
+      const lot = await prisma.logStockTracking.create({
+        data: { tracking_no: f.key(tag), tracking_date: date, item_id: f.material, source_doc_type_id: s.docTypeId, source_doc_id: s.docId, source_no: s.no, created_by: f.actor },
+      });
+      const job = await tx(async (t) => {
+        const j = await issueJob(t, { unitId: f.wsA, lotId: lot.id, date, source: s, actorId: f.actor });
+        await enterProduction(t, { lotId: lot.id, itemId: f.material, unitId: f.wsA, baseQty: qty, value: qty * 1000, jobId: j.id, date, source: s, actorId: f.actor });
+        return j;
+      });
+      return { job, lot };
+    };
+    const one = await mk("MJ1", 40);
+    const two = await mk("MJ2", 60);
+    const input: GradingInput = {
+      unit_id: ids.grader,
+      grading_date: today,
+      note: "",
+      items: [
+        { job_id: one.job.id, bucket_id: null, qty: "", outputs: [{ item_id: f.product, grams: 30 }] },
+        { job_id: two.job.id, bucket_id: null, qty: "", outputs: [{ item_id: f.product, grams: 25 }, { item_id: f.product, grams: 25 }] },
+      ],
+      aux: [],
+    };
+    const dup = await createGrading({ ...input, items: [input.items[0], input.items[0]] }, f.actor);
+    assert.ok(!dup.ok && /lebih dari sekali/.test(dup.errors["items.1.job_id"]));
+    const empty = await createGrading({ ...input, items: [{ ...input.items[0], outputs: [] }] }, f.actor);
+    assert.ok(empty.ok, "a Draft may still lack results");
+    docs.grading.push(empty.id);
+    assert.ok(!(await transitionGrading(empty.id, "post", f.actor)).ok, "Posting needs results on every line");
+    assert.ok((await transitionGrading(empty.id, "cancel", f.actor, "ulang")).ok);
+
+    const r = await createGrading(input, f.actor);
+    assert.ok(r.ok, JSON.stringify(r));
+    docs.grading.push(r.id);
+    const p = await transitionGrading(r.id, "post", f.actor);
+    assert.ok(p.ok, JSON.stringify(p));
+    const g = (await getGrading(r.id))!;
+    assert.equal(g.jobId, null, "two Jobs: no single header Job");
+    assert.deepEqual(g.outputs.map((o) => o.groupNo), [1, 2, 2]);
+    assert.equal(g.inputValue, 100_000);
+    assert.equal(g.outputs.reduce((a, o) => a + o.value, 0), g.inputValue + g.cost, "every rupiah lands on an output");
+    assert.equal(g.outputs[0].value, 40_000 + 4_000, "the first Job's whole value, with its own cost, on its one output");
+    const links = await prisma.prdTrackingLink.findMany({ where: { source_no: g.no } });
+    assert.equal(links.length, 3, "an output is linked only to the inputs of its own line");
+    assert.ok(links.filter((l) => l.from_tracking_id === one.lot.id).every((l) => l.to_tracking_id === (g.outputs[0] && links.find((x) => x.from_tracking_id === one.lot.id)!.to_tracking_id)));
+    assert.equal((await persiapan(f.wsA)).filter((b) => b.jobId === one.job.id || b.jobId === two.job.id).length, 0);
   });
 
   test("QC decides a Job whole: every row of it, one decision (A4.2)", async () => {

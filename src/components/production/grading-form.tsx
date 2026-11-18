@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { Combobox } from "@/components/ui/combobox";
@@ -9,25 +8,26 @@ import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
-import { AuxCard, ErrorBox, ExecutionHeader, idc, money, newKey, qtyText, refs, ro, type AuxRow } from "@/components/production/execution-parts";
+import { AuxCard, ErrorBox, ExecutionHeader, idc, newKey, qtyText, refs, ro, type AuxRow } from "@/components/production/execution-parts";
+import { JobPicker } from "@/components/production/job-picker";
 import { ProdDocActions } from "@/components/production/production-doc-actions";
 import { previewGradingAction, saveGradingAction, transitionGradingAction } from "@/app/actions/production-execution";
-import { shareGrading, unitCost } from "@/lib/erp/production-execution";
 import { GRADING_PATH, GRADING_WORKFLOW } from "@/lib/erp/production-execution-workflow";
 import type { ProdDocAbilities } from "@/lib/erp/production-doc-workflow";
 import type { BucketOption } from "@/lib/erp/production-doc";
 import type { GradingOptions, GradingView } from "@/lib/erp/production-grading";
-import { formatDate, formatPrice, todayIso } from "@/lib/format";
+import { formatDate, todayIso } from "@/lib/format";
 
 /**
- * No. Grading in all three modes (W97, W107). It takes one Job whole, or one No.
- * Stok without a Job in part (W96); the outputs are typed scale-style: the
- * jenis stays chosen, gram, Enter (W99). Opened from the Workspace it returns
- * there on Batal and after Posting (D4).
+ * No. Grading in all three modes (W97, W107, T6). One document holds many Jobs,
+ * each taken whole, or a No. Stok without a Job taken in part (W96); every line
+ * has its own results, typed scale-style: the jenis stays chosen, gram, Enter
+ * (W99). Opened from the Workspace it returns there on Batal and after Posting
+ * (D4). No prices on the screen (P275).
  */
 
 type OutputRow = { key: string; item_id: number | null; grams: string };
-type Taken = { b: BucketOption; qty: number; grams: number; value: number; cost: number };
+type Line = { key: string; jobId: number | null; bucketId: number | null; qty: string; outputs: OutputRow[] };
 
 export function GradingForm({
   mode,
@@ -54,18 +54,38 @@ export function GradingForm({
   const router = useRouter();
   const toast = useToast();
   const editing = mode !== "view";
+  const bucketOf = new Map(options.inputs.map((b) => [b.id, b]));
+  const itemOf = new Map(options.items.map((i) => [i.id, i]));
   const opened = options.inputs.find((b) => (initialJobId ? b.jobId === initialJobId : b.id === initialBucketId));
+
   const [unitId, setUnitId] = useState<number | null>(grading?.unitId ?? opened?.unitId ?? (options.units.length === 1 ? options.units[0].id : null));
   const [date, setDate] = useState(grading?.date ?? todayIso());
-  const [jobId, setJobId] = useState<number | null>(grading ? grading.jobId : (initialJobId ?? null));
-  const [bucketId, setBucketId] = useState<number | null>(grading ? (grading.jobId ? null : (grading.inputs[0]?.bucketId ?? null)) : initialJobId ? null : (opened?.id ?? null));
-  const [qty, setQty] = useState(grading && !grading.jobId ? String(grading.inputs[0]?.qty ?? "") : !initialJobId && opened ? String(opened.qty) : "");
   const [note, setNote] = useState(grading?.note ?? "");
-  const [outputs, setOutputs] = useState<OutputRow[]>(() => grading?.outputs.map((o) => ({ key: newKey(), item_id: o.itemId, grams: String(o.grams) })) ?? []);
+  const [lines, setLines] = useState<Line[]>(() => {
+    if (grading) {
+      const groups = [...new Set(grading.inputs.map((i) => i.groupNo))].sort((a, b) => a - b);
+      return groups.map((n) => {
+        const ins = grading.inputs.filter((i) => i.groupNo === n);
+        const job = ins[0].jobId;
+        return {
+          key: newKey(),
+          jobId: job,
+          bucketId: job ? null : ins[0].bucketId,
+          qty: job ? "" : String(ins[0].qty),
+          outputs: grading.outputs.filter((o) => o.groupNo === n).map((o) => ({ key: newKey(), item_id: o.itemId, grams: String(o.grams) })),
+        };
+      });
+    }
+    if (initialJobId && opened) return [{ key: newKey(), jobId: initialJobId, bucketId: null, qty: "", outputs: [] }];
+    if (opened) return [{ key: newKey(), jobId: null, bucketId: opened.id, qty: String(opened.qty), outputs: [] }];
+    return [];
+  });
+  const [active, setActive] = useState<string | null>(lines[0]?.key ?? null);
   const [aux, setAux] = useState<AuxRow[]>(() => grading?.aux.map((a) => ({ key: newKey(), bucket_id: a.bucketId, qty: String(a.qty), job_id: null })) ?? []);
   const [jenis, setJenis] = useState<number | null>(null);
   const [gram, setGram] = useState("");
   const [entryError, setEntryError] = useState("");
+  const [adding, setAdding] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -74,44 +94,41 @@ export function GradingForm({
     setDirty(true);
     setErrors({});
   };
-  const itemOf = new Map(options.items.map((i) => [i.id, i]));
-  const bucketOf = new Map(options.inputs.map((b) => [b.id, b]));
   const unit = options.units.find((u) => u.id === unitId);
   const posted = grading?.status === "Posted" ? grading : null;
-  const workspace = unit ? `/production/workspace/${encodeURIComponent(unit.label)}?tab=persiapan` : null;
+  const workspace = unit ? `/production/workspace/${encodeURIComponent(unit.label)}` : null;
+  const jobNoOf = (id: number | null) => (id ? (grading?.jobNos[id] ?? options.inputs.find((b) => b.jobId === id)?.jobNo ?? null) : null);
 
-  // What it takes: the stored figures once posted, else what the Unit holds now.
-  const taken: Taken[] = posted
-    ? posted.inputs.flatMap((i) => {
-        const b = bucketOf.get(i.bucketId);
-        return b ? [{ b, qty: i.qty, grams: i.grams, value: i.value, cost: i.cost }] : [];
-      })
-    : jobId
-      ? options.inputs
-          .filter((b) => b.jobId === jobId && b.unitId === unitId && b.qty > 0)
-          .map((b) => ({ b, qty: b.qty, grams: b.grams ?? 0, value: b.value, cost: unitCost(b.grams ?? 0, b.rate ?? 0) }))
+  /** The buckets a line takes: a Job whole, or the loose No. Stok in part. */
+  const takenOf = (l: Line) =>
+    l.jobId
+      ? options.inputs.filter((b) => b.jobId === l.jobId && b.unitId === unitId && b.qty > 0).map((b) => ({ b, qty: b.qty, grams: b.grams ?? 0 }))
       : (() => {
-          const b = bucketId ? bucketOf.get(bucketId) : undefined;
+          const b = l.bucketId ? bucketOf.get(l.bucketId) : undefined;
           if (!b || !(b.qty > 0)) return [];
-          const t = Math.min(Number(qty) || 0, b.qty);
-          const grams = ((b.grams ?? 0) * t) / b.qty;
-          return [{ b, qty: t, grams, value: t >= b.qty ? b.value : Math.round((b.value * t) / b.qty), cost: unitCost(grams, b.rate ?? 0) }];
+          const t = Math.min(Number(l.qty) || 0, b.qty);
+          return [{ b, qty: t, grams: ((b.grams ?? 0) * t) / b.qty }];
         })();
-  const chosen = Boolean(jobId || bucketId);
-  const first = taken[0]?.b;
-  const jobNo = grading?.jobNo ?? first?.jobNo ?? null;
+  const storedGrams = (l: Line) => (posted ? posted.inputs.filter((i) => (l.jobId ? i.jobId === l.jobId : i.bucketId === l.bucketId)).reduce((a, i) => a + i.grams, 0) : null);
+  const gramsIn = (l: Line) => storedGrams(l) ?? takenOf(l).reduce((a, t) => a + t.grams, 0);
+  const gramsOut = (l: Line) => l.outputs.reduce((a, o) => a + (Number(o.grams) || 0), 0);
+
+  const cur = lines.find((l) => l.key === active) ?? null;
+  const curIndex = cur ? lines.indexOf(cur) : -1;
+  const first = lines.length ? (takenOf(lines[0])[0]?.b ?? (lines[0].bucketId ? bucketOf.get(lines[0].bucketId) : undefined)) : undefined;
   const partaiNo = first?.partaiNo ?? null;
-  const jobNotes = jobId ? notes[jobId] : undefined;
-  const balikQc = taken.some((t) => t.b.qcCheckId);
+  const partaiId = first?.partaiId ?? null;
+
+  const setLine = (key: string, patch: Partial<Line>) => {
+    setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+    touched();
+  };
 
   const payload = () => ({
     unit_id: unitId,
     grading_date: date,
-    job_id: jobId,
-    bucket_id: jobId ? null : bucketId,
-    qty: jobId ? "" : qty,
     note,
-    outputs: outputs.map((o) => ({ item_id: o.item_id, grams: o.grams })),
+    items: lines.map((l) => ({ job_id: l.jobId, bucket_id: l.jobId ? null : l.bucketId, qty: l.jobId ? "" : l.qty, outputs: l.outputs.map((o) => ({ item_id: o.item_id, grams: o.grams })) })),
     aux: aux.map((a) => ({ bucket_id: a.bucket_id, qty: a.qty })),
   });
 
@@ -121,7 +138,9 @@ export function GradingForm({
     setSaving(false);
     if (!result.ok) {
       setErrors(result.errors);
-      toast(result.errors._form ? "Tidak diizinkan" : "Belum bisa disimpan", result.errors._form ?? "Periksa kembali isian.", "err");
+      const bad = Object.keys(result.errors).find((k) => k.startsWith("items."));
+      if (bad) setActive(lines[Number(bad.split(".")[1])]?.key ?? active);
+      toast(result.errors._form ? "Tidak diizinkan" : "Belum bisa disimpan", result.errors._form ?? result.errors._items ?? "Periksa kembali isian.", "err");
       return;
     }
     setDirty(false);
@@ -129,227 +148,158 @@ export function GradingForm({
     router.push(`${GRADING_PATH}/${result.id}${post ? "?post=1" : ""}`);
   }
 
-  // The figures: a preview while a Draft, what Posting stored once posted.
-  const gramsIn = posted ? posted.grams : taken.reduce((a, t) => a + t.grams, 0);
-  const inputValue = posted ? posted.inputValue : taken.reduce((a, t) => a + t.value, 0);
-  const cost = posted ? posted.cost : taken.reduce((a, t) => a + t.cost, 0);
-  const auxValue = posted
-    ? posted.auxValue
-    : aux.reduce((sum, a) => {
-        const b = options.aux.find((x) => x.id === a.bucket_id);
-        return sum + (b && b.qty > 0 ? Math.min(b.value, Math.round((b.value * (Number(a.qty) || 0)) / b.qty)) : 0);
-      }, 0);
-  const shares = outputs.map((o) => ({ grams: Number(o.grams) || 0, isBjl: (o.item_id && itemOf.get(o.item_id)?.isBjl) || false }));
-  const share = shareGrading(Math.round(inputValue + cost + auxValue), shares);
-  const values = posted ? posted.outputs.map((o) => o.value) : share.values;
-  const scrap = posted ? posted.scrap : outputs.length ? share.scrap : 0;
-  const gramsOut = shares.reduce((a, o) => a + o.grams, 0);
-  const rate = posted ? posted.rate : (first?.rate ?? 0);
-
   // ------------------------------------------------------------ pick
   const queue = options.inputs.filter((b) => b.unitId === unitId && b.qty > 0);
-  const jobs = [...new Map(queue.filter((b) => b.jobId).map((b) => [b.jobId!, b])).values()];
-  const loose = queue.filter((b) => !b.jobId);
-  const pick = (job: number | null, b: BucketOption | null) => {
-    setJobId(job);
-    setBucketId(b?.id ?? null);
-    setQty(b ? String(b.qty) : "");
+  const usedJobs = new Set(lines.flatMap((l) => (l.jobId ? [l.jobId] : [])));
+  const usedBuckets = new Set(lines.flatMap((l) => (l.bucketId ? [l.bucketId] : [])));
+  const choices = [
+    ...[...new Map(queue.filter((b) => b.jobId && !usedJobs.has(b.jobId)).map((b) => [b.jobId!, b])).values()].map((b) => {
+      const rows = queue.filter((x) => x.jobId === b.jobId);
+      return { key: `j${b.jobId}`, jobNo: b.jobNo, lotNo: rows[0].lotNo, itemName: rows[0].itemName, count: rows.length, partaiId: b.partaiId, partaiNo: b.partaiNo, grams: rows.reduce((a, x) => a + (x.grams ?? 0), 0) };
+    }),
+    ...queue.filter((b) => !b.jobId && !usedBuckets.has(b.id)).map((b) => ({ key: `b${b.id}`, jobNo: null, lotNo: b.lotNo, itemName: b.itemName, count: 1, partaiId: b.partaiId, partaiNo: b.partaiNo, grams: b.grams ?? 0 })),
+  ];
+  function addLines(keys: string[]) {
+    const added: Line[] = keys.map((k) => {
+      const b = k[0] === "j" ? undefined : bucketOf.get(Number(k.slice(1)));
+      return { key: newKey(), jobId: k[0] === "j" ? Number(k.slice(1)) : null, bucketId: b?.id ?? null, qty: b ? String(b.qty) : "", outputs: [] };
+    });
+    setLines((ls) => [...ls, ...added]);
+    setActive((a) => a ?? added[0]?.key ?? null);
+    setAdding(false);
     touched();
+  }
+
+  function addOutput(e: FormEvent) {
+    e.preventDefault();
+    if (!cur) return;
+    if (!jenis) return setEntryError("Pilih Jenis.");
+    if (!((Number(gram) || 0) > 0)) return setEntryError("Isi gram lebih dari 0.");
+    setLine(cur.key, { outputs: [...cur.outputs, { key: newKey(), item_id: jenis, grams: gram }] });
+    setGram("");
+    setEntryError("");
+  }
+
+  const lineError = (i: number) => errors[`items.${i}.job_id`] ?? errors[`items.${i}.bucket_id`] ?? errors[`items.${i}.qty`] ?? errors[`items.${i}.outputs`];
+  const curNotes = cur?.jobId ? notes[cur.jobId] : undefined;
+  const perJenis = cur
+    ? [...cur.outputs.reduce((m, o) => {
+        if (!o.item_id) return m;
+        const r = m.get(o.item_id) ?? { n: 0, grams: 0 };
+        m.set(o.item_id, { n: r.n + 1, grams: r.grams + (Number(o.grams) || 0) });
+        return m;
+      }, new Map<number, { n: number; grams: number }>())]
+    : [];
+  const trackingOf = (lineIdx: number, outIdx: number) => {
+    if (!grading) return null;
+    const groupNo = [...new Set(grading.inputs.map((i) => i.groupNo))].sort((a, b) => a - b)[lineIdx];
+    return grading.outputs.filter((o) => o.groupNo === groupNo)[outIdx]?.trackingNo ?? null;
   };
-  const pickCard = editing && !chosen && (
+
+  const linesCard = (
     <div className="card" style={{ marginTop: 14 }}>
       <div className="card-h">
         <span className="ci">
           <Icon name="layers" size={15} />
         </span>
         <div className="ct">
-          <h3>Persiapan Unit</h3>
-          <p>Satu No. Job diambil utuh menjadi satu No. Grading. No. Stok tanpa Job boleh diambil sebagian.</p>
+          <h3>Job yang Digrading</h3>
+          <p>{editing ? "Satu baris satu No. Job, diambil utuh; No. Stok tanpa Job boleh diambil sebagian. Klik baris untuk mengisi hasilnya." : "Isi dokumen menurut barisnya."}</p>
         </div>
+        {editing && (
+          <button className="btn sm primary" disabled={!unitId || !choices.length} onClick={() => setAdding(true)}>
+            <Icon name="plus" size={14} /> Tambah Baris
+          </button>
+        )}
       </div>
-      <ErrorBox text={errors.job_id ?? errors.bucket_id} />
-      {queue.length ? (
+      <ErrorBox text={errors._items} />
+      {lines.length ? (
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: 720 }}>
+          <table className="grid ltab" style={{ minWidth: 760 }}>
             <thead>
               <tr>
                 <th>No. Job / No. Stok</th>
-                <th style={{ width: 170 }}>Partai</th>
-                <th className="num" style={{ width: 130 }}>
-                  Gram
-                </th>
-                <th style={{ width: 110 }} />
+                <th className="num" style={{ width: 200 }}>Diambil</th>
+                <th className="num" style={{ width: 110 }}>Gram</th>
+                <th className="num" style={{ width: 120 }}>Output (g)</th>
+                {editing && <th style={{ width: 40 }} />}
               </tr>
             </thead>
             <tbody>
-              {jobs.map((b) => {
-                const rows = queue.filter((x) => x.jobId === b.jobId);
+              {lines.map((l, i) => {
+                const taken = takenOf(l);
+                const b = taken[0]?.b ?? (l.bucketId ? bucketOf.get(l.bucketId) : undefined);
+                const jobNo = jobNoOf(l.jobId);
+                const err = lineError(i);
                 return (
-                  <tr key={`j${b.jobId}`}>
+                  <tr key={l.key} className={`${l.key === active ? "on" : ""}${err ? " overrow" : ""}`} onClick={() => setActive(l.key)}>
                     <td>
-                      <span className="mono">{b.jobNo}</span> <span className="mut">· {rows.length} No. Stok</span>
+                      {l.jobId ? (
+                        <div className="mono">
+                          {jobNo} <span className="mut">· {taken.length || "—"} No. Stok</span>
+                        </div>
+                      ) : (
+                        b && idc(b.lotNo, b.itemName)
+                      )}
+                      {b?.qcCheckId && <span className="bdg s-warn">Balik QC</span>}
+                      {err && <span className="overtag">{err}</span>}
                     </td>
-                    <td className="mono">{b.partaiNo ?? "—"}</td>
-                    <td className="num">{qtyText(rows.reduce((a, x) => a + (x.grams ?? 0), 0))}</td>
-                    <td>
-                      <button className="btn sm primary" onClick={() => pick(b.jobId, null)}>
-                        Grading
-                      </button>
+                    <td className="num" onClick={(e) => e.stopPropagation()}>
+                      {editing && !l.jobId && b ? (
+                        <div className="qcell">
+                          <MoneyInput size="sm" decimals={4} value={l.qty} over={(Number(l.qty) || 0) > b.qty} ariaLabel="Jumlah diambil" onChange={(v) => setLine(l.key, { qty: v })} />
+                          <span className="qu">{b.uomLabel}</span>
+                        </div>
+                      ) : l.jobId ? (
+                        "utuh"
+                      ) : (
+                        `${qtyText(Number(l.qty) || 0)} ${b?.uomLabel ?? ""}`
+                      )}
                     </td>
+                    <td className="num">{qtyText(gramsIn(l))}</td>
+                    <td className="num">{qtyText(gramsOut(l))}</td>
+                    {editing && (
+                      <td onClick={(e) => e.stopPropagation()}>
+                        <button
+                          className="iact del"
+                          title="Keluarkan baris"
+                          onClick={() => {
+                            setLines((ls) => ls.filter((x) => x.key !== l.key));
+                            if (active === l.key) setActive(lines.find((x) => x.key !== l.key)?.key ?? null);
+                            touched();
+                          }}
+                        >
+                          <Icon name="trash" size={14} />
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 );
               })}
-              {loose.map((b) => (
-                <tr key={b.id}>
-                  <td>
-                    {idc(b.lotNo, b.itemName)}
-                    {b.qcCheckId && <span className="bdg s-warn">Balik QC</span>}
-                  </td>
-                  <td className="mono">{b.partaiNo ?? "—"}</td>
-                  <td className="num">{qtyText(b.grams ?? 0)}</td>
-                  <td>
-                    <button className="btn sm primary" onClick={() => pick(null, b)}>
-                      Grading
-                    </button>
-                  </td>
-                </tr>
-              ))}
             </tbody>
           </table>
         </div>
       ) : (
         <div className="empty">
-          <h4>{unitId ? "Belum ada barang di Persiapan unit ini" : "Pilih Unit dulu…"}</h4>
+          <h4>{unitId ? "Belum ada baris" : "Pilih Unit dulu…"}</h4>
+          {unitId && <p>Tambahkan No. Job atau No. Stok dari Persiapan Grading dengan Tambah Baris.</p>}
         </div>
       )}
     </div>
   );
 
-  // ------------------------------------------------------------ input
-  const inputCard = chosen && (
-    <div className="card" style={{ marginTop: 14 }}>
-      <div className="card-h">
-        <span className="ci">
-          <Icon name="box" size={15} />
-        </span>
-        <div className="ct">
-          <h3>No. Stok Diambil</h3>
-          <p>{jobId ? `Isi No. Job ${jobNo ?? ""}, diambil utuh.` : "Tanpa No. Job: boleh diambil sebagian."}</p>
-        </div>
-        {mode === "new" && (
-          <button className="btn sm" onClick={() => pick(null, null)}>
-            Ganti
-          </button>
-        )}
-      </div>
-      <ErrorBox text={errors.job_id ?? errors.bucket_id} />
-      <div className="tw">
-        <table className="grid ltab" style={{ minWidth: 720 }}>
-          <thead>
-            <tr>
-              <th>No. Stok</th>
-              <th style={{ width: 170 }}>Partai</th>
-              <th className="num" style={{ width: 190 }}>
-                {jobId ? "Jumlah" : "Diambil"}
-              </th>
-              <th className="num" style={{ width: 130 }}>
-                Gram
-              </th>
-              <th className="num" style={{ width: 150 }}>
-                Nilai
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {taken.map((t) => (
-              <tr key={t.b.id}>
-                <td>
-                  {idc(t.b.lotNo, t.b.itemName)}
-                  {t.b.qcCheckId && <span className="bdg s-warn">Balik QC</span>}
-                </td>
-                <td className="mono">{t.b.partaiNo ?? "—"}</td>
-                <td className="num">
-                  {editing && !jobId ? (
-                    <div className="qcell">
-                      <MoneyInput
-                        size="sm"
-                        decimals={4}
-                        value={qty}
-                        over={(Number(qty) || 0) > t.b.qty}
-                        ariaLabel="Jumlah diambil"
-                        onChange={(v) => {
-                          setQty(v);
-                          touched();
-                        }}
-                      />
-                      <span className="qu">{t.b.uomLabel}</span>
-                    </div>
-                  ) : (
-                    `${qtyText(t.qty)} ${t.b.uomLabel}`
-                  )}
-                  {errors.qty && <span className="overtag">{errors.qty}</span>}
-                </td>
-                <td className="num">{qtyText(t.grams)}</td>
-                <td className="num">
-                  <span className="mny">{money(t.value)}</span>
-                </td>
-              </tr>
-            ))}
-            {!taken.length && (
-              <tr>
-                <td colSpan={5} className="mut" style={{ textAlign: "center" }}>
-                  Barang ini tidak ada lagi di Persiapan unit ini.
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      {(balikQc || jobNotes?.length) && (
-        <FormBody>
-          {balikQc && (
-            <p className="fnote">
-              <b>Balik QC:</b> barang ini kembali dari QC, jadi biaya unit masuk lagi.
-            </p>
-          )}
-          {jobNotes?.length ? (
-            <p className="fnote">
-              <b>Catatan Pre Cleaning:</b> {jobNotes.join(" · ")}
-            </p>
-          ) : null}
-        </FormBody>
-      )}
-    </div>
-  );
-
-  // ------------------------------------------------------------ outputs
-  function addOutput(e: FormEvent) {
-    e.preventDefault();
-    if (!jenis) return setEntryError("Pilih Jenis.");
-    if (!((Number(gram) || 0) > 0)) return setEntryError("Isi gram lebih dari 0.");
-    setOutputs((o) => [...o, { key: newKey(), item_id: jenis, grams: gram }]);
-    setGram("");
-    setEntryError("");
-    touched();
-  }
-  const perJenis = [...outputs.reduce((m, o) => {
-    if (!o.item_id) return m;
-    const r = m.get(o.item_id) ?? { n: 0, grams: 0 };
-    m.set(o.item_id, { n: r.n + 1, grams: r.grams + (Number(o.grams) || 0) });
-    return m;
-  }, new Map<number, { n: number; grams: number }>())];
-  const outputCard = (chosen || !editing) && (
+  const outputCard = cur && (
     <div className="card" style={{ marginTop: 14 }}>
       <div className="card-h">
         <span className="ci">
           <Icon name="tree" size={15} />
         </span>
         <div className="ct">
-          <h3>Hasil Grading</h3>
-          <p>Tiap hasil menjadi No. Stok baru dari No. Stok asal Job. Item BJL bernilai 0, gramnya tetap tercatat.</p>
+          <h3>Hasil Grading · {cur.jobId ? (jobNoOf(cur.jobId) ?? "No. Job") : (bucketOf.get(cur.bucketId ?? 0)?.lotNo ?? "No. Stok")}</h3>
+          <p>Tiap hasil menjadi No. Stok baru dari No. Stok asal barisnya. Item BJL tetap tercatat gramnya.</p>
         </div>
       </div>
-      <ErrorBox text={errors._outputs} />
+      <ErrorBox text={errors[`items.${curIndex}.outputs`]} />
       {editing && (
         <form className="toolbar" onSubmit={addOutput}>
           <div style={{ width: 300 }}>
@@ -365,29 +315,24 @@ export function GradingForm({
         </form>
       )}
       <div className="tw">
-        <table className="grid ltab" style={{ minWidth: 720 }}>
+        <table className="grid ltab" style={{ minWidth: 640 }}>
           <thead>
             <tr>
               <th style={{ width: 48 }}>No</th>
               <th>Jenis</th>
               <th style={{ width: 190 }}>No. Stok Baru</th>
-              <th className="num" style={{ width: 150 }}>
-                Gram
-              </th>
-              <th className="num" style={{ width: 150 }}>
-                Nilai
-              </th>
+              <th className="num" style={{ width: 150 }}>Gram</th>
               {editing && <th style={{ width: 40 }} />}
             </tr>
           </thead>
           <tbody>
             {/* Newest on top, as on the scale. */}
-            {outputs
+            {cur.outputs
               .map((o, i) => ({ o, i }))
               .reverse()
               .map(({ o, i }) => {
                 const item = o.item_id ? itemOf.get(o.item_id) : undefined;
-                const err = errors[`outputs.${i}.item_id`] ?? errors[`outputs.${i}.grams`];
+                const err = errors[`items.${curIndex}.outputs.${i}.item_id`] ?? errors[`items.${curIndex}.outputs.${i}.grams`];
                 return (
                   <tr key={o.key} className={err ? "overrow" : undefined}>
                     <td className="no">{i + 1}</td>
@@ -396,21 +341,11 @@ export function GradingForm({
                       {item?.isBjl && <span className="bdg s-mute">BJL</span>}
                       {err && <span className="overtag">{err}</span>}
                     </td>
-                    <td className="mono">{grading?.outputs[i]?.trackingNo ?? <span className="dash">otomatis</span>}</td>
+                    <td className="mono">{trackingOf(curIndex, i) ?? <span className="dash">otomatis</span>}</td>
                     <td className="num">{qtyText(Number(o.grams))}</td>
-                    <td className="num">
-                      <span className="mny">{money(values[i] ?? 0)}</span>
-                    </td>
                     {editing && (
                       <td>
-                        <button
-                          className="iact del"
-                          title="Hapus baris"
-                          onClick={() => {
-                            setOutputs((r) => r.filter((x) => x.key !== o.key));
-                            touched();
-                          }}
-                        >
+                        <button className="iact del" title="Hapus baris" onClick={() => setLine(cur.key, { outputs: cur.outputs.filter((x) => x.key !== o.key) })}>
                           <Icon name="trash" size={14} />
                         </button>
                       </td>
@@ -418,9 +353,9 @@ export function GradingForm({
                   </tr>
                 );
               })}
-            {outputs.length === 0 && (
+            {cur.outputs.length === 0 && (
               <tr>
-                <td colSpan={6} className="mut" style={{ textAlign: "center" }}>
+                <td colSpan={5} className="mut" style={{ textAlign: "center" }}>
                   Belum ada hasil.
                 </td>
               </tr>
@@ -428,6 +363,13 @@ export function GradingForm({
           </tbody>
         </table>
       </div>
+      {curNotes?.length ? (
+        <FormBody>
+          <p className="fnote">
+            <b>Catatan Pre Cleaning:</b> {curNotes.join(" · ")}
+          </p>
+        </FormBody>
+      ) : null}
       <div className="uw-pair">
         <div className="impact">
           <div className="ttl">Per Jenis</div>
@@ -450,57 +392,19 @@ export function GradingForm({
         <div className="impact">
           <div className="ttl">Gram</div>
           <div className="ir">
-            <span>Diambil{jobId ? " (utuh)" : ""}</span>
-            <b>{qtyText(gramsIn)} g</b>
+            <span>Diambil{cur.jobId ? " (utuh)" : ""}</span>
+            <b>{qtyText(gramsIn(cur))} g</b>
           </div>
           <div className="ir">
             <span>Output</span>
-            <b>{qtyText(gramsOut)} g</b>
+            <b>{qtyText(gramsOut(cur))} g</b>
           </div>
           <div className="ir tot">
             <span>Susut</span>
-            <b>{qtyText(gramsIn - gramsOut)} g</b>
+            <b>{qtyText(gramsIn(cur) - gramsOut(cur))} g</b>
           </div>
         </div>
       </div>
-    </div>
-  );
-
-  // ------------------------------------------------------------ value
-  const valueCard = (chosen || !editing) && (
-    <div className="card" style={{ marginTop: 14, padding: 14 }}>
-      <div className="impact">
-        <div className="ttl">Nilai</div>
-        <div className="ir">
-          <span>Nilai input</span>
-          <b>{money(inputValue)}</b>
-        </div>
-        <div className="ir">
-          <span>
-            Biaya unit ({qtyText(gramsIn)} g × {formatPrice(rate)}/g)
-          </span>
-          <b>{money(cost)}</b>
-        </div>
-        <div className="ir">
-          <span>Bahan penolong</span>
-          <b>{money(auxValue)}</b>
-        </div>
-        {scrap > 0 && (
-          <div className="ir">
-            <span>Ke Beban Pemusnahan</span>
-            <b>{money(scrap)}</b>
-          </div>
-        )}
-        <div className="ir tot">
-          <span>Dibagi ke output</span>
-          <b>{money(inputValue + cost + auxValue - scrap)}</b>
-        </div>
-      </div>
-      {scrap > 0 && (
-        <p className="fnote">
-          <b>Semua output BJL:</b> nilainya masuk Beban Pemusnahan Produksi saat Posting.
-        </p>
-      )}
     </div>
   );
 
@@ -541,8 +445,8 @@ export function GradingForm({
             <FormBody>
               <FormSection title="Pengerjaan">
                 <FormRow>
-                  <Field label="Unit" span={3} required={editing} locked={mode === "edit" || (chosen && editing)} error={errors.unit_id}>
-                    {editing && !chosen ? (
+                  <Field label="Unit" span={4} required={editing} locked={mode === "edit" || (lines.length > 0 && editing)} error={errors.unit_id}>
+                    {editing && !lines.length ? (
                       <Combobox
                         value={unitId}
                         options={refs(options.units)}
@@ -557,7 +461,7 @@ export function GradingForm({
                       ro(idc(grading?.unitLabel ?? unit?.label ?? "", grading?.unitName ?? unit?.name ?? ""))
                     )}
                   </Field>
-                  <Field label="Tanggal" span={3} required={editing} error={errors.grading_date}>
+                  <Field label="Tanggal" span={4} required={editing} error={errors.grading_date}>
                     {editing ? (
                       <DateInput
                         value={date}
@@ -571,25 +475,9 @@ export function GradingForm({
                       ro(formatDate(date))
                     )}
                   </Field>
-                  <Field label="No. Job" span={3}>
-                    {jobNo ? ro(<span className="mono">{jobNo}</span>) : <div className="ro nil">tanpa No. Job</div>}
+                  <Field label="Partai" span={4}>
+                    {partaiNo ? ro(<span className="mono">{partaiNo}</span>) : <div className="ro nil">{partaiId === null && lines.length ? "sebelum partai" : "mengikuti baris"}</div>}
                   </Field>
-                  <Field label="Partai" span={3}>
-                    {partaiNo ? ro(<span className="mono">{partaiNo}</span>) : <div className="ro nil">sebelum partai</div>}
-                  </Field>
-                  {posted && (
-                    <Field label="Journal" span={4}>
-                      {posted.journalId ? (
-                        ro(
-                          <Link className="drl" href={`/accounting/journal/${posted.journalId}`}>
-                            <span className="mono">{posted.journalNo}</span>
-                          </Link>
-                        )
-                      ) : (
-                        <div className="ro nil">tanpa journal</div>
-                      )}
-                    </Field>
-                  )}
                   <Field label="Catatan" span={12}>
                     {editing ? (
                       <textarea
@@ -617,25 +505,35 @@ export function GradingForm({
               )}
             </FormBody>
           </div>
-          {pickCard}
-          {inputCard}
+          {linesCard}
           {outputCard}
-          {(chosen || !editing) && (
+          {lines.length > 0 && (
             <AuxCard
               rows={aux}
               options={options.aux.filter((b) => b.unitId === unitId || aux.some((a) => a.bucket_id === b.id))}
               editing={editing}
               errors={errors}
-              values={posted ? posted.aux.map((a) => a.value) : undefined}
+              noValue
               onChange={(r) => {
                 setAux(r);
                 touched();
               }}
             />
           )}
-          {valueCard}
         </div>
       </div>
+
+      {adding && (
+        <JobPicker
+          title="Tambah Baris"
+          subtitle={`Yang menunggu di Persiapan Grading ${unit?.label ?? ""}${lines.length ? ", partai yang sama" : ""}.`}
+          choices={choices.filter((c) => !lines.length || !partaiId || !c.partaiId || c.partaiId === partaiId)}
+          onAdd={addLines}
+          onClose={() => setAdding(false)}
+        />
+      )}
     </>
   );
 }
+
+export type { BucketOption };

@@ -141,6 +141,7 @@ export function AuxCard({
   editing,
   errors,
   values,
+  noValue = false,
   onChange,
 }: {
   rows: AuxRow[];
@@ -151,6 +152,8 @@ export function AuxCard({
   errors: Record<string, string>;
   /** Stored values of a posted document. */
   values?: number[];
+  /** Produksi screens show no prices (P275). */
+  noValue?: boolean;
   onChange: (rows: AuxRow[]) => void;
 }) {
   if (!editing && !rows.length) return null;
@@ -183,9 +186,11 @@ export function AuxCard({
                 <th className="num" style={{ width: 180 }}>
                   Qty
                 </th>
-                <th className="num" style={{ width: 150 }}>
-                  Nilai
-                </th>
+                {!noValue && (
+                  <th className="num" style={{ width: 150 }}>
+                    Nilai
+                  </th>
+                )}
                 {editing && <th style={{ width: 40 }} />}
               </tr>
             </thead>
@@ -232,9 +237,11 @@ export function AuxCard({
                       )}
                       {editing && b && <span className="fulltag">saldo {qtyText(b.qty)}</span>}
                     </td>
-                    <td className="num">
-                      <span className="mny">{money(values?.[i] ?? estimate)}</span>
-                    </td>
+                    {!noValue && (
+                      <td className="num">
+                        <span className="mny">{money(values?.[i] ?? estimate)}</span>
+                      </td>
+                    )}
                     {editing && (
                       <td>
                         <button className="iact del" title="Hapus baris" onClick={() => onChange(rows.filter((x) => x.key !== r.key))}>
