@@ -298,6 +298,8 @@ export const PERMISSIONS = [
   { code: "PRODUCTION_TRANSFER_RECEIVE", name: "Terima BSTB", module: "production", description: "Oleh Unit tujuan; barang masuk ke Persiapannya." },
   { code: "PRODUCTION_KERJA_VIEW", name: "Lihat Kerja", module: "production", description: "Proses Kerja: Mulai, Sedang Dikerjakan, Selesai." },
   { code: "PRODUCTION_KERJA_START", name: "Mulai Kerja", module: "production", description: "Memindah Job ke Sedang Dikerjakan dengan karyawannya." },
+  { code: "PRODUCTION_JOB_ORDER_VIEW", name: "Lihat Job Order", module: "production", description: "No. Stok yang dicampur menjadi No. Stok baru dengan No. Job sendiri." },
+  { code: "PRODUCTION_JOB_ORDER_POST", name: "Posting Job Order", module: "production", description: "Langsung diposting; gram tetap, tanpa biaya Unit." },
   { code: "PRODUCTION_KERJA_FINISH", name: "Selesaikan atau Batal Mulai Kerja", module: "production", description: "Selesai membebankan biaya Unit bila proses terakhir; Batal Mulai tanpa biaya." },
   { code: "MENU_COSTING_ACCESS", name: "Akses menu Produksi di ERP", module: "costing", description: "Sisi uang produksi: Tagihan Biaya, Standard Cost, Jenis Biaya." },
   { code: "RATE_VERSION_VIEW", name: "Lihat Standard Cost", module: "costing" },

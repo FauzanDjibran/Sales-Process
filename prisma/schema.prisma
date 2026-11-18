@@ -669,6 +669,7 @@ model MItem {
   stock_issue_lines      LogStockIssueLine[]
   prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
   grading_outputs        PrdGradingOutput[]
+  job_order_targets      PrdJobOrderLine[]
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -932,6 +933,7 @@ model RefUnit {
   cost_entries  PrdCostEntry[]
   rate_lines    PrdRateVersionLine[]
   kerjas        PrdKerja[]
+  job_orders    PrdJobOrder[]
 
   @@index([workstation_id])
   @@map("ref_unit")
@@ -961,9 +963,10 @@ model RefUnitStep {
   seq     Int
   process PrdStepProcess
 
-  unit     RefUnit      @relation(fields: [unit_id], references: [id], onDelete: Cascade)
-  balances PrdBalance[] @relation("PrdBalanceStep")
-  kerjas   PrdKerja[]
+  unit       RefUnit       @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+  balances   PrdBalance[]  @relation("PrdBalanceStep")
+  kerjas     PrdKerja[]
+  job_orders PrdJobOrder[]
 
   @@unique([unit_id, seq])
   @@unique([unit_id, process])
@@ -1106,6 +1109,7 @@ model PrdPartai {
   jobs         PrdJob[]
   transfers    PrdTransfer[]
   kerjas       PrdKerja[]
+  job_orders   PrdJobOrder[]
   balances     PrdBalance[]
   ledger       PrdLedger[]
   cost_entries PrdCostEntry[]
@@ -1134,14 +1138,15 @@ model PrdJob {
   created_by         Int
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
-  unit           RefUnit           @relation(fields: [unit_id], references: [id])
-  tracking       LogStockTracking? @relation(fields: [tracking_id], references: [id], onDelete: Restrict)
-  partai         PrdPartai?        @relation(fields: [partai_id], references: [id])
-  balances       PrdBalance[]
-  ledger         PrdLedger[]
-  gradings       PrdGrading[]
-  transfer_lines PrdTransferLine[]
-  kerja_lines    PrdKerjaLine[]
+  unit            RefUnit           @relation(fields: [unit_id], references: [id])
+  tracking        LogStockTracking? @relation(fields: [tracking_id], references: [id], onDelete: Restrict)
+  partai          PrdPartai?        @relation(fields: [partai_id], references: [id])
+  balances        PrdBalance[]
+  ledger          PrdLedger[]
+  gradings        PrdGrading[]
+  transfer_lines  PrdTransferLine[]
+  kerja_lines     PrdKerjaLine[]
+  job_order_lines PrdJobOrderLine[]
 
   @@index([tracking_id])
   @@index([partai_id])
@@ -4389,6 +4394,68 @@ model PrdBalance {
 }
 
 /// A Dokumen Push or a BSTB between Units (P277, T8): `PSH_<from>_…` for a Push,
+
+/// Job Order (P283, T7): at a Unit's Job Order step, several No. Stok (in part, if wanted) and
+/// one target jenis become one new No. Stok `<largest input>-<n>` with its own No. Job and Job
+/// Order number `JO_<job no>`. `JOD_<unit>_<ddmmyy>_<NNNNN>`, posted in one step; no rate, gram
+/// unchanged, a journal only when the WIP accounts differ.
+model PrdJobOrder {
+  id               Int      @id @default(autoincrement())
+  job_order_doc_no String   @unique
+  doc_date         DateTime @db.Date
+  unit_id          Int
+  unit_step_id     Int
+  partai_id        Int?
+  journal_id       Int?
+  note             String?
+  created_by       Int
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+
+  unit   RefUnit           @relation(fields: [unit_id], references: [id])
+  step   RefUnitStep       @relation(fields: [unit_step_id], references: [id])
+  partai PrdPartai?        @relation(fields: [partai_id], references: [id])
+  lines  PrdJobOrderLine[]
+
+  @@index([unit_id])
+  @@map("prd_job_order")
+}
+
+model PrdJobOrderLine {
+  id             Int     @id @default(autoincrement())
+  job_order_id   Int
+  line_no        Int
+  target_item_id Int
+  job_order_no   String  @unique
+  grams          Decimal @db.Decimal(18, 6)
+  value          Decimal @default(0) @db.Decimal(18, 2)
+  job_id         Int
+  tracking_id    Int
+  tracking_no    String
+  to_bucket_id   Int
+
+  job_order PrdJobOrder        @relation(fields: [job_order_id], references: [id], onDelete: Cascade)
+  target    MItem              @relation(fields: [target_item_id], references: [id])
+  job       PrdJob             @relation(fields: [job_id], references: [id])
+  inputs    PrdJobOrderInput[]
+
+  @@unique([job_order_id, line_no])
+  @@map("prd_job_order_line")
+}
+
+model PrdJobOrderInput {
+  id                Int     @id @default(autoincrement())
+  job_order_line_id Int
+  bucket_id         Int
+  tracking_id       Int
+  qty               Decimal @db.Decimal(18, 6)
+  grams             Decimal @db.Decimal(18, 6)
+  value             Decimal @default(0) @db.Decimal(18, 2)
+
+  line PrdJobOrderLine @relation(fields: [job_order_line_id], references: [id], onDelete: Cascade)
+
+  @@index([job_order_line_id])
+  @@map("prd_job_order_input")
+}
 
 enum PrdKerjaStatus {
   Running

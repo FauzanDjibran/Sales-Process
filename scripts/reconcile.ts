@@ -883,6 +883,13 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "a Job Order line holds exactly what its inputs gave, in gram and value (P283)",
+    sql: `SELECT l.id FROM prd_job_order_line l
+          LEFT JOIN (SELECT job_order_line_id, SUM(grams) AS g, SUM(value) AS v FROM prd_job_order_input GROUP BY 1) i ON i.job_order_line_id = l.id
+          WHERE l.grams <> COALESCE(i.g, 0) OR l.value <> COALESCE(i.v, 0)`,
+  },
+  {
+    area: "production",
     name: "every Sedang Dikerjakan bucket is held by open Kerja lines of exactly its quantity (P282)",
     sql: `SELECT b.id FROM prd_balance b
           LEFT JOIN (SELECT work_bucket_id, SUM(qty) AS qty FROM prd_kerja_line WHERE finished_at IS NULL AND cancelled_at IS NULL GROUP BY 1) k ON k.work_bucket_id = b.id

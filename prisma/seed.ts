@@ -156,6 +156,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Push dan BSTB", "prd_transfer"],
   // Kerja, Mulai to Selesai (P282).
   ["Kerja", "prd_kerja"],
+  // Job Order at Moulding (P283).
+  ["Job Order", "prd_job_order"],
 ];
 
 /**

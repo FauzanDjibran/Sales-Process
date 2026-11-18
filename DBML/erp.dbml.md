@@ -3491,4 +3491,60 @@ table prd_kerja_line {
   }
 }
 
+// Job Order (P283, T7): several No. Stok (in part) and one target jenis become one new No. Stok
+// <largest input>-<n> with its own No. Job and JO_<job no>. JOD_<unit>_<ddmmyy>_<NNNNN>, posted in one
+// step; gram unchanged, no Unit rate; a journal only when WIP accounts differ.
+table prd_job_order {
+  id                          int [pk, increment, not null]
+
+  job_order_doc_no            varchar [not null, unique]
+  doc_date                    date [not null]
+  unit_id                     int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
+  unit_step_id                int [not null, ref : > ref_unit_step.id] // lintas aplikasi → ERP · its Job Order step
+  partai_id                   int [ref : > prd_partai.id]
+  journal_id                  int
+  note                        varchar
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    unit_id
+  }
+}
+
+table prd_job_order_line {
+  id                          int [pk, increment, not null]
+
+  job_order_id                int [not null, ref : > prd_job_order.id]
+  line_no                     int [not null]
+  target_item_id              int [not null, ref : > m_item.id] // lintas aplikasi → ERP · the jenis chosen
+  job_order_no                varchar [not null, unique] // JO_<job no>
+  grams                       decimal(18,6) [not null] // Σ inputs, no loss; CHECK > 0
+  value                       decimal(18,2) [not null, default: 0]
+  job_id                      int [not null, ref : > prd_job.id]
+  tracking_id                 int [not null] // the new No. Stok
+  tracking_no                 varchar [not null]
+  to_bucket_id                int [not null]
+
+  indexes {
+    (job_order_id, line_no) [unique]
+  }
+}
+
+table prd_job_order_input {
+  id                          int [pk, increment, not null]
+
+  job_order_line_id           int [not null, ref : > prd_job_order_line.id]
+  bucket_id                   int [not null]
+  tracking_id                 int [not null]
+  qty                         decimal(18,6) [not null] // what is taken; the rest stays. CHECK > 0
+  grams                       decimal(18,6) [not null]
+  value                       decimal(18,2) [not null, default: 0]
+
+  indexes {
+    job_order_line_id
+  }
+}
+
 ```

@@ -59,6 +59,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
         transfer: actor.permissions.has("PRODUCTION_TRANSFER_CREATE"),
         kerjaStart: actor.permissions.has("PRODUCTION_KERJA_START"),
         kerjaFinish: actor.permissions.has("PRODUCTION_KERJA_FINISH"),
+        jobOrder: actor.permissions.has("PRODUCTION_JOB_ORDER_POST"),
       }}
       issueCan={stockIssueAbilities(actor.permissions)}
       initialTab={initial}

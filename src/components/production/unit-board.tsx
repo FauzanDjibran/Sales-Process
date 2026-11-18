@@ -108,7 +108,7 @@ function Next({ row }: { row: BoardRow }) {
 
 const EMPTY: Record<string, [string, string]> = {
   Grading: ["Tidak ada barang untuk digrading", "Barang yang diterima unit ini muncul di sini. Klik barisnya untuk menggrading."],
-  JobOrder: ["Tidak ada barang untuk Job Order", "Hasil grading muncul di sini."],
+  JobOrder: ["Tidak ada barang untuk Job Order", "Hasil grading muncul di sini. Klik barisnya untuk membuat Job Order."],
   Assign: ["Tidak ada barang untuk dikerjakan", "Barang yang diterima unit ini muncul di sini. Klik barisnya untuk mencatat pengerjaan."],
   Kerja: ["Tidak ada barang untuk dikerjakan", "Barang yang diterima unit ini muncul di sini."],
   QC: ["Tidak ada barang menunggu QC", "Hasil pekerjaan unit ini masuk ke sini. Klik barisnya untuk memeriksa."],
@@ -130,7 +130,7 @@ export function UnitBoard({
   incoming: BoardIncoming[];
   transfers: IncomingTransfer[];
   canReceive: boolean;
-  can: { grading: boolean; work: boolean; qc: boolean; transfer: boolean; kerjaStart: boolean; kerjaFinish: boolean };
+  can: { grading: boolean; work: boolean; qc: boolean; transfer: boolean; kerjaStart: boolean; kerjaFinish: boolean; jobOrder: boolean };
   issueCan: StockIssueAbilities;
   initialTab: BoardTab;
 }) {
@@ -197,6 +197,10 @@ export function UnitBoard({
     if (p === "Grading") {
       if (!can.grading) return toast("Tidak diizinkan", "Anda tidak boleh membuat No. Grading.", "err");
       return router.push(`/production/grading/new?${g.job ? `job=${g.job.id}` : `bucket=${g.rows[0].id}`}`);
+    }
+    if (p === "JobOrder") {
+      if (!can.jobOrder) return toast("Tidak diizinkan", "Anda tidak boleh membuat Job Order.", "err");
+      return router.push(`/production/job-order/new?unit=${encodeURIComponent(unit.label)}&bucket=${ids}`);
     }
     if (p === "Kerja") {
       if (!can.kerjaStart) return toast("Tidak diizinkan", "Anda tidak boleh memulai Kerja.", "err");
