@@ -38,6 +38,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
         checkpoint: unit.checkpoint,
         afterCheckpoint: unit.afterCheckpoint,
         steps: unit.steps,
+        hasQc: unit.hasQc,
         lines: unit.lines.map((l) => ({ id: l.id, name: l.name })),
       }}
       rows={rows}

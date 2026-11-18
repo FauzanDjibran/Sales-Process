@@ -11,18 +11,15 @@ export const STEPS_KEY = "_steps";
 export const RATES_KEY = "_rates";
 
 /** The kinds of work an engine in code knows (W33); a Unit does them in order, each once (T1). */
-export const STEP_PROCESSES = ["Grading", "JobOrder", "Assign", "Kerja", "QC", "Assembly"] as const;
+export const STEP_PROCESSES = ["Grading", "JobOrder", "Assign", "Kerja", "Assembly"] as const;
 export type StepProcess = (typeof STEP_PROCESSES)[number];
 export const STEP_PROCESS_LABEL: Record<string, string> = {
   Grading: "Grading",
   JobOrder: "Job Order",
   Assign: "Assign",
   Kerja: "Kerja",
-  QC: "QC",
   Assembly: "Assembly",
 };
-/** The processes that absorb a rate per gram; QC and Job Order carry none (T3). */
-export const COSTING_PROCESSES: readonly string[] = ["Grading", "Assign", "Kerja", "Assembly"];
 
 /** The form value the Unit steps travel under. */
 export const UNIT_STEPS_KEY = "_unit_steps";
@@ -30,8 +27,8 @@ export const UNIT_STEPS_KEY = "_unit_steps";
 export type UnitStepDraft = { id?: number; key: string; process: StepProcess | null };
 
 /**
- * The rules of one Unit steps (T1): at least one, each process once, QC last,
- * Assembly alone. Shared by the dialog and the Server Action.
+ * The rules of one Unit steps (T1): at least one, each process once, Assembly
+ * alone. QC is a feature of the Unit, not a step (P281). Shared by the dialog and the Server Action.
  */
 export function unitStepRuleErrors(steps: Pick<UnitStepDraft, "process">[]): string[] {
   const out: string[] = [];
@@ -39,7 +36,6 @@ export function unitStepRuleErrors(steps: Pick<UnitStepDraft, "process">[]): str
   if (!list.length) return ["Unit butuh minimal satu proses."];
   if (list.some((p) => !p)) return ["Pilih proses untuk tiap langkah."];
   if (new Set(list).size !== list.length) out.push("Satu proses hanya boleh sekali per Unit. Butuh urutan lain? Buat Unit lain.");
-  if (list.includes("QC") && list[list.length - 1] !== "QC") out.push("QC harus proses terakhir.");
   if (list.includes("Assembly") && list.length > 1) out.push("Assembly berdiri sendiri, tanpa proses lain.");
   return out;
 }
@@ -55,8 +51,8 @@ export type StepDraft = {
 export type RateDraft = {
   id?: number;
   key: string;
-  /** The Unit step the rate belongs to (T3). */
-  unit_step_id: number | null;
+  /** The Unit the rate belongs to, charged at its last step (P281). */
+  unit_id: number | null;
   /** Unformatted, `.` decimal point; empty is refused (leave the unit out for 0). */
   rate: string;
 };
@@ -69,10 +65,10 @@ export function stepErrors(s: Partial<StepDraft>, takenUnits: number[]): Record<
   return e;
 }
 
-export function rateErrors(r: Partial<RateDraft>, takenSteps: number[]): Record<string, string> {
+export function rateErrors(r: Partial<RateDraft>, takenUnits: number[]): Record<string, string> {
   const e: Record<string, string> = {};
-  if (!r.unit_step_id) e.unit_step_id = "Pilih proses unit.";
-  else if (takenSteps.includes(r.unit_step_id)) e.unit_step_id = "Proses ini sudah punya rate di versi ini.";
+  if (!r.unit_id) e.unit_id = "Pilih unit.";
+  else if (takenUnits.includes(r.unit_id)) e.unit_id = "Unit ini sudah punya rate di versi ini.";
   const text = String(r.rate ?? "").trim();
   const n = Number(text);
   if (!text || !Number.isFinite(n) || n < 0) e.rate = "Isi rate 0 atau lebih.";

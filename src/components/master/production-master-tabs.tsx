@@ -373,7 +373,7 @@ function UnitStepDialog({
       }
     >
       <FormRow>
-        <Field label="Proses" span={12} required error={error} help="QC selalu terakhir; Assembly berdiri sendiri">
+        <Field label="Proses" span={12} required error={error} help="Assembly berdiri sendiri; QC diatur di header Unit">
           <Select
             value={process ?? ""}
             options={options}
@@ -392,29 +392,29 @@ function UnitStepDialog({
 // -------------------------------------------------------------------- rates
 
 /**
- * One row per costing step of a Unit in routing order, typed in place: the version
- * is written once, so the whole of it is on one screen. A step left empty has no
- * row, and costs 0 (T3); QC and Job Order are not offered.
+ * One row per active Unit in routing order, typed in place: the version is written
+ * once, so the whole of it is on one screen. A Unit left empty has no row and costs 0;
+ * the rate is charged once, at the Unit's last process (P281).
  */
 export function RateLinesTab({ editing, items, error, onChange, context }: CollectionTabProps<RateDraft>) {
   const units = context?.refs._steps ?? [];
-  const rateOf = (stepId: number) => items.find((r) => r.unit_step_id === stepId)?.rate ?? "";
+  const rateOf = (stepId: number) => items.find((r) => r.unit_id === stepId)?.rate ?? "";
   const rows = units.filter((u) => (editing ? u.active : rateOf(u.id) !== ""));
 
   const type = (stepId: number, rate: string) =>
     onChange(
       rate === ""
-        ? items.filter((r) => r.unit_step_id !== stepId)
-        : items.some((r) => r.unit_step_id === stepId)
-          ? items.map((r) => (r.unit_step_id === stepId ? { ...r, rate } : r))
-          : [...items, { key: newKey("r"), unit_step_id: stepId, rate }]
+        ? items.filter((r) => r.unit_id !== stepId)
+        : items.some((r) => r.unit_id === stepId)
+          ? items.map((r) => (r.unit_id === stepId ? { ...r, rate } : r))
+          : [...items, { key: newKey("r"), unit_id: stepId, rate }]
     );
 
   return (
     <CollectionCard
       icon="calc"
       title="Rate per Unit"
-      desc="Rate biaya per gram input, per proses unit, urut routing. Yang kosong berarti rate 0. Versi tidak dapat diubah setelah disimpan."
+      desc="Rate biaya per gram per Unit, urut routing, dibebankan sekali saat proses terakhir Unit selesai. Yang kosong berarti rate 0. Versi tidak dapat diubah setelah disimpan."
       editing={editing}
       error={error}
     >
@@ -423,8 +423,8 @@ export function RateLinesTab({ editing, items, error, onChange, context }: Colle
           <div className="ic">
             <Icon name="calc" size={18} />
           </div>
-          <h4>{editing ? "Belum ada proses berbiaya" : "Semua proses berate 0"}</h4>
-          <p>{editing ? "Isi tab Proses di Master › Unit lebih dulu." : "Versi ini tidak mengisi rate untuk proses mana pun."}</p>
+          <h4>{editing ? "Belum ada Unit aktif" : "Semua Unit berate 0"}</h4>
+          <p>{editing ? "Buat Unit di Master › Unit lebih dulu." : "Versi ini tidak mengisi rate untuk Unit mana pun."}</p>
         </div>
       ) : (
         <div className="tw">
@@ -432,7 +432,7 @@ export function RateLinesTab({ editing, items, error, onChange, context }: Colle
             <thead>
               <tr>
                 <th style={{ width: 44 }}>No</th>
-                <th>Unit · Proses</th>
+                <th>Unit</th>
                 <th className="num" style={{ width: 220 }}>
                   Rate per Gram
                 </th>

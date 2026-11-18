@@ -143,16 +143,16 @@ export async function refOptions(
   // The Units a routing step or a rate line picks from (P225).
   if (entity.key === "prd_routing") result._units = await optionsFor("ref_unit");
   if (entity.key === "prd_rate_version") {
-    // One option per costing step of an active Unit, in routing order: label the Unit, name its process (T3).
+    // One option per active Unit, in routing order, naming its processes (P281).
     const order = await unitRoutingOrder();
     const at = (id: number) => order.get(id) ?? Number.MAX_SAFE_INTEGER;
-    const steps = await prisma.refUnitStep.findMany({
-      where: { process: { in: ["Grading", "Assign", "Kerja", "Assembly"] }, unit: { status: "Active" } },
-      select: { id: true, process: true, unit_id: true, unit: { select: { unit_label: true, unit_name: true } } },
+    const units = await prisma.refUnit.findMany({
+      where: { status: "Active" },
+      select: { id: true, unit_label: true, unit_name: true, steps: { orderBy: { seq: "asc" }, select: { process: true } } },
     });
-    result._steps = steps
-      .sort((a, b) => at(a.unit_id) - at(b.unit_id) || a.id - b.id)
-      .map((s) => ({ id: s.id, label: s.unit.unit_label, name: `${s.unit.unit_name} · ${STEP_PROCESS_LABEL[s.process]}`, active: true }));
+    result._steps = units
+      .sort((a, b) => at(a.id) - at(b.id) || a.id - b.id)
+      .map((u) => ({ id: u.id, label: u.unit_label, name: [u.unit_name, u.steps.map((s) => STEP_PROCESS_LABEL[s.process]).join(" → ")].filter(Boolean).join(" · "), active: true }));
   }
   return result;
 }

@@ -903,7 +903,7 @@ export const CHECKS: Check[] = [
     area: "production",
     name: "a standard cost entry is round(grams × rate), its rate that of its version (V1)",
     sql: `SELECT e.id, e.amount FROM prd_cost_entry e
-          LEFT JOIN prd_rate_version_line v ON v.version_id = e.rate_version_id AND v.unit_step_id = e.unit_step_id
+          LEFT JOIN prd_rate_version_line v ON v.version_id = e.rate_version_id AND v.unit_id = e.unit_id
           WHERE e.rate <> COALESCE(v.rate, 0) OR e.amount <> ROUND(e.grams * e.rate)`,
   },
   {

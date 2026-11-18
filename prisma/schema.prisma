@@ -885,14 +885,13 @@ model RefWorkstation {
 
 /// The kinds of work an engine in code knows (W33). A Unit is allowed some of
 /// them; a new kind is new code, a new Unit is not.
-/// What a step of a Unit does (P274, T1). Grading and Assign cost gram × rate; QC and
-/// Job Order carry no rate; Kerja is Mulai then Selesai; Assembly stands alone.
+/// What a step of a Unit does (P274, T1; P281 QC is a Unit feature, not a step). The
+/// Unit rate is charged once, at its last step; Kerja is Mulai then Selesai; Assembly stands alone.
 enum PrdStepProcess {
   Grading
   JobOrder
   Assign
   Kerja
-  QC
   Assembly
 }
 
@@ -907,6 +906,8 @@ model RefUnit {
   workstation_id   Int?
   /// May send goods back to an earlier Unit of the partai's routing (T10).
   allow_reproses   Boolean        @default(false)
+  /// Results of the last step wait in QC Check before Stand By (P281).
+  has_qc           Boolean        @default(false)
   note             String?
   status           ActiveStatus   @default(Active)
 
@@ -929,6 +930,7 @@ model RefUnit {
   transfers_in  PrdTransfer[] @relation("PrdTransferTo")
   jobs          PrdJob[]
   cost_entries  PrdCostEntry[]
+  rate_lines    PrdRateVersionLine[]
 
   @@index([workstation_id])
   @@map("ref_unit")
@@ -951,7 +953,7 @@ enum PrdTransferStatus {
 /// A step of a Unit (P274, T1): the ordered work done there. Goods received enter
 /// step 1; a posted step document moves them to the next step's Persiapan without a
 /// Push; after the last step they wait in Stand By. A process appears once per Unit
-/// and QC is last (rules in code).
+/// and Assembly stands alone (rules in code).
 model RefUnitStep {
   id      Int            @id @default(autoincrement())
   unit_id Int
@@ -959,8 +961,6 @@ model RefUnitStep {
   process PrdStepProcess
 
   unit         RefUnit              @relation(fields: [unit_id], references: [id], onDelete: Cascade)
-  rate_lines   PrdRateVersionLine[]
-  cost_entries PrdCostEntry[]
   balances     PrdBalance[]         @relation("PrdBalanceStep")
 
   @@unique([unit_id, seq])
@@ -1068,15 +1068,15 @@ model PrdRateVersion {
 model PrdRateVersionLine {
   id         Int     @id @default(autoincrement())
   version_id Int
-  /// A rate per gram per Unit step (T3); QC and Job Order carry none.
-  unit_step_id Int
+  /// One rate per gram per Unit (P281), charged at its last step.
+  unit_id    Int
   rate       Decimal @db.Decimal(18, 6)
 
   version PrdRateVersion @relation(fields: [version_id], references: [id], onDelete: Cascade)
-  step    RefUnitStep    @relation(fields: [unit_step_id], references: [id])
+  unit    RefUnit        @relation(fields: [unit_id], references: [id])
 
-  @@unique([version_id, unit_step_id])
-  @@index([unit_step_id])
+  @@unique([version_id, unit_id])
+  @@index([unit_id])
   @@map("prd_rate_version_line")
 }
 
@@ -1181,8 +1181,6 @@ model PrdCostEntry {
   source_doc_id      Int
   source_no          String
   unit_id            Int
-  /// The step that earned it (T3); empty on entries written before P274.
-  unit_step_id       Int?
   rate_version_id    Int
   tracking_id        Int
   partai_id          Int?
@@ -1197,7 +1195,6 @@ model PrdCostEntry {
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
   unit         RefUnit          @relation(fields: [unit_id], references: [id])
-  step         RefUnitStep?     @relation(fields: [unit_step_id], references: [id])
   rate_version PrdRateVersion   @relation(fields: [rate_version_id], references: [id])
   tracking     LogStockTracking @relation(fields: [tracking_id], references: [id])
   partai       PrdPartai?       @relation(fields: [partai_id], references: [id])
@@ -4322,12 +4319,13 @@ enum ProductionCostBillStatus {
 /// Each Unit holds goods in Persiapan (received, not worked), then QC Check where
 /// the Unit has one (W65), then Stand By (waiting to be sent). Only an execution
 /// takes goods out of Persiapan (W29).
-/// Where goods are in a Unit (P274, T4): Persiapan of one step, Sedang Dikerjakan (Kerja),
-/// Stand By after the last step, or Dalam Perjalanan on a submitted BSTB (a status, still
+/// Where goods are in a Unit (P274, T4; P281): Persiapan of one step, Sedang Dikerjakan (Kerja),
+/// QC Check after the last step where the Unit has QC, Stand By, or Dalam Perjalanan on a submitted BSTB (a status, still
 /// held by the sending Unit).
 enum PrdStage {
   Preparation
   Working
+  QcCheck
   StandBy
   InTransit
 }

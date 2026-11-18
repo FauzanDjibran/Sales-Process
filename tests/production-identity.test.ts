@@ -41,7 +41,7 @@ before(async () => {
   const version = async (tag: string, rate: number, status: "Active" | "Inactive") =>
     (
       await prisma.prdRateVersion.create({
-        data: { rate_code: `test.${f.key(tag)}`, rate_label: f.key(tag), rate_name: tag, status, created_by: a, lines: { create: [{ unit_step_id: (await prisma.refUnitStep.findFirstOrThrow({ where: { unit_id: f.wsA } })).id, rate }] } },
+        data: { rate_code: `test.${f.key(tag)}`, rate_label: f.key(tag), rate_name: tag, status, created_by: a, lines: { create: [{ unit_id: f.wsA, rate }] } },
       })
     ).id;
   ids.v1 = await version("V1", 182.8637, "Active");
@@ -154,5 +154,20 @@ describe("what a No. Stok locked, and standard cost", () => {
     assert.equal(row.line_id, ids.line);
     const free = await tx((t) => recordCostEntry(t, { unitId: f.wsB, stepId: stepB, rateVersionId: ids.v1, lotId: f.lot, grams: 100, date, source: s, actorId: f.actor }));
     assert.deepEqual(free, { amount: 0, rate: 0 });
+  });
+
+  test("only the Unit's last step charges its rate; an earlier step is a transformation (P281)", async () => {
+    const first = (await prisma.refUnitStep.findFirstOrThrow({ where: { unit_id: f.wsA } })).id;
+    const extra = await prisma.refUnitStep.create({ data: { unit_id: f.wsA, seq: 99, process: "Kerja" } });
+    try {
+      const before = await prisma.prdCostEntry.count({ where: { tracking_id: f.lot } });
+      const early = await tx((t) => recordCostEntry(t, { unitId: f.wsA, stepId: first, rateVersionId: ids.v1, lotId: f.lot, grams: 100, date, source: s, actorId: f.actor }));
+      assert.deepEqual(early, { amount: 0, rate: 0 });
+      assert.equal(await prisma.prdCostEntry.count({ where: { tracking_id: f.lot } }), before, "no entry for an earlier step");
+      const last = await tx((t) => recordCostEntry(t, { unitId: f.wsA, stepId: extra.id, rateVersionId: ids.v1, lotId: f.lot, grams: 100, date, source: s, actorId: f.actor }));
+      assert.equal(last.rate, 182.8637, "the last step charges the Unit's one rate");
+    } finally {
+      await prisma.refUnitStep.delete({ where: { id: extra.id } });
+    }
   });
 });

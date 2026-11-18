@@ -82,7 +82,7 @@ async function activeUnit(tx: Tx, id: number) {
 // ---------------------------------------------------------------- steps
 
 /** One step of a Unit (T1); seq 1 is where goods received enter. */
-export type UnitStep = { id: number; seq: number; process: "Grading" | "JobOrder" | "Assign" | "Kerja" | "QC" | "Assembly" };
+export type UnitStep = { id: number; seq: number; process: "Grading" | "JobOrder" | "Assign" | "Kerja" | "Assembly" };
 
 const stepCache = new WeakMap<object, Map<number, UnitStep[]>>();
 
@@ -117,16 +117,23 @@ async function firstStep(tx: Tx, unitId: number): Promise<UnitStep> {
   return first;
 }
 
-/** Where goods go when a step is done: the next Persiapan, or Stand By after the last (T4). */
-export async function destinationAfter(tx: Tx, stepId: number): Promise<{ stage: "Preparation" | "StandBy"; stepId: number | null }> {
-  const step = await tx.refUnitStep.findUniqueOrThrow({ where: { id: stepId }, select: { unit_id: true, seq: true } });
+/** Where goods go when a step is done: the next Persiapan, or after the last QC Check where the Unit has QC, else Stand By (T4, P281). */
+export async function destinationAfter(tx: Tx, stepId: number): Promise<{ stage: "Preparation" | "QcCheck" | "StandBy"; stepId: number | null }> {
+  const step = await tx.refUnitStep.findUniqueOrThrow({ where: { id: stepId }, select: { unit_id: true, seq: true, unit: { select: { has_qc: true } } } });
   const next = (await unitStepsOf(tx, step.unit_id)).find((s) => s.seq > step.seq);
-  return next ? { stage: "Preparation", stepId: next.id } : { stage: "StandBy", stepId: null };
+  if (next) return { stage: "Preparation", stepId: next.id };
+  return { stage: step.unit.has_qc ? "QcCheck" : "StandBy", stepId: null };
+}
+
+/** Whether a step is its Unit’s last: the one that charges the Unit rate (P281). */
+export async function isLastStep(db: Db, stepId: number): Promise<boolean> {
+  const step = await db.refUnitStep.findUniqueOrThrow({ where: { id: stepId }, select: { unit_id: true, seq: true } });
+  return !(await unitStepsOf(db, step.unit_id)).some((s) => s.seq > step.seq);
 }
 
 // ------------------------------------------------------------- locking
 
-type Stage = "Preparation" | "Working" | "StandBy" | "InTransit";
+type Stage = "Preparation" | "Working" | "QcCheck" | "StandBy" | "InTransit";
 type Bucket = {
   id: number;
   lotId: number;
@@ -418,11 +425,10 @@ export async function decideQcBucket(
   const from = await lockBucketById(tx, d.bucketId);
   if (!from) throw new ProductionRefusal("Saldo produksi tidak ditemukan. Pilih ulang.");
   const qty = new D(d.baseQty);
-  const qcStep = from.stepId != null ? (await unitStepsOf(tx, from.unitId)).find((x) => x.id === from.stepId) : null;
-  if (from.stage !== "Preparation" || !qcStep || qcStep.process !== "QC" || !from.qty.eq(qty)) throw new ProductionRefusal("Baris ini sudah berubah sejak dokumen dibuat. Buat QC Check baru.");
+  if (from.stage !== "QcCheck" || !from.qty.eq(qty)) throw new ProductionRefusal("Baris ini sudah berubah sejak dokumen dibuat. Buat QC Check baru.");
   const item = await productionItem(tx, from.itemId);
-  // Lulus goes on past QC; Balik returns to the first step of the Unit (T9).
-  const dest = d.decision === "Pass" ? await destinationAfter(tx, qcStep.id) : { stage: "Preparation" as const, stepId: (await firstStep(tx, from.unitId)).id };
+  // Lulus to Stand By; Balik to the first step of the Unit, carrying the cost it already took (T9, P281).
+  const dest = d.decision === "Pass" ? { stage: "StandBy" as const, stepId: null } : { stage: "Preparation" as const, stepId: (await firstStep(tx, from.unitId)).id };
   const to = await openBucket(
     tx,
     {
@@ -696,7 +702,8 @@ export async function recordTrackingInfo(
 
 /**
  * Standard cost a Unit absorbs: round(grams × rate of the locked version), a
- * Unit the version leaves out costing 0 (W17). The line comes from the partai;
+ * Unit the version leaves out costing 0 (W17). Charged only by the Unit’s last
+ * step (P281); an earlier step is a transformation and costs nothing here. The line comes from the partai;
  * before one exists there is none. Writes no journal; the document posts it.
  */
 export async function recordCostEntry(
@@ -707,7 +714,8 @@ export async function recordCostEntry(
   if (costed) throw new ProductionRefusal(costed);
   const grams = new D(c.grams);
   if (!grams.gt(0)) throw new ProductionRefusal("Gram harus lebih dari 0.");
-  const line = await tx.prdRateVersionLine.findUnique({ where: { version_id_unit_step_id: { version_id: c.rateVersionId, unit_step_id: c.stepId } }, select: { rate: true } });
+  if (!(await isLastStep(tx, c.stepId))) return { amount: 0, rate: 0 };
+  const line = await tx.prdRateVersionLine.findUnique({ where: { version_id_unit_id: { version_id: c.rateVersionId, unit_id: c.unitId } }, select: { rate: true } });
   const rate = line ? new D(line.rate) : new D(0);
   const amount = grams.mul(rate).toDecimalPlaces(0, D.ROUND_HALF_UP);
   const partai = c.partaiId ? await tx.prdPartai.findUnique({ where: { id: c.partaiId }, select: { line_id: true } }) : null;
@@ -718,7 +726,6 @@ export async function recordCostEntry(
       source_doc_id: c.source.docId,
       source_no: c.source.no,
       unit_id: c.unitId,
-      unit_step_id: c.stepId,
       rate_version_id: c.rateVersionId,
       tracking_id: c.lotId,
       partai_id: c.partaiId ?? null,
@@ -859,8 +866,8 @@ export async function bucketsByIds(ids: number[], db: Db = prisma): Promise<Map<
   return new Map(rows.map((r) => [r.id, view(r)]));
 }
 
-/** The rate each bucket would be costed at today, by bucket id, without locking anything (a form's preview). */
-export async function ratesOfBuckets(rows: { id: number; lotId: number; partaiId: number | null; stepId: number | null }[], db: Db = prisma): Promise<Map<number, number>> {
+/** The rate each bucket would be costed at today, by bucket id, without locking anything (a form's preview); 0 before the Unit's last step. */
+export async function ratesOfBuckets(rows: { id: number; lotId: number; unitId: number; partaiId: number | null; stepId: number | null }[], db: Db = prisma): Promise<Map<number, number>> {
   if (!rows.length) return new Map();
   const [partais, infos, active] = await Promise.all([
     db.prdPartai.findMany({ where: { id: { in: rows.flatMap((r) => (r.partaiId ? [r.partaiId] : [])) } }, select: { id: true, rate_version_id: true } }),
@@ -871,9 +878,15 @@ export async function ratesOfBuckets(rows: { id: number; lotId: number; partaiId
   const byLot = new Map(infos.map((i) => [i.tracking_id, i.rate_version_id]));
   const versionOf = (r: (typeof rows)[number]) => (r.partaiId ? byPartai.get(r.partaiId) : (byLot.get(r.lotId) ?? active?.id)) ?? null;
   const versions = [...new Set(rows.flatMap((r) => versionOf(r) ?? []))];
-  const lines = await db.prdRateVersionLine.findMany({ where: { version_id: { in: versions } }, select: { version_id: true, unit_step_id: true, rate: true } });
-  const rate = new Map(lines.map((l) => [`${l.version_id}:${l.unit_step_id}`, l.rate.toNumber()]));
-  return new Map(rows.map((r) => [r.id, rate.get(`${versionOf(r)}:${r.stepId}`) ?? 0]));
+  const [lines, steps] = await Promise.all([
+    db.prdRateVersionLine.findMany({ where: { version_id: { in: versions } }, select: { version_id: true, unit_id: true, rate: true } }),
+    db.refUnitStep.findMany({ where: { unit_id: { in: [...new Set(rows.map((r) => r.unitId))] } }, select: { id: true, unit_id: true, seq: true } }),
+  ]);
+  const lastSeq = new Map<number, number>();
+  for (const s of steps) lastSeq.set(s.unit_id, Math.max(lastSeq.get(s.unit_id) ?? 0, s.seq));
+  const lastStep = new Set(steps.filter((s) => lastSeq.get(s.unit_id) === s.seq).map((s) => s.id));
+  const rate = new Map(lines.map((l) => [`${l.version_id}:${l.unit_id}`, l.rate.toNumber()]));
+  return new Map(rows.map((r) => [r.id, r.stepId != null && lastStep.has(r.stepId) ? (rate.get(`${versionOf(r)}:${r.unitId}`) ?? 0) : 0]));
 }
 
 /** Σ value held in production now, per item — what the WIP accounts should hold. */
@@ -954,8 +967,7 @@ export async function routingsInUse(): Promise<Set<number>> {
 
 /** Whether goods have waited at this Unit step or it has been costed: what keeps its Unit from dropping it (T1). */
 export async function unitStepHasHistory(stepId: number): Promise<boolean> {
-  const [bal, cost] = await Promise.all([prisma.prdBalance.count({ where: { unit_step_id: stepId } }), prisma.prdCostEntry.count({ where: { unit_step_id: stepId } })]);
-  return bal + cost > 0;
+  return (await prisma.prdLedger.count({ where: { unit_step_id: stepId } })) > 0;
 }
 
 /**

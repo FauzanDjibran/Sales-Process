@@ -48,8 +48,8 @@ async function work(over: Partial<WorkInput>) {
   if (r.ok) docs.work.push(r.id);
   return r;
 }
-const persiapan = async (unit: number) => (await availableBuckets({ unitIds: [unit], stage: "Preparation" })).filter((b) => b.stepProcess !== "QC");
-const inQc = async (unit: number) => (await availableBuckets({ unitIds: [unit], stage: "Preparation" })).filter((b) => b.stepProcess === "QC");
+const persiapan = (unit: number) => availableBuckets({ unitIds: [unit], stage: "Preparation" });
+const inQc = (unit: number) => availableBuckets({ unitIds: [unit], stage: "QcCheck" });
 const standBy = (unit: number) => availableBuckets({ unitIds: [unit], stage: "StandBy" });
 
 async function decide(unit: number, decisions: [number, "Pass" | "Return"][]) {
@@ -68,11 +68,11 @@ before(async () => {
   const a = f.actor;
   ids.grader = f.wsA;
   ids.passer = f.wsB;
-  // wsA grades then checks (Grading › QC); wsB only assigns; the releaser only grades (T1).
+  // wsA grades, with QC (P281); wsB only assigns; the releaser only grades (T1).
   await prisma.refUnitStep.deleteMany({ where: { unit_id: f.wsA } });
-  await prisma.refUnitStep.createMany({ data: [{ unit_id: f.wsA, seq: 1, process: "Grading" }, { unit_id: f.wsA, seq: 2, process: "QC" }] });
+  await prisma.refUnitStep.createMany({ data: [{ unit_id: f.wsA, seq: 1, process: "Grading" }] });
+  await prisma.refUnit.update({ where: { id: f.wsA }, data: { has_qc: true } });
   ids.releaser = (await prisma.refUnit.create({ data: { unit_code: `test.${f.key("REL")}`, unit_label: f.key("REL"), unit_name: "Lepas", created_by: a, steps: { create: [{ seq: 1, process: "Grading" }] } } })).id;
-  const stepOf = async (unit: number, process: "Grading" | "Assign") => (await prisma.refUnitStep.findFirstOrThrow({ where: { unit_id: unit, process } })).id;
   await prisma.mItem.update({ where: { id: f.byproduct }, data: { is_bjl: true } });
 
   ids.absorbed = await makeAccount({ subcategoryLabel: "5.1.1" });
@@ -91,7 +91,7 @@ before(async () => {
         rate_name: "Uji",
         status: "Active",
         created_by: a,
-        lines: { create: [{ unit_step_id: await stepOf(f.wsA, "Grading"), rate: 100 }, { unit_step_id: await stepOf(f.wsB, "Assign"), rate: 10 }, { unit_step_id: await stepOf(ids.releaser, "Grading"), rate: 0 }] },
+        lines: { create: [{ unit_id: f.wsA, rate: 100 }, { unit_id: f.wsB, rate: 10 }, { unit_id: ids.releaser, rate: 0 }] },
       },
     })
   ).id;

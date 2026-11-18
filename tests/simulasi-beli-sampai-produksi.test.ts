@@ -37,7 +37,7 @@ let employee = 0;
 const items: number[] = [];
 
 const unit = (label: string) => prisma.refUnit.findFirstOrThrow({ where: { unit_label: label } });
-const at = (unitId: number, stage: "Preparation" | "StandBy") => availableBuckets({ unitIds: [unitId], stage }).then((r) => r.filter((b) => items.includes(b.itemId) && !b.auxiliary));
+const at = (unitId: number, stage: "Preparation" | "QcCheck" | "StandBy") => availableBuckets({ unitIds: [unitId], stage }).then((r) => r.filter((b) => items.includes(b.itemId) && !b.auxiliary));
 
 before(async () => {
   await openFiscalYear();
@@ -68,7 +68,6 @@ before(async () => {
   // A Standard Cost of this suite alone: Rp 10 per gram at Grading Halus, Rp 5 at Pre Cleaning.
   const ugh = await unit("UGH");
   const upc = await unit("UPC");
-  const step = async (u: number, process: "Grading" | "Assign") => (await prisma.refUnitStep.findFirstOrThrow({ where: { unit_id: u, process } })).id;
   activeBefore = (await prisma.prdRateVersion.findMany({ where: { status: "Active" }, select: { id: true } })).map((v) => v.id);
   await prisma.prdRateVersion.updateMany({ where: { status: "Active" }, data: { status: "Inactive" } });
   ids.version = (
@@ -79,7 +78,7 @@ before(async () => {
         rate_name: "Simulasi",
         status: "Active",
         created_by: w.actor,
-        lines: { create: [{ unit_step_id: await step(ugh.id, "Grading"), rate: 10 }, { unit_step_id: await step(upc.id, "Assign"), rate: 5 }] },
+        lines: { create: [{ unit_id: ugh.id, rate: 10 }, { unit_id: upc.id, rate: 5 }] },
       },
     })
   ).id;
@@ -197,21 +196,21 @@ describe("dari beli sampai dikerjakan di produksi", () => {
     assert.deepEqual(g.outputs.map((o) => o.value), [83_333, 66_667, 0]);
     assert.equal(g.outputs.reduce((a, o) => a + o.value, 0), 150_000);
     assert.ok(g.outputs.every((o) => o.trackingNo?.endsWith(`-${g.outputs.indexOf(o) + 1}`)));
-    const waiting = await at(ugh.id, "Preparation");
-    assert.equal(waiting.length, 3, "tiga hasil menunggu di Persiapan QC");
-    assert.ok(waiting.every((b) => b.stepProcess === "QC" && b.jobId === null), "grading melepas No. Job");
+    const waiting = await at(ugh.id, "QcCheck");
+    assert.equal(waiting.length, 3, "tiga hasil menunggu di QC Check");
+    assert.ok(waiting.every((b) => b.jobId === null), "grading melepas No. Job");
     say("No. Grading", `${g.no}: 3.000 g → ${g.outputs.map((o) => `${o.trackingNo} (${o.grams} g)`).join(", ")}`);
   });
 
   test("5. QC Check di UGH: semua Lulus, barang menunggu di Stand By", async () => {
     const ugh = await unit("UGH");
-    const rows = await at(ugh.id, "Preparation");
+    const rows = await at(ugh.id, "QcCheck");
     const qc = await createQcCheck({ unit_id: ugh.id, qc_date: today, inspector: "QC", note: "", lines: rows.map((b) => ({ bucket_id: b.id, decision: "Pass", reason: "" })) }, w.actor);
     assert.ok(qc.ok, JSON.stringify(qc));
     docs.qc.push(qc.id);
     assert.ok((await transitionQcCheck(qc.id, "post", w.actor)).ok);
     assert.equal((await at(ugh.id, "StandBy")).length, 3);
-    assert.equal((await at(ugh.id, "Preparation")).length, 0);
+    assert.equal((await at(ugh.id, "QcCheck")).length, 0);
     say("QC Check", `${qc.no}: 3 baris Lulus → Stand By UGH`);
   });
 
@@ -241,9 +240,8 @@ describe("dari beli sampai dikerjakan di produksi", () => {
     docs.kj.push(kj.id);
     const p = await transitionWork(kj.id, "post", w.actor);
     assert.ok(p.ok, JSON.stringify(p));
-    const after = await at(upc.id, "Preparation");
-    assert.equal(after.length, 3);
-    assert.ok(after.every((b) => b.stepProcess === "QC"), "hasil menunggu di Persiapan QC UPC");
+    const after = await at(upc.id, "QcCheck");
+    assert.equal(after.length, 3, "hasil menunggu di QC Check UPC");
     assert.equal(after.reduce((a, b) => a + (b.grams ?? 0), 0), 3_000, "gram tidak berubah");
     // 3.000 g × Rp 5 = Rp 15.000, shared back over the non-BJL goods (BJL carries its cost to them).
     assert.equal(after.reduce((a, b) => a + b.value, 0), valueBefore + 15_000);
@@ -252,7 +250,7 @@ describe("dari beli sampai dikerjakan di produksi", () => {
 
   test("8. QC Check di UPC → Stand By UPC; stok + WIP = nilai penerimaan, dan biaya unit punya jurnalnya", async () => {
     const upc = await unit("UPC");
-    const rows = await at(upc.id, "Preparation");
+    const rows = await at(upc.id, "QcCheck");
     const qc = await createQcCheck({ unit_id: upc.id, qc_date: today, inspector: "QC", note: "", lines: rows.map((b) => ({ bucket_id: b.id, decision: "Pass", reason: "" })) }, w.actor);
     assert.ok(qc.ok, JSON.stringify(qc));
     docs.qc.push(qc.id);

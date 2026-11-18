@@ -5,7 +5,6 @@ import type { Prisma } from "@/generated/prisma/client";
 import { parseList } from "./partner-shape";
 import { routingInUse, routingsInUse, unitStepHasHistory } from "./production-ledger";
 import {
-  COSTING_PROCESSES,
   RATES_KEY,
   STEPS_KEY,
   STEP_PROCESSES,
@@ -47,7 +46,7 @@ export async function routingCollections(routingId: number): Promise<{ steps: St
 
 export async function rateCollections(versionId: number): Promise<{ rates: RateDraft[] }> {
   const rows = await prisma.prdRateVersionLine.findMany({ where: { version_id: versionId }, orderBy: { id: "asc" } });
-  return { rates: rows.map((r) => ({ id: r.id, key: `r${r.id}`, unit_step_id: r.unit_step_id, rate: r.rate.toString() })) };
+  return { rates: rows.map((r) => ({ id: r.id, key: `r${r.id}`, unit_id: r.unit_id, rate: r.rate.toString() })) };
 }
 
 // --------------------------------------------------------------- validation
@@ -146,7 +145,7 @@ export async function checkRoutingCollections(
   return { errors, clean };
 }
 
-export type RateCollections = { rates: { unit_step_id: number; rate: string }[] };
+export type RateCollections = { rates: { unit_id: number; rate: string }[] };
 
 export async function checkRateCollections(
   values: Record<string, unknown>
@@ -155,34 +154,30 @@ export async function checkRateCollections(
   const list = parseList<Partial<RateDraft>>(values[RATES_KEY]);
   if (list === null) return { errors: { [RATES_KEY]: "Data rate tidak terbaca." }, clean };
 
-  const stepRows = await prisma.refUnitStep.findMany({
-    where: { id: { in: list.map((r) => Number(r.unit_step_id)).filter(Boolean) } },
-    select: { id: true, process: true, unit: { select: { unit_label: true, status: true } } },
+  const unitRows = await prisma.refUnit.findMany({
+    where: { id: { in: list.map((r) => Number(r.unit_id)).filter(Boolean) } },
+    select: { id: true, unit_label: true, status: true },
   });
-  const steps = new Map(stepRows.map((s) => [s.id, s]));
+  const unitsFound = new Map(unitRows.map((u) => [u.id, u]));
   const problems: string[] = [];
   const taken: number[] = [];
   for (const [i, r] of list.entries()) {
-    const found = rateErrors({ ...r, unit_step_id: Number(r.unit_step_id) || null }, taken);
+    const found = rateErrors({ ...r, unit_id: Number(r.unit_id) || null }, taken);
     if (Object.keys(found).length) {
       problems.push(`Rate ${i + 1}: ${Object.values(found)[0]}`);
       continue;
     }
-    const step = steps.get(Number(r.unit_step_id));
-    if (!step) {
-      problems.push(`Rate ${i + 1}: proses unit tidak ditemukan.`);
+    const unit = unitsFound.get(Number(r.unit_id));
+    if (!unit) {
+      problems.push(`Rate ${i + 1}: unit tidak ditemukan.`);
       continue;
     }
-    if (step.unit.status !== "Active") {
-      problems.push(`Rate ${i + 1}: unit ${step.unit.unit_label} nonaktif.`);
+    if (unit.status !== "Active") {
+      problems.push(`Rate ${i + 1}: unit ${unit.unit_label} nonaktif.`);
       continue;
     }
-    if (!COSTING_PROCESSES.includes(step.process)) {
-      problems.push(`Rate ${i + 1}: ${step.process} tidak membebankan biaya.`);
-      continue;
-    }
-    taken.push(step.id);
-    clean.rates.push({ unit_step_id: step.id, rate: String(r.rate).trim() });
+    taken.push(unit.id);
+    clean.rates.push({ unit_id: unit.id, rate: String(r.rate).trim() });
   }
   return { errors: problems.length ? { [RATES_KEY]: problems.join(" ") } : {}, clean };
 }
@@ -196,9 +191,9 @@ export async function unitCollections(unitId: number): Promise<{ unit_steps: Uni
 
 export type UnitCollections = { steps: { process: StepProcess }[] };
 
-/** A step goods have waited at, been costed at or been rated for cannot be taken away. */
+/** A step goods have waited at cannot be taken away. */
 async function stepInUse(stepId: number): Promise<boolean> {
-  return (await unitStepHasHistory(stepId)) || (await prisma.prdRateVersionLine.count({ where: { unit_step_id: stepId } })) > 0;
+  return unitStepHasHistory(stepId);
 }
 
 export async function checkUnitCollections(

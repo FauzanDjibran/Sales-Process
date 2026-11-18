@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { holdPostingPeriod } from "./fiscal";
 import { DAY, Refused, asDate, docTypeId, firstError, fromUnits, isoDay, nextDailyNumber, refusable, text, unitSeries, units } from "./production-doc";
-import { availableBuckets, bucketsByIds, decideQcBucket, unitStepsOf, type BucketView } from "./production-ledger";
+import { availableBuckets, bucketsByIds, decideQcBucket, type BucketView } from "./production-ledger";
 import { QC_CHECK_WORKFLOW, type QcDecision } from "./production-execution-workflow";
 import { prodDocTransitionAllowed, type ProdDocAction, type ProdDocStatus } from "./production-doc-workflow";
 
@@ -30,7 +30,7 @@ async function check(db: Db, input: QcInput, strict: boolean) {
   const unitId = Number(input.unit_id) || null;
   const unit = unitId ? await db.refUnit.findUnique({ where: { id: unitId } }) : null;
   if (!unit) errors.unit_id = "Pilih Unit.";
-  else if (!(await unitStepsOf(db, unit.id)).some((x) => x.process === "QC")) errors.unit_id = `${unit.unit_label} tidak punya proses QC.`;
+  else if (!unit.has_qc) errors.unit_id = `${unit.unit_label} tidak punya QC.`;
   if (!DAY.test(input.qc_date)) errors.qc_date = "Isi tanggal.";
 
   const raw = Array.isArray(input.lines) ? input.lines : [];
@@ -41,7 +41,7 @@ async function check(db: Db, input: QcInput, strict: boolean) {
   raw.forEach((l, i) => {
     const key = (f: string) => `lines.${i}.${f}`;
     const b = buckets.get(Number(l.bucket_id));
-    if (!b || b.unitId !== unitId || b.stage !== "Preparation" || b.stepProcess !== "QC" || !(b.qty > 0)) {
+    if (!b || b.unitId !== unitId || b.stage !== "QcCheck" || !(b.qty > 0)) {
       errors[key("bucket_id")] = "Baris ini tidak lagi menunggu QC di unit ini.";
       return;
     }
@@ -58,7 +58,7 @@ async function check(db: Db, input: QcInput, strict: boolean) {
   const jobs = new Map<number, typeof lines>();
   for (const l of lines) if (l.bucket.jobId) jobs.set(l.bucket.jobId, [...(jobs.get(l.bucket.jobId) ?? []), l]);
   if (jobs.size && unitId && !errors._lines) {
-    const waiting = (await availableBuckets({ unitIds: [unitId], stage: "Preparation" }, db)).filter((b) => b.stepProcess === "QC");
+    const waiting = await availableBuckets({ unitIds: [unitId], stage: "QcCheck" }, db);
     for (const [jobId, rows] of jobs) {
       const missing = waiting.filter((b) => b.jobId === jobId && !rows.some((r) => r.bucket_id === b.id));
       if (missing.length) errors._lines = `No. Job ${rows[0].bucket.jobNo} diperiksa utuh: ${missing.map((b) => b.lotNo).join(", ")} belum ikut.`;
@@ -255,10 +255,10 @@ const row = (b: BucketView): QcRow => ({
 });
 
 export async function qcOptions(keep: number[] = []): Promise<QcOptions> {
-  const units = await prisma.refUnit.findMany({ where: { steps: { some: { process: "QC" } }, status: "Active" }, orderBy: { unit_label: "asc" } });
-  const buckets = (await availableBuckets({ unitIds: units.map((u) => u.id), stage: "Preparation", withIds: keep })).filter((b) => b.stepProcess === "QC" || keep.includes(b.id));
+  const units = await prisma.refUnit.findMany({ where: { has_qc: true, status: "Active" }, orderBy: { unit_label: "asc" } });
+  const buckets = await availableBuckets({ unitIds: units.map((u) => u.id), stage: "QcCheck", withIds: keep });
   return {
-    units: units.map((u) => ({ id: u.id, label: u.unit_label, name: u.unit_name, waiting: buckets.filter((b) => b.unitId === u.id && b.stepProcess === "QC").length })),
+    units: units.map((u) => ({ id: u.id, label: u.unit_label, name: u.unit_name, waiting: buckets.filter((b) => b.unitId === u.id && b.stage === "QcCheck").length })),
     rows: buckets.map(row),
   };
 }

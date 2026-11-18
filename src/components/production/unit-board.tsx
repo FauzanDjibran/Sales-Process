@@ -40,10 +40,11 @@ export type BoardUnit = {
   afterCheckpoint: boolean;
   lines: { id: number; name: string }[];
   steps: { id: number; process: BoardProcess }[];
+  hasQc: boolean;
 };
 type BoardProcess = keyof typeof PROCESS_TEXT;
 
-/** `masuk`, `p<step>` (Persiapan), `w<step>` (Sedang Dikerjakan), `standby`, `transit`. */
+/** `masuk`, `p<step>` (Persiapan), `w<step>` (Sedang Dikerjakan), `qc`, `standby`, `transit`. */
 export type BoardTab = string;
 /** `grams` is null when none of its goods has a gram to read. */
 type Group = { key: string; job: { id: number; no: string } | null; rows: BoardRow[]; grams: number | null };
@@ -142,6 +143,7 @@ export function UnitBoard({
   const tabRows = (t: BoardTab): Group[] => {
     if (t === "standby") return all.filter((g) => g.rows[0].stage === "StandBy");
     if (t === "transit") return all.filter((g) => g.rows[0].stage === "InTransit");
+    if (t === "qc") return all.filter((g) => g.rows[0].stage === "QcCheck");
     const id = Number(t.slice(1));
     const stage = t[0] === "w" ? "Working" : "Preparation";
     return all.filter((g) => g.rows[0].stage === stage && g.rows[0].stepId === id);
@@ -150,6 +152,7 @@ export function UnitBoard({
     const r = g.rows[0];
     if (r.stage === "StandBy") return "standby";
     if (r.stage === "InTransit") return "transit";
+    if (r.stage === "QcCheck") return "qc";
     return `${r.stage === "Working" ? "w" : "p"}${r.stepId}`;
   };
   const here = tab === "masuk" ? [] : tabRows(tab);
@@ -170,6 +173,10 @@ export function UnitBoard({
       return router.push(`/production/transfer/new?unit=${encodeURIComponent(unit.label)}&bucket=${ids}`);
     }
     if (t === "transit") return toast("Dalam perjalanan", "Barang ini menunggu diterima unit tujuan.");
+    if (t === "qc") {
+      if (!can.qc) return toast("Tidak diizinkan", "Anda tidak boleh membuat QC Check.", "err");
+      return router.push(`/production/qc-check/new?bucket=${ids}`);
+    }
     const p = stepOf(g.rows[0].stepId ?? 0)?.process;
     if (p === "Grading") {
       if (!can.grading) return toast("Tidak diizinkan", "Anda tidak boleh membuat No. Grading.", "err");
@@ -178,10 +185,6 @@ export function UnitBoard({
     if (p === "Assign") {
       if (!can.work) return toast("Tidak diizinkan", "Anda tidak boleh mencatat pengerjaan.", "err");
       return router.push(`/production/work/new?bucket=${ids}`);
-    }
-    if (p === "QC") {
-      if (!can.qc) return toast("Tidak diizinkan", "Anda tidak boleh membuat QC Check.", "err");
-      return router.push(`/production/qc-check/new?bucket=${ids}`);
     }
     toast("Belum tersedia", `Proses ${p ? PROCESS_TEXT[p] : ""} belum dibangun.`);
   }
@@ -209,6 +212,7 @@ export function UnitBoard({
       if (s.process === "Kerja") out.push([`w${s.id}`, "Sedang Dikerjakan", tabRows(`w${s.id}`).length]);
       return out;
     }),
+    ...(unit.hasQc ? [["qc", "QC Check", tabRows("qc").length] as [BoardTab, string, number]] : []),
     ["standby", "Stand By", tabRows("standby").length],
     ["transit", "Dalam Perjalanan", tabRows("transit").length],
   ];
@@ -216,14 +220,14 @@ export function UnitBoard({
   const sub = [
     unit.workstation,
     unit.pre ? "Sebelum partai, semua line" : unit.lines.length ? `Line ${unit.lines.map((l) => l.name).join(", ")}` : null,
-    unit.steps.map((s) => PROCESS_TEXT[s.process]).join(" › "),
+    [...unit.steps.map((s) => PROCESS_TEXT[s.process]), ...(unit.hasQc ? ["QC"] : [])].join(" › "),
     unit.checkpoint ? "Checkpoint: seluruh isi partai" : null,
   ]
     .filter(Boolean)
     .join(" · ");
 
   const standby = tab === "standby";
-  const empty = tab === "standby" ? ["Stand By kosong", "Barang selesai dikerjakan muncul di sini. Klik barisnya untuk mengirim."] : tab === "transit" ? ["Tidak ada barang dalam perjalanan", "BSTB yang sudah diajukan dan belum diterima muncul di sini."] : EMPTY[stepProcess ?? "Assign"];
+  const empty = tab === "standby" ? ["Stand By kosong", "Barang selesai dikerjakan muncul di sini. Klik barisnya untuk mengirim."] : tab === "transit" ? ["Tidak ada barang dalam perjalanan", "BSTB yang sudah diajukan dan belum diterima muncul di sini."] : tab === "qc" ? EMPTY.QC : EMPTY[stepProcess ?? "Assign"];
 
   return (
     <>

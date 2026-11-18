@@ -21,6 +21,8 @@ export type WorkspaceUnit = {
   name: string;
   workstation: string | null;
   steps: WorkspaceStep[];
+  /** Results of the last step wait in QC Check (P281). */
+  hasQc: boolean;
   allowReproses: boolean;
 };
 
@@ -29,6 +31,7 @@ type UnitRow = {
   unit_label: string;
   unit_name: string;
   allow_reproses: boolean;
+  has_qc: boolean;
   workstation: { workstation_name: string } | null;
   steps: { id: number; seq: number; process: UnitStep["process"] }[];
 };
@@ -39,6 +42,7 @@ const toUnit = (u: UnitRow): WorkspaceUnit => ({
   name: u.unit_name,
   workstation: u.workstation?.workstation_name ?? null,
   steps: u.steps.slice().sort((a, b) => a.seq - b.seq).map((s) => ({ id: s.id, process: s.process })),
+  hasQc: u.has_qc,
   allowReproses: u.allow_reproses,
 });
 
@@ -91,7 +95,7 @@ export type BoardRow = {
   lotNo: string;
   itemLabel: string;
   itemName: string;
-  stage: "Preparation" | "Working" | "StandBy" | "InTransit";
+  stage: "Preparation" | "Working" | "QcCheck" | "StandBy" | "InTransit";
   /** The step goods wait at, for the Persiapan and Sedang Dikerjakan tabs. */
   stepId: number | null;
   partaiId: number | null;

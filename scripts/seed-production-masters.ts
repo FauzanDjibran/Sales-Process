@@ -22,21 +22,22 @@ const WORKSTATIONS = [
 ] as const;
 
 // The units of the Workspace simulation (P274): each an ordered list of steps, a
-// grading always releasing the No. Job. Packing 98 waits for its plan (W81).
+// grading always releasing the No. Job; a trailing `+QC` is the Unit's QC feature (P281).
+// Packing 98 waits for its plan (W81).
 const UNITS: [label: string, name: string, workstation: string, steps: string][] = [
-  ["UGH", "Grading Halus", "BB + PPIC", "Grading>QC"],
-  ["UPC", "Pre Cleaning", "BB + PPIC", "Assign>QC"],
+  ["UGH", "Grading Halus", "BB + PPIC", "Grading+QC"],
+  ["UPC", "Pre Cleaning", "BB + PPIC", "Assign+QC"],
   ["UPY", "Penyebaran", "BB + PPIC", "Grading"],
-  ["UPW", "Pre Wash", "CL", "Assign>QC"],
-  // shortcut: Cleaning is Kerja › QC and Moulding Grading › Job Order › Assign › QC in the simulation; Kerja (6.5) and Job Order (6.6) are not built, so goods would stop there. Seeded without them until they are.
-  ["UCL", "Cleaning", "CL", "Assign>QC"],
+  ["UPW", "Pre Wash", "CL", "Assign+QC"],
+  // shortcut: Cleaning is Kerja + QC and Moulding Grading › Job Order › Assign + QC in the simulation; Kerja (7.2) and Job Order (7.3) are not built, so goods would stop there. Seeded without them until they are.
+  ["UCL", "Cleaning", "CL", "Assign+QC"],
   ["UC1", "CCP-1", "CL", "Assign"],
   ["USR", "Sortir", "CL", "Assign"],
-  ["UDA", "Dry A", "ML", "Grading>QC"],
-  ["UML", "Moulding", "ML", "Grading>Assign>QC"],
-  ["UDB", "Dry B", "ML", "Grading>QC"],
-  ["UWP", "Wrapping", "WP", "Assign>QC"],
-  ["UBC", "Barcoding", "WP", "Grading>QC"],
+  ["UDA", "Dry A", "ML", "Grading+QC"],
+  ["UML", "Moulding", "ML", "Grading>Assign+QC"],
+  ["UDB", "Dry B", "ML", "Grading+QC"],
+  ["UWP", "Wrapping", "WP", "Assign+QC"],
+  ["UBC", "Barcoding", "WP", "Grading+QC"],
   ["UP5", "Packing 95", "WP", "Assembly"],
 ];
 // Moulding was two units, UMG and UMP, until the simulation merged them into UML (T1).
@@ -87,10 +88,11 @@ async function main() {
 
   const unitId = new Map<string, number>();
   const units = new Map<number, RouteUnit>();
-  for (const [label, name, workstation, stepList] of UNITS) {
+  for (const [label, name, workstation, spec] of UNITS) {
+    const [stepList, qc] = spec.split("+");
     const legacy = label === "UML" ? [{ unit_label: "UMG" }, { unit_name: "Moulding (grading)" }] : [];
     const known = await prisma.refUnit.findFirst({ where: { OR: [{ unit_label: label }, { unit_name: name }, ...legacy] } });
-    const data = { unit_label: label, unit_name: name, workstation_id: wsId.get(workstation)!, allow_reproses: stepList.includes("QC") };
+    const data = { unit_label: label, unit_name: name, workstation_id: wsId.get(workstation)!, allow_reproses: Boolean(qc), has_qc: Boolean(qc) };
     const row = known
       ? await prisma.refUnit.update({ where: { id: known.id }, data: { ...data, updated_by: actor } })
       : await prisma.refUnit.create({

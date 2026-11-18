@@ -1,6 +1,6 @@
 # Rencana implementasi: PO → Gudang → Produksi → Gudang di aplikasi
 
-> Status: **usulan, menunggu konfirmasi §5.** Yang disimulasikan nanti adalah
+> Status: **dijalankan (P280).** Usulan §5 dipakai sebagai asumsi kerja sampai user mengoreksi. 7.1 selesai (P281). Yang disimulasikan nanti adalah
 > **aplikasi** (lokal dan Neon), bukan artifact. Artifact *Workspace Unit
 > Produksi* (<https://claude.ai/artifact/TR9atVSRmuRUyh9nn9hHU7>, versi 21)
 > menjadi **spesifikasi perilaku**: yang ada di sana dibangun persis, yang belum
