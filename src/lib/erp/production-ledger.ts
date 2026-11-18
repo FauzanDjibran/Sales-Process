@@ -976,6 +976,16 @@ export async function itemUsedInProduction(itemId: number): Promise<boolean> {
   return (await prisma.prdLedger.count({ where: { tracking: { item_id: itemId } } })) > 0;
 }
 
+/** The No. Stok by id with their item, for documents that name goods by id only. */
+export async function trackingsByIds(ids: number[], db: Db = prisma): Promise<Map<number, { no: string; itemLabel: string; itemName: string; uomLabel: string }>> {
+  if (!ids.length) return new Map();
+  const rows = await db.logStockTracking.findMany({
+    where: { id: { in: [...new Set(ids)] } },
+    select: { id: true, tracking_no: true, item: { select: { item_label: true, item_name: true, base_uom: { select: { uom_label: true } } } } },
+  });
+  return new Map(rows.map((r) => [r.id, { no: r.tracking_no, itemLabel: r.item.item_label, itemName: r.item.item_name, uomLabel: r.item.base_uom.uom_label }]));
+}
+
 /** The Jobs by id: their number and the No. Stok each was picked up from (W98). */
 export async function jobsByIds(ids: number[], db: Db = prisma): Promise<Map<number, { no: string; trackingId: number | null }>> {
   if (!ids.length) return new Map();

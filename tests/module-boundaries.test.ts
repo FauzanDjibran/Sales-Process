@@ -289,7 +289,7 @@ const PRODUCTION_TABLES = [
   "prd_partai", "prd_job", "prd_tracking_info",
   "prd_balance", "prd_ledger", "prd_tracking_link",
   "prd_grading", "prd_grading_input", "prd_grading_output", "prd_work", "prd_work_line", "prd_aux_use",
-  "prd_qc_check", "prd_qc_check_line",
+  "prd_qc_check", "prd_qc_check_line", "prd_transfer", "prd_transfer_line",
 ];
 
 describe("every table belongs to one application", () => {

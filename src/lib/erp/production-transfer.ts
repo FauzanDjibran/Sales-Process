@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { holdPostingPeriod } from "./fiscal";
 import { DAY, Refused, asDate, docTypeId, fourDecimals, fromUnits, isoDay, nextDailyNumber, parseQty, refusable, text, unitSeries, units as scaled } from "./production-doc";
-import { availableBuckets, bucketsByIds, formPartai, issueJob, partaiHoldings, sendInTransit, transferBucket, unitStepsOf, type BucketView } from "./production-ledger";
+import { availableBuckets, bucketsByIds, formPartai, issueJob, partaiHoldings, sendInTransit, transferBucket, trackingsByIds, unitStepsOf, type BucketView } from "./production-ledger";
 import { routeMap, type RouteMap } from "./production-master";
 import type { TransferKind, TransferStatus } from "./production-transfer-shape";
 
@@ -298,11 +298,7 @@ export async function getTransfer(id: number): Promise<TransferView | null> {
     include: { from_unit: true, to_unit: true, partai: { select: { partai_no: true } }, line: { select: { line_name: true } }, lines: { orderBy: { line_no: "asc" }, include: { job: { select: { job_no: true } } } } },
   });
   if (!t) return null;
-  const trackings = await prisma.logStockTracking.findMany({
-    where: { id: { in: t.lines.map((l) => l.tracking_id) } },
-    select: { id: true, tracking_no: true, item: { select: { item_label: true, item_name: true, base_uom: { select: { uom_label: true } } } } },
-  });
-  const byId = new Map(trackings.map((x) => [x.id, x]));
+  const byId = await trackingsByIds(t.lines.map((l) => l.tracking_id));
   return {
     id: t.id,
     no: t.transfer_no,
@@ -321,7 +317,7 @@ export async function getTransfer(id: number): Promise<TransferView | null> {
     note: t.note,
     items: t.lines.map((l) => {
       const x = byId.get(l.tracking_id);
-      return { lineNo: l.line_no, lotNo: x?.tracking_no ?? "", itemLabel: x?.item.item_label ?? "", itemName: x?.item.item_name ?? "", jobNo: l.job?.job_no ?? null, newJob: l.is_new_job, qty: l.qty.toNumber(), uomLabel: x?.item.base_uom.uom_label ?? "", grams: l.grams?.toNumber() ?? null };
+      return { lineNo: l.line_no, lotNo: x?.no ?? "", itemLabel: x?.itemLabel ?? "", itemName: x?.itemName ?? "", jobNo: l.job?.job_no ?? null, newJob: l.is_new_job, qty: l.qty.toNumber(), uomLabel: x?.uomLabel ?? "", grams: l.grams?.toNumber() ?? null };
     }),
   };
 }
@@ -337,7 +333,7 @@ export async function transferUnits(id: number): Promise<{ from: number; to: num
   return t ? { from: t.from_unit_id, to: t.to_unit_id } : null;
 }
 
-export type IncomingTransfer = { id: number; no: string; kind: TransferKind; date: string; fromLabel: string; toUnitId: number; lines: { lotNo: string; jobNo: string | null; qty: number }[] };
+export type IncomingTransfer = { id: number; no: string; kind: TransferKind; date: string; fromLabel: string; toUnitId: number; lines: { lotNo: string; jobNo: string | null; qty: number; grams: number | null }[] };
 
 /** The BSTB waiting for Terima: the Workspace's Penerimaan beside the BSTB Issue (W20). */
 export async function incomingTransfers(): Promise<IncomingTransfer[]> {
@@ -346,7 +342,7 @@ export async function incomingTransfers(): Promise<IncomingTransfer[]> {
     orderBy: [{ transfer_date: "asc" }, { id: "asc" }],
     include: { from_unit: { select: { unit_label: true } }, lines: { orderBy: { line_no: "asc" }, include: { job: { select: { job_no: true } } } } },
   });
-  const trackings = new Map((await prisma.logStockTracking.findMany({ where: { id: { in: rows.flatMap((r) => r.lines.map((l) => l.tracking_id)) } }, select: { id: true, tracking_no: true } })).map((x) => [x.id, x.tracking_no]));
+  const trackings = await trackingsByIds(rows.flatMap((r) => r.lines.map((l) => l.tracking_id)));
   return rows.map((r) => ({
     id: r.id,
     no: r.transfer_no,
@@ -354,7 +350,7 @@ export async function incomingTransfers(): Promise<IncomingTransfer[]> {
     date: isoDay(r.transfer_date),
     fromLabel: r.from_unit.unit_label,
     toUnitId: r.to_unit_id,
-    lines: r.lines.map((l) => ({ lotNo: trackings.get(l.tracking_id) ?? "", jobNo: l.job?.job_no ?? null, qty: l.qty.toNumber() })),
+    lines: r.lines.map((l) => ({ lotNo: trackings.get(l.tracking_id)?.no ?? "", jobNo: l.job?.job_no ?? null, qty: l.qty.toNumber(), grams: l.grams?.toNumber() ?? null })),
   }));
 }
 

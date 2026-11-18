@@ -3388,4 +3388,52 @@ table prd_qc_check_line {
   reason                      text
   to_bucket_id                int
 }
+
+// Dokumen Push and BSTB between Units (P277, T8): made and posted (Push) or submitted (BSTB) in one step;
+// a BSTB is received by the Unit it goes to. No journal: the value stays in WIP.
+table prd_transfer {
+  id                          int [pk, increment, not null]
+  transfer_no                 varchar [not null, unique] // PSH_<from>_ddmmyy_NNNNN, BST_<to>_ddmmyy_NNNNN
+  kind                        enum('Push', 'Bstb', 'BstbPartai') [not null]
+  transfer_date               date [not null]
+  from_unit_id                int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP · CHECK differs from to_unit_id
+  to_unit_id                  int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
+  partai_id                   int [ref : > prd_partai.id] // born at Terima for BstbPartai
+  line_id                     int [ref : > prd_line.id] // lintas aplikasi → ERP
+  routing_id                  int // the routing of the line the new partai follows
+  status                      enum('Submitted', 'Posted') [not null]
+  received_at                 date
+  received_by                 int
+  note                        varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    from_unit_id
+    (to_unit_id, status)
+  }
+}
+
+table prd_transfer_line {
+  id                          int [pk, increment, not null]
+  transfer_id                 int [not null, ref : > prd_transfer.id]
+  line_no                     int [not null]
+  from_bucket_id              int [not null]
+  tracking_id                 int [not null] // weak
+  job_id                      int [ref : > prd_job.id] // the Job sent, or the one this pickup made
+  is_new_job                  boolean [not null, default: false]
+  qty                         decimal(18,6) [not null] // CHECK > 0
+  grams                       decimal(18,6)
+  value                       decimal(18,2) [not null, default: 0]
+  transit_bucket_id           int
+  to_bucket_id                int
+
+  indexes {
+    (transfer_id, line_no) [unique]
+  }
+}
+
 ```

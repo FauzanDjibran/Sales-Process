@@ -9,6 +9,9 @@ import { Pager, usePaging } from "@/components/ui/pager";
 import { SearchField } from "@/components/ui/search-field";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
+import { TransferReceiveButton } from "@/components/production/transfer-receive-button";
+import { TRANSFER_KIND_TEXT } from "@/lib/erp/production-transfer-shape";
+import type { IncomingTransfer } from "@/lib/erp/production-transfer";
 import { StockIssueActions } from "@/components/inventory/stock-issue-actions";
 import { idc } from "@/components/production/execution-parts";
 import { PROCESS_TEXT } from "@/components/production/unit-cards";
@@ -111,6 +114,8 @@ export function UnitBoard({
   unit,
   rows,
   incoming,
+  transfers,
+  canReceive,
   can,
   issueCan,
   initialTab,
@@ -118,6 +123,8 @@ export function UnitBoard({
   unit: BoardUnit;
   rows: BoardRow[];
   incoming: BoardIncoming[];
+  transfers: IncomingTransfer[];
+  canReceive: boolean;
   can: { grading: boolean; work: boolean; qc: boolean; transfer: boolean };
   issueCan: StockIssueAbilities;
   initialTab: BoardTab;
@@ -196,7 +203,7 @@ export function UnitBoard({
   }
 
   const tabs: [BoardTab, string, number][] = [
-    ["masuk", "Penerimaan", incoming.length],
+    ["masuk", "Penerimaan", incoming.length + transfers.length],
     ...unit.steps.flatMap((s): [BoardTab, string, number][] => {
       const out: [BoardTab, string, number][] = [[`p${s.id}`, `Persiapan ${PROCESS_TEXT[s.process]}`, tabRows(`p${s.id}`).length]];
       if (s.process === "Kerja") out.push([`w${s.id}`, "Sedang Dikerjakan", tabRows(`w${s.id}`).length]);
@@ -354,7 +361,7 @@ export function UnitBoard({
         )}
 
         {tab === "masuk" &&
-          (incoming.length ? (
+          (incoming.length + transfers.length ? (
             <div className="tw">
               <table className="grid" style={{ minWidth: 860 }}>
                 <thead>
@@ -369,6 +376,19 @@ export function UnitBoard({
                   </tr>
                 </thead>
                 <tbody>
+                  {transfers.map((t) => (
+                    <tr key={`t${t.id}`} onClick={() => router.push(`/production/transfer/${t.id}`)}>
+                      <td>
+                        <span className="lab">{t.no}</span>
+                      </td>
+                      <td>{TRANSFER_KIND_TEXT[t.kind]}</td>
+                      <td>{t.fromLabel}</td>
+                      <td>{formatDate(t.date)}</td>
+                      <td className="num">{t.lines.length}</td>
+                      <td className="num">{gram(t.lines.reduce((a, l) => a + (l.grams ?? 0), 0))}</td>
+                      <td onClick={(e) => e.stopPropagation()}>{canReceive && <TransferReceiveButton id={t.id} subject={t.no} from={t.fromLabel} partai={t.kind === "BstbPartai"} small />}</td>
+                    </tr>
+                  ))}
                   {incoming.map((d) => (
                     <tr key={d.id} onClick={() => router.push(`/inventory/stock-issue/${d.id}`)}>
                       <td>
