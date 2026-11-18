@@ -25,21 +25,44 @@ const WAREHOUSES: [label: string, name: string][] = [
   ["GFG", "Gudang Finish Goods"],
 ];
 
-type ItemSpec = { label: string; name: string; category: string; base: string; buy?: boolean; sell?: boolean; bjl?: boolean };
+/** `was`: the name an earlier run of this seed gave the label, renamed in place while it still reads so. */
+type ItemSpec = { label: string; name: string; was?: string; category: string; base: string; buy?: boolean; sell?: boolean; bjl?: boolean };
+const SB = "BRG-SETENGAH-JADI";
 const ITEMS: ItemSpec[] = [
-  // What comes in from the supplier and what grading makes of it, in grams.
-  { label: "SM-A", name: "Sarang Mentah A", category: "BHN-BAKU", base: "GR", buy: true },
-  { label: "HLS-A", name: "Sarang Halus A", category: "BRG-SETENGAH-JADI", base: "GR" },
-  { label: "HLS-B", name: "Sarang Halus B", category: "BRG-SETENGAH-JADI", base: "GR" },
-  { label: "BJL-S", name: "BJL Sortir", category: "BRG-SETENGAH-JADI", base: "GR", bjl: true },
-  { label: "MLD-A", name: "Sarang Moulding A", category: "BRG-SETENGAH-JADI", base: "GR" },
-  { label: "PCS-A", name: "Keping Sarang A", category: "BRG-SETENGAH-JADI", base: "GR" },
+  // What comes in from the supplier, by grade, in grams.
+  { label: "SM-A", name: "Sarang Mentah Grade A", was: "Sarang Mentah A", category: "BHN-BAKU", base: "GR", buy: true },
+  { label: "SM-B", name: "Sarang Mentah Grade B", category: "BHN-BAKU", base: "GR", buy: true },
+  { label: "SM-C", name: "Sarang Mentah Grade C", category: "BHN-BAKU", base: "GR", buy: true },
+  { label: "SM-SD", name: "Sarang Mentah Sudut", category: "BHN-BAKU", base: "GR", buy: true },
+  { label: "SM-PT", name: "Sarang Mentah Patahan", category: "BHN-BAKU", base: "GR", buy: true },
+  // What grading makes of it: by quality, and by shape.
+  { label: "HLS-A", name: "Hasil Grading Super", was: "Sarang Halus A", category: SB, base: "GR" },
+  { label: "HLS-B", name: "Hasil Grading Reguler", was: "Sarang Halus B", category: SB, base: "GR" },
+  { label: "HLS-C", name: "Hasil Grading Ekonomi", category: SB, base: "GR" },
+  { label: "HLS-SD", name: "Hasil Grading Sudut", category: SB, base: "GR" },
+  { label: "HLS-PT", name: "Hasil Grading Patahan", category: SB, base: "GR" },
+  // BJL (bahan yang dibuang): carries grams and quantity but is always valued 0 (W32).
+  { label: "BJL-S", name: "BJL Serpihan", was: "BJL Sortir", category: SB, base: "GR", bjl: true },
+  { label: "BJL-B", name: "BJL Bulu", category: SB, base: "GR", bjl: true },
+  { label: "BJL-K", name: "BJL Kotoran", category: SB, base: "GR", bjl: true },
+  { label: "BJL-D", name: "BJL Debu", category: SB, base: "GR", bjl: true },
+  // Moulded goods, then the pieces cut for a kotak.
+  { label: "MLD-A", name: "Mangkok Moulding", was: "Sarang Moulding A", category: SB, base: "GR" },
+  { label: "MLD-B", name: "Mangkok Moulding Reguler", category: SB, base: "GR" },
+  { label: "MLD-SD", name: "Sudut Moulding", category: SB, base: "GR" },
+  { label: "PCS-A", name: "Keping Mangkok", was: "Keping Sarang A", category: SB, base: "GR" },
+  { label: "PCS-B", name: "Keping Mangkok Reguler", category: SB, base: "GR" },
+  { label: "PCS-SD", name: "Keping Sudut", category: SB, base: "GR" },
   // A kotak is the Nama Jual's item, one per box (P280 §5.4).
-  { label: "BMK50", name: "Sarang Walet BMK 50 g", category: "BRG-JADI", base: "PCS", sell: true },
-  { label: "BMK100", name: "Sarang Walet BMK 100 g", category: "BRG-JADI", base: "PCS", sell: true },
+  { label: "BMK25", name: "B-MK 25 gr", category: "BRG-JADI", base: "PCS", sell: true },
+  { label: "BMK50", name: "B-MK 50 gr", was: "Sarang Walet BMK 50 g", category: "BRG-JADI", base: "PCS", sell: true },
+  { label: "BMK100", name: "B-MK 100 gr", was: "Sarang Walet BMK 100 g", category: "BRG-JADI", base: "PCS", sell: true },
+  { label: "BSD50", name: "B-SD 50 gr", category: "BRG-JADI", base: "PCS", sell: true },
   // Bahan penolong, issued to a Unit by BSTB Issue.
   { label: "GRMS", name: "Gramasi", category: "BHN-KEMAS", base: "PCS", buy: true },
   { label: "STK-DAUN", name: "Stiker Daun", category: "BHN-KEMAS", base: "PCS", buy: true },
+  { label: "STK-SGL", name: "Stiker Segel", category: "BHN-KEMAS", base: "PCS", buy: true },
+  { label: "KTG", name: "Kantong Plastik", category: "BHN-KEMAS", base: "PCS", buy: true },
   { label: "BOX", name: "Box", category: "BHN-KEMAS", base: "PCS", buy: true },
 ];
 
@@ -62,8 +85,10 @@ const RATES: Record<string, string> = {
 
 /** BoM Packing per Nama Jual: gram ± tolerance, piece count, bahan penolong per kotak (the artifact's NJ). */
 const BOMS: { label: string; item: string; target: number; tol: number; min: number; max: number; aux: [string, number][] }[] = [
+  { label: "BMK25-V1", item: "BMK25", target: 25, tol: 0.5, min: 4, max: 7, aux: [["GRMS", 1], ["STK-SGL", 1]] },
   { label: "BMK50-V1", item: "BMK50", target: 50, tol: 1, min: 8, max: 13, aux: [["GRMS", 1], ["STK-DAUN", 1]] },
   { label: "BMK100-V1", item: "BMK100", target: 100, tol: 1.5, min: 16, max: 26, aux: [["GRMS", 1], ["STK-DAUN", 2]] },
+  { label: "BSD50-V1", item: "BSD50", target: 50, tol: 1, min: 8, max: 13, aux: [["GRMS", 1], ["KTG", 1]] },
 ];
 
 const entity = (key: string) => {
@@ -108,7 +133,14 @@ async function main() {
 
   const uoms = new Map((await prisma.refUom.findMany({ select: { id: true, uom_label: true } })).map((u) => [u.uom_label, u.id]));
   for (const it of ITEMS) {
-    if (await prisma.mItem.findFirst({ where: { OR: [{ item_label: it.label }, { item_name: { equals: it.name, mode: "insensitive" } }] } })) continue;
+    const known = await prisma.mItem.findFirst({ where: { OR: [{ item_label: it.label }, { item_name: { equals: it.name, mode: "insensitive" } }] } });
+    if (known) {
+      if (it.was && known.item_label === it.label && known.item_name === it.was) {
+        await prisma.mItem.update({ where: { id: known.id }, data: { item_name: it.name, updated_by: actor } });
+        made.push(`${it.label} (nama diperbarui)`);
+      }
+      continue;
+    }
     const category = await prisma.sysItemCategory.findUniqueOrThrow({ where: { category_label: it.category } });
     const base = uoms.get(it.base);
     if (!base) throw new Error(`Satuan ${it.base} tidak ada. Jalankan npm run db:seed.`);
@@ -173,8 +205,13 @@ async function main() {
   }
 
   for (const b of BOMS) {
-    if (await prisma.prdBom.findFirst({ where: { bom_label: b.label } })) continue;
     const item = await prisma.mItem.findFirstOrThrow({ where: { item_label: b.item } });
+    const have = await prisma.prdBom.findFirst({ where: { bom_label: b.label } });
+    if (have) {
+      // The name follows the item's, so a renamed item does not leave the BoM reading the old one.
+      if (have.bom_name !== `${item.item_name} versi 1`) await prisma.prdBom.update({ where: { id: have.id }, data: { bom_name: `${item.item_name} versi 1`, updated_by: actor } });
+      continue;
+    }
     const aux = await prisma.mItem.findMany({ where: { item_label: { in: b.aux.map(([l]) => l) } }, select: { id: true, item_label: true } });
     const row = await prisma.prdBom.create({
       data: {
