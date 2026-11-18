@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
+import { CancelButton } from "@/components/ui/cancel-button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
@@ -103,9 +104,7 @@ export function TransferForm({ options, initialBucketIds }: { options: TransferO
             {kind && <span className="bdg t-info">{TRANSFER_KIND_TEXT[kind]}</span>}
           </h1>
           <div className="ph-act">
-            <Link className="btn" href={back}>
-              Batal
-            </Link>
+            <CancelButton href={back} dirty={rows.length > 0} />
             <button className="btn primary" disabled={busy || !rows.length || !route} onClick={() => setAsking(true)}>
               <Icon name="send" size={15} /> {kind === "Push" ? "Posting" : "Ajukan"}
             </button>
