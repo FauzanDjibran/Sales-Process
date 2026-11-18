@@ -276,7 +276,7 @@ tests/                 Carried SIBA suites + one suite per new module
 
 Same commands as SIBA once Phase 1 lands: `npm run dev`, `npm run build`,
 `npm start`, `npm run lint`, `npm test`, `npm run db:seed` (idempotent, system
-data only), `npm run db:seed-accounts` (the starter chart with Account Mapping, Kategori Item and Jenis PPh accounts, P130; additive, safe for production), `npm run db:seed-production` (the Reguler Workstations, Units and routings, P229), `npm run db:seed-showcase` (dev demo data from the simulation, plus `db:seed-cash-bank-showcase` for Cash & Bank resources in IDR / USD with three months of journalled movements,
+data only), `npm run db:seed-accounts` (the starter chart with Account Mapping, Kategori Item and Jenis PPh accounts, P130; additive, safe for production), `npm run db:seed-production` (the Reguler Workstations, Units and routings, P229), `npm run db:seed-production-showcase` (dev data for the PO-to-Packing-95 walk: Gudang Bahan Baku and Finish Goods, production items in grams, kotak items, bahan penolong, a sarang supplier and Standard Cost SC-SIM, P280; never in production), `npm run db:seed-showcase` (dev demo data from the simulation, plus `db:seed-cash-bank-showcase` for Cash & Bank resources in IDR / USD with three months of journalled movements,
 `scripts/seed-showcase.ts`: additive, matched on label / name), `npm run
 db:reset` (**destructive**; drops, migrates, then runs `db:seed` — Prisma 7
 seeds nothing on its own without a config file), `npm run db:fresh`
