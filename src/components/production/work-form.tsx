@@ -10,7 +10,7 @@ import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
 import { AuxCard, ErrorBox, ExecutionHeader, idc, money, newKey, qtyText, refs, ro, type AuxRow } from "@/components/production/execution-parts";
-import { JobPicker } from "@/components/production/job-picker";
+import { InputBar } from "@/components/production/input-bar";
 import { ProdDocActions } from "@/components/production/production-doc-actions";
 import { previewWorkAction, saveWorkAction, transitionWorkAction } from "@/app/actions/production-execution";
 import { unitCost } from "@/lib/erp/production-execution";
@@ -22,7 +22,7 @@ import { formatDate, todayIso } from "@/lib/format";
 
 /**
  * Pengerjaan Unit in all three modes (W74, A5): opened from the Workspace with
- * the Jobs ticked there, more added by *Tambah No. Job*. A row is one Job, taken
+ * the Jobs ticked there, more added through the input bar. A row is one Job, taken
  * whole (W96), or one No. Stok without a Job, which may be taken in part; each
  * row has exactly one karyawan. One partai per document (W76).
  */
@@ -44,6 +44,7 @@ export function WorkForm({
   options,
   can,
   initialBucketIds = [],
+  initialUnitId,
   autoPost = false,
 }: {
   mode: "new" | "edit" | "view";
@@ -52,6 +53,8 @@ export function WorkForm({
   can: ProdDocAbilities;
   /** The rows ticked in the Workspace Unit. */
   initialBucketIds?: number[];
+  /** The Unit a tab button opened it on, with nothing picked yet. */
+  initialUnitId?: number;
   /** The form's *Posting* just saved this Draft: open the confirmation (D2). */
   autoPost?: boolean;
 }) {
@@ -59,13 +62,12 @@ export function WorkForm({
   const toast = useToast();
   const editing = mode !== "view";
   const scanned = options.inputs.filter((b) => initialBucketIds.includes(b.id));
-  const [unitId, setUnitId] = useState<number | null>(work?.unitId ?? scanned[0]?.unitId ?? (options.units.length === 1 ? options.units[0].id : null));
+  const [unitId, setUnitId] = useState<number | null>(work?.unitId ?? scanned[0]?.unitId ?? initialUnitId ?? (options.units.length === 1 ? options.units[0].id : null));
   const [date, setDate] = useState(work?.date ?? todayIso());
   const [resultNote, setResultNote] = useState(work?.resultNote ?? "");
   const [note, setNote] = useState(work?.note ?? "");
   const [picked, setPicked] = useState<Picked[]>(() => work?.lines.map((l) => ({ bucket_id: l.bucketId, qty: String(l.qty), employee_id: l.employeeId })) ?? scanned.map((b) => ({ bucket_id: b.id, qty: String(b.qty), employee_id: null })));
   const [aux, setAux] = useState<AuxRow[]>(() => work?.aux.map((a) => ({ key: newKey(), bucket_id: a.bucketId, qty: String(a.qty), job_id: a.jobId })) ?? []);
-  const [adding, setAdding] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -281,12 +283,28 @@ export function WorkForm({
                   Samakan dengan Baris Pertama
                 </button>
               )}
-              {editing && (
-                <button className="btn sm primary" disabled={!unitId} onClick={() => setAdding(true)}>
-                  <Icon name="plus" size={14} /> Tambah No. Job
-                </button>
-              )}
             </div>
+            {editing && unitId && (
+              <InputBar
+                choices={addable.map((g) => ({
+                  key: g.key,
+                  jobNo: g.members[0].jobNo,
+                  lotNo: g.members[0].lotNo,
+                  itemName: g.members[0].itemName,
+                  count: g.members.length,
+                  partaiId: g.members[0].partaiId,
+                  partaiNo: g.members[0].partaiNo,
+                  grams: g.members.reduce((a, b) => a + (b.grams ?? 0), 0),
+                }))}
+                partial={(c) => !c.jobNo}
+                emptyText={`Tidak ada lagi di Persiapan ${unit?.label ?? ""}${partai ? " untuk partai ini" : ""}.`}
+                onAdd={(k, grams) => {
+                  const g = addable.find((x) => x.key === k)!;
+                  setPicked((p) => [...p, ...g.members.map((b) => ({ bucket_id: b.id, qty: g.members[0].jobNo ? String(b.qty) : ((b: { grams: number | null; qty: number }, grams: number | null) => String(grams != null && b.grams ? Math.round(((grams / b.grams) * b.qty) * 10_000) / 10_000 : b.qty))(b, grams), employee_id: null }))]);
+                  touched();
+                }}
+              />
+            )}
             <ErrorBox text={errors._lines} />
             {lines.length ? (
               <div className="tw">
@@ -366,7 +384,7 @@ export function WorkForm({
             ) : (
               <div className="empty">
                 <h4>{unitId ? "Belum ada No. Job" : "Pilih Unit dulu…"}</h4>
-                {unitId && <p>Tambahkan No. Job dari Persiapan dengan Tambah No. Job.</p>}
+                {unitId && <p>Pilih atau scan No. Job / No. Stok di baris input di atas, lalu Tambah.</p>}
               </div>
             )}
           </div>
@@ -417,29 +435,6 @@ export function WorkForm({
         </div>
       </div>
 
-      {adding && (
-        <JobPicker
-          title="Tambah No. Job"
-          subtitle={`Yang menunggu di Persiapan ${unit?.label ?? ""}${partai ? ", partai yang sama" : ""}.`}
-          choices={addable.map((g) => ({
-            key: g.key,
-            jobNo: g.members[0].jobNo,
-            lotNo: g.members[0].lotNo,
-            itemName: g.members[0].itemName,
-            count: g.members.length,
-            partaiId: g.members[0].partaiId,
-            partaiNo: g.members[0].partaiNo,
-            grams: g.members.reduce((a, b) => a + (b.grams ?? 0), 0),
-          }))}
-          onAdd={(keys) => {
-            const add = addable.filter((g) => keys.includes(g.key)).flatMap((g) => g.members);
-            setPicked((p) => [...p, ...add.map((b) => ({ bucket_id: b.id, qty: String(b.qty), employee_id: null }))]);
-            setAdding(false);
-            touched();
-          }}
-          onClose={() => setAdding(false)}
-        />
-      )}
     </>
   );
 }

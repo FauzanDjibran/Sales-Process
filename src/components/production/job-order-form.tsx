@@ -11,6 +11,7 @@ import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
 import { ErrorBox, idc, qtyText, ro } from "@/components/production/execution-parts";
+import { InputBar } from "@/components/production/input-bar";
 import { postJobOrderAction } from "@/app/actions/production-job-order";
 import type { JobOrderOptions } from "@/lib/erp/production-job-order";
 import { todayIso } from "@/lib/format";
@@ -34,20 +35,18 @@ export function JobOrderForm({ options, initialBucketIds }: { options: JobOrderO
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState("");
   const [lines, setLines] = useState<Line[]>([]);
-  const [take, setTake] = useState<Record<number, string>>(() => Object.fromEntries(initialBucketIds.filter((id) => byId.has(id)).map((id) => [id, String(byId.get(id)!.qty)])));
+  const [cart, setCart] = useState<Part[]>(() => initialBucketIds.filter((id) => byId.has(id)).map((id) => ({ bucketId: id, qty: byId.get(id)!.qty })));
   const [target, setTarget] = useState<number | null>(null);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
-  const used = (id: number) => lines.reduce((a, l) => a + l.parts.filter((p) => p.bucketId === id).reduce((x, p) => x + p.qty, 0), 0);
+  const used = (id: number) => [...lines.flatMap((l) => l.parts), ...cart].filter((p) => p.bucketId === id).reduce((x, p) => x + p.qty, 0);
   const free = (id: number) => round(byId.get(id)!.qty - used(id));
-  const partai = lines[0] ? byId.get(lines[0].parts[0].bucketId)!.partaiId : null;
-  const shown = options.buckets.filter((b) => free(b.id) > 0 && (!lines.length || b.partaiId === partai));
-  const cart: Part[] = shown.flatMap((b) => {
-    const q = Number(String(take[b.id] ?? "").replace(",", "."));
-    return q > 0 ? [{ bucketId: b.id, qty: Math.min(q, free(b.id)) }] : [];
-  });
+  const anchor = lines[0]?.parts[0] ?? cart[0];
+  const partai = anchor ? byId.get(anchor.bucketId)!.partaiId : null;
+  // Any No. Stok here may be taken in part, a Job's too: Job Order mixes No. Stok, not Jobs (T7).
+  const shown = options.buckets.filter((b) => free(b.id) > 0 && (!anchor || b.partaiId === partai));
   const cartGrams = cart.reduce((a, p) => a + p.qty, 0);
   const targets = options.targets.map((t) => ({ id: t.id, label: t.label, name: t.name, active: true }));
   const label = (id: number) => options.targets.find((t) => t.id === id);
@@ -57,7 +56,7 @@ export function JobOrderForm({ options, initialBucketIds }: { options: JobOrderO
     if (!target || !cart.length) return;
     if (new Set(cart.map((p) => byId.get(p.bucketId)!.partaiId)).size > 1) return toast("Lain partai", "Satu dokumen hanya untuk satu partai.", "err");
     setLines((l) => [...l, { targetId: target, parts: cart }]);
-    setTake({});
+    setCart([]);
     setErrors({});
   }
 
@@ -136,41 +135,49 @@ export function JobOrderForm({ options, initialBucketIds }: { options: JobOrderO
           </span>
           <div className="ct">
             <h3>Ambil dari Persiapan</h3>
-            <p>Isi gram yang diambil dari tiap No. Stok (boleh sebagian), pilih Jenis, lalu Buat Job. Sisanya tetap di Persiapan.</p>
+            <p>Pilih atau scan No. Stok, isi gram bila sebagian, Tambah; ulangi sampai lengkap. Lalu pilih Jenis dan Buat Job. Sisanya tetap di Persiapan.</p>
           </div>
         </div>
-        {shown.length ? (
+        <InputBar
+          label="No. Stok"
+          choices={shown.map((b) => ({ key: String(b.id), jobNo: null, lotNo: b.lotNo, itemName: b.itemName, count: 1, partaiId: b.partaiId, partaiNo: b.partaiNo, grams: free(b.id) }))}
+          partial={() => true}
+          emptyText="Semua No. Stok di Persiapan Job Order sudah diambil."
+          onAdd={(k, grams) => {
+            const id = Number(k);
+            setCart((c) => [...c, { bucketId: id, qty: grams ?? free(id) }]);
+            setErrors({});
+          }}
+        />
+        {cart.length > 0 && (
           <div className="tw">
-            <table className="grid ltab" style={{ minWidth: 640 }}>
+            <table className="grid ltab" style={{ minWidth: 560 }}>
               <thead>
                 <tr>
-                  <th>No. Stok</th>
+                  <th>Akan jadi satu Job</th>
                   <th style={{ width: 200 }}>Partai</th>
-                  <th className="num" style={{ width: 110 }}>Tersedia</th>
-                  <th className="num" style={{ width: 150 }}>Diambil (g)</th>
+                  <th className="num" style={{ width: 110 }}>Gram</th>
+                  <th style={{ width: 40 }} />
                 </tr>
               </thead>
               <tbody>
-                {shown.map((b) => (
-                  <tr key={b.id}>
-                    <td>
-                      {idc(b.lotNo, b.itemName)}
-                      {b.jobNo && <div className="uw-hint mono">{b.jobNo}</div>}
-                    </td>
-                    <td>{b.partaiNo ? <span className="mono">{b.partaiNo}</span> : <span className="dash">sebelum partai</span>}</td>
-                    <td className="num">{qtyText(free(b.id))}</td>
-                    <td className="num">
-                      <input className="inp sm" style={{ textAlign: "right" }} inputMode="decimal" value={take[b.id] ?? ""} placeholder="0" aria-label={`Gram diambil ${b.lotNo}`} onChange={(e) => setTake((t) => ({ ...t, [b.id]: e.target.value }))} />
-                    </td>
-                  </tr>
-                ))}
+                {cart.map((p, i) => {
+                  const b = byId.get(p.bucketId)!;
+                  return (
+                    <tr key={i}>
+                      <td>{idc(b.lotNo, b.itemName)}</td>
+                      <td>{b.partaiNo ? <span className="mono">{b.partaiNo}</span> : <span className="dash">sebelum partai</span>}</td>
+                      <td className="num">{qtyText(p.qty)}</td>
+                      <td>
+                        <button className="iact del" title="Keluarkan" onClick={() => setCart((c) => c.filter((_, j) => j !== i))}>
+                          <Icon name="trash" size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
-          </div>
-        ) : (
-          <div className="empty sm">
-            <h4>Tidak ada lagi yang bisa diambil</h4>
-            <p>Semua No. Stok di Persiapan Job Order sudah masuk Job di bawah.</p>
           </div>
         )}
         <div className="toolbar">

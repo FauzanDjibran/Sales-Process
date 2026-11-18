@@ -11,7 +11,7 @@ import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { ErrorBox, idc, qtyText, ro } from "@/components/production/execution-parts";
-import { JobPicker } from "@/components/production/job-picker";
+import { InputBar } from "@/components/production/input-bar";
 import { startKerjaAction } from "@/app/actions/production-kerja";
 import type { KerjaOptions } from "@/lib/erp/production-kerja";
 import type { BucketView } from "@/lib/erp/production-ledger";
@@ -44,7 +44,6 @@ export function KerjaForm({ options, initialBucketIds }: { options: KerjaOptions
   const [worker, setWorker] = useState<Record<string, string>>({});
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState("");
-  const [adding, setAdding] = useState(false);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -136,10 +135,12 @@ export function KerjaForm({ options, initialBucketIds }: { options: KerjaOptions
             <h3>Job Dikerjakan</h3>
             <p>Satu Job dikerjakan satu karyawan dan diambil utuh. Biaya Unit dibebankan saat Selesai bila Kerja proses terakhir Unit ini.</p>
           </div>
-          <button className="btn sm primary" disabled={!addable.length} onClick={() => setAdding(true)}>
-            <Icon name="plus" size={14} /> Tambah Baris
-          </button>
         </div>
+        <InputBar
+          choices={addable.map((w) => ({ key: w.key, jobNo: w.jobNo, lotNo: w.buckets[0].lotNo, itemName: w.buckets[0].itemName, count: w.buckets.length, partaiId: w.partaiId, partaiNo: w.partaiNo, grams: gramOf(w) }))}
+          emptyText={`Tidak ada lagi di Persiapan Kerja ${options.unit.label}${rows.length ? " untuk partai ini" : ""}.`}
+          onAdd={(k) => setKeys((x) => [...x, k])}
+        />
         <ErrorBox text={errors._lines} />
         {rows.length ? (
           <div className="tw">
@@ -192,23 +193,11 @@ export function KerjaForm({ options, initialBucketIds }: { options: KerjaOptions
         ) : (
           <div className="empty">
             <h4>Belum ada baris</h4>
-            <p>Tambahkan Job dari Persiapan Kerja {options.unit.label} dengan Tambah Baris.</p>
+            <p>Pilih atau scan No. Job di baris input di atas, lalu Tambah.</p>
           </div>
         )}
       </div>
 
-      {adding && (
-        <JobPicker
-          title="Tambah Baris"
-          subtitle={`Yang menunggu di Persiapan Kerja ${options.unit.label}${rows.length ? ", partai yang sama" : ""}.`}
-          choices={addable.map((w) => ({ key: w.key, jobNo: w.jobNo, lotNo: w.buckets[0].lotNo, itemName: w.buckets[0].itemName, count: w.buckets.length, partaiId: w.partaiId, partaiNo: w.partaiNo, grams: gramOf(w) }))}
-          onAdd={(k) => {
-            setKeys((x) => [...x, ...k]);
-            setAdding(false);
-          }}
-          onClose={() => setAdding(false)}
-        />
-      )}
 
       <ConfirmDialog
         open={asking}

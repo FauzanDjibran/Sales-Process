@@ -8,7 +8,7 @@ import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
 import { ErrorBox, ExecutionHeader, idc, qtyText, refs, ro } from "@/components/production/execution-parts";
-import { JobPicker } from "@/components/production/job-picker";
+import { InputBar } from "@/components/production/input-bar";
 import { ProdDocActions } from "@/components/production/production-doc-actions";
 import { saveQcCheckAction, transitionQcCheckAction } from "@/app/actions/production-execution";
 import { QC_CHECK_PATH, QC_CHECK_WORKFLOW, QC_DECISION_TEXT, type QcDecision } from "@/lib/erp/production-execution-workflow";
@@ -45,6 +45,7 @@ export function QcForm({
   options,
   can,
   initialBucketIds = [],
+  initialUnitId,
   autoPost = false,
 }: {
   mode: "new" | "edit" | "view";
@@ -53,6 +54,8 @@ export function QcForm({
   can: ProdDocAbilities;
   /** The rows ticked in the Workspace's QC tab. */
   initialBucketIds?: number[];
+  /** The Unit a tab button opened it on, with nothing picked yet. */
+  initialUnitId?: number;
   /** The form's *Posting* just saved this Draft: open the confirmation (D2). */
   autoPost?: boolean;
 }) {
@@ -63,7 +66,7 @@ export function QcForm({
   const stored = (check?.lines ?? []).flatMap((l) => byId.get(l.bucketId) ?? []);
   const opened = initialBucketIds.flatMap((id) => byId.get(id) ?? []);
   const start = stored.length ? stored : opened;
-  const [unitId, setUnitId] = useState<number | null>(check?.unitId ?? start[0]?.unitId ?? (options.units.length === 1 ? options.units[0].id : null));
+  const [unitId, setUnitId] = useState<number | null>(check?.unitId ?? start[0]?.unitId ?? initialUnitId ?? (options.units.length === 1 ? options.units[0].id : null));
   const [date, setDate] = useState(check?.date ?? todayIso());
   const [inspector, setInspector] = useState(check?.inspector ?? "");
   const [note, setNote] = useState(check?.note ?? "");
@@ -76,7 +79,6 @@ export function QcForm({
     }
     return out;
   });
-  const [adding, setAdding] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -256,12 +258,17 @@ export function QcForm({
                   Lulus Semua
                 </button>
               )}
-              {editing && (
-                <button className="btn sm primary" disabled={!unitId} onClick={() => setAdding(true)}>
-                  <Icon name="plus" size={14} /> Tambah Baris
-                </button>
-              )}
             </div>
+            {editing && unitId && (
+              <InputBar
+                choices={addable.map((w) => ({ key: w.key, jobNo: w.jobNo, lotNo: w.buckets[0].lotNo, itemName: w.buckets[0].itemName, count: w.buckets.length, partaiId: w.partaiId, partaiNo: w.partaiNo, grams: gramOf(w) }))}
+                emptyText={`Tidak ada lagi yang menunggu QC di ${unit?.label ?? ""}.`}
+                onAdd={(k) => {
+                  setKeys((x) => [...x, k]);
+                  touched();
+                }}
+              />
+            )}
             <ErrorBox text={errors._lines} />
             {rows.length ? (
               <div className="tw">
@@ -338,26 +345,13 @@ export function QcForm({
             ) : (
               <div className="empty">
                 <h4>{unitId ? "Belum ada baris" : "Pilih Unit dulu…"}</h4>
-                {unitId && <p>Tambahkan No. Job yang menunggu QC dengan Tambah Baris.</p>}
+                {unitId && <p>Pilih atau scan No. Job / No. Stok di baris input di atas, lalu Tambah.</p>}
               </div>
             )}
           </div>
         </div>
       </div>
 
-      {adding && (
-        <JobPicker
-          title="Tambah Baris"
-          subtitle={rows.length ? `Yang menunggu QC di ${unit?.label ?? ""}, partai yang sama.` : `Yang menunggu QC di ${unit?.label ?? ""}.`}
-          choices={addable.map((w) => ({ key: w.key, jobNo: w.jobNo, lotNo: w.buckets[0].lotNo, itemName: w.buckets[0].itemName, count: w.buckets.length, partaiId: w.partaiId, partaiNo: w.partaiNo, grams: gramOf(w) }))}
-          onAdd={(k) => {
-            setKeys((x) => [...x, ...k]);
-            setAdding(false);
-            touched();
-          }}
-          onClose={() => setAdding(false)}
-        />
-      )}
     </>
   );
 }

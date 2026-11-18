@@ -6,11 +6,12 @@ import { WORK_PATH, WORK_WORKFLOW } from "@/lib/erp/production-execution-workflo
 
 export const dynamic = "force-dynamic";
 
-/** `?bucket=` lists the rows ticked in the Workspace Unit. */
-export default async function Page({ searchParams }: { searchParams: Promise<{ bucket?: string }> }) {
-  const { bucket } = await searchParams;
+/** `?bucket=` lists the rows picked in the Workspace Unit; `?unit=` opens it empty on a Unit. */
+export default async function Page({ searchParams }: { searchParams: Promise<{ bucket?: string; unit?: string }> }) {
+  const { bucket, unit } = await searchParams;
   const actor = await requirePermission("PRODUCTION_WORK_CREATE", `${WORK_PATH}/new`);
   const options = await narrowToUnits(actor, await workOptions());
+  const unitOf = (label?: string) => (label ? options.units.find((u) => u.label === label)?.id : undefined);
   const ids = (bucket ?? "").split(",").map(Number).filter((n) => n > 0);
-  return <WorkForm mode="new" work={null} options={options} can={WORK_WORKFLOW.abilities(actor.permissions)} initialBucketIds={ids} />;
+  return <WorkForm mode="new" work={null} options={options} can={WORK_WORKFLOW.abilities(actor.permissions)} initialBucketIds={ids} initialUnitId={unitOf(unit)} />;
 }

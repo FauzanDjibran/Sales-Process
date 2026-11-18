@@ -9,7 +9,7 @@ import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
 import { AuxCard, ErrorBox, ExecutionHeader, idc, newKey, qtyText, refs, ro, type AuxRow } from "@/components/production/execution-parts";
-import { JobPicker } from "@/components/production/job-picker";
+import { InputBar } from "@/components/production/input-bar";
 import { ProdDocActions } from "@/components/production/production-doc-actions";
 import { previewGradingAction, saveGradingAction, transitionGradingAction } from "@/app/actions/production-execution";
 import { GRADING_PATH, GRADING_WORKFLOW } from "@/lib/erp/production-execution-workflow";
@@ -37,6 +37,7 @@ export function GradingForm({
   can,
   initialJobId,
   initialBucketId,
+  initialUnitId,
   autoPost = false,
 }: {
   mode: "new" | "edit" | "view";
@@ -48,6 +49,8 @@ export function GradingForm({
   /** The Job or loose No. Stok the Workspace opened this form on. */
   initialJobId?: number;
   initialBucketId?: number;
+  /** The Unit a tab button opened it on, with nothing picked yet. */
+  initialUnitId?: number;
   /** The form's *Posting* just saved this Draft: open the confirmation (D2). */
   autoPost?: boolean;
 }) {
@@ -58,7 +61,7 @@ export function GradingForm({
   const itemOf = new Map(options.items.map((i) => [i.id, i]));
   const opened = options.inputs.find((b) => (initialJobId ? b.jobId === initialJobId : b.id === initialBucketId));
 
-  const [unitId, setUnitId] = useState<number | null>(grading?.unitId ?? opened?.unitId ?? (options.units.length === 1 ? options.units[0].id : null));
+  const [unitId, setUnitId] = useState<number | null>(grading?.unitId ?? opened?.unitId ?? initialUnitId ?? (options.units.length === 1 ? options.units[0].id : null));
   const [date, setDate] = useState(grading?.date ?? todayIso());
   const [note, setNote] = useState(grading?.note ?? "");
   const [lines, setLines] = useState<Line[]>(() => {
@@ -85,7 +88,6 @@ export function GradingForm({
   const [jenis, setJenis] = useState<number | null>(null);
   const [gram, setGram] = useState("");
   const [entryError, setEntryError] = useState("");
-  const [adding, setAdding] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -159,14 +161,13 @@ export function GradingForm({
     }),
     ...queue.filter((b) => !b.jobId && !usedBuckets.has(b.id)).map((b) => ({ key: `b${b.id}`, jobNo: null, lotNo: b.lotNo, itemName: b.itemName, count: 1, partaiId: b.partaiId, partaiNo: b.partaiNo, grams: b.grams ?? 0 })),
   ];
-  function addLines(keys: string[]) {
-    const added: Line[] = keys.map((k) => {
-      const b = k[0] === "j" ? undefined : bucketOf.get(Number(k.slice(1)));
-      return { key: newKey(), jobId: k[0] === "j" ? Number(k.slice(1)) : null, bucketId: b?.id ?? null, qty: b ? String(b.qty) : "", outputs: [] };
-    });
-    setLines((ls) => [...ls, ...added]);
-    setActive((a) => a ?? added[0]?.key ?? null);
-    setAdding(false);
+  /** One row from the input bar: a Job whole, or a No. Stok without a Job by the gram typed (all of it when empty). */
+  function addLine(k: string, grams: number | null) {
+    const b = k[0] === "j" ? undefined : bucketOf.get(Number(k.slice(1)));
+    const qty = b ? (grams != null && b.grams ? (grams / b.grams) * b.qty : b.qty) : 0;
+    const line: Line = { key: newKey(), jobId: k[0] === "j" ? Number(k.slice(1)) : null, bucketId: b?.id ?? null, qty: b ? String(Math.round(qty * 10_000) / 10_000) : "", outputs: [] };
+    setLines((ls) => [...ls, line]);
+    setActive(line.key);
     touched();
   }
 
@@ -206,12 +207,15 @@ export function GradingForm({
           <h3>Job yang Digrading</h3>
           <p>{editing ? "Satu baris satu No. Job, diambil utuh; No. Stok tanpa Job boleh diambil sebagian. Klik baris untuk mengisi hasilnya." : "Isi dokumen menurut barisnya."}</p>
         </div>
-        {editing && (
-          <button className="btn sm primary" disabled={!unitId || !choices.length} onClick={() => setAdding(true)}>
-            <Icon name="plus" size={14} /> Tambah Baris
-          </button>
-        )}
       </div>
+      {editing && unitId && (
+        <InputBar
+          choices={choices.filter((c) => !lines.length || !partaiId || !c.partaiId || c.partaiId === partaiId)}
+          partial={(c) => !c.jobNo}
+          emptyText={`Tidak ada lagi yang menunggu di Persiapan Grading ${unit?.label ?? ""}.`}
+          onAdd={addLine}
+        />
+      )}
       <ErrorBox text={errors._items} />
       {lines.length ? (
         <div className="tw">
@@ -282,7 +286,7 @@ export function GradingForm({
       ) : (
         <div className="empty">
           <h4>{unitId ? "Belum ada baris" : "Pilih Unit dulu…"}</h4>
-          {unitId && <p>Tambahkan No. Job atau No. Stok dari Persiapan Grading dengan Tambah Baris.</p>}
+          {unitId && <p>Pilih atau scan No. Job / No. Stok di baris input di atas, lalu Tambah.</p>}
         </div>
       )}
     </div>
@@ -522,16 +526,6 @@ export function GradingForm({
           )}
         </div>
       </div>
-
-      {adding && (
-        <JobPicker
-          title="Tambah Baris"
-          subtitle={`Yang menunggu di Persiapan Grading ${unit?.label ?? ""}${lines.length ? ", partai yang sama" : ""}.`}
-          choices={choices.filter((c) => !lines.length || !partaiId || !c.partaiId || c.partaiId === partaiId)}
-          onAdd={addLines}
-          onClose={() => setAdding(false)}
-        />
-      )}
     </>
   );
 }

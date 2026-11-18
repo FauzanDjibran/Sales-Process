@@ -14,13 +14,14 @@ async function jobNotes(options: Awaited<ReturnType<typeof gradingOptions>>) {
   return Object.fromEntries(notes);
 }
 
-/** `?job=` or `?bucket=` is what the Workspace Unit opened it on; a Job already in a Draft opens that Draft. */
-export default async function Page({ searchParams }: { searchParams: Promise<{ job?: string; bucket?: string }> }) {
-  const { job, bucket } = await searchParams;
+/** `?unit=` opens it empty on a Unit (the Workspace tab button); `?job=` or `?bucket=` is what the Workspace Unit opened it on; a Job already in a Draft opens that Draft. */
+export default async function Page({ searchParams }: { searchParams: Promise<{ job?: string; bucket?: string; unit?: string }> }) {
+  const { job, bucket, unit } = await searchParams;
   const actor = await requirePermission("PRODUCTION_GRADING_CREATE", `${GRADING_PATH}/new`);
   const draft = Number(job) ? await gradingDraftOfJob(Number(job)) : null;
   if (draft) redirect(`${GRADING_PATH}/${draft}/edit`);
   const options = await narrowToUnits(actor, await gradingOptions());
+  const unitOf = (label?: string) => (label ? options.units.find((u) => u.label === label)?.id : undefined);
   return (
     <GradingForm
       mode="new"
@@ -30,6 +31,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ j
       can={GRADING_WORKFLOW.abilities(actor.permissions)}
       initialJobId={Number(job) || undefined}
       initialBucketId={Number(bucket) || undefined}
+      initialUnitId={unitOf(unit)}
     />
   );
 }

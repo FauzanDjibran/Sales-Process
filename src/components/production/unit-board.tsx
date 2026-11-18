@@ -256,6 +256,22 @@ export function UnitBoard({
 
   const standby = tab === "standby";
   const working = tab[0] === "w";
+  // One main action per tab (the artifact's acts()): it opens the document empty on this Unit, filled through its input bar.
+  const at = encodeURIComponent(unit.label);
+  const action: { label: string; icon: "layers" | "clip" | "check" | "clock" | "box" | "send"; href: string; allowed: boolean } | null =
+    tab === "qc"
+      ? { label: "QC Check", icon: "check", href: `/production/qc-check/new?unit=${at}`, allowed: can.qc }
+      : standby
+        ? { label: "Kirim", icon: "send", href: `/production/transfer/new?unit=${at}`, allowed: can.transfer }
+        : tab[0] === "p"
+          ? ({
+              Grading: { label: "Buat Grading", icon: "layers" as const, href: `/production/grading/new?unit=${at}`, allowed: can.grading },
+              JobOrder: { label: "Buat Job Order", icon: "clip" as const, href: `/production/job-order/new?unit=${at}`, allowed: can.jobOrder },
+              Assign: { label: "Catat Pengerjaan", icon: "check" as const, href: `/production/work/new?unit=${at}`, allowed: can.work },
+              Kerja: { label: "Mulai Kerja", icon: "clock" as const, href: `/production/kerja/new?unit=${at}`, allowed: can.kerjaStart },
+              Assembly: { label: "Buat Kotak", icon: "box" as const, href: `/production/box/new?unit=${at}`, allowed: can.box },
+            }[stepProcess ?? "Assign"] ?? null)
+          : null;
   const picked = working ? filtered.filter((g) => ticked.has(g.key)) : [];
   async function close(how: "finish" | "cancel") {
     setBusy(true);
@@ -321,8 +337,13 @@ export function UnitBoard({
                   <Select variant="toolbar" value={partaiFilter} onChange={setPartaiFilter} set={Boolean(partaiFilter)} options={[{ value: "", label: "Partai: semua" }, ...partaiOptions.map(([id, no]) => ({ value: String(id), label: no }))]} />
                 </div>
               )}
-              <span className="uw-hint">{standby ? "Tujuan mengikuti routing line tiap partai." : working ? "Centang Job yang selesai atau dibatalkan." : "Klik baris untuk membuka pekerjaannya."}</span>
+              <span className="uw-hint">{standby ? "Tujuan mengikuti routing line tiap partai." : working ? "Centang Job yang selesai atau dibatalkan." : "Klik baris, atau tombol di kanan untuk mengisi lewat baris input."}</span>
               <span className="tspace" />
+              {action?.allowed && (
+                <button className="btn sm primary" disabled={!here.length} onClick={() => router.push(action.href)}>
+                  <Icon name={action.icon} size={14} /> {action.label}
+                </button>
+              )}
               {working && can.kerjaFinish && (
                 <>
                   <button className="btn sm" disabled={!picked.length || busy} onClick={() => setClosing("cancel")}>

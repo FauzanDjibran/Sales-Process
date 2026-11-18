@@ -11,7 +11,7 @@ import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { ErrorBox, idc, qtyText, ro } from "@/components/production/execution-parts";
-import { JobPicker } from "@/components/production/job-picker";
+import { InputBar } from "@/components/production/input-bar";
 import { sendTransferAction } from "@/app/actions/production-transfer";
 import { TRANSFER_KIND_TEXT } from "@/lib/erp/production-transfer-shape";
 import type { TransferOptions, TransferRoute } from "@/lib/erp/production-transfer";
@@ -50,7 +50,6 @@ export function TransferForm({ options, initialBucketIds }: { options: TransferO
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState("");
   const [routeKey, setRouteKey] = useState("");
-  const [adding, setAdding] = useState(false);
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -174,10 +173,18 @@ export function TransferForm({ options, initialBucketIds }: { options: TransferO
             <h3>Barang yang Dikirim</h3>
             <p>Job dikirim utuh. No. Stok tanpa Job dikirim sebanyak gram yang diisi, dan tiap ambilan mendapat No. Job sendiri.</p>
           </div>
-          <button className="btn sm primary" disabled={!addable.length} onClick={() => setAdding(true)}>
-            <Icon name="plus" size={14} /> Tambah Baris
-          </button>
         </div>
+        <InputBar
+          choices={addable.map((w) => ({ key: w.key, jobNo: w.jobNo, lotNo: w.buckets[0].lotNo, itemName: w.buckets[0].itemName, count: w.buckets.length, partaiId: w.partaiId, partaiNo: w.partaiNo, grams: gramOf(w) }))}
+          partial={(c) => !c.jobNo}
+          emptyText={`Tidak ada lagi di Stand By ${options.unit.label}${rows.length ? " untuk partai ini" : ""}.`}
+          onAdd={(k, grams) => {
+            const w = addable.find((x) => x.key === k)!;
+            if (!w.jobNo) setQty((q) => ({ ...q, [w.buckets[0].id]: ((b: { grams: number | null; qty: number }, grams: number | null) => String(grams != null && b.grams ? Math.round(((grams / b.grams) * b.qty) * 10_000) / 10_000 : b.qty))(w.buckets[0], grams) }));
+            setKeys((x) => [...x, k]);
+            touched();
+          }}
+        />
         <ErrorBox text={errors._lines} />
         {rows.length ? (
           <div className="tw">
@@ -240,24 +247,11 @@ export function TransferForm({ options, initialBucketIds }: { options: TransferO
         ) : (
           <div className="empty">
             <h4>Belum ada baris</h4>
-            <p>Tambahkan barang dari Stand By {options.unit.label} dengan Tambah Baris.</p>
+            <p>Pilih atau scan No. Job / No. Stok di baris input di atas, lalu Tambah.</p>
           </div>
         )}
       </div>
 
-      {adding && (
-        <JobPicker
-          title="Tambah Baris"
-          subtitle={`Yang menunggu di Stand By ${options.unit.label}${rows.length ? ", partai yang sama" : ""}.`}
-          choices={addable.map((w) => ({ key: w.key, jobNo: w.jobNo, lotNo: w.buckets[0].lotNo, itemName: w.buckets[0].itemName, count: w.buckets.length, partaiId: w.partaiId, partaiNo: w.partaiNo, grams: gramOf(w) }))}
-          onAdd={(k) => {
-            setKeys((x) => [...x, ...k]);
-            setAdding(false);
-            touched();
-          }}
-          onClose={() => setAdding(false)}
-        />
-      )}
 
       <ConfirmDialog
         open={asking}
