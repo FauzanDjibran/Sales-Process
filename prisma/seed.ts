@@ -154,6 +154,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Penukaran Valas", "fin_cash_exchange"],
   // Push and BSTB between Units (P277).
   ["Push dan BSTB", "prd_transfer"],
+  // Kerja, Mulai to Selesai (P282).
+  ["Kerja", "prd_kerja"],
 ];
 
 /**

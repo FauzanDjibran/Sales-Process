@@ -223,6 +223,13 @@ const TRANSFER_EVENTS: Record<string, AuditEventLabel> = {
   receive: { label: "BSTB diterima — barang masuk Persiapan", icon: "check", tone: "neutral" },
 };
 
+const KERJA_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  start: { label: "Kerja dimulai — Job Sedang Dikerjakan", icon: "clock", tone: "neutral" },
+  finish: { label: "Job selesai dikerjakan", icon: "check", tone: "neutral" },
+  cancel_start: { label: "Mulai dibatalkan — Job kembali ke Persiapan", icon: "block", tone: "neutral" },
+};
+
 const QC_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   create: { label: "QC Check dibuat", icon: "check", tone: "neutral" },
@@ -379,6 +386,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   prd_work: WORK_EVENTS,
   prd_qc_check: QC_EVENTS,
   prd_transfer: TRANSFER_EVENTS,
+  prd_kerja: KERJA_EVENTS,
   pur_request: PURCHASE_REQUEST_EVENTS,
   pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,

@@ -899,17 +899,17 @@ enum PrdStepProcess {
 /// may use. The old `ref_workstation` (P201), renamed in place so its id, its
 /// buckets and its Stock Issues keep pointing at it.
 model RefUnit {
-  id               Int            @id @default(autoincrement())
-  unit_code        String         @unique
-  unit_label       String
-  unit_name        String
-  workstation_id   Int?
+  id             Int          @id @default(autoincrement())
+  unit_code      String       @unique
+  unit_label     String
+  unit_name      String
+  workstation_id Int?
   /// May send goods back to an earlier Unit of the partai's routing (T10).
-  allow_reproses   Boolean        @default(false)
+  allow_reproses Boolean      @default(false)
   /// Results of the last step wait in QC Check before Stand By (P281).
-  has_qc           Boolean        @default(false)
-  note             String?
-  status           ActiveStatus   @default(Active)
+  has_qc         Boolean      @default(false)
+  note           String?
+  status         ActiveStatus @default(Active)
 
   created_by Int
   updated_by Int?
@@ -926,11 +926,12 @@ model RefUnit {
   routing_steps PrdRoutingStep[]
   user_units    PrdUserUnit[]
   steps         RefUnitStep[]
-  transfers_out PrdTransfer[] @relation("PrdTransferFrom")
-  transfers_in  PrdTransfer[] @relation("PrdTransferTo")
+  transfers_out PrdTransfer[]        @relation("PrdTransferFrom")
+  transfers_in  PrdTransfer[]        @relation("PrdTransferTo")
   jobs          PrdJob[]
   cost_entries  PrdCostEntry[]
   rate_lines    PrdRateVersionLine[]
+  kerjas        PrdKerja[]
 
   @@index([workstation_id])
   @@map("ref_unit")
@@ -960,8 +961,9 @@ model RefUnitStep {
   seq     Int
   process PrdStepProcess
 
-  unit         RefUnit              @relation(fields: [unit_id], references: [id], onDelete: Cascade)
-  balances     PrdBalance[]         @relation("PrdBalanceStep")
+  unit     RefUnit      @relation(fields: [unit_id], references: [id], onDelete: Cascade)
+  balances PrdBalance[] @relation("PrdBalanceStep")
+  kerjas   PrdKerja[]
 
   @@unique([unit_id, seq])
   @@unique([unit_id, process])
@@ -1103,6 +1105,7 @@ model PrdPartai {
   rate_version PrdRateVersion @relation(fields: [rate_version_id], references: [id])
   jobs         PrdJob[]
   transfers    PrdTransfer[]
+  kerjas       PrdKerja[]
   balances     PrdBalance[]
   ledger       PrdLedger[]
   cost_entries PrdCostEntry[]
@@ -1131,13 +1134,14 @@ model PrdJob {
   created_by         Int
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
-  unit     RefUnit           @relation(fields: [unit_id], references: [id])
-  tracking LogStockTracking? @relation(fields: [tracking_id], references: [id], onDelete: Restrict)
-  partai   PrdPartai?        @relation(fields: [partai_id], references: [id])
-  balances PrdBalance[]
-  ledger   PrdLedger[]
-  gradings PrdGrading[]
+  unit           RefUnit           @relation(fields: [unit_id], references: [id])
+  tracking       LogStockTracking? @relation(fields: [tracking_id], references: [id], onDelete: Restrict)
+  partai         PrdPartai?        @relation(fields: [partai_id], references: [id])
+  balances       PrdBalance[]
+  ledger         PrdLedger[]
+  gradings       PrdGrading[]
   transfer_lines PrdTransferLine[]
+  kerja_lines    PrdKerjaLine[]
 
   @@index([tracking_id])
   @@index([partai_id])
@@ -1219,7 +1223,8 @@ model MEmployee {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  work_lines PrdWorkLine[]
+  work_lines  PrdWorkLine[]
+  kerja_lines PrdKerjaLine[]
 
   @@map("m_employee")
 }
@@ -4334,28 +4339,28 @@ enum PrdStage {
 /// item's base unit and value in whole rupiah; Σ value is WIP. Written only by
 /// `production-ledger.ts`, beside its ledger row.
 model PrdBalance {
-  id            Int       @id @default(autoincrement())
-  tracking_id   Int
-  unit_id       Int
-  stage         PrdStage  @default(Preparation)
+  id                  Int       @id @default(autoincrement())
+  tracking_id         Int
+  unit_id             Int
+  stage               PrdStage  @default(Preparation)
   /// The step goods wait at: set exactly when stage is Preparation or Working.
-  unit_step_id  Int?
-  partai_id     Int?
-  job_id        Int?
-  item_id       Int
+  unit_step_id        Int?
+  partai_id           Int?
+  job_id              Int?
+  item_id             Int
   /// The item's base unit.
-  uom_id        Int
-  qty_balance   Decimal   @default(0) @db.Decimal(18, 6)
-  value_balance Decimal   @default(0) @db.Decimal(18, 2)
+  uom_id              Int
+  qty_balance         Decimal   @default(0) @db.Decimal(18, 6)
+  value_balance       Decimal   @default(0) @db.Decimal(18, 2)
   /// Bahan penolong: a balance of the Unit, not goods being worked (V8).
-  auxiliary     Boolean   @default(false)
+  auxiliary           Boolean   @default(false)
   /// The QC Check that turned these goods back: their own row in Persiapan (W66).
-  qc_check_id   Int?
+  qc_check_id         Int?
   /// The document an InTransit row travels on, weak (T4).
   transit_doc_type_id Int?
   transit_doc_id      Int?
   /// When the bucket last rose from empty: the Workspace's *Sejak* (W111, P262).
-  entered_at    DateTime? @db.Date
+  entered_at          DateTime? @db.Date
 
   created_by Int
   updated_by Int?
@@ -4384,6 +4389,74 @@ model PrdBalance {
 }
 
 /// A Dokumen Push or a BSTB between Units (P277, T8): `PSH_<from>_…` for a Push,
+
+enum PrdKerjaStatus {
+  Running
+  Finished
+  Cancelled
+}
+
+/// Kerja (P282, T13): Mulai moves Jobs at a Unit's Kerja step into Sedang Dikerjakan with
+/// one worker each; Selesai per line moves them on, charging the Unit rate when Kerja is
+/// the last step (P281) with its own journal; Batal Mulai returns them at no cost.
+/// `KJ_<unit>_<ddmmyy>_<NNNNN>`; one document, one partai (W76). Running until every
+/// line is finished or cancelled.
+model PrdKerja {
+  id           Int            @id @default(autoincrement())
+  kerja_no     String         @unique
+  kerja_date   DateTime       @db.Date
+  unit_id      Int
+  unit_step_id Int
+  partai_id    Int?
+  status       PrdKerjaStatus @default(Running)
+  note         String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  unit   RefUnit        @relation(fields: [unit_id], references: [id])
+  step   RefUnitStep    @relation(fields: [unit_step_id], references: [id])
+  partai PrdPartai?     @relation(fields: [partai_id], references: [id])
+  lines  PrdKerjaLine[]
+
+  @@index([unit_id])
+  @@map("prd_kerja")
+}
+
+/// One No. Stok taken whole into Kerja. `value` is what it carried in; `cost_amount`
+/// what Selesai charged; `journal_id` the journal of that Selesai.
+model PrdKerjaLine {
+  id             Int       @id @default(autoincrement())
+  kerja_id       Int
+  line_no        Int
+  from_bucket_id Int
+  work_bucket_id Int?
+  to_bucket_id   Int?
+  tracking_id    Int
+  job_id         Int?
+  employee_id    Int
+  qty            Decimal   @db.Decimal(18, 6)
+  grams          Decimal?  @db.Decimal(18, 6)
+  is_rework      Boolean   @default(false)
+  value          Decimal   @default(0) @db.Decimal(18, 2)
+  cost_amount    Decimal   @default(0) @db.Decimal(18, 2)
+  journal_id     Int?
+  started_at     DateTime  @default(now()) @db.Timestamptz(6)
+  finished_at    DateTime? @db.Timestamptz(6)
+  cancelled_at   DateTime? @db.Timestamptz(6)
+  closed_by      Int?
+
+  kerja    PrdKerja  @relation(fields: [kerja_id], references: [id], onDelete: Cascade)
+  job      PrdJob?   @relation(fields: [job_id], references: [id])
+  employee MEmployee @relation(fields: [employee_id], references: [id])
+
+  @@unique([kerja_id, line_no])
+  @@index([work_bucket_id])
+  @@map("prd_kerja_line")
+}
+
 /// `BST_<to>_…` for a BSTB. Made and posted or submitted in one step, never a Draft;
 /// a BSTB is received by the Unit it goes to. No journal: the value stays in WIP.
 model PrdTransfer {
@@ -4408,10 +4481,10 @@ model PrdTransfer {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  from_unit RefUnit            @relation("PrdTransferFrom", fields: [from_unit_id], references: [id])
-  to_unit   RefUnit            @relation("PrdTransferTo", fields: [to_unit_id], references: [id])
-  partai    PrdPartai?         @relation(fields: [partai_id], references: [id])
-  line      PrdLine?           @relation(fields: [line_id], references: [id])
+  from_unit RefUnit           @relation("PrdTransferFrom", fields: [from_unit_id], references: [id])
+  to_unit   RefUnit           @relation("PrdTransferTo", fields: [to_unit_id], references: [id])
+  partai    PrdPartai?        @relation(fields: [partai_id], references: [id])
+  line      PrdLine?          @relation(fields: [line_id], references: [id])
   lines     PrdTransferLine[]
 
   @@index([from_unit_id])
@@ -4422,24 +4495,24 @@ model PrdTransfer {
 /// One pickup of a transfer (T8): a Job sent whole, or the quantity taken from a No. Stok that
 /// has no Job, which gets a new No. Job of its own.
 model PrdTransferLine {
-  id               Int      @id @default(autoincrement())
-  transfer_id      Int
-  line_no          Int
-  from_bucket_id   Int
-  tracking_id      Int
+  id                Int      @id @default(autoincrement())
+  transfer_id       Int
+  line_no           Int
+  from_bucket_id    Int
+  tracking_id       Int
   /// The Job sent, or the one this pickup made.
-  job_id           Int?
-  is_new_job       Boolean  @default(false)
+  job_id            Int?
+  is_new_job        Boolean  @default(false)
   /// In the item base unit.
-  qty              Decimal  @db.Decimal(18, 6)
+  qty               Decimal  @db.Decimal(18, 6)
   /// Gram moved, when the item has a gram to read.
-  grams            Decimal? @db.Decimal(18, 6)
+  grams             Decimal? @db.Decimal(18, 6)
   /// Whole rupiah the move carried; read in the ERP, never shown on a Produksi screen (P275).
-  value            Decimal  @default(0) @db.Decimal(18, 2)
+  value             Decimal  @default(0) @db.Decimal(18, 2)
   /// The Dalam Perjalanan bucket of a BSTB.
   transit_bucket_id Int?
   /// The bucket the goods now sit in at the receiving Unit.
-  to_bucket_id     Int?
+  to_bucket_id      Int?
 
   transfer PrdTransfer @relation(fields: [transfer_id], references: [id], onDelete: Cascade)
   job      PrdJob?     @relation(fields: [job_id], references: [id])

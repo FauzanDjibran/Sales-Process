@@ -883,6 +883,16 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "every Sedang Dikerjakan bucket is held by open Kerja lines of exactly its quantity (P282)",
+    sql: `SELECT b.id FROM prd_balance b
+          LEFT JOIN (SELECT work_bucket_id, SUM(qty) AS qty FROM prd_kerja_line WHERE finished_at IS NULL AND cancelled_at IS NULL GROUP BY 1) k ON k.work_bucket_id = b.id
+          WHERE b.stage = 'Working' AND b.qty_balance <> COALESCE(k.qty, 0)
+          UNION ALL
+          SELECT l.work_bucket_id FROM prd_kerja_line l JOIN prd_balance b ON b.id = l.work_bucket_id
+          WHERE l.finished_at IS NULL AND l.cancelled_at IS NULL AND b.stage <> 'Working'`,
+  },
+  {
+    area: "production",
     name: "goods wait at a step only in Persiapan or Sedang Dikerjakan, and then always at a step of their own Unit (T4)",
     sql: `SELECT b.id FROM prd_balance b LEFT JOIN ref_unit_step s ON s.id = b.unit_step_id
           WHERE (b.stage IN ('Preparation', 'Working')) <> (b.unit_step_id IS NOT NULL) OR (b.unit_step_id IS NOT NULL AND s.unit_id <> b.unit_id)`,

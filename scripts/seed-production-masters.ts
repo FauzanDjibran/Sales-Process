@@ -29,8 +29,8 @@ const UNITS: [label: string, name: string, workstation: string, steps: string][]
   ["UPC", "Pre Cleaning", "BB + PPIC", "Assign+QC"],
   ["UPY", "Penyebaran", "BB + PPIC", "Grading"],
   ["UPW", "Pre Wash", "CL", "Assign+QC"],
-  // shortcut: Cleaning is Kerja + QC and Moulding Grading › Job Order › Assign + QC in the simulation; Kerja (7.2) and Job Order (7.3) are not built, so goods would stop there. Seeded without them until they are.
-  ["UCL", "Cleaning", "CL", "Assign+QC"],
+  // shortcut: Moulding is Grading › Job Order › Assign + QC in the simulation; Job Order (7.3) is not built, so goods would stop there. Seeded without it until it is.
+  ["UCL", "Cleaning", "CL", "Kerja+QC"],
   ["UC1", "CCP-1", "CL", "Assign"],
   ["USR", "Sortir", "CL", "Assign"],
   ["UDA", "Dry A", "ML", "Grading+QC"],

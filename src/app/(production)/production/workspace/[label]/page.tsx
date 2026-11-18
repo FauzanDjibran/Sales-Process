@@ -7,6 +7,7 @@ import { unitBoard, unitByLabel } from "@/lib/erp/production-workspace";
 import { incomingTransfers } from "@/lib/erp/production-transfer";
 import { incomingStockIssues } from "@/lib/erp/stock-issue";
 import { stockIssueAbilities } from "@/lib/erp/stock-issue-workflow";
+import { runningByBuckets } from "@/lib/erp/production-kerja";
 
 export const dynamic = "force-dynamic";
 
@@ -21,12 +22,18 @@ export default async function Page({ params, searchParams }: { params: Promise<{
   if (!unit) notFound();
   await requireUnit(actor, unit.id);
 
-  const [rows, issues, transfers] = await Promise.all([unitBoard(unit.id), incomingStockIssues(), incomingTransfers()]);
+  const [board, issues, transfers] = await Promise.all([unitBoard(unit.id), incomingStockIssues(), incomingTransfers()]);
+  // Who works each Sedang Dikerjakan row and under which Kerja: composed from the Kerja module (§3.1).
+  const running = await runningByBuckets(board.filter((r) => r.stage === "Working").map((r) => r.id));
+  const rows = board.map((r) => {
+    const k = running.get(r.id);
+    return k ? { ...r, notes: [...r.notes, `${k.employee} · ${k.no}`] } : r;
+  });
   const incoming = issues
     .filter((i) => i.unitId === unit.id)
     .map((i) => ({ id: i.id, issueNo: i.issueNo, issueDate: i.issueDate, warehouseLabel: i.warehouseLabel, auxiliary: i.auxiliary, lines: i.lines.map((l) => ({ lotNo: l.lotNo, qty: l.qty, uomLabel: l.uomLabel })) }));
   const stepTabs = unit.steps.flatMap((s) => [`p${s.id}`, `w${s.id}`]);
-  const initial = tab && ["masuk", "standby", "transit", ...stepTabs].includes(tab) ? tab : `p${unit.steps[0]?.id ?? 0}`;
+  const initial = tab && ["masuk", "qc", "standby", "transit", ...stepTabs].includes(tab) ? tab : `p${unit.steps[0]?.id ?? 0}`;
 
   return (
     <UnitBoard
@@ -50,6 +57,8 @@ export default async function Page({ params, searchParams }: { params: Promise<{
         work: WORK_WORKFLOW.abilities(actor.permissions).create,
         qc: QC_CHECK_WORKFLOW.abilities(actor.permissions).create,
         transfer: actor.permissions.has("PRODUCTION_TRANSFER_CREATE"),
+        kerjaStart: actor.permissions.has("PRODUCTION_KERJA_START"),
+        kerjaFinish: actor.permissions.has("PRODUCTION_KERJA_FINISH"),
       }}
       issueCan={stockIssueAbilities(actor.permissions)}
       initialTab={initial}

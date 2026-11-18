@@ -3439,4 +3439,56 @@ table prd_transfer_line {
   }
 }
 
+// Kerja (P282, T13): Mulai moves Jobs at a Unit's Kerja step into Sedang Dikerjakan with one worker each;
+// Selesai per line moves them on and, at the Unit's last step, charges the Unit rate with a journal; Batal
+// Mulai returns them at no cost. KJ_<unit>_<ddmmyy>_<NNNNN>; one document, one partai.
+table prd_kerja {
+  id                          int [pk, increment, not null]
+
+  kerja_no                    varchar [not null, unique]
+  kerja_date                  date [not null]
+  unit_id                     int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
+  unit_step_id                int [not null, ref : > ref_unit_step.id] // lintas aplikasi → ERP · its Kerja step
+  partai_id                   int [ref : > prd_partai.id]
+  status                      enum('Running', 'Finished', 'Cancelled') [not null, default: 'Running']
+  note                        varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    unit_id
+  }
+}
+
+table prd_kerja_line {
+  id                          int [pk, increment, not null]
+
+  kerja_id                    int [not null, ref : > prd_kerja.id]
+  line_no                     int [not null]
+  from_bucket_id              int [not null] // the Persiapan bucket taken whole
+  work_bucket_id              int // the Sedang Dikerjakan bucket
+  to_bucket_id                int // where Selesai or Batal Mulai put it
+  tracking_id                 int [not null]
+  job_id                      int [ref : > prd_job.id]
+  employee_id                 int [not null, ref : > m_employee.id]
+  qty                         decimal(18,6) [not null] // CHECK > 0
+  grams                       decimal(18,6)
+  is_rework                   boolean [not null, default: false] // a Balik QC row worked again
+  value                       decimal(18,2) [not null, default: 0] // carried in at Mulai
+  cost_amount                 decimal(18,2) [not null, default: 0] // the Unit rate Selesai charged
+  journal_id                  int // the journal of that Selesai
+  started_at                  timestamptz [not null, default: `now()`]
+  finished_at                 timestamptz
+  cancelled_at                timestamptz // CHECK not both
+  closed_by                   int
+
+  indexes {
+    (kerja_id, line_no) [unique]
+    work_bucket_id
+  }
+}
+
 ```

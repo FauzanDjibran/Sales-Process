@@ -9,6 +9,9 @@ import { Pager, usePaging } from "@/components/ui/pager";
 import { SearchField } from "@/components/ui/search-field";
 import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { closeKerjaAction } from "@/app/actions/production-kerja";
+import { todayIso } from "@/lib/format";
 import { TransferReceiveButton } from "@/components/production/transfer-receive-button";
 import { TRANSFER_KIND_TEXT } from "@/lib/erp/production-transfer-shape";
 import type { IncomingTransfer } from "@/lib/erp/production-transfer";
@@ -22,8 +25,9 @@ import { formatDate, formatNumber } from "@/lib/format";
 /**
  * One Unit's work (`Workspace-Unit-Plan-r11.md`, P274). Tabs follow the Unit
  * steps — Penerimaan, a Persiapan per step, Stand By, Dalam Perjalanan — and
- * each tab is one table: a row is a Job, or a No. Stok that has none. There are
- * no tick boxes: a row opens its own work (grading, Pengerjaan, QC Check, or a
+ * each tab is one table: a row is a Job, or a No. Stok that has none. Only
+ * Sedang Dikerjakan has tick boxes, to finish many Jobs at once (P282); elsewhere
+ * a row opens its own work (grading, Pengerjaan, QC Check, or a
  * Push / BSTB from Stand By), and a No. Job or No. Stok typed in the search and
  * confirmed with Enter does the same, so a scanner works. No prices anywhere
  * (P275).
@@ -126,7 +130,7 @@ export function UnitBoard({
   incoming: BoardIncoming[];
   transfers: IncomingTransfer[];
   canReceive: boolean;
-  can: { grading: boolean; work: boolean; qc: boolean; transfer: boolean };
+  can: { grading: boolean; work: boolean; qc: boolean; transfer: boolean; kerjaStart: boolean; kerjaFinish: boolean };
   issueCan: StockIssueAbilities;
   initialTab: BoardTab;
 }) {
@@ -137,6 +141,9 @@ export function UnitBoard({
   const [lineFilter, setLineFilter] = useState("");
   const [partaiFilter, setPartaiFilter] = useState("");
   const [inside, setInside] = useState<Group | null>(null);
+  const [ticked, setTicked] = useState<Set<string>>(new Set());
+  const [closing, setClosing] = useState<"finish" | "cancel" | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const all = groupsOf(rows);
   const stepOf = (id: number) => unit.steps.find((s) => s.id === id);
@@ -173,6 +180,15 @@ export function UnitBoard({
       return router.push(`/production/transfer/new?unit=${encodeURIComponent(unit.label)}&bucket=${ids}`);
     }
     if (t === "transit") return toast("Dalam perjalanan", "Barang ini menunggu diterima unit tujuan.");
+    if (t[0] === "w") {
+      if (!can.kerjaFinish) return toast("Tidak diizinkan", "Anda tidak boleh menyelesaikan Kerja.", "err");
+      return setTicked((s) => {
+        const n = new Set(s);
+        if (n.has(g.key)) n.delete(g.key);
+        else n.add(g.key);
+        return n;
+      });
+    }
     if (t === "qc") {
       if (!can.qc) return toast("Tidak diizinkan", "Anda tidak boleh membuat QC Check.", "err");
       return router.push(`/production/qc-check/new?bucket=${ids}`);
@@ -181,6 +197,10 @@ export function UnitBoard({
     if (p === "Grading") {
       if (!can.grading) return toast("Tidak diizinkan", "Anda tidak boleh membuat No. Grading.", "err");
       return router.push(`/production/grading/new?${g.job ? `job=${g.job.id}` : `bucket=${g.rows[0].id}`}`);
+    }
+    if (p === "Kerja") {
+      if (!can.kerjaStart) return toast("Tidak diizinkan", "Anda tidak boleh memulai Kerja.", "err");
+      return router.push(`/production/kerja/new?unit=${encodeURIComponent(unit.label)}&bucket=${ids}`);
     }
     if (p === "Assign") {
       if (!can.work) return toast("Tidak diizinkan", "Anda tidak boleh mencatat pengerjaan.", "err");
@@ -227,6 +247,17 @@ export function UnitBoard({
     .join(" · ");
 
   const standby = tab === "standby";
+  const working = tab[0] === "w";
+  const picked = working ? filtered.filter((g) => ticked.has(g.key)) : [];
+  async function close(how: "finish" | "cancel") {
+    setBusy(true);
+    const result = await closeKerjaAction(picked.flatMap((g) => g.rows.map((r) => r.id)), how, todayIso());
+    setBusy(false);
+    setClosing(null);
+    if (!result.ok) return toast("Belum bisa", Object.values(result.errors)[0] ?? "Periksa kembali.", "err");
+    setTicked(new Set());
+    toast(how === "finish" ? "Pekerjaan selesai" : "Mulai dibatalkan", result.message, "ok");
+  }
   const empty = tab === "standby" ? ["Stand By kosong", "Barang selesai dikerjakan muncul di sini. Klik barisnya untuk mengirim."] : tab === "transit" ? ["Tidak ada barang dalam perjalanan", "BSTB yang sudah diajukan dan belum diterima muncul di sini."] : tab === "qc" ? EMPTY.QC : EMPTY[stepProcess ?? "Assign"];
 
   return (
@@ -282,8 +313,18 @@ export function UnitBoard({
                   <Select variant="toolbar" value={partaiFilter} onChange={setPartaiFilter} set={Boolean(partaiFilter)} options={[{ value: "", label: "Partai: semua" }, ...partaiOptions.map(([id, no]) => ({ value: String(id), label: no }))]} />
                 </div>
               )}
-              <span className="uw-hint">{standby ? "Tujuan mengikuti routing line tiap partai." : "Klik baris untuk membuka pekerjaannya."}</span>
+              <span className="uw-hint">{standby ? "Tujuan mengikuti routing line tiap partai." : working ? "Centang Job yang selesai atau dibatalkan." : "Klik baris untuk membuka pekerjaannya."}</span>
               <span className="tspace" />
+              {working && can.kerjaFinish && (
+                <>
+                  <button className="btn sm" disabled={!picked.length || busy} onClick={() => setClosing("cancel")}>
+                    Batal Mulai
+                  </button>
+                  <button className="btn sm primary" disabled={!picked.length || busy} onClick={() => setClosing("finish")}>
+                    <Icon name="check" size={14} /> Selesaikan{picked.length > 1 ? ` (${picked.length})` : ""}
+                  </button>
+                </>
+              )}
               <span className="count">
                 <b>{filtered.length}</b> baris · <b>{gram(filtered.reduce((a, g) => a + (g.grams ?? 0), 0))}</b> g
               </span>
@@ -303,6 +344,7 @@ export function UnitBoard({
                   <table className="grid" style={{ minWidth: standby ? 980 : 860 }}>
                     <thead>
                       <tr>
+                        {working && <th className="pick" />}
                         <th style={{ width: 200 }}>No. Job / No. Stok</th>
                         <th style={{ width: 230 }}>Partai</th>
                         <th style={{ width: 200 }}>Isi</th>
@@ -317,6 +359,11 @@ export function UnitBoard({
                         const r = g.rows[0];
                         return (
                           <tr key={g.key} onClick={() => open(g)}>
+                            {working && (
+                              <td className="pick">
+                                <input type="checkbox" checked={ticked.has(g.key)} readOnly aria-label={`Pilih ${g.job ? g.job.no : r.lotNo}`} />
+                              </td>
+                            )}
                             <td>
                               <span className="mono">{g.job ? g.job.no : r.lotNo}</span>
                             </td>
@@ -456,6 +503,19 @@ export function UnitBoard({
           </div>
         )}
       </Dialog>
+
+      <ConfirmDialog
+        open={closing !== null}
+        icon={closing === "cancel" ? "warn" : "check"}
+        tone={closing === "cancel" ? "danger" : "brand"}
+        title={closing === "cancel" ? "Batal Mulai?" : `Selesaikan ${picked.length} Job?`}
+        subject={unit.label}
+        body={closing === "cancel" ? "Job kembali ke Persiapan Kerja tanpa biaya." : "Biaya Unit dibebankan bila Kerja proses terakhir, dan Job masuk proses berikutnya."}
+        confirmLabel={closing === "cancel" ? "Ya, Batalkan" : "Ya, Selesai"}
+        busy={busy}
+        onConfirm={() => close(closing!)}
+        onCancel={() => setClosing(null)}
+      />
     </>
   );
 }

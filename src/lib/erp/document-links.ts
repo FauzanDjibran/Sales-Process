@@ -29,6 +29,7 @@ const ROUTES: Record<string, string> = {
   prd_work: "/production/work",
   prd_qc_check: "/production/qc-check",
   prd_transfer: "/production/transfer",
+  prd_kerja: "/production/kerja",
   // One table, two menus: the Barang page reads any request by id (P123).
   pur_request: "/purchasing/request/goods",
   pur_order: "/purchasing/order/goods",

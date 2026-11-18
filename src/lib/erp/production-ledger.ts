@@ -375,6 +375,36 @@ export async function takeFromBucket(tx: Tx, t: ProductionTake): Promise<TakenFr
 }
 
 /**
+ * Kerja (T13, P282): moves a whole bucket inside its Unit, keeping No. Stok,
+ * Partai and Job. Mulai: Persiapan of the Kerja step → Sedang Dikerjakan of it.
+ * Batal Mulai: back, at no cost. Selesai: on to what follows the step, with
+ * `addValue` (the Unit cost, when it is the last step) added to what it carries.
+ */
+export async function moveKerja(
+  tx: Tx,
+  m: { bucketId: number; move: "start" | "cancel" | "finish"; addValue?: number; date: Date; source: ProductionSource; actorId: number }
+): Promise<{ value: number; toBucketId: number; qty: number }> {
+  const from = await lockBucketById(tx, m.bucketId);
+  if (!from || from.stepId == null || !from.qty.gt(0)) throw new ProductionRefusal("Saldo produksi tidak ditemukan. Pilih ulang.");
+  const want = m.move === "start" ? "Preparation" : "Working";
+  if (from.stage !== want) throw new ProductionRefusal(m.move === "start" ? "Barang ini tidak lagi di Persiapan Kerja." : "Barang ini tidak lagi Sedang Dikerjakan.");
+  const step = (await unitStepsOf(tx, from.unitId)).find((s) => s.id === from.stepId);
+  if (step?.process !== "Kerja") throw new ProductionRefusal("Barang ini tidak menunggu proses Kerja.");
+  const dest = m.move === "start" ? { stage: "Working" as const, stepId: step.id } : m.move === "cancel" ? { stage: "Preparation" as const, stepId: step.id } : await destinationAfter(tx, step.id);
+  const item = await productionItem(tx, from.itemId);
+  const to = await openBucket(
+    tx,
+    { lotId: from.lotId, unitId: from.unitId, stage: dest.stage, stepId: dest.stepId, partaiId: from.partaiId, jobId: from.jobId, itemId: from.itemId, uomId: item.base_uom_id },
+    m.actorId
+  );
+  const qty = from.qty;
+  const value = await takeLocked(tx, from, qty, "Consumed", m.date, m.source, m.actorId);
+  const carried = value.add(m.addValue ?? 0);
+  await write(tx, to, { movement: "Produced", qty, value: carried, date: m.date, source: m.source, actorId: m.actorId });
+  return { value: carried.toNumber(), toBucketId: to.id, qty: qty.toNumber() };
+}
+
+/**
  * Moves q from Persiapan to Stand By at the same Unit, No. Stok, Partai and
  * Job, at the value released (W29). Only an execution calls this (W30).
  */

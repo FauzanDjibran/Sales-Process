@@ -27,7 +27,7 @@
 import { prisma } from "../src/lib/prisma";
 
 const apply = process.argv.includes("--apply");
-const DOCS = ["log_stock_issue", "prd_grading", "prd_work", "prd_qc_check"];
+const DOCS = ["log_stock_issue", "prd_grading", "prd_work", "prd_qc_check", "prd_transfer", "prd_kerja"];
 
 async function main() {
   const types = await prisma.sysDocType.findMany({ where: { doc_table: { in: DOCS } }, select: { id: true } });
@@ -39,6 +39,8 @@ async function main() {
     "No. Grading": await prisma.prdGrading.count(),
     "Pengerjaan Unit": await prisma.prdWork.count(),
     "QC Check": await prisma.prdQcCheck.count(),
+    "Push dan BSTB": await prisma.prdTransfer.count(),
+    "Kerja": await prisma.prdKerja.count(),
     "prd_ledger": await prisma.prdLedger.count(),
     "prd_balance": await prisma.prdBalance.count(),
     "Partai": await prisma.prdPartai.count(),
@@ -64,9 +66,15 @@ async function main() {
         grading: (await tx.prdGrading.findMany({ select: { id: true } })).map((r) => r.id),
         work: (await tx.prdWork.findMany({ select: { id: true } })).map((r) => r.id),
         qc: (await tx.prdQcCheck.findMany({ select: { id: true } })).map((r) => r.id),
+        transfer: (await tx.prdTransfer.findMany({ select: { id: true } })).map((r) => r.id),
+        kerja: (await tx.prdKerja.findMany({ select: { id: true } })).map((r) => r.id),
       };
 
       // Documents first, then the books they wrote, then what names a No. Stok.
+      await tx.prdKerjaLine.deleteMany({});
+      await tx.prdKerja.deleteMany({});
+      await tx.prdTransferLine.deleteMany({});
+      await tx.prdTransfer.deleteMany({});
       await tx.prdQcCheckLine.deleteMany({});
       await tx.prdQcCheck.deleteMany({});
       await tx.prdAuxUse.deleteMany({});
@@ -96,6 +104,8 @@ async function main() {
             { entity_key: "prd_grading", row_id: { in: docIds.grading } },
             { entity_key: "prd_work", row_id: { in: docIds.work } },
             { entity_key: "prd_qc_check", row_id: { in: docIds.qc } },
+            { entity_key: "prd_transfer", row_id: { in: docIds.transfer } },
+            { entity_key: "prd_kerja", row_id: { in: docIds.kerja } },
           ],
         },
       });
