@@ -263,6 +263,11 @@ export async function optionsFor(
       const rows = await prisma.prdLine.findMany({ orderBy: { line_label: "asc" } });
       return rows.map((r) => ({ id: r.id, label: r.line_label, name: r.line_name, active: r.status === "Active" }));
     }
+    case "m_item": {
+      // Only BoM Packing picks an Item through the registry: a Nama Jual is a stocked Barang (P284).
+      const rows = await prisma.mItem.findMany({ where: { item_type: "Barang", track_stock: true }, orderBy: { item_label: "asc" } });
+      return rows.map((r) => ({ id: r.id, label: r.item_label, name: r.item_name, active: r.status === "Active" }));
+    }
     default:
       return [];
   }
