@@ -121,3 +121,17 @@ export function stepRuleErrors(
   if (cps[0] === 0) out.push("Langkah pertama tidak bisa menjadi checkpoint.");
   return out;
 }
+
+/** BoM Packing's bahan penolong per kotak (P284); travels under `_components`. */
+export const COMPONENTS_KEY = "_components";
+export type BomComponentDraft = { id?: number; key: string; item_id: number | null; qty: string };
+
+export function bomComponentErrors(r: Partial<BomComponentDraft>, takenItems: number[]): Record<string, string> {
+  const e: Record<string, string> = {};
+  if (!r.item_id) e.item_id = "Pilih bahan penolong.";
+  else if (takenItems.includes(r.item_id)) e.item_id = "Bahan ini sudah ada di BoM.";
+  const n = Number(String(r.qty ?? "").replace(",", "."));
+  if (!(n > 0)) e.qty = "Isi jumlah lebih dari 0.";
+  else if (!/^\d+([.,]\d{1,4})?$/.test(String(r.qty).trim())) e.qty = "Paling banyak 4 angka desimal.";
+  return e;
+}

@@ -2963,6 +2963,45 @@ table prd_rate_version_line {
   }
 }
 
+// BoM Packing (P284, T12): one kotak of a Nama Jual (the kotak item): target gram ± tolerance, piece
+// count, bahan penolong per kotak. One active version per item (partial unique index prd_bom_one_active).
+table prd_bom {
+  id                          int [pk, increment, not null]
+
+  bom_code                    varchar [not null, unique]
+  bom_label                   varchar [not null]
+  bom_name                    varchar [not null]
+  item_id                     int [not null, ref : > m_item.id] // the Nama Jual
+  target_grams                decimal(18,6) [not null] // CHECK > 0
+  tolerance_grams             decimal(18,6) [not null, default: 0]
+  min_pieces                  int [not null] // CHECK >= 1, max >= min
+  max_pieces                  int [not null]
+  note                        varchar
+  status                      enum('Active', 'Inactive') [not null, default: 'Active']
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    item_id
+  }
+}
+
+table prd_bom_component {
+  id                          int [pk, increment, not null]
+
+  bom_id                      int [not null, ref : > prd_bom.id]
+  item_id                     int [not null, ref : > m_item.id] // bahan penolong
+  qty                         decimal(18,4) [not null] // per kotak, base unit; CHECK > 0
+  sort_order                  int [not null, default: 0]
+
+  indexes {
+    (bom_id, item_id) [unique]
+  }
+}
+
 // Standard cost absorbed (P227, V1): grams × rate at one Unit, append-only
 table prd_cost_entry {
   id                          int [pk, increment, not null]
@@ -3544,6 +3583,70 @@ table prd_job_order_input {
 
   indexes {
     job_order_line_id
+  }
+}
+
+// Kotak (P284, T12): pieces from Persiapan of a Unit's Assembly step, each with a unique CAIQ, become one
+// new No. Stok KTK-<ddmmyy>-<nnn> of the Nama Jual item in Stand By, with no Job. ASM_<unit>_<ddmmyy>_<NNNNN>.
+// value = piece_value + cost_amount (Unit rate × gram of pieces) + aux_value (CHECK).
+table prd_box {
+  id                          int [pk, increment, not null]
+
+  box_doc_no                  varchar [not null, unique]
+  box_date                    date [not null]
+  unit_id                     int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
+  unit_step_id                int [not null, ref : > ref_unit_step.id] // lintas aplikasi → ERP · its Assembly step
+  bom_id                      int [not null, ref : > prd_bom.id] // lintas aplikasi → ERP
+  item_id                     int [not null, ref : > m_item.id] // lintas aplikasi → ERP · the Nama Jual
+  partai_id                   int [ref : > prd_partai.id] // when every piece is of one partai
+  tracking_id                 int [not null] // the kotak's No. Stok
+  tracking_no                 varchar [not null, unique]
+  grams                       decimal(18,6) [not null]
+  pieces                      int [not null]
+  piece_value                 decimal(18,2) [not null, default: 0]
+  cost_amount                 decimal(18,2) [not null, default: 0]
+  aux_value                   decimal(18,2) [not null, default: 0]
+  value                       decimal(18,2) [not null, default: 0]
+  to_bucket_id                int [not null]
+  journal_id                  int
+
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    unit_id
+  }
+}
+
+table prd_box_piece {
+  id                          int [pk, increment, not null]
+
+  box_id                      int [not null, ref : > prd_box.id]
+  line_no                     int [not null]
+  bucket_id                   int [not null]
+  tracking_id                 int [not null]
+  partai_id                   int
+  grams                       decimal(18,6) [not null]
+  value                       decimal(18,2) [not null, default: 0]
+  caiq                        varchar [not null, unique]
+  is_manual                   boolean [not null, default: false] // put in by a click, not a scan (P249)
+
+  indexes {
+    (box_id, line_no) [unique]
+  }
+}
+
+table prd_box_component {
+  id                          int [pk, increment, not null]
+
+  box_id                      int [not null, ref : > prd_box.id]
+  item_id                     int [not null]
+  bucket_id                   int [not null] // the Unit's bahan penolong balance
+  qty                         decimal(18,6) [not null] // CHECK > 0
+  value                       decimal(18,2) [not null, default: 0]
+
+  indexes {
+    box_id
   }
 }
 

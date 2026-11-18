@@ -29,6 +29,7 @@ import { qcNumbersByIds } from "./production-qc";
 import { transferNumbersByIds } from "./production-transfer";
 import { kerjaNumbersByIds } from "./production-kerja";
 import { jobOrderNumbersByIds } from "./production-job-order";
+import { boxNumbersByIds } from "./production-box";
 import { invoiceNumbersByIds } from "./ar-invoice";
 import { purchaseInvoiceNumbersByIds } from "./ap-invoice";
 import { fakturNumbersByIds, slipNumbersByIds } from "./tax-document";
@@ -105,6 +106,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   prd_transfer: { label: "Push dan BSTB", resolve: transferNumbersByIds },
   prd_kerja: { label: "Kerja", resolve: kerjaNumbersByIds },
   prd_job_order: { label: "Job Order", resolve: jobOrderNumbersByIds },
+  prd_box: { label: "Kotak", resolve: boxNumbersByIds },
   pur_request: { label: "Purchase Request", resolve: purchaseRequestNumbersByIds },
   pur_order: { label: "Purchase Order", resolve: purchaseOrderNumbersByIds },
   fin_ar_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },

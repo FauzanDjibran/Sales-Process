@@ -131,6 +131,13 @@ const ENTITY_PERMISSIONS: Record<string, EntityPermissions> = {
     view: "RATE_VERSION_VIEW",
     create: "RATE_VERSION_CREATE",
   },
+  prd_bom: {
+    view: "BOM_PACKING_VIEW",
+    create: "BOM_PACKING_CREATE",
+    edit: "BOM_PACKING_EDIT",
+    activate: "BOM_PACKING_ACTIVATE",
+    deactivate: "BOM_PACKING_DEACTIVATE",
+  },
   m_employee: {
     view: "EMPLOYEE_VIEW",
     create: "EMPLOYEE_CREATE",

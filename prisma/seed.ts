@@ -158,6 +158,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Kerja", "prd_kerja"],
   // Job Order at Moulding (P283).
   ["Job Order", "prd_job_order"],
+  // Kotak at Packing 95 (P284).
+  ["Kotak", "prd_box"],
 ];
 
 /**

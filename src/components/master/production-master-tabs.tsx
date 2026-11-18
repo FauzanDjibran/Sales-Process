@@ -15,6 +15,7 @@ import {
   exitRoutes,
   stepErrors,
   unitStepRuleErrors,
+  type BomComponentDraft,
   type RateDraft,
   type StepDraft,
   type StepProcess,
@@ -452,6 +453,76 @@ export function RateLinesTab({ editing, items, error, onChange, context }: Colle
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+    </CollectionCard>
+  );
+}
+
+// --------------------------------------------------------------- BoM Packing
+
+/**
+ * BoM Packing's bahan penolong per kotak (P284), typed in place: a row per
+ * Barang and its quantity in the item's base unit, used up at Tutup Kotak.
+ */
+export function BomComponentsTab({ editing, items, error, onChange, context }: CollectionTabProps<BomComponentDraft>) {
+  const options = context?.refs._components ?? [];
+  const set = (key: string, patchRow: Partial<BomComponentDraft>) => onChange(items.map((r) => (r.key === key ? { ...r, ...patchRow } : r)));
+  return (
+    <CollectionCard icon="box" title="Bahan Penolong per Kotak" desc="Dipakai dari saldo bahan penolong Unit saat Tutup Kotak. Jumlah dalam satuan dasar bahan." editing={editing} error={error}>
+      {items.length ? (
+        <div className="tw">
+          <table className="grid coll" style={{ minWidth: 520 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 44 }}>No</th>
+                <th>Bahan Penolong</th>
+                <th className="num" style={{ width: 160 }}>
+                  Jumlah per Kotak
+                </th>
+                {editing && <th style={{ width: 44 }} />}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((r, i) => (
+                <tr key={r.key}>
+                  <td className="no">{i + 1}</td>
+                  <td>
+                    {editing ? (
+                      <Combobox size="sm" value={r.item_id} options={options.filter((o) => o.id === r.item_id || !items.some((x) => x.item_id === o.id))} placeholder="Pilih bahan…" onChange={(v) => set(r.key, { item_id: v })} />
+                    ) : (
+                      <UnitCell units={options} id={r.item_id} />
+                    )}
+                  </td>
+                  <td className="num mono">
+                    {editing ? <input className="inp sm" style={{ textAlign: "right" }} inputMode="decimal" value={r.qty} aria-label={`Jumlah bahan ${i + 1}`} onChange={(e) => set(r.key, { qty: e.target.value })} /> : r.qty}
+                  </td>
+                  {editing && (
+                    <td>
+                      <button type="button" className="iact del" title="Hapus" onClick={() => onChange(items.filter((x) => x.key !== r.key))}>
+                        <Icon name="trash" size={14} />
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="empty sm">
+          <div className="ic">
+            <Icon name="box" size={18} />
+          </div>
+          <h4>Tanpa bahan penolong</h4>
+          <p>{editing ? "Tambahkan Gramasi, Stiker Daun, atau bahan lain yang dipakai tiap kotak." : "Kotak ini tidak memakai bahan penolong."}</p>
+        </div>
+      )}
+      {editing && (
+        <div className="card-b">
+          <button type="button" className="btn sm" onClick={() => onChange([...items, { key: newKey("c"), item_id: null, qty: "1" }])}>
+            <Icon name="plus" size={14} /> Tambah Bahan
+          </button>
         </div>
       )}
     </CollectionCard>

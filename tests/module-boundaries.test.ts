@@ -142,6 +142,9 @@ const TABLE_OWNERS: Record<string, string[]> = {
   prdJobOrder: ["src/lib/erp/production-job-order.ts"],
   prdJobOrderLine: ["src/lib/erp/production-job-order.ts"],
   prdJobOrderInput: ["src/lib/erp/production-job-order.ts"],
+  prdBox: ["src/lib/erp/production-box.ts"],
+  prdBoxPiece: ["src/lib/erp/production-box.ts"],
+  prdBoxComponent: ["src/lib/erp/production-box.ts"],
   // The production ledger (R3): a book, written only by its module and read by its reports (R18).
   prdBalance: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
   prdLedger: ["src/lib/erp/production-ledger.ts", "src/lib/erp/production-report.ts"],
@@ -294,7 +297,7 @@ const PRODUCTION_TABLES = [
   "prd_partai", "prd_job", "prd_tracking_info",
   "prd_balance", "prd_ledger", "prd_tracking_link",
   "prd_grading", "prd_grading_input", "prd_grading_output", "prd_work", "prd_work_line", "prd_aux_use",
-  "prd_qc_check", "prd_qc_check_line", "prd_transfer", "prd_transfer_line", "prd_kerja", "prd_kerja_line", "prd_job_order", "prd_job_order_line", "prd_job_order_input",
+  "prd_qc_check", "prd_qc_check_line", "prd_transfer", "prd_transfer_line", "prd_kerja", "prd_kerja_line", "prd_job_order", "prd_job_order_line", "prd_job_order_input", "prd_box", "prd_box_piece", "prd_box_component",
 ];
 
 describe("every table belongs to one application", () => {

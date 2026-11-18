@@ -26,6 +26,7 @@ import { locationTree, locationsOfWarehouse } from "@/lib/erp/warehouse";
 import { LocationTree } from "@/components/master/location-tree";
 import {
   rateCollections,
+  bomCollections,
   routingCollections,
   unitCollections,
   routingCopy,
@@ -82,6 +83,10 @@ async function collectionsOf(
   if (entity.key === "prd_rate_version") {
     if (id == null) return { rates: [] };
     return rateCollections(id);
+  }
+  if (entity.key === "prd_bom") {
+    if (id == null) return { components: [] };
+    return bomCollections(id);
   }
   return undefined;
 }

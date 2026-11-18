@@ -248,6 +248,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | W136 | **QC fitur Unit dibangun** (P281). `ref_unit.has_qc`; tahap QC Check kembali; rate Standard Cost per Unit, dibebankan hanya oleh dokumen langkah terakhir Unit (Grading di UGH, Assign di UML); langkah sebelumnya hanya transformasi. QC Balik ke Persiapan proses pertama dengan nilainya; dikerjakan ulang membayar lagi (rework, asumsi). |
 | W137 | **Kerja dibangun** (P282). Cleaning: Mulai per Job dengan satu karyawan (Sedang Dikerjakan, tanpa biaya), Selesai per Job (gram tetap, biaya Unit bila proses terakhir, lalu QC Check), Batal Mulai tanpa biaya. Dokumen `KJ_<unit>_…`. |
 | W138 | **Job Order dibangun** (P283). Moulding: Grading → Job Order → Assign + QC. Job Order mencampur beberapa No. Stok (boleh sebagian) menjadi satu No. Stok baru `<input terbesar>-<n>` dengan No. Job dan `JO_<no job>`; gram tetap, tanpa biaya Unit; biaya UML dibebankan saat Assign. |
+| W139 | **Packing 95 dibangun** (P284). BoM Packing per Nama Jual (Item kotak) di ERP, satu versi aktif. Kotak: rekomendasi keping dari seluruh Persiapan, scan atau Masukkan (Manual), CAIQ unik per keping, Tutup Kotak melahirkan No. Stok `KTK-<ddmmyy>-<nnn>` di Stand By tanpa Job, nilai keping + rate UP5 per gram + bahan penolong. |
 
 ---
 

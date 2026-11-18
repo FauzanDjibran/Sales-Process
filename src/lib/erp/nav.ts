@@ -207,6 +207,14 @@ export const MODULES: NavModule[] = [
             permission: "RATE_VERSION_VIEW",
           },
           {
+            key: "prd_bom",
+            slug: "bom-packing",
+            name: "BoM Packing",
+            icon: "box",
+            desc: "Aturan isi kotak per Nama Jual: gram, toleransi, jumlah keping dan bahan penolong.",
+            permission: "BOM_PACKING_VIEW",
+          },
+          {
             key: "acc_cost_type",
             slug: "cost-type",
             name: "Jenis Biaya",
@@ -252,6 +260,7 @@ export const MODULES: NavModule[] = [
           { key: "prd_grading", slug: "grading", name: "No. Grading", icon: "layers", desc: "Satu No. Stok dari Persiapan menjadi output baru; di sinilah jenis dan gram berubah.", permission: "PRODUCTION_GRADING_VIEW" },
           { key: "prd_work", slug: "work", name: "Pengerjaan Unit", icon: "check", desc: "No. Job yang dikerjakan di unit Pass Through dan oleh siapa; barang dan gram tetap.", permission: "PRODUCTION_WORK_VIEW" },
           { key: "prd_job_order", slug: "job-order", name: "Job Order", icon: "clip", desc: "Beberapa No. Stok dicampur menjadi satu No. Stok baru dengan No. Job dan Job Order sendiri; gram tetap.", permission: "PRODUCTION_JOB_ORDER_VIEW" },
+          { key: "prd_box", slug: "box", name: "Kotak", icon: "box", desc: "Kotak Packing 95: keping dan CAIQ-nya menjadi satu No. Stok kotak menurut BoM Packing.", permission: "PRODUCTION_BOX_VIEW" },
           { key: "prd_kerja", slug: "kerja", name: "Kerja", icon: "clock", desc: "Job yang dikerjakan dari Mulai sampai Selesai, satu karyawan per Job; gram tetap.", permission: "PRODUCTION_KERJA_VIEW" },
           { key: "prd_qc_check", slug: "qc-check", name: "QC Check", icon: "check", desc: "QC memvalidasi hasil proses: Lulus ke Stand By, Balik ke Persiapan.", permission: "PRODUCTION_QC_VIEW" },
           { key: "prd_transfer", slug: "transfer", name: "Push dan BSTB", icon: "truck", desc: "Perpindahan barang dari Stand By ke Unit berikutnya: Push dalam satu Workstation, BSTB lintas Workstation.", permission: "PRODUCTION_TRANSFER_VIEW" },

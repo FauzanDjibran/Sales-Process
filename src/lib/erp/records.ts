@@ -38,6 +38,7 @@ const DELEGATES = {
   prd_line: (db: Client) => db.prdLine,
   prd_routing: (db: Client) => db.prdRouting,
   prd_rate_version: (db: Client) => db.prdRateVersion,
+  prd_bom: (db: Client) => db.prdBom,
   m_employee: (db: Client) => db.mEmployee,
   acc_cost_type: (db: Client) => db.accCostType,
   sys_partner_category: (db: Client) => db.sysPartnerCategory,
@@ -142,6 +143,11 @@ export async function refOptions(
   }
   // The Units a routing step or a rate line picks from (P225).
   if (entity.key === "prd_routing") result._units = await optionsFor("ref_unit");
+  if (entity.key === "prd_bom") {
+    // Bahan penolong a kotak may use: active Barang with Kelola Stok (P284).
+    const items = await prisma.mItem.findMany({ where: { status: "Active", item_type: "Barang", track_stock: true }, orderBy: { item_label: "asc" }, select: { id: true, item_label: true, item_name: true } });
+    result._components = items.map((i) => ({ id: i.id, label: i.item_label, name: i.item_name, active: true }));
+  }
   if (entity.key === "prd_rate_version") {
     // One option per active Unit, in routing order, naming its processes (P281).
     const order = await unitRoutingOrder();

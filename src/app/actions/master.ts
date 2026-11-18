@@ -48,6 +48,8 @@ import {
 import { checkWarehouseLocation, locationDeactivateRefusal } from "@/lib/erp/warehouse";
 import {
   checkRateCollections,
+  checkBomCollections,
+  writeBomCollections,
   checkRoutingCollections,
   writeRateCollections,
   writeRoutingCollections,
@@ -590,6 +592,11 @@ async function ownCollections(
     const checked = await checkUnitCollections(values, id);
     Object.assign(errors, checked.errors);
     return (tx, recordId) => writeUnitCollections(tx, recordId, checked.clean);
+  }
+  if (entity.key === "prd_bom") {
+    const checked = await checkBomCollections(values, id);
+    Object.assign(errors, checked.errors);
+    return (tx, recordId) => writeBomCollections(tx, recordId, checked.clean);
   }
   if (entity.key === "prd_rate_version") {
     const checked = await checkRateCollections(values);

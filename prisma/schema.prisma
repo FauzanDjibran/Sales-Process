@@ -670,6 +670,9 @@ model MItem {
   prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
   grading_outputs        PrdGradingOutput[]
   job_order_targets      PrdJobOrderLine[]
+  boms                   PrdBom[]                  @relation("PrdBomItem")
+  bom_components         PrdBomComponent[]         @relation("PrdBomComponentItem")
+  boxes                  PrdBox[]                  @relation("PrdBoxItem")
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -934,6 +937,7 @@ model RefUnit {
   rate_lines    PrdRateVersionLine[]
   kerjas        PrdKerja[]
   job_orders    PrdJobOrder[]
+  boxes         PrdBox[]
 
   @@index([workstation_id])
   @@map("ref_unit")
@@ -967,6 +971,7 @@ model RefUnitStep {
   balances   PrdBalance[]  @relation("PrdBalanceStep")
   kerjas     PrdKerja[]
   job_orders PrdJobOrder[]
+  boxes      PrdBox[]
 
   @@unique([unit_id, seq])
   @@unique([unit_id, process])
@@ -1110,6 +1115,7 @@ model PrdPartai {
   transfers    PrdTransfer[]
   kerjas       PrdKerja[]
   job_orders   PrdJobOrder[]
+  boxes        PrdBox[]
   balances     PrdBalance[]
   ledger       PrdLedger[]
   cost_entries PrdCostEntry[]
@@ -4394,6 +4400,120 @@ model PrdBalance {
 }
 
 /// A Dokumen Push or a BSTB between Units (P277, T8): `PSH_<from>_…` for a Push,
+
+/// BoM Packing (P284, T12): the rule of one kotak of a Nama Jual — the kotak item itself
+/// (P280 §5.4): target gram ± tolerance, a piece count, and the bahan penolong per kotak.
+/// One active version per item (partial unique index `prd_bom_one_active`). An ERP master.
+model PrdBom {
+  id              Int          @id @default(autoincrement())
+  bom_code        String       @unique
+  bom_label       String
+  bom_name        String
+  item_id         Int
+  target_grams    Decimal      @db.Decimal(18, 6)
+  tolerance_grams Decimal      @default(0) @db.Decimal(18, 6)
+  min_pieces      Int
+  max_pieces      Int
+  note            String?
+  status          ActiveStatus @default(Active)
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  item       MItem             @relation("PrdBomItem", fields: [item_id], references: [id])
+  components PrdBomComponent[]
+  boxes      PrdBox[]
+
+  @@index([item_id])
+  @@map("prd_bom")
+}
+
+model PrdBomComponent {
+  id         Int     @id @default(autoincrement())
+  bom_id     Int
+  item_id    Int
+  qty        Decimal @db.Decimal(18, 4)
+  sort_order Int     @default(0)
+
+  bom  PrdBom @relation(fields: [bom_id], references: [id], onDelete: Cascade)
+  item MItem  @relation("PrdBomComponentItem", fields: [item_id], references: [id])
+
+  @@unique([bom_id, item_id])
+  @@map("prd_bom_component")
+}
+
+/// Kotak (P284, T12): pieces from Persiapan of a Unit's Assembly step (Packing 95), each with
+/// a unique CAIQ, become one new No. Stok `KTK-<ddmmyy>-<nnn>` of the Nama Jual item in Stand
+/// By, with no Job. `ASM_<unit>_<ddmmyy>_<NNNNN>`, posted at Tutup Kotak. Value = pieces + the
+/// Unit rate per gram of pieces + bahan penolong (CHECK).
+model PrdBox {
+  id           Int      @id @default(autoincrement())
+  box_doc_no   String   @unique
+  box_date     DateTime @db.Date
+  unit_id      Int
+  unit_step_id Int
+  bom_id       Int
+  item_id      Int
+  partai_id    Int?
+  tracking_id  Int
+  tracking_no  String   @unique
+  grams        Decimal  @db.Decimal(18, 6)
+  pieces       Int
+  piece_value  Decimal  @default(0) @db.Decimal(18, 2)
+  cost_amount  Decimal  @default(0) @db.Decimal(18, 2)
+  aux_value    Decimal  @default(0) @db.Decimal(18, 2)
+  value        Decimal  @default(0) @db.Decimal(18, 2)
+  to_bucket_id Int
+  journal_id   Int?
+  created_by   Int
+  created_at   DateTime @default(now()) @db.Timestamptz(6)
+
+  unit       RefUnit           @relation(fields: [unit_id], references: [id])
+  step       RefUnitStep       @relation(fields: [unit_step_id], references: [id])
+  bom        PrdBom            @relation(fields: [bom_id], references: [id])
+  item       MItem             @relation("PrdBoxItem", fields: [item_id], references: [id])
+  partai     PrdPartai?        @relation(fields: [partai_id], references: [id])
+  pieceRows  PrdBoxPiece[]
+  components PrdBoxComponent[]
+
+  @@index([unit_id])
+  @@map("prd_box")
+}
+
+model PrdBoxPiece {
+  id          Int     @id @default(autoincrement())
+  box_id      Int
+  line_no     Int
+  bucket_id   Int
+  tracking_id Int
+  partai_id   Int?
+  grams       Decimal @db.Decimal(18, 6)
+  value       Decimal @default(0) @db.Decimal(18, 2)
+  caiq        String  @unique
+  /// Put in by a click rather than a scan (P249).
+  is_manual   Boolean @default(false)
+
+  box PrdBox @relation(fields: [box_id], references: [id], onDelete: Cascade)
+
+  @@unique([box_id, line_no])
+  @@map("prd_box_piece")
+}
+
+model PrdBoxComponent {
+  id        Int     @id @default(autoincrement())
+  box_id    Int
+  item_id   Int
+  bucket_id Int
+  qty       Decimal @db.Decimal(18, 6)
+  value     Decimal @default(0) @db.Decimal(18, 2)
+
+  box PrdBox @relation(fields: [box_id], references: [id], onDelete: Cascade)
+
+  @@index([box_id])
+  @@map("prd_box_component")
+}
 
 /// Job Order (P283, T7): at a Unit's Job Order step, several No. Stok (in part, if wanted) and
 /// one target jenis become one new No. Stok `<largest input>-<n>` with its own No. Job and Job

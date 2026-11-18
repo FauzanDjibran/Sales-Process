@@ -883,6 +883,17 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "a Kotak is its pieces, the Unit rate and its bahan penolong, and its pieces fit its BoM (P284)",
+    sql: `SELECT x.id FROM prd_box x JOIN prd_bom m ON m.id = x.bom_id
+          LEFT JOIN (SELECT box_id, SUM(value) AS v, SUM(grams) AS g, COUNT(*) AS n FROM prd_box_piece GROUP BY 1) p ON p.box_id = x.id
+          LEFT JOIN (SELECT box_id, SUM(value) AS v FROM prd_box_component GROUP BY 1) c ON c.box_id = x.id
+          LEFT JOIN (SELECT source_doc_id, SUM(amount) AS a FROM prd_cost_entry e JOIN sys_doc_type t ON t.id = e.source_doc_type_id AND t.doc_table = 'prd_box' GROUP BY 1) e ON e.source_doc_id = x.id
+          WHERE x.piece_value <> COALESCE(p.v, 0) OR x.aux_value <> COALESCE(c.v, 0) OR x.cost_amount <> COALESCE(e.a, 0)
+             OR x.grams <> COALESCE(p.g, 0) OR x.pieces <> COALESCE(p.n, 0)
+             OR ABS(x.grams - m.target_grams) > m.tolerance_grams OR x.pieces NOT BETWEEN m.min_pieces AND m.max_pieces`,
+  },
+  {
+    area: "production",
     name: "a Job Order line holds exactly what its inputs gave, in gram and value (P283)",
     sql: `SELECT l.id FROM prd_job_order_line l
           LEFT JOIN (SELECT job_order_line_id, SUM(grams) AS g, SUM(value) AS v FROM prd_job_order_input GROUP BY 1) i ON i.job_order_line_id = l.id

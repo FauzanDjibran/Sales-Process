@@ -9,7 +9,8 @@
  *
  * Writes: two Gudang without locations, the production items (in grams, one BJL),
  * the kotak items per Nama Jual, bahan penolong, one supplier of sarang walet, and
- * a Standard Cost version with one rate per Unit (P281), made active.
+ * a Standard Cost version with one rate per Unit (P281), made active, and a BoM
+ * Packing per Nama Jual (P284).
  */
 import { prisma } from "../src/lib/prisma";
 import { ENTITIES } from "../src/lib/erp/entities";
@@ -56,6 +57,12 @@ const RATES: Record<string, string> = {
   UBC: "5",
   UP5: "10",
 };
+
+/** BoM Packing per Nama Jual: gram ± tolerance, piece count, bahan penolong per kotak (the artifact's NJ). */
+const BOMS: { label: string; item: string; target: number; tol: number; min: number; max: number; aux: [string, number][] }[] = [
+  { label: "BMK50-V1", item: "BMK50", target: 50, tol: 1, min: 8, max: 13, aux: [["GRMS", 1], ["STK-DAUN", 1]] },
+  { label: "BMK100-V1", item: "BMK100", target: 100, tol: 1.5, min: 16, max: 26, aux: [["GRMS", 1], ["STK-DAUN", 2]] },
+];
 
 const entity = (key: string) => {
   const e = ENTITIES.find((x) => x.key === key);
@@ -142,6 +149,28 @@ async function main() {
       await tx.auditLog.create({ data: { entity_key: "prd_rate_version", row_id: v.id, action: "TAMBAH", event: "create", by: actor } });
     });
     made.push("Standard Cost SC-SIM (aktif)");
+  }
+
+  for (const b of BOMS) {
+    if (await prisma.prdBom.findFirst({ where: { bom_label: b.label } })) continue;
+    const item = await prisma.mItem.findFirstOrThrow({ where: { item_label: b.item } });
+    const aux = await prisma.mItem.findMany({ where: { item_label: { in: b.aux.map(([l]) => l) } }, select: { id: true, item_label: true } });
+    const row = await prisma.prdBom.create({
+      data: {
+        bom_code: await nextCode(entity("prd_bom")),
+        bom_label: b.label,
+        bom_name: `${item.item_name} versi 1`,
+        item_id: item.id,
+        target_grams: b.target,
+        tolerance_grams: b.tol,
+        min_pieces: b.min,
+        max_pieces: b.max,
+        created_by: actor,
+        components: { create: b.aux.map(([l, qty], i) => ({ item_id: aux.find((a) => a.item_label === l)!.id, qty, sort_order: i })) },
+      },
+    });
+    await audit("prd_bom", row.id);
+    made.push(`BoM ${b.label}`);
   }
 
   console.log(made.length ? `Dibuat: ${made.join(", ")}` : "Semua data simulasi produksi sudah ada.");

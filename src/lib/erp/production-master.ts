@@ -5,6 +5,9 @@ import type { Prisma } from "@/generated/prisma/client";
 import { parseList } from "./partner-shape";
 import { routingInUse, routingsInUse, unitStepHasHistory } from "./production-ledger";
 import {
+  COMPONENTS_KEY,
+  bomComponentErrors,
+  type BomComponentDraft,
   RATES_KEY,
   STEPS_KEY,
   STEP_PROCESSES,
@@ -368,4 +371,66 @@ export async function routeMap(): Promise<RouteMap> {
       steps: r.steps.map((s) => ({ unitId: s.unit_id, workstationId: s.unit.workstation_id, checkpoint: s.is_checkpoint })),
     })),
   };
+}
+
+// ------------------------------------------------------------ BoM Packing
+
+export async function bomCollections(bomId: number): Promise<{ components: BomComponentDraft[] }> {
+  const rows = await prisma.prdBomComponent.findMany({ where: { bom_id: bomId }, orderBy: { sort_order: "asc" } });
+  return { components: rows.map((r) => ({ id: r.id, key: `c${r.id}`, item_id: r.item_id, qty: r.qty.toString() })) };
+}
+
+export type BomCollections = { components: { item_id: number; qty: string }[] };
+
+/**
+ * The header's own rules (a Barang with Kelola Stok, gram and piece range, one
+ * active version per Nama Jual) and its bahan penolong (P284).
+ */
+export async function checkBomCollections(values: Record<string, unknown>, bomId: number | null): Promise<{ errors: Record<string, string>; clean: BomCollections }> {
+  const errors: Record<string, string> = {};
+  const clean: BomCollections = { components: [] };
+  const num = (k: string) => Number(String(values[k] ?? "").replace(",", "."));
+  const itemId = Number(values.item_id) || null;
+  const item = itemId ? await prisma.mItem.findUnique({ where: { id: itemId }, select: { item_type: true, track_stock: true, status: true } }) : null;
+  if (item && (item.item_type !== "Barang" || !item.track_stock)) errors.item_id = "Nama Jual harus Barang dengan Kelola Stok.";
+  if (!(num("target_grams") > 0)) errors.target_grams = "Isi gram per kotak lebih dari 0.";
+  if (!(num("tolerance_grams") >= 0)) errors.tolerance_grams = "Toleransi tidak boleh negatif.";
+  const min = num("min_pieces");
+  const max = num("max_pieces");
+  if (!(Number.isInteger(min) && min >= 1)) errors.min_pieces = "Minimal 1 keping.";
+  if (!(Number.isInteger(max) && max >= min)) errors.max_pieces = "Tidak boleh di bawah minimal keping.";
+  if (itemId && (values.status ?? "Active") === "Active") {
+    const other = await prisma.prdBom.findFirst({ where: { item_id: itemId, status: "Active", ...(bomId ? { id: { not: bomId } } : {}) }, select: { bom_label: true } });
+    if (other) errors.item_id = `Nama Jual ini sudah punya BoM aktif (${other.bom_label}). Nonaktifkan dulu.`;
+  }
+  const list = parseList<Partial<BomComponentDraft>>(values[COMPONENTS_KEY]);
+  if (list === null) return { errors: { ...errors, [COMPONENTS_KEY]: "Data bahan penolong tidak terbaca." }, clean };
+  const items = new Map((await prisma.mItem.findMany({ where: { id: { in: list.map((r) => Number(r.item_id)).filter(Boolean) } }, select: { id: true, item_label: true, status: true, item_type: true } })).map((i) => [i.id, i]));
+  const problems: string[] = [];
+  const taken: number[] = [];
+  for (const [i, r] of list.entries()) {
+    const found = bomComponentErrors({ ...r, item_id: Number(r.item_id) || null }, taken);
+    if (Object.keys(found).length) {
+      problems.push(`Bahan ${i + 1}: ${Object.values(found)[0]}`);
+      continue;
+    }
+    const it = items.get(Number(r.item_id));
+    if (!it || it.status !== "Active" || it.item_type !== "Barang") {
+      problems.push(`Bahan ${i + 1}: harus Barang aktif.`);
+      continue;
+    }
+    if (it.id === itemId) {
+      problems.push(`Bahan ${i + 1}: tidak boleh Nama Jual itu sendiri.`);
+      continue;
+    }
+    taken.push(it.id);
+    clean.components.push({ item_id: it.id, qty: String(r.qty).trim().replace(",", ".") });
+  }
+  if (problems.length) errors[COMPONENTS_KEY] = problems.join(" ");
+  return { errors, clean };
+}
+
+export async function writeBomCollections(tx: Prisma.TransactionClient, bomId: number, clean: BomCollections): Promise<void> {
+  await tx.prdBomComponent.deleteMany({ where: { bom_id: bomId } });
+  if (clean.components.length) await tx.prdBomComponent.createMany({ data: clean.components.map((c, i) => ({ bom_id: bomId, item_id: c.item_id, qty: c.qty, sort_order: i })) });
 }

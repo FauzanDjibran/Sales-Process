@@ -513,6 +513,26 @@ export async function registerDerivedStock(
   return { id: row.id, no };
 }
 
+/**
+ * Registers an assembled kotak: a new No. Stok `<prefix>-<ddmmyy>-<nnn>`, the series
+ * running per day (P284, P280 §5.4). Unique system-wide like every No. Stok (W10).
+ */
+export async function registerAssembledStock(
+  tx: Tx,
+  r: { prefix: string; itemId: number; date: Date; source: ProductionSource; actorId: number }
+): Promise<{ id: number; no: string }> {
+  await productionItem(tx, r.itemId);
+  const d = r.date.toISOString();
+  const stem = `${r.prefix}-${d.slice(8, 10)}${d.slice(5, 7)}${d.slice(2, 4)}-`;
+  await lockSeries(tx, stem);
+  const last = await tx.logStockTracking.findFirst({ where: { tracking_no: { startsWith: stem } }, orderBy: { tracking_no: "desc" }, select: { tracking_no: true } });
+  const no = `${stem}${String((Number(last?.tracking_no.slice(stem.length)) || 0) + 1).padStart(3, "0")}`;
+  const row = await tx.logStockTracking.create({
+    data: { tracking_no: no, tracking_date: r.date, item_id: r.itemId, source_doc_type_id: r.source.docTypeId, source_doc_id: r.source.docId, source_no: r.source.no, created_by: r.actorId },
+  });
+  return { id: row.id, no };
+}
+
 /** Genealogy: what one input gave one output (read by Kartu Lot and Telusur). */
 export async function linkTracking(
   tx: Tx,
@@ -1033,4 +1053,11 @@ export async function jobsByIds(ids: number[], db: Db = prisma): Promise<Map<num
   if (!ids.length) return new Map();
   const rows = await db.prdJob.findMany({ where: { id: { in: [...new Set(ids)] } }, select: { id: true, job_no: true, tracking_id: true } });
   return new Map(rows.map((r) => [r.id, { no: r.job_no, trackingId: r.tracking_id }]));
+}
+
+/** Partai numbers by id, for documents that keep a partai per line. */
+export async function partaiNosByIds(ids: number[], db: Db = prisma): Promise<Map<number, string>> {
+  if (!ids.length) return new Map();
+  const rows = await db.prdPartai.findMany({ where: { id: { in: ids } }, select: { id: true, partai_no: true } });
+  return new Map(rows.map((r) => [r.id, r.partai_no]));
 }

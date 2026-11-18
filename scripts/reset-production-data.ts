@@ -27,7 +27,7 @@
 import { prisma } from "../src/lib/prisma";
 
 const apply = process.argv.includes("--apply");
-const DOCS = ["log_stock_issue", "prd_grading", "prd_work", "prd_qc_check", "prd_transfer", "prd_kerja", "prd_job_order"];
+const DOCS = ["log_stock_issue", "prd_grading", "prd_work", "prd_qc_check", "prd_transfer", "prd_kerja", "prd_job_order", "prd_box"];
 
 async function main() {
   const types = await prisma.sysDocType.findMany({ where: { doc_table: { in: DOCS } }, select: { id: true } });
@@ -42,6 +42,7 @@ async function main() {
     "Push dan BSTB": await prisma.prdTransfer.count(),
     "Kerja": await prisma.prdKerja.count(),
     "Job Order": await prisma.prdJobOrder.count(),
+    "Kotak": await prisma.prdBox.count(),
     "prd_ledger": await prisma.prdLedger.count(),
     "prd_balance": await prisma.prdBalance.count(),
     "Partai": await prisma.prdPartai.count(),
@@ -70,9 +71,13 @@ async function main() {
         transfer: (await tx.prdTransfer.findMany({ select: { id: true } })).map((r) => r.id),
         kerja: (await tx.prdKerja.findMany({ select: { id: true } })).map((r) => r.id),
         jobOrder: (await tx.prdJobOrder.findMany({ select: { id: true } })).map((r) => r.id),
+        box: (await tx.prdBox.findMany({ select: { id: true } })).map((r) => r.id),
       };
 
       // Documents first, then the books they wrote, then what names a No. Stok.
+      await tx.prdBoxComponent.deleteMany({});
+      await tx.prdBoxPiece.deleteMany({});
+      await tx.prdBox.deleteMany({});
       await tx.prdJobOrderInput.deleteMany({});
       await tx.prdJobOrderLine.deleteMany({});
       await tx.prdJobOrder.deleteMany({});
@@ -112,6 +117,7 @@ async function main() {
             { entity_key: "prd_transfer", row_id: { in: docIds.transfer } },
             { entity_key: "prd_kerja", row_id: { in: docIds.kerja } },
             { entity_key: "prd_job_order", row_id: { in: docIds.jobOrder } },
+            { entity_key: "prd_box", row_id: { in: docIds.box } },
           ],
         },
       });

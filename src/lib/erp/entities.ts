@@ -1397,6 +1397,41 @@ export const ENTITIES: Entity[] = [
   },
 
   {
+    // BoM Packing (P284, T12): how one kotak of a Nama Jual is filled. The Nama Jual is the
+    // kotak item itself (P280 §5.4); one active version per item.
+    key: "prd_bom",
+    slug: "bom-packing",
+    module: "costing",
+    name: "BoM Packing",
+    icon: "box",
+    desc: "Aturan satu kotak per Nama Jual: gram target dan toleransinya, jumlah keping, dan bahan penolong per kotak. Satu versi aktif per Nama Jual; Kotak di Packing 95 mengikuti versi aktif.",
+    codeField: "bom_code",
+    codePrefix: "bom",
+    labelField: "bom_label",
+    nameField: "bom_name",
+    statusModel: ACTIVE_STATUS,
+    fields: [
+      { name: "bom_label", label: "Label", type: "text", required: true, unique: true, ident: true, placeholder: "BMK50-V1", help: identHelp },
+      { name: "bom_name", label: "Nama Versi", type: "text", required: true, placeholder: "BMK 50 g versi 1", help: "nama lengkap" },
+      { name: "item_id", label: "Nama Jual", type: "ref", ref: "m_item", required: true, span: 6, help: "Item kotak: Barang dengan Kelola Stok" },
+      { name: "target_grams", label: "Gram per Kotak", type: "number", required: true, placeholder: "50", help: "target isi, gram" },
+      { name: "tolerance_grams", label: "Toleransi", type: "number", required: true, placeholder: "1", help: "± gram" },
+      { name: "min_pieces", label: "Keping Minimal", type: "number", required: true, placeholder: "8" },
+      { name: "max_pieces", label: "Keping Maksimal", type: "number", required: true, placeholder: "13" },
+      STATUS_FIELD,
+      NOTE_FIELD,
+    ],
+    tabs: [{ key: "components", label: "Bahan Penolong", icon: "box", desc: "Bahan penolong per kotak, dipakai saat Tutup Kotak.", kind: "custom" }],
+    columns: [
+      { field: "bom_label", label: "Label", isLabel: true, width: "150px", filter: "text" },
+      { field: "bom_name", label: "Nama Versi", primary: true, filter: "text" },
+      { field: "item_id", label: "Nama Jual", isRef: true, width: "240px" },
+      { field: "target_grams", label: "Gram", numeric: true, width: "90px" },
+      { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
+    ],
+  },
+
+  {
     // Who worked a No. Job at a Pass Through Unit (W26).
     key: "m_employee",
     slug: "employee",
