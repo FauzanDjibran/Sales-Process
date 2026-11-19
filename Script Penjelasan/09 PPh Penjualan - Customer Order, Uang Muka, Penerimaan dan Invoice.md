@@ -121,6 +121,23 @@ baris lalu dijumlah.
 
 Total 1.332.000 → **Estimasi Penerimaan 1.313.000**.
 
+### 3.4 Tabel kolom
+
+Singkatan: `col` = `sal_customer_order_line`, `co` = `sal_customer_order`,
+`wht` = `ref_withholding_tax`. "Per Jenis" = dikelompokkan menurut
+`col.withholding_tax_id`.
+
+| Data | Disimpan di kolom | Label di layar | Contoh | Formula |
+| --- | --- | --- | --- | --- |
+| Jenis PPh baris | `col.withholding_tax_id` | kolom **Jenis PPh** di baris | PPH22 / PPH23 | dipilih user dari `wht` (`usage = Sales`) |
+| Tarif PPh baris | `col.withholding_rate` | angka % di baris Estimasi (*PPH22 1,5 %*) | 1,5 / 2 | `col.withholding_rate = wht.rate` (disalin saat simpan) |
+| DPP baris | `col.dpp_amount` | kotak Nilai Pesanan (DPP) | 1.000.000 / 200.000 | sudah ada (Exclude: `col.amount`) |
+| Dasar PPh per Jenis | tidak disimpan | *× DPP 1.000.000* di baris Estimasi | 1.000.000 / 200.000 | `Σ col.dpp_amount` per Jenis |
+| PPh per Jenis | tidak disimpan | baris Estimasi *PPH22 1,5 % × DPP …* | 15.000 / 4.000 | `round(Σ col.dpp_amount × col.withholding_rate ÷ 100)` per Jenis |
+| Total PPh | tidak disimpan | — | 19.000 | `Σ PPh per Jenis` |
+| Total order | `co.total_amount` | **Total Customer Order** | 1.332.000 | sudah ada (`co.dpp_amount + co.ppn_amount`) |
+| Estimasi dana diterima | tidak disimpan | **Estimasi dana diterima** | 1.313.000 | `co.total_amount − Total PPh` |
+
 ---
 
 ## 4. Uang Muka Penjualan
@@ -161,6 +178,22 @@ Uang muka Nominal 300.000 (DPP) → PPN 33.000 → Total 333.000.
 | **Total** | | **300.000** | **4.750** |
 
 Uang Pelunas = 333.000 − 4.750 = **328.250**.
+
+### 4.3 Tabel kolom
+
+Singkatan: `adv` = `fin_ar_advance`, `col` / `co` seperti §3.4.
+
+| Data | Disimpan di kolom | Label di layar | Contoh | Formula |
+| --- | --- | --- | --- | --- |
+| DPP uang muka | `adv.dpp_amount` | sudah ada (DPP) | 300.000 | sudah ada |
+| PPN uang muka | `adv.ppn_amount` | sudah ada (PPN) | 33.000 | sudah ada |
+| Total tagihan | `adv.total_amount` | **Total tagihan uang muka** | 333.000 | sudah ada (`adv.dpp_amount + adv.ppn_amount`) |
+| Bobot per Jenis | tidak disimpan (dari CO) | — | 1.000.000 / 200.000 | `Σ col.dpp_amount` per Jenis |
+| Bobot tanpa PPh | tidak disimpan | — | 0 | `co.dpp_amount − Σ bobot per Jenis` |
+| Dasar PPh per Jenis | tidak disimpan | *× DPP 250.000* di baris Estimasi | 250.000 / 50.000 | `floor(adv.dpp_amount × bobot ÷ co.dpp_amount)`, sisa pembulatan ke bobot terbesar |
+| PPh per Jenis | tidak disimpan | baris Estimasi *PPH22 1,5 % × DPP 250.000* | 3.750 / 1.000 | `round(dasar × col.withholding_rate ÷ 100)` |
+| Total PPh | tidak disimpan | — | 4.750 | `Σ PPh per Jenis` |
+| Estimasi dana diterima (Uang Pelunas) | tidak disimpan | **Estimasi dana diterima** | 328.250 | `adv.total_amount − Total PPh` |
 
 ---
 
@@ -210,6 +243,24 @@ Total Invoice 999.000 (900.000 + PPN 99.000). Uang Pelunas = **984.750**.
 
 **Cek:** PPh uang muka 4.750 + PPh Invoice 14.250 = **19.000** = estimasi
 Customer Order.
+
+### 5.3 Tabel kolom
+
+Singkatan: `inv` = `fin_ar_invoice`, `invl` = `fin_ar_invoice_line`, `col`
+seperti §3.4. "Per Jenis" = dikelompokkan menurut `invl.withholding_tax_id`.
+
+| Data | Disimpan di kolom | Label di layar | Contoh | Formula |
+| --- | --- | --- | --- | --- |
+| Jenis PPh baris | `invl.withholding_tax_id` | kolom **PPh** di baris Invoice | PPH22 / PPH23 | `invl.withholding_tax_id = col.withholding_tax_id` |
+| Tarif PPh baris | `invl.withholding_rate` | angka % di baris Estimasi | 1,5 / 2 | `invl.withholding_rate = col.withholding_rate` |
+| DPP baris | `invl.dpp_amount` | sudah ada | 1.000.000 / 200.000 | sudah ada |
+| Bagian uang muka baris | `invl.advance_dpp_amount` | sudah ada | 250.000 / 50.000 | sudah ada: `floor(inv.advance_dpp_amount × invl.dpp_amount ÷ inv.dpp_amount)`, sisa ke DPP terbesar |
+| DPP bersih baris | `invl.net_dpp_amount` | sudah ada | 750.000 / 150.000 | sudah ada: `invl.dpp_amount − invl.advance_dpp_amount` |
+| Dasar PPh per Jenis | tidak disimpan | *× DPP 750.000* di baris Estimasi | 750.000 / 150.000 | `Σ invl.net_dpp_amount` per Jenis |
+| PPh per Jenis | tidak disimpan | baris Estimasi *PPH22 1,5 % × DPP 750.000* | 11.250 / 3.000 | `round(Σ invl.net_dpp_amount × invl.withholding_rate ÷ 100)` per Jenis |
+| Total PPh | tidak disimpan | — | 14.250 | `Σ PPh per Jenis` |
+| Total tagihan | `inv.total_amount` | **Total Tagihan** | 999.000 | sudah ada (`inv.net_dpp_amount + inv.ppn_amount`) |
+| Estimasi dana diterima (Uang Pelunas) | tidak disimpan | **Estimasi dana diterima** | 984.750 | `inv.total_amount − Total PPh` |
 
 ---
 
@@ -352,6 +403,44 @@ PPH23 base 150.000 / PPh 3.000.
 | PPh Dibayar Dimuka — PPH22 *(baru)* | 5.712 | |
 | PPh Dibayar Dimuka — PPH23 *(baru)* | 1.523 | |
 | Piutang Usaha — pelunasan sebagian | | 507.235 |
+
+### 6.7 Tabel kolom
+
+Contoh angka: **pembayaran 1 uang muka** (§6.5, Diterima 200.000).
+Singkatan: `tx` = `fin_cash_bank_tx`, `txl` = `fin_cash_bank_tx_line`, `whtl` =
+`fin_cash_bank_tx_line_wht`, `item` = `fin_ar_item` tagihan itu, `bill` = tagihan
+yang dibayar (`fin_ar_advance` atau `fin_ar_invoice`), `bill.pph` = PPh per Jenis
+tagihan dari §4.3 / §5.3, `bill.base` = dasar PPh per Jenis tagihan.
+
+Dua angka bantu yang dipakai di banyak rumus:
+
+```
+before = item.paid_amount            (sebelum Penerimaan ini; 0 bila item belum ada)
+after  = before + txl.settled_amount
+bagian(X) = round(X × after ÷ bill.total_amount) − round(X × before ÷ bill.total_amount)
+```
+
+| Data | Disimpan di kolom | Label di layar | Contoh | Formula |
+| --- | --- | --- | --- | --- |
+| Sisa tagihan | tidak disimpan | **Sisa Tagihan** | 333.000 | `bill.total_amount − before` |
+| Uang Pelunas | tidak disimpan | nilai awal **Diterima** saat tagihan dipilih | 328.250 | `Sisa Tagihan − Σ (bill.pph − bagian(bill.pph) sampai before)` = sisa − PPh sisa |
+| Potong PPh | `txl.withhold` *(baru)* | saklar **Potong PPh** | on | diisi user, default on |
+| Diterima | tidak disimpan per baris | **Diterima** (diketik) | 200.000 | `txl.settled_amount − txl.pph_amount` |
+| Dilunasi | `txl.settled_amount` | tidak tampil (P243) | 202.894 | dicari: `Dilunasi − Σ bagian(bill.pph) = Diterima` (§6.3) |
+| PPN baris | `txl.ppn_part` | PPN di bawah Diterima (uang muka saja) | 20.107 | `bagian(bill.ppn_amount)` |
+| DPP baris | `txl.dpp_part` | — | 182.787 | `txl.settled_amount − txl.ppn_part` |
+| Jenis PPh | `whtl.withholding_tax_id` *(baru)* | label di kolom **PPh Dipotong** | PPH22 / PPH23 | = Jenis PPh tagihan |
+| Tarif PPh | `whtl.rate` *(baru)* | angka % di kolom PPh Dipotong | 1,5 / 2 | = tarif tagihan |
+| Dasar PPh | `whtl.base_amount` *(baru)* | — | 152.323 / 30.465 | `bagian(bill.base)` per Jenis |
+| PPh per Jenis | `whtl.amount` *(baru)* | kolom **PPh Dipotong** | 2.285 / 609 | `bagian(bill.pph)` per Jenis; 0 bila `txl.withhold = false` |
+| PPh baris | `txl.pph_amount` *(baru)* | jumlah kolom PPh Dipotong | 2.894 | `Σ whtl.amount` |
+| Dana masuk ke bank | `tx.cash_amount` | **Dana masuk ke bank** | 200.000 | `Σ (txl.settled_amount − txl.pph_amount) − tx.bank_charge` |
+| Total PPh transaksi | `tx.pph_amount` | daftar Penerimaan, kolom **PPh** | 2.894 | `Σ txl.pph_amount` |
+| Sudah dibayar tagihan | `item.paid_amount` | status Sebagian / Lunas | 0 → 202.894 | `item.paid_amount + txl.settled_amount` (bukan + Diterima) |
+| Jurnal PPh | `acc_journal_line.debit_amount` di account `wht.account_id` | konfirmasi Posting | 2.285 / 609 | `Σ whtl.amount` per `whtl.withholding_tax_id` |
+
+Untuk **Invoice** rumusnya sama; bedanya `txl.ppn_part` hanya informasi (tidak
+dijurnal) dan kreditnya Piutang Usaha sebesar `txl.settled_amount`.
 
 ---
 
