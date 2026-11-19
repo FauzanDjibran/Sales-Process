@@ -18,7 +18,7 @@
 
 export type CashBankDirection = "In" | "Out";
 
-export type CashBankPurposeKey = "customer_receipt" | "supplier_payment" | "permit_cost" | "production_cost_payment";
+export type CashBankPurposeKey = "customer_receipt" | "supplier_payment" | "permit_cost" | "production_cost_payment" | "customer_refund";
 
 /** The kinds of document a purpose settles, by `sys_doc_type.doc_table`. */
 export type SettledDocKind = "fin_ar_advance" | "fin_ar_invoice" | "fin_ar_permit_advance" | "fin_ar_permit_invoice";
@@ -55,13 +55,14 @@ export const SETTLED_DOC_ROUTE: Record<SettledDocKind, string> = {
 };
 
 /** The kinds of document a payment to a supplier settles (P127). */
-export type PaidDocKind = "fin_ap_advance" | "fin_ap_invoice" | "sal_permit_request" | "prd_cost_bill";
+export type PaidDocKind = "fin_ap_advance" | "fin_ap_invoice" | "sal_permit_request" | "prd_cost_bill" | "fin_ar_credit_note";
 
 export const PAID_DOC_TEXT: Record<PaidDocKind, string> = {
   fin_ap_advance: "Uang Muka",
   fin_ap_invoice: "Invoice",
   sal_permit_request: "Biaya Perizinan",
   prd_cost_bill: "Biaya Produksi",
+  fin_ar_credit_note: "Kredit Retur",
 };
 
 /** Where a paid document is read. */
@@ -70,6 +71,7 @@ export const PAID_DOC_ROUTE: Record<PaidDocKind, string> = {
   fin_ap_invoice: "/finance/invoice/purchase",
   sal_permit_request: "/sales/permit",
   prd_cost_bill: "/costing/cost-bill",
+  fin_ar_credit_note: "/finance/invoice/credit-note",
 };
 
 /** One paid document's key, unique across both kinds. */
@@ -157,6 +159,22 @@ export const CASH_BANK_PURPOSES = [
     partnerCategory: "Supplier",
     settles: ["prd_cost_bill"],
     docNoun: "Tagihan",
+    withholding: false,
+  },
+  // Customer credit left on a Credit Note's Retur item, paid back (P295,
+  // SR10): Dr Piutang Usaha / Cr Kas & Bank, no tax — the PPN was reversed by
+  // the Credit Note itself.
+  {
+    key: "customer_refund",
+    direction: "Out",
+    name: "Pengembalian Dana Customer",
+    short: "Refund Customer",
+    desc:
+      "Mengembalikan kredit retur customer yang tidak terpakai oleh invoice — sisa Credit Note " +
+      "Penjualan. Mengurangi kredit di Piutang Usaha, tanpa pajak.",
+    partnerCategory: "Customer",
+    settles: ["fin_ar_credit_note"],
+    docNoun: "Kredit Retur",
     withholding: false,
   },
 ] as const satisfies readonly CashBankPurpose[];

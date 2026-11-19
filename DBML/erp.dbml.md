@@ -1838,6 +1838,7 @@ table fin_ar_invoice {
   base_ppn_amount             decimal(18,2) [not null] // ppn_amount in base currency (MC1)
   total_amount                decimal(18,2) [not null, default: 0] // net Piutang
   base_total_amount           decimal(18,2) [not null] // total_amount in base currency (MC1)
+  credit_used_amount          decimal(18,2) [not null, default: 0] // customer credit from the order's Credit Notes it uses; CHECK 0 ≤ used ≤ total (P295)
   tax_invoice_no              varchar // Coretax number, typed after upload
 
   journal_id                  int
@@ -1916,6 +1917,24 @@ table fin_ar_invoice_advance_deduction {
   ppn_used                    decimal(18,2) [not null, default: 0] // cumulative share of the item's tax_ppn (P113, §7.5)
   base_ppn_used               decimal(18,2) [not null] // ppn_used in base currency (MC1)
   fx_difference               decimal(18,2) [not null, default: 0] // Piutang relieved less the advance and its PPN relieved (MC13)
+
+  indexes {
+    (invoice_id, ar_item_id) [unique]
+    ar_item_id
+  }
+}
+
+// a Retur AR item an Invoice's credit used at Posting (P295, SR10), oldest first
+table fin_ar_invoice_credit_use {
+  id                          int [pk, increment, not null]
+
+  invoice_id                  int [not null, ref : > fin_ar_invoice.id]
+  ar_item_id                  int [not null] // weak: a Retur AR item of the same Customer Order
+  ar_item_no                  varchar [not null]
+  amount                      decimal(18,2) [not null] // CHECK > 0
+  base_amount                 decimal(18,2) [not null] // what the Retur item gave up in base
+  invoice_base_amount         decimal(18,2) [not null] // what the Invoice item gave up in base
+  fx_difference               decimal(18,2) [not null, default: 0] // invoice_base_amount − base_amount (MC13)
 
   indexes {
     (invoice_id, ar_item_id) [unique]

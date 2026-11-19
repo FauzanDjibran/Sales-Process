@@ -19,6 +19,8 @@ import { postingAccounts } from "./system-settings";
 import { CASH_BANK_PREFIX, cashBankPurpose, paidKey, purposesFor, type CashBankPurpose, type PaidDocKind } from "./cash-bank-purposes";
 import { lockPermitRequests, permitCostDocs, permitRequestNumbersByIds, recordPermitCostPaid } from "./permit-request";
 import { costBillNumbersByIds, lockCostBills, payableCostBills, recordCostBillPaid } from "./production-cost-bill";
+import { creditNoteNumbersByIds, refundableCreditNotes } from "./ar-credit-note";
+import { ArItemOverdrawn, lockArItems, settleArItem } from "./ar-item";
 import {
   CASH_PAYMENT_TRANSITIONS,
   cashBankTxIsEditable,
@@ -95,6 +97,8 @@ export type OpenPayable = {
   apItemId: number | null;
   /** A Tagihan Biaya's payable, the account its payment debits. */
   payableAccountId?: number;
+  /** A Credit Note's Retur AR item, which a refund lowers (P295). */
+  arItemId?: number;
   paid: number;
   open: number;
   /** Its currency: only a Kas & Bank in it pays it (MC14). */
@@ -103,9 +107,9 @@ export type OpenPayable = {
 
 async function openPayables(
   db: Db,
-  filter: { advanceIds?: number[]; invoiceIds?: number[]; costIds?: number[]; billIds?: number[]; openOnly?: boolean }
+  filter: { advanceIds?: number[]; invoiceIds?: number[]; costIds?: number[]; billIds?: number[]; creditIds?: number[]; openOnly?: boolean }
 ): Promise<OpenPayable[]> {
-  const [advances, invoices, costs, bills] = await Promise.all([
+  const [advances, invoices, costs, bills, credits] = await Promise.all([
     filter.openOnly
       ? unpaidAdvanceIds(db).then((ids) => settlementAdvances({ ids }, db))
       : filter.advanceIds?.length
@@ -125,6 +129,12 @@ async function openPayables(
         : Promise.resolve([]),
     // A payable Tagihan Biaya: its total, no tax.
     filter.openOnly ? payableCostBills({ openOnly: true }, db) : filter.billIds?.length ? payableCostBills({ ids: filter.billIds }, db) : Promise.resolve([]),
+    // Customer credit left on a Credit Note (P295): paid back, no tax.
+    filter.openOnly
+      ? refundableCreditNotes({ openOnly: true }, db)
+      : filter.creditIds?.length
+        ? refundableCreditNotes({ ids: filter.creditIds }, db)
+        : Promise.resolve([]),
   ]);
   // A document's open amount is what it asks less what it records as paid
   // (P132, P133) — never read from other payments.
@@ -218,6 +228,27 @@ async function openPayables(
       open: b.total - b.paid,
       currency: BASE_CURRENCY_LABEL,
     })),
+    ...credits.map((n) => ({
+      kind: "fin_ar_credit_note" as const,
+      key: paidKey("fin_ar_credit_note", n.id),
+      id: n.id,
+      no: n.creditNo,
+      date: n.creditDate,
+      dueDate: n.creditDate,
+      status: n.status,
+      supplierId: n.customerId,
+      orderId: n.id,
+      orderNo: n.invoiceNo,
+      total: n.total,
+      dpp: n.total,
+      ppn: 0,
+      withholdings: [],
+      apItemId: null,
+      arItemId: n.arItemId,
+      paid: n.paid,
+      open: (c100(n.total) - c100(n.paid)) / 100,
+      currency: n.currency,
+    })),
   ];
   return out.sort((a, b) => (a.dueDate === b.dueDate ? a.id - b.id : a.dueDate < b.dueDate ? -1 : 1));
 }
@@ -252,6 +283,7 @@ export async function cashPaymentOptions(current: { id: number; docs: { kind: Pa
         invoiceIds: missing.filter((d) => d.kind === "fin_ap_invoice").map((d) => d.id),
         costIds: missing.filter((d) => d.kind === "sal_permit_request").map((d) => d.id),
         billIds: missing.filter((d) => d.kind === "prd_cost_bill").map((d) => d.id),
+        creditIds: missing.filter((d) => d.kind === "fin_ar_credit_note").map((d) => d.id),
       })
     : [];
   return {
@@ -342,7 +374,9 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput): Promise
   const lines: CheckedLine[] = [];
   if (!raw.length) errors._lines = "Pilih minimal satu tagihan yang dibayar.";
   const kindOf = (l: CashPaymentLineInput): PaidDocKind =>
-    l.doc_type === "fin_ap_invoice" || l.doc_type === "sal_permit_request" || l.doc_type === "prd_cost_bill" ? l.doc_type : "fin_ap_advance";
+    l.doc_type === "fin_ap_invoice" || l.doc_type === "sal_permit_request" || l.doc_type === "prd_cost_bill" || l.doc_type === "fin_ar_credit_note"
+      ? l.doc_type
+      : "fin_ap_advance";
   const bills = new Map(
     (
       await openPayables(
@@ -352,6 +386,7 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput): Promise
           invoiceIds: raw.filter((l) => kindOf(l) === "fin_ap_invoice").map((l) => Number(l.doc_id)).filter(Boolean),
           costIds: raw.filter((l) => kindOf(l) === "sal_permit_request").map((l) => Number(l.doc_id)).filter(Boolean),
           billIds: raw.filter((l) => kindOf(l) === "prd_cost_bill").map((l) => Number(l.doc_id)).filter(Boolean),
+          creditIds: raw.filter((l) => kindOf(l) === "fin_ar_credit_note").map((l) => Number(l.doc_id)).filter(Boolean),
         }
       )
     ).map((b) => [b.key, b])
@@ -390,6 +425,10 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput): Promise
       continue;
     }
     if (kind === "prd_cost_bill" && bill.status !== "Posted") {
+      errors[lineKey(i, "doc_id")] = `${bill.no} belum diposting.`;
+      continue;
+    }
+    if (kind === "fin_ar_credit_note" && (bill.status !== "Posted" || !bill.arItemId)) {
       errors[lineKey(i, "doc_id")] = `${bill.no} belum diposting.`;
       continue;
     }
@@ -499,7 +538,7 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
   } catch (e) {
     if (e instanceof Refused) return { ok: false, errors: e.errors };
     if (e instanceof PeriodShut) return { ok: false, errors: { _form: e.message } };
-    if (e instanceof ApItemOverdrawn || e instanceof InsufficientFunds) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
+    if (e instanceof ApItemOverdrawn || e instanceof ArItemOverdrawn || e instanceof InsufficientFunds) return { ok: false, errors: { _form: `Belum bisa diposting: ${e.message}` } };
     if (e instanceof PostingDryRun) return { ok: true, journal: e.lines } as T;
     throw e;
   }
@@ -613,10 +652,12 @@ async function buildPosting(
   const invoices = c.lines.filter((l) => l.kind === "fin_ap_invoice");
   const costs = c.lines.filter((l) => l.kind === "sal_permit_request");
   const productionBills = c.lines.filter((l) => l.kind === "prd_cost_bill");
+  const refunds = c.lines.filter((l) => l.kind === "fin_ar_credit_note");
   const baseOf = new Map(c.lines.map((l, i) => [l, b.lines[i]]));
   const fx = b.lines.reduce((a, l) => a + c100(l.settled) - c100(l.tx), 0) / 100;
-  type Key = "purchase_advance_account" | "input_vat_account" | "bank_charge_account" | "payable_account" | "permit_cost_account" | "fx_account";
+  type Key = "purchase_advance_account" | "input_vat_account" | "bank_charge_account" | "payable_account" | "permit_cost_account" | "receivable_account" | "fx_account";
   const keys: Key[] = [
+    ...(refunds.length ? (["receivable_account"] as const) : []),
     ...(costs.length ? (["permit_cost_account"] as const) : []),
     ...(advances.length ? (["purchase_advance_account", "input_vat_account"] as const) : []),
     ...(invoices.length ? (["payable_account"] as const) : []),
@@ -642,7 +683,7 @@ async function buildPosting(
   const accounts = new Map(
     (
       await db.accAccount.findMany({
-        where: { id: { in: [c.cashBankAccountId, ids.purchase_advance_account, ids.input_vat_account, ids.bank_charge_account, ids.payable_account, ids.permit_cost_account, ...billPayables, ...[...taxes.values()].map((t) => t.account_id)].filter((x): x is number => Boolean(x)) } },
+        where: { id: { in: [c.cashBankAccountId, ids.purchase_advance_account, ids.input_vat_account, ids.bank_charge_account, ids.payable_account, ids.permit_cost_account, ids.receivable_account, ...billPayables, ...[...taxes.values()].map((t) => t.account_id)].filter((x): x is number => Boolean(x)) } },
         select: { id: true, require_partner: true },
       })
     ).map((a) => [a.id, a])
@@ -678,6 +719,10 @@ async function buildPosting(
   // Tagihan Biaya: the cost is already recorded; only the payable clears.
   for (const l of productionBills) {
     out.push(line(l.bill.payableAccountId!, l.settled, 0, baseOf.get(l)!.tx, `Pembayaran ${l.bill.no} — ${l.bill.orderNo}${l.settled < l.bill.open ? " (sebagian)" : ""}`, c.data.partner_id));
+  }
+  // A refund takes back customer credit held on Piutang Usaha, at the Retur item's own rate.
+  for (const l of refunds) {
+    out.push(line(ids.receivable_account!, l.settled, 0, baseOf.get(l)!.settled, `Pengembalian kredit retur ${l.bill.no} (${l.bill.orderNo})`, c.data.partner_id));
   }
   if (c.data.bank_charge > 0) out.push(line(ids.bank_charge_account!, c.data.bank_charge, 0, b.charge, "Biaya transfer bank"));
   const ref = c.data.bank_ref ? ` · ref ${c.data.bank_ref}` : "";
@@ -767,6 +812,8 @@ export async function transitionCashPayment(
       if (invoiceIds.length) await lockPurchaseInvoices(tx, invoiceIds);
       await lockPermitRequests(tx, stored.lines.filter((l) => l.doc_type === "sal_permit_request").map((l) => Number(l.doc_id)));
       await lockCostBills(tx, stored.lines.filter((l) => l.doc_type === "prd_cost_bill").map((l) => Number(l.doc_id)));
+      const creditIds = stored.lines.filter((l) => l.doc_type === "fin_ar_credit_note").map((l) => Number(l.doc_id));
+      if (creditIds.length) await lockArItems(tx, (await refundableCreditNotes({ ids: creditIds }, tx)).map((n) => n.arItemId));
       if (invoiceIds.length) await lockApItems(tx, (await settlementPurchaseInvoices({ ids: invoiceIds }, tx)).flatMap((i) => (i.apItemId ? [i.apItemId] : [])));
       const r = await checkCashPayment(tx, stored);
       if (!r.ok) throw new Refused({ _form: `Belum bisa diposting: ${Object.values(r.errors)[0]}` });
@@ -837,6 +884,20 @@ export async function transitionCashPayment(
         });
       }
 
+      // Each refund lowers its Retur item, holding what it paid back (P214), at the item's own rate.
+      for (const [i, l] of r.c.lines.entries()) {
+        if (l.kind !== "fin_ar_credit_note" || !l.bill.arItemId) continue;
+        bases.lines[i].settled = await settleArItem(tx, {
+          itemId: l.bill.arItemId,
+          event: "Payment",
+          amount: l.settled,
+          date,
+          doc: { docTypeId: typeId, docId: id, no: t.tx_no },
+          note: `Dikembalikan ${fmt(l.cash)}`,
+          actorId,
+        });
+      }
+
       const posting = await buildPosting(tx, r.c, t.partner.partner_name, bases);
       if (!posting.ok) throw new Refused({ _form: posting.message });
       const journalLines = posting.lines;
@@ -885,17 +946,19 @@ export type CashPaymentListRow = {
 export async function listCashPayments(query: RegisterQuery): Promise<Paged<CashPaymentListRow>> {
   const { rows, ...page } = await cashBankTxPage("Out", query);
   const idsOf = (kind: PaidDocKind) => [...new Set(rows.flatMap((r) => r.lines.filter((l) => l.doc_type.doc_table === kind).map((l) => l.doc_id)))];
-  const [advanceNos, invoiceNos, costNos, billNos] = await Promise.all([
+  const [advanceNos, invoiceNos, costNos, billNos, creditNos] = await Promise.all([
     purchaseAdvanceNumbersByIds(idsOf("fin_ap_advance")),
     purchaseInvoiceNumbersByIds(idsOf("fin_ap_invoice")),
     permitRequestNumbersByIds(idsOf("sal_permit_request")),
     costBillNumbersByIds(idsOf("prd_cost_bill")),
+    creditNoteNumbersByIds(idsOf("fin_ar_credit_note")),
   ]);
   const numbersOf: Record<PaidDocKind, Map<number, string>> = {
     fin_ap_advance: advanceNos,
     fin_ap_invoice: invoiceNos,
     sal_permit_request: costNos,
     prd_cost_bill: billNos,
+    fin_ar_credit_note: creditNos,
   };
   return {
     ...page,

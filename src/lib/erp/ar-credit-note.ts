@@ -9,7 +9,7 @@ import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { lockCustomerOrder } from "./customer-order";
 import { creditSourceInvoices, type CreditSourceInvoice } from "./ar-invoice";
-import { ArItemOverdrawn, arItemHeld, createArItem, settleArItem } from "./ar-item";
+import { ArItemOverdrawn, arItemBalances, arItemHeld, createArItem, settleArItem } from "./ar-item";
 import { postingAccounts } from "./system-settings";
 import { taxScale } from "./sales-tax";
 import {
@@ -574,6 +574,53 @@ export async function postedCreditsByInvoices(db: Db, invoiceIds: number[]): Pro
     out.set(n.invoice_id, c);
   }
   return out;
+}
+
+/**
+ * A posted Credit Note as the refund reads it (P295, SR10): what is left of its
+ * Retur item is customer credit the company may pay back. `total` is what the
+ * credit came to after Invoices used it (paid + balance), so a refund's share
+ * reads like any bill's; the paid amount is held by the item (P214).
+ */
+export type RefundableCreditNote = {
+  id: number;
+  creditNo: string;
+  creditDate: string;
+  status: CreditNoteStatus;
+  customerId: number;
+  invoiceNo: string;
+  arItemId: number;
+  total: number;
+  paid: number;
+  currency: string;
+};
+
+/** Posted Credit Notes with credit left (`openOnly`), or the ones named. */
+export async function refundableCreditNotes(filter: { ids?: number[]; openOnly?: boolean }, db: Db = prisma): Promise<RefundableCreditNote[]> {
+  const notes = await db.finArCreditNote.findMany({
+    where: { status: "Posted", ar_item_id: { not: null }, ...(filter.ids ? { id: { in: filter.ids } } : {}) },
+    include: { currency: true, invoice: { select: { invoice_no: true } } },
+    orderBy: [{ credit_date: "asc" }, { id: "asc" }],
+  });
+  const items = await arItemBalances(db, notes.map((n) => n.ar_item_id!));
+  return notes
+    .map((n) => {
+      const i = items.get(n.ar_item_id!)!;
+      const paid = i.paid;
+      return {
+        id: n.id,
+        creditNo: n.credit_no,
+        creditDate: isoDay(n.credit_date),
+        status: n.status as CreditNoteStatus,
+        customerId: n.customer_id,
+        invoiceNo: n.invoice.invoice_no,
+        arItemId: n.ar_item_id!,
+        total: (cents(paid) + cents(i.balance)) / 100,
+        paid,
+        currency: n.currency.currency_label,
+      };
+    })
+    .filter((n) => !filter.openOnly || n.total > n.paid);
 }
 
 /** Credit Note numbers by id, for the audit panel. */

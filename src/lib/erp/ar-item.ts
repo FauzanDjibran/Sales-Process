@@ -342,6 +342,13 @@ export async function arReturnAppliedByDocument(db: Db, docTable: string, ids: n
   return new Map(items.map((i) => [i.source_doc_id, byItem.get(i.id) ?? 0]));
 }
 
+/** The balance and paid amount of the items named, by id (P295). */
+export async function arItemBalances(db: Db, ids: number[]): Promise<Map<number, { balance: number; paid: number }>> {
+  if (!ids.length) return new Map();
+  const rows = await db.finArItem.findMany({ where: { id: { in: ids } }, select: { id: true, current_balance: true, paid_amount: true } });
+  return new Map(rows.map((r) => [r.id, { balance: r.current_balance.toNumber(), paid: r.paid_amount.toNumber() }]));
+}
+
 export type ArItemRow = {
   id: number;
   arItemNo: string;
@@ -618,6 +625,35 @@ export async function advanceItemsForInvoice(
     balance: i.current_balance.toNumber(),
     baseBalance: i.base_current_balance.toNumber(),
     original: i.original_amount.toNumber(),
+  }));
+}
+
+/**
+ * Open Retur items of the Customer Orders named — customer credit from their
+ * Credit Notes an Invoice of the same order may use (P295, SR10) — oldest
+ * first, the order an Invoice's credit is applied in.
+ */
+export async function returnItemsForInvoice(
+  db: Db,
+  orderIds: number[]
+): Promise<{ id: number; arItemNo: string; orderId: number; balance: number; baseBalance: number }[]> {
+  if (!orderIds.length) return [];
+  const rows = await db.finArItem.findMany({
+    where: {
+      item_type: "Return",
+      scope_doc_type: { doc_table: "sal_customer_order" },
+      scope_doc_id: { in: orderIds },
+      current_balance: { gt: 0 },
+    },
+    orderBy: [{ item_date: "asc" }, { id: "asc" }],
+    select: { id: true, ar_item_no: true, scope_doc_id: true, current_balance: true, base_current_balance: true },
+  });
+  return rows.map((r) => ({
+    id: r.id,
+    arItemNo: r.ar_item_no,
+    orderId: r.scope_doc_id!,
+    balance: r.current_balance.toNumber(),
+    baseBalance: r.base_current_balance.toNumber(),
   }));
 }
 

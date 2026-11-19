@@ -401,7 +401,7 @@ Masing-masing satu commit, berhenti untuk review (memory: *phase review gate*).
 | 4 | **Credit Note Penjualan** — skema, AR item `Return`, event, posting, preview, list — **selesai 19/11/2026 (P292)**; baris per baris Invoice (lihat §6.1) | jurnal dan AR item benar untuk: belum dibayar, dibayar sebagian, lunas (kredit sisa), Invoice ber-uang-muka, USD |
 | 5 | **Penerimaan & laporan** — basis PPh setelah retur, Buku/Saldo/Umur Piutang — **selesai 19/11/2026 (P293)** | penerimaan atas Invoice yang diretur sebagian benar |
 | 6 | **`db:reconcile`** — **selesai 19/11/2026 (P294)** — Piutang Usaha = item Invoice − item Retur per customer; HPP dibalik = nilai keluar; retur ≤ kirim; Credit Note ≤ baris Invoice; `returned_qty` = Σ Receipt Note retur posted | semua cek hijau |
-| 7 | (lanjut) Pengembalian Dana Customer, kredit dipakai Invoice berikutnya, Nota Retur di modul Pajak, Perlu Pembetulan bukti potong | sesuai keputusan saat itu |
+| 7 | (lanjut) Pengembalian Dana Customer, kredit dipakai Invoice berikutnya — **selesai 19/11/2026 (P295)**; Nota Retur di modul Pajak dan Perlu Pembetulan bukti potong menunggu modul Pajak dibuka | sesuai keputusan saat itu |
 
 Tes: satu suite end-to-end `tests/sales-return-flow.test.ts` (Kasus A, Kasus
 B lunas & belum lunas, uang muka, retur sebagian dua kali → retur penuh tepat

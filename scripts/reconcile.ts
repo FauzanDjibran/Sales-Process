@@ -588,11 +588,33 @@ export const CHECKS: Check[] = [
     sql: `SELECT c.credit_no, c.total_amount, i.original_amount, c.applied_amount, COALESCE(u.used, 0) AS used, c.journal_id
           FROM fin_ar_credit_note c
           LEFT JOIN fin_ar_item i ON i.id = c.ar_item_id
-          LEFT JOIN (SELECT item_id, SUM(ABS(movement)) AS used FROM fin_ar_ledger WHERE event = 'ReturnUsed' GROUP BY item_id) u ON u.item_id = c.ar_item_id
+          LEFT JOIN (SELECT item_id, doc_id, SUM(ABS(movement)) AS used FROM fin_ar_ledger
+                     WHERE event = 'ReturnUsed' AND doc_type_id = ${docType("fin_ar_credit_note")} GROUP BY item_id, doc_id) u ON u.item_id = c.ar_item_id AND u.doc_id = c.id
           WHERE c.status = 'Posted' AND (c.ar_item_id IS NULL OR c.journal_id IS NULL OR i.item_type <> 'Return'
                 OR i.source_doc_type_id <> ${docType("fin_ar_credit_note")} OR i.source_doc_id <> c.id
                 OR i.original_amount <> c.total_amount OR COALESCE(u.used, 0) <> c.applied_amount
                 OR c.total_amount <> c.dpp_amount + c.ppn_amount)`,
+  },
+  {
+    area: "ar",
+    name: "each Invoice's credit used equals its credit-use rows and the Retur it applied, and a Draft uses none yet (P295)",
+    sql: `SELECT v.invoice_no, v.status, v.credit_used_amount, COALESCE(u.amount, 0) AS rows_amount, COALESCE(e.applied, 0) AS applied
+          FROM fin_ar_invoice v
+          LEFT JOIN (SELECT invoice_id, SUM(amount) AS amount FROM fin_ar_invoice_credit_use GROUP BY invoice_id) u ON u.invoice_id = v.id
+          LEFT JOIN (SELECT item_id, doc_id, SUM(ABS(movement)) AS applied FROM fin_ar_ledger
+                     WHERE event = 'ReturnApplied' AND doc_type_id = ${docType("fin_ar_invoice")} GROUP BY item_id, doc_id) e ON e.item_id = v.ar_item_id AND e.doc_id = v.id
+          WHERE (v.status = 'Posted' AND (v.credit_used_amount <> COALESCE(u.amount, 0) OR v.credit_used_amount <> COALESCE(e.applied, 0)))
+             OR (v.status <> 'Posted' AND COALESCE(u.amount, 0) <> 0)`,
+  },
+  {
+    area: "ar",
+    name: "each Retur item's paid amount equals the posted refunds of its Credit Note (P295)",
+    sql: `SELECT c.credit_no, i.paid_amount, COALESCE(p.paid, 0) AS refunds
+          FROM fin_ar_credit_note c JOIN fin_ar_item i ON i.id = c.ar_item_id
+          LEFT JOIN (SELECT l.doc_id, SUM(l.settled_amount) AS paid FROM fin_cash_bank_tx_line l
+                     JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
+                     WHERE l.doc_type_id = ${docType("fin_ar_credit_note")} GROUP BY l.doc_id) p ON p.doc_id = c.id
+          WHERE i.paid_amount <> COALESCE(p.paid, 0)`,
   },
   {
     area: "ar",

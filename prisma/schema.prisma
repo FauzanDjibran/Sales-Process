@@ -2870,6 +2870,9 @@ model FinArInvoice {
   /// Net Piutang: net DPP + PPN.
   total_amount            Decimal @default(0) @db.Decimal(18, 2)
   base_total_amount       Decimal @db.Decimal(18, 2)
+  /// Customer credit from the order's Credit Notes it uses (P295, SR10): a
+  /// Draft reserves it; Posting applies it to the Invoice item, Retur items oldest first.
+  credit_used_amount      Decimal @default(0) @db.Decimal(18, 2)
 
   /// Coretax number of its faktur pajak, typed after upload (U10).
   tax_invoice_no String?
@@ -2889,6 +2892,7 @@ model FinArInvoice {
   cash_bank    MCashBank                      @relation(fields: [cash_bank_id], references: [id])
   lines        FinArInvoiceLine[]
   deductions   FinArInvoiceAdvanceDeduction[]
+  credit_uses  FinArInvoiceCreditUse[]
   credit_notes FinArCreditNote[]              @relation("CreditNoteInvoice")
 
   /// The document's currency (MC3); a dependent document takes its source's.
@@ -2969,6 +2973,28 @@ model FinArInvoiceAdvanceDeduction {
   @@unique([invoice_id, ar_item_id])
   @@index([ar_item_id])
   @@map("fin_ar_invoice_advance_deduction")
+}
+
+/// A Retur AR item an Invoice's credit used at Posting (P295): what it took,
+/// the base each item gave up, and the selisih kurs between them (MC13).
+model FinArInvoiceCreditUse {
+  id                  Int     @id @default(autoincrement())
+  invoice_id          Int
+  /// Weak: a Retur AR item of the same Customer Order (AR items are a book).
+  ar_item_id          Int
+  ar_item_no          String
+  amount              Decimal @db.Decimal(18, 2)
+  /// What the Retur item gave up in base.
+  base_amount         Decimal @db.Decimal(18, 2)
+  /// What the Invoice item gave up in base.
+  invoice_base_amount Decimal @db.Decimal(18, 2)
+  fx_difference       Decimal @default(0) @db.Decimal(18, 2)
+
+  invoice FinArInvoice @relation(fields: [invoice_id], references: [id])
+
+  @@unique([invoice_id, ar_item_id])
+  @@index([ar_item_id])
+  @@map("fin_ar_invoice_credit_use")
 }
 
 // ------------------------------------------------------------ inventory

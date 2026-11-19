@@ -107,6 +107,7 @@ async function main() {
     fin_cash_bank_tx_line: await prisma.finCashBankTxLine.count(),
     fin_cash_bank_tx: await prisma.finCashBankTx.count(),
     fin_ar_invoice_advance_deduction: await prisma.finArInvoiceAdvanceDeduction.count(),
+    fin_ar_invoice_credit_use: await prisma.finArInvoiceCreditUse.count(),
     fin_ar_credit_note_line: await prisma.finArCreditNoteLine.count(),
     fin_ar_credit_note: await prisma.finArCreditNote.count(),
     fin_ar_invoice_line: await prisma.finArInvoiceLine.count(),
@@ -181,6 +182,7 @@ async function main() {
     // Invoices and Delivery Notes name their journals, so they go before them;
     // the stock books go with the notes and injections that wrote them.
     await tx.finArInvoiceAdvanceDeduction.deleteMany();
+    await tx.finArInvoiceCreditUse.deleteMany();
     await tx.finArCreditNoteLine.deleteMany();
     await tx.finArCreditNote.deleteMany();
     await tx.finArInvoiceLine.deleteMany();

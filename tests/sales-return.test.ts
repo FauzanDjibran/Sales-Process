@@ -7,6 +7,7 @@ import { createDeliveryOrder, transitionDeliveryOrder } from "../src/lib/erp/del
 import { createDeliveryNote, invoiceSourceLines, transitionDeliveryNote } from "../src/lib/erp/delivery-note";
 import { createInvoice, invoiceOptions, invoicePayStates, transitionInvoice, unpaidSalesInvoiceIds } from "../src/lib/erp/ar-invoice";
 import { cashReceiptOptions, createCashReceipt, transitionCashReceipt } from "../src/lib/erp/cash-bank-tx";
+import { cashPaymentOptions, createCashPayment, transitionCashPayment } from "../src/lib/erp/cash-payment";
 import { arBook, openArItemsAsOf } from "../src/lib/erp/ar-item";
 import { foldAging } from "../src/lib/erp/ar-aging";
 import { createCreditNote, creditNoteOptions, creditNotePreview, transitionCreditNote, updateCreditNote } from "../src/lib/erp/ar-credit-note";
@@ -185,6 +186,7 @@ after(async () => {
   const items = await prisma.finArItem.findMany({ where: { partner_id: f.customer }, select: { id: true } });
   await prisma.finArLedger.deleteMany({ where: { item_id: { in: items.map((i) => i.id) } } });
   await prisma.finArItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
+  await prisma.finArInvoiceCreditUse.deleteMany({ where: { invoice_id: { in: ids.inv } } });
   await prisma.finArInvoiceLine.deleteMany({ where: { invoice_id: { in: ids.inv } } });
   await prisma.finArInvoice.deleteMany({ where: { id: { in: ids.inv } } });
   await prisma.finCashBankTx.deleteMany({ where: { id: { in: ids.rc } } });
@@ -556,5 +558,109 @@ describe("receipts and reports read an Invoice net of its Credit Notes", () => {
 
   test("no Retur item of this customer is left open once used up", async () => {
     assert.equal((await openArItemsAsOf("Return", today, f.customer)).length, 0);
+  });
+});
+
+// ---------------------- step 7: customer credit refunded or used by the next Invoice (P295)
+
+describe("customer credit left on a Credit Note is refunded or used by the next Invoice", () => {
+  let cnId = 0;
+  let retItem = 0;
+
+  before(async () => {
+    // Five more come back after the Invoice was paid: the credit has nothing to apply to.
+    const r = await create(header(), [line(5)]);
+    assert.ok(r.ok, JSON.stringify(r));
+    for (const a of ["submit", "approve"] as const) await transitionSalesReturn(r.id, a, actor);
+    const srLine = (await prisma.salReturnLine.findFirstOrThrow({ where: { return_id: r.id } })).id;
+    const dnTracking = (await prisma.logDeliveryNoteTracking.findFirstOrThrow({ where: { delivery_note_line_id: flow.dnLine } })).id;
+    const lots = [{ tracking_no: "", expiry_date: "", source_tracking_id: dnTracking, qty: 5, location_id: null, stock_status_id: f.available }];
+    const rn = await createReceiptNote(
+      { purpose: SALES_RETURN, source_doc_id: r.id, rn_date: today, warehouse_id: f.warehouse, supplier_dn_no: "", note: "" },
+      [{ source_doc_line_id: srLine, qty: 5, note: "", lots }],
+      actor
+    );
+    assert.ok(rn.ok, JSON.stringify(rn));
+    ids.rn.push(rn.id);
+    assert.ok((await transitionReceiptNote(rn.id, "post", actor)).ok);
+    const invLine = (await prisma.finArInvoiceLine.findFirstOrThrow({ where: { invoice_id: ids.inv[0] } })).id;
+    const cn = await createCreditNote({ invoice_id: ids.inv[0], credit_date: today, customer_return_no: "", note: "" }, [{ invoice_line_id: invLine, qty: 5 }], actor);
+    assert.ok(cn.ok, JSON.stringify(cn));
+    ids.cn.push(cn.id);
+    cnId = cn.id;
+    assert.ok((await transitionCreditNote(cn.id, "post", actor)).ok);
+    const n = await prisma.finArCreditNote.findUniqueOrThrow({ where: { id: cn.id } });
+    retItem = n.ar_item_id!;
+    assert.deepEqual([n.total_amount.toNumber(), n.applied_amount.toNumber()], [5_550, 0], "the paid Invoice takes none of it");
+  });
+
+  test("Umur Piutang reads the open credit", async () => {
+    const open = await openArItemsAsOf("Return", today, f.customer);
+    assert.deepEqual(open.map((o) => o.open), [5_550]);
+  });
+
+  test("a refund pays part of it back: Dr Piutang Usaha / Cr Kas & Bank, no tax", async () => {
+    const refund = (cash: number) => ({
+      purpose: "customer_refund",
+      tx_date: today,
+      partner_id: f.customer,
+      cash_bank_id: f.bank,
+      bank_ref: "",
+      note: "",
+      bank_charge: 0,
+      lines: [{ doc_type: "fin_ar_credit_note" as const, doc_id: cnId, cash, withhold: false }],
+    });
+    const offered = (await cashPaymentOptions()).bills.find((b) => b.kind === "fin_ar_credit_note" && b.id === cnId);
+    assert.deepEqual([offered?.total, offered?.open], [5_550, 5_550]);
+    assert.ok(!(await createCashPayment(refund(5_551), actor)).ok, "never more than the credit left");
+    const p = await createCashPayment(refund(2_000), actor);
+    assert.ok(p.ok, JSON.stringify(p));
+    ids.rc.push(p.id);
+    const posted = await transitionCashPayment(p.id, "post", actor);
+    assert.ok(posted.ok, JSON.stringify(posted));
+    const t = await prisma.finCashBankTx.findUniqueOrThrow({ where: { id: p.id } });
+    const jl = await prisma.accJournalLine.findMany({ where: { journal_id: t.journal_id! }, orderBy: { sequence_no: "asc" } });
+    const ar = Number((await prisma.sysSetting.findUniqueOrThrow({ where: { setting_key: "receivable_account" } })).setting_value);
+    assert.deepEqual(
+      jl.map((l) => [l.account_id === ar, l.partner_id, l.debit_amount.toNumber(), l.kredit_amount.toNumber()]),
+      [
+        [true, f.customer, 2_000, 0],
+        [false, null, 0, 2_000],
+      ]
+    );
+    const item = await prisma.finArItem.findUniqueOrThrow({ where: { id: retItem } });
+    assert.deepEqual([item.current_balance.toNumber(), item.paid_amount.toNumber()], [3_550, 2_000]);
+  });
+
+  test("the next Invoice of the order uses the rest, with no journal for it in rupiah", async () => {
+    // Ten more leave on a new Delivery Note, billed by a new Invoice: DPP 10.000, PPN 1.100.
+    const doLine = await prisma.salDeliveryOrderLine.findFirstOrThrow({ where: { delivery_order_id: ids.do[0] } });
+    const dn = await createDeliveryNote(
+      { source_doc_id: ids.do[0], dn_date: today, vehicle_no: "", driver_name: "", note: "" },
+      [{ source_doc_line_id: doLine.id, qty: 10, note: "", picks: [{ tracking_id: f.lot, base_qty: 10 }] }],
+      actor
+    );
+    assert.ok(dn.ok, JSON.stringify(dn));
+    ids.dn.push(dn.id);
+    assert.ok((await transitionDeliveryNote(dn.id, "post", actor)).ok);
+    const dnLine = (await prisma.logDeliveryNoteLine.findFirstOrThrow({ where: { delivery_note_id: dn.id } })).id;
+    const head = (credit: number) => ({ customer_order_id: flow.coId, invoice_date: today, address_id: flow.address, cash_bank_id: f.bank, note: "", credit_used: credit });
+    const offered = (await invoiceOptions()).orders.find((o) => o.id === flow.coId)!;
+    assert.deepEqual(offered.credit, { available: 3_550, reserved: 0 });
+    const tooMuch = await createInvoice(head(3_551), [{ delivery_note_line_id: dnLine }], [], actor);
+    assert.ok(!tooMuch.ok && /Melebihi kredit retur/.test(tooMuch.errors.credit_used));
+    const inv = await createInvoice(head(3_550), [{ delivery_note_line_id: dnLine }], [], actor);
+    assert.ok(inv.ok, JSON.stringify(inv));
+    ids.inv.push(inv.id);
+    const posted = await transitionInvoice(inv.id, "post", actor);
+    assert.ok(posted.ok, JSON.stringify(posted));
+    const v = await prisma.finArInvoice.findUniqueOrThrow({ where: { id: inv.id }, include: { credit_uses: true } });
+    assert.deepEqual(v.credit_uses.map((u) => [u.ar_item_id, u.amount.toNumber(), u.fx_difference.toNumber()]), [[retItem, 3_550, 0]]);
+    const jl = await prisma.accJournalLine.findMany({ where: { journal_id: v.journal_id! } });
+    assert.equal(jl.filter((l) => (l.description ?? "").includes("Kredit retur")).length, 0, "rupiah: both sides are Piutang of one customer");
+    assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: retItem } })).current_balance.toNumber(), 0);
+    // The receipt asks for what is left: 11.100 − 3.550.
+    const bill = (await cashReceiptOptions()).bills.find((b) => b.kind === "fin_ar_invoice" && b.id === inv.id)!;
+    assert.deepEqual([bill.total, bill.open], [7_550, 7_550]);
   });
 });
