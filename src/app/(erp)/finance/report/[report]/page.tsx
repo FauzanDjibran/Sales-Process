@@ -300,7 +300,7 @@ async function arReport(
   const advances = await openArItemsAsOf("Advance", asOf, customerId);
 
   if (report.key === "ar_aging") {
-    const invoices = await openArItemsAsOf("Invoice", asOf, customerId);
+    const [invoices, credits] = await Promise.all([openArItemsAsOf("Invoice", asOf, customerId), openArItemsAsOf("Return", asOf, customerId)]);
     return (
       <ReportView
         report={report}
@@ -308,7 +308,7 @@ async function arReport(
         runAt={runAt}
         footnote={mismatch ?? <>Umur dihitung dari tanggal jatuh tempo invoice per {formatDate(asOf)}; uang muka mengurangi posisi bersih tetapi tidak dialokasikan ke kelompok umur.</>}
       >
-        <PartnerAgingReport key={`${asOf}|${customerId}`} report={foldAging(invoices, advances, asOf)} side="ar" asOf={asOf} />
+        <PartnerAgingReport key={`${asOf}|${customerId}`} report={foldAging(invoices, advances, asOf, credits)} side="ar" asOf={asOf} />
       </ReportView>
     );
   }

@@ -602,6 +602,16 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
     assert.deepEqual(o.purposes.map((p) => p.key), ["customer_receipt"]);
   });
 
+  test("a Credit Note's DPP lowers the PPh base of the line it credited (P293)", async () => {
+    const line = await prisma.finArInvoiceLine.findFirstOrThrow({ where: { invoice_id: inv().first, withholding_tax_id: { not: null } } });
+    const credits = new Map([[inv().first, { dpp: 100_000, ppn: 11_000, lineDpp: new Map([[line.id, 100_000]]) }]]);
+    const [bill] = await settlementInvoices({ ids: [inv().first] }, prisma, credits);
+    // 1,5 % × (329.557 − 100.000); the total falls only by what a Credit Note applied to the item, none here.
+    assert.deepEqual(bill.withholdings.map((w) => [w.base, w.amount]), [[229_557, 3_443]]);
+    const [plain] = await settlementInvoices({ ids: [inv().first] });
+    assert.deepEqual([bill.total, bill.dpp, bill.ppn], [550_560, plain.dpp - 100_000, plain.ppn - 11_000]);
+  });
+
   test("a part payment clears Piutang by cash + its PPh share, and records Pembayaran on the Invoice item", async () => {
     const [bill] = await settlementInvoices({ ids: [inv().first] });
     const expected = settleBillFromCash({ bill, before: 0, cash: 300_000, withhold: true });

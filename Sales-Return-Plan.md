@@ -399,7 +399,7 @@ Masing-masing satu commit, berhenti untuk review (memory: *phase review gate*).
 | 2 | **Receipt Note `sales_return`** — **selesai 19/11/2026 (P289)** — katalog purpose, posting per purpose, pilih lot dari tracking DN, status stock, `returned_qty` DN, `received_qty` SR, tutup otomatis SR | stock kembali di lot yang sama; jurnal Dr Persediaan / Cr HPP = nilai keluar; Kartu Stok & Nilai Persediaan benar |
 | 3 | **Invoice menagih qty bersih** (Kasus A) — **selesai 19/11/2026 (P291)** | DN yang diretur sebagian ditagih sisanya; diretur penuh tidak bisa dipilih |
 | 4 | **Credit Note Penjualan** — skema, AR item `Return`, event, posting, preview, list — **selesai 19/11/2026 (P292)**; baris per baris Invoice (lihat §6.1) | jurnal dan AR item benar untuk: belum dibayar, dibayar sebagian, lunas (kredit sisa), Invoice ber-uang-muka, USD |
-| 5 | **Penerimaan & laporan** — basis PPh setelah retur, Buku/Saldo/Umur Piutang | penerimaan atas Invoice yang diretur sebagian benar |
+| 5 | **Penerimaan & laporan** — basis PPh setelah retur, Buku/Saldo/Umur Piutang — **selesai 19/11/2026 (P293)** | penerimaan atas Invoice yang diretur sebagian benar |
 | 6 | **`db:reconcile`** — Piutang Usaha = item Invoice − item Retur per customer; HPP dibalik = nilai keluar; retur ≤ kirim; Credit Note ≤ baris Invoice; `returned_qty` = Σ Receipt Note retur posted | semua cek hijau |
 | 7 | (lanjut) Pengembalian Dana Customer, kredit dipakai Invoice berikutnya, Nota Retur di modul Pajak, Perlu Pembetulan bukti potong | sesuai keputusan saat itu |
 

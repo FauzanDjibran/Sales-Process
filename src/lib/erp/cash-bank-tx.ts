@@ -15,6 +15,7 @@ import { lockSalesAdvances, salesAdvanceNumbersByIds, settlementAdvances, unpaid
 import { lockPermitAdvances, permitAdvanceNumbersByIds, settlementPermitAdvances, unpaidPermitAdvanceIds } from "./permit-advance";
 import { lockPermitInvoices, permitInvoiceNumbersByIds, settlementPermitInvoices, unpaidPermitInvoiceIds } from "./permit-invoice";
 import { invoiceNumbersByIds, lockSalesInvoices, settlementInvoices, unpaidSalesInvoiceIds } from "./ar-invoice";
+import { postedCreditsByInvoices } from "./ar-credit-note";
 import {
   cashToClear,
   ppnChain,
@@ -195,6 +196,10 @@ async function openBills(
   const wantInvoices = filter.openOnly || (filter.invoiceIds?.length ?? 0) > 0;
   const wantPermitAdvances = filter.openOnly || (filter.permitAdvanceIds?.length ?? 0) > 0;
   const wantPermitInvoices = filter.openOnly || (filter.permitInvoiceIds?.length ?? 0) > 0;
+  // An Invoice is settled net of its posted Credit Notes (P293): the two
+  // modules meet here, not in each other.
+  const invoicesOf = async (ids: number[] | undefined) =>
+    settlementInvoices({ ids }, db, await postedCreditsByInvoices(db, ids ?? []));
   const [advances, invoices, permitAdvances, permitInvoices] = await Promise.all([
     // Only bills not yet paid in full, found from totals and the receipt lines before any is read whole.
     wantAdvances
@@ -205,8 +210,8 @@ async function openBills(
     // Only Invoices not paid in full: a paid one is never offered, so it is never read.
     wantInvoices
       ? filter.openOnly
-        ? unpaidSalesInvoiceIds(db).then((ids) => settlementInvoices({ ids }, db))
-        : settlementInvoices({ ids: filter.invoiceIds }, db)
+        ? unpaidSalesInvoiceIds(db).then(invoicesOf)
+        : invoicesOf(filter.invoiceIds)
       : Promise.resolve([]),
     // Uang Muka Perizinan (P137): the advance bill of the Perizinan flow, settled alike.
     wantPermitAdvances

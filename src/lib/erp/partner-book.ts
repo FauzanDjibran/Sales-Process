@@ -27,7 +27,8 @@ export const BOOK_WORDS = {
     Advance: "Uang Muka Customer",
     advanceIn: "Uang Muka Diterima",
     notes: {
-      Invoice: "Bertambah saat invoice terbit; berkurang oleh pembayaran dan uang muka yang diterapkan ke invoice.",
+      Invoice:
+        "Bertambah saat invoice terbit; berkurang oleh pembayaran, uang muka yang diterapkan ke invoice dan Credit Note. Kredit retur yang belum dipakai bersaldo minus.",
       Advance: "Bertambah saat uang muka diterima; berkurang saat dipakai invoice. Nilainya bagian DPP, yang tercatat di account Uang Muka.",
     },
   },
@@ -44,8 +45,13 @@ export const BOOK_WORDS = {
   },
 } as const;
 
-/** What an entry was, in its book's own words: an Uang Muka's first money is money, not a "birth". */
-export function bookEventText(side: BookSide, type: BookKind, event: string): string {
+/**
+ * What an entry was, in its book's own words: an Uang Muka's first money is
+ * money, not a "birth". A Retur item (P293) sits in the Piutang Usaha book: its
+ * birth is the Credit Note, its use the part applied to an Invoice.
+ */
+export function bookEventText(side: BookSide, type: BookKind | "Return", event: string): string {
+  if (type === "Return") return event === "Create" ? "Credit Note" : "Retur Dipakai Invoice";
   if (event === "Create") return type === "Invoice" ? "Invoice Terbit" : BOOK_WORDS[side].advanceIn;
   if (event === "AdvanceReceived") return BOOK_WORDS[side].advanceIn;
   if (event === "AdvanceUsed") return "Dipakai Invoice";

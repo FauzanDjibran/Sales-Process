@@ -558,6 +558,24 @@ export async function getCreditNote(id: number): Promise<CreditNoteView | null> 
   };
 }
 
+/**
+ * What posted Credit Notes credited of each Invoice — DPP, PPN and DPP per
+ * Invoice line — for the receipt, which settles the Invoice net of them (P293).
+ */
+export async function postedCreditsByInvoices(db: Db, invoiceIds: number[]): Promise<Map<number, { dpp: number; ppn: number; lineDpp: Map<number, number> }>> {
+  const out = new Map<number, { dpp: number; ppn: number; lineDpp: Map<number, number> }>();
+  if (!invoiceIds.length) return out;
+  const notes = await db.finArCreditNote.findMany({ where: { invoice_id: { in: invoiceIds }, status: "Posted" }, include: { lines: true } });
+  for (const n of notes) {
+    const c = out.get(n.invoice_id) ?? { dpp: 0, ppn: 0, lineDpp: new Map<number, number>() };
+    c.dpp += n.dpp_amount.toNumber();
+    c.ppn += n.ppn_amount.toNumber();
+    for (const l of n.lines) c.lineDpp.set(l.invoice_line_id, (c.lineDpp.get(l.invoice_line_id) ?? 0) + l.dpp_amount.toNumber());
+    out.set(n.invoice_id, c);
+  }
+  return out;
+}
+
 /** Credit Note numbers by id, for the audit panel. */
 export async function creditNoteNumbersByIds(ids: number[]): Promise<Map<number, string>> {
   const rows = await prisma.finArCreditNote.findMany({ where: { id: { in: ids } }, select: { id: true, credit_no: true } });

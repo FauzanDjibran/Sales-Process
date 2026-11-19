@@ -49,7 +49,8 @@ export type AgingRow = {
 
 export type AgingDoc = AgingRow & { due: string; days: number; bucket: AgingBucket };
 
-export type AgingFigures = { buckets: Record<AgingBucket, number>; invoice: number; advance: number; net: number };
+/** `credit`: open Retur items, customer credit from Credit Notes, not aged (P293). */
+export type AgingFigures = { buckets: Record<AgingBucket, number>; invoice: number; advance: number; credit: number; net: number };
 
 export type AgingPartner = AgingFigures & {
   partnerId: number;
@@ -58,17 +59,19 @@ export type AgingPartner = AgingFigures & {
   /** Oldest due first: the first to chase. */
   invoices: AgingDoc[];
   advances: AgingRow[];
+  credits: AgingRow[];
 };
 
 export type AgingReport = { partners: AgingPartner[]; totals: AgingFigures };
 
-const nil = (): AgingFigures => ({ buckets: { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 }, invoice: 0, advance: 0, net: 0 });
+const nil = (): AgingFigures => ({ buckets: { current: 0, d30: 0, d60: 0, d90: 0, over90: 0 }, invoice: 0, advance: 0, credit: 0, net: 0 });
 
 function toRupiah(f: AgingFigures): void {
   for (const b of AGING_BUCKETS) f.buckets[b.key] /= 100;
-  f.net = (f.invoice - f.advance) / 100;
+  f.net = (f.invoice - f.advance - f.credit) / 100;
   f.invoice /= 100;
   f.advance /= 100;
+  f.credit /= 100;
 }
 
 /**
@@ -76,13 +79,13 @@ function toRupiah(f: AgingFigures): void {
  * under it. An Uang Muka has no due date, so it is not aged: it stands in its
  * own column and only the net takes it. Added in whole cents.
  */
-export function foldAging(invoices: AgingRow[], advances: AgingRow[], asOf: string): AgingReport {
+export function foldAging(invoices: AgingRow[], advances: AgingRow[], asOf: string, credits: AgingRow[] = []): AgingReport {
   const partners = new Map<number, AgingPartner>();
   const totals = nil();
   const partnerOf = (r: AgingRow) =>
     partners.get(r.partnerId) ??
     partners
-      .set(r.partnerId, { ...nil(), partnerId: r.partnerId, label: r.partnerLabel, name: r.partnerName, invoices: [], advances: [] })
+      .set(r.partnerId, { ...nil(), partnerId: r.partnerId, label: r.partnerLabel, name: r.partnerName, invoices: [], advances: [], credits: [] })
       .get(r.partnerId)!;
   for (const r of invoices) {
     const due = r.dueDate ?? r.date;
@@ -101,6 +104,13 @@ export function foldAging(invoices: AgingRow[], advances: AgingRow[], asOf: stri
     p.advances.push(r);
     p.advance += c;
     totals.advance += c;
+  }
+  for (const r of credits) {
+    const c = Math.round(r.open * 100);
+    const p = partnerOf(r);
+    p.credits.push(r);
+    p.credit += c;
+    totals.credit += c;
   }
   const list = [...partners.values()].sort((a, b) => a.label.localeCompare(b.label));
   for (const p of list) {

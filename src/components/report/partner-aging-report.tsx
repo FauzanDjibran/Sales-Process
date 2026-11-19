@@ -19,7 +19,7 @@ const cell = (n: number) => (n ? <span className="mny">{money(n)}</span> : <span
 const credit = (n: number) => (n ? <span className="mny">−{money(n)}</span> : <span className="dash">–</span>);
 const signed = (n: number) => (n < 0 ? `−${money(-n)}` : money(n));
 
-function Figures({ f }: { f: AgingFigures }) {
+function Figures({ f, showCredit }: { f: AgingFigures; showCredit: boolean }) {
   return (
     <>
       {AGING_BUCKETS.map((b) => (
@@ -27,6 +27,7 @@ function Figures({ f }: { f: AgingFigures }) {
       ))}
       <td className="num">{cell(f.invoice)}</td>
       <td className="num">{credit(f.advance)}</td>
+      {showCredit && <td className="num">{credit(f.credit)}</td>}
       <td className="num"><b className="mny">{signed(f.net)}</b></td>
     </>
   );
@@ -36,6 +37,9 @@ export function PartnerAgingReport({ report, side, asOf }: { report: AgingReport
   const { partners, totals } = report;
   const noun = BOOK_WORDS[side].partner;
   const position = side === "ar" ? "Piutang" : "Hutang";
+  // Kredit Retur from Credit Notes (P293) gets its column only when there is any.
+  const showCredit = totals.credit !== 0;
+  const zeroCredit = showCredit ? <td className="num">{credit(0)}</td> : null;
   // One partner has nothing to scan past: its documents open with the page.
   const [open, setOpen] = useState<Set<number>>(() => new Set(partners.length === 1 ? [partners[0].partnerId] : []));
   const toggle = (id: number) =>
@@ -82,6 +86,7 @@ export function PartnerAgingReport({ report, side, asOf }: { report: AgingReport
               ))}
               <th className="num" style={{ width: 122 }}>Total {position}</th>
               <th className="num" style={{ width: 118 }}>Uang Muka</th>
+              {showCredit && <th className="num" style={{ width: 118 }}>Kredit Retur</th>}
               <th className="num" style={{ width: 122 }}>Posisi Bersih</th>
             </tr>
           </thead>
@@ -102,7 +107,7 @@ export function PartnerAgingReport({ report, side, asOf }: { report: AgingReport
                         <span className="nm">{p.name}</span>
                       </div>
                     </td>
-                    <Figures f={p} />
+                    <Figures f={p} showCredit={showCredit} />
                   </tr>
                   {isOpen &&
                     p.invoices.map((d) => (
@@ -121,6 +126,7 @@ export function PartnerAgingReport({ report, side, asOf }: { report: AgingReport
                         ))}
                         <td className="num">{cell(d.open)}</td>
                         <td className="num">{credit(0)}</td>
+                        {zeroCredit}
                         <td className="num"><span className="mny">{money(d.open)}</span></td>
                       </tr>
                     ))}
@@ -138,6 +144,25 @@ export function PartnerAgingReport({ report, side, asOf }: { report: AgingReport
                         ))}
                         <td className="num">{cell(0)}</td>
                         <td className="num">{credit(d.open)}</td>
+                        {zeroCredit}
+                        <td className="num"><span className="mny">−{money(d.open)}</span></td>
+                      </tr>
+                    ))}
+                  {isOpen &&
+                    p.credits.map((d) => (
+                      <tr key={d.id} style={{ cursor: "default" }}>
+                        <td className="stn d1">
+                          <span className="dstack" style={{ alignItems: "flex-start" }}>
+                            <DocLink table={d.sourceTable} id={d.sourceId} no={d.sourceNo} />
+                            <span className="d2" style={{ fontFamily: "inherit" }}>{formatDate(d.date)} · kredit retur</span>
+                          </span>
+                        </td>
+                        {AGING_BUCKETS.map((b) => (
+                          <td key={b.key} className="num">{cell(0)}</td>
+                        ))}
+                        <td className="num">{cell(0)}</td>
+                        <td className="num">{credit(0)}</td>
+                        <td className="num">{credit(d.open)}</td>
                         <td className="num"><span className="mny">−{money(d.open)}</span></td>
                       </tr>
                     ))}
@@ -148,7 +173,7 @@ export function PartnerAgingReport({ report, side, asOf }: { report: AgingReport
           <tfoot>
             <tr className="totrow">
               <td>Total</td>
-              <Figures f={totals} />
+              <Figures f={totals} showCredit={showCredit} />
             </tr>
           </tfoot>
         </table>

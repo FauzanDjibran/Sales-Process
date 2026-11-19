@@ -321,6 +321,27 @@ export async function arPaidByDocument(db: Db, docTable: string, ids: number[]):
   return new Map(rows.map((r) => [r.source_doc_id, r.paid_amount.toNumber()]));
 }
 
+/**
+ * What Credit Notes lowered each document's item by (`ReturnApplied`, P292),
+ * keyed by the document's id: a document's open amount is its total less what it
+ * was paid and less this.
+ */
+export async function arReturnAppliedByDocument(db: Db, docTable: string, ids: number[]): Promise<Map<number, number>> {
+  if (!ids.length) return new Map();
+  const items = await db.finArItem.findMany({
+    where: { source_doc_type: { doc_table: docTable }, source_doc_id: { in: ids } },
+    select: { id: true, source_doc_id: true },
+  });
+  if (!items.length) return new Map();
+  const sums = await db.finArLedger.groupBy({
+    by: ["item_id"],
+    where: { item_id: { in: items.map((i) => i.id) }, event: "ReturnApplied" },
+    _sum: { movement: true },
+  });
+  const byItem = new Map(sums.map((r) => [r.item_id, Math.abs(r._sum.movement?.toNumber() ?? 0)]));
+  return new Map(items.map((i) => [i.source_doc_id, byItem.get(i.id) ?? 0]));
+}
+
 export type ArItemRow = {
   id: number;
   arItemNo: string;
@@ -408,6 +429,14 @@ export async function openArItemsAsOf(
 }
 
 /**
+ * The items a book reads: Piutang Usaha holds the Retur items too (P293), which
+ * lower it, so their movements are turned round: an item's own sign is how its
+ * balance moves, not how Piutang Usaha does.
+ */
+const bookTypes = (book: BookKind): ArItemType[] => (book === "Invoice" ? ["Invoice", "Return"] : [book]);
+const bookSign = (type: string) => (type === "Return" ? -1 : 1);
+
+/**
  * Piutang Usaha or Uang Muka Customer over a period, one block per customer
  * (P233): the rollup Buku Piutang states and the items Saldo Piutang lists.
  * Read from the entries, so a past period reads as it stood. No entry reaches
@@ -415,9 +444,10 @@ export async function openArItemsAsOf(
  */
 export async function arBook(book: BookKind, range: PeriodRange, partnerIds: number[] = []): Promise<PartnerBook> {
   const items = await prisma.finArItem.findMany({
-    where: { item_type: book, item_date: { lte: asDate(range.to) }, ...(partnerIds.length ? { partner_id: { in: partnerIds } } : {}) },
+    where: { item_type: { in: bookTypes(book) }, item_date: { lte: asDate(range.to) }, ...(partnerIds.length ? { partner_id: { in: partnerIds } } : {}) },
     select: {
       id: true,
+      item_type: true,
       partner_id: true,
       item_date: true,
       source_no: true,
@@ -446,7 +476,7 @@ export async function arBook(book: BookKind, range: PeriodRange, partnerIds: num
       sourceId: i.source_doc_id,
       scopeTable: i.scope_doc_type?.doc_table ?? null,
       scopeId: i.scope_doc_id,
-      entries: i.entries.map((e) => ({ event: e.event, date: isoDay(e.entry_date), movement: e.movement.toNumber() })),
+      entries: i.entries.map((e) => ({ event: e.event, date: isoDay(e.entry_date), movement: bookSign(i.item_type) * e.movement.toNumber() })),
     })),
     "ar",
     book,
@@ -463,12 +493,12 @@ export async function arBookEntriesPage(
 ): Promise<{ entries: BookEntry[]; next: BookCursor | null }> {
   const rows = await prisma.finArLedger.findMany({
     where: {
-      item: { partner_id: partnerId, item_type: book },
+      item: { partner_id: partnerId, item_type: { in: bookTypes(book) } },
       entry_date: { gte: asDate(range.from), lte: asDate(range.to) },
       ...afterBookCursor(cursor),
     },
     include: {
-      item: { select: { source_no: true, source_doc_id: true, source_doc_type: { select: { doc_table: true } }, scope_doc_id: true, scope_doc_type: SCOPE_SELECT } },
+      item: { select: { item_type: true, source_no: true, source_doc_id: true, source_doc_type: { select: { doc_table: true } }, scope_doc_id: true, scope_doc_type: SCOPE_SELECT } },
       doc_type: { select: { doc_table: true } },
     },
     orderBy: [{ entry_date: "asc" }, { id: "asc" }],
@@ -489,9 +519,9 @@ export async function arBookEntriesPage(
       sourceId: r.item.source_doc_id,
       scopeTable: r.item.scope_doc_type?.doc_table ?? null,
       scopeId: r.item.scope_doc_id,
-      eventText: bookEventText("ar", book, r.event),
+      eventText: bookEventText("ar", r.item.item_type === "Return" ? "Return" : book, r.event),
       note: r.note,
-      movement: r.movement.toNumber(),
+      movement: bookSign(r.item.item_type) * r.movement.toNumber(),
     })),
     next: rows.length > ENTRY_PAGE_SIZE ? { date: isoDay(last.entry_date), id: last.id } : null,
   };

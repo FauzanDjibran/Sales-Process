@@ -5,7 +5,10 @@ import { createCustomerOrder, transitionCustomerOrder } from "../src/lib/erp/cus
 import { createSalesOrder, transitionSalesOrder } from "../src/lib/erp/sales-order";
 import { createDeliveryOrder, transitionDeliveryOrder } from "../src/lib/erp/delivery-order";
 import { createDeliveryNote, invoiceSourceLines, transitionDeliveryNote } from "../src/lib/erp/delivery-note";
-import { createInvoice, invoiceOptions, transitionInvoice } from "../src/lib/erp/ar-invoice";
+import { createInvoice, invoiceOptions, invoicePayStates, transitionInvoice, unpaidSalesInvoiceIds } from "../src/lib/erp/ar-invoice";
+import { cashReceiptOptions, createCashReceipt, transitionCashReceipt } from "../src/lib/erp/cash-bank-tx";
+import { arBook, openArItemsAsOf } from "../src/lib/erp/ar-item";
+import { foldAging } from "../src/lib/erp/ar-aging";
 import { createCreditNote, creditNoteOptions, creditNotePreview, transitionCreditNote, updateCreditNote } from "../src/lib/erp/ar-credit-note";
 import {
   checkSalesReturn,
@@ -45,7 +48,7 @@ import {
 const today = new Date().toISOString().slice(0, 10);
 let actor = 0;
 const f = {} as Record<string, number>;
-const ids = { co: [] as number[], so: [] as number[], do: [] as number[], dn: [] as number[], sr: [] as number[], rn: [] as number[], inv: [] as number[], cn: [] as number[] };
+const ids = { co: [] as number[], so: [] as number[], do: [] as number[], dn: [] as number[], sr: [] as number[], rn: [] as number[], inv: [] as number[], cn: [] as number[], rc: [] as number[] };
 const cleanups: (() => Promise<unknown>)[] = [];
 const savedSettings = new Map<string, string | null>();
 const stamp = String(Date.now() % 100000);
@@ -184,8 +187,8 @@ after(async () => {
   await prisma.finArItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
   await prisma.finArInvoiceLine.deleteMany({ where: { invoice_id: { in: ids.inv } } });
   await prisma.finArInvoice.deleteMany({ where: { id: { in: ids.inv } } });
-  if (f.bank) await prisma.mCashBank.deleteMany({ where: { id: f.bank } });
-  for (const [k, list] of Object.entries({ fin_ar_credit_note: ids.cn, fin_ar_invoice: ids.inv })) {
+  await prisma.finCashBankTx.deleteMany({ where: { id: { in: ids.rc } } });
+  for (const [k, list] of Object.entries({ fin_ar_credit_note: ids.cn, fin_ar_invoice: ids.inv, fin_cash_bank_tx: ids.rc })) {
     await prisma.auditLog.deleteMany({ where: { entity_key: k, row_id: { in: list } } });
   }
   await prisma.logReceiptNote.deleteMany({ where: { id: { in: ids.rn } } });
@@ -499,5 +502,59 @@ describe("a Credit Note credits what came back after the Invoice", () => {
     );
     assert.equal((await creditNoteOptions()).invoices.find((i) => i.id === invId), undefined, "nothing left to credit");
     assert.ok(!(await transitionCreditNote(a, "cancel", actor, "x")).ok, "a posted Credit Note is final");
+  });
+});
+
+// ------------------------------------- step 5: receipts and reports after a credit (P293)
+
+describe("receipts and reports read an Invoice net of its Credit Notes", () => {
+  const invId = () => ids.inv[0];
+
+  test("the receipt asks for the total less what Credit Notes applied", async () => {
+    const bill = (await cashReceiptOptions()).bills.find((b) => b.kind === "fin_ar_invoice" && b.id === invId())!;
+    assert.deepEqual([bill.total, bill.paid, bill.open, bill.dpp, bill.ppn], [27_750, 0, 27_750, 25_000, 2_750]);
+    assert.deepEqual([(await invoicePayStates([invId()]))[invId()].open], [27_750]);
+  });
+
+  test("paying what is left settles the Invoice, and no more is taken", async () => {
+    const receipt = (cash: number) => ({
+      purpose: "customer_receipt",
+      tx_date: today,
+      partner_id: f.customer,
+      cash_bank_id: f.bank,
+      bank_ref: "TRF",
+      note: "",
+      bank_charge: 0,
+      lines: [{ doc_type: "fin_ar_invoice" as const, doc_id: invId(), cash, withhold: false }],
+    });
+    assert.ok(!(await createCashReceipt(receipt(27_751), actor)).ok, "more than is left is refused");
+    const r = await createCashReceipt(receipt(27_750), actor);
+    assert.ok(r.ok, JSON.stringify(r));
+    ids.rc.push(r.id);
+    assert.deepEqual(await transitionCashReceipt(r.id, "post", actor), { ok: true });
+    const state = (await invoicePayStates([invId()]))[invId()];
+    assert.deepEqual([state.state, state.open], ["Paid", 0]);
+    assert.ok(!(await unpaidSalesInvoiceIds()).includes(invId()));
+    const item = await prisma.finArItem.findFirstOrThrow({ where: { item_type: "Invoice", source_doc_id: invId(), partner_id: f.customer } });
+    assert.equal(item.current_balance.toNumber(), 0);
+  });
+
+  test("Piutang Usaha holds the Retur items, turned round, and nets to the General Ledger", async () => {
+    const book = await arBook("Invoice", { from: today, to: today }, [f.customer]);
+    const [subject] = book.subjects;
+    // Invoice 33.300 raised, then lowered by 5.550 credited and 27.750 paid; each Retur item lowers by its total and rises back as it is used.
+    assert.deepEqual([subject.raised, subject.lowered, subject.closing], [33_300 + 5_550, 33_300 + 5_550, 0]);
+    assert.equal(subject.items.length, 3, "the Invoice and its two Credit Notes");
+  });
+
+  test("Umur Piutang shows open customer credit in its own column, out of the buckets", () => {
+    const row = { id: 1, partnerId: 9, partnerLabel: "C", partnerName: "C", date: today, dueDate: today, open: 1_000, sourceNo: "X", sourceTable: "fin_ar_invoice", sourceId: 1 };
+    const r = foldAging([row], [], today, [{ ...row, id: 2, open: 300, sourceTable: "fin_ar_credit_note" }]);
+    assert.deepEqual([r.totals.invoice, r.totals.credit, r.totals.net], [1_000, 300, 700]);
+    assert.equal(r.partners[0].credits.length, 1);
+  });
+
+  test("no Retur item of this customer is left open once used up", async () => {
+    assert.equal((await openArItemsAsOf("Return", today, f.customer)).length, 0);
   });
 });

@@ -15,6 +15,7 @@ import {
   ArItemOverdrawn,
   advanceItemsForInvoice,
   arPaidByDocument,
+  arReturnAppliedByDocument,
   arItemHeld,
   createArItem,
   settleArItem,
@@ -1165,9 +1166,11 @@ export type SettlementInvoice = {
   customerId: number;
   orderId: number;
   orderNo: string;
+  /** What it asks for: its total less what Credit Notes applied to it (P292). */
   total: number;
   dpp: number;
   ppn: number;
+  /** Per Jenis PPh on its net DPP, less what Credit Notes credited of each line (P292, plan §3.2). */
   withholdings: { key: string; rate: number; base: number; amount: number }[];
   arItemId: number | null;
   /** What posted receipts settled of it — a receipt's `before` (P133). */
@@ -1176,10 +1179,18 @@ export type SettlementInvoice = {
   currency: string;
 };
 
-/** Posted Invoices (with `postedOnly`), or the ones named, whatever their state. */
+/** What posted Credit Notes credited of an Invoice, per its lines — given by the caller, which may read them (§3.1). */
+export type InvoiceCredits = Map<number, { dpp: number; ppn: number; lineDpp: Map<number, number> }>;
+
+/**
+ * Posted Invoices (with `postedOnly`), or the ones named, whatever their state.
+ * `credits` lowers each one's DPP, PPN and PPh base by what Credit Notes
+ * credited; its total falls by what they applied to its item.
+ */
 export async function settlementInvoices(
   filter: { ids?: number[]; postedOnly?: boolean },
-  db: Db = prisma
+  db: Db = prisma,
+  credits: InvoiceCredits = new Map()
 ): Promise<SettlementInvoice[]> {
   const rows = await db.finArInvoice.findMany({
     where: {
@@ -1193,8 +1204,15 @@ export async function settlementInvoices(
     (await invoiceSourceOrders({ ids: [...new Set(rows.map((r) => r.customer_order_id))] }, db)).map((o) => [o.id, o.orderNo])
   );
   const scaleOf = (r: (typeof rows)[number]) => taxScale(r.currency.currency_label);
-  const paidOf = await arPaidByDocument(db, "fin_ar_invoice", rows.map((r) => r.id));
-  return rows.map((r) => ({
+  const ids = rows.map((r) => r.id);
+  const [paidOf, returnedOf] = await Promise.all([
+    arPaidByDocument(db, "fin_ar_invoice", ids),
+    arReturnAppliedByDocument(db, "fin_ar_invoice", ids),
+  ]);
+  const minor = (r: (typeof rows)[number], n: number) => Math.round(n * scaleOf(r)) / scaleOf(r);
+  return rows.map((r) => {
+    const credit = credits.get(r.id);
+    return {
     id: r.id,
     invoiceNo: r.invoice_no,
     invoiceDate: isoDay(r.invoice_date),
@@ -1203,21 +1221,22 @@ export async function settlementInvoices(
     customerId: r.customer_id,
     orderId: r.customer_order_id,
     orderNo: orders.get(r.customer_order_id) ?? "",
-    total: r.total_amount.toNumber(),
-    dpp: r.net_dpp_amount.toNumber(),
-    ppn: r.ppn_amount.toNumber(),
+    total: minor(r, r.total_amount.toNumber() - (returnedOf.get(r.id) ?? 0)),
+    dpp: minor(r, r.net_dpp_amount.toNumber() - (credit?.dpp ?? 0)),
+    ppn: minor(r, r.ppn_amount.toNumber() - (credit?.ppn ?? 0)),
     withholdings: withholdingsOf(
       r.lines.map((l) => ({
         key: l.withholding_tax_id ? String(l.withholding_tax_id) : null,
         rate: l.withholding_rate?.toNumber() ?? null,
-        dpp: l.net_dpp_amount.toNumber(),
+        dpp: Math.max(0, minor(r, l.net_dpp_amount.toNumber() - (credit?.lineDpp.get(l.id) ?? 0))),
       })),
       scaleOf(r)
     ),
     arItemId: r.ar_item_id,
     paid: paidOf.get(r.id) ?? 0,
     currency: r.currency.currency_label,
-  }));
+    };
+  });
 }
 
 /**
@@ -1233,11 +1252,15 @@ export async function invoicePayStates(
     where: { id: { in: ids }, status: "Posted" },
     select: { id: true, total_amount: true, due_date: true },
   });
-  const paidOf = await arPaidByDocument(prisma, "fin_ar_invoice", rows.map((r) => r.id));
+  const [paidOf, returnedOf] = await Promise.all([
+    arPaidByDocument(prisma, "fin_ar_invoice", rows.map((r) => r.id)),
+    arReturnAppliedByDocument(prisma, "fin_ar_invoice", rows.map((r) => r.id)),
+  ]);
   const today = new Date().toISOString().slice(0, 10);
   return Object.fromEntries(
     rows.map((r) => {
-      const total = r.total_amount.toNumber();
+      // What Credit Notes applied is no longer asked for (P292).
+      const total = r.total_amount.toNumber() - (returnedOf.get(r.id) ?? 0);
       const open = total - (paidOf.get(r.id) ?? 0);
       const state: InvoicePayState = open <= 0 ? "Paid" : open >= total ? "Unpaid" : "Partial";
       return [r.id, { state, open, overdue: open > 0 && isoDay(r.due_date) < today }];
@@ -1251,8 +1274,11 @@ export async function unpaidSalesInvoiceIds(db: Db = prisma): Promise<number[]> 
     where: { status: "Posted", ar_item_id: { not: null } },
     select: { id: true, total_amount: true },
   });
-  const paidOf = await arPaidByDocument(db, "fin_ar_invoice", rows.map((r) => r.id));
-  return rows.filter((r) => (paidOf.get(r.id) ?? 0) < r.total_amount.toNumber()).map((r) => r.id);
+  const [paidOf, returnedOf] = await Promise.all([
+    arPaidByDocument(db, "fin_ar_invoice", rows.map((r) => r.id)),
+    arReturnAppliedByDocument(db, "fin_ar_invoice", rows.map((r) => r.id)),
+  ]);
+  return rows.filter((r) => (paidOf.get(r.id) ?? 0) + (returnedOf.get(r.id) ?? 0) < r.total_amount.toNumber()).map((r) => r.id);
 }
 
 /** Locks Invoices' rows, in id order, before a receipt reads and pays them (P133). */
