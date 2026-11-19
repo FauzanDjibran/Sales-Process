@@ -27,9 +27,15 @@ export function ReceiptNoteList({ rows: all, can }: { rows: ReceiptNoteListRow[]
   }, [all, q, status]);
   const paging = usePaging(rows, `${q}|${status}`);
   const newButton = (
-    <Link className="btn primary" href="/inventory/receipt-note/new">
-      <Icon name="plus" size={15} /> Receipt Note Baru
-    </Link>
+    <>
+      {/* Goods a customer sends back, against an Open Sales Return (P288). */}
+      <Link className="btn" href="/inventory/receipt-note/new?purpose=sales_return">
+        <Icon name="plus" size={15} /> Penerimaan Retur
+      </Link>
+      <Link className="btn primary" href="/inventory/receipt-note/new">
+        <Icon name="plus" size={15} /> Receipt Note Baru
+      </Link>
+    </>
   );
   return (
     <>
@@ -80,8 +86,8 @@ export function ReceiptNoteList({ rows: all, can }: { rows: ReceiptNoteListRow[]
                     <th style={{ width: 160 }}>Nomor</th>
                     <th style={{ width: 110 }}>Status</th>
                     <th style={{ width: 100 }}>Tanggal</th>
-                    <th style={{ width: 160 }}>Purchase Order</th>
-                    <th>Supplier</th>
+                    <th style={{ width: 160 }}>Sumber</th>
+                    <th>Partner</th>
                     <th style={{ width: 110 }}>Gudang</th>
                     <th className="num" style={{ width: 150 }}>
                       Nilai

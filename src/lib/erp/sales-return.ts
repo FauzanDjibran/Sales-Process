@@ -575,6 +575,105 @@ export async function getSalesReturn(id: number): Promise<SalesReturnView | null
   };
 }
 
+// ------------------------------------------- for the Receipt Note (P288)
+
+/**
+ * An approved Sales Return as a returning Receipt Note reads it: its customer,
+ * its Customer Order's Kena PPN (the note's number series, P109) and its lines
+ * with what posted receipts already brought back.
+ */
+export type ReturnReceiptSource = {
+  id: number;
+  returnNo: string;
+  returnDate: string;
+  status: SalesReturnStatus;
+  customerOrderNo: string;
+  isTaxable: boolean;
+  customerId: number;
+  customerLabel: string;
+  customerName: string;
+  customerActive: boolean;
+  lines: {
+    id: number;
+    lineNo: number;
+    deliveryNoteId: number;
+    deliveryNoteLineId: number;
+    itemId: number;
+    itemLabel: string;
+    itemName: string;
+    uomId: number;
+    uomLabel: string;
+    qty: number;
+    received: number;
+  }[];
+};
+
+/** Open returns (with `openOnly`), or the ones named whatever their status. */
+export async function returnReceiptSources(filter: { ids?: number[]; openOnly?: boolean }, db: Db = prisma): Promise<ReturnReceiptSource[]> {
+  const rows = await db.salReturn.findMany({
+    where: { ...(filter.ids ? { id: { in: filter.ids } } : {}), ...(filter.openOnly ? { status: "Open" } : {}) },
+    orderBy: [{ return_date: "asc" }, { id: "asc" }],
+    include: { customer: true, lines: { include: { item: true, uom: true }, orderBy: { line_no: "asc" } } },
+  });
+  if (!rows.length) return [];
+  const cos = new Map((await salesOrderSources({ ids: [...new Set(rows.map((r) => r.customer_order_id))] }, db)).map((c) => [c.id, c]));
+  return rows.map((r) => ({
+    id: r.id,
+    returnNo: r.return_no,
+    returnDate: isoDay(r.return_date),
+    status: r.status as SalesReturnStatus,
+    customerOrderNo: cos.get(r.customer_order_id)?.orderNo ?? "",
+    isTaxable: cos.get(r.customer_order_id)?.isTaxable ?? true,
+    customerId: r.customer_id,
+    customerLabel: r.customer.partner_label,
+    customerName: r.customer.partner_name,
+    customerActive: r.customer.status === "Active",
+    lines: r.lines.map((l) => ({
+      id: l.id,
+      lineNo: l.line_no,
+      deliveryNoteId: l.delivery_note_id,
+      deliveryNoteLineId: l.delivery_note_line_id,
+      itemId: l.item_id,
+      itemLabel: l.item.item_label,
+      itemName: l.item.item_name,
+      uomId: l.uom_id,
+      uomLabel: l.uom.uom_label,
+      qty: l.base_qty.toNumber(),
+      received: l.received_qty.toNumber(),
+    })),
+  }));
+}
+
+/** The lock every document on this return's Customer Order takes. */
+export async function lockSalesReturn(tx: Prisma.TransactionClient, id: number): Promise<void> {
+  const row = await tx.salReturn.findUnique({ where: { id }, select: { customer_order_id: true } });
+  if (row) await lockCustomerOrder(tx, row.customer_order_id);
+}
+
+/**
+ * Records what a posted Receipt Note brought back of these return lines, inside
+ * its posting transaction; a return whose every line is back closes itself.
+ * Returns the numbers of the returns it closed.
+ */
+export async function recordSalesReturnReceived(tx: Prisma.TransactionClient, back: Map<number, number>, actorId: number): Promise<string[]> {
+  const ids = new Set<number>();
+  for (const [lineId, qty] of back) {
+    const l = await tx.salReturnLine.update({ where: { id: lineId }, data: { received_qty: { increment: qty } }, select: { return_id: true } });
+    ids.add(l.return_id);
+  }
+  const closed: string[] = [];
+  for (const id of ids) {
+    const r = await tx.salReturn.findUniqueOrThrow({ where: { id }, include: { lines: true } });
+    if (r.status !== "Open" || !r.lines.every((l) => units(l.received_qty.toNumber()) >= units(l.base_qty.toNumber()))) continue;
+    const done = await tx.salReturn.updateMany({ where: { id, status: "Open" }, data: { status: "Closed", status_reason: null, updated_by: actorId } });
+    if (done.count === 1) {
+      await audit(tx, id, "UPDATE", "fulfil", actorId);
+      closed.push(r.return_no);
+    }
+  }
+  return closed;
+}
+
 /** Sales Return numbers by id, for the audit panel. */
 export async function salesReturnNumbersByIds(ids: number[]): Promise<Map<number, string>> {
   const rows = await prisma.salReturn.findMany({ where: { id: { in: ids } }, select: { id: true, return_no: true } });

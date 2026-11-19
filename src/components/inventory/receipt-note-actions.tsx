@@ -11,6 +11,8 @@ import { previewReceiptNotePostingAction, transitionReceiptNoteAction } from "@/
 import { headerButtonClass, orderForHeader, type ActionTone } from "@/lib/erp/header-actions";
 import {
   RECEIPT_NOTE_TRANSITIONS,
+  SALES_RETURN,
+  SALES_RETURN_POST_BODY,
   availableReceiptNoteActions,
   receiptNoteIsEditable,
   type ReceiptNoteAbilities,
@@ -35,11 +37,14 @@ export function ReceiptNoteActions({
   subject,
   status,
   can,
+  purpose,
 }: {
   id: number;
   subject: string;
   status: ReceiptNoteStatus;
   can: ReceiptNoteAbilities;
+  /** The note's purpose: a return's posting says what a return does (P288). */
+  purpose?: string;
 }) {
   const toast = useToast();
   const [confirm, setConfirm] = useState<ReceiptNoteAction | null>(null);
@@ -131,7 +136,7 @@ export function ReceiptNoteActions({
           tone={t.tone === "danger" ? "danger" : "ok"}
           title={t.title}
           subject={subject}
-          body={t.body}
+          body={confirm === "post" && purpose === SALES_RETURN ? SALES_RETURN_POST_BODY : t.body}
           confirmLabel={t.confirmLabel}
           confirmTone={t.tone === "danger" ? "solid-danger" : "primary"}
           busy={busy}

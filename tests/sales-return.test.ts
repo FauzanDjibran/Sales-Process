@@ -16,6 +16,8 @@ import {
   type SalesReturnLineInput,
 } from "../src/lib/erp/sales-return";
 import { availableSalesReturnActions, salesReturnAbilities } from "../src/lib/erp/sales-return-workflow";
+import { createReceiptNote, liveReturnReceiptRefusal, returnReceiptOptions, transitionReceiptNote, updateReceiptNote } from "../src/lib/erp/receipt-note";
+import { SALES_RETURN } from "../src/lib/erp/receipt-note-workflow";
 import {
   FIXTURE_PREFIX,
   cleanupFiscalYear,
@@ -41,7 +43,7 @@ import {
 const today = new Date().toISOString().slice(0, 10);
 let actor = 0;
 const f = {} as Record<string, number>;
-const ids = { co: [] as number[], so: [] as number[], do: [] as number[], dn: [] as number[], sr: [] as number[] };
+const ids = { co: [] as number[], so: [] as number[], do: [] as number[], dn: [] as number[], sr: [] as number[], rn: [] as number[] };
 const cleanups: (() => Promise<unknown>)[] = [];
 const savedSettings = new Map<string, string | null>();
 const stamp = String(Date.now() % 100000);
@@ -173,6 +175,8 @@ before(async () => {
 });
 
 after(async () => {
+  await prisma.logReceiptNote.deleteMany({ where: { id: { in: ids.rn } } });
+  await prisma.auditLog.deleteMany({ where: { entity_key: "log_receipt_note", row_id: { in: ids.rn } } });
   await prisma.salReturnLine.deleteMany({ where: { return_id: { in: ids.sr } } });
   await prisma.salReturn.deleteMany({ where: { id: { in: ids.sr } } });
   await prisma.logDeliveryNoteTracking.deleteMany({ where: { line: { delivery_note_id: { in: ids.dn } } } });
@@ -282,5 +286,77 @@ describe("returns share what left on a note line", () => {
     assert.deepEqual(availableSalesReturnActions("Submitted", all), ["reject", "approve"]);
     assert.deepEqual(availableSalesReturnActions("Open", all), ["close"]);
     assert.deepEqual(availableSalesReturnActions("Closed", all), []);
+  });
+});
+
+// ------------------------------------------- step 2: the goods come back (P288)
+
+describe("a Receipt Note sales_return brings the goods back", () => {
+  let srId = 0;
+  let srLine = 0;
+  let dnTracking = 0;
+  const lot = (qty: number, statusId: number) => ({ tracking_no: "", expiry_date: "", source_tracking_id: dnTracking, qty, location_id: null, stock_status_id: statusId });
+  const head = () => ({ purpose: SALES_RETURN, source_doc_id: srId, rn_date: today, warehouse_id: f.warehouse, supplier_dn_no: "", note: "" });
+
+  before(async () => {
+    const r = await create(header(), [line(10)]);
+    assert.ok(r.ok, JSON.stringify(r));
+    srId = r.id;
+    for (const a of ["submit", "approve"] as const) assert.deepEqual(await transitionSalesReturn(srId, a, actor), { ok: true });
+    srLine = (await prisma.salReturnLine.findFirstOrThrow({ where: { return_id: srId } })).id;
+    dnTracking = (await prisma.logDeliveryNoteTracking.findFirstOrThrow({ where: { delivery_note_line_id: flow.dnLine } })).id;
+    f.available = (await prisma.sysStockStatus.findUniqueOrThrow({ where: { status_label: "TERSEDIA" } })).id;
+    f.blocked = (await prisma.sysStockStatus.findFirstOrThrow({ where: { status_label: { not: "TERSEDIA" } } })).id;
+  });
+
+  test("offers the Open return with the lot that left and what may come back", async () => {
+    const o = await returnReceiptOptions();
+    const mine = o.returns.find((r) => r.id === srId)!;
+    assert.ok(mine, "the Open return is offered");
+    assert.deepEqual(mine.lines.map((l) => [l.qty, l.held, l.warehouseId, l.trackings.map((t) => [t.id, t.baseQty, t.room, t.cost])]), [
+      [10, 0, f.warehouse, [[dnTracking, 40, 40, 400_000]]],
+    ]);
+  });
+
+  test("refuses lots it cannot take, and a Draft holds the return and blocks Tutup", async () => {
+    const tooMuch = await createReceiptNote(head(), [{ source_doc_line_id: srLine, qty: 11, note: "", lots: [lot(11, f.available)] }], actor);
+    assert.ok(!tooMuch.ok && /Melebihi sisa Sales Return/.test(tooMuch.errors["lines.0.qty"]));
+    const noStatus = await createReceiptNote(head(), [{ source_doc_line_id: srLine, qty: 4, note: "", lots: [lot(4, 0)] }], actor);
+    assert.ok(!noStatus.ok && /status stok/.test(noStatus.errors["lines.0.lots"]));
+    const r = await createReceiptNote(head(), [{ source_doc_line_id: srLine, qty: 4, note: "", lots: [lot(4, f.available)] }], actor);
+    assert.ok(r.ok, JSON.stringify(r));
+    ids.rn.push(r.id);
+    assert.match(r.rnNo, /^RN\/\d{4}\/\d{2}\/\d{4,}$/, "the Customer Order has PPN, so the plain series (P109)");
+    assert.match((await prisma.$transaction((tx) => liveReturnReceiptRefusal(tx, srId))) ?? "", /Receipt Note Draft/);
+    const partial = await transitionReceiptNote(r.id, "post", actor);
+    assert.ok(partial.ok, JSON.stringify(partial));
+    // The second receipt brings the rest, part of it held back.
+    const rest = await createReceiptNote(head(), [{ source_doc_line_id: srLine, qty: 6, note: "", lots: [lot(4, f.available), lot(1, f.blocked)] }], actor);
+    assert.ok(rest.ok, JSON.stringify(rest));
+    ids.rn.push(rest.id);
+    const short = await transitionReceiptNote(rest.id, "post", actor);
+    assert.ok(!short.ok && /Lengkapi lotnya/.test(short.errors._form), "posting needs the lots in full");
+    assert.ok((await updateReceiptNote(rest.id, head(), [{ source_doc_line_id: srLine, qty: 6, note: "", lots: [lot(5, f.available), lot(1, f.blocked)] }], actor)).ok);
+  });
+
+  test("posting returns the stock at the value it left at, reverses HPP and closes the return", async () => {
+    const [first, second] = ids.rn;
+    const firstNote = await prisma.logReceiptNote.findUniqueOrThrow({ where: { id: first }, include: { lines: { include: { trackings: true } } } });
+    assert.equal(firstNote.value_amount.toNumber(), 40_000, "4 of the 40 that left at 400.000");
+    const posted = await transitionReceiptNote(second, "post", actor);
+    assert.ok(posted.ok, JSON.stringify(posted));
+    assert.deepEqual(posted.closed, [(await getSalesReturn(srId))!.returnNo], "every line back: the return closes itself");
+    const note = await prisma.logReceiptNote.findUniqueOrThrow({ where: { id: second } });
+    assert.equal(note.value_amount.toNumber(), 60_000, "6 of the 40 at 10.000 each, cumulative");
+    const lines = await prisma.accJournalLine.findMany({ where: { journal_id: note.journal_id! } });
+    const cogs = Number((await prisma.sysSetting.findUniqueOrThrow({ where: { setting_key: "cogs_account" } })).setting_value);
+    const inv = Number((await prisma.sysSetting.findUniqueOrThrow({ where: { setting_key: "inventory_account" } })).setting_value);
+    assert.equal(lines.filter((l) => l.account_id === inv).reduce((a, l) => a + l.debit_amount.toNumber(), 0), 60_000);
+    assert.equal(lines.filter((l) => l.account_id === cogs).reduce((a, l) => a + l.kredit_amount.toNumber(), 0), 60_000);
+    const back = await prisma.logStockBalance.findMany({ where: { item_id: f.goods, warehouse_id: f.warehouse, tracking_id: f.lot } });
+    assert.equal(back.find((b) => b.stock_status_id === f.available)?.qty_balance.toNumber(), 60 + 9, "the same lot, Tersedia");
+    assert.equal(back.find((b) => b.stock_status_id === f.blocked)?.qty_balance.toNumber(), 1, "one held back under its own status");
+    assert.equal((await prisma.salReturnLine.findUniqueOrThrow({ where: { id: srLine } })).received_qty.toNumber(), 10);
+    assert.equal((await prisma.logDeliveryNoteLine.findUniqueOrThrow({ where: { id: flow.dnLine } })).returned_qty.toNumber(), 10);
   });
 });

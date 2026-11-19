@@ -24,6 +24,15 @@ export const RECEIPT_NOTE_ACTIONS: ReceiptNoteAction[] = ["cancel", "post"];
 /** The one purpose so far (P106): goods or a service received against a Purchase Order. */
 export const PURCHASE_RECEIPT = "purchase_receipt";
 
+/** Goods a customer sends back, against an Open Sales Return (P288). */
+export const SALES_RETURN = "sales_return";
+
+/** What posting a return does, for its confirmation in place of the purchase wording. */
+export const SALES_RETURN_POST_BODY =
+  "Barang masuk kembali ke gudang per lot pada Tanggal Terima, dengan status yang dipilih, senilai saat barang " +
+  "keluar, sehingga HPP dibalik dengan journal di bawah ini. Penjualan, PPN dan piutang belum dikoreksi — itu " +
+  "dilakukan Credit Note bila barangnya sudah ditagih. Receipt Note yang sudah diposting tidak dapat diubah atau dibatalkan.";
+
 export type ReceiptNoteTransition = {
   label: string;
   permission: PermissionCode;

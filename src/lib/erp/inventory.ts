@@ -440,6 +440,8 @@ export type StockReceipt = {
   source: StockSource;
   /** The supplier, when the receipt names one. */
   partnerId?: number | null;
+  /** The status it comes in under; Tersedia when not said (a returned good may be held back, P288). */
+  statusId?: number | null;
   actorId: number;
 };
 
@@ -485,7 +487,7 @@ export async function receiveStock(tx: Tx, r: StockReceipt): Promise<{ trackingI
     });
   }
 
-  const status = await statusId(tx);
+  const status = r.statusId ?? (await statusId(tx));
   const pool = await lockPool(tx, r.itemId, item.base_uom_id, r.actorId);
   const bucket = (await lockBucket(
     tx,

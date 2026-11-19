@@ -13,6 +13,7 @@ import {
   type SalesReturnResult,
 } from "@/lib/erp/sales-return";
 import { SALES_RETURN_TRANSITIONS, type SalesReturnAction } from "@/lib/erp/sales-return-workflow";
+import { liveReturnReceiptRefusal } from "@/lib/erp/receipt-note";
 
 /**
  * The Sales Return's write path (P287). The permission is checked here; every
@@ -37,6 +38,8 @@ async function authorize(code: string): Promise<Guard> {
 function revalidate(id?: number) {
   revalidatePath("/sales/return");
   if (id) revalidatePath(`/sales/return/${id}`);
+  // A returning Receipt Note draws on Open Sales Returns.
+  revalidatePath("/inventory/receipt-note", "layout");
 }
 
 export async function createSalesReturnAction(
@@ -76,7 +79,10 @@ export async function transitionSalesReturnAction(
   const g = await authorize(transition.permission);
   if (!g.ok) return g.denial;
   try {
-    const result = await transitionSalesReturn(id, action, g.actor.user.id, reason);
+    // Tutup is refused while a Receipt Note on the return is still Draft; the
+    // two modules meet here, not in each other.
+    const guard = action === "close" ? liveReturnReceiptRefusal : undefined;
+    const result = await transitionSalesReturn(id, action, g.actor.user.id, reason, guard);
     if (!result.ok) return result;
   } catch (error) {
     return { ok: false, errors: { _form: error instanceof Error ? error.message : "Gagal diproses." } };

@@ -1048,6 +1048,60 @@ export async function invoiceSourceLines(
   );
 }
 
+// ------------------------------------------------- for a sales return (P288)
+
+/**
+ * What left on a posted note line, bucket by bucket, as a returning Receipt
+ * Note reads it: each tracking row's lot, location, status, base quantity and
+ * the value it left at (P114), with the note's warehouse.
+ */
+export type ReturnSourceTracking = {
+  id: number;
+  deliveryNoteLineId: number;
+  trackingId: number;
+  trackingNo: string;
+  expiryDate: string;
+  locationId: number | null;
+  baseQty: number;
+  cost: number;
+};
+
+export async function returnSourceTrackings(
+  lineIds: number[],
+  db: Db = prisma
+): Promise<{ warehouseOf: Map<number, number>; trackings: ReturnSourceTracking[] }> {
+  if (!lineIds.length) return { warehouseOf: new Map(), trackings: [] };
+  const lines = await db.logDeliveryNoteLine.findMany({
+    where: { id: { in: lineIds }, delivery_note: { purpose: SALES_DELIVERY, status: "Posted" } },
+    include: { delivery_note: { select: { warehouse_id: true } }, trackings: { orderBy: { pick_no: "asc" } } },
+  });
+  return {
+    warehouseOf: new Map(lines.map((l) => [l.id, l.delivery_note.warehouse_id])),
+    trackings: lines.flatMap((l) =>
+      l.trackings.map((t) => ({
+        id: t.id,
+        deliveryNoteLineId: l.id,
+        trackingId: t.tracking_id,
+        trackingNo: t.tracking_no,
+        expiryDate: isoDay(t.expiry_date),
+        locationId: t.location_id,
+        baseQty: t.base_qty.toNumber(),
+        cost: t.cost_amount.toNumber(),
+      }))
+    ),
+  };
+}
+
+/**
+ * Records what a posted return brought back of these note lines (P288), inside
+ * its posting transaction; the CHECK keeps it within what left.
+ */
+export async function recordDeliveryNoteReturned(tx: Prisma.TransactionClient, back: Map<number, number>): Promise<void> {
+  for (const [lineId, qty] of back) {
+    await tx.logDeliveryNoteLine.update({ where: { id: lineId }, data: { returned_qty: { increment: qty } } });
+  }
+}
+
 /** Drafts dated up to a day — the month-end close's checklist (R28). */
 export async function draftDeliveryNotesUpTo(to: Date, db: Db = prisma): Promise<number> {
   return db.logDeliveryNote.count({ where: { status: "Draft", dn_date: { lte: to } } });

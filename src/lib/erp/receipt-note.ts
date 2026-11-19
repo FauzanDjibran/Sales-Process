@@ -11,8 +11,11 @@ import { lockPurchaseOrder, receiptNoteSources, recordPurchaseOrderReceived, typ
 import { InventoryRefusal, assertNewTrackingNo, receiveStock, warehouseLocationOptions, type WarehouseLocationOption } from "./inventory";
 import { fallbackAccounts } from "./system-settings";
 import { accountsForItems } from "./item-account";
+import { lockSalesReturn, recordSalesReturnReceived, returnReceiptSources, type ReturnReceiptSource } from "./sales-return";
+import { recordDeliveryNoteReturned, returnSourceTrackings, type ReturnSourceTracking } from "./delivery-note";
 import {
   PURCHASE_RECEIPT,
+  SALES_RETURN,
   RECEIPT_NOTE_HOLDS_QTY,
   RECEIPT_NOTE_TRANSITIONS,
   cumulativeShare,
@@ -45,6 +48,8 @@ import { taxScale } from "./sales-tax";
 type Db = Prisma.TransactionClient | typeof prisma;
 
 export type ReceiptNoteHeaderInput = {
+  /** `purchase_receipt` when not said; fixed once saved. */
+  purpose?: string;
   source_doc_id: number | null;
   rn_date: string;
   warehouse_id: number | null;
@@ -53,7 +58,15 @@ export type ReceiptNoteHeaderInput = {
 };
 
 /** One lot a line comes in as — and, in a warehouse that has locations, where it is put. */
-export type ReceiptNoteLotInput = { tracking_no: string; expiry_date: string; location_id?: number | null; qty: number | string };
+export type ReceiptNoteLotInput = {
+  tracking_no: string;
+  expiry_date: string;
+  location_id?: number | null;
+  qty: number | string;
+  /** `sales_return`: the Delivery Note tracking row the goods left on, and the status they come back under. */
+  source_tracking_id?: number | null;
+  stock_status_id?: number | null;
+};
 
 export type ReceiptNoteLineInput = {
   source_doc_line_id: number | null;
@@ -144,7 +157,16 @@ export async function receiptNoteOptions(current: { id: number; sourceId: number
 
 // ------------------------------------------------------------- validation
 
-type CheckedLot = { tracking_seq: number; tracking_no: string | null; expiry_date: Date | null; location_id: number | null; qty: number };
+type CheckedLot = {
+  tracking_seq: number;
+  tracking_no: string | null;
+  expiry_date: Date | null;
+  location_id: number | null;
+  qty: number;
+  tracking_id?: number;
+  source_tracking_id?: number;
+  stock_status_id?: number;
+};
 
 /** Where a receipt's lots may be put: nothing to choose, or one of the warehouse's locations. */
 type Place = { useLocation: boolean; locations: Map<number, WarehouseLocationOption> };
@@ -371,15 +393,16 @@ const lineCreate = ({ lots, ...l }: CheckedLine) => ({ ...l, trackings: { create
 
 export async function createReceiptNote(header: ReceiptNoteHeaderInput, lines: ReceiptNoteLineInput[], actorId: number): Promise<ReceiptNoteResult> {
   const sourceId = Number(header.source_doc_id) || null;
+  const ret = header.purpose === SALES_RETURN;
   return refusable(async () => {
     const made = await prisma.$transaction(async (tx) => {
-      if (sourceId) await lockPurchaseOrder(tx, sourceId);
-      const r = await checkReceiptNote(tx, header, lines, null);
+      if (sourceId) await (ret ? lockSalesReturn : lockPurchaseOrder)(tx, sourceId);
+      const r = ret ? await checkReturnReceipt(tx, header, lines, null) : await checkReceiptNote(tx, header, lines, null);
       if (!r.ok) throw new Refused(r.errors);
       const row = await tx.logReceiptNote.create({
         data: {
           ...r.c.data,
-          // A receipt follows its Purchase Order's series (P109).
+          // A receipt follows its source's series (P109).
           rn_no: await nextRnNo(tx, r.c.data.rn_date, r.c.source.isTaxable),
           created_by: actorId,
           lines: { create: r.c.lines.map(lineCreate) },
@@ -393,16 +416,17 @@ export async function createReceiptNote(header: ReceiptNoteHeaderInput, lines: R
 }
 
 export async function updateReceiptNote(id: number, header: ReceiptNoteHeaderInput, lines: ReceiptNoteLineInput[], actorId: number): Promise<ReceiptNoteResult> {
-  const current = await prisma.logReceiptNote.findUnique({ where: { id }, select: { status: true, rn_no: true, source_doc_id: true } });
+  const current = await prisma.logReceiptNote.findUnique({ where: { id }, select: { status: true, rn_no: true, source_doc_id: true, purpose: true } });
   if (!current) return { ok: false, errors: { _form: "Receipt Note tidak ditemukan." } };
   if (!receiptNoteIsEditable(current.status as ReceiptNoteStatus)) return { ok: false, errors: { _form: "Receipt Note yang sudah diposting atau dibatalkan tidak dapat diubah." } };
   if (Number(header.source_doc_id) !== current.source_doc_id) {
-    return { ok: false, errors: { source_doc_id: "Purchase Order tidak dapat diganti. Buat Receipt Note baru untuk Purchase Order lain." } };
+    return { ok: false, errors: { source_doc_id: "Sumber tidak dapat diganti. Buat Receipt Note baru untuk sumber lain." } };
   }
+  const ret = current.purpose === SALES_RETURN;
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
-      await lockPurchaseOrder(tx, current.source_doc_id);
-      const r = await checkReceiptNote(tx, header, lines, id);
+      await (ret ? lockSalesReturn : lockPurchaseOrder)(tx, current.source_doc_id);
+      const r = ret ? await checkReturnReceipt(tx, { ...header, purpose: SALES_RETURN }, lines, id) : await checkReceiptNote(tx, header, lines, id);
       if (!r.ok) throw new Refused(r.errors);
       const done = await tx.logReceiptNote.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: "Receipt Note berubah saat diproses. Muat ulang halaman." });
@@ -420,6 +444,7 @@ const WITH_LOTS = { lines: { include: { trackings: { orderBy: { tracking_seq: "a
 function asInput(n: StoredNote): { header: ReceiptNoteHeaderInput; lines: ReceiptNoteLineInput[] } {
   return {
     header: {
+      purpose: n.purpose,
       source_doc_id: n.source_doc_id,
       rn_date: isoDay(n.rn_date),
       warehouse_id: n.warehouse_id,
@@ -432,7 +457,14 @@ function asInput(n: StoredNote): { header: ReceiptNoteHeaderInput; lines: Receip
         source_doc_line_id: l.source_doc_line_id,
         qty: l.qty.toNumber(),
         note: l.note ?? "",
-        lots: l.trackings.map((p) => ({ tracking_no: p.tracking_no ?? "", expiry_date: isoDay(p.expiry_date), location_id: p.location_id, qty: p.qty.toNumber() })),
+        lots: l.trackings.map((p) => ({
+          tracking_no: p.tracking_no ?? "",
+          expiry_date: isoDay(p.expiry_date),
+          location_id: p.location_id,
+          qty: p.qty.toNumber(),
+          source_tracking_id: p.source_tracking_id,
+          stock_status_id: p.stock_status_id,
+        })),
       })),
   };
 }
@@ -494,6 +526,7 @@ export async function transitionReceiptNote(
 
   const period = await checkTransactionDate(isoDay(note.rn_date));
   if (!period.ok) return { ok: false, errors: { _form: period.message } };
+  if (note.purpose === SALES_RETURN) return postReturnReceipt(note, actorId, options);
   // Stock lines to the category's Persediaan (Account Mapping's where none);
   // any other line to the category's Beban, which has no fallback (P122).
   const fallback = await fallbackAccounts(["inventory_account", "goods_received_account"] as const);
@@ -614,6 +647,389 @@ export async function transitionReceiptNote(
     });
     return { ok: true as const, closed };
   });
+}
+
+// ------------------------------------------------ purpose sales_return (P288)
+
+/** A lot of the Delivery Note line, and how much of it may still come back. */
+export type RrSourceTracking = ReturnSourceTracking & { room: number };
+export type RrSourceLine = ReturnReceiptSource["lines"][number] & {
+  /** What other notes — Draft or Posted, not this one — hold of the return line. */
+  held: number;
+  /** The warehouse the goods left from: where they start coming back to. */
+  warehouseId: number | null;
+  trackings: RrSourceTracking[];
+};
+export type RrSourceOption = Omit<ReturnReceiptSource, "lines"> & { lines: RrSourceLine[] };
+
+export type ReturnReceiptOptions = {
+  returns: RrSourceOption[];
+  warehouses: ReceiptNoteOptions["warehouses"];
+  statuses: { id: number; label: string; name: string }[];
+};
+
+/** What other return notes hold of each source tracking row, in base units; Posted only with `postedOnly`. */
+async function heldByTrackings(db: Db, trackingIds: number[], exceptId: number | null, postedOnly = false): Promise<Map<number, number>> {
+  if (!trackingIds.length) return new Map();
+  const rows = await db.logReceiptNoteTracking.groupBy({
+    by: ["source_tracking_id"],
+    where: {
+      source_tracking_id: { in: trackingIds },
+      line: {
+        receipt_note: {
+          purpose: SALES_RETURN,
+          status: postedOnly ? "Posted" : { in: RECEIPT_NOTE_HOLDS_QTY },
+          ...(exceptId ? { id: { not: exceptId } } : {}),
+        },
+      },
+    },
+    _sum: { qty: true },
+  });
+  return new Map(rows.map((r) => [r.source_tracking_id!, r._sum?.qty?.toNumber() ?? 0]));
+}
+
+async function returnSourceOptions(db: Db, filter: { ids?: number[]; openOnly?: boolean }, exceptId: number | null): Promise<RrSourceOption[]> {
+  const sources = await returnReceiptSources(filter, db);
+  const lineIds = sources.flatMap((s) => s.lines.map((l) => l.id));
+  const held = lineIds.length
+    ? new Map(
+        (
+          await db.logReceiptNoteLine.groupBy({
+            by: ["source_doc_line_id"],
+            where: {
+              source_doc_line_id: { in: lineIds },
+              receipt_note: { purpose: SALES_RETURN, status: { in: RECEIPT_NOTE_HOLDS_QTY }, ...(exceptId ? { id: { not: exceptId } } : {}) },
+            },
+            _sum: { qty: true },
+          })
+        ).map((r) => [r.source_doc_line_id, r._sum?.qty?.toNumber() ?? 0])
+      )
+    : new Map<number, number>();
+  const { warehouseOf, trackings } = await returnSourceTrackings(sources.flatMap((s) => s.lines.map((l) => l.deliveryNoteLineId)), db);
+  const used = await heldByTrackings(db, trackings.map((t) => t.id), exceptId);
+  return sources.map((s) => ({
+    ...s,
+    lines: s.lines.map((l) => ({
+      ...l,
+      held: held.get(l.id) ?? 0,
+      warehouseId: warehouseOf.get(l.deliveryNoteLineId) ?? null,
+      trackings: trackings
+        .filter((t) => t.deliveryNoteLineId === l.deliveryNoteLineId)
+        .map((t) => ({ ...t, room: fromUnits(units(t.baseQty) - units(used.get(t.id) ?? 0)) })),
+    })),
+  }));
+}
+
+/** Open Sales Returns with something left to receive, or the one a stored note names. */
+export async function returnReceiptOptions(current: { id: number; sourceId: number } | null = null): Promise<ReturnReceiptOptions> {
+  const [returns, base, statuses] = await Promise.all([
+    current
+      ? returnSourceOptions(prisma, { ids: [current.sourceId] }, current.id)
+      : returnSourceOptions(prisma, { openOnly: true }, null).then((rs) => rs.filter((r) => r.lines.some((l) => units(l.qty) > units(l.held)))),
+    receiptNoteOptions(current ? { id: current.id, sourceId: 0 } : null),
+    prisma.sysStockStatus.findMany({ orderBy: { id: "asc" } }),
+  ]);
+  return {
+    returns,
+    warehouses: base.warehouses,
+    statuses: statuses.map((s) => ({ id: s.id, label: s.status_label, name: s.status_name })),
+  };
+}
+
+type ReturnChecked = {
+  source: RrSourceOption;
+  data: Checked["data"];
+  lines: CheckedLine[];
+};
+
+/**
+ * Every rule a returning Receipt Note must satisfy (P288). Its source is one
+ * Open Sales Return; each line takes a base quantity of one return line, never
+ * more than is left of it; and comes in as lots of the Delivery Note line the
+ * goods left on, each no more than what is left of that lot, in a location of
+ * the warehouse where it has any, under a stock status of the user's choosing
+ * (damaged goods may come back Karantina or Diblokir). A Draft's lots may be
+ * partial; posting needs them in full.
+ */
+export async function checkReturnReceipt(
+  db: Db,
+  header: ReceiptNoteHeaderInput,
+  lines: ReceiptNoteLineInput[],
+  selfId: number | null,
+  forPosting = false
+): Promise<{ ok: true; c: ReturnChecked } | { ok: false; errors: Record<string, string> }> {
+  const errors: Record<string, string> = {};
+  const srId = Number(header.source_doc_id) || null;
+  const source = srId ? (await returnSourceOptions(db, { ids: [srId] }, selfId))[0] : undefined;
+  if (!srId) errors.source_doc_id = "Pilih Sales Return.";
+  else if (!source) errors.source_doc_id = "Sales Return tidak ditemukan.";
+  else if (source.status !== "Open") errors.source_doc_id = "Sales Return harus berstatus Open.";
+
+  const rnDate = String(header.rn_date ?? "").trim();
+  if (!DAY.test(rnDate)) errors.rn_date = "Tanggal terima wajib diisi.";
+  else if (source && rnDate < source.returnDate) errors.rn_date = "Tidak boleh sebelum tanggal Sales Return.";
+
+  const warehouseId = Number(header.warehouse_id) || null;
+  const place: Place = { useLocation: false, locations: new Map() };
+  if (!warehouseId) errors.warehouse_id = "Pilih Gudang.";
+  else {
+    const w = await db.refWarehouse.findUnique({ where: { id: warehouseId }, select: { status: true } });
+    if (!w || w.status !== "Active") errors.warehouse_id = "Gudang tidak ditemukan atau nonaktif.";
+    else {
+      const own = (await warehouseLocationOptions([warehouseId], db)).get(warehouseId) ?? [];
+      place.useLocation = own.length > 0;
+      place.locations = new Map(own.map((l) => [l.id, l]));
+    }
+  }
+  const statuses = new Set((await db.sysStockStatus.findMany({ select: { id: true } })).map((s) => s.id));
+
+  const raw = Array.isArray(lines) ? lines : [];
+  if (!raw.length) errors._lines = "Tambahkan minimal satu baris.";
+  const byId = new Map((source?.lines ?? []).map((l) => [l.id, l]));
+  const seen = new Set<number>();
+  const out: CheckedLine[] = [];
+  for (const [i, l] of raw.entries()) {
+    const sr = byId.get(Number(l.source_doc_line_id) || 0);
+    if (!sr) {
+      if (source) errors[lineKey(i, "source_doc_line_id")] = "Baris bukan bagian Sales Return ini.";
+      continue;
+    }
+    if (seen.has(sr.id)) {
+      errors[lineKey(i, "source_doc_line_id")] = `${sr.itemLabel} dipilih lebih dari sekali.`;
+      continue;
+    }
+    seen.add(sr.id);
+    const qty = num(l.qty);
+    const left = fromUnits(units(sr.qty) - units(sr.held));
+    if (!Number.isFinite(qty) || !(qty > 0)) {
+      errors[lineKey(i, "qty")] = "Isi jumlah lebih dari 0.";
+      continue;
+    }
+    if (Math.abs(qty * QTY_SCALE - units(qty)) > 1e-6) {
+      errors[lineKey(i, "qty")] = "Paling banyak 4 angka desimal.";
+      continue;
+    }
+    if (units(qty) > units(left)) {
+      errors[lineKey(i, "qty")] = `Melebihi sisa Sales Return (${qtyText(left)} ${sr.uomLabel}).`;
+      continue;
+    }
+    const lineQty = fromUnits(units(qty));
+    const tracks = new Map(sr.trackings.map((t) => [t.id, t]));
+    const taken = new Map<number, number>();
+    const keys = new Set<string>();
+    const lots: CheckedLot[] = [];
+    let total = 0;
+    let lotError: string | null = null;
+    for (const p of Array.isArray(l.lots) ? l.lots : []) {
+      const t = tracks.get(Number(p.source_tracking_id) || 0);
+      const locationId = Number(p.location_id) || null;
+      const statusId = Number(p.stock_status_id) || null;
+      const location = locationId ? place.locations.get(locationId) : undefined;
+      const q = num(p.qty);
+      if (!t) lotError = "Lot bukan lot yang dikirim pada Delivery Note ini.";
+      else if (!statusId || !statuses.has(statusId)) lotError = `Lot ${t.trackingNo}: pilih status stok.`;
+      else if (!place.useLocation && locationId) lotError = "Gudang ini tidak memakai lokasi.";
+      else if (locationId && !location) lotError = "Lokasi tidak ada di gudang ini. Pilih ulang lokasinya.";
+      else if (location && !location.active) lotError = `Lokasi ${location.label} nonaktif.`;
+      else if (place.useLocation && !locationId && forPosting) lotError = `Lot ${t.trackingNo}: pilih lokasinya.`;
+      else if (!Number.isFinite(q) || !(q > 0)) lotError = "Isi jumlah setiap lot lebih dari 0.";
+      else if (Math.abs(q * QTY_SCALE - units(q)) > 1e-6) lotError = "Jumlah lot paling banyak 4 angka desimal.";
+      else if (keys.has(`${t.id}:${locationId ?? 0}:${statusId}`)) lotError = `Lot ${t.trackingNo} diisi lebih dari sekali di lokasi dan status yang sama.`;
+      if (lotError || !t) break;
+      keys.add(`${t.id}:${locationId ?? 0}:${statusId}`);
+      const after = units(taken.get(t.id) ?? 0) + units(q);
+      if (after > units(t.room)) {
+        lotError = `Lot ${t.trackingNo} melebihi yang bisa kembali (${qtyText(t.room)} ${sr.uomLabel}).`;
+        break;
+      }
+      taken.set(t.id, fromUnits(after));
+      total += units(q);
+      lots.push({
+        tracking_seq: lots.length + 1,
+        tracking_no: t.trackingNo,
+        expiry_date: t.expiryDate ? asDate(t.expiryDate) : null,
+        location_id: locationId,
+        qty: fromUnits(units(q)),
+        tracking_id: t.trackingId,
+        source_tracking_id: t.id,
+        stock_status_id: statusId!,
+      });
+    }
+    if (!lotError && total > units(lineQty)) lotError = `Jumlah lot (${qtyText(fromUnits(total))}) melebihi Qty baris (${qtyText(lineQty)} ${sr.uomLabel}).`;
+    if (!lotError && forPosting && total !== units(lineQty)) {
+      lotError = `${sr.itemLabel}: lot baru ${qtyText(fromUnits(total))} dari ${qtyText(lineQty)} ${sr.uomLabel}. Lengkapi lotnya.`;
+    }
+    if (lotError) {
+      errors[lineKey(i, "lots")] = lotError;
+      continue;
+    }
+    out.push({
+      line_no: out.length + 1,
+      source_doc_line_id: sr.id,
+      item_id: sr.itemId,
+      uom_id: sr.uomId,
+      uom_factor: 1,
+      qty: lineQty,
+      base_qty: lineQty,
+      is_stock: true,
+      note: text(l.note),
+      lots,
+    });
+  }
+  if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) errors._lines = "Ada baris yang perlu diperbaiki.";
+  if (Object.keys(errors).length || !source) return { ok: false, errors };
+  return {
+    ok: true,
+    c: {
+      source,
+      data: {
+        purpose: SALES_RETURN,
+        source_doc_type_id: await docTypeId(db, "sal_return"),
+        source_doc_id: source.id,
+        source_no: source.returnNo,
+        partner_id: source.customerId,
+        warehouse_id: warehouseId,
+        rn_date: asDate(rnDate),
+        supplier_dn_no: text(header.supplier_dn_no),
+        note: text(header.note),
+      },
+      lines: out,
+    },
+  };
+}
+
+/**
+ * Posting a return (P288), in one transaction under the Customer Order's lock:
+ * each lot comes back into the stock books under its own No. Stok at the value
+ * it left at — its cumulative share of the Delivery Note tracking row's cost
+ * after what posted returns brought back of it (P112, P114) — so HPP is
+ * reversed exactly; Dr Persediaan / Cr HPP per item's category (Account
+ * Mapping's where none), dated Tanggal Terima; then the Sales Return and the
+ * Delivery Note are told what came back. No price, no PPN and no Piutang: those
+ * are the Credit Note's.
+ */
+async function postReturnReceipt(note: StoredNote, actorId: number, options: { dryRun?: boolean }): Promise<ReceiptNoteTransitionResult> {
+  const fallback = await fallbackAccounts(["inventory_account", "cogs_account"] as const);
+  const byCategory = await accountsForItems([...new Set(note.lines.map((l) => l.item_id))]);
+  const accounts = new Map<number, { debit: number; credit: number }>();
+  for (const itemId of new Set(note.lines.map((l) => l.item_id))) {
+    const c = byCategory.get(itemId);
+    const debit = c?.inventory ?? fallback.inventory_account;
+    const credit = c?.cogs ?? fallback.cogs_account;
+    if (!debit || !credit) {
+      const missing = [!debit && "Account Persediaan", !credit && "Account HPP"].filter(Boolean).join(", ");
+      return { ok: false, errors: { _form: `Lengkapi Account Mapping atau Account Kategori Item dulu: ${missing}.` } };
+    }
+    accounts.set(itemId, { debit, credit });
+  }
+  const baseCurrency = await prisma.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
+  if (!baseCurrency) return { ok: false, errors: { _form: "Mata uang dasar tidak ditemukan." } };
+  const id = note.id;
+
+  return refusable(async () => {
+    const closed = await prisma.$transaction(async (tx) => {
+      await holdPostingPeriod(tx, isoDay(note.rn_date));
+      await lockSalesReturn(tx, note.source_doc_id);
+      const input = asInput(note);
+      const r = await checkReturnReceipt(tx, input.header, input.lines, id, true);
+      if (!r.ok) {
+        const first = Object.entries(r.errors).find(([k]) => k !== "_lines")?.[1] ?? r.errors._lines;
+        throw new Refused({ _form: `Belum bisa diposting: ${first}` });
+      }
+      const done = await tx.logReceiptNote.updateMany({ where: { id, status: "Draft" }, data: { status: "Posted", updated_by: actorId } });
+      if (done.count !== 1) throw new Refused({ _form: "Receipt Note berubah saat diproses. Muat ulang halaman." });
+
+      const typeId = await docTypeId(tx, "log_receipt_note");
+      const source = { docTypeId: typeId, docId: id, no: note.rn_no };
+      const byLine = new Map(r.c.source.lines.map((l) => [l.id, l]));
+      const allTracks = new Map(r.c.source.lines.flatMap((l) => l.trackings.map((t) => [t.id, t] as const)));
+      const before = await heldByTrackings(tx, [...allTracks.keys()], id, true);
+      const journalLines: JournalLineInput[] = [];
+      const backSr = new Map<number, number>();
+      const backDn = new Map<number, number>();
+      let total = 0;
+      for (const line of r.c.lines) {
+        const sr = byLine.get(line.source_doc_line_id)!;
+        const stored = await tx.logReceiptNoteLine.findUniqueOrThrow({
+          where: { receipt_note_id_source_doc_line_id: { receipt_note_id: id, source_doc_line_id: line.source_doc_line_id } },
+          select: { id: true },
+        });
+        let value = 0;
+        for (const lot of line.lots) {
+          const t = allTracks.get(lot.source_tracking_id!)!;
+          const was = before.get(t.id) ?? 0;
+          const lotValue = cumulativeShare(t.cost, t.baseQty, was, lot.qty);
+          before.set(t.id, fromUnits(units(was) + units(lot.qty)));
+          await receiveStock(tx, {
+            itemId: line.item_id,
+            warehouseId: r.c.data.warehouse_id!,
+            locationId: lot.location_id,
+            lotNo: t.trackingNo,
+            expiry: lot.expiry_date,
+            baseQty: lot.qty,
+            value: lotValue,
+            date: r.c.data.rn_date,
+            source,
+            partnerId: r.c.data.partner_id,
+            statusId: lot.stock_status_id,
+            actorId,
+          });
+          await tx.logReceiptNoteTracking.update({
+            where: { line_id_tracking_seq: { line_id: stored.id, tracking_seq: lot.tracking_seq } },
+            data: { base_qty: lot.qty, value_amount: lotValue },
+          });
+          value += lotValue;
+        }
+        await tx.logReceiptNoteLine.update({ where: { id: stored.id }, data: { value_amount: value } });
+        backSr.set(sr.id, line.qty);
+        backDn.set(sr.deliveryNoteLineId, (backDn.get(sr.deliveryNoteLineId) ?? 0) + line.qty);
+        total += value;
+        if (value > 0) {
+          const what = `${sr.itemLabel} · ${qtyText(line.qty)} ${sr.uomLabel}`;
+          const acc = accounts.get(line.item_id)!;
+          journalLines.push(
+            { accountId: acc.debit, currencyId: baseCurrency.id, rate: 1, debit: value, credit: 0, description: `Retur masuk ${what}` },
+            { accountId: acc.credit, currencyId: baseCurrency.id, rate: 1, debit: 0, credit: value, description: `HPP dibalik ${what}` }
+          );
+        }
+      }
+      const journal = !journalLines.length ? null : await postJournal(tx, {
+        description: `${note.rn_no} · Retur ${r.c.source.returnNo} — ${r.c.source.customerName}`,
+        sourceDocTypeId: typeId,
+        sourceDocId: id,
+        postingDate: r.c.data.rn_date,
+        actorId,
+        lines: journalLines,
+      });
+      await tx.logReceiptNote.update({ where: { id }, data: { journal_id: journal?.id ?? null, value_amount: total } });
+      await audit(tx, id, "UPDATE", "post", actorId);
+      await recordDeliveryNoteReturned(tx, backDn);
+      const closed = await recordSalesReturnReceived(tx, backSr, actorId);
+      if (options.dryRun) throw new PostingDryRun(journalLines);
+      return closed;
+    });
+    return { ok: true as const, closed };
+  });
+}
+
+/** Why a Sales Return may not be closed yet: a Receipt Note on it is still Draft. */
+export async function liveReturnReceiptRefusal(tx: Prisma.TransactionClient, salesReturnId: number): Promise<string | null> {
+  const live = await tx.logReceiptNote.findMany({
+    where: { purpose: SALES_RETURN, source_doc_id: salesReturnId, status: "Draft" },
+    orderBy: { id: "asc" },
+    select: { rn_no: true },
+  });
+  if (!live.length) return null;
+  return `Masih ada Receipt Note Draft: ${live.map((n) => n.rn_no).slice(0, 3).join(", ")}. Posting atau batalkan dulu.`;
+}
+
+/** A Sales Return's receipts, for its own page. */
+export async function salesReturnReceipts(salesReturnId: number): Promise<{ id: number; rnNo: string; rnDate: string; status: ReceiptNoteStatus }[]> {
+  const rows = await prisma.logReceiptNote.findMany({
+    where: { purpose: SALES_RETURN, source_doc_id: salesReturnId },
+    orderBy: [{ rn_date: "asc" }, { id: "asc" }],
+  });
+  return rows.map((r) => ({ id: r.id, rnNo: r.rn_no, rnDate: isoDay(r.rn_date), status: r.status as ReceiptNoteStatus }));
 }
 
 /** Why a Purchase Order may not be closed yet: a Receipt Note on it is still Draft. */

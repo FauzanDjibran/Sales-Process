@@ -41,6 +41,9 @@ function revalidate(id?: number) {
   if (id) revalidatePath(`/inventory/receipt-note/${id}`);
   // Posting records what came in on the Purchase Order, and may close it.
   revalidatePath("/purchasing/order", "layout");
+  // A return's posting records what came back on the Sales Return and the Delivery Note.
+  revalidatePath("/sales/return", "layout");
+  revalidatePath("/inventory/delivery-note", "layout");
 }
 
 export async function createReceiptNoteAction(

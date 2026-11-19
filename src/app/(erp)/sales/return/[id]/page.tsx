@@ -3,7 +3,9 @@ import { SalesReturnForm } from "@/components/sales/sales-return-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { deliveryNoteBilling } from "@/lib/erp/ar-invoice";
+import { salesReturnReceipts } from "@/lib/erp/receipt-note";
 import { getSalesReturn, salesReturnOptions } from "@/lib/erp/sales-return";
+import { SalesReturnReceiptsCard } from "@/components/sales/sales-return-receipts";
 import { salesReturnAbilities } from "@/lib/erp/sales-return-workflow";
 
 export const dynamic = "force-dynamic";
@@ -15,9 +17,20 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   if (!ret) notFound();
   const options = await salesReturnOptions(Number(ret.header.customer_order_id), ret.id);
   const billing = await deliveryNoteBilling(ret.lines.map((l) => Number(l.delivery_note_line_id)));
+  // What came back is the Receipt Note module's to list; this page composes the two.
+  const showReceipts = (ret.status === "Open" || ret.status === "Closed") && actor.permissions.has("RECEIPT_NOTE_VIEW");
+  const receipts = showReceipts ? await salesReturnReceipts(ret.id) : [];
+  const anyLeft = ret.lines.some((l) => Number(l.qty) > l.received);
   return (
     <>
       <SalesReturnForm mode="view" ret={ret} options={options} billing={billing} can={salesReturnAbilities(actor.permissions)} />
+      {showReceipts && (
+        <SalesReturnReceiptsCard
+          salesReturnId={ret.id}
+          receipts={receipts}
+          canCreate={ret.status === "Open" && anyLeft && actor.permissions.has("RECEIPT_NOTE_CREATE")}
+        />
+      )}
       <RecordHistoryCard entityKey="sal_return" rowId={ret.id} />
     </>
   );

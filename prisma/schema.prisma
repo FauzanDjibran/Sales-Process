@@ -2661,6 +2661,9 @@ model LogDeliveryNoteLine {
   base_qty           Decimal @default(0) @db.Decimal(18, 4)
   /// Σ its trackings' cost at Posting — a summary; the value is the stock's (P268).
   cost_amount        Decimal @default(0) @db.Decimal(18, 2)
+  /// What posted Receipt Notes `sales_return` brought back of this line (P288),
+  /// written through this module; the Invoice bills what is left.
+  returned_qty       Decimal @default(0) @db.Decimal(18, 4)
   note               String?
 
   delivery_note LogDeliveryNote           @relation(fields: [delivery_note_id], references: [id])
@@ -4068,25 +4071,31 @@ model LogReceiptNoteLine {
 
 /// The lots a stock line comes in as (B19): made here at Posting.
 model LogReceiptNoteTracking {
-  id           Int       @id @default(autoincrement())
-  line_id      Int
-  tracking_seq Int
+  id                 Int       @id @default(autoincrement())
+  line_id            Int
+  tracking_seq       Int
   /// Typed, or generated at Posting when left empty.
-  tracking_no  String?
-  expiry_date  DateTime? @db.Date
+  tracking_no        String?
+  expiry_date        DateTime? @db.Date
   /// In the line's unit.
-  qty          Decimal   @db.Decimal(18, 4)
-  base_qty     Decimal   @default(0) @db.Decimal(18, 4)
-  value_amount Decimal   @default(0) @db.Decimal(18, 2)
+  qty                Decimal   @db.Decimal(18, 4)
+  base_qty           Decimal   @default(0) @db.Decimal(18, 4)
+  value_amount       Decimal   @default(0) @db.Decimal(18, 2)
   /// The stock lot it became, set at Posting (weak: the inventory's table).
-  tracking_id  Int?
+  tracking_id        Int?
   /// Where it is put, in a warehouse with Gunakan Lokasi (weak: a master the
   /// inventory checks at Posting).
-  location_id  Int?
+  location_id        Int?
+  /// The stock status it comes in under; null is Tersedia (a purchase).
+  stock_status_id    Int?
+  /// For `sales_return` (P288): the Delivery Note tracking row the goods left on
+  /// (weak), whose value they come back at (P114).
+  source_tracking_id Int?
 
   line LogReceiptNoteLine @relation(fields: [line_id], references: [id], onDelete: Cascade)
 
   @@unique([line_id, tracking_seq])
+  @@index([source_tracking_id])
   @@map("log_receipt_note_tracking")
 }
 

@@ -354,6 +354,31 @@ export const CHECKS: Check[] = [
   },
   {
     area: "goods",
+    name: "returned quantity equals posted return receipts, on the Sales Return and the Delivery Note (P288)",
+    sql: `WITH back AS (
+            SELECT rl.source_doc_line_id AS sr_line, SUM(rl.qty) AS qty
+            FROM log_receipt_note_line rl JOIN log_receipt_note r ON r.id = rl.receipt_note_id AND r.purpose = 'sales_return' AND r.status = 'Posted'
+            GROUP BY rl.source_doc_line_id)
+          SELECT 'sales return line' AS level, l.id, l.received_qty AS stored, COALESCE(b.qty, 0) AS from_receipts
+          FROM sal_return_line l LEFT JOIN back b ON b.sr_line = l.id
+          WHERE l.received_qty <> COALESCE(b.qty, 0)
+          UNION ALL
+          SELECT 'delivery note line', nl.id, nl.returned_qty, COALESCE(SUM(b.qty), 0)
+          FROM log_delivery_note_line nl LEFT JOIN sal_return_line l ON l.delivery_note_line_id = nl.id LEFT JOIN back b ON b.sr_line = l.id
+          GROUP BY nl.id HAVING nl.returned_qty <> COALESCE(SUM(b.qty), 0)`,
+  },
+  {
+    area: "goods",
+    name: "no returned lot comes back beyond what left on it, nor above the value it left at (P114)",
+    sql: `SELECT t.id AS delivery_tracking, t.base_qty AS sent, t.cost_amount AS sent_value, SUM(rt.base_qty) AS back, SUM(rt.value_amount) AS back_value
+          FROM log_delivery_note_tracking t
+          JOIN log_receipt_note_tracking rt ON rt.source_tracking_id = t.id
+          JOIN log_receipt_note_line rl ON rl.id = rt.line_id
+          JOIN log_receipt_note r ON r.id = rl.receipt_note_id AND r.purpose = 'sales_return' AND r.status = 'Posted'
+          GROUP BY t.id HAVING SUM(rt.base_qty) > t.base_qty OR SUM(rt.value_amount) > t.cost_amount`,
+  },
+  {
+    area: "goods",
     name: "a fully delivered order is closed",
     sql: `SELECT 'delivery order' AS kind, d.do_no AS doc, d.status::text FROM sal_delivery_order d
           WHERE d.status = 'Issued' AND NOT EXISTS (SELECT 1 FROM sal_delivery_order_line l WHERE l.delivery_order_id = d.id AND l.delivered_qty < l.qty)
@@ -607,7 +632,7 @@ export const CHECKS: Check[] = [
     area: "ap",
     name: "Barang Diterima Belum Ditagih equals posted receipts less posted invoices, per supplier (B22)",
     sql: `SELECT p.partner_label, COALESCE(r.v, 0) - COALESCE(b.v, 0) AS open_receipts, COALESCE(-gl.bal, 0) AS gl FROM m_partner p
-          LEFT JOIN (SELECT n.partner_id, SUM(n.value_amount) AS v FROM log_receipt_note n WHERE n.status = 'Posted' GROUP BY n.partner_id) r ON r.partner_id = p.id
+          LEFT JOIN (SELECT n.partner_id, SUM(n.value_amount) AS v FROM log_receipt_note n WHERE n.status = 'Posted' AND n.purpose = 'purchase_receipt' GROUP BY n.partner_id) r ON r.partner_id = p.id
           LEFT JOIN (SELECT v.supplier_id, SUM(v.dpp_amount) AS v FROM fin_ap_invoice v WHERE v.status = 'Posted' GROUP BY v.supplier_id) b ON b.supplier_id = p.id
           LEFT JOIN (${glByPartner(acc("goods_received_account"))}) gl ON gl.partner_id = p.id
           WHERE COALESCE(r.v, 0) - COALESCE(b.v, 0) <> COALESCE(-gl.bal, 0)`,
@@ -1020,7 +1045,7 @@ export const CHECKS: Check[] = [
     sql: `SELECT n.rn_no, r.line_no, r.order_dpp_amount, r.value_amount
             FROM log_receipt_note_line r JOIN log_receipt_note n ON n.id = r.receipt_note_id
             JOIN pur_order o ON o.id = n.source_doc_id JOIN ref_currency c ON c.id = o.currency_id
-           WHERE n.status = 'Posted' AND c.currency_label = 'IDR' AND r.order_dpp_amount <> r.value_amount`,
+           WHERE n.status = 'Posted' AND n.purpose = 'purchase_receipt' AND c.currency_label = 'IDR' AND r.order_dpp_amount <> r.value_amount`,
   },
   {
     area: "fx",
