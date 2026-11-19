@@ -11,9 +11,9 @@ import { DateInput } from "@/components/ui/date-input";
 import { DocumentHeader } from "@/components/ui/document-header";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
-import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { ReceiptNoteActions } from "@/components/inventory/receipt-note-actions";
+import { ReturnLotDialog, type ReturnLot } from "@/components/inventory/return-lot-dialog";
 import { createReceiptNoteAction, updateReceiptNoteAction } from "@/app/actions/receipt-note";
 import { SALES_RETURN, type ReceiptNoteAbilities } from "@/lib/erp/receipt-note-workflow";
 import type { ReceiptNoteHeaderInput, ReceiptNoteView, ReturnReceiptOptions, RrSourceLine, RrSourceOption } from "@/lib/erp/receipt-note";
@@ -30,7 +30,7 @@ import { formatDate, formatNumber, todayIso } from "@/lib/format";
  * what was billed.
  */
 
-type LotState = { key: string; source_tracking_id: number; qty: string; location_id: number | null; stock_status_id: number | null };
+type LotState = ReturnLot;
 type LineState = { key: string; source_doc_line_id: number; qty: string; lots: LotState[] };
 
 let seq = 0;
@@ -39,17 +39,9 @@ const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 const left = (l: RrSourceLine) => Math.max(0, l.qty - l.held);
 
 /** A return line starting on all that is left, spread over its lots as far as each still holds. */
-function startLine(l: RrSourceLine, available: number | null): LineState {
-  let rest = left(l);
-  const lots: LotState[] = [];
-  for (const t of l.trackings) {
-    if (rest <= 0) break;
-    const take = Math.min(rest, t.room);
-    if (take <= 0) continue;
-    lots.push({ key: newKey(), source_tracking_id: t.id, qty: String(take), location_id: null, stock_status_id: available });
-    rest -= take;
-  }
-  return { key: newKey(), source_doc_line_id: l.id, qty: String(left(l)), lots };
+function startLine(l: RrSourceLine): LineState {
+  // The lots are split in the dialog once the quantity is known.
+  return { key: newKey(), source_doc_line_id: l.id, qty: String(left(l)), lots: [] };
 }
 
 export function ReturnReceiptForm({
@@ -71,7 +63,7 @@ export function ReturnReceiptForm({
   const available = options.statuses.find((s) => s.label === "TERSEDIA")?.id ?? null;
   const byId = useMemo(() => new Map(options.returns.map((r) => [r.id, r])), [options.returns]);
 
-  const startFrom = (r: RrSourceOption | undefined) => r?.lines.filter((l) => left(l) > 0).map((l) => startLine(l, available)) ?? [];
+  const startFrom = (r: RrSourceOption | undefined) => r?.lines.filter((l) => left(l) > 0).map((l) => startLine(l)) ?? [];
   const preset = presetReturnId ? byId.get(presetReturnId) : undefined;
 
   const [header, setHeader] = useState<ReceiptNoteHeaderInput>(() =>
@@ -105,6 +97,7 @@ export function ReturnReceiptForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [lotsOf, setLotsOf] = useState<string | null>(null);
 
   const source = header.source_doc_id ? byId.get(header.source_doc_id) : undefined;
   const srLine = useMemo(() => new Map((source?.lines ?? []).map((l) => [l.id, l])), [source]);
@@ -134,10 +127,7 @@ export function ReturnReceiptForm({
     setLines((ls) => ls.map((l) => (l.key === key ? { ...l, ...patch } : l)));
     touch("_lines");
   };
-  const setLot = (lineKey: string, lotKey: string, patch: Partial<LotState>) => {
-    setLines((ls) => ls.map((l) => (l.key === lineKey ? { ...l, lots: l.lots.map((p) => (p.key === lotKey ? { ...p, ...patch } : p)) } : l)));
-    touch("_lines");
-  };
+
 
   async function onSave() {
     setSaving(true);
@@ -176,6 +166,13 @@ export function ReturnReceiptForm({
   const status = note?.status ?? "Draft";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
   const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
+  /** A line's lots in one phrase: how many, and how much of the line they hold. */
+  const lotSummary = (l: LineState, uom: string) => {
+    if (!l.lots.length) return "Belum diisi";
+    const held = l.lots.reduce((s, x) => s + (Number(x.qty) || 0), 0);
+    const names = [...new Set(l.lots.map((x) => srLine.get(l.source_doc_line_id)?.trackings.find((t) => t.id === x.source_tracking_id)?.trackingNo ?? ""))].join(", ");
+    return `${l.lots.length} lot · ${qtyText(held)} / ${qtyText(Number(l.qty) || 0)} ${uom} · ${names}`;
+  };
   const storedLine = new Map((note?.lines ?? []).map((l) => [Number(l.source_doc_line_id), l]));
 
   const headerCard = (
@@ -318,7 +315,7 @@ export function ReturnReceiptForm({
                 <th style={{ width: 40 }}>No</th>
                 <th>Barang</th>
                 <th style={{ width: editing ? 190 : 120 }}>Qty</th>
-                <th style={{ width: 430 }}>Lot</th>
+                <th style={{ width: 360 }}>Lot</th>
                 {!editing && <th className="num" style={{ width: 130 }}>Nilai</th>}
                 {editing && <th style={{ width: 40 }} />}
               </tr>
@@ -328,7 +325,6 @@ export function ReturnReceiptForm({
                 const sr = srLine.get(l.source_doc_line_id);
                 const err = errors[`lines.${l.key}`];
                 const tracks = new Map((sr?.trackings ?? []).map((t) => [t.id, t]));
-                const unused = (sr?.trackings ?? []).filter((t) => !l.lots.some((p) => p.source_tracking_id === t.id));
                 return (
                   <tr key={l.key} className={err ? "overrow" : undefined}>
                     <td className="no">{i + 1}</td>
@@ -343,7 +339,14 @@ export function ReturnReceiptForm({
                       {editing ? (
                         <>
                           <div className="qcell">
-                            <MoneyInput size="sm" decimals={4} value={l.qty} ariaLabel={`Qty ${sr?.itemLabel ?? ""}`} onChange={(v) => setLine(l.key, { qty: v })} />
+                            <MoneyInput
+                              size="sm"
+                              decimals={4}
+                              value={l.qty}
+                              ariaLabel={`Qty ${sr?.itemLabel ?? ""}`}
+                              // One lot follows the line, as on a purchase receipt.
+                              onChange={(v) => setLine(l.key, { qty: v, ...(l.lots.length === 1 ? { lots: [{ ...l.lots[0], qty: v }] } : {}) })}
+                            />
                             <span className="qu">{sr?.uomLabel}</span>
                           </div>
                           {sr && (
@@ -360,71 +363,33 @@ export function ReturnReceiptForm({
                       )}
                     </td>
                     <td>
-                      {l.lots.map((p, j) => {
-                        const t = tracks.get(p.source_tracking_id);
-                        const lotValue = status === "Posted" ? storedLine.get(l.source_doc_line_id)?.lotValues[j] : undefined;
-                        return editing ? (
-                          <div key={p.key} className="qcell" style={{ gap: 6, marginBottom: 6, flexWrap: "wrap" }}>
-                            <span className="mono" style={{ minWidth: 110 }} title={t?.expiryDate ? `kadaluarsa ${formatDate(t.expiryDate)}` : undefined}>
-                              {t?.trackingNo}
-                            </span>
-                            <div style={{ width: 90 }}>
-                              <MoneyInput size="sm" decimals={4} value={p.qty} ariaLabel={`Qty lot ${t?.trackingNo ?? ""}`} onChange={(v) => setLot(l.key, p.key, { qty: v })} />
+                      {editing ? (
+                        <div className="qcell" style={{ gap: 8 }}>
+                          <span className="fulltag" style={{ whiteSpace: "normal" }}>{lotSummary(l, sr?.uomLabel ?? "")}</span>
+                          <button className="btn sm" onClick={() => setLotsOf(l.key)}>
+                            <Icon name="pen" size={13} /> Atur Lot
+                          </button>
+                        </div>
+                      ) : (
+                        l.lots.map((p, j) => {
+                          const t = tracks.get(p.source_tracking_id);
+                          const lotValue = status === "Posted" ? storedLine.get(l.source_doc_line_id)?.lotValues[j] : undefined;
+                          return (
+                            <div key={p.key} className="idc">
+                              <span className="lab">{t?.trackingNo}</span>
+                              <span className="nm">
+                                {qtyText(Number(p.qty))} {sr?.uomLabel} · {statusName.get(p.stock_status_id ?? 0) ?? "Tersedia"}
+                                {p.location_id ? ` · ${locationLabel.get(p.location_id) ?? ""}` : ""}
+                                {lotValue != null && (
+                                  <>
+                                    {" · "}
+                                    <Amount value={lotValue} />
+                                  </>
+                                )}
+                              </span>
                             </div>
-                            <div style={{ width: 120 }}>
-                              <Select
-                                value={p.stock_status_id ? String(p.stock_status_id) : ""}
-                                options={options.statuses.map((s) => ({ value: String(s.id), label: s.name }))}
-                                placeholder="Status…"
-                                onChange={(v) => setLot(l.key, p.key, { stock_status_id: v ? Number(v) : null })}
-                              />
-                            </div>
-                            {warehouse?.useLocation && (
-                              <div style={{ width: 110 }}>
-                                <Select
-                                  value={p.location_id ? String(p.location_id) : ""}
-                                  options={warehouse.locations.filter((x) => x.active || x.id === p.location_id).map((x) => ({ value: String(x.id), label: x.label }))}
-                                  placeholder="Lokasi…"
-                                  onChange={(v) => setLot(l.key, p.key, { location_id: v ? Number(v) : null })}
-                                />
-                              </div>
-                            )}
-                            <button
-                              className="iact del"
-                              title="Hapus lot"
-                              onClick={() => setLine(l.key, { lots: l.lots.filter((x) => x.key !== p.key) })}
-                            >
-                              <Icon name="trash" size={13} />
-                            </button>
-                            {t && <span className="fulltag">bisa kembali {qtyText(t.room)}</span>}
-                          </div>
-                        ) : (
-                          <div key={p.key} className="idc">
-                            <span className="lab">{t?.trackingNo}</span>
-                            <span className="nm">
-                              {qtyText(Number(p.qty))} {sr?.uomLabel} · {statusName.get(p.stock_status_id ?? 0) ?? "Tersedia"}
-                              {p.location_id ? ` · ${locationLabel.get(p.location_id) ?? ""}` : ""}
-                              {lotValue != null && (
-                                <>
-                                  {" · "}
-                                  <Amount value={lotValue} />
-                                </>
-                              )}
-                            </span>
-                          </div>
-                        );
-                      })}
-                      {editing && unused.length > 0 && (
-                        <button
-                          className="btn sm"
-                          onClick={() =>
-                            setLine(l.key, {
-                              lots: [...l.lots, { key: newKey(), source_tracking_id: unused[0].id, qty: "", location_id: null, stock_status_id: available }],
-                            })
-                          }
-                        >
-                          <Icon name="plus" size={13} /> Lot {unused[0].trackingNo}
-                        </button>
+                          );
+                        })
                       )}
                     </td>
                     {!editing && (
@@ -476,6 +441,29 @@ export function ReturnReceiptForm({
           {linesCard}
         </div>
       </div>
+      {lotsOf &&
+        (() => {
+          const l = lines.find((x) => x.key === lotsOf);
+          const sr = l ? srLine.get(l.source_doc_line_id) : undefined;
+          if (!l || !sr) return null;
+          return (
+            <ReturnLotDialog
+              itemLabel={sr.itemLabel}
+              uomLabel={sr.uomLabel}
+              lineQty={Number(l.qty) || 0}
+              trackings={sr.trackings}
+              statuses={options.statuses}
+              locations={warehouse?.useLocation ? warehouse.locations : null}
+              defaultStatusId={available}
+              lots={l.lots}
+              onApply={(lots) => {
+                setLine(l.key, { lots });
+                setLotsOf(null);
+              }}
+              onClose={() => setLotsOf(null)}
+            />
+          );
+        })()}
     </>
   );
 }
