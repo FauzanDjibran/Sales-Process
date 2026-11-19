@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { createCustomerOrder, transitionCustomerOrder } from "../src/lib/erp/customer-order";
 import { createSalesOrder, transitionSalesOrder } from "../src/lib/erp/sales-order";
 import { createDeliveryOrder, transitionDeliveryOrder } from "../src/lib/erp/delivery-order";
-import { createDeliveryNote, transitionDeliveryNote } from "../src/lib/erp/delivery-note";
+import { createDeliveryNote, invoiceSourceLines, transitionDeliveryNote } from "../src/lib/erp/delivery-note";
+import { invoiceOptions } from "../src/lib/erp/ar-invoice";
 import {
   checkSalesReturn,
   createSalesReturn,
@@ -358,5 +359,18 @@ describe("a Receipt Note sales_return brings the goods back", () => {
     assert.equal(back.find((b) => b.stock_status_id === f.blocked)?.qty_balance.toNumber(), 1, "one held back under its own status");
     assert.equal((await prisma.salReturnLine.findUniqueOrThrow({ where: { id: srLine } })).received_qty.toNumber(), 10);
     assert.equal((await prisma.logDeliveryNoteLine.findUniqueOrThrow({ where: { id: flow.dnLine } })).returned_qty.toNumber(), 10);
+  });
+});
+
+// ------------------------------------- step 3: the Invoice bills what is left (P287)
+
+describe("the Invoice bills what is left after returns", () => {
+  test("a note line with 10 of its 40 back offers 30 to bill, and says what came back", async () => {
+    const [line] = await invoiceSourceLines({ lineIds: [flow.dnLine] });
+    assert.equal(line.qty, 30);
+    assert.equal(line.returnedQty, 10);
+    const o = await invoiceOptions();
+    const mine = o.orders.find((x) => x.id === flow.coId)?.noteLines.find((l) => l.id === flow.dnLine);
+    assert.equal(mine?.qty, 30, "the form offers the same 30");
   });
 });

@@ -425,7 +425,9 @@ export const CHECKS: Check[] = [
           JOIN log_delivery_note_line nl ON nl.id = il.delivery_note_line_id
           JOIN log_delivery_note n ON n.id = nl.delivery_note_id
           LEFT JOIN sal_delivery_order d ON d.id = n.source_doc_id AND n.purpose = 'sales_delivery'
-          WHERE n.status <> 'Posted' OR d.customer_order_id IS DISTINCT FROM v.customer_order_id OR il.qty <> nl.qty`,
+          WHERE n.status <> 'Posted' OR d.customer_order_id IS DISTINCT FROM v.customer_order_id
+            -- What was left after returns when it was billed: a later return lowers the floor (P287).
+            OR il.qty > nl.qty OR il.qty < nl.qty - nl.returned_qty`,
   },
   {
     area: "billing",

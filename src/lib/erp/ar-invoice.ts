@@ -397,6 +397,7 @@ export async function checkInvoice(
     else if (!n) errors[key] = order ? "Barang bukan bagian Delivery Note Customer Order ini." : "Pilih Customer Order dulu…";
     else if (n.status !== "Posted") errors[key] = `${n.dnNo} belum diposting.`;
     else if (n.billedBy) errors[key] = `Sudah ditagih dengan ${n.billedBy.no}.`;
+    else if (n.qty <= 0) errors[key] = `${n.itemLabel} (${n.dnNo}) sudah diretur seluruhnya.`;
     else if (seen.has(id)) errors[key] = `${n.itemLabel} (${n.dnNo}) dipilih lebih dari sekali.`;
     else {
       seen.add(id);

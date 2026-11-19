@@ -979,7 +979,10 @@ export type InvoiceSourceLine = {
   itemLabel: string;
   itemName: string;
   uomLabel: string;
+  /** What is left to bill: what left less what posted returns brought back (P287 step 3). */
   qty: number;
+  /** What posted returns brought back, in the line's unit. */
+  returnedQty: number;
   /** The item and the base quantity that left — what a Sales Return takes back (P287). */
   itemId: number;
   baseQty: number;
@@ -998,7 +1001,8 @@ export type InvoiceSourceLine = {
  */
 export async function postedNoteLineIds(db: Db = prisma): Promise<{ id: number; customerOrderId: number }[]> {
   const rows = await db.logDeliveryNoteLine.findMany({
-    where: { delivery_note: { purpose: SALES_DELIVERY, status: "Posted" } },
+    // A line returned in full has nothing left to bill or to return (P287).
+    where: { delivery_note: { purpose: SALES_DELIVERY, status: "Posted" }, returned_qty: { lt: prisma.logDeliveryNoteLine.fields.base_qty } },
     select: { id: true, delivery_note: { select: { source_doc_id: true } } },
   });
   const coOf = await customerOrderIdsOfDeliveryOrders([...new Set(rows.map((r) => r.delivery_note.source_doc_id))], db);
@@ -1039,7 +1043,9 @@ export async function invoiceSourceLines(
           itemLabel: d?.itemLabel ?? "",
           itemName: d?.itemName ?? "",
           uomLabel: d?.uomLabel ?? "",
-          qty: l.qty.toNumber(),
+          // Sales sell in the base unit (P108), so the factor is 1; divided anyway to stay in the line's unit.
+          qty: l.qty.toNumber() - l.returned_qty.toNumber() / l.uom_factor.toNumber(),
+          returnedQty: l.returned_qty.toNumber() / l.uom_factor.toNumber(),
           itemId: l.item_id,
           baseQty: l.base_qty.toNumber(),
           lots: l.trackings.map((p) => p.tracking_no),

@@ -38,7 +38,8 @@ export function InvoiceNotePicker({
   onClose: () => void;
 }) {
   const [on, setOn] = useState<Set<number>>(() => new Set(current));
-  const free = (l: InvoiceNoteLine) => !l.billedBy || current.includes(l.id);
+  // A line returned in full has nothing left to bill (P287).
+  const free = (l: InvoiceNoteLine) => (!l.billedBy && l.qty > 0) || current.includes(l.id);
   const notes = [...new Map(lines.map((l) => [l.deliveryNoteId, l])).values()];
 
   return (
@@ -135,10 +136,13 @@ export function InvoiceNotePicker({
                           <span className="mny">
                             {qtyText(l.qty)} {l.uomLabel}
                           </span>
+                          {l.returnedQty > 0 && <span className="fulltag">diretur {qtyText(l.returnedQty)}</span>}
                         </td>
                         <td>
                           {l.billedBy && !current.includes(l.id) ? (
                             <span className="bdg s-mute">Ditagih {l.billedBy.no}</span>
+                          ) : l.qty <= 0 ? (
+                            <span className="bdg s-mute">Diretur</span>
                           ) : (
                             <span className="dash">Belum ditagih</span>
                           )}
