@@ -381,6 +381,35 @@ export const CHECKS: Check[] = [
   },
   {
     area: "goods",
+    name: "live Sales Returns never take more of a Delivery Note line than left on it; a closed one holds only what came back (P288)",
+    sql: `SELECT nl.id AS delivery_note_line, nl.base_qty AS sent,
+                 SUM(CASE WHEN r.status = 'Closed' THEN l.received_qty ELSE l.base_qty END) AS held
+          FROM sal_return_line l
+          JOIN sal_return r ON r.id = l.return_id AND r.status IN ('Draft', 'Submitted', 'Open', 'Closed')
+          JOIN log_delivery_note_line nl ON nl.id = l.delivery_note_line_id
+          GROUP BY nl.id, nl.base_qty
+          HAVING SUM(CASE WHEN r.status = 'Closed' THEN l.received_qty ELSE l.base_qty END) > nl.base_qty`,
+  },
+  {
+    area: "goods",
+    name: "an Open Sales Return with everything back is closed (P289)",
+    sql: `SELECT r.return_no FROM sal_return r
+          WHERE r.status = 'Open' AND NOT EXISTS (SELECT 1 FROM sal_return_line l WHERE l.return_id = r.id AND l.received_qty < l.base_qty)`,
+  },
+  {
+    area: "goods",
+    name: "each posted return receipt is worth its lots, and its journal reverses HPP by exactly that (P289)",
+    sql: `SELECT r.rn_no, r.value_amount, lots.v AS lots, COALESCE(j.dr, 0) AS debit, COALESCE(j.cr, 0) AS credit
+          FROM log_receipt_note r
+          LEFT JOIN (SELECT rl.receipt_note_id, SUM(rt.value_amount) AS v FROM log_receipt_note_line rl
+                     JOIN log_receipt_note_tracking rt ON rt.line_id = rl.id GROUP BY rl.receipt_note_id) lots ON lots.receipt_note_id = r.id
+          LEFT JOIN (SELECT journal_id, SUM(debit_amount) AS dr, SUM(kredit_amount) AS cr FROM acc_journal_line GROUP BY journal_id) j ON j.journal_id = r.journal_id
+          WHERE r.purpose = 'sales_return' AND r.status = 'Posted'
+            AND (r.value_amount <> COALESCE(lots.v, 0)
+                 OR (r.value_amount <> 0 AND (r.journal_id IS NULL OR COALESCE(j.dr, 0) <> r.value_amount OR COALESCE(j.cr, 0) <> r.value_amount)))`,
+  },
+  {
+    area: "goods",
     name: "a fully delivered order is closed",
     sql: `SELECT 'delivery order' AS kind, d.do_no AS doc, d.status::text FROM sal_delivery_order d
           WHERE d.status = 'Issued' AND NOT EXISTS (SELECT 1 FROM sal_delivery_order_line l WHERE l.delivery_order_id = d.id AND l.delivered_qty < l.qty)
@@ -564,6 +593,29 @@ export const CHECKS: Check[] = [
                 OR i.source_doc_type_id <> ${docType("fin_ar_credit_note")} OR i.source_doc_id <> c.id
                 OR i.original_amount <> c.total_amount OR COALESCE(u.used, 0) <> c.applied_amount
                 OR c.total_amount <> c.dpp_amount + c.ppn_amount)`,
+  },
+  {
+    area: "ar",
+    name: "live Credit Notes credit only what came back after billing (P292)",
+    // What came back beyond what the Invoice was billed net of (P291): returned − (sent − billed).
+    sql: `SELECT il.id AS invoice_line, nl.qty AS sent, il.qty AS billed, nl.returned_qty / nl.uom_factor AS returned, SUM(cl.qty) AS credited
+          FROM fin_ar_credit_note_line cl
+          JOIN fin_ar_credit_note c ON c.id = cl.credit_note_id AND c.status IN ('Draft', 'Posted')
+          JOIN fin_ar_invoice_line il ON il.id = cl.invoice_line_id
+          JOIN log_delivery_note_line nl ON nl.id = il.delivery_note_line_id
+          GROUP BY il.id, il.qty, nl.qty, nl.returned_qty, nl.uom_factor
+          HAVING SUM(cl.qty) > GREATEST(0, nl.returned_qty / nl.uom_factor - (nl.qty - il.qty))`,
+  },
+  {
+    area: "ar",
+    name: "a Credit Note's figures are the sum of its lines (P292)",
+    sql: `SELECT c.credit_no, c.dpp_amount, SUM(l.dpp_amount) AS lines_dpp, c.ppn_amount, SUM(l.ppn_amount) AS lines_ppn
+          FROM fin_ar_credit_note c JOIN fin_ar_credit_note_line l ON l.credit_note_id = c.id
+          GROUP BY c.id
+          HAVING c.gross_amount <> SUM(l.gross_amount) OR c.discount_amount <> SUM(l.discount_amount)
+              OR c.dpp_amount <> SUM(l.dpp_amount) OR c.dpp_other_amount <> SUM(l.dpp_other_amount) OR c.ppn_amount <> SUM(l.ppn_amount)
+              OR c.base_dpp_amount <> SUM(l.base_dpp_amount) OR c.base_ppn_amount <> SUM(l.base_ppn_amount)
+              OR c.base_total_amount <> c.base_dpp_amount + c.base_ppn_amount`,
   },
   {
     area: "ar",
