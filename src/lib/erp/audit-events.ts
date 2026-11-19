@@ -30,6 +30,7 @@ import { PERMIT_REQUEST_TRANSITIONS } from "./permit-request-workflow";
 import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
 import { DELIVERY_ORDER_TRANSITIONS } from "./delivery-order-workflow";
 import { SALES_RETURN_TRANSITIONS } from "./sales-return-workflow";
+import { CREDIT_NOTE_TRANSITIONS } from "./ar-credit-note-workflow";
 import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
 import { RECEIPT_NOTE_TRANSITIONS } from "./receipt-note-workflow";
 import { COST_BILL_TRANSITIONS } from "./production-cost-bill-workflow";
@@ -284,6 +285,14 @@ const INVOICE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(INVOICE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
+/** Credit Note Penjualan: Draft → Posted, or Dibatalkan (P292). */
+const CREDIT_NOTE_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Credit Note Penjualan dibuat", icon: "file", tone: "neutral" },
+  post: fromTransition(CREDIT_NOTE_TRANSITIONS.post, "Diposting — piutang dikurangi"),
+  cancel: fromTransition(CREDIT_NOTE_TRANSITIONS.cancel, "Dibatalkan"),
+};
+
 /** Invoice Pembelian: Draft → Posted, or Dibatalkan (P128). */
 const PURCHASE_INVOICE_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
@@ -416,6 +425,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   pur_request: PURCHASE_REQUEST_EVENTS,
   pur_order: PURCHASE_ORDER_EVENTS,
   fin_ar_invoice: INVOICE_EVENTS,
+  fin_ar_credit_note: CREDIT_NOTE_EVENTS,
   fin_ar_permit_invoice: INVOICE_EVENTS,
   fin_ap_invoice: PURCHASE_INVOICE_EVENTS,
   fin_ar_advance: SALES_ADVANCE_EVENTS,

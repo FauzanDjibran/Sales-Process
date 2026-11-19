@@ -315,6 +315,12 @@ memisahkan *Invoice* dari *Faktur*.
   Invoice (dibaca dari modul Pajak), No. Nota Retur customer (dari Sales
   Return).
 
+> **Sebagaimana dibangun (P292):** baris Credit Note adalah **baris Invoice**,
+> bukan baris Receipt Note: ruangnya = yang kembali setelah ditagih (`returned_qty`
+> DN di atas yang sudah ditagih bersih, P291) dikurangi Credit Note hidup lain.
+> Credit Note tidak merujuk Sales Return; No. Nota Retur customer diketik di
+> Credit Note. Hasil akuntansinya sama, dan satu Invoice bisa dikredit beberapa kali.
+
 ### 6.2 Posting
 
 Satu transaksi, di bawah kunci Customer Order (seperti Invoice):
@@ -391,8 +397,8 @@ Masing-masing satu commit, berhenti untuk review (memory: *phase review gate*).
 | 0 | Keputusan SR1–SR10 dicatat di `Claude-ERP.md` §12 — **selesai 19/11/2026 (P287)** | user setuju |
 | 1 | **Sales Return** — skema, modul, workflow, form + dialog pilih DN, list, izin, menu — **selesai 19/11/2026 (P288)** | buat → ajukan → setujui di browser; batas qty dicek |
 | 2 | **Receipt Note `sales_return`** — **selesai 19/11/2026 (P289)** — katalog purpose, posting per purpose, pilih lot dari tracking DN, status stock, `returned_qty` DN, `received_qty` SR, tutup otomatis SR | stock kembali di lot yang sama; jurnal Dr Persediaan / Cr HPP = nilai keluar; Kartu Stok & Nilai Persediaan benar |
-| 3 | **Invoice menagih qty bersih** (Kasus A) | DN yang diretur sebagian ditagih sisanya; diretur penuh tidak bisa dipilih |
-| 4 | **Credit Note Penjualan** — skema, AR item `Return`, event, posting, preview, list | jurnal dan AR item benar untuk: belum dibayar, dibayar sebagian, lunas (kredit sisa), Invoice ber-uang-muka, USD |
+| 3 | **Invoice menagih qty bersih** (Kasus A) — **selesai 19/11/2026 (P291)** | DN yang diretur sebagian ditagih sisanya; diretur penuh tidak bisa dipilih |
+| 4 | **Credit Note Penjualan** — skema, AR item `Return`, event, posting, preview, list — **selesai 19/11/2026 (P292)**; baris per baris Invoice (lihat §6.1) | jurnal dan AR item benar untuk: belum dibayar, dibayar sebagian, lunas (kredit sisa), Invoice ber-uang-muka, USD |
 | 5 | **Penerimaan & laporan** — basis PPh setelah retur, Buku/Saldo/Umur Piutang | penerimaan atas Invoice yang diretur sebagian benar |
 | 6 | **`db:reconcile`** — Piutang Usaha = item Invoice − item Retur per customer; HPP dibalik = nilai keluar; retur ≤ kirim; Credit Note ≤ baris Invoice; `returned_qty` = Σ Receipt Note retur posted | semua cek hijau |
 | 7 | (lanjut) Pengembalian Dana Customer, kredit dipakai Invoice berikutnya, Nota Retur di modul Pajak, Perlu Pembetulan bukti potong | sesuai keputusan saat itu |

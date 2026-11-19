@@ -98,6 +98,7 @@ describe("the settings catalogue lives in code", () => {
         // The Invoice Penjualan's (U22).
         "receivable_account",
         "sales_revenue_account",
+        "sales_return_account",
         // The Perizinan flow's (P137).
         "permit_advance_account",
         "permit_revenue_account",

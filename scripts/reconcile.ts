@@ -72,6 +72,8 @@ const BASE_TWINS: { table: string; head: { table: string; key: string; rate: boo
 
 /** Accounts from Account Mapping, by key; `-1` matches nothing when unset. */
 /** The Uang Muka applied to an invoice's item (P117); 0 for one posted before P117. */
+// What Credit Notes lowered an Invoice item by (P292).
+const returned = (v: string) => `COALESCE((SELECT SUM(ABS(a.movement)) FROM fin_ar_ledger a WHERE a.item_id = ${v}.ar_item_id AND a.event = 'ReturnApplied'), 0)`;
 const applied = (v: string) => `COALESCE((SELECT SUM(ABS(a.movement)) FROM fin_ar_ledger a WHERE a.item_id = ${v}.ar_item_id AND a.event = 'AdvanceApplied'), 0)`;
 
 const acc = (key: string) =>
@@ -222,9 +224,9 @@ export const CHECKS: Check[] = [
   },
   {
     area: "ar",
-    name: "Invoice items equal the Piutang Usaha account, per customer",
+    name: "Invoice items less Retur items equal the Piutang Usaha account, per customer (P292)",
     sql: `SELECT p.partner_label, COALESCE(items.bal, 0) AS items, COALESCE(gl.bal, 0) AS gl FROM m_partner p
-          LEFT JOIN (SELECT partner_id, SUM(base_current_balance) AS bal FROM fin_ar_item WHERE item_type = 'Invoice' GROUP BY partner_id) items ON items.partner_id = p.id
+          LEFT JOIN (SELECT partner_id, SUM(CASE item_type WHEN 'Return' THEN -base_current_balance ELSE base_current_balance END) AS bal FROM fin_ar_item WHERE item_type IN ('Invoice', 'Return') GROUP BY partner_id) items ON items.partner_id = p.id
           LEFT JOIN (${glByPartner(acc("receivable_account"))}) gl ON gl.partner_id = p.id
           WHERE COALESCE(items.bal, 0) <> COALESCE(gl.bal, 0)`,
   },
@@ -255,7 +257,7 @@ export const CHECKS: Check[] = [
   },
   {
     area: "ar",
-    name: "each Invoice's paid amount, held by its item, equals its posted receipt lines, and its total less it equals the item's balance (P214)",
+    name: "each Invoice's paid amount, held by its item, equals its posted receipt lines, and its total less it and its Credit Notes equals the item's balance (P214, P292)",
     sql: `SELECT v.invoice_no, v.total_amount, COALESCE(i.paid_amount, 0), COALESCE(p.paid, 0) AS lines, i.current_balance
           FROM fin_ar_invoice v
           LEFT JOIN fin_ar_item i ON i.id = v.ar_item_id
@@ -263,7 +265,7 @@ export const CHECKS: Check[] = [
                      JOIN fin_cash_bank_tx t ON t.id = l.tx_id AND t.status = 'Posted'
                      WHERE l.doc_type_id = ${docType("fin_ar_invoice")} GROUP BY l.doc_id) p ON p.doc_id = v.id
           WHERE COALESCE(i.paid_amount, 0) <> COALESCE(p.paid, 0)
-             OR (v.status = 'Posted' AND v.ar_item_id IS NOT NULL AND v.total_amount - COALESCE(i.paid_amount, 0) <> i.current_balance)
+             OR (v.status = 'Posted' AND v.ar_item_id IS NOT NULL AND v.total_amount - COALESCE(i.paid_amount, 0) - ${returned("v")} <> i.current_balance)
              OR (v.status <> 'Posted' AND COALESCE(i.paid_amount, 0) <> 0)`,
   },
   {
@@ -502,12 +504,15 @@ export const CHECKS: Check[] = [
   },
   {
     area: "tax",
-    name: "PPN Keluaran in the General Ledger equals the fakturs",
-    sql: `SELECT gl.bal AS gl, f.ppn AS fakturs FROM
+    // A posted Credit Note lowers PPN Keluaran with no tax document of its own
+    // until the Pajak module models the Nota Retur (P292), so it is added back.
+    name: "PPN Keluaran in the General Ledger, plus posted Credit Notes, equals the fakturs",
+    sql: `SELECT gl.bal AS gl, cn.ppn AS credit_notes, f.ppn AS fakturs FROM
             (SELECT COALESCE(SUM(l.kredit_amount - l.debit_amount), 0) AS bal FROM acc_journal_line l
              JOIN acc_journal j ON j.id = l.journal_id AND j.status = 'Posted' WHERE l.account_id = ${acc("output_vat_account")}) gl,
+            (SELECT COALESCE(SUM(ppn_amount), 0) AS ppn FROM fin_ar_credit_note WHERE status = 'Posted' AND is_taxable) cn,
             (SELECT COALESCE(SUM(ppn), 0) AS ppn FROM tax_faktur) f
-          WHERE gl.bal <> f.ppn`,
+          WHERE gl.bal + cn.ppn <> f.ppn`,
   },
   {
     area: "tax",
@@ -547,6 +552,26 @@ export const CHECKS: Check[] = [
                      WHERE l.doc_type_id = ${docType("fin_ar_permit_advance")} GROUP BY l.doc_id) p ON p.doc_id = a.id
           WHERE COALESCE(pi.paid_amount, 0) <> COALESCE(p.paid, 0) OR COALESCE(pi.paid_amount, 0) > a.total_amount
              OR (COALESCE(pi.paid_amount, 0) > 0 AND a.status <> 'Issued')`,
+  },
+  {
+    area: "ar",
+    name: "each posted Credit Note: its Retur item born at its total, applied to its Invoice item by its applied amount, and a journal (P292)",
+    sql: `SELECT c.credit_no, c.total_amount, i.original_amount, c.applied_amount, COALESCE(u.used, 0) AS used, c.journal_id
+          FROM fin_ar_credit_note c
+          LEFT JOIN fin_ar_item i ON i.id = c.ar_item_id
+          LEFT JOIN (SELECT item_id, SUM(ABS(movement)) AS used FROM fin_ar_ledger WHERE event = 'ReturnUsed' GROUP BY item_id) u ON u.item_id = c.ar_item_id
+          WHERE c.status = 'Posted' AND (c.ar_item_id IS NULL OR c.journal_id IS NULL OR i.item_type <> 'Return'
+                OR i.source_doc_type_id <> ${docType("fin_ar_credit_note")} OR i.source_doc_id <> c.id
+                OR i.original_amount <> c.total_amount OR COALESCE(u.used, 0) <> c.applied_amount
+                OR c.total_amount <> c.dpp_amount + c.ppn_amount)`,
+  },
+  {
+    area: "ar",
+    name: "live Credit Notes never credit more of an Invoice line than it billed (P292)",
+    sql: `SELECT il.id, il.qty, SUM(cl.qty) AS credited FROM fin_ar_credit_note_line cl
+          JOIN fin_ar_credit_note c ON c.id = cl.credit_note_id AND c.status IN ('Draft', 'Posted')
+          JOIN fin_ar_invoice_line il ON il.id = cl.invoice_line_id
+          GROUP BY il.id, il.qty HAVING SUM(cl.qty) > il.qty`,
   },
   {
     area: "permit",

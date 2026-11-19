@@ -501,6 +501,7 @@ model RefCurrency {
   apInvoiceCurrency  FinApInvoice[]     @relation("ApInvoiceCurrency")
   sales_partners     MPartner[]         @relation("PartnerSalesCurrency")
   purchase_partners  MPartner[]         @relation("PartnerPurchaseCurrency")
+  credit_notes       FinArCreditNote[]  @relation("CreditNoteCurrency")
 
   @@map("ref_currency")
 }
@@ -666,6 +667,7 @@ model MItem {
   valuation_ledger       LogStockValuationLedger[]
   valuation_balance      LogStockValuationBalance?
   delivery_note_lines    LogDeliveryNoteLine[]
+  credit_note_lines      FinArCreditNoteLine[]     @relation("CreditNoteLineItem")
   sales_return_lines     SalReturnLine[]
   prd_balances           PrdBalance[]              @relation("PrdBalanceItem")
   stock_issue_lines      LogStockIssueLine[]
@@ -1337,6 +1339,7 @@ model MPartner {
   permit_invoices FinArPermitInvoice[] @relation("PermitInvoiceCustomer")
   sales_orders    SalOrder[]
   sales_returns   SalReturn[]
+  credit_notes    FinArCreditNote[]    @relation("CreditNoteCustomer")
   delivery_orders SalDeliveryOrder[]
   delivery_notes  LogDeliveryNote[]
   stock_trackings LogStockTracking[]
@@ -2584,6 +2587,98 @@ model SalReturnLine {
   @@map("sal_return_line")
 }
 
+enum CreditNoteStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+/// A Credit Note Penjualan (P292, Sales-Return-Plan.md §6): what came back of
+/// one posted Invoice Penjualan, credited at the Invoice's own figures. Posting
+/// writes Dr Retur Penjualan · Dr PPN Keluaran / Cr Piutang Usaha and a Retur AR
+/// item applied to the Invoice's item; what the Invoice cannot absorb stays an
+/// open customer credit.
+model FinArCreditNote {
+  id          Int              @id @default(autoincrement())
+  /// `CNS/YYYY/MM/NNNN`, `CNS-NP/…` for an Invoice without PPN (P109).
+  credit_no   String           @unique
+  credit_date DateTime         @db.Date
+  status      CreditNoteStatus @default(Draft)
+
+  /// The one Invoice it credits, chosen once and locked.
+  invoice_id         Int
+  /// The Invoice's Customer Order (weak): the lock and the AR scope.
+  customer_order_id  Int
+  customer_id        Int
+  currency_id        Int
+  /// The Invoice's rate: a credit is valued as what it reverses (MC8).
+  exchange_rate      Decimal @default(1) @db.Decimal(18, 6)
+  is_taxable         Boolean
+  /// The buyer's Nota Retur, as given (SR6).
+  customer_return_no String?
+  note               String?
+
+  gross_amount      Decimal @default(0) @db.Decimal(18, 2)
+  discount_amount   Decimal @default(0) @db.Decimal(18, 2)
+  dpp_amount        Decimal @default(0) @db.Decimal(18, 2)
+  dpp_other_amount  Decimal @default(0) @db.Decimal(18, 2)
+  ppn_amount        Decimal @default(0) @db.Decimal(18, 2)
+  total_amount      Decimal @default(0) @db.Decimal(18, 2)
+  base_dpp_amount   Decimal @default(0) @db.Decimal(18, 2)
+  base_ppn_amount   Decimal @default(0) @db.Decimal(18, 2)
+  base_total_amount Decimal @default(0) @db.Decimal(18, 2)
+  /// What it lowered the Invoice item by at Posting; the rest is customer credit.
+  applied_amount    Decimal @default(0) @db.Decimal(18, 2)
+  /// Base relieved from the Invoice item less base used of the Retur item.
+  fx_difference     Decimal @default(0) @db.Decimal(18, 2)
+
+  ar_item_id    Int?
+  journal_id    Int?
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  invoice  FinArInvoice          @relation("CreditNoteInvoice", fields: [invoice_id], references: [id])
+  customer MPartner              @relation("CreditNoteCustomer", fields: [customer_id], references: [id])
+  currency RefCurrency           @relation("CreditNoteCurrency", fields: [currency_id], references: [id])
+  lines    FinArCreditNoteLine[]
+
+  @@index([invoice_id])
+  @@index([status, credit_date])
+  @@map("fin_ar_credit_note")
+}
+
+/// One credited quantity of one Invoice line, at its cumulative share of the
+/// line (P112): the credits of a line never add up to more than the line.
+model FinArCreditNoteLine {
+  id               Int     @id @default(autoincrement())
+  credit_note_id   Int
+  line_no          Int
+  invoice_line_id  Int
+  item_id          Int
+  qty              Decimal @db.Decimal(18, 4)
+  gross_amount     Decimal @default(0) @db.Decimal(18, 2)
+  discount_amount  Decimal @default(0) @db.Decimal(18, 2)
+  dpp_amount       Decimal @default(0) @db.Decimal(18, 2)
+  dpp_other_amount Decimal @default(0) @db.Decimal(18, 2)
+  ppn_amount       Decimal @default(0) @db.Decimal(18, 2)
+  base_dpp_amount  Decimal @default(0) @db.Decimal(18, 2)
+  base_ppn_amount  Decimal @default(0) @db.Decimal(18, 2)
+
+  credit_note  FinArCreditNote  @relation(fields: [credit_note_id], references: [id], onDelete: Cascade)
+  invoice_line FinArInvoiceLine @relation("CreditNoteInvoiceLine", fields: [invoice_line_id], references: [id])
+  item         MItem            @relation("CreditNoteLineItem", fields: [item_id], references: [id])
+
+  @@unique([credit_note_id, line_no])
+  @@unique([credit_note_id, invoice_line_id])
+  @@index([invoice_line_id])
+  @@index([item_id])
+  @@map("fin_ar_credit_note_line")
+}
+
 enum DeliveryNoteStatus {
   Draft
   Posted
@@ -2789,11 +2884,12 @@ model FinArInvoice {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  customer   MPartner                       @relation(fields: [customer_id], references: [id])
-  address    MPartnerAddress                @relation(fields: [address_id], references: [id])
-  cash_bank  MCashBank                      @relation(fields: [cash_bank_id], references: [id])
-  lines      FinArInvoiceLine[]
-  deductions FinArInvoiceAdvanceDeduction[]
+  customer     MPartner                       @relation(fields: [customer_id], references: [id])
+  address      MPartnerAddress                @relation(fields: [address_id], references: [id])
+  cash_bank    MCashBank                      @relation(fields: [cash_bank_id], references: [id])
+  lines        FinArInvoiceLine[]
+  deductions   FinArInvoiceAdvanceDeduction[]
+  credit_notes FinArCreditNote[]              @relation("CreditNoteInvoice")
 
   /// The document's currency (MC3); a dependent document takes its source's.
   currency_id Int
@@ -2842,8 +2938,9 @@ model FinArInvoiceLine {
   withholding_tax_id      Int?
   withholding_rate        Decimal?      @db.Decimal(9, 4)
 
-  invoice         FinArInvoice       @relation(fields: [invoice_id], references: [id])
-  withholding_tax RefWithholdingTax? @relation(fields: [withholding_tax_id], references: [id])
+  invoice           FinArInvoice          @relation(fields: [invoice_id], references: [id])
+  credit_note_lines FinArCreditNoteLine[] @relation("CreditNoteInvoiceLine")
+  withholding_tax   RefWithholdingTax?    @relation(fields: [withholding_tax_id], references: [id])
 
   @@unique([invoice_id, line_no])
   @@unique([invoice_id, delivery_note_line_id])
@@ -3479,6 +3576,8 @@ model FinCashBankTxLineWht {
 enum ArItemType {
   Advance
   Invoice
+  /// A customer credit from a Credit Note Penjualan (P292): lowers Piutang Usaha.
+  Return
 }
 
 /// Whether the item raises the customer's Piutang Usaha (Invoice) or lowers
@@ -3498,6 +3597,10 @@ enum ArEvent {
   AdvanceApplied
   /// A later payment of an advance bill raising the bill's one Uang Muka item (P133).
   AdvanceReceived
+  /// An Invoice item lowered by the Credit Note against it (P292).
+  ReturnApplied
+  /// A Retur item lowered by what it was applied to its Invoice (P292).
+  ReturnUsed
 }
 
 model FinArItem {

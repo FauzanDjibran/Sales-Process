@@ -42,14 +42,14 @@ import { ENTRY_PAGE_SIZE, afterBookCursor, type BookCursor } from "./register-qu
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-export type ArItemType = "Advance" | "Invoice";
-export type ArEvent = "Create" | "Payment" | "AdvanceUsed" | "AdvanceApplied" | "AdvanceReceived";
+export type ArItemType = "Advance" | "Invoice" | "Return";
+export type ArEvent = "Create" | "Payment" | "AdvanceUsed" | "AdvanceApplied" | "AdvanceReceived" | "ReturnApplied" | "ReturnUsed";
 
 /**
  * Which way an item moves the customer's Piutang Usaha: an Invoice raises it,
  * an Uang Muka lowers it. Exposure = balance × this.
  */
-export const AR_SIGN: Record<ArItemType, 1 | -1> = { Invoice: 1, Advance: -1 };
+export const AR_SIGN: Record<ArItemType, 1 | -1> = { Invoice: 1, Advance: -1, Return: -1 };
 
 const asDate = (d: string) => new Date(`${d}T00:00:00Z`);
 const isoDay = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : "");

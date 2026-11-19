@@ -50,6 +50,8 @@ export function bookEventText(side: BookSide, type: BookKind, event: string): st
   if (event === "AdvanceReceived") return BOOK_WORDS[side].advanceIn;
   if (event === "AdvanceUsed") return "Dipakai Invoice";
   if (event === "AdvanceApplied") return "Uang Muka Diterapkan";
+  if (event === "ReturnApplied") return "Retur Diterapkan";
+  if (event === "ReturnUsed") return "Dipakai Invoice";
   return "Pembayaran";
 }
 

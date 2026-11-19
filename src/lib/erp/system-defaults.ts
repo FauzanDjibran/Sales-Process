@@ -35,6 +35,7 @@ export type SystemDefaultKey =
   | "bank_charge_account"
   | "receivable_account"
   | "sales_revenue_account"
+  | "sales_return_account"
   | "permit_advance_account"
   | "permit_revenue_account"
   | "permit_cost_account"
@@ -336,6 +337,17 @@ export const SYSTEM_DEFAULTS = [
     group: "invoice",
     help: "pendapatan atas barang yang ditagih",
   },
+  {
+    // The Credit Note Penjualan (P292): a contra account, so the Laba Rugi
+    // keeps gross sales and their returns apart.
+    key: "sales_return_account",
+    name: "Account Retur Penjualan",
+    icon: "trend",
+    type: "ref",
+    ref: "acc_account",
+    group: "invoice",
+    help: "pengurang penjualan atas barang yang dikembalikan customer",
+  },
 
   // ------------------------------------------------------------- permit
   //
@@ -541,6 +553,7 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   bank_charge_account: null,
   receivable_account: null,
   sales_revenue_account: null,
+  sales_return_account: null,
   permit_advance_account: null,
   permit_revenue_account: null,
   permit_cost_account: null,

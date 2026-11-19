@@ -470,6 +470,14 @@ export const MODULES: NavModule[] = [
             permission: "SALES_INVOICE_VIEW",
           },
           {
+            key: "fin_ar_credit_note",
+            slug: "invoice/credit-note",
+            name: "Credit Note Penjualan",
+            icon: "file",
+            desc: "Koreksi Invoice Penjualan atas barang yang dikembalikan customer: mengurangi penjualan, PPN Keluaran dan piutang.",
+            permission: "SALES_CREDIT_NOTE_VIEW",
+          },
+          {
             key: "fin_ar_permit_invoice",
             slug: "invoice/permit",
             name: "Invoice Perizinan",

@@ -1347,7 +1347,7 @@ table fin_ar_item {
   id                          int [pk, increment, not null]
 
   ar_item_no                  varchar [not null, unique] // ARI/YYYY/MM/NNNN, month of item_date
-  item_type                   enum('Advance', 'Invoice') [not null]
+  item_type                   enum('Advance', 'Invoice', 'Return') [not null] // Return: a Credit Note Penjualan, customer credit until applied (P292)
   direction                   enum('Increase', 'Decrease') [not null] // Invoice raises Piutang Usaha, Uang Muka lowers it
 
   partner_id                  int [not null, ref : > m_partner.id]
@@ -1389,7 +1389,7 @@ table fin_ar_ledger {
 
   item_id                     int [not null, ref : > fin_ar_item.id]
 
-  event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied', 'AdvanceReceived') [not null] // AdvanceReceived: a later payment raising a bill's one Uang Muka item (P133)
+  event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied', 'AdvanceReceived', 'ReturnApplied', 'ReturnUsed') [not null] // AdvanceReceived: a later payment raising a bill's one Uang Muka item (P133); ReturnApplied / ReturnUsed: a Retur item applied to an Invoice item (P292)
   entry_date                  date [not null]
   movement                    decimal(18,2) [not null] // signed on the item balance: + grows, − falls; the one figure of the entry (P213)
   base_movement               decimal(18,2) [not null] // movement in base currency (MC1)
@@ -1419,7 +1419,7 @@ table fin_ap_item {
   id                          int [pk, increment, not null]
 
   ap_item_no                  varchar [not null, unique] // API/YYYY/MM/NNNN
-  item_type                   enum('Advance', 'Invoice') [not null]
+  item_type                   enum('Advance', 'Invoice', 'Return') [not null] // shares the AR enum; Return unused on AP
   direction                   enum('Increase', 'Decrease') [not null] // on Hutang Usaha: an Invoice raises it, an Uang Muka lowers it
   partner_id                  int [not null, ref : > m_partner.id]
   currency_id                 int [not null, ref : > ref_currency.id]
@@ -1455,7 +1455,7 @@ table fin_ap_ledger {
   ledger_no                   varchar [not null] // BH/YYYY/MM/NNNN
   line_no                     int [not null]
   item_id                     int [not null, ref : > fin_ap_item.id]
-  event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied', 'AdvanceReceived') [not null] // AdvanceReceived: a later payment raising a bill's one Uang Muka item (P133)
+  event                       enum('Create', 'Payment', 'AdvanceUsed', 'AdvanceApplied', 'AdvanceReceived', 'ReturnApplied', 'ReturnUsed') [not null] // AdvanceReceived: a later payment raising a bill's one Uang Muka item (P133)
   entry_date                  date [not null]
   movement                    decimal(18,2) [not null] // signed on the item balance: + grows, − falls (P213)
   base_movement               decimal(18,2) [not null] // movement in base currency (MC1)
@@ -1920,6 +1920,79 @@ table fin_ar_invoice_advance_deduction {
   indexes {
     (invoice_id, ar_item_id) [unique]
     ar_item_id
+  }
+}
+
+// Credit Note Penjualan, CNS/… and CNS-NP/… (P287, P292, Sales-Return-Plan.md §6): credits one posted Invoice
+// for goods that came back after it was billed. Draft → Posted, Cancelled final. Posting writes
+// Dr Retur Penjualan · Dr PPN Keluaran / Cr Piutang Usaha and a Retur AR item applied to the Invoice's item
+table fin_ar_credit_note {
+  id                          int [pk, increment, not null]
+
+  credit_no                   varchar [unique, not null]
+  credit_date                 date [not null]
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+
+  invoice_id                  int [not null, ref : > fin_ar_invoice.id] // the one Invoice it credits, locked once saved
+  customer_order_id           int [not null] // weak: the Invoice's Customer Order — the lock and the AR scope
+  customer_id                 int [not null, ref : > m_partner.id]
+  currency_id                 int [not null, ref : > ref_currency.id]
+  exchange_rate               decimal(18,6) [not null, default: 1] // the Invoice's rate: a credit is valued as what it reverses (MC8)
+  is_taxable                  boolean [not null]
+  customer_return_no          varchar // the buyer's Nota Retur, as given (SR6)
+  note                        varchar
+
+  gross_amount                decimal(18,2) [not null, default: 0]
+  discount_amount             decimal(18,2) [not null, default: 0]
+  dpp_amount                  decimal(18,2) [not null, default: 0]
+  dpp_other_amount            decimal(18,2) [not null, default: 0]
+  ppn_amount                  decimal(18,2) [not null, default: 0]
+  total_amount                decimal(18,2) [not null, default: 0] // dpp + ppn: the Retur AR item's original
+  base_dpp_amount             decimal(18,2) [not null, default: 0]
+  base_ppn_amount             decimal(18,2) [not null, default: 0]
+  base_total_amount           decimal(18,2) [not null, default: 0]
+  applied_amount              decimal(18,2) [not null, default: 0] // what it lowered the Invoice item by; the rest is customer credit. CHECK 0 ≤ applied ≤ total
+  fx_difference               decimal(18,2) [not null, default: 0] // base relieved from the Invoice item less base used of the Retur item (MC13)
+
+  ar_item_id                  int // weak: its Retur AR item, once posted
+  journal_id                  int // weak: its journal, once posted
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    invoice_id
+    (status, credit_date)
+  }
+}
+
+// a quantity of one Invoice line, its figures the cumulative share of the line's after posted credits (P112)
+table fin_ar_credit_note_line {
+  id                          int [pk, increment, not null]
+
+  credit_note_id              int [not null, ref : > fin_ar_credit_note.id]
+  line_no                     int [not null]
+  invoice_line_id             int [not null, ref : > fin_ar_invoice_line.id]
+  item_id                     int [not null, ref : > m_item.id]
+
+  qty                         decimal(18,4) [not null] // CHECK > 0
+  gross_amount                decimal(18,2) [not null, default: 0]
+  discount_amount             decimal(18,2) [not null, default: 0]
+  dpp_amount                  decimal(18,2) [not null, default: 0]
+  dpp_other_amount            decimal(18,2) [not null, default: 0]
+  ppn_amount                  decimal(18,2) [not null, default: 0]
+  base_dpp_amount             decimal(18,2) [not null, default: 0]
+  base_ppn_amount             decimal(18,2) [not null, default: 0]
+
+  indexes {
+    (credit_note_id, line_no) [unique]
+    (credit_note_id, invoice_line_id) [unique]
+    invoice_line_id
+    item_id
   }
 }
 

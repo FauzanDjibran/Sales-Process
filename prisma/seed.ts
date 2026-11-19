@@ -164,6 +164,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   // Goods coming back from posted Delivery Notes (P287); the Receipt Note
   // sales_return will name it as its source.
   ["Sales Return", "sal_return"],
+  // Credits what came back of a posted Invoice (P292); its journal and Retur AR item name it.
+  ["Credit Note Penjualan", "fin_ar_credit_note"],
 ];
 
 /**

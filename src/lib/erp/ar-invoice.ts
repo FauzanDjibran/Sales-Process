@@ -10,7 +10,7 @@ import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, 
 import { checkAccountIsLeaf } from "./records";
 import { formatAddress } from "./partner-shape";
 import { customerOrderNumbersByIds, invoiceSourceOrders, lockCustomerOrder, type InvoiceSourceOrder } from "./customer-order";
-import { invoiceSourceLines, postedNoteLineIds, type InvoiceSourceLine } from "./delivery-note";
+import { invoiceSourceLines, postedNoteLineIds, returnedNoteLineIds, type InvoiceSourceLine } from "./delivery-note";
 import {
   ArItemOverdrawn,
   advanceItemsForInvoice,
@@ -1358,4 +1358,118 @@ export async function invoiceTaxBasis(db: Db, id: number): Promise<InvoiceTaxBas
 /** Records the NSFP of the Invoice's faktur pajak (U10), written by the tax module when it is reported. */
 export async function setInvoiceTaxInvoiceNo(db: Db, id: number, no: string | null): Promise<void> {
   await db.finArInvoice.update({ where: { id }, data: { tax_invoice_no: no } });
+}
+
+// ------------------------------------------- for the Credit Note (P292)
+
+/**
+ * A posted Invoice as a Credit Note reads it: its own figures per line, and per
+ * line what came back after it was billed. A line billed after part of its
+ * goods came back was billed net of them (P291), so only what came back beyond
+ * that may be credited: `returnedAfter` = what came back − (what left − what
+ * was billed).
+ */
+export type CreditSourceInvoice = {
+  id: number;
+  invoiceNo: string;
+  invoiceDate: string;
+  status: InvoiceStatus;
+  customerOrderId: number;
+  customerOrderNo: string;
+  customerId: number;
+  customerLabel: string;
+  customerName: string;
+  currencyId: number;
+  currency: string;
+  exchangeRate: number;
+  isTaxable: boolean;
+  arItemId: number | null;
+  lines: {
+    id: number;
+    lineNo: number;
+    deliveryNoteLineId: number;
+    dnNo: string;
+    itemId: number;
+    itemLabel: string;
+    itemName: string;
+    uomLabel: string;
+    qty: number;
+    gross: number;
+    discount: number;
+    dpp: number;
+    dppOther: number;
+    ppn: number;
+    baseDpp: number;
+    basePpn: number;
+    returnedAfter: number;
+  }[];
+};
+
+/** Posted Invoices with goods that came back after billing (`withReturns`), or the ones named. */
+export async function creditSourceInvoices(filter: { ids?: number[]; withReturns?: boolean }, db: Db = prisma): Promise<CreditSourceInvoice[]> {
+  let ids = filter.ids ?? [];
+  if (filter.withReturns) {
+    const dnIds = await returnedNoteLineIds(db);
+    const lines = dnIds.length
+      ? await db.finArInvoiceLine.findMany({
+          where: { delivery_note_line_id: { in: dnIds }, invoice: { status: "Posted" } },
+          select: { invoice_id: true },
+          distinct: ["invoice_id"],
+        })
+      : [];
+    ids = lines.map((l) => l.invoice_id);
+  }
+  if (!ids.length) return [];
+  const rows = await db.finArInvoice.findMany({
+    where: { id: { in: ids } },
+    include: { customer: true, currency: true, lines: { orderBy: { line_no: "asc" } } },
+    orderBy: [{ invoice_date: "asc" }, { id: "asc" }],
+  });
+  const [notes, orders] = await Promise.all([
+    invoiceSourceLines({ lineIds: rows.flatMap((r) => r.lines.map((l) => l.delivery_note_line_id)) }, db),
+    invoiceSourceOrders({ ids: [...new Set(rows.map((r) => r.customer_order_id))] }, db),
+  ]);
+  const noteById = new Map(notes.map((n) => [n.id, n]));
+  const orderById = new Map(orders.map((o) => [o.id, o]));
+  const q = (n: number) => Math.round(n * 10_000) / 10_000;
+  return rows.map((r) => ({
+    id: r.id,
+    invoiceNo: r.invoice_no,
+    invoiceDate: isoDay(r.invoice_date),
+    status: r.status as InvoiceStatus,
+    customerOrderId: r.customer_order_id,
+    customerOrderNo: orderById.get(r.customer_order_id)?.orderNo ?? "",
+    customerId: r.customer_id,
+    customerLabel: r.customer.partner_label,
+    customerName: r.customer.partner_name,
+    currencyId: r.currency_id,
+    currency: r.currency.currency_label,
+    exchangeRate: orderById.get(r.customer_order_id)?.exchangeRate ?? 1,
+    isTaxable: r.is_taxable,
+    arItemId: r.ar_item_id,
+    lines: r.lines.map((l) => {
+      const n = noteById.get(l.delivery_note_line_id);
+      const sent = (n?.qty ?? 0) + (n?.returnedQty ?? 0);
+      const billed = l.qty.toNumber();
+      return {
+        id: l.id,
+        lineNo: l.line_no,
+        deliveryNoteLineId: l.delivery_note_line_id,
+        dnNo: n?.dnNo ?? "",
+        itemId: n?.itemId ?? 0,
+        itemLabel: n?.itemLabel ?? "",
+        itemName: n?.itemName ?? "",
+        uomLabel: n?.uomLabel ?? "",
+        qty: billed,
+        gross: l.gross_amount.toNumber(),
+        discount: l.discount_amount.toNumber(),
+        dpp: l.dpp_amount.toNumber(),
+        dppOther: l.dpp_other_amount.toNumber(),
+        ppn: l.ppn_amount.toNumber(),
+        baseDpp: l.base_dpp_amount.toNumber(),
+        basePpn: l.base_ppn_amount.toNumber(),
+        returnedAfter: Math.max(0, q((n?.returnedQty ?? 0) - (sent - billed))),
+      };
+    }),
+  }));
 }

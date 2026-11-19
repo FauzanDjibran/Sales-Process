@@ -19,6 +19,7 @@ import { permitRequestNumbersByIds } from "./permit-request";
 import { salesOrderNumbersByIds } from "./sales-order";
 import { deliveryOrderNumbersByIds } from "./delivery-order";
 import { salesReturnNumbersByIds } from "./sales-return";
+import { creditNoteNumbersByIds } from "./ar-credit-note";
 import { deliveryNoteNumbersByIds } from "./delivery-note";
 import { receiptNoteNumbersByIds } from "./receipt-note";
 import { costBillNumbersByIds } from "./production-cost-bill";
@@ -112,6 +113,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   pur_request: { label: "Purchase Request", resolve: purchaseRequestNumbersByIds },
   pur_order: { label: "Purchase Order", resolve: purchaseOrderNumbersByIds },
   fin_ar_invoice: { label: "Invoice Penjualan", resolve: invoiceNumbersByIds },
+  fin_ar_credit_note: { label: "Credit Note Penjualan", resolve: creditNoteNumbersByIds },
   fin_ar_permit_invoice: { label: "Invoice Perizinan", resolve: permitInvoiceNumbersByIds },
   fin_ap_invoice: { label: "Invoice Pembelian", resolve: purchaseInvoiceNumbersByIds },
   // The stand-in inventory, dropped by P120; kept so its old trail still reads.

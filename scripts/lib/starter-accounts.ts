@@ -104,6 +104,7 @@ export const STARTER_MAPPINGS: [setting: string, account: string][] = [
   ["inventory_account", "inventory"],
   ["receivable_account", "ar"],
   ["sales_revenue_account", "sales"],
+  ["sales_return_account", "returns"],
   ["permit_advance_account", "permitAdvance"],
   ["permit_revenue_account", "permitRevenue"],
   ["permit_cost_account", "permitCost"],

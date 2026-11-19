@@ -1108,6 +1108,15 @@ export async function recordDeliveryNoteReturned(tx: Prisma.TransactionClient, b
   }
 }
 
+/** Posted note lines some of which came back (P292): where a Credit Note may start. */
+export async function returnedNoteLineIds(db: Db = prisma): Promise<number[]> {
+  const rows = await db.logDeliveryNoteLine.findMany({
+    where: { delivery_note: { purpose: SALES_DELIVERY, status: "Posted" }, returned_qty: { gt: 0 } },
+    select: { id: true },
+  });
+  return rows.map((r) => r.id);
+}
+
 /** Drafts dated up to a day — the month-end close's checklist (R28). */
 export async function draftDeliveryNotesUpTo(to: Date, db: Db = prisma): Promise<number> {
   return db.logDeliveryNote.count({ where: { status: "Draft", dn_date: { lte: to } } });

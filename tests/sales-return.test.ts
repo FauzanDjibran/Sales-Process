@@ -5,7 +5,8 @@ import { createCustomerOrder, transitionCustomerOrder } from "../src/lib/erp/cus
 import { createSalesOrder, transitionSalesOrder } from "../src/lib/erp/sales-order";
 import { createDeliveryOrder, transitionDeliveryOrder } from "../src/lib/erp/delivery-order";
 import { createDeliveryNote, invoiceSourceLines, transitionDeliveryNote } from "../src/lib/erp/delivery-note";
-import { invoiceOptions } from "../src/lib/erp/ar-invoice";
+import { createInvoice, invoiceOptions, transitionInvoice } from "../src/lib/erp/ar-invoice";
+import { createCreditNote, creditNoteOptions, creditNotePreview, transitionCreditNote, updateCreditNote } from "../src/lib/erp/ar-credit-note";
 import {
   checkSalesReturn,
   createSalesReturn,
@@ -44,7 +45,7 @@ import {
 const today = new Date().toISOString().slice(0, 10);
 let actor = 0;
 const f = {} as Record<string, number>;
-const ids = { co: [] as number[], so: [] as number[], do: [] as number[], dn: [] as number[], sr: [] as number[], rn: [] as number[] };
+const ids = { co: [] as number[], so: [] as number[], do: [] as number[], dn: [] as number[], sr: [] as number[], rn: [] as number[], inv: [] as number[], cn: [] as number[] };
 const cleanups: (() => Promise<unknown>)[] = [];
 const savedSettings = new Map<string, string | null>();
 const stamp = String(Date.now() % 100000);
@@ -176,6 +177,17 @@ before(async () => {
 });
 
 after(async () => {
+  await prisma.finArCreditNoteLine.deleteMany({ where: { credit_note_id: { in: ids.cn } } });
+  await prisma.finArCreditNote.deleteMany({ where: { id: { in: ids.cn } } });
+  const items = await prisma.finArItem.findMany({ where: { partner_id: f.customer }, select: { id: true } });
+  await prisma.finArLedger.deleteMany({ where: { item_id: { in: items.map((i) => i.id) } } });
+  await prisma.finArItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
+  await prisma.finArInvoiceLine.deleteMany({ where: { invoice_id: { in: ids.inv } } });
+  await prisma.finArInvoice.deleteMany({ where: { id: { in: ids.inv } } });
+  if (f.bank) await prisma.mCashBank.deleteMany({ where: { id: f.bank } });
+  for (const [k, list] of Object.entries({ fin_ar_credit_note: ids.cn, fin_ar_invoice: ids.inv })) {
+    await prisma.auditLog.deleteMany({ where: { entity_key: k, row_id: { in: list } } });
+  }
   await prisma.logReceiptNote.deleteMany({ where: { id: { in: ids.rn } } });
   await prisma.auditLog.deleteMany({ where: { entity_key: "log_receipt_note", row_id: { in: ids.rn } } });
   await prisma.salReturnLine.deleteMany({ where: { return_id: { in: ids.sr } } });
@@ -372,5 +384,120 @@ describe("the Invoice bills what is left after returns", () => {
     const o = await invoiceOptions();
     const mine = o.orders.find((x) => x.id === flow.coId)?.noteLines.find((l) => l.id === flow.dnLine);
     assert.equal(mine?.qty, 30, "the form offers the same 30");
+  });
+});
+
+// ------------------------------ step 4: a Credit Note for goods back after billing (P292)
+
+describe("a Credit Note credits what came back after the Invoice", () => {
+  let srId = 0;
+  let invId = 0;
+  let invLine = 0;
+  const acc = {} as Record<string, number>;
+  const cnHeader = (over = {}) => ({ invoice_id: invId, credit_date: today, customer_return_no: "NR-1", note: "", ...over });
+
+  before(async () => {
+    const sub = async (label: string) =>
+      (await prisma.accAccountSubcategory.findFirstOrThrow({ where: { subcategory_label: { startsWith: label } }, orderBy: { id: "asc" } })).subcategory_label;
+    acc.ar = await makeAccount({ subcategoryLabel: await sub("1"), partnerCategoryLabel: "Customer" });
+    acc.vat = await makeAccount({ subcategoryLabel: await sub("2"), normalBalance: "Kredit" });
+    acc.rev = await makeAccount({ subcategoryLabel: await sub("4"), normalBalance: "Kredit" });
+    acc.ret = await makeAccount({ subcategoryLabel: await sub("4") });
+    for (const [k, v] of [
+      ["receivable_account", acc.ar],
+      ["sales_revenue_account", acc.rev],
+      ["output_vat_account", acc.vat],
+      ["sales_return_account", acc.ret],
+    ] as const) {
+      await setMapping(k, String(v));
+    }
+    const idr = (await prisma.refCurrency.findFirstOrThrow({ where: { currency_label: "IDR" } })).id;
+    const bankAcc = await makeAccount({ subcategoryLabel: await sub("1") });
+    f.bank = (
+      await prisma.mCashBank.create({
+        data: { cash_bank_code: `test.${key("BANK")}`, cash_bank_label: key("BANK"), cash_bank_name: "Bank Uji", cash_bank_type: "Bank", currency_id: idr, account_id: bankAcc, created_by: actor },
+      })
+    ).id;
+    // Bill the 30 left on the note: DPP 30.000, PPN round(12 % × 27.500) = 3.300.
+    const inv = await createInvoice(
+      { customer_order_id: flow.coId, invoice_date: today, address_id: flow.address, cash_bank_id: f.bank, note: "" },
+      [{ delivery_note_line_id: flow.dnLine }],
+      [],
+      actor
+    );
+    assert.ok(inv.ok, JSON.stringify(inv));
+    ids.inv.push(inv.id);
+    invId = inv.id;
+    const posted = await transitionInvoice(inv.id, "post", actor);
+    assert.ok(posted.ok, JSON.stringify(posted));
+    invLine = (await prisma.finArInvoiceLine.findFirstOrThrow({ where: { invoice_id: inv.id } })).id;
+    // Then 5 more come back.
+    const r = await create(header(), [line(5)]);
+    assert.ok(r.ok, JSON.stringify(r));
+    srId = r.id;
+    for (const a of ["submit", "approve"] as const) await transitionSalesReturn(srId, a, actor);
+    const srLine = (await prisma.salReturnLine.findFirstOrThrow({ where: { return_id: srId } })).id;
+    const dnTracking = (await prisma.logDeliveryNoteTracking.findFirstOrThrow({ where: { delivery_note_line_id: flow.dnLine } })).id;
+    const lots = [{ tracking_no: "", expiry_date: "", source_tracking_id: dnTracking, qty: 5, location_id: null, stock_status_id: f.available }];
+    const rn = await createReceiptNote(
+      { purpose: SALES_RETURN, source_doc_id: srId, rn_date: today, warehouse_id: f.warehouse, supplier_dn_no: "", note: "" },
+      [{ source_doc_line_id: srLine, qty: 5, note: "", lots }],
+      actor
+    );
+    assert.ok(rn.ok, JSON.stringify(rn));
+    ids.rn.push(rn.id);
+    assert.ok((await transitionReceiptNote(rn.id, "post", actor)).ok);
+  });
+
+  test("offers the Invoice with the 5 that came back after it", async () => {
+    const mine = (await creditNoteOptions()).invoices.find((i) => i.id === invId);
+    assert.deepEqual(mine?.lines.map((l) => [l.id, l.qty, l.returnedAfter, l.held]), [[invLine, 30, 5, 0]]);
+  });
+
+  test("refuses more than came back, and a Draft holds what it credits", async () => {
+    const over = await createCreditNote(cnHeader(), [{ invoice_line_id: invLine, qty: 6 }], actor);
+    assert.ok(!over.ok && /Melebihi/.test(over.errors["lines.0.qty"]));
+    const a = await createCreditNote(cnHeader(), [{ invoice_line_id: invLine, qty: 2 }], actor);
+    assert.ok(a.ok, JSON.stringify(a));
+    ids.cn.push(a.id);
+    assert.match(a.creditNo, /^CNS\/\d{4}\/\d{2}\/\d{4,}$/);
+    assert.ok(!(await createCreditNote(cnHeader(), [{ invoice_line_id: invLine, qty: 4 }], actor)).ok, "the Draft holds 2 of the 5");
+    const b = await createCreditNote(cnHeader(), [{ invoice_line_id: invLine, qty: 3 }], actor);
+    assert.ok(b.ok, JSON.stringify(b));
+    ids.cn.push(b.id);
+    assert.ok((await updateCreditNote(b.id, cnHeader({ note: "x" }), [{ invoice_line_id: invLine, qty: 3 }], actor)).ok);
+  });
+
+  test("posting reverses revenue and PPN, and a Retur item lowers the Invoice item", async () => {
+    const [a, b] = ids.cn;
+    const preview = await creditNotePreview(a, actor);
+    assert.ok(preview.ok, JSON.stringify(preview));
+    assert.ok((await transitionCreditNote(a, "post", actor)).ok);
+    assert.ok((await transitionCreditNote(b, "post", actor)).ok);
+    const notes = await prisma.finArCreditNote.findMany({ where: { id: { in: [a, b] } }, orderBy: { id: "asc" } });
+    // 2/30, then 2..5 of 30, of 30.000 and 3.300 — each rounded once, cumulatively.
+    assert.deepEqual(
+      notes.map((n) => [n.dpp_amount.toNumber(), n.ppn_amount.toNumber(), n.total_amount.toNumber(), n.applied_amount.toNumber()]),
+      [
+        [2_000, 220, 2_220, 2_220],
+        [3_000, 330, 3_330, 3_330],
+      ]
+    );
+    const lines = await prisma.accJournalLine.findMany({ where: { journal_id: { in: notes.map((n) => n.journal_id!) } } });
+    const sum = (id: number, side: "debit_amount" | "kredit_amount") => lines.filter((l) => l.account_id === id).reduce((x, l) => x + l[side].toNumber(), 0);
+    assert.deepEqual([sum(acc.ret, "debit_amount"), sum(acc.vat, "debit_amount"), sum(acc.ar, "kredit_amount")], [5_000, 550, 5_550]);
+    const item = await prisma.finArItem.findFirstOrThrow({ where: { item_type: "Invoice", source_doc_id: invId, partner_id: f.customer } });
+    assert.equal(item.current_balance.toNumber(), 33_300 - 5_550);
+    const ret = await prisma.finArItem.findMany({ where: { item_type: "Return", partner_id: f.customer }, orderBy: { id: "asc" } });
+    assert.deepEqual(
+      ret.map((r) => [r.original_amount.toNumber(), r.current_balance.toNumber()]),
+      [
+        [2_220, 0],
+        [3_330, 0],
+      ],
+      "used up against the Invoice"
+    );
+    assert.equal((await creditNoteOptions()).invoices.find((i) => i.id === invId), undefined, "nothing left to credit");
+    assert.ok(!(await transitionCreditNote(a, "cancel", actor, "x")).ok, "a posted Credit Note is final");
   });
 });
