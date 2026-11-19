@@ -553,6 +553,7 @@ model RefUom {
 
   customer_order_lines SalCustomerOrderLine[]
   delivery_note_lines  LogDeliveryNoteLine[]
+  sales_return_lines   SalReturnLine[]
   prd_balances         PrdBalance[]           @relation("PrdBalanceUom")
   stock_issue_lines    LogStockIssueLine[]
 
@@ -665,6 +666,7 @@ model MItem {
   valuation_ledger       LogStockValuationLedger[]
   valuation_balance      LogStockValuationBalance?
   delivery_note_lines    LogDeliveryNoteLine[]
+  sales_return_lines     SalReturnLine[]
   prd_balances           PrdBalance[]              @relation("PrdBalanceItem")
   stock_issue_lines      LogStockIssueLine[]
   prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
@@ -1334,6 +1336,7 @@ model MPartner {
   permit_advances FinArPermitAdvance[] @relation("PermitAdvanceCustomer")
   permit_invoices FinArPermitInvoice[] @relation("PermitInvoiceCustomer")
   sales_orders    SalOrder[]
+  sales_returns   SalReturn[]
   delivery_orders SalDeliveryOrder[]
   delivery_notes  LogDeliveryNote[]
   stock_trackings LogStockTracking[]
@@ -1390,6 +1393,7 @@ model MPartnerAddress {
   /// from the Partner (P53).
   customer_orders SalCustomerOrder[]
   sales_orders    SalOrder[]
+  sales_returns   SalReturn[]
   delivery_orders SalDeliveryOrder[]
   delivery_notes  LogDeliveryNote[]
   invoices        FinArInvoice[]
@@ -2177,6 +2181,8 @@ model SalCustomerOrder {
   /// The Sales Orders that release this order's quantity to PPIC (P79).
   sales_orders    SalOrder[]
   /// The Delivery Orders that send this order's goods, and the notes they leave on.
+  /// The Sales Returns that bring this order's delivered goods back (P287).
+  sales_returns   SalReturn[]
   delivery_orders SalDeliveryOrder[]
 
   /// The document's currency (MC3); a dependent document takes its source's.
@@ -2493,6 +2499,89 @@ model SalDeliveryOrderLine {
   @@unique([delivery_order_id, sales_order_line_id])
   @@index([sales_order_line_id])
   @@map("sal_delivery_order_line")
+}
+
+/// A Sales Return's lifecycle (P287): approved like a Customer Order, closed
+/// by its Receipt Notes once every line is back, or by hand.
+enum SalesReturnStatus {
+  Draft
+  Submitted
+  Open
+  Closed
+  Cancelled
+  Rejected
+}
+
+/// A Sales Return (P287, `Sales-Return-Plan.md`): goods of one Customer Order
+/// the customer sends back, taken from that order's posted Delivery Notes. It
+/// posts nothing — the Receipt Note `sales_return` brings the goods in, and a
+/// Credit Note Penjualan reverses what was billed.
+model SalReturn {
+  id          Int               @id @default(autoincrement())
+  /// `SR/YYYY/MM/NNNN`, `SR-NP/…` for a Customer Order without PPN (P109).
+  return_no   String            @unique
+  return_date DateTime          @db.Date
+  status      SalesReturnStatus @default(Draft)
+
+  /// The one Customer Order the goods were sold on, chosen once and locked.
+  customer_order_id    Int
+  /// The order's customer, kept here so a list reads without a join.
+  customer_id          Int
+  /// Where the goods are collected from: any of the customer's addresses.
+  address_id           Int
+  /// A key of `SALES_RETURN_REASONS` (`sales-return-workflow.ts`).
+  reason               String
+  reason_note          String?
+  /// The buyer's own Nota Retur (a PKP buyer makes it in Coretax), recorded as given.
+  customer_return_no   String?
+  customer_return_date DateTime? @db.Date
+  note                 String?
+
+  /// Why it was cancelled, rejected or closed by hand.
+  status_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  customer_order SalCustomerOrder @relation(fields: [customer_order_id], references: [id])
+  customer       MPartner         @relation(fields: [customer_id], references: [id])
+  address        MPartnerAddress  @relation(fields: [address_id], references: [id])
+  lines          SalReturnLine[]
+
+  @@index([customer_order_id])
+  @@index([status, return_date])
+  @@map("sal_return")
+}
+
+/// One line of a Sales Return: a base quantity of one posted Delivery Note
+/// line. The Delivery Note is another module's document, named by id (§3.1).
+model SalReturnLine {
+  id                    Int     @id @default(autoincrement())
+  return_id             Int
+  line_no               Int
+  delivery_note_id      Int
+  delivery_note_line_id Int
+  item_id               Int
+  /// The item's base unit: sales sell in it (P108).
+  uom_id                Int
+  base_qty              Decimal @db.Decimal(18, 4)
+  /// What posted Receipt Notes brought back of this line; a closed return
+  /// holds only this much of its Delivery Note line.
+  received_qty          Decimal @default(0) @db.Decimal(18, 4)
+  note                  String?
+
+  sales_return SalReturn @relation(fields: [return_id], references: [id])
+  item         MItem     @relation(fields: [item_id], references: [id])
+  uom          RefUom    @relation(fields: [uom_id], references: [id])
+
+  @@unique([return_id, line_no])
+  @@unique([return_id, delivery_note_line_id])
+  @@index([delivery_note_line_id])
+  @@index([item_id])
+  @@index([uom_id])
+  @@map("sal_return_line")
 }
 
 enum DeliveryNoteStatus {

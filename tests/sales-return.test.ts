@@ -1,0 +1,286 @@
+import test, { after, before, describe } from "node:test";
+import assert from "node:assert/strict";
+
+import { createCustomerOrder, transitionCustomerOrder } from "../src/lib/erp/customer-order";
+import { createSalesOrder, transitionSalesOrder } from "../src/lib/erp/sales-order";
+import { createDeliveryOrder, transitionDeliveryOrder } from "../src/lib/erp/delivery-order";
+import { createDeliveryNote, transitionDeliveryNote } from "../src/lib/erp/delivery-note";
+import {
+  checkSalesReturn,
+  createSalesReturn,
+  getSalesReturn,
+  salesReturnOptions,
+  transitionSalesReturn,
+  updateSalesReturn,
+  type SalesReturnHeaderInput,
+  type SalesReturnLineInput,
+} from "../src/lib/erp/sales-return";
+import { availableSalesReturnActions, salesReturnAbilities } from "../src/lib/erp/sales-return-workflow";
+import {
+  FIXTURE_PREFIX,
+  cleanupFiscalYear,
+  cleanupFixtures,
+  cleanupStock,
+  disconnect,
+  makeAccount,
+  makePartner,
+  openFiscalYear,
+  prisma,
+  stockIn,
+  systemUserId,
+} from "./helpers";
+
+/**
+ * The Sales Return (P287, `Sales-Return-Plan.md` §4): goods of one Customer
+ * Order coming back from its posted Delivery Notes. What may be saved; that the
+ * returns on a Delivery Note line never take more than what left on it — a
+ * cancelled or rejected one gives it back, a closed one keeps only what was
+ * received; the approval lifecycle; and that it posts nothing.
+ */
+
+const today = new Date().toISOString().slice(0, 10);
+let actor = 0;
+const f = {} as Record<string, number>;
+const ids = { co: [] as number[], so: [] as number[], do: [] as number[], dn: [] as number[], sr: [] as number[] };
+const cleanups: (() => Promise<unknown>)[] = [];
+const savedSettings = new Map<string, string | null>();
+const stamp = String(Date.now() % 100000);
+const key = (s: string) => `${FIXTURE_PREFIX}${s}${stamp}`;
+
+async function setMapping(k: string, v: string | null) {
+  if (!savedSettings.has(k)) {
+    savedSettings.set(k, (await prisma.sysSetting.findUnique({ where: { setting_key: k } }))?.setting_value ?? null);
+  }
+  await prisma.sysSetting.upsert({ where: { setting_key: k }, update: { setting_value: v }, create: { setting_key: k, setting_value: v, updated_by: actor } });
+}
+
+/** A posted Delivery Note of 40 of the 100 GOODS ordered, and the 50 OTHER not yet sent. */
+const flow = { coId: 0, dnLine: 0, address: 0 };
+
+const header = (over: Partial<SalesReturnHeaderInput> = {}): SalesReturnHeaderInput => ({
+  customer_order_id: flow.coId,
+  return_date: today,
+  address_id: flow.address,
+  reason: "damaged",
+  reason_note: "",
+  customer_return_no: "",
+  customer_return_date: "",
+  note: "",
+  ...over,
+});
+const line = (qty: number | string, lineId = flow.dnLine): SalesReturnLineInput => ({ delivery_note_line_id: lineId, qty, note: "" });
+
+async function create(h = header(), lines = [line(10)]) {
+  const r = await createSalesReturn(h, lines, actor);
+  if (r.ok) ids.sr.push(r.id);
+  return r;
+}
+
+before(async () => {
+  actor = await systemUserId();
+  await openFiscalYear();
+  f.pcs = (await prisma.refUom.create({ data: { uom_code: `test.${key("PCS")}`, uom_label: key("PCS"), uom_name: "Pcs", created_by: actor } })).id;
+  const cat = (await prisma.sysItemCategory.findUniqueOrThrow({ where: { category_label: "BRG-JADI" } })).id;
+  f.goods = (
+    await prisma.mItem.create({
+      data: { item_code: `test.${key("GOODS")}`, item_label: key("GOODS"), item_name: "Goods", item_type: "Barang", category_id: cat, base_uom_id: f.pcs, can_sell: true, track_stock: true, created_by: actor },
+    })
+  ).id;
+  f.term = (await prisma.refPaymentTerm.create({ data: { term_code: `test.${key("T")}`, term_label: key("T"), term_name: "Net 30", due_days: 30, created_by: actor } })).id;
+  f.warehouse = (await prisma.refWarehouse.create({ data: { warehouse_code: `test.${key("WH")}`, warehouse_label: key("WH"), warehouse_name: "Gudang Uji", created_by: actor } })).id;
+  f.customer = await makePartner({ categoryLabel: "Customer" });
+  await prisma.mPartner.update({
+    where: { id: f.customer },
+    data: { taxpayer_type: "Badan", tax_id_type: "NPWP", tax_id: "0987654321098765", tax_name: "PT FIXTURE", is_pkp: true },
+  });
+  const village = await prisma.sysRegionVillage.findFirstOrThrow({ orderBy: { code: "asc" } });
+  flow.address = (await prisma.mPartnerAddress.create({ data: { partner_id: f.customer, village_id: village.id, street: "Kantor", created_by: actor } })).id;
+  f.lot = await stockIn(f.goods, f.warehouse, key("G1"), 100, 1_000_000);
+
+  const sub = async (label: string) =>
+    (await prisma.accAccountSubcategory.findFirstOrThrow({ where: { subcategory_label: { startsWith: label } }, orderBy: { id: "asc" } })).subcategory_label;
+  await setMapping("cogs_account", String(await makeAccount({ subcategoryLabel: await sub("5") })));
+  await setMapping("inventory_account", String(await makeAccount({ subcategoryLabel: await sub("1") })));
+  const catAccounts = await prisma.accItemCategoryAccount.findUnique({ where: { category_id: cat } });
+  if (catAccounts) {
+    await prisma.accItemCategoryAccount.update({ where: { category_id: cat }, data: { inventory_account_id: null, cogs_account_id: null } });
+    cleanups.push(() =>
+      prisma.accItemCategoryAccount.update({
+        where: { category_id: cat },
+        data: { inventory_account_id: catAccounts.inventory_account_id, cogs_account_id: catAccounts.cogs_account_id },
+      })
+    );
+  }
+
+  const co = await createCustomerOrder(
+    {
+      order_date: today,
+      customer_id: f.customer,
+      address_id: flow.address,
+      term_id: f.term,
+      price_mode: "Exclude",
+      is_taxable: true,
+      po_no: "",
+      po_date: "",
+      salesperson: "",
+      note: "",
+    },
+    [{ item_id: f.goods, uom_id: f.pcs, qty: 100, price: 1_000, discount_type: null, discount_value: null, withholding_tax_id: null, note: "" }],
+    actor
+  );
+  assert.ok(co.ok, JSON.stringify(co));
+  ids.co.push(co.id);
+  await transitionCustomerOrder(co.id, "submit", actor);
+  await transitionCustomerOrder(co.id, "approve", actor);
+  const coLine = await prisma.salCustomerOrderLine.findFirstOrThrow({ where: { order_id: co.id } });
+  const so = await createSalesOrder(
+    { customer_order_id: co.id, order_date: today, delivery_date: today, address_id: flow.address, note: "" },
+    [{ customer_order_line_id: coLine.id, qty: 100, note: "" }],
+    actor
+  );
+  assert.ok(so.ok, JSON.stringify(so));
+  ids.so.push(so.id);
+  for (const a of ["submit", "approve", "confirm"] as const) await transitionSalesOrder(so.id, a, actor);
+  const soLine = await prisma.salOrderLine.findFirstOrThrow({ where: { order_id: so.id } });
+  const dOrder = await createDeliveryOrder(
+    { customer_order_id: co.id, do_date: today, delivery_date: today, warehouse_id: f.warehouse, address_id: flow.address, note: "" },
+    [{ sales_order_line_id: soLine.id, qty: 100, note: "" }],
+    actor
+  );
+  assert.ok(dOrder.ok, JSON.stringify(dOrder));
+  ids.do.push(dOrder.id);
+  await transitionDeliveryOrder(dOrder.id, "issue", actor);
+  const doLine = await prisma.salDeliveryOrderLine.findFirstOrThrow({ where: { delivery_order_id: dOrder.id } });
+  const dn = await createDeliveryNote(
+    { source_doc_id: dOrder.id, dn_date: today, vehicle_no: "", driver_name: "", note: "" },
+    [{ source_doc_line_id: doLine.id, qty: 40, note: "", picks: [{ tracking_id: f.lot, base_qty: 40 }] }],
+    actor
+  );
+  assert.ok(dn.ok, JSON.stringify(dn));
+  ids.dn.push(dn.id);
+  const posted = await transitionDeliveryNote(dn.id, "post", actor);
+  assert.ok(posted.ok, JSON.stringify(posted));
+  flow.coId = co.id;
+  flow.dnLine = (await prisma.logDeliveryNoteLine.findFirstOrThrow({ where: { delivery_note_id: dn.id } })).id;
+
+  cleanups.push(
+    () => cleanupStock([f.goods]),
+    () => prisma.mItem.deleteMany({ where: { id: f.goods } }),
+    () => prisma.refUom.deleteMany({ where: { id: f.pcs } }),
+    () => prisma.refPaymentTerm.deleteMany({ where: { id: f.term } }),
+    () => prisma.refWarehouse.deleteMany({ where: { id: f.warehouse } })
+  );
+});
+
+after(async () => {
+  await prisma.salReturnLine.deleteMany({ where: { return_id: { in: ids.sr } } });
+  await prisma.salReturn.deleteMany({ where: { id: { in: ids.sr } } });
+  await prisma.logDeliveryNoteTracking.deleteMany({ where: { line: { delivery_note_id: { in: ids.dn } } } });
+  await prisma.logDeliveryNoteLine.deleteMany({ where: { delivery_note_id: { in: ids.dn } } });
+  await prisma.logDeliveryNote.deleteMany({ where: { id: { in: ids.dn } } });
+  await prisma.salDeliveryOrderLine.deleteMany({ where: { delivery_order_id: { in: ids.do } } });
+  await prisma.salDeliveryOrder.deleteMany({ where: { id: { in: ids.do } } });
+  await prisma.salOrderLine.deleteMany({ where: { order_id: { in: ids.so } } });
+  await prisma.salOrder.deleteMany({ where: { id: { in: ids.so } } });
+  await prisma.salCustomerOrderLine.deleteMany({ where: { order_id: { in: ids.co } } });
+  await prisma.salCustomerOrder.deleteMany({ where: { id: { in: ids.co } } });
+  for (const [k, list] of Object.entries({ sal_return: ids.sr, log_delivery_note: ids.dn, sal_delivery_order: ids.do, sal_order: ids.so, sal_customer_order: ids.co })) {
+    await prisma.auditLog.deleteMany({ where: { entity_key: k, row_id: { in: list } } });
+  }
+  for (const [k, v] of savedSettings) await prisma.sysSetting.update({ where: { setting_key: k }, data: { setting_value: v } });
+  await cleanupFixtures();
+  for (const c of cleanups) await c();
+  await cleanupFiscalYear();
+  await disconnect();
+});
+
+describe("what the form offers", () => {
+  test("the Customer Order with a posted Delivery Note, and that note's line with what left", async () => {
+    const o = await salesReturnOptions(flow.coId);
+    assert.ok(o.orders.some((x) => x.id === flow.coId), "the order is offered");
+    assert.deepEqual(
+      o.source?.lines.map((l) => [l.id, l.baseQty, l.held]),
+      [[flow.dnLine, 40, 0]],
+      "only what left on a posted note, not the 60 never sent"
+    );
+  });
+});
+
+describe("what a Sales Return must satisfy", () => {
+  test("an approved order, a reason, its own posted note lines within what left", async () => {
+    const noReason = await checkSalesReturn(prisma, header({ reason: "" }), [line(1)], null);
+    assert.ok(!noReason.ok && noReason.errors.reason);
+    const other = await checkSalesReturn(prisma, header({ reason: "other" }), [line(1)], null);
+    assert.ok(!other.ok && other.errors.reason_note, "Lainnya needs an explanation");
+    const early = await checkSalesReturn(prisma, header({ return_date: "2020-01-01" }), [line(1)], null);
+    assert.ok(!early.ok && early.errors.return_date);
+    const twice = await checkSalesReturn(prisma, header(), [line(1), line(2)], null);
+    assert.ok(!twice.ok && /lebih dari sekali/.test(twice.errors["lines.1.delivery_note_line_id"]));
+    const tooMuch = await checkSalesReturn(prisma, header(), [line(40.0001)], null);
+    assert.ok(!tooMuch.ok && /Melebihi sisa/.test(tooMuch.errors["lines.0.qty"]));
+    const stranger = await checkSalesReturn(prisma, header(), [line(1, 0)], null);
+    assert.ok(!stranger.ok && stranger.errors["lines.0.delivery_note_line_id"]);
+    const none = await checkSalesReturn(prisma, header(), [], null);
+    assert.ok(!none.ok && none.errors._lines);
+    assert.ok((await checkSalesReturn(prisma, header(), [line(40)], null)).ok, "exactly what left");
+  });
+});
+
+describe("returns share what left on a note line", () => {
+  test("a Draft holds its quantity, numbered SR/YYYY/MM/NNNN, and writes nothing to the books", async () => {
+    const journals = await prisma.accJournal.count();
+    const stock = await prisma.logStockLedger.count();
+    const r = await create(header(), [line(30)]);
+    assert.ok(r.ok, JSON.stringify(r));
+    assert.match(r.returnNo, /^SR\/\d{4}\/\d{2}\/\d{4,}$/);
+    assert.equal(await prisma.accJournal.count(), journals);
+    assert.equal(await prisma.logStockLedger.count(), stock);
+    const o = await salesReturnOptions(flow.coId);
+    assert.equal(o.source?.lines[0].held, 30);
+    const second = await checkSalesReturn(prisma, header(), [line(11)], null);
+    assert.ok(!second.ok && /Melebihi sisa/.test(second.errors["lines.0.qty"]), "only 10 left");
+    // Its own quantity never counts against itself on edit.
+    const upd = await updateSalesReturn(r.id, header({ note: "ubah" }), [line(40)], actor);
+    assert.ok(upd.ok, JSON.stringify(upd));
+  });
+
+  test("cancelling and rejecting give the quantity back", async () => {
+    const draft = (await getSalesReturn(ids.sr[0]))!;
+    assert.deepEqual(await transitionSalesReturn(draft.id, "cancel", actor, "salah input"), { ok: true });
+    const r = await create(header(), [line(40)]);
+    assert.ok(r.ok);
+    assert.deepEqual(await transitionSalesReturn(r.id, "submit", actor), { ok: true });
+    assert.deepEqual(await transitionSalesReturn(r.id, "reject", actor, "tidak terbukti rusak"), { ok: true });
+    const o = await salesReturnOptions(flow.coId);
+    assert.equal(o.source?.lines[0].held, 0);
+  });
+
+  test("approved, then closed by hand: it keeps only what was received", async () => {
+    const r = await create(header(), [line(25)]);
+    assert.ok(r.ok);
+    assert.deepEqual(await transitionSalesReturn(r.id, "approve", actor), {
+      ok: false,
+      errors: { _form: "Sales Return berstatus ini tidak dapat di-setujui." },
+    });
+    assert.deepEqual(await transitionSalesReturn(r.id, "submit", actor), { ok: true });
+    const locked = await updateSalesReturn(r.id, header(), [line(5)], actor);
+    assert.ok(!locked.ok && locked.errors._form, "a submitted return is not edited");
+    assert.deepEqual(await transitionSalesReturn(r.id, "approve", actor), { ok: true });
+    assert.equal((await getSalesReturn(r.id))!.status, "Open");
+    const noReason = await transitionSalesReturn(r.id, "close", actor, "");
+    assert.ok(!noReason.ok && noReason.errors.reason);
+    // What a Receipt Note would write once received (step 2).
+    await prisma.salReturnLine.updateMany({ where: { return_id: r.id }, data: { received_qty: 5 } });
+    assert.deepEqual(await transitionSalesReturn(r.id, "close", actor, "sisanya tidak dikirim"), { ok: true });
+    const o = await salesReturnOptions(flow.coId);
+    assert.equal(o.source?.lines[0].held, 5);
+  });
+
+  test("the header offers only what the status and the permissions allow", () => {
+    const all = salesReturnAbilities(["SALES_RETURN_SUBMIT", "SALES_RETURN_APPROVE", "SALES_RETURN_CANCEL", "SALES_RETURN_CLOSE"]);
+    assert.deepEqual(availableSalesReturnActions("Draft", all), ["cancel", "submit"]);
+    assert.deepEqual(availableSalesReturnActions("Submitted", all), ["reject", "approve"]);
+    assert.deepEqual(availableSalesReturnActions("Open", all), ["close"]);
+    assert.deepEqual(availableSalesReturnActions("Closed", all), []);
+  });
+});

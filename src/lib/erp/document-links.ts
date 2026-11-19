@@ -21,6 +21,7 @@ const ROUTES: Record<string, string> = {
   sal_permit_request: "/sales/permit",
   sal_order: "/sales/order",
   sal_delivery_order: "/sales/delivery-order",
+  sal_return: "/sales/return",
   log_delivery_note: "/inventory/delivery-note",
   log_receipt_note: "/inventory/receipt-note",
   prd_cost_bill: "/costing/cost-bill",

@@ -24,6 +24,7 @@
  *   cash_bank_period                               the month chain beside it
  *   cash_bank_ledger                               the Cash Bank Book
  *   fin_ar_advance                                    Uang Muka Penjualan bills
+ *   sal_return_line, sal_return                    Sales Returns
  *   sal_delivery_order_line, sal_delivery_order    Delivery Orders
  *   sal_order_line, sal_order                      Sales Orders
  *   sal_customer_order_line, sal_customer_order    Customer Orders
@@ -82,6 +83,7 @@ const DOCUMENT_ENTITY_KEYS = [
   "sal_customer_order",
   "sal_order",
   "sal_delivery_order",
+  "sal_return",
   "log_delivery_note",
   "fin_ar_invoice",
   "fin_ar_advance",
@@ -119,6 +121,8 @@ async function main() {
     cash_bank_ledger: await prisma.cashBankLedger.count(),
     cash_bank_period: await prisma.cashBankPeriod.count(),
     fin_ar_advance: await prisma.finArAdvance.count(),
+    sal_return_line: await prisma.salReturnLine.count(),
+    sal_return: await prisma.salReturn.count(),
     sal_delivery_order_line: await prisma.salDeliveryOrderLine.count(),
     sal_delivery_order: await prisma.salDeliveryOrder.count(),
     sal_order_line: await prisma.salOrderLine.count(),
@@ -195,6 +199,8 @@ async function main() {
     // Sales documents, children before what they name: an advance bill and a
     // Sales Order name their Customer Order, a line its order.
     await tx.finArAdvance.deleteMany();
+    await tx.salReturnLine.deleteMany();
+    await tx.salReturn.deleteMany();
     await tx.salDeliveryOrderLine.deleteMany();
     await tx.salDeliveryOrder.deleteMany();
     await tx.salOrderLine.deleteMany();

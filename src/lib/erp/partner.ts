@@ -193,6 +193,7 @@ export async function checkPartnerCollections(
                 { customer_orders: { some: {} } },
                 { sales_orders: { some: {} } },
                 { delivery_orders: { some: {} } },
+                { sales_returns: { some: {} } },
                 { delivery_notes: { some: {} } },
                 { invoices: { some: {} } },
                 { permit_requests: { some: {} } },

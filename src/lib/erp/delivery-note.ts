@@ -980,6 +980,9 @@ export type InvoiceSourceLine = {
   itemName: string;
   uomLabel: string;
   qty: number;
+  /** The item and the base quantity that left — what a Sales Return takes back (P287). */
+  itemId: number;
+  baseQty: number;
   /** The lots it left from, as printed on the note. */
   lots: string[];
 };
@@ -1037,6 +1040,8 @@ export async function invoiceSourceLines(
           itemName: d?.itemName ?? "",
           uomLabel: d?.uomLabel ?? "",
           qty: l.qty.toNumber(),
+          itemId: l.item_id,
+          baseQty: l.base_qty.toNumber(),
           lots: l.trackings.map((p) => p.tracking_no),
         };
       })

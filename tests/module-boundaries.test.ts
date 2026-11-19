@@ -98,6 +98,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
   salOrderLine: ["src/lib/erp/sales-order.ts"],
   salDeliveryOrder: ["src/lib/erp/delivery-order.ts"],
   salDeliveryOrderLine: ["src/lib/erp/delivery-order.ts"],
+  salReturn: ["src/lib/erp/sales-return.ts"],
+  salReturnLine: ["src/lib/erp/sales-return.ts"],
   // The standalone Delivery Note (P106): a logistics document, not a sales one.
   logDeliveryNote: ["src/lib/erp/delivery-note.ts"],
   logDeliveryNoteLine: ["src/lib/erp/delivery-note.ts"],

@@ -18,6 +18,7 @@ import { customerOrderNumbersByIds } from "./customer-order";
 import { permitRequestNumbersByIds } from "./permit-request";
 import { salesOrderNumbersByIds } from "./sales-order";
 import { deliveryOrderNumbersByIds } from "./delivery-order";
+import { salesReturnNumbersByIds } from "./sales-return";
 import { deliveryNoteNumbersByIds } from "./delivery-note";
 import { receiptNoteNumbersByIds } from "./receipt-note";
 import { costBillNumbersByIds } from "./production-cost-bill";
@@ -95,6 +96,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   sal_permit_request: { label: "Pengajuan Perizinan", resolve: permitRequestNumbersByIds },
   sal_order: { label: "Sales Order", resolve: salesOrderNumbersByIds },
   sal_delivery_order: { label: "Delivery Order", resolve: deliveryOrderNumbersByIds },
+  sal_return: { label: "Sales Return", resolve: salesReturnNumbersByIds },
   log_delivery_note: { label: "Delivery Note", resolve: deliveryNoteNumbersByIds },
   log_receipt_note: { label: "Receipt Note", resolve: receiptNoteNumbersByIds },
   prd_cost_bill: { label: "Tagihan Biaya", resolve: costBillNumbersByIds },

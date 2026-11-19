@@ -389,7 +389,7 @@ Masing-masing satu commit, berhenti untuk review (memory: *phase review gate*).
 | # | Langkah | Selesai bila |
 | --- | --- | --- |
 | 0 | Keputusan SR1–SR10 dicatat di `Claude-ERP.md` §12 — **selesai 19/11/2026 (P287)** | user setuju |
-| 1 | **Sales Return** — skema, modul, workflow, form + dialog pilih DN, list bertab status, izin, menu | buat → ajukan → setujui di browser; batas qty dicek |
+| 1 | **Sales Return** — skema, modul, workflow, form + dialog pilih DN, list, izin, menu — **selesai 19/11/2026 (P288)** | buat → ajukan → setujui di browser; batas qty dicek |
 | 2 | **Receipt Note `sales_return`** — katalog purpose, posting per purpose, pilih lot dari tracking DN, status stock, `returned_qty` DN, `received_qty` SR, tutup otomatis SR | stock kembali di lot yang sama; jurnal Dr Persediaan / Cr HPP = nilai keluar; Kartu Stok & Nilai Persediaan benar |
 | 3 | **Invoice menagih qty bersih** (Kasus A) | DN yang diretur sebagian ditagih sisanya; diretur penuh tidak bisa dipilih |
 | 4 | **Credit Note Penjualan** — skema, AR item `Return`, event, posting, preview, list | jurnal dan AR item benar untuk: belum dibayar, dibayar sebagian, lunas (kredit sisa), Invoice ber-uang-muka, USD |

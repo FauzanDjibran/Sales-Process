@@ -120,7 +120,8 @@ export type SoSourceOption = Omit<SalesOrderSource, "lines"> & {
 export type SalesOrderOptions = { orders: SoSourceOption[] };
 
 /** The customers' addresses, as one line each. */
-async function addressesOf(db: Db, partnerIds: number[]): Promise<Map<number, { id: number; text: string }[]>> {
+/** A customer's addresses as one line each — also the Sales Return's (P287). */
+export async function addressesOf(db: Db, partnerIds: number[]): Promise<Map<number, { id: number; text: string }[]>> {
   const rows = await db.mPartnerAddress.findMany({
     where: { partner_id: { in: partnerIds } },
     orderBy: [{ sort_order: "asc" }, { id: "asc" }],

@@ -2190,6 +2190,65 @@ table sal_delivery_order_line {
   }
 }
 
+// Sales Return, SR/… / SR-NP/… (P287, Sales-Return-Plan.md §4): goods of one Customer Order coming back
+// from its posted Delivery Notes; Draft → Submitted → Open → Closed, Cancelled / Rejected final; posts nothing
+table sal_return {
+  id                          int [pk, increment, not null]
+
+  return_no                   varchar [not null, unique] // SR/YYYY/MM/NNNN, SR-NP/… without PPN
+  return_date                 date [not null]
+  status                      enum('Draft', 'Submitted', 'Open', 'Closed', 'Cancelled', 'Rejected') [not null, default: 'Draft']
+
+  customer_order_id           int [not null, ref : > sal_customer_order.id] // Open or Closed, chosen once and locked
+  customer_id                 int [not null, ref : > m_partner.id] // the Customer Order customer, for the list
+  address_id                  int [not null, ref : > m_partner_address.id] // where the goods are collected; any of the customer addresses
+
+  reason                      varchar [not null] // a key of SALES_RETURN_REASONS in code
+  reason_note                 varchar // required when the reason is other
+  customer_return_no          varchar // the PKP buyer's Nota Retur, as given
+  customer_return_date        date
+  note                        varchar
+  status_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    customer_order_id
+    (status, return_date)
+  }
+}
+
+// a base quantity of one posted Delivery Note line, once per return; the note is another module's (weak ids)
+table sal_return_line {
+  id                          int [pk, increment, not null]
+
+  return_id                   int [not null, ref : > sal_return.id]
+  line_no                     int [not null]
+
+  delivery_note_id            int [not null] // weak → log_delivery_note.id
+  delivery_note_line_id       int [not null] // weak → log_delivery_note_line.id, purpose sales_delivery, Posted
+
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id] // the item base unit (P108)
+
+  base_qty                    decimal(18,4) [not null] // > 0; returns on a note line never exceed what left
+  received_qty                decimal(18,4) [not null, default: 0] // what posted Receipt Notes brought back; ≤ base_qty
+
+  note                        varchar
+
+  indexes {
+    (return_id, line_no) [unique]
+    (return_id, delivery_note_line_id) [unique]
+    delivery_note_line_id
+    item_id
+    uom_id
+  }
+}
+
 //////////////////////////////////
 //
 // Pembelian

@@ -29,6 +29,7 @@ import { CUSTOMER_ORDER_TRANSITIONS } from "./customer-order-workflow";
 import { PERMIT_REQUEST_TRANSITIONS } from "./permit-request-workflow";
 import { SALES_ORDER_TRANSITIONS } from "./sales-order-workflow";
 import { DELIVERY_ORDER_TRANSITIONS } from "./delivery-order-workflow";
+import { SALES_RETURN_TRANSITIONS } from "./sales-return-workflow";
 import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
 import { RECEIPT_NOTE_TRANSITIONS } from "./receipt-note-workflow";
 import { COST_BILL_TRANSITIONS } from "./production-cost-bill-workflow";
@@ -152,6 +153,18 @@ const DELIVERY_ORDER_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(DELIVERY_ORDER_TRANSITIONS.cancel, "Dibatalkan"),
   close: fromTransition(DELIVERY_ORDER_TRANSITIONS.close, "Ditutup"),
   fulfil: { label: "Ditutup — seluruhnya terkirim", icon: "truck", tone: "primary", systemDriven: true },
+};
+
+/** Sales Return: Draft → Diajukan → Open → Ditutup, or Ditolak / Dibatalkan (P287). */
+const SALES_RETURN_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Sales Return dibuat", icon: "box", tone: "neutral" },
+  submit: fromTransition(SALES_RETURN_TRANSITIONS.submit, "Diajukan"),
+  approve: fromTransition(SALES_RETURN_TRANSITIONS.approve, "Disetujui — Open"),
+  reject: fromTransition(SALES_RETURN_TRANSITIONS.reject, "Ditolak"),
+  cancel: fromTransition(SALES_RETURN_TRANSITIONS.cancel, "Dibatalkan"),
+  close: fromTransition(SALES_RETURN_TRANSITIONS.close, "Ditutup"),
+  fulfil: { label: "Ditutup — seluruhnya diterima", icon: "box", tone: "primary", systemDriven: true },
 };
 
 /** Purchase Request: Draft → Open → Ditutup, or Dibatalkan (P123). */
@@ -387,6 +400,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   sal_permit_request: PERMIT_REQUEST_EVENTS,
   sal_order: SALES_ORDER_EVENTS,
   sal_delivery_order: DELIVERY_ORDER_EVENTS,
+  sal_return: SALES_RETURN_EVENTS,
   log_delivery_note: DELIVERY_NOTE_EVENTS,
   log_receipt_note: RECEIPT_NOTE_EVENTS,
   prd_cost_bill: COST_BILL_EVENTS,

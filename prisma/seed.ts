@@ -160,6 +160,10 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Job Order", "prd_job_order"],
   // Kotak at Packing 95 (P284).
   ["Kotak", "prd_box"],
+  // Appended, never inserted: a type's code follows its position (P287).
+  // Goods coming back from posted Delivery Notes (P287); the Receipt Note
+  // sales_return will name it as its source.
+  ["Sales Return", "sal_return"],
 ];
 
 /**

@@ -97,6 +97,14 @@ export const MODULES: NavModule[] = [
             desc: "Perintah kirim ke gudang: barang dari Sales Order Open satu Customer Order, ke satu alamat. Tidak memposting apa pun.",
             permission: "DELIVERY_ORDER_VIEW",
           },
+          {
+            key: "sal_return",
+            slug: "return",
+            name: "Sales Return",
+            icon: "box",
+            desc: "Barang yang dikembalikan customer dari Delivery Note yang sudah diposting. Tidak memposting apa pun; gudang menerimanya dengan Receipt Note.",
+            permission: "SALES_RETURN_VIEW",
+          },
         ],
       },
       {
