@@ -407,11 +407,11 @@ export const PERMISSIONS = [
   { code: "CASH_PAYMENT_EDIT", name: "Ubah Pengeluaran Kas & Bank", module: "finance", description: "Hanya selama masih Draft." },
   { code: "CASH_PAYMENT_POST", name: "Posting Pengeluaran Kas & Bank", module: "finance", description: "Membentuk journal dan mengeluarkan dana dari Buku Kas & Bank. Ditolak bila saldo tidak mencukupi." },
   { code: "CASH_PAYMENT_CANCEL", name: "Batalkan Pengeluaran Kas & Bank", module: "finance", description: "Hanya Draft, dengan alasan." },
-  { code: "CASH_EXCHANGE_VIEW", name: "Lihat Penukaran Valas", module: "finance", description: "Pembelian dan pencairan valas antara Kas & Bank rupiah dan valas." },
-  { code: "CASH_EXCHANGE_CREATE", name: "Buat Penukaran Valas", module: "finance", description: "Membuat Draft penukaran." },
-  { code: "CASH_EXCHANGE_EDIT", name: "Ubah Penukaran Valas", module: "finance", description: "Hanya selama masih Draft." },
-  { code: "CASH_EXCHANGE_POST", name: "Posting Penukaran Valas", module: "finance", description: "Memindahkan dana di kedua Buku Kas & Bank dan membentuk journal, termasuk selisih kurs pencairan." },
-  { code: "CASH_EXCHANGE_CANCEL", name: "Batalkan Penukaran Valas", module: "finance", description: "Hanya Draft, dengan alasan." },
+  { code: "CASH_TRANSFER_VIEW", name: "Lihat Transfer Kas & Bank", module: "finance", description: "Transfer satu mata uang, pencairan valas dan pembelian valas antar Kas & Bank." },
+  { code: "CASH_TRANSFER_CREATE", name: "Buat Transfer Kas & Bank", module: "finance", description: "Membuat Draft transfer." },
+  { code: "CASH_TRANSFER_EDIT", name: "Ubah Transfer Kas & Bank", module: "finance", description: "Hanya selama masih Draft." },
+  { code: "CASH_TRANSFER_POST", name: "Posting Transfer Kas & Bank", module: "finance", description: "Memindahkan dana di Buku Kas & Bank asal dan tujuan dan membentuk journal, termasuk selisih kurs pencairan." },
+  { code: "CASH_TRANSFER_CANCEL", name: "Batalkan Transfer Kas & Bank", module: "finance", description: "Hanya Draft, dengan alasan." },
 
   // Report Views. `REPORT_` comes first for the same reason `MENU_` does: the
   // prefix says what kind of capability this is before it says which subject.

@@ -21,6 +21,9 @@ const nextConfig: NextConfig = {
       { source: "/master/rate-version/:path*", destination: "/costing/rate-version/:path*", permanent: false },
       { source: "/master/cost-type/:path*", destination: "/costing/cost-type/:path*", permanent: false },
       { source: "/master/employee/:path*", destination: "/production/employee/:path*", permanent: false },
+      // Penukaran Valas became Transfer (P299).
+      { source: "/finance/cash-bank/exchange/:path*", destination: "/finance/cash-bank/transfer/:path*", permanent: false },
+      { source: "/finance/cash-bank/exchange", destination: "/finance/cash-bank/transfer", permanent: false },
     ];
   },
 };

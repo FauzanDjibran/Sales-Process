@@ -34,7 +34,7 @@ import { CREDIT_NOTE_TRANSITIONS } from "./ar-credit-note-workflow";
 import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
 import { RECEIPT_NOTE_TRANSITIONS } from "./receipt-note-workflow";
 import { COST_BILL_TRANSITIONS } from "./production-cost-bill-workflow";
-import { CASH_EXCHANGE_TRANSITIONS } from "./cash-exchange-workflow";
+import { CASH_TRANSFER_TRANSITIONS } from "./cash-transfer-workflow";
 import { STOCK_ISSUE_TRANSITIONS } from "./stock-issue-workflow";
 import { GRADING_WORKFLOW, QC_CHECK_WORKFLOW, WORK_WORKFLOW } from "./production-execution-workflow";
 import { PURCHASE_INVOICE_TRANSITIONS } from "./ap-invoice-workflow";
@@ -208,11 +208,11 @@ const COST_BILL_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(COST_BILL_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
-const CASH_EXCHANGE_EVENTS: Record<string, AuditEventLabel> = {
+const CASH_TRANSFER_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
-  create: { label: "Penukaran Valas dibuat", icon: "file", tone: "neutral" },
-  post: fromTransition(CASH_EXCHANGE_TRANSITIONS.post, "Diposting — dana dipindahkan"),
-  cancel: fromTransition(CASH_EXCHANGE_TRANSITIONS.cancel, "Dibatalkan"),
+  create: { label: "Transfer dibuat", icon: "file", tone: "neutral" },
+  post: fromTransition(CASH_TRANSFER_TRANSITIONS.post, "Diposting — dana dipindahkan"),
+  cancel: fromTransition(CASH_TRANSFER_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
 const GRADING_EVENTS: Record<string, AuditEventLabel> = {
@@ -413,7 +413,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   log_delivery_note: DELIVERY_NOTE_EVENTS,
   log_receipt_note: RECEIPT_NOTE_EVENTS,
   prd_cost_bill: COST_BILL_EVENTS,
-  fin_cash_exchange: CASH_EXCHANGE_EVENTS,
+  fin_cash_bank_transfer: CASH_TRANSFER_EVENTS,
   log_stock_issue: STOCK_ISSUE_EVENTS,
   prd_grading: GRADING_EVENTS,
   prd_work: WORK_EVENTS,

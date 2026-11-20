@@ -1306,26 +1306,27 @@ table fin_cash_bank_tx_line_wht {
   }
 }
 
-// Penukaran Valas, PVL/… (Multi-Currency-Plan MC11a, P272): one rupiah and one
-// foreign Kas & Bank; Pembelian when rupiah leaves, Pencairan when it arrives.
-// The rate is from_amount ÷ to_amount (or the reverse), shown, never stored.
-table fin_cash_exchange {
+// Transfer Kas & Bank, TRF/… (P299, Cash-Bank-Transfer-Plan.md): the company's
+// own money between its Kas & Bank — Transfer (one currency), Pencairan (foreign
+// → rupiah), Pembelian Valas (rupiah → foreign). One source, one or more
+// destinations. Penukaran Valas (P272) renamed in place; its rows kept PVL/….
+table fin_cash_bank_transfer {
   id                          int [pk, increment, not null]
 
-  exchange_no                 varchar [not null, unique]
-  exchange_date               date [not null]
+  transfer_no                 varchar [not null, unique]
+  transfer_date               date [not null]
   status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  purpose                     enum('Transfer', 'Pencairan', 'PembelianValas') [not null]
 
   from_cash_bank_id           int [not null, ref : > m_cash_bank.id]
-  to_cash_bank_id             int [not null, ref : > m_cash_bank.id, note: 'CHECK <> from_cash_bank_id']
-  from_amount                 decimal(18,2) [not null, note: 'CHECK > 0'] // what left, in the source's currency
-  to_amount                   decimal(18,2) [not null, note: 'CHECK > 0'] // what arrived, in the destination's
+  currency_id                 int [not null, ref : > ref_currency.id] // document currency: the source's, or the currency bought
+  transfer_amount             decimal(18,2) [not null, note: 'CHECK > 0'] // Σ lines' amount
+  from_amount                 decimal(18,2) [not null, note: 'CHECK > 0'] // Σ lines' out_amount, source currency
   reference                   varchar // the bank's reference
   note                        varchar
 
-  from_base                   decimal(18,2) // posted: what the source pool released
-  to_base                     decimal(18,2) // posted: a purchase brings from_base exactly, a sale the rupiah credited
-  fx_difference               decimal(18,2) [not null, default: 0] // to_base − from_base: + gain, − loss
+  from_base                   decimal(18,2) // posted: Σ base the source released
+  fx_difference               decimal(18,2) [not null, default: 0] // Σ lines' selisih kurs: + gain, − loss
   journal_id                  int [ref : > acc_journal.id]
   cancel_reason               varchar
 
@@ -1336,7 +1337,29 @@ table fin_cash_exchange {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
-    (status, exchange_date)
+    (status, transfer_date)
+  }
+}
+
+// One destination; posted per line: Out from the source, In to it (no base shared out).
+table fin_cash_bank_transfer_line {
+  id                          int [pk, increment, not null]
+  transfer_id                 int [not null, ref : > fin_cash_bank_transfer.id] // cascade
+  line_no                     int [not null]
+  to_cash_bank_id             int [not null, ref : > m_cash_bank.id] // never the source
+
+  amount                      decimal(18,2) [not null, note: 'CHECK > 0'] // typed, document currency
+  exchange_rate               decimal(18,6) [not null, note: 'CHECK > 0'] // typed when crossing, else 1
+  out_amount                  decimal(18,2) [not null] // source currency: amount, or round(amount × rate) on a purchase
+  in_amount                   decimal(18,2) [not null] // destination currency: amount, or round(amount × rate) on a sale
+  out_base                    decimal(18,2) // posted: what the source released
+  in_base                     decimal(18,2) // posted: out_base, or in_amount on a Pencairan
+  fx_difference               decimal(18,2) [not null, default: 0] // in_base − out_base, Pencairan only
+
+  indexes {
+    (transfer_id, line_no) [unique]
+    (transfer_id, to_cash_bank_id) [unique]
+    to_cash_bank_id
   }
 }
 

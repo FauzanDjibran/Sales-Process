@@ -149,9 +149,9 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Dokumen Grading", "prd_grading"],
   ["Pengerjaan Unit", "prd_work"],
   ["QC Check", "prd_qc_check"],
-  // Rupiah to a foreign Kas & Bank or back (Multi-Currency-Plan MC11a).
-  // Always appended: a type's code follows its place in this list.
-  ["Penukaran Valas", "fin_cash_exchange"],
+  // Money between the company's own Kas & Bank (P299; Penukaran Valas until
+  // then, renamed in place). Always appended: a type's code follows its place.
+  ["Transfer Kas & Bank", "fin_cash_bank_transfer"],
   // Push and BSTB between Units (P277).
   ["Push dan BSTB", "prd_transfer"],
   // Kerja, Mulai to Selesai (P282).

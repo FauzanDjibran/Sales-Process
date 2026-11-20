@@ -84,7 +84,7 @@ Semua mengikuti konsep KB; nomor di kurung menunjuk bagian konsepnya.
 
   Satu-satunya perpindahan antar currency adalah **Penukaran Valas** (MC11a). Untuk menolak tagihan USD dari bank IDR, `maySettle` di `currency.ts` dipersempit menjadi "currency sama saja"; logika `entered` untuk lintas currency tetap di kode untuk nanti.
 
-- **MC11a. Penukaran Valas** adalah dokumen sendiri di Finance › Kas & Bank, dua tujuan, satu Kas & Bank IDR dan satu USD, tanpa partner. Pengguna mengetik nominal IDR dan nominal USD dari rekening koran; kursnya = IDR ÷ USD, ditampilkan, tidak disimpan sebagai input terpisah.
+- **MC11a. Penukaran Valas** — *digantikan 20/11/2026 oleh Transfer Kas & Bank (P299, `Cash-Bank-Transfer-Plan.md`): Purpose Pencairan dan Pembelian Valas, nominal valas + kurs diketik.* Semula: dokumen dokumen sendiri di Finance › Kas & Bank, dua tujuan, satu Kas & Bank IDR dan satu USD, tanpa partner. Pengguna mengetik nominal IDR dan nominal USD dari rekening koran; kursnya = IDR ÷ USD, ditampilkan, tidak disimpan sebagai input terpisah.
   - **Pembelian Valas** (IDR → USD): IDR keluar pada kurs 1; USD masuk dengan nilai dasar = IDR yang keluar. **Tidak ada selisih kurs** (§5.3 *create*); rata-rata bank USD bergerak ke kurs beli.
   - **Pencairan Valas** (USD → IDR): USD keluar pada **rata-rata bank USD saat Posting**; IDR masuk sebesar yang diterima. Bedanya **selisih kurs terealisasi**, angka penyeimbang jurnal (§5.4). Biaya bank (OD-12) ke Beban Bank.
   - Jurnal: Dr Kas & Bank tujuan / Cr Kas & Bank asal, ± Selisih Kurs. Kedua Buku Kas & Bank ditulis dalam transaksi yang sama.
@@ -269,7 +269,7 @@ Setiap butir adalah asumsi yang dipakai plan ini sampai dijawab.
 | OD-7 | Toleransi Selisih Tagihan Supplier (Rp 100) untuk invoice USD? | Dibandingkan dalam nominal dasar (rupiah) | Toleransi sendiri per currency |
 | OD-8 | Satu akun Selisih Kurs, atau laba dan rugi dipisah? | Satu akun yang sudah ada | Dua akun; terealisasi dan belum terealisasi dipisah saat tahap 9 |
 | OD-9 | Revaluasi akhir periode dibangun sekarang? | Belum; tahap 9 diputuskan setelah tahap 8. Uang Muka tidak direvaluasi (konsep §6.1) | Dibangun bersama, dari bahan branch P105 |
-| OD-10 | Transfer IDR ↔ USD ikut plan ini? | **Diputuskan 12/11/2026:** ya, sebagai Penukaran Valas (tahap 2a, MC11a). Transfer satu currency (C14) tetap di luar | — |
+| OD-10 | Transfer IDR ↔ USD ikut plan ini? | **Diputuskan 12/11/2026:** ya, sebagai Penukaran Valas (tahap 2a, MC11a). Transfer satu currency (C14) tetap di luar | Digantikan P299: Transfer satu currency juga dibangun |
 | OD-11 | Currency Default per Partner perlu? | Ya, satu field opsional per sisi, hanya mengisi awal dokumen | Tidak ada; dokumen mulai di IDR |
 | OD-12 | Biaya Bank pada transaksi valas dalam currency apa? | Currency resource Kas & Bank | Selalu rupiah |
 | OD-13 | Harga satuan valas berapa desimal? | Tetap `Decimal(18,6)` (P111); nominal baris dua desimal | — |

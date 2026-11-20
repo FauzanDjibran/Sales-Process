@@ -1113,17 +1113,36 @@ export const CHECKS: Check[] = [
   ]),
   {
     area: "fx",
-    name: "a posted Penukaran Valas moved its two books by its bases, and its selisih kurs is what arrived less what left (MC11a)",
-    sql: `SELECT x.exchange_no, x.from_base, x.to_base, x.fx_difference, o.base AS book_out, i.base AS book_in
-            FROM fin_cash_exchange x
+    name: "a posted Transfer moved its source by the bases its lines released (P299)",
+    sql: `SELECT x.transfer_no, x.from_base, o.base AS book_out, SUM(l.out_base) AS lines_out
+            FROM fin_cash_bank_transfer x
+            JOIN fin_cash_bank_transfer_line l ON l.transfer_id = x.id
             LEFT JOIN (SELECT source_doc_id, cash_bank_id, -SUM(base_movement) AS base FROM cash_bank_ledger
-                        WHERE source_doc_type_id = ${docType("fin_cash_exchange")} AND base_movement < 0 GROUP BY 1, 2) o
+                        WHERE source_doc_type_id = ${docType("fin_cash_bank_transfer")} AND base_movement < 0 GROUP BY 1, 2) o
                    ON o.source_doc_id = x.id AND o.cash_bank_id = x.from_cash_bank_id
-            LEFT JOIN (SELECT source_doc_id, cash_bank_id, SUM(base_movement) AS base FROM cash_bank_ledger
-                        WHERE source_doc_type_id = ${docType("fin_cash_exchange")} AND base_movement > 0 GROUP BY 1, 2) i
-                   ON i.source_doc_id = x.id AND i.cash_bank_id = x.to_cash_bank_id
            WHERE x.status = 'Posted'
-             AND (o.base IS DISTINCT FROM x.from_base OR i.base IS DISTINCT FROM x.to_base OR x.fx_difference <> x.to_base - x.from_base)`,
+           GROUP BY x.id, o.base
+          HAVING o.base IS DISTINCT FROM x.from_base OR SUM(l.out_base) IS DISTINCT FROM x.from_base`,
+  },
+  {
+    area: "fx",
+    name: "a posted Transfer line moved its destination by its base, and its selisih kurs is in − out, nil but on a Pencairan (P299, concept §5.8)",
+    sql: `SELECT x.transfer_no, l.line_no, l.out_base, l.in_base, l.fx_difference, i.base AS book_in
+            FROM fin_cash_bank_transfer x
+            JOIN fin_cash_bank_transfer_line l ON l.transfer_id = x.id
+            LEFT JOIN (SELECT source_doc_id, cash_bank_id, SUM(base_movement) AS base FROM cash_bank_ledger
+                        WHERE source_doc_type_id = ${docType("fin_cash_bank_transfer")} AND base_movement > 0 GROUP BY 1, 2) i
+                   ON i.source_doc_id = x.id AND i.cash_bank_id = l.to_cash_bank_id
+           WHERE x.status = 'Posted'
+             AND (i.base IS DISTINCT FROM l.in_base OR l.fx_difference <> l.in_base - l.out_base
+                  OR (x.purpose <> 'Pencairan' AND l.fx_difference <> 0))`,
+  },
+  {
+    area: "fx",
+    name: "a Transfer's header is the sum of its lines (P299)",
+    sql: `SELECT x.transfer_no FROM fin_cash_bank_transfer x JOIN fin_cash_bank_transfer_line l ON l.transfer_id = x.id
+           GROUP BY x.id
+          HAVING x.transfer_amount <> SUM(l.amount) OR x.from_amount <> SUM(l.out_amount) OR x.fx_difference <> SUM(l.fx_difference)`,
   },
   {
     area: "fx",

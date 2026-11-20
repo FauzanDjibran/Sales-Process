@@ -1,7 +1,7 @@
 import "server-only";
 
 import { cashBankTxNumbersByIds } from "./cash-bank-tx";
-import { cashExchangeNumbersByIds } from "./cash-exchange";
+import { cashTransferNumbersByIds } from "./cash-transfer";
 import { customerOrderNumbersByIds } from "./customer-order";
 import { permitRequestNumbersByIds } from "./permit-request";
 import { purchaseOrderNumbersByIds } from "./purchase-order";
@@ -14,12 +14,12 @@ import type { LedgerEntryRow } from "./cash-bank";
  * and this file asks the owning module. Keyed by table and id together: ids of
  * two tables overlap, and a number found by id alone would be another
  * document's. Every Cash Bank Book entry but an opening comes from
- * `fin_cash_bank_tx` or `fin_cash_exchange`; a new source adds its table here.
+ * `fin_cash_bank_tx` or `fin_cash_bank_transfer`; a new source adds its table here.
  */
 export async function attachDocumentNumbers(entries: LedgerEntryRow[]): Promise<void> {
   const sources = [
     ["fin_cash_bank_tx", cashBankTxNumbersByIds],
-    ["fin_cash_exchange", cashExchangeNumbersByIds],
+    ["fin_cash_bank_transfer", cashTransferNumbersByIds],
   ] as const;
   for (const [table, read] of sources) {
     const ids = [...new Set(entries.flatMap((e) => (e.sourceDocTable === table && e.sourceDocId ? [e.sourceDocId] : [])))];

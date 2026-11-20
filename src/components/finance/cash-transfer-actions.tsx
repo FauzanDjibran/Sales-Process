@@ -7,43 +7,43 @@ import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { JournalPreview } from "@/components/ui/journal-preview";
 import { Field } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
-import { previewCashExchangePostingAction, transitionCashExchangeAction } from "@/app/actions/cash-exchange";
+import { previewCashTransferPostingAction, transitionCashTransferAction } from "@/app/actions/cash-transfer";
 import { headerButtonClass, orderForHeader, type ActionTone } from "@/lib/erp/header-actions";
 import {
-  CASH_EXCHANGE_PATH,
-  CASH_EXCHANGE_TRANSITIONS,
-  availableCashExchangeActions,
-  cashExchangeIsEditable,
-  type CashExchangeAbilities,
-  type CashExchangeAction,
-  type CashExchangeStatus,
-} from "@/lib/erp/cash-exchange-workflow";
+  CASH_TRANSFER_PATH,
+  CASH_TRANSFER_TRANSITIONS,
+  availableCashTransferActions,
+  cashTransferIsEditable,
+  type CashTransferAbilities,
+  type CashTransferAction,
+  type CashTransferStatus,
+} from "@/lib/erp/cash-transfer-workflow";
 
-const LOCK_TEXT: Partial<Record<CashExchangeStatus, string>> = {
-  Posted: "Penukaran diposting",
-  Cancelled: "Penukaran dibatalkan",
+const LOCK_TEXT: Partial<Record<CashTransferStatus, string>> = {
+  Posted: "Transfer diposting",
+  Cancelled: "Transfer dibatalkan",
 };
 
 /**
- * A Penukaran Valas lifecycle as header buttons: Ubah (Draft only),
+ * A Transfer Kas & Bank lifecycle as header buttons: Ubah (Draft only),
  * Batalkan and Posting, whose confirmation shows the journal from a dry run of
  * the posting (P103) — or why it cannot post.
  */
-export function CashExchangeActions({ id, subject, status, can }: { id: number; subject: string; status: CashExchangeStatus; can: CashExchangeAbilities }) {
+export function CashTransferActions({ id, subject, status, can }: { id: number; subject: string; status: CashTransferStatus; can: CashTransferAbilities }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<CashExchangeAction | null>(null);
+  const [confirm, setConfirm] = useState<CashTransferAction | null>(null);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);
   const [postable, setPostable] = useState(false);
 
-  const run = async (action: CashExchangeAction) => {
-    if (CASH_EXCHANGE_TRANSITIONS[action].reason && !reason.trim()) {
+  const run = async (action: CashTransferAction) => {
+    if (CASH_TRANSFER_TRANSITIONS[action].reason && !reason.trim()) {
       setReasonError("Alasan wajib diisi.");
       return;
     }
     setBusy(true);
-    const result = await transitionCashExchangeAction(id, action, reason);
+    const result = await transitionCashTransferAction(id, action, reason);
     setBusy(false);
     if (!result.ok) {
       if (result.errors.reason) {
@@ -59,16 +59,16 @@ export function CashExchangeActions({ id, subject, status, can }: { id: number; 
     toast(result.message, subject, "ok");
   };
 
-  const actions = availableCashExchangeActions(status, can);
+  const actions = availableCashTransferActions(status, can);
   const buttons = orderForHeader(
     [
-      ...(cashExchangeIsEditable(status) && can.edit
+      ...(cashTransferIsEditable(status) && can.edit
         ? [
             {
               key: "edit",
               tone: "neutral" as ActionTone,
               node: (
-                <Link key="edit" className="btn" href={`${CASH_EXCHANGE_PATH}/${id}/edit`}>
+                <Link key="edit" className="btn" href={`${CASH_TRANSFER_PATH}/${id}/edit`}>
                   <Icon name="pen" size={15} /> Ubah
                 </Link>
               ),
@@ -76,7 +76,7 @@ export function CashExchangeActions({ id, subject, status, can }: { id: number; 
           ]
         : []),
       ...actions.map((a) => {
-        const t = CASH_EXCHANGE_TRANSITIONS[a];
+        const t = CASH_TRANSFER_TRANSITIONS[a];
         return {
           key: a,
           tone: t.tone,
@@ -101,7 +101,7 @@ export function CashExchangeActions({ id, subject, status, can }: { id: number; 
     (i) => i.tone
   );
 
-  const t = confirm ? CASH_EXCHANGE_TRANSITIONS[confirm] : null;
+  const t = confirm ? CASH_TRANSFER_TRANSITIONS[confirm] : null;
 
   return (
     <>
@@ -129,7 +129,7 @@ export function CashExchangeActions({ id, subject, status, can }: { id: number; 
           onConfirm={() => run(confirm)}
           onCancel={() => setConfirm(null)}
         >
-          {confirm === "post" && <JournalPreview load={() => previewCashExchangePostingAction(id)} onReady={setPostable} />}
+          {confirm === "post" && <JournalPreview load={() => previewCashTransferPostingAction(id)} onReady={setPostable} />}
           {t.reason && (
             <Field label="Alasan" span={12} required error={reasonError}>
               <textarea

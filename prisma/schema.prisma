@@ -492,16 +492,17 @@ model RefCurrency {
   ap_items FinApItem[] @relation("ApItemCurrency")
 
   exchange_rates     RefExchangeRate[]
-  coCurrency         SalCustomerOrder[] @relation("CoCurrency")
-  arInvoiceCurrency  FinArInvoice[]     @relation("ArInvoiceCurrency")
-  arAdvanceCurrency  FinArAdvance[]     @relation("ArAdvanceCurrency")
-  cashBankTxCurrency FinCashBankTx[]    @relation("CashBankTxCurrency")
-  poCurrency         PurOrder[]         @relation("PoCurrency")
-  apAdvanceCurrency  FinApAdvance[]     @relation("ApAdvanceCurrency")
-  apInvoiceCurrency  FinApInvoice[]     @relation("ApInvoiceCurrency")
-  sales_partners     MPartner[]         @relation("PartnerSalesCurrency")
-  purchase_partners  MPartner[]         @relation("PartnerPurchaseCurrency")
-  credit_notes       FinArCreditNote[]  @relation("CreditNoteCurrency")
+  coCurrency         SalCustomerOrder[]    @relation("CoCurrency")
+  arInvoiceCurrency  FinArInvoice[]        @relation("ArInvoiceCurrency")
+  arAdvanceCurrency  FinArAdvance[]        @relation("ArAdvanceCurrency")
+  cashBankTxCurrency FinCashBankTx[]       @relation("CashBankTxCurrency")
+  poCurrency         PurOrder[]            @relation("PoCurrency")
+  apAdvanceCurrency  FinApAdvance[]        @relation("ApAdvanceCurrency")
+  apInvoiceCurrency  FinApInvoice[]        @relation("ApInvoiceCurrency")
+  sales_partners     MPartner[]            @relation("PartnerSalesCurrency")
+  purchase_partners  MPartner[]            @relation("PartnerPurchaseCurrency")
+  credit_notes       FinArCreditNote[]     @relation("CreditNoteCurrency")
+  cash_transfers     FinCashBankTransfer[]
 
   @@map("ref_currency")
 }
@@ -1515,8 +1516,8 @@ model MCashBank {
   book_balance  CashBankBalance?
   periods       CashBankPeriod[]
   transactions  FinCashBankTx[]
-  exchanges_out FinCashExchange[] @relation("ExchangeFrom")
-  exchanges_in  FinCashExchange[] @relation("ExchangeTo")
+  transfers_out FinCashBankTransfer[]     @relation("TransferFrom")
+  transfers_in  FinCashBankTransferLine[] @relation("TransferTo")
 
   /// Advance bills that print this account as where to pay (P56).
   sales_advances  FinArAdvance[]
@@ -2027,10 +2028,10 @@ model AccJournal {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  source_doc_type SysDocType?       @relation(fields: [source_doc_type_id], references: [id])
+  source_doc_type SysDocType?           @relation(fields: [source_doc_type_id], references: [id])
   lines           AccJournalLine[]
   cash_bank_txs   FinCashBankTx[]
-  cash_exchanges  FinCashExchange[]
+  cash_transfers  FinCashBankTransfer[]
 
   @@index([posting_date])
   @@index([source_doc_type_id, source_doc_id])
@@ -3436,25 +3437,34 @@ model FinArPermitInvoiceAdvanceDeduction {
 /// Bank Book entries and one journal: the foreign side leaves at its pool's
 /// moving average, a purchase brings exactly the rupiah paid into the pool, and
 /// a sale's difference is selisih kurs.
-model FinCashExchange {
-  id            Int                @id @default(autoincrement())
-  /// `PVL/YYYY/MM/NNNN`, in the month of its date.
-  exchange_no   String             @unique
-  exchange_date DateTime           @db.Date
-  status        CashExchangeStatus @default(Draft)
+/// Transfer Kas & Bank (P299, Cash-Bank-Transfer-Plan.md): the company's own
+/// money moved between its Kas & Bank — one currency (Transfer), foreign sold
+/// for rupiah (Pencairan) or rupiah for foreign (Pembelian Valas). One source,
+/// one or more destinations. Replaces Penukaran Valas (P272) in place: its rows
+/// kept their `PVL/…` numbers and became one-line transfers.
+model FinCashBankTransfer {
+  id            Int                 @id @default(autoincrement())
+  /// `TRF/YYYY/MM/NNNN`, in the month of its date (`PVL/…` before P299).
+  transfer_no   String              @unique
+  transfer_date DateTime            @db.Date
+  status        CashTransferStatus  @default(Draft)
+  purpose       CashTransferPurpose
 
+  /// Money always leaves this resource.
   from_cash_bank_id Int
-  to_cash_bank_id   Int
-  /// What left, in the source's currency, and what arrived, in the destination's.
+  /// The document currency: the shared one on a Transfer, the foreign side
+  /// otherwise — the currency every line's `amount` is typed in.
+  currency_id       Int
+  /// Σ lines' amount, in the document currency.
+  transfer_amount   Decimal @db.Decimal(18, 2)
+  /// Σ lines' out_amount, in the source's currency.
   from_amount       Decimal @db.Decimal(18, 2)
-  to_amount         Decimal @db.Decimal(18, 2)
   /// The bank's own reference for the deal, as printed.
   reference         String?
   note              String?
 
-  /// Written at posting: the base each side moved and their difference.
+  /// Written at posting: Σ base the source released and Σ selisih kurs.
   from_base     Decimal? @db.Decimal(18, 2)
-  to_base       Decimal? @db.Decimal(18, 2)
   fx_difference Decimal  @default(0) @db.Decimal(18, 2)
   journal_id    Int?
   cancel_reason String?
@@ -3464,18 +3474,56 @@ model FinCashExchange {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  from_cash_bank MCashBank   @relation("ExchangeFrom", fields: [from_cash_bank_id], references: [id])
-  to_cash_bank   MCashBank   @relation("ExchangeTo", fields: [to_cash_bank_id], references: [id])
-  journal        AccJournal? @relation(fields: [journal_id], references: [id])
+  from_cash_bank MCashBank                 @relation("TransferFrom", fields: [from_cash_bank_id], references: [id])
+  currency       RefCurrency               @relation(fields: [currency_id], references: [id])
+  journal        AccJournal?               @relation(fields: [journal_id], references: [id])
+  lines          FinCashBankTransferLine[]
 
-  @@index([status, exchange_date])
-  @@map("fin_cash_exchange")
+  @@index([status, transfer_date])
+  @@map("fin_cash_bank_transfer")
 }
 
-enum CashExchangeStatus {
+/// One destination of a Transfer Kas & Bank, never the source and once per document.
+model FinCashBankTransferLine {
+  id              Int @id @default(autoincrement())
+  transfer_id     Int
+  line_no         Int
+  to_cash_bank_id Int
+
+  /// Typed, in the document currency.
+  amount        Decimal  @db.Decimal(18, 2)
+  /// Document currency to rupiah: typed when the pair crosses, 1 otherwise.
+  exchange_rate Decimal  @db.Decimal(18, 6)
+  /// What leaves the source in its currency, and what arrives in the
+  /// destination's: the amount, or round(amount × rate) on the rupiah side.
+  out_amount    Decimal  @db.Decimal(18, 2)
+  in_amount     Decimal  @db.Decimal(18, 2)
+  /// Written at posting: the base the source released for this line, the base
+  /// the destination received, and their difference (Pencairan only).
+  out_base      Decimal? @db.Decimal(18, 2)
+  in_base       Decimal? @db.Decimal(18, 2)
+  fx_difference Decimal  @default(0) @db.Decimal(18, 2)
+
+  transfer     FinCashBankTransfer @relation(fields: [transfer_id], references: [id], onDelete: Cascade)
+  to_cash_bank MCashBank           @relation("TransferTo", fields: [to_cash_bank_id], references: [id])
+
+  @@unique([transfer_id, line_no])
+  @@unique([transfer_id, to_cash_bank_id])
+  @@index([to_cash_bank_id])
+  @@map("fin_cash_bank_transfer_line")
+}
+
+enum CashTransferStatus {
   Draft
   Posted
   Cancelled
+}
+
+/// How the two sides' currencies relate (SIBA's transfer purposes, without rate layers).
+enum CashTransferPurpose {
+  Transfer
+  Pencairan
+  PembelianValas
 }
 
 enum CashBankTxStatus {
