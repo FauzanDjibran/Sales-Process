@@ -3,6 +3,7 @@ import { UserForm } from "@/components/settings/user-form";
 import { actorCan } from "@/lib/erp/access";
 import { requirePermission } from "@/lib/erp/auth";
 import { assignableUnits, unitIdsOfUser } from "@/lib/erp/production-access";
+import { assignableWarehouses, warehouseIdsOfUser } from "@/lib/erp/warehouse-access";
 import { assignableRoles, getUser } from "@/lib/erp/user-admin";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +25,7 @@ export default async function EditUserPage({
   const roles = canAssign ? await assignableRoles(actor) : [];
   const assigned = roles.filter((r) => user.role_labels.includes(r.label)).map((r) => r.id);
   const [units, assignedUnits] = canAssign ? await Promise.all([assignableUnits(), unitIdsOfUser(user.id)]) : [[], []];
+  const [warehouses, assignedWarehouses] = canAssign ? await Promise.all([assignableWarehouses(), warehouseIdsOfUser(user.id)]) : [[], []];
 
   return (
     <UserForm
@@ -33,6 +35,8 @@ export default async function EditUserPage({
       assignedRoleIds={assigned}
       units={units}
       assignedUnitIds={assignedUnits}
+      warehouses={warehouses}
+      assignedWarehouseIds={assignedWarehouses}
       isSelf={user.id === actor.user.id}
       can={{
         edit: true,

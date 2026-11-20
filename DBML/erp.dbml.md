@@ -3103,6 +3103,162 @@ table log_stock_issue_tracking {
 
 //////////////////////////////////
 //
+// Transfer Stok (P300, Stock-Transfer-Plan.md)
+//
+/////////////////////////////////
+
+// Which warehouses a user works in (OD-9); INVENTORY_WAREHOUSE_ALL needs no row.
+table log_user_warehouse {
+  id                          int [pk, increment, not null]
+  user_id                     int [not null] // sys_user.id, no FK
+  warehouse_id                int [not null, ref : > ref_warehouse.id]
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (user_id, warehouse_id) [unique]
+    warehouse_id
+  }
+}
+
+enum StockTransferStatus {
+  Draft
+  InTransit // Dalam Perjalanan: in the Gudang Transit
+  Received
+  Cancelled
+}
+
+// Transfer Kirim (TSK/YYYY/MM/NNNN): origin -> Gudang Transit (System Default transit_warehouse). No journal;
+// each pick is issueStock + receiveStock at the same value, so the pool and its average do not move (OD-6).
+table log_stock_transfer {
+  id                          int [pk, increment, not null]
+  transfer_no                 varchar [not null, unique]
+  transfer_date               date [not null]
+  status                      StockTransferStatus [not null, default: 'Draft']
+  from_warehouse_id           int [not null, ref : > ref_warehouse.id]
+  to_warehouse_id             int [not null, ref : > ref_warehouse.id] // CHECK <> from
+  transit_warehouse_id        int // copied from System Default at Kirim, no FK
+  vehicle_no                  varchar
+  driver_name                 varchar
+  note                        varchar
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, transfer_date)
+    from_warehouse_id
+    to_warehouse_id
+  }
+}
+
+table log_stock_transfer_line {
+  id                          int [pk, increment, not null]
+  stock_transfer_id           int [not null, ref : > log_stock_transfer.id]
+  line_no                     int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id] // the base unit
+  base_qty                    decimal(18,4) [not null] // = sum of its tracking rows
+  received_qty                decimal(18,4) [not null, default: 0] // sum of posted Transfer Terima, <= base_qty
+  note                        varchar
+
+  indexes {
+    (stock_transfer_id, line_no) [unique]
+    (stock_transfer_id, item_id) [unique]
+    item_id
+  }
+}
+
+// One origin bucket: lot, location, status (any status may travel, OD-4).
+table log_stock_transfer_tracking {
+  id                          int [pk, increment, not null]
+  stock_transfer_line_id      int [not null, ref : > log_stock_transfer_line.id]
+  pick_no                     int [not null]
+  tracking_id                 int [not null] // log_stock_tracking.id, no FK
+  location_id                 int // origin location, no FK
+  stock_status_id             int [not null] // sys_stock_status.id, no FK
+  tracking_no                 varchar [not null]
+  expiry_date                 date
+  base_qty                    decimal(18,4) [not null]
+  received_qty                decimal(18,4) [not null, default: 0]
+
+  indexes {
+    (stock_transfer_line_id, pick_no) [unique]
+    (stock_transfer_line_id, tracking_id, location_id, stock_status_id) [unique] // NULLS NOT DISTINCT
+    tracking_id
+  }
+}
+
+enum StockTransferReceiptStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+// Transfer Terima (TST/YYYY/MM/NNNN): Gudang Transit -> destination, one Transfer Kirim, in parts; not before it.
+table log_stock_transfer_receipt {
+  id                          int [pk, increment, not null]
+  receipt_no                  varchar [not null, unique]
+  receipt_date                date [not null]
+  status                      StockTransferReceiptStatus [not null, default: 'Draft']
+  stock_transfer_id           int [not null, ref : > log_stock_transfer.id]
+  to_warehouse_id             int [not null, ref : > ref_warehouse.id] // the Kirim's, copied
+  note                        varchar
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    stock_transfer_id
+    (status, receipt_date)
+  }
+}
+
+table log_stock_transfer_receipt_line {
+  id                          int [pk, increment, not null]
+  receipt_id                  int [not null, ref : > log_stock_transfer_receipt.id]
+  line_no                     int [not null]
+  stock_transfer_line_id      int [not null, ref : > log_stock_transfer_line.id]
+  item_id                     int [not null, ref : > m_item.id]
+  uom_id                      int [not null, ref : > ref_uom.id]
+  base_qty                    decimal(18,4) [not null]
+  note                        varchar
+
+  indexes {
+    (receipt_id, line_no) [unique]
+    (receipt_id, stock_transfer_line_id) [unique]
+    stock_transfer_line_id
+  }
+}
+
+// One Kirim tracking row into one destination location; lot and status are the Kirim row's.
+table log_stock_transfer_receipt_tracking {
+  id                          int [pk, increment, not null]
+  receipt_line_id             int [not null, ref : > log_stock_transfer_receipt_line.id]
+  pick_no                     int [not null]
+  stock_transfer_tracking_id  int [not null, ref : > log_stock_transfer_tracking.id]
+  tracking_id                 int [not null] // no FK
+  stock_status_id             int [not null] // no FK
+  location_id                 int // destination location, no FK
+  tracking_no                 varchar [not null]
+  expiry_date                 date
+  base_qty                    decimal(18,4) [not null]
+
+  indexes {
+    (receipt_line_id, pick_no) [unique]
+    (receipt_line_id, stock_transfer_tracking_id, location_id) [unique] // NULLS NOT DISTINCT
+    stock_transfer_tracking_id
+  }
+}
+
+//////////////////////////////////
+//
 // Costing Produksi
 //
 /////////////////////////////////

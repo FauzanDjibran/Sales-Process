@@ -5,7 +5,10 @@ import { locationStockUse, warehouseHoldsStock } from "./inventory";
 import { receiptNoteLocationUse } from "./receipt-note";
 import { deliveryNoteLocationUse } from "./delivery-note";
 import { stockIssueLocationUse } from "./stock-issue";
+import { stockTransferLocationUse } from "./stock-transfer";
+import { transferReceiptLocationUse } from "./stock-transfer-receipt";
 import { locationDisplayLabel } from "./warehouse-location";
+import { isTransitWarehouse } from "./system-settings";
 
 /**
  * Lokasi Gudang (`ref_warehouse_location`), its own master (P267): a place
@@ -42,12 +45,13 @@ export async function checkWarehouseLocation(values: Record<string, unknown>, cu
       select: { status: true, _count: { select: { locations: true } } },
     });
     if (!warehouse || warehouse.status !== "Active") errors.warehouse_id = "Pilih gudang yang aktif.";
+    else if (await isTransitWarehouse(warehouseId)) errors.warehouse_id = "Gudang Transit tidak memakai lokasi (System Default › Persediaan).";
     else if (!warehouse._count.locations) {
       const drafts = await draftsInWarehouse(warehouseId);
       if (await warehouseHoldsStock(warehouseId)) {
         errors.warehouse_id = "Gudang ini masih menyimpan stok tanpa lokasi: lokasi pertama hanya bisa ditambahkan saat gudang kosong.";
       } else if (drafts > 0) {
-        errors.warehouse_id = `Masih ada ${drafts} Receipt Note, Delivery Note atau BSTB Issue Draft di gudang ini: selesaikan atau batalkan dulu.`;
+        errors.warehouse_id = `Masih ada ${drafts} dokumen gudang Draft (Receipt Note, Delivery Note, BSTB Issue, Transfer) di gudang ini: selesaikan atau batalkan dulu.`;
       }
     }
   }
@@ -65,12 +69,14 @@ export async function locationDeactivateRefusal(id: number): Promise<string | nu
 }
 
 async function draftsInWarehouse(warehouseId: number): Promise<number> {
-  const [receipts, deliveries, issues] = await Promise.all([
+  const [receipts, deliveries, issues, transfers, transferReceipts] = await Promise.all([
     receiptNoteLocationUse(warehouseId, []),
     deliveryNoteLocationUse(warehouseId, []),
     stockIssueLocationUse(warehouseId, []),
+    stockTransferLocationUse(warehouseId),
+    transferReceiptLocationUse(warehouseId, []),
   ]);
-  return receipts.drafts + deliveries.drafts + issues.drafts;
+  return receipts.drafts + deliveries.drafts + issues.drafts + transfers.drafts + transferReceipts.drafts;
 }
 
 // -------------------------------------------------------------------- reads
@@ -117,4 +123,9 @@ export async function locationTree(): Promise<LocationTreeWarehouse[]> {
       active: l.status === "Active",
     })),
   }));
+}
+
+/** Why a warehouse cannot be deactivated now, or null: the Gudang Transit setting names it (P300). */
+export async function warehouseDeactivateRefusal(id: number): Promise<string | null> {
+  return (await isTransitWarehouse(id)) ? "Gudang ini dipakai sebagai Gudang Transit di System Default: ganti dulu settingnya." : null;
 }

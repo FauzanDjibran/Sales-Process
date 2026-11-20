@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { SUPPLIER_CATEGORY } from "./entities";
-import { PPN_SETTINGS_MISSING, ppnRates } from "./system-settings";
+import { PPN_SETTINGS_MISSING, ppnRates, isTransitWarehouse, notTransitWarehouse, TRANSIT_WAREHOUSE_REFUSED } from "./system-settings";
 import { checkDocumentCurrency, documentCurrencyOptions, orderLineBase, orderTotalsData, type CurrencyOption, type TransactionRate } from "./document-currency";
 import { computeSalesTotals, lineProblem, type AdvanceBasis, type DiscountType, type PpnRates, type PriceMode, type SalesTotals } from "./sales-tax";
 import { lockPurchaseRequestLines, purchaseOrderSourceLines, recordPurchaseRequestOrdered, type PoSourceLine } from "./purchase-request";
@@ -115,7 +115,7 @@ export async function purchaseOrderOptions(itemType: "Barang" | "Jasa", withRequ
   const [suppliers, terms, warehouses, taxes, sources, rates, money] = await Promise.all([
     prisma.mPartner.findMany({ where: { category: { category_label: SUPPLIER_CATEGORY } }, orderBy: { partner_label: "asc" } }),
     prisma.refPaymentTerm.findMany({ orderBy: { due_days: "asc" } }),
-    prisma.refWarehouse.findMany({ orderBy: { warehouse_label: "asc" } }),
+    prisma.refWarehouse.findMany({ where: await notTransitWarehouse(), orderBy: { warehouse_label: "asc" } }),
     prisma.refWithholdingTax.findMany({ where: { usage: "Purchase" }, orderBy: { wht_label: "asc" } }),
     purchaseOrderSourceLines({ itemType, ids: withRequestLineIds }),
     ppnRates(),
@@ -238,6 +238,7 @@ export async function checkPurchaseOrder(
   let warehouseId = itemType === "Barang" ? Number(header.warehouse_id) || null : null;
   if (warehouseId) {
     const w = await db.refWarehouse.findUnique({ where: { id: warehouseId }, select: { status: true } });
+    if (w && (await isTransitWarehouse(warehouseId, db))) errors.warehouse_id = TRANSIT_WAREHOUSE_REFUSED;
     if (!w || w.status !== "Active") errors.warehouse_id = "Gudang tidak ditemukan atau nonaktif.";
   } else warehouseId = null;
 

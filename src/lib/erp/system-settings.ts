@@ -2,6 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { BASE_CURRENCY_LABEL } from "./currency";
+import { warehouseHoldsStock } from "./inventory";
 import { checkAccountIsLeaf, type RefOption } from "./records";
 import type { PpnRates } from "./sales-tax";
 import {
@@ -153,6 +154,7 @@ export async function checkSystemDefaultValue(
   id: number
 ): Promise<string | null> {
   const def = systemDefaultDef(key);
+  if (def.type === "ref" && def.ref === "ref_warehouse") return checkTransitWarehouse(id);
   if (def.type !== "ref" || def.ref !== "acc_account") return null;
 
   const account = await prisma.accAccount.findUnique({
@@ -321,10 +323,10 @@ export async function closingAccount(): Promise<ClosingAccount> {
 export async function settingOptions(
   current: SystemDefaultValues
 ): Promise<Record<SystemDefaultKey, RefOption[]>> {
-  const accounts = await prisma.accAccount.findMany({
-    where: { is_postable: true },
-    orderBy: { account_label: "asc" },
-  });
+  const [accounts, warehouses] = await Promise.all([
+    prisma.accAccount.findMany({ where: { is_postable: true }, orderBy: { account_label: "asc" } }),
+    prisma.refWarehouse.findMany({ orderBy: { warehouse_label: "asc" }, include: { _count: { select: { locations: true } } } }),
+  ]);
   const out = {} as Record<SystemDefaultKey, RefOption[]>;
   for (const def of SYSTEM_DEFAULTS) {
     if (def.type !== "ref") {
@@ -332,6 +334,13 @@ export async function settingOptions(
       continue;
     }
     const chosen = Number(current[def.key] ?? "");
+    if (def.ref === "ref_warehouse") {
+      // A transit warehouse keeps no locations (A4): only those are offered.
+      out[def.key] = warehouses
+        .filter((w) => (w.status === "Active" && !w._count.locations) || w.id === chosen)
+        .map((w) => ({ id: w.id, label: w.warehouse_label, name: w.warehouse_name, active: w.status === "Active" }));
+      continue;
+    }
     out[def.key] = accounts
       .filter((a) => a.is_active || a.id === chosen)
       .map((a) => ({ id: a.id, label: a.account_label, name: a.account_name, active: a.is_active }));
@@ -347,4 +356,54 @@ export async function settingOptions(
 export async function supplierInvoiceTolerance(): Promise<number> {
   const v = Number((await systemDefaults()).supplier_invoice_tolerance ?? 0);
   return Number.isFinite(v) && v >= 0 ? Math.round(v) : 0;
+}
+
+// ------------------------------------------------------- transit warehouse
+
+/**
+ * The Gudang Transit (P300, Stock-Transfer-Plan.md §3.3): where goods sent by
+ * a Transfer Kirim wait until the destination receives them. Null while unset.
+ * Every other warehouse document neither offers nor accepts it (OD-2).
+ */
+export async function transitWarehouseId(db: { sysSetting: typeof prisma.sysSetting } = prisma): Promise<number | null> {
+  const row = await db.sysSetting.findUnique({ where: { setting_key: "transit_warehouse" }, select: { setting_value: true } });
+  const n = Number(row?.setting_value ?? "");
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+/** The refusal a warehouse document reads when it names the Gudang Transit (OD-2). */
+export const TRANSIT_WAREHOUSE_REFUSED = "Gudang Transit hanya dipakai Transfer Kirim dan Transfer Terima.";
+
+/** Whether a warehouse may be the Gudang Transit: active and without locations (A4). */
+async function checkTransitWarehouse(id: number): Promise<string | null> {
+  const w = await prisma.refWarehouse.findUnique({ where: { id }, select: { status: true, _count: { select: { locations: true } } } });
+  if (!w) return "Gudang tidak ditemukan.";
+  if (w.status !== "Active") return "Gudang tersebut non-aktif.";
+  if (w._count.locations) return "Gudang Transit tidak memakai lokasi: pilih gudang tanpa Lokasi Gudang.";
+  return null;
+}
+
+/**
+ * Why the Gudang Transit cannot be changed to `next` (null clears it), or
+ * null. Goods in the old transit would be stranded, so it is refused while it
+ * holds stock.
+ */
+export async function transitChangeRefusal(next: number | null): Promise<string | null> {
+  const current = await transitWarehouseId();
+  if (!current || current === next) return null;
+  return (await warehouseHoldsStock(current)) ? "Gudang Transit masih menyimpan stok dalam perjalanan: terima dulu seluruh Transfer Kirim sebelum menggantinya." : null;
+}
+
+/** Whether this warehouse is the Gudang Transit (OD-2). */
+export async function isTransitWarehouse(
+  warehouseId: number | null | undefined,
+  db: { sysSetting: typeof prisma.sysSetting } = prisma
+): Promise<boolean> {
+  return warehouseId != null && (await transitWarehouseId(db)) === warehouseId;
+}
+
+/** A `where` that leaves the Gudang Transit out of a warehouse picker (OD-2). */
+export async function notTransitWarehouse(): Promise<{ id?: { not: number } }> {
+  const id = await transitWarehouseId();
+  return id ? { id: { not: id } } : {};
 }

@@ -166,6 +166,9 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Sales Return", "sal_return"],
   // Credits what came back of a posted Invoice (P292); its journal and Retur AR item name it.
   ["Credit Note Penjualan", "fin_ar_credit_note"],
+  // Stock between warehouses through the Gudang Transit (P300).
+  ["Transfer Kirim", "log_stock_transfer"],
+  ["Transfer Terima", "log_stock_transfer_receipt"],
 ];
 
 /**

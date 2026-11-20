@@ -131,6 +131,13 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logStockIssue: ["src/lib/erp/stock-issue.ts"],
   logStockIssueLine: ["src/lib/erp/stock-issue.ts"],
   logStockIssueTracking: ["src/lib/erp/stock-issue.ts"],
+  logStockTransfer: ["src/lib/erp/stock-transfer.ts"],
+  logStockTransferLine: ["src/lib/erp/stock-transfer.ts"],
+  logStockTransferTracking: ["src/lib/erp/stock-transfer.ts"],
+  logStockTransferReceipt: ["src/lib/erp/stock-transfer-receipt.ts"],
+  logStockTransferReceiptLine: ["src/lib/erp/stock-transfer-receipt.ts"],
+  logStockTransferReceiptTracking: ["src/lib/erp/stock-transfer-receipt.ts"],
+  logUserWarehouse: ["src/lib/erp/warehouse-access.ts"],
   // The production documents (R5, R7, R8): each named only by its module.
   prdGrading: ["src/lib/erp/production-grading.ts"],
   prdGradingEmployee: ["src/lib/erp/production-grading.ts"],

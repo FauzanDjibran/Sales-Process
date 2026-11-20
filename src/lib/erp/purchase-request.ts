@@ -1,4 +1,5 @@
 import "server-only";
+import { isTransitWarehouse, notTransitWarehouse, TRANSIT_WAREHOUSE_REFUSED } from "./system-settings";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
@@ -76,7 +77,7 @@ export async function purchaseRequestOptions(itemType: "Barang" | "Jasa", withIt
       orderBy: { item_label: "asc" },
       include: { base_uom: true },
     }),
-    prisma.refWarehouse.findMany({ orderBy: { warehouse_label: "asc" } }),
+    prisma.refWarehouse.findMany({ where: await notTransitWarehouse(), orderBy: { warehouse_label: "asc" } }),
   ]);
   return {
     items: items.map((i) => ({
@@ -128,6 +129,7 @@ export async function checkPurchaseRequest(
   if (itemType === "Jasa") warehouseId = null;
   else if (warehouseId) {
     const w = await db.refWarehouse.findUnique({ where: { id: warehouseId }, select: { status: true } });
+    if (w && (await isTransitWarehouse(warehouseId, db))) errors.warehouse_id = TRANSIT_WAREHOUSE_REFUSED;
     if (!w) errors.warehouse_id = "Gudang tidak ditemukan.";
     else if (w.status !== "Active") errors.warehouse_id = "Gudang tersebut sudah nonaktif.";
   }

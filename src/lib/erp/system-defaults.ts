@@ -13,7 +13,7 @@
  * - **System Default** (`page: "default"`) — application-wide configuration:
  *   the base currency (shown, never set — it is a constant in `currency.ts`)
  *   and the PPN rate and DPP Nilai Lain factor every taxable document
- *   snapshots (P60). Later defaults (a transit warehouse) join here.
+ *   snapshots (P60), and the Gudang Transit stock transfers pass through (P300).
  * - **Account Mapping** (`page: "account"`) — where a kind of posting lands:
  *   the FX difference account and the two Laba/Rugi equity accounts, one each
  *   for the one company (P9, P23). A mapping is added only when the document
@@ -52,10 +52,11 @@ export type SystemDefaultKey =
   | "production_absorbed_account"
   | "ppn_rate"
   | "ppn_dpp_other_numerator"
-  | "ppn_dpp_other_denominator";
+  | "ppn_dpp_other_denominator"
+  | "transit_warehouse";
 
 /** Which master a `ref` setting points at — a registry entity key. */
-export type SystemDefaultRef = "acc_account";
+export type SystemDefaultRef = "acc_account" | "ref_warehouse";
 
 /** The page a setting is edited on. */
 export type SettingsPage = "default" | "account";
@@ -64,6 +65,7 @@ export type SystemDefaultGroupKey =
   | "application"
   | "tax"
   | "purchase_rules"
+  | "inventory"
   | "receipt"
   | "invoice"
   | "permit"
@@ -113,6 +115,16 @@ export const SYSTEM_DEFAULT_GROUPS = [
       "Account Selisih Tagihan Supplier; di atasnya Invoice Pembelian tidak dapat " +
       "diposting.",
     icon: "box",
+  },
+  {
+    key: "inventory",
+    page: "default",
+    name: "Persediaan",
+    desc:
+      "Gudang Transit tempat stok berada selama Transfer Kirim belum diterima gudang tujuan. " +
+      "Gudang ini tanpa lokasi, tidak bisa dipilih di dokumen gudang lain, dan tidak dapat " +
+      "diganti selama masih menyimpan stok.",
+    icon: "truck",
   },
   {
     key: "receipt",
@@ -284,6 +296,18 @@ export const SYSTEM_DEFAULTS = [
     help: "tidak boleh lebih kecil dari pembilang",
   },
 
+  // ------------------------------------------------------------ inventory
+  //
+  // The stock transfer's transit warehouse (P300, Stock-Transfer-Plan.md §3.3).
+  {
+    key: "transit_warehouse",
+    name: "Gudang Transit",
+    icon: "truck",
+    type: "ref",
+    ref: "ref_warehouse",
+    group: "inventory",
+    help: "gudang tanpa lokasi, khusus barang dalam perjalanan",
+  },
   // ------------------------------------------------------------- receipt
   //
   // Added with the document that posts them (P61): Penerimaan Kas & Bank.
@@ -571,6 +595,7 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   ppn_rate: null,
   ppn_dpp_other_numerator: null,
   ppn_dpp_other_denominator: null,
+  transit_warehouse: null,
 };
 
 export function isSystemDefaultKey(key: string): key is SystemDefaultKey {

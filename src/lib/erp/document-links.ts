@@ -26,6 +26,8 @@ const ROUTES: Record<string, string> = {
   log_receipt_note: "/inventory/receipt-note",
   prd_cost_bill: "/costing/cost-bill",
   log_stock_issue: "/inventory/stock-issue",
+  log_stock_transfer: "/inventory/stock-transfer",
+  log_stock_transfer_receipt: "/inventory/stock-transfer-receipt",
   prd_grading: "/production/grading",
   prd_work: "/production/work",
   prd_qc_check: "/production/qc-check",

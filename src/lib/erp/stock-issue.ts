@@ -9,7 +9,7 @@ import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { InventoryRefusal, issueStock, locationLabelsByIds, lotOptions, lotTrackedItems, releaseReservation, reserveStock, type LotOption } from "./inventory";
 import { ProductionRefusal, enterProduction, issueJob, firstProductionUnit } from "./production-ledger";
-import { fallbackAccounts } from "./system-settings";
+import { fallbackAccounts, isTransitWarehouse, notTransitWarehouse, TRANSIT_WAREHOUSE_REFUSED } from "./system-settings";
 import { accountsForItems } from "./item-account";
 import { DEFAULT_STOCK_ISSUE_PURPOSE, stockIssuePurpose } from "./stock-issue-purposes";
 import {
@@ -116,7 +116,7 @@ export async function stockIssueOptions(
 ): Promise<StockIssueOptions> {
   const [warehouses, units, items] = await Promise.all([
     db.refWarehouse.findMany({
-      where: { OR: [{ status: "Active" }, ...(current ? [{ id: current.warehouseId }] : [])] },
+      where: { AND: [await notTransitWarehouse(), { OR: [{ status: "Active" }, ...(current ? [{ id: current.warehouseId }] : [])] }] },
       orderBy: { warehouse_label: "asc" },
       select: { id: true, warehouse_label: true, warehouse_name: true, status: true },
     }),
@@ -212,6 +212,7 @@ export async function checkStockIssue(
   const warehouseId = Number(header.warehouse_id) || null;
   const warehouse = warehouseId ? options.warehouses.find((w) => w.id === warehouseId) : undefined;
   if (!warehouseId) errors.warehouse_id = "Pilih gudang.";
+  else if (await isTransitWarehouse(warehouseId, db)) errors.warehouse_id = TRANSIT_WAREHOUSE_REFUSED;
   else if (!warehouse || (!warehouse.active && (forPosting || stored?.warehouse_id !== warehouseId))) errors.warehouse_id = "Gudang tidak ditemukan atau nonaktif.";
 
   const unitId = Number(header.unit_id) || null;

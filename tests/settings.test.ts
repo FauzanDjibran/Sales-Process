@@ -124,7 +124,7 @@ describe("the settings catalogue lives in code", () => {
     for (const d of SYSTEM_DEFAULTS) {
       assert.equal(
         settingPageOf(d.key) === "account",
-        d.type === "ref",
+        d.type === "ref" && d.ref === "acc_account",
         `${d.key}: every account setting is on Account Mapping, and nothing else is`
       );
     }

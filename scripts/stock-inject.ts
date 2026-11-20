@@ -71,6 +71,8 @@ async function main() {
     prisma.sysUser.findUnique({ where: { email: "sistem@erp.app" }, select: { id: true } }),
   ]);
   if (!sistem) die("Data sistem belum ada. Jalankan `npm run db:seed` dulu.");
+  const transitSetting = await prisma.sysSetting.findUnique({ where: { setting_key: "transit_warehouse" }, select: { setting_value: true } });
+  const transitId = Number(transitSetting?.setting_value ?? "") || null;
   const itemBy = new Map<string, number>();
   for (const i of items) {
     itemBy.set(i.item_code.toUpperCase(), i.id);
@@ -100,6 +102,8 @@ async function main() {
     if (!itemId) die(`Baris ${line}: barang "${get("item")}" tidak ditemukan.`);
     const warehouseId = whBy.get(get("warehouse").toUpperCase());
     if (!warehouseId) die(`Baris ${line}: gudang "${get("warehouse")}" tidak ditemukan.`);
+    // The Gudang Transit holds only goods a Transfer Kirim sent (P300 OD-2).
+    if (warehouseId === transitId) die(`Baris ${line}: gudang "${get("warehouse")}" adalah Gudang Transit; stok masuk ke sana hanya lewat Transfer Kirim.`);
     const locationText = locationAt >= 0 ? (cell[locationAt] ?? "") : "";
     const locationId = locationText ? locBy.get(`${warehouseId}:${locationText.toUpperCase()}`) : null;
     if (locationText && !locationId) die(`Baris ${line}: lokasi "${locationText}" tidak ada di gudang "${get("warehouse")}".`);

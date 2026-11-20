@@ -45,7 +45,7 @@ import {
   checkItemCollections,
   writeItemCollections,
 } from "@/lib/erp/item";
-import { checkWarehouseLocation, locationDeactivateRefusal } from "@/lib/erp/warehouse";
+import { checkWarehouseLocation, locationDeactivateRefusal, warehouseDeactivateRefusal } from "@/lib/erp/warehouse";
 import {
   checkRateCollections,
   checkBomCollections,
@@ -368,6 +368,10 @@ async function validate(
   }
   if (entity.key === "ref_warehouse_location") {
     for (const [k, v] of Object.entries(await checkWarehouseLocation(values, currentId))) errors[k] ??= v;
+  }
+  if (entity.key === "ref_warehouse" && currentId && values.status === "Inactive") {
+    const refusal = await warehouseDeactivateRefusal(currentId);
+    if (refusal) errors.status ??= refusal;
   }
   if (entity.key === "m_item") {
     for (const [k, v] of Object.entries({
@@ -779,6 +783,12 @@ export async function toggleStatus(
   const guard = await authorize(entity.key, nextActive ? "activate" : "deactivate");
   if (!guard.ok) return { ok: false, message: guard.denial.errors._form };
   const actor = guard.actor;
+
+  // The Gudang Transit stays active while System Default names it (P300).
+  if (entity.key === "ref_warehouse" && !nextActive) {
+    const refusal = await warehouseDeactivateRefusal(id);
+    if (refusal) return { ok: false, message: refusal };
+  }
 
   // A location still holding stock keeps its stock reachable (P267).
   if (entity.key === "ref_warehouse_location" && !nextActive) {

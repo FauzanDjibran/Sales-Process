@@ -9,7 +9,7 @@ import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { lockPurchaseOrder, receiptNoteSources, recordPurchaseOrderReceived, type ReceiptNoteSource } from "./purchase-order";
 import { InventoryRefusal, assertNewTrackingNo, receiveStock, warehouseLocationOptions, type WarehouseLocationOption } from "./inventory";
-import { fallbackAccounts } from "./system-settings";
+import { fallbackAccounts, isTransitWarehouse, notTransitWarehouse, TRANSIT_WAREHOUSE_REFUSED } from "./system-settings";
 import { accountsForItems } from "./item-account";
 import { lockSalesReturn, recordSalesReturnReceived, returnReceiptSources, type ReturnReceiptSource } from "./sales-return";
 import { recordDeliveryNoteReturned, returnSourceTrackings, type ReturnSourceTracking } from "./delivery-note";
@@ -139,7 +139,7 @@ export async function receiptNoteOptions(current: { id: number; sourceId: number
     current
       ? sourceOptions(prisma, { ids: [current.sourceId] }, current.id)
       : sourceOptions(prisma, { openOnly: true }, null).then((os) => os.filter((o) => o.lines.some((l) => units(l.qty) > units(l.held)))),
-    prisma.refWarehouse.findMany({ orderBy: { warehouse_label: "asc" } }),
+    prisma.refWarehouse.findMany({ where: await notTransitWarehouse(), orderBy: { warehouse_label: "asc" } }),
   ]);
   const locations = await warehouseLocationOptions(warehouses.map((w) => w.id));
   return {
@@ -230,6 +230,7 @@ export async function checkReceiptNote(
     if (!warehouseId) errors.warehouse_id = "Pilih Gudang.";
     else {
       const w = await db.refWarehouse.findUnique({ where: { id: warehouseId }, select: { status: true } });
+    if (w && (await isTransitWarehouse(warehouseId, db))) errors.warehouse_id = TRANSIT_WAREHOUSE_REFUSED;
       if (!w || w.status !== "Active") errors.warehouse_id = "Gudang tidak ditemukan atau nonaktif.";
       else {
         const own = (await warehouseLocationOptions([warehouseId], db)).get(warehouseId) ?? [];
@@ -774,6 +775,7 @@ export async function checkReturnReceipt(
   if (!warehouseId) errors.warehouse_id = "Pilih Gudang.";
   else {
     const w = await db.refWarehouse.findUnique({ where: { id: warehouseId }, select: { status: true } });
+    if (w && (await isTransitWarehouse(warehouseId, db))) errors.warehouse_id = TRANSIT_WAREHOUSE_REFUSED;
     if (!w || w.status !== "Active") errors.warehouse_id = "Gudang tidak ditemukan atau nonaktif.";
     else {
       const own = (await warehouseLocationOptions([warehouseId], db)).get(warehouseId) ?? [];

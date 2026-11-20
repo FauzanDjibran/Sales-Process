@@ -370,6 +370,22 @@ export const MODULES: NavModule[] = [
             permission: "STOCK_ISSUE_VIEW",
           },
           {
+            key: "log_stock_transfer",
+            slug: "stock-transfer",
+            name: "Transfer Kirim",
+            icon: "send",
+            desc: "Stok dikirim dari satu gudang ke gudang lain lewat Gudang Transit, per lot. Tanpa journal; nilai rata-rata tidak berubah.",
+            permission: "STOCK_TRANSFER_VIEW",
+          },
+          {
+            key: "log_stock_transfer_receipt",
+            slug: "stock-transfer-receipt",
+            name: "Transfer Terima",
+            icon: "down",
+            desc: "Gudang tujuan menerima Transfer Kirim dari Gudang Transit, boleh bertahap, ke lokasi yang dipilih.",
+            permission: "STOCK_TRANSFER_RECEIPT_VIEW",
+          },
+          {
             key: "log_delivery_note",
             slug: "delivery-note",
             name: "Delivery Note",

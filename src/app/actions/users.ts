@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { actorOrDeny } from "@/lib/erp/auth";
 import { isAccessDenied } from "@/lib/erp/auth-errors";
 import { setUserUnits } from "@/lib/erp/production-access";
+import { setUserWarehouses } from "@/lib/erp/warehouse-access";
 import {
   type AdminResult,
   createRole,
@@ -85,6 +86,16 @@ export async function setUserRolesAction(
 export async function setUserUnitsAction(id: number, unitIds: number[]): Promise<AdminResult> {
   const result = await run(async () => {
     const r = await setUserUnits(await actorOrDeny(), id, unitIds);
+    return r.ok ? { ok: true, id } : r;
+  });
+  if (result.ok) revalidateUsers(id);
+  return result;
+}
+
+/** The warehouses a user may work in (P300 OD-9): granted like a role, never to oneself. */
+export async function setUserWarehousesAction(id: number, warehouseIds: number[]): Promise<AdminResult> {
+  const result = await run(async () => {
+    const r = await setUserWarehouses(await actorOrDeny(), id, warehouseIds);
     return r.ok ? { ok: true, id } : r;
   });
   if (result.ok) revalidateUsers(id);

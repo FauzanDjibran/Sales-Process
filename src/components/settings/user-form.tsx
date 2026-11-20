@@ -14,6 +14,7 @@ import {
   resetUserPasswordAction,
   setUserRolesAction,
   setUserUnitsAction,
+  setUserWarehousesAction,
   setUserStatusAction,
   updateUserAction,
 } from "@/app/actions/users";
@@ -31,6 +32,9 @@ export type AssignableRole = {
 
 /** A Unit offered on the Unit Produksi tab (P260). */
 export type AssignableUnitOption = { id: number; label: string; name: string; workstation: string | null; active: boolean };
+
+/** A warehouse offered on the Gudang tab (P300 OD-9). */
+export type AssignableWarehouseOption = { id: number; label: string; name: string; active: boolean };
 
 export type UserFormAbilities = {
   edit: boolean;
@@ -50,7 +54,8 @@ export type UserFormAbilities = {
  *
  * Identity is the header card; Role and Unit Produksi are tabs under it (P38).
  * The Units say where in Produksi the user may work (P260) and are granted by
- * the same permission as roles, in their own submission.
+ * the same permission as roles, in their own submission. The Gudang tab says
+ * which warehouses the user works in (P300 OD-9), granted the same way.
  */
 export function UserForm({
   mode,
@@ -59,6 +64,8 @@ export function UserForm({
   assignedRoleIds,
   units,
   assignedUnitIds,
+  warehouses,
+  assignedWarehouseIds,
   isSelf,
   can,
 }: {
@@ -68,6 +75,8 @@ export function UserForm({
   assignedRoleIds: number[];
   units: AssignableUnitOption[];
   assignedUnitIds: number[];
+  warehouses: AssignableWarehouseOption[];
+  assignedWarehouseIds: number[];
   isSelf: boolean;
   can: UserFormAbilities;
 }) {
@@ -83,7 +92,8 @@ export function UserForm({
   });
   const [roleIds, setRoleIds] = useState<number[]>(assignedRoleIds);
   const [unitIds, setUnitIds] = useState<number[]>(assignedUnitIds);
-  const [tab, setTab] = useState<"role" | "unit">("role");
+  const [warehouseIds, setWarehouseIds] = useState<number[]>(assignedWarehouseIds);
+  const [tab, setTab] = useState<"role" | "unit" | "warehouse">("role");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -114,6 +124,11 @@ export function UserForm({
     setDirty(true);
   };
 
+  const toggleWarehouse = (id: number) => {
+    setWarehouseIds((ids) => (ids.includes(id) ? ids.filter((x) => x !== id) : [...ids, id]));
+    setDirty(true);
+  };
+
   const onSave = async () => {
     setSaving(true);
     setErrors({});
@@ -129,6 +144,10 @@ export function UserForm({
       if (can.assignRoles && unitIds.length) {
         const placed = await setUserUnitsAction(result.id, unitIds);
         if (!placed.ok) toast("Unit tidak disimpan", firstError(placed.errors), "err");
+      }
+      if (can.assignRoles && warehouseIds.length) {
+        const placed = await setUserWarehousesAction(result.id, warehouseIds);
+        if (!placed.ok) toast("Gudang tidak disimpan", firstError(placed.errors), "err");
       }
       setDirty(false);
       toast("User dibuat", `${values.name} sekarang dapat masuk ke aplikasi.`, "ok");
@@ -163,6 +182,17 @@ export function UserForm({
         setErrors(placed.errors);
         setTab("unit");
         toast("Unit tidak diubah", firstError(placed.errors), "err");
+        return;
+      }
+    }
+
+    if (can.assignRoles && !sameSet(warehouseIds, assignedWarehouseIds)) {
+      const placed = await setUserWarehousesAction(user!.id, warehouseIds);
+      if (!placed.ok) {
+        setSaving(false);
+        setErrors(placed.errors);
+        setTab("warehouse");
+        toast("Gudang tidak diubah", firstError(placed.errors), "err");
         return;
       }
     }
@@ -376,6 +406,11 @@ export function UserForm({
                   Unit Produksi
                   <span className="tc">{unitIds.length}</span>
                 </button>
+                <button type="button" role="tab" aria-selected={tab === "warehouse"} className={`tab${tab === "warehouse" ? " on" : ""}${errors.warehouseIds ? " bad" : ""}`} onClick={() => setTab("warehouse")}>
+                  <Icon name="build" size={14} />
+                  Gudang
+                  <span className="tc">{warehouseIds.length}</span>
+                </button>
               </div>
               <div className="card">
                 <FormBody>
@@ -436,6 +471,52 @@ export function UserForm({
                     )}
                   </div>
                 </FormRow>
+                    </FormSection>
+                  ) : tab === "warehouse" ? (
+                    <FormSection hint="Gudang tempat user bekerja di Persediaan">
+                      <FormRow>
+                        <div className="fld full">
+                          {errors.warehouseIds && (
+                            <div className="err" style={{ marginBottom: 8 }}>
+                              <Icon name="warn" size={11} />
+                              {errors.warehouseIds}
+                            </div>
+                          )}
+                          <p className="help" style={{ marginBottom: 8 }}>
+                            Kosong berarti tidak bekerja di Gudang mana pun, kecuali Role-nya memberi <b>Buka semua Gudang</b>. Berlaku untuk Transfer Kirim dan Transfer Terima.
+                          </p>
+                          {editing && can.assignRoles && !isSelf ? (
+                            <div className="pgrid" style={{ padding: 0 }}>
+                              {warehouses.map((w) => (
+                                <label className="pitem" key={w.id}>
+                                  <input type="checkbox" checked={warehouseIds.includes(w.id)} onChange={() => toggleWarehouse(w.id)} />
+                                  <span>
+                                    <span className="pn">{w.name}</span>
+                                    <span className="pc">{w.label}</span>
+                                    {!w.active && <span className="pd">Gudang nonaktif — tidak dipakai dokumen selama nonaktif.</span>}
+                                  </span>
+                                </label>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="ro">
+                              {warehouseIds.length ? (
+                                <span className="rchips">
+                                  {warehouses
+                                    .filter((w) => warehouseIds.includes(w.id))
+                                    .map((w) => (
+                                      <span className="bdg t-slate" key={w.id}>
+                                        {w.label} · {w.name}
+                                      </span>
+                                    ))}
+                                </span>
+                              ) : (
+                                <span className="bdg s-mute">Tanpa Gudang</span>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </FormRow>
                     </FormSection>
                   ) : (
                     <FormSection hint="Unit yang boleh dibuka di aplikasi Produksi">

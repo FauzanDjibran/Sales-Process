@@ -559,13 +559,15 @@ model RefUom {
   prd_balances         PrdBalance[]           @relation("PrdBalanceUom")
   stock_issue_lines    LogStockIssueLine[]
 
-  purchase_request_lines PurRequestLine[]           @relation("PurRequestLineUom")
-  purchase_order_lines   PurOrderLine[]             @relation("PurOrderLineUom")
-  receipt_note_lines     LogReceiptNoteLine[]       @relation("ReceiptNoteLineUom")
-  stock_ledger           LogStockLedger[]           @relation("StockLedgerUom")
-  stock_balances         LogStockBalance[]          @relation("StockBalanceUom")
-  valuation_ledger       LogStockValuationLedger[]  @relation("StockValuationLedgerUom")
-  valuation_balances     LogStockValuationBalance[] @relation("StockValuationBalanceUom")
+  purchase_request_lines       PurRequestLine[]              @relation("PurRequestLineUom")
+  purchase_order_lines         PurOrderLine[]                @relation("PurOrderLineUom")
+  receipt_note_lines           LogReceiptNoteLine[]          @relation("ReceiptNoteLineUom")
+  stock_ledger                 LogStockLedger[]              @relation("StockLedgerUom")
+  stock_balances               LogStockBalance[]             @relation("StockBalanceUom")
+  valuation_ledger             LogStockValuationLedger[]     @relation("StockValuationLedgerUom")
+  valuation_balances           LogStockValuationBalance[]    @relation("StockValuationBalanceUom")
+  stock_transfer_lines         LogStockTransferLine[]
+  stock_transfer_receipt_lines LogStockTransferReceiptLine[]
 
   @@map("ref_uom")
 }
@@ -658,26 +660,28 @@ model MItem {
   base_uom RefUom          @relation("ItemBaseUom", fields: [base_uom_id], references: [id])
   uoms     MItemUom[]
 
-  customer_order_lines   SalCustomerOrderLine[]
-  stock_trackings        LogStockTracking[]
-  purchase_request_lines PurRequestLine[]
-  purchase_order_lines   PurOrderLine[]            @relation("PurOrderLineItem")
-  receipt_note_lines     LogReceiptNoteLine[]      @relation("ReceiptNoteLineItem")
-  stock_ledger           LogStockLedger[]
-  stock_balances         LogStockBalance[]
-  valuation_ledger       LogStockValuationLedger[]
-  valuation_balance      LogStockValuationBalance?
-  delivery_note_lines    LogDeliveryNoteLine[]
-  credit_note_lines      FinArCreditNoteLine[]     @relation("CreditNoteLineItem")
-  sales_return_lines     SalReturnLine[]
-  prd_balances           PrdBalance[]              @relation("PrdBalanceItem")
-  stock_issue_lines      LogStockIssueLine[]
-  prd_ledger             PrdLedger[]               @relation("PrdLedgerItem")
-  grading_outputs        PrdGradingOutput[]
-  job_order_targets      PrdJobOrderLine[]
-  boms                   PrdBom[]                  @relation("PrdBomItem")
-  bom_components         PrdBomComponent[]         @relation("PrdBomComponentItem")
-  boxes                  PrdBox[]                  @relation("PrdBoxItem")
+  customer_order_lines         SalCustomerOrderLine[]
+  stock_trackings              LogStockTracking[]
+  purchase_request_lines       PurRequestLine[]
+  purchase_order_lines         PurOrderLine[]                @relation("PurOrderLineItem")
+  receipt_note_lines           LogReceiptNoteLine[]          @relation("ReceiptNoteLineItem")
+  stock_ledger                 LogStockLedger[]
+  stock_balances               LogStockBalance[]
+  valuation_ledger             LogStockValuationLedger[]
+  valuation_balance            LogStockValuationBalance?
+  delivery_note_lines          LogDeliveryNoteLine[]
+  credit_note_lines            FinArCreditNoteLine[]         @relation("CreditNoteLineItem")
+  sales_return_lines           SalReturnLine[]
+  prd_balances                 PrdBalance[]                  @relation("PrdBalanceItem")
+  stock_issue_lines            LogStockIssueLine[]
+  prd_ledger                   PrdLedger[]                   @relation("PrdLedgerItem")
+  grading_outputs              PrdGradingOutput[]
+  job_order_targets            PrdJobOrderLine[]
+  boms                         PrdBom[]                      @relation("PrdBomItem")
+  bom_components               PrdBomComponent[]             @relation("PrdBomComponentItem")
+  boxes                        PrdBox[]                      @relation("PrdBoxItem")
+  stock_transfer_lines         LogStockTransferLine[]
+  stock_transfer_receipt_lines LogStockTransferReceiptLine[]
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -754,9 +758,14 @@ model RefWarehouse {
   stock_ledger      LogStockLedger[]
   stock_balances    LogStockBalance[]
   purchase_requests PurRequest[]
-  purchase_orders   PurOrder[]             @relation("PurOrderWarehouse")
-  receipt_notes     LogReceiptNote[]       @relation("ReceiptNoteWarehouse")
+  purchase_orders   PurOrder[]                @relation("PurOrderWarehouse")
+  receipt_notes     LogReceiptNote[]          @relation("ReceiptNoteWarehouse")
   stock_issues      LogStockIssue[]
+  /// Who may work in it (P300 OD-9).
+  user_warehouses   LogUserWarehouse[]
+  transfers_from    LogStockTransfer[]        @relation("StockTransferFrom")
+  transfers_to      LogStockTransfer[]        @relation("StockTransferTo")
+  transfer_receipts LogStockTransferReceipt[]
 
   @@map("ref_warehouse")
 }
@@ -5413,4 +5422,198 @@ enum StockIssueStatus {
   /// Terima: the goods moved. Labelled *Diterima*.
   Posted
   Cancelled
+}
+
+// ------------------------------------------------------------ stock transfer
+//
+// Stock-Transfer-Plan.md (P300): goods move between warehouses through the
+// Gudang Transit set in System Default. Transfer Kirim takes them from the
+// origin into transit, Transfer Terima from transit into the destination, in
+// parts. No journal: each hop issues and receives the same value, so the item's
+// pool — and its moving average — ends exactly where it started (OD-6).
+
+/// Which warehouses a user may work in (OD-9), as `prd_user_unit` (P260).
+/// `INVENTORY_WAREHOUSE_ALL` needs no row. user_id carries no foreign key.
+model LogUserWarehouse {
+  id           Int          @id @default(autoincrement())
+  user_id      Int
+  warehouse_id Int
+  warehouse    RefWarehouse @relation(fields: [warehouse_id], references: [id])
+  created_by   Int
+  created_at   DateTime     @default(now()) @db.Timestamptz(6)
+
+  @@unique([user_id, warehouse_id])
+  @@index([warehouse_id])
+  @@map("log_user_warehouse")
+}
+
+enum StockTransferStatus {
+  Draft
+  /// Kirim: the goods are in the Gudang Transit. Labelled *Dalam Perjalanan*.
+  InTransit
+  /// Every line received at the destination.
+  Received
+  Cancelled
+}
+
+/// Transfer Kirim (`TSK/YYYY/MM/NNNN`).
+model LogStockTransfer {
+  id                   Int                 @id @default(autoincrement())
+  transfer_no          String              @unique
+  /// The day the goods leave the origin.
+  transfer_date        DateTime            @db.Date
+  status               StockTransferStatus @default(Draft)
+  from_warehouse_id    Int
+  to_warehouse_id      Int
+  /// The Gudang Transit the goods went into, copied from System Default at Kirim.
+  transit_warehouse_id Int?
+  vehicle_no           String?
+  driver_name          String?
+  note                 String?
+  cancel_reason        String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  from_warehouse RefWarehouse              @relation("StockTransferFrom", fields: [from_warehouse_id], references: [id])
+  to_warehouse   RefWarehouse              @relation("StockTransferTo", fields: [to_warehouse_id], references: [id])
+  lines          LogStockTransferLine[]
+  receipts       LogStockTransferReceipt[]
+
+  @@index([status, transfer_date])
+  @@index([from_warehouse_id])
+  @@index([to_warehouse_id])
+  @@map("log_stock_transfer")
+}
+
+model LogStockTransferLine {
+  id                Int     @id @default(autoincrement())
+  stock_transfer_id Int
+  line_no           Int
+  item_id           Int
+  /// The item's base unit: a transfer counts in it only.
+  uom_id            Int
+  base_qty          Decimal @db.Decimal(18, 4)
+  /// Σ posted Transfer Terima, written by its posting.
+  received_qty      Decimal @default(0) @db.Decimal(18, 4)
+  note              String?
+
+  stock_transfer LogStockTransfer              @relation(fields: [stock_transfer_id], references: [id])
+  item           MItem                         @relation(fields: [item_id], references: [id])
+  uom            RefUom                        @relation(fields: [uom_id], references: [id])
+  trackings      LogStockTransferTracking[]
+  receipt_lines  LogStockTransferReceiptLine[]
+
+  @@unique([stock_transfer_id, line_no])
+  @@unique([stock_transfer_id, item_id])
+  @@index([item_id])
+  @@map("log_stock_transfer_line")
+}
+
+/// One origin bucket a line takes goods from: lot, location, status (P268).
+/// The line's base quantity is the sum of its rows.
+model LogStockTransferTracking {
+  id                     Int       @id @default(autoincrement())
+  stock_transfer_line_id Int
+  pick_no                Int
+  tracking_id            Int
+  /// The origin location; null in a warehouse without locations.
+  location_id            Int?
+  stock_status_id        Int
+  tracking_no            String
+  expiry_date            DateTime? @db.Date
+  base_qty               Decimal   @db.Decimal(18, 4)
+  /// Σ posted Transfer Terima of this row.
+  received_qty           Decimal   @default(0) @db.Decimal(18, 4)
+
+  line              LogStockTransferLine              @relation(fields: [stock_transfer_line_id], references: [id])
+  receipt_trackings LogStockTransferReceiptTracking[]
+
+  @@unique([stock_transfer_line_id, pick_no])
+  /// A pick is a bucket: NULLS NOT DISTINCT, added in the migration by hand.
+  @@unique([stock_transfer_line_id, tracking_id, location_id, stock_status_id], map: "log_stock_transfer_tracking_pick_key")
+  @@index([tracking_id])
+  @@map("log_stock_transfer_tracking")
+}
+
+enum StockTransferReceiptStatus {
+  Draft
+  Posted
+  Cancelled
+}
+
+/// Transfer Terima (`TST/YYYY/MM/NNNN`): one Transfer Kirim, received in parts.
+model LogStockTransferReceipt {
+  id                Int                        @id @default(autoincrement())
+  receipt_no        String                     @unique
+  /// Not before the Kirim's date.
+  receipt_date      DateTime                   @db.Date
+  status            StockTransferReceiptStatus @default(Draft)
+  stock_transfer_id Int
+  /// The Kirim's destination, copied.
+  to_warehouse_id   Int
+  note              String?
+  cancel_reason     String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  stock_transfer LogStockTransfer              @relation(fields: [stock_transfer_id], references: [id])
+  to_warehouse   RefWarehouse                  @relation(fields: [to_warehouse_id], references: [id])
+  lines          LogStockTransferReceiptLine[]
+
+  @@index([stock_transfer_id])
+  @@index([status, receipt_date])
+  @@map("log_stock_transfer_receipt")
+}
+
+model LogStockTransferReceiptLine {
+  id                     Int     @id @default(autoincrement())
+  receipt_id             Int
+  line_no                Int
+  stock_transfer_line_id Int
+  item_id                Int
+  uom_id                 Int
+  base_qty               Decimal @db.Decimal(18, 4)
+  note                   String?
+
+  receipt       LogStockTransferReceipt           @relation(fields: [receipt_id], references: [id])
+  transfer_line LogStockTransferLine              @relation(fields: [stock_transfer_line_id], references: [id])
+  item          MItem                             @relation(fields: [item_id], references: [id])
+  uom           RefUom                            @relation(fields: [uom_id], references: [id])
+  trackings     LogStockTransferReceiptTracking[]
+
+  @@unique([receipt_id, line_no])
+  @@unique([receipt_id, stock_transfer_line_id])
+  @@index([stock_transfer_line_id])
+  @@map("log_stock_transfer_receipt_line")
+}
+
+/// One Kirim tracking row received into one destination location. Lot and
+/// status are the Kirim row's.
+model LogStockTransferReceiptTracking {
+  id                         Int       @id @default(autoincrement())
+  receipt_line_id            Int
+  pick_no                    Int
+  stock_transfer_tracking_id Int
+  tracking_id                Int
+  stock_status_id            Int
+  /// The destination location; null in a warehouse without locations.
+  location_id                Int?
+  tracking_no                String
+  expiry_date                DateTime? @db.Date
+  base_qty                   Decimal   @db.Decimal(18, 4)
+
+  line              LogStockTransferReceiptLine @relation(fields: [receipt_line_id], references: [id])
+  transfer_tracking LogStockTransferTracking    @relation(fields: [stock_transfer_tracking_id], references: [id])
+
+  @@unique([receipt_line_id, pick_no])
+  /// NULLS NOT DISTINCT, added in the migration by hand.
+  @@unique([receipt_line_id, stock_transfer_tracking_id, location_id], map: "log_stock_transfer_receipt_tracking_pick_key")
+  @@index([stock_transfer_tracking_id])
+  @@map("log_stock_transfer_receipt_tracking")
 }

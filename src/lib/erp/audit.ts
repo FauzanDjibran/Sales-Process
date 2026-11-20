@@ -25,6 +25,8 @@ import { receiptNoteNumbersByIds } from "./receipt-note";
 import { costBillNumbersByIds } from "./production-cost-bill";
 import { cashTransferNumbersByIds } from "./cash-transfer";
 import { stockIssueNumbersByIds } from "./stock-issue";
+import { stockTransferNumbersByIds } from "./stock-transfer";
+import { transferReceiptNumbersByIds } from "./stock-transfer-receipt";
 import { gradingNumbersByIds } from "./production-grading";
 import { workNumbersByIds } from "./production-work";
 import { qcNumbersByIds } from "./production-qc";
@@ -103,6 +105,8 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   prd_cost_bill: { label: "Tagihan Biaya", resolve: costBillNumbersByIds },
   fin_cash_bank_transfer: { label: "Transfer Kas & Bank", resolve: cashTransferNumbersByIds },
   log_stock_issue: { label: "Stock Issue", resolve: stockIssueNumbersByIds },
+  log_stock_transfer: { label: "Transfer Kirim", resolve: stockTransferNumbersByIds },
+  log_stock_transfer_receipt: { label: "Transfer Terima", resolve: transferReceiptNumbersByIds },
   prd_grading: { label: "No. Grading", resolve: gradingNumbersByIds },
   prd_work: { label: "Pengerjaan Unit", resolve: workNumbersByIds },
   prd_qc_check: { label: "QC Check", resolve: qcNumbersByIds },

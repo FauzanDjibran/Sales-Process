@@ -15,6 +15,7 @@ import {
 } from "@/lib/erp/system-defaults";
 import {
   checkSystemDefaultValue,
+  transitChangeRefusal,
   writeSystemDefaults,
 } from "@/lib/erp/system-settings";
 
@@ -70,6 +71,14 @@ export async function saveSystemDefaults(
       if (problem) errors[key] = problem;
       else clean[key] = String(Number(value));
       continue;
+    }
+    // The Gudang Transit is not changed or cleared while goods wait in it (P300).
+    if (key === "transit_warehouse") {
+      const refused = await transitChangeRefusal(value === "" ? null : Number(value) || null);
+      if (refused) {
+        errors[key] = refused;
+        continue;
+      }
     }
     if (def.type === "text" || value === "") {
       clean[key] = value || null;

@@ -36,6 +36,7 @@ import { RECEIPT_NOTE_TRANSITIONS } from "./receipt-note-workflow";
 import { COST_BILL_TRANSITIONS } from "./production-cost-bill-workflow";
 import { CASH_TRANSFER_TRANSITIONS } from "./cash-transfer-workflow";
 import { STOCK_ISSUE_TRANSITIONS } from "./stock-issue-workflow";
+import { STOCK_TRANSFER_RECEIPT_TRANSITIONS, STOCK_TRANSFER_TRANSITIONS } from "./stock-transfer-workflow";
 import { GRADING_WORKFLOW, QC_CHECK_WORKFLOW, WORK_WORKFLOW } from "./production-execution-workflow";
 import { PURCHASE_INVOICE_TRANSITIONS } from "./ap-invoice-workflow";
 import { PURCHASE_REQUEST_TRANSITIONS } from "./purchase-request-workflow";
@@ -270,6 +271,21 @@ const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(STOCK_ISSUE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
+const STOCK_TRANSFER_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Transfer Kirim dibuat", icon: "send", tone: "neutral" },
+  send: fromTransition(STOCK_TRANSFER_TRANSITIONS.send, "Dikirim — stok di Gudang Transit"),
+  received: { label: "Diterima — seluruhnya sampai di gudang tujuan", icon: "check", tone: "primary", systemDriven: true },
+  cancel: fromTransition(STOCK_TRANSFER_TRANSITIONS.cancel, "Dibatalkan"),
+};
+
+const STOCK_TRANSFER_RECEIPT_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Transfer Terima dibuat", icon: "down", tone: "neutral" },
+  post: fromTransition(STOCK_TRANSFER_RECEIPT_TRANSITIONS.post, "Diterima — stok masuk gudang tujuan"),
+  cancel: fromTransition(STOCK_TRANSFER_RECEIPT_TRANSITIONS.cancel, "Dibatalkan"),
+};
+
 const RECEIPT_NOTE_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   create: { label: "Receipt Note dibuat", icon: "box", tone: "neutral" },
@@ -383,6 +399,7 @@ const USER_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   roles: { label: "Role diubah", icon: "users", tone: "neutral" },
   units: { label: "Unit Produksi diubah", icon: "gear", tone: "neutral" },
+  warehouses: { label: "Gudang diubah", icon: "build", tone: "neutral" },
   password: { label: "Password diubah", icon: "lock", tone: "neutral" },
   reset: { label: "Password direset admin", icon: "lock", tone: "danger" },
 };
@@ -415,6 +432,8 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   prd_cost_bill: COST_BILL_EVENTS,
   fin_cash_bank_transfer: CASH_TRANSFER_EVENTS,
   log_stock_issue: STOCK_ISSUE_EVENTS,
+  log_stock_transfer: STOCK_TRANSFER_EVENTS,
+  log_stock_transfer_receipt: STOCK_TRANSFER_RECEIPT_EVENTS,
   prd_grading: GRADING_EVENTS,
   prd_work: WORK_EVENTS,
   prd_qc_check: QC_EVENTS,

@@ -4,7 +4,8 @@
 > Gudang Transit tidak bisa dipilih di dokumen lain, OD-3 pindah lokasi di luar
 > scope, OD-4 status terbawa, OD-5 `TSK` / `TST`, OD-6 MAC tidak berubah, OD-7
 > selisih tetap di transit, OD-8 langsung tanpa persetujuan, OD-9 penugasan user
-> ke gudang. Belum dibangun.
+> ke gudang. **Langkah 0–3 dibangun 20/11/2026 (P301)**; langkah 4 (`db:reconcile`,
+> harvest KB) belum.
 >
 > Permintaan user: menu *stock transfer* untuk memindah stok antar gudang;
 > **menu Kirim dan Terima terpisah**; selama dalam pengiriman barang berada di
@@ -191,14 +192,14 @@ valuasi = 0 dan Σ `qty_change` = 0.
 
 ## 6. Langkah build
 
-0. Penugasan user ↔ gudang: migrasi, `warehouse-access.ts`
+0. ✅ *(P301)* Penugasan user ↔ gudang: migrasi, `warehouse-access.ts`
    (`warehouseIdsOf`, `assertWarehouse`), tab Gudang di form User, test.
-1. **Setting**: ref `ref_warehouse` di System Default, kartu Persediaan, aturan
+1. ✅ *(P301)* **Setting**: ref `ref_warehouse` di System Default, kartu Persediaan, aturan
    A2 / A4 di Gudang, Lokasi Gudang dan picker dokumen gudang lain; test.
-2. **Transfer Kirim**: migrasi tiga tabel + izin + tipe dokumen (di akhir daftar
+2. ✅ *(P301)* **Transfer Kirim**: migrasi tiga tabel + izin + tipe dokumen (di akhir daftar
    seed), modul, workflow, form, register bertab status, posting ke transit;
    test posting, stok kurang, MAC sama sebelum dan sesudah.
-3. **Transfer Terima**: migrasi, modul, form dengan dialog lot/lokasi, posting,
+3. ✅ *(P301)* **Transfer Terima**: migrasi, modul, form dengan dialog lot/lokasi, posting,
    status Diterima; test bertahap, over-receive ditolak, tanggal sebelum Kirim
    ditolak.
 4. **`db:reconcile`** empat cek; DBML, Claude-ERP.md (P3xx, §1.5, §17), harvest
