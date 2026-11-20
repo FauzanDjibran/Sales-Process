@@ -66,6 +66,7 @@ export default async function Page({
       itemIds={grouped ? itemIds : itemId ? [itemId] : []}
       warehouseIds={warehouseIds}
       groupBy={groupBy}
+      groupHrefs={{ item: reportHref(slug, { ...query, group: "item" }), warehouse: reportHref(slug, { ...query, group: "warehouse" }) }}
       mode={report.params === "stock-asof" ? "asof" : "period"}
       asOf={asOf}
       from={range.from}

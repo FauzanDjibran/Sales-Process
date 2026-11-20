@@ -3,7 +3,7 @@
 import { Fragment, useState } from "react";
 import Link from "next/link";
 import { Icon } from "@/components/icon";
-import { ExpandAll } from "@/components/ui/expand-all";
+import { BlockHead, CountLine, ReportEmpty } from "@/components/report/report-blocks";
 import { Drill } from "@/components/report/drill";
 import { ReportSummary } from "@/components/report/report-summary";
 import { documentHref } from "@/lib/erp/document-links";
@@ -80,28 +80,12 @@ function useFolds<T extends { item: StockItemRef; warehouse: StockWarehouseRef }
 
 function ResultBar({ count, noun, when, folds }: { count: number; noun: string; when: string; folds: ReturnType<typeof useFolds> }) {
   return (
-    <div className="rhead">
-      <span className="count">
-        <b>{count}</b> {noun} · {when}
-      </span>
-      <div className="tspace" />
-      <ExpandAll onExpand={folds.expandAll} onCollapse={folds.collapseAll} allOpen={folds.allOpen} allClosed={folds.allClosed} />
-    </div>
-  );
-}
-
-function BlockHead({ block, open, onToggle, meta, children }: { block: Block<unknown>; open: boolean; onToggle: () => void; meta: string; children: React.ReactNode }) {
-  return (
-    <div className="cbh" onClick={onToggle} style={{ cursor: "pointer" }}>
-      <span className={`chev${open ? " o" : ""}`}>
-        <Icon name="chev" size={12} />
-      </span>
-      <b>{block.label}</b>
-      <span className="cbn">
-        {block.name} · {meta}
-      </span>
-      {children}
-    </div>
+    <CountLine
+      count={count}
+      noun={noun}
+      when={when}
+      expand={{ onExpand: folds.expandAll, onCollapse: folds.collapseAll, allOpen: folds.allOpen, allClosed: folds.allClosed }}
+    />
   );
 }
 
@@ -153,17 +137,7 @@ function Source({ s }: { s: StockSourceRef }) {
   );
 }
 
-function Empty({ title, body }: { title: string; body: string }) {
-  return (
-    <div className="empty sm">
-      <div className="ic">
-        <Icon name="layers" size={20} />
-      </div>
-      <h4>{title}</h4>
-      <p>{body}</p>
-    </div>
-  );
-}
+const Empty = ({ title, body }: { title: string; body: string }) => <ReportEmpty icon="layers" title={title} body={body} />;
 
 // ----------------------------------------------------------- Saldo Stok
 
@@ -185,11 +159,11 @@ export function StockBalanceBody({ positions, groupBy, asOf }: { positions: Stoc
         return (
           <div className="cblock" key={b.id}>
             {groupBy === "item" ? (
-              <BlockHead block={b} open={open} onToggle={() => folds.toggleBlock(b.id)} meta={`${b.cards.length} gudang · ${lots} lot · ${b.cards[0].item.uomLabel}`}>
+              <BlockHead label={b.label} open={open} onToggle={() => folds.toggleBlock(b.id)} meta={`${b.name} · ${b.cards.length} gudang · ${lots} lot · ${b.cards[0].item.uomLabel}`}>
                 <ReportSummary figures={[{ label: "Jumlah", value: qty(b.cards.reduce((s, c) => s + c.qty, 0)), key: true }]} />
               </BlockHead>
             ) : (
-              <BlockHead block={b} open={open} onToggle={() => folds.toggleBlock(b.id)} meta={`${lots} lot`}>
+              <BlockHead label={b.label} open={open} onToggle={() => folds.toggleBlock(b.id)} meta={`${b.name} · ${lots} lot`}>
                 <ReportSummary figures={[{ label: "Barang", value: String(b.cards.length), key: true }]} />
               </BlockHead>
             )}
@@ -287,10 +261,10 @@ export function StockLedgerBody({ cards, groupBy, range }: { cards: StockCard[];
           <div className="cblock" key={b.id}>
             {groupBy === "item" ? (
               <BlockHead
-                block={b}
+                label={b.label}
                 open={open}
                 onToggle={() => folds.toggleBlock(b.id)}
-                meta={`${b.cards.length} gudang · ${moves} mutasi · ${b.cards[0].item.uomLabel}`}
+                meta={`${b.name} · ${b.cards.length} gudang · ${moves} mutasi · ${b.cards[0].item.uomLabel}`}
               >
                 <ReportSummary
                   figures={[
@@ -302,7 +276,7 @@ export function StockLedgerBody({ cards, groupBy, range }: { cards: StockCard[];
                 />
               </BlockHead>
             ) : (
-              <BlockHead block={b} open={open} onToggle={() => folds.toggleBlock(b.id)} meta={`${moves} mutasi`}>
+              <BlockHead label={b.label} open={open} onToggle={() => folds.toggleBlock(b.id)} meta={`${b.name} · ${moves} mutasi`}>
                 <ReportSummary figures={[{ label: "Barang", value: String(b.cards.length), key: true }]} />
               </BlockHead>
             )}

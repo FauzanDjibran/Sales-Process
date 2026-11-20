@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import { loadPartnerBookEntries } from "@/app/actions/book-entries";
-import { Icon } from "@/components/icon";
 import { DocLink } from "@/components/report/customer-advance-report";
 import { LazyRows, useLazyEntries } from "@/components/report/lazy-entries";
+import { BlockHead, CountLine as Count, ReportEmpty, RunToggle } from "@/components/report/report-blocks";
 import { ReportSummary } from "@/components/report/report-summary";
-import { ExpandAll } from "@/components/ui/expand-all";
 import { BOOK_WORDS, type BookEntry, type BookKind, type BookSubject, type PartnerBook } from "@/lib/erp/partner-book";
 import type { BookCursor } from "@/lib/erp/register-query";
 import { formatDate, formatMoney } from "@/lib/format";
@@ -27,29 +25,12 @@ const figure = (n: number) => (n ? <span className="mny">{money(n)}</span> : <sp
 
 /** Moves at once: it changes what is read, not a filter to be confirmed. */
 export function BookToggle({ book, side, hrefs }: { book: BookKind; side: "ar" | "ap"; hrefs: Record<BookKind, string> }) {
-  const router = useRouter();
-  const [pending, startTransition] = useTransition();
   return (
-    <>
-      <span className="rl">Buku</span>
-      <span className="dtog" role="group" aria-label="Buku yang dibaca">
-        {(["Invoice", "Advance"] as BookKind[]).map((b) => (
-          <button
-            key={b}
-            type="button"
-            className={book === b ? "on" : undefined}
-            aria-pressed={book === b}
-            disabled={pending}
-            onClick={() => {
-              if (book !== b) startTransition(() => router.push(hrefs[b]));
-            }}
-          >
-            {BOOK_WORDS[side][b]}
-          </button>
-        ))}
-      </span>
-      <span className="rsep" />
-    </>
+    <RunToggle
+      label="Buku"
+      value={book}
+      options={(["Invoice", "Advance"] as BookKind[]).map((b) => ({ value: b, label: BOOK_WORDS[side][b], href: hrefs[b] }))}
+    />
   );
 }
 
@@ -67,27 +48,7 @@ function SubjectHead({
   onToggle: () => void;
 }) {
   return (
-    <div
-      className="cbh"
-      role="button"
-      tabIndex={0}
-      aria-expanded={isOpen}
-      onClick={onToggle}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onToggle();
-        }
-      }}
-      style={{ cursor: "pointer" }}
-    >
-      <span className={`chev${isOpen ? " o" : ""}`}>
-        <Icon name="chev" size={12} />
-      </span>
-      <b>{s.label}</b>
-      <span className="cbn">
-        {s.name} · {count}
-      </span>
+    <BlockHead open={isOpen} onToggle={onToggle} label={s.label} meta={`${s.name} · ${count}`}>
       <ReportSummary
         figures={[
           { label: "Saldo Awal", value: money(s.opening), zero: !s.opening },
@@ -96,7 +57,7 @@ function SubjectHead({
           { label: book, value: money(s.closing), key: true },
         ]}
       />
-    </div>
+    </BlockHead>
   );
 }
 
@@ -114,32 +75,32 @@ function useBlocks(report: PartnerBook, startOpen: boolean) {
 }
 
 function CountLine({ report, open, setOpen }: { report: PartnerBook; open: Set<number>; setOpen: (s: Set<number>) => void }) {
-  const words = BOOK_WORDS[report.side];
   return (
-    <div className="rhead">
-      <span className="count">
-        <b>{report.subjects.length}</b> {words.partner.toLowerCase()} · {formatDate(report.range.from)} – {formatDate(report.range.to)}
-      </span>
-      <div className="tspace" />
-      {report.subjects.length > 1 && (
-        <ExpandAll
-          onExpand={() => setOpen(new Set(report.subjects.map((s) => s.partnerId)))}
-          onCollapse={() => setOpen(new Set())}
-          allOpen={open.size === report.subjects.length}
-          allClosed={open.size === 0}
-        />
-      )}
-    </div>
+    <Count
+      count={report.subjects.length}
+      noun={BOOK_WORDS[report.side].partner.toLowerCase()}
+      when={`${formatDate(report.range.from)} – ${formatDate(report.range.to)}`}
+      expand={
+        report.subjects.length > 1
+          ? {
+              onExpand: () => setOpen(new Set(report.subjects.map((s) => s.partnerId))),
+              onCollapse: () => setOpen(new Set()),
+              allOpen: open.size === report.subjects.length,
+              allClosed: open.size === 0,
+            }
+          : undefined
+      }
+    />
   );
 }
 
 function Empty({ report }: { report: PartnerBook }) {
   return (
-    <div className="empty sm">
-      <div className="ic"><Icon name="book" size={20} /></div>
-      <h4>Belum ada posisi pada buku ini</h4>
-      <p>{BOOK_WORDS[report.side][report.book]} tidak mencatat apa pun untuk pilihan dan periode ini.</p>
-    </div>
+    <ReportEmpty
+      icon="book"
+      title="Belum ada posisi pada buku ini"
+      body={`${BOOK_WORDS[report.side][report.book]} tidak mencatat apa pun untuk pilihan dan periode ini.`}
+    />
   );
 }
 
