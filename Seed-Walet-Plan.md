@@ -1,6 +1,6 @@
 # Rencana Seed Walet
 
-> Status: **usulan, menunggu persetujuan user** (18/11/2026). Belum ada kode.
+> Status: **dibangun 20/11/2026 (P296)**, semua rekomendasi Q1–Q6 disetujui. Menyimpang dari §2: nama item memakai item `db:seed-production-showcase` (SM-A …) bukan MK-1-0-0, UP8 tidak di-seed (P280), gudang walet tanpa lokasi, Q1 tidak relevan lagi karena Kerja dan Job Order sudah dibangun (P282, P283).
 > Tujuan: dua seed demo yang berdiri sendiri — **Makloon** (yang sekarang,
 > kosmetik dari simulasi PRJ.001) dan **Walet** (sarang burung walet, line
 > Reguler dan Mie) — supaya database yang baru di-reset bisa langsung dipakai

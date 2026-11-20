@@ -84,8 +84,9 @@ node --env-file-if-exists=.env --conditions=react-server --import tsx --test tes
 | `npx prisma migrate deploy` | Applies new migrations (schema changes) that came with a pull | ✅ Safe, never deletes data |
 | `npm run db:seed` | Adds missing **system** data: permissions, admin role and user, the chart-of-accounts skeleton, document types, partner categories, **all Indonesian regions** (38 provinsi, 514 kota/kabupaten, 7.285 kecamatan, 83.762 kelurahan with kode pos), Kategori Item, the PPN settings, and the **starter references**: Currency IDR + USD; Satuan PCS, UNIT, SET, PAK, BOX, LSN, KRT, BTL, GR, KG, ML, L; Termin TUNAI, NET7, NET14, NET30, NET45, NET60; Jenis PPh PPH22, PPH23, PPH23-15 (sales) and PPH23-BELI (purchase); the purchase settings (Toleransi Selisih Tagihan Supplier Rp 100). A starter row is added only when no row has that label. Never overwrites your edits, never deletes | ✅ Safe, run it after every pull |
 | `npm run db:seed-accounts` | Adds a **starter chart of accounts** (34 postable accounts for sales, purchasing, stock and tax) and points **Account Mapping**, the **Kategori Item accounts** and the **Jenis PPh accounts** at it — so every document can post on day one. Not demo data: fine on a real installation. Creates an account only when no account has that name, fills a mapping only where it is empty; your own choices are never changed (P130) | ✅ Safe, additive |
-| `npm run db:seed-showcase` | Adds **demo data** from the simulation so you can test straight away (see below). Development only. Additive: matched on label / name, never duplicates, never overwrites | ✅ Safe on a dev database |
-| `npm run db:seed-cash-bank-showcase` | After `db:seed-showcase`: six more Cash & Banks (Kas Kecil, Kas Besar, BNI in IDR; BCA USD, Mandiri USD, Kas Valas USD) with Saldo Awal on 01/07/2026, and Jul–Oct 2026 movements through all eight — each a posted journal with its Cash Bank Book entries, so the books reconcile. Runs once (skipped when Kas Kecil exists) | ✅ Safe on a dev database |
+| `npm run db:seed-makloon` | Adds the **makloon (cosmetics) demo company** from the sales simulation so you can test straight away (see below). Development only. Additive: matched on label / name, never duplicates, never overwrites | ✅ Safe on a dev database |
+| `npm run db:seed-walet` | Adds the **sarang walet demo company** instead: runs `db:seed-accounts`, `db:seed-production`, `db:seed-production-showcase`, then `seed-walet.ts` (see below). One database takes one company: do not run both seeds on it | ✅ Safe on a dev database |
+| `npm run db:seed-cash-bank-showcase` | After `db:seed-makloon`: six more Cash & Banks (Kas Kecil, Kas Besar, BNI in IDR; BCA USD, Mandiri USD, Kas Valas USD) with Saldo Awal on 01/07/2026, and Jul–Oct 2026 movements through all eight — each a posted journal with its Cash Bank Book entries, so the books reconcile. Runs once (skipped when Kas Kecil exists) | ✅ Safe on a dev database |
 | `npm run db:tax-backfill` | Makes the Faktur Pajak and Bukti Potong of receipts and Invoices posted before the Pajak menu existed (P100). Idempotent | ✅ Safe |
 | `npm run db:stock-inject -- stok.csv` | Checks a CSV of stock to bring in (columns `item,warehouse,lot,expiry,qty,value,date`, plus `location` for a Gudang with Gunakan Lokasi — its Label, Kode or `GUDANG-LOKASI`; item and gudang by Label or Kode; `value` the row's total in whole rupiah) and prints what it would inject. Add `--apply` to record it in the stock books as one run `INJ/YYYY/MM/NNNN`, all or nothing. **Writes no journal** (P120) | ⚠️ Adds stock; cannot be undone from the app |
 | `npm run db:reconcile` | Proves the books and the documents agree: 43 read-only checks along the order-to-cash and procure-to-pay flows (journals, Cash Bank Book, AR / AP items vs GL, delivered and received quantities, billing, tax records, the stock books). Prints each check and the rows that disagree; exits 1 if any does | ✅ Read-only |
@@ -94,7 +95,8 @@ node --env-file-if-exists=.env --conditions=react-server --import tsx --test tes
 | `npm run db:truncate-transactions` | Shows what it would delete; add `-- --confirm` to really delete. Empties **journals, the Cash Bank Book, Penerimaan Kas & Bank, AR items with Buku Piutang, Faktur Pajak and Bukti Potong, Invoices, Delivery Notes, the stock books and their lots, Delivery Orders, Sales Orders, Customer Orders and Uang Muka Penjualan bills** (and their audit rows), keeping all master data (partners, items, references), the chart of accounts, the fiscal calendar and the settings. Cash & Bank opening balances are lost; document numbers restart at 0001 | ⚠️ Deletes transactions |
 | `npm run db:reset-production` | Shows what it would delete; add `-- --apply` to really delete. Empties the **production documents and books** (No. Grading, Pengerjaan Unit, QC Check, Partai, Job, the production ledger) and **BSTB Issues** with the stock rows, journals and No. Stok they made, then rebuilds the stock balances they touched. Keeps masters, Tagihan Biaya and everything else (P262). `db:neon-reset-production` does the same on Neon | ⚠️ Deletes production data |
 | `npm run db:reset` | **Drops the whole database**, re-applies every migration, then runs `db:seed`. You get system data only (admin, regions, settings…) and nothing you entered | ⛔ Destroys all data |
-| `npm run db:fresh` | `db:reset` **plus** `db:seed-showcase`: a clean database already filled with the demo data. The quickest way to start testing from zero | ⛔ Destroys all data |
+| `npm run db:fresh-makloon` | `db:reset` **plus** `db:seed-makloon`: a clean database already filled with the makloon company | ⛔ Destroys all data |
+| `npm run db:fresh-walet` | `db:reset` **plus** `db:seed-walet`: a clean database already filled with the walet company | ⛔ Destroys all data |
 | `npx prisma migrate dev --name <name>` | Creates a **new** migration from a schema change. Developer command; Claude runs it, you normally never do | ⚠️ Can offer to reset in some states |
 
 > **Why `db:reset` used to leave everything empty:** Prisma 7 only seeds after
@@ -116,14 +118,14 @@ paste the whole snippet into `.env.neon`, and add a line
 | `npm run db:neon-migrate` | Applies new migrations to the deployed database. Run it after every push that adds a migration | ✅ Safe, never deletes data |
 | `npm run db:neon-seed` | `db:seed` on the deployed database. Refuses without `ERP_ADMIN_PASSWORD` in `.env.neon` | ✅ Safe |
 | `npm run db:neon-seed-accounts` | `db:seed-accounts` on the deployed database: the starter chart and its mappings, only where empty | ✅ Additive |
-| `npm run db:neon-seed-showcase` | The demo data on the deployed database. Only for a demo deployment | ✅ Additive |
+| `npm run db:neon-seed-makloon` / `db:neon-seed-walet` | One demo company on the deployed database. Only for a demo deployment; the walet users get `ERP_ADMIN_PASSWORD` | ✅ Additive |
 | `npm run db:neon-seed-cash-bank-showcase` | The Cash & Bank demo movements on the deployed database. Only for a demo deployment | ✅ Additive, runs once |
 | `npm run db:neon-tax-backfill` | Makes the Faktur Pajak and Bukti Potong of everything posted before the Pajak menu existed (P100). Run once after `db:neon-migrate` | ✅ Safe, idempotent |
 | `npm run db:neon-stock-inject -- stok.csv --apply` | `db:stock-inject` against the deployed database (without `--apply` it only checks) | ⚠️ Adds stock |
 | `npm run db:neon-reconcile` | `db:reconcile` against the deployed database. Run after `db:neon-migrate` and whenever a report looks wrong | ✅ Read-only |
 | `npm run db:neon-reset` | Shows what it would destroy; add `-- --confirm` to really drop and re-migrate the deployed database. Seeds nothing: run `db:neon-seed` after it | ⛔ Destroys all deployed data |
 
-### What the showcase data contains (`db:seed-showcase`)
+### What the makloon data contains (`db:seed-makloon`)
 
 | Area | Created |
 | --- | --- |
@@ -139,10 +141,22 @@ paste the whole snippet into `.env.neon`, and add a line
 Not created: opening balances, Customer Orders or other documents, and the
 perizinan services.
 
+### What the walet data contains (`db:seed-walet`)
+
+| Area | Created |
+| --- | --- |
+| Produksi | Workstation BB + PPIC, Cleaning, Moulding, WIP Packing; 13 Units UGH … UP5 with their processes and QC; Line **Reguler** (REG-1, with Moulding) and **Mie** (MIE-1, without Moulding and Dry B); Standard Cost SC-SIM; BoM Packing BMK25 / 50 / 100, BSD50; Karyawan Ani … Fitri |
+| Gudang | Gudang Bahan Baku (GBB), Finish Goods (GFG), Bahan Penolong (GBP), Hasil Samping (GHS) |
+| Item | Sarang mentah SM-A … SM-PT (gram), hasil grading HLS-*, BJL-* (BJL), MLD-*, keping PCS-*, Nama Jual B-MK 25/50/100 gr and B-SD 50 gr, bahan penolong (Gramasi, Stiker, Kantong, Box, Karton), Sarung Tangan, Jasa Uji Lab and Pengiriman |
+| Partner | Suppliers: CV Sarang Walet Nusantara, PT Rumah Walet Kalbar, Pengepul H. Syamsul (NIK), CV Kemas Prima. Customers: Hong Kong Bird's Nest Trading (USD), PT Sarang Emas Nusantara, Toko Walet Sehat |
+| Kas & Bank | BCA (IDR), BCA-USD, and a USD Kurs for today |
+| User (local: password `erp123`) | hendra@walet.test (Supervisor Produksi, all Units), dewi@walet.test (Admin Logistik), rina@ (UGH), bagas@ (UPW, UCL), sari@ (UP5) — all `@walet.test` |
+| Stock | STK-0001 SM-A 10.000 g, STK-0002 SM-B 6.000 g, STK-0003 SM-C 5.000 g in GBB, and bahan penolong in GBP (`INJ/…`, no journal) |
+
 ### Start again from a clean database
 
 ```powershell
-npm run db:fresh          # ⛔ wipes everything, then system data + demo data
+npm run db:fresh-walet    # ⛔ wipes everything, then system data + the walet company (or db:fresh-makloon)
 npm run build
 npm start                 # sign in: admin@erp.app / erp123 (or your ERP_ADMIN_PASSWORD)
 ```
@@ -161,7 +175,7 @@ npm install
 npx prisma migrate deploy
 npm run db:seed
 npm run db:seed-accounts           # starter chart + Account Mapping (skip if you build your own)
-npm run db:seed-showcase           # optional: demo data to test with
+npm run db:seed-walet              # optional: demo company to test with (or db:seed-makloon)
 npm run build
 npm start
 ```
@@ -271,8 +285,8 @@ ask Claude rather than editing it by hand.
 | *Can't reach database server at localhost:5432* | Postgres is not running; see §2 |
 | *Port 3110 is already in use* | Another copy is still running. Find it with `netstat -ano \| findstr :3110`, then stop it with `taskkill /PID <number> /F` |
 | A new menu answers *403* / *tidak diizinkan* | `npm run db:seed`, then sign out and in again |
-| After a reset the app is empty: no provinces, no sign-in, no settings | The seed did not run. `npm run db:seed` (add `npm run db:seed-showcase` for demo data). `db:reset` and `db:fresh` now do this for you |
-| `db:seed-showcase` says *System data is missing* or *Region not found* | Run `npm run db:seed` first, then the showcase again |
+| After a reset the app is empty: no provinces, no sign-in, no settings | The seed did not run. `npm run db:seed` (add `npm run db:seed-makloon` for demo data). `db:reset` and `db:fresh` now do this for you |
+| `db:seed-makloon` says *System data is missing* or *Region not found* | Run `npm run db:seed` first, then the showcase again |
 | Error about `@/generated/prisma` or `findMany` of undefined | `npx prisma generate` (or `npm run build`) |
 | After a pull, a page errors on a missing column | `npx prisma migrate deploy` |
 | `npm` blocked by PowerShell | Use `npm.cmd` / `npx.cmd`, see the top of this file |
@@ -280,7 +294,7 @@ ask Claude rather than editing it by hand.
 | A Customer Order shows no **Setujui / Tolak** or **Tutup Pesanan** button | The role needs the permission *Setujui / Tolak Customer Order* or *Tutup Customer Order* (Pengaturan › Role). The administrator gets every permission from `npm run db:seed`; sign out and in again afterwards |
 | A Sales Order shows no **Setujui / Tolak**, **Konfirmasi** or **Tutup** button | The role needs *Setujui / Tolak Sales Order*, *Konfirmasi Sales Order* or *Tutup Sales Order* (Pengaturan › Role); run `npm run db:seed` for the administrator, then sign out and in again |
 | **Tutup Pesanan** on a Customer Order says a Sales Order is still running | Close, reject or cancel each Sales Order it names first (P79) |
-| Posting a Penerimaan says *account belum diatur atau tidak dapat dipakai* | Fill Accounting › Pengaturan › Account Mapping (Uang Muka Penjualan, PPN Keluaran, Beban Bank) and the PPh Dibayar Dimuka account on each Jenis PPh the bills use (Master › Referensi › Jenis PPh). `npm run db:seed-showcase` fills them on a dev database |
+| Posting a Penerimaan says *account belum diatur atau tidak dapat dipakai* | Fill Accounting › Pengaturan › Account Mapping (Uang Muka Penjualan, PPN Keluaran, Beban Bank) and the PPh Dibayar Dimuka account on each Jenis PPh the bills use (Master › Referensi › Jenis PPh). `npm run db:seed-makloon` fills them on a dev database |
 | Umur Piutang shows only Uang Muka, no invoices | Expected for now: Invoice AR items are created by the Faktur Penjualan, which is not built yet |
 | A Penerimaan shows *Tidak ada tagihan terbuka* | The customer has no **issued** Uang Muka Penjualan bill left unpaid. Issue one (Terbitkan) first |
 | Saving a taxable Customer Order says *Tarif PPN belum diatur* | Fill the Pajak card in Pengaturan › System Default (or run `npm run db:seed`) |

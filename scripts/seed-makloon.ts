@@ -1,10 +1,11 @@
 /**
- * Development showcase data — the simulation's demo world, so a freshly reset
- * database can be used straight away (Claude-ERP.md P11, §5).
+ * Makloon demo data — the cosmetics simulation's world (PRJ.001), so a freshly
+ * reset database can be used straight away (Claude-ERP.md P11, §5). Its twin
+ * for the sarang walet company is `seed-walet.ts`; one database takes one.
  *
  * **Development only.** This is business data, not system data: it never runs
  * as part of `db:seed`, never in production, and nothing in the application
- * depends on it. Run it after `npm run db:seed` (or use `npm run db:fresh`).
+ * depends on it. Run it after `npm run db:seed` (or use `npm run db:fresh-makloon`).
  *
  * What it creates, taken from `Initialization/actual-simulation-v2.html`:
  *   Gudang (Satuan, Termin and currencies come from the system seed, P62)
@@ -35,14 +36,11 @@
  */
 import type { PermitCategory } from "../src/generated/prisma/client";
 import { prisma } from "../src/lib/prisma";
-import { ENTITIES } from "../src/lib/erp/entities";
-import { CASH_BANK_SUBCATEGORY, nextCode } from "../src/lib/erp/records";
-import { openCashBankBook } from "../src/lib/erp/cash-bank";
-import { ensureFiscalPeriods, fiscalYearShape } from "../src/lib/erp/fiscal";
+import { nextCode } from "../src/lib/erp/records";
 import { BASE_CURRENCY_LABEL } from "../src/lib/erp/currency";
-import { CUSTOMER_CATEGORY, SUPPLIER_CATEGORY } from "../src/lib/erp/entities";
-import { nextAccountLabel, seedStarterAccounts } from "./lib/starter-accounts";
+import { seedStarterAccounts } from "./lib/starter-accounts";
 import { injectStock, type InjectionRow } from "../src/lib/erp/inventory";
+import { audit as auditAs, ensureBank, ensureFiscalYear, ensurePartner, entity, seedActor, type PartnerSpec } from "./lib/seed-common";
 
 // ------------------------------------------------------------------- data
 
@@ -61,38 +59,13 @@ const WAREHOUSES: [label: string, name: string][] = [
   ["GD-SBY", "Gudang Surabaya"],
 ];
 
-/** The demo bank accounts; every other account comes from the starter chart (P130). */
-const BANK_ACCOUNTS: [key: string, name: string, note: string][] = [
-  ["bca", "Bank BCA", "Rekening penerimaan 123-456-7890"],
-  ["mandiri", "Bank Mandiri", "Rekening penerimaan 070-00-1234567-8"],
+/** The demo banks, each with its own account; every other account comes from the starter chart (P130). */
+const BANKS = [
+  { label: "BCA", name: "Bank BCA · 123-456-7890", account: "Bank BCA", note: "Rekening penerimaan 123-456-7890", currency: BASE_CURRENCY_LABEL },
+  { label: "MANDIRI", name: "Bank Mandiri · 070-00-1234567-8", account: "Bank Mandiri", note: "Rekening penerimaan 070-00-1234567-8", currency: BASE_CURRENCY_LABEL },
 ];
 
-const CASH_BANKS: [label: string, name: string, account: string][] = [
-  ["BCA", "Bank BCA · 123-456-7890", "bca"],
-  ["MANDIRI", "Bank Mandiri · 070-00-1234567-8", "mandiri"],
-];
-
-type Address = { city: string; district: string; street: string; note?: string; billing?: boolean; shipping?: boolean };
-
-type CustomerSpec = {
-  label: string;
-  name: string;
-  active?: boolean;
-  taxpayer: "Badan" | "OrangPribadi" | "InstansiPemerintah";
-  idType: "NPWP" | "NIK";
-  taxId: string;
-  taxName?: string;
-  pkp: boolean;
-  pph23?: boolean;
-  pph22?: boolean;
-  government?: boolean;
-  /** Sales defaults for a customer, purchase defaults for a supplier (P51, P122). */
-  term: string;
-  mode: "Exclude" | "Include";
-  supplier?: boolean;
-  addresses: Address[];
-  contact?: [name: string, position: string, phone: string, email: string];
-};
+type CustomerSpec = PartnerSpec;
 
 const CUSTOMERS: CustomerSpec[] = [
   {
@@ -267,53 +240,17 @@ const made: Record<string, number> = {};
 const skipped: string[] = [];
 const tally = (what: string) => (made[what] = (made[what] ?? 0) + 1);
 
-const entity = (key: string) => {
-  const e = ENTITIES.find((x) => x.key === key);
-  if (!e) throw new Error(`Registry entity ${key} not found`);
-  return e;
-};
-
 let actor = 0;
-
-async function audit(entityKey: string, rowId: number) {
-  await prisma.auditLog.create({
-    data: { entity_key: entityKey, row_id: rowId, action: "TAMBAH", event: "create", by: actor },
-  });
-}
-
-/** A kelurahan in the named kecamatan of the named kota / kabupaten. */
-async function villageFor(a: Address): Promise<number> {
-  const city = await prisma.sysRegionCity.findFirst({ where: { name: { equals: a.city, mode: "insensitive" } } });
-  if (!city) throw new Error(`Region not found: ${a.city} — has npm run db:seed loaded the regions?`);
-  // Refused rather than guessed: a silent fallback would put an address in
-  // the wrong kecamatan, which a Faktur Pajak would later print.
-  const district = await prisma.sysRegionDistrict.findFirst({
-    where: { city_id: city.id, name: { equals: a.district, mode: "insensitive" } },
-  });
-  if (!district) throw new Error(`Kecamatan not found: ${a.district}, ${a.city}`);
-  const village = await prisma.sysRegionVillage.findFirst({
-    where: { district_id: district.id },
-    orderBy: { name: "asc" },
-  });
-  if (!village) throw new Error(`No kelurahan found in ${a.district}, ${a.city}`);
-  return village.id;
-}
+const audit = (entityKey: string, rowId: number) => auditAs(actor, entityKey, rowId);
 
 // ------------------------------------------------------------------- main
 
 async function main() {
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("seed-showcase is development data and never runs in production.");
-  }
-
-  const sistem = await prisma.sysUser.findUnique({ where: { email: "sistem@erp.app" }, select: { id: true } });
-  if (!sistem) throw new Error("System data is missing. Run `npm run db:seed` first.");
-  actor = sistem.id;
+  actor = await seedActor("seed-makloon");
 
   // ---- Satuan and Termin come from the system seed (P62); Gudang is
   // business data, so it is created here.
   const uomId = new Map((await prisma.refUom.findMany()).map((u) => [u.uom_label.toUpperCase(), u.id]));
-  const termId = new Map((await prisma.refPaymentTerm.findMany()).map((t) => [t.term_label.toUpperCase(), t.id]));
   for (const needed of ["PCS", "BOX", "SET", "PAK", "KG", "UNIT"]) {
     if (!uomId.has(needed)) throw new Error(`Satuan ${needed} is missing. Run \`npm run db:seed\` first.`);
   }
@@ -346,142 +283,18 @@ async function main() {
   }
 
   // ---- the starter chart with its mappings (shared with db:seed-accounts),
-  // then the demo bank accounts beside it
-  const customerCategory = await prisma.sysPartnerCategory.findFirstOrThrow({
-    where: { category_label: CUSTOMER_CATEGORY },
-  });
-  const supplierCategory = await prisma.sysPartnerCategory.findFirstOrThrow({
-    where: { category_label: SUPPLIER_CATEGORY },
-  });
+  // then the demo banks beside it, each with its book
   const starter = await seedStarterAccounts(actor);
   for (const [what, n] of Object.entries(starter.made)) made[what] = n;
-  const accountId = starter.accountId;
-  const cashSub = await prisma.accAccountSubcategory.findFirstOrThrow({ where: { subcategory_label: CASH_BANK_SUBCATEGORY } });
-  for (const [key, name, note] of BANK_ACCOUNTS) {
-    let row = await prisma.accAccount.findFirst({ where: { account_name: { equals: name, mode: "insensitive" } } });
-    if (!row) {
-      row = await prisma.accAccount.create({
-        data: {
-          account_code: await nextCode(entity("acc_account")),
-          account_label: await nextAccountLabel(CASH_BANK_SUBCATEGORY),
-          account_name: name,
-          account_subcategory_id: cashSub.id,
-          is_postable: true,
-          normal_balance: "Debit",
-          is_control_account: true,
-          note,
-          created_by: actor,
-        },
-      });
-      await audit("acc_account", row.id);
-      tally("accounts");
-    }
-    accountId.set(key, row.id);
-  }
-
-  // ---- Cash & Bank, each with its book
-  const idr = await prisma.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL } });
-  if (!idr) throw new Error("The base currency is missing. Run `npm run db:seed` first.");
-  for (const [label, name, account] of CASH_BANKS) {
-    if (await prisma.mCashBank.findFirst({ where: { cash_bank_label: label } })) continue;
-    const code = await nextCode(entity("m_cash_bank"));
-    const row = await prisma.$transaction(async (tx) => {
-      const cb = await tx.mCashBank.create({
-        data: {
-          cash_bank_code: code,
-          cash_bank_label: label,
-          cash_bank_name: name,
-          cash_bank_type: "Bank",
-          currency_id: idr.id,
-          account_id: accountId.get(account)!,
-          created_by: actor,
-        },
-      });
-      await openCashBankBook(tx, {
-        cashBankId: cb.id,
-        openingBalance: 0,
-        rate: 1,
-        date: new Date().toISOString().slice(0, 10),
-        actorId: actor,
-      });
-      return cb;
-    });
-    await audit("m_cash_bank", row.id);
-    tally("cash & bank");
-  }
+  for (const b of BANKS) if (await ensureBank(actor, b)) tally("cash & bank");
 
   // ---- the current calendar year, Open, with its twelve periods
-  const year = new Date().getUTCFullYear();
-  if (!(await prisma.accFiscalYear.findFirst({ where: { year_label: String(year) } }))) {
-    const code = await nextCode(entity("acc_fiscal_year"));
-    const fy = await prisma.$transaction(async (tx) => {
-      const row = await tx.accFiscalYear.create({
-        data: { year_code: code, year_label: String(year), ...fiscalYearShape(year), status: "Open", created_by: actor },
-      });
-      await ensureFiscalPeriods(tx, { fiscalYearId: row.id, year, actorId: actor });
-      return row;
-    });
-    await audit("acc_fiscal_year", fy.id);
-    tally("fiscal year");
-  }
+  if (await ensureFiscalYear(actor)) tally("fiscal year");
 
   // ---- customers and suppliers
   for (const c of [...CUSTOMERS, ...SUPPLIERS]) {
-    if (await prisma.mPartner.findFirst({ where: { partner_name: { equals: c.name, mode: "insensitive" } } })) {
-      skipped.push(c.name);
-      continue;
-    }
-    const villages = await Promise.all(c.addresses.map(villageFor));
-    const code = await nextCode(entity("m_partner"));
-    const row = await prisma.mPartner.create({
-      data: {
-        partner_code: code,
-        partner_label: c.label,
-        partner_name: c.name,
-        category_id: c.supplier ? supplierCategory.id : customerCategory.id,
-        status: c.active === false ? "Inactive" : "Active",
-        taxpayer_type: c.taxpayer,
-        tax_id_type: c.idType,
-        tax_id: c.taxId,
-        tax_name: c.taxName ?? c.name,
-        is_pkp: c.pkp,
-        withholds_pph23: Boolean(c.pph23),
-        collects_pph22: Boolean(c.pph22),
-        vat_collector: c.government ? "Government" : "None",
-        default_term_id: c.supplier ? null : termId.get(c.term) ?? null,
-        default_price_mode: c.supplier ? null : c.mode,
-        purchase_term_id: c.supplier ? termId.get(c.term) ?? null : null,
-        purchase_price_mode: c.supplier ? c.mode : null,
-        created_by: actor,
-        addresses: {
-          create: c.addresses.map((a, i) => ({
-            village_id: villages[i],
-            street: a.street,
-            note: a.note ?? null,
-            is_billing: Boolean(a.billing),
-            is_shipping: Boolean(a.shipping),
-            sort_order: i,
-            created_by: actor,
-          })),
-        },
-        contacts: c.contact
-          ? {
-              create: [
-                {
-                  contact_name: c.contact[0],
-                  position: c.contact[1],
-                  phone: c.contact[2],
-                  email: c.contact[3],
-                  sort_order: 0,
-                  created_by: actor,
-                },
-              ],
-            }
-          : undefined,
-      },
-    });
-    await audit("m_partner", row.id);
-    tally(c.supplier ? "suppliers" : "customers");
+    if (await ensurePartner(actor, c)) tally(c.supplier ? "suppliers" : "customers");
+    else skipped.push(c.name);
   }
 
   // ---- finished goods

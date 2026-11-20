@@ -11,7 +11,7 @@
  * so a chart the user built by hand keeps every choice they made.
  *
  * Shared by `scripts/seed-accounts.ts` (safe for production) and
- * `scripts/seed-showcase.ts` (development data).
+ * `scripts/seed-makloon.ts` (development data).
  */
 import { prisma } from "../../src/lib/prisma";
 import { ENTITIES, CUSTOMER_CATEGORY, SUPPLIER_CATEGORY } from "../../src/lib/erp/entities";

@@ -1,5 +1,5 @@
 /**
- * The Reguler line's Workstations, Units and Routings up to Packing 95, as
+ * The Reguler and Mie lines' Workstations, Units and Routings up to Packing 95, as
  * `Produksi Walet (Real).md` §5 and W81 draw them (P229) — `npm run
  * db:seed-production`, `npm run db:neon-seed-production`. Standard Cost is not
  * here: its rates are the user's to fill.
@@ -57,7 +57,19 @@ const ROUTINGS: { label: string; name: string; line: string | null; steps: Step[
     line: "REG",
     steps: [["UPW"], ["UCL"], ["UC1"], ["USR"], ["UDA", { checkpoint: true }], ["UML"], ["UDB"], ["UWP"], ["UBC", { checkpoint: true }], ["UP5"]],
   },
+  {
+    label: "MIE-1",
+    name: "Mie, Pre Wash sampai Packing 95 tanpa Moulding",
+    line: "MIE",
+    steps: [["UPW"], ["UCL"], ["UC1"], ["USR"], ["UDA", { checkpoint: true }], ["UWP"], ["UBC", { checkpoint: true }], ["UP5"]],
+  },
 ];
+
+// The workspace simulation's two lines (LINES there): Reguler moulds, Mie does not.
+const LINES = [
+  ["REG", "Reguler"],
+  ["MIE", "Mie"],
+] as const;
 
 async function nextCode(prefix: string, codes: string[]) {
   const max = codes.reduce((m, c) => Math.max(m, Number(c.split(".")[1]) || 0), 0);
@@ -113,23 +125,27 @@ async function main() {
 
   // The account is the starter chart's, when it has been seeded; the Line form sets it otherwise.
   const variance = await prisma.accAccount.findFirst({ where: { account_name: "Varians Produksi" }, select: { id: true } });
-  const known = await prisma.prdLine.findFirst({ where: { OR: [{ line_label: "REG" }, { line_name: "Reguler" }] } });
-  const reguler =
-    known ??
-    (await prisma.prdLine.create({
-      data: {
-        line_code: await nextCode("line", (await prisma.prdLine.findMany({ select: { line_code: true } })).map((l) => l.line_code)),
-        line_label: "REG",
-        line_name: "Reguler",
-        variance_account_id: variance?.id ?? null,
-        created_by: actor,
-      },
-    }));
-  if (!reguler.variance_account_id && variance) await prisma.prdLine.update({ where: { id: reguler.id }, data: { variance_account_id: variance.id, updated_by: actor } });
+  const lineId = new Map<string, number>();
+  for (const [label, name] of LINES) {
+    const known = await prisma.prdLine.findFirst({ where: { OR: [{ line_label: label }, { line_name: name }] } });
+    const line =
+      known ??
+      (await prisma.prdLine.create({
+        data: {
+          line_code: await nextCode("line", (await prisma.prdLine.findMany({ select: { line_code: true } })).map((l) => l.line_code)),
+          line_label: label,
+          line_name: name,
+          variance_account_id: variance?.id ?? null,
+          created_by: actor,
+        },
+      }));
+    if (!line.variance_account_id && variance) await prisma.prdLine.update({ where: { id: line.id }, data: { variance_account_id: variance.id, updated_by: actor } });
+    lineId.set(label, line.id);
+  }
 
   let end: RouteUnit | null = null;
   for (const r of ROUTINGS) {
-    const lineId = r.line ? reguler.id : null;
+    const routeLineId = r.line ? lineId.get(r.line)! : null;
     const steps = r.steps.map(([unit, flags], i) => ({
       seq: i + 1,
       unit_id: unitId.get(unit)!,
@@ -137,9 +153,9 @@ async function main() {
       is_skippable: Boolean(flags?.skippable),
     }));
     // The same rules the form applies.
-    const problems = stepRuleErrors(steps, Boolean(lineId), (id) => units.get(id), end);
+    const problems = stepRuleErrors(steps, Boolean(routeLineId), (id) => units.get(id), end);
     if (problems.length) throw new Error(`${r.label}: ${problems.join(" ")}`);
-    if (!lineId) end = units.get(steps[steps.length - 1].unit_id)!;
+    if (!routeLineId) end = units.get(steps[steps.length - 1].unit_id)!;
 
     const existing = await prisma.prdRouting.findFirst({ where: r.line ? { routing_label: r.label } : { line_id: null } });
     if (existing) {
@@ -156,13 +172,13 @@ async function main() {
           routing_code: await nextCode("rout", (await prisma.prdRouting.findMany({ select: { routing_code: true } })).map((x) => x.routing_code)),
           routing_label: r.label,
           routing_name: r.name,
-          line_id: lineId,
+          line_id: routeLineId,
           created_by: actor,
           steps: { create: steps },
         },
       });
     }
-    const routes = exitRoutes(steps.map((s) => units.get(s.unit_id)?.workstation_id ?? null), Boolean(lineId));
+    const routes = exitRoutes(steps.map((s) => units.get(s.unit_id)?.workstation_id ?? null), Boolean(routeLineId));
     console.log(`  ${r.label}: ${r.steps.map((s, i) => `${s[0]}${routes[i] === "BSTB" ? " ⇒" : routes[i] ? " →" : ""}`).join(" ")}`);
   }
   console.log(`Workstation ${wsId.size}, Unit ${unitId.size} sesuai rencana.`);

@@ -31,7 +31,7 @@ shape (`DOCUMENT_SCREENS` in the design-system suite); a document joins that
 list once it uses `DocumentHeader` and `Amount`. Take real ids from the
 database (`psql … -c "select id, status, is_manual from acc_journal"`).
 A screen with nothing on it cannot be judged, so the database needs the
-showcase (`npm run db:seed-showcase`) — never on data the user cares about.
+showcase (`npm run db:seed-makloon`) — never on data the user cares about.
 
 ## 2. Run it
 

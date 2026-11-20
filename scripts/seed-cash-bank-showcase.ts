@@ -3,7 +3,7 @@
  * Saldo Kas & Bank): more resources in rupiah and dollars, and three months of
  * movements through them.
  *
- * **Development only**, like `seed-showcase.ts`, which must have run first
+ * **Development only**, like `seed-makloon.ts`, which must have run first
  * (accounts, the fiscal year, the two rupiah banks). Run locally with
  * `npm run db:seed-cash-bank-showcase`, or against Neon with
  * `npm run db:neon-seed-cash-bank-showcase`.
@@ -378,7 +378,7 @@ async function main() {
 
   for (const name of ["Modal Disetor", "Pendapatan Lain-lain", "Laba/Rugi Selisih Kurs", "Beban Bank", "Beban Umum & Administrasi", "Beban Pengiriman", "Beban Pemeliharaan", "Beban Jasa Profesional"]) {
     const row = await prisma.accAccount.findFirst({ where: { account_name: { equals: name, mode: "insensitive" } } });
-    if (!row) throw new Error(`Account ${name} is missing. Run \`npm run db:seed-showcase\` (or db:seed-accounts) first.`);
+    if (!row) throw new Error(`Account ${name} is missing. Run \`npm run db:seed-makloon\` (or db:seed-accounts) first.`);
     acc.set(name, row.id);
   }
 
@@ -390,10 +390,10 @@ async function main() {
     throw new Error(`Periods July–October 2026 must exist and be Open (found: ${periods.map((p) => `${p.period_label} ${p.status}`).join(", ") || "none"}).`);
   }
 
-  // The two rupiah banks of seed-showcase carry movements too.
+  // The two rupiah banks of seed-makloon carry movements too.
   for (const label of ["BCA", "MANDIRI"]) {
     const row = await prisma.mCashBank.findFirst({ where: { cash_bank_label: label } });
-    if (!row) throw new Error(`Cash & Bank ${label} is missing. Run \`npm run db:seed-showcase\` first.`);
+    if (!row) throw new Error(`Cash & Bank ${label} is missing. Run \`npm run db:seed-makloon\` first.`);
     resourceId.set(label, row.id);
     accountOf.set(label, row.account_id);
     currencyOf.set(label, "IDR");
