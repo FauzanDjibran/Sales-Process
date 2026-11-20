@@ -13,7 +13,7 @@ import { createReceiptNote, transitionReceiptNote } from "../src/lib/erp/receipt
 import { createPurchaseInvoice, transitionPurchaseInvoice } from "../src/lib/erp/ap-invoice";
 import { createCashPayment, transitionCashPayment } from "../src/lib/erp/cash-payment";
 import { openCashBankBook } from "../src/lib/erp/cash-bank";
-import { computeSalesTotals, settleBillFromCash } from "../src/lib/erp/sales-tax";
+import { computeSalesTotals, settleBill } from "../src/lib/erp/sales-tax";
 import { CASH_BANK_SUBCATEGORY } from "../src/lib/erp/records";
 import {
   FIXTURE_PREFIX,
@@ -225,9 +225,9 @@ describe("the tax arithmetic in a currency's minor unit (MC5)", () => {
     assert.deepEqual([idr.dpp, idr.dppOther, idr.ppn], [123_450, 113_163, 13_580]);
   });
 
-  test("a USD bill settled from cash: the PPh share in cents, the cash exact", () => {
+  test("a USD bill settled in full: the PPh share in cents, the cash what is left", () => {
     const bill = { total: 777, ppn: 77, withholdings: [{ key: "1", rate: 1.5, base: 700, amount: 10.5 }] };
-    const s = settleBillFromCash({ bill, before: 0, cash: 766.5, withhold: true, scale: 100 });
+    const s = settleBill({ bill, before: 0, settled: 777, withhold: true, scale: 100 });
     assert.deepEqual([s.settled, s.pph, s.cash], [777, 10.5, 766.5]);
   });
 });
@@ -262,7 +262,7 @@ describe("sales in USD (stages 3–4)", () => {
     f.adv = adv.id;
     await transitionSalesAdvance(adv.id, "issue", actor);
     const rc = await createCashReceipt(
-      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.arBank, bank_ref: "", note: "", bank_charge: 0, exchange_rate: 15_500, lines: [{ doc_id: adv.id, cash: 333, withhold: false }] },
+      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.arBank, bank_ref: "", note: "", bank_charge: 0, exchange_rate: 15_500, lines: [{ doc_id: adv.id, settled: 333 }] },
       actor
     );
     assert.ok(rc.ok, JSON.stringify(rc));
@@ -273,14 +273,14 @@ describe("sales in USD (stages 3–4)", () => {
     assert.equal(await balanced(tx.journal_id), 0);
     assert.equal(await fxOf(tx.journal_id), 0);
     const bank = await prisma.cashBankBalance.findUniqueOrThrow({ where: { cash_bank_id: f.arBank } });
-    assert.deepEqual([bank.balance.toNumber(), bank.base_balance.toNumber()], [333, 5_161_500]);
+    assert.deepEqual([bank.balance.toNumber(), bank.base_balance.toNumber()], [328.5, 5_091_750], "the money is the bill less its PPh (P302)");
   });
 
   test("an IDR bank cannot receive a USD bill (MC14)", async () => {
     const idrBank = await prisma.mCashBank.findFirst({ where: { currency: { currency_label: "IDR" }, status: "Active" } });
     if (!idrBank) return;
     const rc = await createCashReceipt(
-      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: idrBank.id, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_id: f.adv, cash: 1, withhold: false }] },
+      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: idrBank.id, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_id: f.adv, settled: 1 }] },
       actor
     );
     assert.equal(rc.ok, false);
@@ -335,7 +335,7 @@ describe("sales in USD (stages 3–4)", () => {
 
   test("the rest received at 16.200 less PPh empties Piutang in both measures, with a selisih kurs gain", async () => {
     const rc = await createCashReceipt(
-      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.arBank, bank_ref: "", note: "", bank_charge: 0, exchange_rate: 16_200, lines: [{ doc_type: "fin_ar_invoice", doc_id: f.inv, cash: 766.5, withhold: true }] },
+      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.arBank, bank_ref: "", note: "", bank_charge: 0, exchange_rate: 16_200, lines: [{ doc_type: "fin_ar_invoice", doc_id: f.inv, settled: 777 }] },
       actor
     );
     assert.ok(rc.ok, JSON.stringify(rc));
@@ -366,7 +366,7 @@ describe("purchasing in USD (stages 5–6)", () => {
     f.pBill = bill.id;
     await transitionPurchaseAdvance(bill.id, "issue", actor);
     const pay = await createCashPayment(
-      { purpose: "supplier_payment", tx_date: today, partner_id: w.f.supplier, cash_bank_id: f.apBank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ap_advance", doc_id: bill.id, cash: 163.5, withhold: true }] },
+      { purpose: "supplier_payment", tx_date: today, partner_id: w.f.supplier, cash_bank_id: f.apBank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ap_advance", doc_id: bill.id, settled: 166.5 }] },
       actor
     );
     assert.ok(pay.ok, JSON.stringify(pay));
@@ -416,7 +416,7 @@ describe("purchasing in USD (stages 5–6)", () => {
 
   test("the rest paid from the USD bank at its average empties Hutang, with a selisih kurs loss", async () => {
     const pay = await createCashPayment(
-      { purpose: "supplier_payment", tx_date: today, partner_id: w.f.supplier, cash_bank_id: f.apBank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ap_invoice", doc_id: f.pInv, cash: 381.5, withhold: false }] },
+      { purpose: "supplier_payment", tx_date: today, partner_id: w.f.supplier, cash_bank_id: f.apBank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ap_invoice", doc_id: f.pInv, settled: 381.5 }] },
       actor
     );
     assert.ok(pay.ok, JSON.stringify(pay));

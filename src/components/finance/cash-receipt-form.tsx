@@ -14,7 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { CashReceiptActions } from "@/components/finance/cash-receipt-actions";
 import { BillPicker, type PickedLine } from "@/components/finance/cash-receipt-bill-picker";
 import { createCashReceiptAction, updateCashReceiptAction } from "@/app/actions/cash-receipt";
-import { cashToClear, settleBillFromCash, taxScale, type SettlementLine } from "@/lib/erp/sales-tax";
+import { settleBill, taxScale, type SettlementLine } from "@/lib/erp/sales-tax";
 import { RateInput } from "@/components/ui/rate-input";
 import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
 import { SETTLED_DOC_ROUTE, SETTLED_DOC_TEXT, billKey, cashBankPurpose, isInvoiceKind } from "@/lib/erp/cash-bank-purposes";
@@ -37,12 +37,11 @@ import { formatDate, formatMoney, formatPct, formatRate, todayIso } from "@/lib/
  * in a dialog — dates, totals and earlier payments live there — and the ticked
  * ones become the lines.
  *
- * **Each line takes what the customer actually paid for the bill** (P76), as
- * the simulation does: the bill is cleared by that money plus the PPh that
- * goes with it, so a transfer short by exactly the PPh clears the bill, and
- * anything less is a partial payment whose rest stays open. *Potong PPh* says
- * whether the gap is PPh at all (P60). The header's money follows from the
- * lines: what they received, less the bank charge, is what reached the bank.
+ * **Each line takes the part of the bill settled — Dilunasi** (P302): the PPh
+ * of a bill that carries one is always withheld from it, a partial payment the
+ * same way, and the money received is Dilunasi less its PPh. The header's money
+ * follows from the lines: what they received, less the bank charge, is what
+ * reached the bank.
  */
 
 export type CashReceiptMode = "new" | "edit" | "view";
@@ -61,7 +60,7 @@ type Header = {
   exchange_rate: string;
 };
 
-type LiveLine = { bill: OpenBill; input: Line; withhold: boolean; max: number; line: SettlementLine };
+type LiveLine = { bill: OpenBill; input: Line; line: SettlementLine };
 
 
 /** Where a settled document opens. */
@@ -115,7 +114,7 @@ export function CashReceiptForm({
   const [picked, setPicked] = useState<Line[]>(() =>
     (receipt?.input.lines ?? []).map((l) => {
       const kind = l.doc_type ?? "fin_ar_advance";
-      return { key: billKey(kind, Number(l.doc_id)), kind, docId: Number(l.doc_id), cash: String(l.cash), withhold: l.withhold };
+      return { key: billKey(kind, Number(l.doc_id)), kind, docId: Number(l.doc_id), settled: String(l.settled) };
     })
   );
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -157,13 +156,10 @@ export function CashReceiptForm({
   for (const l of picked) {
     const bill = billByKey.get(l.key);
     if (!bill) continue;
-    const withhold = canWithhold ? l.withhold : false;
     lines.push({
       bill,
       input: l,
-      withhold,
-      max: cashToClear(bill, bill.paid, withhold, scale),
-      line: settleBillFromCash({ bill, before: bill.paid, cash: Number(l.cash) || 0, withhold, scale }),
+      line: settleBill({ bill, before: bill.paid, settled: Number(l.settled) || 0, withhold: canWithhold, scale }),
     });
   }
   const charge = Number(h.bank_charge) || 0;
@@ -188,7 +184,7 @@ export function CashReceiptForm({
       ...h,
       bank_charge: charge,
       exchange_rate: foreign ? h.exchange_rate : 1,
-      lines: lines.map((l) => ({ doc_type: l.bill.kind, doc_id: l.bill.id, cash: Number(l.input.cash) || 0, withhold: l.withhold })),
+      lines: lines.map((l) => ({ doc_type: l.bill.kind, doc_id: l.bill.id, settled: Number(l.input.settled) || 0 })),
     };
     const result =
       mode === "edit" ? await updateCashReceiptAction(receipt!.id, input) : await createCashReceiptAction(input);
@@ -431,7 +427,7 @@ export function CashReceiptForm({
           <h3>{`${noun} yang Dibayar`}</h3>
           <p>
             {editing
-              ? "Isi dana yang benar-benar diterima untuk setiap tagihan. Kekurangannya dihitung sebagai PPh yang dipotong customer bila PPh dipotong; sisanya tetap terbuka."
+              ? "Isi bagian tagihan yang dilunasi. PPh tagihan selalu dipotong darinya, juga untuk pelunasan sebagian; yang diterima adalah sisanya."
               : "Tagihan yang diselesaikan penerimaan ini."}
           </p>
         </div>
@@ -483,7 +479,7 @@ export function CashReceiptForm({
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: editing ? 680 : 560 }}>
+          <table className="grid ltab" style={{ minWidth: (editing ? 680 : 560) + (canWithhold ? 140 : 0) }}>
             <thead>
               <tr>
                 <th style={{ minWidth: 220 }}>{noun}</th>
@@ -493,9 +489,14 @@ export function CashReceiptForm({
                   </th>
                 )}
                 <th className="num" style={{ width: 170 }}>
-                  Diterima
+                  {canWithhold ? "Dilunasi" : "Diterima"}
                 </th>
                 {canWithhold && <th style={{ width: 170 }}>PPh Dipotong</th>}
+                {canWithhold && (
+                  <th className="num" style={{ width: 140 }}>
+                    Diterima
+                  </th>
+                )}
                 {editing && <th style={{ width: 44 }} />}
               </tr>
             </thead>
@@ -505,8 +506,8 @@ export function CashReceiptForm({
                 const l = lines.find((x) => x.bill.key === b.key);
                 const err = errors[`lines.${b.key}`];
                 const hasWht = b.withholdings.some((w) => w.amount > 0);
-                const typed = Number(l?.input.cash) || 0;
-                const over = Boolean(l && typed > l.max);
+                const typed = Number(l?.input.settled) || 0;
+                const over = Boolean(l && typed > b.open);
                 // The PPN the money typed books; an Invoice's PPN was booked at the Invoice (P243).
                 const split = !isInvoiceKind(b.kind) && s.ppn > 0 && (
                   <span className="fulltag">
@@ -540,16 +541,16 @@ export function CashReceiptForm({
                           <MoneyInput
                     decimals={scale === 1 ? 0 : 2}
                             size="sm"
-                            value={l.input.cash}
+                            value={l.input.settled}
                             over={over}
-                            ariaLabel={`Diterima ${b.no}`}
-                            onChange={(v) => setLine(b.key, { cash: v })}
+                            ariaLabel={`Dilunasi ${b.no}`}
+                            onChange={(v) => setLine(b.key, { settled: v })}
                           />
                           {split}
                         </>
                       ) : (
                         <>
-                          <span className="mny">{money(s.cash)}</span>
+                          <span className="mny">{money(s.settled)}</span>
                           {split}
                         </>
                       )}
@@ -558,18 +559,6 @@ export function CashReceiptForm({
                       <td>
                         {!hasWht ? (
                           <span className="dash">tidak ada PPh</span>
-                        ) : editing && l ? (
-                          <label className="chk sm" style={{ height: 30 }}>
-                            <input
-                              type="checkbox"
-                              checked={l.input.withhold}
-                              aria-label={`Potong PPh ${b.no}`}
-                              onChange={(e) => setLine(b.key, { withhold: e.target.checked })}
-                            />
-                            <span>
-                              <span className="ct">{!l.input.withhold ? "Tidak dipotong" : s.pph ? money(s.pph) : "Dipotong"}</span>
-                            </span>
-                          </label>
                         ) : s.whts.length ? (
                           <span className="dstack">
                             {s.whts.map((w) => (
@@ -581,6 +570,11 @@ export function CashReceiptForm({
                         ) : (
                           <span className="dash">tidak dipotong</span>
                         )}
+                      </td>
+                    )}
+                    {canWithhold && (
+                      <td className="num">
+                        <span className="mny">{money(s.cash)}</span>
                       </td>
                     )}
                     {editing && (

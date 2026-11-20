@@ -14,7 +14,7 @@ import { lockPurchaseInvoices, purchaseInvoiceNumbersByIds, settlementPurchaseIn
 import { cashBankTxPage } from "./cash-bank-tx";
 import { checkAccountIsLeaf } from "./records";
 import { lockPurchaseAdvances, purchaseAdvanceNumbersByIds, settlementAdvances, unpaidAdvanceIds } from "./ap-advance";
-import { cashToClear, receivedProblem, settleBillFromCash, taxScale, type SettlementLine } from "./sales-tax";
+import { settleBill, settledProblem, taxScale, type SettlementLine } from "./sales-tax";
 import { postingAccounts } from "./system-settings";
 import { CASH_BANK_PREFIX, cashBankPurpose, paidKey, purposesFor, type CashBankPurpose, type PaidDocKind } from "./cash-bank-purposes";
 import { lockPermitRequests, permitCostDocs, permitRequestNumbersByIds, recordPermitCostPaid } from "./permit-request";
@@ -34,9 +34,10 @@ import { formatMoney } from "@/lib/format";
  * the one cash & bank document (P66), in the same tables as the Penerimaan —
  * `fin_cash_bank_tx(_line, _line_wht)`, which this file and `cash-bank-tx.ts`
  * share as one module. The receipt mirrored: purpose, then supplier, decide
- * what one payment may settle; each line takes **the cash paid** for one
- * document and the PPh the company withholds explains the gap (P76 mirrored,
- * `tax_concept.md` §4.5); the bank charge is the company's (P68).
+ * what one payment may settle; each line takes **the part of one document
+ * paid** (Dilunasi), the PPh the company withholds always follows from it and
+ * the cash is what is left (P302, `tax_concept.md` §4.5); the bank charge is
+ * the company's (P68).
  *
  * Its first purpose is **Pembayaran ke Supplier**. An **advance-bill line**
  * posts Dr Uang Muka Pembelian (its DPP part, naming the supplier) · Dr PPN
@@ -50,7 +51,8 @@ import { formatMoney } from "@/lib/format";
 
 type Db = Prisma.TransactionClient | typeof prisma;
 
-export type CashPaymentLineInput = { doc_type: PaidDocKind; doc_id: number | null; cash: number; withhold: boolean };
+/** `settled`: the part of the document paid, PPh included (P302); the money is it less its PPh. */
+export type CashPaymentLineInput = { doc_type: PaidDocKind; doc_id: number | null; settled: number };
 
 export type CashPaymentInput = {
   purpose: string;
@@ -440,19 +442,14 @@ export async function checkCashPayment(db: Db, input: CashPaymentInput): Promise
       errors[lineKey(i, "doc_id")] = `Tanggal bayar sebelum tanggal ${bill.no}.`;
       continue;
     }
-    const cash = Number(l.cash);
-    const withhold = purpose?.withholding ? l.withhold !== false : false;
-    const max = cashToClear(bill, bill.paid, withhold, scale);
-    const problem = receivedProblem(cash, max, scale);
+    // PPh is always withheld where the purpose withholds (P302): no switch.
+    const withhold = Boolean(purpose?.withholding);
+    const problem = settledProblem(Number(l.settled), bill.open, scale);
     if (problem) {
-      errors[lineKey(i, "cash")] = problem === "Melebihi sisa tagihan." ? `Melebihi yang melunasi ${bill.no} (${money(max)}).` : problem;
+      errors[lineKey(i, "settled")] = problem === "Melebihi sisa tagihan." ? `Melebihi sisa ${bill.no} (${money(bill.open)}).` : problem;
       continue;
     }
-    const settled = settleBillFromCash({ bill, before: bill.paid, cash, withhold, scale });
-    if (settled.cash !== cash) {
-      errors[lineKey(i, "cash")] = `Nilai ini tidak dapat dibagi tepat dengan PPh-nya; ubah satu satuan terkecil (mis. ${money(settled.cash)}).`;
-      continue;
-    }
+    const settled = settleBill({ bill, before: bill.paid, settled: Number(l.settled), withhold, scale });
     lines.push({ ...settled, kind, docId: bill.id, withhold, bill });
   }
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) errors._lines = "Ada tagihan yang perlu diperbaiki.";
@@ -590,7 +587,7 @@ function asInput(t: StoredPayment): CashPaymentInput {
     bank_charge: t.bank_charge.toNumber(),
     lines: [...t.lines]
       .sort((a, b) => a.line_no - b.line_no)
-      .map((l) => ({ doc_type: l.doc_type.doc_table as PaidDocKind, doc_id: l.doc_id, cash: l.settled_amount.minus(l.pph_amount).toNumber(), withhold: l.withhold })),
+      .map((l) => ({ doc_type: l.doc_type.doc_table as PaidDocKind, doc_id: l.doc_id, settled: l.settled_amount.toNumber() })),
   };
 }
 

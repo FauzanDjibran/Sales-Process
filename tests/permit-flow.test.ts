@@ -200,7 +200,7 @@ describe("Uang Muka Perizinan", () => {
       bank_ref: "",
       note: "",
       bank_charge: 0,
-      lines: [{ doc_type: "fin_ar_permit_advance", doc_id: a.id, cash: 872_000, withhold: true }],
+      lines: [{ doc_type: "fin_ar_permit_advance", doc_id: a.id, settled: 888_000 }],
     };
     const rc = await createCashReceipt(input, actor);
     assert.ok(rc.ok, JSON.stringify(rc));
@@ -243,7 +243,7 @@ describe("Uang Muka Perizinan", () => {
           bank_ref: "BPOM",
           note: "",
           bank_charge: 0,
-          lines: [{ doc_type: "sal_permit_request", doc_id: id, cash, withhold: false }],
+          lines: [{ doc_type: "sal_permit_request", doc_id: id, settled: cash }],
         },
         actor
       );
@@ -282,7 +282,7 @@ describe("Uang Muka Perizinan", () => {
     advances.push(a.id);
     await transitionPermitAdvance(a.id, "issue", actor);
     const rc = await createCashReceipt(
-      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ar_permit_advance", doc_id: a.id, cash: 872_000, withhold: true }] },
+      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ar_permit_advance", doc_id: a.id, settled: 888_000 }] },
       actor
     );
     assert.ok(rc.ok);
@@ -338,7 +338,7 @@ describe("Uang Muka Perizinan", () => {
 
     // Paid by the same Penerimaan: 199.800 less PPh 23 2 % × 180.000 = 196.200.
     const pay = await createCashReceipt(
-      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ar_permit_invoice", doc_id: inv.id, cash: 196_200, withhold: true }] },
+      { purpose: "customer_receipt", tx_date: today, partner_id: f.customer, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ar_permit_invoice", doc_id: inv.id, settled: 199_800 }] },
       actor
     );
     assert.ok(pay.ok, JSON.stringify(pay));

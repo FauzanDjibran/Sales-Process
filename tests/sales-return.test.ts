@@ -527,7 +527,7 @@ describe("receipts and reports read an Invoice net of its Credit Notes", () => {
       bank_ref: "TRF",
       note: "",
       bank_charge: 0,
-      lines: [{ doc_type: "fin_ar_invoice" as const, doc_id: invId(), cash, withhold: false }],
+      lines: [{ doc_type: "fin_ar_invoice" as const, doc_id: invId(), settled: cash }],
     });
     assert.ok(!(await createCashReceipt(receipt(27_751), actor)).ok, "more than is left is refused");
     const r = await createCashReceipt(receipt(27_750), actor);
@@ -608,7 +608,7 @@ describe("customer credit left on a Credit Note is refunded or used by the next 
       bank_ref: "",
       note: "",
       bank_charge: 0,
-      lines: [{ doc_type: "fin_ar_credit_note" as const, doc_id: cnId, cash, withhold: false }],
+      lines: [{ doc_type: "fin_ar_credit_note" as const, doc_id: cnId, settled: cash }],
     });
     const offered = (await cashPaymentOptions()).bills.find((b) => b.kind === "fin_ar_credit_note" && b.id === cnId);
     assert.deepEqual([offered?.total, offered?.open], [5_550, 5_550]);

@@ -17,10 +17,9 @@ import { lockPermitInvoices, permitInvoiceNumbersByIds, settlementPermitInvoices
 import { invoiceNumbersByIds, lockSalesInvoices, settlementInvoices, unpaidSalesInvoiceIds } from "./ar-invoice";
 import { postedCreditsByInvoices } from "./ar-credit-note";
 import {
-  cashToClear,
   ppnChain,
-  receivedProblem,
-  settleBillFromCash,
+  settleBill,
+  settledProblem,
   type PpnRates,
   type SettlementLine,
 } from "./sales-tax";
@@ -94,9 +93,8 @@ export type CashReceiptLineInput = {
   /** What the line settles; an advance bill when left out (receipts saved before P83). */
   doc_type?: SettledDocKind;
   doc_id: number | null;
-  /** What the customer actually paid for this bill (P76). */
-  cash: number;
-  withhold: boolean;
+  /** The part of the bill this line settles, PPh included (P302); the money is it less its PPh. */
+  settled: number;
 };
 
 export type CashReceiptInput = {
@@ -545,21 +543,14 @@ export async function checkCashReceipt(
       errors[lineKey(i, "doc_id")] = `Tanggal terima sebelum tanggal ${bill.no}.`;
       continue;
     }
-    const received = Number(l.cash);
-    const withhold = purpose?.withholding ? l.withhold !== false : false;
-    const max = cashToClear(bill, bill.paid, withhold, scale);
-    const problem = receivedProblem(received, max, scale);
+    // PPh is always withheld where the purpose withholds (P302): no switch.
+    const withhold = Boolean(purpose?.withholding);
+    const problem = settledProblem(Number(l.settled), bill.open, scale);
     if (problem) {
-      errors[lineKey(i, "cash")] = problem === "Melebihi sisa tagihan." ? `Melebihi yang melunasi ${bill.no} (${money(max)}).` : problem;
+      errors[lineKey(i, "settled")] = problem === "Melebihi sisa tagihan." ? `Melebihi sisa ${bill.no} (${money(bill.open)}).` : problem;
       continue;
     }
-    const settled = settleBillFromCash({ bill, before: bill.paid, cash: received, withhold, scale });
-    if (settled.cash !== received) {
-      // Two PPh shares moving on the same rupiah can skip a figure; one rupiah
-      // either way always lands.
-      errors[lineKey(i, "cash")] = `Nilai ini tidak dapat dibagi tepat dengan PPh-nya; ubah satu satuan terkecil (mis. ${money(settled.cash)}).`;
-      continue;
-    }
+    const settled = settleBill({ bill, before: bill.paid, settled: Number(l.settled), withhold, scale });
     lines.push({ ...settled, kind, docId: id, withhold, bill });
   }
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) {
@@ -750,8 +741,7 @@ function asInput(t: StoredReceipt): CashReceiptInput {
       .map((l) => ({
         doc_type: l.doc_type.doc_table as SettledDocKind,
         doc_id: l.doc_id,
-        cash: l.settled_amount.minus(l.pph_amount).toNumber(),
-        withhold: l.withhold,
+        settled: l.settled_amount.toNumber(),
       })),
   };
 }

@@ -301,11 +301,18 @@ cash received + bank charges + PPh withheld (+ PPN kept by a VAT collector, late
 - A partial payment takes each component in proportion.
 - Each split is cumulative: the payment that clears the bill takes what is
   left, so the parts always add up to the bill (§7.4).
-- The cash is what the user enters; the rest follows from it. Cash that
-  reaches the remainder less its remaining withholding clears the bill, the
-  gap being the PPh. Less cash settles the smallest part whose cash, after its
-  own share of each withholding, is exactly what was received; the rest of the
-  bill stays open.
+- **What the user enters is the part of the bill settled**, in the bill's own
+  terms (PPN and PPh included). The withholding follows from it as its share,
+  and the cash is what is left: cash = settled − PPh.
+- **When the underlying transaction carries a withholding type, every payment
+  is withheld**, a partial payment the same way. There is no per-payment switch
+  to leave it out. A payer that did not withhold is resolved by a flow of its
+  own, outside the payment.
+- This is how mainstream ERPs work (SAP extended withholding, Business Central
+  APAC, NetSuite, Odoo's payment register). The amount applied to the document
+  is gross, and the bank amount is derived from it. The earlier rule, where the
+  user entered the cash and the part settled was worked back from it, is
+  retired.
 
 ---
 

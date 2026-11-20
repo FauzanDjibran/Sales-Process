@@ -14,7 +14,7 @@ import { useToast } from "@/components/ui/toast";
 import { CashPaymentActions } from "@/components/finance/cash-payment-actions";
 import { PaymentBillPicker, type PickedPayment } from "@/components/finance/cash-payment-bill-picker";
 import { createCashPaymentAction, updateCashPaymentAction } from "@/app/actions/cash-payment";
-import { cashToClear, settleBillFromCash, taxScale, type SettlementLine } from "@/lib/erp/sales-tax";
+import { settleBill, taxScale, type SettlementLine } from "@/lib/erp/sales-tax";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import { PAID_DOC_ROUTE, PAID_DOC_TEXT, paidKey, cashBankPurpose } from "@/lib/erp/cash-bank-purposes";
 import {
@@ -29,8 +29,9 @@ import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
  * Pengeluaran Kas & Bank (P127, B24–B25), in all three modes — the receipt's
  * form (`cash-receipt-form.tsx`) mirrored. Tujuan, then Supplier, decide what
  * can be paid; *Pilih Tagihan* opens the supplier's open bills. **Each line
- * takes the cash paid** for its bill; the PPh the company withholds explains
- * the gap. What leaves the bank is what the lines paid plus the bank charge.
+ * takes the part of its bill paid — Dilunasi** (P302); the PPh the company
+ * withholds always follows from it and the cash is what is left. What leaves
+ * the bank is what the lines paid plus the bank charge.
  */
 
 export type CashPaymentMode = "new" | "edit" | "view";
@@ -47,7 +48,7 @@ type Header = {
   bank_charge: string;
 };
 
-type LiveLine = { bill: OpenPayable; input: Line; withhold: boolean; max: number; line: SettlementLine };
+type LiveLine = { bill: OpenPayable; input: Line; line: SettlementLine };
 
 
 /** Where a settled document opens. */
@@ -96,7 +97,7 @@ export function CashPaymentForm({
   const [picked, setPicked] = useState<Line[]>(() =>
     (payment?.input.lines ?? []).map((l) => {
       const kind = l.doc_type;
-      return { key: paidKey(kind, Number(l.doc_id)), kind, docId: Number(l.doc_id), cash: String(l.cash), withhold: l.withhold };
+      return { key: paidKey(kind, Number(l.doc_id)), kind, docId: Number(l.doc_id), settled: String(l.settled) };
     })
   );
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -138,13 +139,10 @@ export function CashPaymentForm({
   for (const l of picked) {
     const bill = billByKey.get(l.key);
     if (!bill) continue;
-    const withhold = canWithhold ? l.withhold : false;
     lines.push({
       bill,
       input: l,
-      withhold,
-      max: cashToClear(bill, bill.paid, withhold, scale),
-      line: settleBillFromCash({ bill, before: bill.paid, cash: Number(l.cash) || 0, withhold, scale }),
+      line: settleBill({ bill, before: bill.paid, settled: Number(l.settled) || 0, withhold: canWithhold, scale }),
     });
   }
   const charge = Number(h.bank_charge) || 0;
@@ -168,7 +166,7 @@ export function CashPaymentForm({
     const input = {
       ...h,
       bank_charge: charge,
-      lines: lines.map((l) => ({ doc_type: l.bill.kind, doc_id: l.bill.id, cash: Number(l.input.cash) || 0, withhold: l.withhold })),
+      lines: lines.map((l) => ({ doc_type: l.bill.kind, doc_id: l.bill.id, settled: Number(l.input.settled) || 0 })),
     };
     const result =
       mode === "edit" ? await updateCashPaymentAction(payment!.id, input) : await createCashPaymentAction(input);
@@ -385,7 +383,9 @@ export function CashPaymentForm({
           <h3>{`${noun} yang Dibayar`}</h3>
           <p>
             {editing
-              ? "Isi dana yang dibayarkan untuk setiap tagihan. Kekurangannya dihitung sebagai PPh yang kita potong bila PPh dipotong; sisanya tetap terbuka."
+              ? canWithhold
+                ? "Isi bagian tagihan yang dilunasi. PPh tagihan selalu kita potong darinya, juga untuk pelunasan sebagian; yang dibayar adalah sisanya."
+                : "Isi nilai yang dibayar untuk setiap tagihan; sisanya tetap terbuka."
               : "Tagihan yang diselesaikan pengeluaran ini."}
           </p>
         </div>
@@ -437,7 +437,7 @@ export function CashPaymentForm({
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: editing ? 680 : 560 }}>
+          <table className="grid ltab" style={{ minWidth: (editing ? 680 : 560) + (canWithhold ? 140 : 0) }}>
             <thead>
               <tr>
                 <th style={{ minWidth: 220 }}>{noun}</th>
@@ -447,9 +447,14 @@ export function CashPaymentForm({
                   </th>
                 )}
                 <th className="num" style={{ width: 170 }}>
-                  Dibayar
+                  {canWithhold ? "Dilunasi" : "Dibayar"}
                 </th>
                 {canWithhold && <th style={{ width: 170 }}>PPh Dipotong</th>}
+                {canWithhold && (
+                  <th className="num" style={{ width: 140 }}>
+                    Dibayar
+                  </th>
+                )}
                 {editing && <th style={{ width: 44 }} />}
               </tr>
             </thead>
@@ -459,8 +464,8 @@ export function CashPaymentForm({
                 const l = lines.find((x) => x.bill.key === b.key);
                 const err = errors[`lines.${b.key}`];
                 const hasWht = b.withholdings.some((w) => w.amount > 0);
-                const typed = Number(l?.input.cash) || 0;
-                const over = Boolean(l && typed > l.max);
+                const typed = Number(l?.input.settled) || 0;
+                const over = Boolean(l && typed > b.open);
                 // The PPN the money typed books; only an advance bill books PPN here (P243).
                 const split = b.kind === "fin_ap_advance" && s.ppn > 0 && (
                   <span className="fulltag">
@@ -494,16 +499,16 @@ export function CashPaymentForm({
                           <MoneyInput
                             size="sm"
                             decimals={scale === 1 ? 0 : 2}
-                            value={l.input.cash}
+                            value={l.input.settled}
                             over={over}
-                            ariaLabel={`Dibayar ${b.no}`}
-                            onChange={(v) => setLine(b.key, { cash: v })}
+                            ariaLabel={`Dilunasi ${b.no}`}
+                            onChange={(v) => setLine(b.key, { settled: v })}
                           />
                           {split}
                         </>
                       ) : (
                         <>
-                          <span className="mny">{money(s.cash)}</span>
+                          <span className="mny">{money(s.settled)}</span>
                           {split}
                         </>
                       )}
@@ -512,18 +517,6 @@ export function CashPaymentForm({
                       <td>
                         {!hasWht ? (
                           <span className="dash">tidak ada PPh</span>
-                        ) : editing && l ? (
-                          <label className="chk sm" style={{ height: 30 }}>
-                            <input
-                              type="checkbox"
-                              checked={l.input.withhold}
-                              aria-label={`Potong PPh ${b.no}`}
-                              onChange={(e) => setLine(b.key, { withhold: e.target.checked })}
-                            />
-                            <span>
-                              <span className="ct">{!l.input.withhold ? "Tidak dipotong" : s.pph ? money(s.pph) : "Dipotong"}</span>
-                            </span>
-                          </label>
                         ) : s.whts.length ? (
                           <span className="dstack">
                             {s.whts.map((w) => (
@@ -535,6 +528,11 @@ export function CashPaymentForm({
                         ) : (
                           <span className="dash">tidak dipotong</span>
                         )}
+                      </td>
+                    )}
+                    {canWithhold && (
+                      <td className="num">
+                        <span className="mny">{money(s.cash)}</span>
                       </td>
                     )}
                     {editing && (

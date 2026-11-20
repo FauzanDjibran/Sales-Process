@@ -8,8 +8,8 @@ import type { OpenBill } from "@/lib/erp/cash-bank-tx";
 import { SETTLED_DOC_TEXT, type SettledDocKind } from "@/lib/erp/cash-bank-purposes";
 import { formatDate, formatMoney } from "@/lib/format";
 
-/** A bill on the Penerimaan — an advance bill or an Invoice: what was received for it, and whether PPh was withheld. */
-export type PickedLine = { key: string; kind: SettledDocKind; docId: number; cash: string; withhold: boolean };
+/** A bill on the Penerimaan — an advance bill or an Invoice — and the part of it settled (P302). */
+export type PickedLine = { key: string; kind: SettledDocKind; docId: number; settled: string };
 
 /**
  * The partner's open bills — advance bills and Invoices together (P83), oldest
@@ -49,14 +49,12 @@ export function BillPicker({
     });
 
   const kept = (b: OpenBill) => current.find((l) => l.key === b.key);
-  const clearOf = (b: OpenBill) => cashToClear(b, b.paid, withhold ? kept(b)?.withhold ?? true : false, taxScale(currency));
+  const clearOf = (b: OpenBill) => cashToClear(b, b.paid, withhold, taxScale(currency));
   const chosen = bills.filter((b) => on.has(b.key));
   const clearTotal = chosen.reduce((a, b) => a + clearOf(b), 0);
 
   const apply = () =>
-    onApply(
-      chosen.map((b) => kept(b) ?? { key: b.key, kind: b.kind, docId: b.id, cash: String(clearOf(b)), withhold: true })
-    );
+    onApply(chosen.map((b) => kept(b) ?? { key: b.key, kind: b.kind, docId: b.id, settled: String(b.open) }));
 
   return (
     <Dialog

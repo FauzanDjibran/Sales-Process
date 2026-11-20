@@ -13,7 +13,7 @@ import {
   type PpnRates,
   type SalesLineInput,
 } from "../src/lib/erp/sales-tax";
-import { cashToClear, positionalShare, receivedProblem, settleBill, settleBillFromCash } from "../src/lib/erp/sales-tax";
+import { cashToClear, positionalShare, settleBill, settledProblem } from "../src/lib/erp/sales-tax";
 
 /**
  * The sales tax arithmetic (P59, P60; `tax_concept.md` §3, §7), against figures
@@ -301,65 +301,22 @@ describe("settling a bill in parts (P66–P69, tax_concept.md §7.5)", () => {
   });
 });
 
-describe("settling from what the customer paid (P76, the simulation's Dana Diterima)", () => {
-  const bill = {
-    total: 1_110_000,
-    ppn: 110_000,
-    withholdings: [
-      { key: "23", rate: 2, base: 600_000, amount: 12_000 },
-      { key: "22", rate: 1.5, base: 400_000, amount: 6_000 },
-    ],
-  };
+describe("Dilunasi is typed; the PPh and the money follow (P302)", () => {
+  const bill = { total: 4_662_000, ppn: 462_000, withholdings: [{ key: "23", rate: 2, base: 4_200_000, amount: 84_000 }] };
 
-  test("money short by exactly the PPh clears the bill; the gap is the PPh", () => {
-    const l = settleBillFromCash({ bill, before: 0, cash: 1_092_000, withhold: true });
-    assert.equal(l.settled, 1_110_000);
-    assert.equal(l.pph, 18_000);
-    assert.equal(l.cash, 1_092_000);
+  test("a partial payment withholds its positional PPh share, the money is what is left", () => {
+    const part = settleBill({ bill, before: 0, settled: 3_055_046, withhold: true });
+    assert.deepEqual([part.settled, part.pph, part.cash], [3_055_046, 55_046, 3_000_000]);
+    const rest = settleBill({ bill, before: part.settled, settled: bill.total - part.settled, withhold: true });
+    assert.equal(part.pph + rest.pph, 84_000, "the parts add up to the bill's PPh");
   });
 
-  test("less money settles a part, whose PPh is its positional share", () => {
-    const a = settleBillFromCash({ bill, before: 0, cash: 546_000, withhold: true });
-    assert.equal(a.settled, 555_000);
-    assert.equal(a.pph, 9_000);
-    assert.equal(a.cash, 546_000);
-    // The rest is cleared by exactly what is left to arrive.
-    const b = settleBillFromCash({ bill, before: a.settled, cash: cashToClear(bill, a.settled, true), withhold: true });
-    assert.equal(a.settled + b.settled, bill.total);
-    assert.equal(a.pph + b.pph, 18_000);
-  });
-
-  test("with Potong PPh off the money is what it settles", () => {
-    const l = settleBillFromCash({ bill, before: 0, cash: 500_000, withhold: false });
-    assert.equal(l.settled, 500_000);
-    assert.equal(l.pph, 0);
-    const full = settleBillFromCash({ bill, before: 0, cash: 1_110_000, withhold: false });
-    assert.equal(full.settled, 1_110_000);
-  });
-
-  test("every rupiah received lands exactly, or one rupiah beside it", () => {
-    const single = { total: 999_000, ppn: 99_000, withholdings: [{ key: "23", rate: 2, base: 900_000, amount: 18_000 }] };
-    let misses = 0;
-    for (let cash = 1; cash <= cashToClear(single, 0, true); cash += 997) {
-      const l = settleBillFromCash({ bill: single, before: 0, cash, withhold: true });
-      assert.equal(l.cash, cash, `one Jenis PPh always lands (${cash})`);
-    }
-    for (let cash = 1; cash <= cashToClear(bill, 0, true); cash += 991) {
-      const l = settleBillFromCash({ bill, before: 0, cash, withhold: true });
-      if (l.cash !== cash) {
-        misses++;
-        assert.ok(cash - l.cash <= 1, "never more than a rupiah under");
-        assert.equal(settleBillFromCash({ bill, before: 0, cash: cash + 1, withhold: true }).cash, cash + 1);
-      }
-      assert.ok(l.settled <= bill.total);
-    }
-    assert.ok(misses < 50);
-  });
-
-  test("a line may not receive more than clears the bill", () => {
-    assert.equal(receivedProblem(0, 100), "Isi nilai yang diterima.");
-    assert.equal(receivedProblem(101, 100), "Melebihi sisa tagihan.");
-    assert.equal(receivedProblem(100, 100), null);
+  test("a line may not settle more than is left of the bill", () => {
+    assert.equal(settledProblem(0, 100), "Isi nilai yang dilunasi.");
+    assert.equal(settledProblem(101, 100), "Melebihi sisa tagihan.");
+    assert.equal(settledProblem(100, 100), null);
+    assert.equal(settledProblem(10.5, 100), "Nilai dilunasi harus dalam rupiah penuh.");
+    assert.equal(settledProblem(10.5, 100, 100), null);
   });
 });
 
@@ -379,30 +336,5 @@ describe("a figure shared over parts by position (tax_concept.md §7.5, P133)", 
 
   test("nothing to share over is nothing", () => {
     assert.equal(positionalShare(1_000, 0, 10, 0), 0);
-  });
-});
-
-describe("one path for every payment, full or partial (P134)", () => {
-  test("money equal to Uang Pelunas is estimated to the whole Outstanding and clears the bill", () => {
-    const bills = [
-      { total: 3_330_000, ppn: 330_000, withholdings: [{ key: "23", rate: 2, base: 3_000_000, amount: 60_000 }] },
-      { total: 4_662_000, ppn: 462_000, withholdings: [{ key: "23", rate: 2, base: 4_200_000, amount: 84_000 }] },
-      // No PPN, a 30 % withholding: the heaviest PPh the app allows.
-      { total: 1_000_003, ppn: 0, withholdings: [{ key: "x", rate: 30, base: 1_000_003, amount: 300_001 }] },
-    ];
-    for (const bill of bills) {
-      for (const before of [0, 1, Math.floor(bill.total / 3)]) {
-        const open = bill.total - before;
-        const full = settleBillFromCash({ bill, before, cash: cashToClear(bill, before, true), withhold: true });
-        assert.equal(full.settled, open, "the estimate is the Outstanding and its cash checks");
-        assert.equal(full.cash, cashToClear(bill, before, true));
-      }
-    }
-  });
-
-  test("a partial payment goes the same way: estimate, check, move a few rupiah", () => {
-    const bill = { total: 4_662_000, ppn: 462_000, withholdings: [{ key: "23", rate: 2, base: 4_200_000, amount: 84_000 }] };
-    const part = settleBillFromCash({ bill, before: 0, cash: 3_000_000, withhold: true });
-    assert.deepEqual([part.settled, part.pph, part.cash], [3_055_046, 55_046, 3_000_000]);
   });
 });

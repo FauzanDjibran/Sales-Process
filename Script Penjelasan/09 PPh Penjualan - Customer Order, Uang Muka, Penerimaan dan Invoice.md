@@ -1,5 +1,7 @@
 # PPh penjualan — menambahkan PPh ke menu yang sudah ada
 
+> **Diperbarui oleh P302 (20/11/2026).** Isian baris sekarang adalah **Dilunasi** (bagian tagihan yang diselesaikan, PPN dan PPh termasuk), bukan uang yang diterima. PPh **selalu** dipotong bila tagihan punya Jenis PPh, termasuk pelunasan sebagian, dan saklar *Potong PPh* sudah dihapus. Uang = Dilunasi − PPh, dengan PPh = bagian positional (`settleBill`). Perhitungan mundur dari uang (`settleBillFromCash`, estimasi lalu geser beberapa rupiah, P134) **sudah tidak dipakai**; bagian dokumen ini yang memakainya tinggal sebagai riwayat.
+
 ## Skenario
 
 Semua menu penjualan **sudah dibuat dan sudah jalan tanpa PPh**:

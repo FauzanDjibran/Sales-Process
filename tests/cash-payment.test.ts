@@ -33,7 +33,7 @@ const input = (over: Partial<CashPaymentInput> = {}): CashPaymentInput => ({
   bank_ref: "TRF-OUT-1",
   note: "",
   bank_charge: 0,
-  lines: [{ doc_type: "fin_ap_advance", doc_id: f.bill, cash: 327_000, withhold: true }],
+  lines: [{ doc_type: "fin_ap_advance", doc_id: f.bill, settled: 333_000 }],
   ...over,
 });
 
@@ -103,8 +103,8 @@ describe("Pembayaran ke Supplier", () => {
   });
 
   test("paying more than clears the bill is refused; the PPh explains the gap", async () => {
-    const over = await create(input({ lines: [{ doc_type: "fin_ap_advance", doc_id: f.bill, cash: 330_000, withhold: true }] }));
-    assert.ok(!over.ok && /Melebihi/.test(over.errors["lines.0.cash"]));
+    const over = await create(input({ lines: [{ doc_type: "fin_ap_advance", doc_id: f.bill, settled: 333_001 }] }));
+    assert.ok(!over.ok && /Melebihi/.test(over.errors["lines.0.settled"]));
   });
 
   test("an overdraw is refused; with the money there it posts the journal and the AP item", async () => {

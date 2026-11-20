@@ -1,5 +1,7 @@
 # Cash Bank Tx — how to use it, and how one line works
 
+> **Updated by P302 (20/11/2026).** A line now takes **Dilunasi**: the part of the bill settled, PPN and PPh included. It no longer takes the cash received. PPh is **always** withheld when the bill carries a Jenis PPh, partial payments too, and the *Potong PPh* switch is gone. The cash is Dilunasi − PPh, with the PPh being the positional share from `settleBill`. The work-back from the cash (`settleBillFromCash`, P134) is **retired**; the parts below that use it are kept as history.
+
 Part A is how to record money in and out in the app. Part B is how a line
 (`fin_cash_bank_tx_line`) gets its outstanding, splits what it settles into
 DPP and PPN, and works out the PPh — with the formulas, so the figures can be

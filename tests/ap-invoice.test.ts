@@ -89,7 +89,7 @@ before(async () => {
   ids.bill.push(bill.id);
   await transitionPurchaseAdvance(bill.id, "issue", w.actor);
   const pay = await createCashPayment(
-    { purpose: "supplier_payment", tx_date: today, partner_id: w.f.supplier, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ap_advance", doc_id: bill.id, cash: 327_000, withhold: true }] },
+    { purpose: "supplier_payment", tx_date: today, partner_id: w.f.supplier, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ap_advance", doc_id: bill.id, settled: 333_000 }] },
     w.actor
   );
   assert.ok(pay.ok, JSON.stringify(pay));
@@ -184,7 +184,7 @@ describe("the Invoice Pembelian", () => {
 
   test("the Pengeluaran pays it by its AP item's balance, with no PPh", async () => {
     const pay = await createCashPayment(
-      { purpose: "supplier_payment", tx_date: today, partner_id: w.f.supplier, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ap_invoice", doc_id: f.inv, cash: 763_050, withhold: true }] },
+      { purpose: "supplier_payment", tx_date: today, partner_id: w.f.supplier, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ap_invoice", doc_id: f.inv, settled: 763_050 }] },
       w.actor
     );
     assert.ok(pay.ok, JSON.stringify(pay));

@@ -63,7 +63,7 @@ const payment = (cash: number): CashPaymentInput => ({
   bank_ref: "TRF-PLN",
   note: "",
   bank_charge: 0,
-  lines: [{ doc_type: "prd_cost_bill", doc_id: f.bill, cash, withhold: false }],
+  lines: [{ doc_type: "prd_cost_bill", doc_id: f.bill, settled: cash }],
 });
 
 before(async () => {

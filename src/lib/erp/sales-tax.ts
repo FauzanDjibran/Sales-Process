@@ -430,12 +430,14 @@ export function computeAdvance(input: {
  *
  *   round(figure × after / total) − round(figure × before / total)
  *
- * so the parts always add up to the figure, the part that clears the bill
- * takes exactly what is left, and a part settled without withholding (the
- * Potong PPh switch off, P60) leaves no PPh behind for a later part to pick up.
+ * so the parts always add up to the figure and the part that clears the bill
+ * takes exactly what is left.
  *
- * What the line clears is what the user types — **Dilunasi**. The PPh follows
- * from it, and the cash the bill brings in is Dilunasi less its PPh.
+ * What the line clears is what the user types — **Dilunasi** (P302). **PPh is
+ * always withheld** when the purpose withholds and the bill carries a Jenis
+ * PPh, a partial payment the same way; the cash is Dilunasi less its PPh.
+ * `withhold: false` is only a purpose that withholds nothing (and receipts
+ * posted before P302 with the old Potong PPh switch off).
  */
 
 export type SettlementBill = {
@@ -488,7 +490,7 @@ export function settleBill(input: {
 
 /**
  * What still has to arrive in the bank to clear a bill: what is left of it less
- * the PPh still to be withheld on it (none when the Potong PPh switch is off).
+ * the PPh still to be withheld on it (none when the purpose withholds nothing).
  */
 export function cashToClear(bill: SettlementBill, before: number, withhold: boolean, scale = 1): number {
   if (scale !== 1) return Math.round(cashToClear(scaled(bill, (n) => n * scale), before * scale, withhold)) / scale;
@@ -498,57 +500,15 @@ export function cashToClear(bill: SettlementBill, before: number, withhold: bool
 }
 
 /**
- * One bill settled from **what the customer actually paid** for it (P76).
- *
- * The user types the money received; the bill is settled by that money plus
- * the PPh that goes with it: the smallest part whose cash, after its own
- * positional PPh share, is exactly what was received.
- *
- * **One path for every payment, full or partial** (P134). The part is
- * estimated as Diterima × Outstanding / Uang Pelunas (`cashToClear`), then
- * checked and moved a few rupiah until its cash is the money. Money equal to
- * Uang Pelunas estimates exactly the Outstanding, and nothing smaller has the
- * same cash while the PPh is under half the bill, so the bill is cleared
- * without a separate "lunas" branch. With the switch off there is no PPh and
- * the estimate is the money itself.
+ * Why a line's **Dilunasi** cannot stand, or null (P302). The user types the
+ * part of the bill settled — the bill's own figure, PPh included — and
+ * `settleBill` gives its PPh and the money; `open` is what is left of the bill.
  */
-export function settleBillFromCash(input: {
-  bill: SettlementBill;
-  before: number;
-  /** What was received for this bill. */
-  cash: number;
-  withhold: boolean;
-  scale?: number;
-}): SettlementLine {
-  if (foreign(input.scale)) return inMinor(input, settleBillFromCash);
-  const { bill, withhold } = input;
-  const before = Math.max(0, Math.round(input.before));
-  const cash = Math.max(0, Math.round(input.cash));
-  const open = Math.max(0, bill.total - before);
-  const at = (settled: number) => settleBill({ bill, before, settled, withhold });
-  const uangPelunas = cashToClear(bill, before, withhold);
-
-  // Tagihan Terlunasi (estimate) = round(Diterima × Outstanding / Uang Pelunas),
-  // never beyond the Outstanding. cash(s) = s − pph(s) moves by at most one
-  // rupiah per rupiah of s, so the exact part sits a few rupiah from it.
-  const estimate = Math.min(open, uangPelunas > 0 ? mulDivRound(cash, open, uangPelunas) : open);
-  let best: SettlementLine | null = null;
-  for (let s = Math.max(0, estimate - 4); s <= Math.min(open, estimate + 4); s++) {
-    const line = at(s);
-    if (line.cash === cash) return line;
-    if (line.cash < cash && (!best || line.cash > best.cash)) best = line;
-  }
-  // No exact part: the nearest below, which the server refuses ("ubah Rp1"),
-  // or — for more than Uang Pelunas — the whole Outstanding, refused as an overpayment.
-  return best ?? at(estimate);
-}
-
-/** Why a line's Diterima cannot stand, or null. `max` is what clears the bill. */
-export function receivedProblem(cash: number, max: number, scale = 1): string | null {
-  if (!(cash > 0)) return "Isi nilai yang diterima.";
-  const minor = Math.round(cash * scale);
-  if (Math.abs(minor - cash * scale) > 1e-6) return scale === 1 ? "Nilai diterima harus dalam rupiah penuh." : "Nilai diterima paling banyak dua desimal.";
-  if (minor > Math.round(max * scale)) return "Melebihi sisa tagihan.";
+export function settledProblem(settled: number, open: number, scale = 1): string | null {
+  if (!(settled > 0)) return "Isi nilai yang dilunasi.";
+  const minor = Math.round(settled * scale);
+  if (Math.abs(minor - settled * scale) > 1e-6) return scale === 1 ? "Nilai dilunasi harus dalam rupiah penuh." : "Nilai dilunasi paling banyak dua desimal.";
+  if (minor > Math.round(open * scale)) return "Melebihi sisa tagihan.";
   return null;
 }
 
