@@ -2586,9 +2586,12 @@ table log_receipt_note_tracking {
   value_amount                decimal(18,2) [not null, default: 0] // cumulative share of the line's value
   tracking_id                 int // weak: log_stock_tracking.id, set at Posting
   location_id                 int // weak: ref_warehouse_location.id — where it is put, in a warehouse that has locations
+  stock_status_id             int // weak: sys_stock_status.id the lot comes back under; null = Tersedia (purchase_receipt) (P289)
+  source_tracking_id          int // weak: log_delivery_note_tracking.id it left on — purpose sales_return only (P289)
 
   indexes {
     (line_id, tracking_seq) [unique]
+    source_tracking_id
   }
 }
 
@@ -2647,6 +2650,7 @@ table log_delivery_note_line {
 
   qty                         decimal(18,4) [not null] // in uom_id
   base_qty                    decimal(18,4) [not null, default: 0] // qty x uom_factor = Σ its tracking rows' base_qty
+  returned_qty                decimal(18,4) [not null, default: 0] // base qty brought back by posted Receipt Notes sales_return; CHECK 0 ≤ returned ≤ base_qty (P289)
   cost_amount                 decimal(18,2) [not null, default: 0] // Σ its tracking rows' cost_amount
 
   note                        varchar
