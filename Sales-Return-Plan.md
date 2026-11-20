@@ -432,3 +432,61 @@ di angka Invoice, USD).
 | QR2 | Batas waktu pembuatan Nota Retur dan pembetulan bukti potong PPh 22 |
 | QR3 | Retur atas faktur yang belum diberi NSFP (Invoice posted tapi faktur belum diupload) — cukup koreksi di sumber? (`tax_concept.md` §5.3 baris kedua) |
 | QR4 | Penyajian saldo kredit customer di Neraca (reklasifikasi ke liabilitas) |
+
+---
+
+## 12. Revisi: Credit Note sebagai kredit terbuka, lalu Penerapan Kredit (P298)
+
+> Disepakati user 20/11/2026 setelah membandingkan ERP mainstream. **Belum
+> dibangun.** Menggantikan penerapan otomatis di §6.2 (SR2 tetap: kredit tetap
+> AR item *Retur*) dan isian *Kredit Retur Dipakai* di Invoice (P295 bagian 2).
+
+### 12.1 Pembanding
+
+| ERP | Credit memo saat diposting | Memotong invoice | Refund |
+| --- | --- | --- | --- |
+| SAP S/4HANA | Open item kredit di akun customer, boleh menyebut referensi invoice | Langkah terpisah: clearing (F-32) atau saat pembayaran masuk | Pembayaran keluar atas open item kredit |
+| Business Central | Diterapkan ke invoice bila *Applies-to Doc. No.* diisi; selain itu terbuka | Belakangan lewat *Apply Entries*, ke entri terbuka mana pun milik customer | Refund atas kredit terbuka |
+| NetSuite | Tab *Apply* boleh kosong (*unapplied*) | Belakangan lewat Customer Payment atau dari Credit Memo | *Customer Refund* |
+| Odoo | *Full refund* langsung direkonsiliasi; *partial* tetap terbuka | *Outstanding credits* di invoice terbuka mana pun milik customer | Register Payment atas credit note |
+| Accurate / Jurnal | Retur memilih: kurangi piutang faktur atau kembalikan uang | Saat retur | Saat retur |
+
+Polanya: **kredit terbuka dulu**; penerapan langsung ke invoice asal hanya
+pintasan opsional; penerapan berikutnya ke invoice terbuka mana pun dari
+customer dan currency yang sama, tidak dibatasi per order; refund adalah
+transaksi kas atas kredit terbuka. Ini juga konsep open item di knowledge
+base (`ar_ap_open_item_concept.md`: alokasi antar item partner dan currency
+yang sama).
+
+### 12.2 Keputusan
+
+| # | Keputusan |
+| --- | --- |
+| SR11 | **Credit Note posted = kredit terbuka.** Posting tetap menulis Dr Retur Penjualan · Dr PPN Keluaran / Cr Piutang Usaha dan item *Retur* sebesar totalnya, tetapi **tidak lagi otomatis** memotong Invoice asal. |
+| SR12 | **Opsi *Langsung potong Invoice asal*** di header Credit Note (seperti *Applies-to* BC), **default tidak dicentang**. Bila dicentang, Posting menerapkan kredit ke item Invoice asal sebatas saldonya (perilaku P292); sisanya tetap terbuka. |
+| SR13 | **Dokumen Penerapan Kredit** (`fin_ar_credit_application(_line)`, `PKR/YYYY/MM/NNNN`, Finance › Invoice): satu customer dan satu currency; tiap baris = satu Credit Note (item Retur terbuka) → satu Invoice Penjualan terbuka, dengan nilai. Draft menahan nilainya; Posting menulis *Retur Dipakai Invoice* / *Retur Diterapkan* pada kedua item, saling menyebut. **Rupiah: tanpa jurnal**; valas: dua kaki Piutang pada base masing-masing + selisih kurs. Batalkan Draft dengan alasan; posted final. Izin `SALES_CREDIT_APPLICATION_VIEW / _CREATE / _EDIT / _POST / _CANCEL`. |
+| SR14 | **Lintas Customer Order boleh**, customer dan currency sama. Item Retur tetap ber-scope order asalnya (untuk laporan); penerapan tidak memeriksa scope. |
+| SR15 | **Isian *Kredit Retur Dipakai* di Invoice (P295) dihapus**, bersama `fin_ar_invoice.credit_used_amount` dan `fin_ar_invoice_credit_use`; satu jalan memotong invoice = Penerapan Kredit. Migrasi menolak bila ada data yang memakainya. |
+| SR16 | **Basis PPh** Invoice asal turun saat Credit Note diposting, apa pun penggunaannya (P293 tetap). Kredit dari Credit Note lain yang diterapkan ke sebuah Invoice mengurangi tagihannya tetapi tidak basis PPh-nya. |
+| SR17 | **Refund** tetap Pengeluaran *Pengembalian Dana Customer* (P295 bagian 1). |
+| SR18 | **Fase lanjut:** kredit sebagai sumber dana di Penerimaan dari Customer (pola NetSuite / Odoo), dan **Debit Note Pembelian** untuk retur pembelian dengan mesin yang sama di AP (item AP *Retur*, diterapkan ke Invoice Pembelian mana pun dari supplier yang sama atau dikembalikan lewat Penerimaan). Istilah *Debit Note* mengikuti praktik Indonesia (nota dari pembeli ke supplier, mengurangi hutang), bukan arti Odoo (tagihan tambahan). |
+
+### 12.3 Efek
+
+| Hal | Efek |
+| --- | --- |
+| Penjualan, PPN Keluaran | Turun saat Credit Note diposting, di periode retur — tidak bergantung pada penerapan |
+| Piutang Usaha GL | Turun saat Credit Note diposting (item Retur di akun yang sama); per customer = item Invoice − item Retur |
+| Invoice asal | Saldo penuh sampai kredit diterapkan; Umur Piutang tetap meng-aging-nya, kolom *Kredit Retur* mengurangi Posisi Bersih |
+| Penerimaan | Sisa Invoice = total − dibayar − retur diterapkan (P293, tidak berubah) |
+| Penerapan Kredit | Hanya AR item bergerak dalam rupiah; reconcile memeriksa baris penerapan = entri buku |
+
+### 12.4 Langkah build
+
+| # | Langkah | Selesai bila |
+| --- | --- | --- |
+| 8 | Credit Note: kredit terbuka + opsi *Langsung potong Invoice asal* (kolom `apply_to_invoice`) | Tanpa centang: item Retur terbuka penuh, Invoice tidak berubah; dengan centang: perilaku P292 |
+| 9 | Dokumen Penerapan Kredit — skema, modul, form, list, izin, menu, preview | Kredit dari order lain melunasi Invoice; Draft menahan; rupiah tanpa jurnal |
+| 10 | Hapus isian kredit di Invoice (P295 bagian 2) — migrasi, form, cek reconcile | Invoice kembali tanpa isian kredit; tidak ada data hilang |
+| 11 | `db:reconcile` dan test: penerapan = entri buku, item Retur = asal − dipakai − refund | Semua cek hijau |
+| 12 | (lanjut) Kredit di Penerimaan; Debit Note Pembelian bersama retur pembelian | Sesuai keputusan saat itu |
