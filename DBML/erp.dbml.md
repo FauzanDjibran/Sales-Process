@@ -3103,6 +3103,65 @@ table log_stock_issue_tracking {
 
 //////////////////////////////////
 //
+// BSTB ke Finish Goods (P303, Simulasi-Gudang-Produksi-Plan.md 7.5)
+//
+/////////////////////////////////
+
+enum ProductionReceiptStatus {
+  Submitted // Kirim: Dalam Perjalanan at the sending Unit (Diajukan)
+  Posted    // Terima: in stock (Diterima)
+}
+
+// Kirim from the last Unit of a line's routing (Produksi); Terima by the
+// warehouse (ERP): out of the production book, into stock under the same
+// No. Stok, Dr Persediaan / Cr WIP.
+table log_production_receipt {
+  id                          int [pk, increment, not null]
+  receipt_no                  varchar [not null, unique] // BFG_<unit>_<ddmmyy>_<NNNNN>
+  purpose                     varchar [not null, default: 'finish_goods'] // `return` with 7.6
+  receipt_date                date [not null] // the day sent
+  status                      ProductionReceiptStatus [not null, default: 'Submitted']
+  from_unit_id                int [not null, ref : > ref_unit.id]
+  warehouse_id                int [not null, ref : > ref_warehouse.id]
+  note                        varchar
+  received_at                 date // Terima, the journal's date
+  received_by                 int
+  cost_amount                 decimal(18,2) [not null, default: 0] // Σ lines' value, at Terima
+  journal_id                  int // acc_journal.id, no FK
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, receipt_date)
+    from_unit_id
+  }
+}
+
+table log_production_receipt_line {
+  id                          int [pk, increment, not null]
+  receipt_id                  int [not null, ref : > log_production_receipt.id]
+  line_no                     int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  tracking_id                 int [not null] // log_stock_tracking.id, no FK; the same No. Stok in stock
+  job_id                      int // prd_job.id, no FK // lintas aplikasi → C
+  qty                         decimal(18,4) [not null] // base unit, the bucket whole
+  grams                       decimal(18,4)
+  from_bucket_id              int [not null] // prd_balance.id (Stand By), weak // lintas aplikasi → C
+  transit_bucket_id           int [not null] // prd_balance.id (Dalam Perjalanan), weak // lintas aplikasi → C
+  value                       decimal(18,2) [not null, default: 0] // released at Terima
+
+  indexes {
+    (receipt_id, line_no) [unique]
+    tracking_id
+  }
+
+  Note: 'CHECK qty > 0 AND value >= 0'
+}
+
+//////////////////////////////////
+//
 // Transfer Stok (P300, Stock-Transfer-Plan.md)
 //
 /////////////////////////////////

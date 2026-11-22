@@ -169,6 +169,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   // Stock between warehouses through the Gudang Transit (P300).
   ["Transfer Kirim", "log_stock_transfer"],
   ["Transfer Terima", "log_stock_transfer_receipt"],
+  // Finished goods from the last Unit into a warehouse (P303).
+  ["BSTB ke Finish Goods", "log_production_receipt"],
 ];
 
 /**

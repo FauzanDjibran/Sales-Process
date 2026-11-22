@@ -674,6 +674,7 @@ model MItem {
   sales_return_lines           SalReturnLine[]
   prd_balances                 PrdBalance[]                  @relation("PrdBalanceItem")
   stock_issue_lines            LogStockIssueLine[]
+  production_receipt_lines     LogProductionReceiptLine[]
   prd_ledger                   PrdLedger[]                   @relation("PrdLedgerItem")
   grading_outputs              PrdGradingOutput[]
   job_order_targets            PrdJobOrderLine[]
@@ -751,21 +752,22 @@ model RefWarehouse {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  locations         RefWarehouseLocation[]
+  locations           RefWarehouseLocation[]
   /// The Delivery Orders that send goods out of this warehouse.
-  delivery_orders   SalDeliveryOrder[]
-  delivery_notes    LogDeliveryNote[]
-  stock_ledger      LogStockLedger[]
-  stock_balances    LogStockBalance[]
-  purchase_requests PurRequest[]
-  purchase_orders   PurOrder[]                @relation("PurOrderWarehouse")
-  receipt_notes     LogReceiptNote[]          @relation("ReceiptNoteWarehouse")
-  stock_issues      LogStockIssue[]
+  delivery_orders     SalDeliveryOrder[]
+  delivery_notes      LogDeliveryNote[]
+  stock_ledger        LogStockLedger[]
+  stock_balances      LogStockBalance[]
+  purchase_requests   PurRequest[]
+  purchase_orders     PurOrder[]                @relation("PurOrderWarehouse")
+  receipt_notes       LogReceiptNote[]          @relation("ReceiptNoteWarehouse")
+  stock_issues        LogStockIssue[]
+  production_receipts LogProductionReceipt[]
   /// Who may work in it (P300 OD-9).
-  user_warehouses   LogUserWarehouse[]
-  transfers_from    LogStockTransfer[]        @relation("StockTransferFrom")
-  transfers_to      LogStockTransfer[]        @relation("StockTransferTo")
-  transfer_receipts LogStockTransferReceipt[]
+  user_warehouses     LogUserWarehouse[]
+  transfers_from      LogStockTransfer[]        @relation("StockTransferFrom")
+  transfers_to        LogStockTransfer[]        @relation("StockTransferTo")
+  transfer_receipts   LogStockTransferReceipt[]
 
   @@map("ref_warehouse")
 }
@@ -934,24 +936,25 @@ model RefUnit {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  workstation   RefWorkstation?      @relation(fields: [workstation_id], references: [id])
-  prd_balances  PrdBalance[]         @relation("PrdBalanceUnit")
-  gradings      PrdGrading[]
-  works         PrdWork[]
-  qc_checks     PrdQcCheck[]
-  stock_issues  LogStockIssue[]
-  prd_ledger    PrdLedger[]          @relation("PrdLedgerUnit")
-  routing_steps PrdRoutingStep[]
-  user_units    PrdUserUnit[]
-  steps         RefUnitStep[]
-  transfers_out PrdTransfer[]        @relation("PrdTransferFrom")
-  transfers_in  PrdTransfer[]        @relation("PrdTransferTo")
-  jobs          PrdJob[]
-  cost_entries  PrdCostEntry[]
-  rate_lines    PrdRateVersionLine[]
-  kerjas        PrdKerja[]
-  job_orders    PrdJobOrder[]
-  boxes         PrdBox[]
+  workstation         RefWorkstation?        @relation(fields: [workstation_id], references: [id])
+  prd_balances        PrdBalance[]           @relation("PrdBalanceUnit")
+  gradings            PrdGrading[]
+  works               PrdWork[]
+  qc_checks           PrdQcCheck[]
+  stock_issues        LogStockIssue[]
+  production_receipts LogProductionReceipt[]
+  prd_ledger          PrdLedger[]            @relation("PrdLedgerUnit")
+  routing_steps       PrdRoutingStep[]
+  user_units          PrdUserUnit[]
+  steps               RefUnitStep[]
+  transfers_out       PrdTransfer[]          @relation("PrdTransferFrom")
+  transfers_in        PrdTransfer[]          @relation("PrdTransferTo")
+  jobs                PrdJob[]
+  cost_entries        PrdCostEntry[]
+  rate_lines          PrdRateVersionLine[]
+  kerjas              PrdKerja[]
+  job_orders          PrdJobOrder[]
+  boxes               PrdBox[]
 
   @@index([workstation_id])
   @@map("ref_unit")
@@ -5413,6 +5416,78 @@ model LogStockIssueTracking {
   @@unique([stock_issue_line_id, tracking_id, location_id], map: "log_stock_issue_tracking_pick_key")
   @@index([tracking_id])
   @@map("log_stock_issue_tracking")
+}
+
+// --------------------------------------------------------- production receipt
+//
+// BSTB ke Finish Goods (P303, Simulasi-Gudang-Produksi-Plan.md 7.5): finished
+// goods leave the last Unit of a line's routing from Stand By. Kirim (Produksi)
+// keeps them at the Unit as Dalam Perjalanan; Terima (the warehouse, in the
+// ERP) takes them out of the production book into stock under the same No.
+// Stok, Dr Persediaan / Cr WIP. `purpose` makes room for BSTB Pengeluaran (7.6).
+
+model LogProductionReceipt {
+  id           Int                     @id @default(autoincrement())
+  receipt_no   String                  @unique
+  /// `finish_goods` for now; `return` comes with BSTB Pengeluaran (7.6).
+  purpose      String                  @default("finish_goods")
+  /// The day the goods were sent.
+  receipt_date DateTime                @db.Date
+  status       ProductionReceiptStatus @default(Submitted)
+  from_unit_id Int
+  warehouse_id Int
+  note         String?
+  /// Terima: the day the warehouse took them in, the journal's date.
+  received_at  DateTime?               @db.Date
+  received_by  Int?
+  /// Σ of the lines' value, set at Terima.
+  cost_amount  Decimal                 @default(0) @db.Decimal(18, 2)
+  journal_id   Int?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  from_unit RefUnit                    @relation(fields: [from_unit_id], references: [id])
+  warehouse RefWarehouse               @relation(fields: [warehouse_id], references: [id])
+  lines     LogProductionReceiptLine[]
+
+  @@index([status, receipt_date])
+  @@index([from_unit_id])
+  @@map("log_production_receipt")
+}
+
+model LogProductionReceiptLine {
+  id                Int      @id @default(autoincrement())
+  receipt_id        Int
+  line_no           Int
+  item_id           Int
+  /// The No. Stok; it keeps its number in stock (R3).
+  tracking_id       Int
+  job_id            Int?
+  /// In the item's base unit; a bucket is sent whole.
+  qty               Decimal  @db.Decimal(18, 4)
+  grams             Decimal? @db.Decimal(18, 4)
+  /// The Stand By bucket it left, and the Dalam Perjalanan bucket it waits in (weak).
+  from_bucket_id    Int
+  transit_bucket_id Int
+  /// What production released at Terima.
+  value             Decimal  @default(0) @db.Decimal(18, 2)
+
+  receipt LogProductionReceipt @relation(fields: [receipt_id], references: [id])
+  item    MItem                @relation(fields: [item_id], references: [id])
+
+  @@unique([receipt_id, line_no])
+  @@index([tracking_id])
+  @@map("log_production_receipt_line")
+}
+
+enum ProductionReceiptStatus {
+  /// Kirim: Dalam Perjalanan at the sending Unit. Labelled *Diajukan*.
+  Submitted
+  /// Terima: in stock. Labelled *Diterima*.
+  Posted
 }
 
 enum StockIssueStatus {

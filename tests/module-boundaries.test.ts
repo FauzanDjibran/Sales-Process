@@ -131,6 +131,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logStockIssue: ["src/lib/erp/stock-issue.ts"],
   logStockIssueLine: ["src/lib/erp/stock-issue.ts"],
   logStockIssueTracking: ["src/lib/erp/stock-issue.ts"],
+  logProductionReceipt: ["src/lib/erp/production-receipt.ts"],
+  logProductionReceiptLine: ["src/lib/erp/production-receipt.ts"],
   logStockTransfer: ["src/lib/erp/stock-transfer.ts"],
   logStockTransferLine: ["src/lib/erp/stock-transfer.ts"],
   logStockTransferTracking: ["src/lib/erp/stock-transfer.ts"],

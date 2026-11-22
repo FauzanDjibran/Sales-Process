@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import { availableBuckets, unitStageTotals, type UnitStageTotal, type UnitStep } from "./production-ledger";
-import { nextStep, routeMap, type RouteMap } from "./production-master";
+import { endsLine, nextStep, routeMap, type RouteMap } from "./production-master";
 import { gradingDraftBucketIds } from "./production-grading";
 import { resultNotesOfJobs, workDraftBucketIds } from "./production-work";
 import { qcDraftBucketIds } from "./production-qc";
@@ -53,6 +53,8 @@ function placesOf(map: RouteMap, unitId: number) {
     pre: on.some((r) => r.lineId === null),
     lineIds: [...new Set(on.flatMap((r) => (r.lineId ? [r.lineId] : [])))],
     checkpoint: on.some((r) => r.steps.some((s) => s.unitId === unitId && s.checkpoint)),
+    // Its Stand By goes to Finish Goods (P303).
+    endsLine: endsLine(map, unitId),
     // Past the checkpoint a Job may hold several partai (W103).
     afterCheckpoint: on.some((r) => {
       const cp = r.steps.map((s) => s.checkpoint).lastIndexOf(true);
@@ -113,7 +115,7 @@ export type BoardRow = {
   /** Named by a Draft document. */
   inDraft: boolean;
   notes: string[];
-  next: { label: string; exit: "Push" | "BSTB" } | null;
+  next: { label: string; exit: "Push" | "BSTB" | "FinishGoods" } | null;
 };
 
 /** One Unit's goods by stage, with where each goes next: the Unit page's tables (W111). */
@@ -135,6 +137,7 @@ export async function unitBoard(unitId: number): Promise<BoardRow[]> {
     if (s) nextIds.add(s.unitId);
   }
   const labels = new Map((await prisma.refUnit.findMany({ where: { id: { in: [...nextIds] } }, select: { id: true, unit_label: true } })).map((u) => [u.id, u.unit_label]));
+  const toStock = endsLine(map, unitId);
   return goods.map((b) => {
     const s = steps.get(b.partaiRoutingId ?? 0);
     return {
@@ -157,7 +160,7 @@ export async function unitBoard(unitId: number): Promise<BoardRow[]> {
       balikQc: b.qcCheckId != null,
       inDraft: drafts.has(b.id),
       notes: b.jobId ? (notes.get(b.jobId) ?? []) : [],
-      next: s ? { label: labels.get(s.unitId) ?? "", exit: s.exit } : null,
+      next: s ? { label: labels.get(s.unitId) ?? "", exit: s.exit } : toStock ? { label: "Finish Goods", exit: "FinishGoods" } : null,
     };
   });
 }

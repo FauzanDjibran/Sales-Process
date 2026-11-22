@@ -349,6 +349,9 @@ export function nextStep(map: RouteMap, unitId: number, routingId: number | null
   return lines.length === 1 ? { unitId: lines[0].steps[0].unitId, exit: "BSTB" } : null;
 }
 
+/** The Unit ends a line's routing: what leaves its Stand By goes to Finish Goods (P303). */
+export const endsLine = (map: RouteMap, unitId: number) => map.routings.some((r) => r.lineId !== null && r.steps.at(-1)?.unitId === unitId);
+
 /**
  * Every active routing in order, with the Workstation of each step: which lines
  * a Unit serves, and where goods go next (P263). The routing and its Units are

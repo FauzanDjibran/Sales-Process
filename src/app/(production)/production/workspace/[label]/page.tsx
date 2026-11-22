@@ -46,6 +46,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
         pre: unit.pre,
         checkpoint: unit.checkpoint,
         afterCheckpoint: unit.afterCheckpoint,
+        endsLine: unit.endsLine,
         steps: unit.steps,
         hasQc: unit.hasQc,
         lines: unit.lines.map((l) => ({ id: l.id, name: l.name })),
@@ -63,6 +64,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
         kerjaFinish: actor.permissions.has("PRODUCTION_KERJA_FINISH"),
         jobOrder: actor.permissions.has("PRODUCTION_JOB_ORDER_POST"),
         box: actor.permissions.has("PRODUCTION_BOX_POST"),
+        finishGoods: actor.permissions.has("PRODUCTION_RECEIPT_SEND"),
       }}
       issueCan={stockIssueAbilities(actor.permissions)}
       initialTab={initial}

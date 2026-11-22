@@ -42,6 +42,8 @@ export type BoardUnit = {
   checkpoint: boolean;
   /** After the checkpoint a Job may hold several partai (W103). */
   afterCheckpoint: boolean;
+  /** Ends a line's routing: Stand By leaves by BSTB ke Finish Goods (P303). */
+  endsLine: boolean;
   lines: { id: number; name: string }[];
   steps: { id: number; process: BoardProcess }[];
   hasQc: boolean;
@@ -130,7 +132,7 @@ export function UnitBoard({
   incoming: BoardIncoming[];
   transfers: IncomingTransfer[];
   canReceive: boolean;
-  can: { grading: boolean; work: boolean; qc: boolean; transfer: boolean; kerjaStart: boolean; kerjaFinish: boolean; jobOrder: boolean; box: boolean };
+  can: { grading: boolean; work: boolean; qc: boolean; transfer: boolean; kerjaStart: boolean; kerjaFinish: boolean; jobOrder: boolean; box: boolean; finishGoods: boolean };
   issueCan: StockIssueAbilities;
   initialTab: BoardTab;
 }) {
@@ -175,11 +177,15 @@ export function UnitBoard({
   function open(g: Group) {
     const t = tabOfGroup(g);
     const ids = g.rows.map((r) => r.id).join(",");
+    if (t === "standby" && unit.endsLine) {
+      if (!can.finishGoods) return toast("Tidak diizinkan", "Anda tidak boleh mengirim ke Finish Goods.", "err");
+      return router.push(`/production/transfer/finish-goods?unit=${encodeURIComponent(unit.label)}&bucket=${ids}`);
+    }
     if (t === "standby") {
       if (!can.transfer) return toast("Tidak diizinkan", "Anda tidak boleh membuat Push atau BSTB.", "err");
       return router.push(`/production/transfer/new?unit=${encodeURIComponent(unit.label)}&bucket=${ids}`);
     }
-    if (t === "transit") return toast("Dalam perjalanan", "Barang ini menunggu diterima unit tujuan.");
+    if (t === "transit") return toast("Dalam perjalanan", unit.endsLine ? "Barang ini menunggu diterima gudang Finish Goods." : "Barang ini menunggu diterima unit tujuan.");
     if (t[0] === "w") {
       if (!can.kerjaFinish) return toast("Tidak diizinkan", "Anda tidak boleh menyelesaikan Kerja.", "err");
       return setTicked((s) => {
@@ -262,7 +268,9 @@ export function UnitBoard({
     tab === "qc"
       ? { label: "QC Check", icon: "check", href: `/production/qc-check/new?unit=${at}`, allowed: can.qc }
       : standby
-        ? { label: "Kirim", icon: "send", href: `/production/transfer/new?unit=${at}`, allowed: can.transfer }
+        ? unit.endsLine
+          ? { label: "Kirim ke Finish Goods", icon: "send", href: `/production/transfer/finish-goods?unit=${at}`, allowed: can.finishGoods }
+          : { label: "Kirim", icon: "send", href: `/production/transfer/new?unit=${at}`, allowed: can.transfer }
         : tab[0] === "p"
           ? ({
               Grading: { label: "Buat Grading", icon: "layers" as const, href: `/production/grading/new?unit=${at}`, allowed: can.grading },

@@ -370,6 +370,14 @@ export const MODULES: NavModule[] = [
             permission: "STOCK_ISSUE_VIEW",
           },
           {
+            key: "log_production_receipt",
+            slug: "production-receipt",
+            name: "BSTB ke Finish Goods",
+            icon: "down",
+            desc: "Barang jadi dari Unit terakhir routing masuk gudang dengan No. Stok yang sama, saat gudang menekan Terima.",
+            permission: "PRODUCTION_RECEIPT_VIEW",
+          },
+          {
             key: "log_stock_transfer",
             slug: "stock-transfer",
             name: "Transfer Kirim",

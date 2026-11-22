@@ -238,6 +238,12 @@ const TRANSFER_EVENTS: Record<string, AuditEventLabel> = {
   receive: { label: "BSTB diterima — barang masuk Persiapan", icon: "check", tone: "neutral" },
 };
 
+const PRODUCTION_RECEIPT_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  send: { label: "Dikirim — barang Dalam Perjalanan", icon: "truck", tone: "neutral" },
+  receive: { label: "Diterima — barang masuk gudang", icon: "check", tone: "primary" },
+};
+
 const BOX_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   post: { label: "Kotak ditutup — No. Stok kotak masuk Stand By", icon: "box", tone: "neutral" },
@@ -432,6 +438,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   prd_cost_bill: COST_BILL_EVENTS,
   fin_cash_bank_transfer: CASH_TRANSFER_EVENTS,
   log_stock_issue: STOCK_ISSUE_EVENTS,
+  log_production_receipt: PRODUCTION_RECEIPT_EVENTS,
   log_stock_transfer: STOCK_TRANSFER_EVENTS,
   log_stock_transfer_receipt: STOCK_TRANSFER_RECEIPT_EVENTS,
   prd_grading: GRADING_EVENTS,
