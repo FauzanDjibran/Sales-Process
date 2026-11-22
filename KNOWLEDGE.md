@@ -33,7 +33,7 @@ in **Note** to stay on an older version on purpose.
 | accounting/fiscal-periods-and-statements | 2.0 | core | — | P23, P27, P35; P222 harvested |
 | accounting/multi-currency | 1.1 | core | knowledge/multi_currency_concept.md | P13, P37 (moving average = core pool) |
 | accounting/open-items | 2.2 | settlement=in-posting | knowledge/ar_ap_open_item_concept.md | P71–P74, P96; main path since 2.2 (R4) |
-| accounting/tax-indonesia | 2.3 | settlement-ppn=full-less-advance | tax_concept.md | **Living copy**: ERP edits it first, then harvests. P113: full PPN less the advances' PPN, assuming 12 % and 11/12 do not change (refused if they differ); P118: the advance's PPN recalculated by the chain |
+| accounting/tax-indonesia | 3.0 | settlement-ppn=full-less-advance | tax_concept.md | **Living copy**: ERP edits it first, then harvests. P113: full PPN less the advances' PPN, assuming 12 % and 11/12 do not change (refused if they differ); P118: the advance's PPN recalculated by the chain |
 | sales/order-to-cash | 3.0 | core | — | Reference implementation: Sales-Process-Concept.md; P93–P99, P107, P112, P117, P137–P143 harvested |
 | inventory/stock-books | 1.0 | core | — | P95, P114, P120, P135, P136 |
 | purchasing/procure-to-pay | 1.0 | core | — | Reference implementation: Purchasing-Concept.md; P121–P129 |
@@ -59,13 +59,12 @@ Project decisions that look reusable and are waiting to be folded into the KB
 | Project decision | Target concept | Proposed change | Status |
 | --- | --- | --- | --- |
 | P233 | `accounting/open-items` | Report receivable and advance as two books, each signed on its own movement, with a balance report per partner listing each item's source and progress | Offered |
-| P302 | `accounting/tax-indonesia` §4.5 | A payment line enters the part of the bill settled; its PPh always follows as the positional share (partial payments too, no switch) and the cash is settled − PPh — replacing "the cash is what the user enters" (the user's answer B, 20/11/2026) | Offered |
 | P245, P254, P259 | `ui/design-convention` (and `engineering/security-rbac`) | Several applications behind one sign-in: a picker after login, a derived app access (no app table), one shell per application with modules on its rail, and the *Pilih aplikasi* icon in the topbar — offered once it has been used in ERP for a while (the user, 11/11/2026) | Waiting |
 
 Processed 04/11/2026: P106 → `engineering/app-architecture` 1.2; P109 →
 `engineering/data-conventions` 1.1; P110, P223 → `accounting/books-and-posting`
 3.2; P116, P117 → `accounting/open-items` 2.1; P107, P112, P117, P137, P141,
-P143 → `sales/order-to-cash` 3.0; P121, P122 → `accounting/tax-indonesia` 2.3;
+P143 → `sales/order-to-cash` 3.0; P121, P122 → `accounting/tax-indonesia` 2.3; P302 → `accounting/tax-indonesia` 3.0 (22/11/2026);
 P222 → `accounting/fiscal-periods-and-statements` 2.0; P95, P114, P120, P135,
 P136 → `inventory/stock-books` 1.0; P121–P129 → `purchasing/procure-to-pay` 1.0.
 

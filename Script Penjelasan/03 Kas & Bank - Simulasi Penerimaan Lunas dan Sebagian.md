@@ -1,6 +1,6 @@
 # Simulasi Cash Bank Transaction — langkah demi langkah
 
-> **Diperbarui oleh P302 (20/11/2026).** Isian baris sekarang adalah **Dilunasi** (bagian tagihan yang diselesaikan, PPN dan PPh termasuk), bukan uang yang diterima. PPh **selalu** dipotong bila tagihan punya Jenis PPh, termasuk pelunasan sebagian, dan saklar *Potong PPh* sudah dihapus. Uang = Dilunasi − PPh, dengan PPh = bagian positional (`settleBill`). Perhitungan mundur dari uang (`settleBillFromCash`, estimasi lalu geser beberapa rupiah, P134) **sudah tidak dipakai**; bagian dokumen ini yang memakainya tinggal sebagai riwayat.
+> **Diperbarui oleh P302 (20/11/2026).** Isian baris sekarang adalah **Dilunasi** (bagian tagihan yang diselesaikan, PPN dan PPh termasuk), bukan uang yang diterima. PPh **selalu** dipotong bila tagihan punya Jenis PPh, termasuk pelunasan sebagian, dan saklar *Potong PPh* sudah dihapus. Uang = Dilunasi − PPh, dengan PPh = bagian positional (`settleBill`). Perhitungan mundur dari uang (`settleBillFromCash`, estimasi lalu geser beberapa rupiah, P134) **sudah tidak dipakai**; bagian dokumen ini yang memakainya tinggal sebagai riwayat. Cara hitung yang berlaku ada di Script Penjelasan 10.
 
 Simulasi Penerimaan (Kas & Bank) untuk **Uang Muka Penjualan** dan **Invoice
 Penjualan**, masing-masing dua kasus: **dibayar sekali lunas** dan **dibayar

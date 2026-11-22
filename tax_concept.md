@@ -253,10 +253,9 @@ Each withholding type is master data holding:
   3. A **pending withholding slip** is created per settled document, per
      payment, per withholding type (§6).
 - **The user never types a PPh amount.** A payment for a bill that carries
-  withholding has one switch, *PPh withheld* (on by default):
-  - **on**: the withholding is computed by rule;
-  - **off**: the payer paid without withholding, so there is no PPh and no
-    slip, and the cash settles the bill in full.
+  withholding always withholds it, computed by rule on the part settled
+  (§4.5). There is no switch. A payer who paid without withholding is resolved
+  by a flow of its own, outside the payment.
 - A payer who withheld a different amount than the rule's figure is not
   modelled. The rule's figure is recorded.
 
@@ -565,7 +564,7 @@ purchasing is built.
 | Q15 | Return note for a non-PKP buyer: later |
 | Q16 | A tax invoice record is fully derived; no manual edits of its figures |
 | Q17 | NITKU: one per billing address, on the tax invoice; built later |
-| Q18 | No manual PPh amount. A payment has a *PPh withheld* switch: on computes by rule, off means no PPh and no slip. A different withheld amount is not modelled |
+| Q18 | No manual PPh amount. A payment for a bill that carries withholding always withholds it by rule; the *PPh withheld* switch first agreed here was retired (§4.5). A different withheld amount is not modelled |
 | Q19 | One withholding slip per settled document, per payment, per withholding type (amended 30/09/2026: a payment may settle several documents, and a payer's slip refers to one) |
 | Q20 | A slip that never arrives stays *awaiting* (late); its closing is decided later |
 | Q21 | A received slip is assumed to match the recorded amount |
