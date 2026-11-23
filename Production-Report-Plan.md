@@ -1,6 +1,6 @@
 # Rencana — Laporan Stok Produksi mengikuti Kartu Stok & Saldo Stok
 
-> Status: **disetujui user 23/11/2026** (D1–D8 sesuai rekomendasi, P310). Langkah 0–1 selesai; sisanya belum dibangun.
+> Status: **disetujui user 23/11/2026** (D1–D8 sesuai rekomendasi, P310). Semua langkah selesai (P310, P314, P315).
 > Melanjutkan K6 `Stock-Report-UI-Plan.md` ("laporan produksi menyusul").
 > Tetap berlaku: tanpa harga di aplikasi Produksi (P275), satu tingkat lipat (K1),
 > Masuk / Keluar (K3), Per Tanggal untuk saldo (K2), jumlah barang berbeda tidak dijumlah (P135).
@@ -58,7 +58,7 @@ Satu laporan. **Menu Kartu No. Stok hilang; menjadi pilihan No. Stok di Kartu Pr
 - **Memilih No. Stok** memindahkan Kelompok ke Per No. Stok dan periode ke seluruh hidupnya (mutasi pertama sampai hari ini); keduanya tetap bisa diubah.
 - Per Unit / Per Barang: satu blok per Barang × Unit. Per No. Stok: satu blok per No. Stok melintasi semua Unit, dengan Barang, asal, supplier, kadaluarsa, *Sekarang di* (Unit · Tahap · jumlah) dan tombol Telusur di kepalanya; wajib memilih No. Stok, Barang atau Unit agar tidak membuka semuanya.
 - Kepala blok: **Saldo Awal · Masuk · Keluar · Saldo Akhir**; tertutup kecuali hanya satu; mutasi dimuat saat dibuka, 100 per halaman.
-- Kolom: Tanggal (`MP/…` di bawah) · Dokumen (tautan) · Keterangan (Dari gudang, Dari UGH, Ke UPC, Dipakai grading, Hasil grading, Ke gudang) · Unit (hanya Per No. Stok) · No. Stok (selain Per No. Stok) · Partai / No. Job · Masuk · Keluar · Saldo.
+- Kolom: Tanggal (`MP/…` di bawah) · Dokumen (tautan untuk dokumen Produksi; dokumen ERP hanya nomornya, karena pengguna lantai tidak punya aplikasi ERP) · Keterangan (Dari gudang, Dari UGH, Ke UPC, Dipakai grading, Hasil grading, Ke gudang) · Unit (hanya Per No. Stok) · No. Stok (selain Per No. Stok) · Partai / No. Job · Masuk · Keluar · Saldo.
 - Baris dinetokan (§3.1). Pindah Unit pada Per No. Stok tampil sebagai satu baris *UGH → UPC* tanpa Masuk / Keluar, karena barangnya tidak bertambah atau berkurang.
 - Centang **Tampilkan perpindahan tahap** (bawaan mati; menyala saat No. Stok dipilih): baris *Persiapan → Stand By* tanpa Masuk / Keluar. Saldo dan total tidak berubah, jadi rincian Kartu No. Stok lama tidak hilang.
 - Tanpa Nilai.
@@ -76,8 +76,8 @@ Telusur; laporan stok Persediaan; nilai WIP (menyusul di ERP bersama Closing).
 | --- | --- | --- |
 | 0 | **Perbaiki A1** dan satu tes mutasi bertanggal mundur | **selesai (P310)** |
 | 1 | `Stock-Report-UI-Plan.md` langkah 2–3 (Kartu Stok dan Saldo Stok ke bentuk satu tingkat) — pola yang dipakai ulang | **selesai (P314)** |
-| 2 | Saldo Produksi (§4.1) | sedang |
-| 3 | Kartu Produksi dengan pilihan No. Stok, dan Kartu No. Stok dihapus (§4.2) | sedang |
+| 2 | Saldo Produksi (§4.1) | **selesai (P315)** |
+| 3 | Kartu Produksi dengan pilihan No. Stok, dan Kartu No. Stok dihapus (§4.2) | **selesai (P315)** |
 
 Langkah 1 lebih dulu: Kartu Stok hari ini masih dua tingkat lipat dan mengirim semua mutasi ke browser; menirunya sekarang berarti membangun dua kali. Pada beban produksi (satu keping satu No. Stok sesudah Barcoding), pemuatan bertahap wajib untuk kartu. Bagian isi Saldo juga perlu dibatasi per blok bila satu Unit memegang ribuan keping; angka header tetap dari agregat.
 

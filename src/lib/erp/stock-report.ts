@@ -457,23 +457,3 @@ export async function lotStockPositions(lotIds: number[]): Promise<LotStockPosit
   });
   return rows.map((r) => ({ lotId: r.tracking_id, warehouseLabel: r.warehouse.warehouse_label, locationLabel: r.location?.location_label ?? null, qty: num(r.qty_balance) }));
 }
-
-export type LotStockMovement = { date: string; ledgerNo: string; sourceNo: string; warehouseLabel: string; locationLabel: string | null; qtyChange: number; value: number };
-
-/** A lot's movements in the stock books, oldest first — the stock half of Kartu Lot (R18). */
-export async function lotStockHistory(lotId: number): Promise<LotStockMovement[]> {
-  const rows = await prisma.logStockLedger.findMany({
-    where: { tracking_id: lotId },
-    orderBy: [{ posting_date: "asc" }, { id: "asc" }],
-    include: { warehouse: { select: { warehouse_label: true } }, location: { select: { location_label: true } } },
-  });
-  return rows.map((r) => ({
-    date: iso(r.posting_date),
-    ledgerNo: `${r.ledger_no}#${r.line_no}`,
-    sourceNo: r.source_no,
-    warehouseLabel: r.warehouse.warehouse_label,
-    locationLabel: r.location?.location_label ?? null,
-    qtyChange: num(r.qty_change),
-    value: num(r.value_change),
-  }));
-}

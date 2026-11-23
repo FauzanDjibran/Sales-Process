@@ -7,6 +7,7 @@ import { apBookEntriesPage } from "@/lib/erp/ap-item";
 import { arBookEntriesPage } from "@/lib/erp/ar-item";
 import { attachDocumentNumbers, withAgreementNumbers } from "@/lib/erp/document-numbers";
 import type { BookEntry, BookKind, BookSide } from "@/lib/erp/partner-book";
+import { productionCardEntriesPage, productionLots, type ProductionCardEntry, type ProductionCardFilter, type ProductionCardKind } from "@/lib/erp/production-report";
 import { stockCardEntriesPage, type StockLedgerEntry } from "@/lib/erp/stock-report";
 import type { BookCursor } from "@/lib/erp/register-query";
 
@@ -82,4 +83,43 @@ export async function loadStockCardEntries(
     return { ok: false, error: "Permintaan tidak valid." };
   }
   return { ok: true, ...(await stockCardEntriesPage(itemId, warehouseId, { from, to }, lotNos, cursor)) };
+}
+
+/** One page of a Kartu Produksi card's netted rows, read when its block is opened (P310). */
+export async function loadProductionCardEntries(
+  kind: ProductionCardKind,
+  subject: { itemId: number; ofId: number },
+  filter: ProductionCardFilter,
+  from: string,
+  to: string,
+  stages: boolean,
+  cursor: BookCursor | null
+): Promise<Page<ProductionCardEntry>> {
+  try {
+    await authorizeAction("REPORT_PRODUCTION_CARD_VIEW");
+  } catch (error) {
+    if (isAccessDenied(error)) return { ok: false, error: error.message };
+    throw error;
+  }
+  const ints = (v: unknown): v is number[] => Array.isArray(v) && v.every(Number.isInteger);
+  const cursorOk = !cursor || (DAY.test(cursor.date) && Number.isInteger(cursor.id));
+  const filterOk = ints(filter?.unitIds) && ints(filter.itemIds) && ints(filter.lotIds);
+  if ((kind !== "unit" && kind !== "lot") || !Number.isInteger(subject?.itemId) || !Number.isInteger(subject.ofId) || !filterOk || !DAY.test(from) || !DAY.test(to) || !cursorOk) {
+    return { ok: false, error: "Permintaan tidak valid." };
+  }
+  return { ok: true, ...(await productionCardEntriesPage(kind, subject, filter, { from, to }, stages === true, cursor)) };
+}
+
+/** The No. Stok a typed or scanned number names, for Kartu Produksi's filter. */
+export async function findProductionLot(no: string): Promise<{ ok: true; no: string } | { ok: false; error: string }> {
+  try {
+    await authorizeAction("REPORT_PRODUCTION_CARD_VIEW");
+  } catch (error) {
+    if (isAccessDenied(error)) return { ok: false, error: error.message };
+    throw error;
+  }
+  if (typeof no !== "string" || !no.trim()) return { ok: false, error: "Isi No. Stok." };
+  const [lot] = await productionLots([no.trim()]);
+  if (!lot) return { ok: false, error: `No. Stok ${no.trim()} tidak ditemukan.` };
+  return lot.first ? { ok: true, no: lot.no } : { ok: false, error: `${lot.no} belum pernah di produksi.` };
 }

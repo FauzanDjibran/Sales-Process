@@ -331,7 +331,7 @@ export const PERMISSIONS = [
   { code: "PRODUCTION_COST_BILL_POST", name: "Posting Tagihan Biaya", module: "costing", description: "Menjurnal biaya ke account Jenis Biaya dan Hutang Biaya Produksi." },
   { code: "PRODUCTION_COST_BILL_CANCEL", name: "Batalkan Tagihan Biaya", module: "costing", description: "Hanya Draft, dengan alasan." },
   { code: "REPORT_WIP_BALANCE_VIEW", name: "Lihat Saldo Produksi", module: "production", description: "Barang di produksi per unit dan lot pada satu tanggal." },
-  { code: "REPORT_LOT_CARD_VIEW", name: "Lihat Kartu No. Stok", module: "production", description: "Seluruh mutasi satu No. Stok di produksi dan di stok." },
+  { code: "REPORT_PRODUCTION_CARD_VIEW", name: "Lihat Kartu Produksi", module: "production", description: "Mutasi jumlah per barang per unit, atau per No. Stok." },
   { code: "REPORT_PRODUCTION_TRACE_VIEW", name: "Lihat Telusur Produksi", module: "production", description: "Silsilah satu lot mundur sampai supplier dan maju sampai customer." },
 
   // -------------------------------------------------------------- inventory

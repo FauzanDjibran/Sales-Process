@@ -49,7 +49,7 @@ describe("the application a user has decides where they land", () => {
 
   test("Produksi's modules share /production, and the leaf decides which is open (P258)", () => {
     assert.equal(resolvePath("/production/grading/3").module?.key, "production-document");
-    assert.equal(resolvePath("/production/report/lot-card").module?.key, "production-report");
+    assert.equal(resolvePath("/production/report/production-card").module?.key, "production-report");
     assert.equal(resolvePath("/production/workspace/UGH").module?.key, "production-work");
     assert.equal(resolvePath("/production/profile").module, undefined);
     assert.equal(entityHref("production-master", "employee"), "/production/employee");

@@ -76,27 +76,41 @@ export function MultiSelect({
       />
 
       {value.length > 0 && (
-        <div className="rchips">
-          {value.map((id) => (
-            <button
-              key={id}
-              type="button"
-              className="rchip"
-              title={removeTitle}
-              disabled={disabled}
-              onClick={() => remove(id)}
-            >
-              {byId.get(id)?.label ?? id}
-              <Icon name="block" size={10} />
-            </button>
-          ))}
+        <ChosenChips chips={value.map((id) => ({ key: id, label: String(byId.get(id)?.label ?? id) }))} title={removeTitle} disabled={disabled} onRemove={remove}>
           {value.length > 1 && !disabled && (
             <button type="button" className="lnk" onClick={() => onChange([])}>
               {clearLabel}
             </button>
           )}
-        </div>
+        </ChosenChips>
       )}
     </>
+  );
+}
+
+/** The removable chips of what is chosen; for a set whose options are too many to list (Kartu Produksi's No. Stok). */
+export function ChosenChips<K extends string | number>({
+  chips,
+  title,
+  disabled,
+  onRemove,
+  children,
+}: {
+  chips: { key: K; label: string }[];
+  title?: string;
+  disabled?: boolean;
+  onRemove: (key: K) => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="rchips">
+      {chips.map((c) => (
+        <button key={c.key} type="button" className="rchip" title={title} disabled={disabled} onClick={() => onRemove(c.key)}>
+          {c.label}
+          <Icon name="block" size={10} />
+        </button>
+      ))}
+      {children}
+    </div>
   );
 }

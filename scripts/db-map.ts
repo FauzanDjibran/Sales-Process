@@ -187,7 +187,7 @@ const REPORTS: Record<string, string[]> = {
   stock_valuation_ledger: ["valuationLedgerReport"],
   stock_valuation: ["valuationReport", "closingBalances"],
   wip_balance: ["wipBalanceReport", "productionBooksReconcile"],
-  lot_card: ["lotCardReport"],
+  production_card: ["productionCardReport", "productionCardEntriesPage", "productionLots"],
   trace: ["traceReport"],
 };
 /** What a registry save writes beyond its own rows: a Cash & Bank's Saldo Awal (P31). */

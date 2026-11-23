@@ -258,6 +258,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | W146 | **Tes simulasi PO sampai Finish Goods** (P306). Satu tes menjalankan seluruh routing Reguler dengan Unit seed, sampai Kotak, BSTB ke Finish Goods dan BSTB Pengeluaran, dan membuktikan stok + WIP + beban = pembelian + biaya Unit. Walk-through penuh lewat layar belum dilakukan | User (rencana 7.8) |
 | W147 | **Hasil grading tidak boleh melebihi gram input** (P307). Server menolaknya saat Posting, per baris dokumen, BJL ikut dihitung; Draft tetap bisa disimpan | User |
 | W148 | **Laporan stok produksi mengikuti Kartu Stok dan Saldo Stok** (P310, `Production-Report-Plan.md`): Saldo Produksi Per Unit / Barang / Partai; Kartu Produksi baru, dengan Kartu No. Stok sebagai pilihan No. Stok di dalamnya (mengganti W86); perpindahan tahap dinetokan. Selesai: Saldo Produksi tanggal lampau dijumlah dari mutasi. Sisanya belum dibangun | User |
+| W149 | **Saldo Produksi dan Kartu Produksi selesai** (P315): Saldo Produksi Per Unit / Barang / Partai; Kartu Produksi per Barang × Unit atau per No. Stok (menu Kartu No. Stok hilang, mengganti W86), perpindahan tahap dinetokan dan bisa ditampilkan lewat centang | User |
 
 ---
 

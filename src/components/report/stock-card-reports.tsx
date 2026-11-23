@@ -33,12 +33,12 @@ import { formatDate, formatNumber } from "@/lib/format";
  * items is its summary.
  */
 
-const qty = (n: number) => {
+export const qty = (n: number) => {
   const text = formatNumber(Math.abs(n), Number.isInteger(n) ? 0 : 4);
   return n === 0 ? "—" : n < 0 ? `(${text})` : text;
 };
 /** A quantity holds six decimals; adding them as numbers must not leave a tail. */
-const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
+export const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
 type Subjects = { item: StockItemRef; warehouse: StockWarehouseRef };
 const cardKey = (c: Subjects) => `${c.item.id}:${c.warehouse.id}`;
@@ -59,14 +59,14 @@ function groupCards<T extends Subjects>(cards: T[], by: StockGroupBy): Group<T>[
   return list;
 }
 
-function flip<K>(set: Set<K>, k: K) {
+export function flip<K>(set: Set<K>, k: K) {
   const next = new Set(set);
   if (!next.delete(k)) next.add(k);
   return next;
 }
 
 /** Buka / Tutup Semua over a report's blocks, when there is more than one. */
-function expandOf<K>(keys: K[], open: Set<K>, show: (next: Set<K>) => void) {
+export function expandOf<K>(keys: K[], open: Set<K>, show: (next: Set<K>) => void) {
   if (keys.length < 2) return undefined;
   return { onExpand: () => show(new Set(keys)), onCollapse: () => show(new Set()), allOpen: open.size === keys.length, allClosed: open.size === 0 };
 }
@@ -103,7 +103,7 @@ function Source({ s }: { s: StockSourceRef }) {
   );
 }
 
-const Figure = ({ n }: { n: number }) => (n ? <span className="mny">{qty(n)}</span> : <span className="dash">—</span>);
+export const Figure = ({ n }: { n: number }) => (n ? <span className="mny">{qty(n)}</span> : <span className="dash">—</span>);
 
 const Empty = ({ body }: { body: string }) => <ReportEmpty icon="layers" title="Tidak ada stok" body={body} />;
 

@@ -221,7 +221,7 @@ async function main() {
   console.log(`   biaya UP5          ${rupiah(row.cost_amount.toNumber())}`);
   console.log(`   bahan penolong     ${rupiah(row.aux_value.toNumber())}`);
   console.log(`   NILAI KOTAK        ${rupiah(row.value.toNumber())}`);
-  console.log(`\nCek di layar: Telusur Produksi atau Kartu No. Stok untuk ${box.trackingNo}; Saldo Produksi; Kartu Stok SM-A.`);
+  console.log(`\nCek di layar: Telusur Produksi atau Kartu Produksi untuk ${box.trackingNo}; Saldo Produksi; Kartu Stok SM-A.`);
 }
 
 main()

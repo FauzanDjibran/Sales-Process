@@ -851,25 +851,25 @@
     "prd_balance",
     "prd_job",
     "prd_ledger",
+    "prd_partai",
     "ref_unit",
-    "ref_unit_step",
-    "ref_uom"
+    "ref_unit_step"
    ]
   },
-  "report_lot_card": {
+  "report_production_card": {
    "main": null,
    "w": [],
    "r": [
-    "log_stock_ledger",
     "log_stock_tracking",
     "m_item",
     "m_partner",
+    "prd_balance",
+    "prd_job",
     "prd_ledger",
+    "prd_partai",
     "ref_unit",
     "ref_unit_step",
-    "ref_uom",
-    "ref_warehouse",
-    "ref_warehouse_location"
+    "sys_doc_type"
    ]
   },
   "report_trace": {

@@ -52,7 +52,9 @@ export type ReportParams =
   | "stock-asof"
   /** The one date production stands at, optionally units (R18). */
   | "production-asof"
-  /** One lot number to look up (R18, R27). */
+  /** Units, items, No. Stok and a date range (P310). */
+  | "production-period"
+  /** One lot number to look up (R27). */
   | "production-lot";
 
 export type ReportDef = {
@@ -305,22 +307,22 @@ const FIXED_REPORTS = [
     slug: "wip-balance",
     module: "production",
     name: "Saldo Produksi",
-    desc: "Barang yang ada di produksi pada satu tanggal, per unit, tahap dan No. Stok.",
+    desc: "Barang yang ada di produksi pada satu tanggal, per unit, per barang atau per partai.",
     icon: "layers",
     permission: "REPORT_WIP_BALANCE_VIEW",
     params: "production-asof",
     subjectRequired: false,
   },
   {
-    key: "lot_card",
-    slug: "lot-card",
+    key: "production_card",
+    slug: "production-card",
     module: "production",
-    name: "Kartu No. Stok",
-    desc: "Seluruh mutasi satu No. Stok — di produksi (unit, tahap dan jumlah) dan di stok.",
+    name: "Kartu Produksi",
+    desc: "Masuk, keluar dan saldo per barang per unit pada rentang tanggal, atau seluruh perjalanan sebuah No. Stok.",
     icon: "book",
-    permission: "REPORT_LOT_CARD_VIEW",
-    params: "production-lot",
-    subjectRequired: true,
+    permission: "REPORT_PRODUCTION_CARD_VIEW",
+    params: "production-period",
+    subjectRequired: false,
   },
   {
     key: "trace",

@@ -1064,3 +1064,9 @@ export async function partaiNosByIds(ids: number[], db: Db = prisma): Promise<Ma
   const rows = await db.prdPartai.findMany({ where: { id: { in: ids } }, select: { id: true, partai_no: true } });
   return new Map(rows.map((r) => [r.id, r.partai_no]));
 }
+
+/** Every partai, newest first: a report's filter. */
+export async function allPartai(db: Db = prisma): Promise<{ id: number; no: string }[]> {
+  const rows = await db.prdPartai.findMany({ orderBy: { id: "desc" }, select: { id: true, partai_no: true } });
+  return rows.map((p) => ({ id: p.id, no: p.partai_no }));
+}
