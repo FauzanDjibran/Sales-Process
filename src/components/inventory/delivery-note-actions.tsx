@@ -17,6 +17,7 @@ import {
   type DeliveryNoteAction,
   type DeliveryNoteStatus,
 } from "@/lib/erp/delivery-note-workflow";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 /** Why a final note offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<DeliveryNoteStatus, string>> = {
@@ -44,7 +45,7 @@ export function DeliveryNoteActions({
   can: DeliveryNoteAbilities;
 }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<DeliveryNoteAction | null>(null);
+  const [confirm, setConfirm] = useState<DeliveryNoteAction | null>(useInitialAction<DeliveryNoteAction>(availableDeliveryNoteActions(status, can)));
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);

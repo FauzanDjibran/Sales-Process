@@ -823,6 +823,7 @@ export async function transitionPurchaseInvoice(
 // ------------------------------------------------------------------- reads
 
 export type PurchaseInvoiceListRow = {
+  orderId: number;
   id: number;
   /** The document's currency, every figure on the row is in (MC3). */
   currency: string;
@@ -846,6 +847,7 @@ export async function listPurchaseInvoices(): Promise<PurchaseInvoiceListRow[]> 
   ]);
   return rows.map((r) => ({
     id: r.id,
+    orderId: r.purchase_order_id,
     currency: r.currency.currency_label,
     pay: pay[r.id] ?? null,
     invoiceNo: r.invoice_no,

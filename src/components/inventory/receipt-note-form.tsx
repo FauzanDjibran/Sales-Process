@@ -19,6 +19,8 @@ import type { ReceiptNoteHeaderInput, ReceiptNoteOptions, ReceiptNoteView } from
 import { PURCHASE_ORDER_KINDS, purchaseOrderKindOf } from "@/lib/erp/purchase-order-workflow";
 import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { RECEIPT_NOTE_TRANSITIONS, availableReceiptNoteActions } from "@/lib/erp/receipt-note-workflow";
 
 /**
  * A Receipt Note in all three modes (P125): the Purchase Order first — chosen
@@ -138,7 +140,10 @@ export function ReceiptNoteForm({
   };
   const total = lines.reduce((s, l, i) => s + valueOf(l, i), 0);
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableReceiptNoteActions("Draft", can), RECEIPT_NOTE_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const payload = lines.map((l) => ({
       source_doc_line_id: l.source_doc_line_id,
@@ -155,7 +160,7 @@ export function ReceiptNoteForm({
     }
     setDirty(false);
     toast("Receipt Note disimpan", `${result.rnNo} · Draft`, "ok");
-    router.push(`/inventory/receipt-note/${result.id}`);
+    router.push(withStep(`/inventory/receipt-note/${result.id}`, step));
   }
 
   const status = note?.status ?? "Draft";
@@ -417,9 +422,7 @@ export function ReceiptNoteForm({
                   </span>
                 )}
                 <CancelButton href={note ? `/inventory/receipt-note/${note.id}` : "/inventory/receipt-note"} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <ReceiptNoteActions id={note!.id} subject={note!.rnNo} status={status} can={can} />

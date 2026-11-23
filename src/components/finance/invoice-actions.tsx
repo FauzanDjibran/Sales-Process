@@ -19,6 +19,7 @@ import {
   type InvoiceAction,
   type InvoiceStatus,
 } from "@/lib/erp/ar-invoice-workflow";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 /** Why a final note offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<InvoiceStatus, string>> = {
@@ -52,7 +53,7 @@ export function InvoiceActions({
   const TRANSITIONS = permit ? PERMIT_INVOICE_TRANSITIONS : INVOICE_TRANSITIONS;
   const base = permit ? "/finance/invoice/permit" : "/finance/invoice/sales";
   const toast = useToast();
-  const [confirm, setConfirm] = useState<InvoiceAction | null>(null);
+  const [confirm, setConfirm] = useState<InvoiceAction | null>(useInitialAction<InvoiceAction>(availableInvoiceActions(status, can)));
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);

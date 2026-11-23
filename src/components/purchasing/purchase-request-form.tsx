@@ -23,6 +23,8 @@ import {
 import type { PurchaseRequestHeaderInput, PurchaseRequestOptions, PurchaseRequestView } from "@/lib/erp/purchase-request";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { PURCHASE_REQUEST_TRANSITIONS, availablePurchaseRequestActions } from "@/lib/erp/purchase-request-workflow";
 
 /**
  * A Purchase Request in all three modes: `new`, `edit` (Draft only) and `view`
@@ -101,7 +103,10 @@ export function PurchaseRequestForm({
     touch("_lines");
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availablePurchaseRequestActions("Draft", can), PURCHASE_REQUEST_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const payload = lines.map((l) => ({ item_id: l.item_id, qty: l.qty, needed_date: l.needed_date, note: l.note }));
     const result = mode === "edit" ? await updatePurchaseRequestAction(request!.id, header, payload) : await createPurchaseRequestAction(header, payload);
@@ -119,7 +124,7 @@ export function PurchaseRequestForm({
     }
     setDirty(false);
     toast("Purchase Request disimpan", `${result.requestNo} · Draft`, "ok");
-    router.push(`${k.path}/${result.id}`);
+    router.push(withStep(`${k.path}/${result.id}`, step));
   }
 
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
@@ -349,9 +354,7 @@ export function PurchaseRequestForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <PurchaseRequestActions id={request!.id} basePath={k.path} subject={request!.requestNo} status={status} can={can} />

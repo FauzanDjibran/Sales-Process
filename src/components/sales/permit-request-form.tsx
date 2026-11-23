@@ -29,6 +29,8 @@ import type { PermitRequestOptions, PermitRequestView, PermitTypeOption } from "
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { PERMIT_REQUEST_TRANSITIONS, availablePermitRequestActions } from "@/lib/erp/permit-request-workflow";
 
 /**
  * The Pengajuan Perizinan, in four modes: `new`, `edit` (Draft), `view`, and
@@ -226,7 +228,10 @@ export function PermitRequestForm({
     touch("_lines");
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = realizing ? null : firstStep(availablePermitRequestActions("Draft", can), PERMIT_REQUEST_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const result = realizing
       ? await saveRealizationAction(request!.id, {
@@ -254,7 +259,7 @@ export function PermitRequestForm({
     }
     setDirty(false);
     toast(realizing ? "Realisasi disimpan" : "Pengajuan Perizinan disimpan", result.requestNo, "ok");
-    router.push(`/sales/permit/${result.id}`);
+    router.push(withStep(`/sales/permit/${result.id}`, step));
   }
   const payloadLines = () =>
     lines.map((l) => ({ permit_type_id: l.permit_type_id, description: l.description, estimate_price: Number(l.estimate) || 0 }));
@@ -829,9 +834,7 @@ export function PermitRequestForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : realizing ? "Simpan Realisasi" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} label={realizing ? "Simpan Realisasi" : "Simpan"} />
               </>
             ) : (
               <PermitRequestActions

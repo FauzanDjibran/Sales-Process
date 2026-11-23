@@ -32,6 +32,8 @@ import type {
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { CUSTOMER_ORDER_TRANSITIONS, availableCustomerOrderActions } from "@/lib/erp/customer-order-workflow";
 
 /**
  * The Customer Order, in all three modes: `new` (also a Salin), `edit` (Draft
@@ -291,7 +293,10 @@ export function CustomerOrderForm({
       note: l.note,
     }));
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableCustomerOrderActions("Draft", can), CUSTOMER_ORDER_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const result =
       mode === "edit"
@@ -310,7 +315,7 @@ export function CustomerOrderForm({
     }
     setDirty(false);
     toast("Customer Order disimpan", `${result.orderNo} · Draft`, "ok");
-    router.push(`/sales/customer-order/${result.id}`);
+    router.push(withStep(`/sales/customer-order/${result.id}`, step));
   }
 
   const status = order?.status ?? "Draft";
@@ -972,9 +977,7 @@ export function CustomerOrderForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <CustomerOrderActions id={order!.id} subject={order!.orderNo} status={status} can={can} />

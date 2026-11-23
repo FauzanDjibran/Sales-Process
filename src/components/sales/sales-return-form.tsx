@@ -26,6 +26,8 @@ import {
 import type { SalesReturnHeaderInput, SalesReturnOptions, SalesReturnView } from "@/lib/erp/sales-return";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { SALES_RETURN_TRANSITIONS, availableSalesReturnActions } from "@/lib/erp/sales-return-workflow";
 
 /**
  * A Sales Return in all three modes: `new`, `edit` (Draft only) and `view`
@@ -122,7 +124,10 @@ export function SalesReturnForm({
     setPickerOpen(false);
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableSalesReturnActions("Draft", can), SALES_RETURN_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     // Every line was picked on purpose, so a blank quantity is sent and refused on its row.
     const sent = lines;
@@ -147,7 +152,7 @@ export function SalesReturnForm({
     }
     setDirty(false);
     toast("Sales Return disimpan", `${result.returnNo} · Draft`, "ok");
-    router.push(`/sales/return/${result.id}`);
+    router.push(withStep(`/sales/return/${result.id}`, step));
   }
 
   const status = ret?.status ?? "Draft";
@@ -504,9 +509,7 @@ export function SalesReturnForm({
         {editing ? (
           <>
             <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-            <button className="btn primary" onClick={onSave} disabled={saving}>
-              <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-            </button>
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
           </>
         ) : (
           <SalesReturnActions id={ret!.id} subject={ret!.returnNo} status={status} can={can} />

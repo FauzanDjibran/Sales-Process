@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { windowOf, type Paged, type RegisterQuery } from "./register-query";
+import { dateWithin, windowOf, type Paged, type RegisterQuery } from "./register-query";
 import { BASE_CURRENCY_LABEL, isBaseCurrency } from "./currency";
 import { roundBase, shareBase } from "./fx";
 import { nextDocumentNumber } from "./document-number";
@@ -1167,6 +1167,7 @@ export async function cashBankTxPage(direction: "In" | "Out", query: RegisterQue
   const scope = { direction };
   const where: Prisma.FinCashBankTxWhereInput = {
     ...scope,
+    ...(query.range ? { tx_date: dateWithin(query.range) } : {}),
     ...(query.status ? { status: query.status as CashBankTxStatus } : {}),
     ...(query.q
       ? {

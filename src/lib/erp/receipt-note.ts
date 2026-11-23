@@ -1048,6 +1048,7 @@ export async function liveReceiptNoteRefusal(tx: Prisma.TransactionClient, purch
 // ------------------------------------------------------------------- reads
 
 export type ReceiptNoteListRow = {
+  isReturn: boolean;
   id: number;
   rnNo: string;
   rnDate: string;
@@ -1068,6 +1069,7 @@ export async function listReceiptNotes(): Promise<ReceiptNoteListRow[]> {
   });
   return rows.map((r) => ({
     id: r.id,
+    isReturn: r.purpose === SALES_RETURN,
     rnNo: r.rn_no,
     rnDate: isoDay(r.rn_date),
     status: r.status as ReceiptNoteStatus,

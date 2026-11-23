@@ -30,6 +30,8 @@ import type {
 } from "@/lib/erp/delivery-note";
 import { formatDate, formatNumber, formatPrice, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { DELIVERY_NOTE_TRANSITIONS, availableDeliveryNoteActions } from "@/lib/erp/delivery-note-workflow";
 
 /**
  * A Delivery Note in all three modes: `new`, `edit` (Draft only) and `view`
@@ -152,7 +154,10 @@ export function DeliveryNoteForm({
     setPickerOpen(false);
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableDeliveryNoteActions("Draft", can), DELIVERY_NOTE_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     // Every line was picked on purpose, so a blank quantity is sent and refused
     // on its row rather than quietly dropped.
@@ -183,7 +188,7 @@ export function DeliveryNoteForm({
     }
     setDirty(false);
     toast("Delivery Note disimpan", `${result.dnNo} · Draft`, "ok");
-    router.push(`/inventory/delivery-note/${result.id}`);
+    router.push(withStep(`/inventory/delivery-note/${result.id}`, step));
   }
 
   const backHref = note ? `/inventory/delivery-note/${note.id}` : "/inventory/delivery-note";
@@ -635,9 +640,7 @@ export function DeliveryNoteForm({
         {editing ? (
           <>
             <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-            <button className="btn primary" onClick={onSave} disabled={saving}>
-              <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-            </button>
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
           </>
         ) : (
           <DeliveryNoteActions id={note!.id} subject={note!.dnNo} status={status} can={can} />

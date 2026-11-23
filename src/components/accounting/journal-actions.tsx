@@ -19,6 +19,7 @@ import {
   orderForHeader,
   type ActionTone,
 } from "@/lib/erp/header-actions";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 /**
  * A manual journal's lifecycle, as buttons in the page header.
@@ -46,7 +47,7 @@ export function JournalActions({
   can: JournalAbilities;
 }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<JournalAction | null>(null);
+  const [confirm, setConfirm] = useState<JournalAction | null>(useInitialAction<JournalAction>(isManual ? availableJournalActions(status, can) : []));
   const [busy, setBusy] = useState(false);
 
   if (!isManual) {

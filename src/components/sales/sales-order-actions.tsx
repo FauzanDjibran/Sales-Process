@@ -16,6 +16,7 @@ import {
   type SalesOrderAction,
   type SalesOrderStatus,
 } from "@/lib/erp/sales-order-workflow";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 /** Why a final or waiting order offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<SalesOrderStatus, string>> = {
@@ -43,7 +44,7 @@ export function SalesOrderActions({
   can: SalesOrderAbilities;
 }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<SalesOrderAction | null>(null);
+  const [confirm, setConfirm] = useState<SalesOrderAction | null>(useInitialAction<SalesOrderAction>(availableSalesOrderActions(status, can)));
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);

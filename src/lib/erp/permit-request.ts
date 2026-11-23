@@ -708,6 +708,7 @@ export async function saveRealization(
 // ------------------------------------------------------------------- reads
 
 export type PermitRequestListRow = {
+  poNo: string | null;
   id: number;
   requestNo: string;
   requestDate: string;
@@ -727,6 +728,7 @@ export async function listPermitRequests(): Promise<PermitRequestListRow[]> {
   });
   return rows.map((r) => ({
     id: r.id,
+    poNo: r.po_no,
     requestNo: r.request_no,
     requestDate: isoDay(r.request_date),
     customerLabel: r.customer.partner_label,

@@ -24,6 +24,7 @@ import {
 import type { ReceiptSource, TransferReceiptView } from "@/lib/erp/stock-transfer-receipt";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 
 /**
  * A Transfer Terima in its three modes (P300, Stock-Transfer-Plan.md §3.2).
@@ -115,7 +116,10 @@ export function TransferReceiptForm({
     touch("_lines");
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableStockTransferReceiptActions("Draft", can), STOCK_TRANSFER_RECEIPT_TRANSITIONS);
+
+  async function onSave(step?: string) {
     if (!source) return;
     setSaving(true);
     const sent = lines;
@@ -136,7 +140,7 @@ export function TransferReceiptForm({
     }
     setDirty(false);
     toast("Transfer Terima disimpan", `${result.receiptNo} · Draft`, "ok");
-    router.push(`/inventory/stock-transfer-receipt/${result.id}`);
+    router.push(withStep(`/inventory/stock-transfer-receipt/${result.id}`, step));
   }
 
   const backHref = receipt ? `/inventory/stock-transfer-receipt/${receipt.id}` : "/inventory/stock-transfer-receipt";
@@ -422,9 +426,7 @@ export function TransferReceiptForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving || !source || !lines.length}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} disabled={saving || !source || !lines.length} onSave={onSave} next={next} />
               </>
             ) : (
               <TransferActions

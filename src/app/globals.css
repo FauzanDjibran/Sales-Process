@@ -1424,3 +1424,20 @@ table.grid tbody tr.sel td{background:var(--accent-50)}
 .cbh .rsum > span{border-left-color:var(--line)}
 .cbh .rsum .neg b{color:var(--bad)}
 .cbh .rwarn{background:var(--bad-bg,#FFF1F2);border-color:var(--bad-line,#FECDD3);color:var(--bad)}
+
+/* ---------- document register (P309) ----------
+   Fixed widths so the columns that decide — status, value, payment — are never
+   pushed out; Nomor and the row's actions stay put when a narrow screen scrolls. */
+table.grid.reg{table-layout:fixed}
+table.grid.reg thead th,table.grid.reg tbody td{padding-left:8px;padding-right:8px;overflow:hidden;text-overflow:ellipsis}
+table.grid.reg .idc{max-width:100%;overflow:hidden}
+table.grid.reg .idc .nm{overflow:hidden;text-overflow:ellipsis}
+table.grid.reg .rk,table.grid.reg .ra{position:sticky;z-index:1;background:#fff}
+table.grid.reg .rk{left:0}
+table.grid.reg .ra{right:0}
+table.grid.reg thead th.rk,table.grid.reg thead th.ra{z-index:4}
+table.grid.reg tbody tr:hover td.rk,table.grid.reg tbody tr:hover td.ra{background:#F8FAFC}
+table.grid.reg .rsub.over{color:var(--bad)}
+table.grid.reg tbody td{white-space:normal;line-height:1.35}
+table.grid.reg tbody td .rsub,table.grid.reg tbody td .lab,table.grid.reg tbody td .mny,table.grid.reg tbody td .mono,table.grid.reg tbody td .bdg{white-space:nowrap}
+table.grid.reg .idc .nm{white-space:normal}

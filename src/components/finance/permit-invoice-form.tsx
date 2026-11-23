@@ -18,6 +18,8 @@ import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, type InvoiceAbilities } from
 import type { PermitInvoiceOptions, PermitInvoiceView } from "@/lib/erp/permit-invoice";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { PERMIT_INVOICE_TRANSITIONS, availableInvoiceActions } from "@/lib/erp/ar-invoice-workflow";
 
 /**
  * Invoice Perizinan (P137, Perizinan-Concept.md §9), in three modes. One
@@ -121,7 +123,10 @@ export function PermitInvoiceForm({
     : null;
   const shown = mode === "view" && invoice ? invoice.figures : null;
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableInvoiceActions("Draft", can), PERMIT_INVOICE_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const payload = deds.map((d) => ({ ar_item_id: d.ar_item_id, dpp_used: Number(d.dpp_used) || 0 }));
     const result =
@@ -134,7 +139,7 @@ export function PermitInvoiceForm({
     }
     setDirty(false);
     toast("Invoice Perizinan disimpan", `${result.invoiceNo} · Draft`, "ok");
-    router.push(`/finance/invoice/permit/${result.id}`);
+    router.push(withStep(`/finance/invoice/permit/${result.id}`, step));
   }
 
   const status = invoice?.status ?? "Draft";
@@ -554,9 +559,7 @@ export function PermitInvoiceForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <InvoiceActions id={invoice!.id} subject={`${invoice!.invoiceNo} – ${money(invoice!.figures.total)}`} status={status} can={can} variant="permit" />

@@ -27,6 +27,7 @@ import {
 import type { StockTransferHeaderInput, StockTransferOptions, StockTransferView } from "@/lib/erp/stock-transfer";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 
 /**
  * A Transfer Kirim in its three modes (P300, Stock-Transfer-Plan.md §3.1).
@@ -114,7 +115,10 @@ export function StockTransferForm({
     touch("from_warehouse_id", "_lines");
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableStockTransferActions("Draft", can), STOCK_TRANSFER_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const sentLines = lines;
     const payload = sentLines.map((l) => ({ item_id: l.item_id, qty: l.qty, note: "", picks: l.picks }));
@@ -133,7 +137,7 @@ export function StockTransferForm({
     }
     setDirty(false);
     toast("Transfer Kirim disimpan", `${result.transferNo} · Draft`, "ok");
-    router.push(`/inventory/stock-transfer/${result.id}`);
+    router.push(withStep(`/inventory/stock-transfer/${result.id}`, step));
   }
 
   const backHref = transfer ? `/inventory/stock-transfer/${transfer.id}` : "/inventory/stock-transfer";
@@ -519,9 +523,7 @@ export function StockTransferForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <TransferActions

@@ -1,182 +1,52 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Icon } from "@/components/icon";
-import { Pager, usePaging } from "@/components/ui/pager";
-import { SearchField } from "@/components/ui/search-field";
-import { Select } from "@/components/ui/select";
-import { formatDate, formatMoney } from "@/lib/format";
+import { Amount } from "@/components/ui/amount";
+import { DocumentRegister, rowSteps } from "@/components/ui/document-register";
 import type { CustomerOrderListRow } from "@/lib/erp/customer-order";
 import {
   CUSTOMER_ORDER_STATUS_BADGE,
   CUSTOMER_ORDER_STATUS_TEXT,
+  CUSTOMER_ORDER_TRANSITIONS,
+  availableCustomerOrderActions,
+  customerOrderIsEditable,
   type CustomerOrderAbilities,
   type CustomerOrderStatus,
 } from "@/lib/erp/customer-order-workflow";
 
-/**
- * The Customer Order register. Drafts sort first — they are the rows somebody
- * still has something to do about — then newest first.
- */
+const STATUSES: CustomerOrderStatus[] = ["Draft", "Submitted", "Open", "Closed", "Cancelled", "Rejected"];
+
+/** The Customer Order register. */
 export function CustomerOrderList({ orders, can }: { orders: CustomerOrderListRow[]; can: CustomerOrderAbilities }) {
-  const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("");
-
-  const q = query.trim().toLowerCase();
-  const rows = useMemo(() => {
-    const out = orders.filter(
-      (o) =>
-        (!status || o.status === status) &&
-        (!q ||
-          o.orderNo.toLowerCase().includes(q) ||
-          o.customerLabel.toLowerCase().includes(q) ||
-          o.customerName.toLowerCase().includes(q))
-    );
-    return out.sort((a, b) => Number(b.status === "Draft") - Number(a.status === "Draft"));
-  }, [orders, q, status]);
-  const paging = usePaging(rows, `${q}|${status}`);
-
   return (
-    <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Penjualan</span>
-          <span>/</span>
-          <span className="cur">Customer Order</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="clip" size={16} />
-            </span>
-            Customer Order
-          </h1>
-          <div className="ph-act">
-            {can.create && (
-              <Link className="btn primary" href="/sales/customer-order/new">
-                <Icon name="plus" size={15} /> Customer Order Baru
-              </Link>
-            )}
-          </div>
-        </div>
-        <p className="ph-sub">
-          Pesanan barang dari customer. Customer Order tidak memposting apa pun; setelah diajukan isinya
-          terkunci, dan setelah disetujui (Open) menjadi dasar uang muka, invoice dan Sales Order.
-        </p>
-      </div>
-
-      <div className="card">
-        <div className="toolbar">
-          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor CO atau customer…" />
-          <Select
-            variant="toolbar"
-            value={status}
-            set={Boolean(status)}
-            options={[
-              { value: "", label: "Status: semua" },
-              ...(["Draft", "Submitted", "Open", "Closed", "Cancelled", "Rejected"] as CustomerOrderStatus[]).map((s) => ({
-                value: s,
-                label: CUSTOMER_ORDER_STATUS_TEXT[s],
-              })),
-            ]}
-            onChange={setStatus}
-          />
-          <span className="tspace" />
-          <span className="count">
-            <b>{rows.length}</b> customer order
-          </span>
-        </div>
-
-        {rows.length ? (
-          <>
-            <div className="tw">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th style={{ width: 160 }}>Nomor</th>
-                    <th style={{ width: 120 }}>Status</th>
-                    <th style={{ width: 106 }}>Tanggal</th>
-                    <th>Customer</th>
-                    <th className="num" style={{ width: 70 }}>Baris</th>
-                    <th className="num" style={{ width: 170 }}>Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paging.pageRows.map((o) => (
-                    <tr key={o.id} onClick={() => router.push(`/sales/customer-order/${o.id}`)}>
-                      <td>
-                        <Link className="lab" href={`/sales/customer-order/${o.id}`}>
-                          {o.orderNo}
-                        </Link>
-                      </td>
-                      <td>
-                        <span className={`bdg ${CUSTOMER_ORDER_STATUS_BADGE[o.status]}`}>
-                          {CUSTOMER_ORDER_STATUS_TEXT[o.status]}
-                        </span>
-                      </td>
-                      <td>{formatDate(o.orderDate)}</td>
-                      <td>
-                        <span className="idc">
-                          <span className="lab">{o.customerLabel}</span>
-                          <span className="nm">{o.customerName}</span>
-                        </span>
-                      </td>
-                      <td className="num">{o.lines}</td>
-                      <td className="num">
-                        <span className="mny">{formatMoney(o.total, o.currency)}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pager
-              page={paging.page}
-              pages={paging.pages}
-              total={paging.total}
-              perPage={paging.perPage}
-              onPage={paging.setPage}
-              onPerPage={paging.setPerPage}
-            />
-          </>
-        ) : (
-          <div className="empty">
-            <div className="ic">
-              <Icon name="clip" size={20} />
-            </div>
-            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada Customer Order"}</h4>
-            <p>
-              {q || status
-                ? "Tidak ada Customer Order yang sesuai dengan pencarian atau filter."
-                : "Customer Order dimulai dari customer: termin dan mode harganya mengikuti data customer."}
-            </p>
-            {q || status ? (
-              <div className="cta">
-                <button
-                  className="btn"
-                  onClick={() => {
-                    setQuery("");
-                    setStatus("");
-                  }}
-                >
-                  Bersihkan filter
-                </button>
-              </div>
-            ) : (
-              can.create && (
-                <div className="cta">
-                  <Link className="btn primary" href="/sales/customer-order/new">
-                    <Icon name="plus" size={15} /> Customer Order Baru
-                  </Link>
-                </div>
-              )
-            )}
-          </div>
-        )}
-      </div>
-    </>
+    <DocumentRegister
+      module="Penjualan"
+      icon="clip"
+      title="Customer Order"
+      sub="Pesanan barang dari customer, dengan jumlah, harga dan pajaknya."
+      base="/sales/customer-order"
+      newLabel="Buat Customer Order"
+      canCreate={can.create}
+      searchHint="Cari nomor CO, PO atau customer…"
+      statuses={STATUSES}
+      statusText={CUSTOMER_ORDER_STATUS_TEXT}
+      statusBadge={CUSTOMER_ORDER_STATUS_BADGE}
+      partnerLabel="Customer"
+      sourceLabel="No. PO Customer"
+      columns={[{ key: "lines", label: "Baris", width: 54, num: true }]}
+      valueLabel="Nilai"
+      empty="Catat pesanan pertama — mulai dari memilih customer."
+      rows={orders.map((o) => ({
+        id: o.id,
+        no: o.orderNo,
+        status: o.status,
+        date: o.orderDate,
+        partner: { label: o.customerLabel, name: o.customerName },
+        source: o.poNo ? { no: o.poNo } : null,
+        cells: { lines: o.lines },
+        value: <Amount value={o.total} currency={o.currency} />,
+        editable: can.edit && customerOrderIsEditable(o.status),
+        steps: rowSteps(availableCustomerOrderActions(o.status, can), CUSTOMER_ORDER_TRANSITIONS),
+      }))}
+    />
   );
 }

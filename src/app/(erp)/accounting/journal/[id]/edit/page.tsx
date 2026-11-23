@@ -3,7 +3,7 @@ import { JournalForm } from "@/components/accounting/journal-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { getJournal } from "@/lib/erp/journal";
-import { journalIsEditable, type JournalStatus } from "@/lib/erp/journal-workflow";
+import { journalAbilities, journalIsEditable, type JournalStatus } from "@/lib/erp/journal-workflow";
 import { manualJournalOptions } from "@/lib/erp/manual-journal";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +21,7 @@ export default async function Page({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  await requirePermission("JOURNAL_EDIT", `/accounting/journal/${id}/edit`);
+  const actor = await requirePermission("JOURNAL_EDIT", `/accounting/journal/${id}/edit`);
 
   const journal = await getJournal(Number(id));
   if (!journal) notFound();
@@ -37,6 +37,7 @@ export default async function Page({
         mode="edit"
         journal={journal}
         options={options}
+        can={journalAbilities(actor.permissions)}
         defaultCurrencyId={null}
       />
       <RecordHistoryCard entityKey="acc_journal" rowId={journal.id} />

@@ -23,6 +23,8 @@ import {
 import type { SalesOrderHeaderInput, SalesOrderOptions, SalesOrderView } from "@/lib/erp/sales-order";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { SALES_ORDER_TRANSITIONS, availableSalesOrderActions } from "@/lib/erp/sales-order-workflow";
 
 /**
  * A Sales Order in all three modes: `new`, `edit` (Draft only) and `view`
@@ -131,7 +133,10 @@ export function SalesOrderForm({
     setPickerOpen(false);
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableSalesOrderActions("Draft", can), SALES_ORDER_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     // Every line was picked on purpose (P81), so a blank quantity is sent and
     // refused on its row rather than quietly dropped.
@@ -158,7 +163,7 @@ export function SalesOrderForm({
     }
     setDirty(false);
     toast("Sales Order disimpan", `${result.orderNo} · Draft`, "ok");
-    router.push(`/sales/order/${result.id}`);
+    router.push(withStep(`/sales/order/${result.id}`, step));
   }
 
   const status = order?.status ?? "Draft";
@@ -466,9 +471,7 @@ export function SalesOrderForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <SalesOrderActions id={order!.id} subject={order!.orderNo} status={status} can={can} />

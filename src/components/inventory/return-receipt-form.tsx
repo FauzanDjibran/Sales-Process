@@ -19,6 +19,8 @@ import { SALES_RETURN, type ReceiptNoteAbilities } from "@/lib/erp/receipt-note-
 import type { ReceiptNoteHeaderInput, ReceiptNoteView, ReturnReceiptOptions, RrSourceLine, RrSourceOption } from "@/lib/erp/receipt-note";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { RECEIPT_NOTE_TRANSITIONS, availableReceiptNoteActions } from "@/lib/erp/receipt-note-workflow";
 
 /**
  * A Receipt Note of purpose `sales_return` in all three modes (P288,
@@ -130,7 +132,10 @@ export function ReturnReceiptForm({
   };
 
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableReceiptNoteActions("Draft", can), RECEIPT_NOTE_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const sent = lines;
     const payload = sent.map((l) => ({
@@ -161,7 +166,7 @@ export function ReturnReceiptForm({
     }
     setDirty(false);
     toast("Receipt Note disimpan", `${result.rnNo} · Draft`, "ok");
-    router.push(`/inventory/receipt-note/${result.id}`);
+    router.push(withStep(`/inventory/receipt-note/${result.id}`, step));
   }
 
   const status = note?.status ?? "Draft";
@@ -428,9 +433,7 @@ export function ReturnReceiptForm({
         {editing ? (
           <>
             <CancelButton href={note ? `/inventory/receipt-note/${note.id}` : "/inventory/receipt-note"} dirty={dirty} disabled={saving} />
-            <button className="btn primary" onClick={onSave} disabled={saving}>
-              <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-            </button>
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
           </>
         ) : (
           <ReceiptNoteActions id={note!.id} subject={note!.rnNo} status={status} can={can} purpose={SALES_RETURN} />

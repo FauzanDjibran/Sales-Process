@@ -25,6 +25,8 @@ import {
 import type { CashPaymentOptions, CashPaymentView, OpenPayable } from "@/lib/erp/cash-payment";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { CASH_PAYMENT_TRANSITIONS, availableCashReceiptActions } from "@/lib/erp/cash-bank-tx-workflow";
 
 /**
  * Pengeluaran Kas & Bank (P127, B24–B25), in all three modes — the receipt's
@@ -162,7 +164,10 @@ export function CashPaymentForm({
     touch("_lines", ...next.map((l) => `lines.${l.key}`));
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableCashReceiptActions("Draft", can), CASH_PAYMENT_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const input = {
       ...h,
@@ -190,7 +195,7 @@ export function CashPaymentForm({
     }
     setDirty(false);
     toast("Pengeluaran disimpan", `${result.txNo} · Draft`, "ok");
-    router.push(`/finance/cash-bank/payment/${result.id}`);
+    router.push(withStep(`/finance/cash-bank/payment/${result.id}`, step));
   }
 
   const status = payment?.status ?? "Draft";
@@ -663,9 +668,7 @@ export function CashPaymentForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <CashPaymentActions id={payment!.id} subject={`${payment!.txNo} – ${money(intoBank)}`} status={status} can={can} />

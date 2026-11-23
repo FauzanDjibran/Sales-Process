@@ -2,6 +2,7 @@ import { JournalForm } from "@/components/accounting/journal-form";
 import { requirePermission } from "@/lib/erp/auth";
 import { manualJournalOptions } from "@/lib/erp/manual-journal";
 import { baseCurrencyId } from "@/lib/erp/system-settings";
+import { journalAbilities } from "@/lib/erp/journal-workflow";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
  * a round trip.
  */
 export default async function Page() {
-  await requirePermission("JOURNAL_CREATE", "/accounting/journal/new");
+  const actor = await requirePermission("JOURNAL_CREATE", "/accounting/journal/new");
 
   const [options, currencyId] = await Promise.all([
     manualJournalOptions(),
@@ -24,6 +25,7 @@ export default async function Page() {
       mode="new"
       journal={null}
       options={options}
+      can={journalAbilities(actor.permissions)}
       defaultCurrencyId={currencyId}
     />
   );

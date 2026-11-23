@@ -16,6 +16,7 @@ import {
   type DeliveryOrderAction,
   type DeliveryOrderStatus,
 } from "@/lib/erp/delivery-order-workflow";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 /** Why a final or waiting order offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<DeliveryOrderStatus, string>> = {
@@ -41,7 +42,7 @@ export function DeliveryOrderActions({
   can: DeliveryOrderAbilities;
 }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<DeliveryOrderAction | null>(null);
+  const [confirm, setConfirm] = useState<DeliveryOrderAction | null>(useInitialAction<DeliveryOrderAction>(availableDeliveryOrderActions(status, can)));
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);

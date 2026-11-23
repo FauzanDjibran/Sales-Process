@@ -29,6 +29,8 @@ import type { PurchaseAdvanceOptions, PurchaseAdvanceView } from "@/lib/erp/ap-a
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { PURCHASE_ADVANCE_TRANSITIONS, availablePurchaseAdvanceActions } from "@/lib/erp/ap-advance-workflow";
 
 /**
  * Uang Muka Pembelian — the AP advance bill (P126, B23): the AR bill's form
@@ -171,7 +173,10 @@ export function PurchaseAdvanceForm({
     touch("amount_value");
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availablePurchaseAdvanceActions("Draft", can), PURCHASE_ADVANCE_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const input = { ...s, amount_value: typed };
     const result =
@@ -189,7 +194,7 @@ export function PurchaseAdvanceForm({
     }
     setDirty(false);
     toast("Tagihan uang muka disimpan", `${result.advanceNo} · Draft`, "ok");
-    router.push(`/finance/advance/purchase/${result.id}`);
+    router.push(withStep(`/finance/advance/purchase/${result.id}`, step));
   }
 
   const status = advance?.status ?? "Draft";
@@ -705,9 +710,7 @@ export function PurchaseAdvanceForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <PurchaseAdvanceActions

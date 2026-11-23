@@ -19,6 +19,8 @@ import { STOCK_ISSUE_STATUS_BADGE, STOCK_ISSUE_STATUS_TEXT, type StockIssueAbili
 import type { StockIssueHeaderInput, StockIssueOptions, StockIssueView } from "@/lib/erp/stock-issue";
 import { formatDate, formatMoney, formatNumber, formatPrice, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { STOCK_ISSUE_TRANSITIONS, availableStockIssueActions } from "@/lib/erp/stock-issue-workflow";
 
 /**
  * A BSTB Issue in all three modes: `new`, `edit` (Draft only) and `view`
@@ -106,7 +108,10 @@ export function StockIssueForm({
     touch("warehouse_id", "_lines");
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableStockIssueActions("Draft", can), STOCK_ISSUE_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const sent = lines;
     const payload = sent.map((l) => ({ item_id: l.item_id, qty: l.qty, note: "", picks: l.picks }));
@@ -125,7 +130,7 @@ export function StockIssueForm({
     }
     setDirty(false);
     toast("BSTB Issue disimpan", `${result.issueNo} · Draft`, "ok");
-    router.push(`/inventory/stock-issue/${result.id}`);
+    router.push(withStep(`/inventory/stock-issue/${result.id}`, step));
   }
 
   const status = issue?.status ?? "Draft";
@@ -513,9 +518,7 @@ export function StockIssueForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <StockIssueActions id={issue!.id} subject={issue!.issueNo} status={status} can={can} />

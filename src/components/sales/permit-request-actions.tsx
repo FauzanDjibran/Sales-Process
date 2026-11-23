@@ -16,6 +16,7 @@ import {
   type PermitRequestAction,
   type PermitRequestStatus,
 } from "@/lib/erp/permit-request-workflow";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 const LOCK_TEXT: Partial<Record<PermitRequestStatus, string>> = {
   Submitted: "Menunggu persetujuan",
@@ -47,7 +48,7 @@ export function PermitRequestActions({
   realizationLocked: boolean;
 }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<PermitRequestAction | null>(null);
+  const [confirm, setConfirm] = useState<PermitRequestAction | null>(useInitialAction<PermitRequestAction>(availablePermitRequestActions(status, can).filter((a) => a !== "realize" || realizationEntered)));
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);

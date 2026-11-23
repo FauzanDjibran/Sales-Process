@@ -19,6 +19,7 @@ import {
   type ReceiptNoteAction,
   type ReceiptNoteStatus,
 } from "@/lib/erp/receipt-note-workflow";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 /** Why a final note offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<ReceiptNoteStatus, string>> = {
@@ -47,7 +48,7 @@ export function ReceiptNoteActions({
   purpose?: string;
 }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<ReceiptNoteAction | null>(null);
+  const [confirm, setConfirm] = useState<ReceiptNoteAction | null>(useInitialAction<ReceiptNoteAction>(availableReceiptNoteActions(status, can)));
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);

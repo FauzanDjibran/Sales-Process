@@ -17,6 +17,7 @@ import {
   type AdvanceStatus,
 } from "@/lib/erp/ap-advance-workflow";
 import { formatMoney } from "@/lib/format";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 /**
  * An advance bill's lifecycle as header buttons: Ubah (Draft only),
@@ -38,7 +39,7 @@ export function PurchaseAdvanceActions({
   figures: { dpp: number; ppn: number; total: number };
 }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<AdvanceAction | null>(null);
+  const [confirm, setConfirm] = useState<AdvanceAction | null>(useInitialAction<AdvanceAction>(availablePurchaseAdvanceActions(status, can)));
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);

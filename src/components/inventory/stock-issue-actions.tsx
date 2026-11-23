@@ -17,6 +17,7 @@ import {
   type StockIssueAction,
   type StockIssueStatus,
 } from "@/lib/erp/stock-issue-workflow";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 /** Why a final note offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<StockIssueStatus, string>> = {
@@ -44,7 +45,7 @@ export function StockIssueActions({
   can: StockIssueAbilities;
 }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<StockIssueAction | null>(null);
+  const [confirm, setConfirm] = useState<StockIssueAction | null>(useInitialAction<StockIssueAction>(availableStockIssueActions(status, can)));
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);

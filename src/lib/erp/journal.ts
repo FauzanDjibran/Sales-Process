@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { JournalStatus, Prisma } from "@/generated/prisma/client";
-import { windowOf, type Paged, type RegisterQuery } from "./register-query";
+import { dateWithin, windowOf, type Paged, type RegisterQuery } from "./register-query";
 import { nextDocumentNumber } from "./document-number";
 import { isBaseCurrency } from "./currency";
 import { roundBase } from "./fx";
@@ -799,6 +799,7 @@ export async function listJournals(
 ): Promise<Paged<JournalRow>> {
   const where: Prisma.AccJournalWhereInput = {
     ...(query.status ? { status: query.status as JournalStatus } : {}),
+    ...(query.range ? { posting_date: dateWithin(query.range) } : {}),
     ...(origin ? { is_manual: origin === "manual" } : {}),
     ...(query.q
       ? {

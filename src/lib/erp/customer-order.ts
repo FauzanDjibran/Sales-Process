@@ -698,6 +698,7 @@ export async function transitionCustomerOrder(
 // ------------------------------------------------------------------- reads
 
 export type CustomerOrderListRow = {
+  poNo: string | null;
   id: number;
   /** The document's currency, every figure on the row is in (MC3). */
   currency: string;
@@ -717,6 +718,7 @@ export async function listCustomerOrders(): Promise<CustomerOrderListRow[]> {
   });
   return rows.map((r) => ({
     id: r.id,
+    poNo: r.po_no,
     currency: r.currency.currency_label,
     orderNo: r.order_no,
     orderDate: isoDay(r.order_date),

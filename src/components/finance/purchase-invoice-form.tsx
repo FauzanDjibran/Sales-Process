@@ -18,6 +18,8 @@ import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, computePurchaseInvoice, type
 import type { PiAdvance, PiReceiptLine, PurchaseInvoiceHeaderInput, PurchaseInvoiceOptions, PurchaseInvoiceView } from "@/lib/erp/ap-invoice";
 import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { PURCHASE_INVOICE_TRANSITIONS, availablePurchaseInvoiceActions } from "@/lib/erp/ap-invoice-workflow";
 
 /**
  * An Invoice Pembelian in all three modes (P128, B28–B31): the Purchase Order
@@ -104,7 +106,10 @@ export function PurchaseInvoiceForm({
   });
   const whtLabel = (key: string) => order?.lines.find((l) => String(l.withholdingTaxId) === key)?.withholdingLabel ?? "PPh";
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availablePurchaseInvoiceActions("Draft", can), PURCHASE_INVOICE_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const lines = lineIds.map((id) => ({ receipt_note_line_id: id }));
     const d = deds.map((x) => ({ ap_item_id: x.ap_item_id, dpp_used: x.dpp_used }));
@@ -117,7 +122,7 @@ export function PurchaseInvoiceForm({
     }
     setDirty(false);
     toast("Invoice Pembelian disimpan", `${result.invoiceNo} · Draft`, "ok");
-    router.push(`/finance/invoice/purchase/${result.id}`);
+    router.push(withStep(`/finance/invoice/purchase/${result.id}`, step));
   }
 
   const status = invoice?.status ?? "Draft";
@@ -499,9 +504,7 @@ export function PurchaseInvoiceForm({
                   </span>
                 )}
                 <CancelButton href={invoice ? `/finance/invoice/purchase/${invoice.id}` : "/finance/invoice/purchase"} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <PurchaseInvoiceActions id={invoice!.id} subject={`${invoice!.invoiceNo} – ${money(invoice!.stored.total)}`} status={status} can={can} />

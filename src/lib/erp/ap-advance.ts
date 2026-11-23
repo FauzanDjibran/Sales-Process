@@ -409,6 +409,7 @@ export async function transitionPurchaseAdvance(
 // ------------------------------------------------------------------- reads
 
 export type PurchaseAdvanceListRow = {
+  orderId: number;
   id: number;
   /** The document's currency, every figure on the row is in (MC3). */
   currency: string;
@@ -438,6 +439,7 @@ export async function listPurchaseAdvances(): Promise<PurchaseAdvanceListRow[]> 
   const paidOf = await apPaidByDocument(prisma, "fin_ap_advance", rows.map((r) => r.id));
   return rows.map((r) => ({
     id: r.id,
+    orderId: r.purchase_order_id,
     currency: r.currency.currency_label,
     advanceNo: r.advance_no,
     advanceDate: isoDay(r.advance_date),

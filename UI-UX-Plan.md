@@ -1,7 +1,7 @@
 # Rencana Standarisasi UI/UX — Aplikasi ERP
 
 > Disusun 23/11/2026 dari [UI-UX-Evaluasi-ERP.md](UI-UX-Evaluasi-ERP.md) dan
-> jawaban user. **T1–T6 dibangun 23/11/2026 (P308)**; sisanya belum. Kode temuan (F, L, D,
+> jawaban user. **T1–T6 dibangun 23/11/2026 (P308); tahap 2 (daftar), langkah 3.5 (Simpan & langkah) dan dashboard kosong dibangun 24/11/2026 (P309)**; sisanya belum. Kode temuan (F, L, D,
 > S, R, M) merujuk ke dokumen evaluasi.
 
 ## 1. Arahan user

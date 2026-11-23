@@ -17,6 +17,7 @@ import {
   type CashBankTxStatus,
   type CashReceiptAbilities,
 } from "@/lib/erp/cash-bank-tx-workflow";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 /**
  * A payment's lifecycle as header buttons: Ubah (Draft only), Posting and
@@ -38,7 +39,7 @@ export function CashPaymentActions({
   can: CashReceiptAbilities;
 }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<CashBankTxAction | null>(null);
+  const [confirm, setConfirm] = useState<CashBankTxAction | null>(useInitialAction<CashBankTxAction>(availableCashReceiptActions(status, can)));
   const [postable, setPostable] = useState(false);
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");

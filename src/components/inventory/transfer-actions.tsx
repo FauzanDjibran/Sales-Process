@@ -8,6 +8,7 @@ import { Field } from "@/components/ui/form";
 import { useToast } from "@/components/ui/toast";
 import { headerButtonClass, orderForHeader, type ActionTone } from "@/lib/erp/header-actions";
 import type { IconName } from "@/components/icon";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 type Transition = { label: string; icon: IconName; tone: ActionTone; title: string; body: string; confirmLabel: string; reason?: string };
 
@@ -34,7 +35,7 @@ export function TransferActions<A extends string>({
   run: (action: A, reason?: string) => Promise<{ ok: true; message: string } | { ok: false; errors: Record<string, string> }>;
 }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<A | null>(null);
+  const [confirm, setConfirm] = useState<A | null>(useInitialAction<A>(actions));
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);

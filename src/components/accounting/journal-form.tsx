@@ -30,6 +30,8 @@ import type { ManualJournalOptions } from "@/lib/erp/manual-journal";
 import { reportHref } from "@/lib/erp/reports";
 import { JournalActions } from "./journal-actions";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { JOURNAL_TRANSITIONS, availableJournalActions } from "@/lib/erp/journal-workflow";
 
 export type JournalFormMode = "new" | "view" | "edit";
 
@@ -181,7 +183,10 @@ export function JournalForm({
       description: l.description,
     }));
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(can ? availableJournalActions("Draft", can) : [], JOURNAL_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     setErrors({});
     const header = {
@@ -206,7 +211,7 @@ export function JournalForm({
 
     setDirty(false);
     toast("Journal disimpan", `${result.journalNo} · Draft`, "ok");
-    router.push(`/accounting/journal/${result.id}`);
+    router.push(withStep(`/accounting/journal/${result.id}`, step));
   }
 
   const backHref = journal
@@ -249,9 +254,7 @@ export function JournalForm({
         ) : (
           <>
             <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-            <button className="btn primary" onClick={onSave} disabled={saving}>
-              <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-            </button>
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
           </>
         )}
       </DocumentHeader>

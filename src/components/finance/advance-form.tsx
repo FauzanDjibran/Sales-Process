@@ -33,6 +33,8 @@ import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { ADVANCE_TRANSITIONS_OF, availableAdvanceActions } from "@/lib/erp/ar-advance-workflow";
 
 /**
  * Uang Muka Penjualan — the AR advance bill, in all three modes: `new`,
@@ -232,7 +234,10 @@ export function AdvanceForm({
     touch("amount_value");
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableAdvanceActions("Draft", can), ADVANCE_TRANSITIONS_OF[variant]);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const input = { ...s, amount_value: typed };
     const result =
@@ -256,7 +261,7 @@ export function AdvanceForm({
     }
     setDirty(false);
     toast("Tagihan uang muka disimpan", `${result.advanceNo} · Draft`, "ok");
-    router.push(`${V.base}/${result.id}`);
+    router.push(withStep(`${V.base}/${result.id}`, step));
   }
 
   const status = advance?.status ?? "Draft";
@@ -803,9 +808,7 @@ export function AdvanceForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <AdvanceActions

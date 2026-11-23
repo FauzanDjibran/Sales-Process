@@ -18,6 +18,7 @@ import {
   type CashTransferAction,
   type CashTransferStatus,
 } from "@/lib/erp/cash-transfer-workflow";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 const LOCK_TEXT: Partial<Record<CashTransferStatus, string>> = {
   Posted: "Transfer diposting",
@@ -31,7 +32,7 @@ const LOCK_TEXT: Partial<Record<CashTransferStatus, string>> = {
  */
 export function CashTransferActions({ id, subject, status, can }: { id: number; subject: string; status: CashTransferStatus; can: CashTransferAbilities }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<CashTransferAction | null>(null);
+  const [confirm, setConfirm] = useState<CashTransferAction | null>(useInitialAction<CashTransferAction>(availableCashTransferActions(status, can)));
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);

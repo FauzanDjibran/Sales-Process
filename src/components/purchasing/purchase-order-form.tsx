@@ -33,6 +33,8 @@ import type { PurchaseOrderHeaderInput, PurchaseOrderLineInput, PurchaseOrderOpt
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { PURCHASE_ORDER_TRANSITIONS, availablePurchaseOrderActions } from "@/lib/erp/purchase-order-workflow";
 
 /**
  * The Purchase Order in all three modes (P124): the supplier first — its Termin
@@ -248,7 +250,10 @@ export function PurchaseOrderForm({
   const rateNum = Number(header.exchange_rate) || 0;
   const baseOf = sumBase(totals.lines.map((l) => withBase({ dpp: l.dpp, ppn: l.ppn }, rateNum)), ["dpp", "ppn"] as const);
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availablePurchaseOrderActions("Draft", can), PURCHASE_ORDER_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const payload: PurchaseOrderLineInput[] = lines.map((l) => ({
       item_id: l.item_id,
@@ -270,7 +275,7 @@ export function PurchaseOrderForm({
     }
     setDirty(false);
     toast("Purchase Order disimpan", `${result.orderNo} · Draft`, "ok");
-    router.push(`${k.path}/${result.id}`);
+    router.push(withStep(`${k.path}/${result.id}`, step));
   }
 
   const status = order?.status ?? "Draft";
@@ -736,9 +741,7 @@ export function PurchaseOrderForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <PurchaseOrderActions id={order!.id} basePath={k.path} subject={order!.orderNo} status={status} can={can} />

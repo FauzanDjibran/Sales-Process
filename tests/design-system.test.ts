@@ -1300,11 +1300,17 @@ test("a breadcrumb's module segment is never a link", () => {
 
 describe("a document screen has one shape", () => {
   for (const doc of DOCUMENT_SCREENS) {
+    // A register drawn by DocumentRegister is held to the rules through it (P309).
+    const registerText = (rel: string) => {
+      const text = fileText(rel);
+      return /<DocumentRegister\b/.test(text) ? fileText("src/components/ui/document-register.tsx") : text;
+    };
+
     test(`${doc.name}: the header is DocumentHeader, never hand-drawn`, () => {
       // DocumentHeader keeps the breadcrumb's module segment plain text and
       // reads the status label from the one status map.
       for (const rel of [doc.form, doc.list]) {
-        const text = fileText(rel);
+        const text = rel === doc.list ? registerText(rel) : fileText(rel);
         assert.match(text, /<DocumentHeader\b/, `${rel} does not use DocumentHeader`);
         assert.doesNotMatch(text, /className="crumb"/, `${rel} draws its own breadcrumb`);
         assert.doesNotMatch(text, /className="ph-row"/, `${rel} draws its own page header`);
@@ -1344,7 +1350,7 @@ describe("a document screen has one shape", () => {
     });
 
     test(`${doc.name}: the register is laid out like every other register`, () => {
-      const text = fileText(doc.list);
+      const text = registerText(doc.list);
       assert.match(text, /<Pager\b/, "no Pager at the foot of the list");
       assert.match(text, /<th[^>]*>No<\/th>/, "no `No` column");
       if (doc.lifecycle !== false) {
@@ -1381,6 +1387,20 @@ describe("header → tabs → Riwayat on every ERP form (P308)", () => {
     assert.ok(forms.length >= 23, `only ${forms.length} forms found`);
     const bad = forms.filter((f) => !/<FormTabs\b/.test(f.text)).map((f) => f.rel);
     assert.deepEqual(bad, [], "One section is a tab too.");
+  });
+
+  test("every ERP register is DocumentRegister (P309)", () => {
+    const lists = files.filter(
+      (f) => /src.components.(sales|purchasing|inventory|finance|accounting).[\w-]+-list\.tsx$/.test(f.rel) && !/opening-balance-list/.test(f.rel)
+    );
+    assert.ok(lists.length >= 19, "registers not found");
+    const bad = lists.filter((f) => !/<DocumentRegister\b/.test(f.text)).map((f) => f.rel);
+    assert.deepEqual(bad, [], "Columns, filters and row actions are decided once.");
+  });
+
+  test("every document form offers its next step beside Simpan (P309)", () => {
+    const bad = forms.filter((f) => !/<SaveButtons\b/.test(f.text)).map((f) => f.rel);
+    assert.deepEqual(bad, []);
   });
 
   test("an ERP register filters its status, it has no status tabs", () => {

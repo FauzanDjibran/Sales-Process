@@ -23,6 +23,8 @@ import {
 import type { DeliveryOrderHeaderInput, DeliveryOrderOptions, DeliveryOrderView } from "@/lib/erp/delivery-order";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { DELIVERY_ORDER_TRANSITIONS, availableDeliveryOrderActions } from "@/lib/erp/delivery-order-workflow";
 
 /**
  * A Delivery Order in all three modes: `new`, `edit` (Draft only) and `view`
@@ -154,7 +156,10 @@ export function DeliveryOrderForm({
     setPickerOpen(false);
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableDeliveryOrderActions("Draft", can), DELIVERY_ORDER_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     // Every line was picked on purpose, so a blank quantity is sent and refused
     // on its row rather than quietly dropped.
@@ -183,7 +188,7 @@ export function DeliveryOrderForm({
     }
     setDirty(false);
     toast("Delivery Order disimpan", `${result.doNo} · Draft`, "ok");
-    router.push(`/sales/delivery-order/${result.id}`);
+    router.push(withStep(`/sales/delivery-order/${result.id}`, step));
   }
 
   const status = order?.status ?? "Draft";
@@ -528,9 +533,7 @@ export function DeliveryOrderForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <DeliveryOrderActions id={order!.id} subject={order!.doNo} status={status} can={can} />

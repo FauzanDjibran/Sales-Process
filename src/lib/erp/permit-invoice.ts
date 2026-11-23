@@ -616,6 +616,7 @@ export async function transitionPermitInvoice(
 // ------------------------------------------------------------------- reads
 
 export type PermitInvoiceListRow = {
+  requestId: number;
   id: number;
   invoiceNo: string;
   invoiceDate: string;
@@ -635,6 +636,7 @@ export async function listPermitInvoices(): Promise<PermitInvoiceListRow[]> {
   const paidOf = await arPaidByDocument(prisma, "fin_ar_permit_invoice", rows.map((r) => r.id));
   return rows.map((r) => ({
     id: r.id,
+    requestId: r.permit_request_id,
     invoiceNo: r.invoice_no,
     invoiceDate: isoDay(r.invoice_date),
     dueDate: isoDay(r.due_date),

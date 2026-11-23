@@ -1,194 +1,56 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Icon } from "@/components/icon";
 import { Amount } from "@/components/ui/amount";
-import { DocumentHeader } from "@/components/ui/document-header";
-import { Pager, usePaging } from "@/components/ui/pager";
-import { SearchField } from "@/components/ui/search-field";
-import { Select } from "@/components/ui/select";
-import { formatDate } from "@/lib/format";
+import { DocumentRegister, rowSteps } from "@/components/ui/document-register";
 import type { DeliveryNoteListRow } from "@/lib/erp/delivery-note";
 import {
   DELIVERY_NOTE_STATUS_BADGE,
   DELIVERY_NOTE_STATUS_TEXT,
+  DELIVERY_NOTE_TRANSITIONS,
+  availableDeliveryNoteActions,
+  deliveryNoteIsEditable,
   type DeliveryNoteAbilities,
   type DeliveryNoteStatus,
 } from "@/lib/erp/delivery-note-workflow";
 
-/**
- * The Delivery Note register (C28). Drafts sort first — goods not yet booked
- * out — then newest first. The cost column is the HPP each posted note
- * recognised; a Draft has none yet.
- */
+const STATUSES: DeliveryNoteStatus[] = ["Draft", "Posted", "Cancelled"];
+
+/** The Delivery Note register (C28). The HPP is what a posted note recognised. */
 export function DeliveryNoteList({ orders, can }: { orders: DeliveryNoteListRow[]; can: DeliveryNoteAbilities }) {
-  const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("");
-
-  const q = query.trim().toLowerCase();
-  const rows = useMemo(() => {
-    const out = orders.filter(
-      (o) =>
-        (!status || o.status === status) &&
-        (!q ||
-          o.dnNo.toLowerCase().includes(q) ||
-          o.sourceNo.toLowerCase().includes(q) ||
-          o.customerOrderNo.toLowerCase().includes(q) ||
-          o.customerLabel.toLowerCase().includes(q) ||
-          o.customerName.toLowerCase().includes(q) ||
-          o.warehouseLabel.toLowerCase().includes(q))
-    );
-    return out.sort((a, b) => Number(b.status === "Draft") - Number(a.status === "Draft"));
-  }, [orders, q, status]);
-  const paging = usePaging(rows, `${q}|${status}`);
-
   return (
-    <>
-      <DocumentHeader
-        module="Persediaan"
-        icon="truck"
-        title="Delivery Note"
-        sub="Surat jalan: barang yang benar-benar keluar dari gudang menurut tujuannya. Untuk penjualan dibuat dari Delivery Order yang sudah diterbitkan; Posting mengakui HPP dan mengurangi Persediaan, piutang baru diakui di Invoice Penjualan."
-      >
-        {can.create && (
-          <Link className="btn primary" href="/inventory/delivery-note/new">
-            <Icon name="plus" size={15} /> Delivery Note Baru
-          </Link>
-        )}
-      </DocumentHeader>
-
-      <div className="card">
-        <div className="toolbar">
-          <SearchField value={query} onChange={setQuery} placeholder="Cari nomor SJ, DO, CO, customer atau gudang…" />
-          <Select
-            variant="toolbar"
-            value={status}
-            set={Boolean(status)}
-            options={[
-              { value: "", label: "Status: semua" },
-              ...(["Draft", "Posted", "Cancelled"] as DeliveryNoteStatus[]).map((s) => ({
-                value: s,
-                label: DELIVERY_NOTE_STATUS_TEXT[s],
-              })),
-            ]}
-            onChange={setStatus}
-          />
-          <span className="tspace" />
-          <span className="count">
-            <b>{rows.length}</b> delivery note
-          </span>
-        </div>
-
-        {rows.length ? (
-          <>
-            <div className="tw">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th style={{ width: 40 }}>No</th>
-                    <th style={{ width: 160 }}>Nomor</th>
-                    <th style={{ width: 120 }}>Status</th>
-                    <th style={{ width: 106 }}>Tanggal Kirim</th>
-                    <th style={{ width: 120 }}>Gudang</th>
-                    <th style={{ width: 160 }}>Delivery Order</th>
-                    <th>Customer</th>
-                    <th className="num" style={{ width: 70 }}>Baris</th>
-                    <th className="num" style={{ width: 140 }}>HPP</th>
-                    <th style={{ width: 52 }} />
-                  </tr>
-                </thead>
-                <tbody>
-                  {paging.pageRows.map((o, i) => (
-                    <tr key={o.id} onClick={() => router.push(`/inventory/delivery-note/${o.id}`)}>
-                      <td className="no">{(paging.page - 1) * paging.perPage + i + 1}</td>
-                      <td>
-                        <Link className="lab" href={`/inventory/delivery-note/${o.id}`}>
-                          {o.dnNo}
-                        </Link>
-                      </td>
-                      <td>
-                        <span className={`bdg ${DELIVERY_NOTE_STATUS_BADGE[o.status]}`}>
-                          {DELIVERY_NOTE_STATUS_TEXT[o.status]}
-                        </span>
-                      </td>
-                      <td>{formatDate(o.dnDate)}</td>
-                      <td>
-                        <span className="lab">{o.warehouseLabel}</span>
-                      </td>
-                      <td>
-                        <Link className="lab" href={`/sales/delivery-order/${o.sourceId}`} onClick={(e) => e.stopPropagation()}>
-                          {o.sourceNo}
-                        </Link>
-                      </td>
-                      <td>
-                        <span className="idc">
-                          <span className="lab">{o.customerLabel}</span>
-                          <span className="nm">{o.customerName}</span>
-                        </span>
-                      </td>
-                      <td className="num">{o.lines}</td>
-                      <td className="num">
-                        {o.status === "Posted" ? <Amount value={o.cost} /> : <span className="dash">—</span>}
-                      </td>
-                      <td className="acts">
-                        <span className="ract">
-                          <Link className="iact" href={`/inventory/delivery-note/${o.id}`} title="Lihat detail" onClick={(e) => e.stopPropagation()}>
-                            <Icon name="eye" size={15} />
-                          </Link>
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pager
-              page={paging.page}
-              pages={paging.pages}
-              total={paging.total}
-              perPage={paging.perPage}
-              onPage={paging.setPage}
-              onPerPage={paging.setPerPage}
-            />
-          </>
-        ) : (
-          <div className="empty">
-            <div className="ic">
-              <Icon name="truck" size={20} />
-            </div>
-            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada Delivery Note"}</h4>
-            <p>
-              {q || status
-                ? "Tidak ada Delivery Note yang sesuai dengan pencarian atau filter."
-                : "Delivery Note dibuat dari Delivery Order yang sudah diterbitkan: pilih barang dan jumlah yang keluar dari gudang."}
-            </p>
-            {q || status ? (
-              <div className="cta">
-                <button
-                  className="btn"
-                  onClick={() => {
-                    setQuery("");
-                    setStatus("");
-                  }}
-                >
-                  Bersihkan filter
-                </button>
-              </div>
-            ) : (
-              can.create && (
-                <div className="cta">
-                  <Link className="btn primary" href="/inventory/delivery-note/new">
-                    <Icon name="plus" size={15} /> Delivery Note Baru
-                  </Link>
-                </div>
-              )
-            )}
-          </div>
-        )}
-      </div>
-    </>
+    <DocumentRegister
+      module="Persediaan"
+      icon="truck"
+      title="Delivery Note"
+      sub="Barang yang keluar dari gudang menurut Delivery Order."
+      base="/inventory/delivery-note"
+      newLabel="Buat Delivery Note"
+      canCreate={can.create}
+      searchHint="Cari nomor SJ, DO, CO, customer atau gudang…"
+      statuses={STATUSES}
+      statusText={DELIVERY_NOTE_STATUS_TEXT}
+      statusBadge={DELIVERY_NOTE_STATUS_BADGE}
+      partnerLabel="Customer"
+      sourceLabel="Delivery Order"
+      columns={[
+        { key: "warehouse", label: "Gudang", width: 90 },
+        { key: "lines", label: "Baris", width: 54, num: true },
+      ]}
+      valueLabel="HPP"
+      empty="Delivery Note dibuat dari Delivery Order yang sudah diterbitkan."
+      rows={orders.map((o) => ({
+        id: o.id,
+        no: o.dnNo,
+        status: o.status,
+        date: o.dnDate,
+        partner: { label: o.customerLabel, name: o.customerName },
+        source: { no: o.sourceNo, href: `/sales/delivery-order/${o.sourceId}`, note: o.customerOrderNo },
+        cells: { warehouse: <span className="lab">{o.warehouseLabel}</span>, lines: o.lines },
+        value: o.status === "Posted" ? <Amount value={o.cost} /> : null,
+        search: [o.customerOrderNo, o.warehouseLabel].join(" "),
+        editable: can.edit && deliveryNoteIsEditable(o.status),
+        steps: rowSteps(availableDeliveryNoteActions(o.status, can), DELIVERY_NOTE_TRANSITIONS),
+      }))}
+    />
   );
 }

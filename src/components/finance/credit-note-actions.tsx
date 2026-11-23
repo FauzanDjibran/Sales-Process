@@ -17,6 +17,7 @@ import {
   type CreditNoteAction,
   type CreditNoteStatus,
 } from "@/lib/erp/ar-credit-note-workflow";
+import { useInitialAction } from "@/components/ui/save-buttons";
 
 const LOCK_TEXT: Partial<Record<CreditNoteStatus, string>> = { Posted: "Credit Note diposting", Cancelled: "Credit Note dibatalkan" };
 
@@ -26,7 +27,7 @@ const LOCK_TEXT: Partial<Record<CreditNoteStatus, string>> = { Posted: "Credit N
  */
 export function CreditNoteActions({ id, subject, status, can }: { id: number; subject: string; status: CreditNoteStatus; can: CreditNoteAbilities }) {
   const toast = useToast();
-  const [confirm, setConfirm] = useState<CreditNoteAction | null>(null);
+  const [confirm, setConfirm] = useState<CreditNoteAction | null>(useInitialAction<CreditNoteAction>(availableCreditNoteActions(status, can)));
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
   const [busy, setBusy] = useState(false);

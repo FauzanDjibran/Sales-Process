@@ -624,6 +624,8 @@ export async function transitionPurchaseOrder(
 // ------------------------------------------------------------------- reads
 
 export type PurchaseOrderListRow = {
+  /** The Purchase Requests it orders from. */
+  requests: { id: number; no: string }[];
   id: number;
   /** The document's currency, every figure on the row is in (MC3). */
   currency: string;
@@ -641,10 +643,16 @@ export async function listPurchaseOrders(itemType: "Barang" | "Jasa"): Promise<P
   const rows = await prisma.purOrder.findMany({
     where: { item_type: itemType },
     orderBy: [{ order_date: "desc" }, { id: "desc" }],
-    include: { supplier: true, currency: true, _count: { select: { lines: true } } },
+    include: {
+      supplier: true,
+      currency: true,
+      _count: { select: { lines: true } },
+      lines: { select: { requests: { select: { request_line: { select: { request: { select: { id: true, request_no: true } } } } } } } },
+    },
   });
   return rows.map((r) => ({
     id: r.id,
+    requests: [...new Map(r.lines.flatMap((l) => l.requests.map((q) => [q.request_line.request.id, q.request_line.request.request_no] as const))).entries()].map(([id, no]) => ({ id, no })),
     currency: r.currency.currency_label,
     orderNo: r.order_no,
     orderDate: isoDay(r.order_date),

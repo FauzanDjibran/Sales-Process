@@ -28,6 +28,8 @@ import { TAX_MODULE_HIDDEN } from "@/lib/erp/nav";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso, formatPrice } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { INVOICE_TRANSITIONS, availableInvoiceActions } from "@/lib/erp/ar-invoice-workflow";
 
 /**
  * An Invoice Penjualan in all three modes: `new`, `edit` (Draft only) and `view`
@@ -228,7 +230,10 @@ export function InvoiceForm({
     touch("customer_order_id", "address_id", "_lines", "_deductions");
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableInvoiceActions("Draft", can), INVOICE_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const sentLines = lineIds.map((id) => ({ delivery_note_line_id: id }));
     const sentDeds = deds.map((d) => ({ ar_item_id: d.ar_item_id, dpp_used: d.dpp_used }));
@@ -255,7 +260,7 @@ export function InvoiceForm({
     }
     setDirty(false);
     toast("Invoice disimpan", `${result.invoiceNo} · Draft`, "ok");
-    router.push(`/finance/invoice/sales/${result.id}`);
+    router.push(withStep(`/finance/invoice/sales/${result.id}`, step));
   }
 
   const status = invoice?.status ?? "Draft";
@@ -958,9 +963,7 @@ export function InvoiceForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <InvoiceActions id={invoice!.id} subject={invoice!.invoiceNo} status={status} can={can} />

@@ -12,7 +12,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
  * would be a query per letter — and any change but the page itself returns to
  * page 1.
  */
-export function useRegisterParams() {
+export function useRegisterParams({ local = false }: { local?: boolean } = {}) {
   const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
@@ -28,7 +28,10 @@ export function useRegisterParams() {
       else next.set(key, String(value));
     }
     const query = next.toString();
-    start(() => router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false }));
+    const href = query ? `${pathname}?${query}` : pathname;
+    // A register that holds every row filters them itself: the address changes, nothing is fetched.
+    if (local) window.history.replaceState(null, "", href);
+    else start(() => router.replace(href, { scroll: false }));
   };
 
   // The text in the box leads the URL by one debounce, and follows it when

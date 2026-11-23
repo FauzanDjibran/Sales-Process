@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { listCashPayments } from "../src/lib/erp/cash-payment";
 import { listCashReceipts } from "../src/lib/erp/cash-bank-tx";
 import { listJournals } from "../src/lib/erp/journal";
-import { DEFAULT_PAGE_SIZE, parseRegisterQuery, windowOf } from "../src/lib/erp/register-query";
+import { DEFAULT_PAGE_SIZE, parseRegisterQuery, periodRange, windowOf } from "../src/lib/erp/register-query";
 import { disconnect, prisma } from "./helpers";
 
 after(async () => {
@@ -63,4 +63,11 @@ describe("the database pages each register", () => {
     const miss = await listCashReceipts(query({ q: "no-such-receipt-anywhere" }));
     assert.deepEqual([miss.total, miss.rows.length, miss.pages], [0, 0, 1]);
   });
+});
+
+test("a Periode preset covers whole calendar periods, across a year's end", () => {
+  assert.deepEqual(periodRange("last-month", "2026-01-15"), { from: "2025-12-01", to: "2025-12-31" });
+  assert.deepEqual(periodRange("month", "2026-02-10"), { from: "2026-02-01", to: "2026-02-28" });
+  assert.deepEqual(periodRange("last-year", "2026-11-24"), { from: "2025-01-01", to: "2025-12-31" });
+  assert.equal(periodRange("nonsense", "2026-11-24"), null);
 });

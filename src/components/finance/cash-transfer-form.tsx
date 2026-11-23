@@ -31,6 +31,8 @@ import type { CashTransferInput, CashTransferOptions, CashTransferView } from "@
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import { formatDate, formatMoney, formatRate, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { CASH_TRANSFER_TRANSITIONS, availableCashTransferActions } from "@/lib/erp/cash-transfer-workflow";
 
 type Line = { to_cash_bank_id: number | null; amount: string; exchange_rate: string };
 
@@ -115,7 +117,10 @@ export function CashTransferForm({
   const totalAmount = lines.reduce((s, l) => s + (Number(l.amount) || 0), 0);
   const totalOut = figures.reduce((s, f) => s + f.outAmount, 0);
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableCashTransferActions("Draft", can), CASH_TRANSFER_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const input: CashTransferInput = { ...head, lines };
     const result = mode === "edit" ? await updateCashTransferAction(doc!.id, input) : await createCashTransferAction(input);
@@ -127,7 +132,7 @@ export function CashTransferForm({
     }
     setDirty(false);
     toast("Transfer disimpan", `${result.transferNo} · Draft`, "ok");
-    router.push(`${CASH_TRANSFER_PATH}/${result.id}`);
+    router.push(withStep(`${CASH_TRANSFER_PATH}/${result.id}`, step));
   }
 
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
@@ -442,9 +447,7 @@ export function CashTransferForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <CashTransferActions id={doc!.id} subject={doc!.transferNo} status={status} can={can} />

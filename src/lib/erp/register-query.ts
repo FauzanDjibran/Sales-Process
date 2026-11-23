@@ -12,6 +12,40 @@
 export const PAGE_SIZES = [10, 25, 50, 100] as const;
 export const DEFAULT_PAGE_SIZE = 25;
 
+export type DateRange = { from: string; to: string };
+
+/** The periods a register's Periode filter offers. */
+export const PERIODS = [
+  { value: "today", label: "Hari ini" },
+  { value: "month", label: "Bulan ini" },
+  { value: "last-month", label: "Bulan lalu" },
+  { value: "year", label: "Tahun ini" },
+  { value: "last-year", label: "Tahun lalu" },
+];
+
+/** The dates a period covers as of `today` (`yyyy-mm-dd`), or null for one it does not know. */
+export function periodRange(period: string, today: string): DateRange | null {
+  const [y, m] = today.split("-").map(Number);
+  const day = (year: number, month: number, d: number) => new Date(Date.UTC(year, month, d)).toISOString().slice(0, 10);
+  switch (period) {
+    case "today":
+      return { from: today, to: today };
+    case "month":
+      return { from: day(y, m - 1, 1), to: day(y, m, 0) };
+    case "last-month":
+      return { from: day(y, m - 2, 1), to: day(y, m - 1, 0) };
+    case "year":
+      return { from: day(y, 0, 1), to: day(y, 11, 31) };
+    case "last-year":
+      return { from: day(y - 1, 0, 1), to: day(y - 1, 11, 31) };
+    default:
+      return null;
+  }
+}
+
+/** A range as a database filter on a calendar date. */
+export const dateWithin = (range: DateRange) => ({ gte: new Date(range.from), lte: new Date(range.to) });
+
 export type RegisterQuery = {
   page: number;
   size: number;
@@ -19,6 +53,8 @@ export type RegisterQuery = {
   q: string;
   /** One status, or empty for all. */
   status: string;
+  /** The dates a period preset covers, or none. */
+  range?: DateRange;
 };
 
 type Params = Record<string, string | string[] | undefined>;
@@ -35,11 +71,13 @@ export function parseRegisterQuery(params: Params, statuses?: readonly string[])
   const page = Number(oneParam(params.page));
   const size = Number(oneParam(params.size));
   const status = oneParam(params.status) ?? "";
+  const range = periodRange(oneParam(params.period) ?? "", new Date().toISOString().slice(0, 10));
   return {
     page: Number.isInteger(page) && page > 0 ? page : 1,
     size: (PAGE_SIZES as readonly number[]).includes(size) ? size : DEFAULT_PAGE_SIZE,
     q: (oneParam(params.q) ?? "").trim().slice(0, 100),
     status: !statuses || statuses.includes(status) ? status : "",
+    ...(range ? { range } : {}),
   };
 }
 

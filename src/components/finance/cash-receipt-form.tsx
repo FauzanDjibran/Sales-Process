@@ -28,6 +28,8 @@ import { TAX_MODULE_HIDDEN } from "@/lib/erp/nav";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatPct, formatRate, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { CASH_RECEIPT_TRANSITIONS, availableCashReceiptActions } from "@/lib/erp/cash-bank-tx-workflow";
 
 /**
  * Penerimaan Kas & Bank, in all three modes: `new`, `edit` (Draft only) and
@@ -179,7 +181,10 @@ export function CashReceiptForm({
     touch("_lines", ...next.map((l) => `lines.${l.key}`));
   };
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableCashReceiptActions("Draft", can), CASH_RECEIPT_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const input = {
       ...h,
@@ -208,7 +213,7 @@ export function CashReceiptForm({
     }
     setDirty(false);
     toast("Penerimaan disimpan", `${result.txNo} · Draft`, "ok");
-    router.push(`/finance/cash-bank/receipt/${result.id}`);
+    router.push(withStep(`/finance/cash-bank/receipt/${result.id}`, step));
   }
 
   const status = receipt?.status ?? "Draft";
@@ -705,9 +710,7 @@ export function CashReceiptForm({
                   </span>
                 )}
                 <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
+                <SaveButtons saving={saving} onSave={onSave} next={next} />
               </>
             ) : (
               <CashReceiptActions id={receipt!.id} subject={`${receipt!.txNo} – ${money(intoBank)}`} status={status} can={can} />

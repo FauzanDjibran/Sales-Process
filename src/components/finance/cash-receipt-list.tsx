@@ -1,184 +1,75 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Icon } from "@/components/icon";
-import { Pager } from "@/components/ui/pager";
-import { SearchField } from "@/components/ui/search-field";
-import { Select } from "@/components/ui/select";
-import { useRegisterParams } from "@/components/ui/use-register-params";
-import type { Paged } from "@/lib/erp/register-query";
-import { formatDate, formatMoney } from "@/lib/format";
-import type { CashReceiptListRow } from "@/lib/erp/cash-bank-tx";
-import { cashBankPurpose } from "@/lib/erp/cash-bank-purposes";
 import { CashBalanceTile } from "@/components/finance/cash-balance-tile";
+import { Amount } from "@/components/ui/amount";
+import { DocumentRegister, rowSteps } from "@/components/ui/document-register";
 import type { CashBookSummary } from "@/lib/erp/cash-bank";
+import { cashBankPurpose } from "@/lib/erp/cash-bank-purposes";
+import type { CashReceiptListRow } from "@/lib/erp/cash-bank-tx";
 import {
   CASH_BANK_TX_STATUS_BADGE,
   CASH_BANK_TX_STATUS_TEXT,
-  type CashBankTxStatus,
+  CASH_RECEIPT_TRANSITIONS,
+  availableCashReceiptActions,
+  cashBankTxIsEditable,
   type CashReceiptAbilities,
+  type CashBankTxStatus,
 } from "@/lib/erp/cash-bank-tx-workflow";
+import type { Paged } from "@/lib/erp/register-query";
+import { formatMoney } from "@/lib/format";
 
-/** The Penerimaan Kas & Bank register. Drafts first, then newest first. */
+const STATUSES: CashBankTxStatus[] = ["Draft", "Posted", "Cancelled"];
+
+/** The Penerimaan Kas & Bank register, paged by the database (P224). */
 export function CashReceiptList({ paged, can, cash }: { paged: Paged<CashReceiptListRow>; can: CashReceiptAbilities; cash: CashBookSummary }) {
-  const router = useRouter();
-  const reg = useRegisterParams();
-  const filtered = Boolean(reg.q || reg.status);
-  const money = (n: number, currency = "IDR") => formatMoney(n, currency);
-
   return (
-    <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Finance</span>
-          <span>/</span>
-          <span>Kas & Bank</span>
-          <span>/</span>
-          <span className="cur">Penerimaan</span>
+    <DocumentRegister
+      module="Finance"
+      icon="down"
+      title="Penerimaan"
+      sub="Dana yang masuk ke kas atau bank, dan tagihan yang dilunasinya."
+      base="/finance/cash-bank/receipt"
+      newLabel="Buat Penerimaan"
+      canCreate={can.create}
+      searchHint="Cari nomor, referensi bank atau partner…"
+      statuses={STATUSES}
+      statusText={CASH_BANK_TX_STATUS_TEXT}
+      statusBadge={CASH_BANK_TX_STATUS_BADGE}
+      partnerLabel="Partner"
+      sourceLabel="Tagihan"
+      columns={[{ key: "purpose", label: "Tujuan / Kas & Bank", width: 150 }]}
+      valueLabel="Nilai"
+      empty="Catat dana yang masuk dari customer atas tagihannya."
+      banner={
+        <div className="kpis bud">
+          <CashBalanceTile cash={cash} />
         </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="down" size={16} />
-            </span>
-            Penerimaan Kas & Bank
-          </h1>
-          <div className="ph-act">
-            {can.create && (
-              <Link className="btn primary" href="/finance/cash-bank/receipt/new">
-                <Icon name="plus" size={15} /> Penerimaan Baru
-              </Link>
-            )}
-          </div>
-        </div>
-        <p className="ph-sub">
-          Setiap dana yang masuk ke kas atau bank. Tujuannya menentukan dokumen yang dilunasi; satu penerimaan dapat
-          melunasi beberapa tagihan partner yang sama. Posting membentuk journal dan mencatat dana di Buku Kas & Bank.
-        </p>
-      </div>
-
-      <div className="kpis bud">
-        <CashBalanceTile cash={cash} />
-      </div>
-
-      <div className="card">
-        <div className="toolbar">
-          <SearchField value={reg.search.value} onChange={reg.search.onChange} placeholder="Cari nomor, referensi bank atau partner…" />
-          <Select
-            variant="toolbar"
-            value={reg.status}
-            set={Boolean(reg.status)}
-            options={[
-              { value: "", label: "Status: semua" },
-              ...(["Draft", "Posted", "Cancelled"] as CashBankTxStatus[]).map((s) => ({
-                value: s,
-                label: CASH_BANK_TX_STATUS_TEXT[s],
-              })),
-            ]}
-            onChange={reg.setStatus}
-          />
-          <span className="tspace" />
-          <span className="count">
-            <b>{paged.total}</b> penerimaan
-          </span>
-        </div>
-
-        {paged.total ? (
+      }
+      paged={paged}
+      rows={paged.rows.map((r) => ({
+        id: r.id,
+        no: r.txNo,
+        status: r.status,
+        date: r.date,
+        partner: { label: r.partnerLabel, name: r.partnerName },
+        source: r.docs.length ? { no: r.docs[0], note: r.docs.length > 1 ? `+${r.docs.length - 1} lainnya` : undefined } : null,
+        cells: {
+          purpose: (
+            <>
+              <span className="bdg t-vio">{cashBankPurpose(r.purpose)?.short ?? r.purpose}</span>
+              <span className="rsub">{[r.cashBankLabel, r.bankRef].filter(Boolean).join(" · ")}</span>
+            </>
+          ),
+        },
+        value: (
           <>
-            <div className="tw">
-              <table className="grid">
-                <thead>
-                  <tr>
-                    <th style={{ width: 160 }}>Nomor</th>
-                    <th style={{ width: 100 }}>Status</th>
-                    <th style={{ width: 100 }}>Tanggal</th>
-                    <th>Partner / Dokumen</th>
-                    <th style={{ width: 170 }}>Tujuan</th>
-                    <th style={{ width: 110 }}>Kas & Bank</th>
-                    <th className="num" style={{ width: 130 }}>PPh</th>
-                    <th className="num" style={{ width: 150 }}>Dana Diterima</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {paged.rows.map((r) => (
-                    <tr key={r.id} onClick={() => router.push(`/finance/cash-bank/receipt/${r.id}`)}>
-                      <td>
-                        <Link className="lab" href={`/finance/cash-bank/receipt/${r.id}`}>
-                          {r.txNo}
-                        </Link>
-                      </td>
-                      <td>
-                        <span className={`bdg ${CASH_BANK_TX_STATUS_BADGE[r.status]}`}>{CASH_BANK_TX_STATUS_TEXT[r.status]}</span>
-                      </td>
-                      <td>{formatDate(r.date)}</td>
-                      <td>
-                        <span className="dstack">
-                          <span className="d1">{r.partnerName}</span>
-                          <span className="d2">
-                            {r.docs.join(", ")}
-                            {r.bankRef ? ` · ref ${r.bankRef}` : ""}
-                          </span>
-                        </span>
-                      </td>
-                      <td>
-                        <span className="bdg t-vio">{cashBankPurpose(r.purpose)?.short ?? r.purpose}</span>
-                      </td>
-                      <td>
-                        <span className="lab">{r.cashBankLabel}</span>
-                      </td>
-                      <td className="num">
-                        <span className="mny">{r.pph ? money(r.pph, r.currency) : "—"}</span>
-                      </td>
-                      <td className="num">
-                        <span className="mny">{money(r.cash, r.currency)}</span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <Pager
-              page={paged.page}
-              pages={paged.pages}
-              total={paged.total}
-              perPage={paged.size}
-              onPage={reg.setPage}
-              onPerPage={reg.setSize}
-            />
+            <Amount value={r.cash} currency={r.currency} />
+            {r.pph > 0 && <span className="rsub">PPh {formatMoney(r.pph, r.currency)}</span>}
           </>
-        ) : (
-          <div className="empty">
-            <div className="ic">
-              <Icon name="down" size={20} />
-            </div>
-            <h4>{filtered ? "Tidak ada yang cocok" : "Belum ada penerimaan"}</h4>
-            <p>
-              {filtered
-                ? "Tidak ada penerimaan yang sesuai dengan pencarian atau filter."
-                : "Catat dana yang masuk dari customer atas tagihan uang muka."}
-            </p>
-            {filtered ? (
-              <div className="cta">
-                <button
-                  className="btn"
-                  onClick={() => reg.clear()}
-                >
-                  Bersihkan filter
-                </button>
-              </div>
-            ) : (
-              can.create && (
-                <div className="cta">
-                  <Link className="btn primary" href="/finance/cash-bank/receipt/new">
-                    <Icon name="plus" size={15} /> Penerimaan Baru
-                  </Link>
-                </div>
-              )
-            )}
-          </div>
-        )}
-      </div>
-    </>
+        ),
+        editable: can.edit && cashBankTxIsEditable(r.status),
+        steps: rowSteps(availableCashReceiptActions(r.status, can), CASH_RECEIPT_TRANSITIONS),
+      }))}
+    />
   );
 }

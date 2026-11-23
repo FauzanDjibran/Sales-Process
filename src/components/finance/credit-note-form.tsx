@@ -23,6 +23,8 @@ import type { CnSource, CnSourceLine, CreditNoteHeaderInput, CreditNoteView } fr
 import { taxScale } from "@/lib/erp/sales-tax";
 import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
+import { CREDIT_NOTE_TRANSITIONS, availableCreditNoteActions } from "@/lib/erp/ar-credit-note-workflow";
 
 /**
  * A Credit Note Penjualan in all three modes (P292, `Sales-Return-Plan.md` §6).
@@ -99,7 +101,10 @@ export function CreditNoteForm({
   const dpp = editing ? figures.reduce((a, f) => a + f.dpp, 0) : (note?.dpp ?? 0);
   const ppn = editing ? figures.reduce((a, f) => a + f.ppn, 0) : (note?.ppn ?? 0);
 
-  async function onSave() {
+  // Every editable document is a Draft, so its next step is the Draft's (P309).
+  const next = firstStep(availableCreditNoteActions("Draft", can), CREDIT_NOTE_TRANSITIONS);
+
+  async function onSave(step?: string) {
     setSaving(true);
     const payload = lines.map((l) => ({ invoice_line_id: l.invoice_line_id, qty: l.qty }));
     const result = mode === "edit" ? await updateCreditNoteAction(note!.id, header, payload) : await createCreditNoteAction(header, payload);
@@ -115,7 +120,7 @@ export function CreditNoteForm({
     }
     setDirty(false);
     toast("Credit Note disimpan", `${result.creditNo} · Draft`, "ok");
-    router.push(`/finance/invoice/credit-note/${result.id}`);
+    router.push(withStep(`/finance/invoice/credit-note/${result.id}`, step));
   }
 
   const status = note?.status ?? "Draft";
@@ -409,9 +414,7 @@ export function CreditNoteForm({
         {editing ? (
           <>
             <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-            <button className="btn primary" onClick={onSave} disabled={saving}>
-              <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-            </button>
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
           </>
         ) : (
           <CreditNoteActions id={note!.id} subject={note!.creditNo} status={status} can={can} />
