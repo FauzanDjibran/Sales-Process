@@ -3103,7 +3103,7 @@ table log_stock_issue_tracking {
 
 //////////////////////////////////
 //
-// BSTB ke Finish Goods (P303, Simulasi-Gudang-Produksi-Plan.md 7.5)
+// BSTB ke Finish Goods (P303, 7.5) and BSTB Pengeluaran (P304, 7.6)
 //
 /////////////////////////////////
 
@@ -3117,8 +3117,8 @@ enum ProductionReceiptStatus {
 // No. Stok, Dr Persediaan / Cr WIP.
 table log_production_receipt {
   id                          int [pk, increment, not null]
-  receipt_no                  varchar [not null, unique] // BFG_<unit>_<ddmmyy>_<NNNNN>
-  purpose                     varchar [not null, default: 'finish_goods'] // `return` with 7.6
+  receipt_no                  varchar [not null, unique] // BFG_ / BPG_<unit>_<ddmmyy>_<NNNNN>
+  purpose                     varchar [not null, default: 'finish_goods'] // finish_goods (P303) | return, BSTB Pengeluaran (P304)
   receipt_date                date [not null] // the day sent
   status                      ProductionReceiptStatus [not null, default: 'Submitted']
   from_unit_id                int [not null, ref : > ref_unit.id]
@@ -3127,6 +3127,8 @@ table log_production_receipt {
   received_at                 date // Terima, the journal's date
   received_by                 int
   cost_amount                 decimal(18,2) [not null, default: 0] // Σ lines' value, at Terima
+  value_mode                  varchar // carried | none, chosen at Terima (P304)
+  written_off_amount          decimal(18,2) [not null, default: 0] // what `none` charged to Beban Pemusnahan Produksi
   journal_id                  int // acc_journal.id, no FK
   created_by                  int [not null]
   updated_by                  int

@@ -625,15 +625,18 @@ export async function transferBucket(
  */
 export async function sendInTransit(
   tx: Tx,
-  t: ProductionTake & { jobId?: number | null; doc: ProductionSource }
+  /** `fromPreparation`: BSTB Pengeluaran may also send goods not yet worked (W29, P304). */
+  t: ProductionTake & { jobId?: number | null; doc: ProductionSource; fromPreparation?: boolean }
 ): Promise<{ value: number; toBucketId: number; lotId: number; itemId: number }> {
   const from = await lockBucketById(tx, t.bucketId);
   if (!from) throw new ProductionRefusal("Saldo produksi tidak ditemukan. Pilih ulang.");
-  if (from.stage !== "StandBy") throw new ProductionRefusal("Hanya barang di Stand By yang dapat dikirim: barang Persiapan belum dikerjakan.");
+  if (from.stage !== "StandBy" && !(t.fromPreparation && from.stage === "Preparation")) {
+    throw new ProductionRefusal(t.fromPreparation ? "Hanya barang di Persiapan atau Stand By yang dapat dikeluarkan." : "Hanya barang di Stand By yang dapat dikirim: barang Persiapan belum dikerjakan.");
+  }
   const item = await productionItem(tx, from.itemId);
   const to = await openBucket(
     tx,
-    { lotId: from.lotId, unitId: from.unitId, stage: "InTransit", partaiId: from.partaiId, jobId: t.jobId === undefined ? from.jobId : t.jobId, itemId: from.itemId, uomId: item.base_uom_id },
+    { lotId: from.lotId, unitId: from.unitId, stage: "InTransit", partaiId: from.partaiId, jobId: t.jobId === undefined ? from.jobId : t.jobId, auxiliary: from.auxiliary, itemId: from.itemId, uomId: item.base_uom_id },
     t.actorId
   );
   const value = await takeLocked(tx, from, new D(t.baseQty), "TransferOut", t.date, t.source, t.actorId);

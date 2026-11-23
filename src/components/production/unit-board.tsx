@@ -281,6 +281,7 @@ export function UnitBoard({
             }[stepProcess ?? "Assign"] ?? null)
           : null;
   const picked = working ? filtered.filter((g) => ticked.has(g.key)) : [];
+  const canReturn = can.finishGoods && (standby || tab[0] === "p");
   async function close(how: "finish" | "cancel") {
     setBusy(true);
     const result = await closeKerjaAction(picked.flatMap((g) => g.rows.map((r) => r.id)), how, todayIso());
@@ -309,11 +310,19 @@ export function UnitBoard({
             </span>
             {unit.name}
           </h1>
-          {action?.allowed && (
+          {(action?.allowed || canReturn) && (
             <div className="ph-act">
-              <button className="btn primary" disabled={!here.length} onClick={() => router.push(action.href)}>
-                <Icon name={action.icon} size={15} /> {action.label}
-              </button>
+              {/* Out of the line to a warehouse, from Persiapan or Stand By (P304): neutral, left of the main action. */}
+              {canReturn && (
+                <button className="btn" disabled={!here.length} onClick={() => router.push(`/production/transfer/return?unit=${at}`)}>
+                  <Icon name="down" size={15} /> BSTB Pengeluaran
+                </button>
+              )}
+              {action?.allowed && (
+                <button className="btn primary" disabled={!here.length} onClick={() => router.push(action.href)}>
+                  <Icon name={action.icon} size={15} /> {action.label}
+                </button>
+              )}
             </div>
           )}
         </div>

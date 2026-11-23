@@ -964,8 +964,8 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
-    name: "a received BSTB ke Finish Goods: its value = Σ lines = what production released = what came into stock = its journal's debit; one waiting has moved nothing out and holds each line Dalam Perjalanan (P303)",
-    sql: `WITH r AS (SELECT r.id, r.receipt_no, r.status, r.cost_amount, r.journal_id,
+    name: "a received BSTB from production: its value = Σ lines = what production released = its journal's debit, and stock came in at it less what Tanpa nilai wrote off; one waiting has moved nothing out and holds each line Dalam Perjalanan (P303, P304)",
+    sql: `WITH r AS (SELECT r.id, r.receipt_no, r.status, r.cost_amount, r.written_off_amount, r.value_mode, r.journal_id,
                         COALESCE((SELECT SUM(x.value) FROM log_production_receipt_line x WHERE x.receipt_id = r.id), 0) AS lines,
                         COALESCE((SELECT -SUM(l.value_change) FROM prd_ledger l WHERE l.source_doc_type_id = ${docType("log_production_receipt")} AND l.source_doc_id = r.id AND l.movement = 'Released'), 0) AS prd_out,
                         COALESCE((SELECT SUM(v.value_change) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("log_production_receipt")} AND v.source_doc_id = r.id), 0) AS stock_in,
@@ -974,7 +974,8 @@ export const CHECKS: Check[] = [
                           WHERE x.receipt_id = r.id AND (b.id IS NULL OR b.stage <> 'InTransit' OR b.qty_balance < x.qty)) AS not_waiting
                  FROM log_production_receipt r)
           SELECT * FROM r
-          WHERE (status = 'Posted' AND (cost_amount <> lines OR cost_amount <> prd_out OR cost_amount <> stock_in OR cost_amount <> journal OR (cost_amount > 0 AND journal_id IS NULL)))
+          WHERE (status = 'Posted' AND (cost_amount <> lines OR cost_amount <> prd_out OR cost_amount - written_off_amount <> stock_in OR cost_amount <> journal OR (cost_amount > 0 AND journal_id IS NULL)
+                                     OR written_off_amount <> CASE WHEN value_mode = 'none' THEN cost_amount ELSE 0 END))
              OR (status = 'Submitted' AND (journal_id IS NOT NULL OR prd_out <> 0 OR stock_in <> 0 OR not_waiting > 0))`,
   },
   {

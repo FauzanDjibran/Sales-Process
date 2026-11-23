@@ -253,6 +253,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | W141 | **Alur form produksi seperti artifact** (P286). No. Grading: pilih Job dulu, lalu tiap Job diisi di popup timbangan; satu form banyak grading; Karyawan opsional. Simpan = Draft, Posting = langsung dari form, lalu Buat Lagi / Selesai. Kirim dan BSTB: No. Stok tanpa Job per gram, Job utuh. Breadcrumb dan Batal kembali ke tab Unit di Workspace. Kartu Unit satu angka per proses. |
 | W142 | **Seed walet dan line Mie** (P296). `db:seed-walet` mengisi satu perusahaan walet lengkap untuk dicoba: master produksi, item gram, gudang, supplier dan customer, bank IDR dan USD, user demo per Unit, stok awal sarang mentah. `db:seed-production` kini juga menulis **Line Mie** dengan routing MIE-1: UPW → UCL → UC1 → USR → UDA ◆ → UWP → UBC ◆ → UP5 (tanpa Moulding dan Dry B, seperti artifact). UP8 belum di-seed. |
 | W143 | **BSTB ke Finish Goods dibangun** (P303). Dari Stand By Unit terakhir routing line (UP5), tanpa QC: *Kirim ke Finish Goods* di Workspace memilih gudang tanpa Lokasi, barang utuh menjadi Dalam Perjalanan di Unit. Gudang menekan **Terima** di ERP › Persediaan › BSTB ke Finish Goods: barang keluar dari buku produksi dan masuk gudang dengan No. Stok yang sama senilai yang dibawanya, jurnal Dr Persediaan / Cr WIP, bertanggal hari Terima. Nomor `BFG_<unit>_<ddmmyy>_<NNNNN>` | User (P280 §5) |
+| W144 | **BSTB Pengeluaran dibangun** (P304). Dari Persiapan atau Stand By Unit mana pun, termasuk bahan penolong; Job utuh, No. Stok tanpa Job boleh sebagian; No. Job berakhir di sini. **Tanpa Draft**: Ajukan langsung, barang Dalam Perjalanan sampai gudang menekan Terima (mengubah W85). Saat Terima gudang memilih **Nilai terbawa** (Dr Persediaan / Cr WIP) atau **Tanpa nilai** (stok masuk bernilai 0, nilainya ke Beban Pemusnahan Produksi). *Hanya nilai bahan* dan penyerapan nilai Reject oleh sisa partai (§9, W79) belum dibangun. Nomor `BPG_<unit>_<ddmmyy>_<NNNNN>` | User |
 
 ---
 
@@ -426,6 +427,8 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 ## 9. Pengeluaran dan Reproses
 
 **BSTB Pengeluaran** bisa dari unit mana saja, dari **Persiapan maupun Stand By** (W29), dan boleh sebagian qty. Barang membawa No. Stok dan partai asal ke Logistik.
+
+> **Yang dibangun (W144, P304):** gudang memilih saat Terima *Nilai terbawa* atau *Tanpa nilai* (nilai ke Beban Pemusnahan Produksi). Tabel alasan di bawah, termasuk penyerapan nilai Reject oleh sisa partai, belum dibangun.
 
 | Alasan | Nilai keluar | Ke mana nilainya | Jurnal |
 | --- | --- | --- | --- |

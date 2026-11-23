@@ -303,7 +303,7 @@ export const PERMISSIONS = [
   { code: "PRODUCTION_TRANSFER_VIEW", name: "Lihat Push dan BSTB", module: "production", description: "Dokumen perpindahan barang antar Unit." },
   { code: "PRODUCTION_TRANSFER_CREATE", name: "Kirim Push atau BSTB", module: "production", description: "Push langsung diposting; BSTB diajukan dan menunggu Terima." },
   { code: "PRODUCTION_TRANSFER_RECEIVE", name: "Terima BSTB", module: "production", description: "Oleh Unit tujuan; barang masuk ke Persiapannya." },
-  { code: "PRODUCTION_RECEIPT_SEND", name: "Kirim ke Finish Goods", module: "production", description: "Dari Stand By Unit terakhir routing; barang Dalam Perjalanan sampai gudang menekan Terima." },
+  { code: "PRODUCTION_RECEIPT_SEND", name: "Kirim BSTB ke Gudang", module: "production", description: "BSTB ke Finish Goods dari Stand By Unit terakhir routing, dan BSTB Pengeluaran dari Persiapan atau Stand By Unit mana pun; barang Dalam Perjalanan sampai gudang menekan Terima." },
   { code: "PRODUCTION_KERJA_VIEW", name: "Lihat Kerja", module: "production", description: "Proses Kerja: Mulai, Sedang Dikerjakan, Selesai." },
   { code: "PRODUCTION_KERJA_START", name: "Mulai Kerja", module: "production", description: "Memindah Job ke Sedang Dikerjakan dengan karyawannya." },
   { code: "PRODUCTION_BOX_VIEW", name: "Lihat Kotak", module: "production", description: "Kotak Packing 95 dan isinya." },
@@ -354,8 +354,8 @@ export const PERMISSIONS = [
   { code: "STOCK_ISSUE_POST", name: "Terima BSTB Issue", module: "inventory", description: "Unit menerima barang: stok keluar per lot dan menjurnal WIP / Persediaan." },
   { code: "STOCK_ISSUE_CANCEL", name: "Batalkan BSTB Issue", module: "inventory", description: "Hanya Draft, dengan alasan." },
   // BSTB ke Finish Goods (P303): Produksi sends, the warehouse receives.
-  { code: "PRODUCTION_RECEIPT_VIEW", name: "Lihat BSTB ke Finish Goods", module: "inventory", description: "Kiriman barang jadi dari Unit terakhir routing ke gudang user." },
-  { code: "PRODUCTION_RECEIPT_RECEIVE", name: "Terima BSTB ke Finish Goods", module: "inventory", description: "Barang keluar dari produksi dan masuk gudang dengan No. Stok yang sama; journal Persediaan / WIP." },
+  { code: "PRODUCTION_RECEIPT_VIEW", name: "Lihat BSTB ke Finish Goods dan BSTB Pengeluaran", module: "inventory", description: "Kiriman dari produksi ke gudang user." },
+  { code: "PRODUCTION_RECEIPT_RECEIVE", name: "Terima BSTB dari Produksi", module: "inventory", description: "Barang keluar dari produksi dan masuk gudang dengan No. Stok yang sama; BSTB Pengeluaran boleh diterima tanpa nilai (ke Beban Pemusnahan Produksi)." },
   // Stock transfer through the Gudang Transit (P300): Kirim and Terima are
   // separate, so a destination warehouse may only receive.
   { code: "STOCK_TRANSFER_VIEW", name: "Lihat Transfer Kirim", module: "inventory", description: "Kiriman dari atau ke gudang user, termasuk Draft dan yang dibatalkan." },

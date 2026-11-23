@@ -5427,22 +5427,26 @@ model LogStockIssueTracking {
 // Stok, Dr Persediaan / Cr WIP. `purpose` makes room for BSTB Pengeluaran (7.6).
 
 model LogProductionReceipt {
-  id           Int                     @id @default(autoincrement())
-  receipt_no   String                  @unique
-  /// `finish_goods` for now; `return` comes with BSTB Pengeluaran (7.6).
-  purpose      String                  @default("finish_goods")
+  id                 Int                     @id @default(autoincrement())
+  receipt_no         String                  @unique
+  /// `finish_goods` (BSTB ke Finish Goods, P303) or `return` (BSTB Pengeluaran, P304).
+  purpose            String                  @default("finish_goods")
   /// The day the goods were sent.
-  receipt_date DateTime                @db.Date
-  status       ProductionReceiptStatus @default(Submitted)
-  from_unit_id Int
-  warehouse_id Int
-  note         String?
+  receipt_date       DateTime                @db.Date
+  status             ProductionReceiptStatus @default(Submitted)
+  from_unit_id       Int
+  warehouse_id       Int
+  note               String?
   /// Terima: the day the warehouse took them in, the journal's date.
-  received_at  DateTime?               @db.Date
-  received_by  Int?
+  received_at        DateTime?               @db.Date
+  received_by        Int?
   /// Σ of the lines' value, set at Terima.
-  cost_amount  Decimal                 @default(0) @db.Decimal(18, 2)
-  journal_id   Int?
+  cost_amount        Decimal                 @default(0) @db.Decimal(18, 2)
+  /// Chosen at Terima: `carried` (into stock at its value) or `none` (into stock at 0, P304).
+  value_mode         String?
+  /// What `none` charged to Beban Pemusnahan Produksi instead of stock.
+  written_off_amount Decimal                 @default(0) @db.Decimal(18, 2)
+  journal_id         Int?
 
   created_by Int
   updated_by Int?

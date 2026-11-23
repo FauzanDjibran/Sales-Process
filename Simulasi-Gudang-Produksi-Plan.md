@@ -1,6 +1,6 @@
 # Rencana implementasi: PO → Gudang → Produksi → Gudang di aplikasi
 
-> Status: **dijalankan (P280).** Usulan §5 dipakai sebagai asumsi kerja sampai user mengoreksi. 7.0–7.5 selesai (P280–P284, P303); berikutnya 7.6 BSTB Pengeluaran. Yang disimulasikan nanti adalah
+> Status: **dijalankan (P280).** Usulan §5 dipakai sebagai asumsi kerja sampai user mengoreksi. 7.0–7.6 selesai (P280–P284, P303, P304); berikutnya 7.7 Laporan dan cek. Yang disimulasikan nanti adalah
 > **aplikasi** (lokal dan Neon), bukan artifact. Artifact *Workspace Unit
 > Produksi* (<https://claude.ai/artifact/TR9atVSRmuRUyh9nn9hHU7>, versi 21)
 > menjadi **spesifikasi perilaku**: yang ada di sana dibangun persis, yang belum
@@ -43,7 +43,7 @@ Finish Goods).
 | 6 | Job Order di UML | **Belum** (seed tanpa Job Order) | Ada (putaran 10) | 7.3 |
 | 7 | Packing 95: Kotak dari BoM per Nama Jual, CAIQ, rekomendasi keping | **Belum** | Ada (P248–P252, putaran 10) | 7.4 |
 | 8 | BSTB ke Finish Goods dari UP5 ke Gudang Finish Goods | Ada (P303) | **Hanya teks**; UP5 di artifact mengirim ke UP8 | 7.5, keputusan §5 |
-| 9 | BSTB Pengeluaran ke Gudang, pilihan nilai | **Belum** | Ada form; Terima Gudang di artifact hanya menolkan barang | 7.6, keputusan §5 |
+| 9 | BSTB Pengeluaran ke Gudang, pilihan nilai | Ada (P304: Nilai terbawa / Tanpa nilai, tanpa Draft) | Ada form; Terima Gudang di artifact hanya menolkan barang | 7.6, keputusan §5 |
 | 10 | Data master untuk menjalankan alur | Unit, Routing, Line ada (seed); Item produksi, Nama Jual, BoM, Standard Cost, dua Gudang **belum** | Data contoh | 7.0 |
 | 11 | Laporan dan cek | Saldo Produksi, Kartu No. Stok, Telusur, `db:reconcile` | — | Menyesuaikan tahap QC baru dan dokumen baru, 7.7 |
 

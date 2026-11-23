@@ -14,7 +14,7 @@ export default async function Page({ searchParams }: { searchParams: Promise<{ u
   const unit = label ? await prisma.refUnit.findFirst({ where: { unit_label: label }, select: { id: true } }) : null;
   if (!unit) notFound();
   await requireUnit(actor, unit.id);
-  const options = await finishGoodsOptions(unit.id);
+  const options = await finishGoodsOptions(unit.id, "finish_goods");
   if (!options) notFound();
   return <FinishGoodsForm key={n ?? "0"} options={options} initialBucketIds={String(bucket ?? "").split(",").map(Number).filter(Boolean)} />;
 }

@@ -364,7 +364,8 @@ describe("a text field is the one the design system draws", () => {
       .filter((f) => !PARENT_STYLED.includes(f.rel))
       .filter((f) =>
         inputTags(code(f.text)).some(
-          (tag) => !/className/.test(tag) && !/type=["']checkbox["']/.test(tag)
+          // A checkbox or radio is drawn by its `.chk` parent (`.chk input`).
+          (tag) => !/className/.test(tag) && !/type=["'](checkbox|radio)["']/.test(tag)
         )
       );
 

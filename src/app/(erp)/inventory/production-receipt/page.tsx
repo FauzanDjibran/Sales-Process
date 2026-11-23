@@ -8,5 +8,5 @@ export const dynamic = "force-dynamic";
 /** The BSTB ke Finish Goods register (P303), narrowed to the user's warehouses (OD-9). */
 export default async function Page() {
   const actor = await requirePermission("PRODUCTION_RECEIPT_VIEW", "/inventory/production-receipt");
-  return <ProductionReceiptList rows={await listProductionReceipts(await warehouseIdsOf(actor))} />;
+  return <ProductionReceiptList purpose="finish_goods" rows={await listProductionReceipts("finish_goods", await warehouseIdsOf(actor))} />;
 }

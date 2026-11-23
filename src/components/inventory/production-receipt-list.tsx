@@ -9,7 +9,7 @@ import { SearchField } from "@/components/ui/search-field";
 import { DocumentHeader } from "@/components/ui/document-header";
 import { formatDate, formatNumber } from "@/lib/format";
 import type { ProductionReceiptRow } from "@/lib/erp/production-receipt";
-import { PRODUCTION_RECEIPT_PATH, PRODUCTION_RECEIPT_STATUS_BADGE, PRODUCTION_RECEIPT_STATUS_TEXT, type ProductionReceiptStatus } from "@/lib/erp/production-receipt-shape";
+import { PRODUCTION_RECEIPT_PURPOSES, PRODUCTION_RECEIPT_STATUS_BADGE, PRODUCTION_RECEIPT_STATUS_TEXT, type ProductionReceiptPurpose, type ProductionReceiptStatus } from "@/lib/erp/production-receipt-shape";
 
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 const TABS: [ProductionReceiptStatus | "", string][] = [
@@ -18,12 +18,25 @@ const TABS: [ProductionReceiptStatus | "", string][] = [
   ["", "Semua"],
 ];
 
+const SUB: Record<ProductionReceiptPurpose, [string, string]> = {
+  finish_goods: [
+    "Barang jadi yang dikirim Unit terakhir routing ke gudang Anda. Dibuat di aplikasi Produksi; gudang menekan Terima, barang masuk dengan No. Stok yang sama.",
+    "Kiriman dibuat dari Workspace Unit di aplikasi Produksi, lewat Kirim ke Finish Goods di Stand By Unit terakhir routing.",
+  ],
+  return: [
+    "Barang yang dikeluarkan Unit mana pun dari Persiapan atau Stand By ke gudang Anda. Gudang menekan Terima dan memilih nilainya: terbawa atau tanpa nilai.",
+    "BSTB Pengeluaran dibuat dari Workspace Unit di aplikasi Produksi, lewat tombol BSTB Pengeluaran di tab Persiapan atau Stand By.",
+  ],
+};
+
 /**
- * The register of BSTB ke Finish Goods (P303): what the last Unit of a line sent
- * to the user's warehouses, waiting ones first. Made in the Produksi
+ * The register of one purpose of the BSTB from production (P303, P304): what
+ * was sent to the user's warehouses, waiting ones first. Made in the Produksi
  * application; the warehouse only receives, so there is no Baru here.
  */
-export function ProductionReceiptList({ rows: all }: { rows: ProductionReceiptRow[] }) {
+export function ProductionReceiptList({ purpose, rows: all }: { purpose: ProductionReceiptPurpose; rows: ProductionReceiptRow[] }) {
+  const p = PRODUCTION_RECEIPT_PURPOSES[purpose];
+  const PRODUCTION_RECEIPT_PATH = p.path;
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<string>(all.some((r) => r.status === "Submitted") ? "Submitted" : "");
@@ -33,7 +46,7 @@ export function ProductionReceiptList({ rows: all }: { rows: ProductionReceiptRo
 
   return (
     <>
-      <DocumentHeader module="Persediaan" icon="down" title="BSTB ke Finish Goods" sub="Barang jadi yang dikirim Unit terakhir routing ke gudang Anda. Dibuat di aplikasi Produksi; gudang menekan Terima, barang masuk dengan No. Stok yang sama." />
+      <DocumentHeader module="Persediaan" icon="down" title={p.name} sub={SUB[purpose][0]} />
       <div className="card">
         <div className="qtabs" role="tablist">
           {TABS.map(([value, label]) => (
@@ -107,8 +120,8 @@ export function ProductionReceiptList({ rows: all }: { rows: ProductionReceiptRo
             <div className="ic">
               <Icon name="down" size={20} />
             </div>
-            <h4>{q || status ? "Tidak ada yang cocok" : "Belum ada BSTB ke Finish Goods"}</h4>
-            <p>{q || status ? "Tidak ada dokumen yang sesuai dengan pencarian atau tab ini." : "Kiriman dibuat dari Workspace Unit di aplikasi Produksi, lewat Kirim ke Finish Goods di Stand By Unit terakhir routing."}</p>
+            <h4>{q || status ? "Tidak ada yang cocok" : `Belum ada ${p.name}`}</h4>
+            <p>{q || status ? "Tidak ada dokumen yang sesuai dengan pencarian atau tab ini." : SUB[purpose][1]}</p>
           </div>
         )}
       </div>

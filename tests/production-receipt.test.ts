@@ -18,20 +18,23 @@ let f: ProductionFixture;
 let s: Awaited<ReturnType<typeof sourceOf>>;
 const ids = {} as Record<string, number>;
 const receipts: number[] = [];
+const SCRAP = "production_scrap_account";
+let saved: string | undefined;
 
-async function stand(unit: number, qty: number, value: number) {
+/** `qty` of the product at a Unit, in Persiapan (or Stand By when `ready`). */
+async function stand(unit: number, qty: number, value: number, ready = true) {
   const lot = await prisma.logStockTracking.create({
     data: { tracking_no: f.key(`F${Math.random().toString(36).slice(2, 6)}`), tracking_date: date, item_id: f.product, source_doc_type_id: s.docTypeId, source_doc_id: s.docId, source_no: s.no, created_by: f.actor },
   });
   await prisma.$transaction(async (t) => {
     const e = await enterProduction(t, { lotId: lot.id, itemId: f.product, unitId: unit, baseQty: qty, value, date, source: s, actorId: f.actor });
-    await advanceToStandBy(t, { bucketId: e.bucketId, baseQty: qty, date, source: s, actorId: f.actor });
+    if (ready) await advanceToStandBy(t, { bucketId: e.bucketId, baseQty: qty, date, source: s, actorId: f.actor });
   });
-  return (await availableBuckets({ unitIds: [unit], stage: "StandBy" })).find((b) => b.lotId === lot.id)!;
+  return (await availableBuckets({ unitIds: [unit], stage: ready ? "StandBy" : "Preparation" })).find((b) => b.lotId === lot.id)!;
 }
 
 async function send(over: Partial<FinishGoodsInput>) {
-  const r = await sendFinishGoods({ from_unit_id: ids.b, warehouse_id: f.warehouse, receipt_date: today, note: "", bucket_ids: [], ...over }, f.actor);
+  const r = await sendFinishGoods({ from_unit_id: ids.b, warehouse_id: f.warehouse, receipt_date: today, note: "", lines: [], ...over }, f.actor);
   if (r.ok) receipts.push(r.id);
   return r;
 }
@@ -47,6 +50,8 @@ before(async () => {
     })
   ).id;
   ids.b = f.wsB;
+  saved = (await prisma.sysSetting.findUnique({ where: { setting_key: SCRAP } }))?.setting_value ?? undefined;
+  await prisma.sysSetting.upsert({ where: { setting_key: SCRAP }, update: { setting_value: String(f.scrapAcc) }, create: { setting_key: SCRAP, setting_value: String(f.scrapAcc), updated_by: f.actor } });
 });
 
 after(async () => {
@@ -58,6 +63,8 @@ after(async () => {
   await prisma.accJournal.deleteMany({ where: { id: { in: journals } } });
   await prisma.prdRouting.deleteMany({ where: { id: ids.routing } });
   await prisma.prdLine.deleteMany({ where: { id: ids.line } });
+  if (saved === undefined) await prisma.sysSetting.deleteMany({ where: { setting_key: SCRAP } });
+  else await prisma.sysSetting.update({ where: { setting_key: SCRAP }, data: { setting_value: saved } });
   await f.teardown();
   await cleanupFixtures();
   await cleanupFiscalYear();
@@ -67,7 +74,7 @@ after(async () => {
 describe("BSTB ke Finish Goods (P303)", () => {
   test("only the Unit that ends a line sends to Finish Goods", async () => {
     const a = await stand(f.wsA, 2, 2000);
-    const r = await send({ from_unit_id: f.wsA, bucket_ids: [a.id] });
+    const r = await send({ from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: a.qty }] });
     assert.equal(r.ok, false);
     if (!r.ok) assert.match(r.errors.from_unit_id, /bukan Unit terakhir/);
     assert.equal((await finishGoodsOptions(f.wsA))?.endsLine, false);
@@ -76,7 +83,7 @@ describe("BSTB ke Finish Goods (P303)", () => {
 
   test("Kirim keeps the goods at the Unit as Dalam Perjalanan; Terima brings them into stock, Dr Persediaan / Cr WIP", async () => {
     const b = await stand(f.wsB, 5, 5000);
-    const sent = await send({ bucket_ids: [b.id] });
+    const sent = await send({ lines: [{ bucket_id: b.id, qty: b.qty }] });
     assert.equal(sent.ok, true, JSON.stringify(sent));
     if (!sent.ok) return;
     assert.match(sent.no, /^BFG_/);
@@ -123,8 +130,67 @@ describe("BSTB ke Finish Goods (P303)", () => {
 
   test("a bucket no longer in Stand By is refused", async () => {
     const b = await stand(f.wsB, 1, 100);
-    assert.equal((await send({ bucket_ids: [b.id] })).ok, true);
-    const r = await send({ bucket_ids: [b.id] });
+    assert.equal((await send({ lines: [{ bucket_id: b.id, qty: b.qty }] })).ok, true);
+    const r = await send({ lines: [{ bucket_id: b.id, qty: b.qty }] });
+    assert.equal(r.ok, false);
+  });
+});
+
+describe("BSTB Pengeluaran (P304)", () => {
+  test("any Unit sends from Persiapan in part; Tanpa nilai brings the goods in at 0 and charges Beban Pemusnahan", async () => {
+    const a = await stand(f.wsA, 10, 1000, false);
+    const sent = await send({ purpose: "return", from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: 4 }] });
+    assert.equal(sent.ok, true, JSON.stringify(sent));
+    if (!sent.ok) return;
+    assert.match(sent.no, /^BPG_/);
+    assert.equal((await availableBuckets({ unitIds: [f.wsA], stage: "Preparation" })).find((x) => x.lotId === a.lotId)?.qty, 6);
+
+    const unchosen = await receiveFinishGoods(sent.id, f.actor);
+    assert.equal(unchosen.ok, false);
+
+    const got = await receiveFinishGoods(sent.id, f.actor, { valueMode: "none" });
+    assert.equal(got.ok, true, JSON.stringify(got));
+    const view = await getProductionReceipt(sent.id);
+    assert.equal(view?.cost, 400);
+    assert.equal(view?.writtenOff, 400);
+    assert.equal(view?.valueMode, "none");
+    const stock = await prisma.logStockBalance.findFirst({ where: { warehouse_id: f.warehouse, tracking_id: a.lotId } });
+    assert.equal(stock?.qty_balance.toNumber(), 4);
+    const valued = await prisma.logStockValuationLedger.findMany({ where: { source_doc_id: sent.id, item_id: f.product } });
+    assert.equal(valued.reduce((x, v) => x + v.value_change.toNumber(), 0), 0);
+    const lines = await prisma.accJournalLine.findMany({ where: { journal_id: view!.journalId! }, orderBy: { id: "asc" } });
+    assert.deepEqual(
+      lines.map((l) => [l.account_id, l.debit_amount.toNumber(), l.kredit_amount.toNumber()]),
+      [
+        [f.scrapAcc, 400, 0],
+        [f.wipAcc, 0, 400],
+      ]
+    );
+  });
+
+  test("Nilai terbawa brings them in at their value, Dr Persediaan / Cr WIP", async () => {
+    const a = await stand(f.wsA, 3, 900);
+    const sent = await send({ purpose: "return", from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: 3 }] });
+    assert.equal(sent.ok, true, JSON.stringify(sent));
+    if (!sent.ok) return;
+    const preview = await productionReceiptPreview(sent.id, f.actor, "carried");
+    assert.equal(preview.ok, true, JSON.stringify(preview));
+    assert.equal((await receiveFinishGoods(sent.id, f.actor, { valueMode: "carried" })).ok, true);
+    const view = await getProductionReceipt(sent.id);
+    assert.equal(view?.writtenOff, 0);
+    const lines = await prisma.accJournalLine.findMany({ where: { journal_id: view!.journalId! }, orderBy: { id: "asc" } });
+    assert.deepEqual(
+      lines.map((l) => [l.account_id, l.debit_amount.toNumber(), l.kredit_amount.toNumber()]),
+      [
+        [f.inventoryAcc, 900, 0],
+        [f.wipAcc, 0, 900],
+      ]
+    );
+  });
+
+  test("more than the balance is refused", async () => {
+    const a = await stand(f.wsA, 2, 200, false);
+    const r = await send({ purpose: "return", from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: 3 }] });
     assert.equal(r.ok, false);
   });
 });
