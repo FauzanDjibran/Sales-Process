@@ -9,7 +9,7 @@
 
 1. **Bisa dibuat generik: dua menu, Stock Issue dan Stock Receipt.** Ke dan dari produksi menjadi *tujuan* (purpose). Tiga menu hari ini (BSTB Issue, BSTB ke Finish Goods, BSTB Pengeluaran) menjadi dua. Receipt Note, Delivery Note dan Transfer tetap sendiri (§3).
 2. **Gudang punya dua menu dan produksi satu `prd_transfer` karena keduanya menjawab hal yang berbeda.** `prd_transfer` memindahkan barang di dalam satu buku. Stock Issue dan Receipt masing-masing hanya **separuh** perpindahan; separuh lainnya ada di buku produksi (§2).
-3. **Kekurangan sebenarnya ada di sisi produksi.** Produksi tidak punya dokumen untuk separuhnya: serah terima ditulis langsung ke tabel ERP. Dengan dua database itu tidak bisa jalan. Usul: `prd_transfer` mendapat dua jenis baru, *Dari Gudang* dan *Ke Gudang* (§5).
+3. **Kekurangan sebenarnya ada di sisi produksi.** Produksi tidak punya dokumen untuk separuhnya: serah terima ditulis langsung ke tabel ERP. Dengan dua database itu tidak bisa jalan. Usul: dua dokumen sendiri, **Production Receipt** (masuk) dan **Production Issue** (keluar), cermin Stock Issue dan Stock Receipt; `prd_transfer` tetap hanya Unit → Unit (§5).
 4. **Satu aturan untuk semua perpindahan: Kirim mengeluarkan dan membekukan nilai, Terima memasukkan.** Barang yang di jalan dicatat di sisi pengirim. Jurnal serah terima selalu ditulis ERP dalam transaksinya sendiri (§4).
 5. **Titik terpenting: BSTB Issue harus berjurnal saat Kirim, bukan saat Terima.** Dengan aturan sekarang di dua database, nilai ERP dan produksi melenceng di seluruh simulasi (§6).
 
@@ -61,7 +61,7 @@ Jumlah dokumen ditentukan tiga pertanyaan, bukan oleh logistik atau produksinya.
 | **Tanpa partner** | **Stock Issue, Stock Receipt** | Barang keluar atau masuk Persediaan karena sebab internal |
 | Antar gudang | Transfer Kirim, Transfer Terima | Persediaan tidak berubah, tanpa jurnal |
 
-**Tidak digabung dengan Delivery Note dan Receipt Note.** Penggabungan menghasilkan kolom partner, alamat dan sumber yang kosong di separuh baris, dan tetap dua posting berbeda. Bentuk usulan ini sama dengan ERPNext (Stock Entry *Material Issue / Receipt* terpisah dari Delivery Note dan Purchase Receipt). SAP memakai satu mesin movement type, tetapi pengiriman ke customer tetap dokumen Delivery. Business Central memisahkan Item Journal dari Shipment. Pembanding ini dari pengetahuan umum, tidak dicek ulang ke dokumentasinya.
+**Tidak digabung dengan Delivery Note dan Receipt Note.** Penggabungan menghasilkan kolom partner, alamat dan sumber yang kosong di separuh baris, dan tetap dua posting berbeda. Bentuk usulan ini sama dengan ERPNext (Stock Entry *Material Issue / Receipt* terpisah dari Delivery Note dan Purchase Receipt). SAP memakai satu mesin movement type, tetapi pengiriman ke customer tetap dokumen Delivery. Business Central memisahkan Item Journal dari Shipment. Garis DN/RN ini dari pengetahuan umum; pembanding sisi produksi ada di §5.3.
 
 ### 3.2 Katalog tujuan
 
@@ -129,23 +129,65 @@ Suku ketiga selalu nol selama satu database.
 | WIP | Barang yang sudah diterima Unit | Termasuk barang yang sedang menuju Unit |
 | Tanggal di buku produksi | Tanggal dokumen | Tanggal Terima, tidak sebelum Kirim |
 
-## 5. Sisi produksi
+## 5. Sisi produksi: tiga dokumen
 
-`prd_transfer` mendapat dua jenis, **tanpa tabel baru**:
+> Direvisi 23/11/2026 atas masukan user. Usulan pertama (dua jenis baru di `prd_transfer`) ditarik: alasan yang memisahkan
+> Delivery Note dari Stock Issue (§3.1) berlaku sama di sini, dan keluar masuk produksi punya banyak alasan.
 
-| Jenis | Asal | Tujuan | Lahir | Terima |
+| Dokumen | Tabel | Mengubah WIP? | Pasangan di ERP |
+| --- | --- | --- | --- |
+| **Production Receipt** | `prd_receipt(_line)` | Bertambah | Stock Issue |
+| **Transfer** (Push, BSTB, BSTB Penyebaran) | `prd_transfer(_line)`, **tidak berubah** | Tetap | tidak ada |
+| **Production Issue** | `prd_issue(_line)` | Berkurang | Stock Receipt, bila ada gudang |
+
+### 5.1 Tujuan
+
+| Dokumen | Tujuan | Dari / ke | Aturan sendiri |
+| --- | --- | --- | --- |
+| Receipt | Bahan | Gudang → Unit pertama routing | No. Job lahir saat Terima (W98) |
+| Receipt | Bahan penolong | Gudang → Unit mana pun | Tanpa Job dan partai |
+| Receipt | *calon:* Rework dari Finish Goods atau retur customer | Gudang → Unit yang dipilih | Silsilah ke kotak lama; partai dan rate ditentukan saat itu |
+| Receipt | *calon:* Koreksi tambah (opname lantai) | tidak ada | Sumber nilai harus diputuskan |
+| Issue | Finish Goods | Unit akhir line → Gudang | Stand By, utuh |
+| Issue | Pengeluaran (reject, sisa, bahan penolong) | Unit mana pun → Gudang | Persiapan atau Stand By; nilai dipilih gudang |
+| Issue | *calon:* Pemusnahan di tempat | Unit → **tidak ada** | Dr Beban; tidak ada gudang yang menerima |
+| Issue | *calon:* Sampel lab, koreksi kurang | Unit → tidak ada | Akun beban per tujuan |
+
+Baris tanpa gudang adalah alasan terkuat memisahkan: di `prd_transfer` keduanya tidak punya Unit tujuan sama sekali.
+
+**Tujuan atau alasan?** Menjadi *tujuan* hanya bila posting, pihak lain, atau aturan pilih barangnya berbeda. Selain itu cukup kolom **alasan** (misalnya reject bulu, pecah, sisa produksi), supaya katalog tidak membengkak.
+
+### 5.2 Bentuk
+
+- Header: nomor, tanggal, Unit, tujuan, alasan, pihak lain (`counterpart_no`, `warehouse_code`, kosong bila tanpa gudang), status. Baris: No. Stok, Job, partai, qty, gram, nilai, bucket.
+- Yang lahir lebih dulu adalah dokumen pengirim; dokumen penerima merujuk nomornya. Kolom `counterpart_no` unik per tujuan, sehingga salinan kembar ditolak.
+- Dengan gudang: Receipt *Menunggu → Diterima*, Issue *Dalam Perjalanan → Diterima*. Tanpa gudang: *Draft → Posting*; jurnalnya lewat `ProductionPosted`.
+- Tab **Masuk** di Workspace membaca Receipt dan Transfer yang menunggu; tab **Dalam Perjalanan** membaca Issue dan Transfer. Dua tabel digabung di satu pembaca (`unitBoard`), yang hari ini juga sudah menggabungkan BSTB Issue dan Transfer.
+- Menu Produksi › Dokumen mendapat dua register. Operator tetap bekerja dari Workspace. Register *Push dan BSTB* tidak berubah.
+- P275 tetap: nilai disimpan, tidak ditampilkan.
+
+Biayanya dibanding usulan pertama: empat tabel, dua register dan dua kelompok izin tambahan. Imbalannya: tidak ada kolom Unit yang kosong, aturan routing tidak perlu pengecualian, dan tujuan baru tidak menyentuh Transfer.
+
+### 5.3 Pembanding
+
+| ERP | Masuk produksi | Di dalam produksi | Keluar produksi | Pelajaran |
 | --- | --- | --- | --- | --- |
-| Push, BSTB, BSTB Penyebaran | Unit | Unit | Workspace | seperti sekarang |
-| **`FromWarehouse`** | Gudang (kode, nomor Issue) | Unit | Otomatis dari Kirim Issue | Unit menekan Terima di tab Masuk: bucket Persiapan dan No. Job |
-| **`ToWarehouse`** | Unit | Gudang (kode) | Workspace, seperti BFG/BPG | Otomatis saat gudang Terima: bucket Dalam Perjalanan dikosongkan |
+| **Oracle WIP** | *WIP component issue* (dan *return*) | *Move transaction* antar operasi; scrap adalah move ke langkah Scrap dengan akun scrap | *WIP assembly completion* (dan *return*) | Paling dekat dengan usulan ini: tiga keluarga transaksi |
+| **SAP** | 261 pengeluaran ke order; di EWM *Production Material Request* | Konfirmasi operasi (dari pengetahuan umum) | 101 masuk hasil, 531 by-product, 551 scrap | Satu mesin, alasan dipisah kode gerakan. Di EWM, PMR tidak mencakup goods receipt, jadi masuk dan keluar dua alur |
+| **Dynamics 365** | *Picking list journal* | *Route card* / *job card journal* | *Report as finished journal* | Tiap jenis kejadian punya jurnal sendiri |
+| **Odoo** (3 langkah) | Transfer *Pick Components* (`WH/PC`) | Manufacturing / work order | Transfer *Store Finished Product* (`WH/SFP`) | Dua operation type terpisah dari MO |
+| **ERPNext** | Stock Entry *Material Transfer for Manufacture* | Job Card | Stock Entry *Manufacture* | Satu doctype, dipisah purpose; kerja antar operasi tetap dokumen lain |
 
-- `from_unit_id` / `to_unit_id` boleh kosong, tepat satu terisi untuk dua jenis baru (CHECK). Kolom tambahan: `counterpart_no`, `warehouse_code`, `purpose`. `from_bucket_id` baris kosong untuk `FromWarehouse`.
-- Aturan routing, checkpoint dan satu partai hanya berlaku untuk jenis Unit → Unit, seperti sekarang.
-- Register *Push dan BSTB* menjadi **seluruh gerak barang Unit**.
-- BFG/BPG dicatat di dua sisi dengan **nomor yang sama**, diterbitkan pengirim. Nomor BSTB Issue diterbitkan ERP.
-- Tidak mengubah P275: nilai ikut tersimpan, tidak ditampilkan.
+**Yang sama di kelimanya:** gerak antar operasi tidak satu dokumen dengan keluar masuk produksi. **Yang berbeda dari kita:** umumnya hanya gudang yang menyimpan buku stoknya, sehingga satu transaksi ERP cukup. Cermin dua sisi dibutuhkan di sini karena produksi punya buku sendiri dan kelak database sendiri; itu bukan pola umum di dalam satu ERP, melainkan pola integrasi dua sistem.
 
-Alternatif yang ditimbang: tabel sendiri `prd_handover`. Lebih sedikit kolom kosong, tetapi register, layar Terima dan tab Dalam Perjalanan harus membaca dua tabel. Tidak diusulkan.
+Sumber (hasil pencarian, dibaca ringkasannya, bukan halaman penuh):
+[Oracle WIP](https://docs.oracle.com/cd/E18727_01/doc.121/e13678/T228107T228116.htm),
+[SAP movement types](https://community.sap.com/t5/technology-blog-posts-by-members/sap-good-movement-types-list-of-sap-movement-types/ba-p/13551698),
+[SAP EWM staging](https://blogs.sap.com/2021/07/02/staging-to-production-in-sap-extended-warehouse-management-overview/),
+[Dynamics 365](https://learn.microsoft.com/en-us/dynamics365/supply-chain/production-control/tasks/report-production-order-finished),
+[Dynamics production journals](https://technet.microsoft.com/EN-US/library/aa496978.aspx),
+[Odoo](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing/basic_setup/three_step_manufacturing.html),
+[ERPNext](https://docs.frappe.io/erpnext/stock-entry-purpose).
 
 ## 6. Simulasi
 
@@ -196,9 +238,9 @@ Dua syarat sama-sama wajib: nilai beku saat Kirim, dan penerima yang mengabaikan
 
 | Arah | Pesan | Isi | Akibat |
 | --- | --- | --- | --- |
-| ERP → Produksi | `IssueSent` | no, tujuan, kode Unit, per lot: No. Stok, kode Item, qty, gram, kadaluarsa, **nilai** | `prd_transfer FromWarehouse` menunggu |
+| ERP → Produksi | `IssueSent` | no, tujuan, kode Unit, per lot: No. Stok, kode Item, qty, gram, kadaluarsa, **nilai** | Production Receipt menunggu |
 | Produksi → ERP | `IssueReceived` | no, tanggal | Issue menjadi Diterima |
-| Produksi → ERP | `ReceiptSent` | no, tujuan, Unit, gudang, per lot: sama, plus partai | `log_stock_receipt` menunggu |
+| Produksi → ERP | `ReceiptSent` (dari Production Issue) | no, tujuan, Unit, gudang, per lot: sama, plus partai | `log_stock_receipt` menunggu |
 | ERP → Produksi | `ReceiptReceived` | no, tanggal | Bucket Dalam Perjalanan dikosongkan |
 | Produksi → ERP | `ProductionPosted` | no dokumen, tanggal, biaya per Unit × versi rate, gerak nilai per Kategori Item, beban | ERP menjurnal dan mencatat `prd_cost_entry` |
 | ERP → Produksi | Master | Item (dengan BJL), Satuan, Unit, Workstation, Line, Routing, Standard Cost, Gudang, periode | Salinan baca |
@@ -238,7 +280,7 @@ Satu database tetap (P245). Yang dibangun sekarang **bentuknya**, bukan pipanya:
 | --- | --- | --- | --- |
 | **G1** | Issue berjurnal saat Kirim: status Dalam Perjalanan, hapus reservasi, Terima tanpa jurnal. Cek WIP di `db:reconcile` memakai persamaan §4 | Ya; menolak bila masih ada Issue Diajukan (diselesaikan dulu) | Simulasi §6.1 menjadi tes; `simulasi-po-sampai-finish-goods` hijau |
 | **G2** | `log_stock_receipt` generik; menu Stock Issue dan Stock Receipt; URL lama dialihkan; Receipt ke gudang berlokasi; akses per gudang | Ya, ganti nama di tempat | Nomor, jurnal dan role lama utuh |
-| **G3** | `prd_transfer` mendapat `FromWarehouse` / `ToWarehouse`; satu modul kontrak `handover.ts`; id bucket keluar dari tabel `log_` | Ya, dokumen lama diisi mundur | Tes batas modul: Stock Issue dan Stock Receipt tidak lagi mengimpor `production-ledger`, dan modul produksi tidak menulis tabel `log_stock_issue` / `log_stock_receipt` |
+| **G3** | `prd_receipt` dan `prd_issue` dengan registernya; satu modul kontrak `handover.ts`; id bucket keluar dari tabel `log_` | Ya, dokumen lama diisi mundur | Tes batas modul: Stock Issue dan Stock Receipt tidak lagi mengimpor `production-ledger`, dan modul produksi tidak menulis tabel `log_stock_issue` / `log_stock_receipt` |
 | **G4** | Lima dokumen produksi menjurnal lewat satu fungsi berisi `ProductionPosted`; penolakan nomor `<induk>-<n>` dan `KTK-` di Receipt Note | Tidak | `postJournal` tidak dipanggil modul produksi mana pun selain fungsi itu |
 | **G5** | Tujuan tambahan (Pemakaian Internal, Pemusnahan, Stok Awal, Opname) | Per tujuan | Hanya atas instruksi |
 | **Nanti** | Outbox, inbox, salinan master, dua register No. Stok, cut-off | | Saat database benar-benar dipisah |
@@ -253,9 +295,9 @@ G1 dan G2 berdiri sendiri. G3 membutuhkan keduanya. Bila hanya ingin menu generi
 | GM-2 | Nama menu | **Stock Issue** / **Stock Receipt** (bukan *Penerimaan*, sudah dipakai Kas & Bank) |
 | GM-3 | Delivery Note, Receipt Note, Transfer tetap sendiri | Ya |
 | GM-4 | Issue bergerak dan berjurnal saat Kirim; barang menuju Unit terhitung WIP (mengubah W20, P228) | Ya. Pilihan lain: akun sendiri *Barang Dalam Perjalanan ke Produksi* dengan jurnal kedua saat Terima; WIP lebih ketat, tetapi Terima kembali berjurnal dan bergantung periode |
-| GM-5 | Sisi produksi lewat dua jenis baru `prd_transfer` | Ya |
+| GM-5 | Sisi produksi: Production Receipt dan Production Issue tersendiri, `prd_transfer` hanya Unit → Unit | Ya |
 | GM-6 | Nilai per No. Stok tetap dihitung Produksi setelah dipisah | Ya |
-| GM-7 | Tujuan tambahan mana yang dibangun | Belum ada sampai diminta |
+| GM-7 | Tujuan tambahan mana yang dibangun | Belum ada sampai diminta, di gudang maupun produksi |
 | GM-8 | Cakupan yang dijalankan sekarang | G1–G3; G4 boleh menyusul |
 
 Setelah disetujui, keputusan dicatat di `Claude-ERP.md` §12 dan PWR dalam commit yang sama.
