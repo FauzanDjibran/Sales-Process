@@ -232,7 +232,7 @@ export function PermitInvoiceForm({
                   )
                 : nil(source ? "Tanpa PPh" : wait)}
             </Field>
-            <Field label="Termin" span={4}>
+            <Field label="Termin Pembayaran" span={4}>
               {source ? ro(<span className="lab">{source.termLabel}</span>) : nil(wait)}
             </Field>
           </FormRow>

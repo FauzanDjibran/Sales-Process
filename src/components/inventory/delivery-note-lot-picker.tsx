@@ -139,7 +139,7 @@ export function DeliveryNoteLotPicker({
               <thead>
                 <tr>
                   {located && <th style={{ width: 170 }}>Lokasi</th>}
-                  <th>No. Lot</th>
+                  <th>Lot</th>
                   <th style={{ width: 150 }}>Kadaluarsa</th>
                   <th style={{ width: 110 }}>Status</th>
                   <th className="num" style={{ width: 120 }}>Tersedia</th>

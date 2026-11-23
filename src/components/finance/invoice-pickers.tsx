@@ -46,7 +46,7 @@ export function InvoiceNotePicker({
     <Dialog
       open
       icon="truck"
-      title="Pilih Surat Jalan"
+      title="Pilih Delivery Note"
       subtitle={`${orderNo} · centang barang terkirim yang ditagih dengan Invoice ini`}
       width={880}
       onClose={onClose}

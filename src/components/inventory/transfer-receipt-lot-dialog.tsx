@@ -80,7 +80,7 @@ export function TransferReceiptLotDialog({
         <table className="grid ltab" style={{ minWidth: locations ? 840 : 700 }}>
           <thead>
             <tr>
-              <th>No. Stok</th>
+              <th>Lot</th>
               <th style={{ width: 110 }}>Kadaluarsa</th>
               <th style={{ width: 120 }}>Status Stok</th>
               <th className="num" style={{ width: 110 }}>

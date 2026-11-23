@@ -220,7 +220,11 @@ export function StockTransferForm({
         )}
         {editing && !options.transit && (
           <p className="fnote">
-            <b>Gudang Transit belum diatur.</b> Draft dapat disimpan, tetapi Kirim ditolak sampai System Default › Persediaan menyebut Gudang Transit.
+            <b>Gudang Transit belum diatur.</b> Draft dapat disimpan, tetapi Kirim ditolak sampai{" "}
+            <Link className="drl" href="/settings/system-default">
+              System Default
+            </Link>{" "}
+            › Persediaan menyebut Gudang Transit.
           </p>
         )}
       </FormBody>

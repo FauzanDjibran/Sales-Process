@@ -91,7 +91,7 @@ export function ValuationLedgerBody({ report }: { report: ValuationLedgerReport 
                 <td colSpan={5}>Saldo awal per {formatDate(report.range.from)}</td>
                 <td className="num">{qty(report.openingQty)}</td>
                 <td className="num"><Amount value={report.openingValue} nil="dash" ledger /></td>
-                <td className="num">{formatPrice(report.openingQty > 0 ? Math.round((report.openingValue / report.openingQty) * 1e6) / 1e6 : 0)}</td>
+                <td className="num"><Average value={report.openingQty > 0 ? Math.round((report.openingValue / report.openingQty) * 1e6) / 1e6 : 0} /></td>
               </tr>
               {report.entries.map((e) => (
                 <tr key={e.id} style={{ cursor: "default" }}>
@@ -108,7 +108,7 @@ export function ValuationLedgerBody({ report }: { report: ValuationLedgerReport 
                     <span className={`mny${e.qtyChange > 0 ? " in" : ""}`}>{qty(e.qtyChange)}</span>
                   </td>
                   <td className="num">
-                    <span className="mny">{formatPrice(e.unitCost)}</span>
+                    <Average value={e.unitCost} />
                   </td>
                   <td className="num">
                     <Amount value={e.valueChange} nil="dash" ledger />
@@ -120,7 +120,7 @@ export function ValuationLedgerBody({ report }: { report: ValuationLedgerReport 
                     <Amount value={e.valueBalance} nil="dash" ledger />
                   </td>
                   <td className="num">
-                    <span className="mny">{formatPrice(e.average)}</span>
+                    <Average value={e.average} />
                   </td>
                 </tr>
               ))}
@@ -203,7 +203,7 @@ export function ValuationBody({ rows, gl, reconciles }: { rows: ValuationRow[]; 
                     <span className="mny">{qty(r.qty)}</span>
                   </td>
                   <td className="num">
-                    <span className="mny">{formatPrice(r.average)}</span>
+                    <Average value={r.average} />
                   </td>
                   <td className="num">
                     <Amount value={r.value} nil="dash" ledger />
@@ -242,5 +242,14 @@ export function ValuationBody({ rows, gl, reconciles }: { rows: ValuationRow[]; 
       )}
       <Mismatch show={!reconciles} />
     </>
+  );
+}
+
+/** A value per unit in two decimals, in full under the pointer. */
+function Average({ value }: { value: number }) {
+  return (
+    <span className="mny" title={formatPrice(value)}>
+      {formatPrice(Math.round(value * 100) / 100)}
+    </span>
   );
 }

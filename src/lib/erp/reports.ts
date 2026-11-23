@@ -84,7 +84,7 @@ const FIXED_REPORTS = [
     params: "cash-bank-period",
     // A book is a book *of* something: without a resource there is nothing to
     // show, so the report asks before it runs.
-    subjectRequired: true,
+    subjectRequired: false,
   },
   {
     key: "cash_bank_balance",
@@ -255,7 +255,7 @@ const FIXED_REPORTS = [
     params: "account-period",
     // A ledger is a ledger *of* an account: without one there is nothing to
     // show. Several at once is the point, but zero is not a run.
-    subjectRequired: true,
+    subjectRequired: false,
   },
   {
     key: "trial_balance",

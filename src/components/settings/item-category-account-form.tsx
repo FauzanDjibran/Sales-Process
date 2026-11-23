@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Icon } from "@/components/icon";
+import { DocumentHeader } from "@/components/ui/document-header";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { CancelButton } from "@/components/ui/cancel-button";
 import { Combobox } from "@/components/ui/combobox";
 import { useToast } from "@/components/ui/toast";
@@ -39,6 +41,7 @@ export function ItemCategoryAccountForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
   const byId = new Map(accounts.map((a) => [a.id, a]));
 
   const set = (categoryId: number, kind: Kind, v: number | null) => {
@@ -64,6 +67,7 @@ export function ItemCategoryAccountForm({
       return;
     }
     setDirty(false);
+    setEditing(false);
     toast("Account Kategori Item disimpan", result.changed ? `${result.changed} kategori diperbarui` : "Tidak ada perubahan", "ok");
   };
 
@@ -93,12 +97,12 @@ export function ItemCategoryAccountForm({
           </div>
         </div>
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: type === "Barang" ? 1260 : 620 }}>
+          <table className="grid ltab kcol" style={{ minWidth: type === "Barang" ? 1010 : 620 }}>
             <thead>
               <tr>
-                <th>Kategori</th>
+                <th style={{ width: 160 }}>Kategori</th>
                 {kinds.map((k) => (
-                  <th key={k.kind} style={{ width: 280 }}>
+                  <th key={k.kind}>
                     {k.label}
                   </th>
                 ))}
@@ -108,9 +112,9 @@ export function ItemCategoryAccountForm({
               {list.map((r) => (
                 <tr key={r.categoryId} style={{ cursor: "default" }}>
                   <td>
-                    <span className="idc">
+                    <span className="dstack" style={{ alignItems: "flex-start" }}>
                       <span className="lab">{r.label}</span>
-                      <span className="nm">{r.name}</span>
+                      <span>{r.name}</span>
                     </span>
                   </td>
                   {kinds.map((k) => {
@@ -119,7 +123,7 @@ export function ItemCategoryAccountForm({
                     const chosen = value ? byId.get(value) : null;
                     return (
                       <td key={k.kind}>
-                        {canEdit ? (
+                        {editing ? (
                           <Combobox
                             value={value}
                             options={accounts}
@@ -150,42 +154,31 @@ export function ItemCategoryAccountForm({
 
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Accounting</span>
-          <span>/</span>
-          <span className="cur">Account Kategori Item</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="link" size={16} />
-            </span>
-            Account Kategori Item
-          </h1>
-          <div className="ph-act">
-            {canEdit && dirty && (
-              <>
-                <span className="ph-dirty">
-                  <span className="pulse" /> Belum disimpan
-                </span>
-                <CancelButton
-                  onCancel={() => {
-                    setRows(initial);
-                    setErrors({});
-                    setDirty(false);
-                  }}
-                  dirty={dirty}
-                  disabled={saving}
-                />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader module="Accounting" title="Account Kategori Item" icon="link" editing={editing} dirty={dirty}>
+        {editing ? (
+          <>
+            <CancelButton
+              onCancel={() => {
+                setRows(initial);
+                setErrors({});
+                setDirty(false);
+                setEditing(false);
+              }}
+              dirty={dirty}
+              disabled={saving}
+            />
+            <button className="btn primary" onClick={onSave} disabled={saving || !dirty}>
+              <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
+            </button>
+          </>
+        ) : (
+          canEdit && (
+            <button className="btn primary" onClick={() => setEditing(true)}>
+              <Icon name="pen" size={15} /> Ubah
+            </button>
+          )
+        )}
+      </DocumentHeader>
 
       {errors._form && (
         <div className="nbox bad slim" style={{ marginBottom: 14 }}>
@@ -196,8 +189,16 @@ export function ItemCategoryAccountForm({
         </div>
       )}
 
-      {table("Barang")}
-      {table("Jasa")}
+      <FormTabs
+        tabs={(["Barang", "Jasa"] as const).map((type) => ({
+          key: type,
+          label: `Kategori ${type}`,
+          icon: type === "Barang" ? "box" : "tags",
+          count: rows.filter((r) => r.itemType === type).length,
+          bad: rows.some((r) => r.itemType === type && tabHasError(errors, `${r.categoryId}.`)),
+          content: table(type),
+        }))}
+      />
 
       <p className="foot-note">
         Persediaan dan HPP yang kosong memakai account di Account Mapping (kartu Pengiriman Barang). Beban tidak punya

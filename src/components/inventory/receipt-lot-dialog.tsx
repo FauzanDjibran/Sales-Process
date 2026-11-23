@@ -82,7 +82,7 @@ export function ReceiptLotDialog({
           <thead>
             <tr>
               <th style={{ width: 40 }}>No</th>
-              <th>No. Stok</th>
+              <th>Lot</th>
               <th style={{ width: 170 }}>Kadaluarsa{hasExpiry ? " *" : ""}</th>
               {locations && <th style={{ width: 180 }}>Lokasi *</th>}
               <th style={{ width: 150 }}>Qty</th>
@@ -98,7 +98,7 @@ export function ReceiptLotDialog({
                     className="inp sm idf"
                     value={lot.tracking_no}
                     placeholder="kosong = otomatis saat posting"
-                    aria-label={`No. Stok lot ${i + 1}`}
+                    aria-label={`Lot ${i + 1}`}
                     autoFocus={i === 0}
                     onChange={(e) => set(lot.key, { tracking_no: e.target.value })}
                   />

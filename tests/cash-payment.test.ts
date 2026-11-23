@@ -112,7 +112,7 @@ describe("Pembayaran ke Supplier", () => {
     assert.ok(r.ok, JSON.stringify(r));
     assert.match(r.txNo, /^BKK\//);
     const short = await transitionCashPayment(r.id, "post", w.actor);
-    assert.ok(!short.ok && /Saldo Cash & Bank tidak mencukupi/.test(short.errors._form));
+    assert.ok(!short.ok && /Saldo Kas & Bank tidak mencukupi/.test(short.errors._form));
 
     await fund(1_000_000);
     const preview = await previewCashPaymentPosting(r.id, w.actor);

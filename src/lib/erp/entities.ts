@@ -709,9 +709,9 @@ export const ENTITIES: Entity[] = [
     key: "m_cash_bank",
     slug: "cash-bank",
     module: "master",
-    name: "Cash & Bank",
+    name: "Kas & Bank",
     icon: "wallet",
-    desc: "Resource tempat uang berada. Setiap Cash Bank memiliki Cash Bank Book sendiri.",
+    desc: "Resource tempat uang berada. Setiap Kas & Bank memiliki Buku Kas & Bank sendiri.",
     codeField: "cash_bank_code",
     codePrefix: "cbnk",
     labelField: "cash_bank_label",
@@ -730,7 +730,7 @@ export const ENTITIES: Entity[] = [
       },
       {
         name: "cash_bank_name",
-        label: "Nama Cash Bank",
+        label: "Nama Kas & Bank",
         type: "text",
         required: true,
         placeholder: "Bank Mandiri Rupiah",
@@ -773,7 +773,7 @@ export const ENTITIES: Entity[] = [
         // has to delete first — the same as every other amount in the
         // application. A blank field is read as zero by `createRecord`.
         placeholder: "0",
-        help: "dicatat sebagai entri pembuka di Cash Bank Book",
+        help: "dicatat sebagai entri pembuka di Buku Kas & Bank",
       },
       {
         // A foreign resource's opening balance was acquired at some price, and
@@ -795,7 +795,7 @@ export const ENTITIES: Entity[] = [
     ],
     columns: [
       { field: "cash_bank_label", label: "Label", isLabel: true, width: "118px", filter: "text" },
-      { field: "cash_bank_name", label: "Nama Cash Bank", primary: true, filter: "text" },
+      { field: "cash_bank_name", label: "Nama Kas & Bank", primary: true, filter: "text" },
       { field: "cash_bank_type", label: "Tipe", isTag: true, width: "92px", filter: "enum" },
       { field: "currency_id", label: "Currency", isRef: true, width: "116px", filter: "ref" },
       { field: "account_id", label: "Account", isRef: true, width: "142px", filter: "ref" },
@@ -841,7 +841,7 @@ export const ENTITIES: Entity[] = [
     columns: [
       { field: "currency_label", label: "Label", isLabel: true, width: "118px", filter: "text" },
       { field: "currency_name", label: "Nama Currency", primary: true, filter: "text" },
-      { field: "cash_bank_count", label: "Cash & Bank", computed: true, numeric: true, width: "112px" },
+      { field: "cash_bank_count", label: "Kas & Bank", computed: true, numeric: true, width: "112px" },
       { field: "status", label: "Status", isStatus: true, width: "120px", filter: "enum" },
       { field: "note", label: "Catatan", muted: true, truncate: true },
     ],

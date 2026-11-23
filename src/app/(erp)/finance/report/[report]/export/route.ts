@@ -1,3 +1,4 @@
+import { prisma } from "@/lib/prisma";
 import { actorCan } from "@/lib/erp/access";
 import { currentActor } from "@/lib/erp/auth";
 import { cashBankBalanceReport, cashBankLedgerReport } from "@/lib/erp/cash-bank";
@@ -43,8 +44,8 @@ export async function GET(
   const name = `${report.name} ${range.from} - ${range.to}.xlsx`;
 
   if (report.key === "cash_bank_ledger") {
-    const books = (await Promise.all(ids.map((id) => cashBankLedgerReport(id, range)))).filter((b) => b !== null);
-    if (!books.length) return new Response("Pilih Cash & Bank terlebih dahulu", { status: 400 });
+    const books = (await Promise.all((ids.length ? ids : (await prisma.mCashBank.findMany({ orderBy: { cash_bank_label: "asc" }, select: { id: true } })).map((r) => r.id)).map((id) => cashBankLedgerReport(id, range)))).filter((b) => b !== null);
+    if (!books.length) return new Response("Pilih Kas & Bank terlebih dahulu", { status: 400 });
     await attachDocumentNumbers(books.flatMap((b) => b.entries));
     const file = await cashBankLedgerWorkbook({
       ...common,

@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 import { Icon } from "@/components/icon";
+import { DocumentHeader } from "@/components/ui/document-header";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { CancelButton } from "@/components/ui/cancel-button";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { Combobox } from "@/components/ui/combobox";
@@ -66,6 +68,7 @@ export function SystemDefaultForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const set = (key: SystemDefaultKey, value: string | null) => {
     setValues((v) => ({ ...v, [key]: value }));
@@ -94,6 +97,7 @@ export function SystemDefaultForm({
       return;
     }
     setDirty(false);
+    setEditing(false);
     toast(
       "Pengaturan disimpan",
       result.changed
@@ -107,38 +111,27 @@ export function SystemDefaultForm({
     setValues(initial);
     setErrors({});
     setDirty(false);
+    setEditing(false);
   };
 
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>{text.module}</span>
-          <span>/</span>
-          <span className="cur">{text.title}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name={text.icon} size={16} />
-            </span>
-            {text.title}
-          </h1>
-          <div className="ph-act">
-            {canEdit && dirty && (
-              <>
-                <span className="ph-dirty">
-                  <span className="pulse" /> Belum disimpan
-                </span>
-                <CancelButton onCancel={reset} dirty={dirty} disabled={saving} />
-                <button className="btn primary" onClick={onSave} disabled={saving}>
-                  <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader module={text.module} title={text.title} icon={text.icon} editing={editing} dirty={dirty}>
+        {editing ? (
+          <>
+            <CancelButton onCancel={reset} dirty={dirty} disabled={saving} />
+            <button className="btn primary" onClick={onSave} disabled={saving || !dirty}>
+              <Icon name="save" size={15} /> {saving ? "Menyimpan…" : "Simpan"}
+            </button>
+          </>
+        ) : (
+          canEdit && (
+            <button className="btn primary" onClick={() => setEditing(true)}>
+              <Icon name="pen" size={15} /> Ubah
+            </button>
+          )
+        )}
+      </DocumentHeader>
 
       {errors._form && (
         <div className="card" style={{ marginBottom: 14 }}>
@@ -151,8 +144,14 @@ export function SystemDefaultForm({
         </div>
       )}
 
-      {settingGroupsOn(page).map((group) => (
-        <div className="card" key={group.key} style={{ marginBottom: 14 }}>
+      <FormTabs
+        tabs={settingGroupsOn(page).map((group) => ({
+          key: group.key,
+          label: group.name,
+          icon: group.icon,
+          bad: tabHasError(errors, ...systemDefaultsIn(group.key).map((d) => d.key)),
+          content: (
+        <div className="card" style={{ marginBottom: 14 }}>
           <div className="card-h">
             <span className="ci">
               <Icon name={group.icon} size={15} />
@@ -190,7 +189,7 @@ export function SystemDefaultForm({
                       error={errors[def.key]}
                     >
                       {def.type === "text" ? (
-                        canEdit ? (
+                        editing ? (
                           <input
                             className={`inp${errors[def.key] ? " bad" : ""}`}
                             value={value ?? ""}
@@ -204,7 +203,7 @@ export function SystemDefaultForm({
                           <div className="ro nil">belum diatur</div>
                         )
                       ) : def.type === "number" ? (
-                        canEdit ? (
+                        editing ? (
                           "percent" in def && def.percent ? (
                             <PercentInput
                               decimals={def.decimals}
@@ -227,7 +226,7 @@ export function SystemDefaultForm({
                             <span className="mny">{value == null ? "—" : `${formatNumber(Number(value), Number(value) % 1 ? def.decimals : 0)}${"percent" in def && def.percent ? "%" : ""}`}</span>
                           </div>
                         )
-                      ) : canEdit ? (
+                      ) : editing ? (
                         <Combobox
                           value={value ? Number(value) : null}
                           options={list}
@@ -249,7 +248,9 @@ export function SystemDefaultForm({
             </FormSection>
           </FormBody>
         </div>
-      ))}
+          ),
+        }))}
+      />
 
       <p className="foot-note">{text.note}</p>
     </>

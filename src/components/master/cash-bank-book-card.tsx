@@ -39,7 +39,7 @@ export function CashBankBookCard({
           <Icon name="book" size={15} />
         </span>
         <div className="ct">
-          <h3>Cash Bank Book</h3>
+          <h3>Buku Kas & Bank</h3>
           <p>
             Saldo resource ini berasal sepenuhnya dari bukunya — tidak disimpan
             pada data master.

@@ -104,7 +104,7 @@ export const PURCHASE_ORDER_TRANSITIONS: Record<PurchaseOrderAction, PurchaseOrd
     done: "Purchase Order dibatalkan",
   },
   close: {
-    label: "Tutup Pesanan",
+    label: "Tutup",
     permission: "PURCHASE_ORDER_CLOSE",
     from: ["Open"],
     to: "Closed",

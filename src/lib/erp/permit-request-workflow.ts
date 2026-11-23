@@ -149,7 +149,7 @@ export function availablePermitRequestActions(
 export const PERMIT_REQUEST_STATUS_TEXT: Record<PermitRequestStatus, string> = {
   Draft: "Draft",
   Submitted: "Diajukan",
-  Open: "Disetujui",
+  Open: "Open",
   Realized: "Terealisasi",
   Done: "Selesai",
   Cancelled: "Dibatalkan",

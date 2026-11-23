@@ -80,7 +80,7 @@ export class InsufficientFunds extends Error {
     readonly at: string
   ) {
     super(
-      `Saldo Cash & Bank tidak mencukupi pada ${at}: tersedia ${formatNumber(balance)}, dibutuhkan ${formatNumber(requested)}. ` +
+      `Saldo Kas & Bank tidak mencukupi pada ${at}: tersedia ${formatNumber(balance)}, dibutuhkan ${formatNumber(requested)}. ` +
         "Transaksi dibatalkan."
     );
     this.name = "InsufficientFunds";
@@ -311,17 +311,17 @@ function averageRate(balance: number, baseBalance: number): number {
 export async function recordCashBankEntry(db: Db, entry: NewEntry) {
   if (!(entry.amount > 0)) {
     throw new Error(
-      `Nominal entri Cash Bank Book harus lebih besar dari nol (diterima ${entry.amount}).`
+      `Nominal entri Buku Kas & Bank harus lebih besar dari nol (diterima ${entry.amount}).`
     );
   }
   if (entry.direction === "In" && !(entry.rate > 0)) {
     throw new Error(
-      `Kurs entri Cash Bank Book harus lebih besar dari nol (diterima ${entry.rate}).`
+      `Kurs entri Buku Kas & Bank harus lebih besar dari nol (diterima ${entry.rate}).`
     );
   }
   if (entry.direction === "Out" && entry.rate !== undefined) {
     throw new Error(
-      "Pengeluaran Cash Bank Book tidak menerima kurs — nilainya selalu kurs " +
+      "Pengeluaran Buku Kas & Bank tidak menerima kurs — nilainya selalu kurs " +
         "rata-rata resource saat diposting."
     );
   }
@@ -435,7 +435,7 @@ export async function openCashBankBook(
   // the state `recordCashBankEntry` now refuses to create.
   if (options.openingBalance < 0) {
     throw new Error(
-      "Saldo awal Cash & Bank tidak boleh negatif — sebuah resource tidak dapat " +
+      "Saldo awal Kas & Bank tidak boleh negatif — sebuah resource tidak dapat " +
         "dibuka dengan saldo minus."
     );
   }

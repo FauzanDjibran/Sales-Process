@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Icon } from "@/components/icon";
 import { useToast } from "@/components/ui/toast";
+import { FormTabs } from "@/components/ui/form-tabs";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { changePasswordAction, updateProfileAction } from "@/app/actions/profile";
 import { STATUS_CLASS, STATUS_TEXT } from "@/lib/erp/entities";
@@ -93,9 +94,12 @@ export function ProfileView({ profile, section = "Pengaturan" }: { profile: Prof
 
       <div className="fgrid solo">
         <div>
+          <FormTabs
+            tabs={[
+              { key: "identity", label: "Identitas", icon: "user", bad: Object.keys(identityErrors).length > 0, content: (
           <div className="card">
             <FormBody>
-            <FormSection title="Identitas">
+            <FormSection>
               <FormRow>
                 <Field label="Email" span={4} help="hanya administrator yang dapat mengubahnya">
                   <div className="ro">{profile.email}</div>
@@ -151,7 +155,12 @@ export function ProfileView({ profile, section = "Pengaturan" }: { profile: Prof
                 </div>
               </FormRow>
             </FormSection>
-
+            </FormBody>
+          </div>
+              ) },
+              { key: "password", label: "Password", icon: "lock", bad: Object.keys(pwErrors).length > 0, content: (
+          <div className="card">
+            <FormBody>
             <FormSection
               title="Ubah Password"
               hint="Mengubah password mengakhiri sesi Anda di perangkat lain"
@@ -212,7 +221,8 @@ export function ProfileView({ profile, section = "Pengaturan" }: { profile: Prof
             </FormSection>
             </FormBody>
           </div>
-
+              ) },
+              { key: "access", label: "Akses", icon: "tags", count: profile.permissions.length, content: (
           <div className="card">
             <div className="card-h">
               <span className="ci">
@@ -236,11 +246,10 @@ export function ProfileView({ profile, section = "Pengaturan" }: { profile: Prof
                   </div>
                   <div className="pgrid">
                     {g.items.map((p) => (
-                      <div className="pitem view" key={p.code}>
+                      <div className="pitem view" key={p.code} title={p.code}>
                         <Icon name="check" size={14} className="pok" />
                         <span>
                           <span className="pn">{p.name}</span>
-                          <span className="pc">{p.code}</span>
                         </span>
                       </div>
                     ))}
@@ -261,6 +270,9 @@ export function ProfileView({ profile, section = "Pengaturan" }: { profile: Prof
               </div>
             )}
           </div>
+              ) },
+            ]}
+          />
         </div>
       </div>
     </>

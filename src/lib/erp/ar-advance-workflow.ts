@@ -110,7 +110,7 @@ export const ADVANCE_STATUS_TEXT: Record<AdvanceStatus, string> = {
 
 export const ADVANCE_STATUS_BADGE: Record<AdvanceStatus, string> = {
   Draft: "s-warn",
-  Issued: "s-info",
+  Issued: "s-ok",
   Cancelled: "s-mute",
 };
 

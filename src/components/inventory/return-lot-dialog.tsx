@@ -100,7 +100,7 @@ export function ReturnLotDialog({
         <table className="grid ltab" style={{ minWidth: locations ? 860 : 720 }}>
           <thead>
             <tr>
-              <th>No. Stok</th>
+              <th>Lot</th>
               <th style={{ width: 120 }}>Kadaluarsa</th>
               <th className="num" style={{ width: 120 }}>
                 Bisa Kembali

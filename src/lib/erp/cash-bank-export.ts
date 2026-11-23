@@ -24,7 +24,7 @@ export type CashBankLedgerExport = {
 export function cashBankLedgerWorkbook(s: CashBankLedgerExport): Promise<Buffer> {
   return bookWorkbook({
     title: "Buku Kas & Bank",
-    measure: "(Dinyatakan dalam mata uang masing-masing Cash & Bank)",
+    measure: "(Dinyatakan dalam mata uang masing-masing Kas & Bank)",
     columns: ["Penerimaan", "Pengeluaran"],
     companyName: s.companyName,
     range: s.range,

@@ -412,8 +412,8 @@ export function PurchaseAdvanceForm({
         {!editing && advance?.status !== "Cancelled" && (
           <p className="fnote">
             {advance?.status === "Draft"
-              ? "Tagihan masih Draft dan masih dapat diubah. Mencatat tagihan tidak membentuk journal."
-              : "Tagihan sudah dicatat. Tagihan uang muka bukan transaksi, sehingga tidak membentuk journal: kas, Uang Muka Pembelian dan PPN Masukan dicatat saat dibayar di menu Pengeluaran Kas & Bank."}
+              ? "Tagihan masih Draft dan masih dapat diubah. Menerbitkan tagihan tidak membentuk journal."
+              : "Tagihan sudah diterbitkan. Tagihan uang muka bukan transaksi, sehingga tidak membentuk journal: kas, Uang Muka Pembelian dan PPN Masukan dicatat saat dibayar di menu Pengeluaran Kas & Bank."}
           </p>
         )}
       </FormBody>

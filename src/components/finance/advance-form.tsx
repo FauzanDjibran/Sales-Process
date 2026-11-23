@@ -103,7 +103,7 @@ const VARIANT = {
     source: "Pengajuan Perizinan",
     sourceDate: "Tanggal Pengajuan",
     sourceRoute: "/sales/permit",
-    sourceHelp: "Disetujui atau Terealisasi, belum ditagih",
+    sourceHelp: "Open atau Terealisasi, belum ditagih",
     sourceEmpty: "Belum ada Pengajuan Perizinan yang disetujui dan masih punya sisa estimasi.",
     section: "Pengajuan",
     noun: "estimasi",

@@ -58,6 +58,7 @@ export function RoleForm({
   can: RoleFormAbilities;
 }) {
   const router = useRouter();
+  const [find, setFind] = useState("");
   const toast = useToast();
   const editing = mode === "new" || mode === "edit";
 
@@ -171,6 +172,12 @@ export function RoleForm({
 
   const status = role?.status ?? "";
   const canToggle = role && !role.is_system && (status === "Active" ? can.deactivate : can.activate);
+  const term = find.trim().toLowerCase();
+  const sections = MODULE_ORDER.map((module) => ({
+    module,
+    defs: catalogue[module],
+    shown: catalogue[module].filter((d) => `${d.name} ${d.code} ${d.description ?? ""}`.toLowerCase().includes(term)),
+  })).filter((x) => x.shown.length);
   const total = MODULE_ORDER.reduce((n, m) => n + catalogue[m].length, 0);
 
   return (
@@ -313,89 +320,68 @@ export function RoleForm({
         </FormBody>
       </div>
 
-      <FormTabs
-        tabs={[
-          {
-            key: "permission",
-            label: "Permission",
-            icon: "lock",
-            count: codes.length,
-            bad: Boolean(errors._form),
-            content: (
-              <div className="card">
-        <FormSection
-          title="Permission"
-          hint={`${codes.length} dari ${total} permission aktif · menu dan aksi adalah izin terpisah`}
-        >
+      <div className="toolbar" style={{ marginTop: 14 }}>
+        <div className="srch">
+          <Icon name="srch" size={15} />
+          <input className="inp" value={find} onChange={(e) => setFind(e.target.value)} placeholder="Cari permission…" aria-label="Cari permission" />
+        </div>
+        <div className="tspace" />
+        <span className="count">
+          <b>{codes.length}</b> dari {total} permission aktif
+        </span>
+      </div>
+      {errors._form && (
+        <div className="nbox bad slim" style={{ marginTop: 10 }}>
+          <Icon name="warn" size={15} className="ni" />
+          <div>
+            <b>{errors._form}</b>
+          </div>
+        </div>
+      )}
+      {frozen && <p className="help" style={{ margin: "10px 2px 0" }}>{frozenReason}</p>}
 
-          {errors._form && (
-            <div className="frow" style={{ paddingBottom: 0 }}>
-              <div className="fld full">
-                <div className="err">
-                  <Icon name="warn" size={11} />
-                  {errors._form}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {frozen && (
-            <div className="frow" style={{ paddingBottom: 0 }}>
-              <div className="fld full">
-                <div className="help">{frozenReason}</div>
-              </div>
-            </div>
-          )}
-
-          {MODULE_ORDER.map((module, i) => {
-            const defs = catalogue[module];
-            if (!defs.length) return null;
+      {sections.length ? (
+        <FormTabs
+          tabs={sections.map(({ module, defs, shown }) => {
             const on = defs.filter((d) => held.has(d.code)).length;
-            // The matrix lists the ERP's modules, then the Produksi application's (P254).
+            // A module of Produksi's says so, where the ERP has a menu of the same name (P254).
             const app = appOfModule(module);
-            const firstOfApp = i === 0 || appOfModule(MODULE_ORDER[i - 1]) !== app;
-
-            return (
-              <div className="pmod" key={module}>
-                {firstOfApp && <div className="pmod-app">Aplikasi {APPS[app].name}</div>}
-                <div className="pmod-h">
-                  <span className="mt">{MODULE_LABELS[module]}</span>
-                  <span className="mc">
-                    {on}/{defs.length}
-                  </span>
-                  {matrixEditable && (
-                    <span className="ma">
-                      <button
-                        className="btn sm ghost"
-                        onClick={() => toggleModule(module, true)}
-                        type="button"
-                      >
-                        Pilih semua
-                      </button>
-                      <button
-                        className="btn sm ghost"
-                        onClick={() => toggleModule(module, false)}
-                        type="button"
-                      >
-                        Kosongkan
-                      </button>
-                    </span>
-                  )}
-                </div>
-
+            return {
+              key: module,
+              label: app === "erp" ? MODULE_LABELS[module] : `Aplikasi ${APPS[app].name}`,
+              icon: "lock" as const,
+              count: find ? shown.length : on,
+              content: (
+                <div className="card">
+                  <div className="pmod">
+                    <div className="pmod-h">
+                      <span className="mt">Aplikasi {APPS[app].name}</span>
+                      <span className="mc">
+                        {on}/{defs.length} aktif
+                      </span>
+                      {matrixEditable && (
+                        <span className="ma">
+                          <button className="btn sm ghost" onClick={() => toggleModule(module, true)} type="button">
+                            Pilih semua
+                          </button>
+                          <button className="btn sm ghost" onClick={() => toggleModule(module, false)} type="button">
+                            Kosongkan
+                          </button>
+                        </span>
+                      )}
+                    </div>
                 <div className="pgrid">
-                  {defs.map((p) => {
+                  {shown.map((p) => {
                     const active = held.has(p.code);
                     const body = (
                       <span>
                         <span className="pn">{p.name}</span>
-                        <span className="pc">{p.code}</span>
                         {p.description && <span className="pd">{p.description}</span>}
                       </span>
                     );
 
                     return matrixEditable ? (
-                      <label className="pitem" key={p.code}>
+                      <label className="pitem" key={p.code} title={p.code}>
                         <input
                           type="checkbox"
                           checked={active}
@@ -404,7 +390,7 @@ export function RoleForm({
                         {body}
                       </label>
                     ) : (
-                      <div className={`pitem view${active ? "" : " off"}`} key={p.code}>
+                      <div className={`pitem view${active ? "" : " off"}`} key={p.code} title={p.code}>
                         <Icon
                           name={active ? "check" : "block"}
                           size={14}
@@ -415,15 +401,17 @@ export function RoleForm({
                     );
                   })}
                 </div>
-              </div>
-            );
+                  </div>
+                </div>
+              ),
+            };
           })}
-        </FormSection>
-              </div>
-            ),
-          },
-        ]}
-      />
+        />
+      ) : (
+        <div className="empty sm">
+          <h4>Tidak ada permission yang cocok</h4>
+        </div>
+      )}
 
       <ConfirmDialog
         open={statusOpen}

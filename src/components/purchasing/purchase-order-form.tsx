@@ -436,7 +436,7 @@ export function PurchaseOrderForm({
   ];
   const lineErr = (i: number, f: string) => errors[`lines.${i}.${f}`];
   const addButton = (
-    <button className="btn sm primary" onClick={() => setPicking(true)}>
+    <button className="btn sm" onClick={() => setPicking(true)}>
       <Icon name="plus" size={14} /> Tambah dari PR
     </button>
   );
@@ -460,7 +460,7 @@ export function PurchaseOrderForm({
           <Icon name="warn" size={15} className="ni" />
           <div>
             <b>Tarif PPN belum diatur</b>
-            <p>Isi Tarif PPN dan faktor DPP Nilai Lain di Pengaturan › System Default.</p>
+            <p>Isi Tarif PPN dan faktor DPP Nilai Lain di <Link className="drl" href="/settings/system-default">Pengaturan › System Default</Link>.</p>
           </div>
         </div>
       )}

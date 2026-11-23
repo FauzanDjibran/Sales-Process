@@ -89,12 +89,12 @@ export function settlementRefusal(
   if (isBaseCurrency(documentCurrency)) {
     return (
       `Dokumen dalam ${BASE_CURRENCY_LABEL} hanya dapat diselesaikan dari ` +
-      `Cash & Bank ${BASE_CURRENCY_LABEL}.`
+      `Kas & Bank ${BASE_CURRENCY_LABEL}.`
     );
   }
   return (
     `Dokumen dalam ${documentCurrency.trim().toUpperCase()} hanya dapat ` +
-    `diselesaikan dari Cash & Bank ${documentCurrency.trim().toUpperCase()}, ` +
+    `diselesaikan dari Kas & Bank ${documentCurrency.trim().toUpperCase()}, ` +
     `bukan ${resourceCurrency.trim().toUpperCase()}.`
   );
 }

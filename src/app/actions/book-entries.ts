@@ -32,7 +32,7 @@ export async function loadCashBankEntries(
   }
 
   const page = await cashBankEntriesPage(cashBankId, { from, to }, cursor);
-  if (!page) return { ok: false, error: "Cash & Bank tidak ditemukan." };
+  if (!page) return { ok: false, error: "Kas & Bank tidak ditemukan." };
   await attachDocumentNumbers(page.entries);
   return { ok: true, ...page };
 }

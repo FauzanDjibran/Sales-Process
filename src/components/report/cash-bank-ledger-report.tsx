@@ -67,9 +67,9 @@ export function CashBankLedgerReport({
         <div className="ic">
           <Icon name="book" size={20} />
         </div>
-        <h4>Cash & Bank tidak ditemukan</h4>
+        <h4>Kas & Bank tidak ditemukan</h4>
         <p>
-          Cash & Bank yang diminta tidak ada. Pilih ulang Cash & Bank di atas.
+          Kas & Bank yang diminta tidak ada. Pilih ulang Kas & Bank di atas.
         </p>
       </div>
     );
@@ -97,7 +97,7 @@ export function CashBankLedgerReport({
       {books.length > 1 && (
         <div className="rhead">
           <span className="count">
-            <b>{books.length}</b> Cash & Bank · {formatDate(range.from)} –{" "}
+            <b>{books.length}</b> Kas & Bank · {formatDate(range.from)} –{" "}
             {formatDate(range.to)}
           </span>
           <div className="tspace" />

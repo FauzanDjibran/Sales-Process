@@ -101,7 +101,7 @@ export default async function Page({
         label="Account"
         param="accounts"
         addPlaceholder="Tambah account…"
-        allPlaceholder="Pilih account…"
+        allPlaceholder="Semua account"
         missingHint="Pilih minimal satu account terlebih dahulu."
         partnerFilter={{ options: partnerOptions, selectedIds: partnerIds }}
       />
@@ -111,9 +111,9 @@ export default async function Page({
   // ------------------------------------------------------- general ledger
 
   if (report.key === "general_ledger") {
-    const data = accountIds.length
-      ? await generalLedgerReport(accountIds, range, partnerIds, { entries: false })
-      : null;
+    // No account chosen reads every account that stood or moved in the period.
+    const data = await generalLedgerReport(accountIds.length ? accountIds : options.map((o) => o.id), range, partnerIds, { entries: false });
+    if (!accountIds.length) data.accounts = data.accounts.filter((a) => a.opening || a.entryCount || a.closing);
 
     return (
       <ReportView
@@ -121,7 +121,7 @@ export default async function Page({
         filter={filterBar}
         runAt={runAt}
         exportHref={
-          data
+          data.accounts.length
             ? reportHref(`${slug}/export`, {
                 accounts: accountIds.join(","),
                 partners: partnerIds.join(","),
@@ -136,11 +136,11 @@ export default async function Page({
             bergerak mengikuti normal balance account — account Debit naik di sisi
             debit, account Kredit di sisi kredit
             {partnerIds.length ? "; hanya baris journal Partner yang dipilih" : ""}
-            {openingSource(data?.openingFrom)}.
+            {openingSource(data.openingFrom)}.
           </>
         }
       >
-        {data ? (
+        {data.accounts.length ? (
           <GeneralLedgerReport
             key={`${range.from}|${range.to}|${accountIds.join(",")}|${partnerIds.join(",")}`}
             report={data}
@@ -148,8 +148,8 @@ export default async function Page({
         ) : (
           <ReportNeedsSubject
             icon="tree"
-            title="Pilih account terlebih dahulu"
-            body="General Ledger selalu milik sebuah account. Pilih satu account atau lebih beserta rentang tanggal di atas, lalu tekan Tampilkan."
+            title="Tidak ada account yang bergerak pada periode ini"
+            body="Belum ada saldo maupun mutasi sampai akhir periode."
           />
         )}
       </ReportView>

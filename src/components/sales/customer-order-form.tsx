@@ -633,7 +633,7 @@ export function CustomerOrderForm({
           </p>
         </div>
         {editing && (
-          <button className="btn sm primary" onClick={addLine}>
+          <button className="btn sm" onClick={addLine}>
             <Icon name="plus" size={14} /> Tambah Baris
           </button>
         )}
@@ -643,7 +643,7 @@ export function CustomerOrderForm({
           <Icon name="warn" size={15} className="ni" />
           <div>
             <b>Tarif PPN belum diatur</b>
-            <p>Isi Tarif PPN dan faktor DPP Nilai Lain di Pengaturan › System Default sebelum menyimpan pesanan Kena PPN.</p>
+            <p>Isi Tarif PPN dan faktor DPP Nilai Lain di <Link className="drl" href="/settings/system-default">Pengaturan › System Default</Link> sebelum menyimpan pesanan Kena PPN.</p>
           </div>
         </div>
       )}

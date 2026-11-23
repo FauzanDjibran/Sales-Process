@@ -540,7 +540,7 @@ async function validateAccount(
     if (dependents.length) {
       const used = dependents.map((d) => d.cash_bank_label).join(", ");
       if (!boolValue(values, "is_active")) {
-        errors.is_active = `Account ini dipakai Cash & Bank (${used}) dan tidak dapat dinonaktifkan.`;
+        errors.is_active = `Account ini dipakai Kas & Bank (${used}) dan tidak dapat dinonaktifkan.`;
       }
       const subcategoryId = refValue(values, "account_subcategory_id");
       if (subcategoryId) {
@@ -549,7 +549,7 @@ async function validateAccount(
           select: { subcategory_label: true },
         });
         if (sub && sub.subcategory_label !== CASH_BANK_SUBCATEGORY) {
-          errors.account_subcategory_id = `Account ini dipakai Cash & Bank (${used}) dan harus tetap pada kelompok ${CASH_BANK_SUBCATEGORY} Kas / Setara Kas.`;
+          errors.account_subcategory_id = `Account ini dipakai Kas & Bank (${used}) dan harus tetap pada kelompok ${CASH_BANK_SUBCATEGORY} Kas / Setara Kas.`;
         }
       }
     }
@@ -826,7 +826,7 @@ export async function toggleStatus(
     if (dependents.length) {
       return {
         ok: false,
-        message: `Account ini dipakai Cash & Bank (${dependents
+        message: `Account ini dipakai Kas & Bank (${dependents
           .map((d) => d.cash_bank_label)
           .join(", ")}) dan tidak dapat dinonaktifkan.`,
       };

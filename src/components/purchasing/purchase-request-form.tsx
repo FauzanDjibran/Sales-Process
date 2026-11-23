@@ -215,7 +215,7 @@ export function PurchaseRequestForm({
           </p>
         </div>
         {editing && (
-          <button className="btn sm primary" onClick={addLine}>
+          <button className="btn sm" onClick={addLine}>
             <Icon name="plus" size={14} /> Tambah {goods ? "Barang" : "Jasa"}
           </button>
         )}

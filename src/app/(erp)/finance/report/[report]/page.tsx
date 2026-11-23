@@ -91,11 +91,11 @@ export default async function Page({
       from={range.from}
       to={range.to}
       subjectRequired={report.subjectRequired}
-      label="Cash & Bank"
+      label="Kas & Bank"
       param="cashBank"
-      addPlaceholder="Tambah Cash & Bank…"
-      allPlaceholder={report.subjectRequired ? "Pilih Cash & Bank…" : "Semua Cash & Bank"}
-      missingHint="Pilih minimal satu Cash & Bank terlebih dahulu."
+      addPlaceholder="Tambah Kas & Bank…"
+      allPlaceholder={"Semua Kas & Bank"}
+      missingHint="Pilih minimal satu Kas & Bank terlebih dahulu."
     />
   );
 
@@ -103,16 +103,16 @@ export default async function Page({
 
   if (report.key === "cash_bank_ledger") {
     const books = await Promise.all(
-      cashBankIds.map((id) => cashBankLedgerReport(id, range, { entries: false }))
+      (cashBankIds.length ? cashBankIds : resources.map((r) => r.id)).map((id) => cashBankLedgerReport(id, range, { entries: false }))
     );
-    const data = cashBankIds.length ? books.filter((b) => b !== null) : null;
+    const data = books.filter((b) => b !== null);
 
     return (
       <ReportView
         report={report}
         filter={filterBar}
         runAt={runAt}
-        exportHref={data?.length ? exportHref : undefined}
+        exportHref={data.length ? exportHref : undefined}
         footnote={
           <>
             Saldo awal adalah seluruh mutasi sebelum {formatDate(range.from)} dan
@@ -120,7 +120,7 @@ export default async function Page({
           </>
         }
       >
-        {data ? (
+        {data.length ? (
           <CashBankLedgerReport
             key={`${range.from}|${range.to}|${cashBankIds.join(",")}`}
             books={data}
@@ -129,8 +129,8 @@ export default async function Page({
         ) : (
           <ReportNeedsSubject
             icon="book"
-            title="Pilih Cash & Bank terlebih dahulu"
-            body="Buku kas/bank selalu milik sebuah resource. Pilih satu resource atau lebih beserta rentang tanggal di atas, lalu tekan Tampilkan."
+            title="Belum ada Kas & Bank"
+            body="Daftarkan Kas & Bank di Master terlebih dahulu."
           />
         )}
       </ReportView>

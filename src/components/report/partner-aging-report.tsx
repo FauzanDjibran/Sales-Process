@@ -77,17 +77,17 @@ export function PartnerAgingReport({ report, side, asOf }: { report: AgingReport
         )}
       </div>
       <div className="tw">
-        <table className="grid stm" style={{ minWidth: 1180 }}>
+        <table className="grid stm aging" style={{ minWidth: showCredit ? 1080 : 970 }}>
           <thead>
             <tr>
               <th>{noun} / Dokumen</th>
               {AGING_BUCKETS.map((b) => (
-                <th key={b.key} className="num" style={{ width: 112 }}>{b.label}</th>
+                <th key={b.key} className="num" style={{ width: 104 }}>{b.label}</th>
               ))}
-              <th className="num" style={{ width: 122 }}>Total {position}</th>
-              <th className="num" style={{ width: 118 }}>Uang Muka</th>
-              {showCredit && <th className="num" style={{ width: 118 }}>Kredit Retur</th>}
-              <th className="num" style={{ width: 122 }}>Posisi Bersih</th>
+              <th className="num" style={{ width: 112 }}>Total {position}</th>
+              <th className="num" style={{ width: 110 }}>Uang Muka</th>
+              {showCredit && <th className="num" style={{ width: 110 }}>Kredit Retur</th>}
+              <th className="num" style={{ width: 118 }}>Posisi Bersih</th>
             </tr>
           </thead>
           <tbody>

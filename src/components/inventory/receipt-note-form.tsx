@@ -246,7 +246,7 @@ export function ReceiptNoteForm({
   );
 
   const addButton = order && (
-    <button className="btn sm primary" onClick={() => setPicking(true)}>
+    <button className="btn sm" onClick={() => setPicking(true)}>
       <Icon name="plus" size={14} /> Pilih dari PO
     </button>
   );
@@ -260,7 +260,7 @@ export function ReceiptNoteForm({
         <div className="ct">
           <h3>Diterima</h3>
           <p>
-            Barang Kelola Stok masuk per lot (No. Lot kosong diberi nomor saat posting){located ? ", tiap lot di satu lokasi gudang" : ""}; barang lain dan jasa
+            Barang Kelola Stok masuk per lot (Lot kosong diberi nomor saat posting){located ? ", tiap lot di satu lokasi gudang" : ""}; barang lain dan jasa
             dibebankan.
           </p>
         </div>

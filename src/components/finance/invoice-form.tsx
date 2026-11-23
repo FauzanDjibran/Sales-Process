@@ -333,7 +333,7 @@ export function InvoiceForm({
                 {ro(<span className="bdg t-slate">{MODE_TEXT[order.mode]}</span>)}
               </Field>
             )}
-            <Field label="Termin" span={4} help={editing ? "dari Customer Order" : undefined}>
+            <Field label="Termin Pembayaran" span={4} help={editing ? "dari Customer Order" : undefined}>
               {order ? ro(<span className="lab">{order.termLabel}</span>) : nil(waitOrder)}
             </Field>
           </FormRow>
@@ -470,7 +470,7 @@ export function InvoiceForm({
   // ======================================================== lines card
   const pickNotes = (cta?: boolean) => (
     <button className={`btn sm primary${cta ? " cta" : ""}`} onClick={() => setPicking("notes")}>
-      <Icon name="truck" size={14} /> Pilih Surat Jalan
+      <Icon name="truck" size={14} /> Pilih Delivery Note
     </button>
   );
   const linesCard = (

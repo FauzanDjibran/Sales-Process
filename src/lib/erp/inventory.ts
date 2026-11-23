@@ -457,14 +457,14 @@ export async function receiveStock(tx: Tx, r: StockReceipt): Promise<{ trackingI
   if (qty.decimalPlaces() > 6) throw new InventoryRefusal("Jumlah paling banyak 6 angka desimal.");
   const item = await stockItem(tx, r.itemId);
   const lotNo = String(r.lotNo ?? "").trim().toUpperCase();
-  if (!lotNo) throw new InventoryRefusal(`${item.item_label} dikelola per lot: isi No. Lot.`);
+  if (!lotNo) throw new InventoryRefusal(`${item.item_label} dikelola per lot: isi Lot.`);
   const expiryIso = r.expiry ? r.expiry.toISOString().slice(0, 10) : null;
   if (item.has_expiry && !expiryIso) throw new InventoryRefusal(`${item.item_label} memiliki kadaluarsa: isi tanggal kadaluarsa lot ${lotNo}.`);
   const place = await stockPlace(tx, r.warehouseId, r.locationId, true);
 
   let tracking = await tx.logStockTracking.findUnique({ where: { tracking_no: lotNo } });
   if (tracking && tracking.item_id !== r.itemId) {
-    throw new InventoryRefusal(`No. Stok ${lotNo} sudah dipakai barang lain: satu nomor satu stok di seluruh sistem.`);
+    throw new InventoryRefusal(`Lot ${lotNo} sudah dipakai barang lain: satu nomor satu stok di seluruh sistem.`);
   }
   if (tracking) {
     const known = tracking.expiry_date ? tracking.expiry_date.toISOString().slice(0, 10) : null;
@@ -639,7 +639,7 @@ export type InjectionRow = {
 /** A receipt brings a new No. Stok (W10): refuses a number the system already holds. */
 export async function assertNewTrackingNo(tx: Tx, trackingNo: string): Promise<void> {
   const taken = await tx.logStockTracking.findUnique({ where: { tracking_no: trackingNo }, select: { id: true } });
-  if (taken) throw new InventoryRefusal(`No. Stok ${trackingNo} sudah ada. Setiap penerimaan memakai nomor baru.`);
+  if (taken) throw new InventoryRefusal(`Lot ${trackingNo} sudah ada. Setiap penerimaan memakai nomor baru.`);
 }
 
 /**
@@ -676,7 +676,7 @@ export async function injectStock(rows: InjectionRow[], actorId: number, runDate
         where: { tracking_no: { in: rows.map((r) => r.lotNo.trim().toUpperCase()) } },
         select: { tracking_no: true },
       });
-      if (taken) throw new InventoryRefusal(`No. Stok ${taken.tracking_no} sudah ada. Setiap penerimaan memakai nomor baru.`);
+      if (taken) throw new InventoryRefusal(`Lot ${taken.tracking_no} sudah ada. Setiap penerimaan memakai nomor baru.`);
       const source = { docTypeId: type.id, docId, no };
       for (const [i, r] of rows.entries()) {
         try {

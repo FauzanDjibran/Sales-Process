@@ -396,7 +396,7 @@ export async function accountUsage(accountId: number): Promise<string[]> {
   if (lines) used.push(`${lines} journal line`);
   if (cashBanks.length) {
     used.push(
-      `Cash & Bank ${cashBanks.map((c) => c.cash_bank_label).join(", ")}`
+      `Kas & Bank ${cashBanks.map((c) => c.cash_bank_label).join(", ")}`
     );
   }
   return used;

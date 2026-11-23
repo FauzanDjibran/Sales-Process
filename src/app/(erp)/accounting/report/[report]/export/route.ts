@@ -2,7 +2,7 @@ import { actorCan } from "@/lib/erp/access";
 import { currentActor } from "@/lib/erp/auth";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import { carriedYearsBefore, reportableFiscalYears } from "@/lib/erp/fiscal";
-import { generalLedgerReport, ledgerPartnerOptions } from "@/lib/erp/ledger";
+import { generalLedgerReport, ledgerAccountOptions, ledgerPartnerOptions } from "@/lib/erp/ledger";
 import { ledgerWorkbook } from "@/lib/erp/ledger-export";
 import { parseIds, resolveRange } from "@/lib/erp/report-params";
 import { reportBySlug } from "@/lib/erp/reports";
@@ -50,11 +50,12 @@ export async function GET(
   const printed = { printedBy: actor.user.name, printedAt: formatTimestamp(new Date()) };
 
   if (report.key === "general_ledger") {
-    const ids = parseIds(query.accounts);
-    if (!ids.length) return new Response("Pilih account terlebih dahulu", { status: 400 });
+    const chosen = parseIds(query.accounts);
+    const ids = chosen.length ? chosen : (await ledgerAccountOptions()).map((o) => o.id);
     const range = resolveRange(query.from, query.to);
     const partnerIds = parseIds(query.partners);
     const data = await generalLedgerReport(ids, range, partnerIds);
+    if (!chosen.length) data.accounts = data.accounts.filter((a) => a.opening || a.entryCount || a.closing);
     const notes = [`Seluruh angka dalam mata uang dasar (${BASE_CURRENCY_LABEL}); saldo bergerak mengikuti normal balance account.`];
     if (partnerIds.length) {
       const names = (await ledgerPartnerOptions()).filter((p) => partnerIds.includes(p.id));

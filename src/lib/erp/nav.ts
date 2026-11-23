@@ -184,7 +184,7 @@ export const MODULES: NavModule[] = [
     // `/costing`, because `/production/*` is the Produksi application.
     key: "costing",
     name: "Produksi",
-    icon: "gear",
+    icon: "build",
     desc: "Sisi uang produksi: rencana, biaya, Standard Cost, Closing, dan nilai WIP.",
     permission: "MENU_COSTING_ACCESS",
     groups: [
@@ -572,6 +572,14 @@ export const MODULES: NavModule[] = [
             permission: "REPORT_CASH_BANK_LEDGER_VIEW",
           },
           {
+            key: "report_cash_bank_balance",
+            slug: "report/cash-bank-balance",
+            name: "Saldo Kas & Bank",
+            icon: "wallet",
+            desc: "Saldo awal, penerimaan, pengeluaran, dan saldo akhir setiap resource kas dan bank.",
+            permission: "REPORT_CASH_BANK_BALANCE_VIEW",
+          },
+          {
             key: "report_ar_ledger",
             slug: "report/ar-ledger",
             name: "Buku Piutang",
@@ -634,14 +642,6 @@ export const MODULES: NavModule[] = [
             icon: "wallet",
             desc: "Uang muka dibayar yang belum dipakai invoice, per supplier dan Purchase Order.",
             permission: "REPORT_SUPPLIER_ADVANCE_VIEW",
-          },
-          {
-            key: "report_cash_bank_balance",
-            slug: "report/cash-bank-balance",
-            name: "Saldo Kas & Bank",
-            icon: "wallet",
-            desc: "Saldo awal, penerimaan, pengeluaran, dan saldo akhir setiap resource kas dan bank.",
-            permission: "REPORT_CASH_BANK_BALANCE_VIEW",
           },
         ],
       },
@@ -838,9 +838,9 @@ export const MODULES: NavModule[] = [
           {
             key: "m_cash_bank",
             slug: "cash-bank",
-            name: "Cash & Bank",
+            name: "Kas & Bank",
             icon: "wallet",
-            desc: "Resource tempat uang berada. Setiap Cash Bank memiliki Cash Bank Book sendiri.",
+            desc: "Resource tempat uang berada. Setiap Kas & Bank memiliki Buku Kas & Bank sendiri.",
             permission: "CASH_BANK_VIEW",
           },
           {

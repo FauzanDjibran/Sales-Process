@@ -106,7 +106,7 @@ export const CUSTOMER_ORDER_TRANSITIONS: Record<CustomerOrderAction, CustomerOrd
     done: "Customer Order dibatalkan",
   },
   close: {
-    label: "Tutup Pesanan",
+    label: "Tutup",
     permission: "CUSTOMER_ORDER_CLOSE",
     from: ["Open"],
     to: "Closed",

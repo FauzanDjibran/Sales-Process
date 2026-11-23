@@ -164,7 +164,7 @@ export function PurchaseInvoiceForm({
             <Field label="Supplier" span={5}>
               {order ? ro(<><span className="lab">{order.supplierLabel}</span><span>{order.supplierName}</span></>) : nil("menunggu Purchase Order")}
             </Field>
-            <Field label="Termin" span={3}>
+            <Field label="Termin Pembayaran" span={3}>
               {order ? ro(<span>{order.termLabel} · {order.termDays} hari</span>) : nil("—")}
             </Field>
           </FormRow>
@@ -239,7 +239,7 @@ export function PurchaseInvoiceForm({
           <p>Baris Receipt Note yang diposting, utuh, pada harga Purchase Order. DPP-nya adalah nilai penerimaannya.</p>
         </div>
         {editing && order && (
-          <button className="btn sm primary" onClick={() => setPicker("lines")}>
+          <button className="btn sm" onClick={() => setPicker("lines")}>
             <Icon name="plus" size={14} /> Pilih Receipt Note
           </button>
         )}

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
@@ -600,7 +601,7 @@ export function PermitRequestForm({
           </p>
         </div>
         {canAdd && (
-          <button className="btn sm primary" disabled={headerEditing && !customer} onClick={() => setPicker(true)}>
+          <button className="btn sm" disabled={headerEditing && !customer} onClick={() => setPicker(true)}>
             <Icon name="plus" size={14} /> Tambah Perizinan
           </button>
         )}
@@ -610,7 +611,7 @@ export function PermitRequestForm({
           <Icon name="warn" size={15} className="ni" />
           <div>
             <b>Tarif PPN belum diatur</b>
-            <p>Isi Tarif PPN dan faktor DPP Nilai Lain di Pengaturan › System Default sebelum menyimpan pengajuan Kena PPN.</p>
+            <p>Isi Tarif PPN dan faktor DPP Nilai Lain di <Link className="drl" href="/settings/system-default">Pengaturan › System Default</Link> sebelum menyimpan pengajuan Kena PPN.</p>
           </div>
         </div>
       )}

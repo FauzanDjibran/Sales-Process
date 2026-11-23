@@ -1444,3 +1444,14 @@ table.grid.reg .idc .nm{white-space:normal}
 
 /* An optional field left empty is not shown once the document is read (P311). */
 .fld:has(> .ro.opt){display:none}
+
+/* Report filters flow on one line and wrap (P312). */
+.rfil{flex-direction:row;flex-wrap:wrap;align-items:center;gap:8px 20px}
+.rfil .rrow > .rl:first-child{min-width:0;flex:none}
+/* A wide table keeps its subject, or its last figure, in view while it scrolls (P312). */
+table.grid.kcol td:first-child,table.grid.kcol th:first-child{position:sticky;left:0;z-index:1;background:var(--surface)}
+table.grid.aging td:last-child,table.grid.aging th:last-child{position:sticky;right:0;background:var(--surface);box-shadow:-1px 0 0 var(--line)}
+table.grid.aging th,table.grid.aging td:first-child,table.grid.aging td:first-child *{white-space:normal}
+@media(min-width:900px){.rfil .rrow{flex-wrap:nowrap}}
+/* Many tabs take a second line rather than hide past the edge (P312). */
+.tabs{flex-wrap:wrap}

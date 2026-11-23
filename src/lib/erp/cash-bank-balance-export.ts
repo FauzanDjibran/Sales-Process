@@ -26,10 +26,10 @@ const LAST = 6;
 export async function cashBankBalanceWorkbook(s: CashBankBalanceExport): Promise<Buffer> {
   const { wb, ws } = bookSheet({
     title: "Saldo Kas & Bank",
-    measure: "(Dinyatakan dalam mata uang masing-masing Cash & Bank)",
+    measure: "(Dinyatakan dalam mata uang masing-masing Kas & Bank)",
     companyName: s.companyName,
     range: s.report.range,
-    headers: ["Kode", "Cash & Bank", "Saldo Awal", "Penerimaan", "Pengeluaran", "Saldo Akhir"],
+    headers: ["Kode", "Kas & Bank", "Saldo Awal", "Penerimaan", "Pengeluaran", "Saldo Akhir"],
     widths: [10, 40, 17, 17, 17, 17],
     textCols: 2,
     printedBy: s.printedBy,
@@ -65,7 +65,7 @@ export async function cashBankBalanceWorkbook(s: CashBankBalanceExport): Promise
 
     band(BAND);
     text(1, g.currencyLabel, { bold: true, size: 9.5 });
-    const aside = text(LAST, `${g.rows.length} Cash & Bank`, { size: 8, color: { argb: "FF555555" } });
+    const aside = text(LAST, `${g.rows.length} Kas & Bank`, { size: 8, color: { argb: "FF555555" } });
     aside.alignment = { horizontal: "right" };
     r++;
 
@@ -83,7 +83,7 @@ export async function cashBankBalanceWorkbook(s: CashBankBalanceExport): Promise
   }
 
   if (!s.report.groups.length) {
-    text(2, "Tidak ada Cash & Bank untuk dilaporkan.", { italic: true, color: MUTED });
+    text(2, "Tidak ada Kas & Bank untuk dilaporkan.", { italic: true, color: MUTED });
     r += 3;
   }
 
