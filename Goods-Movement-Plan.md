@@ -73,7 +73,6 @@ Jumlah dokumen ditentukan tiga pertanyaan, bukan oleh logistik atau produksinya.
 | Receipt | `return` BSTB Pengeluaran | Unit mana pun | Menunggu → Terima | Terbawa atau tanpa nilai | sama, atau Dr Beban Pemusnahan |
 | Issue | *calon:* Pemakaian Internal, Pemusnahan | tidak ada | Draft → Posting | Rata-rata | Dr Beban / Cr Persediaan |
 | Receipt | *calon:* Stok Awal (pengganti `db:stock-inject`) | tidak ada | Draft → Posting | Diketik | Dr Persediaan / Cr akun pembuka |
-| Issue, Receipt | *calon:* Selisih Opname | tidak ada | dari dokumen hitung | Rata-rata | Dr/Cr Selisih Persediaan |
 
 Empat baris pertama sudah ada perilakunya. **Calon tidak dibangun tanpa instruksi** (C34).
 
@@ -91,6 +90,24 @@ Katalog tetap di kode (P106) dan tiap tujuan punya postingnya sendiri (P268). Sa
 | Akses gudang | Hanya Transfer dan BFG/BPG | Issue memeriksa gudang asal, Receipt gudang tujuan (P301) |
 
 Nama **BSTB Issue, BSTB ke Finish Goods, BSTB Pengeluaran** tetap dipakai sebagai nama tujuan dan judul dokumen, sehingga orang lapangan tidak kehilangan istilahnya. Yang berubah hanya menunya. Ini **mengubah P254** (*BSTB Issue menu keeps its name*; dokumen lain menu sendiri) dan menu P303 / P304.
+
+### 3.4 Stock Opname: menu sendiri, bukan tujuan
+
+Opname adalah **dokumen hitung** yang memposting selisihnya sendiri. Issue dan Receipt untuk barang yang **diketahui** keluar atau masuk karena sebab tertentu.
+
+| | Stock Issue / Receipt | Stock Opname |
+| --- | --- | --- |
+| Yang diketik | Jumlah yang bergerak | Jumlah fisik; selisih dihitung |
+| Arah | Satu | Plus dan minus dalam satu dokumen |
+| Langkah | Draft → Kirim / Posting | Draft (daftar hitung) → Dihitung → Setujui → Posting |
+| Nilai | Menurut tujuan | Kurang: round(V × q ÷ Q). Lebih: rata-rata, diketik bila Q = 0 (P114, KB `stock-books` §7) |
+| Jurnal | Menurut tujuan | Persediaan ↔ Selisih Persediaan |
+| Fisik | Barang berpindah | Tidak ada yang berpindah |
+
+- Satu gudang per dokumen, per lot · lokasi · status. **Selisih = fisik − buku saat Posting**; bila bucket bergerak sejak dihitung, barisnya wajib dihitung ulang.
+- Yang Dalam Perjalanan tidak ikut dihitung penerima. Sisa di Gudang Transit (P301, OD-7) dikoreksi opname atas Gudang Transit sendiri.
+- **Produksi punya opname sendiri** (`prd_opname`, buku produksi), dihitung per No. Stok di Unit. Susut proses tetap tercatat di Grading, bukan di opname. Belum diputuskan: nilai yang kurang menjadi beban atau diserap sisa partai, dan nilai barang lebih.
+- **Pembanding:** SAP memakai Physical Inventory Document, posting selisihnya otomatis 701/702. Dynamics 365 punya Counting journal terpisah dari Movement dan Adjustment journal. NetSuite: Inventory Count yang disetujui membuat Inventory Adjustment. ERPNext: Stock Reconciliation terpisah dari Stock Entry. Odoo: Physical Inventory, gerak ke lokasi virtual Inventory Adjustment.
 
 ## 4. Konsep pergerakan barang
 
@@ -147,11 +164,10 @@ Suku ketiga selalu nol selama satu database.
 | Receipt | Bahan | Gudang → Unit pertama routing | No. Job lahir saat Terima (W98) |
 | Receipt | Bahan penolong | Gudang → Unit mana pun | Tanpa Job dan partai |
 | Receipt | *calon:* Rework dari Finish Goods atau retur customer | Gudang → Unit yang dipilih | Silsilah ke kotak lama; partai dan rate ditentukan saat itu |
-| Receipt | *calon:* Koreksi tambah (opname lantai) | tidak ada | Sumber nilai harus diputuskan |
 | Issue | Finish Goods | Unit akhir line → Gudang | Stand By, utuh |
 | Issue | Pengeluaran (reject, sisa, bahan penolong) | Unit mana pun → Gudang | Persiapan atau Stand By; nilai dipilih gudang |
 | Issue | *calon:* Pemusnahan di tempat | Unit → **tidak ada** | Dr Beban; tidak ada gudang yang menerima |
-| Issue | *calon:* Sampel lab, koreksi kurang | Unit → tidak ada | Akun beban per tujuan |
+| Issue | *calon:* Sampel lab | Unit → tidak ada | Akun beban per tujuan |
 
 Baris tanpa gudang adalah alasan terkuat memisahkan: di `prd_transfer` keduanya tidak punya Unit tujuan sama sekali.
 
@@ -282,7 +298,7 @@ Satu database tetap (P245). Yang dibangun sekarang **bentuknya**, bukan pipanya:
 | **G2** | `log_stock_receipt` generik; menu Stock Issue dan Stock Receipt; URL lama dialihkan; Receipt ke gudang berlokasi; akses per gudang | Ya, ganti nama di tempat | Nomor, jurnal dan role lama utuh |
 | **G3** | `prd_receipt` dan `prd_issue` dengan registernya; satu modul kontrak `handover.ts`; id bucket keluar dari tabel `log_` | Ya, dokumen lama diisi mundur | Tes batas modul: Stock Issue dan Stock Receipt tidak lagi mengimpor `production-ledger`, dan modul produksi tidak menulis tabel `log_stock_issue` / `log_stock_receipt` |
 | **G4** | Lima dokumen produksi menjurnal lewat satu fungsi berisi `ProductionPosted`; penolakan nomor `<induk>-<n>` dan `KTK-` di Receipt Note | Tidak | `postJournal` tidak dipanggil modul produksi mana pun selain fungsi itu |
-| **G5** | Tujuan tambahan (Pemakaian Internal, Pemusnahan, Stok Awal, Opname) | Per tujuan | Hanya atas instruksi |
+| **G5** | Tujuan tambahan (Pemakaian Internal, Pemusnahan, Stok Awal); Stock Opname menu sendiri (§3.4) | Per tujuan | Hanya atas instruksi |
 | **Nanti** | Outbox, inbox, salinan master, dua register No. Stok, cut-off | | Saat database benar-benar dipisah |
 
 G1 dan G2 berdiri sendiri. G3 membutuhkan keduanya. Bila hanya ingin menu generik, cukup G2.
@@ -298,6 +314,7 @@ G1 dan G2 berdiri sendiri. G3 membutuhkan keduanya. Bila hanya ingin menu generi
 | GM-5 | Sisi produksi: Production Receipt dan Production Issue tersendiri, `prd_transfer` hanya Unit → Unit | Ya |
 | GM-6 | Nilai per No. Stok tetap dihitung Produksi setelah dipisah | Ya |
 | GM-7 | Tujuan tambahan mana yang dibangun | Belum ada sampai diminta, di gudang maupun produksi |
+| GM-9 | Stock Opname menu sendiri di gudang dan di produksi, belum dibangun | Ya |
 | GM-8 | Cakupan yang dijalankan sekarang | G1–G3; G4 boleh menyusul |
 
 Setelah disetujui, keputusan dicatat di `Claude-ERP.md` §12 dan PWR dalam commit yang sama.
