@@ -154,6 +154,12 @@ async function check(db: Db, input: GradingInput, strict: boolean, selfId: numbe
       if (item && grams > 0) outputs.push({ line_no: ++outNo, item_id: item.id, qty: item.base_uom.uom_label === GRAM_UOM ? grams : 1, grams });
     });
     if (strict && !raw.length) errors[key("outputs")] = "Isi minimal satu output.";
+    // Grading loses gram, never makes it; a Draft may still be incomplete (P307).
+    const gramsIn = inputs.reduce((a, i) => a + i.qty * (i.bucket.gramsEach ?? NaN), 0);
+    const gramsOut = outputs.reduce((a, o) => a + o.grams, 0);
+    if (strict && inputs.length && units(gramsOut) > units(gramsIn)) {
+      errors[key("outputs")] = `Output ${fromUnits(units(gramsOut))} g melebihi input ${fromUnits(units(gramsIn))} g.`;
+    }
     if (inputs.length) groups.push({ group_no: g + 1, job_id: jobId, parentLotId: parentLotId!, inputs, outputs });
   }
 

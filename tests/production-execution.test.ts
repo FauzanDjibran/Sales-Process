@@ -215,6 +215,16 @@ describe("Dokumen Grading", () => {
     assert.equal(scrap?.debit_amount.toNumber(), 55_000);
   });
 
+  test("outputs weighing more than the input are refused at Posting, not on a Draft (P307)", async () => {
+    const [b] = await persiapan(f.wsA);
+    const r = await grade({ bucket_id: b.id, qty: 10, outputs: [{ item_id: f.product, grams: 8 }, { item_id: f.byproduct, grams: 2.0001 }] });
+    assert.ok(r.ok, "a Draft may still be incomplete");
+    const p = await transitionGrading(r.id, "post", f.actor);
+    assert.ok(!p.ok && /Output 10.0001 g melebihi input 10 g/.test(p.errors._form), JSON.stringify(p));
+    assert.equal((await persiapan(f.wsA)).find((x) => x.id === b.id)?.qty, b.qty, "nothing moved");
+    assert.ok((await transitionGrading(r.id, "cancel", f.actor, "salah timbang")).ok);
+  });
+
   test("a Draft can be changed and cancelled, and moves nothing", async () => {
     const [b] = await persiapan(f.wsA);
     const before = b.qty;
