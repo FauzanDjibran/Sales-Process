@@ -59,6 +59,8 @@ file says "follow `<concept>.md`", read the `knowledge/` copy.
 
 **Stock transfer plan (`Stock-Transfer-Plan.md`, P300).** Transfer Kirim and Transfer Terima through a Gudang Transit, the decisions OD-1–OD-9 and the build steps. Read it before transfer work and mark each step there as it lands.
 
+**UI/UX plan (`UI-UX-Plan.md`, P308).** The standardisation of the ERP's screens and its rulings T1–T8; mark each step there as it lands.
+
 **Multi-currency plan (`Multi-Currency-Plan.md`, P270).** The agreed plan for foreign-currency documents: its rules MC1–MC19, the open points and the build stages. Read it before multi-currency work and mark each stage there as it lands.
 
 **Production basis (`Produksi Walet (Real).md`, P216, P232).** The main information document of production: the Reguler line, standard cost and closing, salvage and build steps. **Every production decision and change is updated there, in the same commit.** It ranks above `Production-Plan.md`. Read it before production work.

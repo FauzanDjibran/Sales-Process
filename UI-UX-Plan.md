@@ -1,7 +1,7 @@
 # Rencana Standarisasi UI/UX — Aplikasi ERP
 
 > Disusun 23/11/2026 dari [UI-UX-Evaluasi-ERP.md](UI-UX-Evaluasi-ERP.md) dan
-> jawaban user. **Belum dibangun; menunggu persetujuan.** Kode temuan (F, L, D,
+> jawaban user. **T1–T6 dibangun 23/11/2026 (P308)**; sisanya belum. Kode temuan (F, L, D,
 > S, R, M) merujuk ke dokumen evaluasi.
 
 ## 1. Arahan user
@@ -249,12 +249,12 @@ kedua · **D** pengecualian ERP saja.
 
 | # | Pertanyaan | Aturan sekarang dan alasannya | Rekomendasi |
 | --- | --- | --- | --- |
-| **T1** | Enam tombol sambungan yang sudah ada (Buat Sales Order / Invoice di CO, Buat DO, Buat Delivery Note, Terima Barang di Sales Return dan Transfer Kirim) ikut dihapus? | — | **Hapus**, agar semua menu sama. Salin, Terima BSTB, dan *Penerimaan Retur* di daftar Receipt Note tetap: itu satu-satunya jalan membuatnya dari menu sendiri |
-| **T2** | Tab selalu ada, walau satu | P38 dan DC `header-tabs`: "A form with one section has no tabs" — menghindari klik dan bingkai kosong | Ikuti arahan Anda: **B** |
-| **T3** | Status sebagai filter | DC §5.4 | **Dijawab user: dropdown, tanpa tab status.** Konvensi tetap |
-| **T4** | Posted / Post → Diposting / Posting | DC §10.3 menulis *Posted*; §10.17: "Established product terms stay in English inside Indonesian copy, e.g. Budget, Journal, Draft, Post" — istilah seragam antar proyek | **B**: lebih banyak layar ERP sudah memakai *Diposting* |
-| **T5** | Header blok laporan terang | `globals.css` bawaan SIBA, tidak diubah (guideline §14) — layar sama di semua proyek | **D**: kelas baru di bagian tambahan |
-| **T6** | Nol `—` dan negatif dalam kurung di semua laporan | P145: "a nil figure reads `Rp 0`, never a dash"; P148 membatasi kurung ke buku | Ubah P145 dan P148 untuk ERP |
+| **T1** | Enam tombol sambungan yang sudah ada (Buat Sales Order / Invoice di CO, Buat DO, Buat Delivery Note, Terima Barang di Sales Return dan Transfer Kirim) ikut dihapus? | — | **Hapus**, agar semua menu sama. Salin, Terima BSTB, dan *Penerimaan Retur* di daftar Receipt Note tetap: itu satu-satunya jalan membuatnya dari menu sendiri — **disetujui dan dibangun (P308)** |
+| **T2** | Tab selalu ada, walau satu | P38 dan DC `header-tabs`: "A form with one section has no tabs" — menghindari klik dan bingkai kosong | Ikuti arahan Anda: **B** — **disetujui dan dibangun (P308)** |
+| **T3** | Status sebagai filter | DC §5.4 | **Dijawab user: dropdown, tanpa tab status** — dibangun (P308) |
+| **T4** | Posted / Post → Diposting / Posting | DC §10.3 menulis *Posted*; §10.17: "Established product terms stay in English inside Indonesian copy, e.g. Budget, Journal, Draft, Post" — istilah seragam antar proyek | **B**: lebih banyak layar ERP sudah memakai *Diposting* — **disetujui dan dibangun (P308)** |
+| **T5** | Header blok laporan terang | `globals.css` bawaan SIBA, tidak diubah (guideline §14) — layar sama di semua proyek | **D**: kelas baru di bagian tambahan — **disetujui dan dibangun (P308)** |
+| **T6** | Nol `—` dan negatif dalam kurung di semua laporan | P145: "a nil figure reads `Rp 0`, never a dash"; P148 membatasi kurung ke buku | Ubah P145 dan P148 untuk ERP — **disetujui dan dibangun (P308)** |
 | **T7** | General Ledger dan Buku Kas & Bank langsung tampil | Sekarang meminta pilihan dulu, agar tidak memuat seluruh buku | Ya; isi blok dimuat saat dibuka (P221) |
 | **T8** | Daftar dan form Journal | P146 memakai dua kolom di daftar | **Dijawab user: daftar satu kolom Nilai; form Kurs tetap kolom sendiri** |
 
