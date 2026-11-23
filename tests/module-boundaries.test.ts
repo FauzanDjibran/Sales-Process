@@ -139,6 +139,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
   prdReceiptLine: ["src/lib/erp/production-receipt.ts"],
   prdIssue: ["src/lib/erp/production-issue.ts"],
   prdIssueLine: ["src/lib/erp/production-issue.ts"],
+  logStockAdjustment: ["src/lib/erp/stock-adjustment.ts"],
+  logStockAdjustmentLine: ["src/lib/erp/stock-adjustment.ts"],
   logStockTransfer: ["src/lib/erp/stock-transfer.ts"],
   logStockTransferLine: ["src/lib/erp/stock-transfer.ts"],
   logStockTransferTracking: ["src/lib/erp/stock-transfer.ts"],
@@ -170,7 +172,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
   prdPartai: ["src/lib/erp/production-ledger.ts"],
   prdJob: ["src/lib/erp/production-ledger.ts"],
   prdTrackingInfo: ["src/lib/erp/production-ledger.ts"],
-  prdCostEntry: ["src/lib/erp/production-ledger.ts"],
+  // Production charges a Unit cost; the ERP records it (P318).
+  prdCostEntry: ["src/lib/erp/production-posting.ts"],
   // The month-end close (R10–R15, R25): its record, named only by its module; the lock only by the kernel.
   accFiscalPeriodLock: ["src/lib/erp/period-lock.ts"],
   // Billing documents: Finance owns them since P107; Sales holds only orders.
@@ -336,6 +339,12 @@ describe("every table belongs to one application", () => {
       ...production.flatMap((m) => sibaImports(sibaModule(m).text).filter((d) => ["inventory", "journal", "item-account", ...erp].includes(d)).map((d) => `${m} → ${d}`)),
     ];
     assert.deepEqual(bad, [], "A side tells the other by a message of handover.ts; it never calls or reads it.");
+  });
+
+  test("production writes no journal and chooses no account: production-posting is its one door (P318)", () => {
+    const floor = ["production-doc", "production-ledger", "production-grading", "production-work", "production-kerja", "production-job-order", "production-box", "production-qc", "production-transfer", "production-receipt", "production-issue"];
+    const bad = floor.filter((m) => /\bpostJournal\b|\baccountsForItems\b|\bfallbackAccounts\b/.test(code(sibaModule(m).text)));
+    assert.deepEqual(bad, [], "Say what happened with postToErp; production-posting.ts writes the journal.");
   });
 
   test("the ownership lists name only tables that exist", () => {

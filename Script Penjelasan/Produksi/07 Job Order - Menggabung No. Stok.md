@@ -65,7 +65,7 @@ No. Job     = baru, diterbitkan UML
 ```
 
 **Tanpa biaya** karena Job Order bukan proses terakhir UML; biaya Moulding
-dibebankan di Assign sesudahnya (bagian 01 §2.3). `recordCostEntry` bahkan tidak
+dibebankan di Assign sesudahnya (bagian 01 §2.3). `chargeUnit` bahkan tidak
 dipanggil.
 
 ### Contoh `JOD_UML_231126_00001`

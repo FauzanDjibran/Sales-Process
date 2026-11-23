@@ -396,6 +396,14 @@ export const MODULES: NavModule[] = [
             permission: "STOCK_TRANSFER_RECEIPT_VIEW",
           },
           {
+            key: "log_stock_adjustment",
+            slug: "stock-adjustment",
+            name: "Stock Adjustment",
+            icon: "scale",
+            desc: "Hitungan fisik satu gudang dan selisihnya terhadap buku, dengan persetujuan.",
+            permission: "STOCK_ADJUSTMENT_VIEW",
+          },
+          {
             key: "log_delivery_note",
             slug: "delivery-note",
             name: "Delivery Note",

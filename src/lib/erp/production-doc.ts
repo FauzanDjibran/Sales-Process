@@ -5,18 +5,15 @@ import type { Prisma } from "@/generated/prisma/client";
 import { InventoryRefusal } from "./inventory";
 import { PeriodLockRefusal } from "./period-lock";
 import { PeriodShut } from "./fiscal";
-import { HandoverRefusal } from "./handover";
+import { HandoverRefusal, deliverPosted, type PostedReply } from "./handover";
 import { PostingDryRun, describeJournalLines, type JournalLineInput, type JournalPreviewResult } from "./journal";
-import { ProductionRefusal, availableBuckets, bucketsByIds, ratesOfBuckets, type BucketView } from "./production-ledger";
-import { accountsForItems } from "./item-account";
-import { fallbackAccounts } from "./system-settings";
+import { ProductionRefusal, availableBuckets, bucketsByIds, describeCharges, ratesOfBuckets, type BucketView, type CostCharge, type ProductionSource } from "./production-ledger";
 import { dailySeries, nextDailyNumber } from "./document-number";
-import { BASE_CURRENCY_LABEL } from "./currency";
 
 /**
  * What the production documents share (R5, R7, R8): the units and the
- * buckets they pick from, the check of a line taken from a bucket, the WIP
- * account of an item (no fallback, R16) and the refusal plumbing of a
+ * buckets they pick from, the check of a line taken from a bucket, what a
+ * posting tells the ERP (P318) and the refusal plumbing of a
  * posting run as a dry run (P103). Each document keeps its own tables.
  */
 
@@ -185,68 +182,43 @@ export function checkBucketLines(
   return out;
 }
 
-/**
- * The WIP account of each item, from its Kategori Item — no fallback (R16) —
- * with the other kinds the caller needs. A category without what is asked is
- * refused by name.
- */
-export async function itemAccounts(
-  itemIds: number[],
-  need: ("wip" | "inventory")[],
-  fallbackInventory: number | null,
-  db: Db = prisma
-): Promise<{ ok: true; accounts: Map<number, { wip: number; inventory: number | null }> } | { ok: false; message: string }> {
-  const byItem = await accountsForItems([...new Set(itemIds)], db);
-  const out = new Map<number, { wip: number; inventory: number | null }>();
-  for (const id of new Set(itemIds)) {
-    const c = byItem.get(id);
-    const inventory = c?.inventory ?? fallbackInventory;
-    const missing = [need.includes("wip") && !c?.wip && "WIP", need.includes("inventory") && !inventory && "Persediaan"].filter(Boolean);
-    if (missing.length) {
-      const item = await db.mItem.findUnique({ where: { id }, select: { item_label: true, category: { select: { category_label: true } } } });
-      return { ok: false, message: `Lengkapi Account Kategori Item ${item?.category.category_label ?? ""} dulu: Account ${missing.join(" dan ")} untuk ${item?.item_label ?? "barang"}.` };
-    }
-    out.set(id, { wip: c!.wip!, inventory: inventory ?? null });
-  }
-  return { ok: true, accounts: out };
-}
-
 /** The next daily number of a unit's document series (W11): `<KIND>_<unit>_<ddmmyy>_<NNNNN>`. */
 export const unitSeries = (kind: string, unitLabel: string, date: Date) => dailySeries(`${kind}_${unitLabel}`, date);
 export { nextDailyNumber };
 
-export type ValueMove = { accountId: number; amount: number };
+/** What an item's WIP gained or lost. */
+export type ValueMove = { itemId: number; amount: number };
 
 /**
- * The journal of an execution, net per account, because WIP moves only where
- * the accounts differ (§7): `moves` are what each WIP account gained or lost,
- * the unit cost is credited to Biaya Produksi Dibebankan, and value with no
- * receiver is debited to Beban Pemusnahan Produksi (W32). Nothing to move is no
- * journal.
+ * Tells the ERP what a posting did (P318): the journal and the Unit costs are its
+ * to write, in this transaction while there is one database. Nothing gained, lost
+ * or charged is nothing to say.
  */
-export async function executionJournalLines(
-  moves: ValueMove[],
-  cost: number,
-  scrap: number,
-  description: string,
-  db: Db = prisma
-): Promise<JournalLineInput[]> {
-  const net = new Map<number, number>();
-  for (const m of moves) net.set(m.accountId, (net.get(m.accountId) ?? 0) + m.amount);
-  const accounts = await fallbackAccounts(["production_absorbed_account", "production_scrap_account"] as const);
-  const add = (key: "production_absorbed_account" | "production_scrap_account", name: string, amount: number) => {
-    if (!amount) return;
-    const id = accounts[key];
-    if (!id) throw new Refused({ _form: `Lengkapi Account Mapping dulu: ${name}.` });
-    net.set(id, (net.get(id) ?? 0) + amount);
-  };
-  add("production_absorbed_account", "Biaya Produksi Dibebankan", -cost);
-  add("production_scrap_account", "Beban Pemusnahan Produksi", scrap);
-  const lines = [...net].filter(([, amount]) => amount !== 0);
-  if (!lines.length) return [];
-  const currency = await db.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
-  if (!currency) throw new Refused({ _form: "Mata uang dasar tidak ditemukan." });
-  return lines.map(([accountId, amount]) => ({ accountId, currencyId: currency.id, rate: 1, debit: Math.max(amount, 0), credit: Math.max(-amount, 0), description }));
+export async function postToErp(
+  tx: Prisma.TransactionClient,
+  p: { source: ProductionSource; docTable: string; date: Date; description: string; moves: ValueMove[]; costs: (CostCharge | null)[]; scrap?: number; actorId: number }
+): Promise<PostedReply> {
+  const charged = p.costs.flatMap((c) => (c ? [c] : []));
+  const perItem = new Map<number, number>();
+  for (const m of p.moves) perItem.set(m.itemId, (perItem.get(m.itemId) ?? 0) + m.amount);
+  // An item whose value did not change still needs its WIP account (R16).
+  if (!perItem.size && !charged.length && !p.scrap) return { journalId: null, lines: [] };
+  const codes = new Map((await tx.mItem.findMany({ where: { id: { in: [...perItem.keys()] } }, select: { id: true, item_code: true } })).map((i) => [i.id, i.item_code]));
+  return deliverPosted(
+    tx,
+    {
+      type: "ProductionPosted",
+      no: p.source.no,
+      docTable: p.docTable,
+      docId: p.source.docId,
+      date: isoDay(p.date),
+      description: p.description,
+      moves: [...perItem].map(([itemId, amount]) => ({ itemCode: codes.get(itemId)!, amount })),
+      costs: await describeCharges(tx, charged),
+      scrap: p.scrap ?? 0,
+    },
+    p.actorId
+  );
 }
 
 /** Rules failing inside a transaction roll it back and come out as errors. */

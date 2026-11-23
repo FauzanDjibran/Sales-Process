@@ -3,7 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { holdPostingPeriod } from "./fiscal";
-import { PostingDryRun, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
+import { PostingDryRun, journalNumbersByIds, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { shareByWeight, shareGrading, shareQty } from "./production-execution";
 import {
   Refused,
@@ -11,11 +11,10 @@ import {
   auxOptions,
   checkAuxLines,
   docTypeId,
-  executionJournalLines,
   fourDecimals,
   fromUnits,
   isoDay,
-  itemAccounts,
+  postToErp,
   journalPreview,
   nextDailyNumber,
   parseQty,
@@ -30,7 +29,7 @@ import {
   type BucketOption,
   type ValueMove,
 } from "./production-doc";
-import { availableBuckets, bucketsByIds, consumeBucket, jobsByIds, unitStepsOf, type BucketView, gramsOf, linkTracking, lockRateVersion, produceIntoBucket, recordCostEntry, recordTrackingInfo, registerDerivedStock } from "./production-ledger";
+import { type CostCharge, availableBuckets, bucketsByIds, consumeBucket, jobsByIds, unitStepsOf, type BucketView, gramsOf, linkTracking, lockRateVersion, produceIntoBucket, chargeUnit, recordTrackingInfo, registerDerivedStock } from "./production-ledger";
 import { GRADING_WORKFLOW } from "./production-execution-workflow";
 import { prodDocTransitionAllowed, type ProdDocAction, type ProdDocStatus } from "./production-doc-workflow";
 
@@ -291,13 +290,9 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
       const date = c.data.grading_date;
       const common = { date, source, actorId };
 
-      const allInputs = c.groups.flatMap((x) => x.inputs);
-      const accounts = await itemAccounts([...allInputs.map((i) => i.bucket.itemId), ...c.groups.flatMap((x) => x.outputs.map((o) => o.item_id)), ...c.aux.map((a) => a.bucket.itemId)], ["wip"], null, tx);
-      if (!accounts.ok) throw new Refused({ _form: accounts.message });
-      const wip = (itemId: number) => accounts.accounts.get(itemId)!.wip;
-
       // Each input leaves at its value and pays gram × its own locked rate (V1, W66).
       const moves: ValueMove[] = [];
+      const costs: (CostCharge | null)[] = [];
       type Taken = { bucketId: number; lotId: number; grams: number; value: number; cost: number; rate: number; rateVersionId: number; routingId: number | null };
       const takenBy = new Map<number, Taken[]>();
       let partaiId: number | null = null;
@@ -307,8 +302,9 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
           const t = await consumeBucket(tx, { bucketId: i.bucket_id, baseQty: i.qty, ...common });
           const grams = await gramsOf(tx, { lotId: t.lotId, itemId: t.itemId, qty: i.qty });
           const locked = await lockRateVersion(tx, { lotId: t.lotId, partaiId: t.partaiId, actorId });
-          const cost = await recordCostEntry(tx, { unitId: c.data.unit_id, stepId: c.step.id, rateVersionId: locked.rateVersionId, lotId: t.lotId, partaiId: t.partaiId, grams, isRework: t.qcCheckId != null, ...common });
-          moves.push({ accountId: wip(t.itemId), amount: -t.value });
+          const cost = await chargeUnit(tx, { unitId: c.data.unit_id, stepId: c.step.id, rateVersionId: locked.rateVersionId, lotId: t.lotId, partaiId: t.partaiId, grams, isRework: t.qcCheckId != null, date });
+          costs.push(cost.charge);
+          moves.push({ itemId: t.itemId, amount: -t.value });
           list.push({ bucketId: i.bucket_id, lotId: t.lotId, grams: grams.toNumber(), value: t.value, cost: cost.amount, rate: Number(cost.rate), ...locked });
           partaiId = t.partaiId;
         }
@@ -318,7 +314,7 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
       for (const a of c.aux) {
         const used = await consumeBucket(tx, { bucketId: a.bucket_id, baseQty: a.qty, ...common });
         await tx.prdAuxUse.update({ where: { id: g.aux.find((x) => x.line_no === a.line_no)!.id }, data: { value: used.value } });
-        moves.push({ accountId: wip(used.itemId), amount: -used.value });
+        moves.push({ itemId: used.itemId, amount: -used.value });
         auxValue += used.value;
       }
 
@@ -363,7 +359,7 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
             where: { grading_id_line_no: { grading_id: id, line_no: o.line_no } },
             data: { is_bjl: o.isBjl, tracking_id: made.id, tracking_no: made.no, value: share.values[i], to_bucket_id: placed.bucketId },
           });
-          moves.push({ accountId: wip(o.item_id), amount: share.values[i] });
+          moves.push({ itemId: o.item_id, amount: share.values[i] });
         }
       }
       // What was taken, as taken: a Job contents are read again at Posting.
@@ -381,14 +377,13 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
       const inputValue = flat.reduce((x, t) => x + t.value, 0);
       const costAmount = flat.reduce((x, t) => x + t.cost, 0);
       const grams = flat.reduce((x, t) => x + t.grams, 0);
-      const lines = await executionJournalLines(moves, costAmount, scrapTotal, `${g.grading_no} · Grading ${c.unit.unit_label}`, tx);
-      const journal = lines.length ? await postJournal(tx, { description: `${g.grading_no} · Grading ${c.unit.unit_label}`, sourceDocTypeId: source.docTypeId, sourceDocId: id, postingDate: date, actorId, lines }) : null;
+      const posted = await postToErp(tx, { source, docTable: "prd_grading", date, description: `${g.grading_no} · Grading ${c.unit.unit_label}`, moves, costs, scrap: scrapTotal, actorId });
       await tx.prdGrading.update({
         where: { id },
-        data: { grams, rate: flat[0].rate, input_value: inputValue, cost_amount: costAmount, aux_value: auxValue, scrap_amount: scrapTotal, journal_id: journal?.id ?? null },
+        data: { grams, rate: flat[0].rate, input_value: inputValue, cost_amount: costAmount, aux_value: auxValue, scrap_amount: scrapTotal, journal_id: posted.journalId },
       });
       await audit(tx, id, "UPDATE", "post", actorId);
-      if (options.dryRun) throw new PostingDryRun(lines as JournalLineInput[]);
+      if (options.dryRun) throw new PostingDryRun(posted.lines);
     });
     return { ok: true as const } as { ok: true; journal?: JournalLineInput[] };
   });

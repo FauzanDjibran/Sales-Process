@@ -3,7 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { holdPostingPeriod } from "./fiscal";
-import { PostingDryRun, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
+import { PostingDryRun, journalNumbersByIds, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { shareWork } from "./production-execution";
 import {
   DAY,
@@ -12,12 +12,11 @@ import {
   auxOptions,
   checkAuxLines,
   docTypeId,
-  executionJournalLines,
   firstError,
   fourDecimals,
   fromUnits,
   isoDay,
-  itemAccounts,
+  postToErp,
   journalPreview,
   nextDailyNumber,
   parseQty,
@@ -30,7 +29,7 @@ import {
   type BucketOption,
   type ValueMove,
 } from "./production-doc";
-import { availableBuckets, bucketsByIds, consumeBucket, gramsOf, unitStepsOf, lockRateVersion, preparationNoteUnits, produceIntoBucket, recordCostEntry, type BucketView } from "./production-ledger";
+import { type CostCharge, availableBuckets, bucketsByIds, consumeBucket, gramsOf, unitStepsOf, lockRateVersion, preparationNoteUnits, produceIntoBucket, chargeUnit, type BucketView } from "./production-ledger";
 import { WORK_WORKFLOW } from "./production-execution-workflow";
 import { prodDocTransitionAllowed, type ProdDocAction, type ProdDocStatus } from "./production-doc-workflow";
 
@@ -207,18 +206,16 @@ export async function transitionWork(id: number, action: ProdDocAction, actorId:
       const source = { docTypeId: await docTypeId(tx, "prd_work"), docId: id, no: w.work_no };
       const date = c.data.work_date;
       const common = { date, source, actorId };
-      const accounts = await itemAccounts([...c.lines.map((l) => l.bucket.itemId), ...c.aux.map((a) => a.bucket.itemId)], ["wip"], null, tx);
-      if (!accounts.ok) throw new Refused({ _form: accounts.message });
-      const wip = (itemId: number) => accounts.accounts.get(itemId)!.wip;
 
       // Inputs first: their value is the base each line keeps.
       const worked = [];
+      const costs: (CostCharge | null)[] = [];
       let rate = 0;
       for (const l of c.lines) {
         const input = await consumeBucket(tx, { bucketId: l.bucket_id, baseQty: l.qty, ...common });
         const grams = await gramsOf(tx, { lotId: input.lotId, itemId: input.itemId, qty: l.qty });
         const locked = await lockRateVersion(tx, { lotId: input.lotId, partaiId: input.partaiId, actorId });
-        const cost = await recordCostEntry(tx, {
+        const cost = await chargeUnit(tx, {
           unitId: c.data.unit_id,
           stepId: c.step.id,
           rateVersionId: locked.rateVersionId,
@@ -226,8 +223,9 @@ export async function transitionWork(id: number, action: ProdDocAction, actorId:
           partaiId: input.partaiId,
           grams,
           isRework: input.qcCheckId != null,
-          ...common,
+          date,
         });
+        costs.push(cost.charge);
         rate = cost.rate;
         worked.push({ line: l, input, grams, cost: cost.amount });
       }
@@ -238,7 +236,7 @@ export async function transitionWork(id: number, action: ProdDocAction, actorId:
       for (const a of c.aux) {
         const used = await consumeBucket(tx, { bucketId: a.bucket_id, baseQty: a.qty, ...common });
         await tx.prdAuxUse.update({ where: { id: w.aux.find((x) => x.line_no === a.line_no)!.id }, data: { value: used.value } });
-        moves.push({ accountId: wip(used.itemId), amount: -used.value });
+        moves.push({ itemId: used.itemId, amount: -used.value });
         aux.push({ key: a.job_id ? String(a.job_id) : null, value: used.value });
         auxValue += used.value;
       }
@@ -263,16 +261,14 @@ export async function transitionWork(id: number, action: ProdDocAction, actorId:
           where: { work_id_line_no: { work_id: id, line_no: x.line.line_no } },
           data: { grams: x.grams, input_value: x.input.value, cost_amount: x.cost, aux_value: share.auxValues[i], value: share.values[i], to_bucket_id: placed.bucketId },
         });
-        moves.push({ accountId: wip(x.input.itemId), amount: share.values[i] - x.input.value });
+        moves.push({ itemId: x.input.itemId, amount: share.values[i] - x.input.value });
       }
 
       const total = worked.reduce((a, x) => a + x.cost, 0);
-      const description = `${w.work_no} · Pengerjaan ${c.unit.unit_label}`;
-      const lines = await executionJournalLines(moves, total, share.scrap, description, tx);
-      const journal = lines.length ? await postJournal(tx, { description, sourceDocTypeId: source.docTypeId, sourceDocId: id, postingDate: date, actorId, lines }) : null;
-      await tx.prdWork.update({ where: { id }, data: { rate, cost_amount: total, aux_value: auxValue, scrap_amount: share.scrap, journal_id: journal?.id ?? null } });
+      const posted = await postToErp(tx, { source, docTable: "prd_work", date, description: `${w.work_no} · Pengerjaan ${c.unit.unit_label}`, moves, costs, scrap: share.scrap, actorId });
+      await tx.prdWork.update({ where: { id }, data: { rate, cost_amount: total, aux_value: auxValue, scrap_amount: share.scrap, journal_id: posted.journalId } });
       await audit(tx, id, "UPDATE", "post", actorId);
-      if (options.dryRun) throw new PostingDryRun(lines as JournalLineInput[]);
+      if (options.dryRun) throw new PostingDryRun(posted.lines);
     });
     return { ok: true as const } as { ok: true; journal?: JournalLineInput[] };
   });

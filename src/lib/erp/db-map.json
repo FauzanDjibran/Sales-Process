@@ -215,6 +215,8 @@
   "log_stock_receipt_line": "erp-stock-receipt",
   "log_stock_receipt_tracking": "erp-stock-receipt",
   "log_user_warehouse": "erp-transfer-stok",
+  "log_stock_adjustment": "erp-transfer-stok",
+  "log_stock_adjustment_line": "erp-transfer-stok",
   "log_stock_transfer": "erp-transfer-stok",
   "log_stock_transfer_line": "erp-transfer-stok",
   "log_stock_transfer_tracking": "erp-transfer-stok",
@@ -621,6 +623,7 @@
     "m_employee",
     "m_item",
     "prd_job",
+    "prd_line",
     "prd_partai",
     "prd_rate_version",
     "prd_rate_version_line",
@@ -664,6 +667,7 @@
     "log_stock_tracking",
     "m_employee",
     "m_item",
+    "prd_line",
     "prd_partai",
     "prd_rate_version",
     "prd_rate_version_line",
@@ -689,6 +693,7 @@
     "audit_log",
     "log_stock_tracking",
     "prd_balance",
+    "prd_cost_entry",
     "prd_job",
     "prd_job_order",
     "prd_job_order_input",
@@ -706,6 +711,7 @@
     "acc_fiscal_year",
     "acc_item_category_account",
     "m_item",
+    "prd_line",
     "prd_partai",
     "prd_rate_version",
     "prd_routing",
@@ -748,6 +754,7 @@
     "m_item",
     "prd_bom",
     "prd_bom_component",
+    "prd_line",
     "prd_partai",
     "prd_rate_version",
     "prd_rate_version_line",
@@ -954,7 +961,8 @@
     "ref_unit_step",
     "ref_uom",
     "ref_warehouse",
-    "ref_warehouse_location"
+    "ref_warehouse_location",
+    "sys_doc_type"
    ]
   },
   "m_employee": {
@@ -1154,6 +1162,40 @@
     "ref_warehouse",
     "ref_warehouse_location",
     "sys_doc_type",
+    "sys_stock_status"
+   ]
+  },
+  "log_stock_adjustment": {
+   "main": "log_stock_adjustment",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "log_stock_adjustment",
+    "log_stock_adjustment_line",
+    "log_stock_balance",
+    "log_stock_ledger",
+    "log_stock_tracking",
+    "log_stock_valuation_balance",
+    "log_stock_valuation_ledger"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "acc_item_category_account",
+    "log_user_warehouse",
+    "m_item",
+    "m_partner",
+    "ref_currency",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_item_category",
+    "sys_setting",
     "sys_stock_status"
    ]
   },

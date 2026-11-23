@@ -89,7 +89,7 @@ Syarat menutup (`boxRuleErrors`), diperiksa ulang server:
 
 ```
 1. registerAssembledStock   No. Stok KTK-<ddmmyy>-<nnn>, seri per hari
-2. tiap keping (utuh)       consumeBucket, lockRateVersion, recordCostEntry, linkTracking
+2. tiap keping (utuh)       consumeBucket, lockRateVersion, chargeUnit, linkTracking
 3. tiap penolong            consumeBucket dari saldo Unit (boleh dari beberapa bucket)
 4. recordTrackingInfo       gram kotak
 5. produceIntoBucket        jumlah 1, nilai = value, tanpa Job → Stand By (UP5 tanpa QC)

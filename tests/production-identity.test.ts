@@ -10,10 +10,11 @@ import {
   enterProduction,
   formPartai,
   issueJob,
-  recordCostEntry,
+  chargeUnit,
   recordTrackingInfo,
   transferBucket,
 } from "../src/lib/erp/production-ledger";
+import { postToErp } from "../src/lib/erp/production-doc";
 import { cleanupFixtures, disconnect, prisma } from "./helpers";
 import { cleanupProduction, makeProductionFixture, sourceOf, type ProductionFixture } from "./production-helpers";
 
@@ -148,12 +149,15 @@ describe("what a No. Stok locked, and standard cost", () => {
   test("grams × the locked version's rate, rounded once; a Unit left out costs 0 (V1, W17)", async () => {
     const stepA = (await prisma.refUnitStep.findFirstOrThrow({ where: { unit_id: f.wsA } })).id;
     const stepB = (await prisma.refUnitStep.findFirstOrThrow({ where: { unit_id: f.wsB } })).id;
-    const paid = await tx((t) => recordCostEntry(t, { unitId: f.wsA, stepId: stepA, rateVersionId: ids.v1, lotId: f.lot, partaiId: ids.partai, grams: 41_865, date, source: s, actorId: f.actor }));
-    assert.deepEqual(paid, { amount: 7_655_589, rate: 182.8637 });
+    const paid = await tx((t) => chargeUnit(t, { unitId: f.wsA, stepId: stepA, rateVersionId: ids.v1, lotId: f.lot, partaiId: ids.partai, grams: 41_865, date }));
+    assert.deepEqual([paid.amount, paid.rate], [7_655_589, 182.8637]);
+    assert.equal(await prisma.prdCostEntry.count({ where: { tracking_id: f.lot } }), 0, "production charges; the ERP records (P318)");
+    await tx((t) => postToErp(t, { source: s, docTable: "log_stock_issue", date, description: "uji", moves: [], costs: [{ ...paid.charge!, amount: 0 }], actorId: f.actor }));
     const row = await prisma.prdCostEntry.findFirstOrThrow({ where: { tracking_id: f.lot, unit_id: f.wsA } });
     assert.equal(row.line_id, ids.line);
-    const free = await tx((t) => recordCostEntry(t, { unitId: f.wsB, stepId: stepB, rateVersionId: ids.v1, lotId: f.lot, grams: 100, date, source: s, actorId: f.actor }));
-    assert.deepEqual(free, { amount: 0, rate: 0 });
+    assert.match(row.partai_no ?? "", /^P_/, "by its printed number, not an id of the other side");
+    const free = await tx((t) => chargeUnit(t, { unitId: f.wsB, stepId: stepB, rateVersionId: ids.v1, lotId: f.lot, grams: 100, date }));
+    assert.deepEqual([free.amount, free.rate], [0, 0]);
   });
 
   test("only the Unit's last step charges its rate; an earlier step is a transformation (P281)", async () => {
@@ -161,10 +165,10 @@ describe("what a No. Stok locked, and standard cost", () => {
     const extra = await prisma.refUnitStep.create({ data: { unit_id: f.wsA, seq: 99, process: "Kerja" } });
     try {
       const before = await prisma.prdCostEntry.count({ where: { tracking_id: f.lot } });
-      const early = await tx((t) => recordCostEntry(t, { unitId: f.wsA, stepId: first, rateVersionId: ids.v1, lotId: f.lot, grams: 100, date, source: s, actorId: f.actor }));
-      assert.deepEqual(early, { amount: 0, rate: 0 });
+      const early = await tx((t) => chargeUnit(t, { unitId: f.wsA, stepId: first, rateVersionId: ids.v1, lotId: f.lot, grams: 100, date }));
+      assert.deepEqual(early, { amount: 0, rate: 0, charge: null });
       assert.equal(await prisma.prdCostEntry.count({ where: { tracking_id: f.lot } }), before, "no entry for an earlier step");
-      const last = await tx((t) => recordCostEntry(t, { unitId: f.wsA, stepId: extra.id, rateVersionId: ids.v1, lotId: f.lot, grams: 100, date, source: s, actorId: f.actor }));
+      const last = await tx((t) => chargeUnit(t, { unitId: f.wsA, stepId: extra.id, rateVersionId: ids.v1, lotId: f.lot, grams: 100, date }));
       assert.equal(last.rate, 182.8637, "the last step charges the Unit's one rate");
     } finally {
       await prisma.refUnitStep.delete({ where: { id: extra.id } });

@@ -35,6 +35,7 @@ import { DELIVERY_NOTE_TRANSITIONS } from "./delivery-note-workflow";
 import { RECEIPT_NOTE_TRANSITIONS } from "./receipt-note-workflow";
 import { COST_BILL_TRANSITIONS } from "./production-cost-bill-workflow";
 import { CASH_TRANSFER_TRANSITIONS } from "./cash-transfer-workflow";
+import { STOCK_ADJUSTMENT_TRANSITIONS } from "./stock-adjustment-workflow";
 import { STOCK_ISSUE_TRANSITIONS } from "./stock-issue-workflow";
 import { STOCK_TRANSFER_RECEIPT_TRANSITIONS, STOCK_TRANSFER_TRANSITIONS } from "./stock-transfer-workflow";
 import { GRADING_WORKFLOW, QC_CHECK_WORKFLOW, WORK_WORKFLOW } from "./production-execution-workflow";
@@ -289,6 +290,15 @@ const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(STOCK_ISSUE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
+const STOCK_ADJUSTMENT_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  create: { label: "Stock Adjustment dibuat", icon: "scale", tone: "neutral" },
+  submit: fromTransition(STOCK_ADJUSTMENT_TRANSITIONS.submit, "Diajukan"),
+  approve: fromTransition(STOCK_ADJUSTMENT_TRANSITIONS.approve, "Disetujui — selisih diposting"),
+  reject: fromTransition(STOCK_ADJUSTMENT_TRANSITIONS.reject, "Ditolak"),
+  cancel: fromTransition(STOCK_ADJUSTMENT_TRANSITIONS.cancel, "Dibatalkan"),
+};
+
 const STOCK_TRANSFER_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   create: { label: "Transfer Kirim dibuat", icon: "send", tone: "neutral" },
@@ -453,6 +463,7 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   log_stock_receipt: STOCK_RECEIPT_EVENTS,
   prd_receipt: PRODUCTION_RECEIPT_EVENTS,
   prd_issue: PRODUCTION_ISSUE_EVENTS,
+  log_stock_adjustment: STOCK_ADJUSTMENT_EVENTS,
   log_stock_transfer: STOCK_TRANSFER_EVENTS,
   log_stock_transfer_receipt: STOCK_TRANSFER_RECEIPT_EVENTS,
   prd_grading: GRADING_EVENTS,

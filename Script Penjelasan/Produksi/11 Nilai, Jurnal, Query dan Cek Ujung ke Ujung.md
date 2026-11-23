@@ -9,7 +9,7 @@ cara membuktikannya di database.
 
 | Kejadian | Debit | Kredit | Tanggal |
 | --- | --- | --- | --- |
-| BSTB Issue — Terima | WIP | Persediaan | tanggal dokumen |
+| Stock Issue — Kirim | WIP | Persediaan | tanggal dokumen |
 | Grading, Pengerjaan, Kotak — Posting | WIP (biaya) | Biaya Produksi Dibebankan | tanggal dokumen |
 | Kerja — Selesai | WIP (biaya) | Biaya Produksi Dibebankan | tanggal Selesai |
 | Grading / Pengerjaan tanpa penerima nilai | Beban Pemusnahan | WIP + Biaya Produksi Dibebankan | tanggal dokumen |
@@ -129,12 +129,11 @@ SELECT u.unit_label, SUM(c.grams) AS gram, c.rate, SUM(c.amount) AS biaya,
        SUM(c.amount) FILTER (WHERE c.is_rework) AS biaya_ulang
   FROM prd_cost_entry c
   JOIN ref_unit u   ON u.id = c.unit_id
-  JOIN prd_partai p ON p.id = c.partai_id
- WHERE p.partai_no = 'P_181126_00001'
+ WHERE c.partai_no = 'P_181126_00001'
  GROUP BY u.unit_label, c.rate;
 ```
 
-Biaya sebelum partai lahir tidak ikut (`partai_id` kosong).
+Biaya sebelum partai lahir tidak ikut (`partai_no` kosong).
 
 ### 4.5 Barang yang sedang Dalam Perjalanan dan dokumennya
 
@@ -184,7 +183,7 @@ Semuanya tanpa nilai (P275). Nilai dibaca lewat query §4 atau jurnal.
 | tiap dokumen pindah bersaldo 0 | Push / BSTB |
 | akun WIP = nilai yang dipegang | akun WIP kategori diganti, atau jurnal manual ke WIP |
 | Grading, Pengerjaan, Kotak, Job Order seimbang | dokumen itu |
-| biaya dokumen = `prd_cost_entry` (Grading, Pengerjaan) | `recordCostEntry` |
+| biaya dokumen = `prd_cost_entry` (Grading, Pengerjaan) | `chargeUnit` |
 | Sedang Dikerjakan = baris Kerja terbuka | `closeKerja` |
 | BSTB Issue dan BSTB dari produksi = stok = jurnal | buku stok |
 | Balik QC ada di Persiapan | `decideQcBucket` |

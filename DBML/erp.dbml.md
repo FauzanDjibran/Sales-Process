@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20261124093000_handover_status`
+- **As of migration:** `20261124120000_stock_adjustment`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout: three parts, one per owner** (P254, `production_app_plan.md` §5):
@@ -3193,6 +3193,51 @@ enum StockTransferStatus {
   Cancelled
 }
 
+// Stock Adjustment (P318): a count of one warehouse; approving posts the differences,
+// Persediaan against Selisih Persediaan. SA/YYYY/MM/NNNN
+table log_stock_adjustment {
+  id                          int [pk, increment, not null]
+  adjustment_no               varchar [not null, unique]
+  adjustment_date             date [not null]
+  status                      enum('Draft', 'Submitted', 'Posted', 'Rejected', 'Cancelled') [not null, default: 'Draft']
+  warehouse_id                int [not null, ref : > ref_warehouse.id]
+  note                        varchar
+  short_amount                decimal(18,2) [not null, default: 0] // Σ that left, at Posting
+  over_amount                 decimal(18,2) [not null, default: 0] // Σ that came in
+  journal_id                  int // acc_journal.id, no FK
+  status_reason               varchar // why rejected or cancelled
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, adjustment_date)
+    warehouse_id
+  }
+}
+
+table log_stock_adjustment_line {
+  id                          int [pk, increment, not null]
+  stock_adjustment_id         int [not null, ref : > log_stock_adjustment.id]
+  line_no                     int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  tracking_id                 int [not null] // log_stock_tracking.id, no FK
+  tracking_no                 varchar [not null]
+  location_id                 int // ref_warehouse_location.id, no FK
+  stock_status_id             int [not null] // sys_stock_status.id, no FK
+  book_qty                    decimal(18,6) [not null] // when counted; CHECK >= 0
+  counted_qty                 decimal(18,6) // null until counted; CHECK >= 0
+  typed_value                 decimal(18,2) // for an excess with the pool empty
+  value_amount                decimal(18,2) [not null, default: 0] // moved, signed, at Posting
+  note                        varchar
+
+  indexes {
+    (stock_adjustment_id, line_no) [unique]
+    tracking_id
+  }
+}
+
 // Transfer Kirim (TSK/YYYY/MM/NNNN): origin -> Gudang Transit (System Default transit_warehouse). No journal;
 // each pick is issueStock + receiveStock at the same value, so the pool and its average do not move (OD-6).
 table log_stock_transfer {
@@ -3413,7 +3458,7 @@ table prd_cost_entry {
   unit_id                     int [not null, ref : > ref_unit.id]
   rate_version_id             int [not null, ref : > prd_rate_version.id]
   tracking_id                 int [not null, ref : > log_stock_tracking.id]
-  partai_id                   int [ref : > prd_partai.id] // lintas aplikasi → Produksi
+  partai_no                   varchar // production's No. Partai, as printed (P318)
   line_id                     int [ref : > prd_line.id]
   grams                       decimal(18,6) [not null]
   rate                        decimal(18,6) [not null]

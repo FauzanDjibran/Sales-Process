@@ -41,6 +41,7 @@ export type SystemDefaultKey =
   | "permit_cost_account"
   | "cogs_account"
   | "inventory_account"
+  | "stock_difference_account"
   | "goods_received_account"
   | "payable_account"
   | "purchase_advance_account"
@@ -426,6 +427,15 @@ export const SYSTEM_DEFAULTS = [
     group: "delivery",
     help: "persediaan barang yang berkurang saat dikirim",
   },
+  {
+    key: "stock_difference_account",
+    name: "Account Selisih Persediaan",
+    icon: "scale",
+    type: "ref",
+    ref: "acc_account",
+    group: "delivery",
+    help: "lawan Persediaan untuk selisih hitungan Stock Adjustment",
+  },
 
   // ------------------------------------------------------------ purchase
   //
@@ -583,6 +593,7 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   permit_cost_account: null,
   cogs_account: null,
   inventory_account: null,
+  stock_difference_account: null,
   goods_received_account: null,
   payable_account: null,
   purchase_advance_account: null,

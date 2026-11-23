@@ -685,6 +685,7 @@ model MItem {
   boxes                        PrdBox[]                      @relation("PrdBoxItem")
   stock_transfer_lines         LogStockTransferLine[]
   stock_transfer_receipt_lines LogStockTransferReceiptLine[]
+  stock_adjustment_lines       LogStockAdjustmentLine[]
 
   @@index([category_id])
   @@index([base_uom_id])
@@ -770,6 +771,7 @@ model RefWarehouse {
   transfers_from    LogStockTransfer[]        @relation("StockTransferFrom")
   transfers_to      LogStockTransfer[]        @relation("StockTransferTo")
   transfer_receipts LogStockTransferReceipt[]
+  stock_adjustments LogStockAdjustment[]
 
   @@map("ref_warehouse")
 }
@@ -1139,7 +1141,6 @@ model PrdPartai {
   boxes        PrdBox[]
   balances     PrdBalance[]
   ledger       PrdLedger[]
-  cost_entries PrdCostEntry[]
 
   @@index([line_id])
   @@index([routing_id])
@@ -1219,7 +1220,8 @@ model PrdCostEntry {
   unit_id            Int
   rate_version_id    Int
   tracking_id        Int
-  partai_id          Int?
+  /// Production's No. Partai, as printed.
+  partai_no          String?
   line_id            Int?
   grams              Decimal  @db.Decimal(18, 6)
   rate               Decimal  @db.Decimal(18, 6)
@@ -1233,7 +1235,6 @@ model PrdCostEntry {
   unit         RefUnit          @relation(fields: [unit_id], references: [id])
   rate_version PrdRateVersion   @relation(fields: [rate_version_id], references: [id])
   tracking     LogStockTracking @relation(fields: [tracking_id], references: [id])
-  partai       PrdPartai?       @relation(fields: [partai_id], references: [id])
   line         PrdLine?         @relation(fields: [line_id], references: [id])
 
   @@index([posting_date])
@@ -5609,6 +5610,71 @@ model LogStockReceiptTracking {
   @@unique([stock_receipt_line_id, seq])
   @@index([tracking_no])
   @@map("log_stock_receipt_tracking")
+}
+
+/// The Stock Adjustment (P318): a count of one warehouse and what it found missing
+/// or extra. Named only by `stock-adjustment.ts`.
+model LogStockAdjustment {
+  id              Int                   @id @default(autoincrement())
+  adjustment_no   String                @unique
+  adjustment_date DateTime              @db.Date
+  status          StockAdjustmentStatus @default(Draft)
+  warehouse_id    Int
+  note            String?
+  /// Σ of what left and of what came in, set at Posting.
+  short_amount    Decimal               @default(0) @db.Decimal(18, 2)
+  over_amount     Decimal               @default(0) @db.Decimal(18, 2)
+  journal_id      Int?
+  /// Why it was rejected or cancelled.
+  status_reason   String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  warehouse RefWarehouse             @relation(fields: [warehouse_id], references: [id])
+  lines     LogStockAdjustmentLine[]
+
+  @@index([status, adjustment_date])
+  @@index([warehouse_id])
+  @@map("log_stock_adjustment")
+}
+
+/// One bucket counted: item, No. Lot, location, status.
+model LogStockAdjustmentLine {
+  id                  Int      @id @default(autoincrement())
+  stock_adjustment_id Int
+  line_no             Int
+  item_id             Int
+  tracking_id         Int
+  tracking_no         String
+  location_id         Int?
+  stock_status_id     Int
+  /// What the books held when it was counted; a bucket that changed since refuses.
+  book_qty            Decimal  @db.Decimal(18, 6)
+  /// Null while not counted yet.
+  counted_qty         Decimal? @db.Decimal(18, 6)
+  /// For an excess of an item the company holds none of.
+  typed_value         Decimal? @db.Decimal(18, 2)
+  /// What it moved in value, signed; set at Posting.
+  value_amount        Decimal  @default(0) @db.Decimal(18, 2)
+  note                String?
+
+  adjustment LogStockAdjustment @relation(fields: [stock_adjustment_id], references: [id])
+  item       MItem              @relation(fields: [item_id], references: [id])
+
+  @@unique([stock_adjustment_id, line_no])
+  @@index([tracking_id])
+  @@map("log_stock_adjustment_line")
+}
+
+enum StockAdjustmentStatus {
+  Draft
+  Submitted
+  Posted
+  Rejected
+  Cancelled
 }
 
 /// A handover between the ERP and Produksi, on either side: sent, then taken in.

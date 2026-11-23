@@ -3,8 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { holdPostingPeriod } from "./fiscal";
-import { postJournal } from "./journal";
-import { DAY, Refused, asDate, docTypeId, executionJournalLines, fourDecimals, fromUnits, isoDay, itemAccounts, nextDailyNumber, parseQty, refusable, text, unitSeries, units as scaled, type ValueMove } from "./production-doc";
+import { DAY, Refused, asDate, docTypeId, fourDecimals, fromUnits, isoDay, postToErp, nextDailyNumber, parseQty, refusable, text, unitSeries, units as scaled, type ValueMove } from "./production-doc";
 import {
   availableBuckets,
   bucketsByIds,
@@ -115,10 +114,6 @@ export async function postJobOrder(input: JobOrderInput, actorId: number): Promi
       const header = await tx.prdJobOrder.create({ data: { job_order_doc_no: no, doc_date: c.date, unit_id: c.unit.id, unit_step_id: c.step.id, partai_id: c.partaiId, note: c.note, created_by: actorId } });
       const source = { docTypeId: await docTypeId(tx, "prd_job_order"), docId: header.id, no };
       const common = { date: c.date, source, actorId };
-      const itemIds = [...new Set([...c.lines.map((l) => l.targetId), ...c.lines.flatMap((l) => l.parts.map((p) => p.bucket.itemId))])];
-      const accounts = await itemAccounts(itemIds, ["wip"], null, tx);
-      if (!accounts.ok) throw new Refused({ _form: accounts.message });
-      const wip = (itemId: number) => accounts.accounts.get(itemId)!.wip;
       const moves: ValueMove[] = [];
 
       for (const l of c.lines) {
@@ -127,7 +122,7 @@ export async function postJobOrder(input: JobOrderInput, actorId: number): Promi
           const t = await consumeBucket(tx, { bucketId: p.bucket.id, baseQty: p.qty, ...common });
           const grams = (await gramsOf(tx, { lotId: t.lotId, itemId: t.itemId, qty: p.qty })).toNumber();
           const locked = await lockRateVersion(tx, { lotId: t.lotId, partaiId: t.partaiId, actorId });
-          moves.push({ accountId: wip(t.itemId), amount: -t.value });
+          moves.push({ itemId: t.itemId, amount: -t.value });
           taken.push({ bucketId: p.bucket.id, lotId: t.lotId, qty: p.qty, grams, value: t.value, ...locked });
         }
         // The new No. Stok is numbered from the input that gave the most gram (T7).
@@ -139,7 +134,7 @@ export async function postJobOrder(input: JobOrderInput, actorId: number): Promi
         const job = await issueJob(tx, { unitId: c.unit.id, lotId: made.id, partaiId: c.partaiId, ...common });
         const placed = await produceIntoBucket(tx, { lotId: made.id, itemId: l.targetId, unitId: c.unit.id, afterStepId: c.step.id, partaiId: c.partaiId, jobId: job.id, baseQty: grams, value, ...common });
         for (const t of taken) await linkTracking(tx, { fromBucketId: t.bucketId, fromLotId: t.lotId, toLotId: made.id, qty: t.qty, value: t.value, source });
-        moves.push({ accountId: wip(l.targetId), amount: value });
+        moves.push({ itemId: l.targetId, amount: value });
         await tx.prdJobOrderLine.create({
           data: {
             job_order_id: header.id,
@@ -157,12 +152,8 @@ export async function postJobOrder(input: JobOrderInput, actorId: number): Promi
         });
       }
 
-      const description = `${no} · Job Order ${c.unit.unit_label}`;
-      const jl = await executionJournalLines(moves, 0, 0, description, tx);
-      if (jl.length) {
-        const journal = await postJournal(tx, { description, sourceDocTypeId: source.docTypeId, sourceDocId: header.id, postingDate: c.date, actorId, lines: jl });
-        await tx.prdJobOrder.update({ where: { id: header.id }, data: { journal_id: journal.id } });
-      }
+      const posted = await postToErp(tx, { source, docTable: "prd_job_order", date: c.date, description: `${no} · Job Order ${c.unit.unit_label}`, moves, costs: [], actorId });
+      if (posted.journalId) await tx.prdJobOrder.update({ where: { id: header.id }, data: { journal_id: posted.journalId } });
       await tx.auditLog.create({ data: { entity_key: "prd_job_order", row_id: header.id, action: "TAMBAH", event: "post", by: actorId } });
       return { ok: true as const, id: header.id, no };
     })

@@ -5,6 +5,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { dailySeries, nextDailyNumber } from "./document-number";
 import { claimDocumentNumber } from "./number-counter";
 import { costedPeriodRefusal } from "./period-lock";
+import type { HandoverCost } from "./handover";
 
 /**
  * The production ledger (R3, step 3) — the book of what is inside production.
@@ -33,7 +34,7 @@ import { costedPeriodRefusal } from "./period-lock";
  * pools first.
  *
  * The identities live here too: a partai, a No. Job, what a No. Stok locked
- * when it started, and the standard cost it absorbed.
+ * when it started, and what its Unit charged it.
  *
  * A book: it imports only the shared kernel and is called by the documents,
  * never the reverse (§3.1). It writes no journal — the document posts WIP
@@ -757,44 +758,54 @@ export async function recordTrackingInfo(
   return { rateVersionId, routingId };
 }
 
+/** A Unit's rate charged to one No. Stok, as the ledger worked it out; the ERP records it (P318). */
+export type CostCharge = { unitId: number; rateVersionId: number; lotId: number; partaiId: number | null; grams: Dec; rate: Dec; amount: number; isRework: boolean };
+
 /**
- * Standard cost a Unit absorbs: round(grams × rate of the locked version), a
- * Unit the version leaves out costing 0 (W17). Charged only by the Unit’s last
- * step (P281); an earlier step is a transformation and costs nothing here. The line comes from the partai;
- * before one exists there is none. Writes no journal; the document posts it.
+ * What the Unit charges for this work (P281): round(gram × rate) at the Unit's
+ * last step — a Unit left out of the version charges 0 — and nothing at an
+ * earlier one. It records nothing: the document hands its charges to the ERP.
  */
-export async function recordCostEntry(
+export async function chargeUnit(
   tx: Tx,
-  c: { unitId: number; stepId: number; rateVersionId: number; lotId: number; partaiId?: number | null; grams: number | string | Dec; isRework?: boolean; date: Date; source: ProductionSource; actorId: number }
-): Promise<{ amount: number; rate: number }> {
+  c: { unitId: number; stepId: number; rateVersionId: number; lotId: number; partaiId?: number | null; grams: number | string | Dec; isRework?: boolean; date: Date }
+): Promise<{ amount: number; rate: number; charge: CostCharge | null }> {
   const costed = await costedRefusal(tx, c.date);
   if (costed) throw new ProductionRefusal(costed);
   const grams = new D(c.grams);
   if (!grams.gt(0)) throw new ProductionRefusal("Gram harus lebih dari 0.");
-  if (!(await isLastStep(tx, c.stepId))) return { amount: 0, rate: 0 };
+  if (!(await isLastStep(tx, c.stepId))) return { amount: 0, rate: 0, charge: null };
   const line = await tx.prdRateVersionLine.findUnique({ where: { version_id_unit_id: { version_id: c.rateVersionId, unit_id: c.unitId } }, select: { rate: true } });
   const rate = line ? new D(line.rate) : new D(0);
-  const amount = grams.mul(rate).toDecimalPlaces(0, D.ROUND_HALF_UP);
-  const partai = c.partaiId ? await tx.prdPartai.findUnique({ where: { id: c.partaiId }, select: { line_id: true } }) : null;
-  await tx.prdCostEntry.create({
-    data: {
-      posting_date: c.date,
-      source_doc_type_id: c.source.docTypeId,
-      source_doc_id: c.source.docId,
-      source_no: c.source.no,
-      unit_id: c.unitId,
-      rate_version_id: c.rateVersionId,
-      tracking_id: c.lotId,
-      partai_id: c.partaiId ?? null,
-      line_id: partai?.line_id ?? null,
-      grams,
-      rate,
-      amount,
-      is_rework: c.isRework ?? false,
-      created_by: c.actorId,
-    },
-  });
-  return { amount: amount.toNumber(), rate: rate.toNumber() };
+  const amount = grams.mul(rate).toDecimalPlaces(0, D.ROUND_HALF_UP).toNumber();
+  return { amount, rate: rate.toNumber(), charge: { unitId: c.unitId, rateVersionId: c.rateVersionId, lotId: c.lotId, partaiId: c.partaiId ?? null, grams, rate, amount, isRework: c.isRework ?? false } };
+}
+
+/** Charges by name, as a message carries them. */
+export async function describeCharges(tx: Tx, charges: CostCharge[]): Promise<HandoverCost[]> {
+  if (!charges.length) return [];
+  const ids = <K extends keyof CostCharge>(k: K) => [...new Set(charges.map((c) => c[k]))] as number[];
+  const [units, versions, trackings, partais] = await Promise.all([
+    tx.refUnit.findMany({ where: { id: { in: ids("unitId") } }, select: { id: true, unit_label: true } }),
+    tx.prdRateVersion.findMany({ where: { id: { in: ids("rateVersionId") } }, select: { id: true, rate_code: true } }),
+    tx.logStockTracking.findMany({ where: { id: { in: ids("lotId") } }, select: { id: true, tracking_no: true } }),
+    tx.prdPartai.findMany({ where: { id: { in: ids("partaiId").filter(Boolean) } }, select: { id: true, partai_no: true, line: { select: { line_code: true } } } }),
+  ]);
+  const unit = new Map(units.map((u) => [u.id, u.unit_label]));
+  const version = new Map(versions.map((v) => [v.id, v.rate_code]));
+  const no = new Map(trackings.map((t) => [t.id, t.tracking_no]));
+  const partai = new Map(partais.map((p) => [p.id, p]));
+  return charges.map((c) => ({
+    unitLabel: unit.get(c.unitId)!,
+    rateVersionCode: version.get(c.rateVersionId)!,
+    trackingNo: no.get(c.lotId)!,
+    partaiNo: c.partaiId ? (partai.get(c.partaiId)?.partai_no ?? null) : null,
+    lineCode: c.partaiId ? (partai.get(c.partaiId)?.line.line_code ?? null) : null,
+    grams: c.grams.toString(),
+    rate: c.rate.toString(),
+    amount: c.amount,
+    isRework: c.isRework,
+  }));
 }
 
 // ---------------------------------------------------------------- reads

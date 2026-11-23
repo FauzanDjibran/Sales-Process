@@ -28,6 +28,17 @@ export function ProductionMismatch({ show }: { show: boolean }) {
   );
 }
 
+/** A document's number, linked when it has a page. */
+function Doc({ no, href }: { no: string; href: string | null }) {
+  return href ? (
+    <Link className="mono" href={href}>
+      {no}
+    </Link>
+  ) : (
+    <span className="mono">{no}</span>
+  );
+}
+
 function TraceTable({ title, lead, nodes, dir }: { title: string; lead: string; nodes: TraceNode[]; dir: "back" | "fwd" | "start" }) {
   return (
     <div className="card" style={{ marginTop: 14 }}>
@@ -71,7 +82,7 @@ function TraceTable({ title, lead, nodes, dir }: { title: string; lead: string; 
                       <span className="dstack" style={{ gap: 2 }}>
                         {n.via.map((e) => (
                           <span key={e.sourceNo} className="d2">
-                            <span className="mono">{e.sourceNo}</span> · {e.stationLabel} · {qty(e.qty)} {dir === "back" ? n.uom : ""}
+                            <Doc no={e.sourceNo} href={e.href} /> · {e.stationLabel} · {qty(e.qty)} {dir === "back" ? n.uom : ""}
                           </span>
                         ))}
                       </span>
@@ -81,7 +92,7 @@ function TraceTable({ title, lead, nodes, dir }: { title: string; lead: string; 
                     <span className="dstack" style={{ gap: 2 }}>
                       {n.origin && (
                         <span className="d2">
-                          Asal <span className="mono">{n.origin.sourceNo}</span>
+                          Asal <Doc no={n.origin.sourceNo} href={n.origin.href} />
                           {n.origin.supplier ? ` · ${n.origin.supplier}` : ""}
                         </span>
                       )}

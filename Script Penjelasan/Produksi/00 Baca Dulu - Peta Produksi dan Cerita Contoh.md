@@ -115,7 +115,7 @@ Di kode lama dan tabel, No. Stok disebut *lot* atau *tracking* (P215). Artinya s
 | | Aplikasi **Produksi** | Aplikasi **ERP** |
 | --- | --- | --- |
 | Dipakai | Unit (lantai produksi) | Gudang, keuangan, master |
-| Menu | Workspace Unit; No. Grading, Pengerjaan Unit, Job Order, Kotak, Kerja, QC Check, Push dan BSTB; laporan; Karyawan | BSTB Issue, BSTB ke Finish Goods, BSTB Pengeluaran; Unit, Workstation, Line, Routing; Standard Cost, BoM Packing, Jenis Biaya, Tagihan Biaya |
+| Menu | Workspace Unit; No. Grading, Pengerjaan Unit, Job Order, Kotak, Kerja, QC Check, Push dan BSTB; laporan; Karyawan | Stock Issue, Stock Receipt, Stock Adjustment; Unit, Workstation, Line, Routing; Standard Cost, BoM Packing, Jenis Biaya, Tagihan Biaya |
 | Harga / jurnal | **tidak pernah tampil** (P275) | tampil |
 
 Nilai tetap dihitung dan dijurnal saat dokumen Produksi diposting; hanya tidak
@@ -177,7 +177,7 @@ Jalannya:
 | --- | --- |
 | Buku produksi | `src/lib/erp/production-ledger.ts` |
 | Pembagian nilai | `production-execution.ts` (`shareByWeight`, `shareGrading`, `shareWork`) |
-| Alat bersama, jurnal | `production-doc.ts` (`executionJournalLines`, `itemAccounts`) |
+| Alat bersama, jurnal | `production-doc.ts` (`postToErp`) → `production-posting.ts` (jurnal dan biaya Unit, P318) |
 | Dokumen | `stock-issue.ts`, `production-grading.ts`, `production-work.ts`, `production-kerja.ts`, `production-qc.ts`, `production-job-order.ts`, `production-transfer.ts`, `production-box.ts`, `production-receipt.ts` |
 | Master | `production-master.ts`, `production-master-shape.ts` |
 | Workspace | `production-workspace.ts` |

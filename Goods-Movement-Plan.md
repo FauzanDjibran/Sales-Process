@@ -1,6 +1,6 @@
 # Pergerakan Barang: Stock Issue, Stock Receipt dan Batas Dua Database
 
-> **Pembagian dokumen disetujui user 23/11/2026 (P316). Langkah 1–6 dibangun 23/11/2026 (P317): GM-1, GM-2, GM-4, GM-5 sesuai usulan. Data produksi direset, tidak dikonversi. Register langkah 7 dan Workspace ikut dibangun; tautan laporan, langkah 8–10 belum.**
+> **Pembagian dokumen disetujui user 23/11/2026 (P316). Langkah 1–6 dibangun 23/11/2026 (P317): GM-1, GM-2, GM-4, GM-5 sesuai usulan. Data produksi direset, tidak dikonversi. Langkah 7–10 selesai (P318), kecuali 8b.** Persetujuan Stock Adjustment sekaligus memposting (satu langkah, bukan dua seperti semula).
 > Dasar: kode `main` @ `413d735` (`stock-issue.ts`, `production-receipt.ts`, `production-transfer.ts`,
 > `production-ledger.ts`, `inventory.ts`), `production_app_plan.md` §2.2, §5, §8,
 > `Stock-Transfer-Plan.md`, `Produksi Walet (Real).md` (PWR).
@@ -366,14 +366,14 @@ Tetap satu database (P245). Yang dibangun **bentuknya**: isi pesan §7.1 dikirim
 - Tes batas modul: Stock Issue / Receipt tidak mengimpor buku produksi; modul produksi tidak menyebut tabel keduanya; tabel baru produksi masuk `PRODUCTION_TABLES`.
 - **Selesai bila:** tes pesan kembar tidak menggandakan apa pun.
 
-### Langkah 7 — Workspace dan register produksi
+### Langkah 7 (selesai, P318) — Workspace dan register produksi
 
 - Dokumen: **Production Receipt**, **Production Issue**, *Push dan BSTB* (tetap).
 - Workspace: Masuk membaca Production Receipt dan BSTB; Dalam Perjalanan membaca Production Issue dan BSTB. Tidak lagi membaca `log_stock_issue`.
 - Tanpa harga dan jurnal (P275). Istilah No. Stok.
 - Kartu Produksi dan Telusur menaut ke dokumen produksi; dokumen ERP disebut nomornya.
 
-### Langkah 8 — Stock Adjustment
+### Langkah 8 (selesai, P318) — Stock Adjustment
 
 Aturannya di §3.4. `log_stock_adjustment(_line)`, `SA/YYYY/MM/NNNN`, Draft → Diajukan → Disetujui → Posting.
 
@@ -384,14 +384,14 @@ Aturannya di §3.4. `log_stock_adjustment(_line)`, `SA/YYYY/MM/NNNN`, Draft → 
 - Gudang Transit: kekurangannya juga harus menutup sisa Transfer Kirim per lot, agar cek transit tetap benar. Bila rumit, menyusul sebagai langkah 8b.
 - **Tidak** memuat stok awal atau pemusnahan; itu tujuan Issue / Receipt.
 
-### Langkah 9 — Pembuktian
+### Langkah 9 (selesai, P318) — Pembuktian
 
 - `db:reconcile`: persamaan §4; pasangan dokumen lengkap (nomor, qty, nilai, status) di dua sisi; adjustment = ledger = jurnal. Tiap cek dibuktikan menangkap data rusak.
 - Skrip: `reset-production-data`, `db-map`, `simulate-walet`; `Script Penjelasan/` bagian terkait.
 - Kedua tes simulasi ujung ke ujung diperbarui; uji acak §6.2 atas kode nyata, dengan jumlah data kecil.
 - Uji layar lokal: Kirim → Terima dua arah, lalu Neon.
 
-### Langkah 10 — Pintu tunggal jurnal produksi
+### Langkah 10 (selesai, P318) — Pintu tunggal jurnal produksi
 
 Grading, Pengerjaan, Kerja, Job Order dan Kotak menjurnal lewat satu fungsi berisi `ProductionPosted`; Receipt Note menolak nomor ketikan berbentuk `<induk>-<n>` dan `KTK-`.
 

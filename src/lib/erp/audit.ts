@@ -28,6 +28,7 @@ import { stockIssueNumbersByIds } from "./stock-issue";
 import { stockReceiptNumbersByIds } from "./stock-receipt";
 import { productionReceiptNumbersByIds } from "./production-receipt";
 import { productionIssueNumbersByIds } from "./production-issue";
+import { stockAdjustmentNumbersByIds } from "./stock-adjustment";
 import { stockTransferNumbersByIds } from "./stock-transfer";
 import { transferReceiptNumbersByIds } from "./stock-transfer-receipt";
 import { gradingNumbersByIds } from "./production-grading";
@@ -111,6 +112,7 @@ const EXTRA_SUBJECTS: Record<string, Subject> = {
   log_stock_receipt: { label: "Stock Receipt", resolve: stockReceiptNumbersByIds },
   prd_receipt: { label: "Production Receipt", resolve: productionReceiptNumbersByIds },
   prd_issue: { label: "Production Issue", resolve: productionIssueNumbersByIds },
+  log_stock_adjustment: { label: "Stock Adjustment", resolve: stockAdjustmentNumbersByIds },
   log_stock_transfer: { label: "Transfer Kirim", resolve: stockTransferNumbersByIds },
   log_stock_transfer_receipt: { label: "Transfer Terima", resolve: transferReceiptNumbersByIds },
   prd_grading: { label: "No. Grading", resolve: gradingNumbersByIds },

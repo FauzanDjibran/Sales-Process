@@ -3,8 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { holdPostingPeriod } from "./fiscal";
-import { postJournal } from "./journal";
-import { DAY, Refused, asDate, docTypeId, executionJournalLines, isoDay, itemAccounts, nextDailyNumber, refusable, unitSeries, type ValueMove } from "./production-doc";
+import { DAY, Refused, asDate, docTypeId, isoDay, postToErp, nextDailyNumber, refusable, unitSeries, type ValueMove } from "./production-doc";
 import { boxRuleErrors, type BoxRule } from "./production-box-shape";
 import {
   availableBuckets,
@@ -13,7 +12,8 @@ import {
   linkTracking,
   lockRateVersion,
   produceIntoBucket,
-  recordCostEntry,
+  chargeUnit,
+  type CostCharge,
   recordTrackingInfo,
   partaiNosByIds,
   registerAssembledStock,
@@ -138,11 +138,8 @@ export async function closeBox(input: BoxInput, actorId: number): Promise<BoxRes
       const source = { docTypeId: docType, docId: header.id, no };
       const made = await registerAssembledStock(tx, { prefix: "KTK", itemId: c.bom.itemId, ...{ date: c.date, source, actorId } });
       const common = { date: c.date, source, actorId };
-      const itemIds = [...new Set([c.bom.itemId, ...c.pieces.map((p) => p.bucket.itemId), ...c.takes.map((t) => t.itemId)])];
-      const accounts = await itemAccounts(itemIds, ["wip"], null, tx);
-      if (!accounts.ok) throw new Refused({ _form: accounts.message });
-      const wip = (itemId: number) => accounts.accounts.get(itemId)!.wip;
       const moves: ValueMove[] = [];
+      const costs: (CostCharge | null)[] = [];
 
       let pieceValue = 0;
       let cost = 0;
@@ -151,10 +148,11 @@ export async function closeBox(input: BoxInput, actorId: number): Promise<BoxRes
         const t = await consumeBucket(tx, { bucketId: p.bucket.id, baseQty: p.bucket.qty, ...common });
         const locked = await lockRateVersion(tx, { lotId: t.lotId, partaiId: t.partaiId, actorId });
         rate ??= locked;
-        const charged = await recordCostEntry(tx, { unitId: c.unit.id, stepId: c.step.id, rateVersionId: locked.rateVersionId, lotId: t.lotId, partaiId: t.partaiId, grams: p.bucket.grams!, ...common });
+        const charged = await chargeUnit(tx, { unitId: c.unit.id, stepId: c.step.id, rateVersionId: locked.rateVersionId, lotId: t.lotId, partaiId: t.partaiId, grams: p.bucket.grams!, date: c.date });
+        costs.push(charged.charge);
         pieceValue += t.value;
         cost += charged.amount;
-        moves.push({ accountId: wip(t.itemId), amount: -t.value });
+        moves.push({ itemId: t.itemId, amount: -t.value });
         await linkTracking(tx, { fromBucketId: p.bucket.id, fromLotId: t.lotId, toLotId: made.id, qty: p.bucket.qty, value: t.value, source });
         await tx.prdBoxPiece.create({ data: { box_id: header.id, line_no: i + 1, bucket_id: p.bucket.id, tracking_id: t.lotId, partai_id: t.partaiId, grams: p.bucket.grams!, value: t.value, caiq: p.caiq, is_manual: p.manual } });
       }
@@ -162,18 +160,16 @@ export async function closeBox(input: BoxInput, actorId: number): Promise<BoxRes
       for (const a of c.takes) {
         const used = await consumeBucket(tx, { bucketId: a.bucket.id, baseQty: a.qty, ...common });
         auxValue += used.value;
-        moves.push({ accountId: wip(a.itemId), amount: -used.value });
+        moves.push({ itemId: a.itemId, amount: -used.value });
         await tx.prdBoxComponent.create({ data: { box_id: header.id, item_id: a.itemId, bucket_id: a.bucket.id, qty: a.qty, value: used.value } });
       }
       const value = pieceValue + cost + auxValue;
       await recordTrackingInfo(tx, { lotId: made.id, grams, form: "Piece", rateVersionId: rate!.rateVersionId, routingId: rate!.routingId, actorId });
       const placed = await produceIntoBucket(tx, { lotId: made.id, itemId: c.bom.itemId, unitId: c.unit.id, afterStepId: c.step.id, partaiId: c.partaiId, jobId: null, baseQty: 1, value, ...common });
-      moves.push({ accountId: wip(c.bom.itemId), amount: value });
+      moves.push({ itemId: c.bom.itemId, amount: value });
 
-      const description = `${no} · Kotak ${made.no}`;
-      const jl = await executionJournalLines(moves, cost, 0, description, tx);
-      const journal = jl.length ? await postJournal(tx, { description, sourceDocTypeId: docType, sourceDocId: header.id, postingDate: c.date, actorId, lines: jl }) : null;
-      await tx.prdBox.update({ where: { id: header.id }, data: { tracking_id: made.id, tracking_no: made.no, piece_value: pieceValue, cost_amount: cost, aux_value: auxValue, value, to_bucket_id: placed.bucketId, journal_id: journal?.id ?? null } });
+      const posted = await postToErp(tx, { source, docTable: "prd_box", date: c.date, description: `${no} · Kotak ${made.no}`, moves, costs, actorId });
+      await tx.prdBox.update({ where: { id: header.id }, data: { tracking_id: made.id, tracking_no: made.no, piece_value: pieceValue, cost_amount: cost, aux_value: auxValue, value, to_bucket_id: placed.bucketId, journal_id: posted.journalId } });
       await tx.auditLog.create({ data: { entity_key: "prd_box", row_id: header.id, action: "TAMBAH", event: "post", by: actorId } });
       return { ok: true as const, id: header.id, no, trackingNo: made.no };
     })

@@ -1,7 +1,8 @@
 # Produksi 10 — BSTB ke Finish Goods dan BSTB Pengeluaran
 
-Dua jalan keluar produksi, **satu tabel** (`log_production_receipt`), dibedakan
-kolom `purpose`.
+Dua jalan keluar produksi, masing-masing **dua dokumen bernomor sama** (P317):
+**Production Issue** di Produksi (Unit mengirim) dan **Stock Receipt** di ERP
+(gudang menerima).
 
 | | **BSTB ke Finish Goods** | **BSTB Pengeluaran** |
 | --- | --- | --- |
@@ -11,13 +12,16 @@ kolom `purpose`.
 | Dari tahap | Stand By | Persiapan **atau** Stand By |
 | Jumlah | selalu utuh | Job utuh; No. Stok tanpa Job boleh sebagian |
 | Bahan penolong | tidak | bisa |
+| Alasan | tidak ada | opsional, dari daftar tetap |
 | Nilai saat Terima | terbawa | **dipilih gudang**: terbawa / tanpa nilai |
-| Dipakai untuk | barang jadi | hasil samping, reject, sisa penolong |
 
 ## Kode acuan
 
-`production-receipt.ts` → `check`, `sendFinishGoods`, `receiveFinishGoods`,
-`productionReceiptPreview`; kata-katanya `production-receipt-shape.ts`.
+| Bagian | File / fungsi |
+| --- | --- |
+| Pengirim | `production-issue.ts` → `sendProductionIssue`, `takeReceiptReceived` |
+| Penerima | `stock-receipt.ts` → `takeReceiptSent`, `receiveStockReceipt` |
+| Tujuan dan alasan | `production-handover-shape.ts`, `stock-receipt-purposes.ts` |
 
 ---
 
@@ -25,74 +29,36 @@ kolom `purpose`.
 
 | # | Siapa | Di mana | Langkah |
 | --: | --- | --- | --- |
-| 1 | Unit | Workspace › Stand By UP5 › **Kirim ke Finish Goods**; atau Persiapan / Stand By Unit mana pun › **BSTB Pengeluaran** | pilih barang, Gudang Tujuan, Tanggal → **Ajukan** |
-| 2 | — | — | barang *Dalam Perjalanan* di Unit asal |
-| 3 | Gudang | ERP › Persediaan › Operasi Gudang › menu masing-masing | **Terima**; Pengeluaran: pilih nilainya; periksa jurnal |
+| 1 | Unit | Workspace › Stand By UP5 › **Kirim ke Finish Goods**; atau Persiapan / Stand By › **BSTB Pengeluaran** | barang, Gudang Tujuan, Tanggal → **Kirim** |
+| 2 | Gudang | ERP › Persediaan › Operasi Gudang › **Stock Receipt** | pilih lokasi (bila ada) dan status tiap No. Stok → **Terima**; Pengeluaran: pilih nilai |
 
-Izin: kirim `PRODUCTION_RECEIPT_SEND` (Unit user diperiksa); gudang
-`PRODUCTION_RECEIPT_VIEW / _RECEIVE` (gudang user diperiksa).
-
-Tanpa Draft dan tanpa batal: `Submitted (Diajukan) → Posted (Diterima)`.
+Status kedua dokumen: `InTransit (Dalam Perjalanan) → Received (Diterima)`. Tanpa
+Draft dan tanpa batal. Izin: `PRODUCTION_ISSUE_VIEW / _SEND` dan
+`STOCK_RECEIPT_VIEW / _RECEIVE`.
 
 ---
 
-## 2. Sumber data
+## 2. Yang terjadi
 
-| Data | Sumber |
-| --- | --- |
-| Boleh ke Finish Goods? | `endsLine`: Unit = langkah terakhir sebuah routing line |
-| Barang | `prd_balance` Unit, menurut aturan `sendable` |
-| Gudang Tujuan | `ref_warehouse` aktif **tanpa Lokasi**, bukan Gudang Transit |
-| Gudang awal | nama mengandung *Finish* (FG) atau *Bahan Baku* (Pengeluaran) |
-
----
-
-## 3. Tabel
-
-`log_production_receipt`:
-
-| Kolom | Diisi saat | Isi | Contoh FG |
-| --- | --- | --- | ---: |
-| `receipt_no` | Ajukan | seri BFG / BPG | `BFG_UP5_231126_00001` |
-| `purpose` | Ajukan | `finish_goods` / `return` | |
-| `receipt_date` | Ajukan | tanggal kirim | |
-| `from_unit_id`, `warehouse_id`, `note` | Ajukan | | UP5, GFG |
-| `received_at`, `received_by` | Terima | hari Terima = **tanggal jurnal** | |
-| `cost_amount` | Terima | Σ nilai baris (dilepas produksi) | 61.891 |
-| `value_mode` | Terima | `carried` / `none` | `carried` |
-| `written_off_amount` | Terima | `none` → `cost_amount`; selain itu 0 | 0 |
-| `journal_id` | Terima | | |
-
-`log_production_receipt_line`:
-
-| Kolom | Diisi saat | Isi |
-| --- | --- | --- |
-| `item_id`, `tracking_id`, `job_id` | Ajukan | dari bucket |
-| `qty`, `grams` | Ajukan | jumlah dikirim |
-| `from_bucket_id` | Ajukan | bucket asal |
-| `transit_bucket_id` | Ajukan | bucket Dalam Perjalanan |
-| `value` | Terima | nilai yang dilepas produksi |
-
----
-
-## 4. Yang terjadi
-
-### 4.1 Ajukan
+### 2.1 Kirim (Produksi)
 
 ```
-tiap baris: sendInTransit   asal → Dalam Perjalanan, nilai sama
-            (TransferOut + TransferIn; tanda penolong dibawa)
+tiap baris: sendInTransit   asal → Dalam Perjalanan
+            bucket transit milik dokumen ini sendiri  ← NILAI BEKU
+pesan ReceiptSent  →  Stock Receipt lahir, menunggu
 ```
 
-### 4.2 Terima
+Dua dokumen atas No. Stok yang sama masing-masing membawa nilainya sendiri, apa pun
+urutan terimanya.
+
+### 2.2 Terima (ERP)
 
 ```
-tiap baris:
-  1. takeFromBucket    Dalam Perjalanan → keluar        prd_ledger Released
-  2. receiveStock      masuk gudang, No. Stok SAMA
-        nilai = nilai langkah 1   (carried)
-        nilai = 0                 (none)
-jurnal per Item
+tiap No. Stok: receiveStock   No. Stok SAMA, lokasi dan status pilihan gudang
+               nilai beku (carried) atau 0 (none)
+jurnal per barang, bertanggal hari Terima
+pesan ReceiptReceived  →  bucket Dalam Perjalanan dikosongkan (Released)
+                          Production Issue menjadi Diterima
 ```
 
 | Pilihan | Debit | Kredit | Stok masuk |
@@ -100,58 +66,51 @@ jurnal per Item
 | **Nilai terbawa** (dan selalu FG) | Persediaan | WIP | senilai produksi |
 | **Tanpa nilai** | Beban Pemusnahan Produksi | WIP | jumlah masuk, **nilai 0** |
 
-Nilai 0 (misalnya BJL) → tanpa jurnal.
-
-**Akibat Tanpa nilai:** jumlah stok naik tanpa nilai, jadi **moving average barang
-itu turun**.
+Nilai 0 → tanpa jurnal. Tanpa nilai menurunkan rata-rata barang itu.
 
 ---
 
-## 5. Contoh
+## 3. Tabel
 
-| Dokumen | Barang | Pilihan | Nilai | Jurnal | Stok |
-| --- | --- | --- | ---: | --- | --- |
-| `BPG_UGH_231126_00001` | BJL 3 g, Stand By UGH | terbawa | 0 | tidak ada | BJL 3 g / Rp 0 |
-| `BFG_UP5_231126_00001` | Kotak 1 PCS | terbawa | 61.891 | Dr Persediaan / Cr WIP 61.891 | Kotak 1 / 61.891 |
-| `BPG_UP5_231126_00002` | Keping 5 g, Persiapan UP5 | **tanpa nilai** | 6.080 | Dr Beban Pemusnahan / Cr WIP 6.080 | Keping 5 g / Rp 0 |
+| Tabel | Isi |
+| --- | --- |
+| `prd_issue` | nomor, `purpose`, `reason`, Unit, kode gudang, tanggal, `received_at` |
+| `prd_issue_line` | No. Stok, Job, partai, qty, gram, `value` (beku), bucket asal dan transit |
+| `log_stock_receipt` | nomor sama, gudang, `cost_amount`, `value_mode`, `written_off_amount`, `journal_id` |
+| `log_stock_receipt_line` | satu per **barang**: Σ qty dan nilai |
+| `log_stock_receipt_tracking` | satu per **No. Stok**: qty, gram, nilai beku, `location_id`, `stock_status_id` |
 
-Ledger kotak:
-
-| Langkah | `movement` | Bucket | Nilai |
-| --- | --- | --- | ---: |
-| Ajukan | TransferOut | B150 UP5 Stand By | −61.891 |
-| Ajukan | TransferIn | B151 UP5 Dalam Perjalanan | +61.891 |
-| Terima | Released | B151 | −61.891 |
+Tabel ERP tidak menyimpan id produksi; yang disimpan nomor (`tracking_no`, `job_no`).
 
 ---
 
-## 6. Validasi utama
+## 4. Contoh
+
+| Dokumen | Barang | Pilihan | Nilai | Jurnal |
+| --- | --- | --- | ---: | --- |
+| `BPG_UGH_231126_00001` | BJL 3 g | terbawa | 0 | tidak ada |
+| `BFG_UP5_231126_00001` | Kotak 1 PCS | terbawa | 61.891 | Dr Persediaan / Cr WIP 61.891 |
+| `BPG_UP5_231126_00002` | Keping 5 g | **tanpa nilai** | 6.080 | Dr Beban Pemusnahan / Cr WIP 6.080 |
+
+---
+
+## 5. Validasi utama
 
 | Aturan | Pesan |
 | --- | --- |
-| FG hanya dari Unit terakhir | *… bukan Unit terakhir routing: kirim lewat Push atau BSTB.* |
-| Gudang | *Pilih Gudang aktif tanpa Lokasi.* |
-| Job utuh di tahap itu | *No. Job … dikirim utuh: … belum ikut.* |
-| Tidak melebihi saldo | *Melebihi saldo (…).* |
+| FG hanya dari Unit terakhir | *… bukan Unit terakhir routing …* |
+| Job utuh di tahap itu | *No. Job … dikirim utuh …* |
+| Gudang berlokasi | *… memakai lokasi: pilih lokasinya.* |
 | Pengeluaran: nilai dipilih | *Pilih nilai barang yang diterima.* |
-| Terima tidak sebelum tanggal kirim | *Tanggal kirim di masa depan …* |
-| Tanpa nilai butuh akun | *Lengkapi Account Mapping dulu: Account Beban Pemusnahan Produksi.* |
+| Tanpa nilai butuh akun | *Lengkapi Account Mapping dulu …* |
+
+Satu No. Stok masuk ke satu lokasi dan satu status.
 
 ---
 
-## 7. Cek
+## 6. Cek (`db:reconcile`)
 
-| Keadaan | Rumus |
+| Cek | Rumus |
 | --- | --- |
-| Diterima | `cost_amount` = Σ `value` baris = `Released` produksi = debit jurnal |
-| Diterima | stok masuk = `cost_amount − written_off_amount` |
-| Diajukan | belum ada jurnal, dan tiap baris masih ada di Dalam Perjalanan |
-
----
-
-## 8. Batasan
-
-- *Hanya nilai bahan* tidak tersedia: biaya Unit tercatat di No. Stok **input**, jadi
-  bagian bahannya tidak bisa dipisah dari hasil grading.
-- Nilai Reject tidak diserap sisa partai; pilihannya terbawa atau beban.
-- Alasan ditulis di *Alasan / Catatan* sebagai teks bebas.
+| Stock Receipt | `cost_amount` = Σ barang = Σ No. Stok = Σ `prd_issue_line.value`; diterima: stok masuk = `cost_amount − written_off_amount`, jurnal = `cost_amount` |
+| Production Issue | dalam perjalanan: bucket transit = Σ `value`; diterima: `Released` = Σ `value` |

@@ -5,6 +5,7 @@ import { locationStockUse, warehouseHoldsStock } from "./inventory";
 import { receiptNoteLocationUse } from "./receipt-note";
 import { deliveryNoteLocationUse } from "./delivery-note";
 import { stockIssueLocationUse } from "./stock-issue";
+import { stockAdjustmentLocationUse } from "./stock-adjustment";
 import { stockTransferLocationUse } from "./stock-transfer";
 import { transferReceiptLocationUse } from "./stock-transfer-receipt";
 import { locationDisplayLabel } from "./warehouse-location";
@@ -69,14 +70,15 @@ export async function locationDeactivateRefusal(id: number): Promise<string | nu
 }
 
 async function draftsInWarehouse(warehouseId: number): Promise<number> {
-  const [receipts, deliveries, issues, transfers, transferReceipts] = await Promise.all([
+  const [receipts, deliveries, issues, transfers, transferReceipts, adjustments] = await Promise.all([
     receiptNoteLocationUse(warehouseId, []),
     deliveryNoteLocationUse(warehouseId, []),
     stockIssueLocationUse(warehouseId, []),
     stockTransferLocationUse(warehouseId),
     transferReceiptLocationUse(warehouseId, []),
+    stockAdjustmentLocationUse(warehouseId, []),
   ]);
-  return receipts.drafts + deliveries.drafts + issues.drafts + transfers.drafts + transferReceipts.drafts;
+  return receipts.drafts + deliveries.drafts + issues.drafts + transfers.drafts + transferReceipts.drafts + adjustments.drafts;
 }
 
 // -------------------------------------------------------------------- reads

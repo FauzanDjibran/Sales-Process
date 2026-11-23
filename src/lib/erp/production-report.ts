@@ -1,5 +1,6 @@
 import "server-only";
 
+import { documentHref } from "./document-links";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import type { RefOption } from "./records";
@@ -400,7 +401,8 @@ export async function productionLots(nos: string[]): Promise<{ id: number; no: s
 
 // ---------------------------------------------------------- Telusur Produksi
 
-export type TraceEdge = { sourceNo: string; stationLabel: string; qty: number; value: number };
+/** `href`: the document that made the step (P318). */
+export type TraceEdge = { sourceNo: string; href: string | null; stationLabel: string; qty: number; value: number };
 
 export type TraceNode = {
   lotId: number;
@@ -413,7 +415,7 @@ export type TraceNode = {
   /** The executions between it and the lot one step nearer the start, with the unit they ran at. */
   via: TraceEdge[];
   /** Where the lot was registered and from whom, for a lot no execution made. */
-  origin: { sourceNo: string; supplier: string | null } | null;
+  origin: { sourceNo: string; href: string | null; supplier: string | null } | null;
   /** Where it is now: at a unit, in stock, delivered. Shown for the start and the forward lots. */
   now: { production: { stationLabel: string; stage: string; qty: number }[]; stock: { where: string; qty: number }[]; delivered: { noteNo: string; date: string; to: string; qty: number }[] } | null;
 };
@@ -434,6 +436,8 @@ export async function traceReport(lotNo: string): Promise<TraceReport | null> {
   const startIds = (await prisma.logStockTracking.findMany({ where: { tracking_no: { equals: lotNo.trim(), mode: "insensitive" } }, select: { id: true } })).map((l) => l.id);
   if (!startIds.length) return null;
 
+  const tables = new Map((await prisma.sysDocType.findMany({ select: { id: true, doc_table: true } })).map((t) => [t.id, t.doc_table]));
+  const hrefOf = (typeId: number, id: number) => documentHref(tables.get(typeId) ?? "", id);
   const edgesOf = { back: new Map<number, Map<string, TraceEdge>>(), fwd: new Map<number, Map<string, TraceEdge>>() };
   const depths = { back: new Map<number, number>(), fwd: new Map<number, number>() };
   const walk = async (dir: "back" | "fwd") => {
@@ -445,7 +449,7 @@ export async function traceReport(lotNo: string): Promise<TraceReport | null> {
     while (frontier.length && depth < TRACE_DEPTH_CAP) {
       const links = await prisma.prdTrackingLink.findMany({
         where: dir === "back" ? { to_tracking_id: { in: frontier } } : { from_tracking_id: { in: frontier } },
-        select: { from_tracking_id: true, to_tracking_id: true, source_no: true, qty: true, value: true, from_bucket: { select: { unit: { select: { unit_label: true } } } } },
+        select: { from_tracking_id: true, to_tracking_id: true, source_doc_type_id: true, source_doc_id: true, source_no: true, qty: true, value: true, from_bucket: { select: { unit: { select: { unit_label: true } } } } },
       });
       depth += 1;
       const next: number[] = [];
@@ -453,7 +457,7 @@ export async function traceReport(lotNo: string): Promise<TraceReport | null> {
         // Backward a node is an input lot, forward an output lot; each carries the execution between.
         const id = dir === "back" ? l.from_tracking_id : l.to_tracking_id;
         const edges = edgesOf[dir].get(id) ?? new Map<string, TraceEdge>();
-        const e = edges.get(l.source_no) ?? { sourceNo: l.source_no, stationLabel: l.from_bucket.unit.unit_label, qty: 0, value: 0 };
+        const e = edges.get(l.source_no) ?? { sourceNo: l.source_no, href: hrefOf(l.source_doc_type_id, l.source_doc_id), stationLabel: l.from_bucket.unit.unit_label, qty: 0, value: 0 };
         e.qty = round6(e.qty + num(l.qty));
         e.value += num(l.value);
         edges.set(l.source_no, e);
@@ -497,7 +501,7 @@ export async function traceReport(lotNo: string): Promise<TraceReport | null> {
       uom: l.item.base_uom.uom_label,
       depth: dir === "start" ? 0 : (depths[dir].get(id) ?? 1),
       via: dir === "start" ? [] : [...(edgesOf[dir].get(id)?.values() ?? [])],
-      origin: dir !== "fwd" && !made.has(id) ? { sourceNo: l.source_no, supplier: l.source_partner ? `${l.source_partner.partner_label} · ${l.source_partner.partner_name}` : null } : null,
+      origin: dir !== "fwd" && !made.has(id) ? { sourceNo: l.source_no, href: hrefOf(l.source_doc_type_id, l.source_doc_id), supplier: l.source_partner ? `${l.source_partner.partner_label} · ${l.source_partner.partner_name}` : null } : null,
       now:
         dir === "back"
           ? null

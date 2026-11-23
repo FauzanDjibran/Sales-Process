@@ -174,6 +174,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   // The production sides of a Stock Issue and of a Stock Receipt (P317).
   ["Production Receipt", "prd_receipt"],
   ["Production Issue", "prd_issue"],
+  // A count of one warehouse (P318).
+  ["Stock Adjustment", "log_stock_adjustment"],
 ];
 
 /**

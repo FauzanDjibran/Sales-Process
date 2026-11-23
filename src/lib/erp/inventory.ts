@@ -578,6 +578,38 @@ export async function issueStock(tx: Tx, issue: StockIssue): Promise<{ unitCost:
   return { unitCost: unitCost.toNumber(), cost: release.toNumber() };
 }
 
+/** No. Stok by number, with the item each is of (P318). */
+export async function trackingsByNo(db: Db, nos: string[]): Promise<Map<string, { id: number; itemId: number }>> {
+  const rows = await db.logStockTracking.findMany({ where: { tracking_no: { in: [...new Set(nos)] } }, select: { id: true, tracking_no: true, item_id: true } });
+  return new Map(rows.map((r) => [r.tracking_no, { id: r.id, itemId: r.item_id }]));
+}
+
+// ------------------------------------------------------------- counting
+
+export type StockBucket = { itemId: number; trackingId: number; trackingNo: string; locationId: number | null; statusId: number; qty: number };
+
+/** Every bucket of a warehouse that holds something, by item and lot (P318). */
+export async function stockBuckets(warehouseId: number, db: Db = prisma): Promise<StockBucket[]> {
+  const rows = await db.logStockBalance.findMany({
+    where: { warehouse_id: warehouseId, qty_balance: { gt: 0 } },
+    select: { item_id: true, tracking_id: true, location_id: true, stock_status_id: true, qty_balance: true, tracking: { select: { tracking_no: true } } },
+    orderBy: [{ item_id: "asc" }, { tracking_id: "asc" }, { location_id: "asc" }, { stock_status_id: "asc" }],
+  });
+  return rows.map((r) => ({ itemId: r.item_id, trackingId: r.tracking_id, trackingNo: r.tracking.tracking_no, locationId: r.location_id, statusId: r.stock_status_id, qty: r.qty_balance.toNumber() }));
+}
+
+/** Holds the items still for a posting: every movement of one takes its pool first. */
+export async function lockItemPools(tx: Tx, itemIds: number[], actorId: number): Promise<void> {
+  for (const id of [...new Set(itemIds)].sort((a, b) => a - b)) await lockPool(tx, id, (await stockItem(tx, id)).base_uom_id, actorId);
+}
+
+/** What q more of an item is worth at its average, round(V × q ÷ Q), or null when the company holds none (KB stock-books rule 7). */
+export async function increaseValue(tx: Tx, itemId: number, qty: number): Promise<number | null> {
+  const pool = await tx.logStockValuationBalance.findUnique({ where: { item_id: itemId }, select: { qty_balance: true, value_balance: true } });
+  if (!pool || !pool.qty_balance.gt(0)) return null;
+  return pool.value_balance.mul(new D(qty)).div(pool.qty_balance).toDecimalPlaces(0, D.ROUND_HALF_UP).toNumber();
+}
+
 // ------------------------------------------------------------ injection
 
 export type InjectionRow = {

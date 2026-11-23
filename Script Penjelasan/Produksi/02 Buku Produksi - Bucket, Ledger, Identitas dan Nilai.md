@@ -89,7 +89,7 @@ transaksi posting, jadi posting yang gagal mengembalikan nomornya.
 
 | `movement` | Tanda | Dipakai oleh |
 | --- | --- | --- |
-| `Issued` | + | BSTB Issue (Terima): masuk dari gudang |
+| `Issued` | + | Production Receipt (Terima): masuk dari gudang |
 | `Consumed` | − | Grading, Pengerjaan, Job Order, Kotak, Kerja (Mulai dan Selesai), QC Check |
 | `Produced` | + | pasangan `Consumed` |
 | `TransferOut` | − | Push, BSTB, kirim ke gudang |
@@ -231,7 +231,7 @@ saldo.
 | `unit_id` | Unit yang membebankan |
 | `rate_version_id`, `rate` | versi dan tarif yang dipakai, **disalin** |
 | `tracking_id` | No. Stok **input** yang dikerjakan |
-| `partai_id`, `line_id` | partai dan line-nya, kosong sebelum partai |
+| `partai_no`, `line_id` | partai dan line-nya, kosong sebelum partai |
 | `grams` | gram yang dibebankan |
 | `amount` | `round(grams × rate)` |
 | `is_rework` | barang ini hasil Balik QC, biaya kedua kalinya |
@@ -251,11 +251,11 @@ Semua dokumen mengikuti pola yang sama, dalam **satu transaksi database**:
 3. status Draft → Posted dengan updateMany(where status = Draft); bila 0 baris → ditolak
 4. ambil barang        consumeBucket / takeFromBucket  (bucket dikunci FOR UPDATE)
 5. kunci tarif         lockRateVersion
-6. biaya Unit          recordCostEntry
+6. biaya Unit          chargeUnit
 7. buat identitas      No. Stok / Job / Partai baru
 8. taruh hasil         produceIntoBucket / transferBucket
 9. silsilah            linkTracking
-10. jurnal             executionJournalLines → postJournal
+10. jurnal             postToErp → production-posting (jurnal dan prd_cost_entry)
 11. angka di dokumen   value, cost_amount, to_bucket_id, journal_id
 12. audit_log
 ```
@@ -271,7 +271,7 @@ Gagal di langkah mana pun → semuanya batal, termasuk nomor `MP`.
 | --- | --- |
 | bucket | `SELECT … FOR UPDATE` |
 | seri nomor harian | `pg_advisory_xact_lock(hashtext(seri))` |
-| stok dan produksi sekaligus | BSTB Issue: pool stok dulu, lalu bucket |
+| stok dan produksi sekaligus | masing-masing transaksinya sendiri; nilai beku di dokumen (P317) |
 
 ---
 

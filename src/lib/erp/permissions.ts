@@ -361,6 +361,12 @@ export const PERMISSIONS = [
   { code: "STOCK_RECEIPT_RECEIVE", name: "Terima Stock Receipt", module: "inventory", description: "Barang masuk gudang dengan No. Stok yang sama; BSTB Pengeluaran boleh diterima tanpa nilai (ke Beban Pemusnahan Produksi)." },
   // Stock transfer through the Gudang Transit (P300): Kirim and Terima are
   // separate, so a destination warehouse may only receive.
+  { code: "STOCK_ADJUSTMENT_VIEW", name: "Lihat Stock Adjustment", module: "inventory", description: "Hitungan gudang user, termasuk Draft, yang ditolak dan yang dibatalkan." },
+  { code: "STOCK_ADJUSTMENT_CREATE", name: "Buat Stock Adjustment", module: "inventory", description: "Membuat Draft hitungan sebuah gudang user." },
+  { code: "STOCK_ADJUSTMENT_EDIT", name: "Ubah Stock Adjustment", module: "inventory", description: "Hanya selama masih Draft." },
+  { code: "STOCK_ADJUSTMENT_SUBMIT", name: "Ajukan Stock Adjustment", module: "inventory", description: "Semua baris sudah dihitung; stok belum bergerak." },
+  { code: "STOCK_ADJUSTMENT_APPROVE", name: "Setujui atau Tolak Stock Adjustment", module: "inventory", description: "Menyetujui memposting selisihnya ke stok dan journal." },
+  { code: "STOCK_ADJUSTMENT_CANCEL", name: "Batalkan Stock Adjustment", module: "inventory", description: "Hanya Draft, dengan alasan." },
   { code: "STOCK_TRANSFER_VIEW", name: "Lihat Transfer Kirim", module: "inventory", description: "Kiriman dari atau ke gudang user, termasuk Draft dan yang dibatalkan." },
   { code: "STOCK_TRANSFER_CREATE", name: "Buat Transfer Kirim", module: "inventory", description: "Membuat Draft pengiriman stok dari gudang user ke gudang lain." },
   { code: "STOCK_TRANSFER_EDIT", name: "Ubah Transfer Kirim", module: "inventory", description: "Hanya selama masih Draft." },

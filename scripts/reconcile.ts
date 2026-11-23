@@ -971,6 +971,20 @@ export const CHECKS: Check[] = [
            WHERE t.source_doc_type_id <> k.source_doc_type_id OR t.source_doc_id <> k.source_doc_id`,
   },
   {
+    area: "stock",
+    name: "a posted Stock Adjustment = its lines = the stock books = its journal, in quantity and value; one not posted moved nothing (P318)",
+    sql: `WITH a AS (SELECT a.id, a.adjustment_no, a.status, a.short_amount, a.over_amount, a.journal_id,
+                        COALESCE((SELECT SUM(l.value_amount) FROM log_stock_adjustment_line l WHERE l.stock_adjustment_id = a.id), 0) AS lines,
+                        COALESCE((SELECT SUM(l.counted_qty - l.book_qty) FROM log_stock_adjustment_line l WHERE l.stock_adjustment_id = a.id), 0) AS diff,
+                        COALESCE((SELECT SUM(v.value_change) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("log_stock_adjustment")} AND v.source_doc_id = a.id), 0) AS moved,
+                        COALESCE((SELECT SUM(x.qty_change) FROM log_stock_ledger x WHERE x.source_doc_type_id = ${docType("log_stock_adjustment")} AND x.source_doc_id = a.id), 0) AS qty,
+                        COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = a.journal_id), 0) AS journal
+                 FROM log_stock_adjustment a)
+          SELECT * FROM a
+          WHERE (status = 'Posted' AND (lines <> over_amount - short_amount OR moved <> lines OR qty <> diff OR journal <> over_amount + short_amount))
+             OR (status <> 'Posted' AND (moved <> 0 OR qty <> 0 OR journal_id IS NOT NULL))`,
+  },
+  {
     area: "production",
     name: "a Stock Issue that left = what the stock books released = its journal's debit = its Production Receipt; one not sent moved nothing (P317)",
     sql: `WITH s AS (SELECT s.id, s.issue_no, s.status, s.cost_amount, s.journal_id,

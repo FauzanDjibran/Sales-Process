@@ -3,9 +3,8 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { holdPostingPeriod } from "./fiscal";
-import { postJournal } from "./journal";
-import { DAY, Refused, asDate, docTypeId, executionJournalLines, isoDay, itemAccounts, nextDailyNumber, refusable, text, unitSeries, type ValueMove } from "./production-doc";
-import { availableBuckets, bucketsByIds, gramsOf, lockRateVersion, moveKerja, recordCostEntry, trackingsByIds, unitStepsOf, type BucketView } from "./production-ledger";
+import { DAY, Refused, asDate, docTypeId, isoDay, postToErp, nextDailyNumber, refusable, text, unitSeries, type ValueMove } from "./production-doc";
+import { type CostCharge, availableBuckets, bucketsByIds, gramsOf, lockRateVersion, moveKerja, chargeUnit, trackingsByIds, unitStepsOf, type BucketView } from "./production-ledger";
 
 /**
  * Kerja (P282, T13): the process of a Unit worked over time, as Cleaning is.
@@ -169,6 +168,7 @@ export async function closeKerja(bucketIds: number[], how: "finish" | "cancel", 
         if (date < isoDay(k.kerja_date)) throw new Refused({ _form: `Tanggal tidak boleh sebelum Mulai ${k.kerja_no}.` });
         const source = { docTypeId: await docTypeId(tx, "prd_kerja"), docId: k.id, no: k.kerja_no };
         const moves: ValueMove[] = [];
+        const charges: (CostCharge | null)[] = [];
         let docCost = 0;
         for (const bucketId of [...new Set(mine.map((l) => l.work_bucket_id!))]) {
           const group = mine.filter((l) => l.work_bucket_id === bucketId);
@@ -178,17 +178,16 @@ export async function closeKerja(bucketIds: number[], how: "finish" | "cancel", 
               const bucket = (await bucketsByIds([bucketId], tx)).get(bucketId)!;
               const grams = await gramsOf(tx, { lotId: l.tracking_id, itemId: bucket.itemId, qty: l.qty });
               const locked = await lockRateVersion(tx, { lotId: l.tracking_id, partaiId: bucket.partaiId, actorId });
-              const c = await recordCostEntry(tx, { unitId: k.unit_id, stepId: k.unit_step_id, rateVersionId: locked.rateVersionId, lotId: l.tracking_id, partaiId: bucket.partaiId, grams, isRework: l.is_rework, date: on, source, actorId });
+              const c = await chargeUnit(tx, { unitId: k.unit_id, stepId: k.unit_step_id, rateVersionId: locked.rateVersionId, lotId: l.tracking_id, partaiId: bucket.partaiId, grams, isRework: l.is_rework, date: on });
               costs.push(c.amount);
+              charges.push(c.charge);
             }
           }
           const added = costs.reduce((a, x) => a + x, 0);
           const moved = await moveKerja(tx, { bucketId, move: how, addValue: added, date: on, source, actorId });
           if (added) {
             const itemId = (await bucketsByIds([moved.toBucketId], tx)).get(moved.toBucketId)!.itemId;
-            const accounts = await itemAccounts([itemId], ["wip"], null, tx);
-            if (!accounts.ok) throw new Refused({ _form: accounts.message });
-            moves.push({ accountId: accounts.accounts.get(itemId)!.wip, amount: added });
+            moves.push({ itemId, amount: added });
           }
           for (const [i, l] of group.entries()) {
             await tx.prdKerjaLine.update({
@@ -198,12 +197,8 @@ export async function closeKerja(bucketIds: number[], how: "finish" | "cancel", 
           }
           docCost += added;
         }
-        if (docCost) {
-          const description = `${k.kerja_no} · Kerja ${k.unit.unit_label}`;
-          const jl = await executionJournalLines(moves, docCost, 0, description, tx);
-          const journal = await postJournal(tx, { description, sourceDocTypeId: source.docTypeId, sourceDocId: k.id, postingDate: on, actorId, lines: jl });
-          await tx.prdKerjaLine.updateMany({ where: { id: { in: mine.map((l) => l.id) } }, data: { journal_id: journal.id } });
-        }
+        const posted = await postToErp(tx, { source, docTable: "prd_kerja", date: on, description: `${k.kerja_no} · Kerja ${k.unit.unit_label}`, moves, costs: charges, actorId });
+        if (posted.journalId) await tx.prdKerjaLine.updateMany({ where: { id: { in: mine.map((l) => l.id) } }, data: { journal_id: posted.journalId } });
         cost += docCost;
         await audit(tx, k.id, "UPDATE", how === "finish" ? "finish" : "cancel_start", actorId);
       }
