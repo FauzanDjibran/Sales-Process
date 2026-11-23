@@ -70,6 +70,18 @@ describe("Telusur Produksi", () => {
   });
 });
 
+describe("Saldo Produksi with a backdated movement", () => {
+  test("counts it from its own date, and today holds both", async () => {
+    const s = await sourceOf("log_stock_issue", "SI-RP-2");
+    await prisma.$transaction(async (tx) => {
+      const { cost } = await issueStock(tx, { itemId: f.material, warehouseId: f.warehouse, lotId: f.lot, baseQty: 10, date, source: s, actorId: f.actor });
+      await enterProduction(tx, { lotId: f.lot, itemId: f.material, unitId: f.wsA, baseQty: 10, value: cost, date: new Date(`${yesterday}T00:00:00Z`), source: s, actorId: f.actor });
+    });
+    assert.deepEqual((await wipBalanceReport(yesterday, [f.wsA]))[0].rows.map((r) => [r.qty, r.value]), [[10, 10_000]]);
+    assert.deepEqual((await wipBalanceReport(today, [f.wsA]))[0].rows.map((r) => [r.qty, r.value]), [[510, 510_000]]);
+  });
+});
+
 describe("the year-end guard (R28)", () => {
   test("a period with a production movement refuses until it is costed", async () => {
     const period = await prisma.accFiscalPeriod.findFirstOrThrow({ where: { start_date: { lte: date }, end_date: { gte: date } } });

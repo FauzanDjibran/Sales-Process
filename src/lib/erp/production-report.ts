@@ -55,14 +55,15 @@ export type WipRow = {
 export type WipBlock = { stationId: number; stationLabel: string; stationName: string; rows: WipRow[]; value: number };
 
 /**
- * What production held on a date, per unit: every bucket's balance after
- * its last ledger row on or before it — so a past date is as it stood.
+ * What production held on a date, per unit: each bucket's movements summed up to
+ * it. Never a row's stored balance, which follows posting order and so is off
+ * once a movement is backdated.
  */
 export async function wipBalanceReport(asOf: string, unitIds: number[]): Promise<WipBlock[]> {
-  const last = await prisma.$queryRaw<{ bucket_id: number; qty_balance: Prisma.Decimal; value_balance: Prisma.Decimal }[]>`
-    SELECT DISTINCT ON (bucket_id) bucket_id, qty_balance, value_balance
-      FROM prd_ledger WHERE posting_date <= ${asOf}::date ORDER BY bucket_id, posting_date DESC, id DESC`;
-  const at = new Map(last.filter((l) => num(l.qty_balance) > 0 || num(l.value_balance) !== 0).map((l) => [l.bucket_id, l]));
+  const sums = await prisma.$queryRaw<{ bucket_id: number; qty_balance: Prisma.Decimal; value_balance: Prisma.Decimal }[]>`
+    SELECT bucket_id, SUM(qty_change) AS qty_balance, SUM(value_change) AS value_balance
+      FROM prd_ledger WHERE posting_date <= ${asOf}::date GROUP BY bucket_id`;
+  const at = new Map(sums.filter((l) => num(l.qty_balance) > 0 || num(l.value_balance) !== 0).map((l) => [l.bucket_id, l]));
   if (!at.size) return [];
   const buckets = await prisma.prdBalance.findMany({
     where: { id: { in: [...at.keys()] }, ...(unitIds.length ? { unit_id: { in: unitIds } } : {}) },
