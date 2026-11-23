@@ -59,6 +59,8 @@ file says "follow `<concept>.md`", read the `knowledge/` copy.
 
 **Stock transfer plan (`Stock-Transfer-Plan.md`, P300).** Transfer Kirim and Transfer Terima through a Gudang Transit, the decisions OD-1–OD-9 and the build steps. Read it before transfer work and mark each step there as it lands.
 
+**Goods movement plan (`Goods-Movement-Plan.md`, proposed 23/11/2026, awaiting the user).** Generic Stock Issue and Stock Receipt, and how goods and data cross between the ERP and Produksi databases; nothing in it is decided or built yet.
+
 **Production report plan (`Production-Report-Plan.md`, P310).** The production stock reports in the shape of Kartu Stok and Saldo Stok; mark each step there as it lands.
 
 **UI/UX plan (`UI-UX-Plan.md`, P308).** The standardisation of the ERP's screens and its rulings T1–T8; mark each step there as it lands.
