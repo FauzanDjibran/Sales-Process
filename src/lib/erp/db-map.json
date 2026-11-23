@@ -1,0 +1,2131 @@
+{
+ "groups": [
+  {
+   "key": "shared-login-akses",
+   "name": "Login & Akses",
+   "app": "shared"
+  },
+  {
+   "key": "erp-sistem",
+   "name": "Sistem",
+   "app": "erp"
+  },
+  {
+   "key": "erp-master-referensi",
+   "name": "Master Referensi",
+   "app": "erp"
+  },
+  {
+   "key": "erp-master-data",
+   "name": "Master Data",
+   "app": "erp"
+  },
+  {
+   "key": "erp-struktur-produksi",
+   "name": "Struktur Produksi",
+   "app": "erp"
+  },
+  {
+   "key": "erp-accounting",
+   "name": "Accounting",
+   "app": "erp"
+  },
+  {
+   "key": "erp-finance",
+   "name": "Finance",
+   "app": "erp"
+  },
+  {
+   "key": "erp-penjualan",
+   "name": "Penjualan",
+   "app": "erp"
+  },
+  {
+   "key": "erp-pembelian",
+   "name": "Pembelian",
+   "app": "erp"
+  },
+  {
+   "key": "erp-penerimaan-pengiriman",
+   "name": "Penerimaan & Pengiriman",
+   "app": "erp"
+  },
+  {
+   "key": "erp-buku-persediaan",
+   "name": "Buku Persediaan",
+   "app": "erp"
+  },
+  {
+   "key": "erp-pajak",
+   "name": "Pajak",
+   "app": "erp"
+  },
+  {
+   "key": "erp-bstb-issue",
+   "name": "BSTB Issue",
+   "app": "erp"
+  },
+  {
+   "key": "erp-bstb-dari-produksi",
+   "name": "BSTB dari Produksi",
+   "app": "erp"
+  },
+  {
+   "key": "erp-transfer-stok",
+   "name": "Transfer Stok",
+   "app": "erp"
+  },
+  {
+   "key": "erp-costing-produksi",
+   "name": "Costing Produksi",
+   "app": "erp"
+  },
+  {
+   "key": "production-master",
+   "name": "Master",
+   "app": "production"
+  },
+  {
+   "key": "production-identitas",
+   "name": "Identitas",
+   "app": "production"
+  },
+  {
+   "key": "production-buku-produksi",
+   "name": "Buku Produksi",
+   "app": "production"
+  },
+  {
+   "key": "production-dokumen-lantai-produksi",
+   "name": "Dokumen Lantai Produksi",
+   "app": "production"
+  }
+ ],
+ "tables": {
+  "sys_user": "shared-login-akses",
+  "sys_role": "shared-login-akses",
+  "sys_permission": "shared-login-akses",
+  "sys_user_role": "shared-login-akses",
+  "sys_role_permission": "shared-login-akses",
+  "sys_session": "shared-login-akses",
+  "sys_setting": "shared-login-akses",
+  "sys_number_counter": "shared-login-akses",
+  "sys_doc_type": "shared-login-akses",
+  "audit_log": "shared-login-akses",
+  "sys_account_type": "erp-sistem",
+  "sys_partner_category": "erp-sistem",
+  "sys_item_category": "erp-sistem",
+  "acc_item_category_account": "erp-sistem",
+  "sys_region_province": "erp-sistem",
+  "sys_region_city": "erp-sistem",
+  "sys_region_district": "erp-sistem",
+  "sys_region_village": "erp-sistem",
+  "ref_currency": "erp-master-referensi",
+  "ref_exchange_rate": "erp-master-referensi",
+  "ref_uom": "erp-master-referensi",
+  "ref_payment_term": "erp-master-referensi",
+  "ref_permit_type": "erp-master-referensi",
+  "ref_withholding_tax": "erp-master-referensi",
+  "ref_warehouse": "erp-master-referensi",
+  "ref_warehouse_location": "erp-master-referensi",
+  "m_item": "erp-master-data",
+  "m_item_uom": "erp-master-data",
+  "m_partner": "erp-master-data",
+  "m_partner_address": "erp-master-data",
+  "m_partner_contact": "erp-master-data",
+  "m_cash_bank": "erp-master-data",
+  "ref_workstation": "erp-struktur-produksi",
+  "ref_unit": "erp-struktur-produksi",
+  "ref_unit_step": "erp-struktur-produksi",
+  "prd_line": "erp-struktur-produksi",
+  "prd_routing": "erp-struktur-produksi",
+  "prd_routing_step": "erp-struktur-produksi",
+  "acc_account_category": "erp-accounting",
+  "acc_account_subcategory": "erp-accounting",
+  "acc_account": "erp-accounting",
+  "acc_fiscal_year": "erp-accounting",
+  "acc_fiscal_period": "erp-accounting",
+  "acc_fiscal_closing": "erp-accounting",
+  "acc_journal": "erp-accounting",
+  "acc_journal_line": "erp-accounting",
+  "acc_opening_balance": "erp-accounting",
+  "acc_opening_balance_line": "erp-accounting",
+  "acc_fiscal_period_lock": "erp-accounting",
+  "cash_bank_ledger": "erp-finance",
+  "cash_bank_period": "erp-finance",
+  "cash_bank_balance": "erp-finance",
+  "fin_cash_bank_tx": "erp-finance",
+  "fin_cash_bank_tx_line": "erp-finance",
+  "fin_cash_bank_tx_line_wht": "erp-finance",
+  "fin_cash_bank_transfer": "erp-finance",
+  "fin_cash_bank_transfer_line": "erp-finance",
+  "fin_ar_item": "erp-finance",
+  "fin_ar_ledger": "erp-finance",
+  "fin_ap_item": "erp-finance",
+  "fin_ap_ledger": "erp-finance",
+  "fin_ar_advance": "erp-finance",
+  "fin_ar_permit_advance": "erp-finance",
+  "fin_ar_permit_invoice": "erp-finance",
+  "fin_ar_permit_invoice_advance_deduction": "erp-finance",
+  "fin_ap_advance": "erp-finance",
+  "fin_ap_invoice": "erp-finance",
+  "fin_ap_invoice_line": "erp-finance",
+  "fin_ap_invoice_advance_deduction": "erp-finance",
+  "fin_ar_invoice": "erp-finance",
+  "fin_ar_invoice_line": "erp-finance",
+  "fin_ar_invoice_advance_deduction": "erp-finance",
+  "fin_ar_invoice_credit_use": "erp-finance",
+  "fin_ar_credit_note": "erp-finance",
+  "fin_ar_credit_note_line": "erp-finance",
+  "sal_customer_order": "erp-penjualan",
+  "sal_customer_order_line": "erp-penjualan",
+  "sal_permit_request": "erp-penjualan",
+  "sal_permit_request_line": "erp-penjualan",
+  "sal_order": "erp-penjualan",
+  "sal_order_line": "erp-penjualan",
+  "sal_delivery_order": "erp-penjualan",
+  "sal_delivery_order_line": "erp-penjualan",
+  "sal_return": "erp-penjualan",
+  "sal_return_line": "erp-penjualan",
+  "pur_request": "erp-pembelian",
+  "pur_request_line": "erp-pembelian",
+  "pur_order": "erp-pembelian",
+  "pur_order_line": "erp-pembelian",
+  "pur_order_line_request": "erp-pembelian",
+  "log_receipt_note": "erp-penerimaan-pengiriman",
+  "log_receipt_note_line": "erp-penerimaan-pengiriman",
+  "log_receipt_note_tracking": "erp-penerimaan-pengiriman",
+  "log_delivery_note": "erp-penerimaan-pengiriman",
+  "log_delivery_note_line": "erp-penerimaan-pengiriman",
+  "log_delivery_note_tracking": "erp-penerimaan-pengiriman",
+  "sys_stock_status": "erp-buku-persediaan",
+  "log_stock_tracking": "erp-buku-persediaan",
+  "log_stock_ledger": "erp-buku-persediaan",
+  "log_stock_balance": "erp-buku-persediaan",
+  "log_stock_valuation_ledger": "erp-buku-persediaan",
+  "log_stock_valuation_balance": "erp-buku-persediaan",
+  "tax_faktur": "erp-pajak",
+  "tax_faktur_line": "erp-pajak",
+  "tax_faktur_ref": "erp-pajak",
+  "tax_withholding_slip": "erp-pajak",
+  "log_stock_issue": "erp-bstb-issue",
+  "log_stock_issue_line": "erp-bstb-issue",
+  "log_stock_issue_tracking": "erp-bstb-issue",
+  "log_production_receipt": "erp-bstb-dari-produksi",
+  "log_production_receipt_line": "erp-bstb-dari-produksi",
+  "log_user_warehouse": "erp-transfer-stok",
+  "log_stock_transfer": "erp-transfer-stok",
+  "log_stock_transfer_line": "erp-transfer-stok",
+  "log_stock_transfer_tracking": "erp-transfer-stok",
+  "log_stock_transfer_receipt": "erp-transfer-stok",
+  "log_stock_transfer_receipt_line": "erp-transfer-stok",
+  "log_stock_transfer_receipt_tracking": "erp-transfer-stok",
+  "prd_rate_version": "erp-costing-produksi",
+  "prd_rate_version_line": "erp-costing-produksi",
+  "prd_bom": "erp-costing-produksi",
+  "prd_bom_component": "erp-costing-produksi",
+  "prd_cost_entry": "erp-costing-produksi",
+  "acc_cost_type": "erp-costing-produksi",
+  "prd_cost_bill": "erp-costing-produksi",
+  "prd_cost_bill_line": "erp-costing-produksi",
+  "m_employee": "production-master",
+  "prd_user_unit": "production-master",
+  "prd_partai": "production-identitas",
+  "prd_job": "production-identitas",
+  "prd_tracking_info": "production-identitas",
+  "prd_balance": "production-buku-produksi",
+  "prd_ledger": "production-buku-produksi",
+  "prd_tracking_link": "production-buku-produksi",
+  "prd_grading": "production-dokumen-lantai-produksi",
+  "prd_grading_input": "production-dokumen-lantai-produksi",
+  "prd_grading_output": "production-dokumen-lantai-produksi",
+  "prd_grading_employee": "production-dokumen-lantai-produksi",
+  "prd_work": "production-dokumen-lantai-produksi",
+  "prd_work_line": "production-dokumen-lantai-produksi",
+  "prd_aux_use": "production-dokumen-lantai-produksi",
+  "prd_qc_check": "production-dokumen-lantai-produksi",
+  "prd_qc_check_line": "production-dokumen-lantai-produksi",
+  "prd_transfer": "production-dokumen-lantai-produksi",
+  "prd_transfer_line": "production-dokumen-lantai-produksi",
+  "prd_kerja": "production-dokumen-lantai-produksi",
+  "prd_kerja_line": "production-dokumen-lantai-produksi",
+  "prd_job_order": "production-dokumen-lantai-produksi",
+  "prd_job_order_line": "production-dokumen-lantai-produksi",
+  "prd_job_order_input": "production-dokumen-lantai-produksi",
+  "prd_box": "production-dokumen-lantai-produksi",
+  "prd_box_piece": "production-dokumen-lantai-produksi",
+  "prd_box_component": "production-dokumen-lantai-produksi"
+ },
+ "menus": {
+  "sal_customer_order": {
+   "main": "sal_customer_order",
+   "w": [
+    "audit_log",
+    "sal_customer_order",
+    "sal_customer_order_line"
+   ],
+   "r": [
+    "fin_ar_invoice",
+    "m_item",
+    "m_partner",
+    "m_partner_address",
+    "ref_currency",
+    "ref_exchange_rate",
+    "ref_payment_term",
+    "ref_uom",
+    "ref_withholding_tax",
+    "sal_order",
+    "sal_order_line",
+    "sys_partner_category",
+    "sys_region_city",
+    "sys_region_district",
+    "sys_region_province",
+    "sys_region_village",
+    "sys_setting"
+   ]
+  },
+  "sal_order": {
+   "main": "sal_order",
+   "w": [
+    "audit_log",
+    "sal_order",
+    "sal_order_line"
+   ],
+   "r": [
+    "m_item",
+    "m_partner",
+    "m_partner_address",
+    "ref_uom",
+    "sal_customer_order",
+    "sal_customer_order_line",
+    "sal_delivery_order",
+    "sal_delivery_order_line",
+    "sys_region_city",
+    "sys_region_district",
+    "sys_region_province",
+    "sys_region_village"
+   ]
+  },
+  "sal_delivery_order": {
+   "main": "sal_delivery_order",
+   "w": [
+    "audit_log",
+    "sal_delivery_order",
+    "sal_delivery_order_line"
+   ],
+   "r": [
+    "log_delivery_note",
+    "log_delivery_note_line",
+    "log_stock_balance",
+    "log_stock_tracking",
+    "m_item",
+    "m_partner",
+    "m_partner_address",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sal_customer_order",
+    "sal_customer_order_line",
+    "sal_order",
+    "sal_order_line",
+    "sys_region_city",
+    "sys_region_district",
+    "sys_region_province",
+    "sys_region_village",
+    "sys_setting",
+    "sys_stock_status"
+   ]
+  },
+  "sal_return": {
+   "main": "sal_return",
+   "w": [
+    "audit_log",
+    "sal_return",
+    "sal_return_line"
+   ],
+   "r": [
+    "fin_ar_invoice",
+    "fin_ar_invoice_line",
+    "log_delivery_note",
+    "log_delivery_note_line",
+    "log_delivery_note_tracking",
+    "log_receipt_note",
+    "m_item",
+    "m_partner",
+    "m_partner_address",
+    "ref_uom",
+    "ref_warehouse",
+    "sal_customer_order",
+    "sal_customer_order_line",
+    "sal_delivery_order",
+    "sal_delivery_order_line",
+    "sal_order",
+    "sal_order_line",
+    "sys_region_city",
+    "sys_region_district",
+    "sys_region_province",
+    "sys_region_village"
+   ]
+  },
+  "sal_permit_request": {
+   "main": "sal_permit_request",
+   "w": [
+    "audit_log",
+    "sal_permit_request",
+    "sal_permit_request_line"
+   ],
+   "r": [
+    "fin_ar_item",
+    "fin_ar_permit_advance",
+    "fin_ar_permit_invoice",
+    "fin_cash_bank_tx",
+    "fin_cash_bank_tx_line",
+    "m_partner",
+    "m_partner_address",
+    "ref_payment_term",
+    "ref_permit_type",
+    "ref_withholding_tax",
+    "sys_doc_type",
+    "sys_partner_category",
+    "sys_setting"
+   ]
+  },
+  "pur_request_goods": {
+   "main": "pur_request",
+   "w": [
+    "audit_log",
+    "pur_request",
+    "pur_request_line"
+   ],
+   "r": [
+    "m_item",
+    "ref_uom",
+    "ref_warehouse",
+    "sys_setting"
+   ]
+  },
+  "pur_request_service": {
+   "main": "pur_request",
+   "w": [
+    "audit_log",
+    "pur_request",
+    "pur_request_line"
+   ],
+   "r": [
+    "m_item",
+    "ref_uom",
+    "ref_warehouse",
+    "sys_setting"
+   ]
+  },
+  "pur_order_goods": {
+   "main": "pur_order",
+   "w": [
+    "audit_log",
+    "pur_order",
+    "pur_order_line",
+    "pur_order_line_request",
+    "pur_request",
+    "pur_request_line"
+   ],
+   "r": [
+    "fin_ap_invoice",
+    "log_receipt_note",
+    "m_item",
+    "m_item_uom",
+    "m_partner",
+    "ref_currency",
+    "ref_exchange_rate",
+    "ref_payment_term",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_withholding_tax",
+    "sys_partner_category",
+    "sys_setting"
+   ]
+  },
+  "pur_order_service": {
+   "main": "pur_order",
+   "w": [
+    "audit_log",
+    "pur_order",
+    "pur_order_line",
+    "pur_order_line_request",
+    "pur_request",
+    "pur_request_line"
+   ],
+   "r": [
+    "fin_ap_invoice",
+    "log_receipt_note",
+    "m_item",
+    "m_item_uom",
+    "m_partner",
+    "ref_currency",
+    "ref_exchange_rate",
+    "ref_payment_term",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_withholding_tax",
+    "sys_partner_category",
+    "sys_setting"
+   ]
+  },
+  "prd_cost_bill": {
+   "main": "prd_cost_bill",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "prd_cost_bill",
+    "prd_cost_bill_line"
+   ],
+   "r": [
+    "acc_account",
+    "acc_cost_type",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "fin_cash_bank_tx",
+    "fin_cash_bank_tx_line",
+    "m_partner",
+    "ref_currency",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_partner_category",
+    "sys_setting"
+   ]
+  },
+  "prd_rate_version": {
+   "main": "prd_rate_version",
+   "w": [
+    "audit_log",
+    "prd_rate_version",
+    "prd_rate_version_line"
+   ],
+   "r": []
+  },
+  "prd_bom": {
+   "main": "prd_bom",
+   "w": [
+    "audit_log",
+    "prd_bom",
+    "prd_bom_component"
+   ],
+   "r": [
+    "m_item"
+   ]
+  },
+  "acc_cost_type": {
+   "main": "acc_cost_type",
+   "w": [
+    "acc_cost_type",
+    "audit_log"
+   ],
+   "r": [
+    "acc_account"
+   ]
+  },
+  "prd_unit": {
+   "main": "prd_balance",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "log_stock_balance",
+    "log_stock_issue",
+    "log_stock_issue_line",
+    "log_stock_issue_tracking",
+    "log_stock_ledger",
+    "log_stock_valuation_balance",
+    "log_stock_valuation_ledger",
+    "prd_balance",
+    "prd_cost_entry",
+    "prd_job",
+    "prd_kerja",
+    "prd_kerja_line",
+    "prd_ledger",
+    "prd_partai",
+    "prd_tracking_info",
+    "prd_transfer",
+    "prd_transfer_line",
+    "sys_number_counter"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "acc_item_category_account",
+    "log_stock_tracking",
+    "m_employee",
+    "m_item",
+    "m_partner",
+    "prd_grading",
+    "prd_grading_input",
+    "prd_line",
+    "prd_qc_check",
+    "prd_qc_check_line",
+    "prd_rate_version",
+    "prd_rate_version_line",
+    "prd_routing",
+    "prd_routing_step",
+    "prd_user_unit",
+    "prd_work",
+    "prd_work_line",
+    "ref_currency",
+    "ref_unit",
+    "ref_unit_step",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "ref_workstation",
+    "sys_doc_type",
+    "sys_item_category",
+    "sys_setting",
+    "sys_stock_status"
+   ]
+  },
+  "prd_grading": {
+   "main": "prd_grading",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "log_stock_tracking",
+    "prd_aux_use",
+    "prd_balance",
+    "prd_cost_entry",
+    "prd_grading",
+    "prd_grading_employee",
+    "prd_grading_input",
+    "prd_grading_output",
+    "prd_ledger",
+    "prd_tracking_info",
+    "prd_tracking_link",
+    "sys_number_counter"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "acc_item_category_account",
+    "m_employee",
+    "m_item",
+    "prd_job",
+    "prd_partai",
+    "prd_rate_version",
+    "prd_rate_version_line",
+    "prd_routing",
+    "prd_user_unit",
+    "prd_work",
+    "prd_work_line",
+    "ref_currency",
+    "ref_unit",
+    "ref_unit_step",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_item_category",
+    "sys_setting"
+   ]
+  },
+  "prd_work": {
+   "main": "prd_work",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "prd_aux_use",
+    "prd_balance",
+    "prd_cost_entry",
+    "prd_ledger",
+    "prd_tracking_info",
+    "prd_work",
+    "prd_work_line",
+    "sys_number_counter"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "acc_item_category_account",
+    "log_stock_tracking",
+    "m_employee",
+    "m_item",
+    "prd_partai",
+    "prd_rate_version",
+    "prd_rate_version_line",
+    "prd_routing",
+    "prd_routing_step",
+    "prd_user_unit",
+    "ref_currency",
+    "ref_unit",
+    "ref_unit_step",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_item_category",
+    "sys_setting"
+   ]
+  },
+  "prd_job_order": {
+   "main": "prd_job_order",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "log_stock_tracking",
+    "prd_balance",
+    "prd_job",
+    "prd_job_order",
+    "prd_job_order_input",
+    "prd_job_order_line",
+    "prd_ledger",
+    "prd_tracking_info",
+    "prd_tracking_link",
+    "sys_number_counter"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "acc_item_category_account",
+    "m_item",
+    "prd_partai",
+    "prd_rate_version",
+    "prd_routing",
+    "prd_user_unit",
+    "ref_currency",
+    "ref_unit",
+    "ref_unit_step",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_item_category",
+    "sys_setting"
+   ]
+  },
+  "prd_box": {
+   "main": "prd_box",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "log_stock_tracking",
+    "prd_balance",
+    "prd_box",
+    "prd_box_component",
+    "prd_box_piece",
+    "prd_cost_entry",
+    "prd_ledger",
+    "prd_tracking_info",
+    "prd_tracking_link",
+    "sys_number_counter"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "acc_item_category_account",
+    "m_item",
+    "prd_bom",
+    "prd_bom_component",
+    "prd_partai",
+    "prd_rate_version",
+    "prd_rate_version_line",
+    "prd_routing",
+    "prd_user_unit",
+    "ref_currency",
+    "ref_unit",
+    "ref_unit_step",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_item_category",
+    "sys_setting"
+   ]
+  },
+  "prd_kerja": {
+   "main": "prd_kerja",
+   "w": [
+    "audit_log",
+    "prd_balance",
+    "prd_kerja",
+    "prd_kerja_line",
+    "prd_ledger",
+    "sys_number_counter"
+   ],
+   "r": [
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_year",
+    "log_stock_tracking",
+    "m_employee",
+    "m_item",
+    "prd_job",
+    "prd_partai",
+    "prd_user_unit",
+    "ref_unit",
+    "ref_unit_step",
+    "ref_uom",
+    "sys_doc_type"
+   ]
+  },
+  "prd_qc_check": {
+   "main": "prd_qc_check",
+   "w": [
+    "audit_log",
+    "prd_balance",
+    "prd_ledger",
+    "prd_qc_check",
+    "prd_qc_check_line",
+    "sys_number_counter"
+   ],
+   "r": [
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_year",
+    "log_stock_tracking",
+    "m_item",
+    "prd_user_unit",
+    "ref_unit",
+    "ref_unit_step",
+    "sys_doc_type"
+   ]
+  },
+  "prd_transfer": {
+   "main": "prd_transfer",
+   "w": [
+    "audit_log",
+    "log_production_receipt",
+    "log_production_receipt_line",
+    "prd_balance",
+    "prd_job",
+    "prd_ledger",
+    "prd_partai",
+    "prd_transfer",
+    "prd_transfer_line",
+    "sys_number_counter"
+   ],
+   "r": [
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_year",
+    "log_stock_tracking",
+    "m_item",
+    "prd_line",
+    "prd_rate_version",
+    "prd_routing",
+    "prd_routing_step",
+    "prd_user_unit",
+    "ref_unit",
+    "ref_unit_step",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_setting"
+   ]
+  },
+  "report_wip_balance": {
+   "main": null,
+   "w": [],
+   "r": [
+    "log_stock_tracking",
+    "m_item",
+    "prd_balance",
+    "prd_job",
+    "prd_ledger",
+    "ref_unit",
+    "ref_unit_step",
+    "ref_uom"
+   ]
+  },
+  "report_lot_card": {
+   "main": null,
+   "w": [],
+   "r": [
+    "log_stock_ledger",
+    "log_stock_tracking",
+    "m_item",
+    "m_partner",
+    "prd_ledger",
+    "ref_unit",
+    "ref_unit_step",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location"
+   ]
+  },
+  "report_trace": {
+   "main": null,
+   "w": [],
+   "r": [
+    "log_delivery_note",
+    "log_delivery_note_line",
+    "log_delivery_note_tracking",
+    "log_stock_balance",
+    "log_stock_tracking",
+    "m_item",
+    "m_partner",
+    "prd_balance",
+    "prd_tracking_link",
+    "ref_unit",
+    "ref_unit_step",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location"
+   ]
+  },
+  "m_employee": {
+   "main": "m_employee",
+   "w": [
+    "audit_log",
+    "m_employee"
+   ],
+   "r": []
+  },
+  "log_receipt_note": {
+   "main": "log_receipt_note",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "log_delivery_note_line",
+    "log_receipt_note",
+    "log_receipt_note_line",
+    "log_receipt_note_tracking",
+    "log_stock_balance",
+    "log_stock_ledger",
+    "log_stock_tracking",
+    "log_stock_valuation_balance",
+    "log_stock_valuation_ledger",
+    "pur_order",
+    "pur_order_line",
+    "sal_return",
+    "sal_return_line"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "acc_item_category_account",
+    "log_delivery_note",
+    "log_delivery_note_tracking",
+    "m_item",
+    "m_partner",
+    "ref_currency",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sal_customer_order",
+    "sal_customer_order_line",
+    "sys_doc_type",
+    "sys_item_category",
+    "sys_setting",
+    "sys_stock_status"
+   ]
+  },
+  "log_stock_issue": {
+   "main": "log_stock_issue",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "log_stock_balance",
+    "log_stock_issue",
+    "log_stock_issue_line",
+    "log_stock_issue_tracking",
+    "log_stock_ledger",
+    "log_stock_valuation_balance",
+    "log_stock_valuation_ledger",
+    "prd_balance",
+    "prd_job",
+    "prd_ledger",
+    "sys_number_counter"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "acc_item_category_account",
+    "log_stock_tracking",
+    "m_item",
+    "m_partner",
+    "prd_routing",
+    "prd_routing_step",
+    "prd_user_unit",
+    "ref_currency",
+    "ref_unit",
+    "ref_unit_step",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_item_category",
+    "sys_setting",
+    "sys_stock_status"
+   ]
+  },
+  "log_production_receipt": {
+   "main": "log_production_receipt",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "log_production_receipt",
+    "log_production_receipt_line",
+    "log_stock_balance",
+    "log_stock_ledger",
+    "log_stock_tracking",
+    "log_stock_valuation_balance",
+    "log_stock_valuation_ledger",
+    "prd_balance",
+    "prd_ledger",
+    "sys_number_counter"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "acc_item_category_account",
+    "log_user_warehouse",
+    "m_item",
+    "m_partner",
+    "prd_job",
+    "ref_currency",
+    "ref_unit",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_item_category",
+    "sys_setting",
+    "sys_stock_status"
+   ]
+  },
+  "log_production_receipt_return": {
+   "main": "log_production_receipt",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "log_production_receipt",
+    "log_production_receipt_line",
+    "log_stock_balance",
+    "log_stock_ledger",
+    "log_stock_tracking",
+    "log_stock_valuation_balance",
+    "log_stock_valuation_ledger",
+    "prd_balance",
+    "prd_ledger",
+    "sys_number_counter"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "acc_item_category_account",
+    "log_user_warehouse",
+    "m_item",
+    "m_partner",
+    "prd_job",
+    "ref_currency",
+    "ref_unit",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_item_category",
+    "sys_setting",
+    "sys_stock_status"
+   ]
+  },
+  "log_stock_transfer": {
+   "main": "log_stock_transfer",
+   "w": [
+    "audit_log",
+    "log_stock_balance",
+    "log_stock_ledger",
+    "log_stock_tracking",
+    "log_stock_transfer",
+    "log_stock_transfer_line",
+    "log_stock_transfer_tracking",
+    "log_stock_valuation_balance",
+    "log_stock_valuation_ledger"
+   ],
+   "r": [
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_year",
+    "log_stock_transfer_receipt",
+    "log_stock_transfer_receipt_line",
+    "log_user_warehouse",
+    "m_item",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_setting",
+    "sys_stock_status"
+   ]
+  },
+  "log_stock_transfer_receipt": {
+   "main": "log_stock_transfer_receipt",
+   "w": [
+    "audit_log",
+    "log_stock_balance",
+    "log_stock_ledger",
+    "log_stock_tracking",
+    "log_stock_transfer",
+    "log_stock_transfer_line",
+    "log_stock_transfer_receipt",
+    "log_stock_transfer_receipt_line",
+    "log_stock_transfer_receipt_tracking",
+    "log_stock_transfer_tracking",
+    "log_stock_valuation_balance",
+    "log_stock_valuation_ledger"
+   ],
+   "r": [
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_year",
+    "log_user_warehouse",
+    "m_item",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_stock_status"
+   ]
+  },
+  "log_delivery_note": {
+   "main": "log_delivery_note",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "log_delivery_note",
+    "log_delivery_note_line",
+    "log_delivery_note_tracking",
+    "log_stock_balance",
+    "log_stock_ledger",
+    "log_stock_valuation_balance",
+    "log_stock_valuation_ledger",
+    "sal_customer_order",
+    "sal_customer_order_line",
+    "sal_delivery_order",
+    "sal_delivery_order_line",
+    "sal_order",
+    "sal_order_line"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "acc_item_category_account",
+    "fin_ar_invoice",
+    "fin_ar_invoice_line",
+    "log_stock_tracking",
+    "m_item",
+    "m_partner",
+    "m_partner_address",
+    "ref_currency",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_item_category",
+    "sys_region_city",
+    "sys_region_district",
+    "sys_region_province",
+    "sys_region_village",
+    "sys_setting",
+    "sys_stock_status"
+   ]
+  },
+  "report_stock_ledger": {
+   "main": null,
+   "w": [],
+   "r": [
+    "log_stock_balance",
+    "log_stock_ledger",
+    "log_stock_tracking",
+    "log_stock_valuation_balance",
+    "log_stock_valuation_ledger",
+    "m_item",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_stock_status"
+   ]
+  },
+  "report_stock_balance": {
+   "main": null,
+   "w": [],
+   "r": [
+    "log_stock_balance",
+    "log_stock_ledger",
+    "log_stock_tracking",
+    "log_stock_valuation_balance",
+    "log_stock_valuation_ledger",
+    "m_item",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_stock_status"
+   ]
+  },
+  "report_stock_valuation_ledger": {
+   "main": null,
+   "w": [],
+   "r": [
+    "log_stock_balance",
+    "log_stock_ledger",
+    "log_stock_valuation_balance",
+    "log_stock_valuation_ledger",
+    "m_item",
+    "ref_uom",
+    "sys_doc_type"
+   ]
+  },
+  "report_stock_valuation": {
+   "main": null,
+   "w": [],
+   "r": [
+    "acc_account",
+    "acc_account_category",
+    "acc_account_subcategory",
+    "acc_journal",
+    "acc_journal_line",
+    "acc_opening_balance",
+    "acc_opening_balance_line",
+    "log_stock_valuation_ledger",
+    "m_item",
+    "m_partner",
+    "ref_uom",
+    "sys_account_type"
+   ]
+  },
+  "fin_ar_advance": {
+   "main": "fin_ar_advance",
+   "w": [
+    "audit_log",
+    "fin_ar_advance"
+   ],
+   "r": [
+    "fin_ar_item",
+    "fin_cash_bank_tx",
+    "fin_cash_bank_tx_line",
+    "m_cash_bank",
+    "m_partner",
+    "m_partner_address",
+    "ref_currency",
+    "ref_payment_term",
+    "ref_withholding_tax",
+    "sal_customer_order",
+    "sal_customer_order_line",
+    "sys_doc_type",
+    "sys_region_city",
+    "sys_region_district",
+    "sys_region_province",
+    "sys_region_village",
+    "sys_setting"
+   ]
+  },
+  "fin_ar_permit_advance": {
+   "main": "fin_ar_permit_advance",
+   "w": [
+    "audit_log",
+    "fin_ar_permit_advance"
+   ],
+   "r": [
+    "fin_ar_item",
+    "fin_cash_bank_tx",
+    "fin_cash_bank_tx_line",
+    "m_cash_bank",
+    "m_partner",
+    "m_partner_address",
+    "ref_currency",
+    "ref_payment_term",
+    "ref_withholding_tax",
+    "sal_permit_request",
+    "sal_permit_request_line",
+    "sys_doc_type",
+    "sys_region_city",
+    "sys_region_district",
+    "sys_region_province",
+    "sys_region_village",
+    "sys_setting"
+   ]
+  },
+  "fin_ap_advance": {
+   "main": "fin_ap_advance",
+   "w": [
+    "audit_log",
+    "fin_ap_advance"
+   ],
+   "r": [
+    "fin_ap_item",
+    "fin_cash_bank_tx",
+    "fin_cash_bank_tx_line",
+    "m_partner",
+    "pur_order",
+    "pur_order_line",
+    "ref_currency",
+    "ref_payment_term",
+    "ref_withholding_tax",
+    "sys_doc_type",
+    "sys_setting"
+   ]
+  },
+  "fin_ar_invoice": {
+   "main": "fin_ar_invoice",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "fin_ar_invoice",
+    "fin_ar_invoice_advance_deduction",
+    "fin_ar_invoice_credit_use",
+    "fin_ar_invoice_line",
+    "fin_ar_item",
+    "fin_ar_ledger",
+    "tax_faktur",
+    "tax_faktur_line",
+    "tax_faktur_ref"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "fin_ar_advance",
+    "fin_ar_permit_advance",
+    "fin_cash_bank_tx",
+    "fin_cash_bank_tx_line",
+    "log_delivery_note",
+    "log_delivery_note_line",
+    "log_delivery_note_tracking",
+    "m_cash_bank",
+    "m_item",
+    "m_partner",
+    "m_partner_address",
+    "ref_currency",
+    "ref_payment_term",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "ref_withholding_tax",
+    "sal_customer_order",
+    "sal_customer_order_line",
+    "sal_delivery_order",
+    "sal_delivery_order_line",
+    "sal_order",
+    "sal_order_line",
+    "sys_doc_type",
+    "sys_region_city",
+    "sys_region_district",
+    "sys_region_province",
+    "sys_region_village",
+    "sys_setting",
+    "tax_withholding_slip"
+   ]
+  },
+  "fin_ar_credit_note": {
+   "main": "fin_ar_credit_note",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "fin_ar_credit_note",
+    "fin_ar_credit_note_line",
+    "fin_ar_item",
+    "fin_ar_ledger"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "fin_ar_invoice",
+    "fin_ar_invoice_line",
+    "log_delivery_note",
+    "log_delivery_note_line",
+    "log_delivery_note_tracking",
+    "m_item",
+    "m_partner",
+    "m_partner_address",
+    "ref_currency",
+    "ref_payment_term",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "ref_withholding_tax",
+    "sal_customer_order",
+    "sal_customer_order_line",
+    "sal_delivery_order",
+    "sal_delivery_order_line",
+    "sal_order",
+    "sal_order_line",
+    "sys_doc_type",
+    "sys_region_city",
+    "sys_region_district",
+    "sys_region_province",
+    "sys_region_village",
+    "sys_setting"
+   ]
+  },
+  "fin_ar_permit_invoice": {
+   "main": "fin_ar_permit_invoice",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "fin_ar_item",
+    "fin_ar_ledger",
+    "fin_ar_permit_invoice",
+    "fin_ar_permit_invoice_advance_deduction",
+    "sal_permit_request",
+    "tax_faktur",
+    "tax_faktur_line",
+    "tax_faktur_ref"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "fin_ar_advance",
+    "fin_ar_permit_advance",
+    "fin_cash_bank_tx",
+    "fin_cash_bank_tx_line",
+    "m_cash_bank",
+    "m_item",
+    "m_partner",
+    "m_partner_address",
+    "ref_currency",
+    "ref_payment_term",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "ref_withholding_tax",
+    "sal_delivery_order",
+    "sal_delivery_order_line",
+    "sal_permit_request_line",
+    "sys_doc_type",
+    "sys_region_city",
+    "sys_region_district",
+    "sys_region_province",
+    "sys_region_village",
+    "sys_setting",
+    "tax_withholding_slip"
+   ]
+  },
+  "fin_ap_invoice": {
+   "main": "fin_ap_invoice",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "fin_ap_invoice",
+    "fin_ap_invoice_advance_deduction",
+    "fin_ap_invoice_line",
+    "fin_ap_item",
+    "fin_ap_ledger"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "fin_ap_advance",
+    "log_receipt_note",
+    "log_receipt_note_line",
+    "m_item",
+    "m_partner",
+    "pur_order",
+    "pur_order_line",
+    "ref_currency",
+    "ref_payment_term",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "ref_withholding_tax",
+    "sys_doc_type",
+    "sys_setting"
+   ]
+  },
+  "fin_cash_receipt": {
+   "main": "fin_cash_bank_tx",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "cash_bank_balance",
+    "cash_bank_ledger",
+    "cash_bank_period",
+    "fin_ar_item",
+    "fin_ar_ledger",
+    "fin_cash_bank_tx",
+    "fin_cash_bank_tx_line",
+    "fin_cash_bank_tx_line_wht",
+    "tax_faktur",
+    "tax_faktur_line",
+    "tax_withholding_slip"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "fin_ar_advance",
+    "fin_ar_credit_note",
+    "fin_ar_credit_note_line",
+    "fin_ar_invoice",
+    "fin_ar_invoice_line",
+    "fin_ar_permit_advance",
+    "fin_ar_permit_invoice",
+    "m_cash_bank",
+    "m_item",
+    "m_partner",
+    "m_partner_address",
+    "ref_currency",
+    "ref_payment_term",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "ref_withholding_tax",
+    "sal_customer_order",
+    "sal_customer_order_line",
+    "sal_permit_request",
+    "sal_permit_request_line",
+    "sys_doc_type",
+    "sys_partner_category",
+    "sys_region_city",
+    "sys_region_district",
+    "sys_region_province",
+    "sys_region_village",
+    "sys_setting"
+   ]
+  },
+  "fin_cash_payment": {
+   "main": "fin_cash_bank_tx",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "cash_bank_balance",
+    "cash_bank_ledger",
+    "cash_bank_period",
+    "fin_ap_item",
+    "fin_ap_ledger",
+    "fin_ar_item",
+    "fin_ar_ledger",
+    "fin_cash_bank_tx",
+    "fin_cash_bank_tx_line",
+    "fin_cash_bank_tx_line_wht",
+    "prd_cost_bill",
+    "sal_permit_request"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "fin_ap_advance",
+    "fin_ap_invoice",
+    "fin_ar_credit_note",
+    "fin_ar_invoice",
+    "m_cash_bank",
+    "m_partner",
+    "pur_order",
+    "pur_order_line",
+    "ref_currency",
+    "ref_payment_term",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "ref_withholding_tax",
+    "sys_doc_type",
+    "sys_partner_category",
+    "sys_setting"
+   ]
+  },
+  "fin_cash_bank_transfer": {
+   "main": "fin_cash_bank_transfer",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "cash_bank_balance",
+    "cash_bank_ledger",
+    "cash_bank_period",
+    "fin_cash_bank_transfer",
+    "fin_cash_bank_transfer_line"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "m_cash_bank",
+    "m_partner",
+    "ref_currency",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_doc_type",
+    "sys_setting"
+   ]
+  },
+  "report_cash_bank_ledger": {
+   "main": null,
+   "w": [],
+   "r": [
+    "cash_bank_balance",
+    "cash_bank_ledger",
+    "cash_bank_period",
+    "m_cash_bank",
+    "ref_currency",
+    "sys_doc_type"
+   ]
+  },
+  "report_cash_bank_balance": {
+   "main": null,
+   "w": [],
+   "r": [
+    "cash_bank_ledger",
+    "cash_bank_period",
+    "m_cash_bank",
+    "ref_currency"
+   ]
+  },
+  "report_ar_ledger": {
+   "main": null,
+   "w": [],
+   "r": [
+    "fin_ar_item",
+    "fin_ar_ledger",
+    "m_partner",
+    "sys_doc_type"
+   ]
+  },
+  "report_ar_balance": {
+   "main": null,
+   "w": [],
+   "r": [
+    "fin_ar_item",
+    "fin_ar_ledger",
+    "m_partner",
+    "sys_doc_type"
+   ]
+  },
+  "report_ar_aging": {
+   "main": null,
+   "w": [],
+   "r": [
+    "fin_ar_item",
+    "fin_ar_ledger",
+    "m_partner",
+    "sys_doc_type"
+   ]
+  },
+  "report_customer_advance": {
+   "main": null,
+   "w": [],
+   "r": [
+    "acc_account",
+    "acc_account_category",
+    "acc_account_subcategory",
+    "acc_journal",
+    "acc_journal_line",
+    "acc_opening_balance",
+    "acc_opening_balance_line",
+    "fin_ar_item",
+    "fin_ar_ledger",
+    "m_partner",
+    "sys_account_type",
+    "sys_doc_type"
+   ]
+  },
+  "report_ap_ledger": {
+   "main": null,
+   "w": [],
+   "r": [
+    "fin_ap_item",
+    "fin_ap_ledger",
+    "m_partner",
+    "sys_doc_type"
+   ]
+  },
+  "report_ap_balance": {
+   "main": null,
+   "w": [],
+   "r": [
+    "fin_ap_item",
+    "fin_ap_ledger",
+    "m_partner",
+    "sys_doc_type"
+   ]
+  },
+  "report_ap_aging": {
+   "main": null,
+   "w": [],
+   "r": [
+    "fin_ap_item",
+    "fin_ap_ledger",
+    "m_partner",
+    "sys_doc_type"
+   ]
+  },
+  "report_supplier_advance": {
+   "main": null,
+   "w": [],
+   "r": [
+    "acc_account",
+    "acc_account_category",
+    "acc_account_subcategory",
+    "acc_journal",
+    "acc_journal_line",
+    "acc_opening_balance",
+    "acc_opening_balance_line",
+    "fin_ap_item",
+    "fin_ap_ledger",
+    "m_partner",
+    "sys_account_type",
+    "sys_doc_type"
+   ]
+  },
+  "tax_faktur": {
+   "main": "tax_faktur",
+   "w": [
+    "audit_log",
+    "fin_ar_invoice",
+    "tax_faktur"
+   ],
+   "r": [
+    "m_partner",
+    "sal_customer_order",
+    "sal_permit_request",
+    "sys_doc_type",
+    "tax_faktur_line",
+    "tax_faktur_ref"
+   ]
+  },
+  "tax_withholding_slip": {
+   "main": "tax_withholding_slip",
+   "w": [
+    "audit_log",
+    "tax_withholding_slip"
+   ],
+   "r": [
+    "sys_doc_type"
+   ]
+  },
+  "acc_account": {
+   "main": "acc_account",
+   "w": [
+    "acc_account",
+    "audit_log"
+   ],
+   "r": [
+    "acc_account_subcategory",
+    "sys_partner_category"
+   ]
+  },
+  "acc_journal": {
+   "main": "acc_journal",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "m_partner",
+    "ref_currency",
+    "sys_doc_type"
+   ]
+  },
+  "report_general_ledger": {
+   "main": null,
+   "w": [],
+   "r": [
+    "acc_account",
+    "acc_journal",
+    "acc_journal_line",
+    "acc_opening_balance",
+    "acc_opening_balance_line",
+    "ref_currency"
+   ]
+  },
+  "report_trial_balance": {
+   "main": null,
+   "w": [],
+   "r": [
+    "acc_account",
+    "acc_journal",
+    "acc_journal_line",
+    "acc_opening_balance",
+    "acc_opening_balance_line",
+    "ref_currency"
+   ]
+  },
+  "report_profit_loss": {
+   "main": null,
+   "w": [],
+   "r": [
+    "acc_account",
+    "acc_account_category",
+    "acc_account_subcategory",
+    "acc_journal",
+    "acc_journal_line",
+    "m_partner",
+    "sys_account_type",
+    "sys_doc_type"
+   ]
+  },
+  "report_balance_sheet": {
+   "main": null,
+   "w": [],
+   "r": [
+    "acc_account",
+    "acc_account_category",
+    "acc_account_subcategory",
+    "acc_fiscal_closing",
+    "acc_fiscal_year",
+    "acc_journal",
+    "acc_journal_line",
+    "acc_opening_balance",
+    "acc_opening_balance_line",
+    "m_partner",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_account_type",
+    "sys_doc_type",
+    "sys_setting"
+   ]
+  },
+  "acc_fiscal_year": {
+   "main": "acc_fiscal_year",
+   "w": [
+    "acc_fiscal_year",
+    "audit_log"
+   ],
+   "r": []
+  },
+  "acc_fiscal_closing": {
+   "main": "acc_fiscal_closing",
+   "w": [
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_year",
+    "acc_journal",
+    "acc_journal_line",
+    "acc_opening_balance",
+    "acc_opening_balance_line",
+    "audit_log"
+   ],
+   "r": [
+    "acc_account",
+    "acc_account_category",
+    "acc_account_subcategory",
+    "acc_cost_type",
+    "acc_fiscal_period_lock",
+    "m_partner",
+    "prd_ledger",
+    "ref_currency",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_account_type",
+    "sys_doc_type",
+    "sys_setting"
+   ]
+  },
+  "acc_opening_balance": {
+   "main": "acc_opening_balance",
+   "w": [],
+   "r": [
+    "acc_account",
+    "acc_fiscal_year",
+    "acc_opening_balance",
+    "acc_opening_balance_line",
+    "m_partner"
+   ]
+  },
+  "account_mapping": {
+   "main": "sys_setting",
+   "w": [
+    "audit_log",
+    "sys_setting"
+   ],
+   "r": [
+    "acc_account",
+    "log_stock_balance",
+    "ref_warehouse",
+    "ref_warehouse_location"
+   ]
+  },
+  "item_category_account": {
+   "main": "acc_item_category_account",
+   "w": [
+    "acc_item_category_account",
+    "audit_log"
+   ],
+   "r": [
+    "acc_account",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "sys_item_category",
+    "sys_setting"
+   ]
+  },
+  "m_partner": {
+   "main": "m_partner",
+   "w": [
+    "audit_log",
+    "m_partner",
+    "m_partner_address",
+    "m_partner_contact"
+   ],
+   "r": [
+    "ref_currency",
+    "ref_payment_term",
+    "sys_partner_category"
+   ]
+  },
+  "m_item": {
+   "main": "m_item",
+   "w": [
+    "audit_log",
+    "m_item",
+    "m_item_uom"
+   ],
+   "r": [
+    "ref_uom",
+    "sys_item_category"
+   ]
+  },
+  "m_cash_bank": {
+   "main": "m_cash_bank",
+   "w": [
+    "audit_log",
+    "cash_bank_balance",
+    "cash_bank_ledger",
+    "cash_bank_period",
+    "m_cash_bank"
+   ],
+   "r": [
+    "acc_account",
+    "ref_currency"
+   ]
+  },
+  "ref_warehouse": {
+   "main": "ref_warehouse",
+   "w": [
+    "audit_log",
+    "ref_warehouse"
+   ],
+   "r": []
+  },
+  "ref_warehouse_location": {
+   "main": "ref_warehouse_location",
+   "w": [
+    "audit_log",
+    "ref_warehouse_location"
+   ],
+   "r": [
+    "ref_warehouse"
+   ]
+  },
+  "ref_workstation": {
+   "main": "ref_workstation",
+   "w": [
+    "audit_log",
+    "ref_workstation"
+   ],
+   "r": []
+  },
+  "ref_unit": {
+   "main": "ref_unit",
+   "w": [
+    "audit_log",
+    "ref_unit",
+    "ref_unit_step"
+   ],
+   "r": [
+    "ref_workstation"
+   ]
+  },
+  "prd_line": {
+   "main": "prd_line",
+   "w": [
+    "audit_log",
+    "prd_line"
+   ],
+   "r": [
+    "acc_account"
+   ]
+  },
+  "prd_routing": {
+   "main": "prd_routing",
+   "w": [
+    "audit_log",
+    "prd_routing",
+    "prd_routing_step"
+   ],
+   "r": [
+    "prd_line"
+   ]
+  },
+  "ref_currency": {
+   "main": "ref_currency",
+   "w": [
+    "audit_log",
+    "ref_currency"
+   ],
+   "r": []
+  },
+  "ref_exchange_rate": {
+   "main": "ref_exchange_rate",
+   "w": [
+    "audit_log",
+    "ref_exchange_rate"
+   ],
+   "r": [
+    "ref_currency"
+   ]
+  },
+  "ref_uom": {
+   "main": "ref_uom",
+   "w": [
+    "audit_log",
+    "ref_uom"
+   ],
+   "r": []
+  },
+  "ref_payment_term": {
+   "main": "ref_payment_term",
+   "w": [
+    "audit_log",
+    "ref_payment_term"
+   ],
+   "r": []
+  },
+  "ref_withholding_tax": {
+   "main": "ref_withholding_tax",
+   "w": [
+    "audit_log",
+    "ref_withholding_tax"
+   ],
+   "r": [
+    "acc_account"
+   ]
+  },
+  "ref_permit_type": {
+   "main": "ref_permit_type",
+   "w": [
+    "audit_log",
+    "ref_permit_type"
+   ],
+   "r": []
+  },
+  "sys_user": {
+   "main": "sys_user",
+   "w": [
+    "audit_log",
+    "log_user_warehouse",
+    "prd_user_unit",
+    "sys_user",
+    "sys_user_role"
+   ],
+   "r": [
+    "ref_unit",
+    "ref_warehouse",
+    "ref_workstation",
+    "sys_permission",
+    "sys_role",
+    "sys_role_permission"
+   ]
+  },
+  "sys_role": {
+   "main": "sys_role",
+   "w": [
+    "audit_log",
+    "sys_role",
+    "sys_role_permission"
+   ],
+   "r": [
+    "sys_permission",
+    "sys_user",
+    "sys_user_role"
+   ]
+  },
+  "sys_partner_category": {
+   "main": "sys_partner_category",
+   "w": [
+    "audit_log",
+    "sys_partner_category"
+   ],
+   "r": []
+  },
+  "sys_setting": {
+   "main": "sys_setting",
+   "w": [
+    "audit_log",
+    "sys_setting"
+   ],
+   "r": [
+    "acc_account",
+    "log_stock_balance",
+    "ref_currency",
+    "ref_warehouse",
+    "ref_warehouse_location"
+   ]
+  },
+  "profile": {
+   "main": "sys_user",
+   "w": [
+    "audit_log",
+    "sys_user"
+   ],
+   "r": []
+  }
+ }
+}

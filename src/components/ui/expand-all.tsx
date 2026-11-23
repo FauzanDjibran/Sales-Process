@@ -13,12 +13,26 @@ export function ExpandAll({
   onCollapse,
   allOpen,
   allClosed,
+  iconOnly,
 }: {
   onExpand: () => void;
   onCollapse: () => void;
   allOpen?: boolean;
   allClosed?: boolean;
+  /** Two icons, where the bar is too narrow for words. */
+  iconOnly?: boolean;
 }) {
+  if (iconOnly)
+    return (
+      <>
+        <button type="button" className="iact" title="Buka Semua" aria-label="Buka Semua" onClick={onExpand} disabled={allOpen}>
+          <Icon name="expand" size={14} />
+        </button>
+        <button type="button" className="iact" title="Tutup Semua" aria-label="Tutup Semua" onClick={onCollapse} disabled={allClosed}>
+          <Icon name="collapse" size={14} />
+        </button>
+      </>
+    );
   return (
     <>
       <button className="btn sm" onClick={onExpand} disabled={allOpen}>

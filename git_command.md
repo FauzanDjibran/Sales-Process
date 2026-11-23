@@ -97,6 +97,7 @@ node --env-file-if-exists=.env --conditions=react-server --import tsx --test tes
 | `npm run db:reset` | **Drops the whole database**, re-applies every migration, then runs `db:seed`. You get system data only (admin, regions, settings…) and nothing you entered | ⛔ Destroys all data |
 | `npm run db:fresh-makloon` | `db:reset` **plus** `db:seed-makloon`: a clean database already filled with the makloon company | ⛔ Destroys all data |
 | `npm run db:fresh-walet` | `db:reset` **plus** `db:seed-walet`: a clean database already filled with the walet company | ⛔ Destroys all data |
+| `npm run db:map` | Rebuilds the Database application's map of which tables each menu uses (P313). Run after a migration or a new menu, then commit `src/lib/erp/db-map.json` | ✅ Safe, writes one file |
 | `npx prisma migrate dev --name <name>` | Creates a **new** migration from a schema change. Developer command; Claude runs it, you normally never do | ⚠️ Can offer to reset in some states |
 
 > **Why `db:reset` used to leave everything empty:** Prisma 7 only seeds after

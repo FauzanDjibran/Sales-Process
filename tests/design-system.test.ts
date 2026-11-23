@@ -1133,9 +1133,11 @@ describe("the shell and the breadcrumb", () => {
   });
 
   test("the shell renders the burger and the scrim the narrow layout expects", () => {
-    const text = code(files.find((f) => f.rel === "src/components/shell/app-shell.tsx")!.text);
-    assert.match(text, /className="tb-burger"/);
-    assert.match(text, /className="scrim"/);
+    // The burger is in the topbar every application shares (P313).
+    const of = (name: string) => code(files.find((f) => f.rel === `src/components/shell/${name}.tsx`)!.text);
+    assert.match(of("topbar"), /className="tb-burger"/);
+    assert.match(of("app-shell"), /<Topbar/);
+    assert.match(of("app-shell"), /className="scrim"/);
   });
 });
 
@@ -1147,9 +1149,10 @@ describe("tints, icons and the stylesheet stay lean", () => {
     assert.deepEqual(bad.map((f) => f.rel), [], "Use the tone classes: `t-ok`, `t-warn`, `t-info`, `t-bad`.");
   });
 
-  test("only `components/icon.tsx` draws an <svg>", () => {
+  test("only `components/icon.tsx` and the diagram canvas draw an <svg>", () => {
+    // The Database diagram's lines and its small map are drawings, not icons (P313).
     const bad = files.filter(
-      (f) => !f.rel.endsWith("components/icon.tsx") && /<svg[\s>]/.test(code(f.text))
+      (f) => !/components\/(icon|database\/diagram-canvas)\.tsx$/.test(f.rel) && /<svg[\s>]/.test(code(f.text))
     );
     assert.deepEqual(bad.map((f) => f.rel), [], "Use `<Icon name=… />`.");
   });

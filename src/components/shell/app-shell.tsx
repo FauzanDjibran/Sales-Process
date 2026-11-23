@@ -1,18 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Icon } from "@/components/icon";
-import { logout } from "@/app/actions/auth";
-import { APPS, type AppKey, type NavModule, resolvePath, entityHref } from "@/lib/erp/nav";
-
-export type ShellUser = {
-  name: string;
-  initials: string;
-  email: string;
-  roles: string[];
-};
+import { Topbar, type ShellUser } from "@/components/shell/topbar";
+import { type AppKey, type NavModule, resolvePath, entityHref } from "@/lib/erp/nav";
 
 /**
  * `modules` arrives already filtered by the signed-in user's permissions (see
@@ -50,24 +43,6 @@ export function AppShell({
     if (railTarget === pathname) setRailTarget(null);
     else if (navOpen) setNavOpen(false);
   }
-  const [userOpen, setUserOpen] = useState(false);
-  const userRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!userOpen) return;
-    const onDown = (e: MouseEvent) => {
-      if (!userRef.current?.contains(e.target as Node)) setUserOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setUserOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [userOpen]);
 
   // The submenu shows only the leaves this user may reach; a module whose
   // leaves are all hidden never reaches the rail in the first place.
@@ -99,75 +74,7 @@ export function AppShell({
 
   return (
     <div className="app">
-      <header className="topbar">
-        <button
-          className="tb-burger"
-          onClick={() => setNavOpen((o) => !o)}
-          aria-label={navOpen ? "Tutup menu" : "Buka menu"}
-          aria-expanded={navOpen}
-        >
-          <Icon name="menu" size={17} />
-        </button>
-        <div className="brand">
-          <div className="brand-mark">{APPS[app].mark}</div>
-          <div className="brand-txt">{APPS[app].name}</div>
-          <span className="brand-ver">0.1</span>
-        </div>
-        {canSwitch && (
-          <Link className="ticon" href="/apps" title="Pilih aplikasi" aria-label="Pilih aplikasi">
-            <Icon name="grid" size={15} />
-          </Link>
-        )}
-
-        <div className="tb-spacer" />
-
-        <div className="uchip-wrap" ref={userRef}>
-          <button
-            className="uchip"
-            onClick={() => setUserOpen((o) => !o)}
-            title="Akun saya"
-            aria-haspopup="menu"
-            aria-expanded={userOpen}
-          >
-            <div className="avatar">{user.initials}</div>
-            <b>{user.name}</b>
-            <Icon name="down" size={12} />
-          </button>
-
-          {userOpen && (
-            <div className="umenu" role="menu">
-              <div className="umenu-h">
-                <b>{user.name}</b>
-                <span>{user.email}</span>
-                <span className="umenu-roles">
-                  {user.roles.length ? (
-                    user.roles.map((r) => (
-                      <span className="bdg t-slate" key={r}>
-                        {r}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="bdg s-mute">Tanpa Role</span>
-                  )}
-                </span>
-              </div>
-              <Link
-                className="umenu-i"
-                href={app === "production" ? "/production/profile" : "/settings/profile"}
-                onClick={() => setUserOpen(false)}
-                role="menuitem"
-              >
-                <Icon name="user" size={14} /> Profil Saya
-              </Link>
-              <form action={logout}>
-                <button className="umenu-i danger" type="submit" role="menuitem">
-                  <Icon name="out" size={14} /> Keluar
-                </button>
-              </form>
-            </div>
-          )}
-        </div>
-      </header>
+      <Topbar app={app} canSwitch={canSwitch} user={user} navOpen={navOpen} onNav={() => setNavOpen((o) => !o)} />
 
       <div className="body">
         {/* A drawer that is off screen, or a submenu collapsed to nothing, must

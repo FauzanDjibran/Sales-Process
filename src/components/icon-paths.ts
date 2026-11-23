@@ -50,7 +50,11 @@ export const ICON_PATHS = {  grid:'<path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-
   box:'<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><polyline points="3 8 12 13 21 8"/><line x1="12" y1="13" x2="12" y2="21"/>',
   pin:'<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/>',
   // From the simulation's icon set (Surat Jalan), for the delivery documents.
-  truck:'<path d="M1 4h14v12H1z"/><path d="M15 8h4.5L23 11.5V16h-8z"/><circle cx="5.5" cy="18.5" r="2.2"/><circle cx="18.5" cy="18.5" r="2.2"/>'
+  truck:'<path d="M1 4h14v12H1z"/><path d="M15 8h4.5L23 11.5V16h-8z"/><circle cx="5.5" cy="18.5" r="2.2"/><circle cx="18.5" cy="18.5" r="2.2"/>',
+  // The Database viewer's (P313): a table, the side panel, and focusing on one.
+  table:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M9 10v10"/>',
+  panel:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
+  aim:'<circle cx="12" cy="12" r="7"/><circle cx="12" cy="12" r="2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/>'
 } as const;
 
 export type IconName = keyof typeof ICON_PATHS;

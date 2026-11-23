@@ -1027,6 +1027,14 @@ export const MODULES: NavModule[] = [
       },
     ],
   },
+  // ------------------------------------------------- aplikasi Database (P313)
+  {
+    key: "database",
+    name: "Database",
+    icon: "layers",
+    desc: "Struktur tabel, relasi, dan menu yang memakainya. Hanya melihat.",
+    permission: "MENU_DATABASE_ACCESS",
+  },
 ];
 
 export function moduleByKey(key: string): NavModule | undefined {
@@ -1034,11 +1042,12 @@ export function moduleByKey(key: string): NavModule | undefined {
 }
 
 /**
- * The two applications behind one sign-in (P245, P254): a catalogue in code,
+ * The applications behind one sign-in (P245, P254, P313): a catalogue in code,
  * like the cash & bank purposes. Every module is the ERP's but `production`,
- * whose URL space `/production/*` is the Produksi application.
+ * whose URL space `/production/*` is the Produksi application, and `database`,
+ * the read-only viewer of the schema.
  */
-export type AppKey = "erp" | "production";
+export type AppKey = "erp" | "production" | "database";
 
 export const APPS: Record<AppKey, { name: string; mark: string; desc: string }> = {
   erp: {
@@ -1050,6 +1059,11 @@ export const APPS: Record<AppKey, { name: string; mark: string; desc: string }> 
     name: "Produksi",
     mark: "PR",
     desc: "Workspace Unit, dokumen pengerjaan, perpindahan antar Unit, dan telusur.",
+  },
+  database: {
+    name: "Database",
+    mark: "DB",
+    desc: "Struktur tabel, relasi, dan menu yang memakainya. Hanya melihat.",
   },
 };
 
@@ -1064,7 +1078,8 @@ export function modulePath(m: Pick<NavModule, "key" | "path">): string {
  */
 export function appOfModule(moduleKey: string): AppKey {
   const mod = MODULES.find((m) => m.key === moduleKey);
-  return (mod ? modulePath(mod) : moduleKey) === "production" ? "production" : "erp";
+  const path = mod ? modulePath(mod) : moduleKey;
+  return path === "production" || path === "database" ? path : "erp";
 }
 
 /**

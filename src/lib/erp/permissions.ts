@@ -28,7 +28,8 @@ export type PermissionModule =
   | "accounting"
   | "finance"
   | "tax"
-  | "settings";
+  | "settings"
+  | "database";
 
 export type PermissionDef = {
   code: string;
@@ -460,6 +461,8 @@ export const PERMISSIONS = [
   { code: "TAX_SLIP_VIEW", name: "Lihat Bukti Potong PPh", module: "tax", description: "PPh yang dipotong customer dari pembayarannya." },
   { code: "TAX_SLIP_RECEIVE", name: "Catat Bukti Potong Diterima", module: "tax", description: "Mencatat atau mengoreksi nomor dan tanggal bukti potong (BPPU) dari customer. Tidak membentuk journal." },
 
+  { code: "MENU_DATABASE_ACCESS", name: "Akses aplikasi Database", module: "database", description: "Melihat struktur tabel, relasi, dan menu yang memakainya. Tanpa isi data." },
+
   { code: "MENU_SETTINGS_ACCESS", name: "Akses menu Pengaturan", module: "settings" },
   { code: "MENU_USER_ACCESS", name: "Akses menu User", module: "settings" },
   { code: "MENU_ROLE_ACCESS", name: "Akses menu Role", module: "settings" },
@@ -532,6 +535,7 @@ export const MODULE_LABELS: Record<PermissionModule, string> = {
   finance: "Finance",
   tax: "Pajak",
   settings: "Pengaturan",
+  database: "Database",
 };
 
 /** Catalogue order, grouped by module — drives the role permission matrix. */
@@ -548,6 +552,7 @@ export const MODULE_ORDER: PermissionModule[] = [
   "settings",
   // The Produksi application's module comes last: the matrix lists the ERP's, then Produksi's (P254).
   "production",
+  "database",
 ];
 
 export function permissionsByModule(): Record<PermissionModule, PermissionDef[]> {

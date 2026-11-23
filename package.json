@@ -33,6 +33,7 @@
     "db:neon-seed-walet": "npm run db:neon-seed-accounts && npm run db:neon-seed-production && npm run db:neon-seed-production-showcase && node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-walet.ts",
     "db:seed-cash-bank-showcase": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/seed-cash-bank-showcase.ts",
     "db:neon-seed-cash-bank-showcase": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-cash-bank-showcase.ts",
+    "db:map": "tsx scripts/db-map.ts",
     "db:reset": "prisma migrate reset --force && npm run db:seed",
     "db:fresh-makloon": "npm run db:reset && npm run db:seed-makloon",
     "db:fresh-walet": "npm run db:reset && npm run db:seed-walet",
