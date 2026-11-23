@@ -1,18 +1,21 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import Link from "next/link";
-import { Icon } from "@/components/icon";
+import { loadStockCardEntries } from "@/app/actions/book-entries";
 import { BlockHead, CountLine, ReportEmpty } from "@/components/report/report-blocks";
 import { Drill } from "@/components/report/drill";
+import { LazyRows, useLazyEntries } from "@/components/report/lazy-entries";
 import { ReportSummary } from "@/components/report/report-summary";
 import { documentHref } from "@/lib/erp/document-links";
 import type { PeriodRange } from "@/lib/erp/period";
+import type { BookCursor } from "@/lib/erp/register-query";
 import { reportHref } from "@/lib/erp/reports";
 import type {
   StockCard,
   StockGroupBy,
   StockItemRef,
+  StockLedgerEntry,
   StockPosition,
   StockSourceRef,
   StockWarehouseRef,
@@ -21,102 +24,64 @@ import { formatDate, formatNumber } from "@/lib/format";
 
 /**
  * Kartu Stok and Saldo Stok, grouped per item (*where is this item?*) or per
- * warehouse (*what does this warehouse hold?*). Both nest the same item ×
- * warehouse cards the other way round, in the General Ledger's rolled-up
- * blocks: the block header states the totals, a row per card states its
- * figures, and the lots or movements behind a card are one click further.
+ * warehouse (*what does this warehouse hold?*), in the subject books' blocks
+ * (Buku Piutang) with one level of folding. Kartu Stok is a block per item ×
+ * warehouse, its movements read when it is opened; Saldo Stok a block per item
+ * or warehouse, a row per bucket.
  *
- * A warehouse block totals nothing: its items are in different units, so the
- * count of items is its summary.
+ * A warehouse totals nothing: its items are in different units, so the count of
+ * items is its summary.
  */
 
 const qty = (n: number) => {
   const text = formatNumber(Math.abs(n), Number.isInteger(n) ? 0 : 4);
   return n === 0 ? "—" : n < 0 ? `(${text})` : text;
 };
-const cardKey = (c: { item: StockItemRef; warehouse: StockWarehouseRef }) => `${c.item.id}:${c.warehouse.id}`;
+/** A quantity holds six decimals; adding them as numbers must not leave a tail. */
+const round6 = (n: number) => Math.round(n * 1e6) / 1e6;
 
-type Block<T> = { id: number; label: string; name: string; cards: T[] };
+type Subjects = { item: StockItemRef; warehouse: StockWarehouseRef };
+const cardKey = (c: Subjects) => `${c.item.id}:${c.warehouse.id}`;
 
-/** The blocks in label order, each card once; the server already sorts cards by item, then warehouse. */
-function groupCards<T extends { item: StockItemRef; warehouse: StockWarehouseRef }>(cards: T[], by: StockGroupBy): Block<T>[] {
-  const blocks = new Map<number, Block<T>>();
+type Group<T> = { id: number; label: string; name: string; cards: T[] };
+
+/** The groups in label order, each card once; the server already sorts cards by item, then warehouse. */
+function groupCards<T extends Subjects>(cards: T[], by: StockGroupBy): Group<T>[] {
+  const groups = new Map<number, Group<T>>();
   for (const c of cards) {
     const s = by === "item" ? c.item : c.warehouse;
-    let b = blocks.get(s.id);
-    if (!b) blocks.set(s.id, (b = { id: s.id, label: s.label, name: s.name, cards: [] }));
-    b.cards.push(c);
+    let g = groups.get(s.id);
+    if (!g) groups.set(s.id, (g = { id: s.id, label: s.label, name: s.name, cards: [] }));
+    g.cards.push(c);
   }
-  const list = [...blocks.values()];
+  const list = [...groups.values()];
   if (by === "warehouse") list.sort((a, b) => a.label.localeCompare(b.label));
   return list;
 }
 
-/** Block and row fold state; a report of one block opens it, since there is nothing else to scan. */
-function useFolds<T extends { item: StockItemRef; warehouse: StockWarehouseRef }>(blocks: Block<T>[]) {
-  const [openBlocks, setOpenBlocks] = useState<Set<number>>(() => new Set(blocks.length === 1 ? [blocks[0].id] : []));
-  const [openRows, setOpenRows] = useState<Set<string>>(new Set());
-  const flip = <K,>(set: Set<K>, k: K) => {
-    const next = new Set(set);
-    if (next.has(k)) next.delete(k);
-    else next.add(k);
-    return next;
-  };
-  const allRows = blocks.flatMap((b) => b.cards.map(cardKey));
-  return {
-    blockOpen: (id: number) => openBlocks.has(id),
-    rowOpen: (k: string) => openRows.has(k),
-    toggleBlock: (id: number) => setOpenBlocks((s) => flip(s, id)),
-    toggleRow: (k: string) => setOpenRows((s) => flip(s, k)),
-    expandAll: () => {
-      setOpenBlocks(new Set(blocks.map((b) => b.id)));
-      setOpenRows(new Set(allRows));
-    },
-    collapseAll: () => {
-      setOpenBlocks(new Set());
-      setOpenRows(new Set());
-    },
-    allOpen: openBlocks.size === blocks.length && openRows.size === allRows.length,
-    allClosed: openBlocks.size === 0 && openRows.size === 0,
-  };
+function flip<K>(set: Set<K>, k: K) {
+  const next = new Set(set);
+  if (!next.delete(k)) next.add(k);
+  return next;
 }
 
-function ResultBar({ count, noun, when, folds }: { count: number; noun: string; when: string; folds: ReturnType<typeof useFolds> }) {
-  return (
-    <CountLine
-      count={count}
-      noun={noun}
-      when={when}
-      expand={{ onExpand: folds.expandAll, onCollapse: folds.collapseAll, allOpen: folds.allOpen, allClosed: folds.allClosed }}
-    />
-  );
+/** Buka / Tutup Semua over a report's blocks, when there is more than one. */
+function expandOf<K>(keys: K[], open: Set<K>, show: (next: Set<K>) => void) {
+  if (keys.length < 2) return undefined;
+  return { onExpand: () => show(new Set(keys)), onCollapse: () => show(new Set()), allOpen: open.size === keys.length, allClosed: open.size === 0 };
 }
 
-function Toggle({ open, onClick, what }: { open: boolean; onClick: () => void; what: string }) {
-  return (
-    <button className="tgl" onClick={onClick} title={open ? `Tutup ${what}` : `Buka ${what}`}>
-      <span className={`chev${open ? " o" : ""}`}>
-        <Icon name="chev" size={11} />
-      </span>
-    </button>
-  );
-}
-
-/** The other side of the card: the warehouse in an item's block, the item in a warehouse's. */
-const otherSide = (c: { item: StockItemRef; warehouse: StockWarehouseRef }, by: StockGroupBy) => (by === "item" ? c.warehouse : c.item);
-
-function Lot({ lotNo, expiry, statusName, showExpiry }: { lotNo: string; expiry: string | null; statusName: string; showExpiry?: boolean }) {
+function Lot({ lotNo, statusName }: { lotNo: string; statusName: string }) {
   return (
     <>
       <span className="lab">{lotNo}</span>
-      {showExpiry && expiry && <span className="rsub">ED {formatDate(expiry)}</span>}
       {/* Status is worth a word only when the lot is not simply available. */}
       {statusName && statusName !== "Tersedia" && <span className="rsub">{statusName}</span>}
     </>
   );
 }
 
-/** The Lokasi column: the location's own label (the Gudang has its own column), `—` where the warehouse keeps none. */
+/** The location's own label, `—` where the warehouse keeps none. */
 function Location({ label, name }: { label: string | null; name: string | null }) {
   if (!label) return <span className="dash">—</span>;
   return (
@@ -130,24 +95,24 @@ function Location({ label, name }: { label: string | null; name: string | null }
 function Source({ s }: { s: StockSourceRef }) {
   const href = documentHref(s.table, s.id);
   return href ? (
-    <Link className="rsub" href={href} title={`Buka ${s.docName}`}>
+    <Link className="lab" href={href} title={`Buka ${s.docName}`}>
       {s.no}
     </Link>
   ) : (
-    <span className="rsub" title={s.docName}>
-      {s.no}
-    </span>
+    <span className="lab">{s.no}</span>
   );
 }
 
-const Empty = ({ title, body }: { title: string; body: string }) => <ReportEmpty icon="layers" title={title} body={body} />;
+const Figure = ({ n }: { n: number }) => (n ? <span className="mny">{qty(n)}</span> : <span className="dash">—</span>);
+
+const Empty = ({ body }: { body: string }) => <ReportEmpty icon="layers" title="Tidak ada stok" body={body} />;
 
 // ----------------------------------------------------------- Saldo Stok
 
 export function StockBalanceBody({ positions, groupBy, asOf }: { positions: StockPosition[]; groupBy: StockGroupBy; asOf: string }) {
-  const blocks = groupCards(positions, groupBy);
-  const folds = useFolds(blocks);
-  if (!positions.length) return <Empty title="Tidak ada stok" body="Tidak ada barang dengan saldo pada tanggal dan filter ini." />;
+  const groups = groupCards(positions, groupBy);
+  const [open, setOpen] = useState<Set<number>>(() => new Set(groups.map((g) => g.id)));
+  if (!positions.length) return <Empty body="Tidak ada barang dengan saldo pada tanggal dan filter ini." />;
 
   // A position opens its Kartu Stok over its month to date, so the reader sees how it came to be.
   const ledgerHref = (p: StockPosition) =>
@@ -155,79 +120,66 @@ export function StockBalanceBody({ positions, groupBy, asOf }: { positions: Stoc
 
   return (
     <>
-      <ResultBar count={blocks.length} noun={groupBy === "item" ? "barang" : "gudang"} when={`per ${formatDate(asOf)}`} folds={folds} />
-      {blocks.map((b) => {
-        const open = folds.blockOpen(b.id);
-        const lots = b.cards.reduce((s, c) => s + c.lots.length, 0);
+      <CountLine
+        count={groups.length}
+        noun={groupBy === "item" ? "barang" : "gudang"}
+        when={`per ${formatDate(asOf)}`}
+        expand={expandOf(groups.map((g) => g.id), open, setOpen)}
+      />
+      {groups.map((g) => {
+        const isOpen = open.has(g.id);
+        const rows = g.cards.reduce((s, c) => s + c.lots.length, 0);
         return (
-          <div className="cblock" key={b.id}>
-            {groupBy === "item" ? (
-              <BlockHead label={b.label} open={open} onToggle={() => folds.toggleBlock(b.id)} meta={`${b.name} · ${b.cards.length} gudang · ${lots} lot · ${b.cards[0].item.uomLabel}`}>
-                <ReportSummary figures={[{ label: "Jumlah", value: qty(b.cards.reduce((s, c) => s + c.qty, 0)), key: true }]} />
-              </BlockHead>
-            ) : (
-              <BlockHead label={b.label} open={open} onToggle={() => folds.toggleBlock(b.id)} meta={`${b.name} · ${lots} lot`}>
-                <ReportSummary figures={[{ label: "Barang", value: String(b.cards.length), key: true }]} />
-              </BlockHead>
-            )}
-            {open && (
+          <div className="cblock" key={g.id}>
+            <BlockHead
+              label={g.label}
+              open={isOpen}
+              onToggle={() => setOpen(flip(open, g.id))}
+              meta={`${g.name} · ${rows} baris${groupBy === "item" ? ` · ${g.cards[0].item.uomLabel}` : ""}`}
+            >
+              <ReportSummary
+                figures={[
+                  groupBy === "item"
+                    ? { label: "Jumlah", value: qty(round6(g.cards.reduce((s, c) => s + c.qty, 0))), key: true }
+                    : { label: "Barang", value: String(g.cards.length), key: true },
+                ]}
+              />
+            </BlockHead>
+            {isOpen && (
               <div className="tw">
-                {/* A card row names its warehouse (Per Barang) or item (Per Gudang) across the
-                    first four columns; the buckets under it read Gudang · Lokasi · Lot · Kadaluarsa. */}
-                <table className="grid stm" style={{ minWidth: 820 }}>
+                <table className="grid" style={{ minWidth: 860 }}>
                   <thead>
                     <tr>
-                      <th style={{ width: 200 }}>{groupBy === "item" ? "Gudang" : "Barang / Gudang"}</th>
-                      <th style={{ width: 200 }}>Lokasi</th>
-                      <th>Lot</th>
+                      <th>{groupBy === "item" ? "Gudang" : "Barang"}</th>
+                      <th style={{ width: 160 }}>Lokasi</th>
+                      <th style={{ width: 220 }}>Lot</th>
                       <th style={{ width: 120 }}>Kadaluarsa</th>
-                      <th className="num" style={{ width: 160 }}>
-                        Jumlah
-                      </th>
+                      <th className="num" style={{ width: 150 }}>Jumlah</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {b.cards.map((p) => {
-                      const k = cardKey(p);
-                      const rowOpen = folds.rowOpen(k);
-                      const s = otherSide(p, groupBy);
-                      return (
-                        <Fragment key={k}>
-                          <tr className="st-cat">
-                            <td className="stn" colSpan={4}>
-                              <div className="stc">
-                                <Toggle open={rowOpen} onClick={() => folds.toggleRow(k)} what="lot" />
-                                <Drill href={ledgerHref(p)} title="Buka Kartu Stok barang ini di gudang ini">
-                                  <span className="lab">{s.label}</span>
-                                </Drill>
-                                <span className="nm">{s.name}</span>
-                                <span className="cd">· {p.lots.length} lot</span>
-                              </div>
-                            </td>
-                            <td className="num">
-                              <span className="mny">{qty(p.qty)}</span> <span className="cd">{p.item.uomLabel}</span>
-                            </td>
-                          </tr>
-                          {rowOpen &&
-                            p.lots.map((l, i) => (
-                              <tr key={`${k}-${i}`} className="st-par">
-                                <td className="stn d2">
-                                  <span className="lab">{p.warehouse.label}</span>
-                                </td>
-                                <td>
-                                  <Location label={l.locationLabel} name={l.locationName} />
-                                </td>
-                                <td>
-                                  <Lot {...l} />
-                                </td>
-                                <td>{l.expiry ? <span className="mono">{formatDate(l.expiry)}</span> : <span className="dash">—</span>}</td>
-                                <td className="num">
-                                  <span className="mny">{qty(l.qty)}</span>
-                                </td>
-                              </tr>
-                            ))}
-                        </Fragment>
-                      );
+                    {g.cards.flatMap((p) => {
+                      const s = groupBy === "item" ? p.warehouse : p.item;
+                      return p.lots.map((l, i) => (
+                        <tr key={`${cardKey(p)}-${i}`} style={{ cursor: "default" }}>
+                          <td>
+                            <Drill href={ledgerHref(p)} title="Buka Kartu Stok barang ini di gudang ini">
+                              <span className="lab">{s.label}</span> <span className="nm">{s.name}</span>
+                            </Drill>
+                          </td>
+                          <td>
+                            <Location label={l.locationLabel} name={l.locationName} />
+                          </td>
+                          <td>
+                            <Lot {...l} />
+                          </td>
+                          <td>{l.expiry ? <span className="mono">{formatDate(l.expiry)}</span> : <span className="dash">—</span>}</td>
+                          <td className="num">
+                            <Figure n={l.qty} />
+                            {groupBy === "warehouse" && <span className="cd"> {p.item.uomLabel}</span>}
+                          </td>
+                        </tr>
+                      ));
                     })}
                   </tbody>
                 </table>
@@ -242,155 +194,132 @@ export function StockBalanceBody({ positions, groupBy, asOf }: { positions: Stoc
 
 // ---------------------------------------------------------- Kartu Stok
 
-export function StockLedgerBody({ cards, groupBy, range }: { cards: StockCard[]; groupBy: StockGroupBy; range: PeriodRange }) {
-  const blocks = groupCards(cards, groupBy);
-  const folds = useFolds(blocks);
-  if (!cards.length) return <Empty title="Tidak ada stok" body="Tidak ada saldo maupun mutasi untuk barang dan gudang ini pada rentang tanggal ini." />;
-
-  const sum = (list: StockCard[], f: (c: StockCard) => number) => list.reduce((s, c) => s + f(c), 0);
+export function StockLedgerBody({ cards, groupBy, range, lotNos }: { cards: StockCard[]; groupBy: StockGroupBy; range: PeriodRange; lotNos: string[] }) {
+  const [open, setOpen] = useState<Set<string>>(() => new Set(cards.length === 1 ? [cardKey(cards[0])] : []));
+  const lazy = useLazyEntries<StockLedgerEntry, BookCursor, string>((k, cursor) => {
+    const [itemId, warehouseId] = k.split(":").map(Number);
+    return loadStockCardEntries(itemId, warehouseId, range.from, range.to, lotNos, cursor);
+  });
+  /** Opens these blocks, reading the first page of any not read yet. */
+  const show = (next: Set<string>) => {
+    setOpen(next);
+    for (const c of cards) {
+      const k = cardKey(c);
+      if (next.has(k) && c.entryCount > 0 && !lazy.get(k)) void lazy.more(k);
+    }
+  };
+  useEffect(() => {
+    // One card has nothing to scan past: its movements open with the page.
+    if (cards.length === 1 && cards[0].entryCount > 0) void lazy.more(cardKey(cards[0]));
+    // Once per run: the page remounts this on a new run through its key.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  if (!cards.length) return <Empty body="Tidak ada saldo maupun mutasi untuk filter dan rentang tanggal ini." />;
 
   return (
     <>
-      <ResultBar
-        count={blocks.length}
-        noun={groupBy === "item" ? "barang" : "gudang"}
+      <CountLine
+        count={cards.length}
+        noun="kartu"
         when={`${formatDate(range.from)} – ${formatDate(range.to)}`}
-        folds={folds}
+        expand={expandOf(cards.map(cardKey), open, show)}
       />
-      {blocks.map((b) => {
-        const open = folds.blockOpen(b.id);
-        const moves = sum(b.cards, (c) => c.entries.length);
-        return (
-          <div className="cblock" key={b.id}>
-            {groupBy === "item" ? (
-              <BlockHead
-                label={b.label}
-                open={open}
-                onToggle={() => folds.toggleBlock(b.id)}
-                meta={`${b.name} · ${b.cards.length} gudang · ${moves} mutasi · ${b.cards[0].item.uomLabel}`}
-              >
-                <ReportSummary
-                  figures={[
-                    { label: "Saldo Awal", value: qty(sum(b.cards, (c) => c.opening)), zero: !sum(b.cards, (c) => c.opening) },
-                    { label: "Masuk", value: qty(sum(b.cards, (c) => c.totalIn)), zero: !sum(b.cards, (c) => c.totalIn) },
-                    { label: "Keluar", value: qty(sum(b.cards, (c) => c.totalOut)), zero: !sum(b.cards, (c) => c.totalOut) },
-                    { label: "Saldo Akhir", value: qty(sum(b.cards, (c) => c.closing)), key: true },
-                  ]}
-                />
-              </BlockHead>
-            ) : (
-              <BlockHead label={b.label} open={open} onToggle={() => folds.toggleBlock(b.id)} meta={`${b.name} · ${moves} mutasi`}>
-                <ReportSummary figures={[{ label: "Barang", value: String(b.cards.length), key: true }]} />
-              </BlockHead>
-            )}
-            {open && (
-              <div className="tw">
-                <table className="grid stm" style={{ minWidth: 1080 }}>
-                  <thead>
-                    <tr>
-                      <th style={{ width: 130 }}>{groupBy === "item" ? "Gudang / Tanggal" : "Barang / Tanggal"}</th>
-                      <th style={{ width: 170 }}>Entri</th>
-                      <th style={{ width: 110 }}>Gudang</th>
-                      <th style={{ width: 160 }}>Lokasi</th>
-                      <th>Lot</th>
-                      <th className="num" style={{ width: 100 }}>
-                        Masuk
-                      </th>
-                      <th className="num" style={{ width: 100 }}>
-                        Keluar
-                      </th>
-                      <th className="num" style={{ width: 130 }}>
-                        Saldo
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {b.cards.map((c) => {
-                      const k = cardKey(c);
-                      const rowOpen = folds.rowOpen(k);
-                      const s = otherSide(c, groupBy);
-                      const u = c.item.uomLabel;
-                      return (
-                        <Fragment key={k}>
-                          <tr className="st-cat">
-                            <td className="stn" colSpan={5}>
-                              <div className="stc">
-                                <Toggle open={rowOpen} onClick={() => folds.toggleRow(k)} what="mutasi" />
-                                <span className="lab">{s.label}</span>
-                                <span className="nm">{s.name}</span>
-                                <span className="cd">
-                                  · awal {qty(c.opening)} · {c.entries.length} mutasi
+      {groupCards(cards, groupBy).map((g) => (
+        <Fragment key={g.id}>
+          <div className="rgrp">
+            <b>{g.label}</b>
+            <span>
+              {g.name}
+              {groupBy === "item" &&
+                g.cards.length > 1 &&
+                ` · saldo akhir ${qty(round6(g.cards.reduce((s, c) => s + c.closing, 0)))} ${g.cards[0].item.uomLabel}`}
+            </span>
+          </div>
+          {g.cards.map((c) => {
+            const k = cardKey(c);
+            const s = groupBy === "item" ? c.warehouse : c.item;
+            const have = lazy.get(k);
+            let running = c.opening;
+            return (
+              <div className="cblock" key={k}>
+                <BlockHead label={s.label} open={open.has(k)} onToggle={() => show(flip(open, k))} meta={`${s.name} · ${c.entryCount} mutasi · ${c.item.uomLabel}`}>
+                  <ReportSummary
+                    figures={[
+                      { label: "Saldo Awal", value: qty(c.opening), zero: !c.opening },
+                      { label: "Masuk", value: qty(c.totalIn), zero: !c.totalIn },
+                      { label: "Keluar", value: qty(c.totalOut), zero: !c.totalOut },
+                      { label: "Saldo Akhir", value: qty(c.closing), key: true },
+                    ]}
+                  />
+                </BlockHead>
+                {open.has(k) && (
+                  <div className="tw">
+                    <table className="grid" style={{ minWidth: 940 }}>
+                      <thead>
+                        <tr>
+                          <th style={{ width: 124 }}>Tanggal</th>
+                          <th style={{ width: 156 }}>Dokumen</th>
+                          <th>Keterangan</th>
+                          <th style={{ width: 84 }}>Lokasi</th>
+                          <th style={{ width: 176 }}>Lot</th>
+                          <th className="num" style={{ width: 86 }}>Masuk</th>
+                          <th className="num" style={{ width: 86 }}>Keluar</th>
+                          <th className="num" style={{ width: 94 }}>Saldo</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr className="totrow">
+                          <td colSpan={7}>Saldo per {formatDate(range.from)}</td>
+                          <td className="num"><Figure n={c.opening} /></td>
+                        </tr>
+                        {have?.entries.map((e) => {
+                          running = round6(running + e.change);
+                          return (
+                            <tr key={e.id} style={{ cursor: "default" }}>
+                              <td className="mono mut" style={{ fontSize: "11.5px" }}>
+                                <span className="dstack">
+                                  <span>{formatDate(e.date)}</span>
+                                  <span className="d2">{e.ledgerNo}·{e.lineNo}</span>
                                 </span>
-                              </div>
-                            </td>
-                            <td className="num">{c.totalIn ? <span className="mny in">{qty(c.totalIn)}</span> : <span className="dash">—</span>}</td>
-                            <td className="num">{c.totalOut ? <span className="mny">{qty(c.totalOut)}</span> : <span className="dash">—</span>}</td>
-                            <td className="num">
-                              <b className="mny">{qty(c.closing)}</b> <span className="cd">{u}</span>
+                              </td>
+                              <td><Source s={e.source} /></td>
+                              <td className="pri wrapok">{e.source.docName}</td>
+                              <td><Location label={e.locationLabel} name={e.locationName} /></td>
+                              <td>
+                                <Lot {...e} />
+                                {e.expiry && <span className="rsub">ED {formatDate(e.expiry)}</span>}
+                              </td>
+                              <td className="num"><Figure n={Math.max(e.change, 0)} /></td>
+                              <td className="num"><Figure n={Math.max(-e.change, 0)} /></td>
+                              <td className="num"><Figure n={running} /></td>
+                            </tr>
+                          );
+                        })}
+                        <LazyRows colSpan={8} total={c.entryCount} have={have} onMore={() => void lazy.more(k)} />
+                        {c.entryCount === 0 && (
+                          <tr>
+                            <td colSpan={8} className="mut" style={{ textAlign: "center" }}>
+                              Tidak ada mutasi pada rentang tanggal ini. Saldo akhir sama dengan saldo awal.
                             </td>
                           </tr>
-                          {rowOpen && (
-                            <>
-                              <tr className="st-par">
-                                <td className="stn d2" colSpan={5}>
-                                  Saldo awal per {formatDate(range.from)}
-                                </td>
-                                <td className="num">
-                                  <span className="dash">—</span>
-                                </td>
-                                <td className="num">
-                                  <span className="dash">—</span>
-                                </td>
-                                <td className="num">
-                                  <span className="mny">{qty(c.opening)}</span>
-                                </td>
-                              </tr>
-                              {c.entries.map((e) => (
-                                <tr key={e.id} className="st-par">
-                                  <td className="stn d2 mono" style={{ fontSize: "11.5px" }}>
-                                    {formatDate(e.date)}
-                                  </td>
-                                  <td>
-                                    <span className="lab">
-                                      {e.ledgerNo}·{e.lineNo}
-                                    </span>
-                                    <Source s={e.source} />
-                                  </td>
-                                  <td>
-                                    <span className="lab">{c.warehouse.label}</span>
-                                  </td>
-                                  <td>
-                                    <Location label={e.locationLabel} name={e.locationName} />
-                                  </td>
-                                  <td>
-                                    <Lot lotNo={e.lotNo} expiry={e.expiry} statusName={e.statusName} showExpiry />
-                                  </td>
-                                  <td className="num">{e.qtyIn ? <span className="mny in">{qty(e.qtyIn)}</span> : <span className="dash">—</span>}</td>
-                                  <td className="num">{e.qtyOut ? <span className="mny">{qty(e.qtyOut)}</span> : <span className="dash">—</span>}</td>
-                                  <td className="num">
-                                    <span className="mny">{qty(e.balance)}</span>
-                                  </td>
-                                </tr>
-                              ))}
-                              {c.entries.length === 0 && (
-                                <tr className="st-par">
-                                  <td colSpan={8} className="mut" style={{ textAlign: "center" }}>
-                                    Tidak ada mutasi pada rentang tanggal ini. Saldo akhir sama dengan saldo awal.
-                                  </td>
-                                </tr>
-                              )}
-                            </>
-                          )}
-                        </Fragment>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                        )}
+                      </tbody>
+                      <tfoot>
+                        <tr className="totrow">
+                          <td colSpan={5}>Saldo per {formatDate(range.to)}</td>
+                          <td className="num"><Figure n={c.totalIn} /></td>
+                          <td className="num"><Figure n={c.totalOut} /></td>
+                          <td className="num"><b><Figure n={c.closing} /></b></td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        );
-      })}
+            );
+          })}
+        </Fragment>
+      ))}
     </>
   );
 }

@@ -202,7 +202,7 @@ const FIXED_REPORTS = [
     slug: "stock-ledger",
     module: "inventory",
     name: "Kartu Stok",
-    desc: "Mutasi jumlah per barang per gudang pada rentang tanggal, dengan saldo awal dan akhir — dikelompokkan per barang atau per gudang.",
+    desc: "Mutasi jumlah per barang per gudang pada rentang tanggal, dengan saldo awal dan akhir — per barang, gudang, atau lot.",
     icon: "book",
     permission: "REPORT_STOCK_LEDGER_VIEW",
     params: "stock-period",

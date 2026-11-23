@@ -29,14 +29,14 @@ export const dynamic = "force-dynamic";
  * period, Saldo Stok and Nilai Persediaan as of a date. Parameters come from
  * the query string; the figures are read from the stock ledgers. Kartu Stok and
  * Saldo Stok take sets of items and warehouses (`items=1,4`, `warehouses=2`)
- * and a grouping (`group=item|warehouse`); the valuation reports one item.
+ * and a grouping (`group=item|warehouse`), Kartu Stok also lot numbers (`lots=`); the valuation reports one item.
  */
 export default async function Page({
   params,
   searchParams,
 }: {
   params: Promise<{ report: string }>;
-  searchParams: Promise<{ item?: string; items?: string; warehouses?: string; group?: string; asOf?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ item?: string; items?: string; warehouses?: string; group?: string; lots?: string; asOf?: string; from?: string; to?: string }>;
 }) {
   const { report: slug } = await params;
   const report = reportBySlug(slug);
@@ -47,6 +47,7 @@ export default async function Page({
   const itemId = positiveInt(query.item);
   const itemIds = idList(query.items);
   const warehouseIds = idList(query.warehouses);
+  const lotNos = [...new Set((query.lots ?? "").split(",").map((l) => l.trim()).filter(Boolean))];
   const groupBy: StockGroupBy = query.group === "warehouse" ? "warehouse" : "item";
   const range = resolveRange(query.from, query.to);
   const asOf = isDate(query.asOf) ? query.asOf : new Date().toISOString().slice(0, 10);
@@ -65,6 +66,7 @@ export default async function Page({
       grouped={grouped}
       itemIds={grouped ? itemIds : itemId ? [itemId] : []}
       warehouseIds={warehouseIds}
+      lots={report.key === "stock_ledger" ? lotNos.join(", ") : null}
       groupBy={groupBy}
       groupHrefs={{ item: reportHref(slug, { ...query, group: "item" }), warehouse: reportHref(slug, { ...query, group: "warehouse" }) }}
       mode={report.params === "stock-asof" ? "asof" : "period"}
@@ -83,7 +85,7 @@ export default async function Page({
   );
 
   if (report.key === "stock_ledger") {
-    const [cards, reconciles] = await Promise.all([stockLedgerReport(itemIds, warehouseIds, range), stockBooksReconcile(itemIds)]);
+    const [cards, reconciles] = await Promise.all([stockLedgerReport(itemIds, warehouseIds, range, lotNos), stockBooksReconcile(itemIds)]);
     return (
       <ReportView
         report={report}
@@ -96,7 +98,7 @@ export default async function Page({
           </>
         }
       >
-        <StockLedgerBody key={runKey} cards={cards} groupBy={groupBy} range={range} />
+        <StockLedgerBody key={runKey} cards={cards} groupBy={groupBy} range={range} lotNos={lotNos} />
         <Mismatch show={!reconciles} />
       </ReportView>
     );

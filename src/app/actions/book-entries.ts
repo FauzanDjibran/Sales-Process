@@ -7,6 +7,7 @@ import { apBookEntriesPage } from "@/lib/erp/ap-item";
 import { arBookEntriesPage } from "@/lib/erp/ar-item";
 import { attachDocumentNumbers, withAgreementNumbers } from "@/lib/erp/document-numbers";
 import type { BookEntry, BookKind, BookSide } from "@/lib/erp/partner-book";
+import { stockCardEntriesPage, type StockLedgerEntry } from "@/lib/erp/stock-report";
 import type { BookCursor } from "@/lib/erp/register-query";
 
 type Page<T> = { ok: true; entries: T[]; next: BookCursor | null } | { ok: false; error: string };
@@ -58,4 +59,27 @@ export async function loadPartnerBookEntries(
   }
   const page = await (side === "ar" ? arBookEntriesPage : apBookEntriesPage)(book, partnerId, { from, to }, cursor);
   return { ok: true, entries: await withAgreementNumbers(page.entries), next: page.next };
+}
+
+/** One page of a Kartu Stok card's movements, read when its block is opened. */
+export async function loadStockCardEntries(
+  itemId: number,
+  warehouseId: number,
+  from: string,
+  to: string,
+  lotNos: string[],
+  cursor: BookCursor | null
+): Promise<Page<StockLedgerEntry>> {
+  try {
+    await authorizeAction("REPORT_STOCK_LEDGER_VIEW");
+  } catch (error) {
+    if (isAccessDenied(error)) return { ok: false, error: error.message };
+    throw error;
+  }
+  const cursorOk = !cursor || (DAY.test(cursor.date) && Number.isInteger(cursor.id));
+  const lotsOk = Array.isArray(lotNos) && lotNos.every((l) => typeof l === "string");
+  if (!Number.isInteger(itemId) || !Number.isInteger(warehouseId) || !DAY.test(from) || !DAY.test(to) || !cursorOk || !lotsOk) {
+    return { ok: false, error: "Permintaan tidak valid." };
+  }
+  return { ok: true, ...(await stockCardEntriesPage(itemId, warehouseId, { from, to }, lotNos, cursor)) };
 }

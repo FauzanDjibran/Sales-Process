@@ -1603,3 +1603,7 @@ table.grid.aging th,table.grid.aging td:first-child,table.grid.aging td:first-ch
   .dbw{flex-direction:column}
   .dbp{flex:0 0 44%;min-height:0;border-left:0;border-top:1px solid var(--line)}
 }
+
+/* A report's group title over its blocks (Kartu Stok: the item or the warehouse). */
+.rgrp{display:flex;align-items:baseline;gap:8px;margin:16px 0 6px;font-size:13px;color:var(--ink)}
+.rgrp span{color:var(--muted-2);font-size:12px}

@@ -2,7 +2,7 @@ import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import { InventoryRefusal, issueStock, lotOptions, receiveStock, warehouseLocationOptions } from "../src/lib/erp/inventory";
-import { stockBalanceReport, stockBooksReconcile, stockLedgerReport } from "../src/lib/erp/stock-report";
+import { stockBalanceReport, stockBooksReconcile, stockCardEntriesPage, stockLedgerReport } from "../src/lib/erp/stock-report";
 import { checkWarehouseLocation, locationDeactivateRefusal } from "../src/lib/erp/warehouse";
 import { FIXTURE_PREFIX, cleanupStock, disconnect, prisma, systemUserId } from "./helpers";
 
@@ -149,10 +149,12 @@ describe("the reports show Gudang and Lokasi apart", () => {
 
   test("Kartu Stok movements carry their location; the running balance stays per item × warehouse", async () => {
     const [card] = await stockLedgerReport([f.item], [f.loc], { from: "2026-09-01", to: "2026-10-31" });
-    assert.deepEqual(card.entries.map((e) => [e.locationLabel, e.qtyIn, e.qtyOut, e.balance]), [
-      ["A-01", 10, 0, 10],
-      ["A-02", 5, 0, 15],
-      ["A-01", 0, 6, 9],
+    assert.deepEqual([card.opening, card.closing], [0, 9]);
+    const { entries } = await stockCardEntriesPage(f.item, f.loc, { from: "2026-09-01", to: "2026-10-31" }, [], null);
+    assert.deepEqual(entries.map((e) => [e.locationLabel, e.change]), [
+      ["A-01", 10],
+      ["A-02", 5],
+      ["A-01", -6],
     ]);
   });
 });

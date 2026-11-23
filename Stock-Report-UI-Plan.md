@@ -1,6 +1,6 @@
 # Rencana — Laporan Stok mengikuti format Buku Subjek
 
-> Status: **disetujui 20/11/2026** (keputusan K1–K6 di §4). Belum ada yang dibangun.
+> Status: **disetujui 20/11/2026** (keputusan K1–K6 di §4). Langkah 1–3 selesai (P297, P314).
 > Acuan: SIBA *Buku Subjek* / *Saldo Buku Subjek* (`subledger-report.tsx`,
 > `subledger-balance-report.tsx`, `subject-params.tsx`) dan turunannya di ERP,
 > *Buku / Saldo Piutang & Hutang* (`partner-book-report.tsx`, P233–P235).
@@ -87,8 +87,8 @@ Nanti keempatnya mendapat `exportHref` lewat route `inventory/report/[report]/ex
 ## 5. Langkah bangun
 
 1. **Bersama** — `report-blocks.tsx`, partner book memakainya (tanpa perubahan tampilan), `StockReportParams` dengan `PeriodRow` dan toggle Kelompok, header blok stok bisa dari keyboard. *Tanpa perubahan angka.* **Selesai 20/11/2026 (P297).**
-2. **Kartu Stok** — blok per kartu, loader bertahap + rollup dari SQL, kolom 3.2.
-3. **Saldo Stok** — satu tingkat lipat, baris per bucket, tetap per tanggal.
+2. **Kartu Stok** — blok per kartu, loader bertahap + rollup dari SQL, kolom 3.2. **Selesai 23/11/2026 (P314).**
+3. **Saldo Stok** — satu tingkat lipat, baris per bucket, tetap per tanggal. **Selesai 23/11/2026 (P314).**
 4. **Kartu Nilai Persediaan** — chip, blok per barang, loader bertahap.
 5. **Nilai Persediaan** — chip Barang, baris hitung, tampilan kosong bersama.
 

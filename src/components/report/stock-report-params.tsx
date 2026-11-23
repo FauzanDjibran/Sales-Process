@@ -31,6 +31,7 @@ export function StockReportParams({
   grouped,
   itemIds,
   warehouseIds,
+  lots,
   groupBy,
   groupHrefs,
   mode,
@@ -46,6 +47,8 @@ export function StockReportParams({
   grouped: boolean;
   itemIds: number[];
   warehouseIds: number[];
+  /** Lot numbers, comma separated; null on a report without a lot filter. */
+  lots: string | null;
   groupBy: StockGroupBy;
   /** The applied run under each grouping: the toggle navigates, it does not wait for Tampilkan. */
   groupHrefs: Record<StockGroupBy, string>;
@@ -59,6 +62,7 @@ export function StockReportParams({
   const [pending, startTransition] = useTransition();
   const [itemSet, setItemSet] = useState<number[]>(itemIds);
   const [warehouseSet, setWarehouseSet] = useState<number[]>(warehouseIds);
+  const [lotText, setLotText] = useState(lots ?? "");
   const [day, setDay] = useState(asOf);
   const [start, setStart] = useState(from);
   const [end, setEnd] = useState(to);
@@ -66,22 +70,20 @@ export function StockReportParams({
   const invalidRange = mode === "period" && isInvalidRange(start, end);
   const missing = itemRequired && itemSet.length === 0;
 
-  useReportRun(
-    () => {
-      if (invalidRange || missing) return;
-      const where = grouped
-        ? { group: groupBy, items: itemSet.join(","), warehouses: warehouseSet.join(",") }
-        : { item: itemSet[0] ?? null };
-      startTransition(() => {
-        router.push(reportHref(slug, mode === "asof" ? { ...where, asOf: day } : { ...where, from: start, to: end }));
-      });
-    },
-    {
-      blocked: invalidRange || missing,
-      hint: invalidRange ? INVALID_RANGE_HINT : "Pilih Barang terlebih dahulu.",
-      pending,
-    }
-  );
+  const run = () => {
+    if (invalidRange || missing) return;
+    const where = grouped
+      ? { group: groupBy, items: itemSet.join(","), warehouses: warehouseSet.join(","), lots: lots === null ? null : lotText.trim() }
+      : { item: itemSet[0] ?? null };
+    startTransition(() => {
+      router.push(reportHref(slug, mode === "asof" ? { ...where, asOf: day } : { ...where, from: start, to: end }));
+    });
+  };
+  useReportRun(run, {
+    blocked: invalidRange || missing,
+    hint: invalidRange ? INVALID_RANGE_HINT : "Pilih Barang terlebih dahulu.",
+    pending,
+  });
 
   return (
     <>
@@ -119,6 +121,24 @@ export function StockReportParams({
                   emptyPlaceholder="Semua gudang"
                   removeTitle="Keluarkan dari laporan"
                   onChange={setWarehouseSet}
+                />
+              </div>
+            </div>
+          )}
+          {lots !== null && (
+            <div className="rrow">
+              <span className="rl">Lot</span>
+              <div className="rf wide">
+                <input
+                  className="inp mono"
+                  value={lotText}
+                  placeholder="Semua lot"
+                  title="Beberapa nomor lot dipisah koma"
+                  aria-label="Lot"
+                  onChange={(e) => setLotText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") run();
+                  }}
                 />
               </div>
             </div>

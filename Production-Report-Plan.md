@@ -1,6 +1,6 @@
 # Rencana — Laporan Stok Produksi mengikuti Kartu Stok & Saldo Stok
 
-> Status: **disetujui user 23/11/2026** (D1–D8 sesuai rekomendasi, P310). Langkah 0 selesai; sisanya belum dibangun.
+> Status: **disetujui user 23/11/2026** (D1–D8 sesuai rekomendasi, P310). Langkah 0–1 selesai; sisanya belum dibangun.
 > Melanjutkan K6 `Stock-Report-UI-Plan.md` ("laporan produksi menyusul").
 > Tetap berlaku: tanpa harga di aplikasi Produksi (P275), satu tingkat lipat (K1),
 > Masuk / Keluar (K3), Per Tanggal untuk saldo (K2), jumlah barang berbeda tidak dijumlah (P135).
@@ -75,7 +75,7 @@ Telusur; laporan stok Persediaan; nilai WIP (menyusul di ERP bersama Closing).
 | # | Isi | Besar |
 | --- | --- | --- |
 | 0 | **Perbaiki A1** dan satu tes mutasi bertanggal mundur | **selesai (P310)** |
-| 1 | `Stock-Report-UI-Plan.md` langkah 2–3 (Kartu Stok dan Saldo Stok ke bentuk satu tingkat) — pola yang dipakai ulang | sedang |
+| 1 | `Stock-Report-UI-Plan.md` langkah 2–3 (Kartu Stok dan Saldo Stok ke bentuk satu tingkat) — pola yang dipakai ulang | **selesai (P314)** |
 | 2 | Saldo Produksi (§4.1) | sedang |
 | 3 | Kartu Produksi dengan pilihan No. Stok, dan Kartu No. Stok dihapus (§4.2) | sedang |
 

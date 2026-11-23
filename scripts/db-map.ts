@@ -182,7 +182,7 @@ const REPORTS: Record<string, string[]> = {
   trial_balance: ["trialBalanceReport"],
   profit_loss: ["profitLossReport"],
   balance_sheet: ["balanceSheetReport"],
-  stock_ledger: ["stockLedgerReport", "stockBooksReconcile"],
+  stock_ledger: ["stockLedgerReport", "stockCardEntriesPage", "stockBooksReconcile"],
   stock_balance: ["stockBalanceReport", "stockBooksReconcile"],
   stock_valuation_ledger: ["valuationLedgerReport"],
   stock_valuation: ["valuationReport", "closingBalances"],
