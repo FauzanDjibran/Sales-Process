@@ -111,14 +111,14 @@ export function AddressesTab({ editing, items, error, onChange }: CollectionTabP
                   </td>
                   <td>
                     {a.isBilling ? (
-                      <span className="bdg s-ok">Penagihan</span>
+                      <span className="bdg t-info">Penagihan</span>
                     ) : (
                       <span className="dash">—</span>
                     )}
                   </td>
                   <td>
                     {a.isShipping ? (
-                      <span className="bdg s-ok">Pengiriman</span>
+                      <span className="bdg t-info">Pengiriman</span>
                     ) : (
                       <span className="dash">—</span>
                     )}

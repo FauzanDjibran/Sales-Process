@@ -32,6 +32,7 @@ import type { PermitAdvanceOptions, PermitAdvanceView } from "@/lib/erp/permit-a
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import { DocumentHeader } from "@/components/ui/document-header";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { ADVANCE_TRANSITIONS_OF, availableAdvanceActions } from "@/lib/erp/ar-advance-workflow";
@@ -267,7 +268,7 @@ export function AdvanceForm({
   const status = advance?.status ?? "Draft";
   const backHref = advance ? `${V.base}/${advance.id}` : V.base;
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
+  const nil = (text?: string) => <div className={`ro nil${text || editing ? "" : " opt"}`}>{text ?? "tidak diisi"}</div>;
   const waitOrder = `menunggu ${V.source}`;
 
   const taxStatus = order
@@ -276,7 +277,7 @@ export function AdvanceForm({
       )
     : null;
   /** A value that follows from the order, or a wait while none is chosen. */
-  const fromOrder = (node: (o: NonNullable<typeof order>) => React.ReactNode, empty = "tidak diisi") =>
+  const fromOrder = (node: (o: NonNullable<typeof order>) => React.ReactNode, empty?: string) =>
     order ? node(order) ?? nil(empty) : nil(waitOrder);
 
   // ======================================================= header card
@@ -382,7 +383,7 @@ export function AdvanceForm({
             <Field label="PPN" span={4}>
               {fromOrder((o) =>
                 ro(
-                  <span className={`bdg ${o.basis.taxable ? "s-ok" : "s-mute"}`}>
+                  <span className={`bdg ${o.basis.taxable ? "t-info" : "t-slate"}`}>
                     {o.basis.taxable ? "Kena PPN" : "Tidak Kena PPN"}
                   </span>
                 )
@@ -490,7 +491,7 @@ export function AdvanceForm({
               ) : s.note ? (
                 <div className="ro multi">{s.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
@@ -774,55 +775,33 @@ export function AdvanceForm({
   // ============================================================ page
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Finance</span>
-          <span>/</span>
-          <span>Uang Muka</span>
-          <span>/</span>
-          <Link href={V.base}>{V.title}</Link>
-          <span>/</span>
-          <span className="cur">{advance ? advance.advanceNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="wallet" size={16} />
-            </span>
-            {advance ? (
-              <>
-                <span className="docno">{advance.advanceNo}</span>
-                <span className={`bdg ${ADVANCE_STATUS_BADGE[status]}`}>{ADVANCE_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              `${V.title} Baru`
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <AdvanceActions
-                id={advance!.id}
-                subject={`${advance!.advanceNo} – ${money(advance!.figures.total)}`}
-                status={status}
-                can={can}
-                figures={advance!.figures}
-                variant={variant}
-              />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Finance"
+        trail={[{ label: V.title, href: V.base }]}
+        icon="wallet"
+        number={advance?.advanceNo}
+        placeholder={`${V.title} Baru`}
+        status={status}
+        statusLabel={{ text: ADVANCE_STATUS_TEXT[status], tone: ADVANCE_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <AdvanceActions
+            id={advance!.id}
+            subject={`${advance!.advanceNo} – ${money(advance!.figures.total)}`}
+            status={status}
+            can={can}
+            figures={advance!.figures}
+            variant={variant}
+          />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

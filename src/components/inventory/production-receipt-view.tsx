@@ -108,7 +108,7 @@ export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: Vie
                 </Field>
               )}
               <Field label={isReturn ? "Alasan / Catatan" : "Catatan"} span={12}>
-                {r.note ? <div className="ro multi">{r.note}</div> : <div className="ro multi nil">tidak diisi</div>}
+                {r.note ? <div className="ro multi">{r.note}</div> : <div className="ro multi nil opt">tidak diisi</div>}
               </Field>
             </FormRow>
           </FormSection>

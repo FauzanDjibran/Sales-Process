@@ -22,6 +22,7 @@ import {
 } from "@/lib/erp/delivery-order-workflow";
 import type { DeliveryOrderHeaderInput, DeliveryOrderOptions, DeliveryOrderView } from "@/lib/erp/delivery-order";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
 import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { DELIVERY_ORDER_TRANSITIONS, availableDeliveryOrderActions } from "@/lib/erp/delivery-order-workflow";
@@ -194,7 +195,7 @@ export function DeliveryOrderForm({
   const status = order?.status ?? "Draft";
   const backHref = order ? `/sales/delivery-order/${order.id}` : "/sales/delivery-order";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
+  const nil = (text?: string) => <div className={`ro nil${text || editing ? "" : " opt"}`}>{text ?? "tidak diisi"}</div>;
   const waitOrder = source ? null : "Pilih Customer Order dulu…";
   const lineErr = (key: string, f: string) => errors[`lines.${key}.${f}`];
 
@@ -341,7 +342,7 @@ export function DeliveryOrderForm({
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
@@ -501,46 +502,26 @@ export function DeliveryOrderForm({
   // ============================================================ page
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Penjualan</span>
-          <span>/</span>
-          <Link href="/sales/delivery-order">Delivery Order</Link>
-          <span>/</span>
-          <span className="cur">{order ? order.doNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="truck" size={16} />
-            </span>
-            {order ? (
-              <>
-                <span className="docno">{order.doNo}</span>
-                <span className={`bdg ${DELIVERY_ORDER_STATUS_BADGE[status]}`}>{DELIVERY_ORDER_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Delivery Order Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <DeliveryOrderActions id={order!.id} subject={order!.doNo} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Penjualan"
+        trail={[{ label: "Delivery Order", href: "/sales/delivery-order" }]}
+        icon="truck"
+        number={order?.doNo}
+        placeholder="Delivery Order Baru"
+        status={status}
+        statusLabel={{ text: DELIVERY_ORDER_STATUS_TEXT[status], tone: DELIVERY_ORDER_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <DeliveryOrderActions id={order!.id} subject={order!.doNo} status={status} can={can} />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

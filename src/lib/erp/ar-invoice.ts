@@ -1478,6 +1478,7 @@ export type CreditSourceInvoice = {
     id: number;
     lineNo: number;
     deliveryNoteLineId: number;
+    dnId: number;
     dnNo: string;
     itemId: number;
     itemLabel: string;
@@ -1545,6 +1546,7 @@ export async function creditSourceInvoices(filter: { ids?: number[]; withReturns
         id: l.id,
         lineNo: l.line_no,
         deliveryNoteLineId: l.delivery_note_line_id,
+        dnId: n?.deliveryNoteId ?? 0,
         dnNo: n?.dnNo ?? "",
         itemId: n?.itemId ?? 0,
         itemLabel: n?.itemLabel ?? "",

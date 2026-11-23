@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { CancelButton } from "@/components/ui/cancel-button";
@@ -18,6 +17,8 @@ import { DEFAULT_STOCK_ISSUE_PURPOSE, STOCK_ISSUE_PURPOSES, stockIssuePurpose } 
 import { STOCK_ISSUE_STATUS_BADGE, STOCK_ISSUE_STATUS_TEXT, type StockIssueAbilities } from "@/lib/erp/stock-issue-workflow";
 import type { StockIssueHeaderInput, StockIssueOptions, StockIssueView } from "@/lib/erp/stock-issue";
 import { formatDate, formatMoney, formatNumber, formatPrice, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
+import { JournalReference } from "@/components/ui/journal-reference";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { STOCK_ISSUE_TRANSITIONS, availableStockIssueActions } from "@/lib/erp/stock-issue-workflow";
@@ -136,7 +137,7 @@ export function StockIssueForm({
   const status = issue?.status ?? "Draft";
   const backHref = issue ? `/inventory/stock-issue/${issue.id}` : "/inventory/stock-issue";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
+  const nil = (t?: string) => <div className={`ro nil${t || editing ? "" : " opt"}`}>{t ?? "tidak diisi"}</div>;
   const lineErr = (key: string, f: string) => errors[`lines.${key}.${f}`];
   const place = (p: { label: string; name: string } | undefined) =>
     p ? (
@@ -178,17 +179,6 @@ export function StockIssueForm({
                 ro(formatDate(header.issue_date))
               )}
             </Field>
-            {posted && (
-              <Field label="Journal" span={5}>
-                {issue?.journalId
-                  ? ro(
-                      <Link className="drl" href={`/accounting/journal/${issue.journalId}`}>
-                        <span className="mono">{issue.journalNo}</span>
-                      </Link>
-                    )
-                  : nil("tanpa nilai, tanpa journal")}
-              </Field>
-            )}
           </FormRow>
           <FormRow>
             <Field label="Gudang" span={6} required={editing} help={editing ? "asal barang" : undefined} error={errors.warehouse_id}>
@@ -224,11 +214,12 @@ export function StockIssueForm({
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
         </FormSection>
+        <JournalReference id={issue?.journalId} no={issue?.journalNo} />
         {issue?.cancelReason && status === "Cancelled" && (
           <p className="fnote">
             <b>Dibatalkan:</b> {issue.cancelReason}
@@ -486,46 +477,26 @@ export function StockIssueForm({
   // ============================================================ page
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Persediaan</span>
-          <span>/</span>
-          <Link href="/inventory/stock-issue">BSTB Issue</Link>
-          <span>/</span>
-          <span className="cur">{issue ? issue.issueNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="layers" size={16} />
-            </span>
-            {issue ? (
-              <>
-                <span className="docno">{issue.issueNo}</span>
-                <span className={`bdg ${STOCK_ISSUE_STATUS_BADGE[status]}`}>{STOCK_ISSUE_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "BSTB Issue Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <StockIssueActions id={issue!.id} subject={issue!.issueNo} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Persediaan"
+        trail={[{ label: "BSTB Issue", href: "/inventory/stock-issue" }]}
+        icon="layers"
+        number={issue?.issueNo}
+        placeholder="BSTB Issue Baru"
+        status={status}
+        statusLabel={{ text: STOCK_ISSUE_STATUS_TEXT[status], tone: STOCK_ISSUE_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <StockIssueActions id={issue!.id} subject={issue!.issueNo} status={status} can={can} />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

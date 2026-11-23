@@ -17,6 +17,8 @@ import { advancePpnUsed, taxScale } from "@/lib/erp/sales-tax";
 import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, computePurchaseInvoice, type InvoiceAbilities } from "@/lib/erp/ap-invoice-workflow";
 import type { PiAdvance, PiReceiptLine, PurchaseInvoiceHeaderInput, PurchaseInvoiceOptions, PurchaseInvoiceView } from "@/lib/erp/ap-invoice";
 import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
+import { JournalReference } from "@/components/ui/journal-reference";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { PURCHASE_INVOICE_TRANSITIONS, availablePurchaseInvoiceActions } from "@/lib/erp/ap-invoice-workflow";
@@ -127,7 +129,7 @@ export function PurchaseInvoiceForm({
 
   const status = invoice?.status ?? "Draft";
   const ro = (n: React.ReactNode) => <div className="ro">{n}</div>;
-  const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
+  const nil = (t?: string) => <div className={`ro nil${t || editing ? "" : " opt"}`}>{t ?? "tidak diisi"}</div>;
   const orderOptions = options.orders.map((o) => ({ id: o.id, label: o.orderNo, name: `${o.supplierLabel} · ${o.supplierName}`, active: true }));
   const poPath = order ? `${order.itemType === "Jasa" ? "/purchasing/order/service" : "/purchasing/order/goods"}/${order.id}` : "#";
 
@@ -196,26 +198,18 @@ export function PurchaseInvoiceForm({
                 {ro(formatDate(invoice.dueDate))}
               </Field>
             )}
-            {invoice?.journalNo && (
-              <Field label="Journal" span={3}>
-                {ro(
-                  <Link className="drl" href={`/accounting/journal/${invoice.journalId}`}>
-                    <span className="mono">{invoice.journalNo}</span>
-                  </Link>
-                )}
-              </Field>
-            )}
             <Field label="Catatan" span={12}>
               {editing ? (
                 <textarea className="ta" rows={2} value={h.note} placeholder="Keterangan tambahan (opsional)…" onChange={(e) => set("note", e.target.value)} />
               ) : h.note ? (
                 <div className="ro multi">{h.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
         </FormSection>
+        <JournalReference id={invoice?.journalId} no={invoice?.journalNo} />
         {invoice?.cancelReason && (
           <p className="fnote">
             <b>Dibatalkan:</b> {invoice.cancelReason}
@@ -472,46 +466,26 @@ export function PurchaseInvoiceForm({
 
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Finance</span>
-          <span>/</span>
-          <Link href="/finance/invoice/purchase">Invoice Pembelian</Link>
-          <span>/</span>
-          <span className="cur">{invoice ? invoice.invoiceNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="file" size={16} />
-            </span>
-            {invoice ? (
-              <>
-                <span className="docno">{invoice.invoiceNo}</span>
-                <span className={`bdg ${INVOICE_STATUS_BADGE[status]}`}>{INVOICE_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Invoice Pembelian Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={invoice ? `/finance/invoice/purchase/${invoice.id}` : "/finance/invoice/purchase"} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <PurchaseInvoiceActions id={invoice!.id} subject={`${invoice!.invoiceNo} – ${money(invoice!.stored.total)}`} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Finance"
+        trail={[{ label: "Invoice Pembelian", href: "/finance/invoice/purchase" }]}
+        icon="file"
+        number={invoice?.invoiceNo}
+        placeholder="Invoice Pembelian Baru"
+        status={status}
+        statusLabel={{ text: INVOICE_STATUS_TEXT[status], tone: INVOICE_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={invoice ? `/finance/invoice/purchase/${invoice.id}` : "/finance/invoice/purchase"} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <PurchaseInvoiceActions id={invoice!.id} subject={`${invoice!.invoiceNo} – ${money(invoice!.stored.total)}`} status={status} can={can} />
+        )}
+      </DocumentHeader>
       <div className="fgrid solo">
         <div>
           {headerCard}

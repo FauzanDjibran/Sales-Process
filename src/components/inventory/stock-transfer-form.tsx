@@ -26,6 +26,7 @@ import {
 } from "@/lib/erp/stock-transfer-workflow";
 import type { StockTransferHeaderInput, StockTransferOptions, StockTransferView } from "@/lib/erp/stock-transfer";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 
@@ -142,7 +143,7 @@ export function StockTransferForm({
 
   const backHref = transfer ? `/inventory/stock-transfer/${transfer.id}` : "/inventory/stock-transfer";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
+  const nil = (t?: string) => <div className={`ro nil${t || editing ? "" : " opt"}`}>{t ?? "tidak diisi"}</div>;
   const place = (p: { label: string; name: string } | undefined) =>
     p
       ? ro(
@@ -207,7 +208,7 @@ export function StockTransferForm({
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
@@ -491,53 +492,33 @@ export function StockTransferForm({
 
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Persediaan</span>
-          <span>/</span>
-          <Link href="/inventory/stock-transfer">Transfer Kirim</Link>
-          <span>/</span>
-          <span className="cur">{transfer ? transfer.transferNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="send" size={16} />
-            </span>
-            {transfer ? (
-              <>
-                <span className="docno">{transfer.transferNo}</span>
-                <span className={`bdg ${STOCK_TRANSFER_STATUS_BADGE[status]}`}>{STOCK_TRANSFER_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Transfer Kirim Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <TransferActions
-                subject={transfer!.transferNo}
-                actions={availableStockTransferActions(status, can)}
-                transitions={STOCK_TRANSFER_TRANSITIONS}
-                editHref={stockTransferIsEditable(status) && can.edit ? `/inventory/stock-transfer/${transfer!.id}/edit` : null}
-                lockText={status === "Cancelled" ? "Transfer dibatalkan" : status === "Received" ? "Transfer diterima" : "Transfer dikirim"}
-                run={(a, r) => transitionStockTransferAction(transfer!.id, a, r)}
-              />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Persediaan"
+        trail={[{ label: "Transfer Kirim", href: "/inventory/stock-transfer" }]}
+        icon="send"
+        number={transfer?.transferNo}
+        placeholder="Transfer Kirim Baru"
+        status={status}
+        statusLabel={{ text: STOCK_TRANSFER_STATUS_TEXT[status], tone: STOCK_TRANSFER_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <TransferActions
+            subject={transfer!.transferNo}
+            actions={availableStockTransferActions(status, can)}
+            transitions={STOCK_TRANSFER_TRANSITIONS}
+            editHref={stockTransferIsEditable(status) && can.edit ? `/inventory/stock-transfer/${transfer!.id}/edit` : null}
+            lockText={status === "Cancelled" ? "Transfer dibatalkan" : status === "Received" ? "Transfer diterima" : "Transfer dikirim"}
+            run={(a, r) => transitionStockTransferAction(transfer!.id, a, r)}
+          />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

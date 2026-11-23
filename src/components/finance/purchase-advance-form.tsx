@@ -28,6 +28,7 @@ import {
 import type { PurchaseAdvanceOptions, PurchaseAdvanceView } from "@/lib/erp/ap-advance";
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { PURCHASE_ADVANCE_TRANSITIONS, availablePurchaseAdvanceActions } from "@/lib/erp/ap-advance-workflow";
@@ -200,7 +201,7 @@ export function PurchaseAdvanceForm({
   const status = advance?.status ?? "Draft";
   const backHref = advance ? `/finance/advance/purchase/${advance.id}` : "/finance/advance/purchase";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
+  const nil = (text?: string) => <div className={`ro nil${text || editing ? "" : " opt"}`}>{text ?? "tidak diisi"}</div>;
   const waitOrder = "menunggu Purchase Order";
 
   const taxStatus = order
@@ -209,7 +210,7 @@ export function PurchaseAdvanceForm({
       )
     : null;
   /** A value that follows from the order, or a wait while none is chosen. */
-  const fromOrder = (node: (o: NonNullable<typeof order>) => React.ReactNode, empty = "tidak diisi") =>
+  const fromOrder = (node: (o: NonNullable<typeof order>) => React.ReactNode, empty?: string) =>
     order ? node(order) ?? nil(empty) : nil(waitOrder);
 
   // ======================================================= header card
@@ -305,7 +306,7 @@ export function PurchaseAdvanceForm({
             <Field label="PPN" span={4}>
               {fromOrder((o) =>
                 ro(
-                  <span className={`bdg ${o.basis.taxable ? "s-ok" : "s-mute"}`}>
+                  <span className={`bdg ${o.basis.taxable ? "t-info" : "t-slate"}`}>
                     {o.basis.taxable ? "Kena PPN" : "Tidak Kena PPN"}
                   </span>
                 )
@@ -398,7 +399,7 @@ export function PurchaseAdvanceForm({
               ) : s.note ? (
                 <div className="ro multi">{s.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
@@ -676,54 +677,32 @@ export function PurchaseAdvanceForm({
   // ============================================================ page
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Finance</span>
-          <span>/</span>
-          <span>Uang Muka</span>
-          <span>/</span>
-          <Link href="/finance/advance/purchase">Uang Muka Pembelian</Link>
-          <span>/</span>
-          <span className="cur">{advance ? advance.advanceNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="wallet" size={16} />
-            </span>
-            {advance ? (
-              <>
-                <span className="docno">{advance.advanceNo}</span>
-                <span className={`bdg ${ADVANCE_STATUS_BADGE[status]}`}>{ADVANCE_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Uang Muka Pembelian Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <PurchaseAdvanceActions
-                id={advance!.id}
-                subject={`${advance!.advanceNo} – ${money(advance!.figures.total)}`}
-                status={status}
-                can={can}
-                figures={advance!.figures}
-              />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Finance"
+        trail={[{ label: "Uang Muka Pembelian", href: "/finance/advance/purchase" }]}
+        icon="wallet"
+        number={advance?.advanceNo}
+        placeholder="Uang Muka Pembelian Baru"
+        status={status}
+        statusLabel={{ text: ADVANCE_STATUS_TEXT[status], tone: ADVANCE_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <PurchaseAdvanceActions
+            id={advance!.id}
+            subject={`${advance!.advanceNo} – ${money(advance!.figures.total)}`}
+            status={status}
+            can={can}
+            figures={advance!.figures}
+          />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

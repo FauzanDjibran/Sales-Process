@@ -30,8 +30,10 @@ import {
   type PurchaseOrderKind,
 } from "@/lib/erp/purchase-order-workflow";
 import type { PurchaseOrderHeaderInput, PurchaseOrderLineInput, PurchaseOrderOptions, PurchaseOrderView } from "@/lib/erp/purchase-order";
+import { PURCHASE_REQUEST_KINDS } from "@/lib/erp/purchase-request-workflow";
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
 import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { PURCHASE_ORDER_TRANSITIONS, availablePurchaseOrderActions } from "@/lib/erp/purchase-order-workflow";
@@ -281,7 +283,7 @@ export function PurchaseOrderForm({
   const status = order?.status ?? "Draft";
   const backHref = order ? `${k.path}/${order.id}` : k.path;
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
+  const nil = (t?: string) => <div className={`ro nil${t || editing ? "" : " opt"}`}>{t ?? "tidak diisi"}</div>;
 
   const headerCard = (
     <div className="card">
@@ -375,9 +377,7 @@ export function PurchaseOrderForm({
                 touch("currency_id", "exchange_rate");
               }}
             />
-          </FormRow>
-          <FormRow>
-            <Field label="PPN" span={4} help={editing ? "hanya supplier PKP" : undefined} error={errors.is_taxable}>
+            <Field label="PPN" span={3} help={editing ? "hanya supplier PKP" : undefined} error={errors.is_taxable}>
               {editing ? (
                 <label className="chk sm">
                   <input
@@ -391,11 +391,11 @@ export function PurchaseOrderForm({
                   </span>
                 </label>
               ) : (
-                ro(<span className={`bdg ${header.is_taxable ? "s-ok" : "s-mute"}`}>{header.is_taxable ? "Kena PPN" : "Tidak Kena PPN"}</span>)
+                ro(<span className={`bdg ${header.is_taxable ? "t-info" : "t-slate"}`}>{header.is_taxable ? "Kena PPN" : "Tidak Kena PPN"}</span>)
               )}
             </Field>
             {header.is_taxable && (
-              <Field label="Mode Harga" span={4} required={editing} error={errors.price_mode}>
+              <Field label="Mode Harga" span={3} required={editing} error={errors.price_mode}>
                 {editing ? (
                   <Select
                     value={header.price_mode}
@@ -416,7 +416,7 @@ export function PurchaseOrderForm({
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
@@ -514,8 +514,8 @@ export function PurchaseOrderForm({
                     )
                   : null;
                 const refs = editing
-                  ? l.request_line_ids.map((id) => ({ id, no: srcById.get(id)?.requestNo ?? "", need: srcById.get(id)?.neededDate ?? "", qty: share!.shares.get(id) ?? 0 }))
-                  : (view?.shares ?? []).map((s) => ({ id: s.requestLineId, no: s.requestNo, need: s.neededDate, qty: s.baseQty }));
+                  ? l.request_line_ids.map((id) => ({ id, requestId: srcById.get(id)?.requestId ?? 0, no: srcById.get(id)?.requestNo ?? "", need: srcById.get(id)?.neededDate ?? "", qty: share!.shares.get(id) ?? 0 }))
+                  : (view?.shares ?? []).map((s) => ({ id: s.requestLineId, requestId: s.requestId, no: s.requestNo, need: s.neededDate, qty: s.baseQty }));
                 const excess = editing ? share!.excess : (Number(l.qty) || 0) * (view?.uomFactor ?? 1) - refs.reduce((s, x) => s + x.qty, 0);
                 return (
                   <tr key={l.key} className={lineError ? "overrow" : undefined}>
@@ -526,7 +526,19 @@ export function PurchaseOrderForm({
                         <span className="nm">{item?.name ?? view?.itemName}</span>
                       </span>
                       <span className="fulltag" style={{ display: "block", whiteSpace: "normal" }}>
-                        {refs.map((x) => `${x.no} (${formatDate(x.need)}): ${qtyText(x.qty)} ${baseLabel}`).join(" · ")}
+                        {refs.map((x, n) => (
+                          <span key={x.id}>
+                            {n > 0 && " · "}
+                            {editing ? (
+                              x.no
+                            ) : (
+                              <Link className="drl" href={`${PURCHASE_REQUEST_KINDS[kind].path}/${x.requestId}`}>
+                                <span className="mono">{x.no}</span>
+                              </Link>
+                            )}{" "}
+                            ({formatDate(x.need)}): {qtyText(x.qty)} {baseLabel}
+                          </span>
+                        ))}
                         {excess > 0.00005 && status !== "Closed" && ` · melebihi PR ${qtyText(+excess.toFixed(4))} ${baseLabel}`}
                       </span>
                       {lineError && <span className="overtag">{lineError}</span>}
@@ -709,46 +721,26 @@ export function PurchaseOrderForm({
 
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Pembelian</span>
-          <span>/</span>
-          <Link href={k.path}>{k.name}</Link>
-          <span>/</span>
-          <span className="cur">{order ? order.orderNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="clip" size={16} />
-            </span>
-            {order ? (
-              <>
-                <span className="docno">{order.orderNo}</span>
-                <span className={`bdg ${PURCHASE_ORDER_STATUS_BADGE[status]}`}>{PURCHASE_ORDER_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              `${k.name} Baru`
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <PurchaseOrderActions id={order!.id} basePath={k.path} subject={order!.orderNo} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Pembelian"
+        trail={[{ label: k.name, href: k.path }]}
+        icon="clip"
+        number={order?.orderNo}
+        placeholder={`${k.name} Baru`}
+        status={status}
+        statusLabel={{ text: PURCHASE_ORDER_STATUS_TEXT[status], tone: PURCHASE_ORDER_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <PurchaseOrderActions id={order!.id} basePath={k.path} subject={order!.orderNo} status={status} can={can} />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

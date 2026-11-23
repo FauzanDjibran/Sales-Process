@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { CancelButton } from "@/components/ui/cancel-button";
@@ -22,6 +21,7 @@ import {
 } from "@/lib/erp/purchase-request-workflow";
 import type { PurchaseRequestHeaderInput, PurchaseRequestOptions, PurchaseRequestView } from "@/lib/erp/purchase-request";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { PURCHASE_REQUEST_TRANSITIONS, availablePurchaseRequestActions } from "@/lib/erp/purchase-request-workflow";
@@ -128,7 +128,7 @@ export function PurchaseRequestForm({
   }
 
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
+  const nil = (t?: string) => <div className={`ro nil${t || editing ? "" : " opt"}`}>{t ?? "tidak diisi"}</div>;
   const lineErr = (key: string, f: string) => errors[`lines.${key}.${f}`];
   const warehouse = header.warehouse_id ? options.warehouses.find((w) => w.id === header.warehouse_id) : null;
 
@@ -181,7 +181,7 @@ export function PurchaseRequestForm({
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
@@ -322,46 +322,26 @@ export function PurchaseRequestForm({
   const backHref = request ? `${k.path}/${request.id}` : k.path;
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Pembelian</span>
-          <span>/</span>
-          <Link href={k.path}>{k.name}</Link>
-          <span>/</span>
-          <span className="cur">{request ? request.requestNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name={goods ? "box" : "tags"} size={16} />
-            </span>
-            {request ? (
-              <>
-                <span className="docno">{request.requestNo}</span>
-                <span className={`bdg ${PURCHASE_REQUEST_STATUS_BADGE[status]}`}>{PURCHASE_REQUEST_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              `${k.name} Baru`
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <PurchaseRequestActions id={request!.id} basePath={k.path} subject={request!.requestNo} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Pembelian"
+        trail={[{ label: k.name, href: k.path }]}
+        icon={goods ? "box" : "tags"}
+        number={request?.requestNo}
+        placeholder={`${k.name} Baru`}
+        status={status}
+        statusLabel={{ text: PURCHASE_REQUEST_STATUS_TEXT[status], tone: PURCHASE_REQUEST_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <PurchaseRequestActions id={request!.id} basePath={k.path} subject={request!.requestNo} status={status} can={can} />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

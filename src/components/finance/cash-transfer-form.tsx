@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { CancelButton } from "@/components/ui/cancel-button";
@@ -30,6 +29,8 @@ import {
 import type { CashTransferInput, CashTransferOptions, CashTransferView } from "@/lib/erp/cash-transfer";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import { formatDate, formatMoney, formatRate, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
+import { JournalReference } from "@/components/ui/journal-reference";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { CASH_TRANSFER_TRANSITIONS, availableCashTransferActions } from "@/lib/erp/cash-transfer-workflow";
@@ -136,7 +137,7 @@ export function CashTransferForm({
   }
 
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
+  const nil = (t?: string) => <div className={`ro nil${t || editing ? "" : " opt"}`}>{t ?? "tidak diisi"}</div>;
   const lineErrors = Object.entries(errors).filter(([k]) => k.startsWith("lines"));
 
   const headerCard = (
@@ -209,6 +210,7 @@ export function CashTransferForm({
             </Field>
           </FormRow>
         </FormSection>
+        <JournalReference id={doc?.journalId} no={doc?.journalNo} />
         {doc?.status === "Posted" && doc.fromBase !== null && (
           <p className="fnote">
             <b>Nilai dasar keluar:</b> {formatMoney(doc.fromBase, BASE_CURRENCY_LABEL)}
@@ -217,16 +219,7 @@ export function CashTransferForm({
                 ; selisih kurs {doc.fxDifference > 0 ? "laba" : "rugi"} {formatMoney(Math.abs(doc.fxDifference), BASE_CURRENCY_LABEL)}
               </>
             )}
-            .{" "}
-            {doc.journalId && (
-              <>
-                Journal{" "}
-                <Link className="drl" href={`/accounting/journal/${doc.journalId}`}>
-                  <span className="mono">{doc.journalNo}</span>
-                </Link>
-                .
-              </>
-            )}
+            .
           </p>
         )}
         {doc?.cancelReason && (
@@ -415,46 +408,26 @@ export function CashTransferForm({
   const backHref = doc ? `${CASH_TRANSFER_PATH}/${doc.id}` : CASH_TRANSFER_PATH;
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Finance</span>
-          <span>/</span>
-          <Link href={CASH_TRANSFER_PATH}>Transfer</Link>
-          <span>/</span>
-          <span className="cur">{doc ? doc.transferNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="link" size={16} />
-            </span>
-            {doc ? (
-              <>
-                <span className="docno">{doc.transferNo}</span>
-                <span className={`bdg ${CASH_TRANSFER_STATUS_BADGE[status]}`}>{CASH_TRANSFER_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Transfer Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <CashTransferActions id={doc!.id} subject={doc!.transferNo} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Finance"
+        trail={[{ label: "Transfer", href: CASH_TRANSFER_PATH }]}
+        icon="link"
+        number={doc?.transferNo}
+        placeholder="Transfer Baru"
+        status={status}
+        statusLabel={{ text: CASH_TRANSFER_STATUS_TEXT[status], tone: CASH_TRANSFER_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <CashTransferActions id={doc!.id} subject={doc!.transferNo} status={status} can={can} />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

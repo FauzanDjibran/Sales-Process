@@ -9,6 +9,7 @@ import { CancelButton } from "@/components/ui/cancel-button";
 import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
 import { DocumentHeader } from "@/components/ui/document-header";
+import { JournalReference } from "@/components/ui/journal-reference";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
@@ -193,7 +194,7 @@ export function DeliveryNoteForm({
 
   const backHref = note ? `/inventory/delivery-note/${note.id}` : "/inventory/delivery-note";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
+  const nil = (text?: string) => <div className={`ro nil${text || editing ? "" : " opt"}`}>{text ?? "tidak diisi"}</div>;
   const waitSource = `menunggu ${purpose.sourceNoun}`;
   const lineErr = (key: string, f: string) => errors[`lines.${key}.${f}`];
 
@@ -308,26 +309,12 @@ export function DeliveryNoteForm({
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
         </FormSection>
-        {posted && (
-          <FormSection title="Referensi">
-            <FormRow>
-              <Field label="Journal" span={4}>
-                {note?.journalId
-                  ? ro(
-                      <Link className="drl" href={`/accounting/journal/${note.journalId}`}>
-                        <span className="mono">{note.journalNo}</span>
-                      </Link>
-                    )
-                  : nil("tanpa journal — stok bernilai nol")}
-              </Field>
-            </FormRow>
-          </FormSection>
-        )}
+        <JournalReference id={note?.journalId} no={note?.journalNo} />
         {note?.cancelReason && status === "Cancelled" ? (
           <p className="fnote">
             <b>Dibatalkan:</b> {note.cancelReason}
@@ -442,7 +429,7 @@ export function DeliveryNoteForm({
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: 640 + (draft ? 110 : 0) + (posted ? 250 : 0) + (billed ? 140 : 0) }}>
+          <table className="grid ltab" style={{ minWidth: 620 + (draft ? 110 : 0) + (posted ? 250 : 0) + (billed ? 140 : 0) }}>
             <thead>
               <tr>
                 <th style={{ width: 40 }}>No</th>

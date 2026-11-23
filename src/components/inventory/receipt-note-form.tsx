@@ -18,6 +18,8 @@ import { RECEIPT_NOTE_STATUS_BADGE, RECEIPT_NOTE_STATUS_TEXT, cumulativeShare, t
 import type { ReceiptNoteHeaderInput, ReceiptNoteOptions, ReceiptNoteView } from "@/lib/erp/receipt-note";
 import { PURCHASE_ORDER_KINDS, purchaseOrderKindOf } from "@/lib/erp/purchase-order-workflow";
 import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
+import { JournalReference } from "@/components/ui/journal-reference";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { RECEIPT_NOTE_TRANSITIONS, availableReceiptNoteActions } from "@/lib/erp/receipt-note-workflow";
@@ -165,7 +167,7 @@ export function ReceiptNoteForm({
 
   const status = note?.status ?? "Draft";
   const ro = (n: React.ReactNode) => <div className="ro">{n}</div>;
-  const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
+  const nil = (t?: string) => <div className={`ro nil${t || editing ? "" : " opt"}`}>{t ?? "tidak diisi"}</div>;
   const orderOptions = options.orders.map((o) => ({ id: o.id, label: o.orderNo, name: `${o.supplierLabel} · ${o.supplierName}`, active: true }));
 
   const headerCard = (
@@ -222,26 +224,18 @@ export function ReceiptNoteForm({
                 nil()
               )}
             </Field>
-            {note?.journalNo && (
-              <Field label="Journal" span={3}>
-                {ro(
-                  <Link className="drl" href={`/accounting/journal/${note.journalId}`}>
-                    <span className="mono">{note.journalNo}</span>
-                  </Link>
-                )}
-              </Field>
-            )}
             <Field label="Catatan" span={12}>
               {editing ? (
                 <textarea className="ta" rows={2} value={header.note} placeholder="Keterangan tambahan (opsional)…" onChange={(e) => set("note", e.target.value)} />
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
         </FormSection>
+        <JournalReference id={note?.journalId} no={note?.journalNo} />
         {note?.cancelReason && (
           <p className="fnote">
             <b>Dibatalkan:</b> {note.cancelReason}
@@ -390,46 +384,26 @@ export function ReceiptNoteForm({
 
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Persediaan</span>
-          <span>/</span>
-          <Link href="/inventory/receipt-note">Receipt Note</Link>
-          <span>/</span>
-          <span className="cur">{note ? note.rnNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="box" size={16} />
-            </span>
-            {note ? (
-              <>
-                <span className="docno">{note.rnNo}</span>
-                <span className={`bdg ${RECEIPT_NOTE_STATUS_BADGE[status]}`}>{RECEIPT_NOTE_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Receipt Note Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={note ? `/inventory/receipt-note/${note.id}` : "/inventory/receipt-note"} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <ReceiptNoteActions id={note!.id} subject={note!.rnNo} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Persediaan"
+        trail={[{ label: "Receipt Note", href: "/inventory/receipt-note" }]}
+        icon="box"
+        number={note?.rnNo}
+        placeholder="Receipt Note Baru"
+        status={status}
+        statusLabel={{ text: RECEIPT_NOTE_STATUS_TEXT[status], tone: RECEIPT_NOTE_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={note ? `/inventory/receipt-note/${note.id}` : "/inventory/receipt-note"} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <ReceiptNoteActions id={note!.id} subject={note!.rnNo} status={status} can={can} />
+        )}
+      </DocumentHeader>
       <div className="fgrid solo">
         <div>
           {headerCard}

@@ -17,6 +17,8 @@ import { advancePpnUsed, computeInvoice, type PriceMode } from "@/lib/erp/sales-
 import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, type InvoiceAbilities } from "@/lib/erp/ar-invoice-workflow";
 import type { PermitInvoiceOptions, PermitInvoiceView } from "@/lib/erp/permit-invoice";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
+import { JournalReference } from "@/components/ui/journal-reference";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { PERMIT_INVOICE_TRANSITIONS, availableInvoiceActions } from "@/lib/erp/ar-invoice-workflow";
@@ -145,7 +147,7 @@ export function PermitInvoiceForm({
   const status = invoice?.status ?? "Draft";
   const backHref = invoice ? `/finance/invoice/permit/${invoice.id}` : "/finance/invoice/permit";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
+  const nil = (t?: string) => <div className={`ro nil${t || editing ? "" : " opt"}`}>{t ?? "tidak diisi"}</div>;
   const wait = "menunggu Pengajuan";
 
   const header = (
@@ -214,7 +216,7 @@ export function PermitInvoiceForm({
             <Field label="PPN" span={4}>
               {source
                 ? ro(
-                    <span className={`bdg ${source.basis.taxable ? "s-ok" : "s-mute"}`}>
+                    <span className={`bdg ${source.basis.taxable ? "t-info" : "t-slate"}`}>
                       {source.basis.taxable ? `Kena PPN · ${MODE_TEXT[source.basis.mode]}` : "Tidak Kena PPN"}
                     </span>
                   )
@@ -306,11 +308,12 @@ export function PermitInvoiceForm({
               ) : h.note ? (
                 <div className="ro multi">{h.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
         </FormSection>
+        <JournalReference id={invoice?.journal?.id} no={invoice?.journal?.no} />
         {invoice?.status === "Cancelled" && invoice.cancelReason && (
           <p className="fnote">
             <b>Dibatalkan:</b> {invoice.cancelReason}
@@ -525,48 +528,26 @@ export function PermitInvoiceForm({
 
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Finance</span>
-          <span>/</span>
-          <span>Invoice</span>
-          <span>/</span>
-          <Link href="/finance/invoice/permit">Invoice Perizinan</Link>
-          <span>/</span>
-          <span className="cur">{invoice ? invoice.invoiceNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="file" size={16} />
-            </span>
-            {invoice ? (
-              <>
-                <span className="docno">{invoice.invoiceNo}</span>
-                <span className={`bdg ${INVOICE_STATUS_BADGE[status]}`}>{INVOICE_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Invoice Perizinan Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <InvoiceActions id={invoice!.id} subject={`${invoice!.invoiceNo} – ${money(invoice!.figures.total)}`} status={status} can={can} variant="permit" />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Finance"
+        trail={[{ label: "Invoice Perizinan", href: "/finance/invoice/permit" }]}
+        icon="file"
+        number={invoice?.invoiceNo}
+        placeholder="Invoice Perizinan Baru"
+        status={status}
+        statusLabel={{ text: INVOICE_STATUS_TEXT[status], tone: INVOICE_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <InvoiceActions id={invoice!.id} subject={`${invoice!.invoiceNo} – ${money(invoice!.figures.total)}`} status={status} can={can} variant="permit" />
+        )}
+      </DocumentHeader>
       <div className="fgrid solo">
         <div>
           {header}

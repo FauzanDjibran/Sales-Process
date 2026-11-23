@@ -158,7 +158,7 @@ export function SalesReturnForm({
   const status = ret?.status ?? "Draft";
   const backHref = ret ? `/sales/return/${ret.id}` : "/sales/return";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
+  const nil = (text?: string) => <div className={`ro nil${text || editing ? "" : " opt"}`}>{text ?? "tidak diisi"}</div>;
   const lineErr = (key: string, f: string) => errors[`lines.${key}.${f}`];
   const showReceived = status === "Open" || status === "Closed";
 
@@ -322,7 +322,7 @@ export function SalesReturnForm({
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>

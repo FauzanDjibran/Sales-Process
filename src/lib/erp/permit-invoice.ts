@@ -6,7 +6,7 @@ import { formatMoney } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
-import { PostingDryRun, describeJournalLines, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
+import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { checkAccountIsLeaf } from "./records";
 import { ArItemOverdrawn, advanceItemsForInvoice, arPaidByDocument, createArItem, settleArItem, type AdvanceItemForInvoice } from "./ar-item";
 import { lockPermitRequest, markPermitRequestInvoiced, permitAdvanceSources, type PermitAdvanceSource } from "./permit-request";
@@ -661,7 +661,7 @@ export type PermitInvoiceView = {
   bankLabel: string;
   bankName: string;
   cancelReason: string | null;
-  journal: { id: number } | null;
+  journal: { id: number; no: string } | null;
   arItemId: number | null;
   figures: { amount: number; dpp: number; advanceDpp: number; advancePpn: number; netDpp: number; dppOther: number; fullPpn: number; ppn: number; total: number };
   paid: number;
@@ -681,7 +681,7 @@ export async function getPermitInvoice(id: number): Promise<PermitInvoiceView | 
     bankLabel: n.cash_bank.cash_bank_label,
     bankName: n.cash_bank.cash_bank_name,
     cancelReason: n.cancel_reason,
-    journal: n.journal_id ? { id: n.journal_id } : null,
+    journal: n.journal_id ? { id: n.journal_id, no: (await journalNumbersByIds([n.journal_id])).get(n.journal_id) ?? "" } : null,
     arItemId: n.ar_item_id,
     figures: {
       amount: n.amount.toNumber(),

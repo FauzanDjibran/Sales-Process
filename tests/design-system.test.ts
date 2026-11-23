@@ -1398,6 +1398,12 @@ describe("header → tabs → Riwayat on every ERP form (P308)", () => {
     assert.deepEqual(bad, [], "Columns, filters and row actions are decided once.");
   });
 
+  test("every document form's header is DocumentHeader, its journal in Referensi (P311)", () => {
+    assert.deepEqual(forms.filter((f) => !/<DocumentHeader\b/.test(f.text) || /className="ph"/.test(f.text)).map((f) => f.rel), []);
+    const bad = forms.filter((f) => /\/accounting\/journal\/\$/.test(f.text) && !/journal-form/.test(f.rel)).map((f) => f.rel);
+    assert.deepEqual(bad, [], "JournalReference links the journal.");
+  });
+
   test("every document form offers its next step beside Simpan (P309)", () => {
     const bad = forms.filter((f) => !/<SaveButtons\b/.test(f.text)).map((f) => f.rel);
     assert.deepEqual(bad, []);

@@ -27,6 +27,8 @@ import type { CashReceiptOptions, CashReceiptView, OpenBill } from "@/lib/erp/ca
 import { TAX_MODULE_HIDDEN } from "@/lib/erp/nav";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatPct, formatRate, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
+import { JournalReference } from "@/components/ui/journal-reference";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { CASH_RECEIPT_TRANSITIONS, availableCashReceiptActions } from "@/lib/erp/cash-bank-tx-workflow";
@@ -219,7 +221,7 @@ export function CashReceiptForm({
   const status = receipt?.status ?? "Draft";
   const backHref = receipt ? `/finance/cash-bank/receipt/${receipt.id}` : "/finance/cash-bank/receipt";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
+  const nil = (text?: string) => <div className={`ro nil${text || editing ? "" : " opt"}`}>{text ?? "tidak diisi"}</div>;
   const partners = options.partners.filter((p) => !purpose || p.category === purpose.partnerCategory);
   const partner = options.partners.find((p) => p.id === h.partner_id) ?? null;
   const whtLabel = (key: string) => options.withholdingLabels[key] ?? "PPh";
@@ -370,39 +372,37 @@ export function CashReceiptForm({
               ) : h.note ? (
                 <div className="ro multi">{h.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
-            {!editing && receipt?.journal && (
-              <Field label="Referensi" span={12}>
-                {ro(
-                  <>
-                    <span className="rx">Journal</span>
-                    <Link className="drl" href={`/accounting/journal/${receipt.journal.id}`}>
-                      <span className="mono">{receipt.journal.journalNo}</span>
-                    </Link>
-                    {!TAX_MODULE_HIDDEN && taxDocs?.fakturs.map((f) => (
-                      <Fragment key={`f${f.id}`}>
-                        <span className="rx">· Faktur Pajak</span>
-                        <Link className="drl" href={`/tax/faktur/${f.id}`}>
-                          <span className="mono">{f.fakturNo}</span>
-                        </Link>
-                      </Fragment>
-                    ))}
-                    {!TAX_MODULE_HIDDEN && taxDocs?.slips.map((x) => (
-                      <Fragment key={`s${x.id}`}>
-                        <span className="rx">· Bukti Potong</span>
-                        <Link className="drl" href={`/tax/withholding-slip/${x.id}`}>
-                          <span className="mono">{x.slipNo}</span>
-                        </Link>
-                      </Fragment>
-                    ))}
-                  </>
-                )}
-              </Field>
-            )}
           </FormRow>
         </FormSection>
+        <JournalReference id={receipt?.journal?.id} no={receipt?.journal?.journalNo}>
+          {!TAX_MODULE_HIDDEN && receipt?.journal && (
+            <Field label="Dokumen Pajak" span={8}>
+              {ro(
+                <>
+                  {taxDocs?.fakturs.map((f) => (
+                    <Fragment key={`f${f.id}`}>
+                      <span className="rx">· Faktur Pajak</span>
+                      <Link className="drl" href={`/tax/faktur/${f.id}`}>
+                        <span className="mono">{f.fakturNo}</span>
+                      </Link>
+                    </Fragment>
+                  ))}
+                  {taxDocs?.slips.map((x) => (
+                    <Fragment key={`s${x.id}`}>
+                      <span className="rx">· Bukti Potong</span>
+                      <Link className="drl" href={`/tax/withholding-slip/${x.id}`}>
+                        <span className="mono">{x.slipNo}</span>
+                      </Link>
+                    </Fragment>
+                  ))}
+                </>
+              )}
+            </Field>
+          )}
+        </JournalReference>
         {receipt?.status === "Cancelled" && receipt.cancelReason && (
           <p className="fnote">
             <b>Dibatalkan:</b> {receipt.cancelReason}
@@ -676,48 +676,26 @@ export function CashReceiptForm({
   // ============================================================ page
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Finance</span>
-          <span>/</span>
-          <span>Kas & Bank</span>
-          <span>/</span>
-          <Link href="/finance/cash-bank/receipt">Penerimaan</Link>
-          <span>/</span>
-          <span className="cur">{receipt ? receipt.txNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="down" size={16} />
-            </span>
-            {receipt ? (
-              <>
-                <span className="docno">{receipt.txNo}</span>
-                <span className={`bdg ${CASH_BANK_TX_STATUS_BADGE[status]}`}>{CASH_BANK_TX_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Penerimaan Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <CashReceiptActions id={receipt!.id} subject={`${receipt!.txNo} – ${money(intoBank)}`} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Finance"
+        trail={[{ label: "Penerimaan", href: "/finance/cash-bank/receipt" }]}
+        icon="down"
+        number={receipt?.txNo}
+        placeholder="Penerimaan Baru"
+        status={status}
+        statusLabel={{ text: CASH_BANK_TX_STATUS_TEXT[status], tone: CASH_BANK_TX_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <CashReceiptActions id={receipt!.id} subject={`${receipt!.txNo} – ${money(intoBank)}`} status={status} can={can} />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

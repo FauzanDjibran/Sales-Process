@@ -52,7 +52,7 @@ export function CurrencyFields({
     <>
       <Field
         label="Currency"
-        span={4}
+        span={3}
         required={editing && !locked}
         locked={editing && locked}
         help={editing && !locked ? "terkunci setelah ada baris" : undefined}
@@ -71,7 +71,7 @@ export function CurrencyFields({
       {foreign && (
         <Field
           label="Kurs"
-          span={4}
+          span={3}
           required={editing}
           help={editing ? (suggested ? `usulan menu Kurs: ${formatRate(suggested)}` : "belum ada di menu Kurs — ketik kursnya") : undefined}
           error={errors.exchange_rate}

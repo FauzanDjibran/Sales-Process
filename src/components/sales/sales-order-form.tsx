@@ -22,6 +22,7 @@ import {
 } from "@/lib/erp/sales-order-workflow";
 import type { SalesOrderHeaderInput, SalesOrderOptions, SalesOrderView } from "@/lib/erp/sales-order";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
 import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { SALES_ORDER_TRANSITIONS, availableSalesOrderActions } from "@/lib/erp/sales-order-workflow";
@@ -169,7 +170,7 @@ export function SalesOrderForm({
   const status = order?.status ?? "Draft";
   const backHref = order ? `/sales/order/${order.id}` : "/sales/order";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
+  const nil = (text?: string) => <div className={`ro nil${text || editing ? "" : " opt"}`}>{text ?? "tidak diisi"}</div>;
   const waitOrder = source ? null : "Pilih Customer Order dulu…";
   const lineErr = (key: string, f: string) => errors[`lines.${key}.${f}`];
 
@@ -290,7 +291,7 @@ export function SalesOrderForm({
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
@@ -439,46 +440,26 @@ export function SalesOrderForm({
   // ============================================================ page
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Penjualan</span>
-          <span>/</span>
-          <Link href="/sales/order">Sales Order</Link>
-          <span>/</span>
-          <span className="cur">{order ? order.orderNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="cal" size={16} />
-            </span>
-            {order ? (
-              <>
-                <span className="docno">{order.orderNo}</span>
-                <span className={`bdg ${SALES_ORDER_STATUS_BADGE[status]}`}>{SALES_ORDER_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Sales Order Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <SalesOrderActions id={order!.id} subject={order!.orderNo} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Penjualan"
+        trail={[{ label: "Sales Order", href: "/sales/order" }]}
+        icon="cal"
+        number={order?.orderNo}
+        placeholder="Sales Order Baru"
+        status={status}
+        statusLabel={{ text: SALES_ORDER_STATUS_TEXT[status], tone: SALES_ORDER_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <SalesOrderActions id={order!.id} subject={order!.orderNo} status={status} can={can} />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

@@ -386,7 +386,7 @@ export function JournalForm({
                 </p>
               </div>
               {editing ? (
-                <button className="btn sm primary" onClick={addLine}>
+                <button className="btn sm" onClick={addLine}>
                   <Icon name="plus" size={14} /> Tambah Baris
                 </button>
               ) : (
@@ -395,15 +395,14 @@ export function JournalForm({
             </div>
 
             <div className="tw">
-              <table className="grid ltab" style={{ minWidth: editing ? 1220 : 1060 }}>
+              <table className="grid ltab" style={{ minWidth: 1000 }}>
                 <thead>
                   {editing ? (
                     <tr>
                       <th style={{ width: 34 }}>No</th>
-                      <th style={{ width: 260 }}>Account</th>
-                      <th style={{ width: 180 }}>Partner</th>
+                      <th style={{ width: 270 }}>Account</th>
                       <th>Keterangan</th>
-                      <th style={{ width: 100 }}>Currency</th>
+                      <th style={{ width: 96 }}>Currency</th>
                       <th className="num" style={{ width: 120 }}>
                         Kurs
                       </th>
@@ -418,8 +417,8 @@ export function JournalForm({
                   ) : (
                     <tr>
                       <th style={{ width: 34 }}>No</th>
-                      <th style={{ width: 300 }}>Account</th>
-                      <th style={{ width: 220 }}>Partner</th>
+                      <th style={{ width: 280 }}>Account</th>
+                      <th style={{ width: 190 }}>Partner</th>
                       <th>Keterangan</th>
                       <th className="num" style={{ width: 150 }}>
                         Debit
@@ -470,10 +469,10 @@ export function JournalForm({
                                   {errors[`lines.${i}.account_id`]}
                                 </div>
                               )}
-                            </td>
-                            <td>
-                              {account?.requirePartner ? (
-                                <>
+                              {/* Only an account that names a Partner Category keeps a
+                                  subject history, so only it asks for a Partner. */}
+                              {account?.requirePartner && (
+                                <div style={{ marginTop: 6 }}>
                                   <Combobox
                                     value={l.partner_id}
                                     placeholder="Pilih Partner…"
@@ -493,12 +492,7 @@ export function JournalForm({
                                       {errors[`lines.${i}.partner_id`]}
                                     </div>
                                   )}
-                                </>
-                              ) : (
-                                // An account that names no Partner Category keeps
-                                // no subject history, so a Partner on it would be
-                                // a detail nothing reads back.
-                                <span className="dash">—</span>
+                                </div>
                               )}
                             </td>
                             <td>
@@ -556,7 +550,7 @@ export function JournalForm({
                                 // A rate of 1 is the identity and is not a
                                 // decision, so there is nothing to type
                                 // (CLAUDE.md §10 rule 68).
-                                <span className="dash">mata uang dasar</span>
+                                <span className="dash">—</span>
                               )}
                             </td>
                             <td className="num">
@@ -657,7 +651,7 @@ export function JournalForm({
                   <tr className="totrow">
                     {/* Balance is stated only when it breaks (§12, report
                         rule 10): equal totals are visible in the two columns. */}
-                    <td colSpan={editing ? 6 : 4} style={{ textAlign: "right" }}>
+                    <td colSpan={editing ? 5 : 4} style={{ textAlign: "right" }}>
                       Total
                       {imbalance && <span className="overtag">{imbalance}</span>}
                     </td>

@@ -23,6 +23,7 @@ import {
 } from "@/lib/erp/stock-transfer-workflow";
 import type { ReceiptSource, TransferReceiptView } from "@/lib/erp/stock-transfer-receipt";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 
@@ -210,7 +211,7 @@ export function TransferReceiptForm({
               ) : note ? (
                 <div className="ro multi">{note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
@@ -394,53 +395,33 @@ export function TransferReceiptForm({
 
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Persediaan</span>
-          <span>/</span>
-          <Link href="/inventory/stock-transfer-receipt">Transfer Terima</Link>
-          <span>/</span>
-          <span className="cur">{receipt ? receipt.receiptNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="down" size={16} />
-            </span>
-            {receipt ? (
-              <>
-                <span className="docno">{receipt.receiptNo}</span>
-                <span className={`bdg ${STOCK_TRANSFER_RECEIPT_STATUS_BADGE[status]}`}>{STOCK_TRANSFER_RECEIPT_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Transfer Terima Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} disabled={saving || !source || !lines.length} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <TransferActions
-                subject={receipt!.receiptNo}
-                actions={availableStockTransferReceiptActions(status, can)}
-                transitions={STOCK_TRANSFER_RECEIPT_TRANSITIONS}
-                editHref={stockTransferReceiptIsEditable(status) && can.edit ? `/inventory/stock-transfer-receipt/${receipt!.id}/edit` : null}
-                lockText={status === "Cancelled" ? "Transfer Terima dibatalkan" : "Transfer Terima diposting"}
-                run={(a, r) => transitionTransferReceiptAction(receipt!.id, a, r)}
-              />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Persediaan"
+        trail={[{ label: "Transfer Terima", href: "/inventory/stock-transfer-receipt" }]}
+        icon="down"
+        number={receipt?.receiptNo}
+        placeholder="Transfer Terima Baru"
+        status={status}
+        statusLabel={{ text: STOCK_TRANSFER_RECEIPT_STATUS_TEXT[status], tone: STOCK_TRANSFER_RECEIPT_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} disabled={saving || !source || !lines.length} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <TransferActions
+            subject={receipt!.receiptNo}
+            actions={availableStockTransferReceiptActions(status, can)}
+            transitions={STOCK_TRANSFER_RECEIPT_TRANSITIONS}
+            editHref={stockTransferReceiptIsEditable(status) && can.edit ? `/inventory/stock-transfer-receipt/${receipt!.id}/edit` : null}
+            lockText={status === "Cancelled" ? "Transfer Terima dibatalkan" : "Transfer Terima diposting"}
+            run={(a, r) => transitionTransferReceiptAction(receipt!.id, a, r)}
+          />
+        )}
+      </DocumentHeader>
       <div className="fgrid solo">
         <div>
           {headerCard}

@@ -1,7 +1,6 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { CancelButton } from "@/components/ui/cancel-button";
@@ -28,6 +27,7 @@ import {
 import type { PermitRequestOptions, PermitRequestView, PermitTypeOption } from "@/lib/erp/permit-request";
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
 import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { PERMIT_REQUEST_TRANSITIONS, availablePermitRequestActions } from "@/lib/erp/permit-request-workflow";
@@ -267,7 +267,7 @@ export function PermitRequestForm({
   const status = request?.status ?? "Draft";
   const backHref = request ? `/sales/permit/${request.id}` : "/sales/permit";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
+  const nil = (text?: string) => <div className={`ro nil${text || editing ? "" : " opt"}`}>{text ?? "tidak diisi"}</div>;
   const waitCustomer = header.customer_id ? null : "Pilih Customer dulu…";
 
   // ======================================================= header card
@@ -457,7 +457,7 @@ export function PermitRequestForm({
                 </label>
               ) : (
                 ro(
-                  <span className={`bdg ${header.is_taxable ? "s-ok" : "s-mute"}`}>
+                  <span className={`bdg ${header.is_taxable ? "t-info" : "t-slate"}`}>
                     {header.is_taxable ? "Kena PPN" : "Tidak Kena PPN"}
                   </span>
                 )
@@ -525,7 +525,7 @@ export function PermitRequestForm({
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
@@ -799,56 +799,34 @@ export function PermitRequestForm({
   // ============================================================ page
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Penjualan</span>
-          <span>/</span>
-          <span>Perizinan</span>
-          <span>/</span>
-          <Link href="/sales/permit">Pengajuan Perizinan</Link>
-          <span>/</span>
-          <span className="cur">{request ? request.requestNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="clip" size={16} />
-            </span>
-            {request ? (
-              <>
-                <span className="docno">{request.requestNo}</span>
-                <span className={`bdg ${PERMIT_REQUEST_STATUS_BADGE[status]}`}>{PERMIT_REQUEST_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Pengajuan Perizinan Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-            {realizing && <span className="bdg t-warn">Input Realisasi</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} label={realizing ? "Simpan Realisasi" : "Simpan"} />
-              </>
-            ) : (
-              <PermitRequestActions
-                id={request!.id}
-                subject={request!.requestNo}
-                status={status}
-                can={can}
-                realizationEntered={request!.realization.entered}
-                realizationLocked={realizationLocked}
-              />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Penjualan"
+        trail={[{ label: "Pengajuan Perizinan", href: "/sales/permit" }]}
+        icon="clip"
+        number={request?.requestNo}
+        placeholder="Pengajuan Perizinan Baru"
+        status={status}
+        statusLabel={{ text: PERMIT_REQUEST_STATUS_TEXT[status], tone: PERMIT_REQUEST_STATUS_BADGE[status] }}
+        tags={realizing && <span className="bdg t-warn">Input Realisasi</span>}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} label={realizing ? "Simpan Realisasi" : "Simpan"} />
+          </>
+        ) : (
+          <PermitRequestActions
+            id={request!.id}
+            subject={request!.requestNo}
+            status={status}
+            can={can}
+            realizationEntered={request!.realization.entered}
+            realizationLocked={realizationLocked}
+          />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

@@ -27,6 +27,8 @@ import { advancePpnUsed, computeInvoice, taxScale, withholdingsOf, type InvoiceF
 import { TAX_MODULE_HIDDEN } from "@/lib/erp/nav";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso, formatPrice } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
+import { JournalReference } from "@/components/ui/journal-reference";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { INVOICE_TRANSITIONS, availableInvoiceActions } from "@/lib/erp/ar-invoice-workflow";
@@ -266,7 +268,7 @@ export function InvoiceForm({
   const status = invoice?.status ?? "Draft";
   const backHref = invoice ? `/finance/invoice/sales/${invoice.id}` : "/finance/invoice/sales";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
+  const nil = (t?: string) => <div className={`ro nil${t || editing ? "" : " opt"}`}>{t ?? "tidak diisi"}</div>;
   const waitOrder = "menunggu Customer Order";
   const address = order?.addresses.find((a) => a.id === header.address_id);
   const bank = options.banks.find((b) => b.id === header.cash_bank_id);
@@ -317,18 +319,20 @@ export function InvoiceForm({
               )}
             </Field>
             <Field label="No. PO" span={3}>
-              {order?.poNo ? ro(<span className="mono">{order.poNo}</span>) : nil(order ? "tidak diisi" : waitOrder)}
+              {order?.poNo ? ro(<span className="mono">{order.poNo}</span>) : nil(order ? undefined : waitOrder)}
             </Field>
           </FormRow>
         </FormSection>
         <FormSection title="Harga & Pajak">
           <FormRow>
-            <Field label="Kena PPN" span={4} help={editing ? "dari Customer Order" : undefined}>
-              {order ? ro(order.taxable ? "Ya" : "Tidak") : nil(waitOrder)}
+            <Field label="PPN" span={4} help={editing ? "dari Customer Order" : undefined}>
+              {order ? ro(<span className={`bdg ${order.taxable ? "t-info" : "t-slate"}`}>{order.taxable ? "Kena PPN" : "Tidak Kena PPN"}</span>) : nil(waitOrder)}
             </Field>
-            <Field label="Mode Harga" span={4} help={editing ? "dari Customer Order" : undefined}>
-              {order ? ro(order.taxable ? MODE_TEXT[order.mode] : "—") : nil(waitOrder)}
-            </Field>
+            {order?.taxable && (
+              <Field label="Mode Harga" span={4} help={editing ? "dari Customer Order" : undefined}>
+                {ro(<span className="bdg t-slate">{MODE_TEXT[order.mode]}</span>)}
+              </Field>
+            )}
             <Field label="Termin" span={4} help={editing ? "dari Customer Order" : undefined}>
               {order ? ro(<span className="lab">{order.termLabel}</span>) : nil(waitOrder)}
             </Field>
@@ -392,33 +396,6 @@ export function InvoiceForm({
             </Field>
             {!editing && (
               <>
-                <Field label="Journal" span={4}>
-                  {invoice?.journalId
-                    ? ro(
-                        <Link className="drl" href={`/accounting/journal/${invoice.journalId}`}>
-                          <span className="mono">{invoice.journalNo}</span>
-                        </Link>
-                      )
-                    : nil(posted ? "tidak ada" : "saat posting")}
-                </Field>
-                {!TAX_MODULE_HIDDEN && (
-                <Field label="Faktur Pajak" span={4}>
-                  {taxDocs?.fakturs.length
-                    ? ro(
-                        taxDocs.fakturs.map((f) => (
-                          <Fragment key={f.id}>
-                            <Link className="drl" href={`/tax/faktur/${f.id}`}>
-                              <span className="mono">{f.fakturNo}</span>
-                            </Link>
-                            <span className="rx">{f.nsfp ? `NSFP ${f.nsfp}` : "NSFP belum diisi"}</span>
-                          </Fragment>
-                        ))
-                      )
-                    : invoice?.taxInvoiceNo
-                      ? ro(<span className="mono">{invoice.taxInvoiceNo}</span>)
-                      : nil(posted ? (order && !order.taxable ? "tidak kena PPN" : "tidak ada") : "saat posting")}
-                </Field>
-                )}
                 {posted && pay && (
                   <Field label="Pembayaran" span={12}>
                     {ro(
@@ -456,11 +433,31 @@ export function InvoiceForm({
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
         </FormSection>
+        <JournalReference id={invoice?.journalId} no={invoice?.journalNo}>
+            {!TAX_MODULE_HIDDEN && !editing && (
+            <Field label="Faktur Pajak" span={4}>
+              {taxDocs?.fakturs.length
+                ? ro(
+                    taxDocs.fakturs.map((f) => (
+                      <Fragment key={f.id}>
+                        <Link className="drl" href={`/tax/faktur/${f.id}`}>
+                          <span className="mono">{f.fakturNo}</span>
+                        </Link>
+                        <span className="rx">{f.nsfp ? `NSFP ${f.nsfp}` : "NSFP belum diisi"}</span>
+                      </Fragment>
+                    ))
+                  )
+                : invoice?.taxInvoiceNo
+                  ? ro(<span className="mono">{invoice.taxInvoiceNo}</span>)
+                  : nil(posted ? (order && !order.taxable ? "tidak kena PPN" : "tidak ada") : "saat posting")}
+            </Field>
+            )}
+        </JournalReference>
         {invoice?.cancelReason && status === "Cancelled" && (
           <p className="fnote">
             <b>Dibatalkan:</b> {invoice.cancelReason}
@@ -931,46 +928,26 @@ export function InvoiceForm({
   // ============================================================ page
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Finance</span>
-          <span>/</span>
-          <Link href="/finance/invoice/sales">Invoice Penjualan</Link>
-          <span>/</span>
-          <span className="cur">{invoice ? invoice.invoiceNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="file" size={16} />
-            </span>
-            {invoice ? (
-              <>
-                <span className="docno">{invoice.invoiceNo}</span>
-                <span className={`bdg ${INVOICE_STATUS_BADGE[status]}`}>{INVOICE_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Invoice Penjualan Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <InvoiceActions id={invoice!.id} subject={invoice!.invoiceNo} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Finance"
+        trail={[{ label: "Invoice Penjualan", href: "/finance/invoice/sales" }]}
+        icon="file"
+        number={invoice?.invoiceNo}
+        placeholder="Invoice Penjualan Baru"
+        status={status}
+        statusLabel={{ text: INVOICE_STATUS_TEXT[status], tone: INVOICE_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <InvoiceActions id={invoice!.id} subject={invoice!.invoiceNo} status={status} can={can} />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

@@ -9,6 +9,7 @@ import { CancelButton } from "@/components/ui/cancel-button";
 import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
 import { DocumentHeader } from "@/components/ui/document-header";
+import { JournalReference } from "@/components/ui/journal-reference";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
@@ -171,7 +172,7 @@ export function ReturnReceiptForm({
 
   const status = note?.status ?? "Draft";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (t = "tidak diisi") => <div className="ro nil">{t}</div>;
+  const nil = (t?: string) => <div className={`ro nil${t || editing ? "" : " opt"}`}>{t ?? "tidak diisi"}</div>;
   /** A line's lots in one phrase: how many, and how much of the line they hold. */
   const lotSummary = (l: LineState, uom: string) => {
     if (!l.lots.length) return "Belum diisi";
@@ -257,26 +258,18 @@ export function ReturnReceiptForm({
                 nil()
               )}
             </Field>
-            {note?.journalNo && (
-              <Field label="Journal" span={3}>
-                {ro(
-                  <Link className="drl" href={`/accounting/journal/${note.journalId}`}>
-                    <span className="mono">{note.journalNo}</span>
-                  </Link>
-                )}
-              </Field>
-            )}
             <Field label="Catatan" span={12}>
               {editing ? (
                 <textarea className="ta" rows={2} value={header.note} placeholder="Kondisi barang saat diterima…" onChange={(e) => set("note", e.target.value)} />
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
         </FormSection>
+        <JournalReference id={note?.journalId} no={note?.journalNo} />
         {note?.cancelReason && (
           <p className="fnote">
             <b>Dibatalkan:</b> {note.cancelReason}

@@ -31,6 +31,7 @@ import type {
 } from "@/lib/erp/customer-order";
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
 import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { CUSTOMER_ORDER_TRANSITIONS, availableCustomerOrderActions } from "@/lib/erp/customer-order-workflow";
@@ -321,7 +322,7 @@ export function CustomerOrderForm({
   const status = order?.status ?? "Draft";
   const backHref = order ? `/sales/customer-order/${order.id}` : "/sales/customer-order";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
+  const nil = (text?: string) => <div className={`ro nil${text || editing ? "" : " opt"}`}>{text ?? "tidak diisi"}</div>;
   const waitCustomer = header.customer_id ? null : "Pilih Customer dulu…";
 
   const refOptions = (rows: { id: number; label: string; name: string; active: boolean }[]) => rows;
@@ -532,9 +533,7 @@ export function CustomerOrderForm({
                 touch("currency_id", "exchange_rate");
               }}
             />
-          </FormRow>
-          <FormRow>
-            <Field label="PPN" span={4} help={editing ? "berlaku untuk seluruh baris" : undefined}>
+            <Field label="PPN" span={3} help={editing ? "berlaku untuk seluruh baris" : undefined}>
               {editing ? (
                 <label className="chk sm">
                   <input
@@ -548,7 +547,7 @@ export function CustomerOrderForm({
                 </label>
               ) : (
                 ro(
-                  <span className={`bdg ${header.is_taxable ? "s-ok" : "s-mute"}`}>
+                  <span className={`bdg ${header.is_taxable ? "t-info" : "t-slate"}`}>
                     {header.is_taxable ? "Kena PPN" : "Tidak Kena PPN"}
                   </span>
                 )
@@ -557,7 +556,7 @@ export function CustomerOrderForm({
             {header.is_taxable && (
               <Field
                 label="Mode Harga"
-                span={4}
+                span={3}
                 required={editing}
                 help={editing ? "harga baris diketik sebelum atau sudah termasuk PPN" : undefined}
                 error={errors.price_mode}
@@ -597,7 +596,7 @@ export function CustomerOrderForm({
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
           </FormRow>
@@ -945,46 +944,26 @@ export function CustomerOrderForm({
   // ============================================================ page
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Penjualan</span>
-          <span>/</span>
-          <Link href="/sales/customer-order">Customer Order</Link>
-          <span>/</span>
-          <span className="cur">{order ? order.orderNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="clip" size={16} />
-            </span>
-            {order ? (
-              <>
-                <span className="docno">{order.orderNo}</span>
-                <span className={`bdg ${CUSTOMER_ORDER_STATUS_BADGE[status]}`}>{CUSTOMER_ORDER_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Customer Order Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <CustomerOrderActions id={order!.id} subject={order!.orderNo} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Penjualan"
+        trail={[{ label: "Customer Order", href: "/sales/customer-order" }]}
+        icon="clip"
+        number={order?.orderNo}
+        placeholder="Customer Order Baru"
+        status={status}
+        statusLabel={{ text: CUSTOMER_ORDER_STATUS_TEXT[status], tone: CUSTOMER_ORDER_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <CustomerOrderActions id={order!.id} subject={order!.orderNo} status={status} can={can} />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>

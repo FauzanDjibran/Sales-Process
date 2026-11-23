@@ -24,6 +24,8 @@ import {
 } from "@/lib/erp/cash-bank-tx-workflow";
 import type { CashPaymentOptions, CashPaymentView, OpenPayable } from "@/lib/erp/cash-payment";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
+import { DocumentHeader } from "@/components/ui/document-header";
+import { JournalReference } from "@/components/ui/journal-reference";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { CASH_PAYMENT_TRANSITIONS, availableCashReceiptActions } from "@/lib/erp/cash-bank-tx-workflow";
@@ -201,7 +203,7 @@ export function CashPaymentForm({
   const status = payment?.status ?? "Draft";
   const backHref = payment ? `/finance/cash-bank/payment/${payment.id}` : "/finance/cash-bank/payment";
   const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
-  const nil = (text = "tidak diisi") => <div className="ro nil">{text}</div>;
+  const nil = (text?: string) => <div className={`ro nil${text || editing ? "" : " opt"}`}>{text ?? "tidak diisi"}</div>;
   const partners = options.partners.filter((p) => !purpose || p.category === purpose.partnerCategory);
   const partner = options.partners.find((p) => p.id === h.partner_id) ?? null;
   const whtLabel = (key: string) => options.withholdingLabels[key] ?? "PPh";
@@ -342,23 +344,12 @@ export function CashPaymentForm({
               ) : h.note ? (
                 <div className="ro multi">{h.note}</div>
               ) : (
-                <div className="ro multi nil">tidak diisi</div>
+                <div className="ro multi nil opt">tidak diisi</div>
               )}
             </Field>
-            {!editing && payment?.journal && (
-              <Field label="Referensi" span={12}>
-                {ro(
-                  <>
-                    <span className="rx">Journal</span>
-                    <Link className="drl" href={`/accounting/journal/${payment.journal.id}`}>
-                      <span className="mono">{payment.journal.journalNo}</span>
-                    </Link>
-                  </>
-                )}
-              </Field>
-            )}
           </FormRow>
         </FormSection>
+        <JournalReference id={payment?.journal?.id} no={payment?.journal?.journalNo} />
         {payment?.status === "Cancelled" && payment.cancelReason && (
           <p className="fnote">
             <b>Dibatalkan:</b> {payment.cancelReason}
@@ -634,48 +625,26 @@ export function CashPaymentForm({
   // ============================================================ page
   return (
     <>
-      <div className="ph">
-        <div className="crumb">
-          <span>Finance</span>
-          <span>/</span>
-          <span>Kas & Bank</span>
-          <span>/</span>
-          <Link href="/finance/cash-bank/payment">Pengeluaran</Link>
-          <span>/</span>
-          <span className="cur">{payment ? payment.txNo : "Baru"}</span>
-        </div>
-        <div className="ph-row">
-          <h1>
-            <span className="ph-ico">
-              <Icon name="send" size={16} />
-            </span>
-            {payment ? (
-              <>
-                <span className="docno">{payment.txNo}</span>
-                <span className={`bdg ${CASH_BANK_TX_STATUS_BADGE[status]}`}>{CASH_BANK_TX_STATUS_TEXT[status]}</span>
-              </>
-            ) : (
-              "Pengeluaran Baru"
-            )}
-            {mode === "edit" && <span className="bdg t-warn">Mode Ubah</span>}
-          </h1>
-          <div className="ph-act">
-            {editing ? (
-              <>
-                {dirty && (
-                  <span className="ph-dirty">
-                    <span className="pulse" /> Belum disimpan
-                  </span>
-                )}
-                <CancelButton href={backHref} dirty={dirty} disabled={saving} />
-                <SaveButtons saving={saving} onSave={onSave} next={next} />
-              </>
-            ) : (
-              <CashPaymentActions id={payment!.id} subject={`${payment!.txNo} – ${money(intoBank)}`} status={status} can={can} />
-            )}
-          </div>
-        </div>
-      </div>
+      <DocumentHeader
+        module="Finance"
+        trail={[{ label: "Pengeluaran", href: "/finance/cash-bank/payment" }]}
+        icon="send"
+        number={payment?.txNo}
+        placeholder="Pengeluaran Baru"
+        status={status}
+        statusLabel={{ text: CASH_BANK_TX_STATUS_TEXT[status], tone: CASH_BANK_TX_STATUS_BADGE[status] }}
+        editing={mode === "edit"}
+        dirty={editing && dirty}
+      >
+        {editing ? (
+          <>
+            <CancelButton href={backHref} dirty={dirty} disabled={saving} />
+            <SaveButtons saving={saving} onSave={onSave} next={next} />
+          </>
+        ) : (
+          <CashPaymentActions id={payment!.id} subject={`${payment!.txNo} – ${money(intoBank)}`} status={status} can={can} />
+        )}
+      </DocumentHeader>
 
       <div className="fgrid solo">
         <div>
