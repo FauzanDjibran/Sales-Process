@@ -3,7 +3,7 @@
 The current schema as DBML, kept in step with `prisma/schema.prisma`: every
 migration updates this file in the same change (Claude-ERP.md §9).
 
-- **As of migration:** `20261123150000_database_app`
+- **As of migration:** `20261124093000_handover_status`
 - **Source of truth:** `prisma/schema.prisma` — this file is its readable
   mirror; where they differ, the schema wins and this file is corrected.
 - **Layout: three parts, one per owner** (P254, `production_app_plan.md` §5):
@@ -16,7 +16,7 @@ migration updates this file in the same change (Claude-ERP.md §9).
   (`acc_`), Finance (`fin_`, the Cash Bank Book), Sales (`sal_`), Pembelian
   (`pur_`), Logistik (`log_`, the stock books among them) and Pajak (`tax_`) —
   and in ERP three sections of production tables it owns: Struktur Produksi
-  (masters Produksi reads), BSTB Issue (the boundary document) and Costing
+  (masters Produksi reads), Stock Issue and Stock Receipt (the boundary documents) and Costing
   Produksi. A `prd_` table may be the ERP's. What a table is for is the `//`
   comment above it; what a column holds, the `//` comment after it.
 - **A foreign key into another part** says so: `// lintas aplikasi → <part>`.
@@ -2815,7 +2815,6 @@ table log_stock_balance {
   stock_status_id             int [not null, ref : > sys_stock_status.id]
 
   qty_balance                 decimal(18,6) [not null]
-  reserved_qty                decimal(18,6) [not null, default: 0] // held by Submitted BSTB Issues (W20); CHECK 0 <= reserved <= balance
 
   created_by                  int [not null]
   updated_by                  int
@@ -3025,25 +3024,26 @@ table tax_withholding_slip {
 
 //////////////////////////////////
 //
-// BSTB Issue — dokumen batas ke Produksi
+// Stock Issue — dokumen batas ke Produksi
 //
 /////////////////////////////////
 
-// BSTB Issue (P228; R4): Draft → Ajukan (goods reserved) → Terima (goods move, W20); into a Unit's Persiapan — Dr WIP /
-// Cr Persediaan; standalone by purpose (P106), SI/YYYY/MM/NNNN
+// Stock Issue (P317): Draft → Kirim (InTransit: out of stock, value frozen, Dr WIP / Cr Persediaan) → Received, said by
+// Produksi; standalone by purpose (P106), BSTB_<unit>_<ddmmyy>_<NNNNN>
 table log_stock_issue {
   id                          int [pk, increment, not null]
 
   issue_no                    varchar [not null, unique]
   issue_date                  date [not null]
-  status                      enum('Draft', 'Submitted', 'Posted', 'Cancelled') [not null, default: 'Draft']
-  purpose                     varchar [not null] // production_issue
+  status                      enum('Draft', 'InTransit', 'Received', 'Cancelled') [not null, default: 'Draft']
+  purpose                     varchar [not null] // production_issue | auxiliary_issue
   warehouse_id                int [not null, ref : > ref_warehouse.id]
   unit_id              int [ref : > ref_unit.id] // required by production_issue
   note                        varchar
 
   cost_amount                 decimal(18,2) [not null, default: 0]
   journal_id                  int // no FK
+  received_at                 date // the day Produksi took the goods in
   cancel_reason               varchar
 
   created_by                  int [not null]
@@ -3068,7 +3068,6 @@ table log_stock_issue_line {
   uom_factor                  decimal(18,4) [not null, default: 1]
   qty                         decimal(18,4) [not null]
   base_qty                    decimal(18,4) [not null, default: 0]
-  unit_cost                   decimal(18,6) [not null, default: 0]
   cost_amount                 decimal(18,2) [not null, default: 0]
   note                        varchar
 
@@ -3090,9 +3089,7 @@ table log_stock_issue_tracking {
   expiry_date                 date
   qty                         decimal(18,4) [not null]
   base_qty                    decimal(18,4) [not null, default: 0]
-  unit_cost                   decimal(18,6) [not null, default: 0]
   cost_amount                 decimal(18,2) [not null, default: 0]
-  prd_bucket_id               int // the production bucket it entered, weak
 
   indexes {
     (stock_issue_line_id, pick_no) [unique]
@@ -3103,30 +3100,24 @@ table log_stock_issue_tracking {
 
 //////////////////////////////////
 //
-// BSTB ke Finish Goods (P303, 7.5) and BSTB Pengeluaran (P304, 7.6)
+// Stock Receipt — dokumen batas dari Produksi
 //
 /////////////////////////////////
 
-enum ProductionReceiptStatus {
-  Submitted // Kirim: Dalam Perjalanan at the sending Unit (Diajukan)
-  Posted    // Terima: in stock (Diterima)
-}
-
-// Kirim from the last Unit of a line's routing (Produksi); Terima by the
-// warehouse (ERP): out of the production book, into stock under the same
-// No. Stok, Dr Persediaan / Cr WIP.
-table log_production_receipt {
+// Goods into a warehouse without a partner (P317), by purpose; from production they are made by a
+// Production Issue, under its number. Terima by the warehouse: Dr Persediaan (or beban) / Cr WIP.
+table log_stock_receipt {
   id                          int [pk, increment, not null]
-  receipt_no                  varchar [not null, unique] // BFG_ / BPG_<unit>_<ddmmyy>_<NNNNN>
-  purpose                     varchar [not null, default: 'finish_goods'] // finish_goods (P303) | return, BSTB Pengeluaran (P304)
+  receipt_no                  varchar [not null, unique] // the sender's: BFG_ / BPG_<unit>_<ddmmyy>_<NNNNN>
+  purpose                     varchar [not null] // finish_goods | return
   receipt_date                date [not null] // the day sent
-  status                      ProductionReceiptStatus [not null, default: 'Submitted']
-  from_unit_id                int [not null, ref : > ref_unit.id]
+  status                      enum('InTransit', 'Received') [not null, default: 'InTransit']
+  from_unit_id                int [ref : > ref_unit.id]
   warehouse_id                int [not null, ref : > ref_warehouse.id]
   note                        varchar
   received_at                 date // Terima, the journal's date
   received_by                 int
-  cost_amount                 decimal(18,2) [not null, default: 0] // Σ lines' value, at Terima
+  cost_amount                 decimal(18,2) [not null, default: 0] // Σ lines, frozen by the sender
   value_mode                  varchar // carried | none, chosen at Terima (P304)
   written_off_amount          decimal(18,2) [not null, default: 0] // what `none` charged to Beban Pemusnahan Produksi
   journal_id                  int // acc_journal.id, no FK
@@ -3136,30 +3127,43 @@ table log_production_receipt {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
+    (purpose, status)
     (status, receipt_date)
-    from_unit_id
+    warehouse_id
   }
 }
 
-table log_production_receipt_line {
+table log_stock_receipt_line {
   id                          int [pk, increment, not null]
-  receipt_id                  int [not null, ref : > log_production_receipt.id]
+  stock_receipt_id            int [not null, ref : > log_stock_receipt.id]
   line_no                     int [not null]
   item_id                     int [not null, ref : > m_item.id]
-  tracking_id                 int [not null] // log_stock_tracking.id, no FK; the same No. Stok in stock
-  job_id                      int // prd_job.id, no FK // lintas aplikasi → C
-  qty                         decimal(18,4) [not null] // base unit, the bucket whole
-  grams                       decimal(18,4)
-  from_bucket_id              int [not null] // prd_balance.id (Stand By), weak // lintas aplikasi → C
-  transit_bucket_id           int [not null] // prd_balance.id (Dalam Perjalanan), weak // lintas aplikasi → C
-  value                       decimal(18,2) [not null, default: 0] // released at Terima
+  base_qty                    decimal(18,6) [not null] // Σ its No. Stok
+  value_amount                decimal(18,2) [not null, default: 0]
 
   indexes {
-    (receipt_id, line_no) [unique]
-    tracking_id
+    (stock_receipt_id, line_no) [unique]
+    (stock_receipt_id, item_id) [unique]
   }
+}
 
-  Note: 'CHECK qty > 0 AND value >= 0'
+table log_stock_receipt_tracking {
+  id                          int [pk, increment, not null]
+  stock_receipt_line_id       int [not null, ref : > log_stock_receipt_line.id]
+  seq                         int [not null]
+  tracking_no                 varchar [not null] // the same No. Stok in stock
+  expiry_date                 date
+  job_no                      varchar // production's, as printed
+  base_qty                    decimal(18,6) [not null] // CHECK > 0
+  grams                       decimal(18,6)
+  value_amount                decimal(18,2) [not null, default: 0] // frozen by the sender
+  location_id                 int // ref_warehouse_location.id, no FK; chosen at Terima
+  stock_status_id             int // sys_stock_status.id, no FK; chosen at Terima
+
+  indexes {
+    (stock_receipt_line_id, seq) [unique]
+    tracking_no
+  }
 }
 
 //////////////////////////////////
@@ -3626,7 +3630,7 @@ table prd_balance {
   updated_at                  timestamptz [not null, default: `now()`]
 
   indexes {
-    (tracking_id, unit_id, stage, unit_step_id, partai_id, job_id, qc_check_id) [unique] // NULLS NOT DISTINCT
+    (tracking_id, unit_id, stage, unit_step_id, partai_id, job_id, qc_check_id, transit_doc_type_id, transit_doc_id) [unique, name: 'prd_balance_bucket_key'] // NULLS NOT DISTINCT
     (unit_id, stage, unit_step_id, job_id) [name: 'prd_balance_held_idx'] // WHERE qty_balance > 0, hand-written (W111, P262)
     unit_id
     item_id
@@ -3836,6 +3840,89 @@ table prd_qc_check_line {
   decision                    enum('Pass', 'Return')
   reason                      text
   to_bucket_id                int
+}
+
+// Goods coming into production (P317): a copy of a Stock Issue, waiting for the Unit's Terima
+table prd_receipt {
+  id                          int [pk, increment, not null]
+  receipt_no                  varchar [not null, unique] // the Stock Issue's number
+  purpose                     varchar [not null] // material | auxiliary
+  unit_id                     int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
+  warehouse_code              varchar [not null]
+  warehouse_name              varchar [not null]
+  sent_date                   date [not null]
+  status                      enum('InTransit', 'Received') [not null, default: 'InTransit']
+  received_at                 date
+  received_by                 int
+  note                        varchar
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (unit_id, status)
+  }
+}
+
+table prd_receipt_line {
+  id                          int [pk, increment, not null]
+  receipt_id                  int [not null, ref : > prd_receipt.id]
+  line_no                     int [not null]
+  item_id                     int [not null, ref : > m_item.id] // lintas aplikasi → ERP
+  tracking_id                 int [not null] // log_stock_tracking.id, no FK
+  qty                         decimal(18,6) [not null] // CHECK > 0
+  value                       decimal(18,2) [not null, default: 0] // frozen by the sender
+  job_id                      int // prd_job.id, no FK; born at Terima (W98)
+  bucket_id                   int // prd_balance.id, no FK
+
+  indexes {
+    (receipt_id, line_no) [unique]
+    tracking_id
+  }
+}
+
+// Goods leaving production (P317): Dalam Perjalanan at the Unit until the warehouse takes them in
+table prd_issue {
+  id                          int [pk, increment, not null]
+  issue_no                    varchar [not null, unique] // BFG_ / BPG_<unit>_<ddmmyy>_<NNNNN>
+  purpose                     varchar [not null] // finish_goods | return
+  reason                      varchar // of a return, for reading only
+  unit_id                     int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
+  warehouse_code              varchar [not null]
+  warehouse_name              varchar [not null]
+  issue_date                  date [not null]
+  status                      enum('InTransit', 'Received') [not null, default: 'InTransit']
+  received_at                 date
+  note                        varchar
+  created_by                  int [not null]
+  updated_by                  int
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (unit_id, status)
+  }
+}
+
+table prd_issue_line {
+  id                          int [pk, increment, not null]
+  issue_id                    int [not null, ref : > prd_issue.id]
+  line_no                     int [not null]
+  item_id                     int [not null, ref : > m_item.id] // lintas aplikasi → ERP
+  tracking_id                 int [not null] // log_stock_tracking.id, no FK
+  job_id                      int // prd_job.id, no FK
+  partai_id                   int // prd_partai.id, no FK
+  qty                         decimal(18,6) [not null] // CHECK > 0
+  grams                       decimal(18,6)
+  value                       decimal(18,2) [not null, default: 0] // frozen at Kirim
+  from_bucket_id              int [not null] // prd_balance.id, no FK
+  transit_bucket_id           int [not null] // prd_balance.id, no FK; this document's own row
+
+  indexes {
+    (issue_id, line_no) [unique]
+    tracking_id
+  }
 }
 
 // Dokumen Push and BSTB between Units (P277, T8): made and posted (Push) or submitted (BSTB) in one step;

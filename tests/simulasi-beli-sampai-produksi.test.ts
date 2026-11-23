@@ -6,11 +6,11 @@ import { createStockIssue, transitionStockIssue } from "../src/lib/erp/stock-iss
 import { createGrading, getGrading, transitionGrading } from "../src/lib/erp/production-grading";
 import { createQcCheck, transitionQcCheck } from "../src/lib/erp/production-qc";
 import { createWork, transitionWork } from "../src/lib/erp/production-work";
-import { receiveTransfer, sendTransfer } from "../src/lib/erp/production-transfer";
+import { sendTransfer } from "../src/lib/erp/production-transfer";
 import { availableBuckets, wipByItem } from "../src/lib/erp/production-ledger";
 import { getPurchaseOrder } from "../src/lib/erp/purchase-order";
 import { cleanupFiscalYear, cleanupFixtures, cleanupStock, disconnect, makeAccount, openFiscalYear, prisma } from "./helpers";
-import { cleanupProduction } from "./production-helpers";
+import { cleanupProduction, takeIn } from "./production-helpers";
 import { purchasingWorld, type PurchasingWorld } from "./purchasing-helpers";
 
 /**
@@ -145,7 +145,7 @@ describe("dari beli sampai dikerjakan di produksi", () => {
     say("Receipt Note", `${rn.rnNo}: No. Stok ${lotNo}, 5.000 g, Rp 200.000`);
   });
 
-  test("3. BSTB Issue ke UGH: Ajukan mengunci stok, Terima memasukkan ke Persiapan Grading dengan No. Job baru", async () => {
+  test("3. BSTB Issue ke UGH: Kirim mengeluarkan stok, Terima memasukkan ke Persiapan Grading dengan No. Job baru", async () => {
     const ugh = await unit("UGH");
     const si = await createStockIssue(
       { purpose: "production_issue", warehouse_id: w.f.warehouse, unit_id: ugh.id, issue_date: today, note: "" },
@@ -157,9 +157,9 @@ describe("dari beli sampai dikerjakan di produksi", () => {
     const submit = await transitionStockIssue(si.id, "submit", w.actor);
     assert.ok(submit.ok, JSON.stringify(submit));
     const bal = await prisma.logStockBalance.findFirstOrThrow({ where: { tracking_id: ids.lot } });
-    assert.deepEqual([bal.qty_balance.toNumber(), bal.reserved_qty.toNumber()], [5_000, 3_000], "Diajukan: stok terkunci, belum pindah");
+    assert.equal(bal.qty_balance.toNumber(), 2_000, "Dalam Perjalanan: sudah keluar gudang");
     assert.equal((await at(ugh.id, "Preparation")).length, 0, "belum ada di produksi sebelum Terima");
-    const got = await transitionStockIssue(si.id, "post", w.actor);
+    const got = await takeIn(si.issueNo, w.actor);
     assert.ok(got.ok, JSON.stringify(got));
 
     const [held] = await at(ugh.id, "Preparation");

@@ -11,14 +11,14 @@
  *   prd_qc_check(_line), prd_work(_line), prd_grading(_input, _output), prd_aux_use
  *   prd_tracking_link, prd_cost_entry, prd_ledger, prd_balance,
  *   prd_tracking_info, prd_job, prd_partai          the production books
- *   log_stock_issue(_line, _tracking)                BSTB Issue
+ *   log_stock_issue, log_stock_receipt (_line, _tracking), prd_receipt, prd_issue (_line)
  *   the stock and valuation ledger rows, journals and audit rows those wrote,
  *   and the No. Stok production registered (outputs of a grading)
  *
  * WHAT IT REBUILDS
  *   log_stock_balance and log_stock_valuation_balance of the buckets and items
  *   it touched, from the rows that stay, and the running balances stored on
- *   those rows; every reservation (only a BSTB Issue reserves, P228)
+ *   those rows
  *
  * WHAT IT KEEPS
  *   Unit, Workstation, Line, Routing, Standard Cost, Karyawan, prd_user_unit,
@@ -27,7 +27,7 @@
 import { prisma } from "../src/lib/prisma";
 
 const apply = process.argv.includes("--apply");
-const DOCS = ["log_stock_issue", "prd_grading", "prd_work", "prd_qc_check", "prd_transfer", "prd_kerja", "prd_job_order", "prd_box"];
+const DOCS = ["log_stock_issue", "prd_grading", "prd_work", "prd_qc_check", "prd_transfer", "prd_kerja", "prd_job_order", "prd_box", "log_stock_receipt", "prd_receipt", "prd_issue"];
 
 async function main() {
   const types = await prisma.sysDocType.findMany({ where: { doc_table: { in: DOCS } }, select: { id: true } });
@@ -35,7 +35,10 @@ async function main() {
   const bySource = { source_doc_type_id: { in: typeIds } };
 
   const counts = {
-    "BSTB Issue": await prisma.logStockIssue.count(),
+    "Stock Issue": await prisma.logStockIssue.count(),
+    "Stock Receipt": await prisma.logStockReceipt.count(),
+    "Production Receipt": await prisma.prdReceipt.count(),
+    "Production Issue": await prisma.prdIssue.count(),
     "No. Grading": await prisma.prdGrading.count(),
     "Pengerjaan Unit": await prisma.prdWork.count(),
     "QC Check": await prisma.prdQcCheck.count(),
@@ -100,6 +103,13 @@ async function main() {
       await tx.prdTrackingInfo.deleteMany({});
       await tx.prdJob.deleteMany({});
       await tx.prdPartai.deleteMany({});
+      await tx.prdReceiptLine.deleteMany({});
+      await tx.prdReceipt.deleteMany({});
+      await tx.prdIssueLine.deleteMany({});
+      await tx.prdIssue.deleteMany({});
+      await tx.logStockReceiptTracking.deleteMany({});
+      await tx.logStockReceiptLine.deleteMany({});
+      await tx.logStockReceipt.deleteMany({});
       await tx.logStockIssueTracking.deleteMany({});
       await tx.logStockIssueLine.deleteMany({});
       await tx.logStockIssue.deleteMany({});
@@ -107,6 +117,9 @@ async function main() {
       await tx.logStockValuationLedger.deleteMany({ where: bySource });
       await tx.accJournalLine.deleteMany({ where: { journal_id: { in: journals } } });
       await tx.accJournal.deleteMany({ where: { id: { in: journals } } });
+      // Made in production and since received into a warehouse: its empty bucket goes with it.
+      const made = (await tx.logStockTracking.findMany({ where: bySource, select: { id: true } })).map((t) => t.id);
+      await tx.logStockBalance.deleteMany({ where: { tracking_id: { in: made } } });
       await tx.logStockTracking.deleteMany({ where: bySource });
       await tx.auditLog.deleteMany({
         where: {
@@ -119,11 +132,12 @@ async function main() {
             { entity_key: "prd_kerja", row_id: { in: docIds.kerja } },
             { entity_key: "prd_job_order", row_id: { in: docIds.jobOrder } },
             { entity_key: "prd_box", row_id: { in: docIds.box } },
+            { entity_key: { in: ["log_stock_receipt", "prd_receipt", "prd_issue"] } },
           ],
         },
       });
 
-      // Every bucket a BSTB Issue moved: its balance is what its remaining rows add up to.
+      // Every bucket one of them moved: its balance is what its remaining rows add up to.
       for (const b of buckets) {
         const rows = await tx.logStockLedger.findMany({ where: b, orderBy: { id: "asc" }, select: { id: true, qty_change: true } });
         let q = 0;
@@ -145,7 +159,6 @@ async function main() {
         }
         await tx.logStockValuationBalance.updateMany({ where: { item_id }, data: { qty_balance: q, value_balance: v } });
       }
-      await tx.logStockBalance.updateMany({ where: { reserved_qty: { not: 0 } }, data: { reserved_qty: 0 } });
     },
     { timeout: Number(process.env.PRISMA_TX_TIMEOUT_MS ?? 120_000) }
   );

@@ -11,9 +11,9 @@ import { Select } from "@/components/ui/select";
 import { useToast } from "@/components/ui/toast";
 import { ErrorBox, idc, qtyText, ro, PostedDialog, WorkspaceCrumb, workspaceHref } from "@/components/production/execution-parts";
 import { InputBar } from "@/components/production/input-bar";
-import { sendFinishGoodsAction } from "@/app/actions/production-receipt";
-import { PRODUCTION_RECEIPT_PURPOSES } from "@/lib/erp/production-receipt-shape";
-import type { FinishGoodsOptions } from "@/lib/erp/production-receipt";
+import { sendProductionIssueAction } from "@/app/actions/production-handover";
+import { PRODUCTION_ISSUE_PATH, PRODUCTION_ISSUE_PURPOSES, PRODUCTION_ISSUE_REASONS } from "@/lib/erp/production-handover-shape";
+import type { ProductionIssueOptions } from "@/lib/erp/production-issue";
 import type { BucketView } from "@/lib/erp/production-ledger";
 import { todayIso } from "@/lib/format";
 
@@ -40,10 +40,10 @@ function rowsOf(buckets: BucketView[]): Row[] {
 const gramOf = (r: Row) => r.buckets.reduce((a, b) => a + (b.grams ?? 0), 0);
 const qtyOf = (r: Row) => r.buckets.reduce((a, b) => a + b.qty, 0);
 
-export function FinishGoodsForm({ options, initialBucketIds }: { options: FinishGoodsOptions; initialBucketIds: number[] }) {
+export function ProductionIssueForm({ options, initialBucketIds }: { options: ProductionIssueOptions; initialBucketIds: number[] }) {
   const router = useRouter();
   const toast = useToast();
-  const p = PRODUCTION_RECEIPT_PURPOSES[options.purpose];
+  const p = PRODUCTION_ISSUE_PURPOSES[options.purpose];
   const isReturn = options.purpose === "return";
   const byId = new Map(options.buckets.map((b) => [b.id, b]));
   const [keys, setKeys] = useState<string[]>(() => [...new Set(initialBucketIds.flatMap((id) => byId.get(id) ?? []).map(keyOf))]);
@@ -52,6 +52,7 @@ export function FinishGoodsForm({ options, initialBucketIds }: { options: Finish
   const [warehouse, setWarehouse] = useState(String((options.warehouses.find((w) => preferred.test(w.name)) ?? options.warehouses[0])?.id ?? ""));
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState("");
+  const [reason, setReason] = useState("");
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [posted, setPosted] = useState<string | null>(null);
@@ -70,7 +71,7 @@ export function FinishGoodsForm({ options, initialBucketIds }: { options: Finish
 
   async function submit() {
     setBusy(true);
-    const result = await sendFinishGoodsAction({ purpose: options.purpose, from_unit_id: options.unit.id, warehouse_id: Number(warehouse) || null, receipt_date: date, note, lines });
+    const result = await sendProductionIssueAction({ purpose: options.purpose, reason: reason || null, from_unit_id: options.unit.id, warehouse_id: Number(warehouse) || null, issue_date: date, note, lines });
     setBusy(false);
     setAsking(false);
     if (!result.ok) {
@@ -85,7 +86,7 @@ export function FinishGoodsForm({ options, initialBucketIds }: { options: Finish
   return (
     <>
       <div className="ph">
-        <WorkspaceCrumb path={p.path} noun={p.name} no={null} unitLabel={options.unit.label} unitTab={backTab} />
+        <WorkspaceCrumb path={PRODUCTION_ISSUE_PATH} noun={p.name} no={null} unitLabel={options.unit.label} unitTab={backTab} />
         <div className="ph-row">
           <h1>
             <span className="ph-ico">
@@ -96,7 +97,7 @@ export function FinishGoodsForm({ options, initialBucketIds }: { options: Finish
           <div className="ph-act">
             <CancelButton href={back} dirty={rows.length > 0} />
             <button className="btn primary" disabled={busy || !rows.length || !target || blocked} onClick={() => setAsking(true)}>
-              <Icon name="send" size={15} /> Ajukan
+              <Icon name="send" size={15} /> Kirim
             </button>
           </div>
         </div>
@@ -115,7 +116,7 @@ export function FinishGoodsForm({ options, initialBucketIds }: { options: Finish
                   </>
                 )}
               </Field>
-              <Field label="Gudang Tujuan" span={5} required error={errors.warehouse_id} help="gudang tanpa Lokasi; barang masuk saat gudang menekan Terima">
+              <Field label="Gudang Tujuan" span={5} required error={errors.warehouse_id} help="barang masuk saat gudang menekan Terima">
                 <Select
                   value={warehouse}
                   options={options.warehouses.map((w) => ({ value: String(w.id), label: `${w.label} · ${w.name}` }))}
@@ -127,18 +128,32 @@ export function FinishGoodsForm({ options, initialBucketIds }: { options: Finish
                   }}
                 />
               </Field>
-              <Field label="Tanggal" span={4} required error={errors.receipt_date}>
+              <Field label="Tanggal" span={4} required error={errors.issue_date}>
                 <DateInput
                   value={date}
-                  invalid={Boolean(errors.receipt_date)}
+                  invalid={Boolean(errors.issue_date)}
                   onChange={(v) => {
                     setDate(v);
                     touched();
                   }}
                 />
               </Field>
-              <Field label={isReturn ? "Alasan / Catatan" : "Catatan"} span={12}>
-                <textarea className="ta" rows={2} value={note} placeholder={isReturn ? "Reject, sisa bahan penolong, barang dikeluarkan dari line…" : "Keterangan tambahan…"} onChange={(e) => setNote(e.target.value)} />
+              {isReturn && (
+                <Field label="Alasan" span={4} error={errors.reason}>
+                  <Select
+                    value={reason}
+                    options={[{ value: "", label: "Tanpa alasan" }, ...Object.entries(PRODUCTION_ISSUE_REASONS).map(([value, label]) => ({ value, label }))]}
+                    placeholder="Pilih alasan…"
+                    invalid={Boolean(errors.reason)}
+                    onChange={(v) => {
+                      setReason(v);
+                      touched();
+                    }}
+                  />
+                </Field>
+              )}
+              <Field label="Catatan" span={12}>
+                <textarea className="ta" rows={2} value={note} placeholder="Keterangan tambahan…" onChange={(e) => setNote(e.target.value)} />
               </Field>
             </FormRow>
           </FormSection>
@@ -274,10 +289,10 @@ export function FinishGoodsForm({ options, initialBucketIds }: { options: Finish
         open={asking}
         icon="send"
         tone="brand"
-        title={`Ajukan ${p.name}`}
+        title={`Kirim ${p.name}`}
         subject={target ? `${options.unit.label} → ${target.label}` : undefined}
-        body={`${rows.length} baris berstatus Dalam Perjalanan sampai ${target?.label ?? "gudang"} menekan Terima${isReturn ? "; gudang memilih apakah barang masuk dengan nilainya atau tanpa nilai" : ""}. Dokumen yang sudah diajukan tidak dapat dibatalkan.`}
-        confirmLabel="Ya, Ajukan"
+        body={`${rows.length} baris berstatus Dalam Perjalanan sampai ${target?.label ?? "gudang"} menekan Terima${isReturn ? "; gudang memilih apakah barang masuk dengan nilainya atau tanpa nilai" : ""}. Dokumen yang sudah dikirim tidak dapat dibatalkan.`}
+        confirmLabel="Ya, Kirim"
         busy={busy}
         onConfirm={submit}
         onCancel={() => setAsking(false)}

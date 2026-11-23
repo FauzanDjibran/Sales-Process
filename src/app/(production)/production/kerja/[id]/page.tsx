@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
-import { idc, qtyText, ro } from "@/components/production/execution-parts";
+import { idc, qtyText, ro } from "@/components/production/execution-text";
 import { requirePermission } from "@/lib/erp/auth";
 import { unitIdsOf } from "@/lib/erp/production-access";
 import { getKerja } from "@/lib/erp/production-kerja";

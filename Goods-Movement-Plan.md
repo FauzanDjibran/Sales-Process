@@ -1,6 +1,6 @@
 # Pergerakan Barang: Stock Issue, Stock Receipt dan Batas Dua Database
 
-> **Pembagian dokumen disetujui user 23/11/2026 (P316: GM-1, GM-5, GM-9); sisanya menunggu (§9). Belum ada yang dibangun.**
+> **Pembagian dokumen disetujui user 23/11/2026 (P316). Langkah 1–6 dibangun 23/11/2026 (P317): GM-1, GM-2, GM-4, GM-5 sesuai usulan. Data produksi direset, tidak dikonversi. Register langkah 7 dan Workspace ikut dibangun; tautan laporan, langkah 8–10 belum.**
 > Dasar: kode `main` @ `413d735` (`stock-issue.ts`, `production-receipt.ts`, `production-transfer.ts`,
 > `production-ledger.ts`, `inventory.ts`), `production_app_plan.md` §2.2, §5, §8,
 > `Stock-Transfer-Plan.md`, `Produksi Walet (Real).md` (PWR).
@@ -316,7 +316,7 @@ Tetap satu database (P245). Yang dibangun **bentuknya**: isi pesan §7.1 dikirim
 | **9** | Reconcile, skrip, simulasi ujung ke ujung, uji layar | Tidak | 1–8 |
 | **10** | Pintu tunggal jurnal produksi (`ProductionPosted`) | Tidak | 6; boleh menyusul |
 
-### Langkah 1 — Stock Issue berjurnal saat Kirim
+### Langkah 1 (selesai, P317) — Stock Issue berjurnal saat Kirim
 
 - Status: Draft → *Kirim* → **Dalam Perjalanan** (`Submitted`) → **Diterima** (`Posted`). Batalkan hanya Draft.
 - **Kirim**: tahan periode, `issueStock` per lot, simpan nilai per tracking, jurnal Dr WIP / Cr Persediaan bertanggal dokumen, konfirmasi dengan preview jurnal (P103).
@@ -326,14 +326,14 @@ Tetap satu database (P245). Yang dibangun **bentuknya**: isi pesan §7.1 dikirim
 - Reconcile: cek WIP per akun ditambah Issue Dalam Perjalanan; cek reservasi dihapus.
 - **Selesai bila:** tes pembelian di antara Kirim dan Terima (§6.1) membuktikan nilai produksi = nilai beku = jurnal.
 
-### Langkah 2 — Stock Receipt generik
+### Langkah 2 (selesai, P317) — Stock Receipt generik
 
 - `log_production_receipt(_line)` → **`log_stock_receipt(_line, _tracking)`**, ganti nama di tempat (id, nomor, jurnal, audit, tipe dokumen dan referensi ikut). Baris = barang, tracking = No. Stok · lokasi · status · qty · nilai; satu baris lama menjadi satu baris dan satu tracking. Referensi bucket dipertahankan di tracking sampai langkah 6.
 - Katalog `stock-receipt-purposes.ts`: `finish_goods`, `return`; posting per tujuan (P268). Katalog Issue disamakan bentuknya.
 - Terima: gudang memilih lokasi bila gudang berlokasi, dan status stok (awal Tersedia). Larangan gudang berlokasi dicabut.
 - **Selesai bila:** receipt lama terbaca sama; Terima ke gudang berlokasi teruji; jumlah tracking = baris.
 
-### Langkah 3 — Menu logistik
+### Langkah 3 (selesai, P317) — Menu logistik
 
 - Operasi Gudang: Receipt Note, Delivery Note, **Stock Issue**, **Stock Receipt**, Transfer Kirim, Transfer Terima (dan Stock Adjustment di langkah 8).
 - URL `/inventory/stock-issue` tetap; `/inventory/production-receipt` dan `/inventory/production-return` dialihkan ke `/inventory/stock-receipt`.
@@ -342,7 +342,7 @@ Tetap satu database (P245). Yang dibangun **bentuknya**: isi pesan §7.1 dikirim
 - **Akses per gudang** (P301) dipasang di Stock Issue: register, form, simpan, transisi. Stock Receipt sudah punya.
 - **Selesai bila:** tiap role lama tetap bisa melakukan pekerjaannya; URL lama dialihkan; tautan dokumen dan jurnal benar.
 
-### Langkah 4 — Production Receipt
+### Langkah 4 (selesai, P317) — Production Receipt
 
 - `prd_receipt(_line)`: nomor sama dengan Issue, `counterpart_no`, `warehouse_code`, tujuan (bahan, bahan penolong), Unit, tanggal Kirim dan Terima, status *Menunggu → Diterima*. Baris: No. Stok, Item, qty, gram, nilai, Job, bucket masuk.
 - Lahir saat Kirim Issue, dalam transaksi yang sama. Unik per tujuan dan `counterpart_no`.
@@ -350,7 +350,7 @@ Tetap satu database (P245). Yang dibangun **bentuknya**: isi pesan §7.1 dikirim
 - Migrasi mengisi mundur dari Issue yang sudah diterima supaya register lengkap; **sumber baris ledger lama tidak diubah**.
 - **Selesai bila:** Terima dua kali ditolak; Unit di luar penugasan ditolak (P260).
 
-### Langkah 5 — Production Issue
+### Langkah 5 (selesai, P317) — Production Issue
 
 - `prd_issue(_line)`: tujuan (`finish_goods`, `return`), alasan opsional (daftar tetap di kode), Unit asal, kode gudang, status *Dalam Perjalanan → Diterima*. Baris: No. Stok, Job, partai, qty, gram, nilai, bucket asal dan transit.
 - Kirim dari Workspace membuat `prd_issue` dan Stock Receipt *Menunggu* dalam satu transaksi. Aturan pilih barang pindah dari `production-receipt.ts` tanpa berubah.
@@ -359,7 +359,7 @@ Tetap satu database (P245). Yang dibangun **bentuknya**: isi pesan §7.1 dikirim
 - Migrasi mengisi mundur dari receipt yang ada.
 - **Selesai bila:** BFG dan BPG, dua pilihan nilai, Job utuh dan No. Stok sebagian, lulus tes lama.
 
-### Langkah 6 — Kontrak serah terima
+### Langkah 6 (selesai, P317) — Kontrak serah terima
 
 - `handover.ts`: tipe `IssueSent`, `IssueReceived`, `ReceiptSent`, `ReceiptReceived` (kode dan nomor, bukan id) dan satu penyalur. Penerima idempoten lewat nomor.
 - Buang `prd_bucket_id`, `from_bucket_id`, `transit_bucket_id` dari tabel `log_`.

@@ -145,7 +145,7 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Invoice Perizinan", "fin_ar_permit_invoice"],
   // Production (P200): the journals, the stock and production ledgers and the payment name them.
   ["Tagihan Biaya", "prd_cost_bill"],
-  ["BSTB Issue", "log_stock_issue"],
+  ["Stock Issue", "log_stock_issue"],
   ["Dokumen Grading", "prd_grading"],
   ["Pengerjaan Unit", "prd_work"],
   ["QC Check", "prd_qc_check"],
@@ -169,8 +169,11 @@ const DOC_TYPES: [label: string, table: string][] = [
   // Stock between warehouses through the Gudang Transit (P300).
   ["Transfer Kirim", "log_stock_transfer"],
   ["Transfer Terima", "log_stock_transfer_receipt"],
-  // Finished goods from the last Unit into a warehouse (P303).
-  ["BSTB ke Finish Goods", "log_production_receipt"],
+  // Goods into a warehouse without a partner (P303, generic since P317).
+  ["Stock Receipt", "log_stock_receipt"],
+  // The production sides of a Stock Issue and of a Stock Receipt (P317).
+  ["Production Receipt", "prd_receipt"],
+  ["Production Issue", "prd_issue"],
 ];
 
 /**

@@ -148,7 +148,7 @@ type Bucket = {
   qty: Dec;
   value: Dec;
 };
-type BucketKey = { lotId: number; unitId: number; stage: Stage; stepId?: number | null; partaiId: number | null; jobId: number | null; qcCheckId?: number | null; auxiliary?: boolean; itemId: number; uomId: number };
+type BucketKey = { lotId: number; unitId: number; stage: Stage; stepId?: number | null; partaiId: number | null; jobId: number | null; qcCheckId?: number | null; /** The document Dalam Perjalanan goods travel on. */ transit?: ProductionSource | null; auxiliary?: boolean; itemId: number; uomId: number };
 
 async function lockBucketById(tx: Tx, id: number): Promise<Bucket | null> {
   const [row] = await tx.$queryRaw<
@@ -180,16 +180,21 @@ async function openBucket(tx: Tx, k: BucketKey, actorId: number): Promise<Bucket
   const stepId = k.stepId ?? null;
   // Goods wait at a step only while they are Persiapan or Sedang Dikerjakan (T4).
   if ((k.stage === "Preparation" || k.stage === "Working") !== (stepId != null)) throw new ProductionRefusal("Barang di Persiapan harus punya proses, dan tahap lain tidak.");
+  // Dalam Perjalanan goods are their document's own row, so its value stays frozen (P317).
+  if ((k.stage === "InTransit") !== (k.transit != null)) throw new ProductionRefusal("Barang Dalam Perjalanan harus menyebut dokumennya.");
+  const transitType = k.transit?.docTypeId ?? null;
+  const transitDoc = k.transit?.docId ?? null;
   await tx.$executeRaw`
-    INSERT INTO "prd_balance" ("tracking_id", "unit_id", "stage", "unit_step_id", "partai_id", "job_id", "qc_check_id", "auxiliary", "item_id", "uom_id", "qty_balance", "value_balance", "created_by", "updated_at")
-    VALUES (${k.lotId}, ${k.unitId}, ${k.stage}::"PrdStage", ${stepId}::int, ${k.partaiId}::int, ${k.jobId}::int, ${qcCheckId}::int, ${k.auxiliary ?? false}, ${k.itemId}, ${k.uomId}, 0, 0, ${actorId}, now())
-    ON CONFLICT ("tracking_id", "unit_id", "stage", "unit_step_id", "partai_id", "job_id", "qc_check_id") DO NOTHING`;
+    INSERT INTO "prd_balance" ("tracking_id", "unit_id", "stage", "unit_step_id", "partai_id", "job_id", "qc_check_id", "transit_doc_type_id", "transit_doc_id", "auxiliary", "item_id", "uom_id", "qty_balance", "value_balance", "created_by", "updated_at")
+    VALUES (${k.lotId}, ${k.unitId}, ${k.stage}::"PrdStage", ${stepId}::int, ${k.partaiId}::int, ${k.jobId}::int, ${qcCheckId}::int, ${transitType}::int, ${transitDoc}::int, ${k.auxiliary ?? false}, ${k.itemId}, ${k.uomId}, 0, 0, ${actorId}, now())
+    ON CONFLICT ("tracking_id", "unit_id", "stage", "unit_step_id", "partai_id", "job_id", "qc_check_id", "transit_doc_type_id", "transit_doc_id") DO NOTHING`;
   const [row] = await tx.$queryRaw<{ id: number }[]>`
     SELECT "id" FROM "prd_balance"
      WHERE "tracking_id" = ${k.lotId} AND "unit_id" = ${k.unitId} AND "stage" = ${k.stage}::"PrdStage"
        AND "unit_step_id" IS NOT DISTINCT FROM ${stepId}::int
        AND "partai_id" IS NOT DISTINCT FROM ${k.partaiId}::int AND "job_id" IS NOT DISTINCT FROM ${k.jobId}::int
-       AND "qc_check_id" IS NOT DISTINCT FROM ${qcCheckId}::int`;
+       AND "qc_check_id" IS NOT DISTINCT FROM ${qcCheckId}::int
+       AND "transit_doc_type_id" IS NOT DISTINCT FROM ${transitType}::int AND "transit_doc_id" IS NOT DISTINCT FROM ${transitDoc}::int`;
   return (await lockBucketById(tx, row.id))!;
 }
 
@@ -636,12 +641,11 @@ export async function sendInTransit(
   const item = await productionItem(tx, from.itemId);
   const to = await openBucket(
     tx,
-    { lotId: from.lotId, unitId: from.unitId, stage: "InTransit", partaiId: from.partaiId, jobId: t.jobId === undefined ? from.jobId : t.jobId, auxiliary: from.auxiliary, itemId: from.itemId, uomId: item.base_uom_id },
+    { lotId: from.lotId, unitId: from.unitId, stage: "InTransit", partaiId: from.partaiId, jobId: t.jobId === undefined ? from.jobId : t.jobId, transit: t.doc, auxiliary: from.auxiliary, itemId: from.itemId, uomId: item.base_uom_id },
     t.actorId
   );
   const value = await takeLocked(tx, from, new D(t.baseQty), "TransferOut", t.date, t.source, t.actorId);
   await write(tx, to, { movement: "TransferIn", qty: new D(t.baseQty), value, date: t.date, source: t.source, actorId: t.actorId });
-  await tx.prdBalance.update({ where: { id: to.id }, data: { transit_doc_type_id: t.doc.docTypeId, transit_doc_id: t.doc.docId } });
   return { value: value.toNumber(), toBucketId: to.id, lotId: from.lotId, itemId: from.itemId };
 }
 
@@ -982,15 +986,6 @@ export async function hasProductionMovement(from: Date, to: Date, db: Db = prism
   return Boolean(await db.prdLedger.findFirst({ where: { posting_date: { gte: from, lte: to } }, select: { id: true } }));
 }
 
-/** The Unit goods enter production at: the first step of the segment before the partai (W2). */
-export async function firstProductionUnit(db: Db = prisma): Promise<number | null> {
-  const segment = await db.prdRouting.findFirst({
-    where: { line_id: null, status: "Active" },
-    select: { steps: { orderBy: { seq: "asc" }, take: 1, select: { unit_id: true } } },
-  });
-  return segment?.steps[0]?.unit_id ?? null;
-}
-
 /** The Pass Through Units before the partai: they carry a result note to Penyebaran (W42). */
 export async function preparationNoteUnits(db: Db = prisma): Promise<Set<number>> {
   const steps = await db.prdRoutingStep.findMany({
@@ -1042,6 +1037,12 @@ export async function itemUsedInProduction(itemId: number): Promise<boolean> {
 }
 
 /** The No. Stok by id with their item, for documents that name goods by id only. */
+/** A No. Stok by its number: how a message from the ERP names goods (P317). */
+export async function trackingByNo(db: Db, no: string): Promise<{ id: number; itemId: number } | null> {
+  const t = await db.logStockTracking.findUnique({ where: { tracking_no: no }, select: { id: true, item_id: true } });
+  return t ? { id: t.id, itemId: t.item_id } : null;
+}
+
 export async function trackingsByIds(ids: number[], db: Db = prisma): Promise<Map<number, { no: string; itemLabel: string; itemName: string; uomLabel: string }>> {
   if (!ids.length) return new Map();
   const rows = await db.logStockTracking.findMany({

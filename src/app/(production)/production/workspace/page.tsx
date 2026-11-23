@@ -3,7 +3,7 @@ import { Icon } from "@/components/icon";
 import { UnitCards } from "@/components/production/unit-cards";
 import { requirePermission } from "@/lib/erp/auth";
 import { unitIdsOf } from "@/lib/erp/production-access";
-import { incomingStockIssues } from "@/lib/erp/stock-issue";
+import { waitingProductionReceipts } from "@/lib/erp/production-receipt";
 import { unitCards } from "@/lib/erp/production-workspace";
 import { incomingTransfers } from "@/lib/erp/production-transfer";
 
@@ -14,7 +14,7 @@ export default async function Page() {
   const actor = await requirePermission("PRODUCTION_UNIT_VIEW", "/production/workspace");
   // Only the Units assigned on the User form, unless PRODUCTION_UNIT_ALL (P260).
   const own = await unitIdsOf(actor);
-  const [data, issues, transfers] = await Promise.all([unitCards(own), incomingStockIssues(), incomingTransfers()]);
+  const [data, issues, transfers] = await Promise.all([unitCards(own), waitingProductionReceipts(), incomingTransfers()]);
   // A user with exactly one Unit goes straight to it (production_app_plan.md §3.3).
   if (own && data.units.length === 1) redirect(`/production/workspace/${encodeURIComponent(data.units[0].label)}`);
 
@@ -22,7 +22,7 @@ export default async function Page() {
   for (const i of issues) {
     const t = (incoming[i.unitId] ??= { docs: 0, grams: 0 });
     t.docs += 1;
-    t.grams += i.lines.reduce((a, l) => a + (l.uomLabel === "GR" ? l.qty : 0), 0);
+    t.grams += i.items.reduce((a, l) => a + (l.uomLabel === "GR" ? l.qty : 0), 0);
   }
 
   for (const t of transfers) {

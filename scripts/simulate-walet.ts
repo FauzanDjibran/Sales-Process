@@ -17,6 +17,7 @@ import { prisma } from "../src/lib/prisma";
 import { createPurchaseRequest, transitionPurchaseRequest } from "../src/lib/erp/purchase-request";
 import { createPurchaseOrder, transitionPurchaseOrder } from "../src/lib/erp/purchase-order";
 import { createReceiptNote, transitionReceiptNote } from "../src/lib/erp/receipt-note";
+import { receiveProductionReceipt } from "../src/lib/erp/production-receipt";
 import { createStockIssue, transitionStockIssue } from "../src/lib/erp/stock-issue";
 import { createGrading, transitionGrading, type GradingItemInput } from "../src/lib/erp/production-grading";
 import { createQcCheck, transitionQcCheck } from "../src/lib/erp/production-qc";
@@ -138,8 +139,9 @@ async function main() {
   const lot = async (l: string) => (await prisma.logStockTracking.findFirstOrThrow({ where: { tracking_no: lotNo(l) } })).id;
   const issue = async (purpose: string, unitId: number, rows: { item: { id: number; item_label: string }; qty: number }[]) => {
     const si = ok(await createStockIssue({ purpose, warehouse_id: gbb.id, unit_id: unitId, issue_date: today, note: "" }, await Promise.all(rows.map(async (r) => ({ item_id: r.item.id, qty: r.qty, note: "", picks: [{ tracking_id: await lot(r.item.item_label), location_id: null, qty: r.qty }] }))), actor), "BSTB Issue");
-    ok(await transitionStockIssue(si.id, "submit", actor), "Ajukan BSTB Issue");
-    ok(await transitionStockIssue(si.id, "post", actor), "Terima BSTB Issue");
+    ok(await transitionStockIssue(si.id, "submit", actor), "Kirim BSTB Issue");
+    const pr = await prisma.prdReceipt.findUniqueOrThrow({ where: { receipt_no: si.issueNo } });
+    ok(await receiveProductionReceipt(pr.id, actor), "Terima Production Receipt");
     return si.issueNo;
   };
   const si1 = await issue("production_issue", ugh.id, [{ item: raw, qty: 1_000 }]);

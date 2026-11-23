@@ -24,7 +24,7 @@ import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { STOCK_ISSUE_TRANSITIONS, availableStockIssueActions } from "@/lib/erp/stock-issue-workflow";
 
 /**
- * A BSTB Issue in all three modes: `new`, `edit` (Draft only) and `view`
+ * A Stock Issue in all three modes: `new`, `edit` (Draft only) and `view`
  * (R4).
  *
  * The user names the warehouse the goods leave, the unit they are
@@ -81,7 +81,8 @@ export function StockIssueForm({
   const [saving, setSaving] = useState(false);
   const [lotsFor, setLotsFor] = useState<string | null>(null);
 
-  const posted = issue?.status === "Posted";
+  /** The goods left: value and journal are fixed. */
+  const posted = issue?.status === "InTransit" || issue?.status === "Received";
   const warehouse = options.warehouses.find((w) => w.id === header.warehouse_id);
   const unit = options.units.find((w) => w.id === header.unit_id);
   const lotsOf = (itemId: number | null) => (header.warehouse_id && itemId ? (options.lots[header.warehouse_id]?.[itemId] ?? []) : []);
@@ -130,7 +131,7 @@ export function StockIssueForm({
       return;
     }
     setDirty(false);
-    toast("BSTB Issue disimpan", `${result.issueNo} · Draft`, "ok");
+    toast("Stock Issue disimpan", `${result.issueNo} · Draft`, "ok");
     router.push(withStep(`/inventory/stock-issue/${result.id}`, step));
   }
 
@@ -219,6 +220,15 @@ export function StockIssueForm({
             </Field>
           </FormRow>
         </FormSection>
+        {issue?.receivedAt && (
+          <FormSection title="Penerimaan">
+            <FormRow>
+              <Field label="Diterima Unit" span={3}>
+                {ro(formatDate(issue.receivedAt))}
+              </Field>
+            </FormRow>
+          </FormSection>
+        )}
         <JournalReference id={issue?.journalId} no={issue?.journalNo} />
         {issue?.cancelReason && status === "Cancelled" && (
           <p className="fnote">
@@ -297,9 +307,9 @@ export function StockIssueForm({
           <h3>Barang Keluar</h3>
           <p>
             {editing
-              ? "Pilih barang dan jumlahnya dalam satuan dasar, lalu lot asalnya. Lot tetap bernomor sama di produksi."
+              ? "Pilih barang dan jumlahnya dalam satuan dasar, lalu lot asalnya. Lot tetap bernomor sama di tujuannya."
               : posted
-                ? "Jumlah yang keluar dan lotnya, dengan harga pokok rata-rata saat diposting dan nilai yang dipindahkan ke WIP."
+                ? "Jumlah yang keluar dan lotnya, dengan harga pokok rata-rata saat dikirim dan nilai yang dipindahkan ke WIP."
                 : "Jumlah per barang dalam satuan dasar dan lot yang dipilih."}
           </p>
         </div>
@@ -479,10 +489,10 @@ export function StockIssueForm({
     <>
       <DocumentHeader
         module="Persediaan"
-        trail={[{ label: "BSTB Issue", href: "/inventory/stock-issue" }]}
+        trail={[{ label: "Stock Issue", href: "/inventory/stock-issue" }]}
         icon="layers"
         number={issue?.issueNo}
-        placeholder="BSTB Issue Baru"
+        placeholder="Stock Issue Baru"
         status={status}
         statusLabel={{ text: STOCK_ISSUE_STATUS_TEXT[status], tone: STOCK_ISSUE_STATUS_BADGE[status] }}
         editing={mode === "edit"}

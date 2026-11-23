@@ -131,8 +131,14 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logStockIssue: ["src/lib/erp/stock-issue.ts"],
   logStockIssueLine: ["src/lib/erp/stock-issue.ts"],
   logStockIssueTracking: ["src/lib/erp/stock-issue.ts"],
-  logProductionReceipt: ["src/lib/erp/production-receipt.ts"],
-  logProductionReceiptLine: ["src/lib/erp/production-receipt.ts"],
+  logStockReceipt: ["src/lib/erp/stock-receipt.ts"],
+  logStockReceiptLine: ["src/lib/erp/stock-receipt.ts"],
+  logStockReceiptTracking: ["src/lib/erp/stock-receipt.ts"],
+  // The production sides of them (P317).
+  prdReceipt: ["src/lib/erp/production-receipt.ts"],
+  prdReceiptLine: ["src/lib/erp/production-receipt.ts"],
+  prdIssue: ["src/lib/erp/production-issue.ts"],
+  prdIssueLine: ["src/lib/erp/production-issue.ts"],
   logStockTransfer: ["src/lib/erp/stock-transfer.ts"],
   logStockTransferLine: ["src/lib/erp/stock-transfer.ts"],
   logStockTransferTracking: ["src/lib/erp/stock-transfer.ts"],
@@ -312,7 +318,7 @@ const PRODUCTION_TABLES = [
   "prd_partai", "prd_job", "prd_tracking_info",
   "prd_balance", "prd_ledger", "prd_tracking_link",
   "prd_grading", "prd_grading_input", "prd_grading_output", "prd_grading_employee", "prd_work", "prd_work_line", "prd_aux_use",
-  "prd_qc_check", "prd_qc_check_line", "prd_transfer", "prd_transfer_line", "prd_kerja", "prd_kerja_line", "prd_job_order", "prd_job_order_line", "prd_job_order_input", "prd_box", "prd_box_piece", "prd_box_component",
+  "prd_qc_check", "prd_qc_check_line", "prd_transfer", "prd_transfer_line", "prd_receipt", "prd_receipt_line", "prd_issue", "prd_issue_line", "prd_kerja", "prd_kerja_line", "prd_job_order", "prd_job_order_line", "prd_job_order_input", "prd_box", "prd_box_piece", "prd_box_component",
 ];
 
 describe("every table belongs to one application", () => {
@@ -321,6 +327,16 @@ describe("every table belongs to one application", () => {
   ].map((m) => m[1]);
   const ownerOf = (t: string) =>
     SHARED_TABLES.includes(t) ? "A" : PRODUCTION_TABLES.includes(t) ? "C" : "B";
+
+  test("the two sides of a handover meet only in handover.ts (P317)", () => {
+    const erp = ["stock-issue", "stock-receipt"];
+    const production = ["production-receipt", "production-issue"];
+    const bad = [
+      ...erp.flatMap((m) => sibaImports(sibaModule(m).text).filter((d) => ["production-ledger", "production-doc", ...production].includes(d)).map((d) => `${m} → ${d}`)),
+      ...production.flatMap((m) => sibaImports(sibaModule(m).text).filter((d) => ["inventory", "journal", "item-account", ...erp].includes(d)).map((d) => `${m} → ${d}`)),
+    ];
+    assert.deepEqual(bad, [], "A side tells the other by a message of handover.ts; it never calls or reads it.");
+  });
 
   test("the ownership lists name only tables that exist", () => {
     const stale = [...SHARED_TABLES, ...PRODUCTION_TABLES].filter((t) => !schemaTables.includes(t));

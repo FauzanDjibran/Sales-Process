@@ -34,6 +34,15 @@ import {
 
 // -------------------------------------------------------------------- reads
 
+/** The Unit goods enter production at: the first step of the segment before the partai (W2). */
+export async function firstProductionUnit(db: Prisma.TransactionClient | typeof prisma = prisma): Promise<number | null> {
+  const segment = await db.prdRouting.findFirst({
+    where: { line_id: null, status: "Active" },
+    select: { steps: { orderBy: { seq: "asc" }, take: 1, select: { unit_id: true } } },
+  });
+  return segment?.steps[0]?.unit_id ?? null;
+}
+
 export async function routingCollections(routingId: number): Promise<{ steps: StepDraft[] }> {
   const rows = await prisma.prdRoutingStep.findMany({ where: { routing_id: routingId }, orderBy: { seq: "asc" } });
   return {

@@ -15,11 +15,11 @@ import { todayIso } from "@/lib/format";
 import { TransferReceiveButton } from "@/components/production/transfer-receive-button";
 import { TRANSFER_KIND_TEXT } from "@/lib/erp/production-transfer-shape";
 import type { IncomingTransfer } from "@/lib/erp/production-transfer";
-import { StockIssueActions } from "@/components/inventory/stock-issue-actions";
+import { ProductionReceiveButton } from "@/components/production/production-receive-button";
 import { idc } from "@/components/production/execution-parts";
 import { PROCESS_TEXT } from "@/components/production/unit-cards";
 import type { BoardRow } from "@/lib/erp/production-workspace";
-import type { StockIssueAbilities } from "@/lib/erp/stock-issue-workflow";
+import { PRODUCTION_RECEIPT_PATH, PRODUCTION_RECEIPT_PURPOSES, type ProductionReceiptPurpose } from "@/lib/erp/production-handover-shape";
 import { formatDate, formatNumber } from "@/lib/format";
 
 /**
@@ -33,7 +33,7 @@ import { formatDate, formatNumber } from "@/lib/format";
  * (P275).
  */
 
-export type BoardIncoming = { id: number; issueNo: string; issueDate: string; warehouseLabel: string; auxiliary: boolean; lines: { lotNo: string; qty: number; uomLabel: string }[] };
+export type BoardIncoming = { id: number; no: string; date: string; warehouseName: string; purpose: ProductionReceiptPurpose; lines: { lotNo: string; qty: number; uomLabel: string }[] };
 export type BoardUnit = {
   label: string;
   name: string;
@@ -124,7 +124,7 @@ export function UnitBoard({
   transfers,
   canReceive,
   can,
-  issueCan,
+  canTakeIn,
   initialTab,
 }: {
   unit: BoardUnit;
@@ -133,7 +133,7 @@ export function UnitBoard({
   transfers: IncomingTransfer[];
   canReceive: boolean;
   can: { grading: boolean; work: boolean; qc: boolean; transfer: boolean; kerjaStart: boolean; kerjaFinish: boolean; jobOrder: boolean; box: boolean; finishGoods: boolean };
-  issueCan: StockIssueAbilities;
+  canTakeIn: boolean;
   initialTab: BoardTab;
 }) {
   const router = useRouter();
@@ -179,7 +179,7 @@ export function UnitBoard({
     const ids = g.rows.map((r) => r.id).join(",");
     if (t === "standby" && unit.endsLine) {
       if (!can.finishGoods) return toast("Tidak diizinkan", "Anda tidak boleh mengirim ke Finish Goods.", "err");
-      return router.push(`/production/transfer/finish-goods?unit=${encodeURIComponent(unit.label)}&bucket=${ids}`);
+      return router.push(`/production/issue/finish-goods?unit=${encodeURIComponent(unit.label)}&bucket=${ids}`);
     }
     if (t === "standby") {
       if (!can.transfer) return toast("Tidak diizinkan", "Anda tidak boleh membuat Push atau BSTB.", "err");
@@ -232,7 +232,7 @@ export function UnitBoard({
       setQuery("");
       return open(g);
     }
-    if (incoming.some((d) => d.issueNo.toUpperCase() === code || d.lines.some((l) => l.lotNo.toUpperCase() === code))) {
+    if (incoming.some((d) => d.no.toUpperCase() === code || d.lines.some((l) => l.lotNo.toUpperCase() === code))) {
       setQuery("");
       return setTab("masuk");
     }
@@ -269,7 +269,7 @@ export function UnitBoard({
       ? { label: "QC Check", icon: "check", href: `/production/qc-check/new?unit=${at}`, allowed: can.qc }
       : standby
         ? unit.endsLine
-          ? { label: "Kirim ke Finish Goods", icon: "send", href: `/production/transfer/finish-goods?unit=${at}`, allowed: can.finishGoods }
+          ? { label: "Kirim ke Finish Goods", icon: "send", href: `/production/issue/finish-goods?unit=${at}`, allowed: can.finishGoods }
           : { label: "Kirim", icon: "send", href: `/production/transfer/new?unit=${at}`, allowed: can.transfer }
         : tab[0] === "p"
           ? ({
@@ -314,7 +314,7 @@ export function UnitBoard({
             <div className="ph-act">
               {/* Out of the line to a warehouse, from Persiapan or Stand By (P304): neutral, left of the main action. */}
               {canReturn && (
-                <button className="btn" disabled={!here.length} onClick={() => router.push(`/production/transfer/return?unit=${at}`)}>
+                <button className="btn" disabled={!here.length} onClick={() => router.push(`/production/issue/return?unit=${at}`)}>
                   <Icon name="down" size={15} /> BSTB Pengeluaran
                 </button>
               )}
@@ -493,18 +493,16 @@ export function UnitBoard({
                     </tr>
                   ))}
                   {incoming.map((d) => (
-                    <tr key={d.id} onClick={() => router.push(`/inventory/stock-issue/${d.id}`)}>
+                    <tr key={d.id} onClick={() => router.push(`${PRODUCTION_RECEIPT_PATH}/${d.id}`)}>
                       <td>
-                        <span className="lab">{d.issueNo}</span>
+                        <span className="lab">{d.no}</span>
                       </td>
-                      <td>BSTB Issue · {d.auxiliary ? "Bahan Penolong" : "Bahan ke Produksi"}</td>
-                      <td>{d.warehouseLabel}</td>
-                      <td>{formatDate(d.issueDate)}</td>
+                      <td>{PRODUCTION_RECEIPT_PURPOSES[d.purpose]}</td>
+                      <td>{d.warehouseName}</td>
+                      <td>{formatDate(d.date)}</td>
                       <td className="num">{d.lines.length}</td>
                       <td className="num">{gram(d.lines.reduce((a, l) => a + (l.uomLabel === "GR" ? l.qty : 0), 0))}</td>
-                      <td onClick={(e) => e.stopPropagation()}>
-                        <StockIssueActions id={d.id} subject={d.issueNo} status="Submitted" can={issueCan} />
-                      </td>
+                      <td onClick={(e) => e.stopPropagation()}>{canTakeIn && <ProductionReceiveButton id={d.id} subject={d.no} from={d.warehouseName} small />}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -516,7 +514,7 @@ export function UnitBoard({
                 <Icon name="truck" size={18} />
               </div>
               <h4>Tidak ada kiriman yang menunggu</h4>
-              <p>{unit.pre ? "Kiriman baru muncul di sini setelah pengirim menekan Ajukan." : "Barang dari Unit lain dalam Workstation yang sama masuk lewat Dokumen Push, langsung ke Persiapan tanpa Terima. Kiriman BSTB muncul di sini sampai diterima."}</p>
+              <p>{unit.pre ? "Kiriman baru muncul di sini setelah pengirim menekan Kirim." : "Barang dari Unit lain dalam Workstation yang sama masuk lewat Dokumen Push, langsung ke Persiapan tanpa Terima. Kiriman BSTB muncul di sini sampai diterima."}</p>
             </div>
           ))}
       </div>

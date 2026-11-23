@@ -4,6 +4,7 @@ import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { getStockIssue, stockIssueCurrent, stockIssueOptions } from "@/lib/erp/stock-issue";
 import { stockIssueAbilities, stockIssueIsEditable } from "@/lib/erp/stock-issue-workflow";
+import { requireWarehouse, warehouseIdsOf } from "@/lib/erp/warehouse-access";
 
 export const dynamic = "force-dynamic";
 
@@ -13,8 +14,9 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const actor = await requirePermission("STOCK_ISSUE_EDIT", `/inventory/stock-issue/${id}/edit`);
   const issue = await getStockIssue(Number(id));
   if (!issue) notFound();
+  await requireWarehouse(actor, issue.header.warehouse_id);
   if (!stockIssueIsEditable(issue.status)) redirect(`/inventory/stock-issue/${issue.id}`);
-  const options = await stockIssueOptions(stockIssueCurrent(issue));
+  const options = await stockIssueOptions(stockIssueCurrent(issue), undefined, await warehouseIdsOf(actor));
   return (
     <>
       <StockIssueForm mode="edit" issue={issue} options={options} can={stockIssueAbilities(actor.permissions)} />

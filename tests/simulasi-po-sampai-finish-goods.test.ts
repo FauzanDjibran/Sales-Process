@@ -10,10 +10,11 @@ import { closeKerja, startKerja } from "../src/lib/erp/production-kerja";
 import { postJobOrder } from "../src/lib/erp/production-job-order";
 import { closeBox } from "../src/lib/erp/production-box";
 import { receiveTransfer, sendTransfer } from "../src/lib/erp/production-transfer";
-import { getProductionReceipt, receiveFinishGoods, sendFinishGoods } from "../src/lib/erp/production-receipt";
+import { sendProductionIssue } from "../src/lib/erp/production-issue";
+import { getStockReceipt, receiveStockReceipt } from "../src/lib/erp/stock-receipt";
 import { availableBuckets, unitStepsOf, type BucketView } from "../src/lib/erp/production-ledger";
 import { cleanupFiscalYear, cleanupFixtures, cleanupStock, disconnect, makeAccount, openFiscalYear, prisma } from "./helpers";
-import { cleanupProduction } from "./production-helpers";
+import { cleanupProduction, stockReceiptOf, takeIn } from "./production-helpers";
 import { purchasingWorld, type PurchasingWorld } from "./purchasing-helpers";
 
 /**
@@ -38,7 +39,7 @@ const PRE = ["UGH", "UPC", "UPY"];
 
 let w: PurchasingWorld;
 const ids = {} as Record<string, number>;
-const docs = { rn: [] as number[], si: [] as number[], ng: [] as number[], qc: [] as number[], kj: [] as number[], tr: [] as number[], kerja: [] as number[], jo: [] as number[], box: [] as number[], bpr: [] as number[] };
+const docs = { rn: [] as number[], si: [] as number[], ng: [] as number[], qc: [] as number[], kj: [] as number[], tr: [] as number[], kerja: [] as number[], jo: [] as number[], box: [] as number[] };
 const items: number[] = [];
 const partais = new Set<number>();
 let activeBefore: number[] = [];
@@ -177,9 +178,6 @@ before(async () => {
 });
 
 after(async () => {
-  await prisma.auditLog.deleteMany({ where: { entity_key: "log_production_receipt", row_id: { in: docs.bpr } } });
-  await prisma.logProductionReceiptLine.deleteMany({ where: { receipt_id: { in: docs.bpr } } });
-  await prisma.logProductionReceipt.deleteMany({ where: { id: { in: docs.bpr } } });
   await prisma.prdBox.deleteMany({ where: { id: { in: docs.box } } });
   await prisma.prdJobOrder.deleteMany({ where: { id: { in: docs.jo } } });
   await prisma.prdKerja.deleteMany({ where: { id: { in: docs.kerja } } });
@@ -236,7 +234,7 @@ describe("simulasi 7.8: dari PO sampai Gudang Finish Goods", () => {
     assert.ok(si.ok, JSON.stringify(si));
     docs.si.push(si.id);
     assert.ok((await transitionStockIssue(si.id, "submit", w.actor)).ok);
-    assert.ok((await transitionStockIssue(si.id, "post", w.actor)).ok);
+    assert.ok((await takeIn(si.issueNo, w.actor)).ok);
     const [held] = await at(ugh.id, "Preparation");
     assert.deepEqual([held.qty, held.value], [60, 6_000]);
     say("Masuk produksi", `${rn.rnNo} → ${si.issueNo}: 60 g, Rp 6.000, ${held.jobNo}`);
@@ -275,19 +273,18 @@ describe("simulasi 7.8: dari PO sampai Gudang Finish Goods", () => {
     const [kotak] = await at(up5.id, "StandBy");
     assert.equal(kotak.itemId, ids.box);
 
-    const fg = await sendFinishGoods({ purpose: "finish_goods", from_unit_id: up5.id, warehouse_id: w.f.warehouse, receipt_date: today, note: "", lines: [{ bucket_id: kotak.id, qty: kotak.qty }] }, w.actor);
+    const fg = await sendProductionIssue({ purpose: "finish_goods", from_unit_id: up5.id, warehouse_id: w.f.warehouse, issue_date: today, note: "", lines: [{ bucket_id: kotak.id, qty: kotak.qty }] }, w.actor);
     assert.ok(fg.ok, JSON.stringify(fg));
-    docs.bpr.push(fg.id);
-    assert.ok((await receiveFinishGoods(fg.id, w.actor)).ok);
+    const fgReceipt = await stockReceiptOf(fg.no);
+    assert.ok((await receiveStockReceipt(fgReceipt, w.actor)).ok);
     const inStock = await prisma.logStockBalance.findFirstOrThrow({ where: { warehouse_id: w.f.warehouse, tracking_id: kotak.lotId } });
     assert.equal(inStock.qty_balance.toNumber(), 1, "kotak masuk gudang dengan No. Stok yang sama");
 
     const [left] = await at(up5.id, "Preparation");
-    const out = await sendFinishGoods({ purpose: "return", from_unit_id: up5.id, warehouse_id: w.f.warehouse, receipt_date: today, note: "keping sisa", lines: [{ bucket_id: left.id, qty: left.qty }] }, w.actor);
+    const out = await sendProductionIssue({ purpose: "return", from_unit_id: up5.id, warehouse_id: w.f.warehouse, issue_date: today, note: "keping sisa", lines: [{ bucket_id: left.id, qty: left.qty }] }, w.actor);
     assert.ok(out.ok, JSON.stringify(out));
-    docs.bpr.push(out.id);
-    assert.ok((await receiveFinishGoods(out.id, w.actor, { valueMode: "none" })).ok);
-    say("Selesai", `${box.trackingNo} → ${fg.no} (Rp ${(await getProductionReceipt(fg.id))!.cost}); keping ${left.lotNo} → ${out.no}`);
+    assert.ok((await receiveStockReceipt(await stockReceiptOf(out.no), w.actor, { valueMode: "none" })).ok);
+    say("Selesai", `${box.trackingNo} → ${fg.no} (Rp ${(await getStockReceipt(fgReceipt))!.cost}); keping ${left.lotNo} → ${out.no}`);
   });
 
   test("5. Rupiah demi rupiah: stok + WIP + beban = pembelian + biaya Unit; produksi kosong", async () => {

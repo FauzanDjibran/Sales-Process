@@ -238,10 +238,22 @@ const TRANSFER_EVENTS: Record<string, AuditEventLabel> = {
   receive: { label: "BSTB diterima — barang masuk Persiapan", icon: "check", tone: "neutral" },
 };
 
+const STOCK_RECEIPT_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
+  send: { label: "Dikirim dari produksi", icon: "truck", tone: "neutral" },
+  receive: { label: "Diterima — barang masuk gudang", icon: "check", tone: "primary" },
+};
+
 const PRODUCTION_RECEIPT_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
+  create: { label: "Dikirim dari gudang", icon: "truck", tone: "neutral" },
+  receive: { label: "Diterima — barang masuk Persiapan", icon: "check", tone: "primary" },
+};
+
+const PRODUCTION_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
+  ...COMMON,
   send: { label: "Dikirim — barang Dalam Perjalanan", icon: "truck", tone: "neutral" },
-  receive: { label: "Diterima — barang masuk gudang", icon: "check", tone: "primary" },
+  receive: { label: "Diterima gudang — barang keluar produksi", icon: "check", tone: "primary" },
 };
 
 const BOX_EVENTS: Record<string, AuditEventLabel> = {
@@ -268,12 +280,12 @@ const QC_EVENTS: Record<string, AuditEventLabel> = {
   cancel: fromTransition(QC_CHECK_WORKFLOW.transitions.cancel, "Dibatalkan"),
 };
 
-/** BSTB Issue: Draft → Diajukan → Diterima, or Dibatalkan. */
+/** Stock Issue: Draft → Dalam Perjalanan → Diterima, or Dibatalkan. */
 const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
-  create: { label: "BSTB Issue dibuat", icon: "layers", tone: "neutral" },
-  submit: fromTransition(STOCK_ISSUE_TRANSITIONS.submit, "Diajukan — barang terkunci di gudang"),
-  post: fromTransition(STOCK_ISSUE_TRANSITIONS.post, "Diterima — barang masuk ke Unit"),
+  create: { label: "Stock Issue dibuat", icon: "layers", tone: "neutral" },
+  submit: fromTransition(STOCK_ISSUE_TRANSITIONS.submit, "Dikirim — barang keluar gudang"),
+  post: { label: "Diterima Unit", icon: "check", tone: "primary" },
   cancel: fromTransition(STOCK_ISSUE_TRANSITIONS.cancel, "Dibatalkan"),
 };
 
@@ -438,7 +450,9 @@ const BY_ENTITY: Record<string, Record<string, AuditEventLabel>> = {
   prd_cost_bill: COST_BILL_EVENTS,
   fin_cash_bank_transfer: CASH_TRANSFER_EVENTS,
   log_stock_issue: STOCK_ISSUE_EVENTS,
-  log_production_receipt: PRODUCTION_RECEIPT_EVENTS,
+  log_stock_receipt: STOCK_RECEIPT_EVENTS,
+  prd_receipt: PRODUCTION_RECEIPT_EVENTS,
+  prd_issue: PRODUCTION_ISSUE_EVENTS,
   log_stock_transfer: STOCK_TRANSFER_EVENTS,
   log_stock_transfer_receipt: STOCK_TRANSFER_RECEIPT_EVENTS,
   prd_grading: GRADING_EVENTS,

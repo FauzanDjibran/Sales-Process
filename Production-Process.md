@@ -102,3 +102,7 @@ plan's steps 1–13.
 | 06/11/2026 | P239 | Masters of the plan up to Barcoding: one Tipe per Unit, QC Check on the Unit, Keluar Lewat worked out, 14 Units and REG-1 up to UP5. No document uses them yet. |
 | 05/11/2026 | P236 | W64–W76 agreed from the simulation: Push inside a Workstation and BSTB across, QC Check in the unit, Moulding split in two without Mix, CCP-1 and Sortir as units, the checkpoint only at Barcoding, one process per Unit; no change to what is built. |
 | 05/11/2026 | P237 | W77–W80 agreed: QC only validates, Dokumen Reproses from any unit with QC back along the routing, Reject for the worst cases, the rest of a partai goes on to the checkpoint; no change to what is built. |
+
+## Serah terima gudang dan produksi (P317, 23/11/2026)
+
+Stock Issue (Kirim, nilai beku, Dr WIP / Cr Persediaan) → Production Receipt (Terima Unit, tanpa jurnal). Production Issue (Kirim Unit, Dalam Perjalanan) → Stock Receipt (Terima gudang, Dr Persediaan atau Beban / Cr WIP). `prd_transfer` hanya Unit ke Unit. Rinciannya di `Goods-Movement-Plan.md`.

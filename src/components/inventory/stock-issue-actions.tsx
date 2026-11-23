@@ -21,17 +21,18 @@ import { useInitialAction } from "@/components/ui/save-buttons";
 
 /** Why a final note offers no button, for the lock chip. */
 const LOCK_TEXT: Partial<Record<StockIssueStatus, string>> = {
-  Posted: "BSTB Issue diterima",
-  Cancelled: "BSTB Issue dibatalkan",
+  InTransit: "Dalam Perjalanan, menunggu Terima Unit",
+  Received: "Sudah diterima Unit",
+  Cancelled: "Stock Issue dibatalkan",
 };
 
 /**
- * A BSTB Issue's lifecycle as buttons in the page header (R4): Ubah (Draft
- * only), Batalkan, Ajukan and Terima. Terima's confirmation shows the journal it will
+ * A Stock Issue's lifecycle as buttons in the page header (R4): Ubah (Draft
+ * only), Batalkan and Kirim. Kirim's confirmation shows the journal it will
  * write — WIP debited, Persediaan credited, per item at the cost the stock books
  * release — from the posting itself run as a dry run and rolled back (P103). An
- * issue that cannot post (short stock, lots not picked in full, no WIP account)
- * says why there, with *Ya, Posting* disabled.
+ * issue that cannot leave (short stock, lots not picked in full, no WIP account)
+ * says why there, with *Ya, Kirim* disabled.
  */
 export function StockIssueActions({
   id,
@@ -129,7 +130,7 @@ export function StockIssueActions({
       {confirm && t && (
         <ConfirmDialog
           open
-          wide={confirm === "post"}
+          wide={confirm === "submit"}
           icon={t.icon}
           tone={t.tone === "danger" ? "danger" : "ok"}
           title={t.title}
@@ -138,11 +139,11 @@ export function StockIssueActions({
           confirmLabel={t.confirmLabel}
           confirmTone={t.tone === "danger" ? "solid-danger" : "primary"}
           busy={busy}
-          confirmDisabled={confirm === "post" && !postable}
+          confirmDisabled={confirm === "submit" && !postable}
           onConfirm={() => run(confirm)}
           onCancel={() => setConfirm(null)}
         >
-          {confirm === "post" && <JournalPreview load={() => previewStockIssuePostingAction(id)} onReady={setPostable} />}
+          {confirm === "submit" && <JournalPreview load={() => previewStockIssuePostingAction(id)} onReady={setPostable} />}
           {t.reason && (
             <Field label="Alasan" span={12} required error={reasonError}>
               <textarea

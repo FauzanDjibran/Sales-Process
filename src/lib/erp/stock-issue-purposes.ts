@@ -1,9 +1,9 @@
 /**
- * The purposes of a BSTB Issue — a catalogue in code (Claude-ERP.md P106,
+ * The purposes of a Stock Issue — a catalogue in code (Claude-ERP.md P106,
  * R4), like the Delivery Note's.
  *
- * A BSTB Issue is standalone: goods leave a warehouse for a use inside the
- * company, and its purpose says where they go and how Terima books them.
+ * A Stock Issue is standalone: goods leave a warehouse for a use inside the
+ * company, and its purpose says where they go and how Kirim books them.
  *
  * Client-safe on purpose — no `server-only`, no database import.
  */
@@ -24,16 +24,16 @@ export type StockIssuePurpose = {
 export const STOCK_ISSUE_PURPOSES: readonly StockIssuePurpose[] = [
   {
     key: "production_issue",
-    name: "Bahan ke Produksi",
+    name: "BSTB Issue · Bahan ke Produksi",
     desc:
       "Bahan keluar dari gudang ke Unit pertama routing, per lot. Lot tetap bernomor sama di produksi; " +
-      "Terima memindahkan nilainya dari Persediaan ke WIP.",
+      "Kirim memindahkan nilainya dari Persediaan ke WIP.",
     needsUnit: true,
     firstUnitOnly: true,
   },
   {
     key: "auxiliary_issue",
-    name: "Bahan Penolong ke Unit",
+    name: "BSTB Issue · Bahan Penolong",
     desc: "Kotak, gabus, stiker dan sejenisnya masuk ke Unit mana pun yang memakainya, menjadi saldo Unit itu, bukan isi partai.",
     needsUnit: true,
     firstUnitOnly: false,

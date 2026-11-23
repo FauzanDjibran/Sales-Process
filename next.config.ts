@@ -21,6 +21,11 @@ const nextConfig: NextConfig = {
       { source: "/master/rate-version/:path*", destination: "/costing/rate-version/:path*", permanent: false },
       { source: "/master/cost-type/:path*", destination: "/costing/cost-type/:path*", permanent: false },
       { source: "/master/employee/:path*", destination: "/production/employee/:path*", permanent: false },
+      // The BSTB menus became Stock Receipt, and production's sending forms Production Issue (P317).
+      { source: "/inventory/production-receipt/:path*", destination: "/inventory/stock-receipt", permanent: false },
+      { source: "/inventory/production-return/:path*", destination: "/inventory/stock-receipt", permanent: false },
+      { source: "/production/transfer/finish-goods", destination: "/production/issue/finish-goods", permanent: false },
+      { source: "/production/transfer/return", destination: "/production/issue/return", permanent: false },
       // Penukaran Valas became Transfer (P299).
       { source: "/finance/cash-bank/exchange/:path*", destination: "/finance/cash-bank/transfer/:path*", permanent: false },
       { source: "/finance/cash-bank/exchange", destination: "/finance/cash-bank/transfer", permanent: false },

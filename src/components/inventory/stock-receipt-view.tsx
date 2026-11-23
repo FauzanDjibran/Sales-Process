@@ -9,9 +9,10 @@ import { DocumentHeader } from "@/components/ui/document-header";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { JournalPreview } from "@/components/ui/journal-preview";
 import { useToast } from "@/components/ui/toast";
-import { previewFinishGoodsAction, receiveFinishGoodsAction } from "@/app/actions/production-receipt";
-import type { ProductionReceiptView as View } from "@/lib/erp/production-receipt";
-import { PRODUCTION_RECEIPT_PURPOSES, PRODUCTION_RECEIPT_STATUS_BADGE, PRODUCTION_RECEIPT_STATUS_TEXT, VALUE_MODE_TEXT, type ProductionValueMode } from "@/lib/erp/production-receipt-shape";
+import { previewStockReceiptAction, receiveStockReceiptAction } from "@/app/actions/stock-receipt";
+import type { StockReceiptView as View } from "@/lib/erp/stock-receipt";
+import { STOCK_RECEIPT_PATH, STOCK_RECEIPT_PURPOSES, STOCK_RECEIPT_STATUS_BADGE, STOCK_RECEIPT_STATUS_TEXT, VALUE_MODE_TEXT, type ProductionValueMode } from "@/lib/erp/stock-receipt-purposes";
+import { Select } from "@/components/ui/select";
 import { formatDate, formatNumber } from "@/lib/format";
 import { FormTabs } from "@/components/ui/form-tabs";
 
@@ -25,19 +26,28 @@ const nil = (text: string) => <div className="ro nil">{text}</div>;
  * by a dry run of the posting itself (P103). A BSTB Pengeluaran asks there
  * whether the goods come in at their value or at none.
  */
-export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: View; canReceive: boolean }) {
+export function StockReceiptView({ receipt: r, canReceive }: { receipt: View; canReceive: boolean }) {
   const toast = useToast();
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [postable, setPostable] = useState(false);
-  const posted = r.status === "Posted";
-  const p = PRODUCTION_RECEIPT_PURPOSES[r.purpose];
-  const isReturn = r.purpose === "return";
+  const posted = r.status === "Received";
+  const p = STOCK_RECEIPT_PURPOSES[r.purpose];
+  const isReturn = p.asksValue;
   const [mode, setMode] = useState<ProductionValueMode>("carried");
+  // Where each No. Stok goes, chosen while it waits (P317).
+  const placing = !posted && canReceive;
+  const [places, setPlaces] = useState<{ id: number; location_id: number | null; stock_status_id: number | null }[]>(() => r.items.map((i) => ({ id: i.id, location_id: null as number | null, stock_status_id: r.statuses[0]?.id ?? null })));
+  const place = (id: number, patch: { location_id?: number | null; stock_status_id?: number | null }) => setPlaces((x) => x.map((q) => (q.id === id ? { ...q, ...patch } : q)));
+  const placeAll = (patch: { location_id?: number | null; stock_status_id?: number | null }) => setPlaces((x) => x.map((q) => ({ ...q, ...patch })));
+  const locationOptions = r.locations.map((l) => ({ value: String(l.id), label: `${l.label} · ${l.name}` }));
+  const statusOptions = r.statuses.map((x) => ({ value: String(x.id), label: x.name }));
+  const input = { valueMode: isReturn ? mode : null, places };
+  const missing = placing && r.locations.length > 0 && places.some((q) => !q.location_id);
 
   async function receive() {
     setBusy(true);
-    const result = await receiveFinishGoodsAction(r.id, isReturn ? mode : null);
+    const result = await receiveStockReceiptAction(r.id, input);
     setBusy(false);
     setAsking(false);
     if (!result.ok) return toast("Tidak dapat diterima", result.errors._form ?? Object.values(result.errors)[0], "err");
@@ -48,16 +58,17 @@ export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: Vie
     <>
       <DocumentHeader
         module="Persediaan"
-        trail={[{ label: p.name, href: p.path }]}
+        trail={[{ label: "Stock Receipt", href: STOCK_RECEIPT_PATH }]}
         icon="down"
         number={r.no}
         status={r.status}
-        statusLabel={{ text: PRODUCTION_RECEIPT_STATUS_TEXT[r.status], tone: PRODUCTION_RECEIPT_STATUS_BADGE[r.status] }}
+        statusLabel={{ text: STOCK_RECEIPT_STATUS_TEXT[r.status], tone: STOCK_RECEIPT_STATUS_BADGE[r.status] }}
       >
         {!posted && canReceive ? (
           <button
             className="btn primary"
-            disabled={busy}
+            disabled={busy || missing}
+            title={missing ? "Pilih lokasi dulu…" : undefined}
             onClick={() => {
               setPostable(false);
               setAsking(true);
@@ -76,6 +87,9 @@ export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: Vie
         <FormBody>
           <FormSection title="Sumber">
             <FormRow>
+              <Field label="Tujuan" span={4}>
+                {ro(p.name)}
+              </Field>
               <Field label="Unit Asal" span={4}>
                 {ro(
                   <span className="idc">
@@ -107,7 +121,7 @@ export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: Vie
                   {ro(r.valueMode ? VALUE_MODE_TEXT[r.valueMode].name : "—")}
                 </Field>
               )}
-              <Field label={isReturn ? "Alasan / Catatan" : "Catatan"} span={12}>
+              <Field label={isReturn ? "Alasan dan Catatan" : "Catatan"} span={12}>
                 {r.note ? <div className="ro multi">{r.note}</div> : <div className="ro multi nil opt">tidak diisi</div>}
               </Field>
             </FormRow>
@@ -150,11 +164,24 @@ export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: Vie
           </span>
           <div className="ct">
             <h3>Barang</h3>
-            <p>{posted ? "Nilai adalah yang dilepas produksi saat Terima." : "Nilai terlihat setelah Terima."}</p>
+            <p>{posted ? "Nilai adalah yang dibekukan produksi saat Kirim." : placing ? (r.locations.length ? "Pilih lokasi dan status tiap No. Stok, lalu Terima." : "Pilih status tiap No. Stok, lalu Terima.") : "Menunggu Terima gudang."}</p>
           </div>
         </div>
+        {placing && r.items.length > 1 && (
+          <div className="toolbar" style={{ paddingBottom: 0, borderBottom: 0 }}>
+            <span className="count">Untuk semua baris:</span>
+            {r.locations.length > 0 && (
+              <div style={{ width: 220 }}>
+                <Select value="" ariaLabel="Lokasi semua baris" options={locationOptions} placeholder="Pilih lokasi…" onChange={(v) => placeAll({ location_id: Number(v) || null })} />
+              </div>
+            )}
+            <div style={{ width: 170 }}>
+              <Select value="" ariaLabel="Status semua baris" options={statusOptions} placeholder="Pilih status…" onChange={(v) => placeAll({ stock_status_id: Number(v) || null })} />
+            </div>
+          </div>
+        )}
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: 720 }}>
+          <table className="grid ltab" style={{ minWidth: r.locations.length ? 1080 : 900 }}>
             <thead>
               <tr>
                 <th style={{ width: 44 }}>No</th>
@@ -163,13 +190,15 @@ export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: Vie
                 {isReturn && <th style={{ width: 170 }}>No. Job</th>}
                 <th className="num" style={{ width: 110 }}>Qty</th>
                 <th className="num" style={{ width: 110 }}>Gram</th>
+                {r.locations.length > 0 && <th style={{ width: 200 }}>Lokasi</th>}
+                <th style={{ width: 150 }}>Status Stok</th>
                 {posted && <th className="num" style={{ width: 150 }}>Nilai</th>}
               </tr>
             </thead>
             <tbody>
-              {r.items.map((l) => (
-                <tr key={l.lineNo}>
-                  <td className="mut">{l.lineNo}</td>
+              {r.items.map((l, i) => (
+                <tr key={l.id}>
+                  <td className="mut">{i + 1}</td>
                   <td>
                     <span className="mono">{l.lotNo}</span>
                   </td>
@@ -184,6 +213,22 @@ export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: Vie
                     {qtyText(l.qty)} {l.uomLabel}
                   </td>
                   <td className="num">{l.grams != null ? qtyText(l.grams) : <span className="dash">—</span>}</td>
+                  {r.locations.length > 0 && (
+                    <td>
+                      {placing ? (
+                        <Select size="sm" ariaLabel={`Lokasi ${l.lotNo}`} value={String(places[i]?.location_id ?? "")} options={locationOptions} placeholder="Pilih lokasi…" onChange={(v) => place(l.id, { location_id: Number(v) || null })} />
+                      ) : (
+                        (l.locationLabel ?? <span className="dash">—</span>)
+                      )}
+                    </td>
+                  )}
+                  <td>
+                    {placing ? (
+                      <Select size="sm" ariaLabel={`Status ${l.lotNo}`} value={String(places[i]?.stock_status_id ?? "")} options={statusOptions} placeholder="Pilih status…" onChange={(v) => place(l.id, { stock_status_id: Number(v) || null })} />
+                    ) : (
+                      (l.statusName ?? <span className="dash">—</span>)
+                    )}
+                  </td>
                   {posted && (
                     <td className="num">
                       <Amount value={l.value} />
@@ -195,7 +240,7 @@ export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: Vie
             {posted && (
               <tfoot>
                 <tr>
-                  <td colSpan={isReturn ? 6 : 5} className="num">
+                  <td colSpan={(isReturn ? 7 : 6) + (r.locations.length > 0 ? 1 : 0)} className="num">
                     Total
                   </td>
                   <td className="num">
@@ -219,7 +264,7 @@ export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: Vie
           tone="ok"
           title={`Terima ${p.name}`}
           subject={r.no}
-          body={`${r.lines} baris keluar dari produksi ${r.unitLabel} dan masuk ${r.warehouseLabel} dengan No. Stok yang sama, bertanggal hari ini. Dokumen yang sudah diterima tidak dapat diubah atau dibatalkan.`}
+          body={`${r.lots} No. Stok keluar dari produksi ${r.unitLabel} dan masuk ${r.warehouseLabel} dengan No. Stok yang sama, bertanggal hari ini. Dokumen yang sudah diterima tidak dapat diubah atau dibatalkan.`}
           confirmLabel="Ya, Terima"
           confirmTone="primary"
           busy={busy}
@@ -248,7 +293,7 @@ export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: Vie
               ))}
             </div>
           )}
-          <JournalPreview key={mode} load={() => previewFinishGoodsAction(r.id, isReturn ? mode : null)} onReady={setPostable} />
+          <JournalPreview key={mode} load={() => previewStockReceiptAction(r.id, input)} onReady={setPostable} />
         </ConfirmDialog>
       )}
     </>

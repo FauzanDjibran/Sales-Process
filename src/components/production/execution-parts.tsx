@@ -7,21 +7,15 @@ import { CancelButton } from "@/components/ui/cancel-button";
 import { Dialog } from "@/components/ui/dialog";
 import { Combobox } from "@/components/ui/combobox";
 import { MoneyInput } from "@/components/ui/money-input";
-import { formatMoney, formatNumber } from "@/lib/format";
+
 import { PROD_DOC_STATUS_BADGE, PROD_DOC_STATUS_TEXT, type ProdDocStatus } from "@/lib/erp/production-doc-workflow";
 import type { BucketOption } from "@/lib/erp/production-doc";
 
+import { idc, money, qtyText } from "./execution-text";
+
 /** What the three documents of work at a Unit draw alike. */
 
-export const money = (n: number) => formatMoney(n, "IDR");
-export const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
-export const ro = (node: ReactNode) => <div className="ro">{node}</div>;
-export const idc = (label: string, name: string) => (
-  <span className="idc">
-    <span className="lab">{label}</span>
-    <span className="nm">{name}</span>
-  </span>
-);
+export { money, qtyText, ro, idc } from "./execution-text";
 
 let seq = 0;
 export const newKey = () => `r${Date.now().toString(36)}${seq++}`;

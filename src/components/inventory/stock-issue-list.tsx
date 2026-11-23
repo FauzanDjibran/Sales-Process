@@ -3,6 +3,7 @@
 import { Amount } from "@/components/ui/amount";
 import { DocumentRegister, rowSteps } from "@/components/ui/document-register";
 import type { StockIssueListRow } from "@/lib/erp/stock-issue";
+import { STOCK_ISSUE_PURPOSES, stockIssuePurpose } from "@/lib/erp/stock-issue-purposes";
 import {
   STOCK_ISSUE_STATUS_BADGE,
   STOCK_ISSUE_STATUS_TEXT,
@@ -13,31 +14,35 @@ import {
   type StockIssueStatus,
 } from "@/lib/erp/stock-issue-workflow";
 
-const STATUSES: StockIssueStatus[] = ["Draft", "Submitted", "Posted", "Cancelled"];
+const STATUSES: StockIssueStatus[] = ["Draft", "InTransit", "Received", "Cancelled"];
 
-/** The BSTB Issue register (R4). The value is what a received issue moved from Persediaan to WIP. */
+/** The Stock Issue register (R4, P317). The value is what a sent issue moved from Persediaan to WIP. */
 export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; can: StockIssueAbilities }) {
   const units = [...new Map(issues.filter((o) => o.unitLabel).map((o) => [o.unitLabel, o.unitName])).entries()];
   return (
     <DocumentRegister
       module="Persediaan"
       icon="layers"
-      title="BSTB Issue"
-      sub="Bahan dan bahan penolong keluar dari gudang ke Unit, per lot."
+      title="Stock Issue"
+      sub="Barang keluar dari gudang Anda tanpa partner, menurut tujuannya."
       base="/inventory/stock-issue"
-      newLabel="Buat BSTB Issue"
+      newLabel="Buat Stock Issue"
       canCreate={can.create}
-      searchHint="Cari nomor, gudang atau unit…"
+      searchHint="Cari nomor, tujuan, gudang atau unit…"
       statuses={STATUSES}
       statusText={STOCK_ISSUE_STATUS_TEXT}
       statusBadge={STOCK_ISSUE_STATUS_BADGE}
       columns={[
+        { key: "purpose", label: "Tujuan", width: 170 },
         { key: "warehouse", label: "Gudang" },
         { key: "unit", label: "Unit" },
         { key: "lines", label: "Baris", width: 54, num: true },
       ]}
       valueLabel="Nilai ke WIP"
-      facets={[{ key: "unit", label: "Unit", options: units.map(([label, name]) => ({ value: label, label: `${label} · ${name}` })) }]}
+      facets={[
+        { key: "purpose", label: "Tujuan", options: STOCK_ISSUE_PURPOSES.map((p) => ({ value: p.key, label: p.name })) },
+        { key: "unit", label: "Unit", options: units.map(([label, name]) => ({ value: label, label: `${label} · ${name}` })) },
+      ]}
       empty="Keluarkan bahan dari gudang ke produksi: pilih gudang, Unit, barang dan lotnya."
       rows={issues.map((o) => ({
         id: o.id,
@@ -45,6 +50,7 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
         status: o.status,
         date: o.issueDate,
         cells: {
+          purpose: stockIssuePurpose(o.purpose)?.name ?? o.purpose,
           warehouse: (
             <span className="idc">
               <span className="lab">{o.warehouseLabel}</span>
@@ -59,9 +65,9 @@ export function StockIssueList({ issues, can }: { issues: StockIssueListRow[]; c
           ),
           lines: o.lines,
         },
-        value: o.status === "Posted" ? <Amount value={o.cost} /> : null,
-        facets: { unit: o.unitLabel },
-        search: [o.warehouseLabel, o.warehouseName, o.unitLabel, o.unitName].join(" "),
+        value: o.status === "InTransit" || o.status === "Received" ? <Amount value={o.cost} /> : null,
+        facets: { purpose: o.purpose, unit: o.unitLabel },
+        search: [stockIssuePurpose(o.purpose)?.name ?? "", o.warehouseLabel, o.warehouseName, o.unitLabel, o.unitName].join(" "),
         editable: can.edit && stockIssueIsEditable(o.status),
         steps: rowSteps(availableStockIssueActions(o.status, can), STOCK_ISSUE_TRANSITIONS),
       }))}

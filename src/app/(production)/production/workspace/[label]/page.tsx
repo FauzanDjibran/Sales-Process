@@ -5,15 +5,14 @@ import { requireUnit } from "@/lib/erp/production-access";
 import { GRADING_WORKFLOW, QC_CHECK_WORKFLOW, WORK_WORKFLOW } from "@/lib/erp/production-execution-workflow";
 import { unitBoard, unitByLabel } from "@/lib/erp/production-workspace";
 import { incomingTransfers } from "@/lib/erp/production-transfer";
-import { incomingStockIssues } from "@/lib/erp/stock-issue";
-import { stockIssueAbilities } from "@/lib/erp/stock-issue-workflow";
+import { waitingProductionReceipts } from "@/lib/erp/production-receipt";
 import { runningByBuckets } from "@/lib/erp/production-kerja";
 
 export const dynamic = "force-dynamic";
 
 /** `masuk`, `standby`, `transit`, or a step tab `p<id>` / `w<id>` of this Unit. */
 
-/** The page composes the BSTB module's waiting issues beside the ledger's rows (§3.1). */
+/** The page composes what waits for Terima beside the ledger's rows (§3.1). */
 export default async function Page({ params, searchParams }: { params: Promise<{ label: string }>; searchParams: Promise<{ tab?: string }> }) {
   const label = decodeURIComponent((await params).label);
   const { tab } = await searchParams;
@@ -22,7 +21,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
   if (!unit) notFound();
   await requireUnit(actor, unit.id);
 
-  const [board, issues, transfers] = await Promise.all([unitBoard(unit.id), incomingStockIssues(), incomingTransfers()]);
+  const [board, issues, transfers] = await Promise.all([unitBoard(unit.id), waitingProductionReceipts(), incomingTransfers()]);
   // Who works each Sedang Dikerjakan row and under which Kerja: composed from the Kerja module (§3.1).
   const running = await runningByBuckets(board.filter((r) => r.stage === "Working").map((r) => r.id));
   const rows = board.map((r) => {
@@ -31,7 +30,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
   });
   const incoming = issues
     .filter((i) => i.unitId === unit.id)
-    .map((i) => ({ id: i.id, issueNo: i.issueNo, issueDate: i.issueDate, warehouseLabel: i.warehouseLabel, auxiliary: i.auxiliary, lines: i.lines.map((l) => ({ lotNo: l.lotNo, qty: l.qty, uomLabel: l.uomLabel })) }));
+    .map((i) => ({ id: i.id, no: i.no, date: i.date, warehouseName: i.warehouseName, purpose: i.purpose, lines: i.items.map((l) => ({ lotNo: l.lotNo, qty: l.qty, uomLabel: l.uomLabel })) }));
   const stepTabs = unit.steps.flatMap((s) => [`p${s.id}`, `w${s.id}`]);
   // A form returns to its process by name (`?tab=Grading`), since it does not know the step id (P286).
   const byProcess = unit.steps.find((s) => s.process === tab);
@@ -64,9 +63,9 @@ export default async function Page({ params, searchParams }: { params: Promise<{
         kerjaFinish: actor.permissions.has("PRODUCTION_KERJA_FINISH"),
         jobOrder: actor.permissions.has("PRODUCTION_JOB_ORDER_POST"),
         box: actor.permissions.has("PRODUCTION_BOX_POST"),
-        finishGoods: actor.permissions.has("PRODUCTION_RECEIPT_SEND"),
+        finishGoods: actor.permissions.has("PRODUCTION_ISSUE_SEND"),
       }}
-      issueCan={stockIssueAbilities(actor.permissions)}
+      canTakeIn={actor.permissions.has("PRODUCTION_RECEIPT_RECEIVE")}
       initialTab={initial}
     />
   );

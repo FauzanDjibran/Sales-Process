@@ -1,3 +1,4 @@
+import { receiveProductionReceipt } from "../src/lib/erp/production-receipt";
 import { cleanupStock, makeAccount, prisma, stockIn, systemUserId } from "./helpers";
 
 /**
@@ -85,6 +86,7 @@ export async function makeProductionFixture(tag: string): Promise<ProductionFixt
 
 /** Removes every production book row of fixture items — a test's own teardown. */
 export async function cleanupProduction(itemIds: number[]): Promise<void> {
+  await cleanupHandovers(itemIds);
   const lots = (await prisma.logStockTracking.findMany({ where: { item_id: { in: itemIds } }, select: { id: true } })).map((l) => l.id);
   await prisma.prdTrackingLink.deleteMany({ where: { OR: [{ from_tracking_id: { in: lots } }, { to_tracking_id: { in: lots } }] } });
   await prisma.prdLedger.deleteMany({ where: { item_id: { in: itemIds } } });
@@ -92,6 +94,34 @@ export async function cleanupProduction(itemIds: number[]): Promise<void> {
   await prisma.prdCostEntry.deleteMany({ where: { tracking_id: { in: lots } } });
   await prisma.prdTrackingInfo.deleteMany({ where: { tracking_id: { in: lots } } });
   await prisma.prdJob.deleteMany({ where: { tracking_id: { in: lots } } });
+}
+
+/** Terima by the Unit of the Production Receipt a Stock Issue made (P317). */
+export async function takeIn(issueNo: string, actor: number) {
+  const r = await prisma.prdReceipt.findUniqueOrThrow({ where: { receipt_no: issueNo } });
+  return receiveProductionReceipt(r.id, actor);
+}
+
+/** The Stock Receipt a Production Issue made (P317). */
+export const stockReceiptOf = async (issueNo: string) => (await prisma.logStockReceipt.findUniqueOrThrow({ where: { receipt_no: issueNo } })).id;
+
+/** Removes the handover documents of fixture items, both sides. */
+async function cleanupHandovers(itemIds: number[]): Promise<void> {
+  const where = { item_id: { in: itemIds } };
+  const pr = (await prisma.prdReceiptLine.findMany({ where })).map((l) => l.receipt_id);
+  const pi = (await prisma.prdIssueLine.findMany({ where })).map((l) => l.issue_id);
+  const sr = (await prisma.logStockReceiptLine.findMany({ where })).map((l) => l.stock_receipt_id);
+  await prisma.prdReceiptLine.deleteMany({ where });
+  await prisma.prdReceipt.deleteMany({ where: { id: { in: pr } } });
+  await prisma.prdIssueLine.deleteMany({ where });
+  await prisma.prdIssue.deleteMany({ where: { id: { in: pi } } });
+  await prisma.logStockReceiptTracking.deleteMany({ where: { line: where } });
+  await prisma.logStockReceiptLine.deleteMany({ where });
+  const journals = (await prisma.logStockReceipt.findMany({ where: { id: { in: sr } } })).flatMap((r) => (r.journal_id ? [r.journal_id] : []));
+  await prisma.logStockReceipt.deleteMany({ where: { id: { in: sr } } });
+  await prisma.accJournalLine.deleteMany({ where: { journal_id: { in: journals } } });
+  await prisma.accJournal.deleteMany({ where: { id: { in: journals } } });
+  await prisma.auditLog.deleteMany({ where: { OR: [{ entity_key: "prd_receipt", row_id: { in: pr } }, { entity_key: "prd_issue", row_id: { in: pi } }, { entity_key: "log_stock_receipt", row_id: { in: sr } }] } });
 }
 
 /** A source for direct book calls: the given document type, a made-up id. */

@@ -198,7 +198,6 @@ const MAIN: Record<string, string> = {
   pur_request_service: "pur_request",
   pur_order_goods: "pur_order",
   pur_order_service: "pur_order",
-  log_production_receipt_return: "log_production_receipt",
   fin_cash_receipt: "fin_cash_bank_tx",
   fin_cash_payment: "fin_cash_bank_tx",
   account_mapping: "sys_setting",
