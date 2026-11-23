@@ -1,6 +1,6 @@
 # Pergerakan Barang: Stock Issue, Stock Receipt dan Batas Dua Database
 
-> **Usulan 23/11/2026, menunggu keputusan user (§9). Belum ada yang dibangun dan belum ada keputusan yang berubah.**
+> **Pembagian dokumen disetujui user 23/11/2026 (P316: GM-1, GM-5, GM-9); sisanya menunggu (§9). Belum ada yang dibangun.**
 > Dasar: kode `main` @ `413d735` (`stock-issue.ts`, `production-receipt.ts`, `production-transfer.ts`,
 > `production-ledger.ts`, `inventory.ts`), `production_app_plan.md` §2.2, §5, §8,
 > `Stock-Transfer-Plan.md`, `Produksi Walet (Real).md` (PWR).
@@ -91,7 +91,7 @@ Katalog tetap di kode (P106) dan tiap tujuan punya postingnya sendiri (P268). Sa
 
 Nama **BSTB Issue, BSTB ke Finish Goods, BSTB Pengeluaran** tetap dipakai sebagai nama tujuan dan judul dokumen, sehingga orang lapangan tidak kehilangan istilahnya. Yang berubah hanya menunya. Ini **mengubah P254** (*BSTB Issue menu keeps its name*; dokumen lain menu sendiri) dan menu P303 / P304.
 
-### 3.4 Stock Opname: menu sendiri, bukan tujuan
+### 3.4 Stock Adjustment (opname): menu sendiri, bukan tujuan
 
 Opname adalah **dokumen hitung** yang memposting selisihnya sendiri. Issue dan Receipt untuk barang yang **diketahui** keluar atau masuk karena sebab tertentu.
 
@@ -290,34 +290,129 @@ Jurnal dari `ProductionPosted` **menyusul** gerak bukunya. Ini menyimpang dari p
 
 ## 8. Langkah pembangunan
 
-Satu database tetap (P245). Yang dibangun sekarang **bentuknya**, bukan pipanya: isi pesan dikirim sebagai pemanggilan fungsi dalam transaksi yang sama, sehingga saat dipisah hanya pengirimannya yang diganti.
+### 8.0 Susunan akhir
 
-| Langkah | Isi | Migrasi | Selesai bila |
+| | Masuk | Pindah di dalam | Keluar | Koreksi |
+| --- | --- | --- | --- | --- |
+| **Logistik** | **Stock Receipt** (tanpa partner), Receipt Note (partner) | Transfer Kirim, Transfer Terima | **Stock Issue** (tanpa partner), Delivery Note (partner) | **Stock Adjustment** |
+| **Produksi** | **Production Receipt** | `prd_transfer` (Push, BSTB, BSTB Penyebaran) | **Production Issue** | Belum direncanakan (GM-10) |
+
+Pasangan: Stock Issue → Production Receipt, dan Production Issue → Stock Receipt.
+
+Tetap satu database (P245). Yang dibangun **bentuknya**: isi pesan §7.1 dikirim sebagai pemanggilan fungsi dalam transaksi yang sama, sehingga saat dipisah hanya pengirimannya yang diganti. Tiap langkah satu commit: build, lint, test hijau, DBML dan `db:map` bersama migrasi, keputusan dicatat, push, migrasi Neon, lalu review user.
+
+### 8.1 Ringkasan
+
+| # | Langkah | Migrasi | Bergantung |
 | --- | --- | --- | --- |
-| **G1** | Issue berjurnal saat Kirim: status Dalam Perjalanan, hapus reservasi, Terima tanpa jurnal. Cek WIP di `db:reconcile` memakai persamaan §4 | Ya; menolak bila masih ada Issue Diajukan (diselesaikan dulu) | Simulasi §6.1 menjadi tes; `simulasi-po-sampai-finish-goods` hijau |
-| **G2** | `log_stock_receipt` generik; menu Stock Issue dan Stock Receipt; URL lama dialihkan; Receipt ke gudang berlokasi; akses per gudang | Ya, ganti nama di tempat | Nomor, jurnal dan role lama utuh |
-| **G3** | `prd_receipt` dan `prd_issue` dengan registernya; satu modul kontrak `handover.ts`; id bucket keluar dari tabel `log_` | Ya, dokumen lama diisi mundur | Tes batas modul: Stock Issue dan Stock Receipt tidak lagi mengimpor `production-ledger`, dan modul produksi tidak menulis tabel `log_stock_issue` / `log_stock_receipt` |
-| **G4** | Lima dokumen produksi menjurnal lewat satu fungsi berisi `ProductionPosted`; penolakan nomor `<induk>-<n>` dan `KTK-` di Receipt Note | Tidak | `postJournal` tidak dipanggil modul produksi mana pun selain fungsi itu |
-| **G5** | Tujuan tambahan (Pemakaian Internal, Pemusnahan, Stok Awal); Stock Opname menu sendiri (§3.4) | Per tujuan | Hanya atas instruksi |
-| **Nanti** | Outbox, inbox, salinan master, dua register No. Stok, cut-off | | Saat database benar-benar dipisah |
+| **1** | Stock Issue bergerak dan berjurnal saat Kirim | Ya | GM-4 |
+| **2** | Stock Receipt generik (tabel dan modul) | Ya | — |
+| **3** | Menu Stock Issue dan Stock Receipt | Izin saja | 1, 2 |
+| **4** | Production Receipt | Ya | 1 |
+| **5** | Production Issue | Ya | 2 |
+| **6** | Kontrak serah terima dan batas modul | Buang kolom | 4, 5 |
+| **7** | Workspace dan register produksi | Tidak | 4, 5 |
+| **8** | Stock Adjustment | Ya | — |
+| **9** | Reconcile, skrip, simulasi ujung ke ujung, uji layar | Tidak | 1–8 |
+| **10** | Pintu tunggal jurnal produksi (`ProductionPosted`) | Tidak | 6; boleh menyusul |
 
-G1 dan G2 berdiri sendiri. G3 membutuhkan keduanya. Bila hanya ingin menu generik, cukup G2.
+### Langkah 1 — Stock Issue berjurnal saat Kirim
 
-## 9. Keputusan yang diminta
+- Status: Draft → *Kirim* → **Dalam Perjalanan** (`Submitted`) → **Diterima** (`Posted`). Batalkan hanya Draft.
+- **Kirim**: tahan periode, `issueStock` per lot, simpan nilai per tracking, jurnal Dr WIP / Cr Persediaan bertanggal dokumen, konfirmasi dengan preview jurnal (P103).
+- **Terima**: `enterProduction` dengan **nilai yang tersimpan** dan `issueJob`, bertanggal hari Terima, tidak sebelum tanggal Kirim; tanpa jurnal.
+- Hapus `reserveStock`, `releaseReservation`, `log_stock_balance.reserved_qty`; `lotOptions` membaca saldo penuh. Buang `unit_cost` di baris dan tracking Issue (P213).
+- Migrasi **menolak** bila ada Issue Diajukan; diselesaikan dulu di Neon.
+- Reconcile: cek WIP per akun ditambah Issue Dalam Perjalanan; cek reservasi dihapus.
+- **Selesai bila:** tes pembelian di antara Kirim dan Terima (§6.1) membuktikan nilai produksi = nilai beku = jurnal.
 
-| # | Pertanyaan | Usulan |
-| --- | --- | --- |
-| GM-1 | Menu generik Stock Issue dan Stock Receipt, nama BSTB menjadi nama tujuan (mengubah P254, P303, P304) | Ya |
-| GM-2 | Nama menu | **Stock Issue** / **Stock Receipt** (bukan *Penerimaan*, sudah dipakai Kas & Bank) |
-| GM-3 | Delivery Note, Receipt Note, Transfer tetap sendiri | Ya |
-| GM-4 | Issue bergerak dan berjurnal saat Kirim; barang menuju Unit terhitung WIP (mengubah W20, P228) | Ya. Pilihan lain: akun sendiri *Barang Dalam Perjalanan ke Produksi* dengan jurnal kedua saat Terima; WIP lebih ketat, tetapi Terima kembali berjurnal dan bergantung periode |
-| GM-5 | Sisi produksi: Production Receipt dan Production Issue tersendiri, `prd_transfer` hanya Unit → Unit | Ya |
-| GM-6 | Nilai per No. Stok tetap dihitung Produksi setelah dipisah | Ya |
-| GM-7 | Tujuan tambahan mana yang dibangun | Belum ada sampai diminta, di gudang maupun produksi |
-| GM-9 | Stock Opname menu sendiri di gudang dan di produksi, belum dibangun | Ya |
-| GM-8 | Cakupan yang dijalankan sekarang | G1–G3; G4 boleh menyusul |
+### Langkah 2 — Stock Receipt generik
 
-Setelah disetujui, keputusan dicatat di `Claude-ERP.md` §12 dan PWR dalam commit yang sama.
+- `log_production_receipt(_line)` → **`log_stock_receipt(_line, _tracking)`**, ganti nama di tempat (id, nomor, jurnal, audit, tipe dokumen dan referensi ikut). Baris = barang, tracking = No. Stok · lokasi · status · qty · nilai; satu baris lama menjadi satu baris dan satu tracking. Referensi bucket dipertahankan di tracking sampai langkah 6.
+- Katalog `stock-receipt-purposes.ts`: `finish_goods`, `return`; posting per tujuan (P268). Katalog Issue disamakan bentuknya.
+- Terima: gudang memilih lokasi bila gudang berlokasi, dan status stok (awal Tersedia). Larangan gudang berlokasi dicabut.
+- **Selesai bila:** receipt lama terbaca sama; Terima ke gudang berlokasi teruji; jumlah tracking = baris.
+
+### Langkah 3 — Menu logistik
+
+- Operasi Gudang: Receipt Note, Delivery Note, **Stock Issue**, **Stock Receipt**, Transfer Kirim, Transfer Terima (dan Stock Adjustment di langkah 8).
+- URL `/inventory/stock-issue` tetap; `/inventory/production-receipt` dan `/inventory/production-return` dialihkan ke `/inventory/stock-receipt`.
+- Register `DocumentRegister` dengan filter **Tujuan**, Unit dan Gudang. Judul dokumen memakai nama tujuan (*BSTB Issue*, …).
+- Izin `PRODUCTION_RECEIPT_VIEW / _RECEIVE` → `STOCK_RECEIPT_VIEW / _RECEIVE`, role dipertahankan. Teks izin `STOCK_ISSUE_SUBMIT` dan `_POST` disesuaikan.
+- **Akses per gudang** (P301) dipasang di Stock Issue: register, form, simpan, transisi. Stock Receipt sudah punya.
+- **Selesai bila:** tiap role lama tetap bisa melakukan pekerjaannya; URL lama dialihkan; tautan dokumen dan jurnal benar.
+
+### Langkah 4 — Production Receipt
+
+- `prd_receipt(_line)`: nomor sama dengan Issue, `counterpart_no`, `warehouse_code`, tujuan (bahan, bahan penolong), Unit, tanggal Kirim dan Terima, status *Menunggu → Diterima*. Baris: No. Stok, Item, qty, gram, nilai, Job, bucket masuk.
+- Lahir saat Kirim Issue, dalam transaksi yang sama. Unik per tujuan dan `counterpart_no`.
+- **Terima pindah ke sini**: aksi Unit menulis buku produksi, lalu mengabari Issue menjadi Diterima. Izin `STOCK_ISSUE_POST` menjadi izin Terima di modul produksi; pemegangnya tetap.
+- Migrasi mengisi mundur dari Issue yang sudah diterima supaya register lengkap; **sumber baris ledger lama tidak diubah**.
+- **Selesai bila:** Terima dua kali ditolak; Unit di luar penugasan ditolak (P260).
+
+### Langkah 5 — Production Issue
+
+- `prd_issue(_line)`: tujuan (`finish_goods`, `return`), alasan opsional (daftar tetap di kode), Unit asal, kode gudang, status *Dalam Perjalanan → Diterima*. Baris: No. Stok, Job, partai, qty, gram, nilai, bucket asal dan transit.
+- Kirim dari Workspace membuat `prd_issue` dan Stock Receipt *Menunggu* dalam satu transaksi. Aturan pilih barang pindah dari `production-receipt.ts` tanpa berubah.
+- Nilai yang dilepas saat Terima harus sama dengan nilai beku; bucket transit hanya dikeluarkan oleh dokumennya.
+- Nomor `BFG_` dan `BPG_` diterbitkan di sini; Stock Receipt menyalinnya.
+- Migrasi mengisi mundur dari receipt yang ada.
+- **Selesai bila:** BFG dan BPG, dua pilihan nilai, Job utuh dan No. Stok sebagian, lulus tes lama.
+
+### Langkah 6 — Kontrak serah terima
+
+- `handover.ts`: tipe `IssueSent`, `IssueReceived`, `ReceiptSent`, `ReceiptReceived` (kode dan nomor, bukan id) dan satu penyalur. Penerima idempoten lewat nomor.
+- Buang `prd_bucket_id`, `from_bucket_id`, `transit_bucket_id` dari tabel `log_`.
+- Tes batas modul: Stock Issue / Receipt tidak mengimpor buku produksi; modul produksi tidak menyebut tabel keduanya; tabel baru produksi masuk `PRODUCTION_TABLES`.
+- **Selesai bila:** tes pesan kembar tidak menggandakan apa pun.
+
+### Langkah 7 — Workspace dan register produksi
+
+- Dokumen: **Production Receipt**, **Production Issue**, *Push dan BSTB* (tetap).
+- Workspace: Masuk membaca Production Receipt dan BSTB; Dalam Perjalanan membaca Production Issue dan BSTB. Tidak lagi membaca `log_stock_issue`.
+- Tanpa harga dan jurnal (P275). Istilah No. Stok.
+- Kartu Produksi dan Telusur menaut ke dokumen produksi; dokumen ERP disebut nomornya.
+
+### Langkah 8 — Stock Adjustment
+
+Aturannya di §3.4. `log_stock_adjustment(_line)`, `SA/YYYY/MM/NNNN`, Draft → Diajukan → Disetujui → Posting.
+
+- Satu gudang per dokumen; daftar hitung dari saldo per lot · lokasi · status; lot yang ditemukan boleh ditambah (nomor harus sudah dikenal untuk Item itu).
+- Selisih = fisik − buku saat Posting, di bawah kunci; bucket yang bergerak sejak dihitung menolak barisnya.
+- Baris kurang diposting sebelum baris lebih pada pool yang sama, urutan tetap. Kurang melepas rata-rata; lebih memakai rata-rata, diketik bila pool kosong.
+- Jurnal Persediaan ↔ **Selisih Persediaan** (Account Mapping baru, juga di akun awal). Persediaan per Kategori Item.
+- Gudang Transit: kekurangannya juga harus menutup sisa Transfer Kirim per lot, agar cek transit tetap benar. Bila rumit, menyusul sebagai langkah 8b.
+- **Tidak** memuat stok awal atau pemusnahan; itu tujuan Issue / Receipt.
+
+### Langkah 9 — Pembuktian
+
+- `db:reconcile`: persamaan §4; pasangan dokumen lengkap (nomor, qty, nilai, status) di dua sisi; adjustment = ledger = jurnal. Tiap cek dibuktikan menangkap data rusak.
+- Skrip: `reset-production-data`, `db-map`, `simulate-walet`; `Script Penjelasan/` bagian terkait.
+- Kedua tes simulasi ujung ke ujung diperbarui; uji acak §6.2 atas kode nyata, dengan jumlah data kecil.
+- Uji layar lokal: Kirim → Terima dua arah, lalu Neon.
+
+### Langkah 10 — Pintu tunggal jurnal produksi
+
+Grading, Pengerjaan, Kerja, Job Order dan Kotak menjurnal lewat satu fungsi berisi `ProductionPosted`; Receipt Note menolak nomor ketikan berbentuk `<induk>-<n>` dan `KTK-`.
+
+### Di luar langkah ini
+
+Outbox, inbox, salinan master, dua register No. Stok dan cut-off (saat database dipisah); tujuan tambahan Issue / Receipt di kedua sisi; koreksi produksi.
+
+## 9. Keputusan
+
+| # | Pertanyaan | Usulan | Status |
+| --- | --- | --- | --- |
+| GM-1 | Menu generik Stock Issue dan Stock Receipt, nama BSTB menjadi nama tujuan (mengubah P254, P303, P304) | Ya | **Disetujui** |
+| GM-2 | Nama menu di layar | Stock Issue, Stock Receipt, Stock Adjustment, Production Receipt, Production Issue | Menunggu |
+| GM-3 | Delivery Note, Receipt Note, Transfer tetap sendiri | Ya | Menunggu, dipakai sebagai asumsi |
+| GM-4 | Issue bergerak dan berjurnal saat Kirim; barang menuju Unit terhitung WIP (mengubah W20, P228) | Ya. Pilihan lain: akun *Barang Dalam Perjalanan ke Produksi* dengan jurnal kedua saat Terima; WIP lebih ketat, tetapi Terima kembali berjurnal dan bergantung periode | **Menunggu, menghalangi langkah 1** |
+| GM-5 | Production Receipt dan Production Issue tersendiri; `prd_transfer` hanya Unit → Unit | Ya | **Disetujui** |
+| GM-6 | Nilai per No. Stok tetap dihitung Produksi setelah dipisah | Ya | Menunggu, baru dipakai saat pemisahan |
+| GM-7 | Tujuan tambahan | Belum ada sampai diminta | — |
+| GM-8 | Cakupan | Langkah 1–9; 10 menyusul | Menunggu |
+| GM-9 | Koreksi stok menu sendiri di gudang | Stock Adjustment, §3.4 | **Disetujui** |
+| GM-10 | Koreksi di produksi (`prd_opname`) | Nanti; nilai kurang dan lebih diputuskan dulu | Menunggu |
 
 ## 10. Yang tidak diperiksa
 

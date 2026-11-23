@@ -259,6 +259,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | W147 | **Hasil grading tidak boleh melebihi gram input** (P307). Server menolaknya saat Posting, per baris dokumen, BJL ikut dihitung; Draft tetap bisa disimpan | User |
 | W148 | **Laporan stok produksi mengikuti Kartu Stok dan Saldo Stok** (P310, `Production-Report-Plan.md`): Saldo Produksi Per Unit / Barang / Partai; Kartu Produksi baru, dengan Kartu No. Stok sebagai pilihan No. Stok di dalamnya (mengganti W86); perpindahan tahap dinetokan. Selesai: Saldo Produksi tanggal lampau dijumlah dari mutasi. Sisanya belum dibangun | User |
 | W149 | **Saldo Produksi dan Kartu Produksi selesai** (P315): Saldo Produksi Per Unit / Barang / Partai; Kartu Produksi per Barang × Unit atau per No. Stok (menu Kartu No. Stok hilang, mengganti W86), perpindahan tahap dinetokan dan bisa ditampilkan lewat centang | User |
+| W150 | **Keluar masuk produksi punya dokumen sendiri** (P316, `Goods-Movement-Plan.md`): Production Receipt dan Production Issue, berpasangan satu-satu dengan Stock Issue dan Stock Receipt di logistik; `prd_transfer` hanya Unit ke Unit. BSTB Issue, BSTB ke Finish Goods dan BSTB Pengeluaran menjadi nama tujuan. **Disetujui, belum dibangun**; apakah Issue bergerak saat Kirim (mengubah W20) masih menunggu | User |
 
 ---
 
