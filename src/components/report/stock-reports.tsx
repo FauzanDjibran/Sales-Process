@@ -7,7 +7,8 @@ import type {
   ValuationLedgerReport,
   ValuationRow,
 } from "@/lib/erp/stock-report";
-import { formatDate, formatMoney, formatNumber, formatPrice } from "@/lib/format";
+import { Amount } from "@/components/ui/amount";
+import { formatDate, formatReport, formatNumber, formatPrice } from "@/lib/format";
 
 /**
  * The bodies of the two valuation reports (P120); Kartu Stok and Saldo Stok,
@@ -17,8 +18,11 @@ import { formatDate, formatMoney, formatNumber, formatPrice } from "@/lib/format
  * each item's base unit; value is whole rupiah.
  */
 
-const qty = (n: number) => formatNumber(n, Number.isInteger(n) ? 0 : 4);
-const money = (n: number) => formatMoney(n, "IDR");
+const qty = (n: number) => {
+  const text = formatNumber(Math.abs(n), Number.isInteger(n) ? 0 : 4);
+  return n === 0 ? "—" : n < 0 ? `(${text})` : text;
+};
+const money = (n: number) => formatReport(n, "IDR");
 
 function Source({ s }: { s: StockSourceRef }) {
   const href = documentHref(s.table, s.id);
@@ -86,7 +90,7 @@ export function ValuationLedgerBody({ report }: { report: ValuationLedgerReport 
               <tr className="totrow">
                 <td colSpan={5}>Saldo awal per {formatDate(report.range.from)}</td>
                 <td className="num">{qty(report.openingQty)}</td>
-                <td className="num">{money(report.openingValue)}</td>
+                <td className="num"><Amount value={report.openingValue} nil="dash" ledger /></td>
                 <td className="num">{formatPrice(report.openingQty > 0 ? Math.round((report.openingValue / report.openingQty) * 1e6) / 1e6 : 0)}</td>
               </tr>
               {report.entries.map((e) => (
@@ -107,13 +111,13 @@ export function ValuationLedgerBody({ report }: { report: ValuationLedgerReport 
                     <span className="mny">{formatPrice(e.unitCost)}</span>
                   </td>
                   <td className="num">
-                    <span className={`mny${e.valueChange > 0 ? " in" : ""}`}>{money(e.valueChange)}</span>
+                    <Amount value={e.valueChange} nil="dash" ledger />
                   </td>
                   <td className="num">
                     <span className="mny">{qty(e.qtyBalance)}</span>
                   </td>
                   <td className="num">
-                    <span className="mny">{money(e.valueBalance)}</span>
+                    <Amount value={e.valueBalance} nil="dash" ledger />
                   </td>
                   <td className="num">
                     <span className="mny">{formatPrice(e.average)}</span>
@@ -135,7 +139,7 @@ export function ValuationLedgerBody({ report }: { report: ValuationLedgerReport 
                   <b>{qty(report.closingQty)}</b>
                 </td>
                 <td className="num">
-                  <b>{money(report.closingValue)}</b>
+                  <b><Amount value={report.closingValue} nil="dash" ledger /></b>
                 </td>
                 <td />
               </tr>
@@ -202,7 +206,7 @@ export function ValuationBody({ rows, gl, reconciles }: { rows: ValuationRow[]; 
                     <span className="mny">{formatPrice(r.average)}</span>
                   </td>
                   <td className="num">
-                    <span className="mny">{money(r.value)}</span>
+                    <Amount value={r.value} nil="dash" ledger />
                   </td>
                 </tr>
               ))}
@@ -218,7 +222,7 @@ export function ValuationBody({ rows, gl, reconciles }: { rows: ValuationRow[]; 
               <tr className="totrow">
                 <td colSpan={4}>Total</td>
                 <td className="num">
-                  <b>{money(total)}</b>
+                  <b><Amount value={total} nil="dash" ledger /></b>
                 </td>
               </tr>
             </tfoot>

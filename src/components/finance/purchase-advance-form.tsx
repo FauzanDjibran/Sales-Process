@@ -28,6 +28,7 @@ import {
 import type { PurchaseAdvanceOptions, PurchaseAdvanceView } from "@/lib/erp/ap-advance";
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * Uang Muka Pembelian — the AP advance bill (P126, B23): the AR bill's form
@@ -433,7 +434,7 @@ export function PurchaseAdvanceForm({
       : undefined;
 
   const basisCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="calc" size={15} />
@@ -724,7 +725,11 @@ export function PurchaseAdvanceForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {basisCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Dasar Uang Muka", icon: "calc", bad: tabHasError(errors, "amount_value", "description"), content: basisCard },
+            ]}
+          />
         </div>
       </div>
     </>

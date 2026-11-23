@@ -9,17 +9,12 @@ import { formatDate } from "@/lib/format";
  * received is the return's own figure, shown on its lines.
  */
 export function SalesReturnReceiptsCard({
-  salesReturnId,
   receipts,
-  canCreate,
 }: {
-  salesReturnId: number;
   receipts: { id: number; rnNo: string; rnDate: string; status: ReceiptNoteStatus }[];
-  /** May this user receive the goods now — the return Open with something left? */
-  canCreate: boolean;
 }) {
   return (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -28,11 +23,6 @@ export function SalesReturnReceiptsCard({
           <h3>Penerimaan Gudang</h3>
           <p>Barang yang sudah diterima kembali dengan Receipt Note, atau disiapkan oleh Receipt Note Draft.</p>
         </div>
-        {canCreate && (
-          <Link className="btn sm primary" href={`/inventory/receipt-note/new?purpose=sales_return&sr=${salesReturnId}`}>
-            <Icon name="plus" size={14} /> Terima Barang
-          </Link>
-        )}
       </div>
       {receipts.length ? (
         <div className="tw">

@@ -23,6 +23,7 @@ import {
 } from "@/lib/erp/stock-transfer-workflow";
 import type { ReceiptSource, TransferReceiptView } from "@/lib/erp/stock-transfer-receipt";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * A Transfer Terima in its three modes (P300, Stock-Transfer-Plan.md §3.2).
@@ -255,7 +256,7 @@ export function TransferReceiptForm({
   };
 
   const linesCard = source && (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -441,7 +442,11 @@ export function TransferReceiptForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard || <div className="card"><div className="empty sm"><h4>Pilih Transfer Kirim dulu…</h4><p>Barang yang dapat diterima mengikuti Transfer Kirim.</p></div></div> },
+            ]}
+          />
         </div>
       </div>
     </>

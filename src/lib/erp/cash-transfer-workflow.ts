@@ -162,7 +162,7 @@ export function availableCashTransferActions(status: CashTransferStatus, can: Ca
 
 export const CASH_TRANSFER_STATUS_TEXT: Record<CashTransferStatus, string> = {
   Draft: "Draft",
-  Posted: "Posted",
+  Posted: "Diposting",
   Cancelled: "Dibatalkan",
 };
 

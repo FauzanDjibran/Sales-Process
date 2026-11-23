@@ -2,7 +2,8 @@
 
 import { Icon } from "@/components/icon";
 import { ExpandAll } from "@/components/ui/expand-all";
-import { formatDate, formatMoney } from "@/lib/format";
+import { Amount } from "@/components/ui/amount";
+import { formatDate } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import { reportHref } from "@/lib/erp/reports";
 import type { TrialBalanceStatement } from "@/lib/erp/statements";
@@ -51,7 +52,6 @@ export function TrialBalanceReport({
     );
   }
 
-  const money = (n: number) => formatMoney(n, BASE_CURRENCY_LABEL);
   const gl = (accountId: number) =>
     reportHref("general-ledger", {
       accounts: accountId,
@@ -101,10 +101,10 @@ export function TrialBalanceReport({
                       <td key={i} className="num">
                         {href ? (
                           <Drill href={href} title="Buka General Ledger account ini">
-                            <Figure value={v} zero />
+                            <Figure value={v} />
                           </Drill>
                         ) : (
-                          <Figure value={v} zero />
+                          <Figure value={v} />
                         )}
                       </td>
                     ))
@@ -117,8 +117,8 @@ export function TrialBalanceReport({
             <tr className="totrow">
               <td style={{ textAlign: "right" }}>Total mutasi periode</td>
               <td className="num" />
-              <td className="num">{money(report.totalDebit)}</td>
-              <td className="num">{money(report.totalCredit)}</td>
+              <td className="num"><Amount value={report.totalDebit} currency={BASE_CURRENCY_LABEL} nil="dash" ledger /></td>
+              <td className="num"><Amount value={report.totalCredit} currency={BASE_CURRENCY_LABEL} nil="dash" ledger /></td>
               <td className="num" />
             </tr>
           </tfoot>

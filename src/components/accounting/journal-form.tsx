@@ -29,6 +29,7 @@ import type { JournalAbilities, JournalStatus } from "@/lib/erp/journal-workflow
 import type { ManualJournalOptions } from "@/lib/erp/manual-journal";
 import { reportHref } from "@/lib/erp/reports";
 import { JournalActions } from "./journal-actions";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 export type JournalFormMode = "new" | "view" | "edit";
 
@@ -365,7 +366,10 @@ export function JournalForm({
             </p>
           </div>
 
-          <div className="card" style={{ marginTop: 14 }}>
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Baris Journal", icon: "layers", count: lines.length, bad: tabHasError(errors, "_lines", "lines"), content: (
+<div className="card">
             <div className="card-h">
               <span className="ci">
                 <Icon name="layers" size={15} />
@@ -666,6 +670,9 @@ export function JournalForm({
               </table>
             </div>
           </div>
+              ) },
+            ]}
+          />
         </div>
       </div>
     </>

@@ -18,6 +18,7 @@ import { DEFAULT_STOCK_ISSUE_PURPOSE, STOCK_ISSUE_PURPOSES, stockIssuePurpose } 
 import { STOCK_ISSUE_STATUS_BADGE, STOCK_ISSUE_STATUS_TEXT, type StockIssueAbilities } from "@/lib/erp/stock-issue-workflow";
 import type { StockIssueHeaderInput, StockIssueOptions, StockIssueView } from "@/lib/erp/stock-issue";
 import { formatDate, formatMoney, formatNumber, formatPrice, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * A BSTB Issue in all three modes: `new`, `edit` (Draft only) and `view`
@@ -291,7 +292,7 @@ export function StockIssueForm({
   };
 
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -526,7 +527,11 @@ export function StockIssueForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+            ]}
+          />
         </div>
       </div>
     </>

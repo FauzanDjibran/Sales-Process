@@ -22,15 +22,17 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const deliveries = showDeliveries ? await salesOrderDeliveries(order.id, customerOrderId) : null;
   return (
     <>
-      <SalesOrderForm mode="view" order={order} options={options} can={salesOrderAbilities(actor.permissions)} />
-      {deliveries && (order.status === "Open" || deliveries.orders.length > 0) && (
-        <SalesOrderDeliveriesCard
-          salesOrderId={order.id}
-          deliveries={deliveries}
-          canCreate={actor.permissions.has("DELIVERY_ORDER_CREATE")}
-          open={order.status === "Open"}
-        />
-      )}
+      <SalesOrderForm
+        mode="view"
+        order={order}
+        options={options}
+        can={salesOrderAbilities(actor.permissions)}
+        extraTabs={
+          deliveries && (order.status === "Open" || deliveries.orders.length > 0)
+            ? [{ key: "deliveries", label: "Perintah Kirim", icon: "truck", count: deliveries.orders.length, content: <SalesOrderDeliveriesCard deliveries={deliveries} open={order.status === "Open"} /> }]
+            : []
+        }
+      />
       <RecordHistoryCard entityKey="sal_order" rowId={order.id} />
     </>
   );

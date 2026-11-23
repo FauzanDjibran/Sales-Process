@@ -22,6 +22,7 @@ import {
 } from "@/lib/erp/purchase-request-workflow";
 import type { PurchaseRequestHeaderInput, PurchaseRequestOptions, PurchaseRequestView } from "@/lib/erp/purchase-request";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * A Purchase Request in all three modes: `new`, `edit` (Draft only) and `view`
@@ -196,7 +197,7 @@ export function PurchaseRequestForm({
   };
   const viewLines = request?.lines ?? [];
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name={goods ? "box" : "tags"} size={15} />
@@ -362,7 +363,11 @@ export function PurchaseRequestForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: kind === "goods" ? "Barang" : "Jasa", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+            ]}
+          />
         </div>
       </div>
     </>

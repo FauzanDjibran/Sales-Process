@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { Pager, usePaging } from "@/components/ui/pager";
+import { Select } from "@/components/ui/select";
 import { SearchField } from "@/components/ui/search-field";
 import { DocumentHeader } from "@/components/ui/document-header";
 import { formatDate, formatNumber } from "@/lib/format";
@@ -12,11 +13,7 @@ import type { ProductionReceiptRow } from "@/lib/erp/production-receipt";
 import { PRODUCTION_RECEIPT_PURPOSES, PRODUCTION_RECEIPT_STATUS_BADGE, PRODUCTION_RECEIPT_STATUS_TEXT, type ProductionReceiptPurpose, type ProductionReceiptStatus } from "@/lib/erp/production-receipt-shape";
 
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
-const TABS: [ProductionReceiptStatus | "", string][] = [
-  ["Submitted", "Diajukan"],
-  ["Posted", "Diterima"],
-  ["", "Semua"],
-];
+const STATUSES: ProductionReceiptStatus[] = ["Submitted", "Posted"];
 
 const SUB: Record<ProductionReceiptPurpose, [string, string]> = {
   finish_goods: [
@@ -39,7 +36,7 @@ export function ProductionReceiptList({ purpose, rows: all }: { purpose: Product
   const PRODUCTION_RECEIPT_PATH = p.path;
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState<string>(all.some((r) => r.status === "Submitted") ? "Submitted" : "");
+  const [status, setStatus] = useState<string>("");
   const q = query.trim().toLowerCase();
   const rows = useMemo(() => all.filter((r) => (!status || r.status === status) && (!q || [r.no, r.unitLabel, r.warehouseLabel, r.warehouseName].some((v) => v.toLowerCase().includes(q)))), [all, status, q]);
   const paging = usePaging(rows, `${q}|${status}`);
@@ -48,16 +45,15 @@ export function ProductionReceiptList({ purpose, rows: all }: { purpose: Product
     <>
       <DocumentHeader module="Persediaan" icon="down" title={p.name} sub={SUB[purpose][0]} />
       <div className="card">
-        <div className="qtabs" role="tablist">
-          {TABS.map(([value, label]) => (
-            <button key={value || "all"} type="button" role="tab" aria-selected={status === value} className={status === value ? "act" : ""} onClick={() => setStatus(value)}>
-              {label}
-              <span className="n">{value ? all.filter((o) => o.status === value).length : all.length}</span>
-            </button>
-          ))}
-        </div>
         <div className="toolbar">
           <SearchField value={query} onChange={setQuery} placeholder="Cari nomor, unit atau gudang…" />
+          <Select
+            variant="toolbar"
+            value={status}
+            set={Boolean(status)}
+            options={[{ value: "", label: "Status: semua" }, ...STATUSES.map((v) => ({ value: v, label: PRODUCTION_RECEIPT_STATUS_TEXT[v] }))]}
+            onChange={setStatus}
+          />
           <span className="tspace" />
           <span className="count">
             <b>{rows.length}</b> dokumen
@@ -121,7 +117,7 @@ export function ProductionReceiptList({ purpose, rows: all }: { purpose: Product
               <Icon name="down" size={20} />
             </div>
             <h4>{q || status ? "Tidak ada yang cocok" : `Belum ada ${p.name}`}</h4>
-            <p>{q || status ? "Tidak ada dokumen yang sesuai dengan pencarian atau tab ini." : SUB[purpose][1]}</p>
+            <p>{q || status ? "Tidak ada dokumen yang sesuai dengan pencarian atau filter ini." : SUB[purpose][1]}</p>
           </div>
         )}
       </div>

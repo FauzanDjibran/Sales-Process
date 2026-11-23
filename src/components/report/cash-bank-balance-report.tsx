@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Icon } from "@/components/icon";
-import { formatDate, formatMoney } from "@/lib/format";
+import { Amount } from "@/components/ui/amount";
+import { formatDate } from "@/lib/format";
 import type { BalanceReport } from "@/lib/erp/cash-bank";
 import { reportHref } from "@/lib/erp/reports";
 
@@ -54,7 +55,6 @@ export function CashBankBalanceReport({ report }: { report: BalanceReport }) {
       </div>
 
       {report.groups.map((g) => {
-        const money = (n: number) => formatMoney(n, g.currencyLabel);
         return (
           <div className="cblock" key={g.currencyId}>
             <div className="cbh">
@@ -106,24 +106,16 @@ export function CashBankBalanceReport({ report }: { report: BalanceReport }) {
                         </span>
                       </td>
                       <td className="num">
-                        <span className={`mny${r.opening ? "" : " z"}`}>
-                          {money(r.opening)}
-                        </span>
+                        <Amount value={r.opening} currency={g.currencyLabel} nil="dash" ledger />
                       </td>
                       <td className="num">
-                        <span className={`mny${r.totalIn ? " in" : " z"}`}>
-                          {money(r.totalIn)}
-                        </span>
+                        <Amount value={r.totalIn} currency={g.currencyLabel} nil="dash" ledger />
                       </td>
                       <td className="num">
-                        <span className={`mny${r.totalOut ? "" : " z"}`}>
-                          {money(r.totalOut)}
-                        </span>
+                        <Amount value={r.totalOut} currency={g.currencyLabel} nil="dash" ledger />
                       </td>
                       <td className="num">
-                        <span className={`mny${r.closing ? "" : " z"}`}>
-                          {money(r.closing)}
-                        </span>
+                        <Amount value={r.closing} currency={g.currencyLabel} nil="dash" ledger />
                       </td>
                     </tr>
                   ))}
@@ -133,11 +125,11 @@ export function CashBankBalanceReport({ report }: { report: BalanceReport }) {
                     <td style={{ textAlign: "right" }}>
                       Total {g.currencyLabel}
                     </td>
-                    <td className="num">{money(g.opening)}</td>
-                    <td className="num">{money(g.totalIn)}</td>
-                    <td className="num">{money(g.totalOut)}</td>
+                    <td className="num"><Amount value={g.opening} currency={g.currencyLabel} nil="dash" ledger /></td>
+                    <td className="num"><Amount value={g.totalIn} currency={g.currencyLabel} nil="dash" ledger /></td>
+                    <td className="num"><Amount value={g.totalOut} currency={g.currencyLabel} nil="dash" ledger /></td>
                     <td className="num">
-                      <b>{money(g.closing)}</b>
+                      <b><Amount value={g.closing} currency={g.currencyLabel} nil="dash" ledger /></b>
                     </td>
                   </tr>
                 </tfoot>

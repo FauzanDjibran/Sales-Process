@@ -24,6 +24,7 @@ import {
 } from "@/lib/erp/cash-bank-tx-workflow";
 import type { CashPaymentOptions, CashPaymentView, OpenPayable } from "@/lib/erp/cash-payment";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * Pengeluaran Kas & Bank (P127, B24–B25), in all three modes — the receipt's
@@ -374,7 +375,7 @@ export function CashPaymentForm({
   const noun = purpose?.docNoun ?? "Tagihan";
 
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="wallet" size={15} />
@@ -676,8 +677,12 @@ export function CashPaymentForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
-          {impactCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Tagihan", icon: "wallet", count: shown.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+            ]}
+            foot={impactCard}
+          />
         </div>
       </div>
       {cashBank && !cashBank.active && editing && (

@@ -7,6 +7,7 @@ import { formatDate, formatMoney } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import { reportHref } from "@/lib/erp/reports";
 import type { OpeningBalanceDetail as Detail } from "@/lib/erp/opening-balance";
+import { FormTabs } from "@/components/ui/form-tabs";
 
 /**
  * One Opening Balance — on the same two cards every document reads on.
@@ -82,7 +83,10 @@ export function OpeningBalanceDetail({ opening }: { opening: Detail }) {
             </p>
           </div>
 
-          <div className="card" style={{ marginTop: 14 }}>
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Saldo per Account", icon: "layers", count: opening.lineCount, content: (
+<div className="card">
             <div className="card-h">
               <span className="ci">
                 <Icon name="layers" size={15} />
@@ -172,6 +176,9 @@ export function OpeningBalanceDetail({ opening }: { opening: Detail }) {
               </table>
             </div>
           </div>
+              ) },
+            ]}
+          />
         </div>
       </div>
     </>

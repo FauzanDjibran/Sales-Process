@@ -199,6 +199,15 @@ export function formatAccounting(
 }
 
 /**
+ * A report's figure (P308): nil reads as a dash, a negative in parentheses.
+ * Cells go through `Amount`; this is the text form a block header takes.
+ */
+export function formatReport(value: number, currencyLabel = "IDR"): string {
+  const text = formatAccounting(value, currencyLabel);
+  return text === formatMoney(0, currencyLabel) ? "—" : text;
+}
+
+/**
  * A unit price: `Rp 12.500`, `Rp 12.345,678912`. Unit prices are stored
  * unrounded at six decimals (P111) and every digit is the price, so the
  * decimals shown are the decimals it has; the amounts made from it are what

@@ -13,6 +13,7 @@ import { previewFinishGoodsAction, receiveFinishGoodsAction } from "@/app/action
 import type { ProductionReceiptView as View } from "@/lib/erp/production-receipt";
 import { PRODUCTION_RECEIPT_PURPOSES, PRODUCTION_RECEIPT_STATUS_BADGE, PRODUCTION_RECEIPT_STATUS_TEXT, VALUE_MODE_TEXT, type ProductionValueMode } from "@/lib/erp/production-receipt-shape";
 import { formatDate, formatNumber } from "@/lib/format";
+import { FormTabs } from "@/components/ui/form-tabs";
 
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
@@ -139,7 +140,10 @@ export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: Vie
         </FormBody>
       </div>
 
-      <div className="card" style={{ marginTop: 14 }}>
+      <FormTabs
+        tabs={[
+          { key: "lines", label: "Barang", icon: "box", count: r.items.length, content: (
+      <div className="card">
         <div className="card-h">
           <span className="ci">
             <Icon name="layers" size={15} />
@@ -203,6 +207,9 @@ export function ProductionReceiptView({ receipt: r, canReceive }: { receipt: Vie
           </table>
         </div>
       </div>
+          ) },
+        ]}
+      />
 
       {asking && (
         <ConfirmDialog

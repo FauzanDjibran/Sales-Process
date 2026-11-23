@@ -1,7 +1,6 @@
 import { notFound } from "next/navigation";
 import { StockTransferForm } from "@/components/inventory/stock-transfer-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
-import { actorCan } from "@/lib/erp/access";
 import { requirePermission } from "@/lib/erp/auth";
 import { getStockTransfer, stockTransferCurrent, stockTransferOptions } from "@/lib/erp/stock-transfer";
 import { receiptsOfTransfer } from "@/lib/erp/stock-transfer-receipt";
@@ -31,7 +30,6 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         options={options}
         can={can}
         receipts={receipts}
-        canReceive={actorCan(actor, "STOCK_TRANSFER_RECEIPT_CREATE") && warehouseAllowed(scope, toId)}
       />
       <RecordHistoryCard entityKey="log_stock_transfer" rowId={transfer.id} />
     </>

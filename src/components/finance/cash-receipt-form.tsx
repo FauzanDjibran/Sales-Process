@@ -27,6 +27,7 @@ import type { CashReceiptOptions, CashReceiptView, OpenBill } from "@/lib/erp/ca
 import { TAX_MODULE_HIDDEN } from "@/lib/erp/nav";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatPct, formatRate, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * Penerimaan Kas & Bank, in all three modes: `new`, `edit` (Draft only) and
@@ -418,7 +419,7 @@ export function CashReceiptForm({
   const noun = purpose?.docNoun ?? "Tagihan";
 
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="wallet" size={15} />
@@ -718,8 +719,12 @@ export function CashReceiptForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
-          {impactCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Tagihan", icon: "wallet", count: shown.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+            ]}
+            foot={impactCard}
+          />
         </div>
       </div>
       {cashBank && !cashBank.active && editing && (

@@ -1372,3 +1372,21 @@ describe("a document screen has one shape", () => {
     });
   }
 });
+
+describe("header → tabs → Riwayat on every ERP form (P308)", () => {
+  const forms = files.filter(
+    (f) => /^src\/components\/(sales|purchasing|inventory|finance|accounting)\/[\w-]+-form\.tsx$/.test(f.rel)
+  );
+  test("each document form holds its sections in FormTabs", () => {
+    assert.ok(forms.length >= 23, `only ${forms.length} forms found`);
+    const bad = forms.filter((f) => !/<FormTabs\b/.test(f.text)).map((f) => f.rel);
+    assert.deepEqual(bad, [], "One section is a tab too.");
+  });
+
+  test("an ERP register filters its status, it has no status tabs", () => {
+    const bad = files
+      .filter((f) => /src.components.(sales|purchasing|inventory|finance|accounting)\b/.test(f.rel) && /className="qtabs"/.test(f.text))
+      .map((f) => f.rel);
+    assert.deepEqual(bad, []);
+  });
+});

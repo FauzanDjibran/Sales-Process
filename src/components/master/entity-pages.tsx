@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { AccountTree } from "@/components/master/account-tree";
+import type { FormTab } from "@/components/ui/form-tabs";
 import { FiscalPeriods } from "@/components/accounting/fiscal-periods";
 import { FiscalYearActions } from "@/components/accounting/fiscal-year-actions";
 import { CashBankBookCard } from "@/components/master/cash-bank-book-card";
@@ -18,6 +19,8 @@ import {
   getRow,
   listRows,
   refOptions,
+  type RefOption,
+  type Row,
 } from "@/lib/erp/records";
 import { cashBankBookSummary } from "@/lib/erp/cash-bank";
 import { partnerCollections } from "@/lib/erp/partner";
@@ -230,7 +233,8 @@ export async function EntityDetailPage({
 
   const parentLock = await recordLock(entity, row);
 
-  const form = (
+  const collections = await collectionsOf(entity, row.id);
+  const form = (extraTabs: FormTab[]) => (
     <EntityForm
       entity={entity}
       mode="view"
@@ -239,74 +243,121 @@ export async function EntityDetailPage({
       can={abilitiesFor(entity.key, actor.permissions)}
       headerActions={headerActions}
       editTone={editTone}
-      collections={await collectionsOf(entity, row.id)}
+      collections={collections}
       {...parentLock}
+      extraTabs={extraTabs}
     />
   );
 
   // A Fiscal Year owns its twelve months, and they are visible nowhere else —
   // Fiscal Period has no menu and no form of its own.
   if (entity.key === "acc_fiscal_year") {
+    const periods = await fiscalYearPeriods(row.id);
     return (
       <>
-        {form}
-        <FiscalPeriods
-          periods={await fiscalYearPeriods(row.id)}
-          yearLabel={String(row.year_label ?? "")}
-          yearStatus={String(row.status ?? "")}
-          can={fiscalPeriodAbilities(actor.permissions)}
-        />
+        {form([
+          {
+            key: "periods",
+            label: "Fiscal Period",
+            icon: "cal",
+            count: periods.length,
+            content: (
+              <FiscalPeriods
+                periods={periods}
+                yearLabel={String(row.year_label ?? "")}
+                yearStatus={String(row.status ?? "")}
+                can={fiscalPeriodAbilities(actor.permissions)}
+              />
+            ),
+          },
+        ])}
         <RecordHistoryCard entityKey={entity.key} rowId={row.id} />
       </>
     );
   }
-
-  // A Cash & Bank resource is the one master with a book behind it, so its
-  // detail says what that book adds up to and shows the way into it. The book
-  // itself is a report, not a property of the master — see `CashBankBookCard`.
-  if (entity.key !== "m_cash_bank") {
-    return (
-      <>
-        {form}
-        {entity.key === "ref_workstation" && (
-          <RelatedRecordsCard title="Unit Anggota" icon="gear" desc="Unit di Workstation ini." href={(id) => `/master/unit/${id}`} empty="Belum ada unit di Workstation ini." rows={await unitsOfWorkstation(row.id)} />
-        )}
-        {entity.key === "ref_warehouse" && (
-          <RelatedRecordsCard
-            title="Lokasi"
-            icon="layers"
-            desc="Lokasi di dalam gudang ini. Diubah di menu Lokasi Gudang."
-            href={(id) => `/master/warehouse-location/${id}`}
-            empty="Gudang ini tanpa lokasi: stoknya dicatat per gudang saja."
-            rows={await locationsOfWarehouse(row.id)}
-          />
-        )}
-        {entity.key === "prd_line" && (
-          <RelatedRecordsCard title="Routing Milik Line" icon="tree" desc="Urutan unit yang boleh diikuti partai line ini." href={(id) => `/master/routing/${id}`} empty="Line ini belum punya routing." rows={await routingsOfLine(row.id)} />
-        )}
-        <RecordHistoryCard entityKey={entity.key} rowId={row.id} />
-      </>
-    );
-  }
-
-  const summary = await cashBankBookSummary(row.id);
-  const currencyLabel =
-    refs.currency_id?.find((o) => o.id === row.currency_id)?.label ?? "IDR";
 
   return (
     <>
-      {form}
-      <CashBankBookCard
-        cashBankId={row.id}
-        balance={summary.balance}
-        entries={summary.entries}
-        lastEntryDate={summary.lastEntryDate}
-        currencyLabel={currencyLabel}
-        canViewReport={await actorHas("REPORT_CASH_BANK_LEDGER_VIEW")}
-      />
+      {form(await relatedTabs(entity.key, row, refs))}
       <RecordHistoryCard entityKey={entity.key} rowId={row.id} />
     </>
   );
+}
+
+/** What other records or a book say about this one, as tabs beside the registry's own (P308). */
+async function relatedTabs(key: string, row: Row, refs: Record<string, RefOption[]>): Promise<FormTab[]> {
+  switch (key) {
+    case "ref_workstation": {
+      const rows = await unitsOfWorkstation(row.id);
+      return [
+        {
+          key: "units",
+          label: "Unit Anggota",
+          icon: "gear",
+          count: rows.length,
+          content: <RelatedRecordsCard title="Unit Anggota" icon="gear" desc="Unit di Workstation ini." href={(id) => `/master/unit/${id}`} empty="Belum ada unit di Workstation ini." rows={rows} />,
+        },
+      ];
+    }
+    case "ref_warehouse": {
+      const rows = await locationsOfWarehouse(row.id);
+      return [
+        {
+          key: "locations",
+          label: "Lokasi",
+          icon: "layers",
+          count: rows.length,
+          content: (
+            <RelatedRecordsCard
+              title="Lokasi"
+              icon="layers"
+              desc="Lokasi di dalam gudang ini. Diubah di menu Lokasi Gudang."
+              href={(id) => `/master/warehouse-location/${id}`}
+              empty="Gudang ini tanpa lokasi: stoknya dicatat per gudang saja."
+              rows={rows}
+            />
+          ),
+        },
+      ];
+    }
+    case "prd_line": {
+      const rows = await routingsOfLine(row.id);
+      return [
+        {
+          key: "routings",
+          label: "Routing",
+          icon: "tree",
+          count: rows.length,
+          content: <RelatedRecordsCard title="Routing Milik Line" icon="tree" desc="Urutan unit yang boleh diikuti partai line ini." href={(id) => `/master/routing/${id}`} empty="Line ini belum punya routing." rows={rows} />,
+        },
+      ];
+    }
+    // A Cash & Bank resource is the one master with a book behind it, so its
+    // detail says what that book adds up to and shows the way into it. The book
+    // itself is a report, not a property of the master — see `CashBankBookCard`.
+    case "m_cash_bank": {
+      const summary = await cashBankBookSummary(row.id);
+      return [
+        {
+          key: "book",
+          label: "Buku Kas & Bank",
+          icon: "book",
+          content: (
+            <CashBankBookCard
+              cashBankId={row.id}
+              balance={summary.balance}
+              entries={summary.entries}
+              lastEntryDate={summary.lastEntryDate}
+              currencyLabel={refs.currency_id?.find((o) => o.id === row.currency_id)?.label ?? "IDR"}
+              canViewReport={await actorHas("REPORT_CASH_BANK_LEDGER_VIEW")}
+            />
+          ),
+        },
+      ];
+    }
+    default:
+      return [];
+  }
 }
 
 export async function EntityEditPage({

@@ -35,6 +35,7 @@ import {
   prerequisitesOf,
   waitingClause,
   type Entity,
+  type EntityTab,
   type Field,
 } from "@/lib/erp/entities";
 import { moduleNameAt } from "@/lib/erp/nav";
@@ -43,6 +44,7 @@ import type { FieldPreset } from "@/lib/erp/entities";
 import { formatDate, formatMoney, formatPct, formatRate, todayIso } from "@/lib/format";
 import { BASE_CURRENCY_LABEL, isBaseCurrency } from "@/lib/erp/currency";
 import { recordTitle } from "@/lib/erp/record-title";
+import { FormTabs, type FormTab } from "@/components/ui/form-tabs";
 import { AddressesTab, ContactsTab } from "@/components/master/partner-tabs";
 import { UomConversionsTab } from "@/components/master/item-tabs";
 import { BomComponentsTab, RateLinesTab, RoutingStepsTab, UnitStepsTab } from "@/components/master/production-master-tabs";
@@ -80,6 +82,7 @@ export function EntityForm({
   lockedTabs,
   saveConfirm,
   collections: initialCollections,
+  extraTabs = [],
 }: {
   entity: Entity;
   mode: FormMode;
@@ -95,6 +98,8 @@ export function EntityForm({
    * than another config key nothing else would use.
    */
   headerActions?: React.ReactNode;
+  /** Tabs a page composes beside the registry's own: a Fiscal Year's months, a Cash & Bank's book. */
+  extraTabs?: FormTab[];
   /**
    * How prominent Ubah is, and therefore where it sits. A header carries one
    * primary and it is the rightmost button, so when `headerActions` supplies
@@ -156,9 +161,6 @@ export function EntityForm({
           )
       )
   );
-  const [chosenTab, setActiveTab] = useState(tabs[0]?.key ?? "");
-  // The chosen tab, unless it has since dropped out of play.
-  const activeTab = tabs.some((t) => t.key === chosenTab) ? chosenTab : (tabs[0]?.key ?? "");
   const [collections, setCollections] = useState<Record<string, unknown[]>>(
     () => initialCollections ?? {}
   );
@@ -286,12 +288,6 @@ export function EntityForm({
 
     if (!result.ok) {
       setErrors(result.errors);
-      // Bring the refusal into view: if nothing in the header card is wrong,
-      // open the first tab that holds an error.
-      const keys = Object.keys(result.errors).filter((k) => k !== "_form");
-      const headerWrong = keys.some((k) => !tabOfError(k));
-      const firstTab = tabs.find((t) => keys.some((k) => tabOfError(k) === t.key));
-      if (!headerWrong && firstTab) setActiveTab(firstTab.key);
       // `_form` is a whole-form refusal (a denied permission), not a field error.
       const refusal = result.errors._form;
       toast(
@@ -373,13 +369,31 @@ export function EntityForm({
     />
   );
 
+  const statusAndNote = (
+    <>
+            {statusFields.length > 0 && (
+              // No section hint: the status field's own help says the same
+              // thing, and with help now on the label row the two sat one line
+              // apart.
+              <FormSection title="Status Data">
+                <FormRow>
+                  {statusFields.map((f) => control({ ...f }, { statusLike: true }))}
+                </FormRow>
+              </FormSection>
+            )}
+
+            {noteFields.length > 0 && (
+              <FormSection>
+                <FormRow>{noteFields.map((f) => control(f))}</FormRow>
+              </FormSection>
+            )}
+    </>
+  );
+
   const tabHasError = (key: string) =>
     Object.keys(errors).some((k) => tabOfError(k) === key);
 
-  const renderTab = () => {
-    const tab = tabs.find((t) => t.key === activeTab);
-    if (!tab) return null;
-
+  const renderTab = (tab: EntityTab) => {
     if (tab.kind === "custom") {
       const Custom = CUSTOM_TABS[`${entity.key}.${tab.key}`];
       if (!Custom) return null;
@@ -507,51 +521,33 @@ export function EntityForm({
               <FormRow>{businessFields.map((f) => control(f))}</FormRow>
             </FormSection>
 
-            {statusFields.length > 0 && (
-              // No section hint: the status field's own help says the same
-              // thing, and with help now on the label row the two sat one line
-              // apart.
-              <FormSection title="Status Data">
-                <FormRow>
-                  {statusFields.map((f) => control({ ...f }, { statusLike: true }))}
-                </FormRow>
-              </FormSection>
-            )}
-
-            {noteFields.length > 0 && (
-              <FormSection>
-                <FormRow>{noteFields.map((f) => control(f))}</FormRow>
-              </FormSection>
-            )}
+            {tabs.length > 0 && statusAndNote}
 
             {lockNote && <p className="fnote">{lockNote}</p>}
           </div>
 
-          {tabs.length > 0 && (
-            <>
-              <div className="tabs" role="tablist">
-                {tabs.map((t) => {
-                  const count = t.kind === "custom" ? (collections[t.key] ?? []).length : null;
-                  const bad = tabHasError(t.key);
-                  return (
-                    <button
-                      key={t.key}
-                      role="tab"
-                      aria-selected={t.key === activeTab}
-                      className={`tab${t.key === activeTab ? " on" : ""}${bad ? " bad" : ""}`}
-                      onClick={() => setActiveTab(t.key)}
-                    >
-                      <Icon name={t.icon} size={14} />
-                      {t.label}
-                      {count !== null && <span className="tc">{count}</span>}
-                      {bad && <span className="td" title="Ada yang perlu diperbaiki" />}
-                    </button>
-                  );
-                })}
-              </div>
-              {renderTab()}
-            </>
-          )}
+          <FormTabs
+            tabs={[
+              ...tabs.map((t) => ({
+                key: t.key,
+                label: t.label,
+                icon: t.icon,
+                count: t.kind === "custom" ? (collections[t.key] ?? []).length : undefined,
+                bad: tabHasError(t.key),
+                content: renderTab(t),
+              })),
+              // A record with no section of its own still has one tab (P308).
+              tabs.length === 0 &&
+                statusFields.length + noteFields.length > 0 && {
+                  key: "info",
+                  label: "Informasi",
+                  icon: "file" as const,
+                  bad: [...statusFields, ...noteFields].some((f) => errors[f.name]),
+                  content: <div className="card">{statusAndNote}</div>,
+                },
+              ...extraTabs,
+            ]}
+          />
         </div>
       </div>
 

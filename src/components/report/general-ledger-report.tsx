@@ -9,7 +9,7 @@ import { Drill } from "@/components/report/drill";
 import { LazyRows, useLazyEntries } from "@/components/report/lazy-entries";
 import { Amount } from "@/components/ui/amount";
 import { PartnerCell } from "@/components/ui/partner-cell";
-import { formatAccounting, formatDate, formatForeignFace } from "@/lib/format";
+import { formatReport, formatDate, formatForeignFace } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import type {
   GeneralLedgerReport as Report,
@@ -131,7 +131,7 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
         const rows = have?.entries ?? [];
         // Every figure here is base currency, a negative in parentheses. The
         // transaction-currency face lives beside the description.
-        const money = (n: number) => formatAccounting(n, BASE_CURRENCY_LABEL);
+        const money = (n: number) => formatReport(n, BASE_CURRENCY_LABEL);
         return (
           <div className="cblock" key={a.id}>
             <div
@@ -210,7 +210,7 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
                         <Amount value={0} nil="dash" ledger />
                       </td>
                       <td className="num">
-                        <Amount value={a.opening} ledger />
+                        <Amount value={a.opening} nil="dash" ledger />
                       </td>
                     </tr>
 
@@ -252,7 +252,7 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
                           <Amount value={e.credit} nil="dash" ledger />
                         </td>
                         <td className="num">
-                          <Amount value={e.balance} ledger />
+                          <Amount value={e.balance} nil="dash" ledger />
                         </td>
                       </tr>
                     ))}
@@ -278,14 +278,14 @@ export function GeneralLedgerReport({ report }: { report: Report }) {
                         Saldo akhir per {formatDate(report.range.to)}
                       </td>
                       <td className="num">
-                        <Amount value={a.debit} ledger />
+                        <Amount value={a.debit} nil="dash" ledger />
                       </td>
                       <td className="num">
-                        <Amount value={a.credit} ledger />
+                        <Amount value={a.credit} nil="dash" ledger />
                       </td>
                       <td className="num">
                         <b>
-                          <Amount value={a.closing} ledger />
+                          <Amount value={a.closing} nil="dash" ledger />
                         </b>
                       </td>
                     </tr>

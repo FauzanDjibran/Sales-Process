@@ -30,7 +30,10 @@ import { formatDate, formatNumber } from "@/lib/format";
  * count of items is its summary.
  */
 
-const qty = (n: number) => formatNumber(n, Number.isInteger(n) ? 0 : 4);
+const qty = (n: number) => {
+  const text = formatNumber(Math.abs(n), Number.isInteger(n) ? 0 : 4);
+  return n === 0 ? "—" : n < 0 ? `(${text})` : text;
+};
 const cardKey = (c: { item: StockItemRef; warehouse: StockWarehouseRef }) => `${c.item.id}:${c.warehouse.id}`;
 
 type Block<T> = { id: number; label: string; name: string; cards: T[] };
@@ -320,8 +323,8 @@ export function StockLedgerBody({ cards, groupBy, range }: { cards: StockCard[];
                                 </span>
                               </div>
                             </td>
-                            <td className="num">{c.totalIn ? <span className="mny in">{qty(c.totalIn)}</span> : <span className="dash">–</span>}</td>
-                            <td className="num">{c.totalOut ? <span className="mny">{qty(c.totalOut)}</span> : <span className="dash">–</span>}</td>
+                            <td className="num">{c.totalIn ? <span className="mny in">{qty(c.totalIn)}</span> : <span className="dash">—</span>}</td>
+                            <td className="num">{c.totalOut ? <span className="mny">{qty(c.totalOut)}</span> : <span className="dash">—</span>}</td>
                             <td className="num">
                               <b className="mny">{qty(c.closing)}</b> <span className="cd">{u}</span>
                             </td>
@@ -333,10 +336,10 @@ export function StockLedgerBody({ cards, groupBy, range }: { cards: StockCard[];
                                   Saldo awal per {formatDate(range.from)}
                                 </td>
                                 <td className="num">
-                                  <span className="dash">–</span>
+                                  <span className="dash">—</span>
                                 </td>
                                 <td className="num">
-                                  <span className="dash">–</span>
+                                  <span className="dash">—</span>
                                 </td>
                                 <td className="num">
                                   <span className="mny">{qty(c.opening)}</span>
@@ -362,8 +365,8 @@ export function StockLedgerBody({ cards, groupBy, range }: { cards: StockCard[];
                                   <td>
                                     <Lot lotNo={e.lotNo} expiry={e.expiry} statusName={e.statusName} showExpiry />
                                   </td>
-                                  <td className="num">{e.qtyIn ? <span className="mny in">{qty(e.qtyIn)}</span> : <span className="dash">–</span>}</td>
-                                  <td className="num">{e.qtyOut ? <span className="mny">{qty(e.qtyOut)}</span> : <span className="dash">–</span>}</td>
+                                  <td className="num">{e.qtyIn ? <span className="mny in">{qty(e.qtyIn)}</span> : <span className="dash">—</span>}</td>
+                                  <td className="num">{e.qtyOut ? <span className="mny">{qty(e.qtyOut)}</span> : <span className="dash">—</span>}</td>
                                   <td className="num">
                                     <span className="mny">{qty(e.balance)}</span>
                                   </td>

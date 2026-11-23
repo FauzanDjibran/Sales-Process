@@ -3,7 +3,8 @@ import { Icon } from "@/components/icon";
 import { ReportSummary } from "@/components/report/report-summary";
 import { documentHref } from "@/lib/erp/document-links";
 import type { ApItemRow } from "@/lib/erp/ap-item";
-import { formatDate, formatMoney } from "@/lib/format";
+import { Amount } from "@/components/ui/amount";
+import { formatDate, formatReport } from "@/lib/format";
 
 /**
  * Uang Muka Supplier (P75) — every advance received and not yet used by an
@@ -15,7 +16,7 @@ export type SupplierAdvanceReconciliation =
   | { ok: true; accountLabel: string; accountName: string; byPartner: Record<number, number> }
   | { ok: false; missing: string };
 
-const money = (n: number) => formatMoney(n, "IDR");
+const money = (n: number) => formatReport(n, "IDR");
 
 export function SupplierAdvanceReport({
   rows,
@@ -97,9 +98,9 @@ export function SupplierAdvanceReport({
                       <td>
                         <DocLink table={r.orderId ? "pur_order" : null} id={r.orderId} no={r.orderId ? (orderNos[r.orderId] ?? null) : null} />
                       </td>
-                      <td className="num"><span className="mny">{money(r.original)}</span></td>
-                      <td className="num">{r.settled ? <span className="mny">{money(r.settled)}</span> : <span className="dash">–</span>}</td>
-                      <td className="num"><b className="mny">{money(r.open)}</b></td>
+                      <td className="num"><Amount value={r.original} nil="dash" ledger /></td>
+                      <td className="num">{r.settled ? <Amount value={r.settled} nil="dash" ledger /> : <span className="dash">—</span>}</td>
+                      <td className="num"><b><Amount value={r.open} nil="dash" ledger /></b></td>
                     </tr>
                   ))}
                 </tbody>

@@ -26,6 +26,7 @@ import {
 } from "@/lib/erp/stock-transfer-workflow";
 import type { StockTransferHeaderInput, StockTransferOptions, StockTransferView } from "@/lib/erp/stock-transfer";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * A Transfer Kirim in its three modes (P300, Stock-Transfer-Plan.md §3.1).
@@ -53,15 +54,12 @@ export function StockTransferForm({
   options,
   can,
   receipts = [],
-  canReceive = false,
 }: {
   mode: "new" | "edit" | "view";
   transfer: StockTransferView | null;
   options: StockTransferOptions;
   can: StockTransferAbilities;
   receipts?: TransferReceiptRef[];
-  /** The user may make a Transfer Terima into its destination. */
-  canReceive?: boolean;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -282,7 +280,7 @@ export function StockTransferForm({
 
   const viewLines = transfer?.lines ?? [];
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -437,7 +435,7 @@ export function StockTransferForm({
   );
 
   const receiptsCard = sent && (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="down" size={15} />
@@ -446,11 +444,6 @@ export function StockTransferForm({
           <h3>Transfer Terima</h3>
           <p>Penerimaan di gudang tujuan. Yang belum diterima tetap di Gudang Transit.</p>
         </div>
-        {status === "InTransit" && canReceive && (
-          <Link className="btn sm primary" href={`/inventory/stock-transfer-receipt/new?from=${transfer!.id}`}>
-            <Icon name="plus" size={14} /> Terima Barang
-          </Link>
-        )}
       </div>
       {receipts.length ? (
         <div className="tw">
@@ -547,8 +540,12 @@ export function StockTransferForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
-          {receiptsCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+              receiptsCard && { key: "receipts", label: "Transfer Terima", icon: "down", count: receipts.length, content: receiptsCard },
+            ]}
+          />
         </div>
       </div>
     </>

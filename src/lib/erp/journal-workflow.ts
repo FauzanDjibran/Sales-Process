@@ -49,19 +49,19 @@ export type JournalTransition = {
 
 export const JOURNAL_TRANSITIONS: Record<JournalAction, JournalTransition> = {
   post: {
-    label: "Post",
+    label: "Posting",
     permission: "JOURNAL_POST",
     from: ["Draft"],
     to: "Posted",
     icon: "check",
     tone: "primary",
-    title: "Post Journal Manual",
+    title: "Posting Journal Manual",
     body:
       "Journal masuk ke buku besar dengan tanggal hari ini dan langsung " +
       "terbaca pada General Ledger dan Trial Balance. Setelah diposting " +
       "journal tidak dapat diubah, dibatalkan, maupun dibalik — koreksi " +
       "dilakukan sebagai journal baru.",
-    confirmLabel: "Ya, Post",
+    confirmLabel: "Ya, Posting",
     done: "Journal diposting",
   },
   cancel: {

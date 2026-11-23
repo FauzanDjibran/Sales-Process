@@ -8,7 +8,8 @@ import { BlockHead, CountLine as Count, ReportEmpty, RunToggle } from "@/compone
 import { ReportSummary } from "@/components/report/report-summary";
 import { BOOK_WORDS, type BookEntry, type BookKind, type BookSubject, type PartnerBook } from "@/lib/erp/partner-book";
 import type { BookCursor } from "@/lib/erp/register-query";
-import { formatDate, formatMoney } from "@/lib/format";
+import { Amount } from "@/components/ui/amount";
+import { formatDate, formatReport } from "@/lib/format";
 
 /**
  * Buku and Saldo Piutang / Hutang (P233) — SIBA's Buku Subjek and Saldo Buku
@@ -20,8 +21,8 @@ import { formatDate, formatMoney } from "@/lib/format";
  * Piutang / Hutang Usaha and Uang Muka are two books, chosen by the toggle, each
  * in its own direction, so Bertambah and Berkurang always mean the book in view.
  */
-const money = (n: number) => formatMoney(n, "IDR");
-const figure = (n: number) => (n ? <span className="mny">{money(n)}</span> : <span className="dash">–</span>);
+const money = (n: number) => formatReport(n, "IDR");
+const figure = (n: number) => <Amount value={n} nil="dash" ledger />;
 
 /** Moves at once: it changes what is read, not a filter to be confirmed. */
 export function BookToggle({ book, side, hrefs }: { book: BookKind; side: "ar" | "ap"; hrefs: Record<BookKind, string> }) {
@@ -160,7 +161,7 @@ export function PartnerLedgerReport({ report }: { report: PartnerBook }) {
                   <tbody>
                     <tr className="totrow">
                       <td colSpan={6}>Saldo per {formatDate(report.range.from)}</td>
-                      <td className="num">{money(s.opening)}</td>
+                      <td className="num"><Amount value={s.opening} nil="dash" ledger /></td>
                     </tr>
                     {have?.entries.map((e) => {
                       running += e.movement;
@@ -186,14 +187,14 @@ export function PartnerLedgerReport({ report }: { report: PartnerBook }) {
                           </td>
                           <td>
                             {e.docTable === e.sourceTable && e.docId === e.sourceId ? (
-                              <span className="dash">–</span>
+                              <span className="dash">—</span>
                             ) : (
                               <DocLink table={e.docTable} id={e.docId} no={e.docNo} />
                             )}
                           </td>
                           <td className="num">{figure(Math.max(e.movement, 0))}</td>
                           <td className="num">{figure(Math.max(-e.movement, 0))}</td>
-                          <td className="num"><span className="mny">{money(running)}</span></td>
+                          <td className="num"><Amount value={running} nil="dash" ledger /></td>
                         </tr>
                       );
                     })}
@@ -209,9 +210,9 @@ export function PartnerLedgerReport({ report }: { report: PartnerBook }) {
                   <tfoot>
                     <tr className="totrow">
                       <td colSpan={4}>Saldo per {formatDate(report.range.to)}</td>
-                      <td className="num"><span className="mny">{money(s.raised)}</span></td>
-                      <td className="num"><span className="mny">{money(s.lowered)}</span></td>
-                      <td className="num"><b>{money(s.closing)}</b></td>
+                      <td className="num"><Amount value={s.raised} nil="dash" ledger /></td>
+                      <td className="num"><Amount value={s.lowered} nil="dash" ledger /></td>
+                      <td className="num"><b><Amount value={s.closing} nil="dash" ledger /></b></td>
                     </tr>
                   </tfoot>
                 </table>
@@ -267,7 +268,7 @@ export function PartnerBalanceReport({ report }: { report: PartnerBook }) {
                         <td className="num">{figure(i.opening)}</td>
                         <td className="num">{figure(i.raised)}</td>
                         <td className="num">{figure(i.lowered)}</td>
-                        <td className="num"><b className="mny">{money(i.closing)}</b></td>
+                        <td className="num"><b><Amount value={i.closing} nil="dash" ledger /></b></td>
                       </tr>
                     ))}
                   </tbody>

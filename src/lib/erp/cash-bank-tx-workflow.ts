@@ -99,7 +99,7 @@ export function availableCashReceiptActions(
 
 export const CASH_BANK_TX_STATUS_TEXT: Record<CashBankTxStatus, string> = {
   Draft: "Draft",
-  Posted: "Posted",
+  Posted: "Diposting",
   Cancelled: "Dibatalkan",
 };
 

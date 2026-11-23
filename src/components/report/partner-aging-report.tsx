@@ -6,7 +6,8 @@ import { DocLink } from "@/components/report/customer-advance-report";
 import { ExpandAll } from "@/components/ui/expand-all";
 import { AGING_BUCKETS, type AgingFigures, type AgingReport } from "@/lib/erp/ar-aging";
 import { BOOK_WORDS, type BookSide } from "@/lib/erp/partner-book";
-import { formatDate, formatMoney } from "@/lib/format";
+import { Amount } from "@/components/ui/amount";
+import { formatDate, formatReport } from "@/lib/format";
 
 /**
  * Umur Piutang and Umur Hutang (P235) — a tree, as Odoo's Aged Receivable reads:
@@ -14,10 +15,9 @@ import { formatDate, formatMoney } from "@/lib/format";
  * in the bucket it is in, so the columns add up at both levels. An Uang Muka has
  * no due date: it sits in its own column.
  */
-const money = (n: number) => formatMoney(n, "IDR");
-const cell = (n: number) => (n ? <span className="mny">{money(n)}</span> : <span className="dash">–</span>);
-const credit = (n: number) => (n ? <span className="mny">−{money(n)}</span> : <span className="dash">–</span>);
-const signed = (n: number) => (n < 0 ? `−${money(-n)}` : money(n));
+const money = (n: number) => formatReport(n, "IDR");
+const cell = (n: number) => <Amount value={n} nil="dash" ledger />;
+const credit = (n: number) => cell(-n);
 
 function Figures({ f, showCredit }: { f: AgingFigures; showCredit: boolean }) {
   return (
@@ -28,7 +28,7 @@ function Figures({ f, showCredit }: { f: AgingFigures; showCredit: boolean }) {
       <td className="num">{cell(f.invoice)}</td>
       <td className="num">{credit(f.advance)}</td>
       {showCredit && <td className="num">{credit(f.credit)}</td>}
-      <td className="num"><b className="mny">{signed(f.net)}</b></td>
+      <td className="num"><b className="mny">{money(f.net)}</b></td>
     </>
   );
 }
@@ -127,7 +127,7 @@ export function PartnerAgingReport({ report, side, asOf }: { report: AgingReport
                         <td className="num">{cell(d.open)}</td>
                         <td className="num">{credit(0)}</td>
                         {zeroCredit}
-                        <td className="num"><span className="mny">{money(d.open)}</span></td>
+                        <td className="num"><Amount value={d.open} nil="dash" ledger /></td>
                       </tr>
                     ))}
                   {isOpen &&
@@ -145,7 +145,7 @@ export function PartnerAgingReport({ report, side, asOf }: { report: AgingReport
                         <td className="num">{cell(0)}</td>
                         <td className="num">{credit(d.open)}</td>
                         {zeroCredit}
-                        <td className="num"><span className="mny">−{money(d.open)}</span></td>
+                        <td className="num"><Amount value={-d.open} nil="dash" ledger /></td>
                       </tr>
                     ))}
                   {isOpen &&
@@ -163,7 +163,7 @@ export function PartnerAgingReport({ report, side, asOf }: { report: AgingReport
                         <td className="num">{cell(0)}</td>
                         <td className="num">{credit(0)}</td>
                         <td className="num">{credit(d.open)}</td>
-                        <td className="num"><span className="mny">−{money(d.open)}</span></td>
+                        <td className="num"><Amount value={-d.open} nil="dash" ledger /></td>
                       </tr>
                     ))}
                 </Fragment>

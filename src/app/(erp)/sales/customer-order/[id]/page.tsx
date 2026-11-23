@@ -7,7 +7,7 @@ import { getCustomerOrder, customerOrderOptions } from "@/lib/erp/customer-order
 import { customerOrderAbilities } from "@/lib/erp/customer-order-workflow";
 import { customerOrderSchedule } from "@/lib/erp/sales-order";
 import { CustomerOrderInvoicesCard } from "@/components/sales/customer-order-invoices";
-import { customerOrderInvoices, customerOrderUnbilledLines } from "@/lib/erp/ar-invoice";
+import { customerOrderInvoices } from "@/lib/erp/ar-invoice";
 
 export const dynamic = "force-dynamic";
 
@@ -21,31 +21,27 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const showSchedule = order.status !== "Draft" && order.status !== "Submitted" && actor.permissions.has("SALES_ORDER_VIEW");
   // Its Invoices are the invoice module's; listed once the order can be billed (§9).
   const showInvoices = (order.status === "Open" || order.status === "Closed") && actor.permissions.has("SALES_INVOICE_VIEW");
-  const canInvoice = showInvoices && actor.permissions.has("SALES_INVOICE_CREATE");
   // Read side by side: on the deployed database each is a round trip.
-  const [schedule, invoices, unbilled] = await Promise.all([
+  const [schedule, invoices] = await Promise.all([
     showSchedule ? customerOrderSchedule(order.id) : Promise.resolve(null),
     showInvoices ? customerOrderInvoices(order.id) : Promise.resolve(null),
-    canInvoice ? customerOrderUnbilledLines(order.id) : Promise.resolve(0),
   ]);
   return (
     <>
-      <CustomerOrderForm mode="view" order={order} options={options} can={customerOrderAbilities(actor.permissions)} />
-      {schedule && (order.status === "Open" || schedule.orders.length > 0) && (
-        <CustomerOrderScheduleCard
-          customerOrderId={order.id}
-          schedule={schedule}
-          canCreate={actor.permissions.has("SALES_ORDER_CREATE")}
-          open={order.status === "Open"}
-        />
-      )}
-      {invoices && (
-        <CustomerOrderInvoicesCard
-          customerOrderId={order.id}
-          invoices={invoices}
-          canCreate={canInvoice && unbilled > 0}
-        />
-      )}
+      <CustomerOrderForm
+        mode="view"
+        order={order}
+        options={options}
+        can={customerOrderAbilities(actor.permissions)}
+        extraTabs={[
+          ...(schedule && (order.status === "Open" || schedule.orders.length > 0)
+            ? [{ key: "schedule", label: "Jadwal Sales Order", icon: "cal" as const, count: schedule.orders.length, content: <CustomerOrderScheduleCard schedule={schedule} open={order.status === "Open"} /> }]
+            : []),
+          ...(invoices
+            ? [{ key: "invoices", label: "Invoice Penjualan", icon: "file" as const, count: invoices.length, content: <CustomerOrderInvoicesCard invoices={invoices} /> }]
+            : []),
+        ]}
+      />
       <RecordHistoryCard entityKey="sal_customer_order" rowId={order.id} />
     </>
   );

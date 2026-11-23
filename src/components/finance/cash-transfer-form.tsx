@@ -30,6 +30,7 @@ import {
 import type { CashTransferInput, CashTransferOptions, CashTransferView } from "@/lib/erp/cash-transfer";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import { formatDate, formatMoney, formatRate, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 type Line = { to_cash_bank_id: number | null; amount: string; exchange_rate: string };
 
@@ -234,7 +235,7 @@ export function CashTransferForm({
 
   const rupiahHeading = purpose === "Pencairan" ? `${BASE_CURRENCY_LABEL} Diterima` : `${BASE_CURRENCY_LABEL} Dibayar`;
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="link" size={15} />
@@ -455,7 +456,11 @@ export function CashTransferForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Kas & Bank Tujuan", icon: "link", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+            ]}
+          />
         </div>
       </div>
     </>

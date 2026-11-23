@@ -18,6 +18,7 @@ import { RECEIPT_NOTE_STATUS_BADGE, RECEIPT_NOTE_STATUS_TEXT, cumulativeShare, t
 import type { ReceiptNoteHeaderInput, ReceiptNoteOptions, ReceiptNoteView } from "@/lib/erp/receipt-note";
 import { PURCHASE_ORDER_KINDS, purchaseOrderKindOf } from "@/lib/erp/purchase-order-workflow";
 import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * A Receipt Note in all three modes (P125): the Purchase Order first — chosen
@@ -252,7 +253,7 @@ export function ReceiptNoteForm({
   );
 
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -429,7 +430,11 @@ export function ReceiptNoteForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang / Jasa", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+            ]}
+          />
         </div>
       </div>
       {lotsOf &&

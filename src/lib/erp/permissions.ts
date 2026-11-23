@@ -240,7 +240,7 @@ export const PERMISSIONS = [
   { code: "JOURNAL_VIEW", name: "Lihat Journal", module: "accounting", description: "Journal otomatis maupun manual, termasuk yang masih Draft." },
   { code: "JOURNAL_CREATE", name: "Tambah Journal Manual", module: "accounting", description: "Journal yang diketik sendiri — penyusutan, akrual, reklasifikasi. Control account tidak dapat dipilih." },
   { code: "JOURNAL_EDIT", name: "Ubah Journal Manual", module: "accounting", description: "Hanya selama berstatus Draft." },
-  { code: "JOURNAL_POST", name: "Post Journal Manual", module: "accounting", description: "Memasukkan journal ke buku besar. Tidak dapat dibatalkan." },
+  { code: "JOURNAL_POST", name: "Posting Journal Manual", module: "accounting", description: "Memasukkan journal ke buku besar. Tidak dapat dibatalkan." },
   { code: "JOURNAL_CANCEL", name: "Batalkan Journal Manual", module: "accounting", description: "Hanya draft yang belum diposting." },
   { code: "REPORT_GENERAL_LEDGER_VIEW", name: "Lihat General Ledger", module: "accounting" },
   { code: "REPORT_TRIAL_BALANCE_VIEW", name: "Lihat Trial Balance", module: "accounting" },

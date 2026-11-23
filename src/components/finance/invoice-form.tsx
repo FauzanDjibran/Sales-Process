@@ -27,6 +27,7 @@ import { advancePpnUsed, computeInvoice, taxScale, withholdingsOf, type InvoiceF
 import { TAX_MODULE_HIDDEN } from "@/lib/erp/nav";
 import type { TaxDocRefs } from "@/lib/erp/tax-document-workflow";
 import { formatDate, formatMoney, formatNumber, formatPct, todayIso, formatPrice } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * An Invoice Penjualan in all three modes: `new`, `edit` (Draft only) and `view`
@@ -471,7 +472,7 @@ export function InvoiceForm({
     </button>
   );
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -620,7 +621,7 @@ export function InvoiceForm({
     </button>
   );
   const advanceCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="wallet" size={15} />
@@ -777,10 +778,13 @@ export function InvoiceForm({
           onClose={() => setPicking(null)}
         />
       )}
+    </div>
+  );
 
-      {/* ---- the figures */}
-      {order && figures && (
-        <div className="cardfoot multi">
+  // Below the tabs: the totals follow from the lines and the Uang Muka alike.
+  const figuresCard = order && figures && (
+        <div className="card" style={{ marginTop: 14 }}>
+<div className="cardfoot multi" style={{ borderTop: 0 }}>
           {figures.withholdingTotal > 0 && (
             <div className="impact">
               <div className="ttl">Estimasi Penerimaan</div>
@@ -916,9 +920,8 @@ export function InvoiceForm({
             })()}
           </div>
         </div>
-      )}
-    </div>
-  );
+</div>
+);
 
   // ============================================================ page
   return (
@@ -969,8 +972,13 @@ export function InvoiceForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
-          {advanceCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang Ditagih", icon: "box", bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+              { key: "advances", label: "Uang Muka", icon: "wallet", count: deds.length, bad: tabHasError(errors, "_deductions", "ded."), content: advanceCard },
+            ]}
+            foot={figuresCard}
+          />
         </div>
       </div>
     </>

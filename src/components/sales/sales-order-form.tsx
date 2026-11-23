@@ -22,6 +22,7 @@ import {
 } from "@/lib/erp/sales-order-workflow";
 import type { SalesOrderHeaderInput, SalesOrderOptions, SalesOrderView } from "@/lib/erp/sales-order";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
 
 /**
  * A Sales Order in all three modes: `new`, `edit` (Draft only) and `view`
@@ -46,12 +47,15 @@ const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 
 
 export function SalesOrderForm({
+  extraTabs,
   mode,
   order,
   options,
   can,
   presetCustomerOrderId = null,
 }: {
+  /** Tabs the page composes from other modules (§3.1). */
+  extraTabs?: FormTab[];
   mode: SalesOrderMode;
   order: SalesOrderView | null;
   options: SalesOrderOptions;
@@ -302,7 +306,7 @@ export function SalesOrderForm({
     </button>
   );
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -476,7 +480,12 @@ export function SalesOrderForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+              ...(extraTabs ?? []),
+            ]}
+          />
         </div>
       </div>
     </>

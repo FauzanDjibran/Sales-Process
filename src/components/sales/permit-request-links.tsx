@@ -33,7 +33,7 @@ const STATUS: Record<string, string> = {
  */
 export function PermitRequestLinksCard({ links }: { links: PermitLink[] }) {
   return (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="link" size={15} />

@@ -17,6 +17,7 @@ import { advancePpnUsed, computeInvoice, type PriceMode } from "@/lib/erp/sales-
 import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, type InvoiceAbilities } from "@/lib/erp/ar-invoice-workflow";
 import type { PermitInvoiceOptions, PermitInvoiceView } from "@/lib/erp/permit-invoice";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * Invoice Perizinan (P137, Perizinan-Concept.md §9), in three modes. One
@@ -317,7 +318,7 @@ export function PermitInvoiceForm({
   const v = shown ?? (figures ? { amount: figures.amount, dpp: figures.dpp, advanceDpp: figures.advanceUsed, advancePpn: figures.advancePpn, netDpp: figures.netDpp, dppOther: figures.dppOther, fullPpn: figures.fullPpn, ppn: figures.ppn, total: figures.total } : null);
 
   const lineCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="clip" size={15} />
@@ -386,7 +387,7 @@ export function PermitInvoiceForm({
 
   const advances = source?.advances ?? [];
   const advanceCard = source && (advances.length > 0 || deds.length > 0) && (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="wallet" size={15} />
@@ -566,9 +567,13 @@ export function PermitInvoiceForm({
       <div className="fgrid solo">
         <div>
           {header}
-          {lineCard}
-          {advanceCard}
-          {figuresBox}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Perizinan Ditagih", icon: "clip", bad: tabHasError(errors, "description"), content: lineCard },
+              advanceCard && { key: "advances", label: "Uang Muka", icon: "wallet", count: deds.length, bad: tabHasError(errors, "_deductions", "deductions."), content: advanceCard },
+            ]}
+            foot={figuresBox}
+          />
         </div>
       </div>
     </>

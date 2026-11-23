@@ -366,7 +366,7 @@ two-column form grid is not used, because there is no side card to fill it.
 | Returned / rejected document | `Batalkan · Ubah · Ajukan` |
 | Awaiting approval | `Tolak · Batalkan · Setujui` |
 | Master record with its own lifecycle (e.g. activate a period) | `Ubah · <Aktifkan …>` |
-| Final (posted / cancelled / closed) | no buttons; a lock chip says why ("Terkunci setelah Post", "Dokumen dibatalkan", "Menunggu …") |
+| Final (posted / cancelled / closed) | no buttons; a lock chip says why ("<Dokumen> diposting", "Dokumen dibatalkan", "Menunggu …") |
 
 **Status change is a header button** (*Decided, D14*). The status badge in the
 heading is **display only**.
@@ -986,7 +986,7 @@ The consequence, stated.             ← body
   - It is a wide confirmation dialog with a journal preview, loaded by running
     the document's own posting path as a dry run, so it is the journal and not
     an estimate.
-  - *Ya, Post* stays disabled until the preview has loaded.
+  - *Ya, Posting* stays disabled until the preview has loaded.
   - A Post that would be refused says why, in the dialog: an unmapped account,
     a missing cost, an incomplete line.
 
@@ -1171,7 +1171,7 @@ numbers, money, rates). **Never** for people's or things' names.
 |---|---|---|
 | Active | Aktif | solid ok (green) |
 | Open / approved / in force | Open | solid ok |
-| Posted / final-success | Posted | solid ok |
+| Posted / final-success | Diposting | solid ok |
 | Draft | Draft | solid warn (amber) |
 | Submitted / waiting on someone | Diajukan / Menunggu … | solid info (blue) |
 | Inactive | Non Aktif | solid bad (rose) |
@@ -1391,7 +1391,7 @@ On failure the dialog closes and an error toast carries the server's message.
 ### 10.17 Copy & language — *Established*
 - The UI is **Indonesian**. Code, comments and commit messages are English.
 - Established product terms stay in English inside Indonesian copy, e.g.
-  Budget, Journal, Draft, Post.
+  Budget, Journal, Draft.
 - **Standard strings:**
 
   | Purpose | String |
@@ -1399,7 +1399,7 @@ On failure the dialog closes and an error toast carries the server's message.
   | Create | `Tambah <Entitas>` / `Buat Dokumen` |
   | Save, cancel | `Simpan` · `Batal` |
   | Edit | `Ubah` |
-  | Lifecycle | `Ajukan` · `Setujui` · `Tolak` · `Batalkan` · `Post` |
+  | Lifecycle | `Ajukan` · `Setujui` · `Tolak` · `Batalkan` · `Posting` |
   | Run a report | `Tampilkan` |
   | Expand, collapse all | `Buka Semua` · `Tutup Semua` |
   | Back | `Kembali` |

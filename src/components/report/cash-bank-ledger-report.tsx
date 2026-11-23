@@ -7,7 +7,8 @@ import { Icon } from "@/components/icon";
 import { LazyRows, useLazyEntries } from "@/components/report/lazy-entries";
 import { ReportSummary } from "@/components/report/report-summary";
 import { ExpandAll } from "@/components/ui/expand-all";
-import { formatDate, formatMoney } from "@/lib/format";
+import { Amount } from "@/components/ui/amount";
+import { formatDate, formatReport } from "@/lib/format";
 import { documentHref, entryKindText } from "@/lib/erp/document-links";
 import type { LedgerEntryRow, LedgerReport } from "@/lib/erp/cash-bank";
 import type { BookCursor } from "@/lib/erp/register-query";
@@ -117,7 +118,7 @@ export function CashBankLedgerReport({
         const isOpen = open.has(res.id);
         const have = loadedOf(book);
         const rows = have?.entries ?? [];
-        const money = (n: number) => formatMoney(n, res.currencyLabel);
+        const money = (n: number) => formatReport(n, res.currencyLabel);
         return (
           <div className="cblock" key={res.id}>
             <div
@@ -182,7 +183,7 @@ export function CashBankLedgerReport({
                       <td colSpan={3}>Saldo awal per {formatDate(range.from)}</td>
                       <td className="num mut">—</td>
                       <td className="num mut">—</td>
-                      <td className="num">{money(book.opening)}</td>
+                      <td className="num"><Amount value={book.opening} currency={res.currencyLabel} nil="dash" ledger /></td>
                     </tr>
 
                     {rows.map((e) => {
@@ -214,14 +215,14 @@ export function CashBankLedgerReport({
                             {e.movement > 0 ? (
                               <span className="mny in">{money(e.movement)}</span>
                             ) : (
-                              <span className="dash">–</span>
+                              <span className="dash">—</span>
                             )}
                           </td>
                           <td className="num">
                             {e.movement < 0 ? (
-                              <span className="mny">{money(-e.movement)}</span>
+                              <Amount value={-e.movement} currency={res.currencyLabel} nil="dash" ledger />
                             ) : (
-                              <span className="dash">–</span>
+                              <span className="dash">—</span>
                             )}
                           </td>
                           {/* No running balance: an entry may be backdated in
@@ -255,10 +256,10 @@ export function CashBankLedgerReport({
                         <span className="mny in">{money(book.totalIn)}</span>
                       </td>
                       <td className="num">
-                        <span className="mny">{money(book.totalOut)}</span>
+                        <Amount value={book.totalOut} currency={res.currencyLabel} nil="dash" ledger />
                       </td>
                       <td className="num">
-                        <b>{money(book.closing)}</b>
+                        <b><Amount value={book.closing} currency={res.currencyLabel} nil="dash" ledger /></b>
                       </td>
                     </tr>
                   </tbody>

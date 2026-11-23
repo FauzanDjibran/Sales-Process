@@ -18,6 +18,7 @@ import { createReceiptNoteAction, updateReceiptNoteAction } from "@/app/actions/
 import { SALES_RETURN, type ReceiptNoteAbilities } from "@/lib/erp/receipt-note-workflow";
 import type { ReceiptNoteHeaderInput, ReceiptNoteView, ReturnReceiptOptions, RrSourceLine, RrSourceOption } from "@/lib/erp/receipt-note";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * A Receipt Note of purpose `sales_return` in all three modes (P288,
@@ -281,7 +282,7 @@ export function ReturnReceiptForm({
   );
 
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -438,7 +439,11 @@ export function ReturnReceiptForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+            ]}
+          />
         </div>
       </div>
       {lotsOf &&

@@ -37,8 +37,12 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         options={options}
         can={permitRequestAbilities(actor.permissions)}
         realizationLocked={realizationLocked}
+        extraTabs={
+          request.status !== "Draft" && request.status !== "Submitted"
+            ? [{ key: "links", label: "Dokumen Terkait", icon: "link", count: links.length, content: <PermitRequestLinksCard links={links} /> }]
+            : []
+        }
       />
-      {request.status !== "Draft" && request.status !== "Submitted" && <PermitRequestLinksCard links={links} />}
       <RecordHistoryCard entityKey="sal_permit_request" rowId={request.id} />
     </>
   );

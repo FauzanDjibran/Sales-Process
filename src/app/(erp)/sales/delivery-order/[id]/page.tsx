@@ -26,15 +26,17 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   const notes = showNotes ? await deliveryOrderNotes(order.id) : null;
   return (
     <>
-      <DeliveryOrderForm mode="view" order={order} options={options} can={deliveryOrderAbilities(actor.permissions)} />
-      {notes && (order.status === "Issued" || notes.notes.length > 0) && (
-        <DeliveryOrderNotesCard
-          deliveryOrderId={order.id}
-          deliveries={notes}
-          canCreate={actor.permissions.has("DELIVERY_NOTE_CREATE")}
-          open={order.status === "Issued"}
-        />
-      )}
+      <DeliveryOrderForm
+        mode="view"
+        order={order}
+        options={options}
+        can={deliveryOrderAbilities(actor.permissions)}
+        extraTabs={
+          notes && (order.status === "Issued" || notes.notes.length > 0)
+            ? [{ key: "notes", label: "Pengiriman", icon: "truck", count: notes.notes.length, content: <DeliveryOrderNotesCard deliveries={notes} open={order.status === "Issued"} /> }]
+            : []
+        }
+      />
       <RecordHistoryCard entityKey="sal_delivery_order" rowId={order.id} />
     </>
   );

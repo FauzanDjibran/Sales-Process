@@ -1195,18 +1195,6 @@ export async function deliveryNoteBilling(lineIds: number[]): Promise<Record<num
   );
 }
 
-/**
- * How many posted Delivery Note lines of a Customer Order no live Invoice bills
- * yet — what a new Invoice could take, so its page offers *Invoice Baru* only
- * while there is something to bill.
- */
-export async function customerOrderUnbilledLines(customerOrderId: number): Promise<number> {
-  const sources = await invoiceSourceOrders({ ids: [customerOrderId] });
-  if (!sources.length) return 0;
-  const [order] = await orderOptions(prisma, sources, null);
-  return order ? order.noteLines.filter((l) => !l.billedBy).length : 0;
-}
-
 /** A Customer Order's Invoices, for its page. */
 export async function customerOrderInvoices(
   customerOrderId: number

@@ -28,6 +28,7 @@ import {
 import type { PermitRequestOptions, PermitRequestView, PermitTypeOption } from "@/lib/erp/permit-request";
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
 
 /**
  * The Pengajuan Perizinan, in four modes: `new`, `edit` (Draft), `view`, and
@@ -73,12 +74,15 @@ const money = (n: number) => formatMoney(n, "IDR");
 const signed = (n: number) => (n > 0 ? `+${money(n)}` : n < 0 ? `−${money(-n)}` : money(0));
 
 export function PermitRequestForm({
+  extraTabs,
   mode,
   request,
   options,
   can,
   realizationLocked = false,
 }: {
+  /** Tabs the page composes from other modules (§3.1). */
+  extraTabs?: FormTab[];
   mode: PermitFormMode;
   request: PermitRequestView | null;
   options: PermitRequestOptions;
@@ -577,7 +581,7 @@ export function PermitRequestForm({
   const lineErr = (i: number, f: string) => errors[`lines.${i}.${f}`];
   const canAdd = headerEditing || realizing;
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="clip" size={15} />
@@ -846,7 +850,12 @@ export function PermitRequestForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Perizinan", icon: "clip", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+              ...(extraTabs ?? []),
+            ]}
+          />
         </div>
       </div>
 

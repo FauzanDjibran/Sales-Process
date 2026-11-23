@@ -96,7 +96,7 @@ export function availableCostBillActions(status: CostBillStatus, can: CostBillAb
 
 export const COST_BILL_STATUS_TEXT: Record<CostBillStatus, string> = {
   Draft: "Draft",
-  Posted: "Posted",
+  Posted: "Diposting",
   Cancelled: "Dibatalkan",
 };
 

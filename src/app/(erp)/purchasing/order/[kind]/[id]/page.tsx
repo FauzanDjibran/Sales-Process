@@ -27,8 +27,18 @@ export default async function Page({ params }: { params: Promise<{ kind: string;
   ]);
   return (
     <>
-      <PurchaseOrderForm kind={own} mode="view" order={order} options={options} can={purchaseOrderAbilities(actor.permissions)} />
-      <PurchaseOrderReceipts receipts={receipts} invoices={invoices} />
+      <PurchaseOrderForm
+        kind={own}
+        mode="view"
+        order={order}
+        options={options}
+        can={purchaseOrderAbilities(actor.permissions)}
+        extraTabs={
+          receipts.length || invoices.length
+            ? [{ key: "receipts", label: "Penerimaan & Tagihan", icon: "link", count: receipts.length + invoices.length, content: <PurchaseOrderReceipts receipts={receipts} invoices={invoices} /> }]
+            : []
+        }
+      />
       <RecordHistoryCard entityKey="pur_order" rowId={order.id} />
     </>
   );

@@ -22,6 +22,7 @@ import {
 import type { CnSource, CnSourceLine, CreditNoteHeaderInput, CreditNoteView } from "@/lib/erp/ar-credit-note";
 import { taxScale } from "@/lib/erp/sales-tax";
 import { formatDate, formatMoney, formatNumber, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * A Credit Note Penjualan in all three modes (P292, `Sales-Return-Plan.md` §6).
@@ -239,7 +240,7 @@ export function CreditNoteForm({
   );
 
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -420,7 +421,11 @@ export function CreditNoteForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang Dikredit", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+            ]}
+          />
         </div>
       </div>
     </>

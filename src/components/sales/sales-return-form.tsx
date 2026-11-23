@@ -25,6 +25,7 @@ import {
 } from "@/lib/erp/sales-return-workflow";
 import type { SalesReturnHeaderInput, SalesReturnOptions, SalesReturnView } from "@/lib/erp/sales-return";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
 
 /**
  * A Sales Return in all three modes: `new`, `edit` (Draft only) and `view`
@@ -46,12 +47,15 @@ const newKey = () => `l${Date.now().toString(36)}${seq++}`;
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 
 export function SalesReturnForm({
+  extraTabs,
   mode,
   ret,
   options,
   billing,
   can,
 }: {
+  /** Tabs the page composes from other modules (§3.1). */
+  extraTabs?: FormTab[];
   mode: SalesReturnMode;
   ret: SalesReturnView | null;
   options: SalesReturnOptions;
@@ -334,7 +338,7 @@ export function SalesReturnForm({
     </button>
   );
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -512,7 +516,12 @@ export function SalesReturnForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+              ...(extraTabs ?? []),
+            ]}
+          />
         </div>
       </div>
     </>

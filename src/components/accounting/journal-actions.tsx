@@ -119,7 +119,7 @@ export function JournalActions({
       ) : (
         <span className="lockchip">
           <Icon name="lock" size={13} />{" "}
-          {status === "Posted" ? "Terkunci setelah Post" : "Journal dibatalkan"}
+          {status === "Posted" ? "Journal diposting" : "Journal dibatalkan"}
         </span>
       )}
 

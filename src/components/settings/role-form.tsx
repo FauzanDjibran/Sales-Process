@@ -25,6 +25,7 @@ import {
 } from "@/lib/erp/permissions";
 import type { RoleRow } from "@/lib/erp/user-admin";
 import { firstError } from "./user-list";
+import { FormTabs } from "@/components/ui/form-tabs";
 
 export type RoleFormAbilities = {
   edit: boolean;
@@ -310,7 +311,18 @@ export function RoleForm({
           </FormRow>
         </FormSection>
         </FormBody>
+      </div>
 
+      <FormTabs
+        tabs={[
+          {
+            key: "permission",
+            label: "Permission",
+            icon: "lock",
+            count: codes.length,
+            bad: Boolean(errors._form),
+            content: (
+              <div className="card">
         <FormSection
           title="Permission"
           hint={`${codes.length} dari ${total} permission aktif · menu dan aksi adalah izin terpisah`}
@@ -407,7 +419,11 @@ export function RoleForm({
             );
           })}
         </FormSection>
-      </div>
+              </div>
+            ),
+          },
+        ]}
+      />
 
       <ConfirmDialog
         open={statusOpen}

@@ -32,6 +32,7 @@ import type { PermitAdvanceOptions, PermitAdvanceView } from "@/lib/erp/permit-a
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatPct, todayIso } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * Uang Muka Penjualan — the AR advance bill, in all three modes: `new`,
@@ -525,7 +526,7 @@ export function AdvanceForm({
       : undefined;
 
   const basisCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="calc" size={15} />
@@ -823,7 +824,11 @@ export function AdvanceForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {basisCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Dasar Uang Muka", icon: "calc", bad: tabHasError(errors, "amount_value", "description"), content: basisCard },
+            ]}
+          />
         </div>
       </div>
     </>

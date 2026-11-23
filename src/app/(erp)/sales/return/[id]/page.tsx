@@ -20,17 +20,20 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   // What came back is the Receipt Note module's to list; this page composes the two.
   const showReceipts = (ret.status === "Open" || ret.status === "Closed") && actor.permissions.has("RECEIPT_NOTE_VIEW");
   const receipts = showReceipts ? await salesReturnReceipts(ret.id) : [];
-  const anyLeft = ret.lines.some((l) => Number(l.qty) > l.received);
   return (
     <>
-      <SalesReturnForm mode="view" ret={ret} options={options} billing={billing} can={salesReturnAbilities(actor.permissions)} />
-      {showReceipts && (
-        <SalesReturnReceiptsCard
-          salesReturnId={ret.id}
-          receipts={receipts}
-          canCreate={ret.status === "Open" && anyLeft && actor.permissions.has("RECEIPT_NOTE_CREATE")}
-        />
-      )}
+      <SalesReturnForm
+        mode="view"
+        ret={ret}
+        options={options}
+        billing={billing}
+        can={salesReturnAbilities(actor.permissions)}
+        extraTabs={
+          showReceipts
+            ? [{ key: "receipts", label: "Penerimaan Gudang", icon: "box", count: receipts.length, content: <SalesReturnReceiptsCard receipts={receipts} /> }]
+            : []
+        }
+      />
       <RecordHistoryCard entityKey="sal_return" rowId={ret.id} />
     </>
   );

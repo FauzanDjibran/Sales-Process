@@ -22,7 +22,7 @@ export function PurchaseOrderReceipts({
   ];
   return (
     <div className="fgrid solo">
-      <div className="card" style={{ marginTop: 14 }}>
+      <div className="card">
         <div className="card-h">
           <span className="ci">
             <Icon name="box" size={15} />

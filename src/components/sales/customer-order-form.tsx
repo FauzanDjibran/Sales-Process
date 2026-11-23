@@ -31,6 +31,7 @@ import type {
 } from "@/lib/erp/customer-order";
 import { formatTaxId } from "@/lib/erp/partner-shape";
 import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
 
 /**
  * The Customer Order, in all three modes: `new` (also a Salin), `edit` (Draft
@@ -104,12 +105,15 @@ const emptyLine = (): LineState => ({
 });
 
 export function CustomerOrderForm({
+  extraTabs,
   mode,
   order,
   options,
   can,
   copyFrom,
 }: {
+  /** Tabs the page composes from other modules (§3.1). */
+  extraTabs?: FormTab[];
   mode: SoMode;
   order: CustomerOrderView | null;
   options: CustomerOrderOptions;
@@ -612,7 +616,7 @@ export function CustomerOrderForm({
   const lineErr = (i: number, f: string) => errors[`lines.${i}.${f}`];
 
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -982,7 +986,12 @@ export function CustomerOrderForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+              ...(extraTabs ?? []),
+            ]}
+          />
         </div>
       </div>
 

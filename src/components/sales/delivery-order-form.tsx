@@ -22,6 +22,7 @@ import {
 } from "@/lib/erp/delivery-order-workflow";
 import type { DeliveryOrderHeaderInput, DeliveryOrderOptions, DeliveryOrderView } from "@/lib/erp/delivery-order";
 import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
 
 /**
  * A Delivery Order in all three modes: `new`, `edit` (Draft only) and `view`
@@ -44,6 +45,7 @@ const newKey = () => `l${Date.now().toString(36)}${seq++}`;
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 
 export function DeliveryOrderForm({
+  extraTabs,
   mode,
   order,
   options,
@@ -51,6 +53,8 @@ export function DeliveryOrderForm({
   presetCustomerOrderId = null,
   presetSalesOrderId = null,
 }: {
+  /** Tabs the page composes from other modules (§3.1). */
+  extraTabs?: FormTab[];
   mode: DeliveryOrderMode;
   order: DeliveryOrderView | null;
   options: DeliveryOrderOptions;
@@ -353,7 +357,7 @@ export function DeliveryOrderForm({
     </button>
   );
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -538,7 +542,12 @@ export function DeliveryOrderForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+              ...(extraTabs ?? []),
+            ]}
+          />
         </div>
       </div>
     </>

@@ -17,6 +17,7 @@ import { advancePpnUsed, taxScale } from "@/lib/erp/sales-tax";
 import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, computePurchaseInvoice, type InvoiceAbilities } from "@/lib/erp/ap-invoice-workflow";
 import type { PiAdvance, PiReceiptLine, PurchaseInvoiceHeaderInput, PurchaseInvoiceOptions, PurchaseInvoiceView } from "@/lib/erp/ap-invoice";
 import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * An Invoice Pembelian in all three modes (P128, B28–B31): the Purchase Order
@@ -229,7 +230,7 @@ export function PurchaseInvoiceForm({
   );
 
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -309,7 +310,7 @@ export function PurchaseInvoiceForm({
   );
 
   const advancesCard = (order?.advances.length || deds.length) ? (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="wallet" size={15} />
@@ -511,9 +512,13 @@ export function PurchaseInvoiceForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
-          {advancesCard}
-          {figuresCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang Ditagih", icon: "box", count: lineIds.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+              advancesCard && { key: "advances", label: "Uang Muka", icon: "wallet", count: deds.length, bad: tabHasError(errors, "_deductions", "deductions."), content: advancesCard },
+            ]}
+            foot={figuresCard}
+          />
         </div>
       </div>
       {picker && order && (

@@ -5,13 +5,13 @@ import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { ExpandAll } from "@/components/ui/expand-all";
 import { Drill } from "./drill";
-import { formatMoney, formatPercent } from "@/lib/format";
+import { formatPercent, formatReport } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "@/lib/erp/currency";
 import { reportHref } from "@/lib/erp/reports";
 import type { StatementColumn } from "@/lib/erp/statements";
 import type { StatementRow } from "@/lib/erp/statement-layout";
 
-const money = (n: number) => formatMoney(n, BASE_CURRENCY_LABEL);
+const money = (n: number) => formatReport(n, BASE_CURRENCY_LABEL);
 
 /**
  * A financial statement — the multi-step Laba Rugi or the Neraca.
@@ -306,19 +306,8 @@ export const ROW_CLASS: Record<StatementRow["kind"], string> = {
   subtotal: "totrow st-res",
 };
 
-export function Figure({
-  value,
-  strong,
-  zero,
-}: {
-  value: number;
-  strong?: boolean;
-  /** Print nil as a muted `Rp 0` rather than a dash — the Trial Balance's. */
-  zero?: boolean;
-}) {
-  if (Math.round(value * 100) === 0) {
-    return zero ? <span className="mny z">{money(0)}</span> : <span className="dash">–</span>;
-  }
+export function Figure({ value, strong }: { value: number; strong?: boolean }) {
+  if (Math.round(value * 100) === 0) return <span className="dash">—</span>;
   const text = money(value);
   return <span className={`mny${value < 0 ? " neg" : ""}`}>{strong ? <b>{text}</b> : text}</span>;
 }
@@ -335,7 +324,7 @@ function Difference({ current, base }: { current: number; base: number }) {
         {pct && change !== 0 ? (
           <span className={`mny${change < 0 ? " neg" : ""}`}>{pct}</span>
         ) : (
-          <span className="dash">–</span>
+          <span className="dash">—</span>
         )}
       </td>
     </>

@@ -13,20 +13,14 @@ const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
  * state — how far it is scheduled — not another document's figures.
  */
 export function CustomerOrderScheduleCard({
-  customerOrderId,
   schedule,
-  canCreate,
   open,
 }: {
-  customerOrderId: number;
   schedule: CustomerOrderSchedule;
-  /** May this user make a Sales Order, and is the Customer Order Open? */
-  canCreate: boolean;
   open: boolean;
 }) {
-  const anyLeft = schedule.lines.some((l) => l.qty - l.held > 0);
   return (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="cal" size={15} />
@@ -35,11 +29,6 @@ export function CustomerOrderScheduleCard({
           <h3>Jadwal Sales Order</h3>
           <p>Bagian Customer Order yang sudah dilepas ke PPIC. Sales Order yang dibatalkan atau ditolak tidak dihitung.</p>
         </div>
-        {canCreate && open && anyLeft && (
-          <Link className="btn sm primary" href={`/sales/order/new?co=${customerOrderId}`}>
-            <Icon name="plus" size={14} /> Sales Order Baru
-          </Link>
-        )}
       </div>
       <div className="tw">
         <table className="grid ltab" style={{ minWidth: 700 }}>

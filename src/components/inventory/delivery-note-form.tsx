@@ -29,6 +29,7 @@ import type {
   DnSourceLine,
 } from "@/lib/erp/delivery-note";
 import { formatDate, formatNumber, formatPrice, todayIso } from "@/lib/format";
+import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 
 /**
  * A Delivery Note in all three modes: `new`, `edit` (Draft only) and `view`
@@ -395,7 +396,7 @@ export function DeliveryNoteForm({
 
   const columns = 4 + (draft ? 1 : 0) + 1 + (posted ? 2 : 0) + (billed ? 1 : 0) + (editing ? 1 : 0);
   const linesCard = (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="box" size={15} />
@@ -646,7 +647,11 @@ export function DeliveryNoteForm({
       <div className="fgrid solo">
         <div>
           {headerCard}
-          {linesCard}
+          <FormTabs
+            tabs={[
+              { key: "lines", label: "Barang", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+            ]}
+          />
         </div>
       </div>
     </>

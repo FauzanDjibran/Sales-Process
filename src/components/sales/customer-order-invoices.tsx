@@ -9,16 +9,12 @@ import { formatDate } from "@/lib/format";
  * closed order is still billed for what it sent (U21).
  */
 export function CustomerOrderInvoicesCard({
-  customerOrderId,
   invoices,
-  canCreate,
 }: {
-  customerOrderId: number;
   invoices: { id: number; invoiceNo: string; invoiceDate: string; status: InvoiceStatus }[];
-  canCreate: boolean;
 }) {
   return (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="file" size={15} />
@@ -27,11 +23,6 @@ export function CustomerOrderInvoicesCard({
           <h3>Invoice Penjualan</h3>
           <p>Tagihan atas barang Customer Order ini yang sudah dikirim.</p>
         </div>
-        {canCreate && (
-          <Link className="btn sm primary" href={`/finance/invoice/sales/new?co=${customerOrderId}`}>
-            <Icon name="plus" size={14} /> Invoice Baru
-          </Link>
-        )}
       </div>
       {invoices.length ? (
         <div className="tw">

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
 import { Pager, usePaging } from "@/components/ui/pager";
+import { Select } from "@/components/ui/select";
 import { SearchField } from "@/components/ui/search-field";
 import { formatDate, formatNumber } from "@/lib/format";
 import type { StockTransferListRow } from "@/lib/erp/stock-transfer";
@@ -23,8 +24,8 @@ const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
 type Row = { id: number; no: string; date: string; status: string; fromLabel: string; fromName: string; toLabel: string; toName: string; lines: number; qty: number; extra?: React.ReactNode };
 
 /**
- * The registers of Transfer Kirim and Transfer Terima (P300): status tabs with
- * their counts, then the documents newest first. The rows are already narrowed
+ * The registers of Transfer Kirim and Transfer Terima (P300): a status filter,
+ * then the documents newest first. The rows are already narrowed
  * to the user's warehouses in the database (OD-9).
  */
 function TransferRegister({
@@ -32,7 +33,7 @@ function TransferRegister({
   icon,
   slug,
   sub,
-  tabs,
+  statuses,
   rows: all,
   badge,
   text,
@@ -45,7 +46,7 @@ function TransferRegister({
   icon: "send" | "down";
   slug: string;
   sub: string;
-  tabs: [string, string][];
+  statuses: string[];
   rows: Row[];
   badge: Record<string, string>;
   text: Record<string, string>;
@@ -56,7 +57,7 @@ function TransferRegister({
 }) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState(all.some((r) => r.status === tabs[0][0]) ? tabs[0][0] : "");
+  const [status, setStatus] = useState("");
   const q = query.trim().toLowerCase();
   const rows = useMemo(
     () =>
@@ -96,16 +97,15 @@ function TransferRegister({
       </div>
 
       <div className="card">
-        <div className="qtabs" role="tablist">
-          {tabs.map(([value, label]) => (
-            <button key={value || "all"} type="button" role="tab" aria-selected={status === value} className={status === value ? "act" : ""} onClick={() => setStatus(value)}>
-              {label}
-              <span className="n">{value ? all.filter((o) => o.status === value).length : all.length}</span>
-            </button>
-          ))}
-        </div>
         <div className="toolbar">
           <SearchField value={query} onChange={setQuery} placeholder="Cari nomor atau gudang…" />
+          <Select
+            variant="toolbar"
+            value={status}
+            set={Boolean(status)}
+            options={[{ value: "", label: "Status: semua" }, ...statuses.map((v) => ({ value: v, label: text[v] }))]}
+            onChange={setStatus}
+          />
           <span className="tspace" />
           <span className="count">
             <b>{rows.length}</b> dokumen
@@ -173,7 +173,7 @@ function TransferRegister({
               <Icon name={icon} size={20} />
             </div>
             <h4>{q || status ? "Tidak ada yang cocok" : `Belum ada ${title}`}</h4>
-            <p>{q || status ? "Tidak ada dokumen yang sesuai dengan pencarian atau tab ini." : empty}</p>
+            <p>{q || status ? "Tidak ada dokumen yang sesuai dengan pencarian atau filter ini." : empty}</p>
           </div>
         )}
       </div>
@@ -182,20 +182,14 @@ function TransferRegister({
 }
 
 export function StockTransferList({ transfers, canCreate }: { transfers: StockTransferListRow[]; canCreate: boolean }) {
-  const tabs: [StockTransferStatus | "", string][] = [
-    ["Draft", "Draft"],
-    ["InTransit", "Dalam Perjalanan"],
-    ["Received", "Diterima"],
-    ["Cancelled", "Dibatalkan"],
-    ["", "Semua"],
-  ];
+  const statuses: StockTransferStatus[] = ["Draft", "InTransit", "Received", "Cancelled"];
   return (
     <TransferRegister
       title="Transfer Kirim"
       icon="send"
       slug="stock-transfer"
       sub="Stok dikirim dari satu gudang ke gudang lain lewat Gudang Transit, per lot. Tanpa journal; harga pokok rata-rata tidak berubah. Tampil kiriman dari dan ke gudang Anda."
-      tabs={tabs}
+      statuses={statuses}
       rows={transfers.map((t) => ({ id: t.id, no: t.transferNo, date: t.transferDate, status: t.status, fromLabel: t.fromLabel, fromName: t.fromName, toLabel: t.toLabel, toName: t.toName, lines: t.lines, qty: t.qty }))}
       badge={STOCK_TRANSFER_STATUS_BADGE}
       text={STOCK_TRANSFER_STATUS_TEXT}
@@ -207,19 +201,14 @@ export function StockTransferList({ transfers, canCreate }: { transfers: StockTr
 }
 
 export function TransferReceiptList({ receipts, canCreate }: { receipts: TransferReceiptListRow[]; canCreate: boolean }) {
-  const tabs: [StockTransferReceiptStatus | "", string][] = [
-    ["Draft", "Draft"],
-    ["Posted", "Diterima"],
-    ["Cancelled", "Dibatalkan"],
-    ["", "Semua"],
-  ];
+  const statuses: StockTransferReceiptStatus[] = ["Draft", "Posted", "Cancelled"];
   return (
     <TransferRegister
       title="Transfer Terima"
       icon="down"
       slug="stock-transfer-receipt"
       sub="Gudang tujuan menerima Transfer Kirim dari Gudang Transit, boleh bertahap, ke lokasi yang dipilih. Tampil penerimaan ke gudang Anda."
-      tabs={tabs}
+      statuses={statuses}
       rows={receipts.map((r) => ({
         id: r.id,
         no: r.receiptNo,

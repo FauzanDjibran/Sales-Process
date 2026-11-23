@@ -37,7 +37,7 @@ in **Note** to stay on an older version on purpose.
 | sales/order-to-cash | 3.0 | core | — | Reference implementation: Sales-Process-Concept.md; P93–P99, P107, P112, P117, P137–P143 harvested |
 | inventory/stock-books | 1.0 | core | — | P95, P114, P120, P135, P136 |
 | purchasing/procure-to-pay | 1.0 | core | — | Reference implementation: Purchasing-Concept.md; P121–P129 |
-| ui/design-convention | 1.1 | form-layout=header-tabs | knowledge/design-convention.md | P3, P38 |
+| ui/design-convention | 2.0 | form-layout=header-tabs | knowledge/design-convention.md | P3, P38; 2.0 is P308 |
 | ui/benchmark-study | 1.0 | reference | knowledge/Core_UI_Reference.md | |
 
 ## Local exceptions

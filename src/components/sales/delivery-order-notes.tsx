@@ -13,20 +13,14 @@ const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
  * far it is shipped — not another document's figures.
  */
 export function DeliveryOrderNotesCard({
-  deliveryOrderId,
   deliveries,
-  canCreate,
   open,
 }: {
-  deliveryOrderId: number;
   deliveries: DeliveryOrderNotes;
-  /** May this user make a Delivery Note, and is the Delivery Order issued? */
-  canCreate: boolean;
   open: boolean;
 }) {
-  const anyLeft = deliveries.lines.some((l) => l.qty - l.held > 0);
   return (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="truck" size={15} />
@@ -35,11 +29,6 @@ export function DeliveryOrderNotesCard({
           <h3>Pengiriman</h3>
           <p>Barang yang sudah keluar dengan Delivery Note, atau disiapkan oleh Delivery Note Draft. Yang dibatalkan tidak dihitung.</p>
         </div>
-        {canCreate && open && anyLeft && (
-          <Link className="btn sm primary" href={`/inventory/delivery-note/new?do=${deliveryOrderId}`}>
-            <Icon name="plus" size={14} /> Delivery Note Baru
-          </Link>
-        )}
       </div>
       <div className="tw">
         <table className="grid ltab" style={{ minWidth: 700 }}>

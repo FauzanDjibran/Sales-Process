@@ -41,7 +41,7 @@ export function FiscalPeriods({
   can: FiscalPeriodAbilities;
 }) {
   return (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci t-info">
           <Icon name="clock" size={15} />

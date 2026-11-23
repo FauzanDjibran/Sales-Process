@@ -13,20 +13,14 @@ const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
  * Order's own state — how far it is instructed — not another document's figures.
  */
 export function SalesOrderDeliveriesCard({
-  salesOrderId,
   deliveries,
-  canCreate,
   open,
 }: {
-  salesOrderId: number;
   deliveries: SalesOrderDeliveries;
-  /** May this user make a Delivery Order, and is the Sales Order Open? */
-  canCreate: boolean;
   open: boolean;
 }) {
-  const anyLeft = deliveries.lines.some((l) => l.qty - l.held > 0);
   return (
-    <div className="card" style={{ marginTop: 14 }}>
+    <div className="card">
       <div className="card-h">
         <span className="ci">
           <Icon name="truck" size={15} />
@@ -38,11 +32,6 @@ export function SalesOrderDeliveriesCard({
             yang dibatalkan tidak dihitung; yang ditutup hanya menghitung yang sudah terkirim.
           </p>
         </div>
-        {canCreate && open && anyLeft && (
-          <Link className="btn sm primary" href={`/sales/delivery-order/new?so=${salesOrderId}`}>
-            <Icon name="plus" size={14} /> Delivery Order Baru
-          </Link>
-        )}
       </div>
       <div className="tw">
         <table className="grid ltab" style={{ minWidth: 830 }}>

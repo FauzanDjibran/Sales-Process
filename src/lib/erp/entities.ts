@@ -2008,7 +2008,7 @@ export const STATUS_TEXT: Record<string, string> = {
   Open: "Open",
   Draft: "Draft",
   Closed: "Closed",
-  Posted: "Posted",
+  Posted: "Diposting",
   Cancelled: "Dibatalkan",
   true: "Aktif",
   false: "Non Aktif",

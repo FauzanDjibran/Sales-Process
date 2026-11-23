@@ -4,7 +4,7 @@ import { formatDate, formatMoney } from "@/lib/format";
 
 export type CostBillPaymentLink = { id: number; txNo: string; date: string; status: string; settled: number };
 
-const STATUS: Record<string, string> = { Draft: "Draft", Posted: "Posted" };
+const STATUS: Record<string, string> = { Draft: "Draft", Posted: "Diposting" };
 
 /**
  * The Pengeluaran that pay a posted Tagihan Biaya. The bill is
