@@ -929,6 +929,26 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
+    name: "production's value is what came in from stock and the Unit rates, less what went back to stock and the beban of gradings and Pengerjaan (P305)",
+    sql: `SELECT held, issued, cost, released, scrap FROM (
+            SELECT (SELECT COALESCE(SUM(value_balance), 0) FROM prd_balance) AS held,
+                   (SELECT COALESCE(SUM(value_change), 0) FROM prd_ledger WHERE movement = 'Issued') AS issued,
+                   (SELECT COALESCE(SUM(amount), 0) FROM prd_cost_entry) AS cost,
+                   (SELECT COALESCE(-SUM(value_change), 0) FROM prd_ledger WHERE movement = 'Released') AS released,
+                   (SELECT COALESCE(SUM(scrap_amount), 0) FROM prd_grading WHERE status = 'Posted')
+                     + (SELECT COALESCE(SUM(scrap_amount), 0) FROM prd_work WHERE status = 'Posted') AS scrap) x
+          WHERE held <> issued + cost - released - scrap`,
+  },
+  {
+    area: "production",
+    name: "a move between Units or stages keeps quantity and value: each document's transfer rows net to nothing (P305)",
+    sql: `SELECT source_no, SUM(qty_change) AS qty, SUM(value_change) AS value FROM prd_ledger
+          WHERE movement IN ('TransferOut', 'TransferIn')
+          GROUP BY source_doc_type_id, source_doc_id, source_no
+          HAVING SUM(qty_change) <> 0 OR SUM(value_change) <> 0`,
+  },
+  {
+    area: "production",
     name: "each production bucket equals its ledger rows, quantity and value (R3)",
     sql: `SELECT b.id, b.qty_balance, b.value_balance, COALESCE(SUM(l.qty_change), 0) AS qty, COALESCE(SUM(l.value_change), 0) AS value
           FROM prd_balance b LEFT JOIN prd_ledger l ON l.bucket_id = b.id

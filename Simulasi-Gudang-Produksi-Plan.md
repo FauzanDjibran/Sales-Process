@@ -1,6 +1,6 @@
 # Rencana implementasi: PO → Gudang → Produksi → Gudang di aplikasi
 
-> Status: **dijalankan (P280).** Usulan §5 dipakai sebagai asumsi kerja sampai user mengoreksi. 7.0–7.6 selesai (P280–P284, P303, P304); berikutnya 7.7 Laporan dan cek. Yang disimulasikan nanti adalah
+> Status: **dijalankan (P280).** Usulan §5 dipakai sebagai asumsi kerja sampai user mengoreksi. 7.0–7.7 selesai (P280–P284, P303–P305); berikutnya 7.8 Simulasi aplikasi. Yang disimulasikan nanti adalah
 > **aplikasi** (lokal dan Neon), bukan artifact. Artifact *Workspace Unit
 > Produksi* (<https://claude.ai/artifact/TR9atVSRmuRUyh9nn9hHU7>, versi 21)
 > menjadi **spesifikasi perilaku**: yang ada di sana dibangun persis, yang belum
@@ -45,7 +45,7 @@ Finish Goods).
 | 8 | BSTB ke Finish Goods dari UP5 ke Gudang Finish Goods | Ada (P303) | **Hanya teks**; UP5 di artifact mengirim ke UP8 | 7.5, keputusan §5 |
 | 9 | BSTB Pengeluaran ke Gudang, pilihan nilai | Ada (P304: Nilai terbawa / Tanpa nilai, tanpa Draft) | Ada form; Terima Gudang di artifact hanya menolkan barang | 7.6, keputusan §5 |
 | 10 | Data master untuk menjalankan alur | Unit, Routing, Line ada (seed); Item produksi, Nama Jual, BoM, Standard Cost, dua Gudang **belum** | Data contoh | 7.0 |
-| 11 | Laporan dan cek | Saldo Produksi, Kartu No. Stok, Telusur, `db:reconcile` | — | Menyesuaikan tahap QC baru dan dokumen baru, 7.7 |
+| 11 | Laporan dan cek | Saldo Produksi, Kartu No. Stok, Telusur per tahap tanpa harga, `db:reconcile` dengan neraca nilai produksi (P305) | — | Menyesuaikan tahap QC baru dan dokumen baru, 7.7 |
 
 Reproses (6.7) **tidak** dibutuhkan alur utama dan tidak masuk rencana ini.
 

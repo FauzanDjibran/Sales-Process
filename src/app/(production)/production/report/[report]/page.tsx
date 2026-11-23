@@ -40,7 +40,7 @@ export default async function Page({
   if (report.key === "wip_balance") {
     const [blocks, reconciles] = await Promise.all([wipBalanceReport(asOf, stationIds), productionBooksReconcile()]);
     return (
-      <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Saldo per {formatDate(asOf)} dari buku produksi; jumlah dalam satuan dasar barang, nilai dalam rupiah utuh.</>}>
+      <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Saldo per {formatDate(asOf)} dari buku produksi; jumlah dalam satuan dasar barang, per tahap di unit.</>}>
         <WipBalanceBody blocks={blocks} asOf={asOf} />
         <ProductionMismatch show={!reconciles} />
       </ReportView>
@@ -56,7 +56,7 @@ export default async function Page({
   if (report.key === "trace") {
     const trace = await traceReport(text);
     return (
-      <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Dibaca dari silsilah No. Stok; jumlah dan nilai tiap langkah dari buku produksi.</>}>
+      <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Dibaca dari silsilah No. Stok; jumlah tiap langkah dari buku produksi.</>}>
         {trace ? <TraceBody report={trace} /> : <ReportNeedsSubject icon="tree" title="No. Stok tidak ditemukan" body={`Tidak ada No. Stok ${text}.`} />}
       </ReportView>
     );

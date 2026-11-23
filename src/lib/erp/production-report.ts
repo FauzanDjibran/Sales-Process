@@ -26,6 +26,15 @@ export async function stationOptions(): Promise<RefOption[]> {
   return rows.map((w) => ({ id: w.id, label: w.unit_label, name: w.unit_name, active: w.status === "Active" }));
 }
 
+/** Where goods wait inside a Unit (T4, P281), as the Workspace names it. */
+const PROCESS_TEXT: Record<string, string> = { Grading: "Grading", JobOrder: "Job Order", Assign: "Assign", Kerja: "Kerja", Assembly: "Assembly" };
+export function stageText(stage: string, process: string | null | undefined): string {
+  if (stage === "Preparation") return process ? `Persiapan ${PROCESS_TEXT[process] ?? process}` : "Persiapan";
+  if (stage === "Working") return process ? `Sedang Dikerjakan ${PROCESS_TEXT[process] ?? process}` : "Sedang Dikerjakan";
+  return { QcCheck: "QC Check", StandBy: "Stand By", InTransit: "Dalam Perjalanan" }[stage] ?? stage;
+}
+const STAGE_ORDER = ["Preparation", "Working", "QcCheck", "StandBy", "InTransit"];
+
 // ----------------------------------------------------------- Saldo Produksi
 
 export type WipRow = {
@@ -33,6 +42,9 @@ export type WipRow = {
   itemLabel: string;
   itemName: string;
   lotNo: string;
+  /** Persiapan <proses>, Sedang Dikerjakan, QC Check, Stand By, Dalam Perjalanan (P305). */
+  stage: string;
+  jobNo: string | null;
   uom: string;
   qty: number;
   value: number;
@@ -58,9 +70,12 @@ export async function wipBalanceReport(asOf: string, unitIds: number[]): Promise
       tracking: { select: { tracking_no: true } },
       item: { select: { item_label: true, item_name: true, base_uom: { select: { uom_label: true } } } },
       unit: { select: { unit_label: true, unit_name: true } },
+      step: { select: { process: true } },
+      job: { select: { job_no: true } },
     },
   });
   const blocks = new Map<number, WipBlock>();
+  const order = new Map<number, number>();
   for (const b of buckets) {
     const p = at.get(b.id)!;
     const qty = num(p.qty_balance);
@@ -71,15 +86,19 @@ export async function wipBalanceReport(asOf: string, unitIds: number[]): Promise
       itemLabel: b.item.item_label,
       itemName: b.item.item_name,
       lotNo: b.tracking.tracking_no,
+      stage: stageText(b.stage, b.step?.process),
+      jobNo: b.job?.job_no ?? null,
       uom: b.item.base_uom.uom_label,
       qty,
       value,
       unitCost: qty > 0 ? round6(value / qty) : 0,
     });
+    order.set(b.id, STAGE_ORDER.indexOf(b.stage));
     block.value += value;
     blocks.set(b.unit_id, block);
   }
-  for (const block of blocks.values()) block.rows.sort((a, b) => a.itemLabel.localeCompare(b.itemLabel) || a.lotNo.localeCompare(b.lotNo));
+  // In the order goods pass through a Unit, then by item and No. Stok.
+  for (const block of blocks.values()) block.rows.sort((a, b) => (order.get(a.bucketId)! - order.get(b.bucketId)!) || a.stage.localeCompare(b.stage) || a.itemLabel.localeCompare(b.itemLabel) || a.lotNo.localeCompare(b.lotNo));
   return [...blocks.values()].sort((a, b) => a.stationLabel.localeCompare(b.stationLabel));
 }
 
@@ -100,6 +119,7 @@ export type LotMovement = {
   sourceNo: string;
   movement: string;
   stationLabel: string;
+  stage: string;
   qtyChange: number;
   qtyBalance: number;
   valueChange: number;
@@ -149,6 +169,7 @@ export async function lotCardReport(lotNo: string): Promise<LotCard[]> {
         prisma.prdLedger.findMany({ where: { tracking_id: lot.id }, orderBy: [{ posting_date: "asc" }, { id: "asc" }], include: { unit: { select: { unit_label: true } } } }),
         lotStockHistory(lot.id),
       ]);
+      const steps = new Map((await prisma.refUnitStep.findMany({ where: { id: { in: rows.flatMap((r) => (r.unit_step_id ? [r.unit_step_id] : [])) } }, select: { id: true, process: true } })).map((x) => [x.id, x.process]));
       return {
         lotId: lot.id,
         lotNo: lot.tracking_no,
@@ -164,6 +185,7 @@ export async function lotCardReport(lotNo: string): Promise<LotCard[]> {
           sourceNo: r.source_no,
           movement: r.movement,
           stationLabel: r.unit.unit_label,
+          stage: stageText(r.stage, r.unit_step_id ? steps.get(r.unit_step_id) : null),
           qtyChange: num(r.qty_change),
           qtyBalance: num(r.qty_balance),
           valueChange: num(r.value_change),
@@ -192,7 +214,7 @@ export type TraceNode = {
   /** Where the lot was registered and from whom, for a lot no execution made. */
   origin: { sourceNo: string; supplier: string | null } | null;
   /** Where it is now: at a unit, in stock, delivered. Shown for the start and the forward lots. */
-  now: { production: { stationLabel: string; qty: number }[]; stock: { where: string; qty: number }[]; delivered: { noteNo: string; date: string; to: string; qty: number }[] } | null;
+  now: { production: { stationLabel: string; stage: string; qty: number }[]; stock: { where: string; qty: number }[]; delivered: { noteNo: string; date: string; to: string; qty: number }[] } | null;
 };
 
 export type TraceReport = { start: TraceNode[]; backward: TraceNode[]; forward: TraceNode[]; truncated: boolean };
@@ -260,7 +282,7 @@ export async function traceReport(lotNo: string): Promise<TraceReport | null> {
   const made = new Set((await prisma.prdTrackingLink.findMany({ where: { to_tracking_id: { in: allIds } }, distinct: ["to_tracking_id"], select: { to_tracking_id: true } })).map((x) => x.to_tracking_id));
   const nowIds = [...new Set([...startIds, ...fwd.order])];
   const [held, stock, delivered] = await Promise.all([
-    prisma.prdBalance.findMany({ where: { tracking_id: { in: nowIds }, qty_balance: { gt: 0 } }, include: { unit: { select: { unit_label: true } } } }),
+    prisma.prdBalance.findMany({ where: { tracking_id: { in: nowIds }, qty_balance: { gt: 0 } }, include: { unit: { select: { unit_label: true } }, step: { select: { process: true } } } }),
     lotStockPositions(nowIds),
     deliveriesOfLots(nowIds),
   ]);
@@ -279,7 +301,7 @@ export async function traceReport(lotNo: string): Promise<TraceReport | null> {
         dir === "back"
           ? null
           : {
-              production: held.filter((h) => h.tracking_id === id).map((h) => ({ stationLabel: h.unit.unit_label, qty: num(h.qty_balance) })),
+              production: held.filter((h) => h.tracking_id === id).map((h) => ({ stationLabel: h.unit.unit_label, stage: stageText(h.stage, h.step?.process), qty: num(h.qty_balance) })),
               stock: stock.filter((s) => s.lotId === id).map((s) => ({ where: s.locationLabel ? `${s.warehouseLabel} · ${s.locationLabel}` : s.warehouseLabel, qty: s.qty })),
               delivered: delivered.filter((d) => d.lotId === id).map((d) => ({ noteNo: d.noteNo, date: d.date, to: `${d.partnerLabel} · ${d.partnerName}`, qty: d.baseQty })),
             },

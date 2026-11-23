@@ -2,13 +2,15 @@ import Link from "next/link";
 import { Icon } from "@/components/icon";
 import { MOVEMENT_LABEL, type LotCard, type TraceNode, type TraceReport, type WipBlock } from "@/lib/erp/production-report";
 import { reportHref } from "@/lib/erp/reports";
-import { formatDate, formatMoney, formatNumber, formatPrice } from "@/lib/format";
+import { formatDate, formatNumber } from "@/lib/format";
 
 const qty = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
-const money = (n: number) => formatMoney(n, "IDR");
 
-/** A figure that is nothing reads as a dash, like the other reports. */
-const dash = <span className="dash">—</span>;
+/*
+ * These reports live in the Produksi application, whose screens show no
+ * prices (P275): quantities, stages and identities only. The values stay in
+ * the books, which the ERP reads.
+ */
 
 const lotHref = (lotNo: string) => reportHref("lot-card", { q: lotNo });
 
@@ -25,7 +27,7 @@ export function ProductionMismatch({ show }: { show: boolean }) {
   );
 }
 
-/** Saldo Produksi: a block per unit, a row per bucket (R18). */
+/** Saldo Produksi: a block per unit, a row per bucket in the order it passes through the Unit (R18, P305). */
 export function WipBalanceBody({ blocks, asOf }: { blocks: WipBlock[]; asOf: string }) {
   if (!blocks.length) {
     return (
@@ -38,7 +40,6 @@ export function WipBalanceBody({ blocks, asOf }: { blocks: WipBlock[]; asOf: str
       </div>
     );
   }
-  const total = blocks.reduce((s, b) => s + b.value, 0);
   return (
     <>
       {blocks.map((b) => (
@@ -51,44 +52,41 @@ export function WipBalanceBody({ blocks, asOf }: { blocks: WipBlock[]; asOf: str
               <h3>
                 <span className="lab">{b.stationLabel}</span> {b.stationName}
               </h3>
-              <p>{b.rows.length} No. Stok</p>
+              <p>{b.rows.length} baris</p>
             </div>
-            <span className="mny">{money(b.value)}</span>
           </div>
           <div className="tw">
             <table className="grid" style={{ minWidth: 760 }}>
               <thead>
                 <tr>
-                  <th>Barang</th>
+                  <th style={{ width: 190 }}>Tahap</th>
+                  <th style={{ width: 190 }}>No. Job</th>
                   <th style={{ width: 200 }}>No. Stok</th>
+                  <th>Barang</th>
                   <th className="num" style={{ width: 130 }}>Qty</th>
-                  <th className="num" style={{ width: 150 }}>Nilai</th>
-                  <th className="num" style={{ width: 130 }}>Per Unit</th>
                 </tr>
               </thead>
               <tbody>
                 {b.rows.map((r) => (
                   <tr key={r.bucketId}>
+                    <td>{r.stage}</td>
+                    <td>{r.jobNo ? <span className="mono">{r.jobNo}</span> : <span className="dash">—</span>}</td>
+                    <td>
+                      <Link className="mono" href={lotHref(r.lotNo)}>
+                        {r.lotNo}
+                      </Link>
+                    </td>
                     <td>
                       <span className="idc">
                         <span className="lab">{r.itemLabel}</span>
                         <span className="nm">{r.itemName}</span>
                       </span>
                     </td>
-                    <td>
-                      <Link className="mono" href={lotHref(r.lotNo)}>
-                        {r.lotNo}
-                      </Link>
-                    </td>
                     <td className="num">
                       <span className="mny">
                         {qty(r.qty)} {r.uom}
                       </span>
                     </td>
-                    <td className="num">
-                      <span className="mny">{money(r.value)}</span>
-                    </td>
-                    <td className="num">{r.value ? <span className="mny">{formatPrice(r.unitCost)}</span> : dash}</td>
                   </tr>
                 ))}
               </tbody>
@@ -96,15 +94,6 @@ export function WipBalanceBody({ blocks, asOf }: { blocks: WipBlock[]; asOf: str
           </div>
         </div>
       ))}
-      <div className="card" style={{ marginTop: 14 }}>
-        <div className="card-h">
-          <div className="ct">
-            <h3>Total WIP</h3>
-            <p>Nilai seluruh barang di produksi pada {formatDate(asOf)}.</p>
-          </div>
-          <span className="mny">{money(total)}</span>
-        </div>
-      </div>
     </>
   );
 }
@@ -140,7 +129,7 @@ export function LotCardBody({ cards }: { cards: LotCard[] }) {
             <div className="card-h">
               <div className="ct">
                 <h3>Di Produksi</h3>
-                <p>Setiap mutasi buku produksi atas No. Stok ini, dengan saldo dan nilainya setelah itu, per unit.</p>
+                <p>Setiap mutasi buku produksi atas No. Stok ini, per unit dan tahap, dengan saldonya setelah itu.</p>
               </div>
             </div>
             {card.inProduction.length ? (
@@ -152,11 +141,10 @@ export function LotCardBody({ cards }: { cards: LotCard[] }) {
                       <th style={{ width: 150 }}>No. Mutasi</th>
                       <th style={{ width: 170 }}>Dokumen</th>
                       <th style={{ width: 140 }}>Mutasi</th>
-                      <th>Unit</th>
+                      <th style={{ width: 90 }}>Unit</th>
+                      <th>Tahap</th>
                       <th className="num" style={{ width: 110 }}>Qty</th>
                       <th className="num" style={{ width: 110 }}>Saldo</th>
-                      <th className="num" style={{ width: 140 }}>Nilai</th>
-                      <th className="num" style={{ width: 150 }}>Saldo Nilai</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -173,18 +161,14 @@ export function LotCardBody({ cards }: { cards: LotCard[] }) {
                         <td>
                           <span className="lab">{m.stationLabel}</span>
                         </td>
+                        <td>{m.stage}</td>
                         <td className="num">
                           <span className="mny">{qty(m.qtyChange)}</span>
                         </td>
                         <td className="num">
                           <span className="mny">{qty(m.qtyBalance)}</span>
                         </td>
-                        <td className="num">
-                          <span className="mny">{money(m.valueChange)}</span>
-                        </td>
-                        <td className="num">
-                          <span className="mny">{money(m.valueBalance)}</span>
-                        </td>
+
                       </tr>
                     ))}
                   </tbody>
@@ -214,7 +198,6 @@ export function LotCardBody({ cards }: { cards: LotCard[] }) {
                       <th style={{ width: 190 }}>Dokumen</th>
                       <th>Gudang</th>
                       <th className="num" style={{ width: 120 }}>Qty</th>
-                      <th className="num" style={{ width: 150 }}>Nilai</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -234,9 +217,7 @@ export function LotCardBody({ cards }: { cards: LotCard[] }) {
                         <td className="num">
                           <span className="mny">{qty(m.qtyChange)}</span>
                         </td>
-                        <td className="num">
-                          <span className="mny">{money(m.value)}</span>
-                        </td>
+
                       </tr>
                     ))}
                   </tbody>
@@ -297,7 +278,7 @@ function TraceTable({ title, lead, nodes, dir }: { title: string; lead: string; 
                       <span className="dstack" style={{ gap: 2 }}>
                         {n.via.map((e) => (
                           <span key={e.sourceNo} className="d2">
-                            <span className="mono">{e.sourceNo}</span> · {e.stationLabel} · {qty(e.qty)} {dir === "back" ? n.uom : ""} · {money(e.value)}
+                            <span className="mono">{e.sourceNo}</span> · {e.stationLabel} · {qty(e.qty)} {dir === "back" ? n.uom : ""}
                           </span>
                         ))}
                       </span>
@@ -313,7 +294,7 @@ function TraceTable({ title, lead, nodes, dir }: { title: string; lead: string; 
                       )}
                       {n.now?.production.map((p, i) => (
                         <span key={`p${i}`} className="d2">
-                          Produksi · {p.stationLabel} · {qty(p.qty)} {n.uom}
+                          Produksi · {p.stationLabel} · {p.stage} · {qty(p.qty)} {n.uom}
                         </span>
                       ))}
                       {n.now?.stock.map((s, i) => (
