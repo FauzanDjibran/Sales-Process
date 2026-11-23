@@ -38,7 +38,7 @@ export function DbViewer({ schema, map }: { schema: DbSchema; map: DbMap }) {
   const [depth, setDepth] = useState(1);
   const [shut, setShut] = useState<ReadonlySet<number>>(new Set());
   const [sel, setSel] = useState<number | null>(null);
-  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  const [hidden, setHidden] = useState<ReadonlySet<number>>(new Set());
   const [reveal, setReveal] = useState<{ i: number } | null>(null);
   /** How many targets were chosen here, so the panel knows it can go back. */
   const [steps, setSteps] = useState(0);

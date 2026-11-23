@@ -30,7 +30,7 @@ for (const [model, body] of bodies) {
   schema.tables.push({ name, cols, pk: ["id"], rules: [] });
 }
 const model = buildModel(schema, map);
-const options = { depth: 1, read: false, hub: false, hidden: new Set<string>() };
+const options = { depth: 1, read: false, hub: false, hidden: new Set<number>() };
 
 describe("the traced map is current (npm run db:map)", () => {
   test("every table has a group", () => {
@@ -78,11 +78,12 @@ describe("a diagram", () => {
     assert.ok(at(1).includes("sal_order_line"));
   });
 
-  test("a hidden section and the application filter leave tables out", () => {
+  test("a hidden table and the application filter leave tables out", () => {
     const i = model.index.get("sal_order")!;
     const all = buildGraph(model, { v: "table", i }, "key", options, () => true, new Set());
-    const less = buildGraph(model, { v: "table", i }, "key", { ...options, hidden: new Set(["l1"]) }, () => true, new Set());
-    assert.ok(less.boxes.size < all.boxes.size);
+    const less = buildGraph(model, { v: "table", i }, "key", { ...options, hidden: new Set([i, model.index.get("sal_order_line")!]) }, () => true, new Set());
+    assert.equal(less.boxes.size, all.boxes.size - 1, "only the child hidden goes; the focus stays");
+    assert.ok(!less.links.some((l) => l.from === model.index.get("sal_order_line")));
     const production = buildGraph(model, { v: "all" }, "name", options, (a) => a === "production", new Set());
     assert.ok([...production.boxes.keys()].every((k) => model.tables[k].app === "production"));
   });

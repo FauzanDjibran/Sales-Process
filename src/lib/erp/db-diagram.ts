@@ -67,7 +67,7 @@ export type Target = { v: "all" } | { v: "group" | "table" | "menu"; i: number }
 export type Level = "name" | "key" | "full";
 /** w the focus or a table the menu writes; p its parent; r a child, member or read table; out a parent outside the scope. */
 export type Role = "w" | "p" | "r" | "out";
-export type Options = { depth: number; read: boolean; hub: boolean; hidden: ReadonlySet<string> };
+export type Options = { depth: number; read: boolean; hub: boolean; hidden: ReadonlySet<number> };
 export type Box = { id: number; role: Role; x: number; y: number; w: number; h: number };
 export type Frame = { id: number; ids: number[]; shut: boolean; x: number; y: number; w: number; h: number };
 export type Graph = { boxes: Map<number, Box>; frames: Frame[]; links: Link[]; w: number; h: number; level: Level };
@@ -92,11 +92,11 @@ export function levelsOf(m: Model, focus: number, depth: number): Map<number, nu
 export const chainOf = (m: Model, level: Map<number, number>, focus: number) =>
   m.links.filter(({ from, to }) => level.has(from) && level.has(to) && (level.get(to) === level.get(from)! - 1 || (from === focus && to === focus)));
 
-/** Which tables a target holds and in which role; a hidden section ("l-1", "rout") is left out. */
+/** Which tables a target holds and in which role; a table the reader hid is left out, the focus never. */
 export function scopeOf(m: Model, t: Exclude<Target, { v: "all" }>, o: Options): Map<number, Role> {
   const set = new Map<number, Role>();
   if (t.v === "table") {
-    for (const [i, d] of levelsOf(m, t.i, o.depth)) if (!o.hidden.has(`l${d}`)) set.set(i, d === 0 ? "w" : d < 0 ? "p" : "r");
+    for (const [i, d] of levelsOf(m, t.i, o.depth)) if (d === 0 || !o.hidden.has(i)) set.set(i, d === 0 ? "w" : d < 0 ? "p" : "r");
     return set;
   }
   const keep = (i: number) => !m.hub.has(i) || o.hub;
@@ -107,7 +107,7 @@ export function scopeOf(m: Model, t: Exclude<Target, { v: "all" }>, o: Options):
     if (o.read || readOnly) for (const i of menu.r) if (!set.has(i) && (readOnly || keep(i))) set.set(i, "r");
   } else m.tables.forEach((x, i) => { if (x.group === t.i) set.set(i, "r"); });
   for (const [i, role] of [...set]) if (t.v === "group" || role === "w") for (const { to } of m.out[i]) if (!set.has(to) && keep(to)) set.set(to, "out");
-  for (const [i, role] of [...set]) if (o.hidden.has(`r${role}`)) set.delete(i);
+  for (const i of o.hidden) set.delete(i);
   return set;
 }
 

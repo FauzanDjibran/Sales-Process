@@ -1595,7 +1595,8 @@ table.grid.aging th,table.grid.aging td:first-child,table.grid.aging td:first-ch
 .dbr-f b{display:block;font-size:11.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dbr-f span{display:block;font-size:10px;color:var(--muted-3)}
 .dbr-e{margin:8px 6px;font-size:11.5px;color:var(--muted-2)}
-.dbr-s.off .dbr-l{opacity:.45}
+.dbr.off .t{opacity:.45}
+.dbr .cbx2{flex:0 0 auto;padding:0 3px}
 @media (max-width:860px){
   .dbs.sub{left:0}
   .dbs .collapse{display:none}

@@ -31,7 +31,7 @@ export function TableInspector({
   onReveal: (i: number) => void;
   options: Options;
   onDepth: (d: number) => void;
-  onHidden: (v: Set<string>) => void;
+  onHidden: (v: Set<number>) => void;
   /** Absent when there is nothing to go back to. */
   onBack?: () => void;
   onClose: () => void;
@@ -46,39 +46,56 @@ export function TableInspector({
     </button>
   );
 
-  /** `hides` says the section's checkbox shows or hides it in the diagram. */
-  const section = (key: string, title: string, help: string, rows: React.ReactNode[], hides = false) =>
-    rows.length > 0 && (
-      <div key={key} className={`dbr-s${hides && options.hidden.has(key) ? " off" : ""}`}>
+  /** `ids` are the section's tables when its checkbox shows or hides them all in the diagram. */
+  const section = (key: string, title: string, help: string, rows: React.ReactNode[], ids?: number[]) => {
+    const off = ids?.filter((i) => options.hidden.has(i)).length ?? 0;
+    return rows.length > 0 && (
+      <div key={key}>
         <div className="dbr-h">
           <Fold open={!shut.has(key)} name={title} onClick={() => setShut(toggled(shut, key))} />
           <b>{title}</b>
           <span className="h">{help}</span>
-          <span className="tc">{rows.length}</span>
-          {hides && (
-            <label className="cbx2" title={`Tampilkan ${title} di diagram`}>
-              <input type="checkbox" aria-label={`Tampilkan ${title} di diagram`} checked={!options.hidden.has(key)} onChange={() => onHidden(toggled(options.hidden, key))} />
+          <span className="tc">{off ? `${rows.length - off}/${rows.length}` : rows.length}</span>
+          {ids && (
+            <label className="cbx2" title={off ? `Tampilkan semua ${title}` : `Sembunyikan semua ${title}`}>
+              <input
+                type="checkbox"
+                aria-label={`Tampilkan semua ${title} di diagram`}
+                checked={off === 0}
+                ref={(el) => {
+                  if (el) el.indeterminate = off > 0 && off < ids.length;
+                }}
+                onChange={() => {
+                  // Some or all hidden: show all. None hidden: hide all.
+                  const next = new Set(options.hidden);
+                  for (const i of ids) if (off) next.delete(i); else next.add(i);
+                  onHidden(next);
+                }}
+              />
             </label>
           )}
         </div>
         {!shut.has(key) && <div className="dbr-l">{rows}</div>}
       </div>
     );
+  };
 
-  const row = (i: number, lines: string[]) => (
+  const row = (i: number, lines: string[], hides: boolean) => {
+    const off = hides && options.hidden.has(i);
+    return (
     <div
       key={i}
-      className={`dbr${sel === i ? " on" : ""}`}
+      className={`dbr${sel === i ? " on" : ""}${off ? " off" : ""}`}
       role="button"
       tabIndex={0}
-      title={`Tunjukkan ${model.tables[i].name} di diagram`}
+      title={off ? `${model.tables[i].name} disembunyikan dari diagram` : `Tunjukkan ${model.tables[i].name} di diagram`}
       onClick={(e) => {
-        if (!(e.target as HTMLElement).closest("a")) onReveal(i);
+        if (!off && !(e.target as HTMLElement).closest("a,label")) onReveal(i);
       }}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget || (e.key !== "Enter" && e.key !== " ")) return;
         e.preventDefault();
-        onReveal(i);
+        if (!off) onReveal(i);
       }}
     >
       <div className="t">
@@ -90,8 +107,14 @@ export function TableInspector({
         ))}
       </div>
       <Aim i={i} />
+      {hides && (
+        <label className="cbx2" title={off ? "Tampilkan di diagram" : "Sembunyikan dari diagram"}>
+          <input type="checkbox" aria-label={`Tampilkan ${model.tables[i].name} di diagram`} checked={!off} onChange={() => onHidden(toggled(options.hidden, i))} />
+        </label>
+      )}
     </div>
-  );
+    );
+  };
   const byName = (a: number, b: number) => (model.tables[a].name < model.tables[b].name ? -1 : 1);
 
   const relations = (f: number) => {
@@ -105,8 +128,12 @@ export function TableInspector({
           .map((l) => (Math.abs(d) === 1 ? l.col : d < 0 ? `${model.tables[l.from].name}.${l.col}` : `${l.col} → ${model.tables[l.to].name}`))
       ),
     ];
-    const at = (d: number) =>
-      section(`l${d}`, ...LEVELS[String(d)], [...level].flatMap(([i, v]) => (v === d ? [i] : [])).sort(byName).map((i) => row(i, lines(i, d))), target.v === "table");
+    // Hiding belongs to the diagram's own focus, not to a table merely selected in it.
+    const hides = target.v === "table";
+    const at = (d: number) => {
+      const ids = [...level].flatMap(([i, v]) => (v === d ? [i] : [])).sort(byName);
+      return section(`l${d}`, ...LEVELS[String(d)], ids.map((i) => row(i, lines(i, d), hides)), hides ? ids : undefined);
+    };
     const self = model.out[f].filter((l) => l.to === f);
     return (
       <>
@@ -178,17 +205,10 @@ export function TableInspector({
   const contents = (t: Exclude<Target, { v: "all" }>) => {
     const set = scopeOf(model, t, { ...options, hidden: new Set() });
     const main = t.v === "menu" ? model.menus[t.i].main : -1;
-    const part = (role: Role, title: string, help: string) =>
-      section(
-        `r${role}`,
-        title,
-        help,
-        [...set]
-          .flatMap(([i, r]) => (r === role ? [i] : []))
-          .sort((a, b) => Number(b === main) - Number(a === main) || byName(a, b))
-          .map((i) => row(i, [`${model.out[i].length} merujuk · ${model.in[i].length} dirujuk`])),
-        true
-      );
+    const part = (role: Role, title: string, help: string) => {
+      const ids = [...set].flatMap(([i, r]) => (r === role ? [i] : [])).sort((a, b) => Number(b === main) - Number(a === main) || byName(a, b));
+      return section(`r${role}`, title, help, ids.map((i) => row(i, [`${model.out[i].length} merujuk · ${model.in[i].length} dirujuk`], true)), ids);
+    };
     return (
       <div className="dbp-b">
         {t.v === "menu" ? (
