@@ -264,6 +264,8 @@ Dua syarat sama-sama wajib: nilai beku saat Kirim, dan penerima yang mengabaikan
 
 Pesan memakai **kode dan nomor**, tidak pernah id.
 
+**Tabel replika (P319, user 24/11/2026).** Saat database dipisah, dokumen pengirim (misalnya Stock Issue) diport ke tabel replika dengan menunya sendiri di sisi penerima, dan dokumen penerima (misalnya Production Receipt) dibuat dari data replika itu, sehingga keduanya tetap tersambung. Ini cara kerja nanti: DBML dan cara menulisnya tetap satu skema seperti sekarang, tanpa tabel replika.
+
 ### 7.2 Cara kirim
 
 - **Outbox dan inbox** di tiap database. Pesan ditulis dalam transaksi yang sama dengan buku; pengirim mencoba ulang; inbox unik per id pesan dan diproses dalam satu transaksi dengan bukunya. Urutan per dokumen dijaga, antar dokumen tidak perlu.
