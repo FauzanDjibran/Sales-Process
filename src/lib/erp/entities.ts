@@ -694,6 +694,13 @@ export const ENTITIES: Entity[] = [
         desc: "Satuan lain untuk item ini dan isinya dalam satuan dasar, mis. 1 BOX = 12 PCS.",
         kind: "custom",
       },
+      {
+        key: "weighting",
+        label: "Timbangan",
+        icon: "scale",
+        desc: "Berat satuan dan toleransi untuk barang yang ditimbang saat diterima.",
+        kind: "custom",
+      },
     ],
     columns: [
       { field: "item_label", label: "Label", isLabel: true, width: "130px", filter: "text" },

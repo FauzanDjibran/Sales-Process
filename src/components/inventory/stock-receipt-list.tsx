@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Amount } from "@/components/ui/amount";
 import { DocumentRegister } from "@/components/ui/document-register";
 import type { StockReceiptRow } from "@/lib/erp/stock-receipt";
@@ -15,8 +16,9 @@ import {
 const STATUSES: StockReceiptStatus[] = ["InTransit", "Received"];
 
 /**
- * The Stock Receipt register (P317). Today's purposes are sent from production;
- * the warehouse only takes them in, so nothing is created here.
+ * The Stock Receipt register (P317). What production sends is only taken in
+ * here, and a Bonus Pembelian comes with its Receipt Note (P321), so nothing is
+ * created here.
  */
 export function StockReceiptList({ rows }: { rows: StockReceiptRow[] }) {
   return (
@@ -32,7 +34,7 @@ export function StockReceiptList({ rows }: { rows: StockReceiptRow[] }) {
       statusBadge={STOCK_RECEIPT_STATUS_BADGE}
       columns={[
         { key: "purpose", label: "Tujuan", width: 170 },
-        { key: "unit", label: "Unit Asal" },
+        { key: "unit", label: "Asal" },
         { key: "warehouse", label: "Gudang" },
         { key: "lots", label: "No. Stok", width: 76, num: true },
       ]}
@@ -46,7 +48,11 @@ export function StockReceiptList({ rows }: { rows: StockReceiptRow[] }) {
         date: r.date,
         cells: {
           purpose: STOCK_RECEIPT_PURPOSES[r.purpose].name,
-          unit: (
+          unit: r.sourceId ? (
+            <Link className="drl" href={`/inventory/receipt-note/${r.sourceId}`}>
+              <span className="mono">{r.sourceNo}</span>
+            </Link>
+          ) : (
             <span className="idc">
               <span className="lab">{r.unitLabel}</span>
               <span className="nm">{r.unitName}</span>
@@ -62,7 +68,7 @@ export function StockReceiptList({ rows }: { rows: StockReceiptRow[] }) {
         },
         value: <Amount value={r.cost} />,
         facets: { purpose: r.purpose },
-        search: [STOCK_RECEIPT_PURPOSES[r.purpose].name, r.unitLabel, r.unitName, r.warehouseLabel, r.warehouseName].join(" "),
+        search: [STOCK_RECEIPT_PURPOSES[r.purpose].name, r.sourceNo ?? "", r.unitLabel, r.unitName, r.warehouseLabel, r.warehouseName].join(" "),
       }))}
     />
   );

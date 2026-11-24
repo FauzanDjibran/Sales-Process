@@ -4,6 +4,7 @@ import { ReturnReceiptForm } from "@/components/inventory/return-receipt-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { getReceiptNote, receiptNoteOptions, returnReceiptOptions } from "@/lib/erp/receipt-note";
+import { bonusReceiptOf } from "@/lib/erp/stock-receipt";
 import { SALES_RETURN, receiptNoteAbilities } from "@/lib/erp/receipt-note-workflow";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
       {note.header.purpose === SALES_RETURN ? (
         <ReturnReceiptForm mode="view" note={note} options={await returnReceiptOptions(current)} can={can} />
       ) : (
-        <ReceiptNoteForm mode="view" note={note} options={await receiptNoteOptions(current)} can={can} />
+        <ReceiptNoteForm mode="view" note={note} options={await receiptNoteOptions(current)} can={can} bonus={note.status === "Posted" ? await bonusReceiptOf(note.id) : null} />
       )}
       <RecordHistoryCard entityKey="log_receipt_note" rowId={note.id} />
     </>

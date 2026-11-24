@@ -13,10 +13,10 @@ import { previewStockReceiptAction, receiveStockReceiptAction } from "@/app/acti
 import type { StockReceiptView as View } from "@/lib/erp/stock-receipt";
 import { STOCK_RECEIPT_PATH, STOCK_RECEIPT_PURPOSES, STOCK_RECEIPT_STATUS_BADGE, STOCK_RECEIPT_STATUS_TEXT, VALUE_MODE_TEXT, type ProductionValueMode } from "@/lib/erp/stock-receipt-purposes";
 import { Select } from "@/components/ui/select";
-import { formatDate, formatNumber } from "@/lib/format";
+import { formatDate, formatQty } from "@/lib/format";
 import { FormTabs } from "@/components/ui/form-tabs";
 
-const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
+const qtyText = formatQty;
 const ro = (node: React.ReactNode) => <div className="ro">{node}</div>;
 const nil = (text: string) => <div className="ro nil">{text}</div>;
 
@@ -34,6 +34,7 @@ export function StockReceiptView({ receipt: r, canReceive }: { receipt: View; ca
   const posted = r.status === "Received";
   const p = STOCK_RECEIPT_PURPOSES[r.purpose];
   const isReturn = p.asksValue;
+  const bonus = !p.fromProduction;
   const [mode, setMode] = useState<ProductionValueMode>("carried");
   // Where each No. Stok goes, chosen while it waits (P317).
   const placing = !posted && canReceive;
@@ -90,17 +91,25 @@ export function StockReceiptView({ receipt: r, canReceive }: { receipt: View; ca
               <Field label="Tujuan" span={4}>
                 {ro(p.name)}
               </Field>
-              <Field label="Unit Asal" span={4}>
+              <Field label={bonus ? "Receipt Note" : "Unit Asal"} span={4}>
                 {ro(
-                  <span className="idc">
-                    <span className="lab">{r.unitLabel}</span>
-                    <span className="nm">{r.unitName}</span>
-                  </span>
+                  bonus ? (
+                    <Link className="drl" href={`/inventory/receipt-note/${r.sourceId}`}>
+                      <span className="mono">{r.sourceNo}</span>
+                    </Link>
+                  ) : (
+                    <span className="idc">
+                      <span className="lab">{r.unitLabel}</span>
+                      <span className="nm">{r.unitName}</span>
+                    </span>
+                  )
                 )}
               </Field>
-              <Field label="Tanggal Kirim" span={4}>
-                {ro(formatDate(r.date))}
-              </Field>
+              {!bonus && (
+                <Field label="Tanggal Kirim" span={4}>
+                  {ro(formatDate(r.date))}
+                </Field>
+              )}
             </FormRow>
           </FormSection>
           <FormSection title="Penerimaan">
@@ -147,7 +156,9 @@ export function StockReceiptView({ receipt: r, canReceive }: { receipt: View; ca
             </FormSection>
           )}
           <p className="fnote">
-            {isReturn
+            {bonus
+              ? "Kelebihan timbangan di atas toleransi, yang tidak ditagih supplier: masuk stok bernilai 0 dengan No. Stok baru, tanpa journal."
+              : isReturn
               ? "Barang masuk gudang dengan No. Stok yang sama. Nilai terbawa: Persediaan didebit, WIP dikredit. Tanpa nilai: stok masuk bernilai 0 dan nilainya dibebankan ke Beban Pemusnahan Produksi."
               : "Barang masuk gudang dengan No. Stok yang sama dan senilai yang dibawanya dari produksi: Persediaan didebit, WIP dikredit."}
           </p>
@@ -164,7 +175,7 @@ export function StockReceiptView({ receipt: r, canReceive }: { receipt: View; ca
           </span>
           <div className="ct">
             <h3>Barang</h3>
-            <p>{posted ? "Nilai adalah yang dibekukan produksi saat Kirim." : placing ? (r.locations.length ? "Pilih lokasi dan status tiap No. Stok, lalu Terima." : "Pilih status tiap No. Stok, lalu Terima.") : "Menunggu Terima gudang."}</p>
+            <p>{bonus ? "Masuk stok bersama posting Receipt Note-nya." : posted ? "Nilai adalah yang dibekukan produksi saat Kirim." : placing ? (r.locations.length ? "Pilih lokasi dan status tiap No. Stok, lalu Terima." : "Pilih status tiap No. Stok, lalu Terima.") : "Menunggu Terima gudang."}</p>
           </div>
         </div>
         {placing && r.items.length > 1 && (

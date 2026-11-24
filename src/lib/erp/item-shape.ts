@@ -54,3 +54,20 @@ export function uomErrors(
   else if (!/^\d+(\.\d{1,4})?$/.test(raw)) e.factor = "Faktor paling banyak empat angka di belakang koma.";
   return e;
 }
+
+/** The Timbangan tab's value: one row when the item is weighed at receipt, none when not (P321). */
+export const WEIGHTING_KEY = "_weighting";
+export type WeightingDraft = { key: string; itemWeight: string; tolerance: string };
+
+/** Field errors of the Timbangan tab, the dialog's and the Server Action's alike. */
+export function weightingErrors(w: Partial<WeightingDraft>): Record<string, string> {
+  const e: Record<string, string> = {};
+  const weight = String(w.itemWeight ?? "").trim();
+  if (!(Number(weight) > 0)) e.itemWeight = "Berat satuan harus lebih dari nol.";
+  else if (!/^\d{1,12}(\.\d{1,6})?$/.test(weight)) e.itemWeight = "Berat satuan paling banyak enam angka di belakang koma.";
+  const tolerance = String(w.tolerance ?? "").trim() || "0";
+  const t = Number(tolerance);
+  if (!Number.isFinite(t) || t < 0 || t >= 100) e.tolerance = "Toleransi 0 sampai di bawah 100%.";
+  else if (!/^\d{1,2}(\.\d{1,4})?$/.test(tolerance)) e.tolerance = "Toleransi paling banyak empat angka di belakang koma.";
+  return e;
+}

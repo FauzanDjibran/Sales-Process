@@ -123,7 +123,7 @@ describe("stock and expiry belong to Barang", () => {
   test("the item carries no tax treatment: PPN and PPh are decided on the transaction", () => {
     const names = item.fields.map((f) => f.name).join(" ");
     assert.doesNotMatch(names, /ppn|vat|pph|wht|tax/i);
-    assert.deepEqual(item.tabs?.map((t) => t.key), ["uoms"]);
+    assert.deepEqual(item.tabs?.map((t) => t.key), ["uoms", "weighting"]);
   });
 });
 

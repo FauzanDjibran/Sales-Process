@@ -12,9 +12,10 @@ import {
   newKey,
   type CollectionTabProps,
 } from "@/components/master/collection-tab";
-import { uomErrors, type UomDraft } from "@/lib/erp/item-shape";
+import { PercentInput } from "@/components/ui/percent-input";
+import { uomErrors, type UomDraft, type WeightingDraft } from "@/lib/erp/item-shape";
 import type { RefOption } from "@/lib/erp/records";
-import { formatNumber } from "@/lib/format";
+import { formatNumber, formatPct, formatQty } from "@/lib/format";
 
 /**
  * The Item form's Konversi Satuan tab: the item's other units and how many
@@ -230,5 +231,60 @@ function UomDialog({
         </Field>
       </FormRow>
     </Dialog>
+  );
+}
+
+/**
+ * The Item form's Timbangan tab (P321): whether the item is weighed when a
+ * Receipt Note takes it in, what one base unit weighs, and how far the scale
+ * may differ. One row or none; saved with the Item.
+ */
+export function WeightingTab({ editing, items, error, onChange, context }: CollectionTabProps<WeightingDraft>) {
+  const w = items[0];
+  const base = (context?.refs.base_uom_id ?? []).find((o) => o.id === Number(context?.values.base_uom_id));
+  const track = context?.values.track_stock;
+  const stocked = context?.values.item_type === "Barang" && (track === true || track === "true");
+  const set = (patch: Partial<WeightingDraft>) => onChange([{ ...w, ...patch }]);
+  const unit = base?.label ?? "satuan dasar";
+
+  return (
+    <CollectionCard icon="scale" title="Timbangan" desc="Barang yang ditimbang saat diterima: jumlah surat jalan dibandingkan dengan hasil timbangan." editing={editing} error={error}>
+      <div style={{ padding: "14px 16px" }}>
+        <FormRow>
+          <Field label="Penimbangan" span={4}>
+            {editing && (stocked || w) ? (
+              <label className="chk">
+                <input
+                  type="checkbox"
+                  checked={Boolean(w)}
+                  onChange={(e) => onChange(e.target.checked ? [{ key: newKey("w"), itemWeight: "", tolerance: "" }] : [])}
+                />
+                <span className="ct">Ditimbang saat Terima</span>
+              </label>
+            ) : (
+              <div className="ro">{w ? "Ditimbang saat Terima" : editing ? "Hanya Barang dengan Kelola Stok" : "Tidak ditimbang"}</div>
+            )}
+          </Field>
+          {w && (
+            <>
+              <Field label="Berat Satuan" span={4} required={editing} help={`berat 1 ${unit}`}>
+                {editing ? (
+                  <MoneyInput value={w.itemWeight} currencyLabel="Kg" decimals={6} placeholder="1" onChange={(v) => set({ itemWeight: v })} />
+                ) : (
+                  <div className="ro">{formatQty(w.itemWeight)} Kg</div>
+                )}
+              </Field>
+              <Field label="Toleransi" span={4} help="ke bawah dan ke atas">
+                {editing ? (
+                  <PercentInput value={w.tolerance} decimals={4} ariaLabel="Toleransi" onChange={(v) => set({ tolerance: v })} />
+                ) : (
+                  <div className="ro">{formatPct(w.tolerance)}</div>
+                )}
+              </Field>
+            </>
+          )}
+        </FormRow>
+      </div>
+    </CollectionCard>
   );
 }

@@ -6,7 +6,8 @@ import { BASE_CURRENCY_LABEL } from "./currency";
 import { holdPostingPeriod, PeriodShut } from "./fiscal";
 import { HandoverRefusal, deliver, type HandoverMessage } from "./handover";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
-import { InventoryRefusal, locationLabelsByIds, receiveStock, warehouseLocationOptions } from "./inventory";
+import { nextDocumentNumber } from "./document-number";
+import { InventoryRefusal, assertNewTrackingNo, locationLabelsByIds, receiveStock, warehouseLocationOptions } from "./inventory";
 import { fallbackAccounts } from "./system-settings";
 import { accountsForItems } from "./item-account";
 import { STOCK_RECEIPT_PURPOSES, stockReceiptPurposeOf, type ProductionValueMode, type StockReceiptPurposeKey, type StockReceiptStatus } from "./stock-receipt-purposes";
@@ -17,7 +18,10 @@ import { STOCK_RECEIPT_PURPOSES, stockReceiptPurposeOf, type ProductionValueMode
  * `_line` and `_tracking`, and nothing else names them. A line is an item; a
  * tracking row is a No. Stok, whole, with the value its sender froze.
  *
- * Both of today's purposes come from production: `ReceiptSent` makes the
+ * A **Bonus Pembelian** (P321) is made and received by a weighed Receipt Note's
+ * posting (`createBonusReceipt`): new No. Stok at value 0, no journal.
+ *
+ * The other purposes come from production: `ReceiptSent` makes the
  * receipt under the Production Issue's number. **Terima**, by the warehouse: each
  * No. Stok enters stock **under its own number**, into the location and status
  * the warehouse chose (Tersedia unless said otherwise), at its frozen value or —
@@ -108,6 +112,85 @@ export async function takeReceiptSent(tx: Tx, m: Extract<HandoverMessage, { type
     },
   });
   await audit(tx, row.id, "TAMBAH", "send", actorId);
+}
+
+// ------------------------------------------------------------------- bonus
+
+/**
+ * What a weighed Receipt Note took in beyond its tolerance (P321), inside that
+ * note's posting: one receipt, received the same day, each lot a new No. Stok
+ * under Tersedia at **value 0** — the supplier does not bill it, so it lowers
+ * the item's average and writes no journal.
+ */
+export async function createBonusReceipt(
+  tx: Tx,
+  input: {
+    source: { docTypeId: number; docId: number; no: string };
+    warehouseId: number;
+    date: Date;
+    partnerId: number;
+    lots: { itemId: number; lotNo: string; expiry: Date | null; locationId: number | null; baseQty: number }[];
+  },
+  actorId: number
+): Promise<string> {
+  const no = await nextDocumentNumber("SRC", input.date, async (series) => {
+    const row = await tx.logStockReceipt.findFirst({ where: { receipt_no: { startsWith: series } }, orderBy: { id: "desc" }, select: { receipt_no: true } });
+    return row?.receipt_no ?? null;
+  });
+  const status = (await stockStatuses())[0].id;
+  const byItem = new Map<number, (typeof input.lots)[number][]>();
+  for (const l of input.lots) byItem.set(l.itemId, [...(byItem.get(l.itemId) ?? []), l]);
+  const row = await tx.logStockReceipt.create({
+    data: {
+      receipt_no: no,
+      purpose: "purchase_bonus",
+      receipt_date: input.date,
+      status: "Received",
+      received_at: input.date,
+      received_by: actorId,
+      warehouse_id: input.warehouseId,
+      source_doc_type_id: input.source.docTypeId,
+      source_doc_id: input.source.docId,
+      source_no: input.source.no,
+      created_by: actorId,
+      lines: {
+        create: [...byItem].map(([item_id, lots], i) => ({
+          line_no: i + 1,
+          item_id,
+          base_qty: lots.reduce((a, l) => a + l.baseQty, 0).toFixed(6),
+          trackings: {
+            create: lots.map((l, n) => ({ seq: n + 1, tracking_no: l.lotNo, expiry_date: l.expiry, base_qty: l.baseQty, location_id: l.locationId, stock_status_id: status })),
+          },
+        })),
+      },
+    },
+  });
+  const source = { docTypeId: await docTypeId(tx), docId: row.id, no };
+  for (const l of input.lots) {
+    await assertNewTrackingNo(tx, l.lotNo);
+    await receiveStock(tx, {
+      itemId: l.itemId,
+      warehouseId: input.warehouseId,
+      locationId: l.locationId,
+      lotNo: l.lotNo,
+      expiry: l.expiry,
+      baseQty: l.baseQty,
+      value: 0,
+      date: input.date,
+      source,
+      partnerId: input.partnerId,
+      statusId: status,
+      actorId,
+    });
+  }
+  await audit(tx, row.id, "TAMBAH", "bonus", actorId);
+  return no;
+}
+
+/** The Bonus Pembelian a Receipt Note's posting made, for its own page. */
+export async function bonusReceiptOf(receiptNoteId: number): Promise<{ id: number; no: string } | null> {
+  const row = await prisma.logStockReceipt.findFirst({ where: { purpose: "purchase_bonus", source_doc_id: receiptNoteId }, select: { id: true, receipt_no: true } });
+  return row ? { id: row.id, no: row.receipt_no } : null;
 }
 
 // ------------------------------------------------------------------- Terima
@@ -224,6 +307,9 @@ export type StockReceiptRow = {
   status: StockReceiptStatus;
   unitLabel: string;
   unitName: string;
+  /** The Receipt Note a Bonus Pembelian came with. */
+  sourceId: number | null;
+  sourceNo: string | null;
   warehouseLabel: string;
   warehouseName: string;
   lots: number;
@@ -238,6 +324,8 @@ const rowOf = (r: Prisma.LogStockReceiptGetPayload<{ include: { from_unit: true;
   status: r.status,
   unitLabel: r.from_unit?.unit_label ?? "",
   unitName: r.from_unit?.unit_name ?? "",
+  sourceId: r.source_doc_id,
+  sourceNo: r.source_no,
   warehouseLabel: r.warehouse.warehouse_label,
   warehouseName: r.warehouse.warehouse_name,
   lots,

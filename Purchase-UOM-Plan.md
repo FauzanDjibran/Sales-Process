@@ -1,6 +1,6 @@
 # Satuan Alternatif dan Timbangan di Pembelian: Rencana
 
-> Status: **putaran 9, 24/11/2026; semua keputusan terjawab (§6), langkah 1–3 dibangun (P320)**. Isinya memuat koreksi user (qty PO diketik dalam satuan pesanan,
+> Status: **putaran 9, 24/11/2026; semua keputusan terjawab (§6), langkah 1–3 dibangun (P320), langkah 4–6 dibangun (P321); uji alur bersama user menunggu**. Isinya memuat koreksi user (qty PO diketik dalam satuan pesanan,
 > konversi adalah perkalian) dan konsep timbangan dari tiga screenshot modal
 > *Penimbangan*. Skema §3.4 mengikuti gambaran DBML user.
 
@@ -212,12 +212,12 @@ lalu **berhenti untuk diperiksa user**.
 - `db:reconcile`: baris = Σ lot; diterima di PO = Σ Receipt Note posted, di kedua satuan.
 - **Periksa:** PO 10 BOX diterima 4 lalu 6 BOX; stok 120 PCS; GR/IR nol setelah Invoice.
 
-### Langkah 4 — Master Timbangan
+### Langkah 4 (selesai, P321) — Master Timbangan
 - Migrasi `item_weighting`: `m_item_weighting`. Tab *Timbangan* di form Item (Barang dengan Kelola
   Stok saja): *Ditimbang saat Terima*, Berat Satuan (Kg), Toleransi (%). Satu audit dengan Item.
 - **Periksa:** nilai tersimpan; Item tanpa timbangan tidak berubah di mana pun.
 
-### Langkah 5 — Penimbangan di Receipt Note
+### Langkah 5 (selesai, P321) — Penimbangan di Receipt Note
 - Migrasi `receipt_weighting`: `log_receipt_note_weighting` dan enum hasilnya.
 - `receipt-weighting.ts` client-safe: satu fungsi hitung, dipakai modal, simpan dan Posting.
 - Modal *Penimbangan* sesuai screenshot: kiri Qty PO, Qty SJ, Berat Satuan, Toleransi, Qty
@@ -228,7 +228,7 @@ lalu **berhenti untuk diperiksa user**.
 - Test: tiga contoh screenshot; 720, 719, 880, 881; 4,777 BOX → 57,324 PCS; 41,666667 BOX; timbangan 0.
 - **Periksa:** ketiga warna modal dan isinya sama dengan screenshot.
 
-### Langkah 6 — Bonus, bukti dan uji alur
+### Langkah 6 (selesai, P321; uji bersama user menunggu) — Bonus, bukti dan uji alur
 - Migrasi `receipt_bonus`: sumber di `log_stock_receipt`; tujuan `purchase_bonus`, `SRC/…`, nilai 0,
   langsung Diterima dalam posting Receipt Note (§3.3); saling menautkan.
 - `db:reconcile`: baris posted bertimbang = hasil timbangnya; bonus = Stock Receipt-nya, bernilai 0.

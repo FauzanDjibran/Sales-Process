@@ -7,6 +7,8 @@ import { formatQty } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
+import { weigh, type Weighing, type WeighingResult, type WeighingRule } from "./receipt-weighting";
+import { createBonusReceipt } from "./stock-receipt";
 import { lockPurchaseOrder, receiptNoteSources, recordPurchaseOrderReceived, type ReceiptNoteSource } from "./purchase-order";
 import { InventoryRefusal, assertNewTrackingNo, receiveStock, warehouseLocationOptions, type WarehouseLocationOption } from "./inventory";
 import { fallbackAccounts, isTransitWarehouse, notTransitWarehouse, TRANSIT_WAREHOUSE_REFUSED } from "./system-settings";
@@ -73,8 +75,13 @@ export type ReceiptNoteLotInput = {
 
 export type ReceiptNoteLineInput = {
   source_doc_line_id: number | null;
+  /** In the source line's unit. For a weighed line, what the supplier's SJ says (P321). */
   qty: number | string;
   note: string;
+  /** What the scale said, in Kg; empty while the line is not weighed yet. */
+  qty_weighting?: number | string | null;
+  /** The Timbangan a saved weighing was made with; read at Posting only, never from a form. */
+  weighing_rule?: WeighingRule;
   /** Only for a Kelola Stok line. */
   lots?: ReceiptNoteLotInput[];
 };
@@ -187,6 +194,7 @@ type CheckedLine = {
   is_stock: boolean;
   note: string | null;
   lots: CheckedLot[];
+  weighting: (Weighing & { sj: number; scale: number; rule: WeighingRule }) | null;
 };
 type Checked = {
   source: RnSourceOption;
@@ -279,8 +287,33 @@ export async function checkReceiptNote(
       errors[lineKey(i, "qty")] = `Melebihi sisa Purchase Order (${qtyText(left)} ${po.uomLabel}).`;
       continue;
     }
-    const lineQty = receivesRest(qty, po) ? left : fromFine(fine(qty));
-    const baseQty = receivedBaseQty(qty, po);
+    let lineQty = receivesRest(qty, po) ? left : fromFine(fine(qty));
+    let baseQty = receivedBaseQty(qty, po);
+    // A weighed line's SJ is only what the supplier says: the scale decides (P321).
+    // Posting keeps the Timbangan the weighing was made with.
+    const rule = po.isStock ? ((forPosting ? l.weighing_rule : undefined) ?? po.weighting) : null;
+    let weighting: CheckedLine["weighting"] = null;
+    if (rule) {
+      const typed = String(l.qty_weighting ?? "").trim();
+      if (typed) {
+        const scale = num(typed);
+        if (!Number.isFinite(scale) || !(scale > 0) || scale >= 1e12) {
+          errors[lineKey(i, "qty")] = "Isi hasil timbangan lebih dari 0.";
+          continue;
+        }
+        const w = weigh({ sj: lineQty, sjBase: baseQty, factor: po.uomFactor, scale: fromFine(fine(scale)), rule });
+        if (!(w.receivedBase > 0) || !(w.received > 0)) {
+          errors[lineKey(i, "qty")] = "Hasil timbangan tidak menghasilkan Qty Terima. Hapus barisnya.";
+          continue;
+        }
+        weighting = { ...w, sj: lineQty, scale: fromFine(fine(scale)), rule };
+        lineQty = w.received;
+        baseQty = w.receivedBase;
+      } else if (forPosting) {
+        errors[lineKey(i, "qty")] = `${po.itemLabel} belum ditimbang.`;
+        continue;
+      }
+    }
     if (!(baseQty > 0)) {
       errors[lineKey(i, "qty")] = "Qty terlalu kecil dalam satuan dasar.";
       continue;
@@ -301,6 +334,7 @@ export async function checkReceiptNote(
       is_stock: po.isStock,
       note: text(l.note),
       lots: lots.lots,
+      weighting,
     });
   }
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) errors._lines = "Ada baris yang perlu diperbaiki.";
@@ -403,7 +437,24 @@ async function refusable<T>(run: () => Promise<T>): Promise<T | { ok: false; err
   }
 }
 
-const lineCreate = ({ lots, ...l }: CheckedLine) => ({ ...l, trackings: { create: lots } });
+const weightingData = (w: NonNullable<CheckedLine["weighting"]>) => ({
+  qty_sj: w.sj,
+  item_weight: w.rule.itemWeight,
+  qty_calculated: w.calculated,
+  receiving_tolerance: w.rule.tolerance,
+  lower_tolerance: w.lower,
+  upper_tolerance: w.upper,
+  qty_weighting: w.scale,
+  weighting_result: w.result,
+  qty_received: w.received,
+  qty_bonus: w.bonus,
+});
+
+const lineCreate = ({ lots, weighting, ...l }: CheckedLine) => ({
+  ...l,
+  trackings: { create: lots },
+  ...(weighting ? { weighting: { create: { ...weightingData(weighting), uom_id: l.uom_id, uom_factor: l.uom_factor } } } : {}),
+});
 
 export async function createReceiptNote(header: ReceiptNoteHeaderInput, lines: ReceiptNoteLineInput[], actorId: number): Promise<ReceiptNoteResult> {
   const sourceId = Number(header.source_doc_id) || null;
@@ -452,8 +503,8 @@ export async function updateReceiptNote(id: number, header: ReceiptNoteHeaderInp
   });
 }
 
-type StoredNote = Prisma.LogReceiptNoteGetPayload<{ include: { lines: { include: { trackings: true } } } }>;
-const WITH_LOTS = { lines: { include: { trackings: { orderBy: { tracking_seq: "asc" as const } } }, orderBy: { line_no: "asc" as const } } };
+type StoredNote = Prisma.LogReceiptNoteGetPayload<{ include: { lines: { include: { trackings: true; weighting: true } } } }>;
+const WITH_LOTS = { lines: { include: { trackings: { orderBy: { tracking_seq: "asc" as const } }, weighting: true }, orderBy: { line_no: "asc" as const } } };
 
 function asInput(n: StoredNote): { header: ReceiptNoteHeaderInput; lines: ReceiptNoteLineInput[] } {
   return {
@@ -469,8 +520,14 @@ function asInput(n: StoredNote): { header: ReceiptNoteHeaderInput; lines: Receip
       .sort((a, b) => a.line_no - b.line_no)
       .map((l) => ({
         source_doc_line_id: l.source_doc_line_id,
-        qty: l.qty.toNumber(),
+        qty: (l.weighting?.qty_sj ?? l.qty).toNumber(),
         note: l.note ?? "",
+        ...(l.weighting
+          ? {
+              qty_weighting: l.weighting.qty_weighting.toNumber(),
+              weighing_rule: { itemWeight: l.weighting.item_weight.toNumber(), tolerance: l.weighting.receiving_tolerance.toNumber() },
+            }
+          : {}),
         lots: l.trackings.map((p) => ({
           tracking_no: p.tracking_no ?? "",
           expiry_date: isoDay(p.expiry_date),
@@ -579,6 +636,7 @@ export async function transitionReceiptNote(
       const journalLines: JournalLineInput[] = [];
       const received = new Map<number, { qty: number; baseQty: number }>();
       const madeHere = new Set<string>();
+      const bonus: Parameters<typeof createBonusReceipt>[1]["lots"] = [];
       let total = 0;
       for (const line of r.c.lines) {
         const po = byId.get(line.source_doc_line_id)!;
@@ -590,6 +648,19 @@ export async function transitionReceiptNote(
           where: { receipt_note_id_source_doc_line_id: { receipt_note_id: id, source_doc_line_id: line.source_doc_line_id } },
           select: { id: true },
         });
+        if (line.weighting) {
+          await tx.logReceiptNoteWeighting.update({ where: { receipt_line_id: stored.id }, data: weightingData(line.weighting) });
+          if (line.weighting.bonus > 0) {
+            // Nobody places a bonus: it goes where the line's first lot went (P321).
+            bonus.push({
+              itemId: line.item_id,
+              lotNo: `${note.rn_no.replace(/[^A-Z0-9]/gi, "")}-${line.line_no}-BONUS`,
+              expiry: line.lots[0].expiry_date,
+              locationId: line.lots[0].location_id,
+              baseQty: line.weighting.bonus,
+            });
+          }
+        }
         if (line.is_stock) {
           let before = 0;
           for (const lot of line.lots) {
@@ -619,7 +690,7 @@ export async function transitionReceiptNote(
             });
           }
         }
-        await tx.logReceiptNoteLine.update({ where: { id: stored.id }, data: { value_amount: value, order_dpp_amount: orderDpp } });
+        await tx.logReceiptNoteLine.update({ where: { id: stored.id }, data: { qty: line.qty, base_qty: line.base_qty, value_amount: value, order_dpp_amount: orderDpp } });
         received.set(line.source_doc_line_id, { qty: line.qty, baseQty: line.base_qty });
         total += value;
         if (value > 0) {
@@ -655,6 +726,9 @@ export async function transitionReceiptNote(
       });
       await tx.logReceiptNote.update({ where: { id }, data: { journal_id: journal?.id ?? null, value_amount: total } });
       await audit(tx, id, "UPDATE", "post", actorId);
+      if (bonus.length) {
+        await createBonusReceipt(tx, { source, warehouseId: r.c.data.warehouse_id!, date: r.c.data.rn_date, partnerId: r.c.data.partner_id, lots: bonus }, actorId);
+      }
       const closed = await recordPurchaseOrderReceived(tx, received, actorId);
       if (options.dryRun) throw new PostingDryRun(journalLines);
       return closed;
@@ -889,6 +963,7 @@ export async function checkReturnReceipt(
       is_stock: true,
       note: text(l.note),
       lots,
+      weighting: null,
     });
   }
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) errors._lines = "Ada baris yang perlu diperbaiki.";
@@ -1096,17 +1171,28 @@ export async function listReceiptNotes(): Promise<ReceiptNoteListRow[]> {
   }));
 }
 
+export type WeighingView = { sj: number; scale: number; rule: WeighingRule; result: WeighingResult; bonus: number };
+
 export type ReceiptNoteView = {
   id: number;
   rnNo: string;
   status: ReceiptNoteStatus;
   header: ReceiptNoteHeaderInput;
-  lines: (ReceiptNoteLineInput & { id: number; baseQty: number; value: number; isStock: boolean; lotValues: number[] })[];
+  lines: (ReceiptNoteLineInput & { id: number; received: number; baseQty: number; value: number; isStock: boolean; lotValues: number[]; weighing: WeighingView | null })[];
   value: number;
   journalId: number | null;
   journalNo: string | null;
   cancelReason: string | null;
 };
+
+const weighingView = (w: StoredNote["lines"][number]["weighting"]): WeighingView | null =>
+  w && {
+    sj: w.qty_sj.toNumber(),
+    scale: w.qty_weighting.toNumber(),
+    rule: { itemWeight: w.item_weight.toNumber(), tolerance: w.receiving_tolerance.toNumber() },
+    result: w.weighting_result,
+    bonus: w.qty_bonus.toNumber(),
+  };
 
 export async function getReceiptNote(id: number): Promise<ReceiptNoteView | null> {
   const n = await prisma.logReceiptNote.findUnique({ where: { id }, include: WITH_LOTS });
@@ -1121,7 +1207,9 @@ export async function getReceiptNote(id: number): Promise<ReceiptNoteView | null
     lines: input.lines.map((l, i) => ({
       ...l,
       id: n.lines[i].id,
+      received: n.lines[i].qty.toNumber(),
       baseQty: n.lines[i].base_qty.toNumber(),
+      weighing: weighingView(n.lines[i].weighting),
       value: n.lines[i].value_amount.toNumber(),
       isStock: n.lines[i].is_stock,
       lotValues: n.lines[i].trackings.map((p) => p.value_amount.toNumber()),

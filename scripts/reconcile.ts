@@ -756,6 +756,22 @@ export const CHECKS: Check[] = [
   },
   {
     area: "goods",
+    name: "a weighed Receipt Note line received what its weighing says, and its bonus came in as one Stock Receipt at 0 with no journal (P321)",
+    sql: `SELECT n.rn_no, 'line' AS what, l.qty, w.qty_received AS expected FROM log_receipt_note_weighting w
+            JOIN log_receipt_note_line l ON l.id = w.receipt_line_id JOIN log_receipt_note n ON n.id = l.receipt_note_id
+           WHERE l.qty <> w.qty_received OR (w.weighting_result <> 'Below' AND w.qty_received <> w.qty_sj)
+              OR (w.weighting_result <> 'Above' AND w.qty_bonus <> 0)
+          UNION ALL
+          SELECT n.rn_no, 'bonus', COALESCE(b.q, 0), COALESCE(w.q, 0) FROM log_receipt_note n
+            LEFT JOIN (SELECT l.receipt_note_id AS id, SUM(x.qty_bonus) AS q FROM log_receipt_note_weighting x JOIN log_receipt_note_line l ON l.id = x.receipt_line_id GROUP BY 1) w ON w.id = n.id
+            LEFT JOIN (SELECT r.source_doc_id AS id, SUM(s.qty_change) AS q, SUM(s.value_change) AS v, COUNT(r.journal_id) AS j FROM log_stock_receipt r
+                         JOIN log_stock_ledger s ON s.source_doc_type_id = ${docType("log_stock_receipt")} AND s.source_doc_id = r.id
+                        WHERE r.purpose = 'purchase_bonus' GROUP BY 1) b ON b.id = n.id
+           WHERE n.purpose = 'purchase_receipt'
+             AND (COALESCE(b.q, 0) <> CASE WHEN n.status = 'Posted' THEN COALESCE(w.q, 0) ELSE 0 END OR COALESCE(b.v, 0) <> 0 OR COALESCE(b.j, 0) <> 0)`,
+  },
+  {
+    area: "goods",
     name: "a posted Receipt Note's stock line is exactly its lots, in base units (P320)",
     sql: `SELECT n.rn_no, l.line_no, l.base_qty, COALESCE(SUM(t.base_qty), 0) AS lots FROM log_receipt_note_line l
           JOIN log_receipt_note n ON n.id = l.receipt_note_id LEFT JOIN log_receipt_note_tracking t ON t.line_id = l.id
@@ -1032,7 +1048,7 @@ export const CHECKS: Check[] = [
                         COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = r.journal_id), 0) AS journal,
                         COALESCE((SELECT SUM(l.value) FROM prd_issue i JOIN prd_issue_line l ON l.issue_id = i.id WHERE i.issue_no = r.receipt_no), 0) AS other_side,
                         (SELECT i.status::text FROM prd_issue i WHERE i.issue_no = r.receipt_no) AS other_status
-                 FROM log_stock_receipt r)
+                 FROM log_stock_receipt r WHERE r.purpose <> 'purchase_bonus')
           SELECT * FROM r
           WHERE cost_amount <> lines OR cost_amount <> lots OR short > 0 OR cost_amount <> other_side OR other_status IS DISTINCT FROM status::text
              OR (status = 'Received' AND (cost_amount - written_off_amount <> stock_in OR cost_amount <> journal OR written_off_amount <> CASE WHEN value_mode = 'none' THEN cost_amount ELSE 0 END))

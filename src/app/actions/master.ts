@@ -41,6 +41,8 @@ import { normalizeTaxId } from "@/lib/erp/partner-shape";
 import {
   checkItemBaseUom,
   checkItemBjl,
+  checkItemWeighting,
+  writeItemWeighting,
   checkItemCategory,
   checkItemCollections,
   writeItemCollections,
@@ -585,7 +587,12 @@ async function ownCollections(
   if (entity.key === "m_item") {
     const checked = await checkItemCollections(values, id);
     Object.assign(errors, checked.errors);
-    return (tx, recordId, actorId) => writeItemCollections(tx, recordId, checked.clean, actorId);
+    const weighting = checkItemWeighting(values);
+    Object.assign(errors, weighting.errors);
+    return async (tx, recordId, actorId) => {
+      await writeItemCollections(tx, recordId, checked.clean, actorId);
+      await writeItemWeighting(tx, recordId, weighting.clean, actorId);
+    };
   }
   if (entity.key === "prd_routing") {
     const checked = await checkRoutingCollections(values, id);

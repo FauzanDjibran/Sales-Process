@@ -96,6 +96,9 @@ server.
 
 Qty yang diketik paling banyak 4 desimal; sisa baris boleh sampai 6.
 
+Untuk item yang ditimbang, qty yang diketik adalah **Qty SJ** dan `qty` / `base_qty`
+baris berasal dari timbangan: lihat `03 Penimbangan - Toleransi, Qty Terima dan Bonus.md`.
+
 ---
 
 ## 3. Saat Simpan (Draft)

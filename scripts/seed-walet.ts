@@ -34,8 +34,9 @@ const WAREHOUSES: [label: string, name: string][] = [
   ["GHS", "Gudang Hasil Samping"],
 ];
 
-const ITEMS: { label: string; name: string; type: "Barang" | "Jasa"; category: string; base: string; stock: boolean }[] = [
-  { label: "KARTON", name: "Karton", type: "Barang", category: "BHN-KEMAS", base: "PCS", stock: true },
+const ITEMS: { label: string; name: string; type: "Barang" | "Jasa"; category: string; base: string; stock: boolean; conversions?: [string, number][]; weighting?: [number, number] }[] = [
+  // Bought by the pack and weighed at receipt: Kg per piece, tolerance % (P320, P321).
+  { label: "KARTON", name: "Karton", type: "Barang", category: "BHN-KEMAS", base: "PCS", stock: true, conversions: [["PAK", 25]], weighting: [0.5, 5] },
   { label: "BHP-SRG", name: "Sarung Tangan", type: "Barang", category: "BRG-HABIS-PAKAI", base: "BOX", stock: false },
   { label: "JS-LAB", name: "Jasa Uji Lab (Nitrit)", type: "Jasa", category: "JASA-LAIN", base: "UNIT", stock: false },
   { label: "JS-KIRIM", name: "Jasa Pengiriman", type: "Jasa", category: "JASA-PENGIRIMAN", base: "UNIT", stock: false },
@@ -156,6 +157,8 @@ async function main() {
         track_stock: it.stock,
         has_expiry: false,
         created_by: actor,
+        uoms: { create: (it.conversions ?? []).map(([uom, factor], i) => ({ uom_id: uoms.get(uom)!, factor, sort_order: i, created_by: actor })) },
+        ...(it.weighting ? { weighting: { create: { item_weight: it.weighting[0], receiving_tolerance: it.weighting[1], created_by: actor } } } : {}),
       },
     });
     await audit(actor, "m_item", row.id);

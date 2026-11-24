@@ -817,6 +817,8 @@ export type ReceiptNoteSource = {
     /** The line in base units (P320). */
     baseUomLabel: string;
     baseQty: number;
+    /** The item's Timbangan, when it is weighed at receipt (P321). */
+    weighting: { itemWeight: number; tolerance: number } | null;
     /** The line's DPP in the order's currency, and in base at the order's rate (MC7). */
     dpp: number;
     baseDpp: number;
@@ -830,7 +832,7 @@ export async function receiptNoteSources(filter: { ids?: number[]; openOnly?: bo
   const rows = await db.purOrder.findMany({
     where: { ...(filter.ids ? { id: { in: filter.ids } } : {}), ...(filter.openOnly ? { status: "Open" } : {}) },
     orderBy: [{ order_date: "desc" }, { id: "desc" }],
-    include: { supplier: true, currency: true, lines: { include: { item: { include: { base_uom: true } }, uom: true }, orderBy: { line_no: "asc" } } },
+    include: { supplier: true, currency: true, lines: { include: { item: { include: { base_uom: true, weighting: true } }, uom: true }, orderBy: { line_no: "asc" } } },
   });
   return rows.map((o) => ({
     id: o.id,
@@ -858,6 +860,7 @@ export async function receiptNoteSources(filter: { ids?: number[]; openOnly?: bo
       received: l.received_qty.toNumber(),
       baseUomLabel: l.item.base_uom.uom_label,
       baseQty: l.base_qty.toNumber(),
+      weighting: l.item.weighting ? { itemWeight: l.item.weighting.item_weight.toNumber(), tolerance: l.item.weighting.receiving_tolerance.toNumber() } : null,
       dpp: l.dpp_amount.toNumber(),
       baseDpp: l.base_dpp_amount.toNumber(),
       isStock: l.item.item_type === "Barang" && l.item.track_stock,

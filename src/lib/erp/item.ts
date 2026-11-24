@@ -3,7 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { parseList } from "./partner-shape";
-import { UOMS_KEY, uomErrors, type UomDraft } from "./item-shape";
+import { UOMS_KEY, WEIGHTING_KEY, uomErrors, weightingErrors, type UomDraft, type WeightingDraft } from "./item-shape";
 import { itemUsedInProduction } from "./production-ledger";
 
 /**
@@ -19,13 +19,17 @@ import { itemUsedInProduction } from "./production-ledger";
 // -------------------------------------------------------------------- reads
 
 /** An Item's conversions in the shape the form edits them. */
-export async function itemCollections(itemId: number): Promise<{ uoms: UomDraft[] }> {
-  const rows = await prisma.mItemUom.findMany({
-    where: { item_id: itemId },
-    orderBy: [{ sort_order: "asc" }, { id: "asc" }],
-    include: { uom: true },
-  });
+export async function itemCollections(itemId: number): Promise<{ uoms: UomDraft[]; weighting: WeightingDraft[] }> {
+  const [rows, w] = await Promise.all([
+    prisma.mItemUom.findMany({
+      where: { item_id: itemId },
+      orderBy: [{ sort_order: "asc" }, { id: "asc" }],
+      include: { uom: true },
+    }),
+    prisma.mItemWeighting.findUnique({ where: { item_id: itemId } }),
+  ]);
   return {
+    weighting: w ? [{ key: `w${w.id}`, itemWeight: w.item_weight.toString(), tolerance: w.receiving_tolerance.toString() }] : [],
     uoms: rows.map((r) => ({
       id: r.id,
       key: `u${r.id}`,
@@ -213,7 +217,29 @@ export async function checkItemBjl(
   return (await itemUsedInProduction(itemId)) ? { is_bjl: "BJL tidak dapat diubah: item ini sudah dipakai di produksi." } : {};
 }
 
+/** The Timbangan an Item form submits (P321): none, or one row on a Barang with Kelola Stok. */
+export function checkItemWeighting(values: Record<string, unknown>): { errors: Record<string, string>; clean: { item_weight: string; receiving_tolerance: string } | null } {
+  const list = parseList<Partial<WeightingDraft>>(values[WEIGHTING_KEY]);
+  if (list === null || list.length > 1) return { errors: { [WEIGHTING_KEY]: "Data timbangan tidak terbaca." }, clean: null };
+  const w = list[0];
+  if (!w) return { errors: {}, clean: null };
+  const stocked = values.item_type === "Barang" && (values.track_stock === true || values.track_stock === "true");
+  const problem = stocked ? Object.values(weightingErrors(w))[0] : "Hanya Barang dengan Kelola Stok yang ditimbang.";
+  if (problem) return { errors: { [WEIGHTING_KEY]: problem }, clean: null };
+  return { errors: {}, clean: { item_weight: String(w.itemWeight).trim(), receiving_tolerance: String(w.tolerance ?? "").trim() || "0" } };
+}
+
 // ------------------------------------------------------------------- writes
+
+export async function writeItemWeighting(
+  tx: Prisma.TransactionClient,
+  itemId: number,
+  clean: { item_weight: string; receiving_tolerance: string } | null,
+  actorId: number
+): Promise<void> {
+  if (!clean) await tx.mItemWeighting.deleteMany({ where: { item_id: itemId } });
+  else await tx.mItemWeighting.upsert({ where: { item_id: itemId }, update: { ...clean, updated_by: actorId }, create: { ...clean, item_id: itemId, created_by: actorId } });
+}
 
 /**
  * Makes the Item's conversions exactly what was submitted: updates the rows

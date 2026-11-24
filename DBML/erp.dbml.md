@@ -602,6 +602,21 @@ table m_item {
   }
 }
 
+// an item weighed when it is received; a row means it is (P321)
+table m_item_weighting {
+  id                          int [pk, increment, not null]
+
+  item_id                     int [not null, unique, ref : > m_item.id]
+  item_weight                 decimal(18,6) [not null] // Kg of one base unit, > 0
+  receiving_tolerance         decimal(18,6) [not null, default: 0] // percent, 0 to under 100
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+}
+
 // the item's other units and their factor to the base unit, saved with the Item (P46)
 table m_item_uom {
   id                          int [pk, increment, not null]
@@ -2598,6 +2613,27 @@ table log_receipt_note_line {
   }
 }
 
+// what was weighed of a line; it decides the line's quantity (P321)
+table log_receipt_note_weighting {
+  id                          int [pk, increment, not null]
+
+  receipt_line_id             int [not null, unique, ref : > log_receipt_note_line.id]
+  qty_sj                      decimal(18,6) [not null] // the supplier's, in uom_id
+  uom_id                      int [not null, ref : > ref_uom.id] // the PO line's
+  uom_factor                  decimal(18,4) [not null]
+  item_weight                 decimal(18,6) [not null] // snapshot
+  qty_calculated              decimal(18,6) [not null] // Kg: qty_sj × uom_factor × item_weight
+  receiving_tolerance         decimal(18,6) [not null, default: 0] // snapshot, percent
+  lower_tolerance             decimal(18,6) [not null] // Kg
+  upper_tolerance             decimal(18,6) [not null] // Kg
+  qty_weighting               decimal(18,6) [not null] // Kg, what the scale said
+  weighting_result            enum('Within', 'Above', 'Below') [not null]
+  qty_received                decimal(18,6) [not null] // in uom_id; the line's qty
+  qty_bonus                   decimal(18,4) [not null, default: 0] // base units; its Stock Receipt at 0
+
+  created_at                  timestamptz [not null, default: `now()`]
+}
+
 // the lots a stock line comes in as, made at Posting
 table log_receipt_note_tracking {
   id                          int [pk, increment, not null]
@@ -3109,12 +3145,15 @@ table log_stock_issue_tracking {
 // Production Issue, under its number. Terima by the warehouse: Dr Persediaan (or beban) / Cr WIP.
 table log_stock_receipt {
   id                          int [pk, increment, not null]
-  receipt_no                  varchar [not null, unique] // the sender's: BFG_ / BPG_<unit>_<ddmmyy>_<NNNNN>
-  purpose                     varchar [not null] // finish_goods | return
+  receipt_no                  varchar [not null, unique] // the sender's: BFG_ / BPG_<unit>_<ddmmyy>_<NNNNN>; a bonus: SRC/YYYY/MM/NNNN
+  purpose                     varchar [not null] // finish_goods | return | purchase_bonus (P321)
   receipt_date                date [not null] // the day sent
   status                      enum('InTransit', 'Received') [not null, default: 'InTransit']
   from_unit_id                int [ref : > ref_unit.id]
   warehouse_id                int [not null, ref : > ref_warehouse.id]
+  source_doc_type_id          int // weak: the Receipt Note of a purchase_bonus (P321)
+  source_doc_id               int
+  source_no                   varchar
   note                        varchar
   received_at                 date // Terima, the journal's date
   received_by                 int
@@ -3131,6 +3170,7 @@ table log_stock_receipt {
     (purpose, status)
     (status, receipt_date)
     warehouse_id
+    (source_doc_type_id, source_doc_id)
   }
 }
 

@@ -15,7 +15,9 @@ import { ReceiptNoteLinePicker } from "@/components/inventory/receipt-note-line-
 import { ReceiptLotDialog, type ReceiptLot } from "@/components/inventory/receipt-lot-dialog";
 import { createReceiptNoteAction, updateReceiptNoteAction } from "@/app/actions/receipt-note";
 import { RECEIPT_NOTE_STATUS_BADGE, RECEIPT_NOTE_STATUS_TEXT, cumulativeShare, receivedBaseQty, type ReceiptNoteAbilities } from "@/lib/erp/receipt-note-workflow";
-import type { ReceiptNoteHeaderInput, ReceiptNoteOptions, ReceiptNoteView } from "@/lib/erp/receipt-note";
+import { ReceiptWeighDialog } from "@/components/inventory/receipt-weigh-dialog";
+import { WEIGHING_RESULT_TEXT, weigh } from "@/lib/erp/receipt-weighting";
+import type { ReceiptNoteHeaderInput, ReceiptNoteOptions, ReceiptNoteView, RnSourceLine } from "@/lib/erp/receipt-note";
 import { PURCHASE_ORDER_KINDS, purchaseOrderKindOf } from "@/lib/erp/purchase-order-workflow";
 import { formatDate, formatMoney, formatQty, todayIso } from "@/lib/format";
 import { DocumentHeader } from "@/components/ui/document-header";
@@ -35,7 +37,8 @@ import { RECEIPT_NOTE_TRANSITIONS, availableReceiptNoteActions } from "@/lib/erp
  */
 
 type LotState = ReceiptLot;
-type LineState = { key: string; source_doc_line_id: number; qty: string; note: string; lots: LotState[] };
+/** `qty` of a weighed line is the supplier's SJ; `scale` what it weighed, empty until it is (P321). */
+type LineState = { key: string; source_doc_line_id: number; qty: string; scale: string; note: string; lots: LotState[] };
 
 let seq = 0;
 const newKey = () => `k${Date.now().toString(36)}${seq++}`;
@@ -47,11 +50,14 @@ export function ReceiptNoteForm({
   note,
   options,
   can,
+  bonus,
 }: {
   mode: "new" | "edit" | "view";
   note: ReceiptNoteView | null;
   options: ReceiptNoteOptions;
   can: ReceiptNoteAbilities;
+  /** The Stock Receipt its posting made for what weighed beyond tolerance (P321). */
+  bonus?: { id: number; no: string } | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -64,6 +70,7 @@ export function ReceiptNoteForm({
       key: newKey(),
       source_doc_line_id: Number(l.source_doc_line_id),
       qty: String(l.qty),
+      scale: l.weighing ? String(l.weighing.scale) : "",
       note: l.note,
       lots: (l.lots ?? []).map((p) => ({ key: newKey(), tracking_no: p.tracking_no, expiry_date: p.expiry_date, location_id: p.location_id ?? null, qty: String(p.qty) })),
     }))
@@ -73,7 +80,9 @@ export function ReceiptNoteForm({
   const [saving, setSaving] = useState(false);
   const [picking, setPicking] = useState(false);
   const [lotsOf, setLotsOf] = useState<string | null>(null);
+  const [weighOf, setWeighOf] = useState<string | null>(null);
 
+  const status = note?.status ?? "Draft";
   const order = options.orders.find((o) => o.id === header.source_doc_id) ?? null;
   const poLine = useMemo(() => new Map((order?.lines ?? []).map((l) => [l.id, l])), [order]);
   const goods = order ? order.itemType === "Barang" : true;
@@ -120,18 +129,39 @@ export function ReceiptNoteForm({
       .map((id) => {
         const left = String(+leftOf(id).toFixed(6));
         // The lots are split in the dialog once the quantity is known.
-        return { key: newKey(), source_doc_line_id: id, qty: left, note: "", lots: [] as LotState[] };
+        return { key: newKey(), source_doc_line_id: id, qty: left, scale: "", note: "", lots: [] as LotState[] };
       });
     setLines([...keep, ...added]);
     setPicking(false);
     touch("_lines");
   };
 
+  /** The Timbangan a line is weighed by: its own once stored, else the item's. */
+  const ruleOf = (l: LineState, i: number) => {
+    const p = poLine.get(l.source_doc_line_id);
+    if (mode === "view" && note?.lines[i]?.weighing) return note.lines[i].weighing!.rule;
+    return p?.isStock && status !== "Posted" ? p.weighting : null;
+  };
+  const weighed = (l: LineState, p: RnSourceLine) =>
+    p.isStock && p.weighting && Number(l.scale) > 0 && Number(l.qty) > 0
+      ? weigh({ sj: Number(l.qty), sjBase: receivedBaseQty(Number(l.qty), p), factor: p.uomFactor, scale: Number(l.scale), rule: p.weighting })
+      : null;
+  /** What a line being edited receives, as the save will store it. */
+  const received = (l: LineState, p: RnSourceLine) => {
+    const w = weighed(l, p);
+    return w ? { qty: w.received, base: w.receivedBase } : { qty: Number(l.qty) || 0, base: receivedBaseQty(Number(l.qty) || 0, p) };
+  };
+  /** New quantity or weight: one lot follows what is received; a weighing is redone when the SJ changes. */
+  const setQty = (l: LineState, p: RnSourceLine | undefined, qty: string, scale: string) => {
+    const base = p ? received({ ...l, qty, scale }, p).base : 0;
+    setLine(l.key, { qty, scale, lots: l.lots.length === 1 ? [{ ...l.lots[0], qty: String(base) }] : l.lots });
+  };
+
   /** What a line is in base units: as stored, or as the save will store it (P320). */
   const baseOf = (l: LineState, i: number) => {
     if (mode === "view") return note?.lines[i]?.baseQty ?? 0;
     const p = poLine.get(l.source_doc_line_id);
-    return p ? receivedBaseQty(Number(l.qty) || 0, p) : 0;
+    return p ? received(l, p).base : 0;
   };
 
   /** A line's lots in one phrase: how many, and how much of the line they hold. */
@@ -145,7 +175,7 @@ export function ReceiptNoteForm({
   const valueOf = (l: LineState, i: number) => {
     if (mode === "view") return note?.lines[i]?.value ?? 0;
     const p = poLine.get(l.source_doc_line_id);
-    return p ? cumulativeShare(p.baseDpp, p.qty, p.received, Math.min(Number(l.qty) || 0, Math.max(0, p.qty - p.received))) : 0;
+    return p ? cumulativeShare(p.baseDpp, p.qty, p.received, Math.min(received(l, p).qty, Math.max(0, p.qty - p.received))) : 0;
   };
   const total = lines.reduce((s, l, i) => s + valueOf(l, i), 0);
 
@@ -157,6 +187,7 @@ export function ReceiptNoteForm({
     const payload = lines.map((l) => ({
       source_doc_line_id: l.source_doc_line_id,
       qty: l.qty,
+      qty_weighting: l.scale,
       note: l.note,
       lots: l.lots.map((p) => ({ tracking_no: p.tracking_no, expiry_date: p.expiry_date, location_id: p.location_id, qty: p.qty })),
     }));
@@ -172,7 +203,6 @@ export function ReceiptNoteForm({
     router.push(withStep(`/inventory/receipt-note/${result.id}`, step));
   }
 
-  const status = note?.status ?? "Draft";
   const ro = (n: React.ReactNode) => <div className="ro">{n}</div>;
   const nil = (t?: string) => <div className={`ro nil${t || editing ? "" : " opt"}`}>{t ?? "tidak diisi"}</div>;
   const orderOptions = options.orders.map((o) => ({ id: o.id, label: o.orderNo, name: `${o.supplierLabel} · ${o.supplierName}`, active: true }));
@@ -242,6 +272,19 @@ export function ReceiptNoteForm({
             </Field>
           </FormRow>
         </FormSection>
+        {bonus && (
+          <FormSection title="Bonus">
+            <FormRow>
+              <Field label="Stock Receipt" span={4} help="bernilai 0">
+                {ro(
+                  <Link className="drl" href={`/inventory/stock-receipt/${bonus.id}`}>
+                    <span className="mono">{bonus.no}</span>
+                  </Link>
+                )}
+              </Field>
+            </FormRow>
+          </FormSection>
+        )}
         <JournalReference id={note?.journalId} no={note?.journalNo} />
         {note?.cancelReason && (
           <p className="fnote">
@@ -297,7 +340,7 @@ export function ReceiptNoteForm({
               <tr>
                 <th style={{ width: 40 }}>No</th>
                 <th>Barang / Jasa</th>
-                <th style={{ width: 170 }}>Qty</th>
+                <th style={{ width: 210 }}>Qty</th>
                 <th style={{ width: 360 }}>Lot</th>
                 <th className="num" style={{ width: 140 }}>Nilai</th>
                 {editing && <th style={{ width: 40 }} />}
@@ -307,6 +350,9 @@ export function ReceiptNoteForm({
               {lines.map((l, i) => {
                 const p = poLine.get(l.source_doc_line_id);
                 const err = errors[`lines.${i}.source_doc_line_id`] ?? errors[`lines.${i}.qty`] ?? errors[`lines.${i}.lots`];
+                const rule = ruleOf(l, i);
+                const stored = note?.lines[i]?.weighing;
+                const w = !rule ? null : editing ? (p ? weighed(l, p) : null) : stored ? { result: stored.result, received: note!.lines[i].received, bonus: stored.bonus } : null;
                 const stock = p?.isStock ?? note?.lines[i]?.isStock ?? false;
                 return (
                   <tr key={l.key} className={err ? "overrow" : undefined}>
@@ -327,15 +373,33 @@ export function ReceiptNoteForm({
                             value={l.qty}
                             ariaLabel="Qty"
                             // One lot follows the line: the common case needs no second visit to the dialog.
-                            onChange={(v) => setLine(l.key, { qty: v, ...(l.lots.length === 1 ? { lots: [{ ...l.lots[0], qty: p ? String(receivedBaseQty(Number(v) || 0, p)) : v }] } : {}) })}
+                            onChange={(v) => setQty(l, p, v, "")}
                           />
                           <span className="qu">{p?.uomLabel}</span>
                         </div>
                       ) : (
                         <span className="qview">
-                          <span className="mny">{qtyText(Number(l.qty))}</span>
+                          <span className="mny">{qtyText(note?.lines[i]?.received ?? Number(l.qty))}</span>
                           <span className="lab">{p?.uomLabel}</span>
                         </span>
+                      )}
+                      {rule && p && (
+                        <span className="fulltag" style={{ display: "block", whiteSpace: "normal" }}>
+                          {editing ? "jumlah surat jalan" : `SJ ${qtyText(Number(l.qty))} ${p.uomLabel}`}
+                          {w && (
+                            <>
+                              {" · "}
+                              {WEIGHING_RESULT_TEXT[w.result]}
+                              {editing && ` · Terima ${qtyText(w.received)} ${p.uomLabel}`}
+                              {w.bonus > 0 && ` · Bonus ${qtyText(w.bonus)} ${p.baseUomLabel}`}
+                            </>
+                          )}
+                        </span>
+                      )}
+                      {rule && (
+                        <button className="btn sm" style={{ margin: "4px 0" }} disabled={!(Number(l.qty) > 0) || (!editing && !w)} onClick={() => setWeighOf(l.key)}>
+                          <Icon name="scale" size={13} /> {w ? (editing ? "Timbang Ulang" : "Lihat Timbangan") : editing ? "Timbang" : "Belum ditimbang"}
+                        </button>
                       )}
                       {p && p.uomFactor !== 1 && Number(l.qty) > 0 && (
                         <span className="fulltag" style={{ display: "block" }}>
@@ -350,7 +414,7 @@ export function ReceiptNoteForm({
                       ) : editing ? (
                         <div className="qcell" style={{ gap: 8 }}>
                           <span className="fulltag" style={{ whiteSpace: "normal" }}>{lotSummary(l, i, p?.baseUomLabel ?? "")}</span>
-                          <button className="btn sm" onClick={() => setLotsOf(l.key)}>
+                          <button className="btn sm" disabled={Boolean(rule) && !w} title={rule && !w ? "Timbang dulu…" : undefined} onClick={() => setLotsOf(l.key)}>
                             <Icon name="pen" size={13} /> Atur Lot
                           </button>
                         </div>
@@ -444,6 +508,29 @@ export function ReceiptNoteForm({
                 setLotsOf(null);
               }}
               onClose={() => setLotsOf(null)}
+            />
+          );
+        })()}
+      {weighOf &&
+        (() => {
+          const i = lines.findIndex((x) => x.key === weighOf);
+          const l = lines[i];
+          const p = l ? poLine.get(l.source_doc_line_id) : undefined;
+          const rule = l ? ruleOf(l, i) : null;
+          if (!l || !p || !rule) return null;
+          return (
+            <ReceiptWeighDialog
+              line={p}
+              rule={rule}
+              left={leftOf(p.id)}
+              sj={l.qty}
+              scale={l.scale}
+              editing={editing}
+              onApply={(sj, scale) => {
+                setQty(l, p, sj, scale);
+                setWeighOf(null);
+              }}
+              onClose={() => setWeighOf(null)}
             />
           );
         })()}

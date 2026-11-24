@@ -72,7 +72,7 @@ async function collectionsOf(
     return partnerCollections(id);
   }
   if (entity.key === "m_item") {
-    if (id == null) return { uoms: [] };
+    if (id == null) return { uoms: [], weighting: [] };
     return itemCollections(id);
   }
   if (entity.key === "ref_unit") {

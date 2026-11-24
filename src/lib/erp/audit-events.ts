@@ -242,6 +242,7 @@ const TRANSFER_EVENTS: Record<string, AuditEventLabel> = {
 const STOCK_RECEIPT_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   send: { label: "Dikirim dari produksi", icon: "truck", tone: "neutral" },
+  bonus: { label: "Dibuat dan diterima bersama Receipt Note", icon: "check", tone: "primary" },
   receive: { label: "Diterima — barang masuk gudang", icon: "check", tone: "primary" },
 };
 

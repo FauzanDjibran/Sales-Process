@@ -195,6 +195,8 @@ type PurchaseItemSpec = {
   conversions: [string, number][];
   stock?: boolean;
   expiry?: boolean;
+  /** Weighed at receipt: Kg per base unit, tolerance % (P321). */
+  weighting?: [number, number];
 };
 
 /** What the company buys (P121): raw and packaging materials by lot, a consumable without stock, and services. */
@@ -202,7 +204,7 @@ const PURCHASE_ITEMS: PurchaseItemSpec[] = [
   { label: "BB-001", name: "Niacinamide (Bahan Baku)", type: "Barang", category: "BHN-BAKU", base: "KG", conversions: [], stock: true, expiry: true },
   { label: "BB-002", name: "Gliserin Murni (Bahan Baku)", type: "Barang", category: "BHN-BAKU", base: "KG", conversions: [], stock: true, expiry: true },
   { label: "BB-003", name: "Asam Askorbat (Bahan Baku)", type: "Barang", category: "BHN-BAKU", base: "KG", conversions: [], stock: true, expiry: true },
-  { label: "BK-001", name: "Botol Kaca Amber 30 ml", type: "Barang", category: "BHN-KEMAS", base: "PCS", conversions: [["BOX", 100]], stock: true },
+  { label: "BK-001", name: "Botol Kaca Amber 30 ml", type: "Barang", category: "BHN-KEMAS", base: "PCS", conversions: [["BOX", 100]], stock: true, weighting: [0.09, 5] },
   { label: "BK-002", name: "Tube Plastik 50 ml", type: "Barang", category: "BHN-KEMAS", base: "PCS", conversions: [["BOX", 200]], stock: true },
   { label: "BK-003", name: "Karton Box Pengiriman", type: "Barang", category: "BHN-KEMAS", base: "PCS", conversions: [["PAK", 25]], stock: true },
   { label: "BHP-001", name: "Sarung Tangan Nitril", type: "Barang", category: "BRG-HABIS-PAKAI", base: "BOX", conversions: [] },
@@ -359,6 +361,7 @@ async function main() {
             created_by: actor,
           })),
         },
+        ...(it.weighting ? { weighting: { create: { item_weight: it.weighting[0], receiving_tolerance: it.weighting[1], created_by: actor } } } : {}),
       },
     });
     await audit("m_item", row.id);
