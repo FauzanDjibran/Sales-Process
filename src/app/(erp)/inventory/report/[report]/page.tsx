@@ -4,6 +4,7 @@ import { StockReportParams } from "@/components/report/stock-report-params";
 import { StockBalanceBody, StockLedgerBody } from "@/components/report/stock-card-reports";
 import { Mismatch, ValuationBody, ValuationLedgerBody, type InventoryGl } from "@/components/report/stock-reports";
 import { requirePermission } from "@/lib/erp/auth";
+import { inventoryAccountIds } from "@/lib/erp/item-account";
 import { closingBalances } from "@/lib/erp/ledger";
 import type { PeriodRange } from "@/lib/erp/period";
 import { reportBySlug, reportHref } from "@/lib/erp/reports";
@@ -17,7 +18,7 @@ import {
   valuationReport,
   type StockGroupBy,
 } from "@/lib/erp/stock-report";
-import { postingAccounts } from "@/lib/erp/system-settings";
+import { fallbackAccounts } from "@/lib/erp/system-settings";
 import { formatDate } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
@@ -130,26 +131,34 @@ export default async function Page({
 
   const reconciles = await stockBooksReconcile(itemId);
 
-  // Nilai Persediaan, checked against the Persediaan account in the General Ledger.
+  // Nilai Persediaan, checked against every Persediaan account in the General
+  // Ledger: an item posts to its Kategori Item's, else to Account Mapping's (P122).
   const rows = await valuationReport(asOf, itemId);
   let gl: InventoryGl;
-  const mapped = await postingAccounts(["inventory_account"] as const);
+  let accounts: { account_label: string; account_name: string }[] = [];
   if (itemId) {
     gl = { ok: false, missing: "Pencocokan dengan Buku Besar hanya untuk seluruh barang." };
-  } else if (!mapped.ok) {
-    gl = { ok: false, missing: `${mapped.missing.join(", ")} belum diatur di Account Mapping.` };
   } else {
-    const accountId = mapped.ids.inventory_account;
-    const balance = (await closingBalances(asOf)).filter((b) => b.accountId === accountId).reduce((s, b) => s + b.balance, 0);
-    const account = await prisma.accAccount.findUnique({ where: { id: accountId }, select: { account_label: true, account_name: true } });
-    gl = { ok: true, accountLabel: account?.account_label ?? "", accountName: account?.account_name ?? "", balance };
+    const ids = await inventoryAccountIds((await fallbackAccounts(["inventory_account"] as const)).inventory_account);
+    if (!ids.length) {
+      gl = { ok: false, missing: "Account Persediaan belum diatur di Account Mapping atau Account Kategori Item." };
+    } else {
+      const [balances, named] = await Promise.all([
+        closingBalances(asOf),
+        prisma.accAccount.findMany({ where: { id: { in: ids } }, orderBy: { account_label: "asc" }, select: { account_label: true, account_name: true } }),
+      ]);
+      accounts = named;
+      // Added in cents: a sum over several accounts must not drift into a false difference.
+      const cents = balances.filter((b) => ids.includes(b.accountId)).reduce((sum, b) => sum + Math.round(b.balance * 100), 0);
+      gl = { ok: true, label: named.length === 1 ? named[0].account_label : `${named.length} account Persediaan`, balance: cents / 100 };
+    }
   }
   return (
     <ReportView
       report={report}
       filter={filter}
       runAt={runAt}
-      footnote={<>Nilai per {formatDate(asOf)} dari Kartu Nilai Persediaan. Stok yang diinjeksi tidak berjurnal, jadi selisih dengan Buku Besar sebesar nilainya adalah wajar.</>}
+      footnote={<>Nilai per {formatDate(asOf)} dari Kartu Nilai Persediaan. Stok yang diinjeksi tidak berjurnal, jadi selisih dengan Buku Besar sebesar nilainya adalah wajar.{accounts.length > 1 && <> Account Buku Besar: {accounts.map((a) => `${a.account_label} ${a.account_name}`).join(", ")}.</>}</>}
     >
       <ValuationBody rows={rows} gl={gl} reconciles={reconciles} />
     </ReportView>

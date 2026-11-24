@@ -154,7 +154,7 @@ export function ValuationLedgerBody({ report }: { report: ValuationLedgerReport 
 
 // ------------------------------------------------------ Nilai Persediaan
 
-export type InventoryGl = { ok: true; accountLabel: string; accountName: string; balance: number } | { ok: false; missing: string };
+export type InventoryGl = { ok: true; label: string; balance: number } | { ok: false; missing: string };
 
 export function ValuationBody({ rows, gl, reconciles }: { rows: ValuationRow[]; gl: InventoryGl; reconciles: boolean }) {
   const total = rows.reduce((s, r) => s + r.value, 0);
@@ -169,7 +169,7 @@ export function ValuationBody({ rows, gl, reconciles }: { rows: ValuationRow[]; 
               { label: "Total Nilai", value: money(total), key: true },
               ...(gl.ok
                 ? [
-                    { label: `Buku Besar ${gl.accountLabel}`, value: money(gl.balance) },
+                    { label: `Buku Besar ${gl.label}`, value: money(gl.balance) },
                     { label: "Selisih", value: money(total - gl.balance), zero: total === gl.balance, negative: total !== gl.balance },
                   ]
                 : []),

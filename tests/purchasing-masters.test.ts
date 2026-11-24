@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 
 import { ENTITIES, fieldApplies, SUPPLIER_CATEGORY } from "../src/lib/erp/entities";
 import { checkCustomerOrder, customerOrderOptions } from "../src/lib/erp/customer-order";
-import { accountsForItems, categoriesUsingAccount, saveItemCategoryAccounts } from "../src/lib/erp/item-account";
+import { accountsForItems, categoriesUsingAccount, inventoryAccountIds, saveItemCategoryAccounts } from "../src/lib/erp/item-account";
 import { SYSTEM_DEFAULTS } from "../src/lib/erp/system-defaults";
 import { FIXTURE_PREFIX, cleanupFixtures, disconnect, makeAccount, prisma, systemUserId } from "./helpers";
 
@@ -128,5 +128,13 @@ describe("accounts per Kategori Item (B5a, closes C25)", () => {
   test("an account a category uses is named before it is deactivated", async () => {
     const label = (await prisma.sysItemCategory.findUniqueOrThrow({ where: { id: f.goodsCat } })).category_label;
     assert.ok((await categoriesUsingAccount(f.inv)).includes(label));
+  });
+
+  test("stock is valued on every category's Persediaan and the fallback, each once", async () => {
+    const ids = await inventoryAccountIds(f.inv);
+    assert.equal(ids.filter((id) => id === f.inv).length, 1);
+    const other = (await prisma.accAccount.findFirstOrThrow({ where: { id: { notIn: ids } } })).id;
+    assert.ok(!(await inventoryAccountIds(null)).includes(other));
+    assert.ok((await inventoryAccountIds(other)).includes(other));
   });
 });

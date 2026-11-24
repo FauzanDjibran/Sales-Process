@@ -172,3 +172,9 @@ export async function categoriesUsingAccount(accountId: number): Promise<string[
   });
   return rows.map((r) => r.category.category_label);
 }
+
+/** Every account stock is valued on: each category's Persediaan, and the one a category without any falls back to. */
+export async function inventoryAccountIds(fallback: number | null): Promise<number[]> {
+  const rows = await prisma.accItemCategoryAccount.findMany({ where: { inventory_account_id: { not: null } }, select: { inventory_account_id: true } });
+  return [...new Set([...rows.map((r) => r.inventory_account_id!), ...(fallback ? [fallback] : [])])];
+}
