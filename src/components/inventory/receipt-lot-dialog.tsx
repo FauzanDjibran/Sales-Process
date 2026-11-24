@@ -7,20 +7,20 @@ import { DateInput } from "@/components/ui/date-input";
 import { Dialog } from "@/components/ui/dialog";
 import { MoneyInput } from "@/components/ui/money-input";
 import type { WarehouseLocationOption } from "@/lib/erp/inventory";
-import { formatNumber } from "@/lib/format";
+import { formatQty } from "@/lib/format";
 
 export type ReceiptLot = { key: string; tracking_no: string; expiry_date: string; location_id: number | null; qty: string };
 
 let seq = 0;
 export const newLotKey = () => `lot${Date.now().toString(36)}${seq++}`;
-const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
+const qtyText = formatQty;
 const units = (v: string | number) => Math.round((Number(v) || 0) * 10_000);
 
 /**
  * How one received line is split into lots (P125 B19), in a dialog so the line
  * itself only holds its quantity: each lot a No. Stok (left empty, it is
  * numbered at posting), an expiry, a location where the warehouse has any, and
- * its share of the quantity. The foot says how much of the line is split; the
+ * its share of the quantity in base units (P320). The foot says how much of the line is split; the
  * server still refuses a posting whose lots do not add up to the line.
  */
 export function ReceiptLotDialog({
@@ -57,7 +57,7 @@ export function ReceiptLotDialog({
       icon="box"
       title="Atur Lot"
       subtitle={`${itemLabel} · ${qtyText(lineQty)} ${uomLabel} diterima`}
-      width={locations ? 860 : 700}
+      width={locations ? 940 : 780}
       onClose={onClose}
       foot={
         <>
@@ -78,14 +78,14 @@ export function ReceiptLotDialog({
       }
     >
       <div className="tw">
-        <table className="grid ltab" style={{ minWidth: locations ? 800 : 640 }}>
+        <table className="grid ltab" style={{ minWidth: locations ? 880 : 720 }}>
           <thead>
             <tr>
               <th style={{ width: 40 }}>No</th>
               <th>Lot</th>
               <th style={{ width: 170 }}>Kadaluarsa{hasExpiry ? " *" : ""}</th>
               {locations && <th style={{ width: 180 }}>Lokasi *</th>}
-              <th style={{ width: 150 }}>Qty</th>
+              <th style={{ width: 230 }}>Qty</th>
               <th style={{ width: 40 }} />
             </tr>
           </thead>

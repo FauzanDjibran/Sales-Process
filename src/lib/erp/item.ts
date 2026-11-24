@@ -143,7 +143,46 @@ export async function checkItemCategory(
   return {};
 }
 
-/** The base unit must exist and be active, unless the item already has it. */
+/**
+ * Whether any document or book names the item. Every quantity they hold is
+ * counted in its base unit, so the unit may not change under them (P320).
+ */
+export async function itemInUse(itemId: number): Promise<boolean> {
+  const some = { some: {} };
+  const row = await prisma.mItem.findFirst({
+    where: {
+      id: itemId,
+      OR: [
+        { customer_order_lines: some },
+        { purchase_request_lines: some },
+        { purchase_order_lines: some },
+        { receipt_note_lines: some },
+        { delivery_note_lines: some },
+        { credit_note_lines: some },
+        { sales_return_lines: some },
+        { stock_trackings: some },
+        { stock_ledger: some },
+        { stock_issue_lines: some },
+        { stock_receipt_lines: some },
+        { stock_transfer_lines: some },
+        { stock_transfer_receipt_lines: some },
+        { stock_adjustment_lines: some },
+        { prd_ledger: some },
+        { prd_receipt_lines: some },
+        { prd_issue_lines: some },
+        { grading_outputs: some },
+        { job_order_targets: some },
+        { boms: some },
+        { bom_components: some },
+        { boxes: some },
+      ],
+    },
+    select: { id: true },
+  });
+  return Boolean(row);
+}
+
+/** The base unit must exist and be active, unless the item already has it; it is fixed once the item is used (P320). */
 export async function checkItemBaseUom(
   values: Record<string, unknown>,
   itemId: number | null
@@ -152,10 +191,13 @@ export async function checkItemBaseUom(
   if (!uomId) return {};
   const uom = await prisma.refUom.findUnique({ where: { id: uomId }, select: { status: true } });
   if (!uom) return { base_uom_id: "Satuan tidak ditemukan." };
-  if (uom.status === "Active") return {};
   const current = itemId
     ? await prisma.mItem.findUnique({ where: { id: itemId }, select: { base_uom_id: true } })
     : null;
+  if (itemId && current && current.base_uom_id !== uomId && (await itemInUse(itemId))) {
+    return { base_uom_id: "Satuan Dasar tidak dapat diubah: item ini sudah dipakai di dokumen atau stok." };
+  }
+  if (uom.status === "Active") return {};
   return current?.base_uom_id === uomId ? {} : { base_uom_id: "Satuan ini sudah nonaktif." };
 }
 

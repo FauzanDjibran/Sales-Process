@@ -32,7 +32,7 @@ import {
 import type { PurchaseOrderHeaderInput, PurchaseOrderLineInput, PurchaseOrderOptions, PurchaseOrderView } from "@/lib/erp/purchase-order";
 import { PURCHASE_REQUEST_KINDS } from "@/lib/erp/purchase-request-workflow";
 import { formatTaxId } from "@/lib/erp/partner-shape";
-import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso } from "@/lib/format";
+import { formatDate, formatMoney, formatPct, formatPrice, formatQty, todayIso } from "@/lib/format";
 import { DocumentHeader } from "@/components/ui/document-header";
 import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
@@ -43,7 +43,8 @@ import { PURCHASE_ORDER_TRANSITIONS, availablePurchaseOrderActions } from "@/lib
  * and mode harga fill in from its purchase defaults (P122) — then the order,
  * then the lines, which come only from Open Purchase Requests (*Tambah dari
  * PR*, B13): request lines of one item are merged into one line in its base
- * unit (B9), whose unit may then be changed to any of the item's (B14). Each
+ * unit (B9), whose unit may then be changed to any of the item's (B14), its
+ * quantity and price then typed afresh in that unit (P320). Each
  * line shows how its base quantity is shared over its requests, earliest need
  * first, and what goes beyond them (B15). Every figure is `computeSalesTotals`,
  * the module the save stores from (B11).
@@ -65,7 +66,7 @@ type LineState = {
 let seq = 0;
 const newKey = () => `l${Date.now().toString(36)}${seq++}`;
 const MODE_TEXT: Record<PriceMode, string> = { Exclude: "Exclude PPN", Include: "Include PPN" };
-const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
+const qtyText = formatQty;
 const discountOf = (l: { discount_type: DiscountType; discount_value: string }) =>
   Number(l.discount_value) > 0 ? { type: l.discount_type, value: Number(l.discount_value) } : { type: null, value: null };
 
@@ -182,30 +183,34 @@ export function PurchaseOrderForm({
   const factorOf = (l: LineState) => itemById.get(l.item_id)?.uoms.find((u) => u.id === l.uom_id)?.factor ?? 1;
 
   /**
-   * Applies the picker: a new request line joins the line of its item in the
-   * base unit, or starts one, adding what it still needs (B9); an unticked one
-   * leaves its line, taking its quantity with it, and a line left with no
-   * request goes.
+   * Applies the picker: a new request line joins the line of its item — the one
+   * in the base unit, else its only one — or starts one; a base-unit quantity
+   * grows by what it still needs (B9). An unticked one leaves its line, and a
+   * line left with no request goes.
    */
   const applyPick = (ids: number[]) => {
     const picked = new Set(ids);
     let next = lines.map((l) => {
       const gone = l.request_line_ids.filter((id) => !picked.has(id));
       if (!gone.length) return l;
-      const less = gone.reduce((s, id) => s + leftOf(id), 0) / factorOf(l);
+      const request_line_ids = l.request_line_ids.filter((id) => picked.has(id));
+      // A quantity typed in another unit is the user's, never taken apart (P320).
+      if (factorOf(l) !== 1) return { ...l, request_line_ids };
+      const less = gone.reduce((s, id) => s + leftOf(id), 0);
       const qty = Number(l.qty) - less;
-      return { ...l, request_line_ids: l.request_line_ids.filter((id) => picked.has(id)), qty: qty > 0 ? String(+qty.toFixed(4)) : l.qty };
+      return { ...l, request_line_ids, qty: qty > 0 ? String(+qty.toFixed(4)) : l.qty };
     });
-    next = next.filter((l) => l.request_line_ids.length);
+    next = next.filter((l) => l.request_line_ids.length).map((l) => ({ ...l }));
     const have = new Set(next.flatMap((l) => l.request_line_ids));
     for (const id of ids) {
       if (have.has(id)) continue;
       const s = srcById.get(id)!;
       const base = itemById.get(s.itemId)?.uoms[0];
-      const into = next.find((l) => l.item_id === s.itemId && l.uom_id === base?.id);
+      const mine = next.filter((l) => l.item_id === s.itemId);
+      const into = mine.find((l) => l.uom_id === base?.id) ?? (mine.length === 1 ? mine[0] : undefined);
       if (into) {
         into.request_line_ids = [...into.request_line_ids, id];
-        into.qty = String(+(Number(into.qty) + leftOf(id)).toFixed(4));
+        if (into.uom_id === base?.id) into.qty = String(+(Number(into.qty) + leftOf(id)).toFixed(4));
       } else {
         next.push({
           key: newKey(),
@@ -503,7 +508,8 @@ export function PurchaseOrderForm({
                 const r = totals.lines[i];
                 const uoms = item?.uoms ?? [];
                 const uom = uoms.find((u) => u.id === l.uom_id);
-                const baseLabel = uoms[0]?.label ?? view?.uomLabel ?? "";
+                const baseLabel = uoms[0]?.label ?? view?.baseUomLabel ?? "";
+                const factor = editing ? factorOf(l) : (view?.uomFactor ?? 1);
                 const wht = l.withholding_tax_id ? whtById.get(l.withholding_tax_id) : null;
                 const lineError = lineErr(i, "item_id") ?? lineErr(i, "uom_id") ?? lineErr(i, "amount") ?? lineErr(i, "withholding_tax_id");
                 // The share as the save will store it (Draft) or as stored.
@@ -516,7 +522,7 @@ export function PurchaseOrderForm({
                 const refs = editing
                   ? l.request_line_ids.map((id) => ({ id, requestId: srcById.get(id)?.requestId ?? 0, no: srcById.get(id)?.requestNo ?? "", need: srcById.get(id)?.neededDate ?? "", qty: share!.shares.get(id) ?? 0 }))
                   : (view?.shares ?? []).map((s) => ({ id: s.requestLineId, requestId: s.requestId, no: s.requestNo, need: s.neededDate, qty: s.baseQty }));
-                const excess = editing ? share!.excess : (Number(l.qty) || 0) * (view?.uomFactor ?? 1) - refs.reduce((s, x) => s + x.qty, 0);
+                const excess = editing ? share!.excess : (view?.baseQty ?? 0) - refs.reduce((s, x) => s + x.qty, 0);
                 return (
                   <tr key={l.key} className={lineError ? "overrow" : undefined}>
                     <td className="no">{i + 1}</td>
@@ -551,18 +557,26 @@ export function PurchaseOrderForm({
                             <Select
                               size="sm"
                               value={String(l.uom_id)}
-                              options={uoms.map((u) => ({ value: String(u.id), label: u.label, hint: u.factor === 1 ? "satuan dasar" : `isi ${formatNumber(u.factor)}` }))}
+                              options={uoms.map((u) => ({ value: String(u.id), label: u.label, hint: u.factor === 1 ? "satuan dasar" : `isi ${formatQty(u.factor)} ${uoms[0].label}` }))}
                               ariaLabel="Satuan"
-                              onChange={(v) => setLine(l.key, { uom_id: Number(v) })}
+                              // Another unit is another quantity and price: both are typed afresh (P320).
+                              onChange={(v) => Number(v) !== l.uom_id && setLine(l.key, { uom_id: Number(v), qty: "", price: "" })}
                             />
                           ) : (
-                            <span className="qu">{uom?.label ?? ""}</span>
+                            <span className="qu" title="Satuan lain dapat dipilih setelah ditambahkan di Konversi Satuan item">
+                              {uom?.label ?? ""}
+                            </span>
                           )}
                         </div>
                       ) : (
                         <span className="qview">
                           <span className="mny">{qtyText(Number(l.qty))}</span>
                           <span className="lab">{view?.uomLabel}</span>
+                        </span>
+                      )}
+                      {factor !== 1 && Number(l.qty) > 0 && (
+                        <span className="fulltag" style={{ display: "block" }}>
+                          = {qtyText(editing ? +(Number(l.qty) * factor).toFixed(4) : (view?.baseQty ?? 0))} {baseLabel}
                         </span>
                       )}
                       {!editing && (view?.received ?? 0) > 0 && <span className="fulltag">diterima {qtyText(view!.received)}</span>}

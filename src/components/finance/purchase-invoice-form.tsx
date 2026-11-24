@@ -16,7 +16,7 @@ import { createPurchaseInvoiceAction, updatePurchaseInvoiceAction } from "@/app/
 import { advancePpnUsed, taxScale } from "@/lib/erp/sales-tax";
 import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, computePurchaseInvoice, type InvoiceAbilities } from "@/lib/erp/ap-invoice-workflow";
 import type { PiAdvance, PiReceiptLine, PurchaseInvoiceHeaderInput, PurchaseInvoiceOptions, PurchaseInvoiceView } from "@/lib/erp/ap-invoice";
-import { formatDate, formatMoney, formatNumber, formatPct, formatPrice, todayIso } from "@/lib/format";
+import { formatDate, formatMoney, formatPct, formatPrice, formatQty, todayIso } from "@/lib/format";
 import { DocumentHeader } from "@/components/ui/document-header";
 import { JournalReference } from "@/components/ui/journal-reference";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
@@ -32,7 +32,7 @@ import { PURCHASE_INVOICE_TRANSITIONS, availablePurchaseInvoiceActions } from "@
  * figure is `computePurchaseInvoice`, which Posting books from.
  */
 
-const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
+const qtyText = formatQty;
 type Ded = { ap_item_id: number; dpp_used: string };
 
 export function PurchaseInvoiceForm({

@@ -24,7 +24,7 @@ import {
 } from "@/lib/erp/records";
 import { cashBankBookSummary } from "@/lib/erp/cash-bank";
 import { partnerCollections } from "@/lib/erp/partner";
-import { itemCollections } from "@/lib/erp/item";
+import { itemCollections, itemInUse } from "@/lib/erp/item";
 import { locationTree, locationsOfWarehouse } from "@/lib/erp/warehouse";
 import { LocationTree } from "@/components/master/location-tree";
 import {
@@ -410,8 +410,9 @@ async function recordLock(
   if (entity.key === "ref_unit" && (await unitOnRouting(row.id))) {
     return { lockNote: "Unit ini ada di routing. Mengganti Workstation mengubah jalur keluar: Dokumen Push atau BSTB." };
   }
-  if (entity.key === "m_item" && (await itemUsedInProduction(row.id))) {
-    return { lockedFields: ["is_bjl"] };
+  if (entity.key === "m_item") {
+    const [produced, used] = await Promise.all([itemUsedInProduction(row.id), itemInUse(row.id)]);
+    return { lockedFields: [...(produced ? ["is_bjl"] : []), ...(used ? ["base_uom_id"] : [])] };
   }
   return accountParentLock(entity, row);
 }

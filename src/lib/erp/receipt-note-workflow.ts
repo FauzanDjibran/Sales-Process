@@ -109,7 +109,8 @@ export function availableReceiptNoteActions(status: ReceiptNoteStatus, can: Rece
 export const RECEIPT_NOTE_STATUS_TEXT: Record<ReceiptNoteStatus, string> = { Draft: "Draft", Posted: "Diposting", Cancelled: "Dibatalkan" };
 export const RECEIPT_NOTE_STATUS_BADGE: Record<ReceiptNoteStatus, string> = { Draft: "s-warn", Posted: "s-ok", Cancelled: "s-mute" };
 
-const U = 10_000;
+/** Millionths: a received quantity may carry six decimals (P320). */
+const U = 1_000_000;
 const u = (n: number) => Math.round(n * U);
 
 /**
@@ -124,4 +125,21 @@ export function cumulativeShare(amount: number, total: number, before: number, q
   // `scale` rounds to a currency's minor unit (MC5): 100 keeps the cents of a USD DPP.
   const upTo = (q: number) => Math.round((amount * scale * Math.min(u(q), t)) / t);
   return (upTo(before + qty) - upTo(before)) / scale;
+}
+
+type Receivable = { qty: number; held: number; uomFactor: number; baseQty: number; heldBase: number };
+
+/**
+ * Whether receiving `qty` (the PO line's unit) takes all the line has left, in
+ * its own unit or in base units (P320). Such a receipt takes the rest of both,
+ * so no sliver of either stays behind. Client-safe: the form shows what the
+ * save will store.
+ */
+export function receivesRest(qty: number, line: Receivable): boolean {
+  return u(qty) >= u(line.qty - line.held) || Math.round(qty * line.uomFactor * 10_000) >= Math.round((line.baseQty - line.heldBase) * 10_000);
+}
+
+/** What receiving `qty` of a PO line is in base units. */
+export function receivedBaseQty(qty: number, line: Receivable): number {
+  return Math.round((receivesRest(qty, line) ? line.baseQty - line.heldBase : qty * line.uomFactor) * 10_000) / 10_000;
 }

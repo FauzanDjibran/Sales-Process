@@ -4,9 +4,9 @@ import { useState } from "react";
 import { Icon } from "@/components/icon";
 import { Dialog } from "@/components/ui/dialog";
 import type { RnSourceLine } from "@/lib/erp/receipt-note";
-import { formatNumber } from "@/lib/format";
+import { formatQty } from "@/lib/format";
 
-const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
+const qtyText = formatQty;
 
 /**
  * The Purchase Order's lines, to tick the ones this Receipt Note receives
@@ -97,6 +97,11 @@ export function ReceiptNoteLinePicker({
                     <span className="mny">
                       {qtyText(l.qty)} {l.uomLabel}
                     </span>
+                    {l.uomFactor !== 1 && (
+                      <span className="fulltag" style={{ display: "block" }}>
+                        = {qtyText(l.baseQty)} {l.baseUomLabel}
+                      </span>
+                    )}
                   </td>
                   <td className="num">{l.held ? <span className="mny">{qtyText(l.held)}</span> : <span className="dash">—</span>}</td>
                   <td className="num">

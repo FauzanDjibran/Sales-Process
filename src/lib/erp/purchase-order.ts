@@ -165,6 +165,8 @@ type CheckedLine = {
   uom_id: number;
   uom_factor: number;
   qty: number;
+  /** `qty` in base units at that factor (P320). */
+  base_qty: number;
   price: number;
   discount_type: DiscountType | null;
   discount_value: number | null;
@@ -291,6 +293,12 @@ export async function checkPurchaseOrder(
       continue;
     }
 
+    const baseQty = units(Number(l.qty) * factor) / 10_000;
+    if (!(baseQty > 0)) {
+      errors[lineKey(i, "amount")] = "Qty terlalu kecil dalam satuan dasar.";
+      continue;
+    }
+
     let whtId: number | null = Number(l.withholding_tax_id) || null;
     let whtRate: number | null = null;
     if (whtId) {
@@ -327,7 +335,7 @@ export async function checkPurchaseOrder(
       continue;
     }
     const { shares } = sharePurchaseOrderLine(
-      Number(l.qty) * factor,
+      baseQty,
       reqIds.map((id) => {
         const s = sources.get(id)!;
         return { id, neededDate: s.neededDate, left: Math.max(0, s.qty - s.ordered) };
@@ -340,6 +348,7 @@ export async function checkPurchaseOrder(
       uom_id: uomId,
       uom_factor: factor,
       qty: Number(l.qty),
+      base_qty: baseQty,
       price: Number(l.price),
       discount_type: discountType,
       discount_value: discountValue,
@@ -416,6 +425,7 @@ function lineData(l: CheckedLine, t: SalesTotals, i: number, rate: number) {
     uom_id: l.uom_id,
     uom_factor: l.uom_factor,
     qty: l.qty,
+    base_qty: l.base_qty,
     price: l.price,
     discount_type: l.discount_type,
     discount_value: l.discount_value,
@@ -566,7 +576,8 @@ export async function transitionPurchaseOrder(
       for (const [i, l] of c.lines.entries()) {
         await tx.purOrderLine.update({
           where: { id: sorted[i].id },
-          data: { ...orderLineBase(c.totals, i, c.header.exchange_rate), withholding_rate: l.withholding_rate },
+          // The factor is frozen with the figures: the Item's conversion as it stands at Ajukan (P320).
+          data: { ...orderLineBase(c.totals, i, c.header.exchange_rate), withholding_rate: l.withholding_rate, uom_factor: l.uom_factor, base_qty: l.base_qty },
         });
         for (const [reqId, q] of l.shares) {
           await tx.purOrderLineRequest.updateMany({ where: { order_line_id: sorted[i].id, request_line_id: reqId }, data: { base_qty: q } });
@@ -597,7 +608,7 @@ export async function transitionPurchaseOrder(
       for (const l of order.lines) {
         // What never came in is released, latest need first, so the earliest
         // needs keep what was received (B15, as U14 for delivery).
-        const kept = action === "reject" ? 0 : l.received_qty.toNumber() * l.uom_factor.toNumber();
+        const kept = action === "reject" ? 0 : l.received_base_qty.toNumber();
         const links = await tx.purOrderLineRequest.findMany({
           where: { order_line_id: l.id },
           include: { request_line: { select: { needed_date: true } } },
@@ -670,6 +681,8 @@ export type PurchaseOrderLineView = PurchaseOrderLineInput & {
   itemName: string;
   uomLabel: string;
   uomFactor: number;
+  baseQty: number;
+  baseUomLabel: string;
   withholdingLabel: string | null;
   withholdingRate: number | null;
   received: number;
@@ -701,7 +714,7 @@ export async function getPurchaseOrder(id: number): Promise<PurchaseOrderView | 
       term: true,
       warehouse: true,
       lines: {
-        include: { item: true, uom: true, withholding_tax: true, requests: true },
+        include: { item: { include: { base_uom: true } }, uom: true, withholding_tax: true, requests: true },
         orderBy: { line_no: "asc" },
       },
     },
@@ -720,6 +733,8 @@ export async function getPurchaseOrder(id: number): Promise<PurchaseOrderView | 
       itemName: l.item.item_name,
       uomLabel: l.uom.uom_label,
       uomFactor: l.uom_factor.toNumber(),
+      baseQty: l.base_qty.toNumber(),
+      baseUomLabel: l.item.base_uom.uom_label,
       withholdingLabel: l.withholding_tax?.wht_label ?? null,
       withholdingRate: l.withholding_rate?.toNumber() ?? null,
       received: l.received_qty.toNumber(),
@@ -799,6 +814,9 @@ export type ReceiptNoteSource = {
     uomFactor: number;
     qty: number;
     received: number;
+    /** The line in base units (P320). */
+    baseUomLabel: string;
+    baseQty: number;
     /** The line's DPP in the order's currency, and in base at the order's rate (MC7). */
     dpp: number;
     baseDpp: number;
@@ -812,7 +830,7 @@ export async function receiptNoteSources(filter: { ids?: number[]; openOnly?: bo
   const rows = await db.purOrder.findMany({
     where: { ...(filter.ids ? { id: { in: filter.ids } } : {}), ...(filter.openOnly ? { status: "Open" } : {}) },
     orderBy: [{ order_date: "desc" }, { id: "desc" }],
-    include: { supplier: true, currency: true, lines: { include: { item: true, uom: true }, orderBy: { line_no: "asc" } } },
+    include: { supplier: true, currency: true, lines: { include: { item: { include: { base_uom: true } }, uom: true }, orderBy: { line_no: "asc" } } },
   });
   return rows.map((o) => ({
     id: o.id,
@@ -838,6 +856,8 @@ export async function receiptNoteSources(filter: { ids?: number[]; openOnly?: bo
       uomFactor: l.uom_factor.toNumber(),
       qty: l.qty.toNumber(),
       received: l.received_qty.toNumber(),
+      baseUomLabel: l.item.base_uom.uom_label,
+      baseQty: l.base_qty.toNumber(),
       dpp: l.dpp_amount.toNumber(),
       baseDpp: l.base_dpp_amount.toNumber(),
       isStock: l.item.item_type === "Barang" && l.item.track_stock,
@@ -848,13 +868,13 @@ export async function receiptNoteSources(filter: { ids?: number[]; openOnly?: bo
 
 /**
  * Records what a posted Receipt Note brought in of each line (in the line's
- * unit) and closes every Open order now fully received (B16) — billing comes
+ * unit and in base units) and closes every Open order now fully received (B16) — billing comes
  * after, and a closed order is still billed. Returns the numbers it closed.
  */
-export async function recordPurchaseOrderReceived(tx: Prisma.TransactionClient, received: Map<number, number>, actorId: number): Promise<string[]> {
+export async function recordPurchaseOrderReceived(tx: Prisma.TransactionClient, received: Map<number, { qty: number; baseQty: number }>, actorId: number): Promise<string[]> {
   if (!received.size) return [];
-  for (const [lineId, qty] of received) {
-    await tx.purOrderLine.update({ where: { id: lineId }, data: { received_qty: { increment: qty } } });
+  for (const [lineId, r] of received) {
+    await tx.purOrderLine.update({ where: { id: lineId }, data: { received_qty: { increment: r.qty }, received_base_qty: { increment: r.baseQty } } });
   }
   const orders = await tx.purOrder.findMany({
     where: { status: "Open", lines: { some: { id: { in: [...received.keys()] } } } },
@@ -862,7 +882,7 @@ export async function recordPurchaseOrderReceived(tx: Prisma.TransactionClient, 
   });
   const closed: string[] = [];
   for (const o of orders) {
-    if (!o.lines.every((l) => units(l.received_qty.toNumber()) >= units(l.qty.toNumber()))) continue;
+    if (!o.lines.every((l) => units(l.received_base_qty.toNumber()) >= units(l.base_qty.toNumber()))) continue;
     const done = await tx.purOrder.updateMany({ where: { id: o.id, status: "Open" }, data: { status: "Closed", status_reason: null, updated_by: actorId } });
     if (done.count === 1) {
       await audit(tx, o.id, "UPDATE", "fulfil", actorId);

@@ -4,10 +4,10 @@ import { useState } from "react";
 import { Icon } from "@/components/icon";
 import { Dialog } from "@/components/ui/dialog";
 import type { PiAdvance, PiReceiptLine } from "@/lib/erp/ap-invoice";
-import { formatDate, formatMoney, formatNumber } from "@/lib/format";
+import { formatDate, formatMoney, formatQty } from "@/lib/format";
 
 const moneyIn = (currency: string) => (n: number) => formatMoney(n, currency);
-const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
+const qtyText = formatQty;
 
 /** Tick receipt lines, or the PO's Uang Muka items, to put on the invoice. */
 export function PurchaseInvoicePicker({

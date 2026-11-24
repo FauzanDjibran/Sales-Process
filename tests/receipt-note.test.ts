@@ -11,7 +11,7 @@ import {
   type ReceiptNoteHeaderInput,
 } from "../src/lib/erp/receipt-note";
 import { getPurchaseOrder, transitionPurchaseOrder } from "../src/lib/erp/purchase-order";
-import { cumulativeShare } from "../src/lib/erp/receipt-note-workflow";
+import { cumulativeShare, receivedBaseQty, receivesRest } from "../src/lib/erp/receipt-note-workflow";
 import { cleanupFiscalYear, cleanupFixtures, disconnect, openFiscalYear, prisma } from "./helpers";
 import { purchasingWorld, type PurchasingWorld } from "./purchasing-helpers";
 
@@ -74,6 +74,21 @@ describe("the value of a receipt (B20)", () => {
     const parts = [1, 1, 1].map((q, i) => cumulativeShare(100, 3, i, q));
     assert.deepEqual(parts, [33, 34, 33]);
     assert.equal(parts.reduce((a, b) => a + b), 100);
+  });
+});
+
+describe("two quantities (P320)", () => {
+  test("a receipt is its quantity at the PO's factor; the one that takes the rest takes both", () => {
+    const line = { qty: 100, held: 0, uomFactor: 12, baseQty: 1_200, heldBase: 0 };
+    assert.equal(receivedBaseQty(4.75, line), 57);
+    // What was received as 500 pieces is 41,666667 boxes; the rest comes back to exactly 700.
+    const rest = { ...line, held: 41.666667, heldBase: 500 };
+    assert.equal(receivedBaseQty(58.333333, rest), 700);
+    assert.ok(receivesRest(58.333333, rest));
+    assert.ok(!receivesRest(58, rest));
+    // 41,666667 boxes at Rp1.000.000 and the rest add up to the order's DPP.
+    const parts = [cumulativeShare(100_000_000, 100, 0, 41.666667), cumulativeShare(100_000_000, 100, 41.666667, 58.333333)];
+    assert.deepEqual(parts, [41_666_667, 58_333_333]);
   });
 });
 
@@ -189,10 +204,32 @@ describe("receiving goods", () => {
     assert.deepEqual((await getReceiptNote(ok.id))!.lines[0].lots!.map((l) => l.location_id), [a01, a02]);
   });
 
+  test("10 BOX received as 4 and 6: billed per box, 120 pieces in stock by lot, the PO closed", async () => {
+    const po = await w.openPO([{ item: w.f.stock, qty: 10, price: 24_000, uom: w.f.box }]);
+    const at = async () => (await prisma.logStockValuationBalance.findFirst({ where: { item_id: w.f.stock } }))?.qty_balance.toNumber() ?? 0;
+    const before = await at();
+    const lots = (tag: string, ...q: number[]) => q.map((qty, i) => ({ tracking_no: w.key(`${tag}${i}`), expiry_date: "", qty }));
+    const boxes = await create(header(po.id), [{ source_doc_line_id: po.lineIds[0], qty: 4, note: "", lots: lots("TW", 49) }], w.actor);
+    assert.ok(!boxes.ok && /melebihi yang diterima \(48/.test(boxes.errors["lines.0.lots"]), JSON.stringify(boxes));
+    const a = await create(header(po.id), [{ source_doc_line_id: po.lineIds[0], qty: 4, note: "", lots: lots("TX", 30, 18) }], w.actor);
+    assert.ok(a.ok, JSON.stringify(a));
+    assert.deepEqual(await transitionReceiptNote(a.id, "post", w.actor), { ok: true, closed: [] });
+    const one = (await getReceiptNote(a.id))!;
+    assert.deepEqual([one.lines[0].qty, one.lines[0].baseQty, one.value], [4, 48, 96_000]);
+    assert.deepEqual(one.lines[0].lotValues, [60_000, 36_000]);
+    const b = await create(header(po.id), [{ source_doc_line_id: po.lineIds[0], qty: 6, note: "", lots: lots("TY", 72) }], w.actor);
+    assert.ok(b.ok, JSON.stringify(b));
+    assert.deepEqual(await transitionReceiptNote(b.id, "post", w.actor), { ok: true, closed: [po.orderNo] });
+    assert.equal((await getReceiptNote(b.id))!.value, 144_000);
+    assert.equal((await at()) - before, 120);
+    const l = await prisma.purOrderLine.findUniqueOrThrow({ where: { id: po.lineIds[0] } });
+    assert.deepEqual([l.received_qty.toNumber(), l.received_base_qty.toNumber(), l.base_qty.toNumber()], [10, 120, 120]);
+  });
+
   test("another unit comes into stock in base units", async () => {
     const po = await w.openPO([{ item: w.f.stock, qty: 2, price: 24_000, uom: w.f.box }]);
     const before = (await prisma.logStockValuationBalance.findFirst({ where: { item_id: w.f.stock } }))?.qty_balance.toNumber() ?? 0;
-    const r = await create(header(po.id), [{ source_doc_line_id: po.lineIds[0], qty: 1, note: "", lots: [{ tracking_no: w.key("BX"), expiry_date: "", qty: 1 }] }], w.actor);
+    const r = await create(header(po.id), [{ source_doc_line_id: po.lineIds[0], qty: 1, note: "", lots: [{ tracking_no: w.key("BX"), expiry_date: "", qty: 12 }] }], w.actor);
     assert.ok(r.ok);
     await transitionReceiptNote(r.id, "post", w.actor);
     const after = (await prisma.logStockValuationBalance.findFirstOrThrow({ where: { item_id: w.f.stock } })).qty_balance.toNumber();

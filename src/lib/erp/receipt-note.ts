@@ -3,7 +3,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
-import { formatNumber } from "@/lib/format";
+import { formatQty } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
@@ -20,6 +20,8 @@ import {
   RECEIPT_NOTE_TRANSITIONS,
   cumulativeShare,
   receiptNoteIsEditable,
+  receivedBaseQty,
+  receivesRest,
   receiptNoteTransitionAllowed,
   type ReceiptNoteAction,
   type ReceiptNoteStatus,
@@ -62,6 +64,7 @@ export type ReceiptNoteLotInput = {
   tracking_no: string;
   expiry_date: string;
   location_id?: number | null;
+  /** In base units, whatever the line's unit (P320). */
   qty: number | string;
   /** `sales_return`: the Delivery Note tracking row the goods left on, and the status they come back under. */
   source_tracking_id?: number | null;
@@ -86,7 +89,10 @@ const text = (v: string | null | undefined) => String(v ?? "").trim() || null;
 const QTY_SCALE = 10_000;
 const units = (n: number) => Math.round(n * QTY_SCALE);
 const fromUnits = (u: number) => u / QTY_SCALE;
-const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
+/** A quantity in the PO's unit may carry six decimals (P320). */
+const fine = (n: number) => Math.round(n * 1_000_000);
+const fromFine = (n: number) => n / 1_000_000;
+const qtyText = formatQty;
 const num = (v: unknown) => Number(String(v ?? "").replace(",", "."));
 
 async function docTypeId(db: Db, table: string): Promise<number> {
@@ -96,7 +102,7 @@ async function docTypeId(db: Db, table: string): Promise<number> {
 }
 
 /** What other notes — Draft or Posted, not `exceptId` — hold of each PO line. */
-async function heldByLines(db: Db, lineIds: number[], exceptId: number | null): Promise<Map<number, number>> {
+async function heldByLines(db: Db, lineIds: number[], exceptId: number | null): Promise<Map<number, { qty: number; base: number }>> {
   if (!lineIds.length) return new Map();
   const rows = await db.logReceiptNoteLine.groupBy({
     by: ["source_doc_line_id"],
@@ -104,14 +110,14 @@ async function heldByLines(db: Db, lineIds: number[], exceptId: number | null): 
       source_doc_line_id: { in: lineIds },
       receipt_note: { purpose: PURCHASE_RECEIPT, status: { in: RECEIPT_NOTE_HOLDS_QTY }, ...(exceptId ? { id: { not: exceptId } } : {}) },
     },
-    _sum: { qty: true },
+    _sum: { qty: true, base_qty: true },
   });
-  return new Map(rows.map((r) => [r.source_doc_line_id, r._sum?.qty?.toNumber() ?? 0]));
+  return new Map(rows.map((r) => [r.source_doc_line_id, { qty: r._sum?.qty?.toNumber() ?? 0, base: r._sum?.base_qty?.toNumber() ?? 0 }]));
 }
 
 // ---------------------------------------------------------------- options
 
-export type RnSourceLine = ReceiptNoteSource["lines"][number] & { held: number };
+export type RnSourceLine = ReceiptNoteSource["lines"][number] & { held: number; heldBase: number };
 export type RnSourceOption = Omit<ReceiptNoteSource, "lines"> & { lines: RnSourceLine[] };
 
 export type ReceiptNoteOptions = {
@@ -130,7 +136,7 @@ export type ReceiptNoteOptions = {
 async function sourceOptions(db: Db, filter: { ids?: number[]; openOnly?: boolean }, exceptId: number | null): Promise<RnSourceOption[]> {
   const sources = await receiptNoteSources(filter, db);
   const held = await heldByLines(db, sources.flatMap((s) => s.lines.map((l) => l.id)), exceptId);
-  return sources.map((s) => ({ ...s, lines: s.lines.map((l) => ({ ...l, held: held.get(l.id) ?? 0 })) }));
+  return sources.map((s) => ({ ...s, lines: s.lines.map((l) => ({ ...l, held: held.get(l.id)?.qty ?? 0, heldBase: held.get(l.id)?.base ?? 0 })) }));
 }
 
 /** Open Purchase Orders with something left to receive, or the one a stored note names. */
@@ -138,7 +144,7 @@ export async function receiptNoteOptions(current: { id: number; sourceId: number
   const [orders, warehouses] = await Promise.all([
     current
       ? sourceOptions(prisma, { ids: [current.sourceId] }, current.id)
-      : sourceOptions(prisma, { openOnly: true }, null).then((os) => os.filter((o) => o.lines.some((l) => units(l.qty) > units(l.held)))),
+      : sourceOptions(prisma, { openOnly: true }, null).then((os) => os.filter((o) => o.lines.some((l) => fine(l.qty) > fine(l.held)))),
     prisma.refWarehouse.findMany({ where: await notTransitWarehouse(), orderBy: { warehouse_label: "asc" } }),
   ]);
   const locations = await warehouseLocationOptions(warehouses.map((w) => w.id));
@@ -162,7 +168,7 @@ type CheckedLot = {
   tracking_no: string | null;
   expiry_date: Date | null;
   location_id: number | null;
-  qty: number;
+  base_qty: number;
   tracking_id?: number;
   source_tracking_id?: number;
   stock_status_id?: number;
@@ -258,21 +264,28 @@ export async function checkReceiptNote(
     }
     seen.add(po.id);
     const qty = num(l.qty);
-    const left = fromUnits(units(po.qty) - units(po.held));
+    const left = fromFine(fine(po.qty) - fine(po.held));
     if (!Number.isFinite(qty) || !(qty > 0)) {
       errors[lineKey(i, "qty")] = "Isi jumlah lebih dari 0.";
       continue;
     }
-    if (Math.abs(qty * QTY_SCALE - units(qty)) > 1e-6) {
+    // What a line has left may carry more decimals than anyone types.
+    if (Math.abs(qty * QTY_SCALE - units(qty)) > 1e-6 && fine(qty) !== fine(left)) {
       errors[lineKey(i, "qty")] = "Paling banyak 4 angka desimal.";
       continue;
     }
     // No over-receipt (B18): more than ordered is a change to the PO.
-    if (units(qty) > units(left)) {
+    if (fine(qty) > fine(left)) {
       errors[lineKey(i, "qty")] = `Melebihi sisa Purchase Order (${qtyText(left)} ${po.uomLabel}).`;
       continue;
     }
-    const lots = checkLots(l.lots, po, fromUnits(units(qty)), place, forPosting);
+    const lineQty = receivesRest(qty, po) ? left : fromFine(fine(qty));
+    const baseQty = receivedBaseQty(qty, po);
+    if (!(baseQty > 0)) {
+      errors[lineKey(i, "qty")] = "Qty terlalu kecil dalam satuan dasar.";
+      continue;
+    }
+    const lots = checkLots(l.lots, po, baseQty, place, forPosting);
     if (!lots.ok) {
       errors[lineKey(i, "lots")] = lots.error;
       continue;
@@ -283,8 +296,8 @@ export async function checkReceiptNote(
       item_id: po.itemId,
       uom_id: po.uomId,
       uom_factor: po.uomFactor,
-      qty: fromUnits(units(qty)),
-      base_qty: fromUnits(units(qty * po.uomFactor)),
+      qty: lineQty,
+      base_qty: baseQty,
       is_stock: po.isStock,
       note: text(l.note),
       lots: lots.lots,
@@ -313,7 +326,7 @@ export async function checkReceiptNote(
 }
 
 /**
- * A line's lots (B19). A Kelola Stok line comes in as one or more lots, each
+ * A line's lots (B19), counted in base units (P320). A Kelola Stok line comes in as one or more lots, each
  * more than 0, an expiry where the item has one; together never more than the
  * line, and to be posted exactly the line. Any other line takes none. In a
  * warehouse that has locations each lot row names one of its active locations
@@ -323,7 +336,7 @@ export async function checkReceiptNote(
 function checkLots(
   raw: ReceiptNoteLotInput[] | undefined,
   line: RnSourceLine,
-  lineQty: number,
+  lineBase: number,
   place: Place,
   forPosting: boolean
 ): { ok: true; lots: CheckedLot[] } | { ok: false; error: string } {
@@ -350,11 +363,11 @@ function checkLots(
     if (expiry && !DAY.test(expiry)) return { ok: false, error: "Tanggal kadaluarsa tidak valid." };
     if (line.hasExpiry && !expiry && forPosting) return { ok: false, error: `${line.itemLabel} memiliki kadaluarsa: isi tanggal kadaluarsa setiap lot.` };
     total += units(qty);
-    lots.push({ tracking_seq: lots.length + 1, tracking_no: lotNo, expiry_date: expiry ? asDate(expiry) : null, location_id: locationId, qty: fromUnits(units(qty)) });
+    lots.push({ tracking_seq: lots.length + 1, tracking_no: lotNo, expiry_date: expiry ? asDate(expiry) : null, location_id: locationId, base_qty: fromUnits(units(qty)) });
   }
-  if (total > units(lineQty)) return { ok: false, error: `Jumlah lot (${qtyText(fromUnits(total))}) melebihi Qty baris (${qtyText(lineQty)} ${line.uomLabel}).` };
-  if (forPosting && total !== units(lineQty)) {
-    return { ok: false, error: `${line.itemLabel}: lot baru ${qtyText(fromUnits(total))} dari ${qtyText(lineQty)} ${line.uomLabel}. Lengkapi lotnya.` };
+  if (total > units(lineBase)) return { ok: false, error: `Jumlah lot (${qtyText(fromUnits(total))}) melebihi yang diterima (${qtyText(lineBase)} ${line.baseUomLabel}).` };
+  if (forPosting && total !== units(lineBase)) {
+    return { ok: false, error: `${line.itemLabel}: lot baru ${qtyText(fromUnits(total))} dari ${qtyText(lineBase)} ${line.baseUomLabel}. Lengkapi lotnya.` };
   }
   return { ok: true, lots };
 }
@@ -462,7 +475,7 @@ function asInput(n: StoredNote): { header: ReceiptNoteHeaderInput; lines: Receip
           tracking_no: p.tracking_no ?? "",
           expiry_date: isoDay(p.expiry_date),
           location_id: p.location_id,
-          qty: p.qty.toNumber(),
+          qty: p.base_qty.toNumber(),
           source_tracking_id: p.source_tracking_id,
           stock_status_id: p.stock_status_id,
         })),
@@ -564,7 +577,7 @@ export async function transitionReceiptNote(
       const source = { docTypeId: typeId, docId: id, no: note.rn_no };
       const byId = new Map(r.c.source.lines.map((l) => [l.id, l]));
       const journalLines: JournalLineInput[] = [];
-      const received = new Map<number, number>();
+      const received = new Map<number, { qty: number; baseQty: number }>();
       const madeHere = new Set<string>();
       let total = 0;
       for (const line of r.c.lines) {
@@ -580,9 +593,9 @@ export async function transitionReceiptNote(
         if (line.is_stock) {
           let before = 0;
           for (const lot of line.lots) {
-            const lotValue = cumulativeShare(value, line.qty, before, lot.qty);
-            before += lot.qty;
-            const baseQty = fromUnits(units(lot.qty * line.uom_factor));
+            const baseQty = lot.base_qty;
+            const lotValue = cumulativeShare(value, line.base_qty, before, baseQty);
+            before += baseQty;
             const lotNo = lot.tracking_no ?? `${note.rn_no.replace(/[^A-Z0-9]/gi, "")}-${line.line_no}-${lot.tracking_seq}`;
             // A receipt brings a new No. Stok (W10); only this posting's own lots may share one.
             if (!madeHere.has(lotNo)) await assertNewTrackingNo(tx, lotNo);
@@ -602,12 +615,12 @@ export async function transitionReceiptNote(
             });
             await tx.logReceiptNoteTracking.update({
               where: { line_id_tracking_seq: { line_id: stored.id, tracking_seq: lot.tracking_seq } },
-              data: { tracking_no: inn.trackingNo, base_qty: baseQty, value_amount: lotValue, tracking_id: inn.trackingId },
+              data: { tracking_no: inn.trackingNo, value_amount: lotValue, tracking_id: inn.trackingId },
             });
           }
         }
         await tx.logReceiptNoteLine.update({ where: { id: stored.id }, data: { value_amount: value, order_dpp_amount: orderDpp } });
-        received.set(line.source_doc_line_id, line.qty);
+        received.set(line.source_doc_line_id, { qty: line.qty, baseQty: line.base_qty });
         total += value;
         if (value > 0) {
           const what = `${po.itemLabel} · ${qtyText(line.qty)} ${po.uomLabel}`;
@@ -684,9 +697,9 @@ async function heldByTrackings(db: Db, trackingIds: number[], exceptId: number |
         },
       },
     },
-    _sum: { qty: true },
+    _sum: { base_qty: true },
   });
-  return new Map(rows.map((r) => [r.source_tracking_id!, r._sum?.qty?.toNumber() ?? 0]));
+  return new Map(rows.map((r) => [r.source_tracking_id!, r._sum?.base_qty?.toNumber() ?? 0]));
 }
 
 async function returnSourceOptions(db: Db, filter: { ids?: number[]; openOnly?: boolean }, exceptId: number | null): Promise<RrSourceOption[]> {
@@ -851,7 +864,7 @@ export async function checkReturnReceipt(
         tracking_no: t.trackingNo,
         expiry_date: t.expiryDate ? asDate(t.expiryDate) : null,
         location_id: locationId,
-        qty: fromUnits(units(q)),
+        base_qty: fromUnits(units(q)),
         tracking_id: t.trackingId,
         source_tracking_id: t.id,
         stock_status_id: statusId!,
@@ -960,15 +973,15 @@ async function postReturnReceipt(note: StoredNote, actorId: number, options: { d
         for (const lot of line.lots) {
           const t = allTracks.get(lot.source_tracking_id!)!;
           const was = before.get(t.id) ?? 0;
-          const lotValue = cumulativeShare(t.cost, t.baseQty, was, lot.qty);
-          before.set(t.id, fromUnits(units(was) + units(lot.qty)));
+          const lotValue = cumulativeShare(t.cost, t.baseQty, was, lot.base_qty);
+          before.set(t.id, fromUnits(units(was) + units(lot.base_qty)));
           await receiveStock(tx, {
             itemId: line.item_id,
             warehouseId: r.c.data.warehouse_id!,
             locationId: lot.location_id,
             lotNo: t.trackingNo,
             expiry: lot.expiry_date,
-            baseQty: lot.qty,
+            baseQty: lot.base_qty,
             value: lotValue,
             date: r.c.data.rn_date,
             source,
@@ -978,7 +991,7 @@ async function postReturnReceipt(note: StoredNote, actorId: number, options: { d
           });
           await tx.logReceiptNoteTracking.update({
             where: { line_id_tracking_seq: { line_id: stored.id, tracking_seq: lot.tracking_seq } },
-            data: { base_qty: lot.qty, value_amount: lotValue },
+            data: { value_amount: lotValue },
           });
           value += lotValue;
         }

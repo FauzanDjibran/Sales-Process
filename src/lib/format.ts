@@ -173,6 +173,11 @@ export function formatPct(
   return `${n.toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 4 })}%`;
 }
 
+/** A quantity with the decimals it has, up to six: `9`, `4,75`, `41,666667` (P320). */
+export function formatQty(value: number | string | { toString(): string } | null | undefined): string {
+  return Number(value ?? 0).toLocaleString("id-ID", { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+}
+
 /** IDR renders as `Rp 1.250.000` with no decimals; other currencies keep two. */
 export function formatMoney(
   value: number | string | { toString(): string } | null | undefined,

@@ -11,6 +11,7 @@ import {
   type PurchaseOrderHeaderInput,
   type PurchaseOrderLineInput,
 } from "../src/lib/erp/purchase-order";
+import { checkItemBaseUom } from "../src/lib/erp/item";
 import { createPurchaseRequest, getPurchaseRequest, transitionPurchaseRequest } from "../src/lib/erp/purchase-request";
 import { sharePurchaseOrderLine } from "../src/lib/erp/purchase-order-workflow";
 import { FIXTURE_PREFIX, disconnect, partnerCategoryId, prisma, systemUserId } from "./helpers";
@@ -164,6 +165,42 @@ describe("what a Purchase Order must satisfy", () => {
     const noNpwp = await checkPurchaseOrder(header({ supplier_id: f.nonPkp, is_taxable: false }), [line(pr.lines, { withholding_tax_id: f.whtBuy })]);
     assert.ok(noNpwp.ok);
     assert.equal(noNpwp.lines[0].withholding_rate, 4);
+  });
+});
+
+describe("a Purchase Order in another unit (P320)", () => {
+  test("9 BOX for 100 PCS: bought and priced per box, the request covered, the rest beyond it", async () => {
+    const pr = await openRequest([[100, "2026-10-20"]]);
+    const r = await create(header(), [line(pr.lines, { uom_id: f.box, qty: 9, price: 24_000 })]);
+    assert.ok(r.ok, JSON.stringify(r));
+    // The conversion is frozen at Ajukan; a later change of the Item's leaves the order alone.
+    await prisma.mItemUom.updateMany({ where: { item_id: f.goods }, data: { factor: 13 } });
+    assert.deepEqual(await transitionPurchaseOrder(r.id, "submit", actor), { ok: true });
+    await prisma.mItemUom.updateMany({ where: { item_id: f.goods }, data: { factor: 12 } });
+    const v = (await getPurchaseOrder(r.id))!;
+    assert.deepEqual([v.lines[0].qty, v.lines[0].uomFactor, v.lines[0].baseQty, v.totals.dpp], [9, 13, 117, 216_000]);
+    assert.deepEqual(v.lines[0].shares.map((s) => s.baseQty), [100]);
+    assert.equal((await getPurchaseRequest(pr.id))!.status, "Closed");
+  });
+
+  test("a unit that is not the item's, or a quantity left empty, is refused", async () => {
+    const pr = await openRequest([[100, "2026-10-20"]]);
+    const other = await prisma.refUom.findFirstOrThrow({ where: { id: { notIn: [f.pcs, f.box] } } });
+    const unit = await checkPurchaseOrder(header(), [line(pr.lines, { uom_id: other.id })]);
+    assert.ok(!unit.ok && /bukan satuan barang/.test(unit.errors["lines.0.uom_id"]));
+    const empty = await checkPurchaseOrder(header(), [line(pr.lines, { uom_id: f.box, qty: 0, price: 0 })]);
+    assert.ok(!empty.ok && /Qty harus/.test(empty.errors["lines.0.amount"]));
+  });
+
+  test("an item's base unit is fixed once it is used", async () => {
+    const used = await checkItemBaseUom({ base_uom_id: f.box }, f.goods);
+    assert.match(used.base_uom_id, /tidak dapat diubah/);
+    assert.deepEqual(await checkItemBaseUom({ base_uom_id: f.pcs }, f.goods), {});
+    const fresh = await prisma.mItem.create({
+      data: { item_code: `test.${key("N")}`, item_label: key("N"), item_name: "Baru", item_type: "Barang", category_id: (await prisma.mItem.findUniqueOrThrow({ where: { id: f.goods } })).category_id, base_uom_id: f.pcs, created_by: actor },
+    });
+    assert.deepEqual(await checkItemBaseUom({ base_uom_id: f.box }, fresh.id), {});
+    await prisma.mItem.delete({ where: { id: fresh.id } });
   });
 });
 

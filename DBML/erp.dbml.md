@@ -1778,7 +1778,7 @@ table fin_ap_invoice_line {
   line_no                     int [not null]
   receipt_note_line_id        int [not null] // weak: log_receipt_note_line.id
   purchase_order_line_id      int [not null] // weak: pur_order_line.id
-  qty                         decimal(18,4) [not null]
+  qty                         decimal(18,6) [not null] // in the PO line's unit: what is billed (P320)
   price                       decimal(18,6) [not null] // the PO's
   dpp_amount                  decimal(18,2) [not null] // the receipt's value
   base_dpp_amount             decimal(18,2) [not null] // dpp_amount in base currency (MC1)
@@ -2485,8 +2485,9 @@ table pur_order_line {
 
   item_id                     int [not null, ref : > m_item.id]
   uom_id                      int [not null, ref : > ref_uom.id]
-  uom_factor                  decimal(18,4) [not null] // base units in one uom_id, copied at save
-  qty                         decimal(18,4) [not null]
+  uom_factor                  decimal(18,4) [not null] // base units in one uom_id, copied at save and at Ajukan
+  qty                         decimal(18,4) [not null] // in uom_id; price is per uom_id
+  base_qty                    decimal(18,4) [not null] // qty × uom_factor: requests and stock are compared in it (P320)
   price                       decimal(18,6) [not null]
 
   discount_type               enum('Percent', 'Amount')
@@ -2505,7 +2506,8 @@ table pur_order_line {
   withholding_tax_id          int [ref : > ref_withholding_tax.id] // a purchase Jenis PPh
   withholding_rate            decimal(9,4) // the master's, doubled without an NPWP (B12)
 
-  received_qty                decimal(18,4) [not null, default: 0] // in uom_id; written by the Receipt Note
+  received_qty                decimal(18,6) [not null, default: 0] // in uom_id; written by the Receipt Note
+  received_base_qty           decimal(18,4) [not null, default: 0] // the same in base units (P320)
 
   note                        varchar
 
@@ -2581,9 +2583,9 @@ table log_receipt_note_line {
 
   item_id                     int [not null, ref : > m_item.id]
   uom_id                      int [not null, ref : > ref_uom.id]
-  uom_factor                  decimal(18,4) [not null]
-  qty                         decimal(18,4) [not null]
-  base_qty                    decimal(18,4) [not null]
+  uom_factor                  decimal(18,4) [not null] // the PO line's
+  qty                         decimal(18,6) [not null] // in uom_id: what is valued and billed (P320)
+  base_qty                    decimal(18,4) [not null] // what enters stock
   is_stock                    boolean [not null, default: false] // Barang with Kelola Stok
   order_dpp_amount            decimal(18,2) [not null, default: 0] // the PO line DPP for this quantity, in the PO currency (MC7)
   value_amount                decimal(18,2) [not null, default: 0] // cumulative share of the PO line's base DPP (B20, MC7)
@@ -2604,8 +2606,7 @@ table log_receipt_note_tracking {
   tracking_seq                     int [not null]
   tracking_no                      varchar // typed, or generated at Posting
   expiry_date                 date
-  qty                         decimal(18,4) [not null] // in the line's unit
-  base_qty                    decimal(18,4) [not null, default: 0]
+  base_qty                    decimal(18,4) [not null] // base units, whatever the line's unit (P320)
   value_amount                decimal(18,2) [not null, default: 0] // cumulative share of the line's value
   tracking_id                 int // weak: log_stock_tracking.id, set at Posting
   location_id                 int // weak: ref_warehouse_location.id — where it is put, in a warehouse that has locations

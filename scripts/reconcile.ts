@@ -741,10 +741,25 @@ export const CHECKS: Check[] = [
   {
     area: "ap",
     name: "received quantity on every PO line equals what posted Receipt Notes took, never more than ordered (P125)",
-    sql: `SELECT o.order_no, l.line_no, l.qty, l.received_qty, COALESCE(r.q, 0) AS receipts FROM pur_order_line l JOIN pur_order o ON o.id = l.order_id
-          LEFT JOIN (SELECT rl.source_doc_line_id, SUM(rl.qty) AS q FROM log_receipt_note_line rl JOIN log_receipt_note n ON n.id = rl.receipt_note_id
+    sql: `SELECT o.order_no, l.line_no, l.qty, l.received_qty, l.base_qty, l.received_base_qty, COALESCE(r.q, 0) AS receipts, COALESCE(r.b, 0) AS base_receipts FROM pur_order_line l JOIN pur_order o ON o.id = l.order_id
+          LEFT JOIN (SELECT rl.source_doc_line_id, SUM(rl.qty) AS q, SUM(rl.base_qty) AS b FROM log_receipt_note_line rl JOIN log_receipt_note n ON n.id = rl.receipt_note_id
                      WHERE n.status = 'Posted' AND n.purpose = 'purchase_receipt' GROUP BY rl.source_doc_line_id) r ON r.source_doc_line_id = l.id
-          WHERE l.received_qty <> COALESCE(r.q, 0) OR l.received_qty > l.qty`,
+          WHERE l.received_qty <> COALESCE(r.q, 0) OR l.received_qty > l.qty
+             OR l.received_base_qty <> COALESCE(r.b, 0) OR l.received_base_qty > l.base_qty`,
+  },
+  {
+    area: "ap",
+    name: "a Purchase Order line's requests hold no more than its base quantity, which is its quantity at its factor (P320)",
+    sql: `SELECT o.order_no, l.line_no, l.qty, l.uom_factor, l.base_qty, SUM(q.base_qty) AS requests FROM pur_order_line l JOIN pur_order o ON o.id = l.order_id
+          LEFT JOIN pur_order_line_request q ON q.order_line_id = l.id
+          GROUP BY o.order_no, l.id HAVING l.base_qty <> ROUND(l.qty * l.uom_factor, 4) OR SUM(q.base_qty) > l.base_qty`,
+  },
+  {
+    area: "goods",
+    name: "a posted Receipt Note's stock line is exactly its lots, in base units (P320)",
+    sql: `SELECT n.rn_no, l.line_no, l.base_qty, COALESCE(SUM(t.base_qty), 0) AS lots FROM log_receipt_note_line l
+          JOIN log_receipt_note n ON n.id = l.receipt_note_id LEFT JOIN log_receipt_note_tracking t ON t.line_id = l.id
+          WHERE n.status = 'Posted' AND l.is_stock GROUP BY n.rn_no, l.id HAVING l.base_qty <> COALESCE(SUM(t.base_qty), 0)`,
   },
   {
     area: "ap",

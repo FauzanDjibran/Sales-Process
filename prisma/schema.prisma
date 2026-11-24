@@ -4133,6 +4133,8 @@ model PurOrderLine {
   uom_id     Int
   uom_factor Decimal @db.Decimal(18, 4)
   qty        Decimal @db.Decimal(18, 4)
+  /// `qty` in base units at the factor above (P320): what requests and stock are compared in.
+  base_qty   Decimal @db.Decimal(18, 4)
   price      Decimal @db.Decimal(18, 6)
 
   discount_type         DiscountType?
@@ -4154,7 +4156,9 @@ model PurOrderLine {
   withholding_rate   Decimal? @db.Decimal(9, 4)
 
   /// What posted Receipt Notes brought in, in this line's unit (step 4).
-  received_qty Decimal @default(0) @db.Decimal(18, 4)
+  received_qty      Decimal @default(0) @db.Decimal(18, 6)
+  /// The same in base units, kept beside it so neither is worked out from the other.
+  received_base_qty Decimal @default(0) @db.Decimal(18, 4)
 
   note String?
 
@@ -4240,7 +4244,8 @@ model LogReceiptNoteLine {
   item_id          Int
   uom_id           Int
   uom_factor       Decimal @db.Decimal(18, 4)
-  qty              Decimal @db.Decimal(18, 4)
+  /// In the source line's unit: what is valued and billed (P320).
+  qty                Decimal @db.Decimal(18, 6)
   base_qty         Decimal @db.Decimal(18, 4)
   /// Enters the stock books (Barang with Kelola Stok); otherwise an expense.
   is_stock         Boolean @default(false)
@@ -4269,9 +4274,8 @@ model LogReceiptNoteTracking {
   /// Typed, or generated at Posting when left empty.
   tracking_no        String?
   expiry_date        DateTime? @db.Date
-  /// In the line's unit.
-  qty                Decimal   @db.Decimal(18, 4)
-  base_qty           Decimal   @default(0) @db.Decimal(18, 4)
+  /// In base units, whatever the line's unit (P320).
+  base_qty           Decimal   @db.Decimal(18, 4)
   value_amount       Decimal   @default(0) @db.Decimal(18, 2)
   /// The stock lot it became, set at Posting (weak: the inventory's table).
   tracking_id        Int?
@@ -4519,7 +4523,7 @@ model FinApInvoiceLine {
   /// A posted Receipt Note line, weak; each billed by at most one live invoice.
   receipt_note_line_id    Int
   purchase_order_line_id  Int
-  qty                     Decimal  @db.Decimal(18, 4)
+  qty                     Decimal  @db.Decimal(18, 6)
   /// The PO line's price, for the record (B29a).
   price                   Decimal  @db.Decimal(18, 6)
   /// The receipt's value — the PO's DPP for this quantity.
