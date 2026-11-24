@@ -238,7 +238,7 @@ export function DiagramCanvas({
   );
 }
 
-/** An enum's values under its column, at reading size whatever the zoom. */
+/** An enum's values under its type, growing with the zoom but never below reading size. */
 function EnumValues({ graph, at, scale }: { graph: Graph; at: { i: number; col: string }; scale: number }) {
   const { model } = useGo();
   const box = graph.boxes.get(at.i);
@@ -247,7 +247,7 @@ function EnumValues({ graph, at, scale }: { graph: Graph; at: { i: number; col: 
   const col = cols[row];
   if (!box || !col?.values) return null;
   return (
-    <div className="dbe" role="status" style={{ left: box.x + 10, top: box.y + 32 + 22 * (row + 1), transform: `scale(${1 / scale})` }}>
+    <div className="dbe" role="status" style={{ left: box.x + box.w - 8, top: box.y + 32 + 22 * (row + 1) + 3, transform: `translateX(-100%) scale(${Math.max(1, 1 / scale)})` }}>
       <b>{col.type}</b>
       {col.values.map((v) => (
         <span key={v}>{v}</span>
