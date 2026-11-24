@@ -37,7 +37,7 @@ export function TableInspector({
   onClose: () => void;
 }) {
   const { model } = useGo();
-  const [tab, setTab] = useState<"rel" | "use">("rel");
+  const [tab, setTab] = useState<"rel" | "use" | "enum">("rel");
   const [shut, setShut] = useState<ReadonlySet<string>>(new Set());
   const focus = target.v === "table" ? target.i : sel;
   const close = (
@@ -202,6 +202,26 @@ export function TableInspector({
     );
   };
 
+  const enums = focus === null ? [] : model.tables[focus].cols.filter((c) => c.values);
+  const enumList = () => (
+    <div className="dbp-b" key={focus}>
+      {enums.map((c) =>
+        section(
+          `e${c.name}`,
+          c.name,
+          `${c.type}${c.required ? "" : "?"}`,
+          (c.values ?? []).map((v) => (
+            <div className="dbr st" key={v}>
+              <div className="t">
+                <span className="mono wrap">{v}</span>
+              </div>
+            </div>
+          ))
+        )
+      )}
+    </div>
+  );
+
   const contents = (t: Exclude<Target, { v: "all" }>) => {
     const set = scopeOf(model, t, { ...options, hidden: new Set() });
     const main = t.v === "menu" ? model.menus[t.i].main : -1;
@@ -248,6 +268,7 @@ export function TableInspector({
     );
 
   const t = model.tables[focus];
+  const shown = tab === "enum" && !enums.length ? "rel" : tab;
   const back = target.v === "table" ? onBack : onUnselect;
   const backTitle = target.v === "table" ? "Kembali ke sebelumnya" : "Kembali ke isi diagram";
   return (
@@ -272,15 +293,16 @@ export function TableInspector({
       <div className="dbp-t">
         <Toggle
           label="Isi panel"
-          value={tab}
+          value={shown}
           options={[
             { value: "rel", label: <>Relasi <i>{model.out[focus].length + model.in[focus].length}</i></> },
             { value: "use", label: <>Dipakai <i>{model.use[focus].w.length + model.use[focus].r.length}</i></> },
+            ...(enums.length ? [{ value: "enum" as const, label: <>Enum <i>{enums.length}</i></> }] : []),
           ]}
           onChange={setTab}
         />
       </div>
-      {tab === "rel" ? relations(focus) : usage(focus)}
+      {shown === "rel" ? relations(focus) : shown === "use" ? usage(focus) : enumList()}
     </aside>
   );
 }

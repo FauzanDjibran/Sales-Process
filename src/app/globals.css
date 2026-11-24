@@ -1550,6 +1550,10 @@ table.grid.aging th,table.grid.aging td:first-child,table.grid.aging td:first-ch
 .dbt-c .k.fk{color:var(--info)}
 .dbt-c .cn{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
 .dbt-c .ct{flex:0 1 auto;max-width:50%;overflow:hidden;text-overflow:ellipsis;color:var(--muted-2)}
+.dbt-c button.ct{border:0;background:none;padding:0;font:inherit;color:var(--info);cursor:pointer;text-decoration:underline dotted}
+.dbe{position:absolute;z-index:3;transform-origin:0 0;min-width:140px;padding:7px 11px 8px;background:#fff;border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--sh-md);font-family:var(--f-mono);font-size:11.5px;color:var(--ink);cursor:auto;user-select:text}
+.dbe b,.dbe span{display:block;line-height:1.65;white-space:nowrap}
+.dbe b{font-size:10px;font-weight:600;color:var(--muted)}
 .dbt-c .lab{font-size:10px;padding:0 6px;max-width:56%;overflow:hidden;text-overflow:ellipsis}
 .dbt-c a.lab:hover{background:var(--brand-100)}
 .dbt-c .lab.wk{background:#fff;border:1px dashed var(--muted-2);color:var(--muted)}

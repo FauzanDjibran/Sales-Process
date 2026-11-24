@@ -36,10 +36,13 @@ export function DiagramCanvas({
   const [size, setSize] = useState({ w: 0, h: 0 });
   // null until the reader moves it: the diagram then follows the window's size.
   const [moved, setMoved] = useState<View | null>(null);
+  // The enum column whose values are open.
+  const [values, setValues] = useState<{ i: number; col: string } | null>(null);
   const [seen, setSeen] = useState(graph);
   if (seen !== graph) {
     setSeen(graph);
     setMoved(null);
+    setValues(null);
   }
 
   useLayoutEffect(() => {
@@ -101,7 +104,7 @@ export function DiagramCanvas({
   const [dragging, setDragging] = useState(false);
   const onPointerDown = (e: React.PointerEvent) => {
     const el = e.target as HTMLElement;
-    if (el.closest("a,button,.dbv-map,.cbh")) return;
+    if (el.closest("a,button,.dbv-map,.cbh,.dbe")) return;
     const box = el.closest<HTMLElement>("[data-box]");
     drag.current = { x: e.clientX, y: e.clientY, view, box: box ? Number(box.dataset.box) : null, moved: false };
   };
@@ -121,6 +124,7 @@ export function DiagramCanvas({
     const d = drag.current;
     drag.current = null;
     setDragging(false);
+    if (d && click && !d.moved) setValues(null);
     if (d && click && !d.moved) onSel(d.box === sel ? null : d.box);
   };
 
@@ -137,6 +141,7 @@ export function DiagramCanvas({
       </svg>
     );
     const toggle = (i: number) => onSel(i === sel ? null : i);
+    const openValues = (i: number, col: string) => setValues((v) => (v?.i === i && v.col === col ? null : { i, col }));
     return (
       <>
         {graph.frames.map((f) => (
@@ -165,7 +170,7 @@ export function DiagramCanvas({
         ))}
         {lines(edges.filter((l) => !near(l)))}
         {[...graph.boxes.values()].map((b) => (
-          <TableBox key={b.id} box={b} graph={graph} sel={sel} dim={sel !== null && !related.has(b.id)} onToggle={toggle} />
+          <TableBox key={b.id} box={b} graph={graph} sel={sel} dim={sel !== null && !related.has(b.id)} onToggle={toggle} onValues={openValues} />
         ))}
         {lines(edges.filter(near))}
       </>
@@ -186,15 +191,18 @@ export function DiagramCanvas({
       onPointerUp={() => endDrag(true)}
       onPointerCancel={() => endDrag(false)}
       onKeyDown={(e) => {
-        if (e.key === "Escape") onSel(null);
+        if (e.key !== "Escape") return;
+        if (values) setValues(null);
+        else onSel(null);
       }}
       onDoubleClick={(e) => {
         const box = (e.target as HTMLElement).closest<HTMLElement>("[data-box]");
-        if (box && !(e.target as HTMLElement).closest("a")) go({ v: "table", i: Number(box.dataset.box) });
+        if (box && !(e.target as HTMLElement).closest("a,button")) go({ v: "table", i: Number(box.dataset.box) });
       }}
     >
       <div className="dbv-in" style={{ transform: `translate(${view.x}px,${view.y}px) scale(${view.s})` }}>
         {size.w > 0 && drawing}
+        {values && <EnumValues graph={graph} at={values} scale={view.s} />}
       </div>
       {legend && <div className="dbv-key">{legend}</div>}
       {!fits && size.w > 0 && (
@@ -230,7 +238,39 @@ export function DiagramCanvas({
   );
 }
 
-function TableBox({ box, graph, sel, dim, onToggle }: { box: Box; graph: Graph; sel: number | null; dim: boolean; onToggle: (i: number) => void }) {
+/** An enum's values under its column, at reading size whatever the zoom. */
+function EnumValues({ graph, at, scale }: { graph: Graph; at: { i: number; col: string }; scale: number }) {
+  const { model } = useGo();
+  const box = graph.boxes.get(at.i);
+  const cols = columnsOf(model, at.i, graph.level);
+  const row = cols.findIndex((c) => c.name === at.col);
+  const col = cols[row];
+  if (!box || !col?.values) return null;
+  return (
+    <div className="dbe" role="status" style={{ left: box.x + 10, top: box.y + 32 + 22 * (row + 1), transform: `scale(${1 / scale})` }}>
+      <b>{col.type}</b>
+      {col.values.map((v) => (
+        <span key={v}>{v}</span>
+      ))}
+    </div>
+  );
+}
+
+function TableBox({
+  box,
+  graph,
+  sel,
+  dim,
+  onToggle,
+  onValues,
+}: {
+  box: Box;
+  graph: Graph;
+  sel: number | null;
+  dim: boolean;
+  onToggle: (i: number) => void;
+  onValues: (i: number, col: string) => void;
+}) {
   const { model } = useGo();
   const i = box.id;
   const t = model.tables[i];
@@ -271,8 +311,13 @@ function TableBox({ box, graph, sel, dim, onToggle }: { box: Box; graph: Graph; 
               <span className="lab wk" title="Menunjuk dokumen lain tanpa foreign key">
                 dokumen
               </span>
+            ) : c.values ? (
+              <button type="button" className="ct" title={`Lihat isi ${c.type} · ${c.required ? "wajib" : "boleh kosong"}`} onClick={() => onValues(i, c.name)}>
+                {c.type}
+                {c.required ? "" : "?"}
+              </button>
             ) : (
-              <span className="ct" title={`${c.values ? c.values.join(" · ") : c.type} · ${c.required ? "wajib" : "boleh kosong"}`}>
+              <span className="ct" title={`${c.type} · ${c.required ? "wajib" : "boleh kosong"}`}>
                 {c.type}
                 {c.required ? "" : "?"}
               </span>

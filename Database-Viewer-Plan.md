@@ -216,7 +216,7 @@ Menggantikan §9 dan §10 bila berbeda.
    role, permission, setting, audit) tampil di kedua pilihan dengan tanda *ERP &
    Produksi*.
 2. **Dialog Detail Tabel dihapus.** Isinya sudah ada di tempat lain: kolom dan tipe
-   di tingkat *Lengkap* (`?` = boleh kosong, nilai enum pada tooltip), relasi di
+   di tingkat *Lengkap* (`?` = boleh kosong, klik tipe enum menampilkan isinya, juga tab *Enum* di panel), relasi di
    panel. Yang unik — **menu yang menulis dan membaca**, serta aturan unik dan cek —
    menjadi tab **Dipakai** di panel. Keterangan DBML dan index biasa tidak ditampilkan.
 3. **Tata letak viewer:** daftar tabel (pohon aplikasi → kelompok / menu → tabel) |
