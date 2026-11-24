@@ -5462,7 +5462,7 @@ model LogStockIssue {
   /// The purpose's key, e.g. `production_issue`.
   purpose      String
   warehouse_id Int
-  /// The Unit that takes them: required by the production purposes.
+  /// The Unit that takes them: the production purposes only.
   unit_id      Int?
   note         String?
 
@@ -5701,6 +5701,8 @@ enum StockIssueStatus {
   InTransit
   /// The Unit took them in. Labelled *Diterima*.
   Received
+  /// A purpose without a Unit: the goods left and were charged to expense (P324).
+  Posted
   Cancelled
 }
 

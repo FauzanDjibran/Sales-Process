@@ -150,6 +150,41 @@ describe("Kirim moves the goods and freezes their value (P317)", () => {
   });
 });
 
+describe("a purpose without a Unit charges an expense and nobody receives it (P324)", () => {
+  for (const [purpose, key] of [["disposal", "stock_disposal_account"], ["sample", "stock_sample_account"]] as const) {
+    test(purpose, async () => {
+      const noNote = await create(header({ purpose, unit_id: null }), [line(1, [{ lot: f.lot, qty: 1 }])]);
+      assert.ok(!noNote.ok && /wajib diisi/.test(noNote.errors.note));
+      const r = await create(header({ purpose, unit_id: f.wsA, note: "uji" }), [line(5, [{ lot: f.lot, qty: 5 }])]);
+      assert.ok(r.ok, JSON.stringify(r));
+      assert.match(r.issueNo, /^SIS\/\d{4}\/\d{2}\/\d{4}$/);
+      const before = await prisma.sysSetting.findUnique({ where: { setting_key: key } });
+      const map = (value: string | null) =>
+        prisma.sysSetting.upsert({ where: { setting_key: key }, update: { setting_value: value }, create: { setting_key: key, setting_value: value, updated_by: f.actor } });
+      try {
+        await map(null);
+        const unmapped = await transitionStockIssue(r.id, "submit", f.actor);
+        assert.ok(!unmapped.ok && /Account Mapping/.test(unmapped.errors._form));
+        await map(String(f.scrapAcc));
+        const preview = await stockIssuePreview(r.id, f.actor);
+        assert.ok(preview.ok, JSON.stringify(preview));
+        assert.equal((await getStockIssue(r.id))!.status, "Draft", "a dry run writes nothing");
+        const done = await transitionStockIssue(r.id, "submit", f.actor);
+        assert.ok(done.ok, JSON.stringify(done));
+      } finally {
+        if (before) await map(before.setting_value);
+        else await prisma.sysSetting.delete({ where: { setting_key: key } });
+      }
+      const v = (await getStockIssue(r.id))!;
+      assert.deepEqual([v.status, v.header.unit_id, v.cost > 0], ["Posted", null, true]);
+      const lines = await prisma.accJournalLine.findMany({ where: { journal_id: v.journalId! }, orderBy: { sequence_no: "asc" } });
+      assert.deepEqual(lines.map((l) => [l.account_id, l.debit_amount.toNumber(), l.kredit_amount.toNumber()]), [[f.scrapAcc, v.cost, 0], [f.inventoryAcc, 0, v.cost]]);
+      assert.equal(await prisma.prdReceipt.count({ where: { receipt_no: v.issueNo } }), 0, "no Production Receipt");
+      assert.ok(!(await transitionStockIssue(r.id, "cancel", f.actor, "x")).ok, "final");
+    });
+  }
+});
+
 describe("which Unit takes what", () => {
   test("material enters at the first Unit of the routing; bahan penolong at any Unit", async () => {
     const existing = await prisma.prdRouting.findFirst({ where: { line_id: null } });

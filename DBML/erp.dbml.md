@@ -3072,10 +3072,10 @@ table log_stock_issue {
 
   issue_no                    varchar [not null, unique]
   issue_date                  date [not null]
-  status                      enum('Draft', 'InTransit', 'Received', 'Cancelled') [not null, default: 'Draft']
-  purpose                     varchar [not null] // production_issue | auxiliary_issue
+  status                      enum('Draft', 'InTransit', 'Received', 'Posted', 'Cancelled') [not null, default: 'Draft'] // Posted: a purpose without a Unit
+  purpose                     varchar [not null] // production_issue | auxiliary_issue | disposal | sample
   warehouse_id                int [not null, ref : > ref_warehouse.id]
-  unit_id              int [ref : > ref_unit.id] // required by production_issue
+  unit_id              int [ref : > ref_unit.id] // the production purposes only
   note                        varchar
 
   cost_amount                 decimal(18,2) [not null, default: 0]

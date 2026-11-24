@@ -3,6 +3,8 @@
  *
  *   Draft ──submit (Kirim)──> InTransit (Dalam Perjalanan) ──> Received (Diterima)
  *     │
+ *     ├──submit (Posting)──> Posted (Diposting): a purpose without a Unit (P324)
+ *     │
  *     └──cancel──> Cancelled
  *
  * Kirim is the moment the goods leave the warehouse, journalled at a value that
@@ -14,8 +16,9 @@
 import type { IconName } from "@/components/icon";
 import type { ActionTone } from "./header-actions";
 import type { PermissionCode } from "./permissions";
+import { stockIssuePurpose } from "./stock-issue-purposes";
 
-export type StockIssueStatus = "Draft" | "InTransit" | "Received" | "Cancelled";
+export type StockIssueStatus = "Draft" | "InTransit" | "Received" | "Posted" | "Cancelled";
 
 export type StockIssueAction = "submit" | "cancel";
 
@@ -67,6 +70,26 @@ export const STOCK_ISSUE_TRANSITIONS: Record<StockIssueAction, StockIssueTransit
   },
 };
 
+/** The steps of an issue with this purpose: without a Unit, Kirim is Posting and final. */
+export function stockIssueTransitions(purpose: string): Record<StockIssueAction, StockIssueTransition> {
+  if (stockIssuePurpose(purpose)?.needsUnit !== false) return STOCK_ISSUE_TRANSITIONS;
+  return {
+    ...STOCK_ISSUE_TRANSITIONS,
+    submit: {
+      ...STOCK_ISSUE_TRANSITIONS.submit,
+      label: "Posting",
+      to: "Posted",
+      icon: "check",
+      title: "Posting Stock Issue",
+      body:
+        "Barang keluar dari gudang pada Tanggal, per lot, senilai harga pokoknya, dengan journal di bawah ini. " +
+        "Stock Issue yang sudah diposting tidak dapat diubah atau dibatalkan.",
+      confirmLabel: "Ya, Posting",
+      done: "Stock Issue diposting",
+    },
+  };
+}
+
 export function stockIssueTransitionAllowed(action: StockIssueAction, status: StockIssueStatus): boolean {
   return STOCK_ISSUE_TRANSITIONS[action].from.includes(status);
 }
@@ -103,6 +126,7 @@ export const STOCK_ISSUE_STATUS_TEXT: Record<StockIssueStatus, string> = {
   Draft: "Draft",
   InTransit: "Dalam Perjalanan",
   Received: "Diterima",
+  Posted: "Diposting",
   Cancelled: "Dibatalkan",
 };
 
@@ -110,5 +134,6 @@ export const STOCK_ISSUE_STATUS_BADGE: Record<StockIssueStatus, string> = {
   Draft: "s-warn",
   InTransit: "s-info",
   Received: "s-ok",
+  Posted: "s-ok",
   Cancelled: "s-mute",
 };

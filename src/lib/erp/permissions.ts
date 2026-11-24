@@ -352,9 +352,9 @@ export const PERMISSIONS = [
   { code: "RECEIPT_NOTE_POST", name: "Posting Receipt Note", module: "inventory", description: "Mencatat barang masuk per lot atau beban, dan menjurnal ke Barang Diterima Belum Ditagih." },
   { code: "RECEIPT_NOTE_CANCEL", name: "Batalkan Receipt Note", module: "inventory", description: "Hanya Draft, dengan alasan." },
   { code: "STOCK_ISSUE_VIEW", name: "Lihat Stock Issue", module: "inventory", description: "Termasuk yang masih Draft dan yang dibatalkan." },
-  { code: "STOCK_ISSUE_CREATE", name: "Buat Stock Issue", module: "inventory", description: "Membuat Draft pengeluaran barang dari gudang ke sebuah Unit." },
+  { code: "STOCK_ISSUE_CREATE", name: "Buat Stock Issue", module: "inventory", description: "Membuat Draft pengeluaran barang dari gudang ke Unit, untuk dimusnahkan atau sebagai sampel." },
   { code: "STOCK_ISSUE_EDIT", name: "Ubah Stock Issue", module: "inventory", description: "Hanya selama masih Draft." },
-  { code: "STOCK_ISSUE_SUBMIT", name: "Kirim Stock Issue", module: "inventory", description: "Barang keluar gudang per lot dan menjurnal WIP / Persediaan; Dalam Perjalanan sampai Unit menerimanya." },
+  { code: "STOCK_ISSUE_SUBMIT", name: "Kirim / Posting Stock Issue", module: "inventory", description: "Barang keluar gudang per lot: ke Unit menjurnal WIP / Persediaan, pemusnahan dan sampel menjurnal Beban / Persediaan." },
   { code: "STOCK_ISSUE_CANCEL", name: "Batalkan Stock Issue", module: "inventory", description: "Hanya Draft, dengan alasan." },
   // BSTB ke Finish Goods (P303): Produksi sends, the warehouse receives.
   { code: "STOCK_RECEIPT_VIEW", name: "Lihat Stock Receipt", module: "inventory", description: "BSTB ke Finish Goods dan BSTB Pengeluaran ke gudang user." },

@@ -1017,7 +1017,7 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
-    name: "a Stock Issue that left = what the stock books released = its journal's debit = its Production Receipt; one not sent moved nothing (P317)",
+    name: "a Stock Issue that left = what the stock books released = its journal's debit = its Production Receipt, or has none without a Unit; one not sent moved nothing (P317, P324)",
     sql: `WITH s AS (SELECT s.id, s.issue_no, s.status, s.cost_amount, s.journal_id,
                         COALESCE((SELECT -SUM(v.value_change) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("log_stock_issue")} AND v.source_doc_id = s.id), 0) AS stock_out,
                         COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = s.journal_id), 0) AS journal,
@@ -1026,7 +1026,8 @@ export const CHECKS: Check[] = [
                  FROM log_stock_issue s)
           SELECT * FROM s
           WHERE (status IN ('InTransit', 'Received') AND (cost_amount <> stock_out OR cost_amount <> journal OR cost_amount <> other_side OR other_status IS DISTINCT FROM status::text))
-             OR (status NOT IN ('InTransit', 'Received') AND (journal_id IS NOT NULL OR stock_out <> 0 OR other_status IS NOT NULL))`,
+             OR (status = 'Posted' AND (cost_amount <> stock_out OR cost_amount <> journal OR other_status IS NOT NULL))
+             OR (status IN ('Draft', 'Cancelled') AND (journal_id IS NOT NULL OR stock_out <> 0 OR other_status IS NOT NULL))`,
   },
   {
     area: "production",

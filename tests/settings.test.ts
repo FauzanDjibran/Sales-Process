@@ -108,6 +108,9 @@ describe("the settings catalogue lives in code", () => {
         "inventory_account",
         // The Stock Adjustment's (P318).
         "stock_difference_account",
+        // The Stock Issue's without a Unit (P324).
+        "stock_disposal_account",
+        "stock_sample_account",
         // Purchasing's (P122), ahead of the documents that post them.
         "goods_received_account",
         "payable_account",

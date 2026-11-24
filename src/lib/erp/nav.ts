@@ -368,7 +368,7 @@ export const MODULES: NavModule[] = [
             slug: "stock-issue",
             name: "Stock Issue",
             icon: "layers",
-            desc: "Barang keluar gudang tanpa partner, menurut tujuannya: BSTB Issue ke Unit. Bergerak dan menjurnal saat Kirim.",
+            desc: "Barang keluar gudang tanpa partner, menurut tujuannya: BSTB Issue ke Unit, pemusnahan atau sampel. Bergerak dan menjurnal saat Kirim atau Posting.",
             permission: "STOCK_ISSUE_VIEW",
           },
           {

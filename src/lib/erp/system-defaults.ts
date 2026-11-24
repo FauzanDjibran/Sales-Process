@@ -42,6 +42,8 @@ export type SystemDefaultKey =
   | "cogs_account"
   | "inventory_account"
   | "stock_difference_account"
+  | "stock_disposal_account"
+  | "stock_sample_account"
   | "goods_received_account"
   | "payable_account"
   | "purchase_advance_account"
@@ -436,6 +438,24 @@ export const SYSTEM_DEFAULTS = [
     group: "delivery",
     help: "lawan Persediaan untuk selisih hitungan Stock Adjustment",
   },
+  {
+    key: "stock_disposal_account",
+    name: "Account Beban Pemusnahan",
+    icon: "trash",
+    type: "ref",
+    ref: "acc_account",
+    group: "delivery",
+    help: "nilai barang Stock Issue Pemusnahan",
+  },
+  {
+    key: "stock_sample_account",
+    name: "Account Beban Pengambilan Sampel",
+    icon: "layers",
+    type: "ref",
+    ref: "acc_account",
+    group: "delivery",
+    help: "nilai barang Stock Issue Pengambilan Sampel",
+  },
 
   // ------------------------------------------------------------ purchase
   //
@@ -594,6 +614,8 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   cogs_account: null,
   inventory_account: null,
   stock_difference_account: null,
+  stock_disposal_account: null,
+  stock_sample_account: null,
   goods_received_account: null,
   payable_account: null,
   purchase_advance_account: null,

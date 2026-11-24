@@ -287,6 +287,7 @@ const STOCK_ISSUE_EVENTS: Record<string, AuditEventLabel> = {
   ...COMMON,
   create: { label: "Stock Issue dibuat", icon: "layers", tone: "neutral" },
   submit: fromTransition(STOCK_ISSUE_TRANSITIONS.submit, "Dikirim — barang keluar gudang"),
+  issue: { label: "Diposting — barang keluar gudang", icon: "check", tone: "primary" },
   post: { label: "Diterima Unit", icon: "check", tone: "primary" },
   cancel: fromTransition(STOCK_ISSUE_TRANSITIONS.cancel, "Dibatalkan"),
 };

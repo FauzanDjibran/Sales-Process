@@ -71,10 +71,11 @@ Jumlah dokumen ditentukan tiga pertanyaan, bukan oleh logistik atau produksinya.
 | Issue | `auxiliary_issue` BSTB Issue, bahan penolong | Unit mana pun | sama | sama | sama |
 | Receipt | `finish_goods` BSTB ke Finish Goods | Unit akhir line | Menunggu → Terima | Terbawa | Dr Persediaan / Cr WIP |
 | Receipt | `return` BSTB Pengeluaran | Unit mana pun | Menunggu → Terima | Terbawa atau tanpa nilai | sama, atau Dr Beban Pemusnahan |
-| Issue | *calon:* Pemakaian Internal, Pemusnahan | tidak ada | Draft → Posting | Rata-rata | Dr Beban / Cr Persediaan |
+| Issue | `disposal` Pemusnahan, `sample` Pengambilan Sampel (P324) | tidak ada | Draft → Posting | Rata-rata | Dr Beban per tujuan / Cr Persediaan |
+| Issue | *calon:* Pemakaian Internal | tidak ada | Draft → Posting | Rata-rata | Dr Beban / Cr Persediaan |
 | Receipt | *calon:* Stok Awal (pengganti `db:stock-inject`) | tidak ada | Draft → Posting | Diketik | Dr Persediaan / Cr akun pembuka |
 
-Empat baris pertama sudah ada perilakunya. **Calon tidak dibangun tanpa instruksi** (C34).
+Lima baris pertama sudah ada perilakunya. **Calon tidak dibangun tanpa instruksi** (C34).
 
 Katalog tetap di kode (P106) dan tiap tujuan punya postingnya sendiri (P268). Satu tujuan menyatakan: nama, pihak lain, langkah, sumber nilai, seri nomor, status stok yang boleh, izin Terima. Posting bersama hanya menggerakkan stok per lot dan menjumlahkan.
 

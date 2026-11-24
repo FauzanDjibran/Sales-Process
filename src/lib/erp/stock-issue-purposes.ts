@@ -8,17 +8,24 @@
  * Client-safe on purpose — no `server-only`, no database import.
  */
 
-export type StockIssuePurposeKey = "production_issue" | "auxiliary_issue";
+export type StockIssuePurposeKey = "production_issue" | "auxiliary_issue" | "disposal" | "sample";
 
 export type StockIssuePurpose = {
   key: StockIssuePurposeKey;
   /** As the form and the register read it. */
   name: string;
   desc: string;
-  /** The goods are placed at a unit (the production ledger). */
+  /**
+   * The goods go to a Unit, which takes them in (Kirim, then Terima). Without a
+   * Unit nobody receives them: Posting ends the document (P324).
+   */
   needsUnit: boolean;
   /** Only the first Unit of the routing takes them: the rest arrive by BSTB. */
   firstUnitOnly: boolean;
+  /** Without a Unit: the Account Mapping key the goods' value is charged to. */
+  expenseAccount?: "stock_disposal_account" | "stock_sample_account";
+  /** The note is required, and is called this. */
+  noteLabel?: string;
 };
 
 export const STOCK_ISSUE_PURPOSES: readonly StockIssuePurpose[] = [
@@ -37,6 +44,24 @@ export const STOCK_ISSUE_PURPOSES: readonly StockIssuePurpose[] = [
     desc: "Kotak, gabus, stiker dan sejenisnya masuk ke Unit mana pun yang memakainya, menjadi saldo Unit itu, bukan isi partai.",
     needsUnit: true,
     firstUnitOnly: false,
+  },
+  {
+    key: "disposal",
+    name: "Pemusnahan",
+    desc: "Barang rusak, kadaluarsa atau tidak layak dikeluarkan untuk dimusnahkan; nilainya menjadi beban.",
+    needsUnit: false,
+    firstUnitOnly: false,
+    expenseAccount: "stock_disposal_account",
+    noteLabel: "Alasan Pemusnahan",
+  },
+  {
+    key: "sample",
+    name: "Pengambilan Sampel",
+    desc: "Barang diambil untuk uji atau contoh dan tidak kembali ke stok; nilainya menjadi beban.",
+    needsUnit: false,
+    firstUnitOnly: false,
+    expenseAccount: "stock_sample_account",
+    noteLabel: "Keperluan Sampel",
   },
 ];
 
