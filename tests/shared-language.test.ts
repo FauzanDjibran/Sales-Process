@@ -9,7 +9,7 @@ import { pathToFileURL } from "node:url";
 const LIB = path.join(process.cwd(), "src/lib/erp");
 
 /** Posted is the receipt itself on these documents. */
-const RECEIVED = new Set(["PRODUCTION_RECEIPT", "TRANSFER", "STOCK_TRANSFER_RECEIPT"]);
+const RECEIVED = new Set(["PRODUCTION_RECEIPT", "TRANSFER", "STOCK_ISSUE", "STOCK_TRANSFER_RECEIPT"]);
 
 test("a status reads the same word in the same colour on every document", async () => {
   const seen = new Map<string, string>();

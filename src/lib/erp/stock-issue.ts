@@ -2,7 +2,7 @@ import "server-only";
 
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { dailySeries, documentSeries, nextDailyNumber, nextDocumentNumber } from "./document-number";
+import { dailySeries, nextDailyNumber } from "./document-number";
 import { formatNumber } from "@/lib/format";
 import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
@@ -14,9 +14,9 @@ import { fallbackAccounts, isTransitWarehouse, notTransitWarehouse, TRANSIT_WARE
 import { accountsForItems } from "./item-account";
 import { DEFAULT_STOCK_ISSUE_PURPOSE, stockIssuePurpose } from "./stock-issue-purposes";
 import {
+  STOCK_ISSUE_TRANSITIONS,
   stockIssueIsEditable,
   stockIssueTransitionAllowed,
-  stockIssueTransitions,
   type StockIssueAction,
   type StockIssueStatus,
 } from "./stock-issue-workflow";
@@ -27,9 +27,8 @@ import {
  * nothing else names them.
  *
  * **Standalone** (P106): goods leave a warehouse for a use inside the company,
- * and the purpose (`stock-issue-purposes.ts`) says where — the two BSTB Issues
- * (material into the first Unit of the routing, bahan penolong into any), and
- * Pemusnahan and Pengambilan Sampel, which nobody receives (P323).
+ * and the purpose (`stock-issue-purposes.ts`) says where — today the two BSTB
+ * Issues: material into the first Unit of the routing, bahan penolong into any.
  *
  * The user picks the warehouse, the Unit, the day and the items, each in its
  * base unit (as sales, P108), and the lots each leaves from, exactly as on a
@@ -44,10 +43,6 @@ import {
  * `IssueSent` makes the Production Receipt; the Unit's Terima there answers
  * `IssueReceived`, which only marks this issue *Diterima*. It writes no
  * production book and reads none (P317).
- *
- * **Posting**, the same step of a purpose without a Unit: the goods leave the
- * same way with Dr the purpose's expense account (Account Mapping) / Cr
- * Persediaan, no message, and the issue is *Diposting* (P323).
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -235,8 +230,6 @@ export async function checkStockIssue(
     }
   }
 
-  if (purpose.noteLabel && !text(header.note)) errors.note = `${purpose.noteLabel} wajib diisi.`;
-
   const issueDate = String(header.issue_date ?? "").trim();
   if (!DAY.test(issueDate)) errors.issue_date = "Tanggal wajib diisi.";
 
@@ -306,7 +299,7 @@ export async function checkStockIssue(
         note: text(header.note),
       },
       warehouseLabel: warehouse.label,
-      unitLabel: purpose.needsUnit ? (unit?.label ?? "") : "",
+      unitLabel: unit?.label ?? "",
       itemLabels: new Map(options.items.map((i) => [i.id, { label: i.label, uomLabel: i.uomLabel }])),
       lines: out,
     },
@@ -360,17 +353,13 @@ function checkPicks(
 
 // ------------------------------------------------------------------ writes
 
-/**
- * `BSTB_<unit>_<ddmmyy>_`, per day per receiving Unit (W11); without a Unit
- * `SIS/YYYY/MM/` (P15). No -NP series: it carries no tax (P109).
- */
-const issueSeries = (unitLabel: string, date: Date) => (unitLabel ? dailySeries(`BSTB_${unitLabel}`, date) : documentSeries("SIS", date));
+/** `BSTB_<unit>_<ddmmyy>_`, per day per receiving Unit (W11). No -NP series: it carries no tax (P109). */
+const issueSeries = (unitLabel: string, date: Date) => dailySeries(`BSTB_${unitLabel}`, date);
 
-async function nextIssueNo(tx: Prisma.TransactionClient, unitLabel: string, date: Date): Promise<string> {
-  const series = issueSeries(unitLabel, date);
+async function nextIssueNo(tx: Prisma.TransactionClient, series: string): Promise<string> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${series}))`;
   const row = await tx.logStockIssue.findFirst({ where: { issue_no: { startsWith: series } }, orderBy: { issue_no: "desc" }, select: { issue_no: true } });
-  return unitLabel ? nextDailyNumber(series, row?.issue_no ?? null) : nextDocumentNumber("SIS", date, async () => row?.issue_no ?? null);
+  return nextDailyNumber(series, row?.issue_no ?? null);
 }
 
 async function audit(db: Db, id: number, action: "TAMBAH" | "UPDATE", event: string, by: number) {
@@ -405,7 +394,7 @@ export async function createStockIssue(header: StockIssueHeaderInput, lines: Sto
       const row = await tx.logStockIssue.create({
         data: {
           ...r.c.data,
-          issue_no: await nextIssueNo(tx, r.c.unitLabel, r.c.data.issue_date),
+          issue_no: await nextIssueNo(tx, issueSeries(r.c.unitLabel, r.c.data.issue_date)),
           created_by: actorId,
           lines: { create: r.c.lines.map(({ picks, ...l }) => ({ ...l, trackings: { create: picks } })) },
         },
@@ -427,9 +416,9 @@ export async function updateStockIssue(id: number, header: StockIssueHeaderInput
     const issueNo = await prisma.$transaction(async (tx) => {
       const r = await checkStockIssue(tx, { ...header, purpose: current.purpose }, lines, id);
       if (!r.ok) throw new Refused(r.errors);
-      // The number names the Unit and the day, or the month: a Draft that changes it takes a new one.
+      // The number names the Unit and the day: a Draft that changes either takes a new one.
       const series = issueSeries(r.c.unitLabel, r.c.data.issue_date);
-      const no = current.issue_no.startsWith(series) ? current.issue_no : await nextIssueNo(tx, r.c.unitLabel, r.c.data.issue_date);
+      const no = current.issue_no.startsWith(series) ? current.issue_no : await nextIssueNo(tx, series);
       const done = await tx.logStockIssue.updateMany({ where: { id, status: "Draft" }, data: { ...r.c.data, issue_no: no, updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: "Stock Issue berubah saat diproses. Muat ulang halaman." });
       // A Draft's lines and picks are rewritten whole: nothing names them yet.
@@ -502,9 +491,7 @@ export async function transitionStockIssue(
 ): Promise<StockIssueTransitionResult> {
   const issue = await prisma.logStockIssue.findUnique({ where: { id }, include: WITH_PICKS });
   if (!issue) return { ok: false, errors: { _form: "Stock Issue tidak ditemukan." } };
-  const purpose = stockIssuePurpose(issue.purpose);
-  if (!purpose) return { ok: false, errors: { _form: "Tujuan Stock Issue tidak dikenal." } };
-  const t = stockIssueTransitions(issue.purpose)[action];
+  const t = STOCK_ISSUE_TRANSITIONS[action];
   if (!stockIssueTransitionAllowed(action, issue.status as StockIssueStatus)) {
     return { ok: false, errors: { _form: `Stock Issue berstatus ini tidak dapat di-${t.label.toLowerCase()}.` } };
   }
@@ -523,25 +510,22 @@ export async function transitionStockIssue(
 
   const period = await checkTransactionDate(isoDay(issue.issue_date));
   if (!period.ok) return { ok: false, errors: { _form: period.message } };
-  // To a Unit, WIP is the item's Kategori Item's, with no fallback (R16); else
-  // the purpose's expense. Persediaan is the category's, else Account Mapping's (P122).
-  const fallback = await fallbackAccounts(["inventory_account", "stock_disposal_account", "stock_sample_account"] as const);
-  const expense = purpose.expenseAccount ? fallback[purpose.expenseAccount] : null;
-  if (purpose.expenseAccount && !expense) return { ok: false, errors: { _form: `Lengkapi Account Mapping dulu: Account Beban ${purpose.name}.` } };
+  // WIP is the item's Kategori Item's, with no fallback (R16); Persediaan the
+  // category's, else Account Mapping's (P122).
+  const fallback = await fallbackAccounts(["inventory_account"] as const);
   const byCategory = await accountsForItems([...new Set(issue.lines.map((l) => l.item_id))]);
-  const lineAccounts = new Map<number, { debit: number; inventory: number }>();
+  const lineAccounts = new Map<number, { wip: number; inventory: number }>();
   for (const [itemId, c] of byCategory) {
     const inventory = c.inventory ?? fallback.inventory_account;
-    const debit = purpose.needsUnit ? c.wip : expense;
-    if (!debit || !inventory) {
+    if (!c.wip || !inventory) {
       const item = await prisma.mItem.findUnique({ where: { id: itemId }, select: { item_label: true, category: { select: { category_label: true } } } });
-      const missing = [!debit && "WIP", !inventory && "Persediaan"].filter(Boolean).join(" dan ");
+      const missing = [!c.wip && "WIP", !inventory && "Persediaan"].filter(Boolean).join(" dan ");
       return {
         ok: false,
         errors: { _form: `Lengkapi Account Kategori Item ${item?.category.category_label ?? ""} dulu: Account ${missing} untuk ${item?.item_label ?? "barang"}.` },
       };
     }
-    lineAccounts.set(itemId, { debit, inventory });
+    lineAccounts.set(itemId, { wip: c.wip, inventory });
   }
   const baseCurrency = await prisma.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
   if (!baseCurrency) return { ok: false, errors: { _form: "Mata uang dasar tidak ditemukan." } };
@@ -560,7 +544,7 @@ export async function transitionStockIssue(
     await prisma.$transaction(async (tx) => {
       await holdPostingPeriod(tx, isoDay(issue.issue_date));
       const r = { c: await recheck(tx) };
-      const done = await tx.logStockIssue.updateMany({ where: { id, status: "Draft" }, data: { status: t.to, updated_by: actorId } });
+      const done = await tx.logStockIssue.updateMany({ where: { id, status: "Draft" }, data: { status: "InTransit", updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: moved });
 
       const typeId = await docTypeId(tx, "log_stock_issue");
@@ -601,7 +585,7 @@ export async function transitionStockIssue(
           const what = `${r.c.itemLabels.get(line.item_id)?.label ?? ""} · ${qtyText(line.qty)} ${r.c.itemLabels.get(line.item_id)?.uomLabel ?? ""}`;
           const acc = lineAccounts.get(line.item_id)!;
           journalLines.push(
-            { accountId: acc.debit, currencyId: baseCurrency.id, rate: 1, debit: cost, credit: 0, description: `${purpose.needsUnit ? `WIP ${r.c.unitLabel}` : purpose.name} · ${what}` },
+            { accountId: acc.wip, currencyId: baseCurrency.id, rate: 1, debit: cost, credit: 0, description: `WIP ${r.c.unitLabel} · ${what}` },
             { accountId: acc.inventory, currencyId: baseCurrency.id, rate: 1, debit: 0, credit: cost, description: `Keluar ${r.c.warehouseLabel} · ${what}` }
           );
         }
@@ -610,7 +594,7 @@ export async function transitionStockIssue(
       const journal = !journalLines.length
         ? null
         : await postJournal(tx, {
-            description: `${issue.issue_no} · ${purpose.name} ${r.c.warehouseLabel}${purpose.needsUnit ? ` → ${r.c.unitLabel}` : ""}`,
+            description: `${issue.issue_no} · ${stockIssuePurpose(issue.purpose)?.name ?? "Stock Issue"} ${r.c.warehouseLabel} → ${r.c.unitLabel}`,
             sourceDocTypeId: typeId,
             sourceDocId: id,
             postingDate: date,
@@ -618,25 +602,23 @@ export async function transitionStockIssue(
             lines: journalLines,
           });
       await tx.logStockIssue.update({ where: { id }, data: { journal_id: journal?.id ?? null, cost_amount: total } });
-      if (purpose.needsUnit) {
-        const warehouse = await tx.refWarehouse.findUniqueOrThrow({ where: { id: r.c.data.warehouse_id }, select: { warehouse_code: true, warehouse_name: true } });
-        await deliver(
-          tx,
-          {
-            type: "IssueSent",
-            no: issue.issue_no,
-            purpose: issue.purpose === "auxiliary_issue" ? "auxiliary" : "material",
-            date: isoDay(date),
-            unitLabel: r.c.unitLabel,
-            warehouseCode: warehouse.warehouse_code,
-            warehouseName: warehouse.warehouse_name,
-            note: r.c.data.note,
-            lines: sent,
-          },
-          actorId
-        );
-      }
-      await audit(tx, id, "UPDATE", purpose.needsUnit ? "submit" : "issue", actorId);
+      const warehouse = await tx.refWarehouse.findUniqueOrThrow({ where: { id: r.c.data.warehouse_id }, select: { warehouse_code: true, warehouse_name: true } });
+      await deliver(
+        tx,
+        {
+          type: "IssueSent",
+          no: issue.issue_no,
+          purpose: issue.purpose === "auxiliary_issue" ? "auxiliary" : "material",
+          date: isoDay(date),
+          unitLabel: r.c.unitLabel,
+          warehouseCode: warehouse.warehouse_code,
+          warehouseName: warehouse.warehouse_name,
+          note: r.c.data.note,
+          lines: sent,
+        },
+        actorId
+      );
+      await audit(tx, id, "UPDATE", "submit", actorId);
       if (options.dryRun) throw new PostingDryRun(journalLines);
     });
     return { ok: true as const };

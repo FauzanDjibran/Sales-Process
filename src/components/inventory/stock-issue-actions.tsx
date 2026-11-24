@@ -10,9 +10,9 @@ import { useToast } from "@/components/ui/toast";
 import { previewStockIssuePostingAction, transitionStockIssueAction } from "@/app/actions/stock-issue";
 import { headerButtonClass, orderForHeader, type ActionTone } from "@/lib/erp/header-actions";
 import {
+  STOCK_ISSUE_TRANSITIONS,
   availableStockIssueActions,
   stockIssueIsEditable,
-  stockIssueTransitions,
   type StockIssueAbilities,
   type StockIssueAction,
   type StockIssueStatus,
@@ -23,13 +23,12 @@ import { useInitialAction } from "@/components/ui/save-buttons";
 const LOCK_TEXT: Partial<Record<StockIssueStatus, string>> = {
   InTransit: "Dalam Perjalanan, menunggu Terima Unit",
   Received: "Sudah diterima Unit",
-  Posted: "Sudah diposting",
   Cancelled: "Stock Issue dibatalkan",
 };
 
 /**
  * A Stock Issue's lifecycle as buttons in the page header (R4): Ubah (Draft
- * only), Batalkan and Kirim — Posting for a purpose without a Unit. Its confirmation shows the journal it will
+ * only), Batalkan and Kirim. Kirim's confirmation shows the journal it will
  * write — WIP debited, Persediaan credited, per item at the cost the stock books
  * release — from the posting itself run as a dry run and rolled back (P103). An
  * issue that cannot leave (short stock, lots not picked in full, no WIP account)
@@ -38,18 +37,15 @@ const LOCK_TEXT: Partial<Record<StockIssueStatus, string>> = {
 export function StockIssueActions({
   id,
   subject,
-  purpose,
   status,
   can,
 }: {
   id: number;
   subject: string;
-  purpose: string;
   status: StockIssueStatus;
   can: StockIssueAbilities;
 }) {
   const toast = useToast();
-  const transitions = stockIssueTransitions(purpose);
   const [confirm, setConfirm] = useState<StockIssueAction | null>(useInitialAction<StockIssueAction>(availableStockIssueActions(status, can)));
   const [reason, setReason] = useState("");
   const [reasonError, setReasonError] = useState("");
@@ -57,7 +53,7 @@ export function StockIssueActions({
   const [postable, setPostable] = useState(false);
 
   const run = async (action: StockIssueAction) => {
-    if (transitions[action].reason && !reason.trim()) {
+    if (STOCK_ISSUE_TRANSITIONS[action].reason && !reason.trim()) {
       setReasonError("Alasan wajib diisi.");
       return;
     }
@@ -75,7 +71,7 @@ export function StockIssueActions({
     }
     setConfirm(null);
     setReason("");
-    toast(transitions[action].done, subject, "ok");
+    toast(result.message, subject, "ok");
   };
 
   const actions = availableStockIssueActions(status, can);
@@ -95,7 +91,7 @@ export function StockIssueActions({
           ]
         : []),
       ...actions.map((a) => {
-        const t = transitions[a];
+        const t = STOCK_ISSUE_TRANSITIONS[a];
         return {
           key: a,
           tone: t.tone,
@@ -120,7 +116,7 @@ export function StockIssueActions({
     (i) => i.tone
   );
 
-  const t = confirm ? transitions[confirm] : null;
+  const t = confirm ? STOCK_ISSUE_TRANSITIONS[confirm] : null;
   return (
     <>
       {buttons.length ? (

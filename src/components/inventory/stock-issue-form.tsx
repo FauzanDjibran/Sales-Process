@@ -21,7 +21,7 @@ import { DocumentHeader } from "@/components/ui/document-header";
 import { JournalReference } from "@/components/ui/journal-reference";
 import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
-import { availableStockIssueActions, stockIssueTransitions } from "@/lib/erp/stock-issue-workflow";
+import { STOCK_ISSUE_TRANSITIONS, availableStockIssueActions } from "@/lib/erp/stock-issue-workflow";
 
 /**
  * A Stock Issue in all three modes: `new`, `edit` (Draft only) and `view`
@@ -82,9 +82,7 @@ export function StockIssueForm({
   const [lotsFor, setLotsFor] = useState<string | null>(null);
 
   /** The goods left: value and journal are fixed. */
-  const posted = issue?.status === "InTransit" || issue?.status === "Received" || issue?.status === "Posted";
-  const purpose = stockIssuePurpose(header.purpose ?? DEFAULT_STOCK_ISSUE_PURPOSE);
-  const toUnit = purpose?.needsUnit !== false;
+  const posted = issue?.status === "InTransit" || issue?.status === "Received";
   const warehouse = options.warehouses.find((w) => w.id === header.warehouse_id);
   const unit = options.units.find((w) => w.id === header.unit_id);
   const lotsOf = (itemId: number | null) => (header.warehouse_id && itemId ? (options.lots[header.warehouse_id]?.[itemId] ?? []) : []);
@@ -113,7 +111,7 @@ export function StockIssueForm({
   };
 
   // Every editable document is a Draft, so its next step is the Draft's (P309).
-  const next = firstStep(availableStockIssueActions("Draft", can), stockIssueTransitions(header.purpose ?? DEFAULT_STOCK_ISSUE_PURPOSE));
+  const next = firstStep(availableStockIssueActions("Draft", can), STOCK_ISSUE_TRANSITIONS);
 
   async function onSave(step?: string) {
     setSaving(true);
@@ -160,7 +158,7 @@ export function StockIssueForm({
       <FormBody>
         <FormSection title="Pengeluaran">
           <FormRow>
-            <Field label="Tujuan" span={4} locked={mode === "edit"} help={editing ? "menentukan tujuan barang dan journalnya" : undefined}>
+            <Field label="Tujuan" span={4} locked={mode === "edit"} help={editing ? "menentukan Unit yang boleh menerima" : undefined}>
               {mode === "new" ? (
                 <Select
                   value={header.purpose ?? DEFAULT_STOCK_ISSUE_PURPOSE}
@@ -169,11 +167,10 @@ export function StockIssueForm({
                   onChange={(v) => {
                     set("purpose", v);
                     set("unit_id", stockIssuePurpose(v)?.firstUnitOnly ? options.firstUnitId : null);
-                    touch("note");
                   }}
                 />
               ) : (
-                ro(purpose?.name ?? header.purpose)
+                ro(stockIssuePurpose(header.purpose ?? DEFAULT_STOCK_ISSUE_PURPOSE)?.name ?? header.purpose)
               )}
             </Field>
             <Field label="Tanggal" span={3} required={editing} help={editing ? "hari barang keluar" : undefined} error={errors.issue_date}>
@@ -198,14 +195,13 @@ export function StockIssueForm({
                 place(warehouse)
               )}
             </Field>
-            {toUnit && (
             <Field label="Unit" span={6} required={editing} help={editing ? "tempat barang masuk produksi" : undefined} error={errors.unit_id}>
               {editing ? (
                 <Combobox
                   value={header.unit_id}
-                  options={options.units.filter((w) => (w.active || w.id === header.unit_id) && (!purpose?.firstUnitOnly || w.id === options.firstUnitId))}
+                  options={options.units.filter((w) => (w.active || w.id === header.unit_id) && (!stockIssuePurpose(header.purpose ?? "")?.firstUnitOnly || w.id === options.firstUnitId))}
                   placeholder="Pilih Unit…"
-                  emptyText={purpose?.firstUnitOnly ? "Belum ada routing sebelum partai." : "Belum ada Unit yang aktif."}
+                  emptyText={stockIssuePurpose(header.purpose ?? "")?.firstUnitOnly ? "Belum ada routing sebelum partai." : "Belum ada Unit yang aktif."}
                   invalid={Boolean(errors.unit_id)}
                   onChange={(v) => set("unit_id", v)}
                 />
@@ -213,10 +209,9 @@ export function StockIssueForm({
                 place(unit)
               )}
             </Field>
-            )}
-            <Field label={purpose?.noteLabel ?? "Catatan"} span={12} required={editing && Boolean(purpose?.noteLabel)} error={errors.note}>
+            <Field label="Catatan" span={12}>
               {editing ? (
-                <textarea className={`ta${errors.note ? " bad" : ""}`} rows={2} value={header.note} placeholder="Catatan pengeluaran…" onChange={(e) => set("note", e.target.value)} />
+                <textarea className="ta" rows={2} value={header.note} placeholder="Catatan pengeluaran…" onChange={(e) => set("note", e.target.value)} />
               ) : header.note ? (
                 <div className="ro multi">{header.note}</div>
               ) : (
@@ -312,9 +307,9 @@ export function StockIssueForm({
           <h3>Barang Keluar</h3>
           <p>
             {editing
-              ? `Pilih barang dan jumlahnya dalam satuan dasar, lalu lot asalnya.${toUnit ? " Lot tetap bernomor sama di tujuannya." : ""}`
+              ? "Pilih barang dan jumlahnya dalam satuan dasar, lalu lot asalnya. Lot tetap bernomor sama di tujuannya."
               : posted
-                ? `Jumlah yang keluar dan lotnya, dengan harga pokok rata-rata saat keluar dan nilai yang ${toUnit ? "dipindahkan ke WIP" : "dibebankan"}.`
+                ? "Jumlah yang keluar dan lotnya, dengan harga pokok rata-rata saat dikirim dan nilai yang dipindahkan ke WIP."
                 : "Jumlah per barang dalam satuan dasar dan lot yang dipilih."}
           </p>
         </div>
@@ -334,7 +329,7 @@ export function StockIssueForm({
             <Icon name="box" size={18} />
           </div>
           <h4>Belum ada barang</h4>
-          <p>Hanya Barang dengan Kelola Stok yang dapat keluar, per lot.</p>
+          <p>Hanya Barang dengan Kelola Stok yang keluar ke produksi, per lot.</p>
           {editing && addButton(true)}
         </div>
       ) : (
@@ -352,7 +347,7 @@ export function StockIssueForm({
                       Harga Pokok
                     </th>
                     <th className="num" style={{ width: 140 }}>
-                      {toUnit ? "Nilai ke WIP" : "Nilai Beban"}
+                      Nilai ke WIP
                     </th>
                   </>
                 )}
@@ -452,7 +447,7 @@ export function StockIssueForm({
               <tfoot>
                 <tr className="totrow">
                   <td colSpan={5} style={{ textAlign: "right" }}>
-                    {toUnit ? "Total ke WIP" : "Total Beban"}
+                    Total ke WIP
                   </td>
                   <td className="num">
                     <span className="mny">{money(issue?.cost ?? 0)}</span>
@@ -509,7 +504,7 @@ export function StockIssueForm({
             <SaveButtons saving={saving} onSave={onSave} next={next} />
           </>
         ) : (
-          <StockIssueActions id={issue!.id} subject={issue!.issueNo} purpose={issue!.header.purpose ?? DEFAULT_STOCK_ISSUE_PURPOSE} status={status} can={can} />
+          <StockIssueActions id={issue!.id} subject={issue!.issueNo} status={status} can={can} />
         )}
       </DocumentHeader>
 
