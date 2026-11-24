@@ -24,6 +24,8 @@
     "db:seed-production": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/seed-production-masters.ts",
     "db:neon-seed-accounts": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-accounts.ts",
     "db:neon-seed-production": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-production-masters.ts",
+    "db:seed-walet-ledger": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/seed-walet-ledger.ts",
+    "db:neon-seed-walet-ledger": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-walet-ledger.ts",
     "db:simulate-walet": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/simulate-walet.ts",
     "db:seed-production-showcase": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/seed-production-showcase.ts",
     "db:neon-seed-production-showcase": "node scripts/with-remote.mjs node --conditions=react-server --import tsx scripts/seed-production-showcase.ts",

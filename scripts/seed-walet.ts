@@ -8,8 +8,9 @@
  * the Workspace Unit artifact draws them), `db:seed-production-showcase` (the walet
  * items in grams, Gudang Bahan Baku and Finish Goods, Standard Cost SC-SIM, BoM
  * Packing) and then this file, which adds what a company needs around production:
- *   Gudang Bahan Penolong and Gudang Hasil Samping
- *   karton, a consumable without stock and two services
+ *   Gudang Bahan Penolong, Gudang Hasil Samping and the Gudang Transit
+ *   the rest of the item master, every Kategori Item, with purchase units and
+ *   Timbangan (P320, P321), and the Satuan they need
  *   the artifact's six Karyawan
  *   suppliers (rumah walet, a pengepul, kemasan) and customers (a USD importer,
  *   a distributor, a toko)
@@ -20,26 +21,72 @@
  *   bahan penolong, injected without a journal like `db:stock-inject`
  *
  * **Development only, additive, matched on label / name** — running it twice
- * creates nothing twice. No documents and no opening balances.
+ * creates nothing twice. No documents and no opening balances; documents that fill
+ * the stock and production ledgers are `db:seed-walet-ledger`.
  */
 import { prisma } from "../src/lib/prisma";
 import { nextCode } from "../src/lib/erp/records";
 import { BASE_CURRENCY_LABEL } from "../src/lib/erp/currency";
 import { injectStock, type InjectionRow } from "../src/lib/erp/inventory";
 import { hashPassword } from "../src/lib/erp/login";
-import { audit, ensureBank, ensureFiscalYear, ensurePartner, entity, seedActor, type PartnerSpec } from "./lib/seed-common";
+import { audit, ensureBank, ensureFiscalYear, ensureItem, ensurePartner, ensureUoms, entity, seedActor, type ItemSpec, type PartnerSpec } from "./lib/seed-common";
 
 const WAREHOUSES: [label: string, name: string][] = [
   ["GBP", "Gudang Bahan Penolong"],
   ["GHS", "Gudang Hasil Samping"],
+  ["GTR", "Gudang Transit"],
 ];
 
-const ITEMS: { label: string; name: string; type: "Barang" | "Jasa"; category: string; base: string; stock: boolean; conversions?: [string, number][]; weighting?: [number, number] }[] = [
-  // Bought by the pack and weighed at receipt: Kg per piece, tolerance % (P320, P321).
-  { label: "KARTON", name: "Karton", type: "Barang", category: "BHN-KEMAS", base: "PCS", stock: true, conversions: [["PAK", 25]], weighting: [0.5, 5] },
-  { label: "BHP-SRG", name: "Sarung Tangan", type: "Barang", category: "BRG-HABIS-PAKAI", base: "BOX", stock: false },
-  { label: "JS-LAB", name: "Jasa Uji Lab (Nitrit)", type: "Jasa", category: "JASA-LAIN", base: "UNIT", stock: false },
-  { label: "JS-KIRIM", name: "Jasa Pengiriman", type: "Jasa", category: "JASA-PENGIRIMAN", base: "UNIT", stock: false },
+const UOMS: [label: string, name: string][] = [
+  ["ROL", "Rol"],
+  ["JRG", "Jerigen"],
+];
+
+/**
+ * The item master around what `db:seed-production-showcase` made: that seed's own
+ * items gain the units they are bought or packed in and, where they are weighed
+ * at receipt, their Timbangan (P320, P321); the rest are new, so every Kategori
+ * Item has its items.
+ */
+const ITEMS: ItemSpec[] = [
+  // Sarang mentah: kept in grams, bought by the kilogram, always weighed.
+  { label: "SM-A", name: "Sarang Mentah Grade A", category: "BHN-BAKU", base: "GR", conversions: [["KG", 1000]], buy: true, stock: true, weighting: [0.001, 1] },
+  { label: "SM-B", name: "Sarang Mentah Grade B", category: "BHN-BAKU", base: "GR", conversions: [["KG", 1000]], buy: true, stock: true, weighting: [0.001, 1] },
+  { label: "SM-C", name: "Sarang Mentah Grade C", category: "BHN-BAKU", base: "GR", conversions: [["KG", 1000]], buy: true, stock: true, weighting: [0.001, 1] },
+  { label: "SM-SD", name: "Sarang Mentah Sudut", category: "BHN-BAKU", base: "GR", conversions: [["KG", 1000]], buy: true, stock: true, weighting: [0.001, 1] },
+  { label: "SM-PT", name: "Sarang Mentah Patahan", category: "BHN-BAKU", base: "GR", conversions: [["KG", 1000]], buy: true, stock: true, weighting: [0.001, 1] },
+  { label: "SM-PL", name: "Sarang Mentah Plontos", category: "BHN-BAKU", base: "GR", conversions: [["KG", 1000]], buy: true, stock: true, weighting: [0.001, 1] },
+  { label: "SM-GS", name: "Sarang Mentah Goa", category: "BHN-BAKU", base: "GR", conversions: [["KG", 1000]], buy: true, stock: true, weighting: [0.001, 1] },
+  // Bahan penolong: kept by the piece, bought by the pack or roll.
+  { label: "GRMS", name: "Gramasi", category: "BHN-KEMAS", base: "PCS", conversions: [["PAK", 100]], buy: true, stock: true },
+  { label: "STK-DAUN", name: "Stiker Daun", category: "BHN-KEMAS", base: "PCS", conversions: [["ROL", 500]], buy: true, stock: true },
+  { label: "STK-SGL", name: "Stiker Segel", category: "BHN-KEMAS", base: "PCS", conversions: [["ROL", 1000]], buy: true, stock: true },
+  { label: "STK-CAIQ", name: "Stiker CAIQ", category: "BHN-KEMAS", base: "PCS", conversions: [["ROL", 1000]], buy: true, stock: true },
+  { label: "KTG", name: "Kantong Plastik", category: "BHN-KEMAS", base: "PCS", conversions: [["PAK", 100]], buy: true, stock: true, weighting: [0.004, 5] },
+  { label: "BOX", name: "Box", category: "BHN-KEMAS", base: "PCS", conversions: [["KRT", 50]], buy: true, stock: true, weighting: [0.12, 5] },
+  { label: "KARTON", name: "Karton", category: "BHN-KEMAS", base: "PCS", conversions: [["PAK", 25]], buy: true, stock: true, weighting: [0.5, 5] },
+  { label: "SILIKA", name: "Silica Gel 5 g", category: "BHN-KEMAS", base: "PCS", conversions: [["PAK", 200]], buy: true, stock: true, weighting: [0.005, 5] },
+  { label: "PITA", name: "Pita Kemasan", category: "BHN-KEMAS", base: "ROL", conversions: [["BOX", 24]], buy: true, stock: true },
+  // Finished goods: sold by the kotak, shipped by the karton.
+  { label: "BMK25", name: "B-MK 25 gr", category: "BRG-JADI", base: "PCS", conversions: [["KRT", 40]], sell: true, stock: true },
+  { label: "BMK50", name: "B-MK 50 gr", category: "BRG-JADI", base: "PCS", conversions: [["KRT", 20]], sell: true, stock: true },
+  { label: "BMK100", name: "B-MK 100 gr", category: "BRG-JADI", base: "PCS", conversions: [["KRT", 10]], sell: true, stock: true },
+  { label: "BSD50", name: "B-SD 50 gr", category: "BRG-JADI", base: "PCS", conversions: [["KRT", 20]], sell: true, stock: true },
+  // Merchandise: bought and sold as it is.
+  { label: "DG-HMP", name: "Hampers Sarang Walet (kotak hadiah)", category: "BRG-DAGANG", base: "SET", conversions: [["KRT", 6]], buy: true, sell: true, stock: true },
+  { label: "DG-GBT", name: "Gula Batu Kristal 250 g", category: "BRG-DAGANG", base: "PCS", conversions: [["LSN", 12], ["KRT", 48]], buy: true, sell: true, stock: true, weighting: [0.26, 5] },
+  // Consumables: an expense when received.
+  { label: "BHP-SRG", name: "Sarung Tangan", category: "BRG-HABIS-PAKAI", base: "BOX", conversions: [["KRT", 10]], buy: true },
+  { label: "BHP-MSK", name: "Masker dan Hairnet", category: "BRG-HABIS-PAKAI", base: "BOX", conversions: [["KRT", 20]], buy: true },
+  { label: "BHP-PST", name: "Pinset Cabut Bulu", category: "BRG-HABIS-PAKAI", base: "PCS", conversions: [["LSN", 12]], buy: true },
+  { label: "BHP-KUAS", name: "Kuas Pembersih", category: "BRG-HABIS-PAKAI", base: "PCS", conversions: [["LSN", 12]], buy: true },
+  { label: "BHP-ALK", name: "Alkohol 70% Sanitasi", category: "BRG-HABIS-PAKAI", base: "L", conversions: [["JRG", 20]], buy: true },
+  // Services.
+  { label: "JS-LAB", name: "Jasa Uji Lab (Nitrit)", type: "Jasa", category: "JASA-LAIN", base: "UNIT", buy: true },
+  { label: "JS-KIRIM", name: "Jasa Pengiriman", type: "Jasa", category: "JASA-PENGIRIMAN", base: "UNIT", buy: true },
+  { label: "JS-KAL", name: "Jasa Kalibrasi Timbangan", type: "Jasa", category: "JASA-PEMELIHARAAN", base: "UNIT", buy: true },
+  { label: "JS-HACCP", name: "Jasa Konsultasi HACCP", type: "Jasa", category: "JASA-KONSULTASI", base: "UNIT", buy: true },
+  { label: "JS-CABUT", name: "Jasa Maklon Cabut Bulu", type: "Jasa", category: "JASA-MAKLON", base: "UNIT", buy: true, sell: true },
 ];
 
 // The artifact's EMP: Ani and Budi come from db:seed-production-showcase.
@@ -140,29 +187,22 @@ async function main() {
     made.push(name);
   }
 
-  const uoms = new Map((await prisma.refUom.findMany({ select: { id: true, uom_label: true } })).map((u) => [u.uom_label, u.id]));
+  if (await ensureUoms(actor, UOMS)) made.push("Satuan");
   for (const it of ITEMS) {
-    if (await prisma.mItem.findFirst({ where: { OR: [{ item_label: it.label }, { item_name: { equals: it.name, mode: "insensitive" } }] } })) continue;
-    const category = await prisma.sysItemCategory.findUniqueOrThrow({ where: { category_label: it.category } });
-    const row = await prisma.mItem.create({
-      data: {
-        item_code: await nextCode(entity("m_item")),
-        item_label: it.label,
-        item_name: it.name,
-        item_type: it.type,
-        category_id: category.id,
-        base_uom_id: uoms.get(it.base)!,
-        can_sell: false,
-        can_buy: true,
-        track_stock: it.stock,
-        has_expiry: false,
-        created_by: actor,
-        uoms: { create: (it.conversions ?? []).map(([uom, factor], i) => ({ uom_id: uoms.get(uom)!, factor, sort_order: i, created_by: actor })) },
-        ...(it.weighting ? { weighting: { create: { item_weight: it.weighting[0], receiving_tolerance: it.weighting[1], created_by: actor } } } : {}),
-      },
+    const done = await ensureItem(actor, it);
+    if (done) made.push(done === "made" ? it.label : `${it.label} (dilengkapi)`);
+  }
+
+  // The Gudang Transit, only where none is set (P301): transfers need one.
+  const transit = await prisma.refWarehouse.findFirst({ where: { warehouse_label: "GTR" } });
+  const setting = await prisma.sysSetting.findUnique({ where: { setting_key: "transit_warehouse" } });
+  if (transit && !setting?.setting_value) {
+    await prisma.sysSetting.upsert({
+      where: { setting_key: "transit_warehouse" },
+      update: { setting_value: String(transit.id), updated_by: actor },
+      create: { setting_key: "transit_warehouse", setting_value: String(transit.id), updated_by: actor },
     });
-    await audit(actor, "m_item", row.id);
-    made.push(it.label);
+    made.push("Gudang Transit di System Default");
   }
 
   for (const [label, name] of EMPLOYEES) {

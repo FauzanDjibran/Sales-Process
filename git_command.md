@@ -86,6 +86,7 @@ node --env-file-if-exists=.env --conditions=react-server --import tsx --test tes
 | `npm run db:seed-accounts` | Adds a **starter chart of accounts** (34 postable accounts for sales, purchasing, stock and tax) and points **Account Mapping**, the **Kategori Item accounts** and the **Jenis PPh accounts** at it — so every document can post on day one. Not demo data: fine on a real installation. Creates an account only when no account has that name, fills a mapping only where it is empty; your own choices are never changed (P130) | ✅ Safe, additive |
 | `npm run db:seed-makloon` | Adds the **makloon (cosmetics) demo company** from the sales simulation so you can test straight away (see below). Development only. Additive: matched on label / name, never duplicates, never overwrites | ✅ Safe on a dev database |
 | `npm run db:seed-walet` | Adds the **sarang walet demo company** instead: runs `db:seed-accounts`, `db:seed-production`, `db:seed-production-showcase`, then `seed-walet.ts` (see below). One database takes one company: do not run both seeds on it | ✅ Safe on a dev database |
+| `npm run db:seed-walet-ledger` | After `db:seed-walet`: a month of documents that fill the **stock and production ledgers** for the reports (see below). Every row goes through the application's own functions, so journals and `db:reconcile` agree. Runs once; a run that failed half-way needs a fresh database | ✅ Safe on a dev database |
 | `npm run db:seed-cash-bank-showcase` | After `db:seed-makloon`: six more Cash & Banks (Kas Kecil, Kas Besar, BNI in IDR; BCA USD, Mandiri USD, Kas Valas USD) with Saldo Awal on 01/07/2026, and Jul–Oct 2026 movements through all eight — each a posted journal with its Cash Bank Book entries, so the books reconcile. Runs once (skipped when Kas Kecil exists) | ✅ Safe on a dev database |
 | `npm run db:tax-backfill` | Makes the Faktur Pajak and Bukti Potong of receipts and Invoices posted before the Pajak menu existed (P100). Idempotent | ✅ Safe |
 | `npm run db:stock-inject -- stok.csv` | Checks a CSV of stock to bring in (columns `item,warehouse,lot,expiry,qty,value,date`, plus `location` for a Gudang with Gunakan Lokasi — its Label, Kode or `GUDANG-LOKASI`; item and gudang by Label or Kode; `value` the row's total in whole rupiah) and prints what it would inject. Add `--apply` to record it in the stock books as one run `INJ/YYYY/MM/NNNN`, all or nothing. **Writes no journal** (P120) | ⚠️ Adds stock; cannot be undone from the app |
@@ -147,12 +148,23 @@ perizinan services.
 | Area | Created |
 | --- | --- |
 | Produksi | Workstation BB + PPIC, Cleaning, Moulding, WIP Packing; 13 Units UGH … UP5 with their processes and QC; Line **Reguler** (REG-1, with Moulding) and **Mie** (MIE-1, without Moulding and Dry B); Standard Cost SC-SIM; BoM Packing BMK25 / 50 / 100, BSD50; Karyawan Ani … Fitri |
-| Gudang | Gudang Bahan Baku (GBB), Finish Goods (GFG), Bahan Penolong (GBP), Hasil Samping (GHS) |
-| Item | Sarang mentah SM-A … SM-PT (gram), hasil grading HLS-*, BJL-* (BJL), MLD-*, keping PCS-*, Nama Jual B-MK 25/50/100 gr and B-SD 50 gr, bahan penolong (Gramasi, Stiker, Kantong, Box, Karton), Sarung Tangan, Jasa Uji Lab and Pengiriman |
+| Gudang | Gudang Bahan Baku (GBB), Finish Goods (GFG), Bahan Penolong (GBP), Hasil Samping (GHS), Transit (GTR, set in System Default when empty) |
+| Item | Sarang mentah SM-A … SM-PT (gram), hasil grading HLS-*, BJL-* (BJL), MLD-*, keping PCS-*, Nama Jual B-MK 25/50/100 gr and B-SD 50 gr, bahan penolong, dagangan, habis pakai and jasa — every Kategori Item, with purchase units (KG, PAK, ROL, KRT, LSN, JRG) and Timbangan. An item already there only gains a conversion or Timbangan it lacks |
 | Partner | Suppliers: CV Sarang Walet Nusantara, PT Rumah Walet Kalbar, Pengepul H. Syamsul (NIK), CV Kemas Prima. Customers: Hong Kong Bird's Nest Trading (USD), PT Sarang Emas Nusantara, Toko Walet Sehat |
 | Kas & Bank | BCA (IDR), BCA-USD, and a USD Kurs for today |
 | User (local: password `erp123`) | hendra@walet.test (Supervisor Produksi, all Units), dewi@walet.test (Admin Logistik), rina@ (UGH), bagas@ (UPW, UCL), sari@ (UP5) — all `@walet.test` |
 | Stock | STK-0001 SM-A 10.000 g, STK-0002 SM-B 6.000 g, STK-0003 SM-C 5.000 g in GBB, and bahan penolong in GBP (`INJ/…`, no journal) |
+
+### What the walet ledger holds (`db:seed-walet-ledger`)
+
+Thirty days up to today, in lots `WL-…`:
+
+| Side | What happened |
+| --- | --- |
+| Gudang | Five receipts in KG, PAK, ROL and KRT (one under tolerance, one with a Bonus Pembelian, one PO in two SJ), a transfer partly still in Gudang Transit, a stock adjustment, two kotak delivered to PT Sarang Emas Nusantara |
+| Produksi | Six batches, each stopped somewhere else: A to kotak and Finish Goods, B at Cleaning (one Job Sedang Dikerjakan, one at QC, after a QC Balik), C in Stand By at Pre Wash, D in a BSTB Penyebaran on its way, E in a BSTB Issue on its way, F in Persiapan at Grading Halus; the BJL of each grading to Gudang Hasil Samping |
+
+To look at the reports: Kartu Stok, Saldo Stok, Kartu Nilai, Nilai Persediaan; Saldo Produksi, Kartu Produksi, Telusur (`WL-A-01`, `WL-B-01`).
 
 ### Start again from a clean database
 

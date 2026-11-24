@@ -164,3 +164,85 @@ export async function ensureFiscalYear(actor: number): Promise<boolean> {
   await audit(actor, "acc_fiscal_year", fy.id);
   return true;
 }
+
+export type ItemSpec = {
+  label: string;
+  name: string;
+  type?: "Barang" | "Jasa";
+  category: string;
+  base: string;
+  /** Base units in one of the unit: [unit, factor] (P320). */
+  conversions?: [string, number][];
+  buy?: boolean;
+  sell?: boolean;
+  stock?: boolean;
+  expiry?: boolean;
+  bjl?: boolean;
+  /** Weighed at receipt: Kg per base unit, tolerance % (P321). */
+  weighting?: [number, number];
+};
+
+/** Creates the Satuan that are missing; returns how many. */
+export async function ensureUoms(actor: number, uoms: [label: string, name: string][]): Promise<number> {
+  let made = 0;
+  for (const [label, name] of uoms) {
+    if (await prisma.refUom.findFirst({ where: { uom_label: { equals: label, mode: "insensitive" } } })) continue;
+    const row = await prisma.refUom.create({ data: { uom_code: await nextCode(entity("ref_uom")), uom_label: label, uom_name: name, created_by: actor } });
+    await audit(actor, "ref_uom", row.id);
+    made++;
+  }
+  return made;
+}
+
+/**
+ * Creates the item, or adds to the one already there only the conversions and
+ * the Timbangan it lacks — and only when its Satuan Dasar is the seed's, since
+ * another would give the factors and the weight another meaning.
+ */
+export async function ensureItem(actor: number, it: ItemSpec): Promise<"made" | "completed" | null> {
+  const uomId = new Map((await prisma.refUom.findMany({ select: { id: true, uom_label: true } })).map((u) => [u.uom_label.toUpperCase(), u.id]));
+  const uom = (label: string) => {
+    const id = uomId.get(label);
+    if (!id) throw new Error(`Satuan ${label} is missing. Run \`npm run db:seed\` first.`);
+    return id;
+  };
+  const conversions = (it.conversions ?? []).map(([label, factor], i) => ({ uom_id: uom(label), factor, sort_order: i, created_by: actor }));
+  const weighting = it.weighting ? { item_weight: it.weighting[0], receiving_tolerance: it.weighting[1], created_by: actor } : null;
+  const known = await prisma.mItem.findFirst({
+    where: { OR: [{ item_name: { equals: it.name, mode: "insensitive" } }, { item_label: { equals: it.label, mode: "insensitive" } }] },
+    include: { uoms: true, weighting: true, base_uom: true },
+  });
+  if (known) {
+    const sameBase = known.base_uom.uom_label.toUpperCase() === it.base;
+    const missing = sameBase ? conversions.filter((c) => !known.uoms.some((u) => u.uom_id === c.uom_id)) : [];
+    const weighs = sameBase && weighting && !known.weighting && known.track_stock;
+    if (!missing.length && !weighs) return null;
+    await prisma.$transaction(async (tx) => {
+      for (const [i, c] of missing.entries()) await tx.mItemUom.create({ data: { ...c, item_id: known.id, sort_order: known.uoms.length + i } });
+      if (weighs) await tx.mItemWeighting.create({ data: { ...weighting, item_id: known.id } });
+      await tx.auditLog.create({ data: { entity_key: "m_item", row_id: known.id, action: "UPDATE", event: "update", by: actor } });
+    });
+    return "completed";
+  }
+  const category = await prisma.sysItemCategory.findUniqueOrThrow({ where: { category_label: it.category } });
+  const row = await prisma.mItem.create({
+    data: {
+      item_code: await nextCode(entity("m_item")),
+      item_label: it.label,
+      item_name: it.name,
+      item_type: it.type ?? "Barang",
+      category_id: category.id,
+      base_uom_id: uom(it.base),
+      can_sell: Boolean(it.sell),
+      can_buy: Boolean(it.buy),
+      track_stock: Boolean(it.stock),
+      has_expiry: Boolean(it.expiry),
+      is_bjl: Boolean(it.bjl),
+      created_by: actor,
+      uoms: { create: conversions },
+      ...(weighting ? { weighting: { create: weighting } } : {}),
+    },
+  });
+  await audit(actor, "m_item", row.id);
+  return "made";
+}

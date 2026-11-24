@@ -41,7 +41,7 @@ import { nextCode } from "../src/lib/erp/records";
 import { BASE_CURRENCY_LABEL } from "../src/lib/erp/currency";
 import { seedStarterAccounts } from "./lib/starter-accounts";
 import { injectStock, type InjectionRow } from "../src/lib/erp/inventory";
-import { audit as auditAs, ensureBank, ensureFiscalYear, ensurePartner, entity, seedActor, type PartnerSpec } from "./lib/seed-common";
+import { audit as auditAs, ensureBank, ensureFiscalYear, ensureItem, ensurePartner, ensureUoms, entity, seedActor, type ItemSpec, type PartnerSpec } from "./lib/seed-common";
 
 // ------------------------------------------------------------------- data
 
@@ -187,22 +187,6 @@ const SUPPLIERS: CustomerSpec[] = [
   },
 ];
 
-type ItemSpec = {
-  label: string;
-  name: string;
-  type?: "Barang" | "Jasa";
-  category: string;
-  base: string;
-  /** Base units in one of the unit: [unit, factor]. */
-  conversions?: [string, number][];
-  buy?: boolean;
-  sell?: boolean;
-  stock?: boolean;
-  expiry?: boolean;
-  /** Weighed at receipt: Kg per base unit, tolerance % (P321). */
-  weighting?: [number, number];
-};
-
 /** Units goods are bought in that the system seed does not carry (P320). */
 const UOMS: [label: string, name: string][] = [
   ["DRUM", "Drum"],
@@ -293,17 +277,8 @@ async function main() {
 
   // ---- Satuan and Termin come from the system seed (P62); Gudang is
   // business data, so it is created here.
-  const uomId = new Map((await prisma.refUom.findMany()).map((u) => [u.uom_label.toUpperCase(), u.id]));
-  for (const [label, name] of UOMS) {
-    if (uomId.has(label)) continue;
-    const row = await prisma.refUom.create({ data: { uom_code: await nextCode(entity("ref_uom")), uom_label: label, uom_name: name, created_by: actor } });
-    uomId.set(label, row.id);
-    await audit("ref_uom", row.id);
-    tally("satuan");
-  }
-  for (const needed of new Set(ITEMS.flatMap((it) => [it.base, ...(it.conversions ?? []).map(([u]) => u)]))) {
-    if (!uomId.has(needed)) throw new Error(`Satuan ${needed} is missing. Run \`npm run db:seed\` first.`);
-  }
+  const uoms = await ensureUoms(actor, UOMS);
+  if (uoms) made["satuan"] = uoms;
 
   for (const [label, name] of WAREHOUSES) {
     if (await prisma.refWarehouse.findFirst({ where: { warehouse_label: label } })) continue;
@@ -349,50 +324,10 @@ async function main() {
 
   // ---- the item master. An item already there keeps all it has; only a
   // conversion or Timbangan it lacks is added (P320, P321).
-  const categoryId = new Map((await prisma.sysItemCategory.findMany()).map((c) => [c.category_label, c.id]));
   for (const it of ITEMS) {
-    const conversions = (it.conversions ?? []).map(([uom, factor], i) => ({ uom_id: uomId.get(uom)!, factor, sort_order: i, created_by: actor }));
-    const weighting = it.weighting ? { item_weight: it.weighting[0], receiving_tolerance: it.weighting[1], created_by: actor } : null;
-    const known = await prisma.mItem.findFirst({
-      where: { item_name: { equals: it.name, mode: "insensitive" } },
-      include: { uoms: true, weighting: true, base_uom: true },
-    });
-    if (known) {
-      // Another base unit would give the factors and the weight another meaning.
-      const sameBase = known.base_uom.uom_label.toUpperCase() === it.base;
-      const missing = sameBase ? conversions.filter((c) => !known.uoms.some((u) => u.uom_id === c.uom_id)) : [];
-      const weighs = sameBase && weighting && !known.weighting && known.track_stock;
-      if (!missing.length && !weighs) {
-        skipped.push(it.name);
-        continue;
-      }
-      await prisma.$transaction(async (tx) => {
-        for (const [i, c] of missing.entries()) await tx.mItemUom.create({ data: { ...c, item_id: known.id, sort_order: known.uoms.length + i } });
-        if (weighs) await tx.mItemWeighting.create({ data: { ...weighting, item_id: known.id } });
-        await tx.auditLog.create({ data: { entity_key: "m_item", row_id: known.id, action: "UPDATE", event: "update", by: actor } });
-      });
-      tally("items dilengkapi");
-      continue;
-    }
-    const row = await prisma.mItem.create({
-      data: {
-        item_code: await nextCode(entity("m_item")),
-        item_label: it.label,
-        item_name: it.name,
-        item_type: it.type ?? "Barang",
-        category_id: categoryId.get(it.category)!,
-        base_uom_id: uomId.get(it.base)!,
-        can_sell: Boolean(it.sell),
-        can_buy: Boolean(it.buy),
-        track_stock: Boolean(it.stock),
-        has_expiry: Boolean(it.expiry),
-        created_by: actor,
-        uoms: { create: conversions },
-        ...(weighting ? { weighting: { create: weighting } } : {}),
-      },
-    });
-    await audit("m_item", row.id);
-    tally("items");
+    const done = await ensureItem(actor, it);
+    if (done) tally(done === "made" ? "items" : "items dilengkapi");
+    else skipped.push(it.name);
   }
 
   // ---- opening stock, injected through the inventory book

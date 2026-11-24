@@ -38,7 +38,7 @@ function ok<T extends { ok: boolean }>(r: T, what: string): Extract<T, { ok: tru
   return r as Extract<T, { ok: true }>;
 }
 const unit = (label: string) => prisma.refUnit.findFirstOrThrow({ where: { unit_label: label } });
-const item = (label: string) => prisma.mItem.findFirstOrThrow({ where: { item_label: label } });
+const item = (label: string) => prisma.mItem.findFirstOrThrow({ where: { item_label: label }, include: { weighting: true } });
 const goods = (b: BucketView[]) => b.filter((x) => !x.auxiliary && x.qty > 0);
 
 async function stepId(unitId: number, process: string) {
@@ -125,7 +125,7 @@ async function main() {
   const rn = ok(
     await createReceiptNote(
       { source_doc_id: po.id, rn_date: today, warehouse_id: gbb.id, supplier_dn_no: `SJ-${tag}`, note: "" },
-      lines.map((l, i) => ({ source_doc_line_id: poLines[i].id, qty: l.qty, note: "", lots: [{ tracking_no: lotNo(l.item.item_label), expiry_date: "", qty: l.qty, location_id: null }] })),
+      lines.map((l, i) => ({ source_doc_line_id: poLines[i].id, qty: l.qty, qty_weighting: l.item.weighting ? l.qty * l.item.weighting.item_weight.toNumber() : "", note: "", lots: [{ tracking_no: lotNo(l.item.item_label), expiry_date: "", qty: l.qty, location_id: null }] })),
       actor
     ),
     "Receipt Note"
