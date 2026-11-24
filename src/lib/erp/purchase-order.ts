@@ -1008,6 +1008,8 @@ export type PurchaseInvoiceSource = {
     itemName: string;
     uomLabel: string;
     price: number;
+    discountType: DiscountType | null;
+    discountValue: number;
     withholdingTaxId: number | null;
     withholdingRate: number | null;
     withholdingLabel: string | null;
@@ -1048,9 +1050,28 @@ export async function purchaseInvoiceSources(filter: { ids: number[] }, db: Db =
       itemName: l.item.item_name,
       uomLabel: l.uom.uom_label,
       price: l.price.toNumber(),
+      discountType: l.discount_value?.toNumber() ? (l.discount_type as DiscountType | null) : null,
+      discountValue: l.discount_value?.toNumber() ?? 0,
       withholdingTaxId: l.withholding_tax_id,
       withholdingRate: l.withholding_rate?.toNumber() ?? null,
       withholdingLabel: l.withholding_tax?.wht_label ?? null,
     })),
+  }));
+}
+
+/** The Purchase Orders that order from a request, for its own page (cancelled and rejected ones included). */
+export async function purchaseRequestOrders(requestId: number): Promise<{ id: number; orderNo: string; orderDate: string; status: PurchaseOrderStatus; supplierLabel: string; supplierName: string }[]> {
+  const rows = await prisma.purOrder.findMany({
+    where: { lines: { some: { requests: { some: { request_line: { request_id: requestId } } } } } },
+    orderBy: [{ order_date: "asc" }, { id: "asc" }],
+    include: { supplier: true },
+  });
+  return rows.map((o) => ({
+    id: o.id,
+    orderNo: o.order_no,
+    orderDate: isoDay(o.order_date),
+    status: o.status as PurchaseOrderStatus,
+    supplierLabel: o.supplier.partner_label,
+    supplierName: o.supplier.partner_name,
   }));
 }

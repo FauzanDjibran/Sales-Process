@@ -4,13 +4,14 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
+import { Amount } from "@/components/ui/amount";
 import { CancelButton } from "@/components/ui/cancel-button";
 import { Combobox } from "@/components/ui/combobox";
 import { DateInput } from "@/components/ui/date-input";
 import { Field, FormBody, FormRow, FormSection } from "@/components/ui/form";
 import { MoneyInput } from "@/components/ui/money-input";
 import { useToast } from "@/components/ui/toast";
-import { ReceiptNoteActions } from "@/components/inventory/receipt-note-actions";
+import { ReceiptNoteActions } from "./receipt-note-actions";
 import { ReceiptNoteLinePicker } from "@/components/inventory/receipt-note-line-picker";
 import { ReceiptLotDialog, type ReceiptLot } from "@/components/inventory/receipt-lot-dialog";
 import { createReceiptNoteAction, updateReceiptNoteAction } from "@/app/actions/receipt-note";
@@ -51,6 +52,7 @@ export function ReceiptNoteForm({
   options,
   can,
   bonus,
+  billing = null,
 }: {
   mode: "new" | "edit" | "view";
   note: ReceiptNoteView | null;
@@ -58,6 +60,8 @@ export function ReceiptNoteForm({
   can: ReceiptNoteAbilities;
   /** The Stock Receipt its posting made for what weighed beyond tolerance (P321). */
   bonus?: { id: number; no: string } | null;
+  /** For a posted note: the live Invoice Pembelian billing each line, by line id. */
+  billing?: Record<number, { id: number; no: string }> | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -286,11 +290,17 @@ export function ReceiptNoteForm({
           </FormSection>
         )}
         <JournalReference id={note?.journalId} no={note?.journalNo} />
-        {note?.cancelReason && (
-          <p className="fnote">
-            <b>Dibatalkan:</b> {note.cancelReason}
-          </p>
-        )}
+        <p className="fnote">
+          {note?.cancelReason ? (
+            <>
+              <b>Dibatalkan:</b> {note.cancelReason}
+            </>
+          ) : status === "Posted" ? (
+            "Barang sudah masuk stok atau dibebankan. Receipt Note yang diposting tidak dapat diubah atau dibatalkan."
+          ) : (
+            "Posting membawa barang masuk stok per lot senilai DPP Purchase Order dan mencatat Barang Diterima Belum Ditagih."
+          )}
+        </p>
       </FormBody>
     </div>
   );
@@ -343,6 +353,7 @@ export function ReceiptNoteForm({
                 <th style={{ width: 210 }}>Qty</th>
                 <th style={{ width: 360 }}>Lot</th>
                 <th className="num" style={{ width: 140 }}>Nilai</th>
+                {billing && <th style={{ width: 150 }}>Ditagih</th>}
                 {editing && <th style={{ width: 40 }} />}
               </tr>
             </thead>
@@ -430,8 +441,19 @@ export function ReceiptNoteForm({
                       )}
                     </td>
                     <td className="num">
-                      <span className="mny">{money(valueOf(l, i))}</span>
+                      <Amount value={valueOf(l, i)} />
                     </td>
+                    {billing && (
+                      <td>
+                        {billing[note!.lines[i]?.id] ? (
+                          <Link className="lab" href={`/finance/invoice/purchase/${billing[note!.lines[i].id].id}`}>
+                            {billing[note!.lines[i].id].no}
+                          </Link>
+                        ) : (
+                          <span className="dash">Belum ditagih</span>
+                        )}
+                      </td>
+                    )}
                     {editing && (
                       <td>
                         <button className="iact del" title="Hapus baris" onClick={() => { setLines((ls) => ls.filter((x) => x.key !== l.key)); touch("_lines"); }}>

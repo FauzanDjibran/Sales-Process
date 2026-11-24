@@ -14,9 +14,9 @@
  *   two rupiah bank accounts (Cash & Bank, each with its book)
  *   the current calendar year as an Open Fiscal Year with its twelve periods
  *   the simulation's customers, with tax identity, addresses and contacts
- *   the simulation's finished goods, with their box conversions
- *   suppliers with purchase defaults, and what the company buys: raw and
- *   packaging materials by lot, a consumable without stock, two services
+ *   suppliers with purchase defaults
+ *   the whole item master, every Kategori Item, with purchase units and
+ *   Timbangan (P320, P321), and the few Satuan they need
  *   opening stock of the finished goods, two lots per item per warehouse
  *
  * Not created: opening balances (they start empty, P27), documents, and the
@@ -24,7 +24,8 @@
  *
  * **Idempotent and additive.** Every record is matched on its label or name —
  * the thing a person would recognise — and created only when missing. An
- * existing record is never changed, and a setting or account pointer the user
+ * existing record is never changed — an item only gains a conversion or
+ * Timbangan it lacks — and a setting or account pointer the user
  * has already filled is left alone. Running it twice creates nothing twice.
  *
  * It writes the same rows the application's forms would, with generated
@@ -186,42 +187,82 @@ const SUPPLIERS: CustomerSpec[] = [
   },
 ];
 
-type PurchaseItemSpec = {
+type ItemSpec = {
   label: string;
   name: string;
-  type: "Barang" | "Jasa";
+  type?: "Barang" | "Jasa";
   category: string;
   base: string;
-  conversions: [string, number][];
+  /** Base units in one of the unit: [unit, factor]. */
+  conversions?: [string, number][];
+  buy?: boolean;
+  sell?: boolean;
   stock?: boolean;
   expiry?: boolean;
   /** Weighed at receipt: Kg per base unit, tolerance % (P321). */
   weighting?: [number, number];
 };
 
-/** What the company buys (P121): raw and packaging materials by lot, a consumable without stock, and services. */
-const PURCHASE_ITEMS: PurchaseItemSpec[] = [
-  { label: "BB-001", name: "Niacinamide (Bahan Baku)", type: "Barang", category: "BHN-BAKU", base: "KG", conversions: [], stock: true, expiry: true },
-  { label: "BB-002", name: "Gliserin Murni (Bahan Baku)", type: "Barang", category: "BHN-BAKU", base: "KG", conversions: [], stock: true, expiry: true },
-  { label: "BB-003", name: "Asam Askorbat (Bahan Baku)", type: "Barang", category: "BHN-BAKU", base: "KG", conversions: [], stock: true, expiry: true },
-  { label: "BK-001", name: "Botol Kaca Amber 30 ml", type: "Barang", category: "BHN-KEMAS", base: "PCS", conversions: [["BOX", 100]], stock: true, weighting: [0.09, 5] },
-  { label: "BK-002", name: "Tube Plastik 50 ml", type: "Barang", category: "BHN-KEMAS", base: "PCS", conversions: [["BOX", 200]], stock: true },
-  { label: "BK-003", name: "Karton Box Pengiriman", type: "Barang", category: "BHN-KEMAS", base: "PCS", conversions: [["PAK", 25]], stock: true },
-  { label: "BHP-001", name: "Sarung Tangan Nitril", type: "Barang", category: "BRG-HABIS-PAKAI", base: "BOX", conversions: [] },
-  { label: "JS-001", name: "Jasa Pengiriman Ekspedisi", type: "Jasa", category: "JASA-PENGIRIMAN", base: "UNIT", conversions: [] },
-  { label: "JS-002", name: "Jasa Kalibrasi Mesin Produksi", type: "Jasa", category: "JASA-PEMELIHARAAN", base: "UNIT", conversions: [] },
+/** Units goods are bought in that the system seed does not carry (P320). */
+const UOMS: [label: string, name: string][] = [
+  ["DRUM", "Drum"],
+  ["SAK", "Sak"],
+  ["JRG", "Jerigen"],
+  ["ROL", "Rol"],
 ];
 
-/** Finished goods: label, name, base unit, [unit, factor] conversions. */
-const ITEMS: [label: string, name: string, base: string, conversions: [string, number][]][] = [
-  ["FG-001", "Serum Wajah Vitamin C 30 ml", "PCS", [["BOX", 12]]],
-  ["FG-002", "Sunscreen SPF 50 PA++++ 50 ml", "PCS", [["BOX", 12]]],
-  ["FG-003", "Facial Wash Gentle 100 ml", "PCS", [["BOX", 24]]],
-  ["FG-004", "Lip Balm Natural 10 g", "PCS", [["BOX", 48]]],
-  ["FG-005", "Toner Hydrating 150 ml", "PCS", [["BOX", 12]]],
-  ["FG-006", "Night Cream Retinol 30 g", "PCS", [["BOX", 12]]],
-  ["FG-007", "Body Lotion Brightening 200 ml", "PCS", [["BOX", 12]]],
-  ["FG-008", "Paket Perawatan Kulit Klinik (1 set)", "SET", []],
+/**
+ * The whole item master, every Kategori Item of it: raw and packaging materials
+ * by lot, bought in packs, drums or litres and weighed at receipt (P320, P321),
+ * semi-finished and finished goods, merchandise, consumables without stock, and
+ * services.
+ */
+const ITEMS: ItemSpec[] = [
+  // Bahan baku: kept in the unit it is weighed or poured in.
+  { label: "BB-001", name: "Niacinamide (Bahan Baku)", category: "BHN-BAKU", base: "KG", conversions: [["SAK", 25]], buy: true, stock: true, expiry: true, weighting: [1, 1] },
+  // Kept by weight, bought by volume: a litre of glycerin is 1,26 Kg.
+  { label: "BB-002", name: "Gliserin Murni (Bahan Baku)", category: "BHN-BAKU", base: "KG", conversions: [["L", 1.26], ["DRUM", 250]], buy: true, stock: true, expiry: true, weighting: [1, 2] },
+  { label: "BB-003", name: "Asam Askorbat (Bahan Baku)", category: "BHN-BAKU", base: "KG", conversions: [["SAK", 25]], buy: true, stock: true, expiry: true, weighting: [1, 1] },
+  { label: "BB-004", name: "Air Murni (Aqua Demineralisata)", category: "BHN-BAKU", base: "L", conversions: [["JRG", 20], ["DRUM", 200]], buy: true, stock: true, expiry: true, weighting: [1, 2] },
+  { label: "BB-005", name: "Titanium Dioxide (Bahan Baku)", category: "BHN-BAKU", base: "KG", conversions: [["SAK", 25]], buy: true, stock: true, expiry: true, weighting: [1, 1] },
+  { label: "BB-006", name: "Shea Butter (Bahan Baku)", category: "BHN-BAKU", base: "KG", conversions: [["BOX", 20]], buy: true, stock: true, expiry: true, weighting: [1, 2] },
+  { label: "BB-007", name: "Fragrance Rose (Bahan Baku)", category: "BHN-BAKU", base: "ML", conversions: [["BTL", 500], ["L", 1000]], buy: true, stock: true, expiry: true, weighting: [0.00095, 2] },
+  { label: "BB-008", name: "Retinol (Bahan Baku)", category: "BHN-BAKU", base: "GR", conversions: [["KG", 1000]], buy: true, stock: true, expiry: true, weighting: [0.001, 1] },
+  { label: "BB-009", name: "Sodium Hyaluronate (Bahan Baku)", category: "BHN-BAKU", base: "GR", conversions: [["KG", 1000]], buy: true, stock: true, expiry: true, weighting: [0.001, 1] },
+  // Bahan kemas: kept by the piece, bought by the box, its count checked by weight.
+  { label: "BK-001", name: "Botol Kaca Amber 30 ml", category: "BHN-KEMAS", base: "PCS", conversions: [["BOX", 100], ["KRT", 1000]], buy: true, stock: true, weighting: [0.09, 5] },
+  { label: "BK-002", name: "Tube Plastik 50 ml", category: "BHN-KEMAS", base: "PCS", conversions: [["BOX", 200]], buy: true, stock: true, weighting: [0.012, 5] },
+  { label: "BK-003", name: "Karton Box Pengiriman", category: "BHN-KEMAS", base: "PCS", conversions: [["PAK", 25]], buy: true, stock: true, weighting: [0.45, 5] },
+  { label: "BK-004", name: "Pump Dispenser 24 mm", category: "BHN-KEMAS", base: "PCS", conversions: [["BOX", 250]], buy: true, stock: true, weighting: [0.008, 5] },
+  { label: "BK-005", name: "Label Stiker Botol 30 ml", category: "BHN-KEMAS", base: "PCS", conversions: [["ROL", 1000]], buy: true, stock: true },
+  { label: "BK-006", name: "Box Lipat Serum 30 ml", category: "BHN-KEMAS", base: "PCS", conversions: [["PAK", 100], ["KRT", 500]], buy: true, stock: true, weighting: [0.015, 5] },
+  { label: "BK-007", name: "Pot Krim Akrilik 30 g", category: "BHN-KEMAS", base: "PCS", conversions: [["BOX", 120]], buy: true, stock: true, weighting: [0.055, 5] },
+  // Barang setengah jadi: neither bought nor sold.
+  { label: "BSJ-001", name: "Bulk Serum Vitamin C", category: "BRG-SETENGAH-JADI", base: "KG", stock: true, expiry: true },
+  { label: "BSJ-002", name: "Bulk Sunscreen SPF 50", category: "BRG-SETENGAH-JADI", base: "KG", stock: true, expiry: true },
+  { label: "BSJ-003", name: "Bulk Night Cream Retinol", category: "BRG-SETENGAH-JADI", base: "KG", stock: true, expiry: true },
+  // Barang jadi: the simulation's finished goods.
+  { label: "FG-001", name: "Serum Wajah Vitamin C 30 ml", category: "BRG-JADI", base: "PCS", conversions: [["BOX", 12]], sell: true, stock: true, expiry: true },
+  { label: "FG-002", name: "Sunscreen SPF 50 PA++++ 50 ml", category: "BRG-JADI", base: "PCS", conversions: [["BOX", 12]], sell: true, stock: true, expiry: true },
+  { label: "FG-003", name: "Facial Wash Gentle 100 ml", category: "BRG-JADI", base: "PCS", conversions: [["BOX", 24]], sell: true, stock: true, expiry: true },
+  { label: "FG-004", name: "Lip Balm Natural 10 g", category: "BRG-JADI", base: "PCS", conversions: [["BOX", 48]], sell: true, stock: true, expiry: true },
+  { label: "FG-005", name: "Toner Hydrating 150 ml", category: "BRG-JADI", base: "PCS", conversions: [["BOX", 12]], sell: true, stock: true, expiry: true },
+  { label: "FG-006", name: "Night Cream Retinol 30 g", category: "BRG-JADI", base: "PCS", conversions: [["BOX", 12]], sell: true, stock: true, expiry: true },
+  { label: "FG-007", name: "Body Lotion Brightening 200 ml", category: "BRG-JADI", base: "PCS", conversions: [["BOX", 12]], sell: true, stock: true, expiry: true },
+  { label: "FG-008", name: "Paket Perawatan Kulit Klinik (1 set)", category: "BRG-JADI", base: "SET", conversions: [["BOX", 6]], sell: true, stock: true, expiry: true },
+  // Barang dagangan: bought and sold as it is.
+  { label: "BD-001", name: "Kapas Wajah Organik isi 80", category: "BRG-DAGANG", base: "PCS", conversions: [["LSN", 12], ["KRT", 48]], buy: true, sell: true, stock: true, weighting: [0.06, 5] },
+  { label: "BD-002", name: "Spons Make Up Latex Free", category: "BRG-DAGANG", base: "PCS", conversions: [["LSN", 12], ["KRT", 144]], buy: true, sell: true, stock: true },
+  // Habis pakai: an expense when received, so no stock, lot or weight.
+  { label: "BHP-001", name: "Sarung Tangan Nitril", category: "BRG-HABIS-PAKAI", base: "BOX", conversions: [["KRT", 10]], buy: true },
+  { label: "BHP-002", name: "Masker Medis 3 Ply", category: "BRG-HABIS-PAKAI", base: "BOX", conversions: [["KRT", 40]], buy: true },
+  { label: "BHP-003", name: "Alkohol 70% Sanitasi", category: "BRG-HABIS-PAKAI", base: "L", conversions: [["JRG", 20]], buy: true },
+  // Jasa.
+  { label: "JS-001", name: "Jasa Pengiriman Ekspedisi", type: "Jasa", category: "JASA-PENGIRIMAN", base: "UNIT", buy: true },
+  { label: "JS-002", name: "Jasa Kalibrasi Mesin Produksi", type: "Jasa", category: "JASA-PEMELIHARAAN", base: "UNIT", buy: true },
+  { label: "JS-003", name: "Jasa Konsultasi Formula", type: "Jasa", category: "JASA-KONSULTASI", base: "UNIT", buy: true },
+  { label: "JS-004", name: "Jasa Maklon Produksi Kosmetik", type: "Jasa", category: "JASA-MAKLON", base: "UNIT", buy: true, sell: true },
+  { label: "JS-005", name: "Jasa Uji Laboratorium", type: "Jasa", category: "JASA-LAIN", base: "UNIT", buy: true },
 ];
 
 /**
@@ -253,7 +294,14 @@ async function main() {
   // ---- Satuan and Termin come from the system seed (P62); Gudang is
   // business data, so it is created here.
   const uomId = new Map((await prisma.refUom.findMany()).map((u) => [u.uom_label.toUpperCase(), u.id]));
-  for (const needed of ["PCS", "BOX", "SET", "PAK", "KG", "UNIT"]) {
+  for (const [label, name] of UOMS) {
+    if (uomId.has(label)) continue;
+    const row = await prisma.refUom.create({ data: { uom_code: await nextCode(entity("ref_uom")), uom_label: label, uom_name: name, created_by: actor } });
+    uomId.set(label, row.id);
+    await audit("ref_uom", row.id);
+    tally("satuan");
+  }
+  for (const needed of new Set(ITEMS.flatMap((it) => [it.base, ...(it.conversions ?? []).map(([u]) => u)]))) {
     if (!uomId.has(needed)) throw new Error(`Satuan ${needed} is missing. Run \`npm run db:seed\` first.`);
   }
 
@@ -299,69 +347,48 @@ async function main() {
     else skipped.push(c.name);
   }
 
-  // ---- finished goods
-  const finishedGoods = await prisma.sysItemCategory.findFirstOrThrow({ where: { category_label: "BRG-JADI" } });
-  for (const [label, name, base, conversions] of ITEMS) {
-    if (await prisma.mItem.findFirst({ where: { item_name: { equals: name, mode: "insensitive" } } })) {
-      skipped.push(name);
-      continue;
-    }
-    const row = await prisma.mItem.create({
-      data: {
-        item_code: await nextCode(entity("m_item")),
-        item_label: label,
-        item_name: name,
-        item_type: "Barang",
-        category_id: finishedGoods.id,
-        base_uom_id: uomId.get(base)!,
-        can_sell: true,
-        can_buy: false,
-        track_stock: true,
-        has_expiry: true,
-        created_by: actor,
-        uoms: {
-          create: conversions.map(([uom, factor], i) => ({
-            uom_id: uomId.get(uom)!,
-            factor,
-            sort_order: i,
-            created_by: actor,
-          })),
-        },
-      },
+  // ---- the item master. An item already there keeps all it has; only a
+  // conversion or Timbangan it lacks is added (P320, P321).
+  const categoryId = new Map((await prisma.sysItemCategory.findMany()).map((c) => [c.category_label, c.id]));
+  for (const it of ITEMS) {
+    const conversions = (it.conversions ?? []).map(([uom, factor], i) => ({ uom_id: uomId.get(uom)!, factor, sort_order: i, created_by: actor }));
+    const weighting = it.weighting ? { item_weight: it.weighting[0], receiving_tolerance: it.weighting[1], created_by: actor } : null;
+    const known = await prisma.mItem.findFirst({
+      where: { item_name: { equals: it.name, mode: "insensitive" } },
+      include: { uoms: true, weighting: true, base_uom: true },
     });
-    await audit("m_item", row.id);
-    tally("items");
-  }
-
-  // ---- what the company buys
-  for (const it of PURCHASE_ITEMS) {
-    if (await prisma.mItem.findFirst({ where: { item_name: { equals: it.name, mode: "insensitive" } } })) {
-      skipped.push(it.name);
+    if (known) {
+      // Another base unit would give the factors and the weight another meaning.
+      const sameBase = known.base_uom.uom_label.toUpperCase() === it.base;
+      const missing = sameBase ? conversions.filter((c) => !known.uoms.some((u) => u.uom_id === c.uom_id)) : [];
+      const weighs = sameBase && weighting && !known.weighting && known.track_stock;
+      if (!missing.length && !weighs) {
+        skipped.push(it.name);
+        continue;
+      }
+      await prisma.$transaction(async (tx) => {
+        for (const [i, c] of missing.entries()) await tx.mItemUom.create({ data: { ...c, item_id: known.id, sort_order: known.uoms.length + i } });
+        if (weighs) await tx.mItemWeighting.create({ data: { ...weighting, item_id: known.id } });
+        await tx.auditLog.create({ data: { entity_key: "m_item", row_id: known.id, action: "UPDATE", event: "update", by: actor } });
+      });
+      tally("items dilengkapi");
       continue;
     }
-    const category = await prisma.sysItemCategory.findFirstOrThrow({ where: { category_label: it.category } });
     const row = await prisma.mItem.create({
       data: {
         item_code: await nextCode(entity("m_item")),
         item_label: it.label,
         item_name: it.name,
-        item_type: it.type,
-        category_id: category.id,
+        item_type: it.type ?? "Barang",
+        category_id: categoryId.get(it.category)!,
         base_uom_id: uomId.get(it.base)!,
-        can_sell: false,
-        can_buy: true,
+        can_sell: Boolean(it.sell),
+        can_buy: Boolean(it.buy),
         track_stock: Boolean(it.stock),
         has_expiry: Boolean(it.expiry),
         created_by: actor,
-        uoms: {
-          create: it.conversions.map(([uom, factor], i) => ({
-            uom_id: uomId.get(uom)!,
-            factor,
-            sort_order: i,
-            created_by: actor,
-          })),
-        },
-        ...(it.weighting ? { weighting: { create: { item_weight: it.weighting[0], receiving_tolerance: it.weighting[1], created_by: actor } } } : {}),
+        uoms: { create: conversions },
+        ...(weighting ? { weighting: { create: weighting } } : {}),
       },
     });
     await audit("m_item", row.id);

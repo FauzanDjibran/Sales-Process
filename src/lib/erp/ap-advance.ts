@@ -630,3 +630,9 @@ export async function lockPurchaseAdvances(tx: Prisma.TransactionClient, ids: nu
     await tx.$queryRaw`SELECT id FROM fin_ap_advance WHERE id = ${id} FOR UPDATE`;
   }
 }
+
+/** A Purchase Order's Uang Muka bills, for its own page. */
+export async function purchaseOrderAdvances(purchaseOrderId: number): Promise<{ id: number; advanceNo: string; advanceDate: string; status: AdvanceStatus }[]> {
+  const rows = await prisma.finApAdvance.findMany({ where: { purchase_order_id: purchaseOrderId }, orderBy: [{ advance_date: "asc" }, { id: "asc" }] });
+  return rows.map((r) => ({ id: r.id, advanceNo: r.advance_no, advanceDate: isoDay(r.advance_date), status: r.status as AdvanceStatus }));
+}

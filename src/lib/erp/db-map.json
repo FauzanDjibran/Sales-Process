@@ -408,6 +408,10 @@
    ],
    "r": [
     "m_item",
+    "m_partner",
+    "pur_order",
+    "pur_order_line",
+    "pur_order_line_request",
     "ref_uom",
     "ref_warehouse",
     "sys_setting"
@@ -422,6 +426,10 @@
    ],
    "r": [
     "m_item",
+    "m_partner",
+    "pur_order",
+    "pur_order_line",
+    "pur_order_line_request",
     "ref_uom",
     "ref_warehouse",
     "sys_setting"
@@ -438,6 +446,7 @@
     "pur_request_line"
    ],
    "r": [
+    "fin_ap_advance",
     "fin_ap_invoice",
     "log_receipt_note",
     "m_item",
@@ -464,6 +473,7 @@
     "pur_request_line"
    ],
    "r": [
+    "fin_ap_advance",
     "fin_ap_invoice",
     "log_receipt_note",
     "m_item",
@@ -1006,6 +1016,8 @@
     "acc_fiscal_period_lock",
     "acc_fiscal_year",
     "acc_item_category_account",
+    "fin_ap_invoice",
+    "fin_ap_invoice_line",
     "log_delivery_note",
     "log_delivery_note_tracking",
     "m_item",
@@ -1554,6 +1566,8 @@
     "acc_fiscal_period_lock",
     "acc_fiscal_year",
     "fin_ap_advance",
+    "fin_cash_bank_tx",
+    "fin_cash_bank_tx_line",
     "log_receipt_note",
     "log_receipt_note_line",
     "m_item",

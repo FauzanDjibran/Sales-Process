@@ -1006,3 +1006,8 @@ export async function purchaseOrderInvoices(purchaseOrderId: number): Promise<{ 
   return rows.map((r) => ({ id: r.id, invoiceNo: r.invoice_no, invoiceDate: isoDay(r.invoice_date), status: r.status as InvoiceStatus, total: r.total_amount.toNumber() }));
 }
 
+
+/** Which live Invoice Pembelian bills each Receipt Note line, for the note's own page. */
+export async function receiptNoteBilling(lineIds: number[]): Promise<Record<number, { id: number; no: string }>> {
+  return Object.fromEntries(await billedReceiptLines(prisma, lineIds, null));
+}

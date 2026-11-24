@@ -1214,6 +1214,12 @@ const DOCUMENT_SCREENS: {
     list: "src/components/inventory/delivery-note-list.tsx",
     routes: "src/app/(erp)/inventory/delivery-note",
   },
+  {
+    name: "Receipt Note",
+    form: "src/components/inventory/receipt-note-form.tsx",
+    list: "src/components/inventory/receipt-note-list.tsx",
+    routes: "src/app/(erp)/inventory/receipt-note",
+  },
 ];
 
 const fileText = (rel: string) => {

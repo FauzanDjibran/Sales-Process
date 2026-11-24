@@ -1,6 +1,6 @@
 # Satuan Alternatif dan Timbangan di Pembelian: Rencana
 
-> Status: **putaran 9, 24/11/2026; semua keputusan terjawab (§6), langkah 1–3 dibangun (P320), langkah 4–6 dibangun (P321); uji alur bersama user menunggu**. Isinya memuat koreksi user (qty PO diketik dalam satuan pesanan,
+> Status: **putaran 9, 24/11/2026; semua keputusan terjawab (§6), langkah 1–3 dibangun (P320), langkah 4–6 dibangun (P321), langkah 7–8 dibangun (P322); uji alur bersama user menunggu**. Isinya memuat koreksi user (qty PO diketik dalam satuan pesanan,
 > konversi adalah perkalian) dan konsep timbangan dari tiga screenshot modal
 > *Penimbangan*. Skema §3.4 mengikuti gambaran DBML user.
 
@@ -237,7 +237,7 @@ lalu **berhenti untuk diperiksa user**.
 - **Uji bersama user di Neon**: dalam, di atas, di bawah toleransi; parsial; catat K1–K3 dan
   kendala lain, baru diputuskan apakah *Kurang* atau Debit Note Pembelian diperlukan.
 
-### Langkah 7 — Script penjelasan di `Script Penjelasan/Purchasing/`
+### Langkah 7 (selesai, P322) — Script penjelasan di `Script Penjelasan/Purchasing/`
 Format script yang ada (apa yang terjadi, file kode, tabel dan kolom, rumus, query, contoh).
 **Angka contoh dari menjalankan kode asli**, bukan hitungan tangan. Tiap script ditulis di langkah
 yang membangunnya; sisanya di sini. Script 07 (Receipt Note) dan bagian pembeliannya di 02, 03, 10
@@ -278,7 +278,7 @@ DocumentRegister, tab form, Simpan & Posting, PPh selalu dipotong, tutup otomati
 
 Gudang per user (P301) belum ada di Receipt Note maupun Delivery Note, jadi bukan perbedaan sales–purchasing.
 
-### Langkah 8 — Menyamakan tampilan (G4, G5, G6, G8, G10)
+### Langkah 8 (selesai, P322) — Menyamakan tampilan (G4, G5, G6, G8, G10)
 Hanya membaca dan menautkan, tanpa migrasi dan tanpa perubahan posting. Retur dan Debit Note (G1–G3)
 direncanakan terpisah setelah uji langkah 6.
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Icon } from "@/components/icon";
@@ -14,6 +14,7 @@ import { PurchaseInvoiceActions } from "@/components/finance/purchase-invoice-ac
 import { PurchaseInvoicePicker } from "@/components/finance/purchase-invoice-pickers";
 import { createPurchaseInvoiceAction, updatePurchaseInvoiceAction } from "@/app/actions/ap-invoice";
 import { advancePpnUsed, taxScale } from "@/lib/erp/sales-tax";
+import { INVOICE_PAY_BADGE, INVOICE_PAY_TEXT, type InvoicePayState } from "@/lib/erp/ar-invoice-workflow";
 import { INVOICE_STATUS_BADGE, INVOICE_STATUS_TEXT, computePurchaseInvoice, type InvoiceAbilities } from "@/lib/erp/ap-invoice-workflow";
 import type { PiAdvance, PiReceiptLine, PurchaseInvoiceHeaderInput, PurchaseInvoiceOptions, PurchaseInvoiceView } from "@/lib/erp/ap-invoice";
 import { formatDate, formatMoney, formatPct, formatPrice, formatQty, todayIso } from "@/lib/format";
@@ -40,11 +41,16 @@ export function PurchaseInvoiceForm({
   invoice,
   options,
   can,
+  pay = null,
+  payments = [],
 }: {
   mode: "new" | "edit" | "view";
   invoice: PurchaseInvoiceView | null;
   options: PurchaseInvoiceOptions;
   can: InvoiceAbilities;
+  /** A posted invoice's standing, from its AP item, and the payments that name it. */
+  pay?: { state: InvoicePayState; open: number; overdue: boolean } | null;
+  payments?: { id: number; txNo: string; status: string; settled: number }[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -198,6 +204,25 @@ export function PurchaseInvoiceForm({
                 {ro(formatDate(invoice.dueDate))}
               </Field>
             )}
+            {status === "Posted" && pay && (
+              <Field label="Pembayaran" span={8}>
+                {ro(
+                  <>
+                    <span className={`bdg ${INVOICE_PAY_BADGE[pay.state]}`}>{pay.state === "Partial" ? `Sebagian · sisa ${money(pay.open)}` : INVOICE_PAY_TEXT[pay.state]}</span>
+                    {pay.overdue && <span className="bdg t-bad">Lewat jatuh tempo</span>}
+                    {payments.map((p) => (
+                      <Fragment key={p.id}>
+                        <span className="rx">·</span>
+                        <Link className="drl" href={`/finance/cash-bank/payment/${p.id}`}>
+                          <span className="mono">{p.txNo}</span>
+                        </Link>
+                        <span className="rx">{p.status === "Posted" ? money(p.settled) : p.status === "Draft" ? "draft" : "dibatalkan"}</span>
+                      </Fragment>
+                    ))}
+                  </>
+                )}
+              </Field>
+            )}
             <Field label="Catatan" span={12}>
               {editing ? (
                 <textarea className="ta" rows={2} value={h.note} placeholder="Keterangan tambahan (opsional)…" onChange={(e) => set("note", e.target.value)} />
@@ -287,6 +312,11 @@ export function PurchaseInvoiceForm({
                   </td>
                   <td className="num">
                     <span className="mny">{formatPrice(l.price)}</span>
+                    {(() => {
+                      const d = poLine.get(l.purchaseOrderLineId);
+                      if (!d?.discountType) return null;
+                      return <span className="fulltag">diskon {d.discountType === "Percent" ? formatPct(d.discountValue) : `${money(d.discountValue)} per baris PO`}</span>;
+                    })()}
                   </td>
                   <td>{l.withholdingLabel ? <span className="lab">{l.withholdingLabel}</span> : <span className="dash">—</span>}</td>
                   <td className="num">

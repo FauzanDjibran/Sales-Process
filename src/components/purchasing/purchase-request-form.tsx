@@ -20,9 +20,9 @@ import {
   type PurchaseRequestKind,
 } from "@/lib/erp/purchase-request-workflow";
 import type { PurchaseRequestHeaderInput, PurchaseRequestOptions, PurchaseRequestView } from "@/lib/erp/purchase-request";
-import { formatDate, formatNumber, todayIso } from "@/lib/format";
+import { formatDate, formatQty, todayIso } from "@/lib/format";
 import { DocumentHeader } from "@/components/ui/document-header";
-import { FormTabs, tabHasError } from "@/components/ui/form-tabs";
+import { FormTabs, tabHasError, type FormTab } from "@/components/ui/form-tabs";
 import { SaveButtons, firstStep, withStep } from "@/components/ui/save-buttons";
 import { PURCHASE_REQUEST_TRANSITIONS, availablePurchaseRequestActions } from "@/lib/erp/purchase-request-workflow";
 
@@ -37,17 +37,20 @@ type LineState = { key: string; item_id: number | null; qty: string; needed_date
 
 let seq = 0;
 const newKey = () => `l${Date.now().toString(36)}${seq++}`;
-const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
+const qtyText = formatQty;
 const UNIT = 10_000;
 const units = (v: number | string) => Math.round((Number(String(v).replace(",", ".")) || 0) * UNIT);
 
 export function PurchaseRequestForm({
+  extraTabs = [],
   kind,
   mode,
   request,
   options,
   can,
 }: {
+  /** Tabs the page composes from other modules (§3.1). */
+  extraTabs?: FormTab[];
   kind: PurchaseRequestKind;
   mode: "new" | "edit" | "view";
   request: PurchaseRequestView | null;
@@ -349,6 +352,7 @@ export function PurchaseRequestForm({
           <FormTabs
             tabs={[
               { key: "lines", label: kind === "goods" ? "Barang" : "Jasa", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+              ...extraTabs,
             ]}
           />
         </div>
