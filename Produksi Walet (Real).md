@@ -263,6 +263,8 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | W151 | **Serah terima gudang ↔ produksi dibangun** (P317). Gudang **Kirim** Stock Issue: barang keluar stok, nilainya dibekukan, jurnal Dr WIP / Cr Persediaan; barang yang sedang menuju Unit sudah WIP (**mengubah W20**). Unit menekan Terima di **Production Receipt**; No. Job pertama lahir di sana (W98). Barang keluar lewat **Production Issue** (BSTB ke Finish Goods, BSTB Pengeluaran dengan alasan opsional), dan gudang menerimanya di **Stock Receipt** dengan memilih lokasi dan status. Nomor BSTB tidak berubah | User |
 | W152 | **Jurnal produksi satu pintu** (P318): Grading, Pengerjaan, Kerja, Job Order dan Kotak hanya menyebut nilai yang bertambah atau berkurang per Item dan biaya Unit; ERP yang memilih akun, menjurnal dan mencatat biaya Unit. Angka dan jurnal tidak berubah. **Stock Adjustment** untuk hitungan fisik gudang sudah ada; koreksi di produksi belum | User |
 | W153 | **Dua database nanti tersambung lewat tabel replika** (P319): data Stock Issue diport ke replika di Produksi, dan Production Receipt dibuat dari data itu. Skema dan DBML tetap seperti sekarang | User |
+| W154 | **Semua produksi dari Sales Order punya perintah** (P325, `Perintah-Produksi-Plan.md`; disetujui, belum dibangun): Rencana Produksi (pilih SO, cek FG dan bahan, prioritas) → Perintah Produksi (satu item, satu line, tahap Grading, Proses, Packing) → Planning Produksi (workstation × hari) → proses produksi. BSTB Issue, BSTB Penyebaran dan Kotak wajib menunjuk Perintah Dirilis; line partai datang dari Perintah. Mengubah W15, W54, W73 dan bagian 11 saat dibangun | User |
+| W155 | **Hasil produksi yang tidak menentu adalah hal wajar.** Kebutuhan sisa dihitung ulang sesudah setiap hasil; hasil lebih menjadi stok siap pakai, dan barang satu Perintah boleh dipakai Perintah lain. Produksi tanpa Sales Order punya alur khusus, rencananya terpisah | User |
 
 ---
 
@@ -498,6 +500,8 @@ Sesudahnya akun biaya dikurangi Biaya Produksi Dibebankan = 0.
 ---
 
 ## 11. Sales Planning
+
+> **Digantikan W154 saat dibangun:** lihat `Perintah-Produksi-Plan.md`.
 
 Menu baru untuk PPIC, membaca baris Sales Order berstatus Open yang belum terkirim seluruhnya. Stok Packing 95 dan BB ditampilkan sebagai informasi (W54).
 
