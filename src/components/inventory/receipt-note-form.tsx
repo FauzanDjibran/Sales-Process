@@ -376,7 +376,31 @@ export function ReceiptNoteForm({
                       {err && <span className="overtag">{err}</span>}
                     </td>
                     <td>
-                      {editing ? (
+                      {rule && p ? (
+                        // A weighed line is never typed here: its quantity opens the Penimbangan.
+                        <>
+                          <div className="qcell">
+                            <button
+                              type="button"
+                              className={`inp sm wgh-f${errors[`lines.${i}.qty`] ? " bad" : ""}`}
+                              aria-label={`Qty Terima ${p.itemName} — buka Penimbangan`}
+                              aria-haspopup="dialog"
+                              disabled={!editing && !w}
+                              onClick={() => setWeighOf(l.key)}
+                            >
+                              <Icon name="scale" size={14} />
+                              {w ? <span className="mny">{qtyText(w.received)}</span> : <span className="wait">{editing ? "Timbang…" : "Belum ditimbang"}</span>}
+                            </button>
+                            <span className="qu">{p.uomLabel}</span>
+                          </div>
+                          {w && (
+                            <span className="fulltag" style={{ display: "block", whiteSpace: "normal" }}>
+                              SJ {qtyText(Number(l.qty))} {p.uomLabel} · {qtyText(Number(l.scale))} Kg · {WEIGHING_RESULT_TEXT[w.result]}
+                              {w.bonus > 0 && ` · Bonus ${qtyText(w.bonus)} ${p.baseUomLabel}`}
+                            </span>
+                          )}
+                        </>
+                      ) : editing ? (
                         <div className="qcell">
                           <MoneyInput
                             size="sm"
@@ -394,25 +418,7 @@ export function ReceiptNoteForm({
                           <span className="lab">{p?.uomLabel}</span>
                         </span>
                       )}
-                      {rule && p && (
-                        <span className="fulltag" style={{ display: "block", whiteSpace: "normal" }}>
-                          {editing ? "jumlah surat jalan" : `SJ ${qtyText(Number(l.qty))} ${p.uomLabel}`}
-                          {w && (
-                            <>
-                              {" · "}
-                              {WEIGHING_RESULT_TEXT[w.result]}
-                              {editing && ` · Terima ${qtyText(w.received)} ${p.uomLabel}`}
-                              {w.bonus > 0 && ` · Bonus ${qtyText(w.bonus)} ${p.baseUomLabel}`}
-                            </>
-                          )}
-                        </span>
-                      )}
-                      {rule && (
-                        <button className="btn sm" style={{ margin: "4px 0" }} disabled={!(Number(l.qty) > 0) || (!editing && !w)} onClick={() => setWeighOf(l.key)}>
-                          <Icon name="scale" size={13} /> {w ? (editing ? "Timbang Ulang" : "Lihat Timbangan") : editing ? "Timbang" : "Belum ditimbang"}
-                        </button>
-                      )}
-                      {p && p.uomFactor !== 1 && Number(l.qty) > 0 && (
+                      {p && p.uomFactor !== 1 && Number(l.qty) > 0 && (!rule || w) && (
                         <span className="fulltag" style={{ display: "block" }}>
                           = {qtyText(baseOf(l, i))} {p.baseUomLabel}
                         </span>

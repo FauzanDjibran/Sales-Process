@@ -25,7 +25,7 @@ Aturan bisnisnya: P321 (`Claude-ERP.md`), `Purchase-UOM-Plan.md` §3. **Angka co
    nilai, stok, jurnal, sisa PO dan Invoice berjalan seperti biasa.
 4. **Bonus bernilai 0** dan masuk lewat Stock Receipt tersendiri.
 
-Urutannya: Qty SJ → Timbang → bagi lot → Posting.
+Urutannya: klik field Qty baris → modal Penimbangan (Qty SJ, Qty Timbangan) → bagi lot → Posting.
 
 ---
 

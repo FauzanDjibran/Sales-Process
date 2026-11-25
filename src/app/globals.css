@@ -1612,15 +1612,13 @@ table.grid.aging th,table.grid.aging td:first-child,table.grid.aging td:first-ch
 .rgrp{display:flex;align-items:baseline;gap:8px;margin:16px 0 6px;font-size:13px;color:var(--ink)}
 .rgrp span{color:var(--muted-2);font-size:12px}
 
-/* Penimbangan (P321): the document's side beside the scale's. */
-.wgh{display:grid;grid-template-columns:1fr 1fr;gap:24px}
-.wgh-n{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:var(--r);padding:8px 14px;background:var(--surface)}
-.wgh-n:focus-within{border-color:var(--accent-s)}
-.wgh-n .mwrap{flex:1 1 auto;min-width:0}
-.wgh-n .mwrap .inp,.wgh-n .mny{flex:1 1 auto;width:100%;height:60px;line-height:60px;border:0;box-shadow:none;background:none;padding:0;font-family:var(--f-mono);font-size:42px;font-weight:600;text-align:right;color:var(--ink)}
-.wgh-n > span:last-child{font-size:16px;font-weight:700;color:var(--muted)}
-.wgh-r{padding:11px;border-radius:var(--r);text-align:center;font-size:13px;font-weight:700;background:var(--line-2);color:var(--muted)}
-.wgh-r.ok{background:var(--ok-solid);color:#fff}
-.wgh-r.bad{background:var(--bad-solid);color:#fff}
-.wgh-r.warn{background:var(--warn-solid);color:#fff}
-@media (max-width:760px){.wgh{grid-template-columns:1fr}}
+/* Penimbangan (P321): its two figure boxes side by side inside the dialog. */
+.rp-body > .uw-pair{padding:4px 0 0}
+.impact .ttl .bdg{float:right;margin-top:-4px}
+/* A weighed line's quantity: looks like the field it stands for, opens the Penimbangan. */
+.qcell .wgh-f{flex:0 0 150px;width:150px}
+.wgh-f{display:flex;align-items:center;gap:8px;cursor:pointer;text-align:right}
+.wgh-f svg{flex:0 0 auto;color:var(--muted)}
+.wgh-f > span{flex:1 1 auto}
+.wgh-f .mny{font-weight:700}
+.wgh-f .wait{color:var(--muted-2);font-weight:400}

@@ -10,7 +10,7 @@ import { WEIGHING_RESULT_TEXT, weigh, type WeighingRule } from "@/lib/erp/receip
 import type { RnSourceLine } from "@/lib/erp/receipt-note";
 import { formatPct, formatQty } from "@/lib/format";
 
-const TONE = { Within: "ok", Above: "bad", Below: "warn" } as const;
+const BADGE = { Within: "s-ok", Above: "s-info", Below: "s-warn" } as const;
 
 /**
  * Penimbangan (P321): the supplier's quantity and the scale's weight on one
@@ -45,9 +45,7 @@ export function ReceiptWeighDialog({
   const w = qty > 0 && Number(scale) > 0 ? weigh({ sj: qty, sjBase, factor: line.uomFactor, scale: Number(scale), rule }) : null;
   // The range does not wait for the scale.
   const range = qty > 0 ? weigh({ sj: qty, sjBase, factor: line.uomFactor, scale: 0, rule }) : null;
-  const read = (n: number | null, unit: string) => (
-    <div className={`ro${n == null ? " nil" : ""}`}>{n == null ? "menunggu" : <><span className="mny">{formatQty(n)}</span> <span className="lab">{unit}</span></>}</div>
-  );
+  const fig = (n: number | null | undefined, unit: string) => (n == null ? "—" : `${formatQty(n)} ${unit}`);
 
   return (
     <Dialog
@@ -55,78 +53,81 @@ export function ReceiptWeighDialog({
       icon="scale"
       title="Penimbangan"
       subtitle={`${line.itemLabel} · ${line.itemName}`}
-      width={820}
+      width={720}
       onClose={onClose}
       foot={
         <>
-          <span className="fnote">{over ? `Qty SJ melebihi sisa Purchase Order (${formatQty(left)} ${line.uomLabel}).` : "Qty Terima mengikuti hasil timbangan."}</span>
+          <span className="fnote">
+            {w && w.bonus > 0
+              ? "Bonus masuk stok bernilai 0 lewat Stock Receipt saat Posting."
+              : w?.result === "Below"
+                ? "Yang diterima mengikuti timbangan; kekurangannya tetap terbuka di Purchase Order."
+                : "Qty Terima dihitung dari Qty SJ dan Qty Timbangan."}
+          </span>
           <button className="btn" onClick={onClose}>
             {editing ? "Batal" : "Tutup"}
           </button>
           {editing && (
             <button className="btn primary" disabled={!w || over || !(w.receivedBase > 0)} onClick={() => onApply(sj, scale)}>
-              <Icon name="check" size={15} /> Simpan
+              <Icon name="check" size={15} /> Terapkan
             </button>
           )}
         </>
       }
     >
-      <div className="wgh">
-        <div>
-          <FormRow>
-            <Field label="Qty PO" span={12}>
-              {read(line.qty, line.uomLabel)}
-            </Field>
-            <Field label="Qty SJ" span={12} required={editing} help={editing ? `sisa ${formatQty(left)}` : undefined}>
-              {editing ? <MoneyInput value={sj} currencyLabel={line.uomLabel} decimals={6} invalid={over} onChange={setSj} /> : read(qty, line.uomLabel)}
-            </Field>
-            <Field label="Berat Satuan" span={6}>
-              {read(rule.itemWeight, "Kg")}
-            </Field>
-            <Field label="Toleransi" span={6}>
-              <div className="ro">{formatPct(rule.tolerance)}</div>
-            </Field>
-            <Field label="Qty Pembanding" span={12}>
-              {read(range?.calculated ?? null, "Kg")}
-            </Field>
-          </FormRow>
-        </div>
-        <div>
-          <FormRow>
-            <Field label="Qty Timbangan" span={12} required={editing}>
-              <div className="wgh-n">
-                {editing ? <MoneyInput value={scale} decimals={4} ariaLabel="Qty Timbangan" onChange={setScale} /> : <span className="mny">{formatQty(scale)}</span>}
-                <span>Kg</span>
-              </div>
-            </Field>
-            <Field label="Range Toleransi" span={12}>
-              <div className={`ro${range ? "" : " nil"}`}>
-                {range ? (
-                  <>
-                    <span className="mny">
-                      {formatQty(range.lower)} – {formatQty(range.upper)}
-                    </span>{" "}
-                    <span className="lab">Kg</span>
-                  </>
-                ) : (
-                  "menunggu Qty SJ"
-                )}
-              </div>
-            </Field>
-            <div style={{ gridColumn: "span 12" }} className={`wgh-r ${w ? TONE[w.result] : ""}`} role="status">
-              {w ? WEIGHING_RESULT_TEXT[w.result] : "Isi Qty Timbangan"}
+      <FormRow>
+        <Field
+          label="Qty SJ"
+          required={editing}
+          help={editing ? `sisa PO ${formatQty(left)} ${line.uomLabel}` : undefined}
+          error={over ? `Melebihi sisa Purchase Order (${formatQty(left)} ${line.uomLabel}).` : undefined}
+        >
+          {editing ? (
+            <MoneyInput value={sj} currencyLabel={line.uomLabel} decimals={6} invalid={over} onChange={setSj} />
+          ) : (
+            <div className="ro">
+              <span className="mny">{fig(qty, line.uomLabel)}</span>
             </div>
-            <Field label="Qty Terima" span={6} help={w && line.uomFactor !== 1 ? `= ${formatQty(w.receivedBase)} ${line.baseUomLabel}` : undefined}>
-              {read(w?.received ?? null, line.uomLabel)}
-            </Field>
-            {w && w.bonus > 0 && (
-              <Field label="Qty Bonus" span={6} help="masuk stok bernilai 0">
-                {read(w.bonus, line.baseUomLabel)}
-              </Field>
-            )}
-          </FormRow>
+          )}
+        </Field>
+        <Field label="Qty Timbangan" required={editing} help={range ? `toleransi ${formatQty(range.lower)} – ${formatQty(range.upper)} Kg` : undefined}>
+          {editing ? (
+            <MoneyInput value={scale} currencyLabel="Kg" decimals={4} onChange={setScale} />
+          ) : (
+            <div className="ro">
+              <span className="mny">{fig(Number(scale), "Kg")}</span>
+            </div>
+          )}
+        </Field>
+      </FormRow>
+      <div className="uw-pair">
+        <div className="impact">
+          <div className="ttl">Pembanding</div>
+          <Row label="Qty PO" value={fig(line.qty, line.uomLabel)} />
+          <Row label={`Berat satuan per ${line.baseUomLabel}`} value={fig(rule.itemWeight, "Kg")} />
+          <Row label="Toleransi" value={`± ${formatPct(rule.tolerance)}`} />
+          <Row label="Qty pembanding" value={fig(range?.calculated, "Kg")} total />
+        </div>
+        <div className="impact" aria-live="polite">
+          <div className="ttl">
+            Hasil Timbangan
+            {w ? <span className={`bdg ${BADGE[w.result]}`}>{WEIGHING_RESULT_TEXT[w.result]}</span> : <span className="bdg t-slate">Belum ditimbang</span>}
+          </div>
+          <Row label="Selisih dari pembanding" value={w ? fig(+(Number(scale) - w.calculated).toFixed(6), "Kg") : "—"} />
+          <Row label="Qty terima" value={fig(w?.received, line.uomLabel)} />
+          <Row label="Qty bonus" value={fig(w?.bonus, line.baseUomLabel)} />
+          <Row label="Qty stock" value={fig(w?.receivedBase, line.baseUomLabel)} total />
         </div>
       </div>
     </Dialog>
+  );
+}
+
+function Row({ label, value, total }: { label: string; value: string; total?: boolean }) {
+  return (
+    <div className={`ir${total ? " tot" : ""}`}>
+      <span>{label}</span>
+      <b>{value}</b>
+    </div>
   );
 }

@@ -110,8 +110,8 @@ Akibat aturan ini, sesuai maunya toleransi:
 - Kelebihan sampai batas atas (801–880) tidak dicatat di mana pun.
 
 ### 3.2 Alur
-1. Baris Receipt Note Item bertimbang menampilkan Qty SJ dan tombol **Timbang**;
-   Qty Terima tidak bisa diketik. Item tanpa timbangan tetap seperti sekarang.
+1. Field Qty baris Receipt Note Item bertimbang **membuka modal Penimbangan** (P328);
+   Qty SJ diketik di modal, Qty Terima tidak bisa diketik. Item tanpa timbangan tetap seperti sekarang.
 2. Modal *Penimbangan* (tata letak screenshot, komponen desain aplikasi) menghitung
    langsung saat diketik; **Simpan** mengisi `qty` dan `base_qty` baris.
 3. Lot dibagi atas qty dasar yang diterima, dalam Satuan Dasar. Mengubah Qty SJ menghapus hasil
@@ -220,9 +220,9 @@ lalu **berhenti untuk diperiksa user**.
 ### Langkah 5 (selesai, P321) — Penimbangan di Receipt Note
 - Migrasi `receipt_weighting`: `log_receipt_note_weighting` dan enum hasilnya.
 - `receipt-weighting.ts` client-safe: satu fungsi hitung, dipakai modal, simpan dan Posting.
-- Modal *Penimbangan* sesuai screenshot: kiri Qty PO, Qty SJ, Berat Satuan, Toleransi, Qty
-  Pembanding; kanan Qty Timbangan besar, Range Toleransi, bar hijau / merah / kuning, Qty Terima, Qty Bonus.
-- Baris: Qty SJ diketik, tombol *Timbang*, Qty Terima dibaca; urutan SJ → timbang → lot (§3.2).
+- Modal *Penimbangan* (P328): isian Qty SJ dan Qty Timbangan; kotak Pembanding dan kotak Hasil Timbangan
+  dengan badge hasil, Qty terima, bonus dan Qty stock.
+- Baris: field Qty membuka modal dan menampilkan Qty Terima; urutan SJ → timbang → lot (§3.2).
 - Bonus dihitung dan tampil di Draft. **Posting dengan bonus ditolak sampai langkah 6**, supaya
   barang tidak hilang dari catatan.
 - Test: tiga contoh screenshot; 720, 719, 880, 881; 4,777 BOX → 57,324 PCS; 41,666667 BOX; timbangan 0.
