@@ -62,7 +62,7 @@ export function CreditNoteForm({
   const editing = mode !== "view";
 
   const [header, setHeader] = useState<CreditNoteHeaderInput>(() =>
-    note ? { ...note.header } : { invoice_id: null, credit_date: todayIso(), customer_return_no: "", note: "" }
+    note ? { ...note.header } : { invoice_id: null, credit_date: todayIso(), customer_return_no: "", apply_to_invoice: false, note: "" }
   );
   const [lines, setLines] = useState<LineState[]>(() =>
     note ? note.lines.map((l) => ({ invoice_line_id: Number(l.invoice_line_id), qty: String(l.qty) })) : []
@@ -212,6 +212,18 @@ export function CreditNoteForm({
                 ro(<span className="mono">{header.customer_return_no}</span>)
               ) : (
                 nil()
+              )}
+            </Field>
+            <Field label="Invoice Asal" span={5} help={editing ? "tanpa centang, menjadi kredit terbuka" : undefined}>
+              {editing ? (
+                <div>
+                  <label className="chk sm">
+                    <input type="checkbox" checked={header.apply_to_invoice === true} onChange={(e) => set("apply_to_invoice", e.target.checked)} />
+                    <span className="ct">Langsung potong Invoice asal</span>
+                  </label>
+                </div>
+              ) : (
+                ro(header.apply_to_invoice ? "Langsung dipotong" : "Tidak dipotong")
               )}
             </Field>
             <Field label="Catatan" span={12}>
@@ -366,7 +378,7 @@ export function CreditNoteForm({
                 <b>{money(note.applied)}</b>
               </div>
               <div className="ir tot">
-                <span>Kredit customer</span>
+                <span>Kredit customer terbuka</span>
                 <b>{money(note.total - note.applied)}</b>
               </div>
             </div>

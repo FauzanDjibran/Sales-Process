@@ -9,7 +9,7 @@ import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { lockCustomerOrder } from "./customer-order";
 import { creditSourceInvoices, type CreditSourceInvoice } from "./ar-invoice";
-import { ArItemOverdrawn, arItemBalances, arItemHeld, createArItem, settleArItem } from "./ar-item";
+import { ArItemOverdrawn, applyReturnCredit, arItemBalances, arItemHeld, createArItem } from "./ar-item";
 import { postingAccounts } from "./system-settings";
 import { taxScale } from "./sales-tax";
 import {
@@ -36,9 +36,10 @@ import {
  *
  * Posting, under the Customer Order's lock, writes Dr Retur Penjualan · Dr PPN
  * Keluaran / Cr Piutang Usaha and a **Retur** AR item (P287 SR2): born at the
- * credit's total, applied to the Invoice's item as far as its balance goes
- * (`ReturnApplied` / `ReturnUsed`), the rest an open customer credit. The
- * Invoice is read through `creditSourceInvoices`.
+ * credit's total, an open customer credit (P329, SR11). With `apply_to_invoice`
+ * it is applied at once to the Invoice's item, as far as its balance goes
+ * (`ReturnApplied` / `ReturnUsed`). The Invoice is read through
+ * `creditSourceInvoices`.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -47,6 +48,8 @@ export type CreditNoteHeaderInput = {
   invoice_id: number | null;
   credit_date: string;
   customer_return_no: string;
+  /** Posting also lowers this Invoice by the credit (SR12); off leaves it open. */
+  apply_to_invoice?: boolean;
   note: string;
 };
 export type CreditNoteLineInput = { invoice_line_id: number | null; qty: number | string };
@@ -134,6 +137,7 @@ type Checked = {
     is_taxable: boolean;
     credit_date: Date;
     customer_return_no: string | null;
+    apply_to_invoice: boolean;
     note: string | null;
     gross_amount: number;
     discount_amount: number;
@@ -225,6 +229,7 @@ export async function checkCreditNote(
         is_taxable: source.isTaxable,
         credit_date: asDate(date),
         customer_return_no: text(header.customer_return_no),
+        apply_to_invoice: header.apply_to_invoice === true,
         note: text(header.note),
         gross_amount: sum("gross_amount"),
         discount_amount: sum("discount_amount"),
@@ -327,7 +332,13 @@ type Stored = Prisma.FinArCreditNoteGetPayload<{ include: { lines: true } }>;
 
 function asInput(n: Stored): { header: CreditNoteHeaderInput; lines: CreditNoteLineInput[] } {
   return {
-    header: { invoice_id: n.invoice_id, credit_date: isoDay(n.credit_date), customer_return_no: n.customer_return_no ?? "", note: n.note ?? "" },
+    header: {
+      invoice_id: n.invoice_id,
+      credit_date: isoDay(n.credit_date),
+      customer_return_no: n.customer_return_no ?? "",
+      apply_to_invoice: n.apply_to_invoice,
+      note: n.note ?? "",
+    },
     lines: [...n.lines].sort((a, b) => a.line_no - b.line_no).map((l) => ({ invoice_line_id: l.invoice_line_id, qty: l.qty.toNumber() })),
   };
 }
@@ -347,7 +358,8 @@ export async function creditNotePreview(id: number, actorId: number): Promise<Jo
  * Runs one lifecycle step. **Posting**, under the Customer Order's lock: checks
  * the stored note again — its figures worked out anew after what other posted
  * Credit Notes took (P112) — creates the Retur item at its total and base,
- * applies it to the Invoice item as far as that item's balance goes, then posts
+ * applies it to the Invoice item, when asked to (SR12), as far as that item's
+ * balance goes, then posts
  * the journal at what the books moved: Cr Piutang at the Retur item's base
  * less what of it was used plus what the Invoice item gave up, the difference
  * of the two reliefs being selisih kurs (MC13; nil in rupiah).
@@ -407,9 +419,9 @@ export async function transitionCreditNote(
       await tx.finArCreditNoteLine.deleteMany({ where: { credit_note_id: id } });
       await tx.finArCreditNoteLine.createMany({ data: r.c.lines.map((l) => ({ ...l, credit_note_id: id })) });
 
-      // The Retur item at the credit's total, then applied to the Invoice's
-      // item as far as its balance goes (SR2); the books move first so the
-      // journal carries what they relieved.
+      // The Retur item at the credit's total, then, when asked for (SR12),
+      // applied to the Invoice's item as far as its balance goes; the books move
+      // first so the journal carries what they relieved.
       const typeId = await docTypeId(tx, "fin_ar_credit_note");
       const doc = { docTypeId: typeId, docId: id, no: n.credit_no };
       const date = isoDay(f.credit_date);
@@ -427,13 +439,20 @@ export async function transitionCreditNote(
         actorId,
       });
       const invItem = r.c.source.arItemId;
-      const open = invItem ? (await arItemHeld(tx, invItem)).foreign : 0;
+      const open = invItem && f.apply_to_invoice ? (await arItemHeld(tx, invItem)).foreign : 0;
       const applied = Math.min(cents(f.total_amount), cents(open)) / 100;
       let fx = 0;
       if (invItem && applied > 0) {
-        const fromInvoice = await settleArItem(tx, { itemId: invItem, event: "ReturnApplied", amount: applied, date, doc, counterItemId: returnItem, note: `Retur ${n.credit_no}`, actorId });
-        const fromReturn = await settleArItem(tx, { itemId: returnItem, event: "ReturnUsed", amount: applied, date, doc, counterItemId: invItem, note: `Diterapkan ke ${r.c.source.invoiceNo}`, actorId });
-        fx = (cents(fromInvoice) - cents(fromReturn)) / 100;
+        const move = await applyReturnCredit(tx, {
+          returnItemId: returnItem,
+          invoiceItemId: invItem,
+          amount: applied,
+          date,
+          doc,
+          notes: { invoice: `Retur ${n.credit_no}`, ret: `Diterapkan ke ${r.c.source.invoiceNo}` },
+          actorId,
+        });
+        fx = move.fx;
       }
 
       const cur = r.c.source.currency;

@@ -8,7 +8,7 @@
  *
  * Posting reverses what the Invoice booked for the goods that came back:
  * Penjualan through Retur Penjualan, PPN Keluaran, and Piutang through a Retur
- * AR item applied to the Invoice's. A posted Credit Note is final.
+ * AR item, an open customer credit (P329). A posted Credit Note is final.
  *
  * Client-safe on purpose — no `server-only`, no database import.
  */
@@ -46,8 +46,8 @@ export const CREDIT_NOTE_TRANSITIONS: Record<CreditNoteAction, CreditNoteTransit
     title: "Posting Credit Note Penjualan",
     body:
       "Penjualan dan PPN Keluaran atas barang yang kembali dikurangi, dan piutang customer turun dengan " +
-      "journal di bawah ini pada Tanggal Credit Note. Sisa yang tidak tertutup piutang Invoice menjadi kredit " +
-      "customer. Credit Note yang sudah diposting tidak dapat diubah atau dibatalkan.",
+      "journal di bawah ini pada Tanggal Credit Note. Nilainya menjadi kredit customer yang terbuka; Invoice asal " +
+      "hanya terpotong bila Langsung potong Invoice asal dicentang. Credit Note yang sudah diposting tidak dapat diubah atau dibatalkan.",
     confirmLabel: "Ya, Posting",
     done: "Credit Note Penjualan diposting",
   },

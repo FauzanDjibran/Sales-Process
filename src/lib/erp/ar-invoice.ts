@@ -18,7 +18,6 @@ import {
   arReturnAppliedByDocument,
   arItemHeld,
   createArItem,
-  returnItemsForInvoice,
   settleArItem,
   type AdvanceItemForInvoice,
 } from "./ar-item";
@@ -103,8 +102,6 @@ export type InvoiceHeaderInput = {
   address_id: number | null;
   cash_bank_id: number | null;
   note: string;
-  /** Customer credit from the order's Credit Notes to use (P295); empty or 0 for none. */
-  credit_used?: number | string;
 };
 
 export type InvoiceLineInput = { delivery_note_line_id: number | null };
@@ -190,8 +187,6 @@ export type InvoiceOrderOption = InvoiceSourceOrder & {
   advances: InvoiceAdvance[];
   /** Per Customer Order line, what posted Invoices billed — where the cumulative split continues from (P112). */
   billedBefore: Record<number, { qty: number }>;
-  /** Customer credit open on the order's Retur items, and what other Draft Invoices reserve of it (P295). */
-  credit: { available: number; reserved: number };
 };
 
 /** A bank an Invoice can print; only one in the order's currency is offered (MC14). */
@@ -243,28 +238,17 @@ async function orderOptions(
   ]);
   const lines = [...posted, ...kept.filter((k) => !posted.some((p) => p.id === k.id))];
   const items = [...open, ...keptItems.filter((k) => !open.some((o) => o.id === k.id))];
-  const [billed, before, reserved, returns, creditDrafts] = await Promise.all([
+  const [billed, before, reserved] = await Promise.all([
     billedNoteLines(db, lines.map((l) => l.id), exceptId),
     billedOrderLines(db, orders.flatMap((o) => o.lines.map((l) => l.id))),
     reservedAdvances(db, items.map((i) => i.id), exceptId),
-    returnItemsForInvoice(db, orderIds),
-    db.finArInvoice.groupBy({
-      by: ["customer_order_id"],
-      where: { customer_order_id: { in: orderIds }, status: "Draft", ...(exceptId ? { id: { not: exceptId } } : {}) },
-      _sum: { credit_used_amount: true },
-    }),
   ]);
-  const creditOf = (orderId: number) => ({
-    available: returns.filter((r) => r.orderId === orderId).reduce((a, r) => a + cents(r.balance), 0) / 100,
-    reserved: creditDrafts.find((d) => d.customer_order_id === orderId)?._sum.credit_used_amount?.toNumber() ?? 0,
-  });
   return orders.map((o) => ({
     ...o,
     addresses: addresses.get(o.customerId) ?? [],
     noteLines: lines.filter((l) => l.customerOrderId === o.id).map((l) => ({ ...l, billedBy: billed.get(l.id) ?? null })),
     advances: items.filter((i) => i.orderId === o.id).map((i) => ({ ...i, reserved: reserved.get(i.id) ?? 0 })),
     billedBefore: Object.fromEntries(o.lines.map((l) => [l.id, before.get(l.id) ?? { qty: 0 }])),
-    credit: creditOf(o.id),
   }));
 }
 
@@ -369,7 +353,6 @@ export type CheckedInvoice = {
     dpp_other_amount: number;
     ppn_amount: number;
     total_amount: number;
-    credit_used_amount: number;
     note: string | null;
   };
   lines: CheckedLine[];
@@ -530,16 +513,6 @@ export async function checkInvoice(
   }
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) errors._lines = "Ada baris yang perlu diperbaiki.";
 
-  // ---- customer credit from the order's Credit Notes (P295): up to what is
-  // free of it and never more than the Invoice asks after its Uang Muka
-  const creditRaw = String(header.credit_used ?? "").trim().replace(",", ".");
-  const creditUsed = creditRaw ? Number(creditRaw) : 0;
-  const creditFree = order ? Math.max(0, (cents(order.credit.available) - cents(order.credit.reserved)) / 100) : 0;
-  if (!Number.isFinite(creditUsed) || creditUsed < 0) errors.credit_used = "Isi kredit retur nol atau lebih.";
-  else if (Math.abs(creditUsed * scale - Math.round(creditUsed * scale)) > 1e-6) errors.credit_used = scale === 1 ? "Kredit retur harus dalam rupiah penuh." : "Kredit retur paling banyak dua desimal.";
-  else if (cents(creditUsed) > cents(creditFree))
-    errors.credit_used = `Melebihi kredit retur Customer Order ini (${money(creditFree)}${order?.credit.reserved ? `; ${money(order.credit.reserved)} dicadangkan Invoice Draft lain` : ""}).`;
-
   if (Object.keys(errors).length || !order) return { ok: false, errors };
 
   const figures = computeInvoice({
@@ -551,7 +524,6 @@ export async function checkInvoice(
     advancePpn: checkedDeds.reduce((a, d) => a + cents(d.ppn_used), 0) / 100,
     scale,
   });
-  if (cents(creditUsed) > cents(figures.total)) return { ok: false, errors: { credit_used: `Melebihi nilai invoice (${money(figures.total)}).` } };
   return {
     ok: true,
     c: {
@@ -581,7 +553,6 @@ export async function checkInvoice(
         dpp_other_amount: figures.dppOther,
         ppn_amount: figures.ppn,
         total_amount: figures.total,
-        credit_used_amount: creditUsed,
         note: text(header.note),
       },
       lines: picked.map((n, i) => {
@@ -727,7 +698,6 @@ function asInput(n: StoredInvoice) {
       address_id: n.address_id,
       cash_bank_id: n.cash_bank_id,
       note: n.note ?? "",
-      credit_used: n.credit_used_amount.toNumber(),
     } satisfies InvoiceHeaderInput,
     lines: n.lines.map((l) => ({ delivery_note_line_id: l.delivery_note_line_id })) satisfies InvoiceLineInput[],
     deductions: n.deductions.map((d) => ({ ar_item_id: d.ar_item_id, dpp_used: d.dpp_used.toNumber() })) satisfies InvoiceDeductionInput[],
@@ -757,8 +727,6 @@ type PostingBases = {
   dpp: number;
   ppn: number;
   deds: { um: number; ppn: number; inv: number }[];
-  /** Per Retur item used (P295): what it and the Invoice item gave up in base. */
-  credits: { amount: number; ret: number; inv: number; no: string }[];
 };
 
 type InvoicePosting =
@@ -774,7 +742,7 @@ async function buildPosting(db: Db, invoiceNo: string, c: CheckedInvoice, b: Pos
     "sales_revenue_account",
     ...(f.advanceUsed > 0 ? (["sales_advance_account"] as const) : []),
     ...(f.fullPpn > 0 ? (["output_vat_account"] as const) : []),
-    ...(fxOf.some((x) => x !== 0) || b.credits.some((x) => x.ret !== x.inv) ? (["fx_account"] as const) : []),
+    ...(fxOf.some((x) => x !== 0) ? (["fx_account"] as const) : []),
   ] as const;
   const mapped = await postingAccounts([...keys]);
   if (!mapped.ok) return { ok: false, missing: mapped.missing };
@@ -815,17 +783,6 @@ async function buildPosting(db: Db, invoiceNo: string, c: CheckedInvoice, b: Pos
     if (fxOf[k] !== 0) {
       out.push({ ...line(ids.fx_account, Math.max(0, fxOf[k]), Math.max(0, -fxOf[k]), `Selisih kurs uang muka ${d.ar_item_no} — ${invoiceNo}`), inBase: true });
     }
-  }
-  // Customer credit used (P295): both sides sit on Piutang Usaha under the same
-  // customer, so in rupiah nothing is journalled. In a foreign currency the Retur
-  // item and the Invoice item give up different bases: both legs are booked at
-  // their own, the difference being selisih kurs (MC13).
-  for (const x of b.credits) {
-    if (x.ret === x.inv) continue;
-    out.push(line(ids.receivable_account, x.amount, 0, `Kredit retur ${x.no} dipakai ${invoiceNo}`, customer, x.ret));
-    out.push(line(ids.receivable_account, 0, x.amount, `Kredit retur ${x.no} diterapkan ke ${invoiceNo}`, customer, x.inv));
-    const fx = (cents(x.inv) - cents(x.ret)) / 100;
-    out.push({ ...line(ids.fx_account, Math.max(0, fx), Math.max(0, -fx), `Selisih kurs kredit retur ${x.no} — ${invoiceNo}`), inBase: true });
   }
   return { ok: true, description: `${invoiceNo} · Invoice Penjualan ${c.order.orderNo} — ${c.order.customerName}`, lines: out };
 }
@@ -942,7 +899,6 @@ export async function transitionInvoice(
         dpp: lineBases.base_dpp_amount,
         ppn: lineBases.base_ppn_amount,
         deds: [],
-        credits: [],
       };
       const itemId = await createArItem(tx, {
         type: "Invoice",
@@ -989,33 +945,6 @@ export async function transitionInvoice(
         d.base_dpp_used = um;
         d.base_ppn_used = ppnBase;
       }
-      // Customer credit used (P295): the order's Retur items, oldest first, each
-      // lowered (*Retur Dipakai Invoice*) and the Invoice item with it (*Retur
-      // Diterapkan*), naming each other, each at its own carrying rate.
-      await tx.finArInvoiceCreditUse.deleteMany({ where: { invoice_id: id } });
-      let credit = cents(r.c.data.credit_used_amount);
-      for (const ret of credit > 0 ? await returnItemsForInvoice(tx, [r.c.order.id]) : []) {
-        if (credit <= 0) break;
-        const take = Math.min(credit, cents(ret.balance)) / 100;
-        const retBase = await settleArItem(tx, { itemId: ret.id, event: "ReturnUsed", amount: take, date, doc, counterItemId: itemId, note: `Dipakai ${n.invoice_no}`, actorId });
-        const invBase = await settleArItem(tx, {
-          itemId,
-          event: "ReturnApplied",
-          amount: take,
-          date,
-          doc,
-          counterItemId: ret.id,
-          note: `Kredit retur ${ret.arItemNo} — ${fmt(take)}`,
-          actorId,
-        });
-        await tx.finArInvoiceCreditUse.create({
-          data: { invoice_id: id, ar_item_id: ret.id, ar_item_no: ret.arItemNo, amount: take, base_amount: retBase, invoice_base_amount: invBase, fx_difference: (cents(invBase) - cents(retBase)) / 100 },
-        });
-        bases.credits.push({ amount: take, ret: retBase, inv: invBase, no: ret.arItemNo });
-        credit -= cents(take);
-      }
-      if (credit > 0) throw new Refused({ _form: "Belum bisa diposting: kredit retur Customer Order ini tidak lagi mencukupi." });
-
       // The header's base restated from what was relieved.
       await tx.finArInvoice.update({ where: { id }, data: headData(r.c) });
 

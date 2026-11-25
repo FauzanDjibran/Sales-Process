@@ -1876,7 +1876,6 @@ table fin_ar_invoice {
   base_ppn_amount             decimal(18,2) [not null] // ppn_amount in base currency (MC1)
   total_amount                decimal(18,2) [not null, default: 0] // net Piutang
   base_total_amount           decimal(18,2) [not null] // total_amount in base currency (MC1)
-  credit_used_amount          decimal(18,2) [not null, default: 0] // customer credit from the order's Credit Notes it uses; CHECK 0 ≤ used ≤ total (P295)
   tax_invoice_no              varchar // Coretax number, typed after upload
 
   journal_id                  int
@@ -1962,27 +1961,9 @@ table fin_ar_invoice_advance_deduction {
   }
 }
 
-// a Retur AR item an Invoice's credit used at Posting (P295, SR10), oldest first
-table fin_ar_invoice_credit_use {
-  id                          int [pk, increment, not null]
-
-  invoice_id                  int [not null, ref : > fin_ar_invoice.id]
-  ar_item_id                  int [not null] // weak: a Retur AR item of the same Customer Order
-  ar_item_no                  varchar [not null]
-  amount                      decimal(18,2) [not null] // CHECK > 0
-  base_amount                 decimal(18,2) [not null] // what the Retur item gave up in base
-  invoice_base_amount         decimal(18,2) [not null] // what the Invoice item gave up in base
-  fx_difference               decimal(18,2) [not null, default: 0] // invoice_base_amount − base_amount (MC13)
-
-  indexes {
-    (invoice_id, ar_item_id) [unique]
-    ar_item_id
-  }
-}
-
 // Credit Note Penjualan, CNS/… and CNS-NP/… (P287, P292, Sales-Return-Plan.md §6): credits one posted Invoice
 // for goods that came back after it was billed. Draft → Posted, Cancelled final. Posting writes
-// Dr Retur Penjualan · Dr PPN Keluaran / Cr Piutang Usaha and a Retur AR item applied to the Invoice's item
+// Dr Retur Penjualan · Dr PPN Keluaran / Cr Piutang Usaha and a Retur AR item: open customer credit (P329, SR11)
 table fin_ar_credit_note {
   id                          int [pk, increment, not null]
 
@@ -1997,6 +1978,7 @@ table fin_ar_credit_note {
   exchange_rate               decimal(18,6) [not null, default: 1] // the Invoice's rate: a credit is valued as what it reverses (MC8)
   is_taxable                  boolean [not null]
   customer_return_no          varchar // the buyer's Nota Retur, as given (SR6)
+  apply_to_invoice            boolean [not null, default: false] // Posting also lowers the Invoice by the credit, as far as its balance goes; CHECK applied_amount = 0 without it (P329, SR12)
   note                        varchar
 
   gross_amount                decimal(18,2) [not null, default: 0]

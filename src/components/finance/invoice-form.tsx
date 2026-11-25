@@ -885,41 +885,6 @@ export function InvoiceForm({
               <span>Total Tagihan</span>
               <b>{money(figures.total)}</b>
             </div>
-            {/* Customer credit from this order's Credit Notes (P295): applied at Posting, oldest first. */}
-            {(() => {
-              const used = Number(String(header.credit_used ?? "").replace(",", ".")) || 0;
-              const free = Math.max(0, order.credit.available - order.credit.reserved);
-              if (!(editing ? free > 0 || used > 0 : used > 0)) return null;
-              return (
-                <>
-                  <div className="ir">
-                    <span>
-                      Kredit Retur Dipakai
-                      {editing && <span className="fulltag"> maks. {money(Math.min(free, figures.total))}</span>}
-                    </span>
-                    {editing ? (
-                      <span style={{ width: 170 }}>
-                        <MoneyInput
-                          size="sm"
-                          decimals={order.currency === "IDR" ? 0 : 2}
-                          value={String(header.credit_used ?? "")}
-                          invalid={Boolean(errors.credit_used)}
-                          ariaLabel="Kredit Retur Dipakai"
-                          onChange={(v) => set("credit_used", v)}
-                        />
-                      </span>
-                    ) : (
-                      <b>−{money(used)}</b>
-                    )}
-                  </div>
-                  {errors.credit_used && <div className="ir"><span className="overtag">{errors.credit_used}</span></div>}
-                  <div className="ir tot">
-                    <span>Sisa Ditagih</span>
-                    <b>{money(Math.max(0, figures.total - used))}</b>
-                  </div>
-                </>
-              );
-            })()}
           </div>
         </div>
 </div>

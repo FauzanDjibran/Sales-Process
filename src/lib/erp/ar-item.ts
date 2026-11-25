@@ -305,6 +305,31 @@ export async function settleArItem(
   return relief.base;
 }
 
+/**
+ * Applies customer credit to an Invoice (P329): the Invoice item lowered
+ * (`ReturnApplied`) and the Retur item with it (`ReturnUsed`), naming each
+ * other, each at its own carrying rate. `fx` is what the Invoice gave up in base
+ * beyond the credit: selisih kurs, nil in rupiah (MC13).
+ */
+export async function applyReturnCredit(
+  db: Prisma.TransactionClient,
+  move: {
+    returnItemId: number;
+    invoiceItemId: number;
+    amount: number;
+    date: string;
+    doc: { docTypeId: number; docId: number; no: string };
+    /** Printed on the Invoice's entry and on the Retur's. */
+    notes: { invoice: string; ret: string };
+    actorId: number;
+  }
+): Promise<{ invoiceBase: number; returnBase: number; fx: number }> {
+  const { returnItemId, invoiceItemId, notes, ...shared } = move;
+  const invoiceBase = await settleArItem(db, { ...shared, itemId: invoiceItemId, event: "ReturnApplied", counterItemId: returnItemId, note: notes.invoice });
+  const returnBase = await settleArItem(db, { ...shared, itemId: returnItemId, event: "ReturnUsed", counterItemId: invoiceItemId, note: notes.ret });
+  return { invoiceBase, returnBase, fx: (cents(invoiceBase) - cents(returnBase)) / 100 };
+}
+
 // ------------------------------------------------------------------- reads
 
 /**
@@ -625,35 +650,6 @@ export async function advanceItemsForInvoice(
     balance: i.current_balance.toNumber(),
     baseBalance: i.base_current_balance.toNumber(),
     original: i.original_amount.toNumber(),
-  }));
-}
-
-/**
- * Open Retur items of the Customer Orders named — customer credit from their
- * Credit Notes an Invoice of the same order may use (P295, SR10) — oldest
- * first, the order an Invoice's credit is applied in.
- */
-export async function returnItemsForInvoice(
-  db: Db,
-  orderIds: number[]
-): Promise<{ id: number; arItemNo: string; orderId: number; balance: number; baseBalance: number }[]> {
-  if (!orderIds.length) return [];
-  const rows = await db.finArItem.findMany({
-    where: {
-      item_type: "Return",
-      scope_doc_type: { doc_table: "sal_customer_order" },
-      scope_doc_id: { in: orderIds },
-      current_balance: { gt: 0 },
-    },
-    orderBy: [{ item_date: "asc" }, { id: "asc" }],
-    select: { id: true, ar_item_no: true, scope_doc_id: true, current_balance: true, base_current_balance: true },
-  });
-  return rows.map((r) => ({
-    id: r.id,
-    arItemNo: r.ar_item_no,
-    orderId: r.scope_doc_id!,
-    balance: r.current_balance.toNumber(),
-    baseBalance: r.base_current_balance.toNumber(),
   }));
 }
 

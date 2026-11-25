@@ -186,7 +186,6 @@ after(async () => {
   const items = await prisma.finArItem.findMany({ where: { partner_id: f.customer }, select: { id: true } });
   await prisma.finArLedger.deleteMany({ where: { item_id: { in: items.map((i) => i.id) } } });
   await prisma.finArItem.deleteMany({ where: { id: { in: items.map((i) => i.id) } } });
-  await prisma.finArInvoiceCreditUse.deleteMany({ where: { invoice_id: { in: ids.inv } } });
   await prisma.finArInvoiceLine.deleteMany({ where: { invoice_id: { in: ids.inv } } });
   await prisma.finArInvoice.deleteMany({ where: { id: { in: ids.inv } } });
   await prisma.finCashBankTx.deleteMany({ where: { id: { in: ids.rc } } });
@@ -399,7 +398,7 @@ describe("a Credit Note credits what came back after the Invoice", () => {
   let invId = 0;
   let invLine = 0;
   const acc = {} as Record<string, number>;
-  const cnHeader = (over = {}) => ({ invoice_id: invId, credit_date: today, customer_return_no: "NR-1", note: "", ...over });
+  const cnHeader = (over = {}) => ({ invoice_id: invId, credit_date: today, customer_return_no: "NR-1", apply_to_invoice: true, note: "", ...over });
 
   before(async () => {
     const sub = async (label: string) =>
@@ -632,8 +631,8 @@ describe("customer credit left on a Credit Note is refunded or used by the next 
     assert.deepEqual([item.current_balance.toNumber(), item.paid_amount.toNumber()], [3_550, 2_000]);
   });
 
-  test("the next Invoice of the order uses the rest, with no journal for it in rupiah", async () => {
-    // Ten more leave on a new Delivery Note, billed by a new Invoice: DPP 10.000, PPN 1.100.
+  test("a Credit Note left open never lowers its Invoice, though the Invoice is unpaid", async () => {
+    // Ten more leave on a new Delivery Note, billed by a new Invoice: DPP 10.000, PPN 1.100. Five come back.
     const doLine = await prisma.salDeliveryOrderLine.findFirstOrThrow({ where: { delivery_order_id: ids.do[0] } });
     const dn = await createDeliveryNote(
       { source_doc_id: ids.do[0], dn_date: today, vehicle_no: "", driver_name: "", note: "" },
@@ -644,23 +643,36 @@ describe("customer credit left on a Credit Note is refunded or used by the next 
     ids.dn.push(dn.id);
     assert.ok((await transitionDeliveryNote(dn.id, "post", actor)).ok);
     const dnLine = (await prisma.logDeliveryNoteLine.findFirstOrThrow({ where: { delivery_note_id: dn.id } })).id;
-    const head = (credit: number) => ({ customer_order_id: flow.coId, invoice_date: today, address_id: flow.address, cash_bank_id: f.bank, note: "", credit_used: credit });
-    const offered = (await invoiceOptions()).orders.find((o) => o.id === flow.coId)!;
-    assert.deepEqual(offered.credit, { available: 3_550, reserved: 0 });
-    const tooMuch = await createInvoice(head(3_551), [{ delivery_note_line_id: dnLine }], [], actor);
-    assert.ok(!tooMuch.ok && /Melebihi kredit retur/.test(tooMuch.errors.credit_used));
-    const inv = await createInvoice(head(3_550), [{ delivery_note_line_id: dnLine }], [], actor);
+    const inv = await createInvoice({ customer_order_id: flow.coId, invoice_date: today, address_id: flow.address, cash_bank_id: f.bank, note: "" }, [{ delivery_note_line_id: dnLine }], [], actor);
     assert.ok(inv.ok, JSON.stringify(inv));
     ids.inv.push(inv.id);
-    const posted = await transitionInvoice(inv.id, "post", actor);
+    assert.ok((await transitionInvoice(inv.id, "post", actor)).ok);
+
+    const r = await create(header(), [{ ...line(5), delivery_note_line_id: dnLine }]);
+    assert.ok(r.ok, JSON.stringify(r));
+    for (const a of ["submit", "approve"] as const) await transitionSalesReturn(r.id, a, actor);
+    const srLine = (await prisma.salReturnLine.findFirstOrThrow({ where: { return_id: r.id } })).id;
+    const dnTracking = (await prisma.logDeliveryNoteTracking.findFirstOrThrow({ where: { delivery_note_line_id: dnLine } })).id;
+    const rn = await createReceiptNote(
+      { purpose: SALES_RETURN, source_doc_id: r.id, rn_date: today, warehouse_id: f.warehouse, supplier_dn_no: "", note: "" },
+      [{ source_doc_line_id: srLine, qty: 5, note: "", lots: [{ tracking_no: "", expiry_date: "", source_tracking_id: dnTracking, qty: 5, location_id: null, stock_status_id: f.available }] }],
+      actor
+    );
+    assert.ok(rn.ok, JSON.stringify(rn));
+    ids.rn.push(rn.id);
+    assert.ok((await transitionReceiptNote(rn.id, "post", actor)).ok);
+
+    const invLine = (await prisma.finArInvoiceLine.findFirstOrThrow({ where: { invoice_id: inv.id } })).id;
+    const cn = await createCreditNote({ invoice_id: inv.id, credit_date: today, customer_return_no: "", note: "" }, [{ invoice_line_id: invLine, qty: 5 }], actor);
+    assert.ok(cn.ok, JSON.stringify(cn));
+    ids.cn.push(cn.id);
+    const posted = await transitionCreditNote(cn.id, "post", actor);
     assert.ok(posted.ok, JSON.stringify(posted));
-    const v = await prisma.finArInvoice.findUniqueOrThrow({ where: { id: inv.id }, include: { credit_uses: true } });
-    assert.deepEqual(v.credit_uses.map((u) => [u.ar_item_id, u.amount.toNumber(), u.fx_difference.toNumber()]), [[retItem, 3_550, 0]]);
-    const jl = await prisma.accJournalLine.findMany({ where: { journal_id: v.journal_id! } });
-    assert.equal(jl.filter((l) => (l.description ?? "").includes("Kredit retur")).length, 0, "rupiah: both sides are Piutang of one customer");
-    assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: retItem } })).current_balance.toNumber(), 0);
-    // The receipt asks for what is left: 11.100 − 3.550.
+    const n = await prisma.finArCreditNote.findUniqueOrThrow({ where: { id: cn.id } });
+    assert.deepEqual([n.total_amount.toNumber(), n.applied_amount.toNumber(), n.apply_to_invoice], [5_550, 0, false]);
+    assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: n.ar_item_id! } })).current_balance.toNumber(), 5_550, "the whole credit is open");
+    // The receipt still asks for the whole Invoice; its DPP and PPh base fell with the credit (SR16).
     const bill = (await cashReceiptOptions()).bills.find((b) => b.kind === "fin_ar_invoice" && b.id === inv.id)!;
-    assert.deepEqual([bill.total, bill.open], [7_550, 7_550]);
+    assert.deepEqual([bill.total, bill.open, bill.dpp], [11_100, 11_100, 5_000]);
   });
 });

@@ -597,17 +597,6 @@ export const CHECKS: Check[] = [
   },
   {
     area: "ar",
-    name: "each Invoice's credit used equals its credit-use rows and the Retur it applied, and a Draft uses none yet (P295)",
-    sql: `SELECT v.invoice_no, v.status, v.credit_used_amount, COALESCE(u.amount, 0) AS rows_amount, COALESCE(e.applied, 0) AS applied
-          FROM fin_ar_invoice v
-          LEFT JOIN (SELECT invoice_id, SUM(amount) AS amount FROM fin_ar_invoice_credit_use GROUP BY invoice_id) u ON u.invoice_id = v.id
-          LEFT JOIN (SELECT item_id, doc_id, SUM(ABS(movement)) AS applied FROM fin_ar_ledger
-                     WHERE event = 'ReturnApplied' AND doc_type_id = ${docType("fin_ar_invoice")} GROUP BY item_id, doc_id) e ON e.item_id = v.ar_item_id AND e.doc_id = v.id
-          WHERE (v.status = 'Posted' AND (v.credit_used_amount <> COALESCE(u.amount, 0) OR v.credit_used_amount <> COALESCE(e.applied, 0)))
-             OR (v.status <> 'Posted' AND COALESCE(u.amount, 0) <> 0)`,
-  },
-  {
-    area: "ar",
     name: "each Retur item's paid amount equals the posted refunds of its Credit Note (P295)",
     sql: `SELECT c.credit_no, i.paid_amount, COALESCE(p.paid, 0) AS refunds
           FROM fin_ar_credit_note c JOIN fin_ar_item i ON i.id = c.ar_item_id
