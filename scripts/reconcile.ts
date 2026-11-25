@@ -595,6 +595,26 @@ export const CHECKS: Check[] = [
   },
   {
     area: "ar",
+    name: "each posted Penerapan Kredit line moved its Retur item and its Invoice item by its amount and bases, and only those (P332)",
+    sql: `WITH l AS (SELECT l.* FROM fin_ar_credit_application_line l JOIN fin_ar_credit_application a ON a.id = l.application_id AND a.status = 'Posted'),
+          want AS (SELECT application_id, return_item_id AS item_id, invoice_item_id AS counter, 'ReturnUsed' AS event, amount, base_return_amount AS base FROM l
+                   UNION ALL SELECT application_id, invoice_item_id, return_item_id, 'ReturnApplied', amount, base_invoice_amount FROM l),
+          got AS (SELECT doc_id, item_id, counter_item_id AS counter, event::text AS event, -movement AS amount, -base_movement AS base
+                  FROM fin_ar_ledger WHERE doc_type_id = ${docType("fin_ar_credit_application")})
+          SELECT w.application_id, w.event, w.amount, g.amount AS booked FROM want w FULL JOIN got g
+            ON g.doc_id = w.application_id AND g.item_id = w.item_id AND g.counter = w.counter AND g.event = w.event
+          WHERE w.amount IS DISTINCT FROM g.amount OR w.base IS DISTINCT FROM g.base`,
+  },
+  {
+    area: "ar",
+    name: "each Retur item: its original less used and refunded is its balance (P332)",
+    sql: `SELECT i.ar_item_no, i.original_amount, i.paid_amount, COALESCE(u.used, 0) AS used, i.current_balance
+          FROM fin_ar_item i
+          LEFT JOIN (SELECT item_id, -SUM(movement) AS used FROM fin_ar_ledger WHERE event = 'ReturnUsed' GROUP BY item_id) u ON u.item_id = i.id
+          WHERE i.item_type = 'Return' AND i.original_amount - COALESCE(u.used, 0) - i.paid_amount <> i.current_balance`,
+  },
+  {
+    area: "ar",
     name: "each Retur item's paid amount equals the posted refunds of its Credit Note (P295)",
     sql: `SELECT c.credit_no, i.paid_amount, COALESCE(p.paid, 0) AS refunds
           FROM fin_ar_credit_note c JOIN fin_ar_item i ON i.id = c.ar_item_id

@@ -176,6 +176,8 @@ const DOC_TYPES: [label: string, table: string][] = [
   ["Production Issue", "prd_issue"],
   // A count of one warehouse (P318).
   ["Stock Adjustment", "log_stock_adjustment"],
+  // Customer credit applied to an Invoice (P332).
+  ["Penerapan Kredit", "fin_ar_credit_application"],
 ];
 
 /**

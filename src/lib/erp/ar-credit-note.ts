@@ -560,6 +560,9 @@ export type RefundableCreditNote = {
   status: CreditNoteStatus;
   customerId: number;
   invoiceNo: string;
+  customerLabel: string;
+  customerName: string;
+  currencyId: number;
   arItemId: number;
   total: number;
   paid: number;
@@ -570,7 +573,7 @@ export type RefundableCreditNote = {
 export async function refundableCreditNotes(filter: { ids?: number[]; openOnly?: boolean }, db: Db = prisma): Promise<RefundableCreditNote[]> {
   const notes = await db.finArCreditNote.findMany({
     where: { status: "Posted", ar_item_id: { not: null }, ...(filter.ids ? { id: { in: filter.ids } } : {}) },
-    include: { currency: true, invoice: { select: { invoice_no: true } } },
+    include: { currency: true, customer: true, invoice: { select: { invoice_no: true } } },
     orderBy: [{ credit_date: "asc" }, { id: "asc" }],
   });
   const items = await arItemBalances(db, notes.map((n) => n.ar_item_id!));
@@ -585,6 +588,9 @@ export async function refundableCreditNotes(filter: { ids?: number[]; openOnly?:
         status: n.status as CreditNoteStatus,
         customerId: n.customer_id,
         invoiceNo: n.invoice.invoice_no,
+        customerLabel: n.customer.partner_label,
+        customerName: n.customer.partner_name,
+        currencyId: n.currency_id,
         arItemId: n.ar_item_id!,
         total: (cents(paid) + cents(i.balance)) / 100,
         paid,

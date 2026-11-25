@@ -186,6 +186,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
   finArInvoiceLine: ["src/lib/erp/ar-invoice.ts"],
   finArCreditNote: ["src/lib/erp/ar-credit-note.ts"],
   finArCreditNoteLine: ["src/lib/erp/ar-credit-note.ts"],
+  finArCreditApplication: ["src/lib/erp/ar-credit-application.ts"],
+  finArCreditApplicationLine: ["src/lib/erp/ar-credit-application.ts"],
   finArInvoiceAdvanceDeduction: ["src/lib/erp/ar-invoice.ts"],
   finApInvoice: ["src/lib/erp/ap-invoice.ts"],
   finApInvoiceLine: ["src/lib/erp/ap-invoice.ts"],

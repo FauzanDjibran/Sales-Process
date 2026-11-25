@@ -20,6 +20,7 @@ import { CASH_BANK_PREFIX, cashBankPurpose, paidKey, purposesFor, type CashBankP
 import { lockPermitRequests, permitCostDocs, permitRequestNumbersByIds, recordPermitCostPaid } from "./permit-request";
 import { costBillNumbersByIds, lockCostBills, payableCostBills, recordCostBillPaid } from "./production-cost-bill";
 import { creditNoteNumbersByIds, refundableCreditNotes } from "./ar-credit-note";
+import { creditHeldByDraftApplications } from "./ar-credit-application";
 import { ArItemOverdrawn, lockArItems, settleArItem } from "./ar-item";
 import {
   CASH_PAYMENT_TRANSITIONS,
@@ -138,6 +139,7 @@ async function openPayables(
         ? refundableCreditNotes({ ids: filter.creditIds }, db)
         : Promise.resolve([]),
   ]);
+  const held = credits.length ? await creditHeldByDraftApplications(db) : new Map<number, number>();
   // A document's open amount is what it asks less what it records as paid
   // (P132, P133) — never read from other payments.
   const out: OpenPayable[] = [
@@ -248,11 +250,23 @@ async function openPayables(
       apItemId: null,
       arItemId: n.arItemId,
       paid: n.paid,
-      open: (c100(n.total) - c100(n.paid)) / 100,
+      // What a Draft Penerapan Kredit holds is not paid out (P332).
+      open: Math.max(0, c100(n.total) - c100(n.paid) - c100(held.get(n.id) ?? 0)) / 100,
       currency: n.currency,
     })),
   ];
   return out.sort((a, b) => (a.dueDate === b.dueDate ? a.id - b.id : a.dueDate < b.dueDate ? -1 : 1));
+}
+
+/** What Draft refunds take of each Credit Note, for the Penerapan Kredit (P332). */
+export async function draftRefundsByCreditNotes(db: Db, ids: number[]): Promise<Map<number, number>> {
+  if (!ids.length) return new Map();
+  const rows = await db.finCashBankTxLine.groupBy({
+    by: ["doc_id"],
+    where: { doc_id: { in: ids }, doc_type: { doc_table: "fin_ar_credit_note" }, tx: { status: "Draft" } },
+    _sum: { settled_amount: true },
+  });
+  return new Map(rows.map((r) => [r.doc_id, r._sum.settled_amount?.toNumber() ?? 0]));
 }
 
 // ---------------------------------------------------------------- options

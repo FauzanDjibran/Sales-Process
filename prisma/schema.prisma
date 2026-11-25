@@ -491,18 +491,19 @@ model RefCurrency {
 
   ap_items FinApItem[] @relation("ApItemCurrency")
 
-  exchange_rates     RefExchangeRate[]
-  coCurrency         SalCustomerOrder[]    @relation("CoCurrency")
-  arInvoiceCurrency  FinArInvoice[]        @relation("ArInvoiceCurrency")
-  arAdvanceCurrency  FinArAdvance[]        @relation("ArAdvanceCurrency")
-  cashBankTxCurrency FinCashBankTx[]       @relation("CashBankTxCurrency")
-  poCurrency         PurOrder[]            @relation("PoCurrency")
-  apAdvanceCurrency  FinApAdvance[]        @relation("ApAdvanceCurrency")
-  apInvoiceCurrency  FinApInvoice[]        @relation("ApInvoiceCurrency")
-  sales_partners     MPartner[]            @relation("PartnerSalesCurrency")
-  purchase_partners  MPartner[]            @relation("PartnerPurchaseCurrency")
-  credit_notes       FinArCreditNote[]     @relation("CreditNoteCurrency")
-  cash_transfers     FinCashBankTransfer[]
+  exchange_rates      RefExchangeRate[]
+  coCurrency          SalCustomerOrder[]       @relation("CoCurrency")
+  arInvoiceCurrency   FinArInvoice[]           @relation("ArInvoiceCurrency")
+  arAdvanceCurrency   FinArAdvance[]           @relation("ArAdvanceCurrency")
+  cashBankTxCurrency  FinCashBankTx[]          @relation("CashBankTxCurrency")
+  poCurrency          PurOrder[]               @relation("PoCurrency")
+  apAdvanceCurrency   FinApAdvance[]           @relation("ApAdvanceCurrency")
+  apInvoiceCurrency   FinApInvoice[]           @relation("ApInvoiceCurrency")
+  sales_partners      MPartner[]               @relation("PartnerSalesCurrency")
+  purchase_partners   MPartner[]               @relation("PartnerPurchaseCurrency")
+  credit_notes        FinArCreditNote[]        @relation("CreditNoteCurrency")
+  credit_applications FinArCreditApplication[]
+  cash_transfers      FinCashBankTransfer[]
 
   @@map("ref_currency")
 }
@@ -1353,22 +1354,23 @@ model MPartner {
   ap_advances     FinApAdvance[]    @relation("ApAdvanceSupplier")
   contacts        MPartnerContact[]
 
-  customer_orders SalCustomerOrder[]
-  permit_requests SalPermitRequest[]
-  permit_advances FinArPermitAdvance[] @relation("PermitAdvanceCustomer")
-  permit_invoices FinArPermitInvoice[] @relation("PermitInvoiceCustomer")
-  sales_orders    SalOrder[]
-  sales_returns   SalReturn[]
-  credit_notes    FinArCreditNote[]    @relation("CreditNoteCustomer")
-  delivery_orders SalDeliveryOrder[]
-  delivery_notes  LogDeliveryNote[]
-  stock_trackings LogStockTracking[]
-  tax_fakturs     TaxFaktur[]
-  tax_slips       TaxWithholdingSlip[]
-  invoices        FinArInvoice[]
-  sales_advances  FinArAdvance[]
-  cash_bank_txs   FinCashBankTx[]
-  ar_items        FinArItem[]
+  customer_orders     SalCustomerOrder[]
+  permit_requests     SalPermitRequest[]
+  permit_advances     FinArPermitAdvance[]     @relation("PermitAdvanceCustomer")
+  permit_invoices     FinArPermitInvoice[]     @relation("PermitInvoiceCustomer")
+  sales_orders        SalOrder[]
+  sales_returns       SalReturn[]
+  credit_notes        FinArCreditNote[]        @relation("CreditNoteCustomer")
+  credit_applications FinArCreditApplication[]
+  delivery_orders     SalDeliveryOrder[]
+  delivery_notes      LogDeliveryNote[]
+  stock_trackings     LogStockTracking[]
+  tax_fakturs         TaxFaktur[]
+  tax_slips           TaxWithholdingSlip[]
+  invoices            FinArInvoice[]
+  sales_advances      FinArAdvance[]
+  cash_bank_txs       FinCashBankTx[]
+  ar_items            FinArItem[]
 
   journal_lines AccJournalLine[]
 
@@ -2666,6 +2668,60 @@ model FinArCreditNote {
   @@map("fin_ar_credit_note")
 }
 
+/// A Penerapan Kredit (P332, Sales-Return-Plan.md §12): the only way customer
+/// credit lowers an Invoice. One customer, one currency; no journal in rupiah.
+model FinArCreditApplication {
+  id               Int              @id @default(autoincrement())
+  /// `PKR/YYYY/MM/NNNN`.
+  application_no   String           @unique
+  application_date DateTime         @db.Date
+  status           CreditNoteStatus @default(Draft)
+
+  customer_id  Int
+  currency_id  Int
+  total_amount Decimal @default(0) @db.Decimal(18, 2)
+  note         String?
+
+  journal_id    Int?
+  cancel_reason String?
+
+  created_by Int
+  updated_by Int?
+  created_at DateTime @default(now()) @db.Timestamptz(6)
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
+
+  customer MPartner                     @relation(fields: [customer_id], references: [id])
+  currency RefCurrency                  @relation(fields: [currency_id], references: [id])
+  lines    FinArCreditApplicationLine[]
+
+  @@index([status, application_date])
+  @@map("fin_ar_credit_application")
+}
+
+/// Part of one Credit Note's Retur item taken off one Invoice's item; the bases
+/// are what Posting relieved from each.
+model FinArCreditApplicationLine {
+  id                  Int     @id @default(autoincrement())
+  application_id      Int
+  line_no             Int
+  credit_note_id      Int
+  return_item_id      Int
+  invoice_id          Int
+  invoice_item_id     Int
+  amount              Decimal @db.Decimal(18, 2)
+  base_return_amount  Decimal @default(0) @db.Decimal(18, 2)
+  base_invoice_amount Decimal @default(0) @db.Decimal(18, 2)
+  fx_difference       Decimal @default(0) @db.Decimal(18, 2)
+
+  application FinArCreditApplication @relation(fields: [application_id], references: [id], onDelete: Cascade)
+
+  @@unique([application_id, line_no])
+  @@unique([application_id, credit_note_id, invoice_id])
+  @@index([credit_note_id])
+  @@index([invoice_id])
+  @@map("fin_ar_credit_application_line")
+}
+
 /// One credited quantity of one Invoice line, at its cumulative share of the
 /// line (P112): the credits of a line never add up to more than the line.
 model FinArCreditNoteLine {
@@ -2731,9 +2787,9 @@ model LogDeliveryNote {
   note        String?
 
   /// Σ of the lines' cost, set at Posting.
-  base_cost_amount   Decimal @default(0) @db.Decimal(18, 2)
-  journal_id    Int?
-  cancel_reason String?
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
+  journal_id       Int?
+  cancel_reason    String?
 
   created_by Int
   updated_by Int?
@@ -2770,7 +2826,7 @@ model LogDeliveryNoteLine {
   /// qty × uom_factor; equals Σ its trackings' base_qty for a lot-tracked item.
   base_qty           Decimal @default(0) @db.Decimal(18, 4)
   /// Σ its trackings' cost at Posting — a summary; the value is the stock's (P268).
-  base_cost_amount        Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount   Decimal @default(0) @db.Decimal(18, 2)
   /// What posted Receipt Notes `sales_return` brought back of this line (P288),
   /// written through this module; the Invoice bills what is left.
   returned_qty       Decimal @default(0) @db.Decimal(18, 4)
@@ -2809,7 +2865,7 @@ model LogDeliveryNoteTracking {
   /// In the item's base unit — the quantity the stock books move.
   base_qty              Decimal   @db.Decimal(18, 4)
   /// What the stock released at Posting (round(V × q ÷ Q), P114).
-  base_cost_amount           Decimal   @default(0) @db.Decimal(18, 2)
+  base_cost_amount      Decimal   @default(0) @db.Decimal(18, 2)
 
   line         LogDeliveryNoteLine @relation(fields: [delivery_note_line_id], references: [id])
   stock_status SysStockStatus      @relation(fields: [stock_status_id], references: [id])
@@ -4185,9 +4241,9 @@ model LogReceiptNote {
   note               String?
 
   /// Σ of the lines' value, set at Posting.
-  base_cost_amount  Decimal @default(0) @db.Decimal(18, 2)
-  journal_id    Int?
-  cancel_reason String?
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
+  journal_id       Int?
+  cancel_reason    String?
 
   created_by Int
   updated_by Int?
@@ -4221,9 +4277,9 @@ model LogReceiptNoteLine {
   /// Enters the stock books (Barang with Kelola Stok); otherwise an expense.
   is_stock         Boolean @default(false)
   /// The PO line DPP for this quantity, in the PO currency: what the Invoice Pembelian bills (MC7).
-  cost_amount Decimal @default(0) @db.Decimal(18, 2)
+  cost_amount      Decimal @default(0) @db.Decimal(18, 2)
   /// Its share of the source line's DPP, cumulative (B20); set at Posting.
-  base_cost_amount     Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
   note             String?
 
   receipt_note LogReceiptNote           @relation(fields: [receipt_note_id], references: [id], onDelete: Cascade)
@@ -4248,7 +4304,7 @@ model LogReceiptNoteTracking {
   expiry_date        DateTime? @db.Date
   /// In base units, whatever the line's unit (P320).
   base_qty           Decimal   @db.Decimal(18, 4)
-  base_cost_amount       Decimal   @default(0) @db.Decimal(18, 2)
+  base_cost_amount   Decimal   @default(0) @db.Decimal(18, 2)
   /// The stock lot it became, set at Posting (weak: the inventory's table).
   tracking_id        Int?
   /// Where it is put, in a warehouse with Gunakan Lokasi (weak: a master the
@@ -5438,11 +5494,11 @@ model LogStockIssue {
   note         String?
 
   /// Σ of the lines' cost, frozen at Kirim (P317).
-  base_cost_amount   Decimal   @default(0) @db.Decimal(18, 2)
-  journal_id    Int?
+  base_cost_amount Decimal   @default(0) @db.Decimal(18, 2)
+  journal_id       Int?
   /// The day the Unit said it took the goods in.
-  received_at   DateTime? @db.Date
-  cancel_reason String?
+  received_at      DateTime? @db.Date
+  cancel_reason    String?
 
   created_by Int
   updated_by Int?
@@ -5459,17 +5515,17 @@ model LogStockIssue {
 }
 
 model LogStockIssueLine {
-  id             Int     @id @default(autoincrement())
-  stock_issue_id Int
-  line_no        Int
-  item_id        Int
+  id               Int     @id @default(autoincrement())
+  stock_issue_id   Int
+  line_no          Int
+  item_id          Int
   /// The item's base unit, factor 1 (as sales, P108).
-  uom_id         Int
-  uom_factor     Decimal @default(1) @db.Decimal(18, 4)
-  qty            Decimal @db.Decimal(18, 4)
-  base_qty       Decimal @default(0) @db.Decimal(18, 4)
-  base_cost_amount    Decimal @default(0) @db.Decimal(18, 2)
-  note           String?
+  uom_id           Int
+  uom_factor       Decimal @default(1) @db.Decimal(18, 4)
+  qty              Decimal @db.Decimal(18, 4)
+  base_qty         Decimal @default(0) @db.Decimal(18, 4)
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
+  note             String?
 
   stock_issue LogStockIssue           @relation(fields: [stock_issue_id], references: [id])
   item        MItem                   @relation(fields: [item_id], references: [id])
@@ -5492,7 +5548,7 @@ model LogStockIssueTracking {
   expiry_date         DateTime? @db.Date
   qty                 Decimal   @db.Decimal(18, 4)
   base_qty            Decimal   @default(0) @db.Decimal(18, 4)
-  base_cost_amount         Decimal   @default(0) @db.Decimal(18, 2)
+  base_cost_amount    Decimal   @default(0) @db.Decimal(18, 2)
 
   line LogStockIssueLine @relation(fields: [stock_issue_line_id], references: [id])
 
@@ -5511,32 +5567,32 @@ model LogStockIssueTracking {
 // only by `stock-receipt.ts`; production is named by number, never by id.
 
 model LogStockReceipt {
-  id                 Int            @id @default(autoincrement())
+  id                      Int            @id @default(autoincrement())
   /// The sender's number.
-  receipt_no         String         @unique
+  receipt_no              String         @unique
   /// `finish_goods` (BSTB ke Finish Goods), `return` (BSTB Pengeluaran) or `purchase_bonus` (P321).
-  purpose            String
+  purpose                 String
   /// The day the goods were sent.
-  receipt_date       DateTime       @db.Date
-  status             HandoverStatus @default(InTransit)
+  receipt_date            DateTime       @db.Date
+  status                  HandoverStatus @default(InTransit)
   /// The Unit that sent them.
-  from_unit_id       Int?
-  warehouse_id       Int
+  from_unit_id            Int?
+  warehouse_id            Int
   /// `purchase_bonus`: the Receipt Note it came with, weak (P321).
-  source_doc_type_id Int?
-  source_doc_id      Int?
-  source_no          String?
-  note               String?
+  source_doc_type_id      Int?
+  source_doc_id           Int?
+  source_no               String?
+  note                    String?
   /// Terima: the day the warehouse took them in, the journal's date.
-  received_at        DateTime?      @db.Date
-  received_by        Int?
+  received_at             DateTime?      @db.Date
+  received_by             Int?
   /// Σ of the lines' value, frozen by the sender.
   base_cost_amount        Decimal        @default(0) @db.Decimal(18, 2)
   /// Chosen at Terima: `carried` (into stock at its value) or `none` (into stock at 0, P304).
-  value_mode         String?
+  value_mode              String?
   /// What `none` charged to Beban Pemusnahan Produksi instead of stock.
   base_written_off_amount Decimal        @default(0) @db.Decimal(18, 2)
-  journal_id         Int?
+  journal_id              Int?
 
   created_by Int
   updated_by Int?
@@ -5561,7 +5617,7 @@ model LogStockReceiptLine {
   line_no          Int
   item_id          Int
   base_qty         Decimal @db.Decimal(18, 6)
-  base_cost_amount     Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
 
   receipt   LogStockReceipt           @relation(fields: [stock_receipt_id], references: [id])
   item      MItem                     @relation(fields: [item_id], references: [id])
@@ -5583,7 +5639,7 @@ model LogStockReceiptTracking {
   job_no                String?
   base_qty              Decimal   @db.Decimal(18, 6)
   grams                 Decimal?  @db.Decimal(18, 6)
-  base_cost_amount          Decimal   @default(0) @db.Decimal(18, 2)
+  base_cost_amount      Decimal   @default(0) @db.Decimal(18, 2)
   /// Chosen at Terima.
   location_id           Int?
   stock_status_id       Int?
@@ -5598,18 +5654,18 @@ model LogStockReceiptTracking {
 /// The Stock Adjustment (P318): a count of one warehouse and what it found missing
 /// or extra. Named only by `stock-adjustment.ts`.
 model LogStockAdjustment {
-  id              Int                   @id @default(autoincrement())
-  adjustment_no   String                @unique
-  adjustment_date DateTime              @db.Date
-  status          StockAdjustmentStatus @default(Draft)
-  warehouse_id    Int
-  note            String?
+  id                Int                   @id @default(autoincrement())
+  adjustment_no     String                @unique
+  adjustment_date   DateTime              @db.Date
+  status            StockAdjustmentStatus @default(Draft)
+  warehouse_id      Int
+  note              String?
   /// Σ of what left and of what came in, set at Posting.
-  base_short_amount    Decimal               @default(0) @db.Decimal(18, 2)
-  base_over_amount     Decimal               @default(0) @db.Decimal(18, 2)
-  journal_id      Int?
+  base_short_amount Decimal               @default(0) @db.Decimal(18, 2)
+  base_over_amount  Decimal               @default(0) @db.Decimal(18, 2)
+  journal_id        Int?
   /// Why it was rejected or cancelled.
-  status_reason   String?
+  status_reason     String?
 
   created_by Int
   updated_by Int?
@@ -5639,9 +5695,9 @@ model LogStockAdjustmentLine {
   /// Null while not counted yet.
   counted_qty         Decimal? @db.Decimal(18, 6)
   /// For an excess of an item the company holds none of.
-  base_typed_amount         Decimal? @db.Decimal(18, 2)
+  base_typed_amount   Decimal? @db.Decimal(18, 2)
   /// What it moved in value, signed; set at Posting.
-  base_cost_amount        Decimal  @default(0) @db.Decimal(18, 2)
+  base_cost_amount    Decimal  @default(0) @db.Decimal(18, 2)
   note                String?
 
   adjustment LogStockAdjustment @relation(fields: [stock_adjustment_id], references: [id])

@@ -44,6 +44,7 @@ const ROUTES: Record<string, string> = {
   pur_order: "/purchasing/order/goods",
   fin_ar_invoice: "/finance/invoice/sales",
   fin_ar_credit_note: "/finance/invoice/credit-note",
+  fin_ar_credit_application: "/finance/invoice/credit-application",
   fin_ar_permit_invoice: "/finance/invoice/permit",
   fin_ap_invoice: "/finance/invoice/purchase",
   tax_faktur: "/tax/faktur",

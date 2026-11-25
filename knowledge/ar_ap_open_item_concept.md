@@ -104,7 +104,11 @@ source document reference (unique)
 
 ## 4. Allocation / Clearing Rule
 
-**Choice point `settlement`.** The main path is **`in-posting`**: there is no allocation record. The document that settles (a receipt, an invoice using an advance) moves the items directly inside its own posting, and each ledger entry names its counter item, so the relationship stays traceable. The alternative, `allocation-step`, makes allocation a separate record linking a source item to a target item. The rules below hold for both.
+**Choice point `settlement`.** The main path is **`in-posting`**: there is no allocation record. The document that settles (a receipt, an invoice using an advance) moves the items directly inside its own posting, and each ledger entry names its counter item, so the relationship stays traceable.
+
+The document that settles may be one whose **only purpose** is to apply: a **credit application**, which takes the open credit of one item off the open balance of another. It is still `in-posting`: it has its own number, lifecycle and posting, its lines are the document's own content, and the balances move and stay traceable only through the ledger entries its posting writes. A credit (a credit note, a refundable item) therefore stays open when it is posted and never lowers an invoice by itself.
+
+The alternative, `allocation-step`, makes allocation a separate record linking a source item to a target item. The rules below hold for both.
 
 The primary allocation eligibility rule is:
 
@@ -229,6 +233,7 @@ Allocation = settlement relationship
 ```
 
 ## Changelog
+- **2.3** (25/11/2026): §4, under `in-posting` the settling document may be a credit application, whose only purpose is to apply open credit to an open item; a credit never lowers an invoice by itself. From ERP P330, P332 (the user's deviation-check answer B). A clarification: no adopter has to change.
 - **1.0** (03/10/2026): from ERP `Initialization/ar_ap_open_item_concept.md`.
 - **2.2** (04/11/2026): `in-posting` made the main path and default for new projects, on the user's decision (REGISTRY R4). §2 and §4 no longer assume a separate allocation step. No rule removed: `allocation-step` stays an option.
 - **2.1** (04/11/2026): harvested ERP P116, P117. §6, an item keeps balances only, with `original_amount` allowed and no tax figures; §2, an invoice's item is born at its face and the advance it deducts is applied inside its posting as a pair of entries.

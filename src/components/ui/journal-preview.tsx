@@ -54,6 +54,9 @@ export function JournalPreview({
     );
   }
 
+  // A posting whose books move without a journal (P332) says so.
+  if (!result.lines.length) return <div className="apmap">Tidak ada journal yang ditulis.</div>;
+
   const money = (n: number) => (n ? formatMoney(n, "IDR") : "");
   const debit = result.lines.reduce((t, l) => t + l.debit, 0);
   const credit = result.lines.reduce((t, l) => t + l.credit, 0);

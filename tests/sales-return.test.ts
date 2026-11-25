@@ -7,8 +7,16 @@ import { createDeliveryOrder, transitionDeliveryOrder } from "../src/lib/erp/del
 import { createDeliveryNote, invoiceSourceLines, transitionDeliveryNote } from "../src/lib/erp/delivery-note";
 import { createInvoice, invoiceOptions, invoicePayStates, transitionInvoice, unpaidSalesInvoiceIds } from "../src/lib/erp/ar-invoice";
 import { cashReceiptOptions, createCashReceipt, transitionCashReceipt } from "../src/lib/erp/cash-bank-tx";
-import { cashPaymentOptions, createCashPayment, transitionCashPayment } from "../src/lib/erp/cash-payment";
-import { applyReturnCredit, arBook, openArItemsAsOf } from "../src/lib/erp/ar-item";
+import { cashPaymentOptions, createCashPayment, draftRefundsByCreditNotes, transitionCashPayment } from "../src/lib/erp/cash-payment";
+import { applyReturnCredit, arBook, createArItem, openArItemsAsOf } from "../src/lib/erp/ar-item";
+import {
+  createCreditApplication,
+  creditApplicationOptions,
+  creditApplicationPreview,
+  getCreditApplication,
+  transitionCreditApplication,
+  updateCreditApplication,
+} from "../src/lib/erp/ar-credit-application";
 import { foldAging } from "../src/lib/erp/ar-aging";
 import { createCreditNote, creditNoteOptions, creditNotePreview, transitionCreditNote, updateCreditNote } from "../src/lib/erp/ar-credit-note";
 import {
@@ -49,7 +57,7 @@ import {
 const today = new Date().toISOString().slice(0, 10);
 let actor = 0;
 const f = {} as Record<string, number>;
-const ids = { co: [] as number[], so: [] as number[], do: [] as number[], dn: [] as number[], sr: [] as number[], rn: [] as number[], inv: [] as number[], cn: [] as number[], rc: [] as number[] };
+const ids = { co: [] as number[], so: [] as number[], do: [] as number[], dn: [] as number[], sr: [] as number[], rn: [] as number[], inv: [] as number[], cn: [] as number[], rc: [] as number[], ca: [] as number[] };
 const cleanups: (() => Promise<unknown>)[] = [];
 const savedSettings = new Map<string, string | null>();
 const stamp = String(Date.now() % 100000);
@@ -181,6 +189,7 @@ before(async () => {
 });
 
 after(async () => {
+  await prisma.finArCreditApplication.deleteMany({ where: { id: { in: ids.ca } } });
   await prisma.finArCreditNoteLine.deleteMany({ where: { credit_note_id: { in: ids.cn } } });
   await prisma.finArCreditNote.deleteMany({ where: { id: { in: ids.cn } } });
   const items = await prisma.finArItem.findMany({ where: { partner_id: f.customer }, select: { id: true } });
@@ -189,7 +198,7 @@ after(async () => {
   await prisma.finArInvoiceLine.deleteMany({ where: { invoice_id: { in: ids.inv } } });
   await prisma.finArInvoice.deleteMany({ where: { id: { in: ids.inv } } });
   await prisma.finCashBankTx.deleteMany({ where: { id: { in: ids.rc } } });
-  for (const [k, list] of Object.entries({ fin_ar_credit_note: ids.cn, fin_ar_invoice: ids.inv, fin_cash_bank_tx: ids.rc })) {
+  for (const [k, list] of Object.entries({ fin_ar_credit_application: ids.ca, fin_ar_credit_note: ids.cn, fin_ar_invoice: ids.inv, fin_cash_bank_tx: ids.rc })) {
     await prisma.auditLog.deleteMany({ where: { entity_key: k, row_id: { in: list } } });
   }
   await prisma.logReceiptNote.deleteMany({ where: { id: { in: ids.rn } } });
@@ -695,5 +704,131 @@ describe("customer credit left on a Credit Note is refunded or used by the next 
     // The receipt still asks for the whole Invoice; its DPP and PPh base fell with the credit (SR16).
     const bill = (await cashReceiptOptions()).bills.find((b) => b.kind === "fin_ar_invoice" && b.id === inv.id)!;
     assert.deepEqual([bill.total, bill.open, bill.dpp], [11_100, 11_100, 5_000]);
+  });
+});
+
+// --------------------------------------- Penerapan Kredit (P332)
+
+describe("a Penerapan Kredit takes open credit off an open Invoice", () => {
+  // Open after the tests above: the first credit's 3.550 and the second's 5.550; the second Invoice's 11.100.
+  const credit = () => ids.cn[2];
+  const credit2 = () => ids.cn[3];
+  const invoice = () => ids.inv[1];
+  const head = (over = {}) => ({ customer_id: f.customer, currency_id: f.idr, application_date: today, note: "", ...over });
+  const row = (credit_note_id: number, invoice_id: number, amount: number) => ({ credit_note_id, invoice_id, amount });
+  const balance = async (source: number, type: "Invoice" | "Return") =>
+    (await prisma.finArItem.findFirstOrThrow({ where: { partner_id: f.customer, item_type: type, source_doc_id: source } })).current_balance.toNumber();
+
+  before(async () => {
+    f.idr = (await prisma.refCurrency.findFirstOrThrow({ where: { currency_label: "IDR" } })).id;
+  });
+
+  test("offers open credit and open Invoices, and refuses what is beyond them", async () => {
+    const o = await creditApplicationOptions();
+    assert.equal(o.credits.find((c) => c.id === credit())?.free, 3_550);
+    assert.equal(o.invoices.find((i) => i.id === invoice())?.free, 11_100);
+    assert.ok(!o.invoices.some((i) => i.id === ids.inv[0]), "a paid Invoice is not offered");
+    const over = await createCreditApplication(head(), [row(credit(), invoice(), 3_551)], actor);
+    assert.ok(!over.ok && /Melebihi sisa kredit/.test(over.errors["lines.0.amount"]));
+    const both = await createCreditApplication(head(), [row(credit2(), invoice(), 5_550), row(credit2(), ids.inv[0], 1)], actor);
+    assert.ok(!both.ok && /Melebihi sisa kredit/.test(both.errors["lines.1.amount"]), "the lines of one credit add up");
+    const twice = await createCreditApplication(head(), [row(credit(), invoice(), 1), row(credit(), invoice(), 1)], actor);
+    assert.ok(!twice.ok && twice.errors["lines.1.invoice_id"]);
+    const part = await createCreditApplication(head(), [row(credit(), invoice(), 1.5)], actor);
+    assert.ok(!part.ok && /rupiah penuh/.test(part.errors["lines.0.amount"]));
+    const early = await createCreditApplication(head({ application_date: "2020-01-01" }), [row(credit(), invoice(), 1)], actor);
+    assert.ok(!early.ok);
+    const stranger = await createCreditApplication(head({ customer_id: f.customer + 1 }), [row(credit(), invoice(), 1)], actor);
+    assert.ok(!stranger.ok && stranger.errors["lines.0.credit_note_id"]);
+  });
+
+  test("a Draft holds its credit from other applications and refunds, and Batalkan gives it back", async () => {
+    const a = await createCreditApplication(head(), [row(credit(), invoice(), 3_000)], actor);
+    assert.ok(a.ok, JSON.stringify(a));
+    ids.ca.push(a.id);
+    assert.match(a.applicationNo, /^PKR\/\d{4}\/\d{2}\/\d{4,}$/);
+    assert.equal(await balance(credit(), "Return"), 3_550, "a Draft moves nothing");
+    assert.equal((await creditApplicationOptions()).credits.find((c) => c.id === credit())?.free, 550);
+    assert.equal((await cashPaymentOptions()).bills.find((b) => b.kind === "fin_ar_credit_note" && b.id === credit())?.open, 550);
+    assert.ok((await updateCreditApplication(a.id, head(), [row(credit(), invoice(), 3_550)], actor)).ok, "its own hold does not count against it");
+    assert.ok(!(await updateCreditApplication(a.id, head({ customer_id: f.customer + 1 }), [row(credit(), invoice(), 1)], actor)).ok);
+    const noReason = await transitionCreditApplication(a.id, "cancel", actor, " ");
+    assert.ok(!noReason.ok && noReason.errors.reason);
+    assert.deepEqual(await transitionCreditApplication(a.id, "cancel", actor, "salah"), { ok: true });
+    assert.equal((await creditApplicationOptions()).credits.find((c) => c.id === credit())?.free, 3_550);
+  });
+
+  test("a Draft refund holds the credit too", async () => {
+    const p = await createCashPayment(
+      { purpose: "customer_refund", tx_date: today, partner_id: f.customer, cash_bank_id: f.bank, bank_ref: "", note: "", bank_charge: 0, lines: [{ doc_type: "fin_ar_credit_note", doc_id: credit(), settled: 1_000 }] },
+      actor
+    );
+    assert.ok(p.ok, JSON.stringify(p));
+    ids.rc.push(p.id);
+    const r = await createCreditApplication(head(), [row(credit(), invoice(), 3_000)], actor, draftRefundsByCreditNotes);
+    assert.ok(!r.ok && /Melebihi sisa kredit/.test(r.errors["lines.0.amount"]));
+    assert.deepEqual(await transitionCashPayment(p.id, "cancel", actor, "uji"), { ok: true });
+  });
+
+  test("posting lowers both items and writes no journal in rupiah; the receipt asks for the rest", async () => {
+    const a = await createCreditApplication(head(), [row(credit(), invoice(), 3_550), row(credit2(), invoice(), 1_000)], actor);
+    assert.ok(a.ok, JSON.stringify(a));
+    ids.ca.push(a.id);
+    const journals = await prisma.accJournal.count();
+    assert.deepEqual(await creditApplicationPreview(a.id, actor), { ok: true, lines: [] });
+    assert.equal(await balance(credit(), "Return"), 3_550, "the preview writes nothing");
+    assert.deepEqual(await transitionCreditApplication(a.id, "post", actor), { ok: true });
+    assert.equal(await prisma.accJournal.count(), journals);
+    assert.deepEqual([await balance(credit(), "Return"), await balance(credit2(), "Return"), await balance(invoice(), "Invoice")], [0, 4_550, 6_550]);
+    const bill = (await cashReceiptOptions()).bills.find((b) => b.kind === "fin_ar_invoice" && b.id === invoice())!;
+    assert.deepEqual([bill.total, bill.open, bill.dpp], [6_550, 6_550, 5_000], "asked less, its PPh base untouched by the application (SR16)");
+    assert.equal((await getCreditApplication(a.id))?.status, "Posted");
+    assert.ok(!(await transitionCreditApplication(a.id, "cancel", actor, "x")).ok, "a posted one is final");
+    const item = await prisma.finArItem.findFirstOrThrow({ where: { item_type: "Invoice", source_doc_id: invoice(), partner_id: f.customer } });
+    assert.equal(item.paid_amount.toNumber(), 0, "credit is not a payment");
+  });
+
+  test("in USD, across Customer Orders: both legs of Piutang at their own base, the rest selisih kurs", async () => {
+    const usd = await prisma.refCurrency.findFirst({ where: { currency_label: "USD" } });
+    assert.ok(usd, "USD is seeded");
+    const sub = (await prisma.accAccountSubcategory.findFirstOrThrow({ where: { subcategory_label: { startsWith: "5" } }, orderBy: { id: "asc" } })).subcategory_label;
+    const fxAcc = await makeAccount({ subcategoryLabel: sub });
+    await setMapping("fx_account", String(fxAcc));
+    const docType = async (t: string) => (await prisma.sysDocType.findFirstOrThrow({ where: { doc_table: t } })).id;
+    const coType = await docType("sal_customer_order");
+    const inv = await prisma.finArInvoice.findUniqueOrThrow({ where: { id: invoice() } });
+    const cn = await prisma.finArCreditNote.findUniqueOrThrow({ where: { id: credit() } });
+    // The Invoice: 100 USD at 16.000, of another Customer Order; the credit: 40 USD at 15.000.
+    const invRow = await prisma.finArInvoice.create({ data: { ...inv, id: undefined, invoice_no: key("INVUSD"), currency_id: usd.id, customer_order_id: flow.coId + 1_000_000, total_amount: 100, ar_item_id: null, journal_id: null } });
+    ids.inv.push(invRow.id);
+    const cnRow = await prisma.finArCreditNote.create({ data: { ...cn, id: undefined, credit_no: key("CNUSD"), currency_id: usd.id, total_amount: 40, ar_item_id: null, journal_id: null } });
+    ids.cn.push(cnRow.id);
+    const item = async (type: "Invoice" | "Return", table: string, docId: number, no: string, amount: number, base: number, scope: number) =>
+      createArItem(prisma as never, {
+        type, partnerId: f.customer, currencyId: usd!.id, date: today, dueDate: today,
+        source: { docTypeId: await docType(table), docId, no }, createdBy: { docTypeId: await docType(table), docId, no },
+        scope: { docTypeId: coType, docId: scope }, amount, base, note: "", actorId: actor,
+      });
+    const invItem = await item("Invoice", "fin_ar_invoice", invRow.id, invRow.invoice_no, 100, 1_600_000, flow.coId + 1_000_000);
+    const retItem = await item("Return", "fin_ar_credit_note", cnRow.id, cnRow.credit_no, 40, 600_000, flow.coId);
+    await prisma.finArInvoice.update({ where: { id: invRow.id }, data: { ar_item_id: invItem } });
+    await prisma.finArCreditNote.update({ where: { id: cnRow.id }, data: { ar_item_id: retItem } });
+
+    const cross = await createCreditApplication(head(), [row(credit2(), invRow.id, 10)], actor);
+    assert.ok(!cross.ok && cross.errors["lines.0.invoice_id"], "an IDR credit never lowers a USD Invoice");
+    const a = await createCreditApplication(head({ currency_id: usd.id }), [row(cnRow.id, invRow.id, 30.5)], actor);
+    assert.ok(a.ok, JSON.stringify(a));
+    ids.ca.push(a.id);
+    const preview = await creditApplicationPreview(a.id, actor);
+    assert.ok(preview.ok && preview.lines.length === 3, JSON.stringify(preview));
+    assert.deepEqual(await transitionCreditApplication(a.id, "post", actor), { ok: true });
+    const l = await prisma.finArCreditApplicationLine.findFirstOrThrow({ where: { application_id: a.id } });
+    assert.deepEqual([l.base_return_amount.toNumber(), l.base_invoice_amount.toNumber(), l.fx_difference.toNumber()], [457_500, 488_000, 30_500]);
+    const head2 = await prisma.finArCreditApplication.findUniqueOrThrow({ where: { id: a.id } });
+    const jl = await prisma.accJournalLine.findMany({ where: { journal_id: head2.journal_id! }, orderBy: { sequence_no: "asc" } });
+    assert.deepEqual(jl.map((x) => [x.debit_amount.toNumber(), x.kredit_amount.toNumber()]), [[457_500, 0], [0, 488_000], [30_500, 0]], "a loss is debited");
+    assert.equal(jl[2].account_id, fxAcc);
+    const items = await prisma.finArItem.findMany({ where: { id: { in: [retItem, invItem] } }, orderBy: { id: "asc" } });
+    assert.deepEqual(items.map((x) => [x.current_balance.toNumber(), x.base_current_balance.toNumber()]), [[69.5, 1_112_000], [9.5, 142_500]]);
   });
 });

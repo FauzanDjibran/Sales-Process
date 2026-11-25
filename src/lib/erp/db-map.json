@@ -177,6 +177,8 @@
   "fin_ar_invoice_advance_deduction": "erp-finance",
   "fin_ar_credit_note": "erp-finance",
   "fin_ar_credit_note_line": "erp-finance",
+  "fin_ar_credit_application": "erp-finance",
+  "fin_ar_credit_application_line": "erp-finance",
   "sal_customer_order": "erp-penjualan",
   "sal_customer_order_line": "erp-penjualan",
   "sal_permit_request": "erp-penjualan",
@@ -1508,6 +1510,42 @@
     "sys_setting"
    ]
   },
+  "fin_ar_credit_application": {
+   "main": "fin_ar_credit_application",
+   "w": [
+    "acc_journal",
+    "acc_journal_line",
+    "audit_log",
+    "fin_ar_credit_application",
+    "fin_ar_credit_application_line",
+    "fin_ar_item",
+    "fin_ar_ledger"
+   ],
+   "r": [
+    "acc_account",
+    "acc_fiscal_closing",
+    "acc_fiscal_period",
+    "acc_fiscal_period_lock",
+    "acc_fiscal_year",
+    "fin_ar_credit_note",
+    "fin_ar_invoice",
+    "fin_ar_invoice_line",
+    "fin_cash_bank_tx",
+    "fin_cash_bank_tx_line",
+    "m_item",
+    "m_partner",
+    "ref_currency",
+    "ref_payment_term",
+    "ref_uom",
+    "ref_warehouse",
+    "ref_warehouse_location",
+    "ref_withholding_tax",
+    "sal_customer_order",
+    "sal_customer_order_line",
+    "sys_doc_type",
+    "sys_setting"
+   ]
+  },
   "fin_ar_permit_invoice": {
    "main": "fin_ar_permit_invoice",
    "w": [
@@ -1673,6 +1711,8 @@
     "acc_fiscal_year",
     "fin_ap_advance",
     "fin_ap_invoice",
+    "fin_ar_credit_application",
+    "fin_ar_credit_application_line",
     "fin_ar_credit_note",
     "fin_ar_invoice",
     "m_cash_bank",

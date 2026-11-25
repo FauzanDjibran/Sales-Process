@@ -2028,6 +2028,58 @@ table fin_ar_credit_note_line {
   indexes {
     (credit_note_id, line_no) [unique]
     (credit_note_id, invoice_line_id) [unique]
+  }
+}
+
+// Penerapan Kredit, PKR/… (P332, Sales-Return-Plan.md §12): the only way customer credit lowers an Invoice.
+// One customer, one currency, across Customer Orders. Draft holds its amounts; Posting moves both AR items,
+// with a journal only in a foreign currency (both Piutang legs at their own base + selisih kurs)
+table fin_ar_credit_application {
+  id                          int [pk, increment, not null]
+
+  application_no              varchar [unique, not null]
+  application_date            date [not null]
+  status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
+
+  customer_id                 int [not null, ref : > m_partner.id]
+  currency_id                 int [not null, ref : > ref_currency.id]
+  total_amount                decimal(18,2) [not null, default: 0]
+  note                        varchar
+
+  journal_id                  int // weak: its journal, foreign currency only
+  cancel_reason               varchar
+
+  created_by                  int [not null]
+  updated_by                  int
+
+  created_at                  timestamptz [not null, default: `now()`]
+  updated_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    (status, application_date)
+  }
+}
+
+// part of one Credit Note's Retur item taken off one Invoice's item
+table fin_ar_credit_application_line {
+  id                          int [pk, increment, not null]
+
+  application_id              int [not null, ref : > fin_ar_credit_application.id]
+  line_no                     int [not null]
+  credit_note_id              int [not null] // weak: fin_ar_credit_note
+  return_item_id              int [not null] // weak: its Retur fin_ar_item
+  invoice_id                  int [not null] // weak: fin_ar_invoice
+  invoice_item_id             int [not null] // weak: its fin_ar_item
+  amount                      decimal(18,2) [not null] // CHECK > 0
+  base_return_amount          decimal(18,2) [not null, default: 0] // base relieved from the Retur item
+  base_invoice_amount         decimal(18,2) [not null, default: 0] // base relieved from the Invoice item
+  fx_difference               decimal(18,2) [not null, default: 0] // invoice base less return base (MC13)
+
+  indexes {
+    (application_id, line_no) [unique]
+    (application_id, credit_note_id, invoice_id) [unique]
+    credit_note_id
+    invoice_id
     invoice_line_id
     item_id
   }
