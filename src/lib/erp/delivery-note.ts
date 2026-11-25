@@ -670,11 +670,11 @@ export async function transitionDeliveryNote(
           });
           await tx.logDeliveryNoteTracking.update({
             where: { delivery_note_line_id_pick_no: { delivery_note_line_id: stored.id, pick_no: p.pick_no } },
-            data: { cost_amount: out.cost },
+            data: { base_cost_amount: out.cost },
           });
           cost += out.cost;
         }
-        await tx.logDeliveryNoteLine.update({ where, data: { base_qty: line.base_qty, cost_amount: cost } });
+        await tx.logDeliveryNoteLine.update({ where, data: { base_qty: line.base_qty, base_cost_amount: cost } });
         issued.push({ line, cost });
       }
       const total = issued.reduce((s, l) => s + l.cost, 0);
@@ -692,7 +692,7 @@ export async function transitionDeliveryNote(
             actorId,
             lines: booked.lines,
           });
-      await tx.logDeliveryNote.update({ where: { id }, data: { journal_id: journal?.id ?? null, cost_amount: total } });
+      await tx.logDeliveryNote.update({ where: { id }, data: { journal_id: journal?.id ?? null, base_cost_amount: total } });
       await audit(tx, id, "UPDATE", "post", actorId);
       const closed = await posting.writeBack(tx, { checked: r.c, issued, sourceId: note.source_doc_id, actorId });
       if (options.dryRun) throw new PostingDryRun(booked.lines);
@@ -836,7 +836,7 @@ export async function listDeliveryNotes(): Promise<DeliveryNoteListRow[]> {
     customerName: r.partner.partner_name,
     warehouseLabel: r.warehouse.warehouse_label,
     lines: r._count.lines,
-    cost: r.cost_amount.toNumber(),
+    cost: r.base_cost_amount.toNumber(),
   }));
 }
 
@@ -892,7 +892,7 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
       ...l,
       id: sorted[i].id,
       baseQty: sorted[i].base_qty.toNumber(),
-      cost: sorted[i].cost_amount.toNumber(),
+      cost: sorted[i].base_cost_amount.toNumber(),
       pickedLots: sorted[i].trackings.map((p) => ({
         lotId: p.tracking_id,
         locationId: p.location_id,
@@ -903,10 +903,10 @@ export async function getDeliveryNote(id: number): Promise<DeliveryNoteView | nu
         lotNo: p.tracking_no,
         expiry: p.expiry_date ? isoDay(p.expiry_date) : null,
         baseQty: p.base_qty.toNumber(),
-        cost: p.cost_amount.toNumber(),
+        cost: p.base_cost_amount.toNumber(),
       })),
     })),
-    cost: n.cost_amount.toNumber(),
+    cost: n.base_cost_amount.toNumber(),
     journalId: n.journal_id,
     journalNo,
     cancelReason: n.cancel_reason,
@@ -1092,7 +1092,7 @@ export async function returnSourceTrackings(
         expiryDate: isoDay(t.expiry_date),
         locationId: t.location_id,
         baseQty: t.base_qty.toNumber(),
-        cost: t.cost_amount.toNumber(),
+        cost: t.base_cost_amount.toNumber(),
       }))
     ),
   };

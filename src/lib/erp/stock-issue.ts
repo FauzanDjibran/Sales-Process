@@ -590,12 +590,12 @@ export async function transitionStockIssue(
           });
           await tx.logStockIssueTracking.update({
             where: { stock_issue_line_id_pick_no: { stock_issue_line_id: stored.id, pick_no: p.pick_no } },
-            data: { base_qty: baseQty, cost_amount: out.cost },
+            data: { base_qty: baseQty, base_cost_amount: out.cost },
           });
           sent.push({ trackingNo: p.tracking_no, itemCode: codes.get(line.item_id)!, qty: String(baseQty), value: out.cost, expiry: isoDay(p.expiry_date) || null, grams: null, jobNo: null, partaiNo: null });
           cost += out.cost;
         }
-        await tx.logStockIssueLine.update({ where: { id: stored.id }, data: { base_qty: line.base_qty, cost_amount: cost } });
+        await tx.logStockIssueLine.update({ where: { id: stored.id }, data: { base_qty: line.base_qty, base_cost_amount: cost } });
         total += cost;
         if (cost > 0) {
           const what = `${r.c.itemLabels.get(line.item_id)?.label ?? ""} · ${qtyText(line.qty)} ${r.c.itemLabels.get(line.item_id)?.uomLabel ?? ""}`;
@@ -617,7 +617,7 @@ export async function transitionStockIssue(
             actorId,
             lines: journalLines,
           });
-      await tx.logStockIssue.update({ where: { id }, data: { journal_id: journal?.id ?? null, cost_amount: total } });
+      await tx.logStockIssue.update({ where: { id }, data: { journal_id: journal?.id ?? null, base_cost_amount: total } });
       if (purpose.needsUnit) {
         const warehouse = await tx.refWarehouse.findUniqueOrThrow({ where: { id: r.c.data.warehouse_id }, select: { warehouse_code: true, warehouse_name: true } });
         await deliver(
@@ -685,7 +685,7 @@ export async function listStockIssues(warehouses: number[] | null = null): Promi
     unitLabel: r.unit?.unit_label ?? "",
     unitName: r.unit?.unit_name ?? "",
     lines: r._count.lines,
-    cost: r.cost_amount.toNumber(),
+    cost: r.base_cost_amount.toNumber(),
   }));
 }
 
@@ -730,8 +730,8 @@ export async function getStockIssue(id: number): Promise<StockIssueView | null> 
       ...l,
       id: n.lines[i].id,
       baseQty: n.lines[i].base_qty.toNumber(),
-      unitCost: n.lines[i].base_qty.gt(0) ? n.lines[i].cost_amount.div(n.lines[i].base_qty).toNumber() : 0,
-      cost: n.lines[i].cost_amount.toNumber(),
+      unitCost: n.lines[i].base_qty.gt(0) ? n.lines[i].base_cost_amount.div(n.lines[i].base_qty).toNumber() : 0,
+      cost: n.lines[i].base_cost_amount.toNumber(),
       pickedLots: n.lines[i].trackings.map((p) => ({
         lotId: p.tracking_id,
         locationId: p.location_id,
@@ -739,10 +739,10 @@ export async function getStockIssue(id: number): Promise<StockIssueView | null> 
         lotNo: p.tracking_no,
         expiry: p.expiry_date ? isoDay(p.expiry_date) : null,
         qty: p.qty.toNumber(),
-        cost: p.cost_amount.toNumber(),
+        cost: p.base_cost_amount.toNumber(),
       })),
     })),
-    cost: n.cost_amount.toNumber(),
+    cost: n.base_cost_amount.toNumber(),
     journalId: n.journal_id,
     journalNo,
     receivedAt: isoDay(n.received_at) || null,

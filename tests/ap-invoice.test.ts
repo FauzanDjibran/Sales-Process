@@ -144,7 +144,7 @@ describe("the arithmetic (B29b–B31)", () => {
 describe("the Invoice Pembelian", () => {
   test("offers the PO's posted receipt lines and its paid Uang Muka", async () => {
     const o = (await purchaseInvoiceOptions()).orders.find((x) => x.id === f.po)!;
-    assert.deepEqual(o.receiptLines.map((l) => [l.id, l.value]), [[f.rnLine, 1_000_000]]);
+    assert.deepEqual(o.receiptLines.map((l) => [l.id, l.baseCost]), [[f.rnLine, 1_000_000]]);
     assert.deepEqual(o.advances.map((a) => [a.id, a.balance]), [[f.advItem, 300_000]]);
   });
 

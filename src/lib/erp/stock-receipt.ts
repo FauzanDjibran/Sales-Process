@@ -87,7 +87,7 @@ export async function takeReceiptSent(tx: Tx, m: Extract<HandoverMessage, { type
       from_unit_id: unit?.id ?? null,
       warehouse_id: warehouse.id,
       note: m.note,
-      cost_amount: sum(m.lines, "value"),
+      base_cost_amount: sum(m.lines, "value"),
       created_by: actorId,
       lines: {
         create: [...byItem].map(([item_id, ls], i) => ({
@@ -95,7 +95,7 @@ export async function takeReceiptSent(tx: Tx, m: Extract<HandoverMessage, { type
           item_id,
           // Quantities carry at most six decimals.
           base_qty: sum(ls, "qty").toFixed(6),
-          value_amount: sum(ls, "value"),
+          base_cost_amount: sum(ls, "value"),
           trackings: {
             create: ls.map((l, n) => ({
               seq: n + 1,
@@ -104,7 +104,7 @@ export async function takeReceiptSent(tx: Tx, m: Extract<HandoverMessage, { type
               job_no: l.jobNo,
               base_qty: l.qty,
               grams: l.grams == null ? null : Number(l.grams).toFixed(6),
-              value_amount: l.value,
+              base_cost_amount: l.value,
             })),
           },
         })),
@@ -256,7 +256,7 @@ export async function receiveStockReceipt(
             lotNo: t.tracking_no,
             expiry: t.expiry_date,
             baseQty: t.base_qty,
-            value: mode === "carried" ? t.value_amount : 0,
+            value: mode === "carried" ? t.base_cost_amount : 0,
             date,
             source,
             statusId,
@@ -264,7 +264,7 @@ export async function receiveStockReceipt(
           });
           await tx.logStockReceiptTracking.update({ where: { id: t.id }, data: { location_id: locationId, stock_status_id: statusId } });
         }
-        const value = l.value_amount.toNumber();
+        const value = l.base_cost_amount.toNumber();
         if (!(value > 0)) continue;
         const what = `${l.item.item_label} · ${from} → ${r.warehouse.warehouse_label}`;
         const acc = accounts.get(l.item_id)!;
@@ -277,7 +277,7 @@ export async function receiveStockReceipt(
       const journal = journalLines.length
         ? await postJournal(tx, { description: `${r.receipt_no} · ${purpose.name} ${from} → ${r.warehouse.warehouse_label}`, sourceDocTypeId: source.docTypeId, sourceDocId: id, postingDate: date, actorId, lines: journalLines })
         : null;
-      await tx.logStockReceipt.update({ where: { id }, data: { written_off_amount: mode === "none" ? r.cost_amount : 0, journal_id: journal?.id ?? null } });
+      await tx.logStockReceipt.update({ where: { id }, data: { base_written_off_amount: mode === "none" ? r.base_cost_amount : 0, journal_id: journal?.id ?? null } });
       await deliver(tx, { type: "ReceiptReceived", no: r.receipt_no, date: today }, actorId);
       await audit(tx, id, "UPDATE", "receive", actorId);
       if (options.dryRun) throw new PostingDryRun(journalLines);
@@ -329,7 +329,7 @@ const rowOf = (r: Prisma.LogStockReceiptGetPayload<{ include: { from_unit: true;
   warehouseLabel: r.warehouse.warehouse_label,
   warehouseName: r.warehouse.warehouse_name,
   lots,
-  cost: r.cost_amount.toNumber(),
+  cost: r.base_cost_amount.toNumber(),
 });
 
 /** `warehouses`: the actor's (OD-9), or null for all. What still waits comes first. */
@@ -384,7 +384,7 @@ export async function getStockReceipt(id: number): Promise<StockReceiptView | nu
     receivedAt: r.received_at ? isoDay(r.received_at) : null,
     note: r.note,
     valueMode: r.status === "Received" ? ((r.value_mode as ProductionValueMode | null) ?? "carried") : null,
-    writtenOff: r.written_off_amount.toNumber(),
+    writtenOff: r.base_written_off_amount.toNumber(),
     journalId: r.journal_id,
     journalNo: r.journal_id ? (journals.get(r.journal_id) ?? null) : null,
     locations: (locations.get(r.warehouse_id) ?? []).filter((x) => x.active).map((x) => ({ id: x.id, label: x.label, name: x.name })),
@@ -398,7 +398,7 @@ export async function getStockReceipt(id: number): Promise<StockReceiptView | nu
       jobNo: t.job_no,
       qty: t.base_qty.toNumber(),
       grams: t.grams?.toNumber() ?? null,
-      value: t.value_amount.toNumber(),
+      value: t.base_cost_amount.toNumber(),
       locationLabel: t.location_id ? (labels.get(t.location_id) ?? null) : null,
       statusName: statuses.find((s) => s.id === t.stock_status_id)?.name ?? null,
     })),

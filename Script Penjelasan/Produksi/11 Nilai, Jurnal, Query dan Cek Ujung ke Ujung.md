@@ -65,7 +65,7 @@ Dicocokkan ke buku besar:
 | --- | ---: | ---: | ---: | --- |
 | WIP | 112.524 | 67.971 | **44.553** | Σ `prd_balance.value_balance` = 42.553 + 2.000 |
 | Biaya Produksi Dibebankan | 0 | 9.024 | −9.024 | Σ `prd_cost_entry.amount` |
-| Beban Pemusnahan Produksi | 6.080 | 0 | 6.080 | Σ `written_off_amount` |
+| Beban Pemusnahan Produksi | 6.080 | 0 | 6.080 | Σ `base_written_off_amount` |
 | Persediaan | 166.891 | 103.500 | 63.391 | kotak 61.891 + 3 stiker 1.500 |
 
 ---

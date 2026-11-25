@@ -643,7 +643,7 @@ export async function transitionReceiptNote(
         // The stock comes in at the PO's DPP in base, at the order's rate (MC7); the
         // same quantity's DPP in the order's currency is kept for the Invoice that bills it.
         const value = cumulativeShare(po.baseDpp, po.qty, po.received, line.qty);
-        const orderDpp = cumulativeShare(po.dpp, po.qty, po.received, line.qty, taxScale(r.c.source.currency));
+        const cost = cumulativeShare(po.dpp, po.qty, po.received, line.qty, taxScale(r.c.source.currency));
         const stored = await tx.logReceiptNoteLine.findUniqueOrThrow({
           where: { receipt_note_id_source_doc_line_id: { receipt_note_id: id, source_doc_line_id: line.source_doc_line_id } },
           select: { id: true },
@@ -686,11 +686,11 @@ export async function transitionReceiptNote(
             });
             await tx.logReceiptNoteTracking.update({
               where: { line_id_tracking_seq: { line_id: stored.id, tracking_seq: lot.tracking_seq } },
-              data: { tracking_no: inn.trackingNo, value_amount: lotValue, tracking_id: inn.trackingId },
+              data: { tracking_no: inn.trackingNo, base_cost_amount: lotValue, tracking_id: inn.trackingId },
             });
           }
         }
-        await tx.logReceiptNoteLine.update({ where: { id: stored.id }, data: { qty: line.qty, base_qty: line.base_qty, value_amount: value, order_dpp_amount: orderDpp } });
+        await tx.logReceiptNoteLine.update({ where: { id: stored.id }, data: { qty: line.qty, base_qty: line.base_qty, base_cost_amount: value, cost_amount: cost } });
         received.set(line.source_doc_line_id, { qty: line.qty, baseQty: line.base_qty });
         total += value;
         if (value > 0) {
@@ -724,7 +724,7 @@ export async function transitionReceiptNote(
         actorId,
         lines: journalLines,
       });
-      await tx.logReceiptNote.update({ where: { id }, data: { journal_id: journal?.id ?? null, value_amount: total } });
+      await tx.logReceiptNote.update({ where: { id }, data: { journal_id: journal?.id ?? null, base_cost_amount: total } });
       await audit(tx, id, "UPDATE", "post", actorId);
       if (bonus.length) {
         await createBonusReceipt(tx, { source, warehouseId: r.c.data.warehouse_id!, date: r.c.data.rn_date, partnerId: r.c.data.partner_id, lots: bonus }, actorId);
@@ -1066,11 +1066,12 @@ async function postReturnReceipt(note: StoredNote, actorId: number, options: { d
           });
           await tx.logReceiptNoteTracking.update({
             where: { line_id_tracking_seq: { line_id: stored.id, tracking_seq: lot.tracking_seq } },
-            data: { value_amount: lotValue },
+            data: { base_cost_amount: lotValue },
           });
           value += lotValue;
         }
-        await tx.logReceiptNoteLine.update({ where: { id: stored.id }, data: { value_amount: value } });
+        // A return is valued in base only, so its two measures are one (MC2).
+        await tx.logReceiptNoteLine.update({ where: { id: stored.id }, data: { cost_amount: value, base_cost_amount: value } });
         backSr.set(sr.id, line.qty);
         backDn.set(sr.deliveryNoteLineId, (backDn.get(sr.deliveryNoteLineId) ?? 0) + line.qty);
         total += value;
@@ -1091,7 +1092,7 @@ async function postReturnReceipt(note: StoredNote, actorId: number, options: { d
         actorId,
         lines: journalLines,
       });
-      await tx.logReceiptNote.update({ where: { id }, data: { journal_id: journal?.id ?? null, value_amount: total } });
+      await tx.logReceiptNote.update({ where: { id }, data: { journal_id: journal?.id ?? null, base_cost_amount: total } });
       await audit(tx, id, "UPDATE", "post", actorId);
       await recordDeliveryNoteReturned(tx, backDn);
       const closed = await recordSalesReturnReceived(tx, backSr, actorId);
@@ -1167,7 +1168,7 @@ export async function listReceiptNotes(): Promise<ReceiptNoteListRow[]> {
     supplierName: r.partner.partner_name,
     warehouseLabel: r.warehouse?.warehouse_label ?? null,
     lines: r._count.lines,
-    value: r.value_amount.toNumber(),
+    value: r.base_cost_amount.toNumber(),
   }));
 }
 
@@ -1210,11 +1211,11 @@ export async function getReceiptNote(id: number): Promise<ReceiptNoteView | null
       received: n.lines[i].qty.toNumber(),
       baseQty: n.lines[i].base_qty.toNumber(),
       weighing: weighingView(n.lines[i].weighting),
-      value: n.lines[i].value_amount.toNumber(),
+      value: n.lines[i].base_cost_amount.toNumber(),
       isStock: n.lines[i].is_stock,
-      lotValues: n.lines[i].trackings.map((p) => p.value_amount.toNumber()),
+      lotValues: n.lines[i].trackings.map((p) => p.base_cost_amount.toNumber()),
     })),
-    value: n.value_amount.toNumber(),
+    value: n.base_cost_amount.toNumber(),
     journalId: n.journal_id,
     journalNo,
     cancelReason: n.cancel_reason,
@@ -1267,9 +1268,9 @@ export type ApInvoiceSourceLine = {
   purchaseOrderId: number;
   purchaseOrderLineId: number;
   qty: number;
-  value: number;
-  /** The PO DPP for this quantity in the PO currency (MC7). */
-  orderDpp: number;
+  /** Cost in the PO currency (its DPP for this quantity, MC7), and in base. */
+  cost: number;
+  baseCost: number;
 };
 
 /** Every posted receipt line, ids only, with its PO — to find the POs with something to bill. */
@@ -1299,8 +1300,8 @@ export async function apInvoiceSourceLines(filter: { orderIds?: number[]; lineId
     purchaseOrderId: l.receipt_note.source_doc_id,
     purchaseOrderLineId: l.source_doc_line_id,
     qty: l.qty.toNumber(),
-    value: l.value_amount.toNumber(),
-    orderDpp: l.order_dpp_amount.toNumber(),
+    cost: l.cost_amount.toNumber(),
+    baseCost: l.base_cost_amount.toNumber(),
   }));
 }
 

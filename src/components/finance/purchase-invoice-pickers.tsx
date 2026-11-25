@@ -33,7 +33,7 @@ export function PurchaseInvoicePicker({
   const [on, setOn] = useState<Set<number>>(() => new Set(kind === "lines" ? currentLines : currentAdvances));
   const rows =
     kind === "lines"
-      ? lines.map((l) => ({ id: l.id, can: !l.billedBy || currentLines.includes(l.id), a: `${l.rnNo} · ${formatDate(l.rnDate)}`, b: `${l.itemLabel} — ${qtyText(l.qty)} ${l.uomLabel}`, c: l.billedBy ? `ditagih ${l.billedBy.no}` : moneyIn(currency)(l.orderDpp) }))
+      ? lines.map((l) => ({ id: l.id, can: !l.billedBy || currentLines.includes(l.id), a: `${l.rnNo} · ${formatDate(l.rnDate)}`, b: `${l.itemLabel} — ${qtyText(l.qty)} ${l.uomLabel}`, c: l.billedBy ? `ditagih ${l.billedBy.no}` : moneyIn(currency)(l.cost) }))
       : advances.map((a) => {
           const free = Math.max(0, a.balance - a.reserved);
           return { id: a.id, can: free > 0 || currentAdvances.includes(a.id), a: a.apItemNo, b: `${a.sourceNo} · dibayar ${a.createdByNo}`, c: moneyIn(currency)(free) };

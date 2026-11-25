@@ -45,7 +45,7 @@ Izin: `STOCK_ISSUE_VIEW / _CREATE / _EDIT / _SUBMIT / _CANCEL` di ERP;
 ```
 periode ditahan; semua aturan diperiksa ulang
 tiap lot:  issueStock   nilai = round(V pool × q ÷ Q pool), habis → V seluruhnya
-           simpan base_qty dan cost_amount   ← NILAI BEKU
+           simpan base_qty dan base_cost_amount   ← NILAI BEKU
 jurnal per barang: Dr WIP / Cr Persediaan, bertanggal dokumen
 pesan IssueSent  →  Production Receipt lahir, menunggu
 ```
@@ -72,10 +72,10 @@ Terima **tidak berjurnal**.
 | Tabel | Kolom penting | Diisi |
 | --- | --- | --- |
 | `log_stock_issue` | `issue_no`, `purpose`, `issue_date` | simpan |
-| | `cost_amount`, `journal_id` | Kirim |
+| | `base_cost_amount`, `journal_id` | Kirim |
 | | `received_at` | pesan IssueReceived |
 | `log_stock_issue_tracking` | `tracking_no`, `location_id`, `qty` | simpan |
-| | `base_qty`, `cost_amount` (nilai beku) | Kirim |
+| | `base_qty`, `base_cost_amount` (nilai beku) | Kirim |
 | `prd_receipt` | `receipt_no` = `issue_no`, `purpose` (`material` / `auxiliary`), `unit_id`, `warehouse_code` | pesan IssueSent |
 | | `received_at`, `received_by` | Terima |
 | `prd_receipt_line` | `tracking_id`, `qty`, `value` (nilai beku) | pesan IssueSent |
@@ -116,6 +116,6 @@ Unit, lalu dikembalikan dengan BSTB Pengeluaran (bagian 10).
 
 | Cek | Rumus |
 | --- | --- |
-| Pengirim | `cost_amount` = stok keluar = debit jurnal = Σ `prd_receipt_line.value`; status kedua sisi sama |
+| Pengirim | `base_cost_amount` = stok keluar = debit jurnal = Σ `prd_receipt_line.value`; status kedua sisi sama |
 | Penerima | diterima: masuk produksi (`Issued`) = Σ `value`; belum: 0 |
 | WIP | WIP di GL = nilai produksi + Issue dalam perjalanan, per akun |

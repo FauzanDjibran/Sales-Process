@@ -2731,7 +2731,7 @@ model LogDeliveryNote {
   note        String?
 
   /// Σ of the lines' cost, set at Posting.
-  cost_amount   Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount   Decimal @default(0) @db.Decimal(18, 2)
   journal_id    Int?
   cancel_reason String?
 
@@ -2770,7 +2770,7 @@ model LogDeliveryNoteLine {
   /// qty × uom_factor; equals Σ its trackings' base_qty for a lot-tracked item.
   base_qty           Decimal @default(0) @db.Decimal(18, 4)
   /// Σ its trackings' cost at Posting — a summary; the value is the stock's (P268).
-  cost_amount        Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount        Decimal @default(0) @db.Decimal(18, 2)
   /// What posted Receipt Notes `sales_return` brought back of this line (P288),
   /// written through this module; the Invoice bills what is left.
   returned_qty       Decimal @default(0) @db.Decimal(18, 4)
@@ -2809,7 +2809,7 @@ model LogDeliveryNoteTracking {
   /// In the item's base unit — the quantity the stock books move.
   base_qty              Decimal   @db.Decimal(18, 4)
   /// What the stock released at Posting (round(V × q ÷ Q), P114).
-  cost_amount           Decimal   @default(0) @db.Decimal(18, 2)
+  base_cost_amount           Decimal   @default(0) @db.Decimal(18, 2)
 
   line         LogDeliveryNoteLine @relation(fields: [delivery_note_line_id], references: [id])
   stock_status SysStockStatus      @relation(fields: [stock_status_id], references: [id])
@@ -4185,7 +4185,7 @@ model LogReceiptNote {
   note               String?
 
   /// Σ of the lines' value, set at Posting.
-  value_amount  Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount  Decimal @default(0) @db.Decimal(18, 2)
   journal_id    Int?
   cancel_reason String?
 
@@ -4221,9 +4221,9 @@ model LogReceiptNoteLine {
   /// Enters the stock books (Barang with Kelola Stok); otherwise an expense.
   is_stock         Boolean @default(false)
   /// The PO line DPP for this quantity, in the PO currency: what the Invoice Pembelian bills (MC7).
-  order_dpp_amount Decimal @default(0) @db.Decimal(18, 2)
+  cost_amount Decimal @default(0) @db.Decimal(18, 2)
   /// Its share of the source line's DPP, cumulative (B20); set at Posting.
-  value_amount     Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount     Decimal @default(0) @db.Decimal(18, 2)
   note             String?
 
   receipt_note LogReceiptNote           @relation(fields: [receipt_note_id], references: [id], onDelete: Cascade)
@@ -4248,7 +4248,7 @@ model LogReceiptNoteTracking {
   expiry_date        DateTime? @db.Date
   /// In base units, whatever the line's unit (P320).
   base_qty           Decimal   @db.Decimal(18, 4)
-  value_amount       Decimal   @default(0) @db.Decimal(18, 2)
+  base_cost_amount       Decimal   @default(0) @db.Decimal(18, 2)
   /// The stock lot it became, set at Posting (weak: the inventory's table).
   tracking_id        Int?
   /// Where it is put, in a warehouse with Gunakan Lokasi (weak: a master the
@@ -5438,7 +5438,7 @@ model LogStockIssue {
   note         String?
 
   /// Σ of the lines' cost, frozen at Kirim (P317).
-  cost_amount   Decimal   @default(0) @db.Decimal(18, 2)
+  base_cost_amount   Decimal   @default(0) @db.Decimal(18, 2)
   journal_id    Int?
   /// The day the Unit said it took the goods in.
   received_at   DateTime? @db.Date
@@ -5468,7 +5468,7 @@ model LogStockIssueLine {
   uom_factor     Decimal @default(1) @db.Decimal(18, 4)
   qty            Decimal @db.Decimal(18, 4)
   base_qty       Decimal @default(0) @db.Decimal(18, 4)
-  cost_amount    Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount    Decimal @default(0) @db.Decimal(18, 2)
   note           String?
 
   stock_issue LogStockIssue           @relation(fields: [stock_issue_id], references: [id])
@@ -5492,7 +5492,7 @@ model LogStockIssueTracking {
   expiry_date         DateTime? @db.Date
   qty                 Decimal   @db.Decimal(18, 4)
   base_qty            Decimal   @default(0) @db.Decimal(18, 4)
-  cost_amount         Decimal   @default(0) @db.Decimal(18, 2)
+  base_cost_amount         Decimal   @default(0) @db.Decimal(18, 2)
 
   line LogStockIssueLine @relation(fields: [stock_issue_line_id], references: [id])
 
@@ -5531,11 +5531,11 @@ model LogStockReceipt {
   received_at        DateTime?      @db.Date
   received_by        Int?
   /// Σ of the lines' value, frozen by the sender.
-  cost_amount        Decimal        @default(0) @db.Decimal(18, 2)
+  base_cost_amount        Decimal        @default(0) @db.Decimal(18, 2)
   /// Chosen at Terima: `carried` (into stock at its value) or `none` (into stock at 0, P304).
   value_mode         String?
   /// What `none` charged to Beban Pemusnahan Produksi instead of stock.
-  written_off_amount Decimal        @default(0) @db.Decimal(18, 2)
+  base_written_off_amount Decimal        @default(0) @db.Decimal(18, 2)
   journal_id         Int?
 
   created_by Int
@@ -5561,7 +5561,7 @@ model LogStockReceiptLine {
   line_no          Int
   item_id          Int
   base_qty         Decimal @db.Decimal(18, 6)
-  value_amount     Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount     Decimal @default(0) @db.Decimal(18, 2)
 
   receipt   LogStockReceipt           @relation(fields: [stock_receipt_id], references: [id])
   item      MItem                     @relation(fields: [item_id], references: [id])
@@ -5583,7 +5583,7 @@ model LogStockReceiptTracking {
   job_no                String?
   base_qty              Decimal   @db.Decimal(18, 6)
   grams                 Decimal?  @db.Decimal(18, 6)
-  value_amount          Decimal   @default(0) @db.Decimal(18, 2)
+  base_cost_amount          Decimal   @default(0) @db.Decimal(18, 2)
   /// Chosen at Terima.
   location_id           Int?
   stock_status_id       Int?
@@ -5605,8 +5605,8 @@ model LogStockAdjustment {
   warehouse_id    Int
   note            String?
   /// Σ of what left and of what came in, set at Posting.
-  short_amount    Decimal               @default(0) @db.Decimal(18, 2)
-  over_amount     Decimal               @default(0) @db.Decimal(18, 2)
+  base_short_amount    Decimal               @default(0) @db.Decimal(18, 2)
+  base_over_amount     Decimal               @default(0) @db.Decimal(18, 2)
   journal_id      Int?
   /// Why it was rejected or cancelled.
   status_reason   String?
@@ -5639,9 +5639,9 @@ model LogStockAdjustmentLine {
   /// Null while not counted yet.
   counted_qty         Decimal? @db.Decimal(18, 6)
   /// For an excess of an item the company holds none of.
-  typed_value         Decimal? @db.Decimal(18, 2)
+  base_typed_amount         Decimal? @db.Decimal(18, 2)
   /// What it moved in value, signed; set at Posting.
-  value_amount        Decimal  @default(0) @db.Decimal(18, 2)
+  base_cost_amount        Decimal  @default(0) @db.Decimal(18, 2)
   note                String?
 
   adjustment LogStockAdjustment @relation(fields: [stock_adjustment_id], references: [id])

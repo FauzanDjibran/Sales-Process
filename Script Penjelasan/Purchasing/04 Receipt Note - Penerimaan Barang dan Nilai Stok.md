@@ -13,7 +13,7 @@ P120, P122, P125, P136, P320 dan W10 (`Claude-ERP.md`, `Purchasing-Concept.md`
 B17–B22).
 
 Untuk Purchase Order valas (P273), nilai stok memakai DPP base pada kurs PO;
-DPP dalam valas disimpan terpisah di `order_dpp_amount` untuk Invoice Pembelian.
+DPP dalam valas disimpan terpisah di `cost_amount` untuk Invoice Pembelian.
 Buku stok dan jurnal tetap rupiah.
 
 > Dokumen ini menggantikan `07 Receipt Note - Penerimaan Barang dan Nilai Stok.md`
@@ -105,9 +105,9 @@ baris berasal dari timbangan: lihat `03 Penimbangan - Toleransi, Qty Terima dan 
 
 | Tabel | Isi |
 | --- | --- |
-| `log_receipt_note` | nomor `RN/YYYY/MM/NNNN` (`RN-NP/…` bila PO tanpa PPN), `status` Draft, `purpose` `purchase_receipt`, PO sebagai sumber (`source_doc_type_id`, `source_doc_id`, `source_no`), supplier, gudang, tanggal, No. Surat Jalan Supplier. `value_amount` 0, `journal_id` kosong |
-| `log_receipt_note_line` | per baris: `qty`, `uom_factor`, `base_qty` (lihat §2a), `is_stock`. `value_amount` 0 |
-| `log_receipt_note_tracking` | per lot (baris Kelola Stok saja): `tracking_seq`, nomor lot (boleh kosong), kedaluwarsa, lokasi, `base_qty`. `value_amount` 0 dan `tracking_id` kosong |
+| `log_receipt_note` | nomor `RN/YYYY/MM/NNNN` (`RN-NP/…` bila PO tanpa PPN), `status` Draft, `purpose` `purchase_receipt`, PO sebagai sumber (`source_doc_type_id`, `source_doc_id`, `source_no`), supplier, gudang, tanggal, No. Surat Jalan Supplier. `base_cost_amount` 0, `journal_id` kosong |
+| `log_receipt_note_line` | per baris: `qty`, `uom_factor`, `base_qty` (lihat §2a), `is_stock`. `base_cost_amount` 0 |
+| `log_receipt_note_tracking` | per lot (baris Kelola Stok saja): `tracking_seq`, nomor lot (boleh kosong), kedaluwarsa, lokasi, `base_qty`. `base_cost_amount` 0 dan `tracking_id` kosong |
 
 **Yang dicek saat Simpan:**
 
@@ -175,9 +175,9 @@ Lot terakhir mendapat sisa, jadi jumlah nilai lot = nilai baris.
 | `log_stock_balance` | bucket gudang · lokasi · lot · status Tersedia naik sebesar base_qty |
 | `log_stock_valuation_ledger` | satu baris per lot: `qty_change` dan `value_change` positif, lalu `qty_balance` (Q baru) dan `value_balance` (V baru). Satu nomor `MN/…` per Posting |
 | `log_stock_valuation_balance` | Q dan V item itu naik |
-| `log_receipt_note_tracking` | nomor lot final, `value_amount` nilai lot, `tracking_id` |
-| `log_receipt_note_line` | `value_amount` nilai baris |
-| `log_receipt_note` | `status` Posted, `value_amount` = Σ baris, `journal_id` |
+| `log_receipt_note_tracking` | nomor lot final, `base_cost_amount` nilai lot, `tracking_id` |
+| `log_receipt_note_line` | `base_cost_amount` nilai baris |
+| `log_receipt_note` | `status` Posted, `base_cost_amount` = Σ baris, `journal_id` |
 | `acc_journal` dan barisnya | lihat §4.4 |
 | `pur_order_line` | `received_qty` naik sebesar Qty baris, `received_base_qty` sebesar qty dasarnya; PO ditutup otomatis bila `received_base_qty` semua barisnya = `base_qty` |
 | `audit_log` | event Posting |
@@ -272,7 +272,7 @@ PO 10 BOX isi 12 @ Rp1.200.000 (DPP 12.000.000), PCS satuan dasar:
 | --- | ---: | ---: |
 | `qty` (BOX) | 4 | 6 |
 | `base_qty` (PCS) | 48 | 72 |
-| `value_amount` | 4.800.000 | 7.200.000 |
+| `base_cost_amount` | 4.800.000 | 7.200.000 |
 | Lot (PCS → nilai) | 30 → 3.000.000 · 18 → 1.800.000 | 72 → 7.200.000 |
 | Jurnal Dr Persediaan / Cr Barang Diterima Belum Ditagih | 4.800.000 | 7.200.000 |
 | `received_qty` / `received_base_qty` PO sesudahnya | 4 / 48 | 10 / 120, PO ditutup |
@@ -297,14 +297,14 @@ Invoice Pembelian menagih 4 BOX dan 6 BOX @ Rp1.200.000; PCS tidak muncul di san
 ## 8. Cek setelah Posting
 
 ```
-log_receipt_note.value_amount = Σ log_receipt_note_line.value_amount
-log_receipt_note_line.value_amount = Σ log_receipt_note_tracking.value_amount   (baris Kelola Stok)
+log_receipt_note.base_cost_amount = Σ log_receipt_note_line.base_cost_amount
+log_receipt_note_line.base_cost_amount = Σ log_receipt_note_tracking.base_cost_amount   (baris Kelola Stok)
 log_receipt_note_line.base_qty     = Σ log_receipt_note_tracking.base_qty       (baris Kelola Stok)
 pur_order_line.received_qty / received_base_qty = Σ qty / Σ base_qty Receipt Note Posted
 Σ value_change log_stock_ledger (source = Receipt Note itu)
   = Σ value_change log_stock_valuation_ledger (source sama)
   = Σ nilai baris Kelola Stok
-Σ debit jurnal = kredit Barang Diterima Belum Ditagih = log_receipt_note.value_amount
+Σ debit jurnal = kredit Barang Diterima Belum Ditagih = log_receipt_note.base_cost_amount
 Σ nilai semua Receipt Note satu baris PO = pur_order_line.dpp_amount   (bila sudah diterima penuh)
 ```
 

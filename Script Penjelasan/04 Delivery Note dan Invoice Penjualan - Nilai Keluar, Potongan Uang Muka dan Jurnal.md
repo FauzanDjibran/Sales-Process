@@ -127,11 +127,11 @@ Lalu disimpan:
 
 | Kolom | Isi |
 | --- | --- |
-| `log_delivery_note_tracking.cost_amount` | r lot itu |
+| `log_delivery_note_tracking.base_cost_amount` | r lot itu |
 | `log_delivery_note_line.base_qty` | Σ `base_qty` lot-lotnya |
-| `log_delivery_note_line.cost_amount` | Σ `cost_amount` lot-lotnya |
-| `log_delivery_note.cost_amount` | Σ `cost_amount` baris |
-| Harga Pokok di layar | `cost_amount ÷ base_qty` — dihitung saat dibaca, **tidak disimpan** (P213, P268) |
+| `log_delivery_note_line.base_cost_amount` | Σ `base_cost_amount` lot-lotnya |
+| `log_delivery_note.base_cost_amount` | Σ `base_cost_amount` baris |
+| Harga Pokok di layar | `base_cost_amount ÷ base_qty` — dihitung saat dibaca, **tidak disimpan** (P213, P268) |
 
 Di buku stok, setiap lot menulis satu baris di `log_stock_ledger` (qty, per
 bucket) dan satu kembarannya di `log_stock_valuation_ledger` (nilai, per
@@ -176,11 +176,11 @@ baris Delivery Note**:
 
 | Account | Debit | Kredit |
 | --- | --- | --- |
-| HPP (Kategori Item barang itu, kalau kosong Account Mapping *Account HPP*) | `cost_amount` baris | |
-| Persediaan (Kategori Item, kalau kosong Account Mapping *Account Persediaan*) | | `cost_amount` baris |
+| HPP (Kategori Item barang itu, kalau kosong Account Mapping *Account HPP*) | `base_cost_amount` baris | |
+| Persediaan (Kategori Item, kalau kosong Account Mapping *Account Persediaan*) | | `base_cost_amount` baris |
 
 - **Tidak ada Piutang, Penjualan atau PPN** di sini.
-- Baris dengan `cost_amount` = 0 tidak menulis jurnal; kalau semua 0, Delivery
+- Baris dengan `base_cost_amount` = 0 tidak menulis jurnal; kalau semua 0, Delivery
   Note diposting tanpa jurnal (`journal_id` kosong).
 - Account yang kosong menolak Posting dengan pesan
   *Lengkapi Account Mapping atau Account Kategori Item dulu*.
@@ -214,9 +214,9 @@ sesudah pengiriman.
 1. Kunci periode fiskal dan Customer Order (lewat Delivery Order).
 2. Cek ulang seluruh dokumen (`checkDeliveryNote`, `forPosting = true`).
 3. Status Draft → Posted (gagal kalau status sudah berubah).
-4. Per baris, per lot: `issueStock` → simpan `cost_amount` lot; jumlahkan ke
+4. Per baris, per lot: `issueStock` → simpan `base_cost_amount` lot; jumlahkan ke
    baris.
-5. Tulis jurnal; simpan `journal_id` dan `cost_amount` header.
+5. Tulis jurnal; simpan `journal_id` dan `base_cost_amount` header.
 6. Tulis balik `delivered_qty` ke Delivery Order (dan seterusnya).
 
 Kalau satu langkah gagal (stok kurang, account kosong, periode terkunci),
@@ -486,9 +486,9 @@ Dialog Posting memakai *dry run* yang sama (P103).
 
 | Tabel | Kolom penting | Kapan |
 | --- | --- | --- |
-| `log_delivery_note` | `source_doc_id` (DO), `warehouse_id`, `dn_date`, `status`, `cost_amount`, `journal_id` | Simpan; cost & journal saat Posting |
-| `log_delivery_note_line` | `source_doc_line_id` (baris DO), `item_id`, `uom_id`, `uom_factor`, `qty`, `base_qty`, `cost_amount` | Simpan; cost saat Posting |
-| `log_delivery_note_tracking` | `tracking_id`, `location_id`, `stock_status_id`, `tracking_no`, `expiry_date`, `base_qty`, `cost_amount` | Simpan; cost saat Posting |
+| `log_delivery_note` | `source_doc_id` (DO), `warehouse_id`, `dn_date`, `status`, `base_cost_amount`, `journal_id` | Simpan; cost & journal saat Posting |
+| `log_delivery_note_line` | `source_doc_line_id` (baris DO), `item_id`, `uom_id`, `uom_factor`, `qty`, `base_qty`, `base_cost_amount` | Simpan; cost saat Posting |
+| `log_delivery_note_tracking` | `tracking_id`, `location_id`, `stock_status_id`, `tracking_no`, `expiry_date`, `base_qty`, `base_cost_amount` | Simpan; cost saat Posting |
 | `log_stock_ledger` / `_balance` | qty per bucket | Posting |
 | `log_stock_valuation_ledger` / `_balance` | nilai per barang | Posting |
 | `acc_journal(_line)` | Dr HPP / Cr Persediaan | Posting |
@@ -627,10 +627,10 @@ mukanya (DPP + PPN); saldonya dalam DPP. Saldo Invoice = `total_amount`-nya.
 
 | Cek | Rumus |
 | --- | --- |
-| Baris DN = lot-lotnya | `line.base_qty = Σ tracking.base_qty`, `line.cost_amount = Σ tracking.cost_amount` |
-| Header DN = barisnya | `log_delivery_note.cost_amount = Σ line.cost_amount` |
-| Jurnal DN = nilai keluar | Σ debit HPP = Σ kredit Persediaan = `cost_amount` header |
-| Buku stok = DN | Σ `value_change` valuasi dari DN = − `cost_amount` header |
+| Baris DN = lot-lotnya | `line.base_qty = Σ tracking.base_qty`, `line.base_cost_amount = Σ tracking.base_cost_amount` |
+| Header DN = barisnya | `log_delivery_note.base_cost_amount = Σ line.base_cost_amount` |
+| Jurnal DN = nilai keluar | Σ debit HPP = Σ kredit Persediaan = `base_cost_amount` header |
+| Buku stok = DN | Σ `value_change` valuasi dari DN = − `base_cost_amount` header |
 | Baris CO tertagih penuh | Σ bruto / diskon / jumlah Invoice Posted = angka baris CO |
 | Header Invoice | `total = net_dpp + ppn`, `ppn = Σ ppn baris − advance_ppn`, `net_dpp = dpp − advance_dpp` |
 | PPN uang muka | Σ `ppn_used` semua Invoice atas satu item = rantai(DPP item yang terpakai) |

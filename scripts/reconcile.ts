@@ -106,7 +106,7 @@ export const CHECKS: Check[] = [
           UNION ALL
           SELECT 'delivery note', n.dn_no, n.status::text, n.journal_id FROM log_delivery_note n
             LEFT JOIN acc_journal j ON j.id = n.journal_id
-          WHERE (n.status = 'Posted' AND n.cost_amount > 0 AND (j.id IS NULL OR j.status <> 'Posted' OR j.source_doc_type_id <> ${docType("log_delivery_note")} OR j.source_doc_id <> n.id))
+          WHERE (n.status = 'Posted' AND n.base_cost_amount > 0 AND (j.id IS NULL OR j.status <> 'Posted' OR j.source_doc_type_id <> ${docType("log_delivery_note")} OR j.source_doc_id <> n.id))
              OR (n.status <> 'Posted' AND n.journal_id IS NOT NULL)
           UNION ALL
           -- Under P117 the journal credits the full PPN and the Uang Muka applied against
@@ -123,9 +123,9 @@ export const CHECKS: Check[] = [
           FROM fin_cash_bank_tx t JOIN acc_journal_line l ON l.journal_id = t.journal_id
           WHERE t.status = 'Posted' GROUP BY t.id HAVING SUM(l.debit_amount) <> t.settled_amount
           UNION ALL
-          SELECT 'delivery note', n.dn_no, n.cost_amount, SUM(l.debit_amount)
+          SELECT 'delivery note', n.dn_no, n.base_cost_amount, SUM(l.debit_amount)
           FROM log_delivery_note n JOIN acc_journal_line l ON l.journal_id = n.journal_id
-          WHERE n.status = 'Posted' GROUP BY n.id HAVING SUM(l.debit_amount) <> n.cost_amount
+          WHERE n.status = 'Posted' GROUP BY n.id HAVING SUM(l.debit_amount) <> n.base_cost_amount
           UNION ALL
           SELECT 'invoice', v.invoice_no, v.dpp_amount + v.ppn_amount + CASE WHEN ${applied("v")} <> 0 THEN v.advance_ppn_amount + ${applied("v")} ELSE 0 END, SUM(l.kredit_amount)
           FROM fin_ar_invoice v JOIN acc_journal_line l ON l.journal_id = v.journal_id
@@ -372,12 +372,12 @@ export const CHECKS: Check[] = [
   {
     area: "goods",
     name: "no returned lot comes back beyond what left on it, nor above the value it left at (P114)",
-    sql: `SELECT t.id AS delivery_tracking, t.base_qty AS sent, t.cost_amount AS sent_value, SUM(rt.base_qty) AS back, SUM(rt.value_amount) AS back_value
+    sql: `SELECT t.id AS delivery_tracking, t.base_qty AS sent, t.base_cost_amount AS sent_value, SUM(rt.base_qty) AS back, SUM(rt.base_cost_amount) AS back_value
           FROM log_delivery_note_tracking t
           JOIN log_receipt_note_tracking rt ON rt.source_tracking_id = t.id
           JOIN log_receipt_note_line rl ON rl.id = rt.line_id
           JOIN log_receipt_note r ON r.id = rl.receipt_note_id AND r.purpose = 'sales_return' AND r.status = 'Posted'
-          GROUP BY t.id HAVING SUM(rt.base_qty) > t.base_qty OR SUM(rt.value_amount) > t.cost_amount`,
+          GROUP BY t.id HAVING SUM(rt.base_qty) > t.base_qty OR SUM(rt.base_cost_amount) > t.base_cost_amount`,
   },
   {
     area: "goods",
@@ -399,14 +399,14 @@ export const CHECKS: Check[] = [
   {
     area: "goods",
     name: "each posted return receipt is worth its lots, and its journal reverses HPP by exactly that (P289)",
-    sql: `SELECT r.rn_no, r.value_amount, lots.v AS lots, COALESCE(j.dr, 0) AS debit, COALESCE(j.cr, 0) AS credit
+    sql: `SELECT r.rn_no, r.base_cost_amount, lots.v AS lots, COALESCE(j.dr, 0) AS debit, COALESCE(j.cr, 0) AS credit
           FROM log_receipt_note r
-          LEFT JOIN (SELECT rl.receipt_note_id, SUM(rt.value_amount) AS v FROM log_receipt_note_line rl
+          LEFT JOIN (SELECT rl.receipt_note_id, SUM(rt.base_cost_amount) AS v FROM log_receipt_note_line rl
                      JOIN log_receipt_note_tracking rt ON rt.line_id = rl.id GROUP BY rl.receipt_note_id) lots ON lots.receipt_note_id = r.id
           LEFT JOIN (SELECT journal_id, SUM(debit_amount) AS dr, SUM(kredit_amount) AS cr FROM acc_journal_line GROUP BY journal_id) j ON j.journal_id = r.journal_id
           WHERE r.purpose = 'sales_return' AND r.status = 'Posted'
-            AND (r.value_amount <> COALESCE(lots.v, 0)
-                 OR (r.value_amount <> 0 AND (r.journal_id IS NULL OR COALESCE(j.dr, 0) <> r.value_amount OR COALESCE(j.cr, 0) <> r.value_amount)))`,
+            AND (r.base_cost_amount <> COALESCE(lots.v, 0)
+                 OR (r.base_cost_amount <> 0 AND (r.journal_id IS NULL OR COALESCE(j.dr, 0) <> r.base_cost_amount OR COALESCE(j.cr, 0) <> r.base_cost_amount)))`,
   },
   {
     area: "goods",
@@ -423,16 +423,16 @@ export const CHECKS: Check[] = [
   {
     area: "goods",
     name: "a posted note's cost equals its lines, each line Σ its tracking rows (value and base quantity, P268), and, since P120, what the stock books released for it",
-    sql: `SELECT n.dn_no, n.cost_amount, (SELECT SUM(cost_amount) FROM log_delivery_note_line WHERE delivery_note_id = n.id) AS lines,
+    sql: `SELECT n.dn_no, n.base_cost_amount, (SELECT SUM(base_cost_amount) FROM log_delivery_note_line WHERE delivery_note_id = n.id) AS lines,
                  (SELECT -SUM(value_change) FROM log_stock_valuation_ledger WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id) AS issued
           FROM log_delivery_note n WHERE n.status = 'Posted' AND (
-            n.cost_amount <> COALESCE((SELECT SUM(cost_amount) FROM log_delivery_note_line WHERE delivery_note_id = n.id), 0)
+            n.base_cost_amount <> COALESCE((SELECT SUM(base_cost_amount) FROM log_delivery_note_line WHERE delivery_note_id = n.id), 0)
             OR (EXISTS (SELECT 1 FROM log_stock_valuation_ledger WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id)
-                AND n.cost_amount <> (SELECT -SUM(value_change) FROM log_stock_valuation_ledger WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id)))
+                AND n.base_cost_amount <> (SELECT -SUM(value_change) FROM log_stock_valuation_ledger WHERE source_doc_type_id = ${docType("log_delivery_note")} AND source_doc_id = n.id)))
           UNION ALL
-          SELECT n.dn_no, l.cost_amount, SUM(p.cost_amount), SUM(p.base_qty) - l.base_qty
+          SELECT n.dn_no, l.base_cost_amount, SUM(p.base_cost_amount), SUM(p.base_qty) - l.base_qty
           FROM log_delivery_note n JOIN log_delivery_note_line l ON l.delivery_note_id = n.id JOIN log_delivery_note_tracking p ON p.delivery_note_line_id = l.id
-          WHERE n.status = 'Posted' GROUP BY n.dn_no, l.id HAVING l.cost_amount <> SUM(p.cost_amount) OR SUM(p.base_qty) <> l.base_qty`,
+          WHERE n.status = 'Posted' GROUP BY n.dn_no, l.id HAVING l.base_cost_amount <> SUM(p.base_cost_amount) OR SUM(p.base_qty) <> l.base_qty`,
   },
   {
     area: "goods",
@@ -720,7 +720,7 @@ export const CHECKS: Check[] = [
     area: "ap",
     name: "Barang Diterima Belum Ditagih equals posted receipts less posted invoices, per supplier (B22)",
     sql: `SELECT p.partner_label, COALESCE(r.v, 0) - COALESCE(b.v, 0) AS open_receipts, COALESCE(-gl.bal, 0) AS gl FROM m_partner p
-          LEFT JOIN (SELECT n.partner_id, SUM(n.value_amount) AS v FROM log_receipt_note n WHERE n.status = 'Posted' AND n.purpose = 'purchase_receipt' GROUP BY n.partner_id) r ON r.partner_id = p.id
+          LEFT JOIN (SELECT n.partner_id, SUM(n.base_cost_amount) AS v FROM log_receipt_note n WHERE n.status = 'Posted' AND n.purpose = 'purchase_receipt' GROUP BY n.partner_id) r ON r.partner_id = p.id
           LEFT JOIN (SELECT v.supplier_id, SUM(v.dpp_amount) AS v FROM fin_ap_invoice v WHERE v.status = 'Posted' GROUP BY v.supplier_id) b ON b.supplier_id = p.id
           LEFT JOIN (${glByPartner(acc("goods_received_account"))}) gl ON gl.partner_id = p.id
           WHERE COALESCE(r.v, 0) - COALESCE(b.v, 0) <> COALESCE(-gl.bal, 0)`,
@@ -991,29 +991,29 @@ export const CHECKS: Check[] = [
   {
     area: "stock",
     name: "a posted Stock Adjustment = its lines = the stock books = its journal, in quantity and value; one not posted moved nothing (P318)",
-    sql: `WITH a AS (SELECT a.id, a.adjustment_no, a.status, a.short_amount, a.over_amount, a.journal_id,
-                        COALESCE((SELECT SUM(l.value_amount) FROM log_stock_adjustment_line l WHERE l.stock_adjustment_id = a.id), 0) AS lines,
+    sql: `WITH a AS (SELECT a.id, a.adjustment_no, a.status, a.base_short_amount, a.base_over_amount, a.journal_id,
+                        COALESCE((SELECT SUM(l.base_cost_amount) FROM log_stock_adjustment_line l WHERE l.stock_adjustment_id = a.id), 0) AS lines,
                         COALESCE((SELECT SUM(l.counted_qty - l.book_qty) FROM log_stock_adjustment_line l WHERE l.stock_adjustment_id = a.id), 0) AS diff,
                         COALESCE((SELECT SUM(v.value_change) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("log_stock_adjustment")} AND v.source_doc_id = a.id), 0) AS moved,
                         COALESCE((SELECT SUM(x.qty_change) FROM log_stock_ledger x WHERE x.source_doc_type_id = ${docType("log_stock_adjustment")} AND x.source_doc_id = a.id), 0) AS qty,
                         COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = a.journal_id), 0) AS journal
                  FROM log_stock_adjustment a)
           SELECT * FROM a
-          WHERE (status = 'Posted' AND (lines <> over_amount - short_amount OR moved <> lines OR qty <> diff OR journal <> over_amount + short_amount))
+          WHERE (status = 'Posted' AND (lines <> base_over_amount - base_short_amount OR moved <> lines OR qty <> diff OR journal <> base_over_amount + base_short_amount))
              OR (status <> 'Posted' AND (moved <> 0 OR qty <> 0 OR journal_id IS NOT NULL))`,
   },
   {
     area: "production",
     name: "a Stock Issue that left = what the stock books released = its journal's debit = its Production Receipt, or has none without a Unit; one not sent moved nothing (P317, P324)",
-    sql: `WITH s AS (SELECT s.id, s.issue_no, s.status, s.cost_amount, s.journal_id,
+    sql: `WITH s AS (SELECT s.id, s.issue_no, s.status, s.base_cost_amount, s.journal_id,
                         COALESCE((SELECT -SUM(v.value_change) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("log_stock_issue")} AND v.source_doc_id = s.id), 0) AS stock_out,
                         COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = s.journal_id), 0) AS journal,
                         COALESCE((SELECT SUM(l.value) FROM prd_receipt r JOIN prd_receipt_line l ON l.receipt_id = r.id WHERE r.receipt_no = s.issue_no), 0) AS other_side,
                         (SELECT r.status::text FROM prd_receipt r WHERE r.receipt_no = s.issue_no) AS other_status
                  FROM log_stock_issue s)
           SELECT * FROM s
-          WHERE (status IN ('InTransit', 'Received') AND (cost_amount <> stock_out OR cost_amount <> journal OR cost_amount <> other_side OR other_status IS DISTINCT FROM status::text))
-             OR (status = 'Posted' AND (cost_amount <> stock_out OR cost_amount <> journal OR other_status IS NOT NULL))
+          WHERE (status IN ('InTransit', 'Received') AND (base_cost_amount <> stock_out OR base_cost_amount <> journal OR base_cost_amount <> other_side OR other_status IS DISTINCT FROM status::text))
+             OR (status = 'Posted' AND (base_cost_amount <> stock_out OR base_cost_amount <> journal OR other_status IS NOT NULL))
              OR (status IN ('Draft', 'Cancelled') AND (journal_id IS NOT NULL OR stock_out <> 0 OR other_status IS NOT NULL))`,
   },
   {
@@ -1028,9 +1028,9 @@ export const CHECKS: Check[] = [
   {
     area: "production",
     name: "a Stock Receipt = its Σ lines = its No. Stok = its Production Issue; one taken in came into stock at it less what Tanpa nilai wrote off, journalled whole; a waiting one moved nothing (P317)",
-    sql: `WITH r AS (SELECT r.id, r.receipt_no, r.status, r.cost_amount, r.written_off_amount, r.value_mode, r.journal_id,
-                        COALESCE((SELECT SUM(x.value_amount) FROM log_stock_receipt_line x WHERE x.stock_receipt_id = r.id), 0) AS lines,
-                        COALESCE((SELECT SUM(t.value_amount) FROM log_stock_receipt_tracking t JOIN log_stock_receipt_line x ON x.id = t.stock_receipt_line_id WHERE x.stock_receipt_id = r.id), 0) AS lots,
+    sql: `WITH r AS (SELECT r.id, r.receipt_no, r.status, r.base_cost_amount, r.base_written_off_amount, r.value_mode, r.journal_id,
+                        COALESCE((SELECT SUM(x.base_cost_amount) FROM log_stock_receipt_line x WHERE x.stock_receipt_id = r.id), 0) AS lines,
+                        COALESCE((SELECT SUM(t.base_cost_amount) FROM log_stock_receipt_tracking t JOIN log_stock_receipt_line x ON x.id = t.stock_receipt_line_id WHERE x.stock_receipt_id = r.id), 0) AS lots,
                         (SELECT COUNT(*) FROM log_stock_receipt_line x WHERE x.stock_receipt_id = r.id AND x.base_qty <> (SELECT SUM(t.base_qty) FROM log_stock_receipt_tracking t WHERE t.stock_receipt_line_id = x.id)) AS short,
                         COALESCE((SELECT SUM(v.value_change) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("log_stock_receipt")} AND v.source_doc_id = r.id), 0) AS stock_in,
                         COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = r.journal_id), 0) AS journal,
@@ -1038,8 +1038,8 @@ export const CHECKS: Check[] = [
                         (SELECT i.status::text FROM prd_issue i WHERE i.issue_no = r.receipt_no) AS other_status
                  FROM log_stock_receipt r WHERE r.purpose <> 'purchase_bonus')
           SELECT * FROM r
-          WHERE cost_amount <> lines OR cost_amount <> lots OR short > 0 OR cost_amount <> other_side OR other_status IS DISTINCT FROM status::text
-             OR (status = 'Received' AND (cost_amount - written_off_amount <> stock_in OR cost_amount <> journal OR written_off_amount <> CASE WHEN value_mode = 'none' THEN cost_amount ELSE 0 END))
+          WHERE base_cost_amount <> lines OR base_cost_amount <> lots OR short > 0 OR base_cost_amount <> other_side OR other_status IS DISTINCT FROM status::text
+             OR (status = 'Received' AND (base_cost_amount - base_written_off_amount <> stock_in OR base_cost_amount <> journal OR base_written_off_amount <> CASE WHEN value_mode = 'none' THEN base_cost_amount ELSE 0 END))
              OR (status = 'InTransit' AND (journal_id IS NOT NULL OR stock_in <> 0))`,
   },
   {
@@ -1235,18 +1235,18 @@ export const CHECKS: Check[] = [
   {
     area: "fx",
     name: "an Invoice Pembelian line bills its Receipt Note line: the PO's DPP in its currency, the receipt's value in base (MC7)",
-    sql: `SELECT i.invoice_no, l.line_no, l.dpp_amount, l.base_dpp_amount, r.order_dpp_amount, r.value_amount
+    sql: `SELECT i.invoice_no, l.line_no, l.dpp_amount, l.base_dpp_amount, r.cost_amount, r.base_cost_amount
             FROM fin_ap_invoice_line l JOIN fin_ap_invoice i ON i.id = l.invoice_id
             JOIN log_receipt_note_line r ON r.id = l.receipt_note_line_id
-           WHERE i.status = 'Posted' AND (l.base_dpp_amount <> r.value_amount OR l.dpp_amount <> r.order_dpp_amount)`,
+           WHERE i.status = 'Posted' AND (l.base_dpp_amount <> r.base_cost_amount OR l.dpp_amount <> r.cost_amount)`,
   },
   {
     area: "fx",
     name: "a rupiah Receipt Note line's PO DPP is its value (MC2)",
-    sql: `SELECT n.rn_no, r.line_no, r.order_dpp_amount, r.value_amount
+    sql: `SELECT n.rn_no, r.line_no, r.cost_amount, r.base_cost_amount
             FROM log_receipt_note_line r JOIN log_receipt_note n ON n.id = r.receipt_note_id
             JOIN pur_order o ON o.id = n.source_doc_id JOIN ref_currency c ON c.id = o.currency_id
-           WHERE n.status = 'Posted' AND n.purpose = 'purchase_receipt' AND c.currency_label = 'IDR' AND r.order_dpp_amount <> r.value_amount`,
+           WHERE n.status = 'Posted' AND n.purpose = 'purchase_receipt' AND c.currency_label = 'IDR' AND r.cost_amount <> r.base_cost_amount`,
   },
   {
     area: "fx",

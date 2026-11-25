@@ -101,7 +101,7 @@ export function PurchaseInvoiceForm({
   const f = computePurchaseInvoice({
     lines: picked.map((l) => {
       const p = poLine.get(l.purchaseOrderLineId);
-      return { dpp: l.orderDpp, withholdingRate: p?.withholdingRate ?? null, withholdingKey: p?.withholdingTaxId ? String(p.withholdingTaxId) : null };
+      return { dpp: l.cost, withholdingRate: p?.withholdingRate ?? null, withholdingKey: p?.withholdingTaxId ? String(p.withholdingTaxId) : null };
     }),
     taxable: order?.taxable ?? false,
     rates: order?.rates ?? null,
@@ -320,7 +320,7 @@ export function PurchaseInvoiceForm({
                   </td>
                   <td>{l.withholdingLabel ? <span className="lab">{l.withholdingLabel}</span> : <span className="dash">—</span>}</td>
                   <td className="num">
-                    <span className="mny">{money(l.orderDpp)}</span>
+                    <span className="mny">{money(l.cost)}</span>
                   </td>
                   {editing && (
                     <td>

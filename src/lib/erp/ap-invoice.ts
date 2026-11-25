@@ -410,7 +410,7 @@ export async function checkPurchaseInvoice(
     // A line bills its receipt's DPP in the order's currency; its base is the receipt's value (MC7).
     lines: picked.map((n) => {
       const p = poLine.get(n.purchaseOrderLineId);
-      return { dpp: n.orderDpp, withholdingRate: p?.withholdingRate ?? null, withholdingKey: p?.withholdingTaxId ? String(p.withholdingTaxId) : null };
+      return { dpp: n.cost, withholdingRate: p?.withholdingRate ?? null, withholdingKey: p?.withholdingTaxId ? String(p.withholdingTaxId) : null };
     }),
     taxable: order?.taxable ?? false,
     rates: order?.rates ?? null,
@@ -471,7 +471,7 @@ export async function checkPurchaseInvoice(
           qty: n.qty,
           price: n.price,
           dpp_amount: f.dpp,
-          base_dpp_amount: n.value,
+          base_dpp_amount: n.baseCost,
           advance_dpp_amount: f.advanceDpp,
           net_dpp_amount: f.netDpp,
           dpp_other_amount: f.dppOther,

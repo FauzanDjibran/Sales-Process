@@ -388,7 +388,7 @@ describe("purchasing in USD (stages 5–6)", () => {
     pids.rn.push(rn.id);
     assert.ok((await transitionReceiptNote(rn.id, "post", actor)).ok);
     const line = await prisma.logReceiptNoteLine.findFirstOrThrow({ where: { receipt_note_id: rn.id } });
-    assert.deepEqual([line.value_amount.toNumber(), line.order_dpp_amount.toNumber()], [7_500_000, 500]);
+    assert.deepEqual([line.base_cost_amount.toNumber(), line.cost_amount.toNumber()], [7_500_000, 500]);
     f.rnLine = line.id;
   });
 

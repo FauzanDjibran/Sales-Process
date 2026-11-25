@@ -27,7 +27,7 @@ WHERE o.order_no = 'PO/2026/11/0001';
 ## 3. Semua dokumen di belakang satu PO
 
 ```sql
-SELECT 'Receipt Note' AS jenis, n.rn_no AS nomor, n.rn_date AS tanggal, n.status::text, n.value_amount AS nilai
+SELECT 'Receipt Note' AS jenis, n.rn_no AS nomor, n.rn_date AS tanggal, n.status::text, n.base_cost_amount AS nilai
 FROM log_receipt_note n JOIN pur_order o ON o.id = n.source_doc_id
 WHERE n.purpose = 'purchase_receipt' AND o.order_no = 'PO/2026/11/0001'
 UNION ALL
@@ -41,7 +41,7 @@ FROM fin_ap_invoice v JOIN pur_order o ON o.id = v.purchase_order_id WHERE o.ord
 ## 4. Barang diterima yang belum ditagih
 
 ```sql
-SELECT p.partner_label, n.rn_no, n.rn_date, l.line_no, l.qty, l.value_amount
+SELECT p.partner_label, n.rn_no, n.rn_date, l.line_no, l.qty, l.base_cost_amount
 FROM log_receipt_note_line l JOIN log_receipt_note n ON n.id = l.receipt_note_id
 JOIN m_partner p ON p.id = n.partner_id
 WHERE n.status = 'Posted' AND n.purpose = 'purchase_receipt'

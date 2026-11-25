@@ -2551,7 +2551,7 @@ table log_receipt_note {
   supplier_dn_no              varchar
   note                        varchar
 
-  value_amount                decimal(18,2) [not null, default: 0] // Σ lines, set at Posting
+  base_cost_amount                decimal(18,2) [not null, default: 0] // Σ lines, set at Posting
   journal_id                  int // weak
   cancel_reason               varchar
 
@@ -2582,8 +2582,8 @@ table log_receipt_note_line {
   qty                         decimal(18,6) [not null] // in uom_id: what is valued and billed (P320)
   base_qty                    decimal(18,4) [not null] // what enters stock
   is_stock                    boolean [not null, default: false] // Barang with Kelola Stok
-  order_dpp_amount            decimal(18,2) [not null, default: 0] // the PO line DPP for this quantity, in the PO currency (MC7)
-  value_amount                decimal(18,2) [not null, default: 0] // cumulative share of the PO line's base DPP (B20, MC7)
+  cost_amount            decimal(18,2) [not null, default: 0] // the PO line DPP for this quantity, in the PO currency (MC7)
+  base_cost_amount                decimal(18,2) [not null, default: 0] // cumulative share of the PO line's base DPP (B20, MC7)
   note                        varchar
 
   indexes {
@@ -2623,7 +2623,7 @@ table log_receipt_note_tracking {
   tracking_no                      varchar // typed, or generated at Posting
   expiry_date                 date
   base_qty                    decimal(18,4) [not null] // base units, whatever the line's unit (P320)
-  value_amount                decimal(18,2) [not null, default: 0] // cumulative share of the line's value
+  base_cost_amount                decimal(18,2) [not null, default: 0] // cumulative share of the line's value
   tracking_id                 int // weak: log_stock_tracking.id, set at Posting
   location_id                 int // weak: ref_warehouse_location.id — where it is put, in a warehouse that has locations
   stock_status_id             int // weak: sys_stock_status.id the lot comes back under; null = Tersedia (purchase_receipt) (P289)
@@ -2656,7 +2656,7 @@ table log_delivery_note {
   vehicle_no                  varchar
   driver_name                 varchar
   note                        varchar
-  cost_amount                 decimal(18,2) [not null, default: 0] // sum of the lines, set at Posting
+  base_cost_amount                 decimal(18,2) [not null, default: 0] // sum of the lines, set at Posting
 
   journal_id                  int // Dr HPP / Cr Persediaan
 
@@ -2676,7 +2676,7 @@ table log_delivery_note {
 }
 
 // the summary of what leaves (P268): one quantity of one source line in the document's unit; carries its own item, unit and factor (P106)
-// cost_amount is Σ its tracking rows, set at Posting; a unit cost is derived on read, never stored
+// base_cost_amount is Σ its tracking rows, set at Posting; a unit cost is derived on read, never stored
 table log_delivery_note_line {
   id                          int [pk, increment, not null]
 
@@ -2691,7 +2691,7 @@ table log_delivery_note_line {
   qty                         decimal(18,4) [not null] // in uom_id
   base_qty                    decimal(18,4) [not null, default: 0] // qty x uom_factor = Σ its tracking rows' base_qty
   returned_qty                decimal(18,4) [not null, default: 0] // base qty brought back by posted Receipt Notes sales_return; CHECK 0 ≤ returned ≤ base_qty (P289)
-  cost_amount                 decimal(18,2) [not null, default: 0] // Σ its tracking rows' cost_amount
+  base_cost_amount                 decimal(18,2) [not null, default: 0] // Σ its tracking rows' base_cost_amount
 
   note                        varchar
 
@@ -2719,7 +2719,7 @@ table log_delivery_note_tracking {
   tracking_no                      varchar [not null] // as printed on the note
   expiry_date                 date
   base_qty                    decimal(18,4) [not null] // in the item's base unit — what the stock books move
-  cost_amount                 decimal(18,2) [not null, default: 0] // round(V × q ÷ Q) released at Posting (P114)
+  base_cost_amount                 decimal(18,2) [not null, default: 0] // round(V × q ÷ Q) released at Posting (P114)
 
   indexes {
     (delivery_note_line_id, pick_no) [unique]
@@ -3058,7 +3058,7 @@ table log_stock_issue {
   unit_id              int [ref : > ref_unit.id] // the production purposes only
   note                        varchar
 
-  cost_amount                 decimal(18,2) [not null, default: 0]
+  base_cost_amount                 decimal(18,2) [not null, default: 0]
   journal_id                  int // no FK
   received_at                 date // the day Produksi took the goods in
   cancel_reason               varchar
@@ -3085,7 +3085,7 @@ table log_stock_issue_line {
   uom_factor                  decimal(18,4) [not null, default: 1]
   qty                         decimal(18,4) [not null]
   base_qty                    decimal(18,4) [not null, default: 0]
-  cost_amount                 decimal(18,2) [not null, default: 0]
+  base_cost_amount                 decimal(18,2) [not null, default: 0]
   note                        varchar
 
   indexes {
@@ -3106,7 +3106,7 @@ table log_stock_issue_tracking {
   expiry_date                 date
   qty                         decimal(18,4) [not null]
   base_qty                    decimal(18,4) [not null, default: 0]
-  cost_amount                 decimal(18,2) [not null, default: 0]
+  base_cost_amount                 decimal(18,2) [not null, default: 0]
 
   indexes {
     (stock_issue_line_id, pick_no) [unique]
@@ -3137,9 +3137,9 @@ table log_stock_receipt {
   note                        varchar
   received_at                 date // Terima, the journal's date
   received_by                 int
-  cost_amount                 decimal(18,2) [not null, default: 0] // Σ lines, frozen by the sender
+  base_cost_amount                 decimal(18,2) [not null, default: 0] // Σ lines, frozen by the sender
   value_mode                  varchar // carried | none, chosen at Terima (P304)
-  written_off_amount          decimal(18,2) [not null, default: 0] // what `none` charged to Beban Pemusnahan Produksi
+  base_written_off_amount          decimal(18,2) [not null, default: 0] // what `none` charged to Beban Pemusnahan Produksi
   journal_id                  int // acc_journal.id, no FK
   created_by                  int [not null]
   updated_by                  int
@@ -3160,7 +3160,7 @@ table log_stock_receipt_line {
   line_no                     int [not null]
   item_id                     int [not null, ref : > m_item.id]
   base_qty                    decimal(18,6) [not null] // Σ its No. Stok
-  value_amount                decimal(18,2) [not null, default: 0]
+  base_cost_amount                decimal(18,2) [not null, default: 0]
 
   indexes {
     (stock_receipt_id, line_no) [unique]
@@ -3177,7 +3177,7 @@ table log_stock_receipt_tracking {
   job_no                      varchar // production's, as printed
   base_qty                    decimal(18,6) [not null] // CHECK > 0
   grams                       decimal(18,6)
-  value_amount                decimal(18,2) [not null, default: 0] // frozen by the sender
+  base_cost_amount                decimal(18,2) [not null, default: 0] // frozen by the sender
   location_id                 int // ref_warehouse_location.id, no FK; chosen at Terima
   stock_status_id             int // sys_stock_status.id, no FK; chosen at Terima
 
@@ -3223,8 +3223,8 @@ table log_stock_adjustment {
   status                      enum('Draft', 'Submitted', 'Posted', 'Rejected', 'Cancelled') [not null, default: 'Draft']
   warehouse_id                int [not null, ref : > ref_warehouse.id]
   note                        varchar
-  short_amount                decimal(18,2) [not null, default: 0] // Σ that left, at Posting
-  over_amount                 decimal(18,2) [not null, default: 0] // Σ that came in
+  base_short_amount                decimal(18,2) [not null, default: 0] // Σ that left, at Posting
+  base_over_amount                 decimal(18,2) [not null, default: 0] // Σ that came in
   journal_id                  int // acc_journal.id, no FK
   status_reason               varchar // why rejected or cancelled
   created_by                  int [not null]
@@ -3249,8 +3249,8 @@ table log_stock_adjustment_line {
   stock_status_id             int [not null] // sys_stock_status.id, no FK
   book_qty                    decimal(18,6) [not null] // when counted; CHECK >= 0
   counted_qty                 decimal(18,6) // null until counted; CHECK >= 0
-  typed_value                 decimal(18,2) // for an excess with the pool empty
-  value_amount                decimal(18,2) [not null, default: 0] // moved, signed, at Posting
+  base_typed_amount                 decimal(18,2) // for an excess with the pool empty
+  base_cost_amount                decimal(18,2) [not null, default: 0] // moved, signed, at Posting
   note                        varchar
 
   indexes {

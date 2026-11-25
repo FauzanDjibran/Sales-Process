@@ -140,7 +140,7 @@ type CheckedLine = {
   stock_status_id: number;
   book_qty: number;
   counted_qty: number | null;
-  typed_value: number | null;
+  base_typed_amount: number | null;
   note: string | null;
 };
 
@@ -225,7 +225,7 @@ async function check(db: Db, header: StockAdjustmentHeaderInput, lines: StockAdj
       errors[lineKey(i, "value")] = "Nilai harus rupiah utuh.";
       continue;
     }
-    out.push({ line_no: out.length + 1, item_id: itemId, tracking_id: lot.id, tracking_no: no, location_id: locationId, stock_status_id: statusId, book_qty: book, counted_qty: counted, typed_value: typed, note: text(l.note) });
+    out.push({ line_no: out.length + 1, item_id: itemId, tracking_id: lot.id, tracking_no: no, location_id: locationId, stock_status_id: statusId, book_qty: book, counted_qty: counted, base_typed_amount: typed, note: text(l.note) });
   }
   if (!errors._lines && Object.keys(errors).some((k) => k.startsWith("lines."))) errors._lines = "Ada baris yang perlu diperbaiki.";
   if (Object.keys(errors).length || !warehouse) return { ok: false, errors };
@@ -285,7 +285,7 @@ const asInput = (a: Stored): { header: StockAdjustmentHeaderInput; lines: StockA
     stock_status_id: l.stock_status_id,
     book_qty: l.book_qty.toNumber(),
     counted_qty: l.counted_qty === null ? "" : l.counted_qty.toNumber(),
-    value: l.typed_value === null ? "" : l.typed_value.toNumber(),
+    value: l.base_typed_amount === null ? "" : l.base_typed_amount.toNumber(),
     note: l.note ?? "",
   })),
 });
@@ -363,11 +363,11 @@ export async function transitionStockAdjustment(
           value = -(await issueStock(tx, { ...place, lotId: l.tracking_id, baseQty: -diff })).cost;
         } else {
           const average = await increaseValue(tx, l.item_id, diff);
-          if (average === null && l.typed_value === null) throw new Refused({ _form: `Stok ${c.itemLabels.get(l.item_id)} kosong, jadi belum punya harga pokok: isi nilai lebihnya di baris lot ${l.tracking_no}.` });
-          value = average ?? l.typed_value!;
+          if (average === null && l.base_typed_amount === null) throw new Refused({ _form: `Stok ${c.itemLabels.get(l.item_id)} kosong, jadi belum punya harga pokok: isi nilai lebihnya di baris lot ${l.tracking_no}.` });
+          value = average ?? l.base_typed_amount!;
           await receiveStock(tx, { ...place, lotNo: l.tracking_no, expiry: null, baseQty: diff, value });
         }
-        await tx.logStockAdjustmentLine.updateMany({ where: { stock_adjustment_id: id, line_no: l.line_no }, data: { value_amount: value } });
+        await tx.logStockAdjustmentLine.updateMany({ where: { stock_adjustment_id: id, line_no: l.line_no }, data: { base_cost_amount: value } });
         book(l.item_id, value);
       }
 
@@ -396,7 +396,7 @@ export async function transitionStockAdjustment(
         ? await postJournal(tx, { description: `${a.adjustment_no} · Stock Adjustment ${c.warehouseLabel}`, sourceDocTypeId: typeId, sourceDocId: id, postingDate: date, actorId, lines: journalLines })
         : null;
       const sum = (k: "short" | "over") => [...perItem.values()].reduce((x, p) => x + p[k], 0);
-      await tx.logStockAdjustment.update({ where: { id }, data: { journal_id: journal?.id ?? null, short_amount: sum("short"), over_amount: sum("over") } });
+      await tx.logStockAdjustment.update({ where: { id }, data: { journal_id: journal?.id ?? null, base_short_amount: sum("short"), base_over_amount: sum("over") } });
       if (options.dryRun) throw new PostingDryRun(journalLines);
     });
     return { ok: true as const };
@@ -422,7 +422,7 @@ export async function listStockAdjustments(warehouses: number[] | null = null): 
     warehouseLabel: r.warehouse.warehouse_label,
     warehouseName: r.warehouse.warehouse_name,
     lines: r._count.lines,
-    net: r.over_amount.sub(r.short_amount).toNumber(),
+    net: r.base_over_amount.sub(r.base_short_amount).toNumber(),
   }));
 }
 
@@ -454,9 +454,9 @@ export async function getStockAdjustment(id: number): Promise<StockAdjustmentVie
     status: a.status as StockAdjustmentStatus,
     header: input.header,
     warehouse: { id: a.warehouse_id, label: a.warehouse.warehouse_label, name: a.warehouse.warehouse_name },
-    lines: input.lines.map((l, i) => ({ ...l, locationLabel: l.location_id ? (labels.get(l.location_id) ?? null) : null, valueAmount: a.lines[i].value_amount.toNumber() })),
-    short: a.short_amount.toNumber(),
-    over: a.over_amount.toNumber(),
+    lines: input.lines.map((l, i) => ({ ...l, locationLabel: l.location_id ? (labels.get(l.location_id) ?? null) : null, valueAmount: a.lines[i].base_cost_amount.toNumber() })),
+    short: a.base_short_amount.toNumber(),
+    over: a.base_over_amount.toNumber(),
     journalId: a.journal_id,
     journalNo: a.journal_id ? (journals.get(a.journal_id) ?? null) : null,
     reason: a.status_reason,

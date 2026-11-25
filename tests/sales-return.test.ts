@@ -359,12 +359,14 @@ describe("a Receipt Note sales_return brings the goods back", () => {
   test("posting returns the stock at the value it left at, reverses HPP and closes the return", async () => {
     const [first, second] = ids.rn;
     const firstNote = await prisma.logReceiptNote.findUniqueOrThrow({ where: { id: first }, include: { lines: { include: { trackings: true } } } });
-    assert.equal(firstNote.value_amount.toNumber(), 40_000, "4 of the 40 that left at 400.000");
+    assert.equal(firstNote.base_cost_amount.toNumber(), 40_000, "4 of the 40 that left at 400.000");
     const posted = await transitionReceiptNote(second, "post", actor);
     assert.ok(posted.ok, JSON.stringify(posted));
     assert.deepEqual(posted.closed, [(await getSalesReturn(srId))!.returnNo], "every line back: the return closes itself");
     const note = await prisma.logReceiptNote.findUniqueOrThrow({ where: { id: second } });
-    assert.equal(note.value_amount.toNumber(), 60_000, "6 of the 40 at 10.000 each, cumulative");
+    assert.equal(note.base_cost_amount.toNumber(), 60_000, "6 of the 40 at 10.000 each, cumulative");
+    const back = await prisma.logReceiptNoteLine.findFirstOrThrow({ where: { receipt_note_id: second } });
+    assert.equal(back.cost_amount.toNumber(), 60_000, "a return has one measure (MC2)");
     const lines = await prisma.accJournalLine.findMany({ where: { journal_id: note.journal_id! } });
     const cogs = Number((await prisma.sysSetting.findUniqueOrThrow({ where: { setting_key: "cogs_account" } })).setting_value);
     const inv = Number((await prisma.sysSetting.findUniqueOrThrow({ where: { setting_key: "inventory_account" } })).setting_value);
