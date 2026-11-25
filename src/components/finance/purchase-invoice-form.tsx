@@ -449,7 +449,7 @@ export function PurchaseInvoiceForm({
           {f.withholdings.map((w) => (
             <div className="ir" key={w.key}>
               <span>
-                {whtLabel(w.key)} {formatPct(w.rate)} × DPP {money(w.base)} — kita potong
+                {whtLabel(w.key)} {formatPct(w.rate)} × DPP {money(w.dpp)} — kita potong
               </span>
               <b>−{money(w.amount)}</b>
             </div>

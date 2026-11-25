@@ -171,7 +171,7 @@ describe("what the form offers", () => {
     assert.ok(so);
     assert.equal(so.value, 3_000_000, "Exclude: drawn from the order's DPP");
     assert.equal(so.left, 3_000_000 - so.drawn);
-    assert.deepEqual(so.basis.withholdings, [{ key: String(f.wht), rate: 1.5, base: 2_000_000 }]);
+    assert.deepEqual(so.basis.withholdings, [{ key: String(f.wht), rate: 1.5, dpp: 2_000_000 }]);
     assert.ok(!o.orders.some((x) => x.id === draft), "a Draft order is not offered");
     const banks = o.banks.map((b) => b.id);
     assert.ok(banks.includes(f.bank) && !banks.includes(f.cash));
@@ -293,7 +293,7 @@ describe("a bill's life", () => {
   test("the PPh estimate covers the order's withheld Barang lines", async () => {
     const [o] = (await salesAdvanceOptions()).orders.filter((x) => x.id === f.order);
     const fig = computeAdvance({ basis: o.basis, type: "Percent", typed: 30, rates: { rate: 12, otherNum: 11, otherDen: 12 } });
-    assert.deepEqual(fig.withholdings.map((w) => [w.base, w.amount]), [[600_000, 9_000]]);
+    assert.deepEqual(fig.withholdings.map((w) => [w.dpp, w.amount]), [[600_000, 9_000]]);
   });
 
   test("a bill snapshots the PPN rate; Terbitkan freezes it (P60)", async () => {

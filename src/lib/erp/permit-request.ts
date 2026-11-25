@@ -945,7 +945,7 @@ export async function permitAdvanceSources(
         vatCollector: o.customer.vat_collector === "Government",
         dpp: o.estimate_dpp.toNumber(),
         total: o.estimate_total.toNumber(),
-        withholdings: whtKey && whtRate ? [{ key: whtKey, rate: whtRate, base: o.estimate_dpp.toNumber() }] : [],
+        withholdings: whtKey && whtRate ? [{ key: whtKey, rate: whtRate, dpp: o.estimate_dpp.toNumber() }] : [],
       },
       withholdingTaxId: o.withholding_tax_id,
       withholdingRate: whtRate,

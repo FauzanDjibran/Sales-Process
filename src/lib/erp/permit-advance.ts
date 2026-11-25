@@ -577,7 +577,7 @@ export type SettlementPermitAdvance = {
   ppn: number;
   /** The PPN rate and DPP Nilai Lain factor the bill was issued with; null without PPN. */
   rates: PpnRates | null;
-  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  withholdings: { key: string; rate: number; dpp: number; amount: number }[];
   /** What posted payments settled of it before — a payment's `before`, read from its item (P214). */
   paid: number;
 };

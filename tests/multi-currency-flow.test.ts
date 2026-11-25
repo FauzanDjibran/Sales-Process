@@ -226,7 +226,7 @@ describe("the tax arithmetic in a currency's minor unit (MC5)", () => {
   });
 
   test("a USD bill settled in full: the PPh share in cents, the cash what is left", () => {
-    const bill = { total: 777, ppn: 77, withholdings: [{ key: "1", rate: 1.5, base: 700, amount: 10.5 }] };
+    const bill = { total: 777, ppn: 77, withholdings: [{ key: "1", rate: 1.5, dpp: 700, amount: 10.5 }] };
     const s = settleBill({ bill, before: 0, settled: 777, withhold: true, scale: 100 });
     assert.deepEqual([s.settled, s.pph, s.cash], [777, 10.5, 766.5]);
   });
@@ -344,7 +344,7 @@ describe("sales in USD (stages 3–4)", () => {
     assert.deepEqual(await arItem("fin_ar_invoice", f.inv), [0, 0]);
     const tx = await prisma.finCashBankTx.findUniqueOrThrow({ where: { id: rc.id }, include: { lines: true } });
     const l = tx.lines[0];
-    assert.deepEqual([l.transaction_base_amount.toNumber(), l.base_settled_amount.toNumber(), l.fx_difference.toNumber()], [12_587_400, 12_432_000, -155_400]);
+    assert.deepEqual([l.base_transaction_amount.toNumber(), l.base_settled_amount.toNumber(), l.fx_difference.toNumber()], [12_587_400, 12_432_000, -155_400]);
     assert.equal(await balanced(tx.journal_id), 0);
     assert.equal(await fxOf(tx.journal_id), -155_400, "a gain is credited");
   });

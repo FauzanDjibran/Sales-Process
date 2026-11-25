@@ -105,7 +105,7 @@ export function SlipView({ slip: s, can, today }: { slip: Slip; can: TaxAbilitie
           <div className="ttl">Perhitungan PPh</div>
           <div className="ir">
             <span>Dasar pengenaan (DPP)</span>
-            <b>{money(s.base)}</b>
+            <b>{money(s.dpp)}</b>
           </div>
           <div className="ir">
             <span>Tarif {s.whtLabel}</span>

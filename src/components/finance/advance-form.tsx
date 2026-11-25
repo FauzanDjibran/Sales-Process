@@ -688,7 +688,7 @@ export function AdvanceForm({
                   {figures.withholdings.map((w) => (
                     <div className="ir" key={w.key}>
                       <span>
-                        {order.withholdingLabels[w.key] ?? "PPh"} {formatPct(w.rate)} × DPP {money(w.base)}
+                        {order.withholdingLabels[w.key] ?? "PPh"} {formatPct(w.rate)} × DPP {money(w.dpp)}
                       </span>
                       <b>−{money(w.amount)}</b>
                     </div>

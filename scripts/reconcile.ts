@@ -529,7 +529,7 @@ export const CHECKS: Check[] = [
     sql: `SELECT t.tx_no, w.id AS pph_row, w.amount, s.slip_no, s.amount AS slip_amount
           FROM fin_cash_bank_tx t JOIN fin_cash_bank_tx_line l ON l.tx_id = t.id JOIN fin_cash_bank_tx_line_wht w ON w.line_id = l.id
           LEFT JOIN tax_withholding_slip s ON s.receipt_line_wht_id = w.id
-          WHERE t.status = 'Posted' AND (s.id IS NULL OR s.amount <> w.amount OR s.base_amount <> w.base_amount OR s.withholding_tax_id <> w.withholding_tax_id OR s.receipt_id <> t.id)`,
+          WHERE t.status = 'Posted' AND (s.id IS NULL OR s.amount <> w.amount OR s.dpp_amount <> w.dpp_amount OR s.withholding_tax_id <> w.withholding_tax_id OR s.receipt_id <> t.id)`,
   },
   {
     area: "tax",
@@ -1195,7 +1195,7 @@ export const CHECKS: Check[] = [
   {
     area: "fx",
     name: "a posted Transfer moved its source by the bases its lines released (P299)",
-    sql: `SELECT x.transfer_no, x.from_base, o.base AS book_out, SUM(l.out_base) AS lines_out
+    sql: `SELECT x.transfer_no, x.base_from_amount, o.base AS book_out, SUM(l.base_out_amount) AS lines_out
             FROM fin_cash_bank_transfer x
             JOIN fin_cash_bank_transfer_line l ON l.transfer_id = x.id
             LEFT JOIN (SELECT source_doc_id, cash_bank_id, -SUM(base_movement) AS base FROM cash_bank_ledger
@@ -1203,19 +1203,19 @@ export const CHECKS: Check[] = [
                    ON o.source_doc_id = x.id AND o.cash_bank_id = x.from_cash_bank_id
            WHERE x.status = 'Posted'
            GROUP BY x.id, o.base
-          HAVING o.base IS DISTINCT FROM x.from_base OR SUM(l.out_base) IS DISTINCT FROM x.from_base`,
+          HAVING o.base IS DISTINCT FROM x.base_from_amount OR SUM(l.base_out_amount) IS DISTINCT FROM x.base_from_amount`,
   },
   {
     area: "fx",
     name: "a posted Transfer line moved its destination by its base, and its selisih kurs is in − out, nil but on a Pencairan (P299, concept §5.8)",
-    sql: `SELECT x.transfer_no, l.line_no, l.out_base, l.in_base, l.fx_difference, i.base AS book_in
+    sql: `SELECT x.transfer_no, l.line_no, l.base_out_amount, l.base_in_amount, l.fx_difference, i.base AS book_in
             FROM fin_cash_bank_transfer x
             JOIN fin_cash_bank_transfer_line l ON l.transfer_id = x.id
             LEFT JOIN (SELECT source_doc_id, cash_bank_id, SUM(base_movement) AS base FROM cash_bank_ledger
                         WHERE source_doc_type_id = ${docType("fin_cash_bank_transfer")} AND base_movement > 0 GROUP BY 1, 2) i
                    ON i.source_doc_id = x.id AND i.cash_bank_id = l.to_cash_bank_id
            WHERE x.status = 'Posted'
-             AND (i.base IS DISTINCT FROM l.in_base OR l.fx_difference <> l.in_base - l.out_base
+             AND (i.base IS DISTINCT FROM l.base_in_amount OR l.fx_difference <> l.base_in_amount - l.base_out_amount
                   OR (x.purpose <> 'Pencairan' AND l.fx_difference <> 0))`,
   },
   {
@@ -1228,9 +1228,9 @@ export const CHECKS: Check[] = [
   {
     area: "fx",
     name: "a payment line's selisih kurs is its settlement base less its transaction base (MC12)",
-    sql: `SELECT t.tx_no, l.line_no, l.base_settled_amount, l.transaction_base_amount, l.fx_difference
+    sql: `SELECT t.tx_no, l.line_no, l.base_settled_amount, l.base_transaction_amount, l.fx_difference
             FROM fin_cash_bank_tx_line l JOIN fin_cash_bank_tx t ON t.id = l.tx_id
-           WHERE l.fx_difference <> l.base_settled_amount - l.transaction_base_amount`,
+           WHERE l.fx_difference <> l.base_settled_amount - l.base_transaction_amount`,
   },
   {
     area: "fx",

@@ -125,7 +125,7 @@ describe("Transfer Kas & Bank (P299)", () => {
     assert.deepEqual(await pool(f.usdBank2), [1_000, 15_500_000]);
     assert.deepEqual(await pool(f.idrBank), [63_250_000, 63_250_000]);
     const d = await doc(a.id);
-    assert.deepEqual([d.from_amount.toNumber(), d.from_base?.toNumber(), d.fx_difference.toNumber(), d.currency_id], [31_750_000, 31_750_000, 0, f.usd]);
+    assert.deepEqual([d.from_amount.toNumber(), d.base_from_amount?.toNumber(), d.fx_difference.toNumber(), d.currency_id], [31_750_000, 31_750_000, 0, f.usd]);
     assert.equal(d.journal?.lines.length, 3, "two destinations, one source, no selisih kurs line");
   });
 
@@ -153,7 +153,7 @@ describe("Transfer Kas & Bank (P299)", () => {
     assert.ok(r.ok, JSON.stringify(r));
     assert.deepEqual(await pool(f.usdBank), [1_500, 23_812_500], "the pool keeps its average");
     const d = await doc(made.id);
-    assert.deepEqual([d.from_base?.toNumber(), d.lines[0].in_base?.toNumber(), d.fx_difference.toNumber()], [7_937_500, 8_200_000, 262_500]);
+    assert.deepEqual([d.base_from_amount?.toNumber(), d.lines[0].base_in_amount?.toNumber(), d.fx_difference.toNumber()], [7_937_500, 8_200_000, 262_500]);
     const fxLine = d.journal!.lines.find((l) => l.account_id === f.fx)!;
     assert.deepEqual([fxLine.debit_amount.toNumber(), fxLine.kredit_amount.toNumber()], [0, 262_500], "a gain is credited");
   });
@@ -171,7 +171,7 @@ describe("Transfer Kas & Bank (P299)", () => {
     assert.deepEqual(await pool(f.usdBank), [0, 0]);
     const d = await doc(a.id);
     assert.deepEqual(
-      d.lines.map((l) => [l.out_base?.toNumber(), l.in_base?.toNumber(), l.fx_difference.toNumber()]),
+      d.lines.map((l) => [l.base_out_amount?.toNumber(), l.base_in_amount?.toNumber(), l.fx_difference.toNumber()]),
       [
         [15_875_000, 15_000_000, -875_000],
         [7_937_500, 7_500_000, -437_500],

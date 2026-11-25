@@ -190,7 +190,7 @@ export async function createTaxDocsForReceipt(db: Db, receiptId: number, actorId
           doc_no: l.docNo,
           withholding_tax_id: w.withholdingTaxId,
           rate: w.rate,
-          base_amount: w.base,
+          dpp_amount: w.dpp,
           amount: w.amount,
           created_by: actorId,
         },
@@ -596,7 +596,7 @@ export type SlipListRow = {
   docId: number;
   whtLabel: string;
   rate: number;
-  base: number;
+  dpp: number;
   amount: number;
   slipNumber: string | null;
 };
@@ -620,7 +620,7 @@ function slipRow(r: Prisma.TaxWithholdingSlipGetPayload<{ include: typeof SLIP_I
     docId: r.doc_id,
     whtLabel: r.withholding_tax.wht_label,
     rate: r.rate.toNumber(),
-    base: r.base_amount.toNumber(),
+    dpp: r.dpp_amount.toNumber(),
     amount: r.amount.toNumber(),
     slipNumber: r.slip_number,
   };

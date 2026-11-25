@@ -175,7 +175,7 @@ export type OpenBill = {
   ppn: number;
   /** The advance bill's PPN snapshot, for its Faktur Pajak Uang Muka; null for an Invoice. */
   rates: PpnRates | null;
-  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  withholdings: { key: string; rate: number; dpp: number; amount: number }[];
   /** An Invoice's Invoice AR item. */
   arItemId: number | null;
   /** Settled before this receipt. */
@@ -635,7 +635,7 @@ function lineRows(typeIds: Record<SettledDocKind, number>, lines: CheckedLine[],
     settled_amount: l.settled,
     // A Draft carries no base: it is worked out when it posts.
     base_settled_amount: bases?.[i].settled ?? l.settled,
-    transaction_base_amount: bases?.[i].tx ?? l.settled,
+    base_transaction_amount: bases?.[i].tx ?? l.settled,
     fx_difference: bases ? (Math.round(bases[i].settled * 100) - Math.round(bases[i].tx * 100)) / 100 : 0,
     withhold: l.withhold,
     dpp_part: l.dppPart,
@@ -646,7 +646,7 @@ function lineRows(typeIds: Record<SettledDocKind, number>, lines: CheckedLine[],
       create: l.withholdings.map((w) => ({
         withholding_tax_id: Number(w.key),
         rate: w.rate,
-        base_amount: w.base,
+        dpp_amount: w.dpp,
         amount: w.amount,
       })),
     },
@@ -1240,7 +1240,7 @@ export type CashReceiptLineView = {
   dppPart: number;
   ppnPart: number;
   pph: number;
-  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  withholdings: { key: string; rate: number; dpp: number; amount: number }[];
 };
 
 export type CashReceiptView = {
@@ -1291,7 +1291,7 @@ export async function getCashReceipt(id: number): Promise<CashReceiptView | null
       withholdings: l.whts.map((w) => ({
         key: String(w.withholding_tax_id),
         rate: w.rate.toNumber(),
-        base: w.base_amount.toNumber(),
+        dpp: w.dpp_amount.toNumber(),
         amount: w.amount.toNumber(),
       })),
     })),
@@ -1331,7 +1331,7 @@ export type ReceiptTaxBasis = {
     /** The advance bill's Uraian and PPN snapshot (advance only). */
     description: string;
     rates: PpnRates | null;
-    whts: { id: number; withholdingTaxId: number; rate: number; base: number; amount: number }[];
+    whts: { id: number; withholdingTaxId: number; rate: number; dpp: number; amount: number }[];
   }[];
 };
 
@@ -1388,7 +1388,7 @@ export async function receiptTaxBasis(db: Db, id: number): Promise<ReceiptTaxBas
           id: w.id,
           withholdingTaxId: w.withholding_tax_id,
           rate: w.rate.toNumber(),
-          base: w.base_amount.toNumber(),
+          dpp: w.dpp_amount.toNumber(),
           amount: w.amount.toNumber(),
         })),
       };

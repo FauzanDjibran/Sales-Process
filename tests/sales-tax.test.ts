@@ -170,7 +170,7 @@ describe("a document's totals are the sum of its lines", () => {
       vatCollector: false,
       rates: R,
     });
-    assert.deepEqual(t.withholdings, [{ key: "22", rate: 1.5, base: 2_043_243, amount: 30_649 }]);
+    assert.deepEqual(t.withholdings, [{ key: "22", rate: 1.5, dpp: 2_043_243, amount: 30_649 }]);
     assert.equal(t.expectedReceipt, 2_400_500 - 30_649);
   });
 
@@ -198,7 +198,7 @@ describe("an advance bill (P55, P60)", () => {
         vatCollector: false,
         dpp: 1_716_400,
         total: 1_905_204,
-        withholdings: [{ key: "22", rate: 1.5, base: 850_000 }],
+        withholdings: [{ key: "22", rate: 1.5, dpp: 850_000 }],
       },
       type: "Percent",
       typed: 30,
@@ -210,7 +210,7 @@ describe("an advance bill (P55, P60)", () => {
     assert.equal(a.ppn, 56_641);
     assert.equal(a.total, 571_561);
     assert.equal(a.percent, 30);
-    assert.deepEqual(a.withholdings, [{ key: "22", rate: 1.5, base: 255_000, amount: 3_825 }]);
+    assert.deepEqual(a.withholdings, [{ key: "22", rate: 1.5, dpp: 255_000, amount: 3_825 }]);
     assert.equal(a.expectedReceipt, 571_561 - 3_825);
   });
 
@@ -258,8 +258,8 @@ describe("settling a bill in parts (P66–P69, tax_concept.md §7.5)", () => {
     total: 1_110_000,
     ppn: 110_000,
     withholdings: [
-      { key: "23", rate: 2, base: 600_000, amount: 12_000 },
-      { key: "22", rate: 1.5, base: 400_000, amount: 6_000 },
+      { key: "23", rate: 2, dpp: 600_000, amount: 12_000 },
+      { key: "22", rate: 1.5, dpp: 400_000, amount: 6_000 },
     ],
   };
 
@@ -269,7 +269,7 @@ describe("settling a bill in parts (P66–P69, tax_concept.md §7.5)", () => {
     assert.equal(l.dppPart, 1_000_000);
     assert.equal(l.pph, 18_000);
     assert.equal(l.cash, 1_092_000);
-    assert.deepEqual(l.withholdings.map((w) => [w.key, w.base, w.amount]), [["23", 600_000, 12_000], ["22", 400_000, 6_000]]);
+    assert.deepEqual(l.withholdings.map((w) => [w.key, w.dpp, w.amount]), [["23", 600_000, 12_000], ["22", 400_000, 6_000]]);
   });
 
   test("parts add up to the bill, and the clearing part takes what is left", () => {
@@ -280,7 +280,7 @@ describe("settling a bill in parts (P66–P69, tax_concept.md §7.5)", () => {
     assert.equal(a.dppPart + b.dppPart + c.dppPart, 1_000_000);
     for (const k of [0, 1]) {
       assert.equal(a.withholdings[k].amount + b.withholdings[k].amount + c.withholdings[k].amount, bill.withholdings[k].amount);
-      assert.equal(a.withholdings[k].base + b.withholdings[k].base + c.withholdings[k].base, bill.withholdings[k].base);
+      assert.equal(a.withholdings[k].dpp + b.withholdings[k].dpp + c.withholdings[k].dpp, bill.withholdings[k].dpp);
     }
     // round(110.000 × 333.333 / 1.110.000) = round(33.033,3) = 33.033
     assert.equal(a.ppnPart, 33_033);
@@ -302,7 +302,7 @@ describe("settling a bill in parts (P66–P69, tax_concept.md §7.5)", () => {
 });
 
 describe("Dilunasi is typed; the PPh and the money follow (P302)", () => {
-  const bill = { total: 4_662_000, ppn: 462_000, withholdings: [{ key: "23", rate: 2, base: 4_200_000, amount: 84_000 }] };
+  const bill = { total: 4_662_000, ppn: 462_000, withholdings: [{ key: "23", rate: 2, dpp: 4_200_000, amount: 84_000 }] };
 
   test("a partial payment withholds its positional PPh share, the money is what is left", () => {
     const part = settleBill({ bill, before: 0, settled: 3_055_046, withhold: true });

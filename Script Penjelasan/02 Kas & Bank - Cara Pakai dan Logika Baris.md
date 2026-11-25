@@ -144,7 +144,7 @@ fin_cash_bank_tx_line           (one document paid: advance bill or Invoice)
 
 fin_cash_bank_tx_line_wht       (one per Jenis PPh on the line)
   withholding_tax_id, rate
-  base_amount            this payment's share of the document's PPh base
+  dpp_amount             this payment's share of the document's PPh base
   amount                 this payment's share of the document's PPh
 ```
 
@@ -240,7 +240,7 @@ S_ppn    = round(P × after / T) − round(P × before / T)        → ppn_part
 S_dpp    = S − S_ppn                                          → dpp_part
 
 per Jenis PPh k (only when withhold = true):
-  base_k = round(B_k × after / T) − round(B_k × before / T)   → wht.base_amount
+  base_k = round(B_k × after / T) − round(B_k × before / T)   → wht.dpp_amount
   pph_k  = round(W_k × after / T) − round(W_k × before / T)   → wht.amount
 S_pph    = Σ pph_k                                            → pph_amount
 cash     = S − S_pph

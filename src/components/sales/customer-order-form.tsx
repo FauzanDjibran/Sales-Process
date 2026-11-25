@@ -866,7 +866,7 @@ export function CustomerOrderForm({
             {totals.withholdings.map((w) => (
               <div className="ir" key={w.key}>
                 <span>
-                  {whtById.get(Number(w.key))?.label ?? "PPh"} {formatPct(w.rate)} × DPP {money(w.base)}
+                  {whtById.get(Number(w.key))?.label ?? "PPh"} {formatPct(w.rate)} × DPP {money(w.dpp)}
                 </span>
                 <b>−{money(w.amount)}</b>
               </div>

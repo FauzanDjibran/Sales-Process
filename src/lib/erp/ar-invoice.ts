@@ -1164,7 +1164,7 @@ export type SettlementInvoice = {
   dpp: number;
   ppn: number;
   /** Per Jenis PPh on its net DPP, less what Credit Notes credited of each line (P292, plan §3.2). */
-  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  withholdings: { key: string; rate: number; dpp: number; amount: number }[];
   arItemId: number | null;
   /** What posted receipts settled of it — a receipt's `before` (P133). */
   paid: number;

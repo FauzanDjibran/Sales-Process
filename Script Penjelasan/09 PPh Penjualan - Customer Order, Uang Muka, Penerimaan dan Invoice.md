@@ -288,7 +288,7 @@ seperti §3.4. "Per Jenis" = dikelompokkan menurut `invl.withholding_tax_id`.
 | --- | --- |
 | `fin_cash_bank_tx_line.withhold` | saklar Potong PPh baris (default on) |
 | `fin_cash_bank_tx_line.pph_amount` | Σ PPh baris |
-| **`fin_cash_bank_tx_line_wht`** (baru) | satu baris per Jenis PPh: `withholding_tax_id`, `rate`, `base_amount`, `amount`; unik per (baris, Jenis PPh) |
+| **`fin_cash_bank_tx_line_wht`** (baru) | satu baris per Jenis PPh: `withholding_tax_id`, `rate`, `dpp_amount`, `amount`; unik per (baris, Jenis PPh) |
 
 **Layar** — per baris: saklar **Potong PPh** dan kolom **PPh**. Di dialog *Pilih
 Tagihan*, nilai awal Diterima = **Uang Pelunas** (sisa − PPh sisa), bukan sisa
@@ -433,7 +433,7 @@ bagian(X) = round(X × after ÷ bill.total_amount) − round(X × before ÷ bill
 | DPP baris | `txl.dpp_part` | — | 182.787 | `txl.settled_amount − txl.ppn_part` |
 | Jenis PPh | `whtl.withholding_tax_id` *(baru)* | label di kolom **PPh Dipotong** | PPH22 / PPH23 | = Jenis PPh tagihan |
 | Tarif PPh | `whtl.rate` *(baru)* | angka % di kolom PPh Dipotong | 1,5 / 2 | = tarif tagihan |
-| Dasar PPh | `whtl.base_amount` *(baru)* | — | 152.323 / 30.465 | `bagian(bill.base)` per Jenis |
+| Dasar PPh | `whtl.dpp_amount` *(baru)* | — | 152.323 / 30.465 | `bagian(bill.base)` per Jenis |
 | PPh per Jenis | `whtl.amount` *(baru)* | kolom **PPh Dipotong** | 2.285 / 609 | `bagian(bill.pph)` per Jenis; 0 bila `txl.withhold = false` |
 | PPh baris | `txl.pph_amount` *(baru)* | jumlah kolom PPh Dipotong | 2.894 | `Σ whtl.amount` |
 | Dana masuk ke bank | `tx.cash_amount` | **Dana masuk ke bank** | 200.000 | `Σ (txl.settled_amount − txl.pph_amount) − tx.bank_charge` |

@@ -729,7 +729,7 @@ export type SettlementPermitInvoice = {
   total: number;
   dpp: number;
   ppn: number;
-  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  withholdings: { key: string; rate: number; dpp: number; amount: number }[];
   arItemId: number | null;
   paid: number;
 };

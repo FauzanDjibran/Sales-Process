@@ -372,7 +372,7 @@ export async function transitionCashTransfer(
         totalDiff = roundBase(totalDiff + diff);
         await tx.finCashBankTransferLine.update({
           where: { id: d.lines[i].id },
-          data: { out_base: outBase, in_base: inBase, fx_difference: diff },
+          data: { base_out_amount: outBase, base_in_amount: inBase, fx_difference: diff },
         });
         destLines.push({
           accountId: l.to.accountId,
@@ -417,7 +417,7 @@ export async function transitionCashTransfer(
         actorId,
         lines: journalLines,
       });
-      await tx.finCashBankTransfer.update({ where: { id }, data: { from_base: fromBase, fx_difference: totalDiff, journal_id: journal.id } });
+      await tx.finCashBankTransfer.update({ where: { id }, data: { base_from_amount: fromBase, fx_difference: totalDiff, journal_id: journal.id } });
       await audit(tx, id, "UPDATE", "post", actorId);
       if (options.dryRun) throw new PostingDryRun(journalLines);
     });
@@ -506,7 +506,7 @@ function view(d: Prisma.FinCashBankTransferGetPayload<{ include: typeof INCLUDE 
     fromAmount: d.from_amount.toNumber(),
     reference: d.reference,
     note: d.note,
-    fromBase: n(d.from_base),
+    fromBase: n(d.base_from_amount),
     fxDifference: d.fx_difference.toNumber(),
     journalId: d.journal_id,
     journalNo: d.journal?.journal_no ?? null,
@@ -518,8 +518,8 @@ function view(d: Prisma.FinCashBankTransferGetPayload<{ include: typeof INCLUDE 
       rate: l.exchange_rate.toNumber(),
       outAmount: l.out_amount.toNumber(),
       inAmount: l.in_amount.toNumber(),
-      outBase: n(l.out_base),
-      inBase: n(l.in_base),
+      outBase: n(l.base_out_amount),
+      inBase: n(l.base_in_amount),
       fxDifference: l.fx_difference.toNumber(),
     })),
   };

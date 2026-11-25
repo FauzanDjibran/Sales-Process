@@ -934,13 +934,13 @@ export async function purchaseAdvanceSources(filter: { ids?: number[]; openOnly?
     include: { supplier: true, term: true, currency: true, lines: { include: { withholding_tax: true } } },
   });
   return rows.map((o) => {
-    const groups = new Map<string, { key: string; rate: number; base: number }>();
+    const groups = new Map<string, { key: string; rate: number; dpp: number }>();
     const labels: Record<string, string> = {};
     for (const l of o.lines) {
       if (!l.withholding_tax_id || !l.withholding_rate) continue;
       const key = String(l.withholding_tax_id);
-      const g = groups.get(key) ?? { key, rate: l.withholding_rate.toNumber(), base: 0 };
-      g.base += l.dpp_amount.toNumber();
+      const g = groups.get(key) ?? { key, rate: l.withholding_rate.toNumber(), dpp: 0 };
+      g.dpp += l.dpp_amount.toNumber();
       groups.set(key, g);
       labels[key] = l.withholding_tax?.wht_label ?? "PPh";
     }

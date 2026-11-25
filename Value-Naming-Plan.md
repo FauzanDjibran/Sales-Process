@@ -1,6 +1,6 @@
 # Rencana penyetaraan bahasa nilai
 
-Status: **disetujui (N1–N6 sesuai rekomendasi). Fase 1 selesai (P331, 25/11/2026)**; fase 2, 3 dan N6 belum.
+Status: **disetujui (N1–N6 sesuai rekomendasi). Fase 1 selesai (P331, 25/11/2026), fase 2 (P333, 26/11/2026)**; fase 3 dan N6 belum.
 
 Tujuan: satu arti satu nama. **`base_` berarti ukuran yang sama dalam satuan default** (user,
 25/11/2026): `base_qty` = qty dalam satuan dasar, `base_x_amount` = nilai dalam base currency.

@@ -1288,8 +1288,8 @@ table fin_cash_bank_tx_line {
 
   settled_amount              decimal(18,2) [not null] // what the line cleared of the document: the cash received for it + its PPh (P76)
   base_settled_amount         decimal(18,2) [not null] // what the line released from the document, in base (MC12)
-  transaction_base_amount     decimal(18,2) [not null] // what the money and PPh brought, in base
-  fx_difference               decimal(18,2) [not null, default: 0] // base_settled_amount − transaction_base_amount; 0 within one currency
+  base_transaction_amount     decimal(18,2) [not null] // what the money and PPh brought, in base
+  fx_difference               decimal(18,2) [not null, default: 0] // base_settled_amount − base_transaction_amount; 0 within one currency
   withhold                    boolean [not null, default: true]
   dpp_part                    decimal(18,2) [not null, default: 0]
   ppn_part                    decimal(18,2) [not null, default: 0]
@@ -1313,7 +1313,7 @@ table fin_cash_bank_tx_line_wht {
   withholding_tax_id          int [not null, ref : > ref_withholding_tax.id]
 
   rate                        decimal(9,4) [not null]
-  base_amount                 decimal(18,2) [not null]
+  dpp_amount                  decimal(18,2) [not null]
   amount                      decimal(18,2) [not null]
 
   indexes {
@@ -1340,7 +1340,7 @@ table fin_cash_bank_transfer {
   reference                   varchar // the bank's reference
   note                        varchar
 
-  from_base                   decimal(18,2) // posted: Σ base the source released
+  base_from_amount                   decimal(18,2) // posted: Σ base the source released
   fx_difference               decimal(18,2) [not null, default: 0] // Σ lines' selisih kurs: + gain, − loss
   journal_id                  int [ref : > acc_journal.id]
   cancel_reason               varchar
@@ -1367,9 +1367,9 @@ table fin_cash_bank_transfer_line {
   exchange_rate               decimal(18,6) [not null, note: 'CHECK > 0'] // typed when crossing, else 1
   out_amount                  decimal(18,2) [not null] // source currency: amount, or round(amount × rate) on a purchase
   in_amount                   decimal(18,2) [not null] // destination currency: amount, or round(amount × rate) on a sale
-  out_base                    decimal(18,2) // posted: what the source released
-  in_base                     decimal(18,2) // posted: out_base, or in_amount on a Pencairan
-  fx_difference               decimal(18,2) [not null, default: 0] // in_base − out_base, Pencairan only
+  base_out_amount                    decimal(18,2) // posted: what the source released
+  base_in_amount                     decimal(18,2) // posted: base_out_amount, or in_amount on a Pencairan
+  fx_difference               decimal(18,2) [not null, default: 0] // base_in_amount − base_out_amount, Pencairan only
 
   indexes {
     (transfer_id, line_no) [unique]
@@ -3021,7 +3021,7 @@ table tax_withholding_slip {
   withholding_tax_id          int [not null, ref : > ref_withholding_tax.id]
 
   rate                        decimal(9,4) [not null]
-  base_amount                 decimal(18,2) [not null]
+  dpp_amount                  decimal(18,2) [not null]
   amount                      decimal(18,2) [not null]
   slip_number                 varchar // the BPPU, recorded when it arrives
   slip_date                   date

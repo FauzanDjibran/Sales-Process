@@ -339,7 +339,7 @@ describe("an Invoice line's gross and discount: the cumulative split (P112, tax_
       [f.dpp, f.advanceUsed, f.netDpp, f.fullPpn, f.advancePpn, f.ppn, f.total],
       [596_000, 100_000, 496_000, 65_560, 11_000, 54_560, 550_560]
     );
-    assert.deepEqual(f.withholdings.map((w) => [w.base, w.amount]), [[329_557, 4_943]]);
+    assert.deepEqual(f.withholdings.map((w) => [w.dpp, w.amount]), [[329_557, 4_943]]);
   });
 
   test("an Invoice its Uang Muka covers whole: nothing left to pay, its face exactly the Uang Muka applied (P117)", () => {
@@ -598,7 +598,7 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
     const first = mine.find((b) => b.kind === "fin_ar_invoice" && b.id === inv().first)!;
     assert.deepEqual([first.total, first.paid, first.open], [550_560, 0, 550_560]);
     // PPh on the net DPP, after the Uang Muka (U24): 1,5 % × 329.557.
-    assert.deepEqual(first.withholdings.map((w) => [w.base, w.amount]), [[329_557, 4_943]]);
+    assert.deepEqual(first.withholdings.map((w) => [w.dpp, w.amount]), [[329_557, 4_943]]);
     assert.deepEqual(o.purposes.map((p) => p.key), ["customer_receipt"]);
   });
 
@@ -607,7 +607,7 @@ describe("Penerimaan dari Customer pays Invoices and advance bills together", ()
     const credits = new Map([[inv().first, { dpp: 100_000, ppn: 11_000, lineDpp: new Map([[line.id, 100_000]]) }]]);
     const [bill] = await settlementInvoices({ ids: [inv().first] }, prisma, credits);
     // 1,5 % × (329.557 − 100.000); the total falls only by what a Credit Note applied to the item, none here.
-    assert.deepEqual(bill.withholdings.map((w) => [w.base, w.amount]), [[229_557, 3_443]]);
+    assert.deepEqual(bill.withholdings.map((w) => [w.dpp, w.amount]), [[229_557, 3_443]]);
     const [plain] = await settlementInvoices({ ids: [inv().first] });
     assert.deepEqual([bill.total, bill.dpp, bill.ppn], [550_560, plain.dpp - 100_000, plain.ppn - 11_000]);
   });
@@ -774,8 +774,8 @@ describe("posting makes the Faktur Pajak and the Bukti Potong", () => {
     const whts = await prisma.finCashBankTxLineWht.findMany({ where: { line: { tx_id: ids.rc[1] } } });
     const slips = await prisma.taxWithholdingSlip.findMany({ where: { receipt_id: ids.rc[1] } });
     assert.deepEqual(
-      slips.map((x) => [x.doc_id, x.withholding_tax_id, x.base_amount.toNumber(), x.amount.toNumber(), x.status, x.tax_period]),
-      whts.map((w) => [ids.inv[0], f.wht, w.base_amount.toNumber(), w.amount.toNumber(), "Awaiting", today.slice(0, 7)])
+      slips.map((x) => [x.doc_id, x.withholding_tax_id, x.dpp_amount.toNumber(), x.amount.toNumber(), x.status, x.tax_period]),
+      whts.map((w) => [ids.inv[0], f.wht, w.dpp_amount.toNumber(), w.amount.toNumber(), "Awaiting", today.slice(0, 7)])
     );
     assert.equal((await fakturOf("fin_cash_bank_tx", ids.rc[1])).length, 0, "paying an Invoice makes no faktur");
   });

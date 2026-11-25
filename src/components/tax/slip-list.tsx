@@ -175,7 +175,7 @@ export function SlipList({ rows: all, today }: { rows: SlipListRow[]; today: str
                         <td>
                           <span className="dstack">
                             <span className="lab">{s.whtLabel}</span>
-                            <span className="d2">{formatPct(s.rate)} × {money(s.base)}</span>
+                            <span className="d2">{formatPct(s.rate)} × {money(s.dpp)}</span>
                           </span>
                         </td>
                         <td className="num">

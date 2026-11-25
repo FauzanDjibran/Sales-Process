@@ -67,7 +67,7 @@ describe("the AP advance bill", () => {
     assert.ok(!(await updatePurchaseAdvance(r.id, input(po.id), w.actor)).ok, "a recorded bill is locked");
     const [s] = await settlementAdvances({ ids: [r.id] });
     assert.equal(s.supplierId, w.f.supplier);
-    assert.deepEqual(s.withholdings.map((x) => [x.rate, x.base, x.amount]), [[2, 300_000, 6_000]], "PPh on the advance's DPP");
+    assert.deepEqual(s.withholdings.map((x) => [x.rate, x.dpp, x.amount]), [[2, 300_000, 6_000]], "PPh on the advance's DPP");
 
     assert.deepEqual(await transitionPurchaseAdvance(r.id, "cancel", w.actor), { ok: false, errors: { reason: "Alasan pembatalan wajib diisi." } });
     assert.deepEqual(await transitionPurchaseAdvance(r.id, "cancel", w.actor, "batal"), { ok: true });

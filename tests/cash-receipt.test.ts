@@ -230,7 +230,7 @@ describe("what one receipt may settle (P67)", () => {
     const b = o.bills.find((x) => x.id === f.bill1)!;
     assert.equal(b.total, 999_000);
     assert.equal(b.open, 999_000);
-    assert.deepEqual(b.withholdings.map((w) => [w.base, w.amount]), [[600_000, 9_000]]);
+    assert.deepEqual(b.withholdings.map((w) => [w.dpp, w.amount]), [[600_000, 9_000]]);
     assert.ok(o.purposes.every((p) => p.direction === "In"));
   });
 
@@ -372,7 +372,7 @@ describe("posting a receipt of two bills (P66)", () => {
     assert.equal(await paidOf(f.bill3), 499_500);
 
     const whts = await prisma.finCashBankTxLineWht.findMany({ where: { line: { tx_id: r.id } } });
-    assert.deepEqual(whts.map((w) => [w.base_amount.toNumber(), w.amount.toNumber()]), [[600_000, 9_000], [300_000, 4_500]], "one Bukti Potong unit per bill per type (P69)");
+    assert.deepEqual(whts.map((w) => [w.dpp_amount.toNumber(), w.amount.toNumber()]), [[600_000, 9_000], [300_000, 4_500]], "one Bukti Potong unit per bill per type (P69)");
 
     const events = (await prisma.auditLog.findMany({ where: { entity_key: "fin_cash_bank_tx", row_id: r.id }, orderBy: { id: "asc" } })).map((a) => a.event);
     assert.deepEqual(events, ["create", "post"]);

@@ -797,7 +797,7 @@ export function InvoiceForm({
               {figures.withholdings.map((w) => (
                 <div className="ir" key={w.key}>
                   <span>
-                    {order.lines.find((l) => String(l.withholdingTaxId) === w.key)?.withholdingLabel ?? "PPh"} {formatPct(w.rate)} × DPP {money(w.base)}
+                    {order.lines.find((l) => String(l.withholdingTaxId) === w.key)?.withholdingLabel ?? "PPh"} {formatPct(w.rate)} × DPP {money(w.dpp)}
                   </span>
                   <b>−{money(w.amount)}</b>
                 </div>

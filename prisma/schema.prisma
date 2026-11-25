@@ -3450,7 +3450,7 @@ model FinCashBankTransfer {
   note              String?
 
   /// Written at posting: Σ base the source released and Σ selisih kurs.
-  from_base     Decimal? @db.Decimal(18, 2)
+  base_from_amount     Decimal? @db.Decimal(18, 2)
   fx_difference Decimal  @default(0) @db.Decimal(18, 2)
   journal_id    Int?
   cancel_reason String?
@@ -3486,8 +3486,8 @@ model FinCashBankTransferLine {
   in_amount     Decimal  @db.Decimal(18, 2)
   /// Written at posting: the base the source released for this line, the base
   /// the destination received, and their difference (Pencairan only).
-  out_base      Decimal? @db.Decimal(18, 2)
-  in_base       Decimal? @db.Decimal(18, 2)
+  base_out_amount      Decimal? @db.Decimal(18, 2)
+  base_in_amount       Decimal? @db.Decimal(18, 2)
   fx_difference Decimal  @default(0) @db.Decimal(18, 2)
 
   transfer     FinCashBankTransfer @relation(fields: [transfer_id], references: [id], onDelete: Cascade)
@@ -3600,7 +3600,7 @@ model FinCashBankTxLine {
   /// transaction base), and the balancing figure between them (MC12; 0 within
   /// one currency).
   base_settled_amount     Decimal @db.Decimal(18, 2)
-  transaction_base_amount Decimal @db.Decimal(18, 2)
+  base_transaction_amount Decimal @db.Decimal(18, 2)
   fx_difference           Decimal @default(0) @db.Decimal(18, 2)
 
   @@unique([tx_id, doc_type_id, doc_id])
@@ -3615,7 +3615,7 @@ model FinCashBankTxLineWht {
   line_id            Int
   withholding_tax_id Int
   rate               Decimal @db.Decimal(9, 4)
-  base_amount        Decimal @db.Decimal(18, 2)
+  dpp_amount         Decimal @db.Decimal(18, 2)
   amount             Decimal @db.Decimal(18, 2)
 
   line            FinCashBankTxLine @relation(fields: [line_id], references: [id], onDelete: Cascade)
@@ -3923,7 +3923,7 @@ model TaxWithholdingSlip {
 
   withholding_tax_id Int
   rate               Decimal @db.Decimal(9, 4)
-  base_amount        Decimal @db.Decimal(18, 2)
+  dpp_amount         Decimal @db.Decimal(18, 2)
   amount             Decimal @db.Decimal(18, 2)
 
   /// The customer's slip (BPPU), recorded when it arrives.

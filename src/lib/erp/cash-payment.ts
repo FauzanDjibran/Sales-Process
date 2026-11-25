@@ -94,7 +94,7 @@ export type OpenPayable = {
   total: number;
   dpp: number;
   ppn: number;
-  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  withholdings: { key: string; rate: number; dpp: number; amount: number }[];
   /** An Invoice's AP item (step 7). */
   apItemId: number | null;
   /** A Tagihan Biaya's payable, the account its payment debits. */
@@ -512,14 +512,14 @@ async function lineRows(db: Db, lines: CheckedLine[], actorId: number, bases?: P
     settled_amount: l.settled,
     // A Draft carries no base: it is worked out when it posts.
     base_settled_amount: bases?.[i].settled ?? l.settled,
-    transaction_base_amount: bases?.[i].tx ?? l.settled,
+    base_transaction_amount: bases?.[i].tx ?? l.settled,
     fx_difference: bases ? (c100(bases[i].settled) - c100(bases[i].tx)) / 100 : 0,
     withhold: l.withhold,
     dpp_part: l.dppPart,
     ppn_part: l.ppnPart,
     pph_amount: l.pph,
     created_by: actorId,
-    whts: { create: l.withholdings.map((w) => ({ withholding_tax_id: Number(w.key), rate: w.rate, base_amount: w.base, amount: w.amount })) },
+    whts: { create: l.withholdings.map((w) => ({ withholding_tax_id: Number(w.key), rate: w.rate, dpp_amount: w.dpp, amount: w.amount })) },
   }));
 }
 
@@ -990,7 +990,7 @@ export type CashPaymentView = {
   cashBankName: string;
   cancelReason: string | null;
   journal: { id: number; journalNo: string } | null;
-  lines: { kind: PaidDocKind; docId: number; settled: number; withhold: boolean; dppPart: number; ppnPart: number; pph: number; withholdings: { key: string; rate: number; base: number; amount: number }[] }[];
+  lines: { kind: PaidDocKind; docId: number; settled: number; withhold: boolean; dppPart: number; ppnPart: number; pph: number; withholdings: { key: string; rate: number; dpp: number; amount: number }[] }[];
 };
 
 export async function getCashPayment(id: number): Promise<CashPaymentView | null> {
@@ -1023,7 +1023,7 @@ export async function getCashPayment(id: number): Promise<CashPaymentView | null
       dppPart: l.dpp_part.toNumber(),
       ppnPart: l.ppn_part.toNumber(),
       pph: l.pph_amount.toNumber(),
-      withholdings: l.whts.map((w) => ({ key: String(w.withholding_tax_id), rate: w.rate.toNumber(), base: w.base_amount.toNumber(), amount: w.amount.toNumber() })),
+      withholdings: l.whts.map((w) => ({ key: String(w.withholding_tax_id), rate: w.rate.toNumber(), dpp: w.dpp_amount.toNumber(), amount: w.amount.toNumber() })),
     })),
   };
 }

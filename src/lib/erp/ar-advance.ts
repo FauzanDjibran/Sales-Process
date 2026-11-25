@@ -590,7 +590,7 @@ export type SettlementAdvance = {
   rates: PpnRates | null;
   /** The bill's currency, its order's (MC3): only a bank in it settles it (MC14). */
   currency: string;
-  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  withholdings: { key: string; rate: number; dpp: number; amount: number }[];
   /** What posted payments settled of it before — a payment's `before`, read from its item (P214). */
   paid: number;
 };

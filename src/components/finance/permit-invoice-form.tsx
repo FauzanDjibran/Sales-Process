@@ -476,7 +476,7 @@ export function PermitInvoiceForm({
             {figures.withholdings.map((w) => (
               <div className="ir" key={w.key}>
                 <span>
-                  {source.withholdingLabels[w.key] ?? "PPh"} {formatPct(w.rate)} × DPP {money(w.base)}
+                  {source.withholdingLabels[w.key] ?? "PPh"} {formatPct(w.rate)} × DPP {money(w.dpp)}
                 </span>
                 <b>−{money(w.amount)}</b>
               </div>

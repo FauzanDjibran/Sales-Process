@@ -568,7 +568,7 @@ export function CashReceiptForm({
                         ) : s.whts.length ? (
                           <span className="dstack">
                             {s.whts.map((w) => (
-                              <span key={w.key} title={`${formatPct(w.rate)} × DPP ${money(w.base)}`}>
+                              <span key={w.key} title={`${formatPct(w.rate)} × DPP ${money(w.dpp)}`}>
                                 <span className="lab">{whtLabel(w.key)}</span> <span className="mny">{money(w.amount)}</span>
                               </span>
                             ))}

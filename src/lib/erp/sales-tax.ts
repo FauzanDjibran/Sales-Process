@@ -211,7 +211,7 @@ export type SalesLineResult = {
   ppn: number;
 };
 
-export type WithholdingEstimate = { key: string; rate: number; base: number; amount: number };
+export type WithholdingEstimate = { key: string; rate: number; dpp: number; amount: number };
 
 export type SalesTotals = {
   lines: SalesLineResult[];
@@ -257,11 +257,11 @@ export function withholdingsOf(bases: { key: string | null; rate: number | null;
   const groups = new Map<string, WithholdingEstimate>();
   for (const b of bases) {
     if (!b.key || !b.rate) continue;
-    const g = groups.get(b.key) ?? { key: b.key, rate: b.rate, base: 0, amount: 0 };
-    g.base += b.dpp;
+    const g = groups.get(b.key) ?? { key: b.key, rate: b.rate, dpp: 0, amount: 0 };
+    g.dpp += b.dpp;
     groups.set(b.key, g);
   }
-  return [...groups.values()].map((g) => ({ ...g, amount: percentOf(Math.round(g.base * scale), g.rate) / scale }));
+  return [...groups.values()].map((g) => ({ ...g, amount: percentOf(Math.round(g.dpp * scale), g.rate) / scale }));
 }
 
 export function computeSalesTotals(input: {
@@ -333,7 +333,7 @@ export type AdvanceBasis = {
   /** The order's total, PPN included. */
   total: number;
   /** Per Jenis PPh on the order: its rate and the DPP of the lines it covers. */
-  withholdings: { key: string; rate: number; base: number }[];
+  withholdings: { key: string; rate: number; dpp: number }[];
 };
 
 export type AdvanceFigures = {
@@ -392,13 +392,13 @@ export function computeAdvance(input: {
   const { dpp, dppOther, ppn } = taxOf(amount, b.mode, b.taxable, input.rates);
   const total = dpp + ppn;
 
-  const groups = b.withholdings.filter((w) => w.base > 0 && w.rate > 0);
-  const withheldBase = groups.reduce((a, w) => a + w.base, 0);
-  const shares = allocate(dpp, [...groups.map((w) => w.base), Math.max(0, b.dpp - withheldBase)]);
+  const groups = b.withholdings.filter((w) => w.dpp > 0 && w.rate > 0);
+  const withheldDpp = groups.reduce((a, w) => a + w.dpp, 0);
+  const shares = allocate(dpp, [...groups.map((w) => w.dpp), Math.max(0, b.dpp - withheldDpp)]);
   const withholdings = groups.map((w, i) => ({
     key: w.key,
     rate: w.rate,
-    base: shares[i],
+    dpp: shares[i],
     amount: percentOf(shares[i], w.rate),
   }));
   const withholdingTotal = withholdings.reduce((a, w) => a + w.amount, 0);
@@ -445,7 +445,7 @@ export type SettlementBill = {
   total: number;
   ppn: number;
   /** Per Jenis PPh: its rate, the DPP it is withheld on and the PPh. */
-  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  withholdings: { key: string; rate: number; dpp: number; amount: number }[];
 };
 
 export type SettlementLine = {
@@ -453,7 +453,7 @@ export type SettlementLine = {
   settled: number;
   dppPart: number;
   ppnPart: number;
-  withholdings: { key: string; rate: number; base: number; amount: number }[];
+  withholdings: { key: string; rate: number; dpp: number; amount: number }[];
   pph: number;
   /** What the bill brings into the bank: Dilunasi less its PPh. */
   cash: number;
@@ -481,7 +481,7 @@ export function settleBill(input: {
   const ppnPart = part(bill.ppn);
   const withholdings = input.withhold
     ? bill.withholdings
-        .map((w) => ({ key: w.key, rate: w.rate, base: part(w.base), amount: part(w.amount) }))
+        .map((w) => ({ key: w.key, rate: w.rate, dpp: part(w.dpp), amount: part(w.amount) }))
         .filter((w) => w.amount > 0)
     : [];
   const pph = withholdings.reduce((a, w) => a + w.amount, 0);
