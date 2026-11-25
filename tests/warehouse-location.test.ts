@@ -150,7 +150,7 @@ describe("the reports show Gudang and Lokasi apart", () => {
   test("Kartu Stok movements carry their location; the running balance stays per item × warehouse", async () => {
     const [card] = await stockLedgerReport([f.item], [f.loc], { from: "2026-09-01", to: "2026-10-31" });
     assert.deepEqual([card.opening, card.closing], [0, 9]);
-    const { entries } = await stockCardEntriesPage(f.item, f.loc, { from: "2026-09-01", to: "2026-10-31" }, [], null);
+    const { entries } = await stockCardEntriesPage({ itemIds: [f.item], warehouseIds: [f.loc] }, { from: "2026-09-01", to: "2026-10-31" }, [], null);
     assert.deepEqual(entries.map((e) => [e.locationLabel, e.change]), [
       ["A-01", 10],
       ["A-02", 5],

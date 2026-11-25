@@ -2,7 +2,7 @@ import test, { after, before, describe } from "node:test";
 import assert from "node:assert/strict";
 
 import { issueStock } from "../src/lib/erp/inventory";
-import { advanceToStandBy, enterProduction, transferBucket } from "../src/lib/erp/production-ledger";
+import { advanceToStandBy, consumeBucket, enterProduction, produceIntoBucket, sendInTransit, transferBucket } from "../src/lib/erp/production-ledger";
 import { uncostedPeriodRefusal } from "../src/lib/erp/production-close";
 import { productionBooksReconcile, productionCardEntriesPage, productionCardReport, productionLots, traceReport, wipBalanceReport } from "../src/lib/erp/production-report";
 import { cleanupFiscalYear, cleanupFixtures, disconnect, openFiscalYear, prisma } from "./helpers";
@@ -49,11 +49,11 @@ describe("Saldo Produksi", () => {
 });
 
 describe("Kartu Produksi", () => {
-  test("an item in a Unit: what came in over the period, its opening and its closing", async () => {
-    const { cards } = await productionCardReport("unit", filter(), { from: today, to: today }, false);
-    assert.deepEqual(cards.map((c) => [c.item.id, c.unit?.id, c.opening, c.totalIn, c.totalOut, c.closing, c.entryCount]), [[f.material, f.wsA, 0, 500, 0, 500, 1]]);
-    const { entries } = await productionCardEntriesPage("unit", { itemId: f.material, ofId: f.wsA }, filter(), { from: today, to: today }, false, null);
-    assert.deepEqual(entries.map((e) => [e.text, e.change]), [["Dari gudang", 500]]);
+  test("a Unit, narrowed to an item: what came in over the period, its opening and its closing", async () => {
+    const { cards } = await productionCardReport("unit", filter(), { from: today, to: today });
+    assert.deepEqual(cards.map((c) => [c.id, c.entryCount, c.figures.map((x) => [x.uomLabel, x.opening, x.totalIn, x.totalOut, x.closing, x.shrinkage])]), [[f.wsA, 1, [["GR", 0, 500, 0, 500, null]]]]);
+    const { entries } = await productionCardEntriesPage("unit", f.wsA, filter(), { from: today, to: today }, null);
+    assert.deepEqual(entries.map((e) => [e.text, e.process, e.crossed, e.stages.Preparation]), [["Dari gudang", "Assign", 500, 500]]);
   });
 
   test("a No. Stok typed in any case; one that does not exist names nothing", async () => {
@@ -86,11 +86,12 @@ describe("Saldo Produksi with a backdated movement", () => {
   });
 });
 
-describe("Kartu Produksi nets moves inside a Unit", () => {
+describe("Kartu Produksi reads moves off the stage columns", () => {
   const range = { from: yesterday, to: today };
-  const page = (kind: "unit" | "lot", ofId: number, stages: boolean) => productionCardEntriesPage(kind, { itemId: f.material, ofId }, filter(), range, stages, null);
+  const page = (kind: "unit" | "item" | "lot", id: number) => productionCardEntriesPage(kind, id, kind === "unit" ? filter() : { unitIds: [], itemIds: [], lotIds: [] }, range, null);
+  const moved = (e: { stages: Record<string, number> }) => Object.entries(e.stages).filter(([, n]) => n);
 
-  test("a stage move counts as neither in nor out; a move between Units is out of one and into the other", async () => {
+  test("a stage move crosses nothing; a move between Units is out of one and into the other", async () => {
     const bucket = await prisma.prdBalance.findFirstOrThrow({ where: { tracking_id: f.lot, unit_id: f.wsA } });
     const work = await sourceOf("prd_work", "KRJ-RP");
     const push = await sourceOf("prd_transfer", "PSH-RP");
@@ -98,39 +99,75 @@ describe("Kartu Produksi nets moves inside a Unit", () => {
       const { toBucketId } = await advanceToStandBy(tx, { bucketId: bucket.id, baseQty: 200, date, source: work, actorId: f.actor });
       await transferBucket(tx, { bucketId: toBucketId, baseQty: 150, date, source: push, actorId: f.actor, toUnitId: f.wsB });
     });
-    const { cards } = await productionCardReport("unit", filter(), range, false);
-    assert.deepEqual(cards.map((c) => [c.unit!.label, c.opening, c.totalIn, c.totalOut, c.closing]), [
-      [f.key("WSA"), 0, 510, 150, 360],
-      [f.key("WSB"), 0, 150, 0, 150],
-    ]);
+    const { cards } = await productionCardReport("unit", filter(), range);
+    assert.deepEqual(
+      new Map(cards.map((c) => [c.label, c.figures.map((x) => [x.opening, x.totalIn, x.totalOut, x.worked, x.closing])])),
+      new Map([
+        [f.key("WSA"), [[0, 510, 150, 0, 360]]],
+        [f.key("WSB"), [[0, 150, 0, 0, 150]]],
+      ])
+    );
     for (const c of cards) {
-      const rows = await wipBalanceReport(today, { ...only(), unitIds: [c.unit!.id] });
-      assert.equal(rows.reduce((s, r) => s + r.qty, 0), c.closing, "the card closes on Saldo Produksi");
+      const rows = await wipBalanceReport(today, { ...only(), unitIds: [c.id] });
+      for (const stage of ["Preparation", "Working", "QcCheck", "StandBy", "InTransit"] as const) {
+        assert.equal(rows.filter((r) => r.stage === stage).reduce((s, r) => s + r.qty, 0), c.figures[0].stageClosing[stage], "each stage closes on Saldo Produksi");
+      }
     }
-    assert.deepEqual((await page("unit", f.wsA, false)).entries.map((e) => [e.text, e.change]), [
-      ["Dari gudang", 10],
-      ["Dari gudang", 500],
-      [`Ke ${f.key("WSB")}`, -150],
+    assert.deepEqual((await page("unit", f.wsA)).entries.map((e) => [e.text, e.crossed, moved(e)]), [
+      ["Dari gudang", 10, [["Preparation", 10]]],
+      ["Dari gudang", 500, [["Preparation", 500]]],
+      ["Persiapan → Stand By", 0, [["Preparation", -200], ["StandBy", 200]]],
+      [`Ke ${f.key("WSB")}`, -150, [["StandBy", -150]]],
     ]);
-    assert.deepEqual((await page("unit", f.wsB, false)).entries.map((e) => [e.text, e.change]), [[`Dari ${f.key("WSA")}`, 150]]);
-    // With the stages shown the move is a row of its own and no figure changes.
-    const withStages = (await page("unit", f.wsA, true)).entries;
-    assert.deepEqual(withStages.map((e) => e.change), [10, 500, 0, -150]);
-    assert.equal(withStages[2].stages, "Persiapan Assign → Stand By");
+    assert.deepEqual((await page("unit", f.wsB)).entries.map((e) => [e.text, e.crossed]), [[`Dari ${f.key("WSA")}`, 150]]);
   });
 
-  test("a No. Stok across Units: a Push is one row without a figure, and a page resumes after its cursor", async () => {
-    const { cards } = await productionCardReport("lot", { ...filter(), lotIds: [f.lot] }, range, false);
-    assert.deepEqual(cards.map((c) => [c.lot!.sourceNo !== "", c.totalIn, c.totalOut, c.closing, c.entryCount]), [[true, 510, 0, 510, 3]]);
-    assert.equal(cards[0].lot!.now.length, 3, "Persiapan and Stand By at A, Persiapan at B");
-    const { entries } = await page("lot", f.lot, false);
-    assert.deepEqual(entries.map((e) => [e.text, e.change]), [
-      ["Dari gudang", 10],
-      ["Dari gudang", 500],
-      [`${f.key("WSA")} → ${f.key("WSB")}`, 0],
-    ]);
-    const rest = await productionCardEntriesPage("lot", { itemId: f.material, ofId: f.lot }, filter(), range, false, { date: entries[1].date, id: entries[1].id });
-    assert.deepEqual(rest.entries.map((e) => e.id), [entries[2].id]);
+  test("an item and a No. Stok read across Units, a row in each; a page resumes after its cursor", async () => {
+    for (const [kind, id] of [["item", f.material], ["lot", f.lot]] as const) {
+      const { cards } = await productionCardReport(kind, { unitIds: [], itemIds: kind === "item" ? [id] : [], lotIds: kind === "lot" ? [id] : [] }, range);
+      assert.deepEqual(cards.map((c) => [c.id, c.entryCount, c.figures.map((x) => [x.opening, x.closing])]), [[id, 5, [[0, 510]]]]);
+      const { entries } = await page(kind, id);
+      assert.deepEqual(entries.slice(3).map((e) => [e.unitLabel, e.crossed]), [[f.key("WSA"), -150], [f.key("WSB"), 150]]);
+      const rest = await productionCardEntriesPage(kind, id, { unitIds: [], itemIds: [], lotIds: [] }, range, { date: entries[2].date, id: entries[2].id });
+      assert.deepEqual(rest.entries.map((e) => e.id), entries.slice(3).map((e) => e.id));
+      if (kind === "lot") assert.equal(cards[0].lot!.now.length, 3, "Persiapan and Stand By at A, Persiapan at B");
+    }
+  });
+
+  test("susut: what a document consumed and did not produce, on its last row, whatever page it falls on", async () => {
+    const bucket = await prisma.prdBalance.findFirstOrThrow({ where: { tracking_id: f.lot, unit_id: f.wsB, stage: "Preparation" } });
+    const work = await sourceOf("prd_work", "KRJ-RP-2", 900_500_000);
+    const child = await prisma.logStockTracking.create({
+      data: {
+        ...Object.fromEntries(Object.entries(await prisma.logStockTracking.findUniqueOrThrow({ where: { id: f.lot } })).filter(([k]) => k !== "id")),
+        tracking_no: f.key("ANAK"),
+        item_id: f.product,
+      } as Parameters<typeof prisma.logStockTracking.create>[0]["data"],
+    });
+    await prisma.$transaction(async (tx) => {
+      const taken = await consumeBucket(tx, { bucketId: bucket.id, baseQty: 100, date, source: work, actorId: f.actor });
+      await produceIntoBucket(tx, { lotId: child.id, itemId: f.product, unitId: f.wsB, afterStepId: taken.stepId!, partaiId: null, jobId: null, baseQty: 97, value: taken.value, date, source: work, actorId: f.actor });
+    });
+    const all = { unitIds: [f.wsB], itemIds: [], lotIds: [] };
+    const { cards } = await productionCardReport("unit", all, range);
+    assert.deepEqual(cards[0].figures.map((x) => [x.opening, x.totalIn, x.totalOut, x.shrinkage, x.converted, x.closing]), [[0, 150, 0, 3, 0, 147]]);
+    const { entries } = await productionCardEntriesPage("unit", f.wsB, all, range, null);
+    assert.deepEqual(entries.map((e) => [e.lotNo === f.key("ANAK"), e.crossed, e.shrinkage]), [[false, 150, null], [false, 0, null], [true, 0, 3]]);
+    const rest = await productionCardEntriesPage("unit", f.wsB, all, range, { date: entries[1].date, id: entries[1].id });
+    assert.deepEqual(rest.entries.map((e) => e.shrinkage), [3], "a page that splits the document still knows its susut");
+    // Part of the document is hidden by an item filter, so nothing is said.
+    const narrowed = await productionCardReport("unit", { ...all, itemIds: [f.product] }, range);
+    assert.deepEqual(narrowed.cards[0].figures.map((x) => [x.shrinkage, x.worked, x.closing]), [[null, 97, 97]]);
+  });
+
+  test("goods Dalam Perjalanan stay at the sender", async () => {
+    const bucket = await prisma.prdBalance.findFirstOrThrow({ where: { tracking_id: f.lot, unit_id: f.wsA, stage: "StandBy" } });
+    const bstb = await sourceOf("prd_transfer", "BST-RP", 900_600_000);
+    await prisma.$transaction((tx) => sendInTransit(tx, { bucketId: bucket.id, baseQty: 20, date, source: bstb, doc: bstb, actorId: f.actor }));
+    const rows = await wipBalanceReport(today, only());
+    assert.deepEqual(rows.filter((r) => r.stage === "InTransit").map((r) => r.qty), [20]);
+    const sent = (await page("unit", f.wsA)).entries.at(-1)!;
+    assert.deepEqual([sent.text, sent.crossed, moved(sent)], ["Stand By → Dalam Perjalanan", 0, [["StandBy", -20], ["InTransit", 20]]]);
   });
 });
 

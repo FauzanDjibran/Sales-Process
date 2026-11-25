@@ -29,6 +29,12 @@ import { PRODUCTION_ISSUE_PURPOSES, PRODUCTION_ISSUE_REASONS, issuePurposeOf, ty
 type Tx = Prisma.TransactionClient;
 type Db = Tx | typeof prisma;
 
+/** The warehouse each document goes to, for the reports. */
+export async function issueWarehouses(ids: number[]): Promise<Map<number, string>> {
+  const rows = await prisma.prdIssue.findMany({ where: { id: { in: ids } }, select: { id: true, warehouse_name: true } });
+  return new Map(rows.map((i) => [i.id, i.warehouse_name]));
+}
+
 export type ProductionIssueLineInput = { bucket_id: number | null; qty: number | string };
 export type ProductionIssueInput = { purpose?: ProductionIssuePurpose; reason?: string | null; from_unit_id: number | null; warehouse_id: number | null; issue_date: string; note: string; lines: ProductionIssueLineInput[] };
 export type ProductionIssueResult = { ok: true; id: number; no: string } | { ok: false; errors: Record<string, string> };

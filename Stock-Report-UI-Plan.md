@@ -1,6 +1,6 @@
 # Rencana — Laporan Stok mengikuti format Buku Subjek
 
-> Status: **disetujui 20/11/2026** (keputusan K1–K6 di §4). Langkah 1–3 selesai (P297, P314).
+> Status: **disetujui 20/11/2026** (keputusan K1–K6 di §4). Langkah 1–3 selesai (P297, P314). **Bentuk Kartu Stok dan Saldo Stok (§3.2–3.3) diganti `Stock-Position-Report-Plan.md` (P326).**
 > Acuan: SIBA *Buku Subjek* / *Saldo Buku Subjek* (`subledger-report.tsx`,
 > `subledger-balance-report.tsx`, `subject-params.tsx`) dan turunannya di ERP,
 > *Buku / Saldo Piutang & Hutang* (`partner-book-report.tsx`, P233–P235).

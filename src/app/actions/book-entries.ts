@@ -62,10 +62,9 @@ export async function loadPartnerBookEntries(
   return { ok: true, entries: await withAgreementNumbers(page.entries), next: page.next };
 }
 
-/** One page of a Kartu Stok card's movements, read when its block is opened. */
+/** One page of a Kartu Stok block's movements, read when it is opened. */
 export async function loadStockCardEntries(
-  itemId: number,
-  warehouseId: number,
+  filter: { itemIds: number[]; warehouseIds: number[] },
   from: string,
   to: string,
   lotNos: string[],
@@ -79,20 +78,20 @@ export async function loadStockCardEntries(
   }
   const cursorOk = !cursor || (DAY.test(cursor.date) && Number.isInteger(cursor.id));
   const lotsOk = Array.isArray(lotNos) && lotNos.every((l) => typeof l === "string");
-  if (!Number.isInteger(itemId) || !Number.isInteger(warehouseId) || !DAY.test(from) || !DAY.test(to) || !cursorOk || !lotsOk) {
+  const ints = (v: unknown): v is number[] => Array.isArray(v) && v.every(Number.isInteger);
+  if (!ints(filter?.itemIds) || !ints(filter.warehouseIds) || !DAY.test(from) || !DAY.test(to) || !cursorOk || !lotsOk) {
     return { ok: false, error: "Permintaan tidak valid." };
   }
-  return { ok: true, ...(await stockCardEntriesPage(itemId, warehouseId, { from, to }, lotNos, cursor)) };
+  return { ok: true, ...(await stockCardEntriesPage({ itemIds: filter.itemIds, warehouseIds: filter.warehouseIds }, { from, to }, lotNos, cursor)) };
 }
 
-/** One page of a Kartu Produksi card's netted rows, read when its block is opened (P310). */
+/** One page of a Kartu Produksi block's rows, read when it is opened (P310). */
 export async function loadProductionCardEntries(
   kind: ProductionCardKind,
-  subject: { itemId: number; ofId: number },
+  subjectId: number,
   filter: ProductionCardFilter,
   from: string,
   to: string,
-  stages: boolean,
   cursor: BookCursor | null
 ): Promise<Page<ProductionCardEntry>> {
   try {
@@ -104,10 +103,10 @@ export async function loadProductionCardEntries(
   const ints = (v: unknown): v is number[] => Array.isArray(v) && v.every(Number.isInteger);
   const cursorOk = !cursor || (DAY.test(cursor.date) && Number.isInteger(cursor.id));
   const filterOk = ints(filter?.unitIds) && ints(filter.itemIds) && ints(filter.lotIds);
-  if ((kind !== "unit" && kind !== "lot") || !Number.isInteger(subject?.itemId) || !Number.isInteger(subject.ofId) || !filterOk || !DAY.test(from) || !DAY.test(to) || !cursorOk) {
+  if (!["unit", "item", "lot"].includes(kind) || !Number.isInteger(subjectId) || !filterOk || !DAY.test(from) || !DAY.test(to) || !cursorOk) {
     return { ok: false, error: "Permintaan tidak valid." };
   }
-  return { ok: true, ...(await productionCardEntriesPage(kind, subject, filter, { from, to }, stages === true, cursor)) };
+  return { ok: true, ...(await productionCardEntriesPage(kind, subjectId, filter, { from, to }, cursor)) };
 }
 
 /** The No. Stok a typed or scanned number names, for Kartu Produksi's filter. */

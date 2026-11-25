@@ -8,14 +8,15 @@ import { DateInput } from "@/components/ui/date-input";
 import { ChosenChips, MultiSelect } from "@/components/ui/multi-select";
 import type { RefOption } from "@/lib/erp/records";
 import { reportHref } from "@/lib/erp/reports";
-import type { CardGroupBy, WipGroupBy } from "./production-card-reports";
+import type { ProductionGroupBy } from "./production-card-reports";
 import { INVALID_RANGE_HINT, PeriodRow, invalidRange } from "./period-row";
 import { RunToggle } from "./report-blocks";
 import { useReportRun } from "./report-run";
 
 /**
  * The filters of the production reports, in the URL like every Report View.
- * Kelompok moves at once; the rest waits for Tampilkan. The page keys each on
+ * Kelompok — per item or per Unit, never anything else — moves at once; the
+ * rest waits for Tampilkan. The page keys each on
  * its run, so a toggle always starts from what was applied.
  */
 
@@ -43,6 +44,21 @@ function Check({ label, value, onChange }: { label: string; value: boolean; onCh
   );
 }
 
+function GroupToggle({ value, hrefs }: { value: ProductionGroupBy; hrefs: Record<ProductionGroupBy, string> }) {
+  return (
+    <div className="rrow">
+      <RunToggle
+        label="Kelompok"
+        value={value}
+        options={[
+          { value: "item", label: "Per Barang", href: hrefs.item },
+          { value: "unit", label: "Per Unit", href: hrefs.unit },
+        ]}
+      />
+    </div>
+  );
+}
+
 export function WipBalanceParams({
   groupBy,
   groupHrefs,
@@ -52,8 +68,8 @@ export function WipBalanceParams({
   initial,
   asOf,
 }: {
-  groupBy: WipGroupBy;
-  groupHrefs: Record<WipGroupBy, string>;
+  groupBy: ProductionGroupBy;
+  groupHrefs: Record<ProductionGroupBy, string>;
   units: RefOption[];
   items: RefOption[];
   partai: RefOption[];
@@ -75,17 +91,7 @@ export function WipBalanceParams({
   );
   return (
     <>
-      <div className="rrow">
-        <RunToggle
-          label="Kelompok"
-          value={groupBy}
-          options={[
-            { value: "unit", label: "Per Unit", href: groupHrefs.unit },
-            { value: "item", label: "Per Barang", href: groupHrefs.item },
-            { value: "partai", label: "Per Partai", href: groupHrefs.partai },
-          ]}
-        />
-      </div>
+      <GroupToggle value={groupBy} hrefs={groupHrefs} />
       <Chips label="Unit" value={f.unitIds} options={units} all="Semua unit" onChange={(unitIds) => setF({ ...f, unitIds })} />
       <Chips label="Barang" value={f.itemIds} options={items} all="Semua barang" onChange={(itemIds) => setF({ ...f, itemIds })} />
       <Chips label="Partai" value={f.partaiIds} options={partai} all="Semua partai" onChange={(partaiIds) => setF({ ...f, partaiIds })} />
@@ -109,17 +115,15 @@ export function ProductionCardParams({
   lots: initialLots,
   from,
   to,
-  stages: initialStages,
 }: {
-  groupBy: CardGroupBy;
-  groupHrefs: Record<CardGroupBy, string>;
+  groupBy: ProductionGroupBy;
+  groupHrefs: Record<ProductionGroupBy, string>;
   units: RefOption[];
   items: RefOption[];
   initial: { unitIds: number[]; itemIds: number[] };
   lots: string[];
   from: string;
   to: string;
-  stages: boolean;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -129,9 +133,8 @@ export function ProductionCardParams({
   const [error, setError] = useState<string | null>(null);
   const [start, setStart] = useState(from);
   const [end, setEnd] = useState(to);
-  const [stages, setStages] = useState(initialStages);
-  // What the user set themself; the first No. Stok otherwise moves grouping, period and stages (the page's defaults).
-  const [touched, setTouched] = useState({ period: false, stages: false });
+  // The first No. Stok moves the period to its whole life (the page's default), unless the user set one.
+  const [touched, setTouched] = useState(false);
 
   const invalid = invalidRange(start, end);
   const run = (chosen = lots) => {
@@ -140,13 +143,12 @@ export function ProductionCardParams({
     startTransition(() => {
       router.push(
         reportHref("production-card", {
-          group: first ? null : groupBy === "lot" && !chosen.length && !f.unitIds.length && !f.itemIds.length ? "unit" : groupBy,
+          group: groupBy,
           units: f.unitIds.join(","),
           items: f.itemIds.join(","),
           lots: chosen.join(","),
-          from: first && !touched.period ? null : start,
-          to: first && !touched.period ? null : end,
-          stages: first && !touched.stages ? null : stages ? 1 : 0,
+          from: first && !touched ? null : start,
+          to: first && !touched ? null : end,
         })
       );
     });
@@ -168,17 +170,7 @@ export function ProductionCardParams({
 
   return (
     <>
-      <div className="rrow">
-        <RunToggle
-          label="Kelompok"
-          value={groupBy}
-          options={[
-            { value: "unit", label: "Per Unit", href: groupHrefs.unit },
-            { value: "item", label: "Per Barang", href: groupHrefs.item },
-            { value: "lot", label: "Per No. Stok", href: groupHrefs.lot },
-          ]}
-        />
-      </div>
+      <GroupToggle value={groupBy} hrefs={groupHrefs} />
       <Chips label="Unit" value={f.unitIds} options={units} all="Semua unit" onChange={(unitIds) => setF({ ...f, unitIds })} />
       <Chips label="Barang" value={f.itemIds} options={items} all="Semua barang" onChange={(itemIds) => setF({ ...f, itemIds })} />
       <div className="rrow">
@@ -215,19 +207,11 @@ export function ProductionCardParams({
         end={end}
         onStart={(v) => {
           setStart(v);
-          setTouched((t) => ({ ...t, period: true }));
+          setTouched(true);
         }}
         onEnd={(v) => {
           setEnd(v);
-          setTouched((t) => ({ ...t, period: true }));
-        }}
-      />
-      <Check
-        label="Tampilkan perpindahan tahap"
-        value={stages}
-        onChange={(v) => {
-          setStages(v);
-          setTouched((t) => ({ ...t, stages: true }));
+          setTouched(true);
         }}
       />
     </>

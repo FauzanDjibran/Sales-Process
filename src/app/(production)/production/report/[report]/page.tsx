@@ -1,5 +1,5 @@
 import { notFound, redirect } from "next/navigation";
-import { ProductionCardBody, WipBalanceBody, type CardGroupBy, type WipGroupBy } from "@/components/report/production-card-reports";
+import { ProductionCardBody, WipBalanceBody, type ProductionGroupBy } from "@/components/report/production-card-reports";
 import { ProductionCardParams, TraceParams, WipBalanceParams } from "@/components/report/production-report-params";
 import { ProductionMismatch, TraceBody } from "@/components/report/production-reports";
 import { ReportNeedsSubject, ReportView } from "@/components/report/report-view";
@@ -20,7 +20,7 @@ import { formatDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
-type Query = Record<"q" | "group" | "units" | "stations" | "items" | "partai" | "lots" | "aux" | "stages" | "asOf" | "from" | "to", string | undefined>;
+type Query = Record<"q" | "group" | "units" | "stations" | "items" | "partai" | "lots" | "aux" | "asOf" | "from" | "to", string | undefined>;
 
 /**
  * Every Report View in the Produksi application (R18, P310), driven by the
@@ -43,10 +43,12 @@ export default async function Page({ params, searchParams }: { params: Promise<{
   const runKey = JSON.stringify(query);
   const unitIds = parseIds(query.units ?? query.stations);
   const itemIds = parseIds(query.items);
+  // Per item or per Unit, nothing else: an old link's other grouping reads per Unit.
+  const groupBy: ProductionGroupBy = query.group === "item" ? "item" : "unit";
+  const groupHref = (group: ProductionGroupBy, more: Partial<Query> = {}) => reportHref(slug, { ...query, ...more, group });
 
   if (report.key === "wip_balance") {
     const asOf = resolveRange(query.asOf ?? today, query.asOf ?? today).to;
-    const groupBy: WipGroupBy = query.group === "item" || query.group === "partai" ? query.group : "unit";
     const f = { unitIds, itemIds, partaiIds: parseIds(query.partai), auxiliary: query.aux === "1" };
     const [rows, reconciles, units, items, partai] = await Promise.all([
       wipBalanceReport(asOf, f),
@@ -55,7 +57,6 @@ export default async function Page({ params, searchParams }: { params: Promise<{
       productionItemOptions(),
       partaiOptions(),
     ]);
-    const href = (group: WipGroupBy) => reportHref(slug, { ...query, group });
     return (
       <ReportView
         report={report}
@@ -64,7 +65,7 @@ export default async function Page({ params, searchParams }: { params: Promise<{
           <WipBalanceParams
             key={runKey}
             groupBy={groupBy}
-            groupHrefs={{ unit: href("unit"), item: href("item"), partai: href("partai") }}
+            groupHrefs={{ unit: groupHref("unit"), item: groupHref("item") }}
             units={units}
             items={items}
             partai={partai}
@@ -86,20 +87,16 @@ export default async function Page({ params, searchParams }: { params: Promise<{
     // A chosen No. Stok reads its whole life, its moves included, unless the URL says otherwise.
     const firsts = lots.flatMap((l) => l.first ?? []).sort();
     const range = resolveRange(query.from ?? firsts[0], query.to ?? today);
-    const groupBy: CardGroupBy =
-      query.group === "unit" || query.group === "item" || query.group === "lot" ? query.group : typed.length ? "lot" : "unit";
-    const stages = query.stages ? query.stages === "1" : typed.length > 0;
+    const kind = typed.length ? "lot" : groupBy;
     const f = { unitIds, itemIds, lotIds: lots.map((l) => l.id) };
-    const needsSubject = groupBy === "lot" && !lots.length && !unitIds.length && !itemIds.length;
     // Numbers that name nothing must read nothing, not everything.
     const none = typed.length > 0 && !lots.length;
     const [units, items, data, reconciles] = await Promise.all([
       stationOptions(),
       productionItemOptions(),
-      needsSubject || none ? { cards: [], truncated: false } : productionCardReport(groupBy === "lot" ? "lot" : "unit", f, range, stages),
+      none ? { cards: [], truncated: false } : productionCardReport(kind, f, range),
       productionBooksReconcile(),
     ]);
-    const href = (group: CardGroupBy) => reportHref(slug, { ...query, group });
     return (
       <ReportView
         report={report}
@@ -108,23 +105,19 @@ export default async function Page({ params, searchParams }: { params: Promise<{
           <ProductionCardParams
             key={runKey}
             groupBy={groupBy}
-            groupHrefs={{ unit: href("unit"), item: href("item"), lot: href("lot") }}
+            // A No. Stok reads its own journey, whatever the grouping: the toggle leaves it.
+            groupHrefs={{ unit: groupHref("unit", { lots: undefined }), item: groupHref("item", { lots: undefined }) }}
             units={units}
             items={items}
             initial={{ unitIds, itemIds }}
             lots={lots.map((l) => l.no)}
             from={range.from}
             to={range.to}
-            stages={stages}
           />
         }
-        footnote={<>Jumlah dalam satuan dasar barang. Masuk dan Keluar dinetokan per dokumen dan No. Stok; perpindahan tahap di dalam unit tidak dihitung.</>}
+        footnote={<>Jumlah dalam satuan dasar barang. Masuk dan Keluar hanya yang melintasi batas unit; perpindahan tahap terbaca di kolom tahapnya. Bahan penolong tidak ikut jumlah unit.</>}
       >
-        {needsSubject && !none ? (
-          <ReportNeedsSubject icon="book" title="Pilih No. Stok, Barang atau Unit" body="Per No. Stok menampilkan satu blok per nomor. Isi No. Stok, atau persempit dengan Barang atau Unit." />
-        ) : (
-          <ProductionCardBody key={runKey} cards={data.cards} truncated={data.truncated} groupBy={groupBy} filter={f} range={range} stages={stages} />
-        )}
+        <ProductionCardBody key={runKey} cards={data.cards} truncated={data.truncated} kind={kind} filter={f} range={range} />
         <ProductionMismatch show={!reconciles} />
       </ReportView>
     );

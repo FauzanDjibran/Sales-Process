@@ -933,11 +933,17 @@
     "log_stock_tracking",
     "m_item",
     "prd_balance",
+    "prd_issue",
     "prd_job",
     "prd_ledger",
+    "prd_line",
     "prd_partai",
+    "prd_routing",
+    "prd_routing_step",
+    "prd_transfer",
     "ref_unit",
-    "ref_unit_step"
+    "ref_unit_step",
+    "sys_doc_type"
    ]
   },
   "report_production_card": {
@@ -950,9 +956,13 @@
     "prd_balance",
     "prd_job",
     "prd_ledger",
+    "prd_line",
     "prd_partai",
+    "prd_routing",
+    "prd_routing_step",
     "ref_unit",
     "ref_unit_step",
+    "ref_uom",
     "sys_doc_type"
    ]
   },

@@ -30,14 +30,15 @@ export const dynamic = "force-dynamic";
  * period, Saldo Stok and Nilai Persediaan as of a date. Parameters come from
  * the query string; the figures are read from the stock ledgers. Kartu Stok and
  * Saldo Stok take sets of items and warehouses (`items=1,4`, `warehouses=2`)
- * and a grouping (`group=item|warehouse`), Kartu Stok also lot numbers (`lots=`); the valuation reports one item.
+ * and a grouping (`group=item|warehouse`), Kartu Stok also lot numbers (`lots=`),
+ * Saldo Stok its lots (`showLots=1`); the valuation reports one item.
  */
 export default async function Page({
   params,
   searchParams,
 }: {
   params: Promise<{ report: string }>;
-  searchParams: Promise<{ item?: string; items?: string; warehouses?: string; group?: string; lots?: string; asOf?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ item?: string; items?: string; warehouses?: string; group?: string; lots?: string; showLots?: string; asOf?: string; from?: string; to?: string }>;
 }) {
   const { report: slug } = await params;
   const report = reportBySlug(slug);
@@ -50,6 +51,7 @@ export default async function Page({
   const warehouseIds = idList(query.warehouses);
   const lotNos = [...new Set((query.lots ?? "").split(",").map((l) => l.trim()).filter(Boolean))];
   const groupBy: StockGroupBy = query.group === "warehouse" ? "warehouse" : "item";
+  const showLots = query.showLots === "1";
   const range = resolveRange(query.from, query.to);
   const asOf = isDate(query.asOf) ? query.asOf : new Date().toISOString().slice(0, 10);
   const runAt = new Date().toISOString();
@@ -61,6 +63,7 @@ export default async function Page({
 
   const filter = (
     <StockReportParams
+      key={runKey}
       slug={slug}
       items={items}
       warehouses={warehouses}
@@ -68,6 +71,7 @@ export default async function Page({
       itemIds={grouped ? itemIds : itemId ? [itemId] : []}
       warehouseIds={warehouseIds}
       lots={report.key === "stock_ledger" ? lotNos.join(", ") : null}
+      showLots={report.key === "stock_balance" ? showLots : null}
       groupBy={groupBy}
       groupHrefs={{ item: reportHref(slug, { ...query, group: "item" }), warehouse: reportHref(slug, { ...query, group: "warehouse" }) }}
       mode={report.params === "stock-asof" ? "asof" : "period"}
@@ -94,12 +98,11 @@ export default async function Page({
         runAt={runAt}
         footnote={
           <>
-            Jumlah dalam satuan dasar barang. Saldo per barang per gudang, menurut tanggal lalu urutan posting, dari saldo awal sebelum{" "}
-            {formatDate(range.from)}.
+            Jumlah dalam satuan dasar barang. Saldo berjalan per barang, menurut tanggal lalu urutan posting, dari saldo awal sebelum {formatDate(range.from)}; pindah antar gudang terhitung sebagai Masuk dan Keluar.
           </>
         }
       >
-        <StockLedgerBody key={runKey} cards={cards} groupBy={groupBy} range={range} lotNos={lotNos} />
+        <StockLedgerBody key={runKey} cards={cards} groupBy={groupBy} range={range} itemIds={itemIds} warehouseIds={warehouseIds} lotNos={lotNos} />
         <Mismatch show={!reconciles} />
       </ReportView>
     );
@@ -123,7 +126,7 @@ export default async function Page({
     const [positions, reconciles] = await Promise.all([stockBalanceReport(asOf, itemIds, warehouseIds), stockBooksReconcile(itemIds)]);
     return (
       <ReportView report={report} filter={filter} runAt={runAt} footnote={<>Saldo per {formatDate(asOf)} dari Kartu Stok, dalam satuan dasar barang.</>}>
-        <StockBalanceBody key={runKey} positions={positions} groupBy={groupBy} asOf={asOf} />
+        <StockBalanceBody key={runKey} positions={positions} groupBy={groupBy} showLots={showLots} asOf={asOf} />
         <Mismatch show={!reconciles} />
       </ReportView>
     );

@@ -95,7 +95,10 @@ export type StockLedgerEntry = {
   ledgerNo: string;
   lineNo: number;
   source: StockSourceRef;
-  /** The location's own label (the Gudang is the card's), null in a warehouse without locations. */
+  itemId: number;
+  itemLabel: string;
+  warehouseLabel: string;
+  /** The location's own label, null in a warehouse without locations. */
   locationLabel: string | null;
   locationName: string | null;
   lotNo: string;
@@ -106,10 +109,10 @@ export type StockLedgerEntry = {
 };
 
 /**
- * One item in one warehouse over a period: the figures only. Its movements are
- * read a page at a time when the card is opened (`stockCardEntriesPage`), and
- * the running balance — what a warehouse keeper can count — is carried from
- * the opening through them: the ledger stores a balance only per bucket.
+ * One item in one warehouse over a period: the figures only. The page adds the
+ * cards of one item, or lists those of one warehouse, and reads the movements a
+ * page at a time when that block is opened (`stockCardEntriesPage`); the running
+ * balance is carried from the opening through them.
  */
 export type StockCard = {
   item: StockItemRef;
@@ -183,25 +186,23 @@ export async function stockLedgerReport(itemIds: number[], warehouseIds: number[
     .sort(byCard);
 }
 
-/** One page of a card's movements by date then posting order, so a backdated one lands on its date. */
+/** One page of a block's movements — the chosen items in the chosen warehouses (none = all) — by date then posting order, so a backdated one lands on its date. */
 export async function stockCardEntriesPage(
-  itemId: number,
-  warehouseId: number,
+  filter: { itemIds: number[]; warehouseIds: number[] },
   range: PeriodRange,
   lotNos: string[],
   cursor: BookCursor | null
 ): Promise<{ entries: StockLedgerEntry[]; next: BookCursor | null }> {
   const rows = await prisma.logStockLedger.findMany({
     where: {
-      item_id: itemId,
-      warehouse_id: warehouseId,
+      ...filterWhere(filter),
       ...(await lotWhere(lotNos)),
       posting_date: { gte: day(range.from), lte: day(range.to) },
       ...(cursor ? { OR: [{ posting_date: { gt: day(cursor.date) } }, { posting_date: day(cursor.date), id: { gt: cursor.id } }] } : {}),
     },
     orderBy: [{ posting_date: "asc" }, { id: "asc" }],
     take: ENTRY_PAGE_SIZE + 1,
-    include: { tracking: true, stock_status: true, source_doc_type: true, location: true },
+    include: { tracking: true, stock_status: true, source_doc_type: true, location: true, item: { select: { item_label: true } }, warehouse: { select: { warehouse_label: true } } },
   });
   const page = rows.slice(0, ENTRY_PAGE_SIZE);
   const last = page[page.length - 1];
@@ -212,6 +213,9 @@ export async function stockCardEntriesPage(
       ledgerNo: r.ledger_no,
       lineNo: r.line_no,
       source: { table: r.source_doc_type.doc_table, id: r.source_doc_id, no: r.source_no, docName: r.source_doc_type.doc_name },
+      itemId: r.item_id,
+      itemLabel: r.item.item_label,
+      warehouseLabel: r.warehouse.warehouse_label,
       locationLabel: r.location?.location_label ?? null,
       locationName: r.location?.location_name ?? null,
       lotNo: r.tracking.tracking_no,

@@ -5,6 +5,9 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import type { RefOption } from "./records";
 import { formatNumber } from "@/lib/format";
+import { issueWarehouses } from "./production-issue";
+import { routeMap } from "./production-master";
+import { transferDestinations } from "./production-transfer";
 import { allPartai, jobsByIds, partaiNosByIds } from "./production-ledger";
 import { deliveriesOfLots } from "./delivery-note";
 import { ENTRY_PAGE_SIZE, type BookCursor } from "./register-query";
@@ -36,7 +39,24 @@ export function stageText(stage: string, process: string | null | undefined): st
   if (stage === "Working") return process ? `Sedang Dikerjakan ${PROCESS_TEXT[process] ?? process}` : "Sedang Dikerjakan";
   return { QcCheck: "QC Check", StandBy: "Stand By", InTransit: "Dalam Perjalanan" }[stage] ?? stage;
 }
-const STAGE_ORDER = ["Preparation", "Working", "QcCheck", "StandBy", "InTransit"];
+/** The five stages of a Unit, in the order goods pass them: a column each in the reports. */
+export const PRODUCTION_STAGES = ["Preparation", "Working", "QcCheck", "StandBy", "InTransit"] as const;
+export type ProductionStage = (typeof PRODUCTION_STAGES)[number];
+export type StageFigures = Record<ProductionStage, number>;
+const noStages = (): StageFigures => ({ Preparation: 0, Working: 0, QcCheck: 0, StandBy: 0, InTransit: 0 });
+const processText = (p: string | null | undefined) => (p ? (PROCESS_TEXT[p] ?? p) : null);
+
+/** Units in the order goods pass them: the segment before the partai, then the lines; a Unit on no routing comes last. */
+async function unitOrder(): Promise<(unitId: number) => number> {
+  const at = new Map<number, number>();
+  for (const route of (await routeMap()).routings) {
+    route.steps.forEach((step, i) => {
+      const place = (route.lineId === null ? 0 : 1000) + i;
+      at.set(step.unitId, Math.min(at.get(step.unitId) ?? Infinity, place));
+    });
+  }
+  return (unitId) => at.get(unitId) ?? 1_000_000;
+}
 
 export async function partaiOptions(): Promise<RefOption[]> {
   return (await allPartai()).map((p) => ({ id: p.id, label: p.no, name: "", active: true }));
@@ -59,8 +79,11 @@ export type WipRow = {
   unit: ProductionUnitRef;
   partai: { id: number; no: string } | null;
   lotNo: string;
-  /** Persiapan <proses>, Sedang Dikerjakan, QC Check, Stand By, Dalam Perjalanan (P305). */
-  stage: string;
+  stage: ProductionStage;
+  /** The Unit step goods wait at, in Persiapan or Dikerjakan. */
+  process: string | null;
+  /** Where goods Dalam Perjalanan go: a Unit or a warehouse. */
+  to: string | null;
   jobNo: string | null;
   /** Turned back by a QC Check (W66). */
   qcReturn: boolean;
@@ -84,7 +107,7 @@ const unitRef = (u: { id: number; unit_label: string; unit_name: string }): Prod
  * What production held on a date, a row per bucket: its movements summed up to
  * it. Never a row's stored balance, which follows posting order and so is off
  * once a movement is backdated (P310). Rows come in the order goods pass
- * through a Unit, then by item and No. Stok; the page groups them.
+ * through the Units, then by step, item and No. Stok; the page groups them.
  */
 export async function wipBalanceReport(asOf: string, f: WipFilter): Promise<WipRow[]> {
   const sums = await prisma.$queryRaw<{ bucket_id: number; qty: Prisma.Decimal }[]>`
@@ -104,11 +127,20 @@ export async function wipBalanceReport(asOf: string, f: WipFilter): Promise<WipR
       partai: { select: { id: true, partai_no: true } },
     },
   });
+  const docType = new Map((await prisma.sysDocType.findMany({ where: { doc_table: { in: ["prd_transfer", "prd_issue"] } }, select: { id: true, doc_table: true } })).map((d) => [d.id, d.doc_table]));
+  const transit = (table: string) => buckets.flatMap((b) => (b.transit_doc_id && docType.get(b.transit_doc_type_id ?? 0) === table ? [b.transit_doc_id] : []));
+  const [order, toUnit, toWarehouse] = await Promise.all([unitOrder(), transferDestinations(transit("prd_transfer")), issueWarehouses(transit("prd_issue"))]);
+  const unitBy = new Map((await prisma.refUnit.findMany({ where: { id: { in: [...toUnit.values()] } }, select: { id: true, unit_label: true } })).map((u) => [u.id, u.unit_label]));
+  const destination = (b: (typeof buckets)[number]) => {
+    if (!b.transit_doc_id) return null;
+    return docType.get(b.transit_doc_type_id ?? 0) === "prd_issue" ? (toWarehouse.get(b.transit_doc_id) ?? null) : (unitBy.get(toUnit.get(b.transit_doc_id) ?? 0) ?? null);
+  };
   // Persiapan and Sedang Dikerjakan of a process come together, processes in their order.
-  const place = (b: (typeof buckets)[number]) => (b.step ? b.step.seq * 10 : 1000) + STAGE_ORDER.indexOf(b.stage);
+  const place = (b: (typeof buckets)[number]) => (b.step ? b.step.seq * 10 : 1000) + PRODUCTION_STAGES.indexOf(b.stage);
   return buckets
     .sort(
       (a, b) =>
+        order(a.unit_id) - order(b.unit_id) ||
         a.unit.unit_label.localeCompare(b.unit.unit_label) ||
         place(a) - place(b) ||
         a.item.item_label.localeCompare(b.item.item_label) ||
@@ -120,7 +152,9 @@ export async function wipBalanceReport(asOf: string, f: WipFilter): Promise<WipR
       unit: unitRef(b.unit),
       partai: b.partai ? { id: b.partai.id, no: b.partai.partai_no } : null,
       lotNo: b.tracking.tracking_no,
-      stage: stageText(b.stage, b.step?.process),
+      stage: b.stage,
+      process: processText(b.step?.process),
+      to: destination(b),
       jobNo: b.job?.job_no ?? null,
       qcReturn: b.qc_check_id !== null,
       auxiliary: b.auxiliary,
@@ -145,98 +179,174 @@ export async function productionBooksReconcile(): Promise<boolean> {
 // ---------------------------------------------------------- Kartu Produksi
 
 /**
- * Kartu Produksi (P310): the production ledger as cards, one per item × Unit,
- * or one per No. Stok across every Unit. A card nets what one document did to
- * one No. Stok on one day, because a move between stages of a Unit (39 % of the
- * book) neither brings goods into it nor takes them out; those rows are shown
- * only on request and carry no figure. Nothing here holds a price (P275).
+ * Kartu Produksi: the production ledger as blocks, one per Unit, per item, or
+ * per chosen No. Stok. A row is one document, one No. Stok, one day, one Unit,
+ * with what it did to each stage as signed columns, so a move between stages is
+ * read off the columns. **Masuk and Keluar cross the Unit's border**; what a
+ * document consumes and produces inside it is neither, and the gap between the
+ * two is its **susut** — summed over a document's items, so only where they
+ * share one unit of measure, and never over bahan penolong. Nothing here holds
+ * a price (P275).
  */
-export type ProductionCardKind = "unit" | "lot";
+export type ProductionCardKind = "unit" | "item" | "lot";
 export type ProductionCardFilter = { unitIds: number[]; itemIds: number[]; lotIds: number[] };
 
-export type ProductionCard = {
-  key: string;
-  item: ProductionItemRef;
-  /** The Unit of an item × Unit card. */
-  unit: ProductionUnitRef | null;
-  /** The No. Stok of a No. Stok card. */
-  lot: { no: string; sourceNo: string; supplier: string | null; expiry: string | null; now: string[] } | null;
+/** A block's figures in one unit of measure: opening + in − out + worked = closing, per stage too. */
+export type ProductionFigures = {
+  uomLabel: string;
   opening: number;
   totalIn: number;
   totalOut: number;
+  /** Produced − consumed. */
+  worked: number;
+  /** Lost by documents in one unit of measure; null where an item or No. Stok filter hides part of a document. */
+  shrinkage: number | null;
+  /** Produced − consumed by documents that change the unit of measure; null with `shrinkage`. */
+  converted: number | null;
   closing: number;
+  stageOpening: StageFigures;
+  stageClosing: StageFigures;
+};
+
+export type ProductionCard = {
+  id: number;
+  label: string;
+  name: string;
+  /** The No. Stok of a No. Stok block. */
+  lot: { sourceNo: string; supplier: string | null; expiry: string | null; now: string[] } | null;
+  figures: ProductionFigures[];
   entryCount: number;
 };
 
 export type ProductionCardEntry = {
   id: number;
   date: string;
-  ledgerNo: string;
   source: { table: string; id: number; no: string };
   text: string;
-  /** Where inside the Unit, `Persiapan Grading → Stand By`. */
-  stages: string;
+  /** The Unit steps it touched, `Grading → Job Order`. */
+  process: string;
   unitLabel: string;
+  itemLabel: string;
+  uomLabel: string;
   lotNo: string;
   partaiNo: string | null;
   jobNo: string | null;
-  /** Net, signed; 0 for a move that brought nothing in or out. */
-  change: number;
+  auxiliary: boolean;
+  /** Signed, by stage. */
+  stages: StageFigures;
+  /** Signed: across the Unit's border. */
+  crossed: number;
+  /** On the last row of a document that consumes and produces in one unit of measure. */
+  shrinkage: number | null;
 };
 
 const CARD_LIMIT = 300;
 
 const cardWhere = (f: ProductionCardFilter) => Prisma.sql`${inIds("unit_id", f.unitIds)} ${inIds("item_id", f.itemIds)} ${inIds("tracking_id", f.lotIds)}`;
-const subjectCols = (kind: ProductionCardKind) => Prisma.raw(kind === "unit" ? "item_id, unit_id" : "item_id, tracking_id");
-/** What one row of a card is: one document, one No. Stok, one day (in one Unit). */
-const entryCols = (kind: ProductionCardKind) =>
-  Prisma.raw(`posting_date, source_doc_type_id, source_doc_id, item_id, tracking_id${kind === "unit" ? ", unit_id" : ""}`);
-/** A move between Units is worth a row on a No. Stok card; one between stages only when asked for. */
-const shown = (kind: ProductionCardKind, stages: boolean) =>
-  stages ? Prisma.sql`TRUE` : kind === "lot" ? Prisma.sql`(SUM(qty_change) <> 0 OR COUNT(DISTINCT unit_id) > 1)` : Prisma.sql`SUM(qty_change) <> 0`;
+const SUBJECT: Record<ProductionCardKind, "unit_id" | "item_id" | "tracking_id"> = { unit: "unit_id", item: "item_id", lot: "tracking_id" };
+/** Part of a document is hidden, so what it lost cannot be said. */
+const partial = (kind: ProductionCardKind, f: ProductionCardFilter) => kind !== "unit" || f.itemIds.length > 0 || f.lotIds.length > 0;
 
-type Subject = { item_id: number; unit_id?: number; tracking_id?: number };
-const subjectKey = (kind: ProductionCardKind, s: Subject) => `${s.item_id}:${kind === "unit" ? s.unit_id : s.tracking_id}`;
+const perStage = Prisma.join(PRODUCTION_STAGES.map((st) => Prisma.sql`SUM(qty_change) FILTER (WHERE stage::text = ${st}) AS ${Prisma.raw(`"${st}"`)}`));
+type StageSums = Record<ProductionStage, Prisma.Decimal | null>;
+const stagesOf = (row: StageSums): StageFigures => {
+  const out = noStages();
+  for (const st of PRODUCTION_STAGES) out[st] = num(row[st]);
+  return out;
+};
 
-/** The cards with an opening or a movement, figures from the database's own sums; No. Stok cards stop at a limit. */
+/** The rows of a range: one document, No. Stok, day and Unit, each knowing what its whole document did there. */
+const cardRows = (f: ProductionCardFilter, from: string, to: string) => Prisma.sql`
+  WITH e AS (
+    SELECT MIN(l.id) AS id, l.posting_date, l.source_doc_type_id, l.source_doc_id, MIN(l.source_no) AS source_no, l.unit_id, l.item_id, l.tracking_id,
+           b.auxiliary, i.base_uom_id AS uom_id, MAX(l.partai_id) AS partai_id, MAX(l.job_id) AS job_id,
+           array_agg(DISTINCT l.movement::text) AS movements, array_agg(l.unit_step_id ORDER BY l.id) AS steps, array_agg(DISTINCT l.stage::text) AS touched,
+           COALESCE(SUM(l.qty_change) FILTER (WHERE l.movement IN ('Issued', 'Released', 'TransferIn', 'TransferOut')), 0) AS crossed,
+           COALESCE(SUM(l.qty_change) FILTER (WHERE l.movement IN ('Consumed', 'Produced')), 0) AS worked,
+           (bool_or(l.movement IN ('Consumed', 'Produced')) AND NOT b.auxiliary) AS works,
+           ${Prisma.raw(PRODUCTION_STAGES.map((st) => `COALESCE(SUM(l.qty_change) FILTER (WHERE l.stage = '${st}'), 0) AS "${st}"`).join(", "))}
+      FROM (SELECT * FROM prd_ledger WHERE posting_date BETWEEN ${from}::date AND ${to}::date ${cardWhere(f)}) l
+      JOIN prd_balance b ON b.id = l.bucket_id
+      JOIN m_item i ON i.id = l.item_id
+     GROUP BY l.posting_date, l.source_doc_type_id, l.source_doc_id, l.unit_id, l.item_id, l.tracking_id, b.auxiliary, i.base_uom_id),
+  w AS (
+    SELECT e.*, SUM(worked) FILTER (WHERE works) OVER doc AS doc_worked, MAX(id) FILTER (WHERE works) OVER doc AS doc_last,
+           (MIN(uom_id) FILTER (WHERE works) OVER doc = MAX(uom_id) FILTER (WHERE works) OVER doc) AS one_uom
+      FROM e WINDOW doc AS (PARTITION BY posting_date, source_doc_type_id, source_doc_id, unit_id))`;
+
+/** Blocks with an opening or a movement, figures from the database's own sums; No. Stok blocks stop at a limit. */
 export async function productionCardReport(
   kind: ProductionCardKind,
   f: ProductionCardFilter,
-  range: { from: string; to: string },
-  stages: boolean
+  range: { from: string; to: string }
 ): Promise<{ cards: ProductionCard[]; truncated: boolean }> {
-  const [before, moved] = await Promise.all([
-    prisma.$queryRaw<(Subject & { qty: Prisma.Decimal })[]>`
-      SELECT ${subjectCols(kind)}, SUM(qty_change) AS qty FROM prd_ledger
-       WHERE posting_date < ${range.from}::date ${cardWhere(f)}
-       GROUP BY ${subjectCols(kind)} HAVING SUM(qty_change) <> 0`,
-    prisma.$queryRaw<(Subject & { qin: Prisma.Decimal; qout: Prisma.Decimal; n: bigint })[]>`
-      SELECT ${subjectCols(kind)}, SUM(GREATEST(net, 0)) AS qin, SUM(GREATEST(-net, 0)) AS qout, COUNT(*) FILTER (WHERE seen) AS n
-        FROM (SELECT ${entryCols(kind)}, SUM(qty_change) AS net, ${shown(kind, stages)} AS seen FROM prd_ledger
-               WHERE posting_date BETWEEN ${range.from}::date AND ${range.to}::date ${cardWhere(f)}
-               GROUP BY ${entryCols(kind)}) e
-       GROUP BY ${subjectCols(kind)}`,
+  const subject = Prisma.raw(SUBJECT[kind]);
+  // A Unit's bahan penolong is listed but not added to the goods being worked.
+  const counted = kind === "unit" ? Prisma.sql`NOT auxiliary` : Prisma.sql`TRUE`;
+  const [before, moved, counts] = await Promise.all([
+    prisma.$queryRaw<({ subject: number; uom_id: number } & StageSums)[]>`
+      SELECT ${subject} AS subject, uom_id, ${perStage}
+        FROM (SELECT l.unit_id, l.item_id, l.tracking_id, l.stage, l.qty_change, b.auxiliary, i.base_uom_id AS uom_id
+                FROM (SELECT * FROM prd_ledger WHERE posting_date < ${range.from}::date ${cardWhere(f)}) l
+                JOIN prd_balance b ON b.id = l.bucket_id JOIN m_item i ON i.id = l.item_id) o
+       WHERE ${counted} GROUP BY ${subject}, uom_id`,
+    prisma.$queryRaw<({ subject: number; uom_id: number; qin: Prisma.Decimal; qout: Prisma.Decimal; worked: Prisma.Decimal; converted: Prisma.Decimal } & StageSums)[]>`
+      ${cardRows(f, range.from, range.to)}
+      SELECT ${subject} AS subject, uom_id, SUM(GREATEST(crossed, 0)) AS qin, SUM(GREATEST(-crossed, 0)) AS qout, SUM(worked) AS worked,
+             COALESCE(SUM(worked) FILTER (WHERE works AND NOT one_uom), 0) AS converted,
+             ${Prisma.raw(PRODUCTION_STAGES.map((st) => `SUM("${st}") AS "${st}"`).join(", "))}
+        FROM w WHERE ${counted} GROUP BY ${subject}, uom_id`,
+    prisma.$queryRaw<{ subject: number; n: bigint }[]>`${cardRows(f, range.from, range.to)} SELECT ${subject} AS subject, COUNT(*) AS n FROM w GROUP BY ${subject}`,
   ]);
-  const acc = new Map<string, Subject & { opening: number; qin: number; qout: number; n: number }>();
-  for (const b of before) acc.set(subjectKey(kind, b), { ...b, opening: num(b.qty), qin: 0, qout: 0, n: 0 });
-  for (const m of moved) {
-    const k = subjectKey(kind, m);
-    acc.set(k, { ...m, opening: acc.get(k)?.opening ?? 0, qin: num(m.qin), qout: num(m.qout), n: Number(m.n) });
+  const hidden = partial(kind, f);
+  const acc = new Map<number, Map<number, ProductionFigures>>();
+  const figures = (subjectId: number, uomId: number) => {
+    const block = acc.get(subjectId) ?? new Map<number, ProductionFigures>();
+    acc.set(subjectId, block);
+    const found = block.get(uomId) ?? { uomLabel: "", opening: 0, totalIn: 0, totalOut: 0, worked: 0, shrinkage: null, converted: null, closing: 0, stageOpening: noStages(), stageClosing: noStages() };
+    block.set(uomId, found);
+    return found;
+  };
+  for (const b of before) {
+    const x = figures(b.subject, b.uom_id);
+    x.stageOpening = stagesOf(b);
+    x.opening = round6(PRODUCTION_STAGES.reduce((sum, st) => sum + x.stageOpening[st], 0));
   }
-  // A card that stood at nothing and only moved between stages has nothing to say unless they are shown.
-  const all = [...acc].filter(([, c]) => c.opening !== 0 || c.n > 0);
-  const ids = (pick: (s: Subject) => number | undefined) => [...new Set(all.flatMap(([, c]) => pick(c) ?? []))];
-  const [items, units, lots] = await Promise.all([
-    prisma.mItem.findMany({ where: { id: { in: ids((s) => s.item_id) } }, select: ITEM_SELECT }),
-    prisma.refUnit.findMany({ where: { id: { in: ids((s) => s.unit_id) } }, select: UNIT_SELECT }),
+  for (const m of moved) {
+    const x = figures(m.subject, m.uom_id);
+    const stages = stagesOf(m);
+    Object.assign(x, { totalIn: num(m.qin), totalOut: num(m.qout), worked: num(m.worked) });
+    for (const st of PRODUCTION_STAGES) x.stageClosing[st] = stages[st];
+  }
+  const convertedOf = new Map(moved.map((m) => [`${m.subject}:${m.uom_id}`, num(m.converted)]));
+  for (const [subjectId, block] of acc) {
+    for (const [uomId, x] of block) {
+      for (const st of PRODUCTION_STAGES) x.stageClosing[st] = round6(x.stageOpening[st] + x.stageClosing[st]);
+      x.closing = round6(x.opening + x.totalIn - x.totalOut + x.worked);
+      if (!hidden) {
+        x.converted = convertedOf.get(`${subjectId}:${uomId}`) ?? 0;
+        x.shrinkage = round6(x.converted - x.worked);
+      }
+      // What never stood nor moved has nothing to say.
+      if (!x.opening && !x.totalIn && !x.totalOut && !x.worked && !x.closing && PRODUCTION_STAGES.every((st) => !x.stageClosing[st]) && block.size > 1) block.delete(uomId);
+    }
+  }
+  const countOf = new Map(counts.map((c) => [c.subject, Number(c.n)]));
+  for (const id of countOf.keys()) if (!acc.has(id)) acc.set(id, new Map());
+  const ids = [...acc.keys()].filter((id) => countOf.get(id) || [...acc.get(id)!.values()].some((x) => PRODUCTION_STAGES.some((st) => x.stageOpening[st])));
+  const [uoms, units, items, lots, order] = await Promise.all([
+    prisma.refUom.findMany({ select: { id: true, uom_label: true } }),
+    kind === "unit" ? prisma.refUnit.findMany({ where: { id: { in: ids } }, select: UNIT_SELECT }) : [],
+    kind === "item" ? prisma.mItem.findMany({ where: { id: { in: ids } }, select: ITEM_SELECT, orderBy: { item_label: "asc" } }) : [],
     kind === "lot"
       ? prisma.logStockTracking.findMany({
-          where: { id: { in: ids((s) => s.tracking_id) } },
+          where: { id: { in: ids } },
           orderBy: { tracking_no: "asc" },
           take: CARD_LIMIT,
-          include: { source_partner: { select: { partner_label: true, partner_name: true } } },
+          include: { source_partner: { select: { partner_label: true, partner_name: true } }, item: { select: ITEM_SELECT } },
         })
       : [],
+    unitOrder(),
   ]);
   const held = lots.length
     ? await prisma.prdBalance.findMany({
@@ -244,144 +354,143 @@ export async function productionCardReport(
         include: { unit: { select: { unit_label: true } }, step: { select: { process: true } } },
       })
     : [];
-  const itemBy = new Map(items.map((i) => [i.id, itemRef(i)]));
-  const unitBy = new Map(units.map((u) => [u.id, unitRef(u)]));
-  const lotBy = new Map(lots.map((l) => [l.id, l]));
-  const cards = all
-    .filter(([, c]) => kind === "unit" || lotBy.has(c.tracking_id!))
-    .map(([key, c]): ProductionCard => {
-      const item = itemBy.get(c.item_id)!;
-      const l = kind === "lot" ? lotBy.get(c.tracking_id!)! : null;
-      return {
-        key,
-        item,
-        unit: kind === "unit" ? unitBy.get(c.unit_id!)! : null,
-        lot: l && {
-          no: l.tracking_no,
-          sourceNo: l.source_no,
-          supplier: l.source_partner ? `${l.source_partner.partner_label} · ${l.source_partner.partner_name}` : null,
-          expiry: l.expiry_date ? iso(l.expiry_date) : null,
-          now: held.filter((h) => h.tracking_id === l.id).map((h) => `${h.unit.unit_label} · ${stageText(h.stage, h.step?.process)} · ${formatNumber(num(h.qty_balance), h.qty_balance.isInteger() ? 0 : 4)} ${item.uomLabel}`),
-        },
-        opening: c.opening,
-        totalIn: c.qin,
-        totalOut: c.qout,
-        closing: round6(c.opening + c.qin - c.qout),
-        entryCount: c.n,
-      };
-    })
-    .sort((a, b) =>
-      kind === "lot" ? a.lot!.no.localeCompare(b.lot!.no) : a.unit!.label.localeCompare(b.unit!.label) || a.item.label.localeCompare(b.item.label)
-    );
-  return { cards, truncated: kind === "lot" && all.length > CARD_LIMIT };
-}
-
-type Place = { unitId: number; stage: string; stepId: number };
-const places = (raw: string[] | null): Place[] =>
-  (raw ?? []).map((p) => {
-    const [unitId, stage, stepId] = p.split(":");
-    return { unitId: Number(unitId), stage, stepId: Number(stepId) };
+  const uomBy = new Map(uoms.map((u) => [u.id, u.uom_label]));
+  const card = (id: number, label: string, name: string, lot: ProductionCard["lot"] = null): ProductionCard => ({
+    id,
+    label,
+    name,
+    lot,
+    figures: [...acc.get(id)!].map(([uomId, x]) => ({ ...x, uomLabel: uomBy.get(uomId) ?? "" })),
+    entryCount: countOf.get(id) ?? 0,
   });
-
-/** What a netted row says happened, from the kinds of movement in it. */
-function entryText(change: number, movements: string[], docName: string, from: string[], to: string[]): string {
-  const has = (m: string) => movements.includes(m);
-  if (change > 0) return has("Issued") ? "Dari gudang" : has("TransferIn") ? (from.length ? `Dari ${from.join(", ")}` : "Pindah masuk") : `Hasil ${docName}`;
-  if (change < 0) return has("Released") ? "Ke gudang" : has("TransferOut") ? (to.length ? `Ke ${to.join(", ")}` : "Pindah keluar") : `Dipakai ${docName}`;
-  return from.length && to.length ? `${from.join(", ")} → ${to.join(", ")}` : docName;
+  const cards =
+    kind === "unit"
+      ? units.sort((a, b) => order(a.id) - order(b.id) || a.unit_label.localeCompare(b.unit_label)).map((u) => card(u.id, u.unit_label, u.unit_name))
+      : kind === "item"
+        ? items.map((i) => card(i.id, i.item_label, i.item_name))
+        : lots.map((l) =>
+            card(l.id, l.tracking_no, `${l.item.item_label} ${l.item.item_name}`, {
+              sourceNo: l.source_no,
+              supplier: l.source_partner ? `${l.source_partner.partner_label} · ${l.source_partner.partner_name}` : null,
+              expiry: l.expiry_date ? iso(l.expiry_date) : null,
+              now: held
+                .filter((h) => h.tracking_id === l.id)
+                .map((h) => `${h.unit.unit_label} · ${stageText(h.stage, h.step?.process)} · ${formatNumber(num(h.qty_balance), h.qty_balance.isInteger() ? 0 : 4)} ${l.item.base_uom.uom_label}`),
+            })
+          );
+  return { cards, truncated: kind === "lot" && ids.length > CARD_LIMIT };
 }
 
-/** One page of a card's netted rows, by date then the order they were posted. */
+const STAGE_TEXT: Record<ProductionStage, string> = { Preparation: "Persiapan", Working: "Dikerjakan", QcCheck: "QC", StandBy: "Stand By", InTransit: "Dalam Perjalanan" };
+
+/** What a row says happened, from the kinds of movement in it and the Unit on its other side. */
+function entryText(e: { crossed: number; movements: string[]; stages: StageFigures; touched: string[] }, docName: string, other: string): string {
+  const has = (m: string) => e.movements.includes(m);
+  const names = (pick: (n: number) => boolean) => PRODUCTION_STAGES.filter((st) => e.touched.includes(st) && pick(e.stages[st])).map((st) => STAGE_TEXT[st]);
+  const through = names((n) => n === 0).filter((n) => n !== STAGE_TEXT.Preparation);
+  const text = has("Issued")
+    ? "Dari gudang"
+    : has("Released")
+      ? "Ke gudang"
+      : e.crossed > 0
+        ? `Dari ${other || "unit lain"}`
+        : e.crossed < 0
+          ? `Ke ${other || "unit lain"}`
+          : has("Consumed") && has("Produced")
+            ? [names((n) => n < 0).join(", "), names((n) => n > 0).join(", ")].filter(Boolean).join(" → ") || docName
+            : has("Produced")
+              ? "Hasil"
+              : has("Consumed")
+                ? "Dipakai"
+                : [names((n) => n < 0).join(", "), names((n) => n > 0).join(", ")].filter(Boolean).join(" → ") || docName;
+  return through.length ? `${text}, lewat ${through.join(", ")}` : text;
+}
+
+/** One page of a block's rows, by date then the order they were posted. */
 export async function productionCardEntriesPage(
   kind: ProductionCardKind,
-  subject: { itemId: number; ofId: number },
+  subjectId: number,
   f: ProductionCardFilter,
   range: { from: string; to: string },
-  stages: boolean,
   cursor: BookCursor | null
 ): Promise<{ entries: ProductionCardEntry[]; next: BookCursor | null }> {
-  // The card's own Unit or No. Stok takes the place of that filter.
-  const own: ProductionCardFilter = {
-    itemIds: [subject.itemId],
-    unitIds: kind === "unit" ? [subject.ofId] : f.unitIds,
-    lotIds: kind === "lot" ? [subject.ofId] : f.lotIds,
-  };
+  // The block's own subject takes the place of that filter.
+  const own: ProductionCardFilter = { unitIds: kind === "unit" ? [subjectId] : f.unitIds, itemIds: kind === "item" ? [subjectId] : f.itemIds, lotIds: kind === "lot" ? [subjectId] : f.lotIds };
+  // A document's own sums are taken before the cursor cuts a page, so a page may split one.
   const rows = await prisma.$queryRaw<
-    {
+    ({
       id: number;
       posting_date: Date;
-      ledger_no: string;
       source_doc_type_id: number;
       source_doc_id: number;
       source_no: string;
+      unit_id: number;
+      item_id: number;
       tracking_id: number;
+      auxiliary: boolean;
+      uom_id: number;
       partai_id: number | null;
       job_id: number | null;
-      net: Prisma.Decimal;
       movements: string[];
-      outs: string[] | null;
-      ins: string[] | null;
-    }[]
+      steps: (number | null)[];
+      touched: string[];
+      crossed: Prisma.Decimal;
+      doc_worked: Prisma.Decimal | null;
+      doc_last: number | null;
+      one_uom: boolean | null;
+    } & StageSums)[]
   >`
-    SELECT MIN(id) AS id, posting_date, MIN(ledger_no) AS ledger_no, source_doc_type_id, source_doc_id, MIN(source_no) AS source_no, tracking_id,
-           MAX(partai_id) AS partai_id, MAX(job_id) AS job_id, SUM(qty_change) AS net, array_agg(DISTINCT movement::text) AS movements,
-           array_agg(DISTINCT unit_id || ':' || stage::text || ':' || COALESCE(unit_step_id, 0)) FILTER (WHERE qty_change < 0) AS outs,
-           array_agg(DISTINCT unit_id || ':' || stage::text || ':' || COALESCE(unit_step_id, 0)) FILTER (WHERE qty_change > 0) AS ins
-      FROM prd_ledger
-     WHERE posting_date BETWEEN ${cursor?.date ?? range.from}::date AND ${range.to}::date ${cardWhere(own)}
-     GROUP BY ${entryCols(kind)}
-    HAVING ${shown(kind, stages)} ${cursor ? Prisma.sql`AND (posting_date, MIN(id)) > (${cursor.date}::date, ${cursor.id}::int)` : Prisma.empty}
-     ORDER BY posting_date, MIN(id) LIMIT ${ENTRY_PAGE_SIZE + 1}`;
+    ${cardRows(own, cursor?.date ?? range.from, range.to)}
+    SELECT * FROM w WHERE ${cursor ? Prisma.sql`(posting_date, id) > (${cursor.date}::date, ${cursor.id}::int)` : Prisma.sql`TRUE`}
+     ORDER BY posting_date, id LIMIT ${ENTRY_PAGE_SIZE + 1}`;
   const page = rows.slice(0, ENTRY_PAGE_SIZE);
   const last = page[page.length - 1];
-  const docIds = [...new Set(page.map((r) => r.source_doc_id))];
-  const trackingIds = [...new Set(page.map((r) => r.tracking_id))];
-  const [docs, steps, units, lots, partaiBy, jobBy, transfers] = await Promise.all([
-    prisma.sysDocType.findMany({ where: { id: { in: [...new Set(page.map((r) => r.source_doc_type_id))] } }, select: { id: true, doc_table: true, doc_name: true } }),
+  const trackingIds = [...new Set(page.map((x) => x.tracking_id))];
+  const [docs, steps, units, items, lots, partaiBy, jobBy, transfers] = await Promise.all([
+    prisma.sysDocType.findMany({ where: { id: { in: [...new Set(page.map((x) => x.source_doc_type_id))] } }, select: { id: true, doc_table: true, doc_name: true } }),
     prisma.refUnitStep.findMany({ select: { id: true, process: true } }),
     prisma.refUnit.findMany({ select: { id: true, unit_label: true } }),
+    prisma.mItem.findMany({ where: { id: { in: [...new Set(page.map((x) => x.item_id))] } }, select: ITEM_SELECT }),
     prisma.logStockTracking.findMany({ where: { id: { in: trackingIds } }, select: { id: true, tracking_no: true } }),
-    partaiNosByIds(page.flatMap((r) => r.partai_id ?? [])),
-    jobsByIds(page.flatMap((r) => r.job_id ?? [])),
+    partaiNosByIds(page.flatMap((x) => x.partai_id ?? [])),
+    jobsByIds(page.flatMap((x) => x.job_id ?? [])),
     // The other Unit of a move, which a Unit's own rows do not hold.
     prisma.prdLedger.findMany({
-      where: { tracking_id: { in: trackingIds }, source_doc_id: { in: docIds }, movement: { in: ["TransferOut", "TransferIn"] } },
+      where: { tracking_id: { in: trackingIds }, source_doc_id: { in: [...new Set(page.map((x) => x.source_doc_id))] }, movement: { in: ["TransferOut", "TransferIn"] } },
       distinct: ["source_doc_type_id", "source_doc_id", "tracking_id", "unit_id"],
       select: { source_doc_type_id: true, source_doc_id: true, tracking_id: true, unit_id: true },
     }),
   ]);
   const docBy = new Map(docs.map((d) => [d.id, d]));
-  const stepBy = new Map(steps.map((s) => [s.id, s.process]));
+  const stepBy = new Map(steps.map((x) => [x.id, processText(x.process)]));
   const unitBy = new Map(units.map((u) => [u.id, u.unit_label]));
+  const itemBy = new Map(items.map((i) => [i.id, itemRef(i)]));
   const lotBy = new Map(lots.map((l) => [l.id, l.tracking_no]));
-  const entries = page.map((r): ProductionCardEntry => {
-    const out = places(r.outs);
-    const into = places(r.ins);
-    const key = (p: Place) => `${p.unitId}:${p.stage}:${p.stepId}`;
-    // Where it left for good and where it ended, not the places it passed through in one document.
-    const left = out.filter((o) => !into.some((i) => key(i) === key(o)));
-    const ended = into.filter((i) => !out.some((o) => key(o) === key(i)));
-    const unitIds = new Set([...out, ...into].map((p) => p.unitId));
-    const others = transfers
-      .filter((t) => t.source_doc_type_id === r.source_doc_type_id && t.source_doc_id === r.source_doc_id && t.tracking_id === r.tracking_id && !unitIds.has(t.unit_id))
-      .map((t) => unitBy.get(t.unit_id) ?? "");
-    const names = (ps: Place[]) => [...new Set(ps.map((p) => unitBy.get(p.unitId) ?? ""))];
-    const crossed = unitIds.size > 1;
-    const change = num(r.net);
-    const stageNames = (ps: Place[]) => [...new Set(ps.map((p) => stageText(p.stage, stepBy.get(p.stepId))))].join(", ");
-    const doc = docBy.get(r.source_doc_type_id);
+  const hidden = partial(kind, f);
+  const entries = page.map((x): ProductionCardEntry => {
+    const stages = stagesOf(x);
+    const crossed = num(x.crossed);
+    const doc = docBy.get(x.source_doc_type_id);
+    const other = transfers
+      .filter((t) => t.source_doc_type_id === x.source_doc_type_id && t.source_doc_id === x.source_doc_id && t.tracking_id === x.tracking_id && t.unit_id !== x.unit_id)
+      .map((t) => unitBy.get(t.unit_id) ?? "")
+      .join(", ");
     return {
-      id: r.id,
-      date: iso(r.posting_date),
-      ledgerNo: r.ledger_no,
-      source: { table: doc?.doc_table ?? "", id: r.source_doc_id, no: r.source_no },
-      text: entryText(change, r.movements, doc?.doc_name ?? "", crossed ? names(left) : change > 0 ? others : [], crossed ? names(ended) : change < 0 ? others : []),
-      stages: [stageNames(left), stageNames(ended)].filter(Boolean).join(" → "),
-      unitLabel: names([...left, ...ended]).join(" → ") || names([...out, ...into]).join(", "),
-      lotNo: lotBy.get(r.tracking_id) ?? "",
-      partaiNo: r.partai_id ? (partaiBy.get(r.partai_id) ?? null) : null,
-      jobNo: r.job_id ? (jobBy.get(r.job_id)?.no ?? null) : null,
-      change,
+      id: x.id,
+      date: iso(x.posting_date),
+      source: { table: doc?.doc_table ?? "", id: x.source_doc_id, no: x.source_no },
+      text: entryText({ crossed, movements: x.movements, stages, touched: x.touched }, doc?.doc_name ?? "", other),
+      process: [...new Set(x.steps.flatMap((id) => (id ? (stepBy.get(id) ?? []) : [])))].join(" → "),
+      unitLabel: unitBy.get(x.unit_id) ?? "",
+      itemLabel: itemBy.get(x.item_id)?.label ?? "",
+      uomLabel: itemBy.get(x.item_id)?.uomLabel ?? "",
+      lotNo: lotBy.get(x.tracking_id) ?? "",
+      partaiNo: x.partai_id ? (partaiBy.get(x.partai_id) ?? null) : null,
+      jobNo: x.job_id ? (jobBy.get(x.job_id)?.no ?? null) : null,
+      auxiliary: x.auxiliary,
+      stages,
+      crossed,
+      shrinkage: !hidden && x.one_uom && x.doc_last === x.id ? round6(0 - num(x.doc_worked)) : null,
     };
   });
   return { entries, next: rows.length > ENTRY_PAGE_SIZE && last ? { date: iso(last.posting_date), id: last.id } : null };

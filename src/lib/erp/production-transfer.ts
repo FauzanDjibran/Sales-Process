@@ -28,6 +28,12 @@ type Db = Prisma.TransactionClient | typeof prisma;
 
 export { TRANSFER_KIND_TEXT, TRANSFER_PATH, TRANSFER_STATUS_TEXT, type TransferKind, type TransferStatus } from "./production-transfer-shape";
 
+/** The Unit each document goes to, for the reports. */
+export async function transferDestinations(ids: number[]): Promise<Map<number, number>> {
+  const rows = await prisma.prdTransfer.findMany({ where: { id: { in: ids } }, select: { id: true, to_unit_id: true } });
+  return new Map(rows.map((t) => [t.id, t.to_unit_id]));
+}
+
 export type TransferLineInput = { bucket_id: number | null; qty: number | string };
 export type TransferInput = { from_unit_id: number | null; to_unit_id: number | null; transfer_date: string; line_id: number | null; note: string; lines: TransferLineInput[] };
 export type TransferResult = { ok: true; id: number; no: string; kind: TransferKind; status: TransferStatus } | { ok: false; errors: Record<string, string> };

@@ -20,7 +20,8 @@ import { useReportRun } from "./report-run";
  * Kartu Stok and Saldo Stok (`grouped`) take several items and several
  * warehouses as chips — none means all — and a **Kelompok** toggle that moves
  * at once, as Buku does on Buku Piutang: per item answers *where is this item?*,
- * per warehouse *what does this warehouse hold?*. The
+ * per warehouse *what does this warehouse hold?*, and nothing else may be a
+ * grouping. The lots behind Saldo Stok are a checkbox. The
  * valuation reports are one pool per item over every warehouse, so they keep
  * one item and no warehouse.
  */
@@ -32,6 +33,7 @@ export function StockReportParams({
   itemIds,
   warehouseIds,
   lots,
+  showLots,
   groupBy,
   groupHrefs,
   mode,
@@ -49,6 +51,8 @@ export function StockReportParams({
   warehouseIds: number[];
   /** Lot numbers, comma separated; null on a report without a lot filter. */
   lots: string | null;
+  /** Saldo Stok: a row per lot rather than per place; null on the other reports. */
+  showLots: boolean | null;
   groupBy: StockGroupBy;
   /** The applied run under each grouping: the toggle navigates, it does not wait for Tampilkan. */
   groupHrefs: Record<StockGroupBy, string>;
@@ -63,6 +67,7 @@ export function StockReportParams({
   const [itemSet, setItemSet] = useState<number[]>(itemIds);
   const [warehouseSet, setWarehouseSet] = useState<number[]>(warehouseIds);
   const [lotText, setLotText] = useState(lots ?? "");
+  const [withLots, setWithLots] = useState(showLots ?? false);
   const [day, setDay] = useState(asOf);
   const [start, setStart] = useState(from);
   const [end, setEnd] = useState(to);
@@ -73,7 +78,7 @@ export function StockReportParams({
   const run = () => {
     if (invalidRange || missing) return;
     const where = grouped
-      ? { group: groupBy, items: itemSet.join(","), warehouses: warehouseSet.join(","), lots: lots === null ? null : lotText.trim() }
+      ? { group: groupBy, items: itemSet.join(","), warehouses: warehouseSet.join(","), lots: lots === null ? null : lotText.trim(), showLots: withLots ? 1 : null }
       : { item: itemSet[0] ?? null };
     startTransition(() => {
       router.push(reportHref(slug, mode === "asof" ? { ...where, asOf: day } : { ...where, from: start, to: end }));
@@ -167,6 +172,16 @@ export function StockReportParams({
         </div>
       ) : (
         <PeriodRow start={start} end={end} onStart={setStart} onEnd={setEnd} />
+      )}
+      {showLots !== null && (
+        <div className="rrow">
+          <label className="chk sm">
+            <input type="checkbox" checked={withLots} onChange={(e) => setWithLots(e.target.checked)} />
+            <span>
+              <span className="ct">Tampilkan No. Stok</span>
+            </span>
+          </label>
+        </div>
       )}
     </>
   );

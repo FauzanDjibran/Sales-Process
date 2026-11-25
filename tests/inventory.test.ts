@@ -192,7 +192,7 @@ describe("the reports read the ledgers as of a date", () => {
       ]
     );
     const range = { from: "2026-09-16", to: "2026-10-31" };
-    const w1 = await stockCardEntriesPage(f.a, f.w1, range, [], null);
+    const w1 = await stockCardEntriesPage({ itemIds: [f.a], warehouseIds: [f.w1] }, range, [], null);
     assert.deepEqual(w1.entries.map((e) => [e.date, e.change]), [
       ["2026-10-01", -3],
       ["2026-10-01", -12],
@@ -200,9 +200,9 @@ describe("the reports read the ledgers as of a date", () => {
     ]);
     assert.equal(w1.next, null);
     // A page picks up strictly after its cursor, inside a day too.
-    const rest = await stockCardEntriesPage(f.a, f.w1, range, [], { date: w1.entries[0].date, id: w1.entries[0].id });
+    const rest = await stockCardEntriesPage({ itemIds: [f.a], warehouseIds: [f.w1] }, range, [], { date: w1.entries[0].date, id: w1.entries[0].id });
     assert.deepEqual(rest.entries.map((e) => e.id), w1.entries.slice(1).map((e) => e.id));
-    assert.deepEqual((await stockCardEntriesPage(f.a, f.w2, range, [], null)).entries.map((e) => e.change), [-20]);
+    assert.deepEqual((await stockCardEntriesPage({ itemIds: [f.a], warehouseIds: [f.w2] }, range, [], null)).entries.map((e) => e.change), [-20]);
     assert.deepEqual(cards.map((c) => c.entryCount), [3, 1]);
     for (const c of cards) assert.equal(c.opening + c.totalIn - c.totalOut, c.closing, "awal + masuk − keluar = akhir");
   });
@@ -220,8 +220,8 @@ describe("the reports read the ledgers as of a date", () => {
     const range = { from: "2026-09-16", to: "2026-10-31" };
     const cards = await stockLedgerReport([f.a], [], range, [key("A2").toLowerCase()]);
     assert.deepEqual(cards.map((c) => [c.warehouse.label, c.opening, c.closing]), [[key("W2"), 20, 0]]);
-    assert.deepEqual((await stockCardEntriesPage(f.a, f.w2, range, [key("A2")], null)).entries.map((e) => e.lotNo), [key("A2")]);
-    assert.deepEqual((await stockCardEntriesPage(f.a, f.w2, range, [key("A1")], null)).entries, []);
+    assert.deepEqual((await stockCardEntriesPage({ itemIds: [f.a], warehouseIds: [f.w2] }, range, [key("A2")], null)).entries.map((e) => e.lotNo), [key("A2")]);
+    assert.deepEqual((await stockCardEntriesPage({ itemIds: [f.a], warehouseIds: [f.w2] }, range, [key("A1")], null)).entries, []);
     assert.deepEqual(await stockLedgerReport([f.a], [], range, ["TIDAK-ADA"]), []);
   });
 
