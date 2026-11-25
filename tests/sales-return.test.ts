@@ -365,8 +365,8 @@ describe("a Receipt Note sales_return brings the goods back", () => {
     assert.deepEqual(posted.closed, [(await getSalesReturn(srId))!.returnNo], "every line back: the return closes itself");
     const note = await prisma.logReceiptNote.findUniqueOrThrow({ where: { id: second } });
     assert.equal(note.base_cost_amount.toNumber(), 60_000, "6 of the 40 at 10.000 each, cumulative");
-    const back = await prisma.logReceiptNoteLine.findFirstOrThrow({ where: { receipt_note_id: second } });
-    assert.equal(back.cost_amount.toNumber(), 60_000, "a return has one measure (MC2)");
+    const noteLine = await prisma.logReceiptNoteLine.findFirstOrThrow({ where: { receipt_note_id: second } });
+    assert.equal(noteLine.cost_amount.toNumber(), 60_000, "a return has one measure (MC2)");
     const lines = await prisma.accJournalLine.findMany({ where: { journal_id: note.journal_id! } });
     const cogs = Number((await prisma.sysSetting.findUniqueOrThrow({ where: { setting_key: "cogs_account" } })).setting_value);
     const inv = Number((await prisma.sysSetting.findUniqueOrThrow({ where: { setting_key: "inventory_account" } })).setting_value);
