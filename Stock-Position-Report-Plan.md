@@ -110,7 +110,7 @@ Baris = tanggal × dokumen × No. Stok × Unit. Kolom: Tanggal · Dokumen · Ket
 
 Langkah 1, 2 dan 3 bisa rilis sendiri-sendiri; 3 sesudah 2.
 
-Risiko: kecepatan kartu satu Unit di beban 100.000 baris per bulan. `prd_ledger` hanya punya BRIN di `posting_date` dan indeks `bucket_id, posting_date`, tidak ada indeks `unit_id`. Diukur di langkah 3; bila lambat, lewat `bucket_id` Unit itu sebelum menambah indeks.
+Risiko: kecepatan kartu satu Unit di beban 100.000 baris per bulan. Indeks `(unit_id, posting_date)` ditambahkan (P327); beban besar belum diukur. Per Barang tidak punya indeks `item_id`.
 
 ## 7. Keputusan user
 

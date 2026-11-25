@@ -5164,6 +5164,8 @@ model PrdLedger {
   @@index([bucket_id, posting_date])
   /// Date ranges over the whole ledger (the year-end guard, reports) without a btree on every row (5.4).
   @@index([posting_date], type: Brin)
+  /// A Unit's Kartu Produksi over a period (P327).
+  @@index([unit_id, posting_date])
   @@index([tracking_id])
   @@index([source_doc_type_id, source_doc_id])
   @@map("prd_ledger")

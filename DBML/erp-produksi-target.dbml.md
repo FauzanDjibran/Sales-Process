@@ -484,6 +484,7 @@ table prd_ledger {
     posting_date [type: brin]
     (ledger_no, line_no) [unique]
     (bucket_id, posting_date)
+    (unit_id, posting_date)
     (source_doc_type_id, source_doc_id)
   }
 }

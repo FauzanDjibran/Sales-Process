@@ -3755,6 +3755,7 @@ table prd_ledger {
     posting_date [type: brin] // date ranges over the ledger (5.4)
     (ledger_no, line_no) [unique]
     (bucket_id, posting_date)
+    (unit_id, posting_date) // a Unit's Kartu Produksi (P327)
     tracking_id
     (source_doc_type_id, source_doc_id)
   }
