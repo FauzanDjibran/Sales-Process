@@ -62,7 +62,7 @@ export function CreditNoteForm({
   const editing = mode !== "view";
 
   const [header, setHeader] = useState<CreditNoteHeaderInput>(() =>
-    note ? { ...note.header } : { invoice_id: null, credit_date: todayIso(), customer_return_no: "", apply_to_invoice: false, note: "" }
+    note ? { ...note.header } : { invoice_id: null, credit_date: todayIso(), customer_return_no: "", note: "" }
   );
   const [lines, setLines] = useState<LineState[]>(() =>
     note ? note.lines.map((l) => ({ invoice_line_id: Number(l.invoice_line_id), qty: String(l.qty) })) : []
@@ -214,18 +214,6 @@ export function CreditNoteForm({
                 nil()
               )}
             </Field>
-            <Field label="Invoice Asal" span={5} help={editing ? "tanpa centang, menjadi kredit terbuka" : undefined}>
-              {editing ? (
-                <div>
-                  <label className="chk sm">
-                    <input type="checkbox" checked={header.apply_to_invoice === true} onChange={(e) => set("apply_to_invoice", e.target.checked)} />
-                    <span className="ct">Langsung potong Invoice asal</span>
-                  </label>
-                </div>
-              ) : (
-                ro(header.apply_to_invoice ? "Langsung dipotong" : "Tidak dipotong")
-              )}
-            </Field>
             <Field label="Catatan" span={12}>
               {editing ? (
                 <textarea className="ta" rows={2} value={header.note} placeholder="Catatan…" onChange={(e) => set("note", e.target.value)} />
@@ -372,14 +360,14 @@ export function CreditNoteForm({
         <div className="cardfoot multi">
           {status === "Posted" && note && (
             <div className="impact">
-              <div className="ttl">Dampak ke Piutang</div>
+              <div className="ttl">Kredit Customer</div>
               <div className="ir">
-                <span>Mengurangi piutang Invoice</span>
-                <b>{money(note.applied)}</b>
+                <span>Sudah dipakai atau dikembalikan</span>
+                <b>{money(note.total - note.openCredit)}</b>
               </div>
               <div className="ir tot">
-                <span>Kredit customer terbuka</span>
-                <b>{money(note.total - note.applied)}</b>
+                <span>Kredit terbuka</span>
+                <b>{money(note.openCredit)}</b>
               </div>
             </div>
           )}

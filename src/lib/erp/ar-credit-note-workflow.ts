@@ -47,7 +47,7 @@ export const CREDIT_NOTE_TRANSITIONS: Record<CreditNoteAction, CreditNoteTransit
     body:
       "Penjualan dan PPN Keluaran atas barang yang kembali dikurangi, dan piutang customer turun dengan " +
       "journal di bawah ini pada Tanggal Credit Note. Nilainya menjadi kredit customer yang terbuka; Invoice asal " +
-      "hanya terpotong bila Langsung potong Invoice asal dicentang. Credit Note yang sudah diposting tidak dapat diubah atau dibatalkan.",
+      "tidak terpotong. Credit Note yang sudah diposting tidak dapat diubah atau dibatalkan.",
     confirmLabel: "Ya, Posting",
     done: "Credit Note Penjualan diposting",
   },

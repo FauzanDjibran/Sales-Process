@@ -1963,7 +1963,8 @@ table fin_ar_invoice_advance_deduction {
 
 // Credit Note Penjualan, CNS/… and CNS-NP/… (P287, P292, Sales-Return-Plan.md §6): credits one posted Invoice
 // for goods that came back after it was billed. Draft → Posted, Cancelled final. Posting writes
-// Dr Retur Penjualan · Dr PPN Keluaran / Cr Piutang Usaha and a Retur AR item: open customer credit (P329, SR11)
+// Dr Retur Penjualan · Dr PPN Keluaran / Cr Piutang Usaha and a Retur AR item: open customer credit;
+// it never lowers the Invoice itself (P330)
 table fin_ar_credit_note {
   id                          int [pk, increment, not null]
 
@@ -1978,7 +1979,6 @@ table fin_ar_credit_note {
   exchange_rate               decimal(18,6) [not null, default: 1] // the Invoice's rate: a credit is valued as what it reverses (MC8)
   is_taxable                  boolean [not null]
   customer_return_no          varchar // the buyer's Nota Retur, as given (SR6)
-  apply_to_invoice            boolean [not null, default: false] // Posting also lowers the Invoice by the credit, as far as its balance goes; CHECK applied_amount = 0 without it (P329, SR12)
   note                        varchar
 
   gross_amount                decimal(18,2) [not null, default: 0]
@@ -1990,8 +1990,6 @@ table fin_ar_credit_note {
   base_dpp_amount             decimal(18,2) [not null, default: 0]
   base_ppn_amount             decimal(18,2) [not null, default: 0]
   base_total_amount           decimal(18,2) [not null, default: 0]
-  applied_amount              decimal(18,2) [not null, default: 0] // what it lowered the Invoice item by; the rest is customer credit. CHECK 0 ≤ applied ≤ total
-  fx_difference               decimal(18,2) [not null, default: 0] // base relieved from the Invoice item less base used of the Retur item (MC13)
 
   ar_item_id                  int // weak: its Retur AR item, once posted
   journal_id                  int // weak: its journal, once posted

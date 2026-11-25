@@ -1402,7 +1402,6 @@ export type CreditSourceInvoice = {
   currency: string;
   exchangeRate: number;
   isTaxable: boolean;
-  arItemId: number | null;
   lines: {
     id: number;
     lineNo: number;
@@ -1466,7 +1465,6 @@ export async function creditSourceInvoices(filter: { ids?: number[]; withReturns
     currency: r.currency.currency_label,
     exchangeRate: orderById.get(r.customer_order_id)?.exchangeRate ?? 1,
     isTaxable: r.is_taxable,
-    arItemId: r.ar_item_id,
     lines: r.lines.map((l) => {
       const n = noteById.get(l.delivery_note_line_id);
       const sent = (n?.qty ?? 0) + (n?.returnedQty ?? 0);

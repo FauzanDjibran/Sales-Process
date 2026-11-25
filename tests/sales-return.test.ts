@@ -8,7 +8,7 @@ import { createDeliveryNote, invoiceSourceLines, transitionDeliveryNote } from "
 import { createInvoice, invoiceOptions, invoicePayStates, transitionInvoice, unpaidSalesInvoiceIds } from "../src/lib/erp/ar-invoice";
 import { cashReceiptOptions, createCashReceipt, transitionCashReceipt } from "../src/lib/erp/cash-bank-tx";
 import { cashPaymentOptions, createCashPayment, transitionCashPayment } from "../src/lib/erp/cash-payment";
-import { arBook, openArItemsAsOf } from "../src/lib/erp/ar-item";
+import { applyReturnCredit, arBook, openArItemsAsOf } from "../src/lib/erp/ar-item";
 import { foldAging } from "../src/lib/erp/ar-aging";
 import { createCreditNote, creditNoteOptions, creditNotePreview, transitionCreditNote, updateCreditNote } from "../src/lib/erp/ar-credit-note";
 import {
@@ -398,7 +398,7 @@ describe("a Credit Note credits what came back after the Invoice", () => {
   let invId = 0;
   let invLine = 0;
   const acc = {} as Record<string, number>;
-  const cnHeader = (over = {}) => ({ invoice_id: invId, credit_date: today, customer_return_no: "NR-1", apply_to_invoice: true, note: "", ...over });
+  const cnHeader = (over = {}) => ({ invoice_id: invId, credit_date: today, customer_return_no: "NR-1", note: "", ...over });
 
   before(async () => {
     const sub = async (label: string) =>
@@ -472,7 +472,7 @@ describe("a Credit Note credits what came back after the Invoice", () => {
     assert.ok((await updateCreditNote(b.id, cnHeader({ note: "x" }), [{ invoice_line_id: invLine, qty: 3 }], actor)).ok);
   });
 
-  test("posting reverses revenue and PPN, and a Retur item lowers the Invoice item", async () => {
+  test("posting reverses revenue and PPN, and leaves the Invoice whole until the credit is applied", async () => {
     const [a, b] = ids.cn;
     const preview = await creditNotePreview(a, actor);
     assert.ok(preview.ok, JSON.stringify(preview));
@@ -481,16 +481,35 @@ describe("a Credit Note credits what came back after the Invoice", () => {
     const notes = await prisma.finArCreditNote.findMany({ where: { id: { in: [a, b] } }, orderBy: { id: "asc" } });
     // 2/30, then 2..5 of 30, of 30.000 and 3.300 — each rounded once, cumulatively.
     assert.deepEqual(
-      notes.map((n) => [n.dpp_amount.toNumber(), n.ppn_amount.toNumber(), n.total_amount.toNumber(), n.applied_amount.toNumber()]),
+      notes.map((n) => [n.dpp_amount.toNumber(), n.ppn_amount.toNumber(), n.total_amount.toNumber()]),
       [
-        [2_000, 220, 2_220, 2_220],
-        [3_000, 330, 3_330, 3_330],
+        [2_000, 220, 2_220],
+        [3_000, 330, 3_330],
       ]
     );
     const lines = await prisma.accJournalLine.findMany({ where: { journal_id: { in: notes.map((n) => n.journal_id!) } } });
     const sum = (id: number, side: "debit_amount" | "kredit_amount") => lines.filter((l) => l.account_id === id).reduce((x, l) => x + l[side].toNumber(), 0);
     assert.deepEqual([sum(acc.ret, "debit_amount"), sum(acc.vat, "debit_amount"), sum(acc.ar, "kredit_amount")], [5_000, 550, 5_550]);
-    const item = await prisma.finArItem.findFirstOrThrow({ where: { item_type: "Invoice", source_doc_id: invId, partner_id: f.customer } });
+    const where = { item_type: "Invoice", source_doc_id: invId, partner_id: f.customer } as const;
+    const whole = await prisma.finArItem.findFirstOrThrow({ where });
+    assert.equal(whole.current_balance.toNumber(), 33_300, "posting a Credit Note never lowers its Invoice (P330)");
+    // Applying it is a step of its own.
+    const docTypeId = (await prisma.finArItem.findUniqueOrThrow({ where: { id: notes[0].ar_item_id! } })).source_doc_type_id;
+    await prisma.$transaction(async (tx) => {
+      for (const n of notes) {
+        const move = await applyReturnCredit(tx, {
+          returnItemId: n.ar_item_id!,
+          invoiceItemId: whole.id,
+          amount: n.total_amount.toNumber(),
+          date: today,
+          doc: { docTypeId, docId: n.id, no: n.credit_no },
+          notes: { invoice: "Uji", ret: "Uji" },
+          actorId: actor,
+        });
+        assert.equal(move.fx, 0);
+      }
+    });
+    const item = await prisma.finArItem.findFirstOrThrow({ where });
     assert.equal(item.current_balance.toNumber(), 33_300 - 5_550);
     const ret = await prisma.finArItem.findMany({ where: { item_type: "Return", partner_id: f.customer }, orderBy: { id: "asc" } });
     assert.deepEqual(
@@ -590,7 +609,7 @@ describe("customer credit left on a Credit Note is refunded or used by the next 
     assert.ok((await transitionCreditNote(cn.id, "post", actor)).ok);
     const n = await prisma.finArCreditNote.findUniqueOrThrow({ where: { id: cn.id } });
     retItem = n.ar_item_id!;
-    assert.deepEqual([n.total_amount.toNumber(), n.applied_amount.toNumber()], [5_550, 0], "the paid Invoice takes none of it");
+    assert.equal(n.total_amount.toNumber(), 5_550);
   });
 
   test("Umur Piutang reads the open credit", async () => {
@@ -669,7 +688,7 @@ describe("customer credit left on a Credit Note is refunded or used by the next 
     const posted = await transitionCreditNote(cn.id, "post", actor);
     assert.ok(posted.ok, JSON.stringify(posted));
     const n = await prisma.finArCreditNote.findUniqueOrThrow({ where: { id: cn.id } });
-    assert.deepEqual([n.total_amount.toNumber(), n.applied_amount.toNumber(), n.apply_to_invoice], [5_550, 0, false]);
+    assert.equal(n.total_amount.toNumber(), 5_550);
     assert.equal((await prisma.finArItem.findUniqueOrThrow({ where: { id: n.ar_item_id! } })).current_balance.toNumber(), 5_550, "the whole credit is open");
     // The receipt still asks for the whole Invoice; its DPP and PPh base fell with the credit (SR16).
     const bill = (await cashReceiptOptions()).bills.find((b) => b.kind === "fin_ar_invoice" && b.id === inv.id)!;

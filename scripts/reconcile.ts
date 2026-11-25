@@ -584,15 +584,13 @@ export const CHECKS: Check[] = [
   },
   {
     area: "ar",
-    name: "each posted Credit Note: its Retur item born at its total, applied to its Invoice item by its applied amount, and a journal (P292)",
-    sql: `SELECT c.credit_no, c.total_amount, i.original_amount, c.applied_amount, COALESCE(u.used, 0) AS used, c.journal_id
+    name: "each posted Credit Note: its Retur item born at its total, and a journal (P292)",
+    sql: `SELECT c.credit_no, c.total_amount, i.original_amount, c.journal_id
           FROM fin_ar_credit_note c
           LEFT JOIN fin_ar_item i ON i.id = c.ar_item_id
-          LEFT JOIN (SELECT item_id, doc_id, SUM(ABS(movement)) AS used FROM fin_ar_ledger
-                     WHERE event = 'ReturnUsed' AND doc_type_id = ${docType("fin_ar_credit_note")} GROUP BY item_id, doc_id) u ON u.item_id = c.ar_item_id AND u.doc_id = c.id
           WHERE c.status = 'Posted' AND (c.ar_item_id IS NULL OR c.journal_id IS NULL OR i.item_type <> 'Return'
                 OR i.source_doc_type_id <> ${docType("fin_ar_credit_note")} OR i.source_doc_id <> c.id
-                OR i.original_amount <> c.total_amount OR COALESCE(u.used, 0) <> c.applied_amount
+                OR i.original_amount <> c.total_amount
                 OR c.total_amount <> c.dpp_amount + c.ppn_amount)`,
   },
   {

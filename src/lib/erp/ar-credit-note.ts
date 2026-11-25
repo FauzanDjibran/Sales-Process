@@ -4,12 +4,11 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
 import { nextDocumentNumber, taxSeriesPrefix } from "./document-number";
 import { formatMoney, formatNumber } from "@/lib/format";
-import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { lockCustomerOrder } from "./customer-order";
 import { creditSourceInvoices, type CreditSourceInvoice } from "./ar-invoice";
-import { ArItemOverdrawn, applyReturnCredit, arItemBalances, arItemHeld, createArItem } from "./ar-item";
+import { ArItemOverdrawn, arItemBalances, createArItem } from "./ar-item";
 import { postingAccounts } from "./system-settings";
 import { taxScale } from "./sales-tax";
 import {
@@ -36,10 +35,9 @@ import {
  *
  * Posting, under the Customer Order's lock, writes Dr Retur Penjualan · Dr PPN
  * Keluaran / Cr Piutang Usaha and a **Retur** AR item (P287 SR2): born at the
- * credit's total, an open customer credit (P329, SR11). With `apply_to_invoice`
- * it is applied at once to the Invoice's item, as far as its balance goes
- * (`ReturnApplied` / `ReturnUsed`). The Invoice is read through
- * `creditSourceInvoices`.
+ * credit's total, an open customer credit (SR11). Posting never lowers the
+ * Invoice: only a document that applies the credit does (P330). The Invoice is
+ * read through `creditSourceInvoices`.
  */
 
 type Db = Prisma.TransactionClient | typeof prisma;
@@ -48,8 +46,6 @@ export type CreditNoteHeaderInput = {
   invoice_id: number | null;
   credit_date: string;
   customer_return_no: string;
-  /** Posting also lowers this Invoice by the credit (SR12); off leaves it open. */
-  apply_to_invoice?: boolean;
   note: string;
 };
 export type CreditNoteLineInput = { invoice_line_id: number | null; qty: number | string };
@@ -137,7 +133,6 @@ type Checked = {
     is_taxable: boolean;
     credit_date: Date;
     customer_return_no: string | null;
-    apply_to_invoice: boolean;
     note: string | null;
     gross_amount: number;
     discount_amount: number;
@@ -229,7 +224,6 @@ export async function checkCreditNote(
         is_taxable: source.isTaxable,
         credit_date: asDate(date),
         customer_return_no: text(header.customer_return_no),
-        apply_to_invoice: header.apply_to_invoice === true,
         note: text(header.note),
         gross_amount: sum("gross_amount"),
         discount_amount: sum("discount_amount"),
@@ -336,7 +330,6 @@ function asInput(n: Stored): { header: CreditNoteHeaderInput; lines: CreditNoteL
       invoice_id: n.invoice_id,
       credit_date: isoDay(n.credit_date),
       customer_return_no: n.customer_return_no ?? "",
-      apply_to_invoice: n.apply_to_invoice,
       note: n.note ?? "",
     },
     lines: [...n.lines].sort((a, b) => a.line_no - b.line_no).map((l) => ({ invoice_line_id: l.invoice_line_id, qty: l.qty.toNumber() })),
@@ -357,12 +350,8 @@ export async function creditNotePreview(id: number, actorId: number): Promise<Jo
 /**
  * Runs one lifecycle step. **Posting**, under the Customer Order's lock: checks
  * the stored note again — its figures worked out anew after what other posted
- * Credit Notes took (P112) — creates the Retur item at its total and base,
- * applies it to the Invoice item, when asked to (SR12), as far as that item's
- * balance goes, then posts
- * the journal at what the books moved: Cr Piutang at the Retur item's base
- * less what of it was used plus what the Invoice item gave up, the difference
- * of the two reliefs being selisih kurs (MC13; nil in rupiah).
+ * Credit Notes took (P112) — creates the Retur item at its total and base, left
+ * open whole, then posts the journal at the same base.
  */
 export async function transitionCreditNote(
   id: number,
@@ -391,9 +380,6 @@ export async function transitionCreditNote(
 
   const period = await checkTransactionDate(isoDay(n.credit_date));
   if (!period.ok) return { ok: false, errors: { _form: period.message } };
-  const baseCurrency = await prisma.refCurrency.findFirst({ where: { currency_label: BASE_CURRENCY_LABEL }, select: { id: true } });
-  if (!baseCurrency) return { ok: false, errors: { _form: "Mata uang dasar tidak ditemukan." } };
-
   return refusable(async () => {
     await prisma.$transaction(async (tx) => {
       await holdPostingPeriod(tx, isoDay(n.credit_date));
@@ -406,22 +392,16 @@ export async function transitionCreditNote(
       }
       const f = r.c.data;
       const keys = ["receivable_account", "sales_return_account", ...(f.ppn_amount > 0 ? (["output_vat_account"] as const) : [])] as const;
-      const mapped = await postingAccounts([...keys, "fx_account"] as const);
-      const need = mapped.ok ? null : mapped.missing.filter((m) => !/Selisih Kurs/i.test(m));
-      if (!mapped.ok && need?.length) throw new Refused({ _form: `Lengkapi Account Mapping dulu: ${need.join(", ")}.` });
-      const ids = (mapped.ok ? mapped.ids : {}) as Record<string, number>;
-      if (!ids.receivable_account || !ids.sales_return_account || (f.ppn_amount > 0 && !ids.output_vat_account)) {
-        throw new Refused({ _form: "Lengkapi Account Mapping dulu: Account Piutang Usaha, Account Retur Penjualan, Account PPN Keluaran." });
-      }
+      const mapped = await postingAccounts(keys);
+      if (!mapped.ok) throw new Refused({ _form: `Lengkapi Account Mapping dulu: ${mapped.missing.join(", ")}.` });
+      const ids = mapped.ids as Record<string, number>;
 
       const done = await tx.finArCreditNote.updateMany({ where: { id, status: "Draft" }, data: { ...f, status: "Posted", updated_by: actorId } });
       if (done.count !== 1) throw new Refused({ _form: moved });
       await tx.finArCreditNoteLine.deleteMany({ where: { credit_note_id: id } });
       await tx.finArCreditNoteLine.createMany({ data: r.c.lines.map((l) => ({ ...l, credit_note_id: id })) });
 
-      // The Retur item at the credit's total, then, when asked for (SR12),
-      // applied to the Invoice's item as far as its balance goes; the books move
-      // first so the journal carries what they relieved.
+      // The Retur item at the credit's total: open customer credit (SR11).
       const typeId = await docTypeId(tx, "fin_ar_credit_note");
       const doc = { docTypeId: typeId, docId: id, no: n.credit_no };
       const date = isoDay(f.credit_date);
@@ -438,23 +418,6 @@ export async function transitionCreditNote(
         note: `Credit Note ${n.credit_no} atas ${r.c.source.invoiceNo}`,
         actorId,
       });
-      const invItem = r.c.source.arItemId;
-      const open = invItem && f.apply_to_invoice ? (await arItemHeld(tx, invItem)).foreign : 0;
-      const applied = Math.min(cents(f.total_amount), cents(open)) / 100;
-      let fx = 0;
-      if (invItem && applied > 0) {
-        const move = await applyReturnCredit(tx, {
-          returnItemId: returnItem,
-          invoiceItemId: invItem,
-          amount: applied,
-          date,
-          doc,
-          notes: { invoice: `Retur ${n.credit_no}`, ret: `Diterapkan ke ${r.c.source.invoiceNo}` },
-          actorId,
-        });
-        fx = move.fx;
-      }
-
       const cur = r.c.source.currency;
       const fmtQty = r.c.lines.map((l) => {
         const s = r.c.source.lines.find((x) => x.id === l.invoice_line_id)!;
@@ -473,20 +436,8 @@ export async function transitionCreditNote(
       const journalLines: JournalLineInput[] = [
         line(ids.sales_return_account, f.dpp_amount, 0, f.base_dpp_amount, `Retur penjualan ${fmtQty.join(", ")} (${r.c.source.invoiceNo})`),
         ...(f.ppn_amount > 0 ? [line(ids.output_vat_account, f.ppn_amount, 0, f.base_ppn_amount, `PPN atas retur — ${n.credit_no}`)] : []),
-        line(ids.receivable_account, 0, f.total_amount, (cents(f.base_total_amount) + cents(fx)) / 100, `Piutang turun — ${n.credit_no} atas ${r.c.source.invoiceNo}`, f.customer_id),
+        line(ids.receivable_account, 0, f.total_amount, f.base_total_amount, `Piutang turun — ${n.credit_no} atas ${r.c.source.invoiceNo}`, f.customer_id),
       ];
-      if (fx !== 0) {
-        if (!ids.fx_account) throw new Refused({ _form: "Lengkapi Account Mapping dulu: Account Selisih Kurs." });
-        journalLines.push({
-          accountId: ids.fx_account,
-          partnerId: null,
-          currencyId: baseCurrency.id,
-          rate: 1,
-          debit: fx > 0 ? fx : 0,
-          credit: fx < 0 ? -fx : 0,
-          description: `Selisih kurs retur ${n.credit_no}`,
-        });
-      }
       const journal = await postJournal(tx, {
         description: `${n.credit_no} · Credit Note ${r.c.source.invoiceNo} — ${r.c.source.customerName} (${formatMoney(f.total_amount, cur)})`,
         sourceDocTypeId: typeId,
@@ -495,7 +446,7 @@ export async function transitionCreditNote(
         actorId,
         lines: journalLines,
       });
-      await tx.finArCreditNote.update({ where: { id }, data: { journal_id: journal.id, ar_item_id: returnItem, applied_amount: applied, fx_difference: fx } });
+      await tx.finArCreditNote.update({ where: { id }, data: { journal_id: journal.id, ar_item_id: returnItem } });
       await audit(tx, id, "UPDATE", "post", actorId);
       if (options.dryRun) throw new PostingDryRun(journalLines);
     });
@@ -550,7 +501,8 @@ export type CreditNoteView = {
   dpp: number;
   ppn: number;
   total: number;
-  applied: number;
+  /** What is left of its Retur item: customer credit not yet used or refunded. */
+  openCredit: number;
   journalId: number | null;
   journalNo: string | null;
   cancelReason: string | null;
@@ -570,7 +522,7 @@ export async function getCreditNote(id: number): Promise<CreditNoteView | null> 
     dpp: n.dpp_amount.toNumber(),
     ppn: n.ppn_amount.toNumber(),
     total: n.total_amount.toNumber(),
-    applied: n.applied_amount.toNumber(),
+    openCredit: n.ar_item_id ? ((await arItemBalances(prisma, [n.ar_item_id])).get(n.ar_item_id)?.balance ?? 0) : 0,
     journalId: n.journal_id,
     journalNo: n.journal_id ? ((await journalNumbersByIds([n.journal_id])).get(n.journal_id) ?? null) : null,
     cancelReason: n.cancel_reason,

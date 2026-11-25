@@ -2616,8 +2616,7 @@ enum CreditNoteStatus {
 /// A Credit Note Penjualan (P292, Sales-Return-Plan.md §6): what came back of
 /// one posted Invoice Penjualan, credited at the Invoice's own figures. Posting
 /// writes Dr Retur Penjualan · Dr PPN Keluaran / Cr Piutang Usaha and a Retur AR
-/// item: an open customer credit (P329, SR11), applied to the Invoice's item only
-/// when asked for (`apply_to_invoice`).
+/// item: an open customer credit. Posting never lowers the Invoice (P330).
 model FinArCreditNote {
   id          Int              @id @default(autoincrement())
   /// `CNS/YYYY/MM/NNNN`, `CNS-NP/…` for an Invoice without PPN (P109).
@@ -2636,8 +2635,6 @@ model FinArCreditNote {
   is_taxable         Boolean
   /// The buyer's Nota Retur, as given (SR6).
   customer_return_no String?
-  /// Posting also lowers this Invoice by the credit, as far as its balance goes (P329, SR12).
-  apply_to_invoice   Boolean @default(false)
   note               String?
 
   gross_amount      Decimal @default(0) @db.Decimal(18, 2)
@@ -2649,10 +2646,6 @@ model FinArCreditNote {
   base_dpp_amount   Decimal @default(0) @db.Decimal(18, 2)
   base_ppn_amount   Decimal @default(0) @db.Decimal(18, 2)
   base_total_amount Decimal @default(0) @db.Decimal(18, 2)
-  /// What it lowered the Invoice item by at Posting; the rest is customer credit.
-  applied_amount    Decimal @default(0) @db.Decimal(18, 2)
-  /// Base relieved from the Invoice item less base used of the Retur item.
-  fx_difference     Decimal @default(0) @db.Decimal(18, 2)
 
   ar_item_id    Int?
   journal_id    Int?
