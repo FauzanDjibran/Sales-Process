@@ -37,7 +37,7 @@ export async function takeIssueSent(tx: Tx, m: Extract<HandoverMessage, { type: 
     const itemId = items.get(l.itemCode);
     const tracking = await trackingByNo(tx, l.trackingNo);
     if (!itemId || !tracking || tracking.itemId !== itemId) throw new HandoverRefusal(`No. Stok ${l.trackingNo} tidak dikenal di Produksi.`);
-    lines.push({ line_no: i + 1, item_id: itemId, tracking_id: tracking.id, qty: l.qty, value: l.value });
+    lines.push({ line_no: i + 1, item_id: itemId, tracking_id: tracking.id, qty: l.qty, base_cost_amount: l.value });
   }
   const row = await tx.prdReceipt.create({
     data: {
@@ -72,7 +72,7 @@ export async function receiveProductionReceipt(id: number, actorId: number): Pro
       const auxiliary = r.purpose === "auxiliary";
       for (const l of r.lines) {
         const job = auxiliary ? null : await issueJob(tx, { unitId: r.unit_id, lotId: l.tracking_id, date, source, actorId });
-        const entered = await enterProduction(tx, { jobId: job?.id ?? null, lotId: l.tracking_id, itemId: l.item_id, unitId: r.unit_id, baseQty: l.qty, value: l.value, auxiliary, date, source, actorId });
+        const entered = await enterProduction(tx, { jobId: job?.id ?? null, lotId: l.tracking_id, itemId: l.item_id, unitId: r.unit_id, baseQty: l.qty, value: l.base_cost_amount, auxiliary, date, source, actorId });
         await tx.prdReceiptLine.update({ where: { id: l.id }, data: { job_id: job?.id ?? null, bucket_id: entered.bucketId } });
       }
       await deliver(tx, { type: "IssueReceived", no: r.receipt_no, date: today }, actorId);

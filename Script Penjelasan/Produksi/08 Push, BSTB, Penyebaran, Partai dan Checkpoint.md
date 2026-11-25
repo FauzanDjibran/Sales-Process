@@ -64,7 +64,7 @@ Terima memeriksa Unit tujuan. **BSTB yang sudah diajukan tidak bisa dibatalkan.*
 | `job_id` | Job yang dibawa, atau yang baru dibuat |
 | `is_new_job` | Job dibuat oleh kiriman ini |
 | `qty`, `grams` | jumlah, gram |
-| `value` | nilai yang pindah |
+| `base_cost_amount` | nilai yang pindah |
 | `transit_bucket_id` | bucket Dalam Perjalanan (BSTB) |
 | `to_bucket_id` | bucket Persiapan tujuan (Push: saat kirim; BSTB: saat Terima) |
 

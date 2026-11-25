@@ -142,12 +142,12 @@ export async function postJobOrder(input: JobOrderInput, actorId: number): Promi
             target_item_id: l.targetId,
             job_order_no: `JO_${job.no}`,
             grams,
-            value,
+            base_cost_amount: value,
             job_id: job.id,
             tracking_id: made.id,
             tracking_no: made.no,
             to_bucket_id: placed.bucketId,
-            inputs: { create: taken.map((t) => ({ bucket_id: t.bucketId, tracking_id: t.lotId, qty: t.qty, grams: t.grams, value: t.value })) },
+            inputs: { create: taken.map((t) => ({ bucket_id: t.bucketId, tracking_id: t.lotId, qty: t.qty, grams: t.grams, base_cost_amount: t.value })) },
           },
         });
       }

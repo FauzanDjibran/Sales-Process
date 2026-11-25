@@ -558,7 +558,7 @@ export async function traceReport(lotNo: string): Promise<TraceReport | null> {
     while (frontier.length && depth < TRACE_DEPTH_CAP) {
       const links = await prisma.prdTrackingLink.findMany({
         where: dir === "back" ? { to_tracking_id: { in: frontier } } : { from_tracking_id: { in: frontier } },
-        select: { from_tracking_id: true, to_tracking_id: true, source_doc_type_id: true, source_doc_id: true, source_no: true, qty: true, value: true, from_bucket: { select: { unit: { select: { unit_label: true } } } } },
+        select: { from_tracking_id: true, to_tracking_id: true, source_doc_type_id: true, source_doc_id: true, source_no: true, qty: true, base_cost_amount: true, from_bucket: { select: { unit: { select: { unit_label: true } } } } },
       });
       depth += 1;
       const next: number[] = [];
@@ -568,7 +568,7 @@ export async function traceReport(lotNo: string): Promise<TraceReport | null> {
         const edges = edgesOf[dir].get(id) ?? new Map<string, TraceEdge>();
         const e = edges.get(l.source_no) ?? { sourceNo: l.source_no, href: hrefOf(l.source_doc_type_id, l.source_doc_id), stationLabel: l.from_bucket.unit.unit_label, qty: 0, value: 0 };
         e.qty = round6(e.qty + num(l.qty));
-        e.value += num(l.value);
+        e.value += num(l.base_cost_amount);
         edges.set(l.source_no, e);
         edgesOf[dir].set(id, edges);
         if (seen.has(id)) continue;

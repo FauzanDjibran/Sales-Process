@@ -154,14 +154,14 @@ export async function closeBox(input: BoxInput, actorId: number): Promise<BoxRes
         cost += charged.amount;
         moves.push({ itemId: t.itemId, amount: -t.value });
         await linkTracking(tx, { fromBucketId: p.bucket.id, fromLotId: t.lotId, toLotId: made.id, qty: p.bucket.qty, value: t.value, source });
-        await tx.prdBoxPiece.create({ data: { box_id: header.id, line_no: i + 1, bucket_id: p.bucket.id, tracking_id: t.lotId, partai_id: t.partaiId, grams: p.bucket.grams!, value: t.value, caiq: p.caiq, is_manual: p.manual } });
+        await tx.prdBoxPiece.create({ data: { box_id: header.id, line_no: i + 1, bucket_id: p.bucket.id, tracking_id: t.lotId, partai_id: t.partaiId, grams: p.bucket.grams!, base_cost_amount: t.value, caiq: p.caiq, is_manual: p.manual } });
       }
       let auxValue = 0;
       for (const a of c.takes) {
         const used = await consumeBucket(tx, { bucketId: a.bucket.id, baseQty: a.qty, ...common });
         auxValue += used.value;
         moves.push({ itemId: a.itemId, amount: -used.value });
-        await tx.prdBoxComponent.create({ data: { box_id: header.id, item_id: a.itemId, bucket_id: a.bucket.id, qty: a.qty, value: used.value } });
+        await tx.prdBoxComponent.create({ data: { box_id: header.id, item_id: a.itemId, bucket_id: a.bucket.id, qty: a.qty, base_cost_amount: used.value } });
       }
       const value = pieceValue + cost + auxValue;
       await recordTrackingInfo(tx, { lotId: made.id, grams, form: "Piece", rateVersionId: rate!.rateVersionId, routingId: rate!.routingId, actorId });
@@ -169,7 +169,7 @@ export async function closeBox(input: BoxInput, actorId: number): Promise<BoxRes
       moves.push({ itemId: c.bom.itemId, amount: value });
 
       const posted = await postToErp(tx, { source, docTable: "prd_box", date: c.date, description: `${no} · Kotak ${made.no}`, moves, costs, actorId });
-      await tx.prdBox.update({ where: { id: header.id }, data: { tracking_id: made.id, tracking_no: made.no, piece_value: pieceValue, cost_amount: cost, aux_value: auxValue, value, to_bucket_id: placed.bucketId, journal_id: posted.journalId } });
+      await tx.prdBox.update({ where: { id: header.id }, data: { tracking_id: made.id, tracking_no: made.no, base_piece_amount: pieceValue, base_process_amount: cost, base_aux_amount: auxValue, base_cost_amount: value, to_bucket_id: placed.bucketId, journal_id: posted.journalId } });
       await tx.auditLog.create({ data: { entity_key: "prd_box", row_id: header.id, action: "TAMBAH", event: "post", by: actorId } });
       return { ok: true as const, id: header.id, no, trackingNo: made.no };
     })

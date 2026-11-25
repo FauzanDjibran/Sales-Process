@@ -1,0 +1,32 @@
+-- Production says cost like logistics does, and its own Unit charge something else
+-- (Value-Naming-Plan.md, fase 3). Names only.
+ALTER TABLE "prd_box" RENAME COLUMN "piece_value" TO "base_piece_amount";
+ALTER TABLE "prd_box" RENAME COLUMN "cost_amount" TO "base_process_amount";
+ALTER TABLE "prd_box" RENAME COLUMN "aux_value" TO "base_aux_amount";
+ALTER TABLE "prd_box" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_box_piece" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_box_component" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_job_order_line" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_job_order_input" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_kerja_line" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_kerja_line" RENAME COLUMN "cost_amount" TO "base_process_amount";
+ALTER TABLE "prd_receipt_line" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_issue_line" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_transfer_line" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_tracking_link" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_grading" RENAME COLUMN "input_value" TO "base_input_amount";
+ALTER TABLE "prd_grading" RENAME COLUMN "cost_amount" TO "base_process_amount";
+ALTER TABLE "prd_grading" RENAME COLUMN "aux_value" TO "base_aux_amount";
+ALTER TABLE "prd_grading" RENAME COLUMN "scrap_amount" TO "base_scrap_amount";
+ALTER TABLE "prd_grading_input" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_grading_input" RENAME COLUMN "cost_amount" TO "base_process_amount";
+ALTER TABLE "prd_grading_output" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_work" RENAME COLUMN "cost_amount" TO "base_process_amount";
+ALTER TABLE "prd_work" RENAME COLUMN "aux_value" TO "base_aux_amount";
+ALTER TABLE "prd_work" RENAME COLUMN "scrap_amount" TO "base_scrap_amount";
+ALTER TABLE "prd_work_line" RENAME COLUMN "input_value" TO "base_input_amount";
+ALTER TABLE "prd_work_line" RENAME COLUMN "cost_amount" TO "base_process_amount";
+ALTER TABLE "prd_work_line" RENAME COLUMN "aux_value" TO "base_aux_amount";
+ALTER TABLE "prd_work_line" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_aux_use" RENAME COLUMN "value" TO "base_cost_amount";
+ALTER TABLE "prd_qc_check_line" RENAME COLUMN "value" TO "base_cost_amount";

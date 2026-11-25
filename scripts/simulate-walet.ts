@@ -219,10 +219,10 @@ async function main() {
   const box = ok(await closeBox({ unit_id: up5.id, box_date: today, bom_id: bom.id, pieces: pieces.map((p, i) => ({ bucket_id: p.id, caiq: `CQ-${tag}-${i + 1}`, manual: false })) }, actor), "Tutup Kotak");
   const row = await prisma.prdBox.findUniqueOrThrow({ where: { id: box.id } });
   console.log(`\n5. ${box.no}: kotak ${box.trackingNo}, ${row.pieces} keping, ${row.grams.toNumber()} g`);
-  console.log(`   nilai keping       ${rupiah(row.piece_value.toNumber())}`);
-  console.log(`   biaya UP5          ${rupiah(row.cost_amount.toNumber())}`);
-  console.log(`   bahan penolong     ${rupiah(row.aux_value.toNumber())}`);
-  console.log(`   NILAI KOTAK        ${rupiah(row.value.toNumber())}`);
+  console.log(`   nilai keping       ${rupiah(row.base_piece_amount.toNumber())}`);
+  console.log(`   biaya UP5          ${rupiah(row.base_process_amount.toNumber())}`);
+  console.log(`   bahan penolong     ${rupiah(row.base_aux_amount.toNumber())}`);
+  console.log(`   NILAI KOTAK        ${rupiah(row.base_cost_amount.toNumber())}`);
   console.log(`\nCek di layar: Telusur Produksi atau Kartu Produksi untuk ${box.trackingNo}; Saldo Produksi; Kartu Stok SM-A.`);
 }
 

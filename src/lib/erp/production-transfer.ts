@@ -223,7 +223,7 @@ export async function sendTransfer(input: TransferInput, actorId: number): Promi
             is_new_job: isNew,
             qty: r.qty,
             grams: b.gramsEach != null ? r.qty * b.gramsEach : null,
-            value: moved.value,
+            base_cost_amount: moved.value,
             transit_bucket_id: push ? null : moved.toBucketId,
             to_bucket_id: push ? moved.toBucketId : null,
           },

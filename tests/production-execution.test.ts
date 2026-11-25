@@ -404,7 +404,7 @@ describe("No. Grading per Job (W97)", () => {
 
     const links = await prisma.prdTrackingLink.findMany({ where: { source_no: r.no } });
     assert.equal(links.length, 4, "every output from every input");
-    assert.equal(links.reduce((a, l) => a + l.value.toNumber(), 0), 110_000);
+    assert.equal(links.reduce((a, l) => a + l.base_cost_amount.toNumber(), 0), 110_000);
     assert.equal(links.filter((l) => l.from_tracking_id === second.id).reduce((a, l) => a + l.qty.toNumber(), 0), 66.5, "95 g of output, 70 % of it from the second input by gram");
   });
 

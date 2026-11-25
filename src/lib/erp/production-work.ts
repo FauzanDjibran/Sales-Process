@@ -235,7 +235,7 @@ export async function transitionWork(id: number, action: ProdDocAction, actorId:
       let auxValue = 0;
       for (const a of c.aux) {
         const used = await consumeBucket(tx, { bucketId: a.bucket_id, baseQty: a.qty, ...common });
-        await tx.prdAuxUse.update({ where: { id: w.aux.find((x) => x.line_no === a.line_no)!.id }, data: { value: used.value } });
+        await tx.prdAuxUse.update({ where: { id: w.aux.find((x) => x.line_no === a.line_no)!.id }, data: { base_cost_amount: used.value } });
         moves.push({ itemId: used.itemId, amount: -used.value });
         aux.push({ key: a.job_id ? String(a.job_id) : null, value: used.value });
         auxValue += used.value;
@@ -259,14 +259,14 @@ export async function transitionWork(id: number, action: ProdDocAction, actorId:
         });
         await tx.prdWorkLine.update({
           where: { work_id_line_no: { work_id: id, line_no: x.line.line_no } },
-          data: { grams: x.grams, input_value: x.input.value, cost_amount: x.cost, aux_value: share.auxValues[i], value: share.values[i], to_bucket_id: placed.bucketId },
+          data: { grams: x.grams, base_input_amount: x.input.value, base_process_amount: x.cost, base_aux_amount: share.auxValues[i], base_cost_amount: share.values[i], to_bucket_id: placed.bucketId },
         });
         moves.push({ itemId: x.input.itemId, amount: share.values[i] - x.input.value });
       }
 
       const total = worked.reduce((a, x) => a + x.cost, 0);
       const posted = await postToErp(tx, { source, docTable: "prd_work", date, description: `${w.work_no} · Pengerjaan ${c.unit.unit_label}`, moves, costs, scrap: share.scrap, actorId });
-      await tx.prdWork.update({ where: { id }, data: { rate, cost_amount: total, aux_value: auxValue, scrap_amount: share.scrap, journal_id: posted.journalId } });
+      await tx.prdWork.update({ where: { id }, data: { rate, base_process_amount: total, base_aux_amount: auxValue, base_scrap_amount: share.scrap, journal_id: posted.journalId } });
       await audit(tx, id, "UPDATE", "post", actorId);
       if (options.dryRun) throw new PostingDryRun(posted.lines);
     });
@@ -314,7 +314,7 @@ export async function listWorks(units: number[] | null = null): Promise<WorkList
       // A row is a Job, or a No. Stok without one (A5.1).
       lines: new Set(r.lines.map((l) => (l.job_id ? `j${l.job_id}` : `b${l.bucket_id}`))).size,
       grams: held.reduce((a, { l, b }) => a + (r.status === "Posted" ? l.grams.toNumber() : l.qty.toNumber() * (b?.gramsEach ?? 0)), 0),
-      value: r.cost_amount.add(r.aux_value).toNumber(),
+      value: r.base_process_amount.add(r.base_aux_amount).toNumber(),
     };
   });
 }
@@ -359,11 +359,11 @@ export async function getWork(id: number): Promise<WorkView | null> {
     note: w.note,
     reason: w.status_reason,
     rate: w.rate.toNumber(),
-    cost: w.cost_amount.toNumber(),
-    auxValue: w.aux_value.toNumber(),
-    scrap: w.scrap_amount.toNumber(),
-    lines: w.lines.map((l) => ({ bucketId: l.bucket_id, employeeId: l.employee_id, qty: l.qty.toNumber(), grams: l.grams.toNumber(), inputValue: l.input_value.toNumber(), costAmount: l.cost_amount.toNumber(), value: l.value.toNumber() })),
-    aux: w.aux.map((a) => ({ bucketId: a.bucket_id, jobId: a.job_id, qty: a.qty.toNumber(), value: a.value.toNumber() })),
+    cost: w.base_process_amount.toNumber(),
+    auxValue: w.base_aux_amount.toNumber(),
+    scrap: w.base_scrap_amount.toNumber(),
+    lines: w.lines.map((l) => ({ bucketId: l.bucket_id, employeeId: l.employee_id, qty: l.qty.toNumber(), grams: l.grams.toNumber(), inputValue: l.base_input_amount.toNumber(), costAmount: l.base_process_amount.toNumber(), value: l.base_cost_amount.toNumber() })),
+    aux: w.aux.map((a) => ({ bucketId: a.bucket_id, jobId: a.job_id, qty: a.qty.toNumber(), value: a.base_cost_amount.toNumber() })),
   };
 }
 

@@ -78,7 +78,7 @@ Terima **tidak berjurnal**.
 | | `base_qty`, `base_cost_amount` (nilai beku) | Kirim |
 | `prd_receipt` | `receipt_no` = `issue_no`, `purpose` (`material` / `auxiliary`), `unit_id`, `warehouse_code` | pesan IssueSent |
 | | `received_at`, `received_by` | Terima |
-| `prd_receipt_line` | `tracking_id`, `qty`, `value` (nilai beku) | pesan IssueSent |
+| `prd_receipt_line` | `tracking_id`, `qty`, `base_cost_amount` (nilai beku) | pesan IssueSent |
 | | `job_id`, `bucket_id` | Terima |
 
 Harga pokok per satuan tidak disimpan; layar membaginya dari nilai (P213).
@@ -116,6 +116,6 @@ Unit, lalu dikembalikan dengan BSTB Pengeluaran (bagian 10).
 
 | Cek | Rumus |
 | --- | --- |
-| Pengirim | `base_cost_amount` = stok keluar = debit jurnal = Σ `prd_receipt_line.value`; status kedua sisi sama |
-| Penerima | diterima: masuk produksi (`Issued`) = Σ `value`; belum: 0 |
+| Pengirim | `base_cost_amount` = stok keluar = debit jurnal = Σ `prd_receipt_line.base_cost_amount`; status kedua sisi sama |
+| Penerima | diterima: masuk produksi (`Issued`) = Σ `base_cost_amount`; belum: 0 |
 | WIP | WIP di GL = nilai produksi + Issue dalam perjalanan, per akun |

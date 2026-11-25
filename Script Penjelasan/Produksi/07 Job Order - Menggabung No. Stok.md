@@ -47,11 +47,11 @@ melebihi saldo.
 | `job_id` | Job yang lahir | `UML_231126_00001` |
 | `tracking_id`, `tracking_no` | No. Stok baru | `LOTB-1-1-1-1-1` |
 | `grams` | Σ gram input | 93 |
-| `value` | Σ nilai input | 106.355 |
+| `base_cost_amount` | Σ nilai input | 106.355 |
 | `to_bucket_id` | bucket tujuan | B85 |
 
 `prd_job_order_input` — satu baris per No. Stok yang diambil: `bucket_id`,
-`tracking_id`, `qty`, `grams`, `value`.
+`tracking_id`, `qty`, `grams`, `base_cost_amount`.
 
 ---
 
@@ -110,4 +110,4 @@ membebankan Rp 1.395 (93 g × 15), dan nilainya menjadi 107.750.
 
 ## 7. Cek
 
-Tiap baris Job Order: `grams` dan `value` = Σ inputnya.
+Tiap baris Job Order: `grams` dan `base_cost_amount` = Σ inputnya.

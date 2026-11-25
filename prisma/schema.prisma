@@ -4729,10 +4729,10 @@ model PrdBox {
   tracking_no  String   @unique
   grams        Decimal  @db.Decimal(18, 6)
   pieces       Int
-  piece_value  Decimal  @default(0) @db.Decimal(18, 2)
-  cost_amount  Decimal  @default(0) @db.Decimal(18, 2)
-  aux_value    Decimal  @default(0) @db.Decimal(18, 2)
-  value        Decimal  @default(0) @db.Decimal(18, 2)
+  base_piece_amount Decimal  @default(0) @db.Decimal(18, 2)
+  base_process_amount Decimal  @default(0) @db.Decimal(18, 2)
+  base_aux_amount Decimal  @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal  @default(0) @db.Decimal(18, 2)
   to_bucket_id Int
   journal_id   Int?
   created_by   Int
@@ -4758,7 +4758,7 @@ model PrdBoxPiece {
   tracking_id Int
   partai_id   Int?
   grams       Decimal @db.Decimal(18, 6)
-  value       Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
   caiq        String  @unique
   /// Put in by a click rather than a scan (P249).
   is_manual   Boolean @default(false)
@@ -4775,7 +4775,7 @@ model PrdBoxComponent {
   item_id   Int
   bucket_id Int
   qty       Decimal @db.Decimal(18, 6)
-  value     Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
 
   box PrdBox @relation(fields: [box_id], references: [id], onDelete: Cascade)
 
@@ -4828,7 +4828,7 @@ model PrdJobOrderLine {
   target_item_id Int
   job_order_no   String  @unique
   grams          Decimal @db.Decimal(18, 6)
-  value          Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
   job_id         Int
   tracking_id    Int
   tracking_no    String
@@ -4850,7 +4850,7 @@ model PrdJobOrderInput {
   tracking_id       Int
   qty               Decimal @db.Decimal(18, 6)
   grams             Decimal @db.Decimal(18, 6)
-  value             Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
 
   line PrdJobOrderLine @relation(fields: [job_order_line_id], references: [id], onDelete: Cascade)
 
@@ -4908,8 +4908,8 @@ model PrdKerjaLine {
   qty            Decimal   @db.Decimal(18, 6)
   grams          Decimal?  @db.Decimal(18, 6)
   is_rework      Boolean   @default(false)
-  value          Decimal   @default(0) @db.Decimal(18, 2)
-  cost_amount    Decimal   @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal   @default(0) @db.Decimal(18, 2)
+  base_process_amount Decimal   @default(0) @db.Decimal(18, 2)
   journal_id     Int?
   started_at     DateTime  @default(now()) @db.Timestamptz(6)
   finished_at    DateTime? @db.Timestamptz(6)
@@ -4964,7 +4964,7 @@ model PrdReceiptLine {
   /// In the item base unit.
   qty         Decimal @db.Decimal(18, 6)
   /// Whole rupiah, frozen by the sender; never shown on a Produksi screen (P275).
-  value       Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
   /// Born at Terima (W98).
   job_id      Int?
   bucket_id   Int?
@@ -5018,7 +5018,7 @@ model PrdIssueLine {
   qty               Decimal  @db.Decimal(18, 6)
   grams             Decimal? @db.Decimal(18, 6)
   /// Whole rupiah, frozen at Kirim.
-  value             Decimal  @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal  @default(0) @db.Decimal(18, 2)
   from_bucket_id    Int
   transit_bucket_id Int
 
@@ -5081,7 +5081,7 @@ model PrdTransferLine {
   /// Gram moved, when the item has a gram to read.
   grams             Decimal? @db.Decimal(18, 6)
   /// Whole rupiah the move carried; read in the ERP, never shown on a Produksi screen (P275).
-  value             Decimal  @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal  @default(0) @db.Decimal(18, 2)
   /// The Dalam Perjalanan bucket of a BSTB.
   transit_bucket_id Int?
   /// The bucket the goods now sit in at the receiving Unit.
@@ -5151,7 +5151,7 @@ model PrdTrackingLink {
   from_tracking_id   Int
   to_tracking_id     Int
   qty                Decimal  @db.Decimal(18, 6)
-  value              Decimal  @db.Decimal(18, 2)
+  base_cost_amount Decimal  @db.Decimal(18, 2)
   created_at         DateTime @default(now()) @db.Timestamptz(6)
 
   from_bucket   PrdBalance       @relation(fields: [from_bucket_id], references: [id])
@@ -5186,11 +5186,11 @@ model PrdGrading {
   /// Gram of the inputs, at Posting.
   grams         Decimal      @default(0) @db.Decimal(18, 6)
   rate          Decimal      @default(0) @db.Decimal(18, 6)
-  input_value   Decimal      @default(0) @db.Decimal(18, 2)
-  cost_amount   Decimal      @default(0) @db.Decimal(18, 2)
-  aux_value     Decimal      @default(0) @db.Decimal(18, 2)
+  base_input_amount Decimal      @default(0) @db.Decimal(18, 2)
+  base_process_amount Decimal      @default(0) @db.Decimal(18, 2)
+  base_aux_amount Decimal      @default(0) @db.Decimal(18, 2)
   /// Value with no receiver, every output being BJL (W32).
-  scrap_amount  Decimal      @default(0) @db.Decimal(18, 2)
+  base_scrap_amount Decimal      @default(0) @db.Decimal(18, 2)
   journal_id    Int?
   note          String?
   status_reason String?
@@ -5225,8 +5225,8 @@ model PrdGradingInput {
   bucket_id   Int
   qty         Decimal @db.Decimal(18, 6)
   grams       Decimal @default(0) @db.Decimal(18, 6)
-  value       Decimal @default(0) @db.Decimal(18, 2)
-  cost_amount Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
+  base_process_amount Decimal @default(0) @db.Decimal(18, 2)
 
   grading PrdGrading @relation(fields: [grading_id], references: [id], onDelete: Cascade)
 
@@ -5250,7 +5250,7 @@ model PrdGradingOutput {
   is_bjl       Boolean @default(false)
   tracking_id  Int?
   tracking_no  String?
-  value        Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
   to_bucket_id Int?
 
   grading PrdGrading @relation(fields: [grading_id], references: [id], onDelete: Cascade)
@@ -5273,9 +5273,9 @@ model PrdWork {
   /// Pre Cleaning's note, read at Penyebaran (W42).
   result_note   String?
   rate          Decimal      @default(0) @db.Decimal(18, 6)
-  cost_amount   Decimal      @default(0) @db.Decimal(18, 2)
-  aux_value     Decimal      @default(0) @db.Decimal(18, 2)
-  scrap_amount  Decimal      @default(0) @db.Decimal(18, 2)
+  base_process_amount Decimal      @default(0) @db.Decimal(18, 2)
+  base_aux_amount Decimal      @default(0) @db.Decimal(18, 2)
+  base_scrap_amount Decimal      @default(0) @db.Decimal(18, 2)
   journal_id    Int?
   note          String?
   status_reason String?
@@ -5304,10 +5304,10 @@ model PrdWorkLine {
   employee_id  Int
   qty          Decimal @db.Decimal(18, 6)
   grams        Decimal @default(0) @db.Decimal(18, 6)
-  input_value  Decimal @default(0) @db.Decimal(18, 2)
-  cost_amount  Decimal @default(0) @db.Decimal(18, 2)
-  aux_value    Decimal @default(0) @db.Decimal(18, 2)
-  value        Decimal @default(0) @db.Decimal(18, 2)
+  base_input_amount Decimal @default(0) @db.Decimal(18, 2)
+  base_process_amount Decimal @default(0) @db.Decimal(18, 2)
+  base_aux_amount Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
   to_bucket_id Int?
 
   work     PrdWork   @relation(fields: [work_id], references: [id], onDelete: Cascade)
@@ -5330,7 +5330,7 @@ model PrdAuxUse {
   /// On a Pengerjaan Unit, the No. Job it went into.
   job_id     Int?
   qty        Decimal @db.Decimal(18, 6)
-  value      Decimal @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal @default(0) @db.Decimal(18, 2)
 
   grading PrdGrading? @relation(fields: [grading_id], references: [id], onDelete: Cascade)
   work    PrdWork?    @relation(fields: [work_id], references: [id], onDelete: Cascade)
@@ -5376,7 +5376,7 @@ model PrdQcCheckLine {
   bucket_id    Int
   /// The whole row as it stood; a change in it refuses Posting (W87).
   qty          Decimal        @db.Decimal(18, 6)
-  value        Decimal        @default(0) @db.Decimal(18, 2)
+  base_cost_amount Decimal        @default(0) @db.Decimal(18, 2)
   /// Empty on a Draft until QC decides.
   decision     PrdQcDecision?
   reason       String?

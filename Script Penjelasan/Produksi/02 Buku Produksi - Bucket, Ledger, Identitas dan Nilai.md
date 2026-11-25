@@ -43,7 +43,7 @@ No. Stok · Unit · Tahap · Proses · Partai · Job · QC yang membalikkan
 | `auxiliary` | `true` = bahan penolong milik Unit | tujuan BSTB Issue |
 | `item_id`, `uom_id` | barang dan satuan dasarnya | `m_item` |
 | `qty_balance` | jumlah sekarang (satuan dasar) | Σ `prd_ledger.qty_change` |
-| `value_balance` | nilai sekarang, rupiah utuh | Σ `prd_ledger.value_change` |
+| `value_balance` | nilai sekarang, rupiah utuh | Σ `prd_ledger.base_cost_amount_change` |
 | `entered_at` | kapan terakhir naik dari kosong (*Sejak* di Workspace) | tanggal dokumen |
 | `transit_doc_type_id`, `transit_doc_id` | dokumen yang membawa barang, hanya di Dalam Perjalanan | dokumen kirim |
 
@@ -219,7 +219,7 @@ Ditulis **sekali**; panggilan berikutnya mengembalikan yang sudah ada.
 ### 5.5 `prd_tracking_link` — silsilah
 
 Satu baris per (input → output): `from_bucket_id`, `from_tracking_id`,
-`to_tracking_id`, `qty`, `value`, `source_*`. Ditulis oleh Grading, Job Order, dan
+`to_tracking_id`, `qty`, `base_cost_amount`, `source_*`. Ditulis oleh Grading, Job Order, dan
 Kotak. Dibaca Telusur Produksi. Hanya **keterangan**: tidak pernah dijumlah menjadi
 saldo.
 
@@ -256,7 +256,7 @@ Semua dokumen mengikuti pola yang sama, dalam **satu transaksi database**:
 8. taruh hasil         produceIntoBucket / transferBucket
 9. silsilah            linkTracking
 10. jurnal             postToErp → production-posting (jurnal dan prd_cost_entry)
-11. angka di dokumen   value, cost_amount, to_bucket_id, journal_id
+11. angka di dokumen   base_cost_amount, base_process_amount, to_bucket_id, journal_id
 12. audit_log
 ```
 

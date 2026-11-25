@@ -313,7 +313,7 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
       let auxValue = 0;
       for (const a of c.aux) {
         const used = await consumeBucket(tx, { bucketId: a.bucket_id, baseQty: a.qty, ...common });
-        await tx.prdAuxUse.update({ where: { id: g.aux.find((x) => x.line_no === a.line_no)!.id }, data: { value: used.value } });
+        await tx.prdAuxUse.update({ where: { id: g.aux.find((x) => x.line_no === a.line_no)!.id }, data: { base_cost_amount: used.value } });
         moves.push({ itemId: used.itemId, amount: -used.value });
         auxValue += used.value;
       }
@@ -357,7 +357,7 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
           for (const [k, t] of taken.entries()) await linkTracking(tx, { fromBucketId: t.bucketId, fromLotId: t.lotId, toLotId: made.id, qty: qtys[k], value: values[k], source });
           await tx.prdGradingOutput.update({
             where: { grading_id_line_no: { grading_id: id, line_no: o.line_no } },
-            data: { is_bjl: o.isBjl, tracking_id: made.id, tracking_no: made.no, value: share.values[i], to_bucket_id: placed.bucketId },
+            data: { is_bjl: o.isBjl, tracking_id: made.id, tracking_no: made.no, base_cost_amount: share.values[i], to_bucket_id: placed.bucketId },
           });
           moves.push({ itemId: o.item_id, amount: share.values[i] });
         }
@@ -368,7 +368,7 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
         data: c.groups.flatMap((grp) =>
           grp.inputs.map((x, k) => {
             const t = takenBy.get(grp.group_no)![k];
-            return { grading_id: id, line_no: x.line_no, group_no: grp.group_no, job_id: grp.job_id, bucket_id: x.bucket_id, qty: x.qty, grams: t.grams, value: t.value, cost_amount: t.cost };
+            return { grading_id: id, line_no: x.line_no, group_no: grp.group_no, job_id: grp.job_id, bucket_id: x.bucket_id, qty: x.qty, grams: t.grams, base_cost_amount: t.value, base_process_amount: t.cost };
           })
         ),
       });
@@ -380,7 +380,7 @@ export async function transitionGrading(id: number, action: ProdDocAction, actor
       const posted = await postToErp(tx, { source, docTable: "prd_grading", date, description: `${g.grading_no} · Grading ${c.unit.unit_label}`, moves, costs, scrap: scrapTotal, actorId });
       await tx.prdGrading.update({
         where: { id },
-        data: { grams, rate: flat[0].rate, input_value: inputValue, cost_amount: costAmount, aux_value: auxValue, scrap_amount: scrapTotal, journal_id: posted.journalId },
+        data: { grams, rate: flat[0].rate, base_input_amount: inputValue, base_process_amount: costAmount, base_aux_amount: auxValue, base_scrap_amount: scrapTotal, journal_id: posted.journalId },
       });
       await audit(tx, id, "UPDATE", "post", actorId);
       if (options.dryRun) throw new PostingDryRun(posted.lines);
@@ -447,7 +447,7 @@ export async function listGradings(units: number[] | null = null): Promise<Gradi
       partaiNo: held.find((b) => b?.partaiNo)?.partaiNo ?? null,
       lines: r._count.outputs,
       grams: r.status === "Posted" ? r.grams.toNumber() : held.reduce((a, b) => a + (b?.grams ?? 0), 0),
-      value: r.input_value.add(r.cost_amount).add(r.aux_value).toNumber(),
+      value: r.base_input_amount.add(r.base_process_amount).add(r.base_aux_amount).toNumber(),
     };
   });
 }
@@ -505,20 +505,20 @@ export async function getGrading(id: number): Promise<GradingView | null> {
     jobId: g.job_id,
     jobNo: job?.no ?? null,
     jobNos: Object.fromEntries([...jobMap].map(([k, v]) => [k, v.no])),
-    inputs: g.inputs.map((i) => ({ bucketId: i.bucket_id, groupNo: i.group_no, jobId: i.job_id, qty: i.qty.toNumber(), grams: i.grams.toNumber(), value: i.value.toNumber(), cost: i.cost_amount.toNumber() })),
+    inputs: g.inputs.map((i) => ({ bucketId: i.bucket_id, groupNo: i.group_no, jobId: i.job_id, qty: i.qty.toNumber(), grams: i.grams.toNumber(), value: i.base_cost_amount.toNumber(), cost: i.base_process_amount.toNumber() })),
     grams: g.grams.toNumber(),
     rate: g.rate.toNumber(),
-    inputValue: g.input_value.toNumber(),
-    cost: g.cost_amount.toNumber(),
-    auxValue: g.aux_value.toNumber(),
-    scrap: g.scrap_amount.toNumber(),
+    inputValue: g.base_input_amount.toNumber(),
+    cost: g.base_process_amount.toNumber(),
+    auxValue: g.base_aux_amount.toNumber(),
+    scrap: g.base_scrap_amount.toNumber(),
     note: g.note,
     reason: g.status_reason,
     employeeIds: g.employees.map((e) => e.employee_id),
     journalId: g.journal_id,
     journalNo,
-    outputs: g.outputs.map((o) => ({ groupNo: o.group_no, itemId: o.item_id, grams: o.grams.toNumber(), qty: o.qty.toNumber(), isBjl: o.is_bjl, trackingNo: o.tracking_no, value: o.value.toNumber() })),
-    aux: g.aux.map((a) => ({ bucketId: a.bucket_id, qty: a.qty.toNumber(), value: a.value.toNumber() })),
+    outputs: g.outputs.map((o) => ({ groupNo: o.group_no, itemId: o.item_id, grams: o.grams.toNumber(), qty: o.qty.toNumber(), isBjl: o.is_bjl, trackingNo: o.tracking_no, value: o.base_cost_amount.toNumber() })),
+    aux: g.aux.map((a) => ({ bucketId: a.bucket_id, qty: a.qty.toNumber(), value: a.base_cost_amount.toNumber() })),
   };
 }
 export type OutputItemOption = { id: number; label: string; name: string; uomLabel: string; isBjl: boolean };

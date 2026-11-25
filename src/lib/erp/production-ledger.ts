@@ -553,7 +553,7 @@ export async function linkTracking(
       from_tracking_id: l.fromLotId,
       to_tracking_id: l.toLotId,
       qty: new D(l.qty),
-      value: l.value,
+      base_cost_amount: l.value,
     },
   });
 }

@@ -72,16 +72,16 @@ Syarat menutup (`boxRuleErrors`), diperiksa ulang server:
 | `partai_id` | partai keping bila **satu**, selain itu kosong | `P_231126_00001` |
 | `tracking_id`, `tracking_no` | No. Stok kotak | `KTK-231126-001` |
 | `grams`, `pieces` | Σ gram, jumlah keping | 50, 10 |
-| `piece_value` | Σ nilai keping | 60.791 |
-| `cost_amount` | Σ `round(gram keping × tarif UP5)` | 600 |
-| `aux_value` | Σ nilai penolong | 500 |
-| `value` | `piece_value + cost_amount + aux_value` | **61.891** |
+| `base_piece_amount` | Σ nilai keping | 60.791 |
+| `base_process_amount` | Σ `round(gram keping × tarif UP5)` | 600 |
+| `base_aux_amount` | Σ nilai penolong | 500 |
+| `base_cost_amount` | `base_piece_amount + base_process_amount + base_aux_amount` | **61.891** |
 | `to_bucket_id`, `journal_id` | | B150 |
 
-`prd_box_piece`: `bucket_id`, `tracking_id`, `partai_id`, `grams`, `value`, `caiq`,
+`prd_box_piece`: `bucket_id`, `tracking_id`, `partai_id`, `grams`, `base_cost_amount`, `caiq`,
 `is_manual`.
 
-`prd_box_component`: `item_id`, `bucket_id`, `qty`, `value`.
+`prd_box_component`: `item_id`, `bucket_id`, `qty`, `base_cost_amount`.
 
 ---
 
@@ -129,5 +129,5 @@ dan stiker punya akun WIP berbeda, jurnalnya juga memindahkan nilai antar akun.
 
 ## 7. Cek
 
-`value` = Σ keping + Σ biaya + Σ penolong, gram dalam toleransi, dan jumlah keping
+`base_cost_amount` = Σ keping + Σ biaya + Σ penolong, gram dalam toleransi, dan jumlah keping
 sesuai BoM.

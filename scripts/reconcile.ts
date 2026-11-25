@@ -953,8 +953,8 @@ export const CHECKS: Check[] = [
                    (SELECT COALESCE(SUM(value_change), 0) FROM prd_ledger WHERE movement = 'Issued') AS issued,
                    (SELECT COALESCE(SUM(amount), 0) FROM prd_cost_entry) AS cost,
                    (SELECT COALESCE(-SUM(value_change), 0) FROM prd_ledger WHERE movement = 'Released') AS released,
-                   (SELECT COALESCE(SUM(scrap_amount), 0) FROM prd_grading WHERE status = 'Posted')
-                     + (SELECT COALESCE(SUM(scrap_amount), 0) FROM prd_work WHERE status = 'Posted') AS scrap) x
+                   (SELECT COALESCE(SUM(base_scrap_amount), 0) FROM prd_grading WHERE status = 'Posted')
+                     + (SELECT COALESCE(SUM(base_scrap_amount), 0) FROM prd_work WHERE status = 'Posted') AS scrap) x
           WHERE held <> issued + cost - released - scrap`,
   },
   {
@@ -1008,7 +1008,7 @@ export const CHECKS: Check[] = [
     sql: `WITH s AS (SELECT s.id, s.issue_no, s.status, s.base_cost_amount, s.journal_id,
                         COALESCE((SELECT -SUM(v.value_change) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("log_stock_issue")} AND v.source_doc_id = s.id), 0) AS stock_out,
                         COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = s.journal_id), 0) AS journal,
-                        COALESCE((SELECT SUM(l.value) FROM prd_receipt r JOIN prd_receipt_line l ON l.receipt_id = r.id WHERE r.receipt_no = s.issue_no), 0) AS other_side,
+                        COALESCE((SELECT SUM(l.base_cost_amount) FROM prd_receipt r JOIN prd_receipt_line l ON l.receipt_id = r.id WHERE r.receipt_no = s.issue_no), 0) AS other_side,
                         (SELECT r.status::text FROM prd_receipt r WHERE r.receipt_no = s.issue_no) AS other_status
                  FROM log_stock_issue s)
           SELECT * FROM s
@@ -1019,7 +1019,7 @@ export const CHECKS: Check[] = [
   {
     area: "production",
     name: "a Production Receipt names a Stock Issue, and one taken in entered production at exactly its value; a waiting one entered nothing (P317)",
-    sql: `WITH r AS (SELECT r.id, r.receipt_no, r.status, (SELECT COALESCE(SUM(l.value), 0) FROM prd_receipt_line l WHERE l.receipt_id = r.id) AS value,
+    sql: `WITH r AS (SELECT r.id, r.receipt_no, r.status, (SELECT COALESCE(SUM(l.base_cost_amount), 0) FROM prd_receipt_line l WHERE l.receipt_id = r.id) AS value,
                         COALESCE((SELECT SUM(x.value_change) FROM prd_ledger x WHERE x.source_doc_type_id = ${docType("prd_receipt")} AND x.source_doc_id = r.id), 0) AS entered,
                         EXISTS (SELECT 1 FROM log_stock_issue s WHERE s.issue_no = r.receipt_no) AS known
                  FROM prd_receipt r)
@@ -1034,7 +1034,7 @@ export const CHECKS: Check[] = [
                         (SELECT COUNT(*) FROM log_stock_receipt_line x WHERE x.stock_receipt_id = r.id AND x.base_qty <> (SELECT SUM(t.base_qty) FROM log_stock_receipt_tracking t WHERE t.stock_receipt_line_id = x.id)) AS short,
                         COALESCE((SELECT SUM(v.value_change) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("log_stock_receipt")} AND v.source_doc_id = r.id), 0) AS stock_in,
                         COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = r.journal_id), 0) AS journal,
-                        COALESCE((SELECT SUM(l.value) FROM prd_issue i JOIN prd_issue_line l ON l.issue_id = i.id WHERE i.issue_no = r.receipt_no), 0) AS other_side,
+                        COALESCE((SELECT SUM(l.base_cost_amount) FROM prd_issue i JOIN prd_issue_line l ON l.issue_id = i.id WHERE i.issue_no = r.receipt_no), 0) AS other_side,
                         (SELECT i.status::text FROM prd_issue i WHERE i.issue_no = r.receipt_no) AS other_status
                  FROM log_stock_receipt r WHERE r.purpose <> 'purchase_bonus')
           SELECT * FROM r
@@ -1045,7 +1045,7 @@ export const CHECKS: Check[] = [
   {
     area: "production",
     name: "a Production Issue on its way holds its goods Dalam Perjalanan at their frozen value; one taken in released exactly it (P317)",
-    sql: `WITH i AS (SELECT i.id, i.issue_no, i.status, (SELECT COALESCE(SUM(l.value), 0) FROM prd_issue_line l WHERE l.issue_id = i.id) AS value,
+    sql: `WITH i AS (SELECT i.id, i.issue_no, i.status, (SELECT COALESCE(SUM(l.base_cost_amount), 0) FROM prd_issue_line l WHERE l.issue_id = i.id) AS value,
                         COALESCE((SELECT SUM(b.value_balance) FROM prd_balance b WHERE b.transit_doc_type_id = ${docType("prd_issue")} AND b.transit_doc_id = i.id), 0) AS held,
                         COALESCE((SELECT -SUM(x.value_change) FROM prd_ledger x WHERE x.source_doc_type_id = ${docType("prd_issue")} AND x.source_doc_id = i.id AND x.movement = 'Released'), 0) AS released
                  FROM prd_issue i)
@@ -1057,7 +1057,7 @@ export const CHECKS: Check[] = [
     sql: `WITH held AS (SELECT a.wip_account_id AS account_id, SUM(b.v) AS v
                        FROM (SELECT item_id, value_balance AS v FROM prd_balance WHERE value_balance <> 0
                              UNION ALL
-                             SELECT l.item_id, l.value FROM prd_receipt_line l JOIN prd_receipt r ON r.id = l.receipt_id AND r.status = 'InTransit') b
+                             SELECT l.item_id, l.base_cost_amount FROM prd_receipt_line l JOIN prd_receipt r ON r.id = l.receipt_id AND r.status = 'InTransit') b
                        JOIN m_item i ON i.id = b.item_id
                        LEFT JOIN acc_item_category_account a ON a.category_id = i.category_id
                        GROUP BY a.wip_account_id),
@@ -1072,26 +1072,26 @@ export const CHECKS: Check[] = [
   {
     area: "production",
     name: "a posted grading gives out what went in: input + unit cost + bahan penolong = outputs + beban (V3, W32)",
-    sql: `SELECT g.grading_no, g.input_value + g.cost_amount + g.aux_value AS masuk, COALESCE(o.v, 0) + g.scrap_amount AS keluar
-          FROM prd_grading g LEFT JOIN (SELECT grading_id, SUM(value) AS v FROM prd_grading_output GROUP BY grading_id) o ON o.grading_id = g.id
-          WHERE g.status = 'Posted' AND g.input_value + g.cost_amount + g.aux_value <> COALESCE(o.v, 0) + g.scrap_amount`,
+    sql: `SELECT g.grading_no, g.base_input_amount + g.base_process_amount + g.base_aux_amount AS masuk, COALESCE(o.v, 0) + g.base_scrap_amount AS keluar
+          FROM prd_grading g LEFT JOIN (SELECT grading_id, SUM(base_cost_amount) AS v FROM prd_grading_output GROUP BY grading_id) o ON o.grading_id = g.id
+          WHERE g.status = 'Posted' AND g.base_input_amount + g.base_process_amount + g.base_aux_amount <> COALESCE(o.v, 0) + g.base_scrap_amount`,
   },
   {
     area: "production",
     name: "a posted Pengerjaan Unit gives out what went in, gram unchanged (V2, W19)",
-    sql: `SELECT w.work_no, SUM(l.input_value) + w.cost_amount + w.aux_value AS masuk, SUM(l.value) + w.scrap_amount AS keluar
+    sql: `SELECT w.work_no, SUM(l.base_input_amount) + w.base_process_amount + w.base_aux_amount AS masuk, SUM(l.base_cost_amount) + w.base_scrap_amount AS keluar
           FROM prd_work w JOIN prd_work_line l ON l.work_id = w.id
           WHERE w.status = 'Posted' GROUP BY w.id
-          HAVING SUM(l.input_value) + w.cost_amount + w.aux_value <> SUM(l.value) + w.scrap_amount`,
+          HAVING SUM(l.base_input_amount) + w.base_process_amount + w.base_aux_amount <> SUM(l.base_cost_amount) + w.base_scrap_amount`,
   },
   {
     area: "production",
     name: "the unit cost of each execution equals its cost entries (V1)",
-    sql: `WITH d AS (SELECT ${docType("prd_grading")} AS t, id, grading_no AS no, cost_amount FROM prd_grading WHERE status = 'Posted'
-                     UNION ALL SELECT ${docType("prd_work")}, id, work_no, cost_amount FROM prd_work WHERE status = 'Posted')
-          SELECT d.no, d.cost_amount, COALESCE(SUM(e.amount), 0) AS entries
+    sql: `WITH d AS (SELECT ${docType("prd_grading")} AS t, id, grading_no AS no, base_process_amount FROM prd_grading WHERE status = 'Posted'
+                     UNION ALL SELECT ${docType("prd_work")}, id, work_no, base_process_amount FROM prd_work WHERE status = 'Posted')
+          SELECT d.no, d.base_process_amount, COALESCE(SUM(e.amount), 0) AS entries
           FROM d LEFT JOIN prd_cost_entry e ON e.source_doc_type_id = d.t AND e.source_doc_id = d.id
-          GROUP BY d.no, d.cost_amount HAVING d.cost_amount <> COALESCE(SUM(e.amount), 0)`,
+          GROUP BY d.no, d.base_process_amount HAVING d.base_process_amount <> COALESCE(SUM(e.amount), 0)`,
   },
   {
     area: "production",
@@ -1103,10 +1103,10 @@ export const CHECKS: Check[] = [
     area: "production",
     name: "a Kotak is its pieces, the Unit rate and its bahan penolong, and its pieces fit its BoM (P284)",
     sql: `SELECT x.id FROM prd_box x JOIN prd_bom m ON m.id = x.bom_id
-          LEFT JOIN (SELECT box_id, SUM(value) AS v, SUM(grams) AS g, COUNT(*) AS n FROM prd_box_piece GROUP BY 1) p ON p.box_id = x.id
-          LEFT JOIN (SELECT box_id, SUM(value) AS v FROM prd_box_component GROUP BY 1) c ON c.box_id = x.id
+          LEFT JOIN (SELECT box_id, SUM(base_cost_amount) AS v, SUM(grams) AS g, COUNT(*) AS n FROM prd_box_piece GROUP BY 1) p ON p.box_id = x.id
+          LEFT JOIN (SELECT box_id, SUM(base_cost_amount) AS v FROM prd_box_component GROUP BY 1) c ON c.box_id = x.id
           LEFT JOIN (SELECT source_doc_id, SUM(amount) AS a FROM prd_cost_entry e JOIN sys_doc_type t ON t.id = e.source_doc_type_id AND t.doc_table = 'prd_box' GROUP BY 1) e ON e.source_doc_id = x.id
-          WHERE x.piece_value <> COALESCE(p.v, 0) OR x.aux_value <> COALESCE(c.v, 0) OR x.cost_amount <> COALESCE(e.a, 0)
+          WHERE x.base_piece_amount <> COALESCE(p.v, 0) OR x.base_aux_amount <> COALESCE(c.v, 0) OR x.base_process_amount <> COALESCE(e.a, 0)
              OR x.grams <> COALESCE(p.g, 0) OR x.pieces <> COALESCE(p.n, 0)
              OR ABS(x.grams - m.target_grams) > m.tolerance_grams OR x.pieces NOT BETWEEN m.min_pieces AND m.max_pieces`,
   },
@@ -1114,8 +1114,8 @@ export const CHECKS: Check[] = [
     area: "production",
     name: "a Job Order line holds exactly what its inputs gave, in gram and value (P283)",
     sql: `SELECT l.id FROM prd_job_order_line l
-          LEFT JOIN (SELECT job_order_line_id, SUM(grams) AS g, SUM(value) AS v FROM prd_job_order_input GROUP BY 1) i ON i.job_order_line_id = l.id
-          WHERE l.grams <> COALESCE(i.g, 0) OR l.value <> COALESCE(i.v, 0)`,
+          LEFT JOIN (SELECT job_order_line_id, SUM(grams) AS g, SUM(base_cost_amount) AS v FROM prd_job_order_input GROUP BY 1) i ON i.job_order_line_id = l.id
+          WHERE l.grams <> COALESCE(i.g, 0) OR l.base_cost_amount <> COALESCE(i.v, 0)`,
   },
   {
     area: "production",

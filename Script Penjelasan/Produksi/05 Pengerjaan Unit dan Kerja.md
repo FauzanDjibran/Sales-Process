@@ -50,9 +50,9 @@ Izin `PRODUCTION_WORK_VIEW / _CREATE / _EDIT / _POST / _CANCEL`.
 | --- | --- | ---: |
 | `work_no`, `work_date`, `unit_id`, `result_note` | diketik / seri | "bulu halus" |
 | `rate` | tarif baris terakhir, keterangan | 5 |
-| `cost_amount` | Σ biaya baris | 465 |
-| `aux_value` | Σ nilai penolong | 1.000 |
-| `scrap_amount` | nilai tanpa penerima | 0 |
+| `base_process_amount` | Σ biaya baris | 465 |
+| `base_aux_amount` | Σ nilai penolong | 1.000 |
+| `base_scrap_amount` | nilai tanpa penerima | 0 |
 | `journal_id` | | |
 
 `prd_work_line` — satu baris per **bucket**:
@@ -61,13 +61,13 @@ Izin `PRODUCTION_WORK_VIEW / _CREATE / _EDIT / _POST / _CANCEL`.
 | --- | --- | ---: |
 | `bucket_id`, `job_id`, `employee_id` | dipilih | B16, `UGH_…00003` |
 | `qty`, `grams` | jumlah; gram saat Posting | 38 |
-| `input_value` | nilai yang dilepas bucket | 41.869 |
-| `cost_amount` | `round(38 × 5)` | 190 |
-| `aux_value` | penolong untuk baris ini | 1.000 |
-| `value` | nilai hasil | 43.059 |
+| `base_input_amount` | nilai yang dilepas bucket | 41.869 |
+| `base_process_amount` | `round(38 × 5)` | 190 |
+| `base_aux_amount` | penolong untuk baris ini | 1.000 |
+| `base_cost_amount` | nilai hasil | 43.059 |
 | `to_bucket_id` | bucket tujuan | B19 |
 
-`prd_aux_use`: `work_id`, `bucket_id`, `job_id` (Job yang memakainya), `qty`, `value`.
+`prd_aux_use`: `work_id`, `bucket_id`, `job_id` (Job yang memakainya), `qty`, `base_cost_amount`.
 
 ## A4. Perhitungan (`shareWork`)
 
@@ -77,7 +77,7 @@ baris BJL    : nilai = input (0)
                biaya BJL dibagi ke baris bukan BJL menurut gram
 penolong     : ke Job-nya, dibagi menurut gram baris bukan BJL Job itu
                (tanpa Job, atau Job-nya BJL semua → ke seluruh baris bukan BJL)
-tidak ada penerima sama sekali → scrap_amount
+tidak ada penerima sama sekali → base_scrap_amount
 ```
 
 | Baris | Input | Biaya | Penolong | Nilai |
@@ -144,11 +144,11 @@ Izin `PRODUCTION_KERJA_VIEW / _START / _FINISH`.
 | `work_bucket_id` | Mulai | bucket Sedang Dikerjakan | B46 |
 | `tracking_id`, `job_id`, `employee_id` | Mulai | | `UPW_…00001` |
 | `qty`, `grams` | Mulai | seluruh bucket | 38 |
-| `value` | Mulai | nilai saat mulai | 43.363 |
+| `base_cost_amount` | Mulai | nilai saat mulai | 43.363 |
 | `is_rework` | Mulai | barang Balik QC | false |
 | `started_at` | Mulai | waktu server | |
 | `finished_at` / `cancelled_at`, `closed_by` | Selesai / Batal | | |
-| `cost_amount` | Selesai | `round(38 × 20)` | 760 |
+| `base_process_amount` | Selesai | `round(38 × 20)` | 760 |
 | `to_bucket_id` | Selesai / Batal | bucket tujuan | B49 |
 | `journal_id` | Selesai | jurnal dokumen itu | |
 
@@ -176,6 +176,6 @@ Biaya ditambahkan **saat Selesai**, karena Kerja proses terakhir UCL.
 
 | Cek | Rumus |
 | --- | --- |
-| Pengerjaan | Σ `input_value` + `cost_amount` + `aux_value` = Σ `value` + `scrap_amount` |
+| Pengerjaan | Σ `base_input_amount` + `base_process_amount` + `base_aux_amount` = Σ `base_cost_amount` + `base_scrap_amount` |
 | Sedang Dikerjakan | tiap bucket `Working` = Σ `qty` baris Kerja yang terbuka |
 | Gram | gram hasil = gram input |

@@ -44,9 +44,9 @@ after(async () => {
 async function position() {
   const gl = await prisma.accJournalLine.aggregate({ _sum: { debit_amount: true, kredit_amount: true }, where: { account_id: f.wipAcc } });
   const held = await prisma.prdBalance.aggregate({ _sum: { value_balance: true }, where: { item_id: f.material } });
-  const coming = await prisma.prdReceiptLine.aggregate({ _sum: { value: true }, where: { item_id: f.material, receipt: { status: "InTransit" } } });
+  const coming = await prisma.prdReceiptLine.aggregate({ _sum: { base_cost_amount: true }, where: { item_id: f.material, receipt: { status: "InTransit" } } });
   const n = (d: { toNumber(): number } | null | undefined) => d?.toNumber() ?? 0;
-  return { gl: n(gl._sum.debit_amount) - n(gl._sum.kredit_amount), production: n(held._sum.value_balance), coming: n(coming._sum.value) };
+  return { gl: n(gl._sum.debit_amount) - n(gl._sum.kredit_amount), production: n(held._sum.value_balance), coming: n(coming._sum.base_cost_amount) };
 }
 
 test("WIP = production + on its way, after every one of forty random events", async () => {

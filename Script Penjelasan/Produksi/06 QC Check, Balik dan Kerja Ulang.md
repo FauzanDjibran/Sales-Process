@@ -43,7 +43,7 @@ Izin `PRODUCTION_QC_VIEW / _CREATE / _EDIT / _POST / _CANCEL`.
 | --- | --- | --- |
 | `bucket_id` | bucket QC Check | |
 | `qty` | **seluruh** saldo bucket saat disimpan | berubah sebelum Posting → ditolak |
-| `value` | Posting: nilai yang pindah | |
+| `base_cost_amount` | Posting: nilai yang pindah | |
 | `decision` | `Pass` / `Return`; kosong di Draft | |
 | `reason` | hanya untuk `Return` | |
 | `to_bucket_id` | Posting: bucket tujuan | |

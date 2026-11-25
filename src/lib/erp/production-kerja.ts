@@ -117,7 +117,7 @@ export async function startKerja(input: KerjaInput, actorId: number): Promise<Ke
             qty: moved.qty,
             grams: r.bucket.gramsEach != null ? moved.qty * r.bucket.gramsEach : null,
             is_rework: r.bucket.qcCheckId != null,
-            value: moved.value,
+            base_cost_amount: moved.value,
           },
         });
       }
@@ -192,7 +192,7 @@ export async function closeKerja(bucketIds: number[], how: "finish" | "cancel", 
           for (const [i, l] of group.entries()) {
             await tx.prdKerjaLine.update({
               where: { id: l.id },
-              data: how === "finish" ? { finished_at: now, cost_amount: costs[i] ?? 0, to_bucket_id: moved.toBucketId, closed_by: actorId } : { cancelled_at: now, to_bucket_id: moved.toBucketId, closed_by: actorId },
+              data: how === "finish" ? { finished_at: now, base_process_amount: costs[i] ?? 0, to_bucket_id: moved.toBucketId, closed_by: actorId } : { cancelled_at: now, to_bucket_id: moved.toBucketId, closed_by: actorId },
             });
           }
           docCost += added;

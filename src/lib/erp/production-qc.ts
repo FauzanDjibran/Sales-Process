@@ -79,7 +79,7 @@ async function nextNo(tx: Prisma.TransactionClient, series: string) {
 }
 
 const lineRows = (lines: { line_no: number; bucket_id: number; qty: number; value: number; decision: QcDecision | null; reason: string | null }[]) =>
-  lines.map(({ line_no, bucket_id, qty, value, decision, reason }) => ({ line_no, bucket_id, qty, value, decision, reason }));
+  lines.map(({ line_no, bucket_id, qty, value, decision, reason }) => ({ line_no, bucket_id, qty, base_cost_amount: value, decision, reason }));
 
 export async function createQcCheck(input: QcInput, actorId: number): Promise<QcResult> {
   const c = await check(prisma, input, false);
@@ -154,7 +154,7 @@ export async function transitionQcCheck(id: number, action: ProdDocAction, actor
           source,
           actorId,
         });
-        await tx.prdQcCheckLine.update({ where: { id: stored.id }, data: { value: moved.value, to_bucket_id: moved.toBucketId } });
+        await tx.prdQcCheckLine.update({ where: { id: stored.id }, data: { base_cost_amount: moved.value, to_bucket_id: moved.toBucketId } });
       }
       await audit(tx, id, "UPDATE", "post", actorId);
     });
@@ -229,7 +229,7 @@ export async function getQcCheck(id: number): Promise<QcView | null> {
     inspector: q.inspector,
     note: q.note,
     reason: q.status_reason,
-    lines: q.lines.map((l) => ({ bucketId: l.bucket_id, qty: l.qty.toNumber(), value: l.value.toNumber(), decision: l.decision as QcDecision | null, reason: l.reason })),
+    lines: q.lines.map((l) => ({ bucketId: l.bucket_id, qty: l.qty.toNumber(), value: l.base_cost_amount.toNumber(), decision: l.decision as QcDecision | null, reason: l.reason })),
   };
 }
 

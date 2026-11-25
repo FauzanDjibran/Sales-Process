@@ -75,7 +75,7 @@ Nilai 0 → tanpa jurnal. Tanpa nilai menurunkan rata-rata barang itu.
 | Tabel | Isi |
 | --- | --- |
 | `prd_issue` | nomor, `purpose`, `reason`, Unit, kode gudang, tanggal, `received_at` |
-| `prd_issue_line` | No. Stok, Job, partai, qty, gram, `value` (beku), bucket asal dan transit |
+| `prd_issue_line` | No. Stok, Job, partai, qty, gram, `base_cost_amount` (beku), bucket asal dan transit |
 | `log_stock_receipt` | nomor sama, gudang, `base_cost_amount`, `value_mode`, `base_written_off_amount`, `journal_id` |
 | `log_stock_receipt_line` | satu per **barang**: Σ qty dan nilai |
 | `log_stock_receipt_tracking` | satu per **No. Stok**: qty, gram, nilai beku, `location_id`, `stock_status_id` |
@@ -112,5 +112,5 @@ Satu No. Stok masuk ke satu lokasi dan satu status.
 
 | Cek | Rumus |
 | --- | --- |
-| Stock Receipt | `base_cost_amount` = Σ barang = Σ No. Stok = Σ `prd_issue_line.value`; diterima: stok masuk = `base_cost_amount − base_written_off_amount`, jurnal = `base_cost_amount` |
-| Production Issue | dalam perjalanan: bucket transit = Σ `value`; diterima: `Released` = Σ `value` |
+| Stock Receipt | `base_cost_amount` = Σ barang = Σ No. Stok = Σ `prd_issue_line.base_cost_amount`; diterima: stok masuk = `base_cost_amount − base_written_off_amount`, jurnal = `base_cost_amount` |
+| Production Issue | dalam perjalanan: bucket transit = Σ `base_cost_amount`; diterima: `Released` = Σ `base_cost_amount` |

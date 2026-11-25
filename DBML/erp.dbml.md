@@ -3752,7 +3752,7 @@ table prd_tracking_link {
   from_tracking_id                 int [not null, ref : > log_stock_tracking.id] // lintas aplikasi → ERP
   to_tracking_id                   int [not null, ref : > log_stock_tracking.id] // lintas aplikasi → ERP
   qty                         decimal(18,6) [not null]
-  value                       decimal(18,2) [not null]
+  base_cost_amount                       decimal(18,2) [not null]
 
   created_at                  timestamptz [not null, default: `now()`]
 
@@ -3781,10 +3781,10 @@ table prd_grading {
   job_id                      int [ref: > prd_job.id] // the Job taken whole (W97); empty: one No. Stok without a Job, in part (W96)
   grams                       decimal(18,6) [not null, default: 0]
   rate                        decimal(18,6) [not null, default: 0]
-  input_value                 decimal(18,2) [not null, default: 0]
-  cost_amount                 decimal(18,2) [not null, default: 0]
-  aux_value                   decimal(18,2) [not null, default: 0]
-  scrap_amount                decimal(18,2) [not null, default: 0]
+  base_input_amount                 decimal(18,2) [not null, default: 0]
+  base_process_amount                 decimal(18,2) [not null, default: 0]
+  base_aux_amount                   decimal(18,2) [not null, default: 0]
+  base_scrap_amount                decimal(18,2) [not null, default: 0]
   journal_id                  int
   note                        text
   status_reason               text
@@ -3804,8 +3804,8 @@ table prd_grading_input {
   bucket_id                   int [not null]
   qty                         decimal(18,6) [not null]
   grams                       decimal(18,6) [not null, default: 0]
-  value                       decimal(18,2) [not null, default: 0]
-  cost_amount                 decimal(18,2) [not null, default: 0]
+  base_cost_amount                       decimal(18,2) [not null, default: 0]
+  base_process_amount                 decimal(18,2) [not null, default: 0]
 }
 
 table prd_grading_output {
@@ -3819,7 +3819,7 @@ table prd_grading_output {
   is_bjl                      boolean [not null, default: false]
   tracking_id                 int
   tracking_no                 text
-  value                       decimal(18,2) [not null, default: 0]
+  base_cost_amount                       decimal(18,2) [not null, default: 0]
   to_bucket_id                int
 }
 
@@ -3843,9 +3843,9 @@ table prd_work {
   status                      enum('Draft', 'Posted', 'Cancelled') [not null, default: 'Draft']
   result_note                 text // read at Penyebaran (W42)
   rate                        decimal(18,6) [not null, default: 0]
-  cost_amount                 decimal(18,2) [not null, default: 0]
-  aux_value                   decimal(18,2) [not null, default: 0]
-  scrap_amount                decimal(18,2) [not null, default: 0]
+  base_process_amount                 decimal(18,2) [not null, default: 0]
+  base_aux_amount                   decimal(18,2) [not null, default: 0]
+  base_scrap_amount                decimal(18,2) [not null, default: 0]
   journal_id                  int
   note                        text
   status_reason               text
@@ -3864,10 +3864,10 @@ table prd_work_line {
   employee_id                 int [not null, ref: > m_employee.id]
   qty                         decimal(18,6) [not null]
   grams                       decimal(18,6) [not null, default: 0]
-  input_value                 decimal(18,2) [not null, default: 0]
-  cost_amount                 decimal(18,2) [not null, default: 0]
-  aux_value                   decimal(18,2) [not null, default: 0]
-  value                       decimal(18,2) [not null, default: 0]
+  base_input_amount                 decimal(18,2) [not null, default: 0]
+  base_process_amount                 decimal(18,2) [not null, default: 0]
+  base_aux_amount                   decimal(18,2) [not null, default: 0]
+  base_cost_amount                       decimal(18,2) [not null, default: 0]
   to_bucket_id                int
 }
 
@@ -3879,7 +3879,7 @@ table prd_aux_use {
   bucket_id                   int [not null]
   job_id                      int
   qty                         decimal(18,6) [not null]
-  value                       decimal(18,2) [not null, default: 0]
+  base_cost_amount                       decimal(18,2) [not null, default: 0]
 }
 
 table prd_qc_check {
@@ -3903,7 +3903,7 @@ table prd_qc_check_line {
   line_no                     int [not null]
   bucket_id                   int [not null]
   qty                         decimal(18,6) [not null]
-  value                       decimal(18,2) [not null, default: 0]
+  base_cost_amount                       decimal(18,2) [not null, default: 0]
   decision                    enum('Pass', 'Return')
   reason                      text
   to_bucket_id                int
@@ -3939,7 +3939,7 @@ table prd_receipt_line {
   item_id                     int [not null, ref : > m_item.id] // lintas aplikasi → ERP
   tracking_id                 int [not null] // log_stock_tracking.id, no FK
   qty                         decimal(18,6) [not null] // CHECK > 0
-  value                       decimal(18,2) [not null, default: 0] // frozen by the sender
+  base_cost_amount                       decimal(18,2) [not null, default: 0] // frozen by the sender
   job_id                      int // prd_job.id, no FK; born at Terima (W98)
   bucket_id                   int // prd_balance.id, no FK
 
@@ -3982,7 +3982,7 @@ table prd_issue_line {
   partai_id                   int // prd_partai.id, no FK
   qty                         decimal(18,6) [not null] // CHECK > 0
   grams                       decimal(18,6)
-  value                       decimal(18,2) [not null, default: 0] // frozen at Kirim
+  base_cost_amount                       decimal(18,2) [not null, default: 0] // frozen at Kirim
   from_bucket_id              int [not null] // prd_balance.id, no FK
   transit_bucket_id           int [not null] // prd_balance.id, no FK; this document's own row
 
@@ -4030,7 +4030,7 @@ table prd_transfer_line {
   is_new_job                  boolean [not null, default: false]
   qty                         decimal(18,6) [not null] // CHECK > 0
   grams                       decimal(18,6)
-  value                       decimal(18,2) [not null, default: 0]
+  base_cost_amount                       decimal(18,2) [not null, default: 0]
   transit_bucket_id           int
   to_bucket_id                int
 
@@ -4077,8 +4077,8 @@ table prd_kerja_line {
   qty                         decimal(18,6) [not null] // CHECK > 0
   grams                       decimal(18,6)
   is_rework                   boolean [not null, default: false] // a Balik QC row worked again
-  value                       decimal(18,2) [not null, default: 0] // carried in at Mulai
-  cost_amount                 decimal(18,2) [not null, default: 0] // the Unit rate Selesai charged
+  base_cost_amount                       decimal(18,2) [not null, default: 0] // carried in at Mulai
+  base_process_amount                 decimal(18,2) [not null, default: 0] // the Unit rate Selesai charged
   journal_id                  int // the journal of that Selesai
   started_at                  timestamptz [not null, default: `now()`]
   finished_at                 timestamptz
@@ -4121,7 +4121,7 @@ table prd_job_order_line {
   target_item_id              int [not null, ref : > m_item.id] // lintas aplikasi → ERP · the jenis chosen
   job_order_no                varchar [not null, unique] // JO_<job no>
   grams                       decimal(18,6) [not null] // Σ inputs, no loss; CHECK > 0
-  value                       decimal(18,2) [not null, default: 0]
+  base_cost_amount                       decimal(18,2) [not null, default: 0]
   job_id                      int [not null, ref : > prd_job.id]
   tracking_id                 int [not null] // the new No. Stok
   tracking_no                 varchar [not null]
@@ -4140,7 +4140,7 @@ table prd_job_order_input {
   tracking_id                 int [not null]
   qty                         decimal(18,6) [not null] // what is taken; the rest stays. CHECK > 0
   grams                       decimal(18,6) [not null]
-  value                       decimal(18,2) [not null, default: 0]
+  base_cost_amount                       decimal(18,2) [not null, default: 0]
 
   indexes {
     job_order_line_id
@@ -4149,7 +4149,7 @@ table prd_job_order_input {
 
 // Kotak (P284, T12): pieces from Persiapan of a Unit's Assembly step, each with a unique CAIQ, become one
 // new No. Stok KTK-<ddmmyy>-<nnn> of the Nama Jual item in Stand By, with no Job. ASM_<unit>_<ddmmyy>_<NNNNN>.
-// value = piece_value + cost_amount (Unit rate × gram of pieces) + aux_value (CHECK).
+// base_cost_amount = base_piece_amount + base_process_amount (Unit rate × gram of pieces) + base_aux_amount (CHECK).
 table prd_box {
   id                          int [pk, increment, not null]
 
@@ -4164,10 +4164,10 @@ table prd_box {
   tracking_no                 varchar [not null, unique]
   grams                       decimal(18,6) [not null]
   pieces                      int [not null]
-  piece_value                 decimal(18,2) [not null, default: 0]
-  cost_amount                 decimal(18,2) [not null, default: 0]
-  aux_value                   decimal(18,2) [not null, default: 0]
-  value                       decimal(18,2) [not null, default: 0]
+  base_piece_amount                 decimal(18,2) [not null, default: 0]
+  base_process_amount                 decimal(18,2) [not null, default: 0]
+  base_aux_amount                   decimal(18,2) [not null, default: 0]
+  base_cost_amount                       decimal(18,2) [not null, default: 0]
   to_bucket_id                int [not null]
   journal_id                  int
 
@@ -4188,7 +4188,7 @@ table prd_box_piece {
   tracking_id                 int [not null]
   partai_id                   int
   grams                       decimal(18,6) [not null]
-  value                       decimal(18,2) [not null, default: 0]
+  base_cost_amount                       decimal(18,2) [not null, default: 0]
   caiq                        varchar [not null, unique]
   is_manual                   boolean [not null, default: false] // put in by a click, not a scan (P249)
 
@@ -4204,7 +4204,7 @@ table prd_box_component {
   item_id                     int [not null]
   bucket_id                   int [not null] // the Unit's bahan penolong balance
   qty                         decimal(18,6) [not null] // CHECK > 0
-  value                       decimal(18,2) [not null, default: 0]
+  base_cost_amount                       decimal(18,2) [not null, default: 0]
 
   indexes {
     box_id

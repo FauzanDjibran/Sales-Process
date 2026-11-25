@@ -265,6 +265,7 @@ Layar memakai istilah v5 di seluruh aplikasi; kode tetap memakai nama `tracking`
 | W153 | **Dua database nanti tersambung lewat tabel replika** (P319): data Stock Issue diport ke replika di Produksi, dan Production Receipt dibuat dari data itu. Skema dan DBML tetap seperti sekarang | User |
 | W154 | **Semua produksi dari Sales Order punya perintah** (P325, `Perintah-Produksi-Plan.md`; disetujui, belum dibangun): Rencana Produksi (pilih SO, cek FG dan bahan, prioritas) → Perintah Produksi (satu item, satu line, tahap Grading, Proses, Packing) → Planning Produksi (workstation × hari) → proses produksi. BSTB Issue, BSTB Penyebaran dan Kotak wajib menunjuk Perintah Dirilis; line partai datang dari Perintah. Mengubah W15, W54, W73 dan bagian 11 saat dibangun | User |
 | W155 | **Hasil produksi yang tidak menentu adalah hal wajar.** Kebutuhan sisa dihitung ulang sesudah setiap hasil; hasil lebih menjadi stok siap pakai, dan barang satu Perintah boleh dipakai Perintah lain. Produksi tanpa Sales Order punya alur khusus, rencananya terpisah | User |
+| W156 | **Nama kolom nilai** (P334, 26/11/2026, hanya nama): nilai barang di semua dokumen produksi adalah `base_cost_amount`, biaya Unit `base_process_amount`, bahan penolong `base_aux_amount`, nilai tanpa penerima `base_scrap_amount`. Buku produksi tetap `value_change` / `value_balance`. |
 
 ---
 

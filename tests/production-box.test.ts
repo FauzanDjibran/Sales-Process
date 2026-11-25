@@ -116,9 +116,9 @@ describe("Tutup Kotak", () => {
     assert.equal(doc.grams, 50);
     assert.equal(doc.pieceList[0].manual, true);
     const box = await prisma.prdBox.findUniqueOrThrow({ where: { id: r.id } });
-    assert.equal(box.piece_value.toNumber(), 5_000);
-    assert.equal(box.cost_amount.toNumber(), 500, "50 g × Rp 10");
-    assert.equal(box.aux_value.toNumber(), 200, "2 of 3 stickers worth Rp 300");
+    assert.equal(box.base_piece_amount.toNumber(), 5_000);
+    assert.equal(box.base_process_amount.toNumber(), 500, "50 g × Rp 10");
+    assert.equal(box.base_aux_amount.toNumber(), 200, "2 of 3 stickers worth Rp 300");
     const [kotak] = (await availableBuckets({ unitIds: [ids.p], stage: "StandBy" })).filter((b) => b.itemId === ids.kotak);
     assert.equal(kotak.qty, 1);
     assert.equal(kotak.value, 5_700);

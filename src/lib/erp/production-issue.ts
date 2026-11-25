@@ -140,7 +140,7 @@ export async function sendProductionIssue(input: ProductionIssueInput, actorId: 
             partai_id: b.partaiId,
             qty: row.qty,
             grams,
-            value: moved.value,
+            base_cost_amount: moved.value,
             from_bucket_id: b.id,
             transit_bucket_id: moved.toBucketId,
           },
@@ -189,7 +189,7 @@ export async function takeReceiptReceived(tx: Tx, m: Extract<HandoverMessage, { 
   const rows = new Map<number, { qty: Prisma.Decimal; value: Prisma.Decimal }>();
   for (const l of issue.lines) {
     const r = rows.get(l.transit_bucket_id);
-    rows.set(l.transit_bucket_id, r ? { qty: r.qty.add(l.qty), value: r.value.add(l.value) } : { qty: l.qty, value: l.value });
+    rows.set(l.transit_bucket_id, r ? { qty: r.qty.add(l.qty), value: r.value.add(l.base_cost_amount) } : { qty: l.qty, value: l.base_cost_amount });
   }
   try {
     for (const [bucketId, r] of [...rows].sort((a, b) => a[0] - b[0])) {
