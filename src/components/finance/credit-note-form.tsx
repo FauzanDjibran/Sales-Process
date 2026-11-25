@@ -39,6 +39,19 @@ import { CREDIT_NOTE_TRANSITIONS, availableCreditNoteActions } from "@/lib/erp/a
 
 export type CreditNoteMode = "new" | "edit" | "view";
 
+/** One document that used the credit: a Penerapan Kredit line or a refund (P335). */
+export type CreditUsage = {
+  key: string;
+  date: string;
+  no: string;
+  href: string;
+  kind: "Penerapan Kredit" | "Pengembalian Dana";
+  target: { no: string; href: string } | null;
+  status: string;
+  amount: number;
+};
+const USAGE_STATUS: Record<string, [string, string]> = { Draft: ["Draft", "s-warn"], Posted: ["Diposting", "s-ok"], Cancelled: ["Dibatalkan", "s-mute"] };
+
 type LineState = { invoice_line_id: number; qty: string };
 
 const qtyText = (n: number) => formatNumber(n, n % 1 ? 2 : 0);
@@ -51,11 +64,13 @@ export function CreditNoteForm({
   note,
   invoices,
   can,
+  usage = [],
 }: {
   mode: CreditNoteMode;
   note: CreditNoteView | null;
   invoices: CnSource[];
   can: CreditNoteAbilities;
+  usage?: CreditUsage[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -393,6 +408,75 @@ export function CreditNoteForm({
     </div>
   );
 
+  const usageCard = (
+    <div className="card">
+      <div className="card-h">
+        <span className="ci">
+          <Icon name="wallet" size={15} />
+        </span>
+        <div className="ct">
+          <h3>Penggunaan Kredit</h3>
+          <p>Penerapan Kredit yang memotongkannya ke Invoice dan Pengeluaran yang mengembalikannya. Draft menahan nilainya; yang dibatalkan tidak.</p>
+        </div>
+      </div>
+      {usage.length === 0 ? (
+        <div className="empty sm">
+          <div className="ic">
+            <Icon name="wallet" size={18} />
+          </div>
+          <h4>Kredit belum dipakai</h4>
+          <p>Potongkan ke Invoice lewat Finance › Invoice › Penerapan Kredit, atau kembalikan lewat Finance › Kas & Bank › Pengeluaran, tujuan Pengembalian Dana Customer.</p>
+        </div>
+      ) : (
+        <div className="tw">
+          <table className="grid" style={{ minWidth: 720 }}>
+            <thead>
+              <tr>
+                <th style={{ width: 110 }}>Tanggal</th>
+                <th style={{ width: 190 }}>Dokumen</th>
+                <th>Jenis</th>
+                <th style={{ width: 120 }}>Status</th>
+                <th className="num" style={{ width: 150 }}>
+                  Nilai
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {usage.map((u) => {
+                const [text, tone] = USAGE_STATUS[u.status] ?? [u.status, "s-mute"];
+                return (
+                  <tr key={u.key}>
+                    <td>{formatDate(u.date)}</td>
+                    <td>
+                      <Link className="drl" href={u.href}>
+                        <span className="mono">{u.no}</span>
+                      </Link>
+                    </td>
+                    <td>
+                      {u.kind}
+                      {u.target && (
+                        <>
+                          {" ke "}
+                          <Link className="drl" href={u.target.href}>
+                            <span className="mono">{u.target.no}</span>
+                          </Link>
+                        </>
+                      )}
+                    </td>
+                    <td>
+                      <span className={`bdg ${tone}`}>{text}</span>
+                    </td>
+                    <td className="num mny">{money(u.amount)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <>
       <DocumentHeader
@@ -422,6 +506,7 @@ export function CreditNoteForm({
           <FormTabs
             tabs={[
               { key: "lines", label: "Barang Dikredit", icon: "box", count: lines.length, bad: tabHasError(errors, "_lines", "lines.", "line."), content: linesCard },
+              ...(status === "Posted" ? [{ key: "usage", label: "Penggunaan Kredit", icon: "wallet" as const, count: usage.length, content: usageCard }] : []),
             ]}
           />
         </div>

@@ -532,6 +532,25 @@ export async function getCreditApplication(id: number): Promise<CreditApplicatio
   };
 }
 
+/** The applications that name a Credit Note, newest first — for its page (P335). */
+export async function applicationsOfCreditNote(creditNoteId: number): Promise<
+  { id: number; applicationNo: string; date: string; status: CreditApplicationStatus; invoiceId: number; amount: number }[]
+> {
+  const rows = await prisma.finArCreditApplicationLine.findMany({
+    where: { credit_note_id: creditNoteId },
+    include: { application: true },
+    orderBy: [{ application: { application_date: "desc" } }, { id: "desc" }],
+  });
+  return rows.map((r) => ({
+    id: r.application.id,
+    applicationNo: r.application.application_no,
+    date: isoDay(r.application.application_date),
+    status: r.application.status,
+    invoiceId: r.invoice_id,
+    amount: r.amount.toNumber(),
+  }));
+}
+
 /** Numbers by id, for the audit panel. */
 export async function creditApplicationNumbersByIds(ids: number[]): Promise<Map<number, string>> {
   const rows = await prisma.finArCreditApplication.findMany({ where: { id: { in: ids } }, select: { id: true, application_no: true } });

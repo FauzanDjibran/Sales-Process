@@ -10,6 +10,7 @@ import { cashReceiptOptions, createCashReceipt, transitionCashReceipt } from "..
 import { cashPaymentOptions, createCashPayment, draftRefundsByCreditNotes, transitionCashPayment } from "../src/lib/erp/cash-payment";
 import { applyReturnCredit, arBook, createArItem, openArItemsAsOf } from "../src/lib/erp/ar-item";
 import {
+  applicationsOfCreditNote,
   createCreditApplication,
   creditApplicationOptions,
   creditApplicationPreview,
@@ -786,6 +787,9 @@ describe("a Penerapan Kredit takes open credit off an open Invoice", () => {
     assert.ok(!(await transitionCreditApplication(a.id, "cancel", actor, "x")).ok, "a posted one is final");
     const item = await prisma.finArItem.findFirstOrThrow({ where: { item_type: "Invoice", source_doc_id: invoice(), partner_id: f.customer } });
     assert.equal(item.paid_amount.toNumber(), 0, "credit is not a payment");
+    // The Credit Note's page lists what used it (P335).
+    const used = await applicationsOfCreditNote(credit());
+    assert.ok(used.some((u) => u.id === a.id && u.status === "Posted" && u.amount === 3_550 && u.invoiceId === invoice()));
   });
 
   test("in USD, across Customer Orders: both legs of Piutang at their own base, the rest selisih kurs", async () => {

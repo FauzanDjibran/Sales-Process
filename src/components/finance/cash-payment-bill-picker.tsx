@@ -61,7 +61,7 @@ export function PaymentBillPicker({
       open
       icon="wallet"
       title={`Pilih ${noun}`}
-      subtitle={`${partnerName} · uang muka diterbitkan dan invoice diposting yang belum lunas`}
+      subtitle={`${partnerName} · ${noun.toLowerCase()} yang masih terbuka`}
       width={880}
       onClose={onClose}
       foot={
@@ -69,7 +69,7 @@ export function PaymentBillPicker({
           <span className="fnote">
             {chosen.length
               ? `${chosen.length} dipilih · lunas bila dibayar ${formatMoney(clearTotal, currency)}`
-              : "Centang tagihan yang dibayar ke supplier."}
+              : `Centang ${noun.toLowerCase()} yang dibayar.`}
           </span>
           <button className="btn" onClick={onClose}>
             Batal
