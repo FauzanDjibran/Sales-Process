@@ -77,6 +77,7 @@ export function ReceiptWeighDialog({
     >
       <FormRow>
         <Field
+          span={4}
           label="Qty SJ"
           required={editing}
           help={editing ? `sisa PO ${formatQty(left)} ${line.uomLabel}` : undefined}
@@ -90,7 +91,12 @@ export function ReceiptWeighDialog({
             </div>
           )}
         </Field>
-        <Field label="Qty Timbangan" required={editing} help={range ? `toleransi ${formatQty(range.lower)} – ${formatQty(range.upper)} Kg` : undefined}>
+        <Field span={4} label="Qty Pembanding" help={`${formatQty(rule.itemWeight)} Kg/${line.baseUomLabel} · ± ${formatPct(rule.tolerance)}`}>
+          <div className="ro">
+            <span className="mny">{fig(range?.calculated, "Kg")}</span>
+          </div>
+        </Field>
+        <Field span={4} label="Qty Timbangan" required={editing} help={range ? `toleransi ${formatQty(range.lower)} – ${formatQty(range.upper)} Kg` : undefined}>
           {editing ? (
             <MoneyInput value={scale} currencyLabel="Kg" decimals={4} onChange={setScale} />
           ) : (
@@ -100,32 +106,24 @@ export function ReceiptWeighDialog({
           )}
         </Field>
       </FormRow>
-      <div className="uw-pair">
-        <div className="impact">
-          <div className="ttl">Pembanding</div>
-          <Row label="Qty PO" value={fig(line.qty, line.uomLabel)} />
-          <Row label={`Berat satuan per ${line.baseUomLabel}`} value={fig(rule.itemWeight, "Kg")} />
-          <Row label="Toleransi" value={`± ${formatPct(rule.tolerance)}`} />
-          <Row label="Qty pembanding" value={fig(range?.calculated, "Kg")} total />
+      <div className="impact wgh-sum" aria-live="polite">
+        <div className="ttl">
+          Hasil Timbangan
+          {w ? <span className={`bdg ${BADGE[w.result]}`}>{WEIGHING_RESULT_TEXT[w.result]}</span> : <span className="bdg t-slate">Belum ditimbang</span>}
         </div>
-        <div className="impact" aria-live="polite">
-          <div className="ttl">
-            Hasil Timbangan
-            {w ? <span className={`bdg ${BADGE[w.result]}`}>{WEIGHING_RESULT_TEXT[w.result]}</span> : <span className="bdg t-slate">Belum ditimbang</span>}
-          </div>
-          <Row label="Selisih dari pembanding" value={w ? fig(+(Number(scale) - w.calculated).toFixed(6), "Kg") : "—"} />
-          <Row label="Qty terima" value={fig(w?.received, line.uomLabel)} />
-          <Row label="Qty bonus" value={fig(w?.bonus, line.baseUomLabel)} />
-          <Row label="Qty stock" value={fig(w?.receivedBase, line.baseUomLabel)} total />
+        <div className="wgh-figs">
+          <Fig label="Qty Terima" value={fig(w?.received, line.uomLabel)} main />
+          <Fig label="Qty Stock" value={fig(w?.receivedBase, line.baseUomLabel)} main />
+          <Fig label="Qty Bonus" value={fig(w?.bonus, line.baseUomLabel)} />
         </div>
       </div>
     </Dialog>
   );
 }
 
-function Row({ label, value, total }: { label: string; value: string; total?: boolean }) {
+function Fig({ label, value, main }: { label: string; value: string; main?: boolean }) {
   return (
-    <div className={`ir${total ? " tot" : ""}`}>
+    <div className={main ? "main" : undefined}>
       <span>{label}</span>
       <b>{value}</b>
     </div>

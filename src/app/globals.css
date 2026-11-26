@@ -1612,9 +1612,16 @@ table.grid.aging th,table.grid.aging td:first-child,table.grid.aging td:first-ch
 .rgrp{display:flex;align-items:baseline;gap:8px;margin:16px 0 6px;font-size:13px;color:var(--ink)}
 .rgrp span{color:var(--muted-2);font-size:12px}
 
-/* Penimbangan (P321): its two figure boxes side by side inside the dialog. */
-.rp-body > .uw-pair{padding:4px 0 0}
+/* Penimbangan (P321, P328). */
 .impact .ttl .bdg{float:right;margin-top:-4px}
+/* Its result under the three figures: Qty Terima and Qty Stock lead, the bonus beside them. */
+.rp-body > .wgh-sum{margin:14px 0 0}
+.wgh-figs{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.wgh-figs > div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.wgh-figs span{font-size:11.5px;color:var(--muted)}
+.wgh-figs b{font-family:var(--f-mono);font-size:14px;font-weight:700;color:var(--ink);overflow-wrap:anywhere}
+.wgh-figs .main span{color:var(--ink);font-weight:700}
+.wgh-figs .main b{font-size:20px;color:var(--brand)}
 /* A weighed line's quantity: looks like the field it stands for, opens the Penimbangan. */
 .qcell .wgh-f{flex:0 0 150px;width:150px}
 .wgh-f{display:flex;align-items:center;gap:8px;cursor:pointer;text-align:right}
