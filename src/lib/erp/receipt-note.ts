@@ -21,6 +21,7 @@ import {
   RECEIPT_NOTE_HOLDS_QTY,
   RECEIPT_NOTE_TRANSITIONS,
   cumulativeShare,
+  lotBaseQtys,
   receiptNoteIsEditable,
   receivedBaseQty,
   receivesRest,
@@ -66,7 +67,7 @@ export type ReceiptNoteLotInput = {
   tracking_no: string;
   expiry_date: string;
   location_id?: number | null;
-  /** In base units, whatever the line's unit (P320). */
+  /** In the line's unit (P338); the base quantity is worked out here, never sent. */
   qty: number | string;
   /** `sales_return`: the Delivery Note tracking row the goods left on, and the status they come back under. */
   source_tracking_id?: number | null;
@@ -175,6 +176,7 @@ type CheckedLot = {
   tracking_no: string | null;
   expiry_date: Date | null;
   location_id: number | null;
+  qty: number;
   base_qty: number;
   tracking_id?: number;
   source_tracking_id?: number;
@@ -318,7 +320,7 @@ export async function checkReceiptNote(
       errors[lineKey(i, "qty")] = "Qty terlalu kecil dalam satuan dasar.";
       continue;
     }
-    const lots = checkLots(l.lots, po, baseQty, place, forPosting);
+    const lots = checkLots(l.lots, po, lineQty, baseQty, place, forPosting);
     if (!lots.ok) {
       errors[lineKey(i, "lots")] = lots.error;
       continue;
@@ -360,16 +362,18 @@ export async function checkReceiptNote(
 }
 
 /**
- * A line's lots (B19), counted in base units (P320). A Kelola Stok line comes in as one or more lots, each
- * more than 0, an expiry where the item has one; together never more than the
- * line, and to be posted exactly the line. Any other line takes none. In a
- * warehouse that has locations each lot row names one of its active locations
+ * A line's lots (B19), counted in the line's unit (P338), each lot's base
+ * quantity being its share of the line's. A Kelola Stok line comes in as one or
+ * more lots, each more than 0, an expiry where the item has one; together never
+ * more than the line, and to be posted exactly the line. Any other line takes
+ * none. In a warehouse that has locations each lot row names one of its active locations
  * (a Draft may leave it empty; posting may not), and one lot may be split over
  * several locations, once in each.
  */
 function checkLots(
   raw: ReceiptNoteLotInput[] | undefined,
   line: RnSourceLine,
+  lineQty: number,
   lineBase: number,
   place: Place,
   forPosting: boolean
@@ -377,7 +381,7 @@ function checkLots(
   const list = Array.isArray(raw) ? raw : [];
   if (!line.isStock) return list.length ? { ok: false, error: `${line.itemLabel} tidak dikelola stok, jadi tidak memakai lot.` } : { ok: true, lots: [] };
   const seen = new Set<string>();
-  const lots: CheckedLot[] = [];
+  const lots: Omit<CheckedLot, "base_qty">[] = [];
   let total = 0;
   for (const p of list) {
     const lotNo = String(p.tracking_no ?? "").trim().toUpperCase() || null;
@@ -392,18 +396,21 @@ function checkLots(
     if (lotNo) seen.add(key);
     const qty = num(p.qty);
     if (!Number.isFinite(qty) || !(qty > 0)) return { ok: false, error: "Isi jumlah setiap lot lebih dari 0." };
-    if (Math.abs(qty * QTY_SCALE - units(qty)) > 1e-6) return { ok: false, error: "Jumlah lot paling banyak 4 angka desimal." };
+    // Six, because a weighed line's quantity may carry six.
+    if (Math.abs(qty - fromFine(fine(qty))) > 1e-9) return { ok: false, error: "Jumlah lot paling banyak 6 angka desimal." };
     const expiry = String(p.expiry_date ?? "").trim();
     if (expiry && !DAY.test(expiry)) return { ok: false, error: "Tanggal kadaluarsa tidak valid." };
     if (line.hasExpiry && !expiry && forPosting) return { ok: false, error: `${line.itemLabel} memiliki kadaluarsa: isi tanggal kadaluarsa setiap lot.` };
-    total += units(qty);
-    lots.push({ tracking_seq: lots.length + 1, tracking_no: lotNo, expiry_date: expiry ? asDate(expiry) : null, location_id: locationId, base_qty: fromUnits(units(qty)) });
+    total += fine(qty);
+    lots.push({ tracking_seq: lots.length + 1, tracking_no: lotNo, expiry_date: expiry ? asDate(expiry) : null, location_id: locationId, qty: fromFine(fine(qty)) });
   }
-  if (total > units(lineBase)) return { ok: false, error: `Jumlah lot (${qtyText(fromUnits(total))}) melebihi yang diterima (${qtyText(lineBase)} ${line.baseUomLabel}).` };
-  if (forPosting && total !== units(lineBase)) {
-    return { ok: false, error: `${line.itemLabel}: lot baru ${qtyText(fromUnits(total))} dari ${qtyText(lineBase)} ${line.baseUomLabel}. Lengkapi lotnya.` };
+  if (total > fine(lineQty)) return { ok: false, error: `Jumlah lot (${qtyText(fromFine(total))}) melebihi yang diterima (${qtyText(lineQty)} ${line.uomLabel}).` };
+  if (forPosting && total !== fine(lineQty)) {
+    return { ok: false, error: `${line.itemLabel}: lot baru ${qtyText(fromFine(total))} dari ${qtyText(lineQty)} ${line.uomLabel}. Lengkapi lotnya.` };
   }
-  return { ok: true, lots };
+  const base = lotBaseQtys(lineQty, lineBase, lots.map((x) => x.qty));
+  if (base.some((b) => !(b > 0))) return { ok: false, error: `Jumlah lot terlalu kecil dalam ${line.baseUomLabel}.` };
+  return { ok: true, lots: lots.map((x, i) => ({ ...x, base_qty: base[i] })) };
 }
 
 // ------------------------------------------------------------------ writes
@@ -532,7 +539,7 @@ function asInput(n: StoredNote): { header: ReceiptNoteHeaderInput; lines: Receip
           tracking_no: p.tracking_no ?? "",
           expiry_date: isoDay(p.expiry_date),
           location_id: p.location_id,
-          qty: p.base_qty.toNumber(),
+          qty: p.qty.toNumber(),
           source_tracking_id: p.source_tracking_id,
           stock_status_id: p.stock_status_id,
         })),
@@ -686,7 +693,8 @@ export async function transitionReceiptNote(
             });
             await tx.logReceiptNoteTracking.update({
               where: { line_id_tracking_seq: { line_id: stored.id, tracking_seq: lot.tracking_seq } },
-              data: { tracking_no: inn.trackingNo, base_cost_amount: lotValue, tracking_id: inn.trackingId },
+              // The line's base may have moved since the save, and the lots' with it.
+              data: { tracking_no: inn.trackingNo, base_qty: baseQty, base_cost_amount: lotValue, tracking_id: inn.trackingId },
             });
           }
         }
@@ -938,6 +946,7 @@ export async function checkReturnReceipt(
         tracking_no: t.trackingNo,
         expiry_date: t.expiryDate ? asDate(t.expiryDate) : null,
         location_id: locationId,
+        qty: fromUnits(units(q)),
         base_qty: fromUnits(units(q)),
         tracking_id: t.trackingId,
         source_tracking_id: t.id,

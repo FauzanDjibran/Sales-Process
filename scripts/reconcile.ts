@@ -779,10 +779,10 @@ export const CHECKS: Check[] = [
   },
   {
     area: "goods",
-    name: "a posted Receipt Note's stock line is exactly its lots, in base units (P320)",
-    sql: `SELECT n.rn_no, l.line_no, l.base_qty, COALESCE(SUM(t.base_qty), 0) AS lots FROM log_receipt_note_line l
+    name: "a posted Receipt Note's stock line is exactly its lots, in its unit and in base units (P320, P338)",
+    sql: `SELECT n.rn_no, l.line_no, l.qty, COALESCE(SUM(t.qty), 0) AS lot_qty, l.base_qty, COALESCE(SUM(t.base_qty), 0) AS lot_base FROM log_receipt_note_line l
           JOIN log_receipt_note n ON n.id = l.receipt_note_id LEFT JOIN log_receipt_note_tracking t ON t.line_id = l.id
-          WHERE n.status = 'Posted' AND l.is_stock GROUP BY n.rn_no, l.id HAVING l.base_qty <> COALESCE(SUM(t.base_qty), 0)`,
+          WHERE n.status = 'Posted' AND l.is_stock GROUP BY n.rn_no, l.id HAVING l.qty <> COALESCE(SUM(t.qty), 0) OR l.base_qty <> COALESCE(SUM(t.base_qty), 0)`,
   },
   {
     area: "ap",

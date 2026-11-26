@@ -166,14 +166,16 @@ describe("receiving by weight", () => {
   test("boxes by weight: 41,666667 then the rest, adding up to the order", async () => {
     await setRule(0.5, 1);
     const po = await w.openPO([{ item: w.f.stock, qty: 100, price: 1_000_000, uom: w.f.box }]);
-    const a = await create(po.id, [line(po.lineIds[0], 100, 250, [500], "X")]);
+    const a = await create(po.id, [line(po.lineIds[0], 100, 250, [10, 31.666667], "X")]);
     assert.ok(a.ok, JSON.stringify(a));
     assert.deepEqual(await transitionReceiptNote(a.id, "post", w.actor), { ok: true, closed: [] });
     assert.equal((await getReceiptNote(a.id))!.value, 41_666_667);
+    const split = await prisma.logReceiptNoteTracking.findMany({ where: { line: { receipt_note_id: a.id } }, orderBy: { tracking_seq: "asc" } });
+    assert.deepEqual(split.map((t) => [t.qty.toNumber(), t.base_qty.toNumber(), t.base_cost_amount.toNumber()]), [[10, 120, 10_000_000], [31.666667, 380, 31_666_667]]);
     const left = (await receiptNoteOptions()).orders.find((o) => o.id === po.id)!.lines[0];
     const rest = +(left.qty - left.held).toFixed(6);
     assert.equal(rest, 58.333333);
-    const b = await create(po.id, [line(po.lineIds[0], rest, 350, [700], "Y")]);
+    const b = await create(po.id, [line(po.lineIds[0], rest, 350, [rest], "Y")]);
     assert.ok(b.ok, JSON.stringify(b));
     assert.deepEqual(await transitionReceiptNote(b.id, "post", w.actor), { ok: true, closed: [po.orderNo] });
     assert.equal((await getReceiptNote(b.id))!.value, 58_333_333);

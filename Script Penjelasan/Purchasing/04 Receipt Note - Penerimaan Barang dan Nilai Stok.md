@@ -9,7 +9,7 @@ Kodenya ada di `src/lib/erp/receipt-note.ts` (dokumen),
 `src/lib/erp/receipt-note-workflow.ts` (`cumulativeShare`, rumus pembagian
 nilai) dan `src/lib/erp/inventory.ts` (`receiveStock`, buku stok). Angka contoh
 di §6 dihitung dengan `cumulativeShare` yang asli. Aturan bisnisnya ada di P114,
-P120, P122, P125, P136, P320 dan W10 (`Claude-ERP.md`, `Purchasing-Concept.md`
+P120, P122, P125, P136, P320, P338 dan W10 (`Claude-ERP.md`, `Purchasing-Concept.md`
 B17–B22).
 
 Untuk Purchase Order valas (P273), nilai stok memakai DPP base pada kurs PO;
@@ -17,7 +17,8 @@ DPP dalam valas disimpan terpisah di `cost_amount` untuk Invoice Pembelian.
 Buku stok dan jurnal tetap rupiah.
 
 > Dokumen ini menggantikan `07 Receipt Note - Penerimaan Barang dan Nilai Stok.md`
-> di folder atas. Sejak P320 lot dihitung dalam **satuan dasar**.
+> di folder atas. Sejak P338 lot **diketik dalam satuan PO**; qty stoknya dihitung
+> sistem (§2b).
 
 ---
 
@@ -60,7 +61,7 @@ Receipt Note dibuat dari **satu Purchase Order berstatus Open** (`pur_order`).
 | Sudah diterima | `pur_order_line.received_qty` dan `received_base_qty` | tidak |
 | Gudang | awalnya Gudang Tujuan PO, bisa diganti (hanya untuk PO Barang) | ya |
 | Qty per baris | diketik, paling banyak sisa baris PO | ya |
-| Lot per baris (Kelola Stok saja) | diketik: nomor lot, kedaluwarsa, lokasi, qty **dalam satuan dasar** | ya |
+| Lot per baris (Kelola Stok saja) | diketik: nomor lot, kedaluwarsa, lokasi, qty **dalam satuan PO** | ya |
 | Tanggal Terima, No. Surat Jalan Supplier, Catatan | diketik | ya |
 
 **Sisa baris PO** = Qty PO − Qty yang sudah dipakai Receipt Note lain (Draft
@@ -99,6 +100,27 @@ Qty yang diketik paling banyak 4 desimal; sisa baris boleh sampai 6.
 Untuk item yang ditimbang, qty yang diketik adalah **Qty SJ** dan `qty` / `base_qty`
 baris berasal dari timbangan: lihat `03 Penimbangan - Toleransi, Qty Terima dan Bonus.md`.
 
+## 2b. Dari qty lot ke qty stok lot (P338)
+
+Lot diketik dalam satuan PO, supaya No. Stok cocok dengan pesanan dan surat jalan
+supplier. Qty stok tiap lot **tidak diketik**. KumQty = jumlah qty lot sampai lot
+ini, dalam urutan lot:
+
+```
+base_qty lot = round4(base_qty baris × KumQty / qty baris)
+             − round4(base_qty baris × (KumQty − qty lot) / qty baris)
+```
+
+Faktor satuan tidak dipakai lagi di sini: baris yang ditimbang atau mengambil sisa
+punya perbandingan sendiri. Bila jumlah qty lot = qty baris, jumlah qty stok lot
+= qty stok baris, tepat. Fungsinya `lotBaseQtys`, dipakai modal dan server; server
+tidak membaca qty stok dari form.
+
+Qty lot boleh sampai **6 desimal**, karena qty baris yang ditimbang bisa 6 desimal.
+Tambah Lot mengisi lot baru dengan sisa persisnya. Modal menampilkan `= n PCS` di
+bawah tiap lot, disembunyikan bila satuan PO = satuan dasar. Lot yang qty stoknya
+terbulat menjadi 0 ditolak. Penerimaan retur tetap dalam satuan dasar.
+
 ---
 
 ## 3. Saat Simpan (Draft)
@@ -107,15 +129,15 @@ baris berasal dari timbangan: lihat `03 Penimbangan - Toleransi, Qty Terima dan 
 | --- | --- |
 | `log_receipt_note` | nomor `RN/YYYY/MM/NNNN` (`RN-NP/…` bila PO tanpa PPN), `status` Draft, `purpose` `purchase_receipt`, PO sebagai sumber (`source_doc_type_id`, `source_doc_id`, `source_no`), supplier, gudang, tanggal, No. Surat Jalan Supplier. `base_cost_amount` 0, `journal_id` kosong |
 | `log_receipt_note_line` | per baris: `qty`, `uom_factor`, `base_qty` (lihat §2a), `is_stock`. `base_cost_amount` 0 |
-| `log_receipt_note_tracking` | per lot (baris Kelola Stok saja): `tracking_seq`, nomor lot (boleh kosong), kedaluwarsa, lokasi, `base_qty`. `base_cost_amount` 0 dan `tracking_id` kosong |
+| `log_receipt_note_tracking` | per lot (baris Kelola Stok saja): `tracking_seq`, nomor lot (boleh kosong), kedaluwarsa, lokasi, `qty` (satuan PO), `base_qty` (§2b). `base_cost_amount` 0 dan `tracking_id` kosong |
 
 **Yang dicek saat Simpan:**
 
 - PO harus Open, dan supplier-nya masih aktif.
 - Tanggal Terima tidak sebelum tanggal PO.
 - Qty lebih dari 0, paling banyak 4 desimal, dan tidak melebihi sisa baris PO.
-- Lot hanya untuk barang Kelola Stok. Jumlah lot tidak melebihi qty dasar baris;
-  boleh belum lengkap.
+- Lot hanya untuk barang Kelola Stok. Jumlah qty lot tidak melebihi qty baris
+  (satuan PO), paling banyak 6 desimal; boleh belum lengkap.
 - Gudang yang punya lokasi: lokasi harus milik gudang itu dan aktif. Satu nomor
   lot boleh dipecah ke beberapa lokasi, sekali per lokasi.
 
@@ -125,7 +147,8 @@ baris berasal dari timbangan: lihat `03 Penimbangan - Toleransi, Qty Terima dan 
 
 Posting mengecek ulang semuanya, ditambah:
 
-- **Lot harus lengkap**: jumlah lot = qty dasar baris.
+- **Lot harus lengkap**: jumlah qty lot = qty baris (satuan PO). Jumlah qty stok
+  lot = qty stok baris dengan sendirinya.
 - **Kedaluwarsa wajib** untuk barang yang memiliki kedaluwarsa.
 - **Lokasi wajib** di gudang yang punya lokasi.
 - **Nomor lot harus baru di seluruh sistem** (W10). Nomor yang sudah dipakai
@@ -175,7 +198,7 @@ Lot terakhir mendapat sisa, jadi jumlah nilai lot = nilai baris.
 | `log_stock_balance` | bucket gudang · lokasi · lot · status Tersedia naik sebesar base_qty |
 | `log_stock_valuation_ledger` | satu baris per lot: `qty_change` dan `value_change` positif, lalu `qty_balance` (Q baru) dan `value_balance` (V baru). Satu nomor `MN/…` per Posting |
 | `log_stock_valuation_balance` | Q dan V item itu naik |
-| `log_receipt_note_tracking` | nomor lot final, `base_cost_amount` nilai lot, `tracking_id` |
+| `log_receipt_note_tracking` | nomor lot final, `base_qty` hasil hitung terakhir, `base_cost_amount` nilai lot, `tracking_id` |
 | `log_receipt_note_line` | `base_cost_amount` nilai baris |
 | `log_receipt_note` | `status` Posted, `base_cost_amount` = Σ baris, `journal_id` |
 | `acc_journal` dan barisnya | lihat §4.4 |
@@ -273,7 +296,7 @@ PO 10 BOX isi 12 @ Rp1.200.000 (DPP 12.000.000), PCS satuan dasar:
 | `qty` (BOX) | 4 | 6 |
 | `base_qty` (PCS) | 48 | 72 |
 | `base_cost_amount` | 4.800.000 | 7.200.000 |
-| Lot (PCS → nilai) | 30 → 3.000.000 · 18 → 1.800.000 | 72 → 7.200.000 |
+| Lot (diketik BOX → PCS → nilai) | 2,5 → 30 → 3.000.000 · 1,5 → 18 → 1.800.000 | 6 → 72 → 7.200.000 |
 | Jurnal Dr Persediaan / Cr Barang Diterima Belum Ditagih | 4.800.000 | 7.200.000 |
 | `received_qty` / `received_base_qty` PO sesudahnya | 4 / 48 | 10 / 120, PO ditutup |
 | Kolam stok sesudahnya (Q · V) | 48 · 4.800.000 | 120 · 12.000.000 |
@@ -299,6 +322,7 @@ Invoice Pembelian menagih 4 BOX dan 6 BOX @ Rp1.200.000; PCS tidak muncul di san
 ```
 log_receipt_note.base_cost_amount = Σ log_receipt_note_line.base_cost_amount
 log_receipt_note_line.base_cost_amount = Σ log_receipt_note_tracking.base_cost_amount   (baris Kelola Stok)
+log_receipt_note_line.qty          = Σ log_receipt_note_tracking.qty            (baris Kelola Stok)
 log_receipt_note_line.base_qty     = Σ log_receipt_note_tracking.base_qty       (baris Kelola Stok)
 pur_order_line.received_qty / received_base_qty = Σ qty / Σ base_qty Receipt Note Posted
 Σ value_change log_stock_ledger (source = Receipt Note itu)

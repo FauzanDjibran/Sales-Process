@@ -62,6 +62,7 @@ Project decisions that look reusable and are waiting to be folded into the KB
 | --- | --- | --- | --- |
 | P233 | `accounting/open-items` | Report receivable and advance as two books, each signed on its own movement, with a balance report per partner listing each item's source and progress | Offered |
 | P320 | `engineering/data-conventions` | A document line bought in another unit keeps two quantities side by side: commercial (price, fulfilment, billing) and base (stock), with the factor frozen on the line; never a price per base unit; the last receipt takes the rest of both | Offered |
+| P338 | `purchasing/procure-to-pay` §4 | Lots are typed in the unit bought, so a lot matches the order and the supplier's delivery note; each lot's stock quantity is the line's base quantity shared cumulatively by lot quantity, never typed and never by the unit factor | Offered |
 | P245, P254, P259 | `ui/design-convention` (and `engineering/security-rbac`) | Several applications behind one sign-in: a picker after login, a derived app access (no app table), one shell per application with modules on its rail, and the *Pilih aplikasi* icon in the topbar — offered once it has been used in ERP for a while (the user, 11/11/2026) | Waiting |
 
 Processed 04/11/2026: P106 → `engineering/app-architecture` 1.2; P109 →

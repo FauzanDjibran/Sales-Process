@@ -138,14 +138,14 @@ async function order(supplierLabel: string, warehouseLabel: string, lines: Buy[]
   return { id: po.id, lineIds: (await prisma.purOrderLine.findMany({ where: { order_id: po.id }, orderBy: { line_no: "asc" } })).map((l) => l.id) };
 }
 
-/** A receipt: SJ in the PO's unit, the scale in Kg (by the book when not given), and its lots in base units. */
+/** A receipt: SJ in the PO's unit, the scale in Kg (by the book when not given). Lots are listed in base units here and typed in the PO's (P338). */
 async function receive(poId: number, warehouseLabel: string, dn: string, lines: { lineId: number; sj: number; kg?: number; lots: [no: string, qty: number][] }[]) {
   const rows = await Promise.all(
     lines.map(async (l) => {
       const po = await prisma.purOrderLine.findUniqueOrThrow({ where: { id: l.lineId }, include: { item: { include: { weighting: true } } } });
       const w = po.item.weighting;
       const kg = w ? (l.kg ?? round(l.sj * po.uom_factor.toNumber() * w.item_weight.toNumber(), 3)) : "";
-      return { source_doc_line_id: l.lineId, qty: l.sj, qty_weighting: kg, note: "", lots: l.lots.map(([no, qty]) => ({ tracking_no: no, expiry_date: "", location_id: null, qty })) };
+      return { source_doc_line_id: l.lineId, qty: l.sj, qty_weighting: kg, note: "", lots: l.lots.map(([no, base]) => ({ tracking_no: no, expiry_date: "", location_id: null, qty: round(base / po.uom_factor.toNumber(), 6) })) };
     })
   );
   const rn = ok(await createReceiptNote({ source_doc_id: poId, rn_date: day(), warehouse_id: await warehouse(warehouseLabel), supplier_dn_no: dn, note: "" }, rows, actor), `Receipt Note ${dn}`);

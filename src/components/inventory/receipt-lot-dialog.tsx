@@ -7,6 +7,7 @@ import { DateInput } from "@/components/ui/date-input";
 import { Dialog } from "@/components/ui/dialog";
 import { MoneyInput } from "@/components/ui/money-input";
 import type { WarehouseLocationOption } from "@/lib/erp/inventory";
+import { lotBaseQtys } from "@/lib/erp/receipt-note-workflow";
 import { formatQty } from "@/lib/format";
 
 export type ReceiptLot = { key: string; tracking_no: string; expiry_date: string; location_id: number | null; qty: string };
@@ -14,19 +15,24 @@ export type ReceiptLot = { key: string; tracking_no: string; expiry_date: string
 let seq = 0;
 export const newLotKey = () => `lot${Date.now().toString(36)}${seq++}`;
 const qtyText = formatQty;
-const units = (v: string | number) => Math.round((Number(v) || 0) * 10_000);
+/** Millionths: a weighed line's quantity may carry six decimals. */
+const units = (v: string | number) => Math.round((Number(v) || 0) * 1_000_000);
 
 /**
  * How one received line is split into lots (P125 B19), in a dialog so the line
  * itself only holds its quantity: each lot a No. Stok (left empty, it is
  * numbered at posting), an expiry, a location where the warehouse has any, and
- * its share of the quantity in base units (P320). The foot says how much of the line is split; the
- * server still refuses a posting whose lots do not add up to the line.
+ * its share of the quantity in the PO's unit (P338), so each No. Stok matches
+ * the order and the supplier's SJ. What each lot is in stock is shown under it,
+ * never typed. The foot says how much of the line is split; the server still
+ * refuses a posting whose lots do not add up to the line.
  */
 export function ReceiptLotDialog({
   itemLabel,
   uomLabel,
+  baseUomLabel,
   lineQty,
+  lineBaseQty,
   hasExpiry,
   locations,
   lots: initial,
@@ -34,8 +40,11 @@ export function ReceiptLotDialog({
   onClose,
 }: {
   itemLabel: string;
+  /** The PO line's unit, which the lots are typed in. */
   uomLabel: string;
+  baseUomLabel: string;
   lineQty: number;
+  lineBaseQty: number;
   hasExpiry: boolean;
   /** The warehouse's locations, or null when it keeps none. */
   locations: WarehouseLocationOption[] | null;
@@ -50,6 +59,8 @@ export function ReceiptLotDialog({
   const set = (key: string, patch: Partial<ReceiptLot>) => setLots((ls) => ls.map((x) => (x.key === key ? { ...x, ...patch } : x)));
   const split = lots.reduce((s, x) => s + units(x.qty), 0);
   const rest = units(lineQty) - split;
+  const base = lotBaseQtys(lineQty, lineBaseQty, lots.map((x) => Number(x.qty) || 0));
+  const converts = uomLabel !== baseUomLabel;
 
   return (
     <Dialog
@@ -65,8 +76,8 @@ export function ReceiptLotDialog({
             {rest === 0
               ? `Seluruh ${qtyText(lineQty)} ${uomLabel} sudah dibagi ke lot.`
               : rest > 0
-                ? `Belum dibagi ${qtyText(rest / 10_000)} ${uomLabel}.`
-                : `Lot melebihi Qty baris sebanyak ${qtyText(-rest / 10_000)} ${uomLabel}.`}
+                ? `Belum dibagi ${qtyText(rest / 1_000_000)} ${uomLabel}.`
+                : `Lot melebihi Qty baris sebanyak ${qtyText(-rest / 1_000_000)} ${uomLabel}.`}
           </span>
           <button className="btn" onClick={onClose}>
             Batal
@@ -119,9 +130,14 @@ export function ReceiptLotDialog({
                 )}
                 <td>
                   <div className="qcell">
-                    <MoneyInput size="sm" decimals={4} value={lot.qty} ariaLabel={`Qty lot ${i + 1}`} onChange={(v) => set(lot.key, { qty: v })} />
+                    <MoneyInput size="sm" decimals={6} value={lot.qty} ariaLabel={`Qty lot ${i + 1}`} onChange={(v) => set(lot.key, { qty: v })} />
                     <span className="qu">{uomLabel}</span>
                   </div>
+                  {converts && units(lot.qty) > 0 && rest >= 0 && (
+                    <span className="fulltag" style={{ display: "block" }}>
+                      = {qtyText(base[i])} {baseUomLabel}
+                    </span>
+                  )}
                 </td>
                 <td>
                   <button className="iact del" title="Hapus lot" onClick={() => setLots((ls) => ls.filter((x) => x.key !== lot.key))}>
@@ -137,7 +153,7 @@ export function ReceiptLotDialog({
         <button
           className="btn sm"
           onClick={() =>
-            setLots((ls) => [...ls, { key: newLotKey(), tracking_no: "", expiry_date: "", location_id: null, qty: rest > 0 ? String(rest / 10_000) : "" }])
+            setLots((ls) => [...ls, { key: newLotKey(), tracking_no: "", expiry_date: "", location_id: null, qty: rest > 0 ? String(rest / 1_000_000) : "" }])
           }
         >
           <Icon name="plus" size={13} /> Tambah Lot

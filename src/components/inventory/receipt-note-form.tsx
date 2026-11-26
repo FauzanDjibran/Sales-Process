@@ -15,7 +15,7 @@ import { ReceiptNoteActions } from "./receipt-note-actions";
 import { ReceiptNoteLinePicker } from "@/components/inventory/receipt-note-line-picker";
 import { ReceiptLotDialog, type ReceiptLot } from "@/components/inventory/receipt-lot-dialog";
 import { createReceiptNoteAction, updateReceiptNoteAction } from "@/app/actions/receipt-note";
-import { RECEIPT_NOTE_STATUS_BADGE, RECEIPT_NOTE_STATUS_TEXT, cumulativeShare, receivedBaseQty, type ReceiptNoteAbilities } from "@/lib/erp/receipt-note-workflow";
+import { RECEIPT_NOTE_STATUS_BADGE, RECEIPT_NOTE_STATUS_TEXT, cumulativeShare, lotBaseQtys, receivedBaseQty, type ReceiptNoteAbilities } from "@/lib/erp/receipt-note-workflow";
 import { ReceiptWeighDialog } from "@/components/inventory/receipt-weigh-dialog";
 import { WEIGHING_RESULT_TEXT, weigh } from "@/lib/erp/receipt-weighting";
 import type { ReceiptNoteHeaderInput, ReceiptNoteOptions, ReceiptNoteView, RnSourceLine } from "@/lib/erp/receipt-note";
@@ -31,7 +31,7 @@ import { RECEIPT_NOTE_TRANSITIONS, availableReceiptNoteActions } from "@/lib/erp
  * A Receipt Note in all three modes (P125): the Purchase Order first — chosen
  * once and locked — then where and when the goods came in, then the lines
  * picked from the order (B18). A line takes its quantity first; a Kelola Stok
- * line is then split into lots, in base units (P320), in a dialog (B19) — No. Stok, expiry, location
+ * line is then split into lots, in the PO's unit (P338), in a dialog (B19) — No. Stok, expiry, location
  * and each lot's share — a lot without a number being numbered at posting; any other line
  * is an expense. The value shown is the line's share of the PO line's DPP (B20):
  * provisional on a Draft, as stored once posted.
@@ -157,8 +157,8 @@ export function ReceiptNoteForm({
   };
   /** New quantity or weight: one lot follows what is received; a weighing is redone when the SJ changes. */
   const setQty = (l: LineState, p: RnSourceLine | undefined, qty: string, scale: string) => {
-    const base = p ? received({ ...l, qty, scale }, p).base : 0;
-    setLine(l.key, { qty, scale, lots: l.lots.length === 1 ? [{ ...l.lots[0], qty: String(base) }] : l.lots });
+    const got = p ? received({ ...l, qty, scale }, p).qty : 0;
+    setLine(l.key, { qty, scale, lots: l.lots.length === 1 ? [{ ...l.lots[0], qty: String(got) }] : l.lots });
   };
 
   /** What a line is in base units: as stored, or as the save will store it (P320). */
@@ -168,12 +168,19 @@ export function ReceiptNoteForm({
     return p ? received(l, p).base : 0;
   };
 
+  /** What a line receives in the PO's unit: as stored, or as the save will store it. */
+  const qtyOf = (l: LineState, i: number) => {
+    if (mode === "view") return note?.lines[i]?.received ?? 0;
+    const p = poLine.get(l.source_doc_line_id);
+    return p ? received(l, p).qty : 0;
+  };
+
   /** A line's lots in one phrase: how many, and how much of the line they hold. */
   const lotSummary = (l: LineState, i: number, uom: string) => {
     if (!l.lots.length) return "Belum diisi";
-    const held = l.lots.reduce((s, x) => s + (Number(x.qty) || 0), 0);
+    const held = +l.lots.reduce((s, x) => s + (Number(x.qty) || 0), 0).toFixed(6);
     const names = l.lots.map((x) => x.tracking_no.trim() || "otomatis").join(", ");
-    return `${l.lots.length} lot · ${qtyText(held)} / ${qtyText(baseOf(l, i))} ${uom} · ${names}`;
+    return `${l.lots.length} lot · ${qtyText(held)} / ${qtyText(qtyOf(l, i))} ${uom} · ${names}`;
   };
 
   const valueOf = (l: LineState, i: number) => {
@@ -345,7 +352,7 @@ export function ReceiptNoteForm({
         </div>
       ) : (
         <div className="tw">
-          <table className="grid ltab" style={{ minWidth: 900 }}>
+          <table className="grid ltab" style={{ minWidth: billing ? 1100 : 950 }}>
             <thead>
               <tr>
                 <th style={{ width: 40 }}>No</th>
@@ -430,19 +437,22 @@ export function ReceiptNoteForm({
                         <span className="dash">{goods ? "dibebankan" : "jasa — dibebankan"}</span>
                       ) : editing ? (
                         <div className="qcell" style={{ gap: 8 }}>
-                          <span className="fulltag" style={{ whiteSpace: "normal" }}>{lotSummary(l, i, p?.baseUomLabel ?? "")}</span>
+                          <span className="fulltag" style={{ whiteSpace: "normal" }}>{lotSummary(l, i, p?.uomLabel ?? "")}</span>
                           <button className="btn sm" disabled={Boolean(rule) && !w} title={rule && !w ? "Timbang dulu…" : undefined} onClick={() => setLotsOf(l.key)}>
                             <Icon name="pen" size={13} /> Atur Lot
                           </button>
                         </div>
                       ) : (
                         <span className="fulltag" style={{ whiteSpace: "normal" }}>
-                          {l.lots
-                            .map(
-                              (lot) =>
-                                `${lot.tracking_no || "(otomatis)"}${lot.expiry_date ? ` · exp ${formatDate(lot.expiry_date)}` : ""}${lot.location_id ? ` · ${locationLabel.get(lot.location_id) ?? "lokasi?"}` : ""}: ${qtyText(Number(lot.qty))}`
-                            )
-                            .join(" · ")}
+                          {(() => {
+                            const base = lotBaseQtys(qtyOf(l, i), baseOf(l, i), l.lots.map((x) => Number(x.qty)));
+                            return l.lots
+                              .map(
+                                (lot, j) =>
+                                  `${lot.tracking_no || "(otomatis)"}${lot.expiry_date ? ` · exp ${formatDate(lot.expiry_date)}` : ""}${lot.location_id ? ` · ${locationLabel.get(lot.location_id) ?? "lokasi?"}` : ""}: ${qtyText(Number(lot.qty))} ${p?.uomLabel ?? ""}${p && p.uomLabel !== p.baseUomLabel ? ` (= ${qtyText(base[j])} ${p.baseUomLabel})` : ""}`
+                              )
+                              .join(" · ");
+                          })()}
                         </span>
                       )}
                     </td>
@@ -526,8 +536,10 @@ export function ReceiptNoteForm({
           return (
             <ReceiptLotDialog
               itemLabel={p.itemLabel}
-              uomLabel={p.baseUomLabel}
-              lineQty={baseOf(l, lines.indexOf(l))}
+              uomLabel={p.uomLabel}
+              baseUomLabel={p.baseUomLabel}
+              lineQty={qtyOf(l, lines.indexOf(l))}
+              lineBaseQty={baseOf(l, lines.indexOf(l))}
               hasExpiry={p.hasExpiry}
               locations={located ? warehouse!.locations : null}
               lots={l.lots}

@@ -4302,7 +4302,9 @@ model LogReceiptNoteTracking {
   /// Typed, or generated at Posting when left empty.
   tracking_no        String?
   expiry_date        DateTime? @db.Date
-  /// In base units, whatever the line's unit (P320).
+  /// In the line's unit, as typed (P338); a return's line is in base units.
+  qty                Decimal   @db.Decimal(18, 6)
+  /// What enters stock, derived from `qty` (P338).
   base_qty           Decimal   @db.Decimal(18, 4)
   base_cost_amount   Decimal   @default(0) @db.Decimal(18, 2)
   /// The stock lot it became, set at Posting (weak: the inventory's table).

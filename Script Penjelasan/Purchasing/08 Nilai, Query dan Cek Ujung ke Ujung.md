@@ -68,7 +68,7 @@ LEFT JOIN log_stock_receipt r ON r.purpose = 'purchase_bonus' AND r.source_doc_i
 | --- | --- |
 | PO: `base_qty` = qty × faktor; bagian PR ≤ `base_qty` | konversi dibekukan, PR tidak dipenuhi dua kali |
 | PO: diterima = Σ Receipt Note, di dua satuan | tidak ada penerimaan yang hilang |
-| Receipt Note: `base_qty` baris = Σ lot | stok = dokumen |
+| Receipt Note: `qty` dan `base_qty` baris = Σ lot | lot = pesanan, stok = dokumen |
 | Penimbangan: qty baris = hasil timbangan; bonus = Stock Receipt bernilai 0 | script 03 |
 | Invoice: baris ditagih sekali, DPP = nilai penerimaan | GR/IR terhapus tepat |
 | GR/IR = penerimaan − Invoice per supplier | account cocok dengan dokumen |

@@ -75,7 +75,7 @@ sampai batas atas tidak dicatat.
 | Posting, belum ditimbang | ditolak: *<item> belum ditimbang* |
 | Posting | dihitung ulang dengan **salinan** berat dan toleransi; mengubah master sesudahnya tidak berpengaruh |
 
-Jumlah lot harus sama dengan Qty Terima dasar, bukan Qty SJ.
+Lot diketik dalam satuan PO (P338): jumlahnya harus sama dengan Qty Terima, bukan Qty SJ.
 
 ---
 

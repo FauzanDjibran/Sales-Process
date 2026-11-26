@@ -127,7 +127,22 @@ export function cumulativeShare(amount: number, total: number, before: number, q
   return (upTo(before + qty) - upTo(before)) / scale;
 }
 
-type Receivable = { qty: number; held: number; uomFactor: number; baseQty: number; heldBase: number };
+/**
+ * Each lot's base quantity (P338), from its quantity in the line's unit: the
+ * line's base quantity shared cumulatively at four decimals, so lots that add
+ * up to the line's quantity add up to its base quantity exactly. The unit's
+ * factor is not used: a weighed or rest-taking line has its own ratio.
+ */
+export function lotBaseQtys(lineQty: number, lineBaseQty: number, lotQtys: number[]): number[] {
+  let before = 0;
+  return lotQtys.map((qty) => {
+    const base = cumulativeShare(lineBaseQty, lineQty, before / U, qty, 10_000);
+    before += u(qty);
+    return base;
+  });
+}
+
+type Receivable ={ qty: number; held: number; uomFactor: number; baseQty: number; heldBase: number };
 
 /**
  * Whether receiving `qty` (the PO line's unit) takes all the line has left, in

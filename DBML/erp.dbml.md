@@ -2674,8 +2674,9 @@ table log_receipt_note_tracking {
   tracking_seq                     int [not null]
   tracking_no                      varchar // typed, or generated at Posting
   expiry_date                 date
-  base_qty                    decimal(18,4) [not null] // base units, whatever the line's unit (P320)
-  base_cost_amount                decimal(18,2) [not null, default: 0] // cumulative share of the line's value
+  qty                         decimal(18,6) [not null] // in the line's unit, as typed (P338)
+  base_qty                    decimal(18,4) [not null] // what enters stock: the line's base_qty shared cumulatively by qty (P338)
+  base_cost_amount                decimal(18,2) [not null, default: 0] // cumulative share of the line's value, by base_qty
   tracking_id                 int // weak: log_stock_tracking.id, set at Posting
   location_id                 int // weak: ref_warehouse_location.id — where it is put, in a warehouse that has locations
   stock_status_id             int // weak: sys_stock_status.id the lot comes back under; null = Tersedia (purchase_receipt) (P289)

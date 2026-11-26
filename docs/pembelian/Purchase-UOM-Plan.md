@@ -31,7 +31,7 @@ dapat dibeli). Ke-13 baris PO lokal semuanya Satuan Dasar.
 | T3 | Setara dasar tidak terlihat | `= 108 PCS` di bawah Qty pada PO dan Receipt Note (baris, picker, dialog lot); tidak di Invoice |
 | T4 | PR baru untuk Item yang barisnya sudah BOX membuat baris kedua | Masuk ke baris itu; Qty BOX tidak diubah otomatis |
 | T5 | Mencabut PR dari baris BOX mengurangi Qty-nya dengan pecahan | Qty baris bersatuan alternatif tidak disentuh |
-| T6 | Lot diketik di satuan PO dan qty dasarnya dibulatkan sendiri | Lot diketik dalam **Satuan Dasar** (pola Delivery Note, P268), jumlahnya tepat `base_qty` baris; nilai lot dibagi menurut qty dasar |
+| T6 | Lot diketik di satuan PO dan qty dasarnya dibulatkan sendiri | ~~Lot diketik dalam Satuan Dasar~~ **Diubah P338:** lot diketik dalam **satuan PO**; qty dasarnya bagian kumulatif `base_qty` baris, sehingga jumlahnya tetap tepat; nilai lot dibagi menurut qty dasar |
 | T7 | **Satuan Dasar Item bisa diubah setelah ada stok** | Terkunci setelah dipakai di dokumen atau punya gerak stok |
 
 Semua ini tanpa perubahan skema.
@@ -114,7 +114,7 @@ Akibat aturan ini, sesuai maunya toleransi:
    Qty SJ diketik di modal, Qty Terima tidak bisa diketik. Item tanpa timbangan tetap seperti sekarang.
 2. Modal *Penimbangan* (tata letak screenshot, komponen desain aplikasi) menghitung
    langsung saat diketik; **Simpan** mengisi `qty` dan `base_qty` baris.
-3. Lot dibagi atas qty dasar yang diterima, dalam Satuan Dasar. Mengubah Qty SJ menghapus hasil
+3. Lot dibagi atas Qty Terima, dalam satuan PO (P338). Mengubah Qty SJ menghapus hasil
    timbang baris itu, dan lot dibagi ulang.
 4. Draft boleh belum ditimbang; **Posting menolak** baris yang belum, dan server
    menghitung ulang hasilnya dengan fungsi yang sama.
@@ -176,7 +176,7 @@ Beda dari gambaran user: id `int` (konvensi §9), `uom_factor` ditambah, dan
 | `m_item` | Tidak berubah; tab *Timbangan* di form menulis `m_item_weighting` |
 | `pur_order_line` | `base_qty`, `received_base_qty`; `received_qty` → `Decimal(18,6)` |
 | `fin_ap_invoice_line` | `qty` → `Decimal(18,6)` |
-| `log_receipt_note_line` (dan `_tracking`) | Baris: presisi `qty` / `base_qty` → `Decimal(18,6)`, diisi dari hasil timbang. Tracking: `qty` dibuang, `base_qty` menjadi acuan |
+| `log_receipt_note_line` (dan `_tracking`) | Baris: presisi `qty` / `base_qty` → `Decimal(18,6)`, diisi dari hasil timbang. Tracking: `qty` dibuang (P320), lalu **dikembalikan oleh P338** sebagai qty satuan PO `Decimal(18,6)`; `base_qty` diturunkan darinya |
 | `log_stock_receipt` | pasangan sumber lemah `source_doc_type_id` / `source_doc_id`, dengan `from_unit_id` kosong |
 
 ### 3.5 SJ parsial dan sisi supplier: dicoba apa adanya
@@ -207,7 +207,7 @@ lalu **berhenti untuk diperiksa user**.
 ### Langkah 3 (selesai, P320) — Receipt Note dan Invoice dua kuantitas
 - Migrasi `receipt_two_qty`: presisi 6 desimal (baris RN, baris Invoice), `tracking.qty` dibuang.
 - `receipt-note.ts`: `qty` untuk nilai, `base_qty` untuk stok; penerimaan yang menghabiskan sisa
-  mengambil sisa keduanya; lot dalam Satuan Dasar. Penerimaan retur ikut dialog yang sama, angkanya tetap.
+  mengambil sisa keduanya; lot dalam Satuan Dasar (diubah P338: satuan PO). Penerimaan retur tetap dalam satuan dasar.
 - Dialog lot, form dan picker menampilkan satuan dasar; Invoice hanya satuan PO.
 - `db:reconcile`: baris = Σ lot; diterima di PO = Σ Receipt Note posted, di kedua satuan.
 - **Periksa:** PO 10 BOX diterima 4 lalu 6 BOX; stok 120 PCS; GR/IR nol setelah Invoice.
@@ -268,7 +268,7 @@ DocumentRegister, tab form, Simpan & Posting, PPh selalu dipotong, tutup otomati
 | G4 | Invoice Penjualan menampilkan status bayar dan daftar penerimaannya di halaman | Invoice Pembelian: status hanya di register, tanpa daftar Pengeluaran | **Masuk langkah 8** |
 | G5 | Delivery Note menampilkan *Ditagih* per baris | Receipt Note tidak menampilkan Invoice yang menagih | **Masuk langkah 8** |
 | G6 | Baris Invoice Penjualan menyimpan bruto dan diskon (P111) | Invoice Pembelian hanya DPP dan harga; diskon PO tidak terlihat | **Masuk langkah 8, tampilan dari PO**; tanpa kolom |
-| G7 | Lot dalam satuan dasar, baris = Σ lot (P268) | RN: lot di satuan PO | **Sudah di langkah 3** |
+| G7 | Lot dalam satuan dasar, baris = Σ lot (P268) | RN: lot di satuan PO | **Diubah P338** |
 | G8 | Layar Delivery Note final dan dijaga test (P269) | Receipt Note belum di `DOCUMENT_SCREENS` | **Masuk langkah 8** |
 | G9 | Salin Customer Order | PO tanpa Salin (P124) | Nanti; baris PO wajib dari PR, jadi yang disalin hanya header |
 | G10 | Customer Order / Sales Order menampilkan dokumen turunannya (Jadwal, Delivery Order) | PO menampilkan Receipt Note dan Invoice, bukan Uang Muka; PR tidak menampilkan PO yang memakainya | **Masuk langkah 8** |
