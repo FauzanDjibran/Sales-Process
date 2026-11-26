@@ -14,22 +14,22 @@
  *   the artifact's six Karyawan
  *   suppliers (rumah walet, a pengepul, kemasan) and customers (a USD importer,
  *   a distributor, a toko)
- *   Bank BCA (IDR) and Bank BCA USD with their books, and a USD Kurs for today
+ *   Kas, Bank Mandiri and BCA (IDR), Bank Mandiri USD and BCA USD, each with its
+ *   Saldo Awal (`DEMO_BANKS`), and a USD Kurs for today
  *   the artifact's demo users with their roles and Units (only where a password
  *   is known: `erp123` on a local database, else `ERP_ADMIN_PASSWORD`)
  *   opening stock: three No. Stok of sarang mentah (the simulation's figures) and
  *   bahan penolong, injected without a journal like `db:stock-inject`
  *
  * **Development only, additive, matched on label / name** — running it twice
- * creates nothing twice. No documents and no opening balances; documents that fill
+ * creates nothing twice. No documents and no GL opening balances; documents that fill
  * the stock and production ledgers are `db:seed-walet-ledger`.
  */
 import { prisma } from "../src/lib/prisma";
 import { nextCode } from "../src/lib/erp/records";
-import { BASE_CURRENCY_LABEL } from "../src/lib/erp/currency";
 import { injectStock, type InjectionRow } from "../src/lib/erp/inventory";
 import { hashPassword } from "../src/lib/erp/login";
-import { audit, ensureBank, ensureFiscalYear, ensureItem, ensurePartner, ensureUoms, entity, seedActor, type ItemSpec, type PartnerSpec } from "./lib/seed-common";
+import { audit, DEMO_BANKS, ensureBank, ensureFiscalYear, ensureItem, ensurePartner, ensureUoms, entity, seedActor, type ItemSpec, type PartnerSpec } from "./lib/seed-common";
 
 const WAREHOUSES: [label: string, name: string][] = [
   ["GBP", "Gudang Bahan Penolong"],
@@ -140,10 +140,6 @@ const PARTNERS: PartnerSpec[] = [
   },
 ];
 
-const BANKS = [
-  { label: "BCA", name: "Bank BCA · 123-456-7890", account: "Bank BCA", note: "Rekening operasional 123-456-7890", currency: BASE_CURRENCY_LABEL },
-  { label: "BCA-USD", name: "Bank BCA USD · 123-888-9999", account: "Bank BCA USD", note: "Rekening ekspor 123-888-9999", currency: "USD" },
-];
 const USD_RATE = 16_250;
 
 /** The artifact's USERS; `units: null` opens every Unit (PRODUCTION_UNIT_ALL). */
@@ -213,7 +209,7 @@ async function main() {
   }
 
   for (const p of PARTNERS) if (await ensurePartner(actor, p)) made.push(p.name);
-  for (const b of BANKS) if (await ensureBank(actor, b)) made.push(b.name);
+  for (const b of DEMO_BANKS) if (await ensureBank(actor, b)) made.push(b.name);
 
   const usd = await prisma.refCurrency.findFirstOrThrow({ where: { currency_label: "USD" } });
   const today = new Date(new Date().toISOString().slice(0, 10));

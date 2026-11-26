@@ -114,9 +114,32 @@ export async function ensurePartner(actor: number, c: PartnerSpec): Promise<bool
   return true;
 }
 
-export type BankSpec = { label: string; name: string; account: string; note?: string; currency: string };
+export type BankSpec = {
+  label: string;
+  name: string;
+  account: string;
+  currency: string;
+  type?: "Cash" | "Bank";
+  /** Saldo Awal, and the kurs it is valued at (1 for rupiah). */
+  opening: number;
+  rate?: number;
+};
 
-/** A bank's Cash & Bank account (created when no account has its name), then the resource with an empty book. True when the resource was created. */
+/** The Kas & Bank both demo companies start with. */
+export const DEMO_BANKS: BankSpec[] = [
+  { label: "KAS", name: "Kas", account: "Kas", currency: "IDR", type: "Cash", opening: 25_000_000 },
+  { label: "MANDIRI", name: "Bank Mandiri · 070-00-1234567-8", account: "Bank Mandiri", currency: "IDR", opening: 500_000_000 },
+  { label: "BCA", name: "Bank BCA · 123-456-7890", account: "Bank BCA", currency: "IDR", opening: 500_000_000 },
+  { label: "MANDIRI-USD", name: "Bank Mandiri USD · 070-00-7654321-0", account: "Bank Mandiri USD", currency: "USD", opening: 10_000, rate: 16_500 },
+  { label: "BCA-USD", name: "Bank BCA USD · 123-888-9999", account: "Bank BCA USD", currency: "USD", opening: 10_000, rate: 15_000 },
+];
+
+/**
+ * The resource's account (created when no account has its name), then the
+ * resource with its Saldo Awal dated 1 January — an `Opening` entry without a
+ * journal, as the registration form writes it. An existing resource is left as
+ * it is. True when the resource was created.
+ */
 export async function ensureBank(actor: number, b: BankSpec): Promise<boolean> {
   if (await prisma.mCashBank.findFirst({ where: { cash_bank_label: b.label } })) return false;
   let account = await prisma.accAccount.findFirst({ where: { account_name: { equals: b.account, mode: "insensitive" } } });
@@ -131,7 +154,6 @@ export async function ensureBank(actor: number, b: BankSpec): Promise<boolean> {
         is_postable: true,
         normal_balance: "Debit",
         is_control_account: true,
-        note: b.note ?? null,
         created_by: actor,
       },
     });
@@ -142,9 +164,9 @@ export async function ensureBank(actor: number, b: BankSpec): Promise<boolean> {
   const accountId = account.id;
   const row = await prisma.$transaction(async (tx) => {
     const cb = await tx.mCashBank.create({
-      data: { cash_bank_code: code, cash_bank_label: b.label, cash_bank_name: b.name, cash_bank_type: "Bank", currency_id: currency.id, account_id: accountId, created_by: actor },
+      data: { cash_bank_code: code, cash_bank_label: b.label, cash_bank_name: b.name, cash_bank_type: b.type ?? "Bank", currency_id: currency.id, account_id: accountId, created_by: actor },
     });
-    await openCashBankBook(tx, { cashBankId: cb.id, openingBalance: 0, rate: 1, date: new Date().toISOString().slice(0, 10), actorId: actor });
+    await openCashBankBook(tx, { cashBankId: cb.id, openingBalance: b.opening, rate: b.rate ?? 1, date: `${new Date().getUTCFullYear()}-01-01`, actorId: actor });
     return cb;
   });
   await audit(actor, "m_cash_bank", row.id);

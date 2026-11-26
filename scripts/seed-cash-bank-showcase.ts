@@ -4,7 +4,8 @@
  * movements through them.
  *
  * **Development only**, like `seed-makloon.ts`, which must have run first
- * (accounts, the fiscal year, the two rupiah banks). Run locally with
+ * (accounts, the fiscal year, `DEMO_BANKS`). Bank BCA USD and Bank Mandiri USD
+ * come from there, so this keeps their Saldo Awal and creates the rest. Run locally with
  * `npm run db:seed-cash-bank-showcase`, or against Neon with
  * `npm run db:neon-seed-cash-bank-showcase`.
  *

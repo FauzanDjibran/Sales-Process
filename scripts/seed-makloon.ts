@@ -11,7 +11,8 @@
  *   Gudang (Satuan, Termin and currencies come from the system seed, P62)
  *   the starter chart with Account Mapping, Kategori Item and Jenis PPh
  *   accounts (`scripts/lib/starter-accounts.ts`, also `db:seed-accounts`)
- *   two rupiah bank accounts (Cash & Bank, each with its book)
+ *   Kas & Bank: Kas, Mandiri and BCA (IDR), Mandiri USD and BCA USD, each with
+ *   its Saldo Awal (`DEMO_BANKS`)
  *   the current calendar year as an Open Fiscal Year with its twelve periods
  *   the simulation's customers, with tax identity, addresses and contacts
  *   suppliers with purchase defaults
@@ -19,7 +20,7 @@
  *   Timbangan (P320, P321), and the few Satuan they need
  *   opening stock of the finished goods, two lots per item per warehouse
  *
- * Not created: opening balances (they start empty, P27), documents, and the
+ * Not created: GL opening balances (they start empty, P27), documents, and the
  * perizinan services (set aside).
  *
  * **Idempotent and additive.** Every record is matched on its label or name —
@@ -38,10 +39,9 @@
 import type { PermitCategory } from "../src/generated/prisma/client";
 import { prisma } from "../src/lib/prisma";
 import { nextCode } from "../src/lib/erp/records";
-import { BASE_CURRENCY_LABEL } from "../src/lib/erp/currency";
 import { seedStarterAccounts } from "./lib/starter-accounts";
 import { injectStock, type InjectionRow } from "../src/lib/erp/inventory";
-import { audit as auditAs, ensureBank, ensureFiscalYear, ensureItem, ensurePartner, ensureUoms, entity, seedActor, type ItemSpec, type PartnerSpec } from "./lib/seed-common";
+import { audit as auditAs, DEMO_BANKS, ensureBank, ensureFiscalYear, ensureItem, ensurePartner, ensureUoms, entity, seedActor, type ItemSpec, type PartnerSpec } from "./lib/seed-common";
 
 // ------------------------------------------------------------------- data
 
@@ -58,12 +58,6 @@ const PERMIT_TYPES: [label: string, name: string, category: PermitCategory, esti
 const WAREHOUSES: [label: string, name: string][] = [
   ["GD-CKR", "Gudang Cikarang"],
   ["GD-SBY", "Gudang Surabaya"],
-];
-
-/** The demo banks, each with its own account; every other account comes from the starter chart (P130). */
-const BANKS = [
-  { label: "BCA", name: "Bank BCA · 123-456-7890", account: "Bank BCA", note: "Rekening penerimaan 123-456-7890", currency: BASE_CURRENCY_LABEL },
-  { label: "MANDIRI", name: "Bank Mandiri · 070-00-1234567-8", account: "Bank Mandiri", note: "Rekening penerimaan 070-00-1234567-8", currency: BASE_CURRENCY_LABEL },
 ];
 
 type CustomerSpec = PartnerSpec;
@@ -311,7 +305,7 @@ async function main() {
   // then the demo banks beside it, each with its book
   const starter = await seedStarterAccounts(actor);
   for (const [what, n] of Object.entries(starter.made)) made[what] = n;
-  for (const b of BANKS) if (await ensureBank(actor, b)) tally("cash & bank");
+  for (const b of DEMO_BANKS) if (await ensureBank(actor, b)) tally("cash & bank");
 
   // ---- the current calendar year, Open, with its twelve periods
   if (await ensureFiscalYear(actor)) tally("fiscal year");
