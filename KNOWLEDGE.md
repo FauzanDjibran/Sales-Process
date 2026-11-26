@@ -33,7 +33,7 @@ in **Note** to stay on an older version on purpose.
 | accounting/fiscal-periods-and-statements | 2.0 | core | — | P23, P27, P35; P222 harvested |
 | accounting/multi-currency | 1.1 | core | knowledge/multi_currency_concept.md | P13, P37 (moving average = core pool) |
 | accounting/open-items | 2.3 | settlement=in-posting | knowledge/ar_ap_open_item_concept.md | P71–P74, P96; main path since 2.2 (R4); 2.3 is P330, P332 |
-| accounting/tax-indonesia | 3.0 | settlement-ppn=full-less-advance | tax_concept.md | **Living copy**: ERP edits it first, then harvests. P113: full PPN less the advances' PPN, assuming 12 % and 11/12 do not change (refused if they differ); P118: the advance's PPN recalculated by the chain |
+| accounting/tax-indonesia | 3.0 | settlement-ppn=full-less-advance | knowledge/tax_concept.md | **Living copy**: ERP edits it first, then harvests. P113: full PPN less the advances' PPN, assuming 12 % and 11/12 do not change (refused if they differ); P118: the advance's PPN recalculated by the chain |
 | sales/order-to-cash | 3.0 | core | — | Reference implementation: Sales-Process-Concept.md; P93–P99, P107, P112, P117, P137–P143 harvested |
 | inventory/stock-books | 1.0 | core | — | P95, P114, P120, P135, P136 |
 | purchasing/procure-to-pay | 1.0 | core | — | Reference implementation: Purchasing-Concept.md; P121–P129 |

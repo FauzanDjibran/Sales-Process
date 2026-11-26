@@ -1,1 +1,1 @@
-@Claude-ERP.md
+@docs/Claude-ERP.md

@@ -5,9 +5,10 @@ the user's own machine. One installation serves one company. Sales comes first:
 the goal is to do everything the PRJ.001 sales simulation does, on SIBA 3.0's
 stack and accounting framework.
 
-The project guideline is [`Claude-ERP.md`](Claude-ERP.md) — decisions, scope and
-conventions live there. The phased plan is
-[`IMPLEMENTATION-PLAN.md`](IMPLEMENTATION-PLAN.md), and the schema is mirrored
+The project guideline is [`Claude-ERP.md`](docs/Claude-ERP.md) — decisions, scope
+and conventions live there. Every other document is listed in
+[`docs/README.md`](docs/README.md), the seeders in
+[`docs/panduan/Seeder.md`](docs/panduan/Seeder.md), and the schema is mirrored
 in [`DBML/erp.dbml.md`](DBML/erp.dbml.md).
 
 ## Stack

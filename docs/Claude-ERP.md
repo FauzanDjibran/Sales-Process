@@ -6,8 +6,11 @@
 > recorded in §12, and every open clash in §18, so it applies to all future work.
 >
 > Named `Claude-ERP.md` to tell it apart from SIBA's `CLAUDE.md`. The
-> one-line `CLAUDE.md` beside it only imports this file, so Claude Code still
-> loads it automatically.
+> one-line `CLAUDE.md` at the repository root only imports this file, so Claude
+> Code still loads it automatically.
+>
+> **Documents live under `docs/`** (P337), indexed in `docs/README.md`. This
+> file names them by file name alone; paths are relative to the repository root.
 
 ---
 
@@ -41,15 +44,15 @@ conventions and documentation habits.
 | `design-convention.md` | The shared UI/UX convention, extracted from SIBA (P1–P12, D1–D22). **Followed in full** |
 | `Core_UI_Reference.md` | Benchmark study behind the convention; background only |
 | `multi_currency_concept.md` | **The multi-currency convention this app follows** (§12 P13) — identical to SIBA's `CORE Multi Currency Concept.md` |
-| `tax_concept.md` | **The tax convention this app follows** (P59, P60): PPN, PPh, the faktur pajak and bukti potong as records, rounding. Written in the repository root; it moves into `Initialization/` when the user places it there |
+| `tax_concept.md` | **The tax convention this app follows** (P59, P60): PPN, PPh, the faktur pajak and bukti potong as records, rounding. The living copy is `knowledge/tax_concept.md`; there is no frozen original in `Initialization/` |
 | `ar_ap_open_item_concept.md` | The AR/AP open-item model: each financial source creates an open item with direction and current balance; an append-only open-item ledger; allocation between items of the same partner and currency. **Applied to AR by P71–P75** as AR items and Buku Piutang, without a separate allocation step; AP follows the same way when purchasing is built |
 
 **The concept files above are frozen originals.** The copies this app follows
 are in **`knowledge/`**, kept in step with the shared knowledge base (§20):
 `knowledge/design-convention.md`, `knowledge/multi_currency_concept.md`,
-`knowledge/ar_ap_open_item_concept.md` and `knowledge/Core_UI_Reference.md`.
-`tax_concept.md` stays in the repository root as the living copy. Where this
-file says "follow `<concept>.md`", read the `knowledge/` copy.
+`knowledge/ar_ap_open_item_concept.md`, `knowledge/Core_UI_Reference.md` and
+`knowledge/tax_concept.md` (P337). Where this file says
+"follow `<concept>.md`", read the `knowledge/` copy.
 
 **Production plan (`Production-Plan.md`, P200).** The agreed production restart: what is salvaged from branch `walet` and the build steps; what it still governs is listed in `Produksi Walet (Real).md` §12 (P216).
 
@@ -274,10 +277,16 @@ Package name `erp`; database name `erp`.
 
 ```
 Initialization/        Read-only source material (§1.1)
-Claude-ERP.md          This file
-CLAUDE.md              One line: imports Claude-ERP.md (auto-loaded by Claude Code)
-IMPLEMENTATION-PLAN.md Phased plan; updated as phases complete
+CLAUDE.md              One line: imports docs/Claude-ERP.md (auto-loaded by Claude Code)
 AGENTS.md              Managed by `next dev` — keep, never put context in it
+KNOWLEDGE.md           Knowledge base adoption (§20)
+README.md              Getting started
+docs/                  Every other document (P337), indexed in docs/README.md:
+  Claude-ERP.md          This file
+  umum/ panduan/         Cross-module plans; how-to references
+  penjualan/ pembelian/ persediaan/ keuangan/ produksi/   Concepts and plans per area
+knowledge/             Adopted concept copies, tax_concept.md included
+Script Penjelasan/     Explanation scripts for the user and developers
 DBML/erp.dbml.md       Current schema as DBML, updated with every migration
 prisma/                schema.prisma, migrations/, seed.ts (system data only)
 scripts/               seed-makloon.ts, seed-walet.ts — dev-only demo companies
@@ -837,6 +846,7 @@ Newest last. Later entries override earlier ones and say so.
 | P334 | 26/11/2026 | **Naming, fase 3, production** (`Value-Naming-Plan.md`, P331; names only, no figure, posting or screen change). Migration `production_base_names`: every production document's `value` is **`base_cost_amount`**, the same word logistics uses, and the Unit's charge, which shared `cost_amount` with it, is **`base_process_amount`**; `base_input_amount`, `base_aux_amount`, `base_scrap_amount`, `base_piece_amount`. Not `unit_cost`, which means a cost per unit. The books keep `value_change` / `value_balance` (N3); `prd_cost_entry.amount` and Tagihan Biaya are rupiah documents with no twin. The plan's three fases are done; a foreign cost on the Receipt Note screen (N6) is open. |
 | P335 | 26/11/2026 | **A posted Credit Note lists what used its credit** (the user: refund and Penerapan Kredit stay their own menus, with no quick-action button on the Credit Note). A tab **Penggunaan Kredit**: every Penerapan Kredit line naming it (to which Invoice) and every Pengeluaran *Pengembalian Dana Customer* paying it, linked, with status and amount, newest first, composed by the page from the two owning modules (`applicationsOfCreditNote`, `settlementsOfDocument`, §3.1). The refund picker reads its own noun (*Pilih Kredit Retur · … yang masih terbuka*) instead of the supplier wording. Both flows walked on screen locally: CNS/2026/11/0002 refunded Rp 1.000.000 (BKK/2026/11/0001) and its Rp 1.220.000 left taken off INV/2026/11/0001 (PKR/2026/11/0001, no journal). No schema or posting change. |
 | P336 | 26/11/2026 | **The Penimbangan dialog leads with three figures and sums up the result under them** (the user; display only, amends P328). Qty SJ, **Qty Pembanding** (read-only, the item's weight and tolerance as its help) and Qty Timbangan on one row; under them *Hasil Timbangan*, its result badge and **Qty Terima** and **Qty Stock** large, Qty Bonus beside them. The Pembanding box, Qty PO and the difference from the pembanding are gone. |
+| P337 | 26/11/2026 | **Documents live under `docs/`** (the user). `Claude-ERP.md` sits at `docs/`, the rest in `docs/umum`, `panduan`, `penjualan`, `pembelian`, `persediaan`, `keuangan` and `produksi`, indexed in `docs/README.md`; the living `tax_concept.md` moves to `knowledge/`. Only `CLAUDE.md`, `AGENTS.md`, `KNOWLEDGE.md` and `README.md` stay at the root. File names are unchanged, so every mention by name (code comments, applied migrations, earlier decisions) still finds its document. A new document goes into its area folder, never the root. Amends P7 on where the guideline sits. |
 ---
 
 ## 13. Carry-over Map
