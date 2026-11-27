@@ -44,7 +44,7 @@ Dua draf yang belum di-commit juga sudah dipindah dan belum didaftar: `penjualan
 | Dokumen | Isi |
 | --- | --- |
 | [Goods-Movement-Plan.md](persediaan/Goods-Movement-Plan.md) | Stock Issue, Stock Receipt, Stock Adjustment |
-| [Stock-Issue-Receipt-Plan.md](persediaan/Stock-Issue-Receipt-Plan.md) | Stock Issue dan Stock Receipt bertujuan banyak, Buat Stock Receipt (disetujui, P339) |
+| [Stock-Issue-Receipt-Plan.md](persediaan/Stock-Issue-Receipt-Plan.md) | Stock Issue dan Stock Receipt bertujuan banyak, Buat Stock Receipt (P339, dibangun P340) |
 | [Stock-Transfer-Plan.md](persediaan/Stock-Transfer-Plan.md) | Transfer antar gudang |
 | [Warehouse-Location-Plan.md](persediaan/Warehouse-Location-Plan.md) | Lokasi gudang |
 | [Stock-Reports-Plan.md](persediaan/Stock-Reports-Plan.md) | Kartu Stok dan Saldo Stok |

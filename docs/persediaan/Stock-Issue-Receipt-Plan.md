@@ -1,6 +1,6 @@
 # Stock Issue dan Stock Receipt: Dua Menu Bertujuan Banyak
 
-> **Disetujui user 27/11/2026 (P339), semua keputusan §6 sesuai usulan. Belum dibangun.** Dasar: `main` @ `a667ca6`,
+> **Disetujui user 27/11/2026 (P339), semua keputusan §6 sesuai usulan. Langkah 1–6 dibangun 27/11/2026 (P340).** Dasar: `main` @ `a667ca6`,
 > `stock-issue-purposes.ts`, `stock-issue-workflow.ts`, `stock-receipt-purposes.ts`,
 > `stock-receipt.ts`, `Goods-Movement-Plan.md` (P316–P318), P321, P324, P319.
 > Pemicunya: user bertanya kenapa Stock Receipt tidak punya tombol Buat. Konsep user: Stock
@@ -161,7 +161,14 @@ sisi penerima**, dan dokumen penerima dibuat dari salinan itu.
 | SI-4 | Cermin di Stock Issue: Pengeluaran Lain-lain | Nanti, bila diminta. Pemusnahan dan Sampel sudah menutup kebutuhan sekarang |
 | PR-1 | Production Receipt di sisi produksi mengikuti pola yang sama (Unit *Buat* dari Stock Issue yang menunggu, bukan lahir saat Kirim) | Ditunda. Unit bekerja dari Workspace, dan tombol Terima di tab Masuk sudah seperti itu bagi pengguna |
 
-## 7. Langkah bangun (setelah disetujui)
+## 7. Langkah bangun (selesai, P340)
+
+Diputuskan saat membangun, mengikuti konsep: Stock Receipt bernomor sendiri `SRC/YYYY/MM/NNNN`
+(nomor BFG / BPG menjadi Dokumen Sumber); Tanggal Terima diketik, tidak di masa depan dan tidak
+sebelum sumbernya; kolom `reason` tidak dibuat, karena *Alasan* Penerimaan Lain-lain memakai
+`note`; inbox tidak diaudit tersendiri, karena Production Issue yang mengirimnya diaudit dalam
+transaksi yang sama.
+
 
 1. Katalog tujuan: `valueRule` per tujuan di `stock-receipt-purposes.ts` (menggantikan
    `asksValue`). Skema: status Draft / Cancelled, `status_reason`, `reason`, tabel inbox; migrasi memindahkan

@@ -763,7 +763,7 @@ export const CHECKS: Check[] = [
   },
   {
     area: "goods",
-    name: "a weighed Receipt Note line received what its weighing says, and its bonus came in as one Stock Receipt at 0 with no journal (P321)",
+    name: "a weighed Receipt Note line received what its weighing says, and its bonus came in by at most one Stock Receipt at 0 with no journal (P321, P339)",
     sql: `SELECT n.rn_no, 'line' AS what, l.qty, w.qty_received AS expected FROM log_receipt_note_weighting w
             JOIN log_receipt_note_line l ON l.id = w.receipt_line_id JOIN log_receipt_note n ON n.id = l.receipt_note_id
            WHERE l.qty <> w.qty_received OR (w.weighting_result <> 'Below' AND w.qty_received <> w.qty_sj)
@@ -773,9 +773,9 @@ export const CHECKS: Check[] = [
             LEFT JOIN (SELECT l.receipt_note_id AS id, SUM(x.qty_bonus) AS q FROM log_receipt_note_weighting x JOIN log_receipt_note_line l ON l.id = x.receipt_line_id GROUP BY 1) w ON w.id = n.id
             LEFT JOIN (SELECT r.source_doc_id AS id, SUM(s.qty_change) AS q, SUM(s.value_change) AS v, COUNT(r.journal_id) AS j FROM log_stock_receipt r
                          JOIN log_stock_ledger s ON s.source_doc_type_id = ${docType("log_stock_receipt")} AND s.source_doc_id = r.id
-                        WHERE r.purpose = 'purchase_bonus' GROUP BY 1) b ON b.id = n.id
+                        WHERE r.purpose = 'purchase_bonus' AND r.status = 'Received' GROUP BY 1) b ON b.id = n.id
            WHERE n.purpose = 'purchase_receipt'
-             AND (COALESCE(b.q, 0) <> CASE WHEN n.status = 'Posted' THEN COALESCE(w.q, 0) ELSE 0 END OR COALESCE(b.v, 0) <> 0 OR COALESCE(b.j, 0) <> 0)`,
+             AND (COALESCE(b.q, 0) NOT IN (0, CASE WHEN n.status = 'Posted' THEN COALESCE(w.q, 0) ELSE 0 END) OR COALESCE(b.v, 0) <> 0 OR COALESCE(b.j, 0) <> 0)`,
   },
   {
     area: "goods",
@@ -1047,20 +1047,44 @@ export const CHECKS: Check[] = [
   },
   {
     area: "production",
-    name: "a Stock Receipt = its Σ lines = its No. Stok = its Production Issue; one taken in came into stock at it less what Tanpa nilai wrote off, journalled whole; a waiting one moved nothing (P317)",
+    name: "each shipment in the inbox = its Production Issue, and is taken in exactly when its Production Issue is (P317, P339)",
+    sql: `WITH x AS (SELECT x.id, x.sent_no, x.base_cost_amount,
+                        COALESCE((SELECT SUM(l.base_cost_amount) FROM log_stock_receipt_inbox_line l WHERE l.inbox_id = x.id), 0) AS lines,
+                        COALESCE((SELECT SUM(l.base_cost_amount) FROM prd_issue i JOIN prd_issue_line l ON l.issue_id = i.id WHERE i.issue_no = x.sent_no), 0) AS other_side,
+                        (SELECT i.status::text FROM prd_issue i WHERE i.issue_no = x.sent_no) AS other_status,
+                        (SELECT i.value_mode FROM prd_issue i WHERE i.issue_no = x.sent_no) AS other_mode, x.value_mode,
+                        EXISTS (SELECT 1 FROM log_stock_receipt r WHERE r.inbox_id = x.id AND r.status = 'Received') AS taken
+                 FROM log_stock_receipt_inbox x)
+          SELECT * FROM x WHERE base_cost_amount <> lines OR base_cost_amount <> other_side OR other_mode IS DISTINCT FROM value_mode
+             OR other_status IS DISTINCT FROM CASE WHEN taken THEN 'Received' ELSE 'InTransit' END`,
+  },
+  {
+    area: "production",
+    name: "a received Stock Receipt from production = its Σ lines = its No. Stok = its shipment; it came into stock at it less what Tanpa nilai wrote off, journalled whole; a Draft moved nothing (P317, P339)",
     sql: `WITH r AS (SELECT r.id, r.receipt_no, r.status, r.base_cost_amount, r.base_written_off_amount, r.value_mode, r.journal_id,
                         COALESCE((SELECT SUM(x.base_cost_amount) FROM log_stock_receipt_line x WHERE x.stock_receipt_id = r.id), 0) AS lines,
                         COALESCE((SELECT SUM(t.base_cost_amount) FROM log_stock_receipt_tracking t JOIN log_stock_receipt_line x ON x.id = t.stock_receipt_line_id WHERE x.stock_receipt_id = r.id), 0) AS lots,
                         (SELECT COUNT(*) FROM log_stock_receipt_line x WHERE x.stock_receipt_id = r.id AND x.base_qty <> (SELECT SUM(t.base_qty) FROM log_stock_receipt_tracking t WHERE t.stock_receipt_line_id = x.id)) AS short,
                         COALESCE((SELECT SUM(v.value_change) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("log_stock_receipt")} AND v.source_doc_id = r.id), 0) AS stock_in,
                         COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = r.journal_id), 0) AS journal,
-                        COALESCE((SELECT SUM(l.base_cost_amount) FROM prd_issue i JOIN prd_issue_line l ON l.issue_id = i.id WHERE i.issue_no = r.receipt_no), 0) AS other_side,
-                        (SELECT i.status::text FROM prd_issue i WHERE i.issue_no = r.receipt_no) AS other_status
-                 FROM log_stock_receipt r WHERE r.purpose <> 'purchase_bonus')
+                        COALESCE((SELECT x.base_cost_amount FROM log_stock_receipt_inbox x WHERE x.id = r.inbox_id), -1) AS other_side
+                 FROM log_stock_receipt r WHERE r.purpose IN ('finish_goods', 'return'))
           SELECT * FROM r
-          WHERE base_cost_amount <> lines OR base_cost_amount <> lots OR short > 0 OR base_cost_amount <> other_side OR other_status IS DISTINCT FROM status::text
+          WHERE base_cost_amount <> lines OR base_cost_amount <> lots OR short > 0 OR base_cost_amount <> other_side
              OR (status = 'Received' AND (base_cost_amount - base_written_off_amount <> stock_in OR base_cost_amount <> journal OR base_written_off_amount <> CASE WHEN value_mode = 'none' THEN base_cost_amount ELSE 0 END))
-             OR (status = 'InTransit' AND (journal_id IS NOT NULL OR stock_in <> 0))`,
+             OR (status IN ('Draft', 'Cancelled') AND (journal_id IS NOT NULL OR stock_in <> 0))`,
+  },
+  {
+    area: "goods",
+    name: "a posted Penerimaan Lain-lain came into stock at its typed value, journalled whole; a Draft moved nothing (P339)",
+    sql: `WITH r AS (SELECT r.id, r.receipt_no, r.status, r.base_cost_amount, r.journal_id,
+                        COALESCE((SELECT SUM(t.base_cost_amount) FROM log_stock_receipt_tracking t JOIN log_stock_receipt_line x ON x.id = t.stock_receipt_line_id WHERE x.stock_receipt_id = r.id), 0) AS lots,
+                        COALESCE((SELECT SUM(v.value_change) FROM log_stock_valuation_ledger v WHERE v.source_doc_type_id = ${docType("log_stock_receipt")} AND v.source_doc_id = r.id), 0) AS stock_in,
+                        COALESCE((SELECT SUM(j.debit_amount) FROM acc_journal_line j WHERE j.journal_id = r.journal_id), 0) AS journal
+                 FROM log_stock_receipt r WHERE r.purpose = 'other_receipt')
+          SELECT * FROM r WHERE base_cost_amount <> lots
+             OR (status = 'Posted' AND (stock_in <> base_cost_amount OR journal <> base_cost_amount))
+             OR (status <> 'Posted' AND (journal_id IS NOT NULL OR stock_in <> 0))`,
   },
   {
     area: "production",

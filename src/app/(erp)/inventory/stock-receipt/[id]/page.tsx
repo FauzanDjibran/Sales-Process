@@ -1,9 +1,10 @@
 import { notFound } from "next/navigation";
-import { StockReceiptView } from "@/components/inventory/stock-receipt-view";
+import { StockReceiptForm } from "@/components/inventory/stock-receipt-form";
 import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { getStockReceipt } from "@/lib/erp/stock-receipt";
 import { STOCK_RECEIPT_PATH } from "@/lib/erp/stock-receipt-purposes";
+import { stockReceiptAbilities } from "@/lib/erp/stock-receipt-workflow";
 import { requireWarehouse } from "@/lib/erp/warehouse-access";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
   await requireWarehouse(actor, receipt.warehouseId);
   return (
     <>
-      <StockReceiptView receipt={receipt} canReceive={actor.permissions.has("STOCK_RECEIPT_RECEIVE")} />
+      <StockReceiptForm mode="view" receipt={receipt} purpose={receipt.purpose} source={null} options={null} can={stockReceiptAbilities(actor.permissions)} />
       <RecordHistoryCard entityKey="log_stock_receipt" rowId={receipt.id} />
     </>
   );

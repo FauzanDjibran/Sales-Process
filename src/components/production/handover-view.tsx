@@ -17,7 +17,7 @@ export type HandoverDoc = {
 };
 
 /** A Production Receipt or Production Issue, read (P317). No prices (P275). */
-export function HandoverView({ doc, title, icon, base, purpose, statusText, warehouseLabel, reason, action }: { doc: HandoverDoc; title: string; icon: IconName; base: string; purpose: string; statusText: Record<HandoverStatus, string>; warehouseLabel: string; reason?: string | null; action?: React.ReactNode }) {
+export function HandoverView({ doc, title, icon, base, purpose, statusText, warehouseLabel, reason, value, action }: { doc: HandoverDoc; title: string; icon: IconName; base: string; purpose: string; statusText: Record<HandoverStatus, string>; warehouseLabel: string; reason?: string | null; value?: string | null; action?: React.ReactNode }) {
   return (
     <>
       <div className="ph">
@@ -54,6 +54,7 @@ export function HandoverView({ doc, title, icon, base, purpose, statusText, ware
               <Field label="Tanggal Kirim" span={3}>{ro(formatDate(doc.date))}</Field>
               <Field label="Diterima" span={3}>{doc.receivedAt ? ro(formatDate(doc.receivedAt)) : <div className="ro nil">belum</div>}</Field>
               {reason && <Field label="Alasan" span={3}>{ro(reason)}</Field>}
+              {value && <Field label="Nilai" span={3}>{ro(value)}</Field>}
               <Field label="Catatan" span={12}>{doc.note ? <div className="ro multi">{doc.note}</div> : <div className="ro multi nil opt">tidak diisi</div>}</Field>
             </FormRow>
           </FormSection>

@@ -5,7 +5,7 @@ import { checkItemWeighting, writeItemWeighting, itemCollections } from "../src/
 import { weightingErrors } from "../src/lib/erp/item-shape";
 import { createReceiptNote, getReceiptNote, receiptNoteOptions, transitionReceiptNote, updateReceiptNote, type ReceiptNoteHeaderInput, type ReceiptNoteLineInput } from "../src/lib/erp/receipt-note";
 import { weigh } from "../src/lib/erp/receipt-weighting";
-import { bonusReceiptOf, getStockReceipt } from "../src/lib/erp/stock-receipt";
+import { bonusReceiptOf, createStockReceipt, getStockReceipt, pendingSources, receiveStockReceipt } from "../src/lib/erp/stock-receipt";
 import { cleanupFiscalYear, cleanupFixtures, disconnect, openFiscalYear, prisma } from "./helpers";
 import { purchasingWorld, type PurchasingWorld } from "./purchasing-helpers";
 
@@ -128,7 +128,7 @@ describe("receiving by weight", () => {
     assert.equal(left.qty - left.held, 300);
   });
 
-  test("above tolerance takes the SJ and brings the rest in as a Stock Receipt at 0", async () => {
+  test("above tolerance takes the SJ; the rest waits until the warehouse receives it by a Stock Receipt at 0 (P339)", async () => {
     await setRule(1, 10);
     const po = await w.openPO([{ item: w.f.stock, qty: 800, price: 1_000 }]);
     const pool = async () => prisma.logStockValuationBalance.findFirstOrThrow({ where: { item_id: w.f.stock } });
@@ -137,10 +137,18 @@ describe("receiving by weight", () => {
     assert.ok(r.ok, JSON.stringify(r));
     assert.equal(await bonusReceiptOf(r.id), null, "a Draft makes nothing");
     assert.deepEqual(await transitionReceiptNote(r.id, "post", w.actor), { ok: true, closed: [po.orderNo] });
+    assert.equal(await bonusReceiptOf(r.id), null, "the bonus waits for the warehouse");
+    const waiting = (await pendingSources(null)).find((x) => x.purpose === "purchase_bonus" && x.id === r.id)!;
+    assert.deepEqual(waiting.rows.map((x) => [x.qty, x.value]), [[120, 0]]);
+    const made = await createStockReceipt({ purpose: "purchase_bonus", warehouse_id: null, source_id: r.id, receipt_date: waiting.date, note: "", rows: [] }, w.actor);
+    assert.ok(made.ok, JSON.stringify(made));
+    const twice = await createStockReceipt({ purpose: "purchase_bonus", warehouse_id: null, source_id: r.id, receipt_date: waiting.date, note: "", rows: [] }, w.actor);
+    assert.equal(twice.ok, false, "a Draft holds its source");
+    assert.ok((await receiveStockReceipt(made.ok ? made.id : 0, w.actor)).ok);
     const b = (await bonusReceiptOf(r.id))!;
     assert.match(b.no, /^SRC\/\d{4}\/\d{2}\/\d{4}$/);
     const s = (await getStockReceipt(b.id))!;
-    assert.deepEqual([s.purpose, s.status, s.cost, s.journalId, s.sourceNo, s.items.map((i) => [i.qty, i.value])], ["purchase_bonus", "Received", 0, null, r.rnNo, [[120, 0]]]);
+    assert.deepEqual([s.purpose, s.status, s.cost, s.journalId, s.sourceNo, s.rows.map((i) => [i.qty, i.value])], ["purchase_bonus", "Received", 0, null, r.rnNo, [[120, 0]]]);
     const now = await pool();
     assert.equal(now.qty_balance.minus(before.qty_balance).toNumber(), 920);
     assert.equal(now.value_balance.minus(before.value_balance).toNumber(), 800_000, "a bonus brings no value");

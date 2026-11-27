@@ -12,7 +12,7 @@ import { useToast } from "@/components/ui/toast";
 import { ErrorBox, idc, qtyText, ro, PostedDialog, WorkspaceCrumb, workspaceHref } from "@/components/production/execution-parts";
 import { InputBar } from "@/components/production/input-bar";
 import { sendProductionIssueAction } from "@/app/actions/production-handover";
-import { PRODUCTION_ISSUE_PATH, PRODUCTION_ISSUE_PURPOSES, PRODUCTION_ISSUE_REASONS } from "@/lib/erp/production-handover-shape";
+import { PRODUCTION_ISSUE_PATH, PRODUCTION_ISSUE_PURPOSES, PRODUCTION_ISSUE_REASONS, VALUE_MODE_TEXT, type ProductionValueMode } from "@/lib/erp/production-handover-shape";
 import type { ProductionIssueOptions } from "@/lib/erp/production-issue";
 import type { BucketView } from "@/lib/erp/production-ledger";
 import { todayIso } from "@/lib/format";
@@ -53,6 +53,8 @@ export function ProductionIssueForm({ options, initialBucketIds }: { options: Pr
   const [date, setDate] = useState(todayIso());
   const [note, setNote] = useState("");
   const [reason, setReason] = useState("");
+  // A BSTB Pengeluaran says whether its goods keep value; nobody guesses it (P339).
+  const [valueMode, setValueMode] = useState<ProductionValueMode | "">("");
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);
   const [posted, setPosted] = useState<string | null>(null);
@@ -71,13 +73,13 @@ export function ProductionIssueForm({ options, initialBucketIds }: { options: Pr
 
   async function submit() {
     setBusy(true);
-    const result = await sendProductionIssueAction({ purpose: options.purpose, reason: reason || null, from_unit_id: options.unit.id, warehouse_id: Number(warehouse) || null, issue_date: date, note, lines });
+    const result = await sendProductionIssueAction({ purpose: options.purpose, reason: reason || null, value_mode: isReturn ? valueMode || null : null, from_unit_id: options.unit.id, warehouse_id: Number(warehouse) || null, issue_date: date, note, lines });
     setBusy(false);
     setAsking(false);
     if (!result.ok) {
       setErrors(result.errors);
       const lineError = Object.entries(result.errors).find(([k]) => k.startsWith("lines."))?.[1];
-      toast(result.errors._form ? "Tidak diizinkan" : "Belum bisa dikirim", result.errors._form ?? result.errors._lines ?? lineError ?? result.errors.from_unit_id ?? result.errors.warehouse_id ?? "Periksa kembali isian.", "err");
+      toast(result.errors._form ? "Tidak diizinkan" : "Belum bisa dikirim", result.errors._form ?? result.errors._lines ?? lineError ?? result.errors.from_unit_id ?? result.errors.warehouse_id ?? result.errors.value_mode ?? "Periksa kembali isian.", "err");
       return;
     }
     setPosted(result.no);
@@ -96,7 +98,7 @@ export function ProductionIssueForm({ options, initialBucketIds }: { options: Pr
           </h1>
           <div className="ph-act">
             <CancelButton href={back} dirty={rows.length > 0} />
-            <button className="btn primary" disabled={busy || !rows.length || !target || blocked} onClick={() => setAsking(true)}>
+            <button className="btn primary" disabled={busy || !rows.length || !target || blocked || (isReturn && !valueMode)} onClick={() => setAsking(true)}>
               <Icon name="send" size={15} /> Kirim
             </button>
           </div>
@@ -147,6 +149,20 @@ export function ProductionIssueForm({ options, initialBucketIds }: { options: Pr
                     invalid={Boolean(errors.reason)}
                     onChange={(v) => {
                       setReason(v);
+                      touched();
+                    }}
+                  />
+                </Field>
+              )}
+              {isReturn && (
+                <Field label="Nilai" span={4} required error={errors.value_mode} help={valueMode ? VALUE_MODE_TEXT[valueMode].help : "gudang menerima sesuai pilihan ini"}>
+                  <Select
+                    value={valueMode}
+                    options={(Object.keys(VALUE_MODE_TEXT) as ProductionValueMode[]).map((m) => ({ value: m, label: VALUE_MODE_TEXT[m].name }))}
+                    placeholder="Pilih nilai…"
+                    invalid={Boolean(errors.value_mode)}
+                    onChange={(v) => {
+                      setValueMode(v as ProductionValueMode);
                       touched();
                     }}
                   />
@@ -291,7 +307,7 @@ export function ProductionIssueForm({ options, initialBucketIds }: { options: Pr
         tone="brand"
         title={`Kirim ${p.name}`}
         subject={target ? `${options.unit.label} → ${target.label}` : undefined}
-        body={`${rows.length} baris berstatus Dalam Perjalanan sampai ${target?.label ?? "gudang"} menekan Terima${isReturn ? "; gudang memilih apakah barang masuk dengan nilainya atau tanpa nilai" : ""}. Dokumen yang sudah dikirim tidak dapat dibatalkan.`}
+        body={`${rows.length} baris berstatus Dalam Perjalanan sampai ${target?.label ?? "gudang"} menerimanya${isReturn && valueMode ? `, ${VALUE_MODE_TEXT[valueMode].name.toLowerCase()}` : ""}. Dokumen yang sudah dikirim tidak dapat dibatalkan.`}
         confirmLabel="Ya, Kirim"
         busy={busy}
         onConfirm={submit}

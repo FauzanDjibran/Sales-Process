@@ -65,6 +65,7 @@ export const STARTER_ACCOUNTS: AccountSpec[] = [
   { key: "permitRevenue", sub: "4.1.1", name: "Pendapatan Perizinan", normal: "Kredit", note: "Pendapatan jasa pengurusan perizinan, diakui saat Invoice Perizinan diposting" },
   { key: "returns", sub: "4.1.8", name: "Retur Penjualan", normal: "Debit" },
   { key: "otherIncome", sub: "4.9.1", name: "Pendapatan Lain-lain", normal: "Kredit" },
+  { key: "stockOtherReceipt", sub: "4.9.1", name: "Penerimaan Persediaan Lain-lain", normal: "Kredit", note: "Lawan Persediaan untuk barang yang masuk gudang tanpa dokumen sumber" },
   { key: "fx", sub: "4.9.1", name: "Laba/Rugi Selisih Kurs", normal: "Kredit" },
   // ---- costs and expenses
   { key: "cogs", sub: "5.1.1", name: "HPP Barang", normal: "Debit" },
@@ -108,6 +109,7 @@ export const STARTER_MAPPINGS: [setting: string, account: string][] = [
   ["stock_difference_account", "stockDifference"],
   ["stock_disposal_account", "stockDisposal"],
   ["stock_sample_account", "stockSample"],
+  ["stock_other_receipt_account", "stockOtherReceipt"],
   ["receivable_account", "ar"],
   ["sales_revenue_account", "sales"],
   ["sales_return_account", "returns"],

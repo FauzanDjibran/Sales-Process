@@ -8,7 +8,7 @@ import { DAY, Refused, asDate, docTypeId, fourDecimals, fromUnits, isoDay, nextD
 import { ProductionRefusal, availableBuckets, bucketsByIds, jobsByIds, partaiNosByIds, sendInTransit, takeFromBucket, trackingsByIds, type BucketView } from "./production-ledger";
 import { endsLine, routeMap } from "./production-master";
 import { isTransitWarehouse } from "./system-settings";
-import { PRODUCTION_ISSUE_PURPOSES, PRODUCTION_ISSUE_REASONS, issuePurposeOf, type HandoverStatus, type ProductionIssuePurpose } from "./production-handover-shape";
+import { PRODUCTION_ISSUE_PURPOSES, PRODUCTION_ISSUE_REASONS, issuePurposeOf, type HandoverStatus, type ProductionIssuePurpose, type ProductionValueMode } from "./production-handover-shape";
 
 /**
  * The Production Issue (P317): goods leaving production. Its tables are
@@ -18,11 +18,12 @@ import { PRODUCTION_ISSUE_PURPOSES, PRODUCTION_ISSUE_REASONS, issuePurposeOf, ty
  *   ends a line's routing, each No. Stok whole (P303).
  * - **BSTB Pengeluaran** (`return`, `BPG_…`): Persiapan or Stand By of any Unit
  *   (W29), a No. Stok without a Job in part, a Job whole (W96); it ends the Job
- *   (W104). Its reason is for reading only.
+ *   (W104). Its reason is for reading only; **its value is the Unit's choice**,
+ *   carried or none, which the warehouse's Stock Receipt only receives (P339).
  *
  * **Kirim** (no Draft, no journal): the goods wait at the Unit as Dalam
  * Perjalanan, a row of this document's own, so the value each carries is frozen;
- * `ReceiptSent` makes the Stock Receipt. When the warehouse takes it in,
+ * `ReceiptSent` puts it in the warehouse's inbox, where a Stock Receipt is made from it. When the warehouse takes it in,
  * `ReceiptReceived` empties those rows at exactly that value.
  */
 
@@ -36,7 +37,7 @@ export async function issueWarehouses(ids: number[]): Promise<Map<number, string
 }
 
 export type ProductionIssueLineInput = { bucket_id: number | null; qty: number | string };
-export type ProductionIssueInput = { purpose?: ProductionIssuePurpose; reason?: string | null; from_unit_id: number | null; warehouse_id: number | null; issue_date: string; note: string; lines: ProductionIssueLineInput[] };
+export type ProductionIssueInput = { purpose?: ProductionIssuePurpose; reason?: string | null; value_mode?: ProductionValueMode | null; from_unit_id: number | null; warehouse_id: number | null; issue_date: string; note: string; lines: ProductionIssueLineInput[] };
 export type ProductionIssueResult = { ok: true; id: number; no: string } | { ok: false; errors: Record<string, string> };
 
 async function audit(tx: Tx, id: number, action: "TAMBAH" | "UPDATE", event: string, by: number) {
@@ -71,6 +72,9 @@ async function check(db: Db, input: ProductionIssueInput) {
   if (!DAY.test(input.issue_date)) errors.issue_date = "Isi tanggal.";
   const reason = purpose === "return" ? text(input.reason) : null;
   if (reason && !(reason in PRODUCTION_ISSUE_REASONS)) errors.reason = "Alasan tidak dikenal.";
+  // Finished goods always keep their value; a BSTB Pengeluaran says whether its goods do.
+  const valueMode: ProductionValueMode = purpose === "return" && input.value_mode === "none" ? "none" : "carried";
+  if (purpose === "return" && input.value_mode !== "none" && input.value_mode !== "carried") errors.value_mode = "Pilih nilai barang: terbawa atau tanpa nilai.";
 
   const raw = Array.isArray(input.lines) ? input.lines : [];
   if (!raw.length) errors._lines = "Pilih barang yang dikirim.";
@@ -105,7 +109,7 @@ async function check(db: Db, input: ProductionIssueInput) {
     if (short) errors._lines = `No. Job ${short.jobNo} dikirim utuh: ${short.lotNo} belum ikut.`;
   }
   if (Object.keys(errors).length) return { ok: false as const, errors };
-  return { ok: true as const, purpose, reason, unit: unit!, warehouse: warehouse!, rows, date: asDate(input.issue_date), note: text(input.note) };
+  return { ok: true as const, purpose, reason, valueMode, unit: unit!, warehouse: warehouse!, rows, date: asDate(input.issue_date), note: text(input.note) };
 }
 
 /** Kirim: the goods wait as Dalam Perjalanan at the Unit until the warehouse takes them in. */
@@ -122,7 +126,7 @@ export async function sendProductionIssue(input: ProductionIssueInput, actorId: 
       const last = await tx.prdIssue.findFirst({ where: { issue_no: { startsWith: s } }, orderBy: { issue_no: "desc" }, select: { issue_no: true } });
       const no = nextDailyNumber(s, last?.issue_no ?? null);
       const header = await tx.prdIssue.create({
-        data: { issue_no: no, purpose: c.purpose, reason: c.reason, unit_id: c.unit.id, warehouse_code: c.warehouse.code, warehouse_name: c.warehouse.name, issue_date: c.date, note: c.note, created_by: actorId },
+        data: { issue_no: no, purpose: c.purpose, reason: c.reason, value_mode: c.valueMode, unit_id: c.unit.id, warehouse_code: c.warehouse.code, warehouse_name: c.warehouse.name, issue_date: c.date, note: c.note, created_by: actorId },
       });
       const source = { docTypeId: await docTypeId(tx, "prd_issue"), docId: header.id, no };
       const made: { row: (typeof c.rows)[number]; value: number; grams: number | null }[] = [];
@@ -158,6 +162,7 @@ export async function sendProductionIssue(input: ProductionIssueInput, actorId: 
           unitLabel: c.unit.unit_label,
           warehouseCode: c.warehouse.code,
           note: [c.reason ? PRODUCTION_ISSUE_REASONS[c.reason] : null, c.note].filter(Boolean).join(" · ") || null,
+          valueMode: c.valueMode,
           lines: made.map(({ row: { bucket: b, qty }, value, grams }) => ({
             trackingNo: b.lotNo,
             itemCode: codes.get(b.itemId)!,
@@ -262,6 +267,7 @@ export async function listProductionIssues(units: number[] | null = null): Promi
 }
 
 export type ProductionIssueView = ProductionIssueRow & {
+  valueMode: ProductionValueMode;
   receivedAt: string | null;
   note: string | null;
   items: { lineNo: number; lotNo: string; itemLabel: string; itemName: string; uomLabel: string; jobNo: string | null; partaiNo: string | null; qty: number; grams: number | null }[];
@@ -286,6 +292,7 @@ export async function getProductionIssue(id: number): Promise<ProductionIssueVie
     unitLabel: r.unit.unit_label,
     warehouseName: r.warehouse_name,
     lines: r.lines.length,
+    valueMode: r.value_mode === "none" ? "none" : "carried",
     receivedAt: isoDay(r.received_at) || null,
     note: r.note,
     items: r.lines.map((l) => {

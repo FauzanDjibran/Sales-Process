@@ -4,7 +4,7 @@ import { RecordHistoryCard } from "@/components/ui/record-history-card";
 import { requirePermission } from "@/lib/erp/auth";
 import { requireUnit } from "@/lib/erp/production-access";
 import { getProductionIssue } from "@/lib/erp/production-issue";
-import { PRODUCTION_ISSUE_PATH, PRODUCTION_ISSUE_PURPOSES, PRODUCTION_ISSUE_REASONS, PRODUCTION_ISSUE_STATUS_TEXT } from "@/lib/erp/production-handover-shape";
+import { PRODUCTION_ISSUE_PATH, PRODUCTION_ISSUE_PURPOSES, PRODUCTION_ISSUE_REASONS, PRODUCTION_ISSUE_STATUS_TEXT, VALUE_MODE_TEXT } from "@/lib/erp/production-handover-shape";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +25,7 @@ export default async function Page({ params }: { params: Promise<{ id: string }>
         statusText={PRODUCTION_ISSUE_STATUS_TEXT}
         warehouseLabel="Ke Gudang"
         reason={doc.reason ? (PRODUCTION_ISSUE_REASONS[doc.reason] ?? doc.reason) : null}
+        value={doc.purpose === "return" ? VALUE_MODE_TEXT[doc.valueMode].name : null}
       />
       <RecordHistoryCard entityKey="prd_issue" rowId={doc.id} />
     </>

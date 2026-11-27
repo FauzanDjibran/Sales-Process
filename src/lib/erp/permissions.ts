@@ -356,9 +356,12 @@ export const PERMISSIONS = [
   { code: "STOCK_ISSUE_EDIT", name: "Ubah Stock Issue", module: "inventory", description: "Hanya selama masih Draft." },
   { code: "STOCK_ISSUE_SUBMIT", name: "Kirim / Posting Stock Issue", module: "inventory", description: "Barang keluar gudang per lot: ke Unit menjurnal WIP / Persediaan, pemusnahan dan sampel menjurnal Beban / Persediaan." },
   { code: "STOCK_ISSUE_CANCEL", name: "Batalkan Stock Issue", module: "inventory", description: "Hanya Draft, dengan alasan." },
-  // BSTB ke Finish Goods (P303): Produksi sends, the warehouse receives.
-  { code: "STOCK_RECEIPT_VIEW", name: "Lihat Stock Receipt", module: "inventory", description: "BSTB ke Finish Goods dan BSTB Pengeluaran ke gudang user." },
-  { code: "STOCK_RECEIPT_RECEIVE", name: "Terima Stock Receipt", module: "inventory", description: "Barang masuk gudang dengan No. Stok yang sama; BSTB Pengeluaran boleh diterima tanpa nilai (ke Beban Pemusnahan Produksi)." },
+  // Stock Receipt (P317, P339): the warehouse makes it from a source, or types it.
+  { code: "STOCK_RECEIPT_VIEW", name: "Lihat Stock Receipt", module: "inventory", description: "Barang masuk gudang user tanpa partner, dan kiriman yang menunggu diterima." },
+  { code: "STOCK_RECEIPT_CREATE", name: "Buat Stock Receipt", module: "inventory", description: "Dari kiriman produksi, bonus Receipt Note, atau Penerimaan Lain-lain." },
+  { code: "STOCK_RECEIPT_EDIT", name: "Ubah Stock Receipt", module: "inventory", description: "Hanya Draft." },
+  { code: "STOCK_RECEIPT_RECEIVE", name: "Terima Stock Receipt", module: "inventory", description: "Terima atau Posting: barang masuk stok senilai yang ditentukan tujuannya, dengan journal." },
+  { code: "STOCK_RECEIPT_CANCEL", name: "Batalkan Stock Receipt", module: "inventory", description: "Hanya Draft, dengan alasan; sumbernya kembali menunggu." },
   // Stock transfer through the Gudang Transit (P300): Kirim and Terima are
   // separate, so a destination warehouse may only receive.
   { code: "STOCK_ADJUSTMENT_VIEW", name: "Lihat Stock Adjustment", module: "inventory", description: "Hitungan gudang user, termasuk Draft, yang ditolak dan yang dibatalkan." },

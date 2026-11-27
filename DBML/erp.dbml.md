@@ -3170,28 +3170,31 @@ table log_stock_issue_tracking {
 
 //////////////////////////////////
 //
-// Stock Receipt — dokumen batas dari Produksi
+// Stock Receipt — barang masuk gudang tanpa partner (P317, P339)
 //
 /////////////////////////////////
 
-// Goods into a warehouse without a partner (P317), by purpose; from production they are made by a
-// Production Issue, under its number. Terima by the warehouse: Dr Persediaan (or beban) / Cr WIP.
+// Goods into a warehouse without a partner, by purpose (`stock-receipt-purposes.ts`). The warehouse
+// makes every one with Buat (P339): from production it takes one shipment of the inbox whole; a bonus
+// takes one Receipt Note's bonus; Penerimaan Lain-lain types its lines. Draft → Terima / Posting.
 table log_stock_receipt {
   id                          int [pk, increment, not null]
-  receipt_no                  varchar [not null, unique] // the sender's: BFG_ / BPG_<unit>_<ddmmyy>_<NNNNN>; a bonus: SRC/YYYY/MM/NNNN
-  purpose                     varchar [not null] // finish_goods | return | purchase_bonus (P321)
-  receipt_date                date [not null] // the day sent
-  status                      enum('InTransit', 'Received') [not null, default: 'InTransit']
-  from_unit_id                int [ref : > ref_unit.id]
+  receipt_no                  varchar [not null, unique] // SRC/YYYY/MM/NNNN; production ones before P339 carry the sender's
+  purpose                     varchar [not null] // finish_goods | return | purchase_bonus | other_receipt
+  receipt_date                date [not null] // Tanggal Terima, the journal's date
+  status                      enum('Draft', 'Received', 'Posted', 'Cancelled') [not null, default: 'Draft']
+  from_unit_id                int [ref : > ref_unit.id] // lintas aplikasi → ERP
   warehouse_id                int [not null, ref : > ref_warehouse.id]
-  source_doc_type_id          int // weak: the Receipt Note of a purchase_bonus (P321)
+  inbox_id                    int [ref : > log_stock_receipt_inbox.id] // the shipment it takes; one live receipt each (partial unique)
+  source_doc_type_id          int // weak: the Receipt Note of a purchase_bonus (P321); one live receipt each (partial unique)
   source_doc_id               int
-  source_no                   varchar
-  note                        varchar
-  received_at                 date // Terima, the journal's date
+  source_no                   varchar // the Receipt Note's, or the Production Issue's number
+  note                        varchar // other_receipt: the reason, required
+  status_reason               varchar // why it was cancelled
+  received_at                 date
   received_by                 int
-  base_cost_amount                 decimal(18,2) [not null, default: 0] // Σ lines, frozen by the sender
-  value_mode                  varchar // carried | none, chosen at Terima (P304)
+  base_cost_amount                 decimal(18,2) [not null, default: 0] // Σ lines
+  value_mode                  varchar // from production: carried | none, chosen by the Unit (P339)
   base_written_off_amount          decimal(18,2) [not null, default: 0] // what `none` charged to Beban Pemusnahan Produksi
   journal_id                  int // acc_journal.id, no FK
   created_by                  int [not null]
@@ -3204,6 +3207,45 @@ table log_stock_receipt {
     (status, receipt_date)
     warehouse_id
     (source_doc_type_id, source_doc_id)
+    inbox_id
+  }
+}
+
+// What production sent to a warehouse (P339): the copy `ReceiptSent` writes, waiting until a Stock
+// Receipt naming it is received. Named by the sender's number, never its id (P319).
+table log_stock_receipt_inbox {
+  id                          int [pk, increment, not null]
+  sent_no                     varchar [not null, unique] // the Production Issue's: BFG_ / BPG_<unit>_<ddmmyy>_<NNNNN>
+  purpose                     varchar [not null] // finish_goods | return
+  sent_date                   date [not null]
+  from_unit_id                int [ref : > ref_unit.id] // lintas aplikasi → ERP
+  unit_label                  varchar [not null] // as sent
+  warehouse_id                int [not null, ref : > ref_warehouse.id]
+  value_mode                  varchar [not null, default: 'carried'] // carried | none, chosen by the Unit
+  note                        varchar
+  base_cost_amount                 decimal(18,2) [not null, default: 0] // Σ lines, frozen by the sender
+  created_by                  int [not null]
+  created_at                  timestamptz [not null, default: `now()`]
+
+  indexes {
+    warehouse_id
+  }
+}
+
+table log_stock_receipt_inbox_line {
+  id                          int [pk, increment, not null]
+  inbox_id                    int [not null, ref : > log_stock_receipt_inbox.id]
+  seq                         int [not null]
+  item_id                     int [not null, ref : > m_item.id]
+  tracking_no                 varchar [not null]
+  expiry_date                 date
+  job_no                      varchar // production's, as printed
+  base_qty                    decimal(18,6) [not null] // CHECK > 0
+  grams                       decimal(18,6)
+  base_cost_amount                decimal(18,2) [not null, default: 0] // frozen by the sender
+
+  indexes {
+    (inbox_id, seq) [unique]
   }
 }
 
@@ -3225,14 +3267,14 @@ table log_stock_receipt_tracking {
   id                          int [pk, increment, not null]
   stock_receipt_line_id       int [not null, ref : > log_stock_receipt_line.id]
   seq                         int [not null]
-  tracking_no                 varchar [not null] // the same No. Stok in stock
+  tracking_no                 varchar [not null] // production's own No. Stok, or a new one (bonus, Penerimaan Lain-lain, W10)
   expiry_date                 date
   job_no                      varchar // production's, as printed
   base_qty                    decimal(18,6) [not null] // CHECK > 0
   grams                       decimal(18,6)
   base_cost_amount                decimal(18,2) [not null, default: 0] // frozen by the sender
-  location_id                 int // ref_warehouse_location.id, no FK; chosen at Terima
-  stock_status_id             int // sys_stock_status.id, no FK; chosen at Terima
+  location_id                 int // ref_warehouse_location.id, no FK; chosen on the Draft
+  stock_status_id             int // sys_stock_status.id, no FK; chosen on the Draft
 
   indexes {
     (stock_receipt_line_id, seq) [unique]
@@ -4008,6 +4050,7 @@ table prd_issue {
   issue_no                    varchar [not null, unique] // BFG_ / BPG_<unit>_<ddmmyy>_<NNNNN>
   purpose                     varchar [not null] // finish_goods | return
   reason                      varchar // of a return, for reading only
+  value_mode                  varchar [not null, default: 'carried'] // carried | none, chosen by the Unit (P339)
   unit_id                     int [not null, ref : > ref_unit.id] // lintas aplikasi → ERP
   warehouse_code              varchar [not null]
   warehouse_name              varchar [not null]

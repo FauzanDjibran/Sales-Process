@@ -245,6 +245,7 @@ const STOCK_RECEIPT_EVENTS: Record<string, AuditEventLabel> = {
   send: { label: "Dikirim dari produksi", icon: "truck", tone: "neutral" },
   bonus: { label: "Dibuat dan diterima bersama Receipt Note", icon: "check", tone: "primary" },
   receive: { label: "Diterima — barang masuk gudang", icon: "check", tone: "primary" },
+  cancel: { label: "Dibatalkan — sumbernya kembali menunggu", icon: "block", tone: "danger" },
 };
 
 const PRODUCTION_RECEIPT_EVENTS: Record<string, AuditEventLabel> = {

@@ -678,6 +678,7 @@ model MItem {
   prd_balances                 PrdBalance[]                  @relation("PrdBalanceItem")
   stock_issue_lines            LogStockIssueLine[]
   stock_receipt_lines          LogStockReceiptLine[]
+  stock_receipt_inbox_lines    LogStockReceiptInboxLine[]
   prd_receipt_lines            PrdReceiptLine[]
   prd_issue_lines              PrdIssueLine[]
   prd_ledger                   PrdLedger[]                   @relation("PrdLedgerItem")
@@ -769,6 +770,7 @@ model RefWarehouse {
   receipt_notes     LogReceiptNote[]          @relation("ReceiptNoteWarehouse")
   stock_issues      LogStockIssue[]
   stock_receipts    LogStockReceipt[]
+  stock_receipt_inboxes LogStockReceiptInbox[]
   /// Who may work in it (P300 OD-9).
   user_warehouses   LogUserWarehouse[]
   transfers_from    LogStockTransfer[]        @relation("StockTransferFrom")
@@ -950,6 +952,7 @@ model RefUnit {
   qc_checks      PrdQcCheck[]
   stock_issues   LogStockIssue[]
   stock_receipts LogStockReceipt[]
+  stock_receipt_inboxes LogStockReceiptInbox[]
   prd_receipts   PrdReceipt[]
   prd_issues     PrdIssue[]
   prd_ledger     PrdLedger[]          @relation("PrdLedgerUnit")
@@ -5045,6 +5048,8 @@ model PrdIssue {
   purpose        String
   /// Why, for a `return`: a key of PRODUCTION_ISSUE_REASONS.
   reason         String?
+  /// A `return`: `carried` or `none`, chosen by the Unit (P339); finished goods are always `carried`.
+  value_mode     String         @default("carried")
   unit_id        Int
   warehouse_code String
   warehouse_name String
@@ -5569,31 +5574,33 @@ model LogStockIssueTracking {
 // only by `stock-receipt.ts`; production is named by number, never by id.
 
 model LogStockReceipt {
-  id                      Int            @id @default(autoincrement())
-  /// The sender's number.
-  receipt_no              String         @unique
-  /// `finish_goods` (BSTB ke Finish Goods), `return` (BSTB Pengeluaran) or `purchase_bonus` (P321).
+  id                      Int                @id @default(autoincrement())
+  /// SRC/YYYY/MM/NNNN, its own (P339); before P339 a production one carried the sender's.
+  receipt_no              String             @unique
+  /// A key of STOCK_RECEIPT_PURPOSES: finish_goods, return, purchase_bonus, other_receipt.
   purpose                 String
-  /// The day the goods were sent.
-  receipt_date            DateTime       @db.Date
-  status                  HandoverStatus @default(InTransit)
-  /// The Unit that sent them.
+  /// Tanggal Terima: the journal's date.
+  receipt_date            DateTime           @db.Date
+  status                  StockReceiptStatus @default(Draft)
+  /// From production: the Unit that sent them.
   from_unit_id            Int?
   warehouse_id            Int
-  /// `purchase_bonus`: the Receipt Note it came with, weak (P321).
+  /// From production: the shipment it takes, whole (P339).
+  inbox_id                Int?
+  /// purchase_bonus: the Receipt Note, weak (P321). From production: source_no only, the sender's number.
   source_doc_type_id      Int?
   source_doc_id           Int?
   source_no               String?
+  /// other_receipt: the reason, required.
   note                    String?
-  /// Terima: the day the warehouse took them in, the journal's date.
-  received_at             DateTime?      @db.Date
+  status_reason           String?
+  received_at             DateTime?          @db.Date
   received_by             Int?
-  /// Σ of the lines' value, frozen by the sender.
-  base_cost_amount        Decimal        @default(0) @db.Decimal(18, 2)
-  /// Chosen at Terima: `carried` (into stock at its value) or `none` (into stock at 0, P304).
+  base_cost_amount        Decimal            @default(0) @db.Decimal(18, 2)
+  /// From production: `carried` or `none`, chosen by the Unit at Kirim (P339).
   value_mode              String?
   /// What `none` charged to Beban Pemusnahan Produksi instead of stock.
-  base_written_off_amount Decimal        @default(0) @db.Decimal(18, 2)
+  base_written_off_amount Decimal            @default(0) @db.Decimal(18, 2)
   journal_id              Int?
 
   created_by Int
@@ -5601,18 +5608,73 @@ model LogStockReceipt {
   created_at DateTime @default(now()) @db.Timestamptz(6)
   updated_at DateTime @default(now()) @updatedAt @db.Timestamptz(6)
 
-  from_unit RefUnit?              @relation(fields: [from_unit_id], references: [id])
-  warehouse RefWarehouse          @relation(fields: [warehouse_id], references: [id])
+  from_unit RefUnit?               @relation(fields: [from_unit_id], references: [id])
+  warehouse RefWarehouse           @relation(fields: [warehouse_id], references: [id])
+  inbox     LogStockReceiptInbox?  @relation(fields: [inbox_id], references: [id])
   lines     LogStockReceiptLine[]
 
   @@index([purpose, status])
   @@index([status, receipt_date])
   @@index([warehouse_id])
   @@index([source_doc_type_id, source_doc_id])
+  @@index([inbox_id])
   @@map("log_stock_receipt")
 }
 
-/// One item of a Stock Receipt: the sum of its No. Stok.
+/// What production sent to a warehouse (P339): the copy a Stock Receipt is made from,
+/// written by `ReceiptSent`. It waits until a Stock Receipt naming it is received.
+model LogStockReceiptInbox {
+  id               Int      @id @default(autoincrement())
+  /// The Production Issue's number.
+  sent_no          String   @unique
+  /// finish_goods | return.
+  purpose          String
+  sent_date        DateTime @db.Date
+  from_unit_id     Int?
+  unit_label       String
+  warehouse_id     Int
+  /// carried | none, chosen by the Unit.
+  value_mode       String   @default("carried")
+  note             String?
+  base_cost_amount Decimal  @default(0) @db.Decimal(18, 2)
+  created_by       Int
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+
+  from_unit RefUnit?                   @relation(fields: [from_unit_id], references: [id])
+  warehouse RefWarehouse               @relation(fields: [warehouse_id], references: [id])
+  lines     LogStockReceiptInboxLine[]
+  receipts  LogStockReceipt[]
+
+  @@index([warehouse_id])
+  @@map("log_stock_receipt_inbox")
+}
+
+model LogStockReceiptInboxLine {
+  id               Int       @id @default(autoincrement())
+  inbox_id         Int
+  seq              Int
+  item_id          Int
+  tracking_no      String
+  expiry_date      DateTime? @db.Date
+  job_no           String?
+  base_qty         Decimal   @db.Decimal(18, 6)
+  grams            Decimal?  @db.Decimal(18, 6)
+  base_cost_amount Decimal   @default(0) @db.Decimal(18, 2)
+
+  inbox LogStockReceiptInbox @relation(fields: [inbox_id], references: [id])
+  item  MItem                @relation(fields: [item_id], references: [id])
+
+  @@unique([inbox_id, seq])
+  @@map("log_stock_receipt_inbox_line")
+}
+
+enum StockReceiptStatus {
+  Draft
+  Received
+  Posted
+  Cancelled
+}
+
 model LogStockReceiptLine {
   id               Int     @id @default(autoincrement())
   stock_receipt_id Int

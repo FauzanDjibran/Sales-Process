@@ -13,14 +13,14 @@ Dua jalan keluar produksi, masing-masing **dua dokumen bernomor sama** (P317):
 | Jumlah | selalu utuh | Job utuh; No. Stok tanpa Job boleh sebagian |
 | Bahan penolong | tidak | bisa |
 | Alasan | tidak ada | opsional, dari daftar tetap |
-| Nilai saat Terima | terbawa | **dipilih gudang**: terbawa / tanpa nilai |
+| Nilai | terbawa | **dipilih Unit saat Kirim**: terbawa / tanpa nilai (P339); gudang hanya menerima |
 
 ## Kode acuan
 
 | Bagian | File / fungsi |
 | --- | --- |
 | Pengirim | `production-issue.ts` → `sendProductionIssue`, `takeReceiptReceived` |
-| Penerima | `stock-receipt.ts` → `takeReceiptSent`, `receiveStockReceipt` |
+| Penerima | `stock-receipt.ts` → `takeReceiptSent` (inbox), `createStockReceipt`, `receiveStockReceipt` |
 | Tujuan dan alasan | `production-handover-shape.ts`, `stock-receipt-purposes.ts` |
 
 ---
@@ -29,12 +29,13 @@ Dua jalan keluar produksi, masing-masing **dua dokumen bernomor sama** (P317):
 
 | # | Siapa | Di mana | Langkah |
 | --: | --- | --- | --- |
-| 1 | Unit | Workspace › Stand By UP5 › **Kirim ke Finish Goods**; atau Persiapan / Stand By › **BSTB Pengeluaran** | barang, Gudang Tujuan, Tanggal → **Kirim** |
-| 2 | Gudang | ERP › Persediaan › Operasi Gudang › **Stock Receipt** | pilih lokasi (bila ada) dan status tiap No. Stok → **Terima**; Pengeluaran: pilih nilai |
+| 1 | Unit | Workspace › Stand By UP5 › **Kirim ke Finish Goods**; atau Persiapan / Stand By › **BSTB Pengeluaran** | barang, Gudang Tujuan, Tanggal, (Pengeluaran) **Nilai** → **Kirim** |
+| 2 | Gudang | ERP › Persediaan › Operasi Gudang › **Stock Receipt** › kartu *Menunggu Diterima* › **Terima**, atau **Buat Stock Receipt** › pilih tujuan dan kiriman | pilih lokasi (bila ada) dan status tiap No. Stok → **Simpan & Terima** |
 
-Status kedua dokumen: `InTransit (Dalam Perjalanan) → Received (Diterima)`. Tanpa
-Draft dan tanpa batal. Izin: `PRODUCTION_ISSUE_VIEW / _SEND` dan
-`STOCK_RECEIPT_VIEW / _RECEIVE`.
+Production Issue: `InTransit (Dalam Perjalanan) → Received (Diterima)`, tanpa Draft.
+Stock Receipt (P339): `Draft → Received`, Batalkan hanya Draft dan kirimannya kembali menunggu;
+nomornya sendiri `SRC/…`, nomor BFG / BPG menjadi Dokumen Sumber. Izin: `PRODUCTION_ISSUE_VIEW / _SEND`
+dan `STOCK_RECEIPT_VIEW / _CREATE / _EDIT / _RECEIVE / _CANCEL`.
 
 ---
 
@@ -45,7 +46,7 @@ Draft dan tanpa batal. Izin: `PRODUCTION_ISSUE_VIEW / _SEND` dan
 ```
 tiap baris: sendInTransit   asal → Dalam Perjalanan
             bucket transit milik dokumen ini sendiri  ← NILAI BEKU
-pesan ReceiptSent  →  Stock Receipt lahir, menunggu
+pesan ReceiptSent  →  salinan kiriman di log_stock_receipt_inbox, menunggu gudang
 ```
 
 Dua dokumen atas No. Stok yang sama masing-masing membawa nilainya sendiri, apa pun
@@ -101,7 +102,7 @@ Tabel ERP tidak menyimpan id produksi; yang disimpan nomor (`tracking_no`, `job_
 | FG hanya dari Unit terakhir | *… bukan Unit terakhir routing …* |
 | Job utuh di tahap itu | *No. Job … dikirim utuh …* |
 | Gudang berlokasi | *… memakai lokasi: pilih lokasinya.* |
-| Pengeluaran: nilai dipilih | *Pilih nilai barang yang diterima.* |
+| Pengeluaran: nilai dipilih Unit | *Pilih nilai barang: terbawa atau tanpa nilai.* |
 | Tanpa nilai butuh akun | *Lengkapi Account Mapping dulu …* |
 
 Satu No. Stok masuk ke satu lokasi dan satu status.

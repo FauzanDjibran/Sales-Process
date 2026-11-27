@@ -76,14 +76,14 @@ test("WIP = production + on its way, after every one of forty random events", as
     async () => {
       const b = pick((await availableBuckets({ unitIds: [f.wsA, f.wsB], stage: "Preparation" })).filter((x) => x.itemId === f.material && x.qty >= 2));
       if (!b) return;
-      const r = await sendProductionIssue({ purpose: "return", from_unit_id: b.unitId, warehouse_id: f.warehouse, issue_date: today, note: "", lines: [{ bucket_id: b.id, qty: ri(1, Math.floor(b.qty)) }] }, f.actor);
+      const r = await sendProductionIssue({ purpose: "return", value_mode: "carried", from_unit_id: b.unitId, warehouse_id: f.warehouse, issue_date: today, note: "", lines: [{ bucket_id: b.id, qty: ri(1, Math.floor(b.qty)) }] }, f.actor);
       assert.ok(r.ok, JSON.stringify(r));
       count("keluar unit");
     },
     async () => {
       const waiting = pick(await prisma.prdIssue.findMany({ where: { status: "InTransit", lines: { some: { item_id: f.material } } } }));
       if (!waiting) return;
-      const r = await receiveStockReceipt(await stockReceiptOf(waiting.issue_no), f.actor, { valueMode: "carried" });
+      const r = await receiveStockReceipt(await stockReceiptOf(waiting.issue_no, f.actor), f.actor);
       assert.ok(r.ok, JSON.stringify(r));
       count("terima gudang");
     },

@@ -1,4 +1,5 @@
 import { receiveProductionReceipt } from "../src/lib/erp/production-receipt";
+import { createStockReceipt } from "../src/lib/erp/stock-receipt";
 import { cleanupStock, makeAccount, prisma, stockIn, systemUserId } from "./helpers";
 
 /**
@@ -102,8 +103,19 @@ export async function takeIn(issueNo: string, actor: number) {
   return receiveProductionReceipt(r.id, actor);
 }
 
-/** The Stock Receipt a Production Issue made (P317). */
-export const stockReceiptOf = async (issueNo: string) => (await prisma.logStockReceipt.findUniqueOrThrow({ where: { receipt_no: issueNo } })).id;
+/**
+ * The warehouse makes a Stock Receipt from what a Production Issue sent (P339),
+ * dated the day it was sent, every No. Stok in the place given; its id.
+ */
+export async function stockReceiptOf(issueNo: string, actor: number, place: { location_id?: number | null; stock_status_id?: number | null } = {}) {
+  const x = await prisma.logStockReceiptInbox.findUniqueOrThrow({ where: { sent_no: issueNo }, include: { lines: true } });
+  const r = await createStockReceipt(
+    { purpose: x.purpose, warehouse_id: x.warehouse_id, source_id: x.id, receipt_date: x.sent_date.toISOString().slice(0, 10), note: "", rows: x.lines.map((l) => ({ key: l.seq, ...place })) },
+    actor
+  );
+  if (!r.ok) throw new Error(JSON.stringify(r.errors));
+  return r.id;
+}
 
 /** Removes the handover documents of fixture items, both sides. */
 async function cleanupHandovers(itemIds: number[]): Promise<void> {
@@ -111,6 +123,7 @@ async function cleanupHandovers(itemIds: number[]): Promise<void> {
   const pr = (await prisma.prdReceiptLine.findMany({ where })).map((l) => l.receipt_id);
   const pi = (await prisma.prdIssueLine.findMany({ where })).map((l) => l.issue_id);
   const sr = (await prisma.logStockReceiptLine.findMany({ where })).map((l) => l.stock_receipt_id);
+  const inbox = (await prisma.logStockReceiptInboxLine.findMany({ where })).map((l) => l.inbox_id);
   await prisma.prdReceiptLine.deleteMany({ where });
   await prisma.prdReceipt.deleteMany({ where: { id: { in: pr } } });
   await prisma.prdIssueLine.deleteMany({ where });
@@ -118,7 +131,9 @@ async function cleanupHandovers(itemIds: number[]): Promise<void> {
   await prisma.logStockReceiptTracking.deleteMany({ where: { line: where } });
   await prisma.logStockReceiptLine.deleteMany({ where });
   const journals = (await prisma.logStockReceipt.findMany({ where: { id: { in: sr } } })).flatMap((r) => (r.journal_id ? [r.journal_id] : []));
-  await prisma.logStockReceipt.deleteMany({ where: { id: { in: sr } } });
+  await prisma.logStockReceipt.deleteMany({ where: { OR: [{ id: { in: sr } }, { inbox_id: { in: inbox } }] } });
+  await prisma.logStockReceiptInboxLine.deleteMany({ where });
+  await prisma.logStockReceiptInbox.deleteMany({ where: { id: { in: inbox } } });
   await prisma.accJournalLine.deleteMany({ where: { journal_id: { in: journals } } });
   await prisma.accJournal.deleteMany({ where: { id: { in: journals } } });
   await prisma.auditLog.deleteMany({ where: { OR: [{ entity_key: "prd_receipt", row_id: { in: pr } }, { entity_key: "prd_issue", row_id: { in: pi } }, { entity_key: "log_stock_receipt", row_id: { in: sr } }] } });

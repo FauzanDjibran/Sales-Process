@@ -31,3 +31,14 @@ export const PRODUCTION_ISSUE_REASONS: Record<string, string> = {
   auxiliary: "Sisa bahan penolong",
   other: "Lain-lain",
 };
+
+/**
+ * What a BSTB Pengeluaran's goods are worth when they reach the warehouse,
+ * chosen by the Unit at Kirim (P339): no figure, only whether they keep value.
+ */
+export type ProductionValueMode = "carried" | "none";
+export const VALUE_MODE_TEXT: Record<ProductionValueMode, { name: string; help: string }> = {
+  carried: { name: "Nilai terbawa", help: "Barang masih bernilai: masuk stok gudang senilai yang dibawanya dari produksi." },
+  none: { name: "Tanpa nilai", help: "Barang tidak bernilai lagi: masuk stok bernilai 0 dan nilainya menjadi Beban Pemusnahan Produksi." },
+};
+export const valueModeOf = (v: unknown): ProductionValueMode => (v === "none" ? "none" : "carried");

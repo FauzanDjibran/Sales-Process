@@ -111,6 +111,8 @@ describe("the settings catalogue lives in code", () => {
         // The Stock Issue's without a Unit (P324).
         "stock_disposal_account",
         "stock_sample_account",
+        // The Stock Receipt's Penerimaan Lain-lain (P339).
+        "stock_other_receipt_account",
         // Purchasing's (P122), ahead of the documents that post them.
         "goods_received_account",
         "payable_account",

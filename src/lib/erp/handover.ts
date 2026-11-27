@@ -37,7 +37,7 @@ export type HandoverCost = { unitLabel: string; rateVersionCode: string; trackin
 export type HandoverMessage =
   | { type: "IssueSent"; no: string; purpose: "material" | "auxiliary"; date: string; unitLabel: string; warehouseCode: string; warehouseName: string; note: string | null; lines: HandoverLine[] }
   | { type: "IssueReceived"; no: string; date: string }
-  | { type: "ReceiptSent"; no: string; purpose: "finish_goods" | "return"; date: string; unitLabel: string; warehouseCode: string; note: string | null; lines: HandoverLine[] }
+  | { type: "ReceiptSent"; no: string; purpose: "finish_goods" | "return"; date: string; unitLabel: string; warehouseCode: string; note: string | null; valueMode: "carried" | "none"; lines: HandoverLine[] }
   | { type: "ReceiptReceived"; no: string; date: string }
   /** What a posting inside production did: value gained or lost per item, Unit costs, value with no receiver. `docId` is the sender's own, kept as printed. */
   | { type: "ProductionPosted"; no: string; docTable: string; docId: number; date: string; description: string; moves: { itemCode: string; amount: number }[]; costs: HandoverCost[]; scrap: number };

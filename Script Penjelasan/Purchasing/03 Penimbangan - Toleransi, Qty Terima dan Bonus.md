@@ -8,7 +8,8 @@ Jalan (SJ) supplier dan hasil timbangan menjadi Qty Terima dan bonus.
 | Rumus (dipakai modal, Simpan dan Posting) | `src/lib/erp/receipt-weighting.ts` (`weigh`) |
 | Setelan per item | `src/lib/erp/item.ts` (`checkItemWeighting`, `writeItemWeighting`) |
 | Cek, simpan, posting | `src/lib/erp/receipt-note.ts` |
-| Stock Receipt bonus | `src/lib/erp/stock-receipt.ts` (`createBonusReceipt`) |
+| Bonus yang menunggu | `src/lib/erp/receipt-note.ts` (`postedBonuses`) |
+| Stock Receipt bonus | `src/lib/erp/stock-receipt.ts` (`createStockReceipt`, `receiveStockReceipt`) |
 | Modal | `src/components/inventory/receipt-weigh-dialog.tsx` |
 
 Aturan bisnisnya: P321 (`Claude-ERP.md`), `Purchase-UOM-Plan.md` §3. **Angka contoh
@@ -23,7 +24,7 @@ Aturan bisnisnya: P321 (`Claude-ERP.md`), `Purchase-UOM-Plan.md` §3. **Angka co
    dasar) dan Toleransi (%).
 3. **Hasil timbangan mengisi `qty` dan `base_qty` baris Receipt Note.** Sesudah itu
    nilai, stok, jurnal, sisa PO dan Invoice berjalan seperti biasa.
-4. **Bonus bernilai 0** dan masuk lewat Stock Receipt tersendiri.
+4. **Bonus bernilai 0** dan masuk lewat Stock Receipt yang dibuat gudang (P339).
 
 Urutannya: klik field Qty baris → modal Penimbangan (Qty SJ, Qty Timbangan) → bagi lot → Posting.
 
@@ -81,11 +82,13 @@ Lot diketik dalam satuan PO (P338): jumlahnya harus sama dengan Qty Terima, buka
 
 ## 5. Bonus
 
-Dalam transaksi Posting yang sama, satu Stock Receipt untuk semua bonus Receipt Note itu:
+Posting Receipt Note **tidak** memasukkan bonus (P339). Bonus menunggu di `qty_bonus` dan
+tampil di kartu *Menunggu Diterima* Stock Receipt, sampai gudang membuat satu Stock Receipt
+tujuan **Bonus Pembelian** untuk Receipt Note itu:
 
-- Status langsung **Diterima**, bertanggal Tanggal Terima, tanpa Terima terpisah.
-- No. Stok baru `<nomor RN>-<baris>-BONUS`, status Tersedia, lokasi dan kedaluwarsa
-  mengikuti lot pertama barisnya.
+- Diterima utuh; satu Stock Receipt hidup per Receipt Note (indeks unik parsial).
+- No. Stok baru, diusulkan `<nomor RN>-<baris>-BONUS` dan boleh diganti; kedaluwarsa dan
+  lokasi diusulkan dari lot pertama barisnya; status dipilih gudang.
 - Nilai 0: tidak ada jurnal, GR/IR atau tagihan. Rata-rata item **turun**.
 - Tidak mengurangi sisa PO dan tidak terbaca Invoice Pembelian.
 
@@ -123,4 +126,4 @@ JOIN log_receipt_note n ON n.id = l.receipt_note_id;
 ```
 
 `npm run db:reconcile` membuktikan `line.qty = qty_received`, Qty Terima = SJ kecuali di bawah
-toleransi, dan bonus = stok yang masuk lewat Stock Receipt-nya, bernilai 0 tanpa jurnal.
+toleransi, dan bonus yang sudah diterima = stok yang masuk lewat Stock Receipt-nya, bernilai 0 tanpa jurnal.

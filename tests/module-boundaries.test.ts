@@ -134,6 +134,8 @@ const TABLE_OWNERS: Record<string, string[]> = {
   logStockReceipt: ["src/lib/erp/stock-receipt.ts"],
   logStockReceiptLine: ["src/lib/erp/stock-receipt.ts"],
   logStockReceiptTracking: ["src/lib/erp/stock-receipt.ts"],
+  logStockReceiptInbox: ["src/lib/erp/stock-receipt.ts"],
+  logStockReceiptInboxLine: ["src/lib/erp/stock-receipt.ts"],
   // The production sides of them (P317).
   prdReceipt: ["src/lib/erp/production-receipt.ts"],
   prdReceiptLine: ["src/lib/erp/production-receipt.ts"],

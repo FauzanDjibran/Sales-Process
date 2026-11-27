@@ -46,7 +46,7 @@ import { createReceiptNote, transitionReceiptNote } from "../src/lib/erp/receipt
 import { createSalesOrder, transitionSalesOrder } from "../src/lib/erp/sales-order";
 import { createStockAdjustment, transitionStockAdjustment } from "../src/lib/erp/stock-adjustment";
 import { createStockIssue, transitionStockIssue } from "../src/lib/erp/stock-issue";
-import { receiveStockReceipt } from "../src/lib/erp/stock-receipt";
+import { createStockReceipt, receiveStockReceipt } from "../src/lib/erp/stock-receipt";
 import { createStockTransfer, transitionStockTransfer } from "../src/lib/erp/stock-transfer";
 import { createTransferReceipt, transitionTransferReceipt } from "../src/lib/erp/stock-transfer-receipt";
 import { seedActor } from "./lib/seed-common";
@@ -150,6 +150,7 @@ async function receive(poId: number, warehouseLabel: string, dn: string, lines: 
   );
   const rn = ok(await createReceiptNote({ source_doc_id: poId, rn_date: day(), warehouse_id: await warehouse(warehouseLabel), supplier_dn_no: dn, note: "" }, rows, actor), `Receipt Note ${dn}`);
   ok(await transitionReceiptNote(rn.id, "post", actor), `Posting ${rn.rnNo}`);
+  return rn.id;
 }
 
 // --------------------------------------------------------------- production
@@ -260,9 +261,13 @@ async function returnBjl(label: string, batch: string) {
   if (rows.length) await (await bstbOut(label, "return", "GHS", rows))();
 }
 async function bstbOut(label: string, purpose: "return" | "finish_goods", to: string, rows: BucketView[], valueMode: "carried" | "none" = "carried") {
-  const r = ok(await sendProductionIssue({ purpose, from_unit_id: (await unit(label)).id, warehouse_id: await warehouse(to), issue_date: day(), note: "", lines: rows.map((b) => ({ bucket_id: b.id, qty: b.qty })) }, actor), `BSTB ${purpose}`);
-  const receipt = await prisma.logStockReceipt.findUniqueOrThrow({ where: { receipt_no: r.no } });
-  return async () => ok(await receiveStockReceipt(receipt.id, actor, purpose === "return" ? { valueMode } : {}), `Terima ${r.no}`);
+  const r = ok(await sendProductionIssue({ purpose, value_mode: valueMode, from_unit_id: (await unit(label)).id, warehouse_id: await warehouse(to), issue_date: day(), note: "", lines: rows.map((b) => ({ bucket_id: b.id, qty: b.qty })) }, actor), `BSTB ${purpose}`);
+  // The warehouse makes its Stock Receipt from the shipment when it takes the goods in (P339).
+  return async () => {
+    const x = await prisma.logStockReceiptInbox.findUniqueOrThrow({ where: { sent_no: r.no }, include: { lines: true } });
+    const made = ok(await createStockReceipt({ purpose: x.purpose, warehouse_id: x.warehouse_id, source_id: x.id, receipt_date: day(), note: "", rows: x.lines.map((l) => ({ key: l.seq })) }, actor), `Stock Receipt ${r.no}`);
+    return ok(await receiveStockReceipt(made.id, actor), `Terima ${r.no}`);
+  };
 }
 
 // ------------------------------------------------------------------- story
@@ -321,7 +326,10 @@ function plan() {
   on(6, "Sarang B, SJ kedua", () => receive(poB.id, "GBB", "SJ-HS-011", [{ lineId: poB.lineIds[0], sj: 2, lots: [[E, 2_000]] }]));
   on(7, "Sarang C, di atas toleransi dengan bonus", async () => {
     const po = await order("SWN", "GBB", [{ item: "SM-C", uom: "KG", qty: 2, price: 2_900_000 }]);
-    await receive(po.id, "GBB", "SJ-SWN-55", [{ lineId: po.lineIds[0], sj: 2, kg: 2.1, lots: [[D, 1_200], [F, 800]] }]);
+    const rnId = await receive(po.id, "GBB", "SJ-SWN-55", [{ lineId: po.lineIds[0], sj: 2, kg: 2.1, lots: [[D, 1_200], [F, 800]] }]);
+    // The bonus waits on the Receipt Note until the warehouse receives it (P339).
+    const made = ok(await createStockReceipt({ purpose: "purchase_bonus", warehouse_id: null, source_id: rnId, receipt_date: day(), note: "", rows: [] }, actor), "Stock Receipt bonus");
+    ok(await receiveStockReceipt(made.id, actor), "Terima bonus");
   });
 
   // ---- gudang: pindah, hitung

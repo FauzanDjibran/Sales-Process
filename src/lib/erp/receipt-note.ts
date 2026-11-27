@@ -8,7 +8,6 @@ import { BASE_CURRENCY_LABEL } from "./currency";
 import { checkTransactionDate, holdPostingPeriod, PeriodShut } from "./fiscal";
 import { PostingDryRun, describeJournalLines, journalNumbersByIds, postJournal, type JournalLineInput, type JournalPreviewResult } from "./journal";
 import { weigh, type Weighing, type WeighingResult, type WeighingRule } from "./receipt-weighting";
-import { createBonusReceipt } from "./stock-receipt";
 import { lockPurchaseOrder, receiptNoteSources, recordPurchaseOrderReceived, type ReceiptNoteSource } from "./purchase-order";
 import { InventoryRefusal, assertNewTrackingNo, receiveStock, warehouseLocationOptions, type WarehouseLocationOption } from "./inventory";
 import { fallbackAccounts, isTransitWarehouse, notTransitWarehouse, TRANSIT_WAREHOUSE_REFUSED } from "./system-settings";
@@ -643,7 +642,6 @@ export async function transitionReceiptNote(
       const journalLines: JournalLineInput[] = [];
       const received = new Map<number, { qty: number; baseQty: number }>();
       const madeHere = new Set<string>();
-      const bonus: Parameters<typeof createBonusReceipt>[1]["lots"] = [];
       let total = 0;
       for (const line of r.c.lines) {
         const po = byId.get(line.source_doc_line_id)!;
@@ -657,16 +655,7 @@ export async function transitionReceiptNote(
         });
         if (line.weighting) {
           await tx.logReceiptNoteWeighting.update({ where: { receipt_line_id: stored.id }, data: weightingData(line.weighting) });
-          if (line.weighting.bonus > 0) {
-            // Nobody places a bonus: it goes where the line's first lot went (P321).
-            bonus.push({
-              itemId: line.item_id,
-              lotNo: `${note.rn_no.replace(/[^A-Z0-9]/gi, "")}-${line.line_no}-BONUS`,
-              expiry: line.lots[0].expiry_date,
-              locationId: line.lots[0].location_id,
-              baseQty: line.weighting.bonus,
-            });
-          }
+          // A bonus waits on the weighing until the warehouse receives it by a Stock Receipt (P339).
         }
         if (line.is_stock) {
           let before = 0;
@@ -734,9 +723,6 @@ export async function transitionReceiptNote(
       });
       await tx.logReceiptNote.update({ where: { id }, data: { journal_id: journal?.id ?? null, base_cost_amount: total } });
       await audit(tx, id, "UPDATE", "post", actorId);
-      if (bonus.length) {
-        await createBonusReceipt(tx, { source, warehouseId: r.c.data.warehouse_id!, date: r.c.data.rn_date, partnerId: r.c.data.partner_id, lots: bonus }, actorId);
-      }
       const closed = await recordPurchaseOrderReceived(tx, received, actorId);
       if (options.dryRun) throw new PostingDryRun(journalLines);
       return closed;
@@ -1244,6 +1230,55 @@ export async function receiptNoteLocationUse(warehouseId: number, locationIds: n
       : [],
   ]);
   return { drafts, named: new Set(named.flatMap((r) => (r.location_id ? [r.location_id] : []))) };
+}
+
+/** What a posted purchase Receipt Note weighed beyond its tolerance, waiting for a Stock Receipt (P321, P339). */
+export type BonusSource = {
+  id: number;
+  no: string;
+  date: string;
+  warehouseId: number;
+  partnerId: number;
+  partnerName: string;
+  lines: { key: number; itemId: number; baseQty: number; lotNo: string; expiry: string | null; locationId: number | null }[];
+};
+
+/**
+ * The posted purchase Receipt Notes with a bonus, in these warehouses (null for
+ * all) or of these ids. Each bonus line starts on a lot number of its own and
+ * on the expiry and location of the line's first lot (P321).
+ */
+export async function postedBonuses(filter: { warehouseIds?: number[] | null; ids?: number[] }): Promise<BonusSource[]> {
+  const notes = await prisma.logReceiptNote.findMany({
+    where: {
+      status: "Posted",
+      purpose: "purchase_receipt",
+      lines: { some: { weighting: { is: { qty_bonus: { gt: 0 } } } } },
+      ...(filter.warehouseIds ? { warehouse_id: { in: filter.warehouseIds } } : {}),
+      ...(filter.ids ? { id: { in: filter.ids } } : {}),
+    },
+    orderBy: [{ rn_date: "asc" }, { id: "asc" }],
+    include: {
+      partner: { select: { partner_name: true } },
+      lines: { where: { weighting: { is: { qty_bonus: { gt: 0 } } } }, orderBy: { line_no: "asc" }, include: { weighting: true, trackings: { orderBy: { tracking_seq: "asc" }, take: 1 } } },
+    },
+  });
+  return notes.map((n) => ({
+    id: n.id,
+    no: n.rn_no,
+    date: n.rn_date.toISOString().slice(0, 10),
+    warehouseId: n.warehouse_id!,
+    partnerId: n.partner_id,
+    partnerName: n.partner.partner_name,
+    lines: n.lines.map((l) => ({
+      key: l.id,
+      itemId: l.item_id,
+      baseQty: l.weighting!.qty_bonus.toNumber(),
+      lotNo: `${n.rn_no.replace(/[^A-Z0-9]/gi, "")}-${l.line_no}-BONUS`,
+      expiry: l.trackings[0]?.expiry_date?.toISOString().slice(0, 10) ?? null,
+      locationId: l.trackings[0]?.location_id ?? null,
+    })),
+  }));
 }
 
 export async function receiptNoteNumbersByIds(ids: number[]): Promise<Map<number, string>> {

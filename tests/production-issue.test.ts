@@ -36,10 +36,10 @@ async function stand(unit: number, qty: number, value: number, ready = true) {
   return (await availableBuckets({ unitIds: [unit], stage: ready ? "StandBy" : "Preparation" })).find((b) => b.lotId === lot.id)!;
 }
 
-async function send(over: Partial<ProductionIssueInput>) {
+async function send(over: Partial<ProductionIssueInput>, make = true) {
   const r = await sendProductionIssue({ from_unit_id: ids.b, warehouse_id: f.warehouse, issue_date: today, note: "", lines: [], ...over }, f.actor);
-  // The Stock Receipt is what the warehouse works on; the Production Issue is `issueId`.
-  return r.ok ? { ...r, issueId: r.id, id: await stockReceiptOf(r.no) } : r;
+  // The warehouse makes the Stock Receipt from what was sent (P339); the Production Issue is `issueId`.
+  return r.ok ? { ...r, issueId: r.id, id: make ? await stockReceiptOf(r.no, f.actor) : 0 } : r;
 }
 
 before(async () => {
@@ -102,15 +102,15 @@ describe("BSTB ke Finish Goods (P303)", () => {
         ]
       );
     }
-    assert.equal((await getStockReceipt(sent.id))?.status, "InTransit");
+    assert.equal((await getStockReceipt(sent.id))?.status, "Draft");
 
     const got = await receiveStockReceipt(sent.id, f.actor);
     assert.equal(got.ok, true, JSON.stringify(got));
     const view = await getStockReceipt(sent.id);
     assert.equal(view?.status, "Received");
     assert.equal(view?.cost, 5000);
-    assert.equal(view?.items[0].value, 5000);
-    assert.equal(view?.items[0].lotNo, b.lotNo);
+    assert.equal(view?.rows[0].value, 5000);
+    assert.equal(view?.rows[0].trackingNo, b.lotNo);
     assert.equal((await availableBuckets({ unitIds: [f.wsB], stage: "InTransit" })).some((x) => x.lotId === b.lotId), false);
     const stock = await prisma.logStockBalance.findFirst({ where: { warehouse_id: f.warehouse, tracking_id: b.lotId } });
     assert.equal(stock?.qty_balance.toNumber(), 5);
@@ -141,18 +141,17 @@ describe("BSTB ke Finish Goods (P303)", () => {
 });
 
 describe("BSTB Pengeluaran (P304)", () => {
-  test("any Unit sends from Persiapan in part; Tanpa nilai brings the goods in at 0 and charges Beban Pemusnahan", async () => {
+  test("any Unit sends from Persiapan in part; Tanpa nilai, chosen by the Unit, brings the goods in at 0 and charges Beban Pemusnahan", async () => {
     const a = await stand(f.wsA, 10, 1000, false);
-    const sent = await send({ purpose: "return", from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: 4 }] });
+    const unchosen = await send({ purpose: "return", from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: 4 }] });
+    assert.equal(unchosen.ok, false, "the Unit says whether the goods keep value (P339)");
+    const sent = await send({ purpose: "return", value_mode: "none", from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: 4 }] });
     assert.equal(sent.ok, true, JSON.stringify(sent));
     if (!sent.ok) return;
     assert.match(sent.no, /^BPG_/);
     assert.equal((await availableBuckets({ unitIds: [f.wsA], stage: "Preparation" })).find((x) => x.lotId === a.lotId)?.qty, 6);
 
-    const unchosen = await receiveStockReceipt(sent.id, f.actor);
-    assert.equal(unchosen.ok, false);
-
-    const got = await receiveStockReceipt(sent.id, f.actor, { valueMode: "none" });
+    const got = await receiveStockReceipt(sent.id, f.actor);
     assert.equal(got.ok, true, JSON.stringify(got));
     const view = await getStockReceipt(sent.id);
     assert.equal(view?.cost, 400);
@@ -174,12 +173,12 @@ describe("BSTB Pengeluaran (P304)", () => {
 
   test("Nilai terbawa brings them in at their value, Dr Persediaan / Cr WIP", async () => {
     const a = await stand(f.wsA, 3, 900);
-    const sent = await send({ purpose: "return", from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: 3 }] });
+    const sent = await send({ purpose: "return", value_mode: "carried", from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: 3 }] });
     assert.equal(sent.ok, true, JSON.stringify(sent));
     if (!sent.ok) return;
-    const preview = await stockReceiptPreview(sent.id, f.actor, { valueMode: "carried" });
+    const preview = await stockReceiptPreview(sent.id, f.actor);
     assert.equal(preview.ok, true, JSON.stringify(preview));
-    assert.equal((await receiveStockReceipt(sent.id, f.actor, { valueMode: "carried" })).ok, true);
+    assert.equal((await receiveStockReceipt(sent.id, f.actor)).ok, true);
     const view = await getStockReceipt(sent.id);
     assert.equal(view?.writtenOff, 0);
     const lines = await prisma.accJournalLine.findMany({ where: { journal_id: view!.journalId! }, orderBy: { id: "asc" } });
@@ -194,12 +193,12 @@ describe("BSTB Pengeluaran (P304)", () => {
 
   test("two documents of one No. Stok keep their own frozen value, whichever is taken in first", async () => {
     const a = await stand(f.wsA, 3, 100, false);
-    const first = await send({ purpose: "return", reason: "reject", from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: 1 }] });
+    const first = await send({ purpose: "return", value_mode: "carried", reason: "reject", from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: 1 }] });
     assert.ok(first.ok, JSON.stringify(first));
-    const second = await send({ purpose: "return", from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: 2 }] });
+    const second = await send({ purpose: "return", value_mode: "carried", from_unit_id: f.wsA, lines: [{ bucket_id: a.id, qty: 2 }] });
     assert.ok(second.ok, JSON.stringify(second));
-    assert.ok((await receiveStockReceipt(second.id, f.actor, { valueMode: "carried" })).ok);
-    assert.ok((await receiveStockReceipt(first.id, f.actor, { valueMode: "carried" })).ok);
+    assert.ok((await receiveStockReceipt(second.id, f.actor)).ok);
+    assert.ok((await receiveStockReceipt(first.id, f.actor)).ok);
     assert.deepEqual([(await getStockReceipt(first.id))!.cost, (await getStockReceipt(second.id))!.cost], [33, 67]);
     assert.equal((await getProductionIssue(first.issueId))!.reason, "reject");
   });
@@ -208,13 +207,13 @@ describe("BSTB Pengeluaran (P304)", () => {
     const wh = await prisma.refWarehouse.create({ data: { warehouse_code: `test.${f.key("WL")}`, warehouse_label: f.key("WL"), warehouse_name: "Berlokasi", created_by: f.actor } });
     const loc = await prisma.refWarehouseLocation.create({ data: { location_code: `test.${f.key("LC")}`, location_label: "A-01", location_name: "Rak A", warehouse_id: wh.id, created_by: f.actor } });
     const a = await stand(f.wsA, 2, 500, false);
-    const sent = await send({ purpose: "return", from_unit_id: f.wsA, warehouse_id: wh.id, lines: [{ bucket_id: a.id, qty: 2 }] });
+    const sent = await send({ purpose: "return", value_mode: "carried", from_unit_id: f.wsA, warehouse_id: wh.id, lines: [{ bucket_id: a.id, qty: 2 }] }, false);
     assert.ok(sent.ok, JSON.stringify(sent));
-    const view = (await getStockReceipt(sent.id))!;
-    assert.equal(view.locations.length, 1);
-    assert.equal((await receiveStockReceipt(sent.id, f.actor, { valueMode: "carried" })).ok, false, "no location chosen");
-    const held = view.statuses.find((x) => x.label !== "TERSEDIA")!;
-    const got = await receiveStockReceipt(sent.id, f.actor, { valueMode: "carried", places: [{ id: view.items[0].id, location_id: loc.id, stock_status_id: held.id }] });
+    if (!sent.ok) return;
+    await assert.rejects(stockReceiptOf(sent.no, f.actor), /lokasi/i, "no location chosen");
+    const held = await prisma.sysStockStatus.findFirstOrThrow({ where: { status_label: { not: "TERSEDIA" } } });
+    const id = await stockReceiptOf(sent.no, f.actor, { location_id: loc.id, stock_status_id: held.id });
+    const got = await receiveStockReceipt(id, f.actor);
     assert.ok(got.ok, JSON.stringify(got));
     const stock = await prisma.logStockBalance.findFirstOrThrow({ where: { warehouse_id: wh.id } });
     assert.deepEqual([stock.location_id, stock.stock_status_id, stock.qty_balance.toNumber()], [loc.id, held.id, 2]);

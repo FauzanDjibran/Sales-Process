@@ -275,15 +275,15 @@ describe("simulasi 7.8: dari PO sampai Gudang Finish Goods", () => {
 
     const fg = await sendProductionIssue({ purpose: "finish_goods", from_unit_id: up5.id, warehouse_id: w.f.warehouse, issue_date: today, note: "", lines: [{ bucket_id: kotak.id, qty: kotak.qty }] }, w.actor);
     assert.ok(fg.ok, JSON.stringify(fg));
-    const fgReceipt = await stockReceiptOf(fg.no);
+    const fgReceipt = await stockReceiptOf(fg.no, w.actor);
     assert.ok((await receiveStockReceipt(fgReceipt, w.actor)).ok);
     const inStock = await prisma.logStockBalance.findFirstOrThrow({ where: { warehouse_id: w.f.warehouse, tracking_id: kotak.lotId } });
     assert.equal(inStock.qty_balance.toNumber(), 1, "kotak masuk gudang dengan No. Stok yang sama");
 
     const [left] = await at(up5.id, "Preparation");
-    const out = await sendProductionIssue({ purpose: "return", from_unit_id: up5.id, warehouse_id: w.f.warehouse, issue_date: today, note: "keping sisa", lines: [{ bucket_id: left.id, qty: left.qty }] }, w.actor);
+    const out = await sendProductionIssue({ purpose: "return", value_mode: "none", from_unit_id: up5.id, warehouse_id: w.f.warehouse, issue_date: today, note: "keping sisa", lines: [{ bucket_id: left.id, qty: left.qty }] }, w.actor);
     assert.ok(out.ok, JSON.stringify(out));
-    assert.ok((await receiveStockReceipt(await stockReceiptOf(out.no), w.actor, { valueMode: "none" })).ok);
+    assert.ok((await receiveStockReceipt(await stockReceiptOf(out.no, w.actor), w.actor)).ok);
     say("Selesai", `${box.trackingNo} → ${fg.no} (Rp ${(await getStockReceipt(fgReceipt))!.cost}); keping ${left.lotNo} → ${out.no}`);
   });
 

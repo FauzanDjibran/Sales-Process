@@ -44,6 +44,7 @@ export type SystemDefaultKey =
   | "stock_difference_account"
   | "stock_disposal_account"
   | "stock_sample_account"
+  | "stock_other_receipt_account"
   | "goods_received_account"
   | "payable_account"
   | "purchase_advance_account"
@@ -456,6 +457,15 @@ export const SYSTEM_DEFAULTS = [
     group: "delivery",
     help: "nilai barang Stock Issue Pengambilan Sampel",
   },
+  {
+    key: "stock_other_receipt_account",
+    name: "Account Penerimaan Persediaan Lain-lain",
+    icon: "down",
+    type: "ref",
+    ref: "acc_account",
+    group: "delivery",
+    help: "lawan Persediaan untuk Stock Receipt Penerimaan Lain-lain",
+  },
 
   // ------------------------------------------------------------ purchase
   //
@@ -616,6 +626,7 @@ export const EMPTY_SYSTEM_DEFAULTS: SystemDefaultValues = {
   stock_difference_account: null,
   stock_disposal_account: null,
   stock_sample_account: null,
+  stock_other_receipt_account: null,
   goods_received_account: null,
   payable_account: null,
   purchase_advance_account: null,
